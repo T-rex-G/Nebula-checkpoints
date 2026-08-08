@@ -80,3 +80,18 @@ UTF-16 code-unit values while PostgreSQL counts Unicode code point values. This
 known minor remains deferred until the CLI and store contract change together.
 
 Durable technical decisions are recorded in `ARCHITECTURE_DECISIONS.md`.
+
+## Hosted operations boundary
+
+The public-alpha service uses a verify-only hosted startup: the web process
+checks that the numbered PostgreSQL migrations match the candidate and reports
+a safe readiness state, but never silently changes an unknown schema. Migration
+and recovery commands run from a trusted operator workstation with database
+credentials supplied through the environment rather than command arguments.
+
+Every hosted migration is preceded by an external encrypted backup whose
+authenticated metadata and ciphertext digest are verified. Recovery is first
+rehearsed as an isolated restore into a separate database branch. Render local
+storage is treated as ephemeral and is never a backup destination. The live
+Render/Neon and provider qualification still belongs to the exact-candidate
+release gate.

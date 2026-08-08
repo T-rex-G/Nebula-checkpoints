@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: Nebulaverse-X
+    name: nebulaverse-x-public-alpha
     runtime: node
     plan: free
-    buildCommand: npm ci --omit=dev && npm run foundation:gate
+    buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:
@@ -11,6 +11,8 @@ services:
         generateValue: true
       - key: NODE_ENV
         value: production
+      - key: DATABASE_URL
+        sync: false
       - key: NV_DEPLOYMENT_PROFILE
         value: hosted-alpha
       - key: NV_ALPHA_ACCESS_MODE
@@ -19,57 +21,51 @@ services:
         sync: false
       - key: NV_ALPHA_TERMS_VERSION
         value: 2026-07-29
+      - key: NV_DATABASE_MIGRATION_MODE
+        value: verify
+      - key: NV_GOVERNANCE_AUDIT_SECRET
+        sync: false
       - key: NV_GOVERNANCE_RUNTIME_FAILURE_MODE
         value: warn
+      - key: NV_MAINTENANCE_MODE
+        value: 0
+      - key: NV_EVENT_RETENTION_DAYS
+        value: 30
+      - key: NV_SESSION_RETENTION_DAYS
+        value: 7
+      - key: NV_LIVE_CLIENTS_PER_REPO
+        value: 2
+      - key: NV_LIVE_CLIENTS_TOTAL
+        value: 10
+      - key: NV_SNAPSHOT_RETENTION_COUNT
+        value: 10
+      - key: NV_SNAPSHOT_MANIFEST_MAX
+        value: 5000
+      - key: NV_GIT_DATA_MAX_MB
+        value: 16
+      - key: NV_NATIVE_PUSH_MAX_MB
+        value: 16
+      - key: NV_UPLOAD_MAX_MB
+        value: 25
+      - key: NV_UPLOAD_CONCURRENCY
+        value: 1
+      - key: NV_UPLOAD_TIMEOUT_MINUTES
+        value: 10
+      - key: NV_STALE_UPLOAD_HOURS
+        value: 2
 
-      # Create a dedicated Neon PostgreSQL project for this cohort. Add its
-      # dedicated DATABASE_URL manually in Render → Nebulaverse-X → Environment.
-      # Do not create a Render database or reuse another service's database.
-      # This blueprint is intentionally undeployable until DATABASE_URL and a
-      # stable 32+ byte NV_ALPHA_INVITE_PEPPER have been supplied by the operator.
-      # DATABASE_URL unlocks persistent sessions, policies, verified webhooks,
-      # signed snapshots, evidence chains, and live Neural event history.
-      # Set NV_GOVERNANCE_AUDIT_SECRET manually to a stable 32+ byte value before
-      # creating governance data. Otherwise SESSION_SECRET is used. Keep the runtime
-      # failure mode at warn for initial rollout; switch to block only after Neon,
-      # decision-chain verification, and staging mutations have been validated.
+      # Use a new dedicated Neon Free project for this cohort. Never reuse the
+      # historical rehearsal database, a production database, or another service's
+      # secrets. Do not add a Render database or persistent disk.
 
-      # Optional for non-Render hosting or a custom canonical callback URL:
-      # PUBLIC_BASE_URL=https://nebulaverse.example.com
-
-      # Optional retention controls (defaults: events 90 days, sessions 35 days):
-      # NV_EVENT_RETENTION_DAYS=90
-      # NV_SESSION_RETENTION_DAYS=35
-      # NV_LIVE_CLIENTS_PER_REPO=5
-      # NV_LIVE_CLIENTS_TOTAL=100
-      # NV_SNAPSHOT_RETENTION_COUNT=50
-      # NV_SNAPSHOT_MANIFEST_MAX=10000
-      # NV_GIT_DATA_MAX_MB=64
-      # NV_NATIVE_PUSH_MAX_MB=64
-      # NV_UPLOAD_MAX_MB=2048
-      # NV_UPLOAD_CONCURRENCY=1
-      # NV_UPLOAD_TIMEOUT_MINUTES=20
-      # NV_STALE_UPLOAD_HOURS=6
-
-      # Optional YARA adapter (advanced hosting only; disabled by default):
-      # NV_YARA_RULES_PATH=/absolute/path/to/trusted-rules.yar
-      # NV_YARA_BIN=yara
-      # NV_YARA_TIMEOUT_SECONDS=5
-      # NV_REQUIRE_YARA=0
-
-      # Optional comma-separated allowlist for self-hosted GitLab/Gitea hosts:
-      # NV_GIT_HOST_ALLOWLIST=git.example.com,gitea.example.com
-
-      # Optional GitHub OAuth App. PAT login works without these values.
-      # GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be added manually.
-
-      # Optional GitHub App. Leave all values unset to keep it disabled.
-      # Existing PAT/OAuth, GitLab, and Gitea connections continue to work.
-      # Add these manually in Render; never commit their values:
-      # GITHUB_APP_ID=123456
-      # GITHUB_APP_SLUG=your-app-slug
-      # GITHUB_APP_CLIENT_ID=Iv1.xxxxx
-      # GITHUB_APP_CLIENT_SECRET=<secret>
-      # GITHUB_APP_PRIVATE_KEY_BASE64=<base64-encoded PEM>
-      # GITHUB_APP_CALLBACK_URL=https://your-service.onrender.com/api/github-app/oauth/callback
-      # GITHUB_APP_WEBHOOK_SECRET=<optional-at-this-stage>
+      # Optional GitHub OAuth and GitHub App values remain manual and disabled when
+      # absent. Existing PAT/OAuth, GitLab, and Gitea connections remain supported:
+      # GITHUB_CLIENT_ID=
+      # GITHUB_CLIENT_SECRET=
+      # GITHUB_APP_ID=
+      # GITHUB_APP_SLUG=
+      # GITHUB_APP_CLIENT_ID=
+      # GITHUB_APP_CLIENT_SECRET=
+      # GITHUB_APP_PRIVATE_KEY_BASE64=
+      # GITHUB_APP_CALLBACK_URL=
+      # GITHUB_APP_WEBHOOK_SECRET=

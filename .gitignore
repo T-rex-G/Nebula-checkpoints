@@ -14,3 +14,7 @@ tmp/
 *.zip
 *.sha256
 staging/evidence/
+*.nvxenc
+*.nvxbackup.json
+*.dump
+backups/

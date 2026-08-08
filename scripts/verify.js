@@ -32,6 +32,23 @@ const required = [
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
   'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js',
   'docs/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
+  'src/hosted-readiness.js', 'src/backup-format.js',
+  'scripts/alpha-db.js', 'scripts/alpha-smoke.js', 'scripts/alpha-load.js',
+  'test/hosted-readiness.test.js', 'test/hosted-readiness-server-contract.test.js',
+  'test/backup-format.test.js', 'test/alpha-db-cli.test.js',
+  'test/alpha-smoke.test.js', 'test/alpha-load.test.js',
+  'test/render-public-alpha-contract.test.js', 'test/runbook-contract.test.js',
+  'docs/runbooks/01-service-cold-start-outage.md',
+  'docs/runbooks/02-neon-outage-quota.md',
+  'docs/runbooks/03-provider-outage-rate-limit.md',
+  'docs/runbooks/04-credential-exposure.md',
+  'docs/runbooks/05-orphan-cleanup.md',
+  'docs/runbooks/06-failed-deploy-rollback.md',
+  'docs/runbooks/07-database-backup-restore.md',
+  'docs/runbooks/08-tester-revocation-deletion.md',
+  'docs/runbooks/09-capacity-saturation.md',
+  'docs/runbooks/10-alpha-shutdown.md',
+  'docs/runbooks/OPERATOR_CHECKLIST.md',
   'src/provider-file-mutations.js', 'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js', 'ROADMAP.md', 'PRODUCT_VISION.md', 'PROVIDER_CAPABILITIES.md', 'ARCHITECTURE.md', 'RELEASE_SECURITY_GATES.md', 'PUBLIC_ALPHA.md', 'UX_VISION.md', 'EVIDENCE_INDEX.md', 'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js', 'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
   'server.js', 'package.json', 'package-lock.json', 'render.yaml', 'README.md', 'PROJECT_STATE.md', 'PHASE_1_ROADMAP.md', 'ARCHITECTURE_DECISIONS.md', 'CONTINUATION_PROMPT.md', 'PHASE_1_TASK_5_REPORT.md', 'PHASE_1_TASK_6_7_REPORT.md', 'PHASE_1_TASK_8_REPORT.md', 'TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md', 'PHASE_1_TASK_9_10_REPORT.md', 'TASK_9_10_POLICY_SIMULATION_SPEC.md', 'PHASE_1_TASK_11_REPORT.md', 'TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md', 'PHASE_1_TASK_12_13_REPORT.md', 'TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md', 'PHASE_1_TASK_14_REPORT.md', 'TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md', 'PHASE_1_TASK_15_16_REPORT.md', 'TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md', 'PHASE_1_TASK_17_REPORT.md', 'TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md', 'PHASE_1_TASK_18_REPORT.md', 'TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md', 'PHASE_1_TASK_19_REPORT.md', 'TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md', 'PHASE_1_TASK_20_REPORT.md', 'TASK_20_STAGING_VALIDATION_SPEC.md', 'PHASE_1_TASK_21_REPORT.md', 'docs/superpowers/specs/2026-07-22-provider-authorization-resolver-design.md', 'docs/superpowers/plans/2026-07-22-provider-authorization-resolver.md',
   'public/index.html', 'public/governance-ui.js', 'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js', 'public/app.js', 'public/neural.js', 'public/style.css', 'public/sw.js',
@@ -44,6 +61,8 @@ for (const file of [
   'server.js', 'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
   'src/alpha-privacy.js', 'src/alpha-privacy-store.js', 'src/provider-disconnect.js',
   'scripts/alpha-privacy.js', 'src/public-errors.js',
+  'src/hosted-readiness.js', 'src/backup-format.js',
+  'scripts/alpha-db.js', 'scripts/alpha-smoke.js', 'scripts/alpha-load.js',
   'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js',
   'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
   'public/app.js', 'public/governance-ui.js', 'public/neural.js'
@@ -134,7 +153,8 @@ must(/^NV_ALPHA_TERMS_VERSION=2026-07-29$/m.test(envExample), '.env.example has 
 must(/- key: NV_ALPHA_ACCESS_MODE\n\s+value: invite/.test(render), 'Render must enable invitation access');
 must(/- key: NV_ALPHA_INVITE_PEPPER\n\s+sync: false/.test(render), 'Render must require an operator-supplied invite pepper');
 must(/- key: NV_ALPHA_TERMS_VERSION\n\s+value: 2026-07-29/.test(render), 'Render has a stale alpha terms version');
-must(!/- key: DATABASE_URL\b/.test(render), 'Render must not silently provision or bind a shared DATABASE_URL');
+must(/- key: DATABASE_URL\n\s+sync: false/.test(render), 'Render must require an operator-supplied DATABASE_URL');
+must(!/fromDatabase:/.test(render), 'Render must not provision or bind a managed database');
 
 const sw = renderedSw;
 must(/\/neural\.js\?v=\d+/.test(sw), 'Neural script is not precached');

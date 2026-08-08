@@ -3,7 +3,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { loadMigrations, runMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations, verifyMigrations } = require('../src/migrations');
 
 const projectMigrations = loadMigrations(path.join(__dirname, '..', 'db', 'migrations'));
 assert.strictEqual(projectMigrations.at(-1).id, '015_alpha_privacy');
@@ -47,6 +47,31 @@ class FakeClient {
     /checksum mismatch/i
   );
   assert(changed.calls.some(c => /pg_advisory_unlock/.test(c.sql)), 'lock must be released after failure');
+
+  const verified = await verifyMigrations(
+    new FakeClient(new Map(migrations.map(migration => [migration.id, migration.checksum]))),
+    { directory: dir }
+  );
+  assert.deepStrictEqual(verified, {
+    ok: true,
+    expectedLatest: '002_second',
+    missing: [],
+    changed: [],
+    unknown: []
+  });
+  assert(Object.isFrozen(verified));
+
+  const mismatch = await verifyMigrations(new FakeClient(new Map([
+    ['001_first', '0'.repeat(64)],
+    ['999_unknown', 'f'.repeat(64)]
+  ])), { directory: dir });
+  assert.deepStrictEqual(mismatch, {
+    ok: false,
+    expectedLatest: '002_second',
+    missing: ['002_second'],
+    changed: ['001_first'],
+    unknown: ['999_unknown']
+  });
   console.log('migration tests passed');
 })().finally(() => fs.rmSync(dir, { recursive: true, force: true })).catch(error => {
   console.error(error.stack || error);

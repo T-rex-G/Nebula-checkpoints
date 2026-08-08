@@ -349,3 +349,13 @@ Provider disconnect removes token-bearing application state, but it does not fal
 **Status:** Accepted
 
 The interface distinguishes provider-verified, deterministic, inferred, stale and unavailable evidence. A mutation does not display success until readback and required cleanup are complete. Tester-facing failures describe provider-change uncertainty, current safe state, next action and a correlation ID without exposing credentials or payloads.
+
+## ADR-060 — Hosted-alpha migrations are backup-gated and verified by the web process
+
+**Status:** Accepted
+
+The hosted web process does not silently apply unknown migrations. An operator
+creates and verifies an encrypted external backup, applies migrations with the
+dedicated CLI, and rehearses restore into an isolated Neon branch. Readiness
+fails on schema mismatch. Rollback requires a recorded compatibility decision
+or maintenance mode plus database restore.

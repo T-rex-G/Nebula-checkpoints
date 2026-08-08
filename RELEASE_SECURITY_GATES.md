@@ -59,3 +59,17 @@ revocation, or five-tester instability is a no-go.
 
 The predecessor Task 21 qualification is historical evidence, not a pass for
 these successor gates.
+
+## Hosted-operations evidence state
+
+- **Local hosted-operations gate: passed.** Deterministic tests cover readiness,
+  migration verification, encrypted backup integrity, CLI argument secrecy,
+  isolated restore orchestration, bounded smoke/load behavior, the Render
+  blueprint, and incident-runbook contracts.
+- **Live Render/Neon gate: pending.** The exact release candidate must still
+  prove cold start, scale-to-zero recovery, external backup, isolated restore,
+  migration, rollback, resource limits, smoke/load behavior, and tester/provider
+  cleanup against the dedicated live services.
+
+Local evidence cannot substitute for live-provider or hosted evidence, and the
+cohort remains closed until the pending live gate is bound to the exact candidate.

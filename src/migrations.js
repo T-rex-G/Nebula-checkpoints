@@ -70,4 +70,37 @@ async function runMigrations(client, options = {}) {
   }
 }
 
-module.exports = { ADVISORY_LOCK_ID, checksum, loadMigrations, runMigrations };
+async function verifyMigrations(client, options = {}) {
+  const directory = options.directory || path.join(__dirname, '..', 'db', 'migrations');
+  const migrations = loadMigrations(directory);
+  await client.query(`CREATE TABLE IF NOT EXISTS nv_schema_migrations (
+    migration_id text PRIMARY KEY,
+    checksum text NOT NULL,
+    applied_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  const result = await client.query(
+    'SELECT migration_id, checksum FROM nv_schema_migrations ORDER BY migration_id'
+  );
+  const applied = new Map((result.rows || []).map(row => [row.migration_id, row.checksum]));
+  const expected = new Set(migrations.map(item => item.id));
+  const missing = migrations.filter(item => !applied.has(item.id)).map(item => item.id);
+  const changed = migrations
+    .filter(item => applied.has(item.id) && applied.get(item.id) !== item.checksum)
+    .map(item => item.id);
+  const unknown = [...applied.keys()].filter(id => !expected.has(id));
+  return Object.freeze({
+    ok: missing.length === 0 && changed.length === 0 && unknown.length === 0,
+    expectedLatest: migrations.at(-1)?.id || '',
+    missing,
+    changed,
+    unknown
+  });
+}
+
+module.exports = {
+  ADVISORY_LOCK_ID,
+  checksum,
+  loadMigrations,
+  runMigrations,
+  verifyMigrations
+};

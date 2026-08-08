@@ -57,9 +57,9 @@ for (const value of ['node_modules/', '.env', '*.log', '.DS_Store', '__MACOSX/',
 }
 
 const render = read('render.yaml');
-assert.match(render, /name:\s*Nebulaverse-X/);
+assert.match(render, /name:\s*nebulaverse-x-public-alpha/);
 assert.match(render, /plan:\s*free/);
-assert.match(render, /buildCommand:\s*npm ci --omit=dev && npm run foundation:gate/);
+assert.match(render, /buildCommand:\s*npm ci --omit=dev\s*$/m);
 assert(!/^databases:/m.test(render));
 assert(!render.includes('fromDatabase:'));
 assert(render.includes('NV_GOVERNANCE_AUDIT_SECRET'));
@@ -441,4 +441,62 @@ for (const allowed of [
   'public/app.js', 'public/vendor/marked/15.0.12/marked.min.js',
   ...task6Artifacts
 ]) assert.strictEqual(shouldInclude(allowed), true, allowed);
+
+const hostedOperationsSources = [
+  'src/hosted-readiness.js',
+  'src/backup-format.js',
+  'scripts/alpha-db.js',
+  'scripts/alpha-smoke.js',
+  'scripts/alpha-load.js'
+];
+const hostedOperationsTests = [
+  'test/hosted-readiness.test.js',
+  'test/hosted-readiness-server-contract.test.js',
+  'test/backup-format.test.js',
+  'test/alpha-db-cli.test.js',
+  'test/alpha-smoke.test.js',
+  'test/alpha-load.test.js',
+  'test/render-public-alpha-contract.test.js',
+  'test/runbook-contract.test.js'
+];
+const hostedOperationsRunbooks = [
+  'docs/runbooks/01-service-cold-start-outage.md',
+  'docs/runbooks/02-neon-outage-quota.md',
+  'docs/runbooks/03-provider-outage-rate-limit.md',
+  'docs/runbooks/04-credential-exposure.md',
+  'docs/runbooks/05-orphan-cleanup.md',
+  'docs/runbooks/06-failed-deploy-rollback.md',
+  'docs/runbooks/07-database-backup-restore.md',
+  'docs/runbooks/08-tester-revocation-deletion.md',
+  'docs/runbooks/09-capacity-saturation.md',
+  'docs/runbooks/10-alpha-shutdown.md',
+  'docs/runbooks/OPERATOR_CHECKLIST.md'
+];
+for (const artifact of [...hostedOperationsSources, ...hostedOperationsTests, ...hostedOperationsRunbooks]) {
+  assert(fs.existsSync(path.join(root, artifact)), `hosted operations artifact missing ${artifact}`);
+  assert(verifyScript.includes(artifact), `build verification missing ${artifact}`);
+}
+for (const program of hostedOperationsTests) {
+  assert(pkg.scripts['test:unit'].includes(`node ${program}`), `test:unit missing ${program}`);
+}
+for (const source of hostedOperationsSources) {
+  assert(pkg.scripts['check:syntax'].includes(`node --check ${source}`), `check:syntax missing ${source}`);
+}
+
+const publicAlpha = read('PUBLIC_ALPHA.md');
+assert(publicAlpha.includes('Local hosted-operations qualification'));
+assert(publicAlpha.includes('Live Render/Neon qualification remains pending'));
+assert(publicAlpha.includes('encrypted backup'));
+assert(publicAlpha.includes('isolated restore'));
+assert(publicAlpha.includes('/healthz') && publicAlpha.includes('/readyz'));
+const architecture = read('ARCHITECTURE.md');
+assert(architecture.includes('verify-only hosted startup'));
+assert(architecture.includes('external encrypted backup'));
+assert(architecture.includes('isolated restore'));
+const releaseSecurityGates = read('RELEASE_SECURITY_GATES.md');
+assert(releaseSecurityGates.includes('Local hosted-operations gate: passed'));
+assert(releaseSecurityGates.includes('Live Render/Neon gate: pending'));
+assert(read('ARCHITECTURE_DECISIONS.md').includes(
+  '## ADR-060 — Hosted-alpha migrations are backup-gated and verified by the web process'
+));
 console.log('package contract tests passed');

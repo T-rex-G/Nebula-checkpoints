@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { loadHostedAlphaLimits } = require('./hosted-readiness');
 
 function normalizeDatabaseUrl(raw, options = {}) {
   const value = String(raw || '').trim();
@@ -157,6 +158,7 @@ function loadGithubAppConfig(env = process.env, options = {}) {
 module.exports = {
   normalizeDatabaseUrl,
   normalizeGovernanceRuntimeFailureMode,
+  loadHostedAlphaLimits,
   loadGithubAppConfig,
   loadAlphaAccessConfig
 };

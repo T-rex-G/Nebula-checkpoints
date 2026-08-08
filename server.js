@@ -74,9 +74,14 @@ const {
 const {
   normalizeDatabaseUrl,
   normalizeGovernanceRuntimeFailureMode,
+  loadHostedAlphaLimits,
   loadGithubAppConfig,
   loadAlphaAccessConfig
 } = require('./src/config');
+const {
+  databaseReadiness,
+  hostedConfigProjection
+} = require('./src/hosted-readiness');
 const { AlphaAccessStore } = require('./src/alpha-access-store');
 const { AlphaPrivacyStore } = require('./src/alpha-privacy-store');
 const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback } = require('./src/alpha-privacy');
@@ -91,7 +96,7 @@ const {
 } = require('./src/alpha-access');
 const { PRODUCT_NAME, APP_VERSION, ASSET_VERSION } = require('./src/version');
 const { createCorrelationId, publicErrorBody } = require('./src/public-errors');
-const { runMigrations } = require('./src/migrations');
+const { loadMigrations, runMigrations, verifyMigrations } = require('./src/migrations');
 const { scanUploadFile, scannerStatus } = require('./src/file-security');
 const {
   createCsrfToken, verifyCsrfToken, createStepUpGrant, verifyStepUpGrant,
@@ -115,6 +120,17 @@ const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 10000;
 const SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
+const HOSTING_PROFILE = String(process.env.NV_DEPLOYMENT_PROFILE || 'local').trim().toLowerCase();
+if (!['local', 'hosted-alpha'].includes(HOSTING_PROFILE)) {
+  throw new Error('NV_DEPLOYMENT_PROFILE must be local or hosted-alpha');
+}
+const DATABASE_MIGRATION_MODE = String(process.env.NV_DATABASE_MIGRATION_MODE || 'apply').trim().toLowerCase();
+if (!['apply', 'verify'].includes(DATABASE_MIGRATION_MODE)) {
+  throw new Error('NV_DATABASE_MIGRATION_MODE must be apply or verify');
+}
+if (HOSTING_PROFILE === 'hosted-alpha' && process.env.NODE_ENV === 'production' && DATABASE_MIGRATION_MODE !== 'verify') {
+  throw new Error('hosted-alpha production requires NV_DATABASE_MIGRATION_MODE=verify');
+}
 if (process.env.NODE_ENV === 'production' && SECRET === 'dev-secret-change-me') {
   throw new Error(
     'SESSION_SECRET must be configured in production. Set it in the Render dashboard under Environment, ' +
@@ -183,14 +199,17 @@ const API_VERSION = '2022-11-28';
 
 const MB = 1024 * 1024;
 const CONTENTS_MAX = 40 * MB;
-const GIT_DATA_MAX_MB = Math.min(Math.max(parseInt(process.env.NV_GIT_DATA_MAX_MB || '64', 10) || 64, 10), 95);
+const HOSTED_LIMITS = HOSTING_PROFILE === 'hosted-alpha' ? loadHostedAlphaLimits(process.env) : null;
+const PUBLIC_ALPHA_LIMITS = HOSTED_LIMITS || loadHostedAlphaLimits({});
+const GIT_DATA_MAX_MB = HOSTED_LIMITS?.gitDataMaxMb ?? Math.min(Math.max(parseInt(process.env.NV_GIT_DATA_MAX_MB || '64', 10) || 64, 10), 95);
 const BLOB_MAX = GIT_DATA_MAX_MB * MB;
-const NATIVE_PUSH_MAX_MB = Math.min(Math.max(parseInt(process.env.NV_NATIVE_PUSH_MAX_MB || '64', 10) || 64, 10), 95);
+const NATIVE_PUSH_MAX_MB = HOSTED_LIMITS?.nativePushMaxMb ?? Math.min(Math.max(parseInt(process.env.NV_NATIVE_PUSH_MAX_MB || '64', 10) || 64, 10), 95);
 const GIT_PUSH_MAX = NATIVE_PUSH_MAX_MB * MB; /* Memory-safe ceiling; GitHub's absolute non-LFS object ceiling is 100 MB. */
-const UPLOAD_MAX_MB = Math.min(Math.max(parseInt(process.env.NV_UPLOAD_MAX_MB || '2048', 10) || 2048, 25), 2048);
+const UPLOAD_MAX_MB = HOSTED_LIMITS?.uploadMaxMb ?? Math.min(Math.max(parseInt(process.env.NV_UPLOAD_MAX_MB || '2048', 10) || 2048, 25), 2048);
 const UPLOAD_MAX = UPLOAD_MAX_MB * MB;
-const UPLOAD_CONCURRENCY = Math.min(Math.max(parseInt(process.env.NV_UPLOAD_CONCURRENCY || '1', 10) || 1, 1), 4);
-const UPLOAD_TIMEOUT_MS = Math.min(Math.max(parseInt(process.env.NV_UPLOAD_TIMEOUT_MINUTES || '20', 10) || 20, 2), 60) * 60 * 1000;
+const UPLOAD_CONCURRENCY = HOSTED_LIMITS?.uploadConcurrency ?? Math.min(Math.max(parseInt(process.env.NV_UPLOAD_CONCURRENCY || '1', 10) || 1, 1), 4);
+const UPLOAD_TIMEOUT_MINUTES = HOSTED_LIMITS?.uploadTimeoutMinutes ?? Math.min(Math.max(parseInt(process.env.NV_UPLOAD_TIMEOUT_MINUTES || '20', 10) || 20, 2), 60);
+const UPLOAD_TIMEOUT_MS = UPLOAD_TIMEOUT_MINUTES * 60 * 1000;
 let activeUploads = 0;
 
 async function acquireUploadSlot(req, maxBytes) {
@@ -282,7 +301,8 @@ async function scanUploadOrThrow(req, tmp, repoPath, size) {
 }
 
 
-const STALE_UPLOAD_AGE_MS = Math.min(Math.max(parseInt(process.env.NV_STALE_UPLOAD_HOURS || '6', 10) || 6, 1), 72) * 60 * 60 * 1000;
+const STALE_UPLOAD_HOURS = HOSTED_LIMITS?.staleUploadHours ?? Math.min(Math.max(parseInt(process.env.NV_STALE_UPLOAD_HOURS || '6', 10) || 6, 1), 72);
+const STALE_UPLOAD_AGE_MS = STALE_UPLOAD_HOURS * 60 * 60 * 1000;
 async function cleanupStaleUploads() {
   const tempRoot = os.tmpdir();
   let names = [];
@@ -387,17 +407,42 @@ app.use('/api', (req, res, next) => {
   }
   next();
 });
-app.get('/healthz', (req, res) => res.json({ ok: true, uptime: Math.round(process.uptime()) }));
+app.get('/healthz', (req, res) => res.json({
+  ok: true,
+  service: 'alive',
+  version: APP_VERSION
+}));
 app.get('/readyz', async (req, res) => {
-  if (!DB_URL) return res.json({ ok: true, database: 'optional-not-configured' });
+  if (!DB_URL) {
+    if (HOSTING_PROFILE === 'hosted-alpha') {
+      return res.status(503).json({
+        ok: false,
+        database: 'unavailable',
+        migration: _databaseMigration
+      });
+    }
+    return res.json({ ok: true, database: 'optional-not-configured' });
+  }
   try {
     const ready = await dbReady();
-    if (!ready) return res.status(503).json({ ok: false, database: 'unavailable' });
+    if (!ready) return res.status(503).json({
+      ok: false,
+      database: _databaseReadiness.state,
+      migration: _databaseMigration
+    });
     await pool().query('SELECT 1');
-    return res.json({ ok: true, database: 'connected' });
+    return res.json({
+      ok: _databaseReadiness.ok,
+      database: _databaseReadiness.state,
+      migration: _databaseMigration
+    });
   } catch (error) {
-    invalidateDatabaseReady();
-    return res.status(503).json({ ok: false, database: 'unavailable' });
+    invalidateDatabaseReady('unavailable');
+    return res.status(503).json({
+      ok: false,
+      database: _databaseReadiness.state,
+      migration: _databaseMigration
+    });
   }
 });
 /* iOS requests these at the root by convention when adding to home screen */
@@ -834,9 +879,39 @@ app.post('/api/alpha/end', (req, res) => {
 
 let _dbReady = null;
 let _dbRetryAfter = 0;
+let _databaseReadiness = databaseReadiness({
+  required: !!DB_URL,
+  connected: !DB_URL,
+  waking: !!DB_URL,
+  migrationMatch: true,
+  quotaWarning: false
+});
+let _databaseMigration = loadMigrations(path.join(__dirname, 'db', 'migrations')).at(-1)?.id || '';
 async function initializeDatabase() {
   const client = await pool().connect();
   try {
+    if (DATABASE_MIGRATION_MODE === 'verify') {
+      const verification = await verifyMigrations(client, {
+        directory: path.join(__dirname, 'db', 'migrations')
+      });
+      _databaseMigration = verification.expectedLatest;
+      _databaseReadiness = databaseReadiness({
+        required: true,
+        connected: true,
+        waking: false,
+        migrationMatch: verification.ok,
+        quotaWarning: false
+      });
+      console.log(JSON.stringify({
+        t: new Date().toISOString(),
+        db: `${PRODUCT_NAME} migration verification complete`,
+        migration: verification.expectedLatest,
+        missingCount: verification.missing.length,
+        changedCount: verification.changed.length,
+        unknownCount: verification.unknown.length
+      }));
+      return verification.ok;
+    }
     const result = await runMigrations(client, {
       directory: path.join(__dirname, 'db', 'migrations'),
       logger: { info(message) { console.log(JSON.stringify({ t: new Date().toISOString(), db: message })); } }
@@ -847,11 +922,18 @@ async function initializeDatabase() {
       migrationsApplied: result.applied.length,
       migrationsTotal: result.total
     }));
+    _databaseReadiness = databaseReadiness({
+      required: true,
+      connected: true,
+      waking: false,
+      migrationMatch: true,
+      quotaWarning: false
+    });
     return true;
   } finally { client.release(); }
 }
-const EVENT_RETENTION_DAYS = Math.min(Math.max(parseInt(process.env.NV_EVENT_RETENTION_DAYS || '90', 10) || 90, 7), 730);
-const SESSION_RETENTION_DAYS = Math.min(Math.max(parseInt(process.env.NV_SESSION_RETENTION_DAYS || '35', 10) || 35, 7), 365);
+const EVENT_RETENTION_DAYS = HOSTED_LIMITS?.eventRetentionDays ?? Math.min(Math.max(parseInt(process.env.NV_EVENT_RETENTION_DAYS || '90', 10) || 90, 7), 730);
+const SESSION_RETENTION_DAYS = HOSTED_LIMITS?.sessionRetentionDays ?? Math.min(Math.max(parseInt(process.env.NV_SESSION_RETENTION_DAYS || '35', 10) || 35, 7), 365);
 let _maintenanceStarted = false;
 let _alphaPrivacyRetentionStarted = false;
 async function cleanupDatabase() {
@@ -897,14 +979,28 @@ function startAlphaPrivacyRetention() {
   const timer = setInterval(() => { void runAlphaPrivacyRetention(); }, 24 * 60 * 60 * 1000);
   if (typeof timer.unref === 'function') timer.unref();
 }
-function invalidateDatabaseReady() {
+function invalidateDatabaseReady(state = 'unavailable') {
   _dbReady = null;
   _dbRetryAfter = Date.now() + 15000;
+  _databaseReadiness = databaseReadiness({
+    required: true,
+    connected: false,
+    waking: state === 'waking',
+    migrationMatch: state !== 'migration-mismatch',
+    quotaWarning: false
+  });
 }
 function dbReady() {
   if (!DB_URL) return Promise.resolve(false);
   if (_dbReady) return _dbReady;
   if (Date.now() < _dbRetryAfter) return Promise.resolve(false);
+  _databaseReadiness = databaseReadiness({
+    required: true,
+    connected: false,
+    waking: true,
+    migrationMatch: true,
+    quotaWarning: false
+  });
   _dbReady = initializeDatabase()
     .then(ok => {
       if (ok) {
@@ -915,7 +1011,7 @@ function dbReady() {
     })
     .catch(e => {
       console.error('DB unavailable; retrying after a short backoff:', e.message);
-      invalidateDatabaseReady();
+      invalidateDatabaseReady('unavailable');
       return false;
     });
   return _dbReady;
@@ -1186,8 +1282,8 @@ async function sessionOf(req) {
 }
 
 const LIVE_CLIENTS = new Map();
-const MAX_LIVE_CLIENTS_PER_KEY = Math.min(Math.max(parseInt(process.env.NV_LIVE_CLIENTS_PER_REPO || '5', 10) || 5, 1), 20);
-const MAX_LIVE_CLIENTS_TOTAL = Math.min(Math.max(parseInt(process.env.NV_LIVE_CLIENTS_TOTAL || '100', 10) || 100, 10), 500);
+const MAX_LIVE_CLIENTS_PER_KEY = HOSTED_LIMITS?.liveClientsPerRepo ?? Math.min(Math.max(parseInt(process.env.NV_LIVE_CLIENTS_PER_REPO || '5', 10) || 5, 1), 20);
+const MAX_LIVE_CLIENTS_TOTAL = HOSTED_LIMITS?.liveClientsTotal ?? Math.min(Math.max(parseInt(process.env.NV_LIVE_CLIENTS_TOTAL || '100', 10) || 100, 10), 500);
 function liveClientCount() {
   let total = 0;
   for (const clients of LIVE_CLIENTS.values()) total += clients.size;
@@ -2845,6 +2941,13 @@ function githubAppConnectionView(account, active) {
   };
 }
 app.get('/api/config', (req, res) => res.json({
+  ...hostedConfigProjection({
+    profile: HOSTING_PROFILE,
+    alphaMode: ALPHA_CONFIG.mode,
+    termsVersion: ALPHA_CONFIG.termsVersion,
+    limits: PUBLIC_ALPHA_LIMITS,
+    database: _databaseReadiness
+  }),
   oauth: !!(OAUTH_ID && OAUTH_SECRET),
   githubApp: { enabled: !!GITHUB_APP_CONFIG.enabled, webhookConfigured: !!GITHUB_APP_CONFIG.webhookConfigured },
   uploadMaxMb: UPLOAD_MAX_MB,
@@ -5203,9 +5306,9 @@ async function pagedRepoList(req, resource, maxPages = 10) {
   }
   return { items, truncated };
 }
-const SNAPSHOT_MANIFEST_MAX = Math.min(Math.max(parseInt(process.env.NV_SNAPSHOT_MANIFEST_MAX || '10000', 10) || 10000, 1000), 50000);
+const SNAPSHOT_MANIFEST_MAX = HOSTED_LIMITS?.snapshotManifestMax ?? Math.min(Math.max(parseInt(process.env.NV_SNAPSHOT_MANIFEST_MAX || '10000', 10) || 10000, 1000), 50000);
 const SNAPSHOT_KINDS = new Set(['nebulaverse-snapshot', 'nebulaverse-emergency-manifest']);
-const SNAPSHOT_RETENTION_COUNT = Math.min(Math.max(parseInt(process.env.NV_SNAPSHOT_RETENTION_COUNT || '50', 10) || 50, 5), 200);
+const SNAPSHOT_RETENTION_COUNT = HOSTED_LIMITS?.snapshotRetentionCount ?? Math.min(Math.max(parseInt(process.env.NV_SNAPSHOT_RETENTION_COUNT || '50', 10) || 50, 5), 200);
 const RESTORE_AUTH_TTL_MS = 10 * 60 * 1000;
 const USED_RESTORE_AUTHORIZATIONS = new Map();
 

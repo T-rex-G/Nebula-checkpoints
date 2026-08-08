@@ -109,3 +109,21 @@ One implementation minor remains explicitly deferred: CLI and store label and
 revocation-reason limits use JavaScript UTF-16 code-unit counts while PostgreSQL
 uses Unicode code point counts. That mismatch requires a coordinated contract
 change and is not claimed fixed here.
+
+## Hosted operations qualification
+
+Local hosted-operations qualification covers the fixed five-tester cohort
+limits, fail-closed `/healthz` and `/readyz` projections, an encrypted backup
+format, migration verification, isolated restore rehearsal, bounded smoke/load
+clients, the Render blueprint contract, and the incident runbooks. The hosted
+web process verifies migrations; it does not silently apply them.
+
+Operators run `scripts/alpha-db.js` from a trusted workstation. Before a
+migration they create and verify an encrypted backup outside the Render
+filesystem, then rehearse an isolated restore before relying on that recovery
+path. Smoke traffic is read-only by default; the load tool allows at most five
+workers, ten reads, and one explicitly requested mutation.
+
+Live Render/Neon qualification remains pending. No live deployment, database
+migration, backup, restore, smoke test, or provider mutation is claimed by the
+local Plan 5 evidence.

@@ -45,7 +45,11 @@ async function waitForServer() {
 
     const health = await request('/healthz');
     assert.strictEqual(health.status, 200);
-    assert.strictEqual((await health.json()).ok, true);
+    assert.deepStrictEqual(await health.json(), {
+      ok: true,
+      service: 'alive',
+      version: '5.3.0-alpha.17.0'
+    });
     assert.match(health.headers.get('strict-transport-security') || '', /max-age=/);
     const csp = health.headers.get('content-security-policy') || '';
     assert.match(csp, /object-src 'none'/);
@@ -58,6 +62,14 @@ async function waitForServer() {
     const version = await request('/api/version');
     assert.strictEqual(version.status, 200);
     assert.deepStrictEqual(await version.json(), { version: '5.3.0-alpha.17.0', product: 'Nebulaverse-X' });
+
+    const config = await request('/api/config');
+    assert.strictEqual(config.status, 200);
+    const publicConfig = await config.json();
+    assert.strictEqual(publicConfig.profile, 'local');
+    assert.strictEqual(publicConfig.alphaMode, 'off');
+    assert(!JSON.stringify(publicConfig).includes('SESSION_SECRET'));
+    assert(!JSON.stringify(publicConfig).includes('DATABASE_URL'));
 
     const shell = await request('/');
     assert.strictEqual(shell.status, 200);

@@ -381,7 +381,17 @@ Module._load = function load(request, parent, isMain) {
     };
   }
   if (request === './src/migrations' && parent && /server\.js$/.test(parent.filename)) {
-    return { runMigrations: async () => ({ applied: [], total: 0 }) };
+    return {
+      loadMigrations: () => [{ id: '015_alpha_privacy' }],
+      runMigrations: async () => ({ applied: [], total: 15 }),
+      verifyMigrations: async () => ({
+        ok: true,
+        expectedLatest: '015_alpha_privacy',
+        missing: [],
+        changed: [],
+        unknown: []
+      })
+    };
   }
   if (request === './src/governance-webhook-worker' && parent && /server\.js$/.test(parent.filename)) {
     return { startWebhookWorker: () => ({ stop() {} }) };

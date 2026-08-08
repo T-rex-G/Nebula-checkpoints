@@ -26,6 +26,12 @@ const required = [
   'test/alpha-provider-webhook-lifecycle.test.js',
   'test/alpha-privacy-server-contract.test.js', 'test/alpha-browser-purge.test.js',
   'test/alpha-privacy-cli.test.js',
+  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
+  'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
+  'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
+  'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js',
+  'docs/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
   'src/provider-file-mutations.js', 'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js', 'ROADMAP.md', 'PRODUCT_VISION.md', 'PROVIDER_CAPABILITIES.md', 'ARCHITECTURE.md', 'RELEASE_SECURITY_GATES.md', 'PUBLIC_ALPHA.md', 'UX_VISION.md', 'EVIDENCE_INDEX.md', 'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js', 'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
   'server.js', 'package.json', 'package-lock.json', 'render.yaml', 'README.md', 'PROJECT_STATE.md', 'PHASE_1_ROADMAP.md', 'ARCHITECTURE_DECISIONS.md', 'CONTINUATION_PROMPT.md', 'PHASE_1_TASK_5_REPORT.md', 'PHASE_1_TASK_6_7_REPORT.md', 'PHASE_1_TASK_8_REPORT.md', 'TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md', 'PHASE_1_TASK_9_10_REPORT.md', 'TASK_9_10_POLICY_SIMULATION_SPEC.md', 'PHASE_1_TASK_11_REPORT.md', 'TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md', 'PHASE_1_TASK_12_13_REPORT.md', 'TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md', 'PHASE_1_TASK_14_REPORT.md', 'TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md', 'PHASE_1_TASK_15_16_REPORT.md', 'TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md', 'PHASE_1_TASK_17_REPORT.md', 'TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md', 'PHASE_1_TASK_18_REPORT.md', 'TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md', 'PHASE_1_TASK_19_REPORT.md', 'TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md', 'PHASE_1_TASK_20_REPORT.md', 'TASK_20_STAGING_VALIDATION_SPEC.md', 'PHASE_1_TASK_21_REPORT.md', 'docs/superpowers/specs/2026-07-22-provider-authorization-resolver-design.md', 'docs/superpowers/plans/2026-07-22-provider-authorization-resolver.md',
   'public/index.html', 'public/governance-ui.js', 'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js', 'public/app.js', 'public/neural.js', 'public/style.css', 'public/sw.js',
@@ -37,8 +43,9 @@ for (const file of required) must(fs.existsSync(path.join(root, file)), `Missing
 for (const file of [
   'server.js', 'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
   'src/alpha-privacy.js', 'src/alpha-privacy-store.js', 'src/provider-disconnect.js',
-  'scripts/alpha-privacy.js',
+  'scripts/alpha-privacy.js', 'src/public-errors.js',
   'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js',
+  'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
   'public/app.js', 'public/governance-ui.js', 'public/neural.js'
 ]) {
   new vm.Script(read(file), { filename: file });

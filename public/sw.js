@@ -8,7 +8,8 @@ const POLICY = self.NebulaOfflineCachePolicy;
 const PRECACHE = [
   '/', `/style.css?v=__NV_ASSET_VERSION__`, `/offline-cache-policy.js?v=__NV_ASSET_VERSION__`,
   `/archive-safety.js?v=__NV_ASSET_VERSION__`, `/export-safety.js?v=__NV_ASSET_VERSION__`,
-  `/app.js?v=__NV_ASSET_VERSION__`, `/governance-ui.js?v=__NV_ASSET_VERSION__`, `/neural.js?v=__NV_ASSET_VERSION__`,
+  `/app.js?v=__NV_ASSET_VERSION__`, `/alpha-ui.js?v=__NV_ASSET_VERSION__`, `/capability-ui.js?v=__NV_ASSET_VERSION__`, `/trust-ui.js?v=__NV_ASSET_VERSION__`,
+  `/governance-ui.js?v=__NV_ASSET_VERSION__`, `/neural.js?v=__NV_ASSET_VERSION__`,
   '/manifest.webmanifest', '/assets/icon.svg', '/assets/icon-192.png'
 ];
 const VENDOR_WARM = [

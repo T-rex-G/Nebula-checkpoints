@@ -31,6 +31,12 @@ const required = [
   'RELEASE_SECURITY_GATES.md', 'PUBLIC_ALPHA.md', 'UX_VISION.md', 'EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
+  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
+  'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
+  'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
+  'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js',
+  'docs/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
   'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js',
   'staging/TASK_20_EVIDENCE_TEMPLATE.json', 'playwright.config.js',
   'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'public/governance-ui.js',
@@ -148,6 +154,51 @@ if (!read('ARCHITECTURE_DECISIONS.md').includes(adr57)) {
   task6Omissions.push('architecture decisions omit the exact ADR-057 decision');
 }
 assert.deepStrictEqual(task6Omissions, [], `Task 6 binding omissions:\n- ${task6Omissions.join('\n- ')}`);
+
+const uxArtifacts = [
+  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
+  'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
+  'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
+  'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js',
+  'docs/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md'
+];
+const uxPrograms = [
+  'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
+  'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js'
+];
+const uxSyntaxSources = [
+  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
+  'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js'
+];
+const uxOmissions = [];
+const uxUnitGate = `${pkg.scripts['pretest:unit'] || ''} ${pkg.scripts['test:unit'] || ''}`;
+const uxSyntaxGate = `${pkg.scripts['precheck:syntax'] || ''} ${pkg.scripts['check:syntax'] || ''}`;
+for (const artifact of uxArtifacts) {
+  if (!verifySource.includes(`'${artifact}'`)) uxOmissions.push(`build gate does not require ${artifact}`);
+}
+let previousUxProgram = -1;
+for (const program of uxPrograms) {
+  const programIndex = uxUnitGate.indexOf(`node ${program}`);
+  if (programIndex === -1) uxOmissions.push(`unit gate does not execute ${program}`);
+  else if (programIndex <= previousUxProgram) uxOmissions.push(`unit gate does not execute ${program} in UX contract order`);
+  previousUxProgram = programIndex;
+}
+for (const source of uxSyntaxSources) {
+  if (!uxSyntaxGate.includes(`node --check ${source}`)) uxOmissions.push(`syntax gate does not parse ${source}`);
+}
+const manualAudit = read('docs/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md');
+if (!/Status:\s*\*\*Not executed\*\*/.test(manualAudit)) uxOmissions.push('manual accessibility record does not remain explicitly Not executed');
+if (!read('UX_VISION.md').includes('Automated public-alpha accessibility qualification passes')) uxOmissions.push('UX vision omits automated accessibility qualification status');
+if (!read('PUBLIC_ALPHA.md').includes('Manual VoiceOver on iOS and one desktop screen-reader pass remain required')) uxOmissions.push('public-alpha guide omits remaining manual accessibility gates');
+const adr59 = `## ADR-059 — Public-alpha success is verification-gated and every conclusion carries an evidence state
+
+**Status:** Accepted
+
+The interface distinguishes provider-verified, deterministic, inferred, stale and unavailable evidence. A mutation does not display success until readback and required cleanup are complete. Tester-facing failures describe provider-change uncertainty, current safe state, next action and a correlation ID without exposing credentials or payloads.`;
+if (!read('ARCHITECTURE_DECISIONS.md').includes(adr59)) uxOmissions.push('architecture decisions omit the exact ADR-059 decision');
+assert.deepStrictEqual(uxOmissions, [], `UX accessibility binding omissions:\n- ${uxOmissions.join('\n- ')}`);
 
 const privacyArtifacts = [
   'src/alpha-privacy.js',

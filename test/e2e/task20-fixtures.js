@@ -1,6 +1,24 @@
 'use strict';
 
+const capabilityDocument = require('../../config/public-alpha-capabilities.json');
 const scope = 'scopeAlice_0123456789abcdefXYZ';
+
+function capabilities() {
+  return {
+    provider: 'github',
+    authority: 'github.com',
+    deployment: 'hosted-alpha',
+    features: Object.fromEntries(Object.entries(capabilityDocument.providers.github['hosted-alpha']).map(([feature, tuple]) => [feature, {
+      feature,
+      provider: 'github',
+      authority: 'github.com',
+      deployment: 'hosted-alpha',
+      status: tuple[0],
+      evidenceState: tuple[1],
+      reason: tuple[2]
+    }]))
+  };
+}
 
 function digitalTwin() {
   const now = new Date().toISOString();
@@ -32,13 +50,16 @@ function access() {
 
 async function mockTask20Api(page, state = {}) {
   state.governanceRequests = 0;
+  await page.route('**/readyz', route => route.fulfill({ json: { ok: true, database: 'ready' } }));
   await page.route('**/api/**', async route => {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname;
     if (pathname.includes('/governance/')) state.governanceRequests += 1;
 
+    if (pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'off', authenticated: true, access: 'active' } });
     if (pathname === '/api/config') return route.fulfill({ json: { oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64 } });
+    if (pathname === '/api/capabilities') return route.fulfill({ json: capabilities() });
     if (pathname === '/api/me') return route.fulfill({ json: {
       login: 'alice', name: 'Alice', avatar: '', provider: 'github', authMethod: 'token',
       caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true },

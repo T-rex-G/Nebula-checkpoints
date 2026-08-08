@@ -343,3 +343,9 @@ The first cohort uses operator-issued high-entropy invitation codes. PostgreSQL 
 **Status:** Accepted
 
 Provider disconnect removes token-bearing application state, but it does not falsely claim provider-side PAT/OAuth/App revocation. Alpha-created webhooks and temporary resources must be deleted or verified absent. A failed cleanup creates a non-secret pending task and blocks completed data deletion and cohort close.
+
+## ADR-059 — Public-alpha success is verification-gated and every conclusion carries an evidence state
+
+**Status:** Accepted
+
+The interface distinguishes provider-verified, deterministic, inferred, stale and unavailable evidence. A mutation does not display success until readback and required cleanup are complete. Tester-facing failures describe provider-change uncertainty, current safe state, next action and a correlation ID without exposing credentials or payloads.

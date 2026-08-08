@@ -1,10 +1,12 @@
 # Controlled Public Alpha
 
-Hosted qualification is pending; the cohort is not open. Plan 2 final branch
-review is pending, so this document does not claim that controlled access has
-been accepted.
+Hosted qualification is pending; the cohort is not open. Plans 1–3 are accepted
+locally, and Plan 4's automated desktop/mobile UX and accessibility checkpoint
+passes. Live hosted, provider, database and manual assistive-technology evidence
+remain release gates and are not claimed here.
 
-The first cohort is invitation-only, limited to 5–10 testers, uses sandbox repositories only, and is not a production service. This controlled invitation access remains a pre-acceptance branch implementation.
+The first cohort is invitation-only, limited to 5–10 testers, uses sandbox repositories only, and is not a production service.
+Controlled invitation access remains independent from provider authorization.
 
 ## Tester scope and onboarding
 
@@ -25,6 +27,13 @@ provider credentials or provider transport are used.
 Do not use production repositories, irreplaceable source or data, active
 deployment credentials, real secrets, regulated/personal data, or any repository
 whose loss would cause material harm.
+
+## Accessibility qualification
+
+The supported golden-path screens pass automated desktop/mobile checks for
+serious or critical axe findings, keyboard completion, focus containment and
+restoration, live announcements, non-colour trust states, reduced motion and
+200% reflow. Manual VoiceOver on iOS and one desktop screen-reader pass remain required before cohort opening. The manual record starts `Not executed` and no accessibility certification is claimed.
 
 ## Limits and hosting
 

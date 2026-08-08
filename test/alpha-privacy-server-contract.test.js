@@ -60,6 +60,13 @@ assert(!deletion.includes('providerCleanupVerified: true'));
 assert(!deletion.includes('tokenBearingStateRemoved: true'));
 assert(deletion.includes('req.alpha.deletionRecovery === true'));
 assert(deletion.includes('if (!recovery)'));
+assert(deletion.indexOf('if (!recovery)') < deletion.indexOf('alphaPrivacyStore.purgeTester'),
+  'terminal recovery must still enter the store purge/scrub path');
+assert(deletion.indexOf('alphaPrivacyStore.purgeTester') < deletion.indexOf('clearProviderSessionCookie'),
+  'owned token-bearing state must be scrubbed before the provider cookie is cleared');
+assert(deletion.indexOf('clearProviderSessionCookie') < deletion.indexOf("setAlphaCookie(res, '', 0)"),
+  'terminal recovery must clear both provider and alpha cookies after the store succeeds');
+assert(deletion.includes("res.setHeader('Set-Cookie', [providerCookie, alphaCookie])"));
 
 const confirmation = server.slice(
   server.indexOf('function alphaDeletionConfirmation'),

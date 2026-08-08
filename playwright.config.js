@@ -1,7 +1,10 @@
 'use strict';
 const { defineConfig, devices } = require('@playwright/test');
 const localChromium = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined;
-const launchOptions = localChromium ? { executablePath: localChromium, args: ['--no-sandbox'] } : undefined;
+const launchOptions = localChromium ? {
+  executablePath: localChromium,
+  args: ['--no-sandbox', '--disable-dev-shm-usage']
+} : undefined;
 
 module.exports = defineConfig({
   testDir: './test/e2e',

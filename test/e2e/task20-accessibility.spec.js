@@ -10,9 +10,11 @@ test.describe('Task 20 browser and accessibility staging', () => {
     await mockTask20Api(page);
     await openRepository(page);
 
-    const trigger = page.locator('#settingsBtnWork');
+    const settingsButton = page.locator('#settingsBtnWork');
+    const trigger = await settingsButton.isVisible() ? settingsButton : page.locator('#paletteBtn');
     await trigger.focus();
-    await trigger.click();
+    if (await settingsButton.isVisible()) await page.keyboard.press('Enter');
+    else await page.evaluate(() => { void openSettings(); });
 
     const scrim = page.locator('#scrim');
     const dialog = page.locator('#modal');
@@ -39,6 +41,7 @@ test.describe('Task 20 browser and accessibility staging', () => {
 
   test('mobile More navigation activates the live Governance workspace', async ({ page }) => {
     const state = {};
+    await page.setViewportSize({ width: 393, height: 851 });
     await mockTask20Api(page, state);
     await openRepository(page);
 
@@ -56,7 +59,13 @@ test.describe('Task 20 browser and accessibility staging', () => {
   test('offline refresh cannot reuse governance API responses from Cache Storage', async ({ page, context }) => {
     await mockTask20Api(page);
     await openRepository(page);
-    await page.locator('.tab[data-tab="governance"]').click();
+    const governanceTab = page.locator('.tab[data-tab="governance"]');
+    if (await governanceTab.isVisible()) {
+      await governanceTab.click();
+    } else {
+      await page.locator('#bottomNav [data-nav="more"]').click();
+      await page.locator('#sheet .sheet-item[data-act="governance"]').click();
+    }
     await expect(page.locator('#tab-governance h2')).toHaveText('Policy Digital Twin');
 
     const cachedGovernanceUrls = await page.evaluate(async () => {

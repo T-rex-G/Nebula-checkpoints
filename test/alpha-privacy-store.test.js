@@ -45,6 +45,7 @@ class FakePool {
     this.lockTail = Promise.resolve();
     this.failTaskInsert = false;
     this.failBindingDisconnect = false;
+    this.failTerminalSessionScrub = false;
   }
 
   async query() {
@@ -289,6 +290,32 @@ class FakeClient {
       };
       this.pool.state.ownership.push(row);
       return { rows: [structuredClone(row)], rowCount: 1 };
+    }
+    if (
+      /FROM nv_alpha_provider_session_ownership/.test(text)
+      && /WHERE session_key_hash IN/.test(text)
+      && /FOR UPDATE/.test(text)
+    ) {
+      const testerHashes = new Set(this.pool.state.ownership
+        .filter(item => item.tester_id === params[0])
+        .map(item => item.session_key_hash));
+      const rows = this.pool.state.ownership.filter(item => (
+        testerHashes.has(item.session_key_hash)
+      ));
+      return { rows: structuredClone(rows), rowCount: rows.length };
+    }
+    if (/DELETE FROM nv_sessions WHERE session_key_hash=ANY\(\$1::text\[\]\) RETURNING sid/.test(text)) {
+      const hashes = new Set(params[0]);
+      const removed = this.pool.state.providerSessions.filter(item => hashes.has(item.session_key_hash));
+      this.pool.state.providerSessions = this.pool.state.providerSessions
+        .filter(item => !hashes.has(item.session_key_hash));
+      if (this.pool.failTerminalSessionScrub) {
+        throw new Error('injected terminal session scrub failure');
+      }
+      return {
+        rows: removed.map(item => ({ sid: item.sid })),
+        rowCount: removed.length
+      };
     }
     if (/FROM nv_alpha_purge_reports WHERE tester_id_hash=\$1/.test(text)) {
       const row = this.pool.state.purgeReports.find(item => item.tester_id_hash === params[0]);
@@ -1134,6 +1161,56 @@ function makeStore(pool, currentTime = NOW) {
   const repeatedPurge = await purgeStore.purgeTester({ testerId: TESTER_ID });
   assert.deepStrictEqual(repeatedPurge, complete, 'completed purge must be idempotent');
   assert.strictEqual(purgePool.state.purgeReports.length, 1);
+
+  purgePool.state.testers.push({ tester_id: OTHER_TESTER_ID, revoked_at: null });
+  const otherSessionHash = 'e'.repeat(64);
+  purgePool.state.ownership.push({
+    session_key_hash: otherSessionHash,
+    tester_id: OTHER_TESTER_ID,
+    identity_key: 'f'.repeat(64),
+    provider: 'github',
+    claimed_at: NOW,
+    released_at: null
+  });
+  purgePool.state.providerSessions.push(
+    {
+      sid: 'reintroduced-owned-session',
+      session_key_hash: purgeSessionHash,
+      identity_keys: [input.identityKey],
+      revision: 1
+    },
+    {
+      sid: 'other-tester-session',
+      session_key_hash: otherSessionHash,
+      identity_keys: ['f'.repeat(64)],
+      revision: 1
+    }
+  );
+  purgePool.failTerminalSessionScrub = true;
+  await assert.rejects(
+    () => purgeStore.purgeTester({ testerId: TESTER_ID }),
+    /injected terminal session scrub failure/
+  );
+  assert.deepStrictEqual(
+    purgePool.state.providerSessions.map(item => item.sid).sort(),
+    ['other-tester-session', 'reintroduced-owned-session'],
+    'a failed terminal scrub must roll back every session mutation'
+  );
+
+  purgePool.failTerminalSessionScrub = false;
+  const terminalRetry = await purgeStore.purgeTester({ testerId: TESTER_ID });
+  assert.deepStrictEqual(terminalRetry, complete,
+    'terminal retry must preserve the original immutable purge report');
+  assert.deepStrictEqual(
+    purgePool.state.providerSessions.map(item => item.sid),
+    ['other-tester-session'],
+    'terminal retry must scrub only the reintroduced session proven owned by the deleted tester'
+  );
+  const terminalRetryAgain = await purgeStore.purgeTester({ testerId: TESTER_ID });
+  assert.deepStrictEqual(terminalRetryAgain, complete);
+  assert.deepStrictEqual(purgePool.state.providerSessions.map(item => item.sid), ['other-tester-session']);
+  assert.strictEqual(purgePool.state.purgeReports.length, 1,
+    'terminal scrubbing must never rewrite the immutable report');
 
   const sharedPool = new FakePool();
   sharedPool.state.testers.push({ tester_id: OTHER_TESTER_ID, revoked_at: null });

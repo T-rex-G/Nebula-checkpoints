@@ -90,6 +90,7 @@ const {
   repositoryAllowed
 } = require('./src/alpha-access');
 const { PRODUCT_NAME, APP_VERSION, ASSET_VERSION } = require('./src/version');
+const { createCorrelationId, publicErrorBody } = require('./src/public-errors');
 const { runMigrations } = require('./src/migrations');
 const { scanUploadFile, scannerStatus } = require('./src/file-security');
 const {
@@ -302,12 +303,23 @@ function startTempMaintenance() {
 }
 
 app.disable('x-powered-by');
+/* one safe request identity shared by logs and tester-facing errors */
+app.use((req, res, next) => {
+  const supplied = String(req.headers['x-nebulaverse-correlation-id'] || '');
+  const correlationId = /^nvx-[0-9a-f]{16}$/.test(supplied)
+    ? supplied
+    : createCorrelationId();
+  res.locals.correlationId = correlationId;
+  res.setHeader('X-Nebulaverse-Correlation-Id', correlationId);
+  next();
+});
 /* structured request logging */
 app.use((req, res, next) => {
   const t0 = Date.now();
   res.on('finish', () => {
     if (req.path.startsWith('/api/')) console.log(JSON.stringify({
-      t: new Date().toISOString(), m: req.method, p: req.path, s: res.statusCode, ms: Date.now() - t0
+      t: new Date().toISOString(), correlationId: res.locals.correlationId,
+      m: req.method, p: req.path, s: res.statusCode, ms: Date.now() - t0
     }));
   });
   next();
@@ -1690,8 +1702,12 @@ async function gh(acct, apiPath, opts = {}) {
   }
   return data;
 }
-const fail = (res, e) => res.status(e.status >= 400 && e.status < 600 ? e.status : 500)
-  .json({ error: e.message || 'Server error', ...(e.code ? { code: e.code } : {}) });
+const fail = (res, error) => {
+  const status = error && error.status >= 400 && error.status < 600 ? error.status : 500;
+  return res.status(status).json(publicErrorBody(error, {
+    correlationId: res.locals.correlationId
+  }));
+};
 
 function mutationMetadataFor(req, action) {
   const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};

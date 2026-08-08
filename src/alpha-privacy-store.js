@@ -2091,6 +2091,39 @@ class AlphaPrivacyStore {
     );
   }
 
+  async scrubCompletedTesterSessions(client, testerId) {
+    const ownershipResult = await client.query(
+      `SELECT session_key_hash,tester_id,identity_key,provider,claimed_at,released_at
+         FROM nv_alpha_provider_session_ownership
+        WHERE session_key_hash IN (
+          SELECT DISTINCT session_key_hash
+            FROM nv_alpha_provider_session_ownership
+           WHERE tester_id=$1
+        )
+        ORDER BY session_key_hash,tester_id,identity_key,provider FOR UPDATE`,
+      [testerId]
+    );
+    const ownersByHash = new Map();
+    for (const row of ownershipResult.rows) {
+      const sessionKeyHash = requireHash(row.session_key_hash, 'owned sessionKeyHash');
+      const owners = ownersByHash.get(sessionKeyHash) || new Set();
+      owners.add(String(row.tester_id || '').toLowerCase());
+      ownersByHash.set(sessionKeyHash, owners);
+    }
+    const exclusivelyOwnedHashes = [...ownersByHash]
+      .filter(([, owners]) => owners.size === 1 && owners.has(testerId))
+      .map(([sessionKeyHash]) => sessionKeyHash)
+      .sort();
+    if (!exclusivelyOwnedHashes.length) return 0;
+    const removed = await client.query(
+      `DELETE FROM nv_sessions
+        WHERE session_key_hash=ANY($1::text[])
+        RETURNING sid`,
+      [exclusivelyOwnedHashes]
+    );
+    return removed.rowCount;
+  }
+
   async purgeTester(input) {
     const purge = requirePlainObject(input, 'tester purge input');
     const testerId = requireTesterId(purge.testerId);
@@ -2109,7 +2142,10 @@ class AlphaPrivacyStore {
              FROM nv_alpha_purge_reports WHERE tester_id_hash=$1`,
           [testerIdHash]
         );
-        if (previousReport.rows[0]) return purgeReportFromRow(previousReport.rows[0]);
+        if (previousReport.rows[0]) {
+          await this.scrubCompletedTesterSessions(client, testerId);
+          return purgeReportFromRow(previousReport.rows[0]);
+        }
         if (!lifecycle.deletion) {
           throw new AlphaPrivacyStoreError(
             'Deletion request is required before purge',

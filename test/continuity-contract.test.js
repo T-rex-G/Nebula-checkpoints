@@ -21,14 +21,15 @@ assert(roadmap.includes('| 21 | v5.3 Release Readiness, Migration, Documentation
 assert(roadmap.includes('Phase 1 Task 19 (signed evidence export format) must be complete and stable first'));
 const decisions=read('ARCHITECTURE_DECISIONS.md');
 const adrNumbers=[...decisions.matchAll(/^## ADR-(\d{3}) —/gm)].map(match=>Number(match[1]));
-assert.strictEqual(adrNumbers.length,58);
-assert.deepStrictEqual(adrNumbers,Array.from({length:58},(_,index)=>index+1));
+assert.strictEqual(adrNumbers.length,59);
+assert.deepStrictEqual(adrNumbers,Array.from({length:59},(_,index)=>index+1));
 assert(decisions.includes('## ADR-051 — Governance delivery uses an immutable outbox and failure-isolated worker'));
 assert(decisions.includes('## ADR-052 — Signed evidence envelopes are the stable boundary before external storage'));
 assert(decisions.includes('## ADR-053 — Staging readiness is an expiring evidence gate, not a release assertion'));
 assert(decisions.includes('## ADR-054 — Staging evidence is candidate-, catalog-, command-, and artifact-bound'));
 assert(decisions.includes('## ADR-057 — Alpha invitation secrets are one-time, digest-only and managed outside the public web surface'));
 assert(decisions.includes('## ADR-058 — Provider cleanup is a verified lifecycle and deletion fails closed while cleanup is pending'));
+assert(decisions.includes('## ADR-059 — Public-alpha success is verification-gated and every conclusion carries an evidence state'));
 const prompt=read('CONTINUATION_PROMPT.md');
 assert(prompt.includes('Nebulaverse-X-v5.3.0-alpha.16.3.zip'));
 assert(prompt.includes('Task 20 execution is complete at 18/19'));

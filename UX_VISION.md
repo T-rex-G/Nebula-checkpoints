@@ -43,5 +43,9 @@ landmarks, labelled controls, full keyboard operation, visible and restored
 focus, focus-contained dialogs, screen-reader announcements, non-colour-only
 states, verified contrast, reduced motion, 200% reflow, and mobile layouts.
 
-This target remains planned qualification work; it is not an accessibility
-certification claim.
+Automated public-alpha accessibility qualification passes on the supported
+desktop and mobile golden-path screens, including axe serious/critical checks,
+keyboard completion, focus behavior, announcements, reduced motion and 200%
+reflow. Manual VoiceOver on iOS and one desktop screen-reader pass remain
+required before cohort opening. This is qualification evidence, not an
+accessibility certification claim.

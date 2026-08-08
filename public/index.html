@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark" data-nv-version="__NV_VERSION__" data-nv-asset-version="__NV_ASSET_VERSION__">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>__NV_PRODUCT_NAME__ — Git, from orbit</title>
 <meta name="description" content="Enterprise-grade web Git client for GitHub. PRs, issues, releases, staged commits — and pushes of any size via automatic Git LFS.">
 <meta name="theme-color" content="#070712">
@@ -35,8 +35,26 @@
   <div class="stars"></div><div class="grain"></div>
 </div>
 
+<!-- ======================= CONTROLLED ALPHA ACCESS ======================= -->
+<main class="page active" id="page-alpha-access" aria-labelledby="alphaAccessTitle">
+  <section class="alpha-access card">
+    <p class="eyebrow">Controlled hosted public alpha</p>
+    <h1 id="alphaAccessTitle">Enter the Nebulaverse-X test orbit</h1>
+    <p class="alpha-access-rule">Use only a sandbox/test repository containing no real secrets, personal data, production deployments, or irreplaceable source.</p>
+    <div class="alpha-wake-state" id="alphaWakeState" role="status" aria-live="polite">Checking service readiness…</div>
+    <label class="field-label" for="alphaInviteInput">One-time invitation</label>
+    <input id="alphaInviteInput" type="password" autocomplete="one-time-code" spellcheck="false">
+    <label class="check" for="alphaTermsAccept">
+      <input id="alphaTermsAccept" type="checkbox">
+      <span>I accept <strong id="alphaTermsVersion">the current alpha terms</strong> and the sandbox-repository rule.</span>
+    </label>
+    <button class="btn btn-primary btn-block" id="alphaRedeemBtn">Continue</button>
+    <div class="login-error" id="alphaAccessError" role="alert" hidden></div>
+  </section>
+</main>
+
 <!-- ======================= LOGIN ======================= -->
-<div class="page active" id="page-login">
+<main class="page" id="page-login" aria-labelledby="loginTitle">
   <div class="login-wrap">
     <div class="login-back">
       <button class="btn btn-ghost small" id="loginBackBtn" hidden><svg class="ico" width="15" height="15" viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>Back</button>
@@ -76,11 +94,11 @@
         <circle class="nvl-core" cx="60" cy="60" r="8.5" fill="#ffffff"/>
       </svg>
     </div>
-    <h1 class="brand-title">__NV_PRODUCT_NAME__</h1>
+    <h1 class="brand-title" id="loginTitle">__NV_PRODUCT_NAME__</h1>
     <p class="brand-sub">GitHub · GitLab · Gitea, from your pocket — offline-ready, pushes of <em>any</em> size.</p>
     <div class="card login-card">
-      <label class="field-label">Provider</label>
-      <div class="seg" id="provSeg">
+      <div class="field-label" id="providerLabel">Provider</div>
+      <div class="seg" id="provSeg" role="group" aria-labelledby="providerLabel">
         <button class="seg-btn active" data-v="github"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>GitHub</button>
         <button class="seg-btn" data-v="gitlab"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>GitLab</button>
         <button class="seg-btn" data-v="gitea"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24"><path d="M4.5 8h11v6.5a4.5 4.5 0 0 1-4.5 4.5H9a4.5 4.5 0 0 1-4.5-4.5V8z"/><path d="M15.5 9.5h2a2.5 2.5 0 0 1 0 5h-2M8 5.5V4M11.5 5.5V3.5"/></svg>Gitea</button>
@@ -94,21 +112,21 @@
       <button class="btn btn-primary btn-block" id="loginBtn">Enter orbit</button>
       <button class="btn btn-ghost btn-block" id="oauthBtn" hidden>Continue with GitHub (OAuth)</button>
       <p class="hint" id="loginHint">Create one at <span class="mono">github.com → Settings → Developer settings → Tokens (classic)</span> with the <span class="mono">repo</span> scope. Sealed in an encrypted httpOnly cookie — never stored in the browser, never logged.</p>
-      <div class="login-error" id="loginError" hidden></div>
+      <div class="login-error" id="loginError" role="alert" hidden></div>
     </div>
   </div>
-</div>
+</main>
 
 <!-- ======================= REPOS ======================= -->
-<div class="page" id="page-repos">
+<main class="page" id="page-repos" aria-labelledby="reposTitle">
   <header class="topbar glass">
     <div class="topbar-brand" id="homeBtn">
       <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </div>
     <div class="topbar-actions">
-      <button class="btn btn-ghost" id="newRepoBtn"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm"> New repo</span></button>
-      <button class="btn btn-ghost icon-btn" data-cap="notif" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg></button>
+      <button class="btn btn-ghost" id="newRepoBtn" data-feature="repository.create" aria-label="Create repository"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm"> New repo</span></button>
+      <button class="btn btn-ghost icon-btn" data-feature="notifications" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg></button>
       <button class="btn btn-ghost icon-btn" id="settingsBtnRepos" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button class="theme-toggle" id="themeBtn" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
         <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
@@ -119,39 +137,40 @@
       <button class="btn btn-ghost hide-sm" id="logoutBtn">Sign out</button>
     </div>
   </header>
-  <main class="container">
+  <div class="container">
     <div class="page-head">
-      <h2>Your galaxies</h2>
+      <h2 id="reposTitle">Your galaxies</h2>
       <div class="page-head-tools">
-        <select id="repoSort" class="branch-select">
+        <select id="repoSort" class="branch-select" aria-label="Sort repositories">
           <option value="pushed">Recently pushed</option>
           <option value="updated">Recently updated</option>
           <option value="created">Newest</option>
           <option value="full_name">Name</option>
         </select>
-        <input id="repoFilter" class="search-input" type="search" placeholder="Filter…">
+        <input id="repoFilter" class="search-input" type="search" placeholder="Filter repositories…" aria-label="Filter repositories">
+        <button class="btn btn-ghost small" id="repoGlobalSearchBtn" data-feature="global-search">Search code</button>
       </div>
     </div>
     <div class="repo-grid" id="repoGrid"></div>
     <div class="load-more-wrap"><button class="btn btn-ghost" id="moreReposBtn" hidden>Load more</button></div>
     <button class="btn btn-ghost btn-block show-sm" id="logoutBtnM" style="margin-top:26px">Sign out</button>
-  </main>
-</div>
+  </div>
+</main>
 
 <!-- ======================= WORKSPACE ======================= -->
-<div class="page" id="page-work">
+<main class="page" id="page-work" aria-label="Repository workspace">
   <header class="topbar glass">
-    <div class="topbar-brand" id="backBtn" title="Back to repositories">
+    <button class="topbar-brand" id="backBtn" type="button" title="Back to repositories" aria-label="Back to repositories">
       <span class="back-chev">‹</span>
       <span id="workRepoName" class="mono repo-name-trunc"></span>
       <span class="badge" id="workPrivateBadge" hidden>private</span>
-    </div>
+    </button>
     <div class="topbar-actions">
       <span class="rate mono hide-sm" id="rateChip" title="GitHub API calls remaining this hour" hidden><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M13 2.5L4.5 13.5H11L10 21.5l8.5-11H12l1-8z"/></svg><span id="rateVal"></span></span>
       <button class="btn btn-ghost icon-btn hide-sm" id="settingsBtnWork" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button class="btn btn-ghost icon-btn" id="paletteBtn" title="Command palette (Ctrl+K)" aria-label="Command palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg></button>
       <button class="btn btn-ghost icon-btn" id="syncBtn" title="Refresh repo" aria-label="Refresh repo"><svg class="ico" width="17" height="17" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1M20.5 3.5v4h-4"/></svg></button>
-      <span class="ro-chip" id="roChip" hidden>READ-ONLY</span><span class="ro-chip freeze" id="freezeChip" hidden>SYNC FROZEN</span><span class="shield-chip" id="branchShield" hidden title="This branch is protected"><svg class="ico" width="13" height="13" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg></span><select id="branchSelect" class="branch-select" title="Branch"></select>
+      <span class="ro-chip" id="roChip" hidden>READ-ONLY</span><span class="ro-chip freeze" id="freezeChip" hidden>SYNC FROZEN</span><span class="shield-chip" id="branchShield" hidden title="This branch is protected"><svg class="ico" width="13" height="13" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg></span><select id="branchSelect" class="branch-select" title="Branch" aria-label="Repository branch"></select>
       <button class="btn btn-ghost icon-btn staged-btn" id="stagedBtn" title="Staged changes" aria-label="Staged changes">
         <svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5l8.5 4.7L12 12.9 3.5 8.2 12 3.5z"/><path d="M3.5 13l8.5 4.7L20.5 13"/><path d="M3.5 17.3L12 22l8.5-4.7"/></svg><span class="staged-count" id="stagedCount" hidden>0</span>
       </button>
@@ -162,30 +181,38 @@
     <div class="side-scrim" id="sideScrim" hidden></div>
     <aside class="side glass" id="side">
       <div class="side-head">
-        <input id="codeSearch" class="search-input small" type="search" placeholder="Search code…  ⏎">
+        <input id="codeSearch" class="search-input small" type="search" data-feature="search" placeholder="Search code…  ⏎">
       </div>
       <div class="side-actions">
-        <button class="chip" id="newFileBtn"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> File</button>
-        <button class="chip" id="newBranchBtn"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg> Branch</button>
+        <button class="chip" id="newFileBtn" data-feature="file.write"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> File</button>
+        <button class="chip" id="newBranchBtn" data-feature="branches.write"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg> Branch</button>
         <button class="chip" id="refreshTreeBtn" aria-label="Refresh tree"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M19.5 11a7.7 7.7 0 1 0-2.2 6.1M19.5 5.5V11H14"/></svg></button>
-        <button class="chip" id="zipBtn" title="Download repo as zip"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5v11M6.5 9l5.5 5.5L17.5 9M4 20.5h16"/></svg> zip</button>
+        <button class="chip" id="zipBtn" data-feature="repository.read" title="Download repo as zip"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5v11M6.5 9l5.5 5.5L17.5 9M4 20.5h16"/></svg> zip</button>
       </div>
       <p class="hint" style="margin:0 4px 8px">Tip: long-press (or right-click) a file or folder for rename, download &amp; delete.</p>
-      <nav class="tree" id="tree"></nav>
+      <nav class="tree" id="tree" aria-label="Repository files"></nav>
     </aside>
 
     <section class="main-pane">
-      <nav class="tabs glass" id="deskTabs">
+      <section class="trust-summary" id="trustSummary" aria-label="Repository trust summary" hidden>
+        <article id="trustConnection"></article>
+        <article id="trustPipeline"></article>
+        <article id="trustRisk"></article>
+        <article id="trustAction"></article>
+        <article id="trustEvidence"></article>
+      </section>
+      <div class="sr-only" id="a11yStatus" role="status" aria-live="polite" aria-atomic="true"></div>
+      <nav class="tabs glass" id="deskTabs" aria-label="Repository sections">
         <button class="tab active" data-tab="editor">Editor</button>
-        <button class="tab" data-tab="upload">Push files</button>
+        <button class="tab" data-tab="upload" data-feature="native-push" data-allow-experimental="true">Push files</button>
         <button class="tab" data-tab="commits">Commits</button>
-        <button class="tab" data-cap="prs" data-tab="pulls">Pull requests</button>
-        <button class="tab" data-cap="issues" data-tab="issues">Issues</button>
-        <button class="tab" data-cap="releases" data-tab="releases">Releases</button>
-        <button class="tab" data-cap="actions" data-tab="actions">Actions</button>
-        <button class="tab" data-cap="compare" data-tab="compare">Compare</button>
-        <button class="tab neural-tab" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
-        <button class="tab" data-tab="governance" id="govTabLabel"><span aria-hidden="true">◇</span> Governance</button>
+        <button class="tab" data-feature="pulls.read" data-tab="pulls">Pull requests</button>
+        <button class="tab" data-feature="issues.read" data-tab="issues">Issues</button>
+        <button class="tab" data-feature="releases.read" data-tab="releases">Releases</button>
+        <button class="tab" data-feature="workflows.read" data-tab="actions">Actions</button>
+        <button class="tab" data-feature="recovery" data-tab="compare">Compare</button>
+        <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
+        <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel"><span aria-hidden="true">◇</span> Governance</button>
       </nav>
 
       <!-- EDITOR -->
@@ -201,11 +228,11 @@
             <span class="file-size mono" id="fileSize"></span>
             <div class="editor-bar-actions">
               <button class="btn btn-ghost small" id="mdPreviewBtn" hidden>Preview</button>
-              <button class="btn btn-ghost small" id="findBtn" title="Find in file"><svg class="ico" width="16" height="16" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
-              <button class="btn btn-ghost small" id="diffBtn" title="Diff unsaved edits" disabled><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M9 5h7M12.5 1.5V8.5M8 19h8M4 12.5h16"/></svg></button>
-              <button class="btn btn-ghost small" id="fileHistoryBtn" title="File history"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.2V12l3.4 2"/></svg></button>
-              <button class="btn btn-ghost small" id="renameFileBtn" title="Rename / move"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4 12h13.5M13 6l6 6-6 6"/></svg></button>
-              <button class="btn btn-ghost small danger" id="deleteFileBtn" title="Delete file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg></button>
+              <button class="btn btn-ghost small" id="findBtn" title="Find in file" aria-label="Find in file"><svg class="ico" width="16" height="16" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
+              <button class="btn btn-ghost small" id="diffBtn" title="Diff unsaved edits" aria-label="Diff unsaved edits" disabled><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M9 5h7M12.5 1.5V8.5M8 19h8M4 12.5h16"/></svg></button>
+              <button class="btn btn-ghost small" id="fileHistoryBtn" title="File history" aria-label="File history"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.2V12l3.4 2"/></svg></button>
+              <button class="btn btn-ghost small" id="renameFileBtn" title="Rename or move" aria-label="Rename or move file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4 12h13.5M13 6l6 6-6 6"/></svg></button>
+              <button class="btn btn-ghost small danger" id="deleteFileBtn" title="Delete file" aria-label="Delete file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg></button>
               <button class="btn btn-ghost small" id="stageFileBtn" disabled>Stage</button>
               <button class="btn btn-primary small" id="commitFileBtn" disabled>Commit</button>
             </div>
@@ -214,11 +241,11 @@
             <div class="find-row">
               <input id="findInput" type="text" placeholder="Find…" autocomplete="off" spellcheck="false">
               <span class="find-count mono" id="findCount">0/0</span>
-              <button class="fb-btn" id="findPrev" title="Previous (Shift+Enter)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
-              <button class="fb-btn" id="findNext" title="Next (Enter)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+              <button class="fb-btn" id="findPrev" title="Previous (Shift+Enter)" aria-label="Previous match"><svg class="ico" width="14" height="14" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+              <button class="fb-btn" id="findNext" title="Next (Enter)" aria-label="Next match"><svg class="ico" width="14" height="14" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
               <button class="fb-btn fb-tog" id="findCase" title="Match case">Aa</button>
               <button class="fb-btn fb-tog mono" id="findRegex" title="Regular expression">.*</button>
-              <button class="fb-btn" id="findClose" title="Close (Esc)"><svg class="ico" width="14" height="14" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+              <button class="fb-btn" id="findClose" title="Close (Esc)" aria-label="Close find panel"><svg class="ico" width="14" height="14" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
             </div>
             <div class="find-row">
               <input id="replaceInput" type="text" placeholder="Replace with…" autocomplete="off" spellcheck="false">
@@ -241,7 +268,7 @@
             <p class="dz-title">Drop files here, or <label class="dz-browse" for="filePicker">browse</label></p>
             <p class="dz-sub">Any size up to <b>2 GB</b> per file — routed automatically:</p>
             <p class="dz-sub">Smart sync: each file is <b>compared with the repo first</b> — unchanged files are skipped, changed ones are replaced, new ones are added.</p>
-            <div data-cap="lfs" class="strategy-row">
+            <div data-feature="lfs" data-allow-experimental="true" class="strategy-row">
               <span class="strategy"><b>≤ 40 MB</b><i>Git Data API</i></span>
               <span class="strategy"><b>40–64 MB</b><i>Native Git push</i></span>
               <span class="strategy glow"><b>&gt; 64 MB</b><i>Git LFS ✦</i></span>
@@ -250,13 +277,13 @@
           </div>
           <div class="upload-opts">
             <label class="field-label">Commit mode</label>
-            <div class="seg" data-cap="batch" id="uploadMode">
+            <div class="seg" data-feature="file.batch" id="uploadMode">
               <button class="seg-btn active" data-v="single">One commit per file</button>
               <button class="seg-btn" data-v="batch">All as one commit</button>
             </div>
             <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-ghost small" data-cap="batch" id="folderPickBtn">Select a whole folder…</button>
-              <button class="btn btn-ghost small" data-cap="batch" id="zipUploadBtn">Upload a .zip (auto-extract)…</button>
+              <button class="btn btn-ghost small" data-feature="native-push" data-allow-experimental="true" id="folderPickBtn">Select a whole folder…</button>
+              <button class="btn btn-ghost small" data-feature="native-push" data-allow-experimental="true" id="zipUploadBtn">Upload a .zip (auto-extract)…</button>
             </div>
             <input type="file" id="folderPicker" webkitdirectory multiple hidden>
             <input type="file" id="zipPicker" accept=".zip,application/zip" hidden>
@@ -276,7 +303,7 @@
 
       <!-- COMMITS -->
       <div class="tabpane" id="tab-commits">
-        <button class="btn btn-ghost small" data-cap="tm" id="tmOpenBtn" style="margin-bottom:12px"><svg class="ico" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2M4.5 4.5L7 7M19.5 4.5L17 7"/></svg>Time Machine — travel this branch</button>
+        <button class="btn btn-ghost small" data-feature="recovery" id="tmOpenBtn" style="margin-bottom:12px"><svg class="ico" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2M4.5 4.5L7 7M19.5 4.5L17 7"/></svg>Time Machine — travel this branch</button>
         <div class="commit-list" id="commitList"></div>
         <div class="load-more-wrap"><button class="btn btn-ghost" id="moreCommitsBtn" hidden>Load more</button></div>
       </div>
@@ -349,7 +376,7 @@
               <p>Live topology for security, dependencies, protected assets, activity and recovery paths.</p>
             </div>
             <div class="neural-head-actions">
-              <button class="btn btn-ghost small" id="neuralLiveBtn">Connect verified live events</button>
+              <button class="btn btn-ghost small" id="neuralLiveBtn" data-feature="live-events">Connect verified live events</button>
               <button class="btn btn-ghost small" id="neuralRefreshBtn">Refresh data</button>
               <button class="btn btn-primary small neural-emergency-btn" id="neuralEmergencyBtn">Activate Emergency Shield</button>
             </div>
@@ -367,9 +394,9 @@
               <div class="neural-panel-title">Intelligence mode</div>
               <div class="neural-mode-list" id="neuralModeList">
                 <button class="neural-mode active" data-neural-mode="security"><span>◈</span><div><b>Security</b><small>Sessions, threats, workflows</small></div></button>
-                <button class="neural-mode" data-neural-mode="recovery"><span>↺</span><div><b>Recovery</b><small>Refs, tags and snapshots</small></div></button>
-                <button class="neural-mode" data-neural-mode="dependencies"><span>⌬</span><div><b>Dependencies</b><small>Packages and CVEs</small></div></button>
-                <button class="neural-mode" data-neural-mode="governance"><span>▣</span><div><b>Governance</b><small>Protected assets and policy</small></div></button>
+                <button class="neural-mode" data-feature="recovery" data-neural-mode="recovery"><span>↺</span><div><b>Recovery</b><small>Refs, tags and snapshots</small></div></button>
+                <button class="neural-mode" data-feature="dependency-audit" data-allow-experimental="true" data-neural-mode="dependencies"><span>⌬</span><div><b>Dependencies</b><small>Packages and CVEs</small></div></button>
+                <button class="neural-mode" data-feature="governance" data-allow-experimental="true" data-neural-mode="governance"><span>▣</span><div><b>Governance</b><small>Protected assets and policy</small></div></button>
                 <button class="neural-mode" data-neural-mode="activity"><span>⌁</span><div><b>Activity</b><small>Commits, PRs and CI</small></div></button>
               </div>
 
@@ -380,9 +407,9 @@
 
               <div class="neural-panel-title neural-filter-title">Response controls</div>
               <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralReadOnlyBtn">Enable read-only</button>
-              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralSnapshotBtn">Capture recovery refs</button>
-              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralSecurityScanBtn">Run dependency scan</button>
-              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralExportBtn">Export activity</button>
+              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralSnapshotBtn" data-feature="recovery">Capture recovery refs</button>
+              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralSecurityScanBtn" data-feature="dependency-audit" data-allow-experimental="true">Run dependency scan</button>
+              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralExportBtn" data-feature="repository.read">Export activity</button>
             </aside>
 
             <div class="card neural-stage" id="neuralStage">
@@ -398,7 +425,7 @@
                 <button class="neural-tool" id="neuralPlayBtn" title="Pause or resume animation" aria-label="Pause or resume animation"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg></button>
                 <button class="neural-tool" id="neuralFitBtn" title="Fit graph" aria-label="Fit graph"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
                 <button class="neural-tool" id="neuralExplainBtn" title="Explain a connection" aria-label="Explain a connection">⌁</button>
-                <button class="neural-tool" id="neuralDemoBtn" title="Inject a demonstration incident">✦</button>
+                <button class="neural-tool" id="neuralDemoBtn" title="Inject a demonstration incident" aria-label="Inject a demonstration incident">✦</button>
               </div>
               <div class="neural-legend">
                 <span><i class="repo"></i>Repository</span><span><i class="asset"></i>Protected asset</span><span><i class="threat"></i>Threat</span><span><i class="recovery"></i>Recovery</span>
@@ -448,33 +475,33 @@
   </div>
 
   <!-- mobile bottom navigation -->
-  <nav class="bottomnav glass" id="bottomNav">
+  <nav class="bottomnav glass" id="bottomNav" aria-label="Mobile repository navigation">
     <button data-nav="files"><svg width="21" height="21" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z" fill="none" stroke="currentColor" stroke-width="1.7"/></svg><span>Files</span></button>
     <button data-nav="editor" class="active"><svg width="21" height="21" viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Code</span></button>
     <button data-nav="upload"><svg width="21" height="21" viewBox="0 0 24 24"><path d="M12 17V5M6 11l6-6 6 6M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Push</span></button>
     <button data-nav="commits"><svg width="21" height="21" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v6.8M12 15.2V22" stroke="currentColor" stroke-width="1.7"/></svg><span>History</span></button>
     <button data-nav="more"><svg width="21" height="21" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg><span>More</span></button>
   </nav>
-</div>
+</main>
 
 <!-- mobile "More" sheet -->
 <div class="sheet-scrim" id="sheetScrim" hidden>
   <div class="sheet glass" id="sheet">
     <div class="sheet-grab"></div>
-    <button class="sheet-item" data-cap="prs" data-act="pulls"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M7.5 6.8L3.8 10.5l3.7 3.7M3.8 10.5h12M16.5 17.2l3.7-3.7-3.7-3.7M20.2 13.5h-12"/></svg><span>Pull requests</span></button>
-    <button class="sheet-item" data-cap="issues" data-act="issues"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg><span>Issues</span></button>
-    <button class="sheet-item" data-cap="releases" data-act="releases"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M3.5 12L12 3.5h6.2a2.3 2.3 0 0 1 2.3 2.3V12L12 20.5 3.5 12z"/><circle cx="16" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg><span>Releases</span></button>
-    <button class="sheet-item" data-cap="actions" data-act="actions"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M10 8.6l5.6 3.4L10 15.4z"/></svg><span>Actions (CI)</span></button>
-    <button class="sheet-item" data-cap="compare" data-act="compare"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M8 3.5v17M8 3.5L4.5 7M8 3.5L11.5 7M16 20.5v-17M16 20.5L12.5 17M16 20.5l3.5-3.5"/></svg><span>Compare branches</span></button>
-    <button class="sheet-item" data-act="neural"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="7" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="18" cy="18" r="1.7"/><circle cx="6" cy="18" r="1.7"/><path d="M7 8.3l3.2 2.3M14 10.2l3.4-2.8M14 13.5l2.7 3M9.9 13.6l-2.7 3"/></svg><span>Neural Command Center</span></button>
-    <button class="sheet-item" data-act="governance"><span class="sheet-glyph" aria-hidden="true">◇</span><span>Policy Digital Twin</span></button>
+    <button class="sheet-item" data-feature="pulls.read" data-act="pulls"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M7.5 6.8L3.8 10.5l3.7 3.7M3.8 10.5h12M16.5 17.2l3.7-3.7-3.7-3.7M20.2 13.5h-12"/></svg><span>Pull requests</span></button>
+    <button class="sheet-item" data-feature="issues.read" data-act="issues"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg><span>Issues</span></button>
+    <button class="sheet-item" data-feature="releases.read" data-act="releases"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M3.5 12L12 3.5h6.2a2.3 2.3 0 0 1 2.3 2.3V12L12 20.5 3.5 12z"/><circle cx="16" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg><span>Releases</span></button>
+    <button class="sheet-item" data-feature="workflows.read" data-act="actions"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M10 8.6l5.6 3.4L10 15.4z"/></svg><span>Actions (CI)</span></button>
+    <button class="sheet-item" data-feature="recovery" data-act="compare"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M8 3.5v17M8 3.5L4.5 7M8 3.5L11.5 7M16 20.5v-17M16 20.5L12.5 17M16 20.5l3.5-3.5"/></svg><span>Compare branches</span></button>
+    <button class="sheet-item" data-feature="access-surface" data-act="neural"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="7" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="18" cy="18" r="1.7"/><circle cx="6" cy="18" r="1.7"/><path d="M7 8.3l3.2 2.3M14 10.2l3.4-2.8M14 13.5l2.7 3M9.9 13.6l-2.7 3"/></svg><span>Neural Command Center</span></button>
+    <button class="sheet-item" data-feature="governance" data-allow-experimental="true" data-act="governance"><span class="sheet-glyph" aria-hidden="true">◇</span><span>Policy Digital Twin</span></button>
     <div class="sheet-div"></div>
     <button class="sheet-item" data-act="palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg><span>Command palette</span></button>
-    <button class="sheet-item" data-act="branches"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg><span>Manage branches</span></button>
-    <button class="sheet-item" data-act="zip"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5v11M6.5 9l5.5 5.5L17.5 9M4 20.5h16"/></svg><span>Download repo (.zip)</span></button>
+    <button class="sheet-item" data-feature="branches.write" data-act="branches"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg><span>Manage branches</span></button>
+    <button class="sheet-item" data-feature="repository.read" data-act="zip"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5v11M6.5 9l5.5 5.5L17.5 9M4 20.5h16"/></svg><span>Download repo (.zip)</span></button>
     <button class="sheet-item" data-act="theme"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg><span>Toggle theme</span></button>
-    <button class="sheet-item danger" data-act="delrepo"><svg class="ico" width="19" height="19" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg><span>Delete repository…</span></button>
-    <button class="sheet-item" data-act="safeguards"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/><path d="M9.5 12l1.8 1.8 3.4-3.6"/></svg><span>Safeguards</span></button>
+    <button class="sheet-item danger" data-feature="repository.delete" data-act="delrepo"><svg class="ico" width="19" height="19" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg><span>Delete repository…</span></button>
+    <button class="sheet-item" data-feature="recovery" data-act="safeguards"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/><path d="M9.5 12l1.8 1.8 3.4-3.6"/></svg><span>Safeguards</span></button>
     <button class="sheet-item" data-act="settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span>Settings</span></button>
   </div>
 </div>
@@ -556,7 +583,7 @@
   <span id="netBarText">Offline — commits will be queued ✦</span>
   <button class="btn btn-ghost small" id="queueOpenBtn" hidden>Queue (<span id="queueCount">0</span>)</button>
 </div>
-<div class="toast-stack" id="toasts"></div>
+<div class="toast-stack" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
 
 <script src="/vendor/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="/vendor/codemirror/5.65.16/mode/meta.min.js"></script>
@@ -574,6 +601,9 @@
 <script src="/archive-safety.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/export-safety.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/governance-ui.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/alpha-ui.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/trust-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/app.js?v=__NV_ASSET_VERSION__"></script>
 </body>
 </html>

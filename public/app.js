@@ -143,8 +143,18 @@ async function api(path, opts = {}, allowCsrfRetry = true) {
     const error = new Error(data.error || `Request failed (${r.status})`);
     error.status = r.status;
     error.code = data.code || '';
+    error.correlationId = data.correlationId || r.headers.get('x-nebulaverse-correlation-id') || '';
+    error.providerChanged = data.providerChanged || 'unknown';
+    error.safeState = data.safeState || '';
+    error.nextAction = data.nextAction || '';
     if (error.code === 'BRANCH_CHANGED' && state.work) {
       queueMicrotask(() => refreshRepoMetadata().catch(() => {}));
+    }
+    if (['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(error.code)) {
+      await purgeLocalData(true);
+      alphaBootStarted = false;
+      window.NebulaAlphaUI.showExpired(error.code);
+      _page = 'alpha-access';
     }
     throw error;
   }
@@ -212,6 +222,9 @@ function toast(msg, kind = '') {
   $('#toasts').appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .4s'; setTimeout(() => el.remove(), 400); }, 3600);
 }
+function presentError(error) {
+  return window.NebulaTrustUI.presentError(error || new Error('The request could not be completed.'));
+}
 
 /* ---------------- modal ---------------- */
 let modalResolve = null;
@@ -227,7 +240,11 @@ function modal({ title, bodyHTML, okText = 'Confirm', danger = false }) {
     ok.classList.toggle('danger', danger);
     $('#scrim').hidden = false;
     const fi = $('#modalBody input:not([disabled]), #modalBody textarea:not([disabled]), #modalBody select:not([disabled])');
-    if (fi && !isMobile()) setTimeout(() => fi.focus(), 60);
+    const initialFocus = fi || $('#modalCancel');
+    if (initialFocus) setTimeout(() => {
+      const scrim = $('#scrim');
+      if (!scrim.hidden && !scrim.contains(document.activeElement)) initialFocus.focus();
+    }, 60);
   });
 }
 function closeModal(v) {
@@ -242,7 +259,7 @@ $('#modalCancel').addEventListener('click', () => closeModal(false));
 $('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) closeModal(false); });
 
 /* ---------------- pages ---------------- */
-let _page = 'login';
+let _page = 'alpha-access';
 function withTransition(fn) {
   if (document.startViewTransition && state.settings.motion &&
       !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -269,7 +286,7 @@ function showPage(name) {
   });
 }
 function saveRoute() {
-  if (_page !== 'work' || !state.work.repo) return;
+  if (_page !== 'work' || !state.work || !state.work.repo) return;
   const h = `#/${encodeURIComponent(state.work.owner)}/${encodeURIComponent(state.work.repo)}` +
     `@${encodeURIComponent(state.work.branch)}/${currentTab()}` +
     (state.file && state.file.path ? '/' + encodeURIComponent(state.file.path) : '');
@@ -465,7 +482,7 @@ document.addEventListener('click', async event => {
       }
     }
   } catch (error) {
-    toast(error.message, 'err');
+    presentError(error);
   } finally {
     if (document.contains(button)) {
       button.disabled = false;
@@ -497,11 +514,11 @@ async function openSettings() {
           <span class="tt-knob"></span>
         </button>
       </div>
-      <label class="field-label">Editor theme</label>
+      <label class="field-label" for="setEdTheme">Editor theme</label>
       <select id="setEdTheme">${ED_THEMES.map(([v, l]) => `<option value="${v}" ${v === s.editorTheme ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="field-label">Editor font</label>
+      <label class="field-label" for="setEdFont">Editor font</label>
       <select id="setEdFont">${ED_FONTS.map(f => `<option ${f === s.editorFont ? 'selected' : ''}>${f}</option>`).join('')}</select>
-      <label class="field-label">Editor font size — <span id="setFsVal">${s.fontSize}px</span></label>
+      <label class="field-label" for="setFs">Editor font size — <span id="setFsVal">${s.fontSize}px</span></label>
       <input type="range" min="11" max="20" value="${s.fontSize}" id="setFs" style="min-height:32px;padding:0">
       <label class="check"><input type="checkbox" id="setWrap" ${s.wrap ? 'checked' : ''}> Wrap long lines in editor</label>
       <label class="check"><input type="checkbox" id="setMotion" ${s.motion ? 'checked' : ''}> Animated nebula background</label>
@@ -539,7 +556,13 @@ function alphaRevocationGuidanceBody(guidance) {
 
 async function disconnectAlphaProviders(openGuidance) {
   const result = await api('/api/alpha/providers/disconnect-all', { method: 'POST', body: {} });
+  if (result && result.ok === false && result.status === 'pending') {
+    toast('Provider cleanup is pending. Keep this session open and retry shortly.');
+    return;
+  }
   await purgeLocalData(true);
+  ensureAlphaProviderGuidance();
+  ensureLoginAlphaSessionControls();
   showPage('login');
   if (openGuidance) {
     await modal({
@@ -566,10 +589,14 @@ async function deleteAlphaData() {
     toast('Type DELETE ALPHA DATA exactly to confirm deletion.', 'err');
     return;
   }
-  await api('/api/alpha/delete', {
+  const result = await api('/api/alpha/delete', {
     method: 'POST',
     body: { confirm: 'DELETE ALPHA DATA' }
   });
+  if (result && result.ok === false && result.status === 'pending') {
+    toast('Alpha data deletion is pending provider cleanup. Keep this session open and retry shortly.');
+    return;
+  }
   await purgeLocalData(true);
   showPage('login');
   toast('Alpha data deletion completed ✦', 'ok');
@@ -592,7 +619,7 @@ document.addEventListener('click', async event => {
     }
     if (action === 'delete') await deleteAlphaData();
   } catch (error) {
-    toast(error.message || 'Privacy action could not be completed', 'err');
+    presentError(error);
   } finally {
     if (document.contains(button)) button.disabled = false;
   }
@@ -641,6 +668,49 @@ document.addEventListener('change', async e => {
 
 /* ================= AUTH ================= */
 let loginProvider = 'github';
+function ensureAlphaProviderGuidance() {
+  const card = document.querySelector('.login-card');
+  if (!card) return null;
+  let panel = $('#alphaProviderGuidance');
+  if (!panel) {
+    panel = document.createElement('section');
+    panel.id = 'alphaProviderGuidance';
+    panel.className = 'set-group alpha-provider-guidance';
+    const heading = document.createElement('h2');
+    heading.textContent = 'Provider permission review';
+    const copy = document.createElement('p');
+    copy.className = 'hint';
+    panel.append(heading, copy);
+    card.insertBefore(panel, $('#loginError'));
+  }
+  const copy = panel.querySelector('p');
+  copy.textContent = loginProvider === 'github'
+    ? 'Prefer a GitHub App limited to selected repositories. If a token is required, use a short-lived sandbox credential with only the permissions needed for this test; never use a production repository.'
+    : `Use a short-lived ${loginProvider === 'gitlab' ? 'GitLab' : 'Gitea'} sandbox credential with only the permissions needed for the advertised capability subset; never use a production repository.`;
+  return panel;
+}
+function ensureLoginAlphaSessionControls() {
+  const card = document.querySelector('.login-card');
+  if (!card) return null;
+  let controls = $('#loginAlphaSessionControls');
+  if (controls) return controls;
+  controls = document.createElement('section');
+  controls.id = 'loginAlphaSessionControls';
+  controls.className = 'set-group alpha-privacy-panel';
+  const heading = document.createElement('h2');
+  heading.textContent = 'Alpha session';
+  const copy = document.createElement('p');
+  copy.className = 'hint';
+  copy.textContent = 'Provider access is separate from the controlled alpha session.';
+  const end = document.createElement('button');
+  end.type = 'button';
+  end.className = 'btn btn-ghost btn-block';
+  end.dataset.alphaPrivacyAction = 'end';
+  end.textContent = 'End alpha session';
+  controls.append(heading, copy, end);
+  card.appendChild(controls);
+  return controls;
+}
 $('#provSeg').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
   $$('#provSeg .seg-btn').forEach(x => x.classList.toggle('active', x === b));
@@ -655,6 +725,7 @@ $('#provSeg').addEventListener('click', e => {
     gitlab: 'Create one at <span class="mono">GitLab → Preferences → Access tokens</span> with the <span class="mono">api</span> scope. Works with gitlab.com or your self-hosted server.',
     gitea: 'Create one at <span class="mono">your Gitea → Settings → Applications → Generate token</span>. Enter your server URL above.'
   }[loginProvider] + ' Sealed in an encrypted httpOnly cookie — never stored in the browser, never logged.';
+  ensureAlphaProviderGuidance();
 });
 const PROV_ICON = {
   github: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>',
@@ -663,13 +734,36 @@ const PROV_ICON = {
 };
 function applyCaps() {
   const caps = state.caps || { prs: 1, issues: 1, releases: 1, actions: 1, lfs: 1, tm: 1, batch: 1, search: 1, notif: 1, compare: 1 };
-  $$('[data-cap]').forEach(el => { el.hidden = !caps[el.dataset.cap]; });
   const lfsLabel = $('#forceLfs') && $('#forceLfs').closest('label');
-  if (lfsLabel) lfsLabel.hidden = !caps.lfs;
+  if (lfsLabel) lfsLabel.hidden = false;
   if (!caps.batch && typeof uploadModeV !== 'undefined' && uploadModeV === 'batch') {
     uploadModeV = 'single';
     $$('#uploadMode .seg-btn').forEach(b2 => b2.classList.toggle('active', b2.dataset.v === 'single'));
   }
+  window.NebulaCapabilityUI.apply();
+}
+async function loadProviderCapabilities() {
+  const provider = state.me && state.me.provider || 'github';
+  const authority = state.me && (
+    state.me.authority || state.me.host || state.me.baseUrl
+  ) || (provider === 'github' ? 'github.com' : '');
+  await window.NebulaCapabilityUI.load(provider, authority);
+  window.NebulaCapabilityUI.apply();
+}
+function runCapabilityAction(feature, action, options = {}) {
+  if (!feature) {
+    action();
+    return true;
+  }
+  const resolved = window.NebulaCapabilityUI.decision(feature);
+  const blocked = resolved.status === 'Unavailable'
+    || (resolved.status === 'Experimental' && options.allowExperimental !== true);
+  if (blocked) {
+    toast(window.NebulaCapabilityUI.explain(feature), 'err');
+    return false;
+  }
+  action();
+  return true;
 }
 async function boot() {
   loadSettings();
@@ -688,6 +782,7 @@ async function boot() {
     try { localStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
     refreshSafety();
     state.caps = state.me.caps || null;
+    await loadProviderCapabilities();
     applyCaps();
     setAvatar(state.me.avatar);
     flushQueue();
@@ -699,13 +794,18 @@ async function boot() {
       /* offline launch: proceed with the last-known identity and cached data */
       state.me = cached;
       state.caps = cached.caps || null;
+      await loadProviderCapabilities();
       applyCaps();
       setAvatar(cached.avatar);
       updateNetBar();
       loadRepos(true);
       if (!(await restoreRoute())) showPage('repos');
       toast('Offline mode — showing cached data ✦', 'ok');
-    } else showPage('login');
+    } else if (!['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(e.code)) {
+      ensureAlphaProviderGuidance();
+      ensureLoginAlphaSessionControls();
+      showPage('login');
+    }
   }
 }
 $('#loginBackBtn').addEventListener('click', () => {
@@ -733,14 +833,20 @@ async function doLogin() {
       method: 'POST',
       body: { token, provider: loginProvider, baseUrl: ($('#baseUrl') ? $('#baseUrl').value : '').trim() }
     });
-    try { const me2 = await api('/api/me'); state.me = { ...state.me, ...me2 }; state.caps = me2.caps || null; localStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
+    try {
+      const me2 = await api('/api/me');
+      state.me = { ...state.me, ...me2 };
+      state.caps = me2.caps || null;
+      localStorage.setItem('nv_me', JSON.stringify(state.me));
+      await loadProviderCapabilities();
+    } catch {}
     $('#loginBackBtn').hidden = true;
     applyCaps();
     $('#tokenInput').value = '';
     setAvatar(state.me.avatar);
     toast(`Welcome aboard, ${state.me.login} ✦`, 'ok');
     showPage('repos'); loadRepos(true);
-  } catch (e) { err.textContent = e.message; err.hidden = false; }
+  } catch (e) { err.hidden = true; presentError(e); }
   finally { $('#loginBtn').disabled = false; $('#loginBtn').textContent = 'Enter orbit'; }
 }
 async function purgePrivateCaches() {
@@ -778,11 +884,30 @@ async function purgeLocalData(full) {
     });
   } catch {}
   try { localStorage.removeItem('nv_me'); } catch {}
-  state.staged = [];
   state.file = null;
+  if (state.cm) {
+    try { state.cm.setValue(''); } catch {}
+    try { state.cm.clearHistory(); } catch {}
+  }
+  state.staged = [];
   state.work = null;
   state.repos = [];
   state.me = null;
+  state.caps = null;
+  state.fileIndex = null;
+  for (const selector of [
+    '#repoGrid', '#tree', '#prList', '#issueList', '#releaseList', '#commitList',
+    '#cmpResult', '#uploadQueue', '#actionsList', '#stageList', '#paletteList',
+    '#filePath', '#fileSize', '#mdPreview', '#binaryPreview', '#editDiffBody',
+    '#githubAppSettingsBody', '#tokenInput', '#baseUrl', '#codeSearch', '#findInput',
+    '#replaceInput', '#uploadMsg', '#stageMsg', '#paletteInput'
+  ]) {
+    const element = $(selector);
+    if (!element) continue;
+    if ('value' in element) element.value = '';
+    if (typeof element.replaceChildren === 'function') element.replaceChildren();
+    else element.textContent = '';
+  }
   if (full) _cache.clear();
 }
 window.NebulaPwa = Object.freeze({ purgePrivateData: purgeLocalData, purgePrivateCaches, isOfflineRepoEnabled });
@@ -797,7 +922,7 @@ async function doLogout() {
     state.me = null;
     showPage('login');
   }
-  if (remoteError) toast(`Local data cleared, but the server session could not be revoked: ${remoteError.message}`, 'err');
+  if (remoteError) presentError(remoteError);
 }
 $('#logoutBtn').addEventListener('click', doLogout);
 $('#logoutBtnM').addEventListener('click', doLogout);
@@ -819,6 +944,9 @@ const LOCK_SVG = '<svg class="lock-ico" width="13" height="13" viewBox="0 0 24 2
 function repoCard(r) {
   const el = document.createElement('div');
   el.className = 'card repo-card pressable';
+  el.tabIndex = 0;
+  el.setAttribute('role', 'button');
+  el.setAttribute('aria-label', `Open repository ${r.full_name}`);
   el.innerHTML = `
     <h3>${r.private ? LOCK_SVG : ''}<span></span></h3>
     <p class="desc"></p>
@@ -828,15 +956,25 @@ function repoCard(r) {
     </div>`;
   el.querySelector('h3 span:last-child').textContent = r.full_name;
   el.querySelector('.desc').textContent = r.description || 'No description';
-  el.addEventListener('click', () => openRepo(r.owner, r.name));
+  const open = () => openRepo(r.owner, r.name);
+  el.addEventListener('click', open);
+  el.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    open();
+  });
   return el;
 }
 $('#moreReposBtn').addEventListener('click', () => { state.repoPage++; loadRepos(false); });
 $('#repoSort').addEventListener('change', e => { state.repoSort = e.target.value; loadRepos(true); });
-$('#repoFilter').addEventListener('keydown', async e => {
-  if (e.key !== 'Enter' || !e.target.value.trim()) return;
-  if (state.caps && !state.caps.search) return;
-  const q = e.target.value.trim();
+async function globalCodeSearch(query) {
+  const q = String(query || '').trim();
+  if (!q) return;
+  const capability = window.NebulaCapabilityUI.decision('global-search');
+  if (capability.status === 'Unavailable') {
+    toast(window.NebulaCapabilityUI.explain('global-search'), 'err');
+    return;
+  }
   modal({ title: `Code search — “${q}”`, okText: 'Close', bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
   try {
     const hits = await api(`/api/search?q=${encodeURIComponent(q)}`);
@@ -856,8 +994,14 @@ $('#repoFilter').addEventListener('keydown', async e => {
       });
       $('#modalBody').appendChild(el);
     });
-  } catch (e2) { if (!$('#scrim').hidden) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e2.message)}</p>`; }
+  } catch (error) {
+    if (!$('#scrim').hidden) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(error.message)}</p>`;
+  }
+}
+$('#repoFilter').addEventListener('keydown', e => {
+  if (e.key === 'Enter') globalCodeSearch(e.target.value);
 });
+$('#repoGlobalSearchBtn').addEventListener('click', () => globalCodeSearch($('#repoFilter').value));
 $('#repoFilter').addEventListener('input', e => {
   const q = e.target.value.toLowerCase();
   $$('#repoGrid .repo-card').forEach(c => { c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none'; });
@@ -953,10 +1097,84 @@ $('#newRepoBtn').addEventListener('click', async () => {
     const r = await api('/api/repos', { method: 'POST', body: { name, description: $('#nrDesc').value, isPrivate: $('#nrPriv').checked } });
     toast(`Created ${r.full_name} ✦`, 'ok');
     loadRepos(true);
-  } catch (e) { toast(e.message, 'err'); }
+  } catch (e) { presentError(e); }
 });
 
 /* ================= WORKSPACE ================= */
+function trustFailureText(result, label) {
+  if (result.status === 'fulfilled') return '';
+  return `${label} is unavailable. No clean result is claimed.`;
+}
+async function loadRepositoryTrustSummary() {
+  const trustKey = wPath();
+  const loading = {
+    connection: { text: 'Checking provider and repository freshness…', evidenceState: 'Inferred' },
+    pipeline: { text: 'Checking application and evidence health…', evidenceState: 'Inferred' },
+    risk: { text: 'Checking access and governance risk…', evidenceState: 'Inferred' },
+    action: { text: 'Waiting for verified trust results.', evidenceState: 'Inferred' },
+    evidence: { text: 'Loading supporting evidence…', evidenceState: 'Inferred' },
+    announcement: 'Repository opened. Trust checks are running.'
+  };
+  NebulaTrustUI.renderSummary(loading);
+  const [liveResult, accessResult, evidenceResult] = await Promise.allSettled([
+    api(`/api/repo/${wPath()}/live-events/status`),
+    api(`/api/repo/${wPath()}/access-surface`),
+    api(`/api/repo/${wPath()}/evidence`)
+  ]);
+  if (!state.work || wPath() !== trustKey) return;
+  const live = liveResult.status === 'fulfilled' ? liveResult.value : null;
+  const access = accessResult.status === 'fulfilled' ? accessResult.value : null;
+  const evidence = evidenceResult.status === 'fulfilled' ? evidenceResult.value : null;
+  const failures = [
+    trustFailureText(liveResult, 'Live-event status'),
+    trustFailureText(accessResult, 'Access-surface status'),
+    trustFailureText(evidenceResult, 'Evidence status')
+  ].filter(Boolean);
+
+  const connection = !live
+    ? { text: 'Repository metadata responded, but connection freshness could not be verified.', evidenceState: 'Unavailable' }
+    : live.available === false
+      ? { text: `Repository responded; verified live events are unavailable${live.reason ? `: ${live.reason}` : '.'}`, evidenceState: 'Unavailable' }
+      : live.connected
+        ? { text: 'Repository is current and verified live events are connected.', evidenceState: 'Provider-verified' }
+        : { text: 'Repository is current; verified live events are not connected.', evidenceState: 'Provider-verified' };
+
+  const chain = evidence && evidence.chain;
+  const pipeline = !evidence || evidence.available === false || !chain || chain.available === false
+    ? { text: 'Durable evidence verification is unavailable; no healthy pipeline is claimed.', evidenceState: 'Unavailable' }
+    : chain.valid
+      ? { text: `Evidence chain verified${Number.isFinite(chain.checked) ? ` across ${chain.checked} record(s)` : ''}.`, evidenceState: 'Deterministic' }
+      : { text: 'Evidence verification did not pass. Treat the pipeline as stale.', evidenceState: 'Stale' };
+
+  const risk = !access || access.available === false
+    ? { text: 'Access and governance risk could not be enumerated.', evidenceState: 'Unavailable' }
+    : access.partial
+      ? { text: 'Access inventory is partial; risk may be understated.', evidenceState: 'Stale' }
+      : access.risk && access.risk.severity !== 'normal'
+        ? { text: `${access.risk.severity === 'critical' ? 'Critical' : 'Warning'} access risk (${Number(access.risk.score) || 0}/100): ${access.risk.reasons && access.risk.reasons[0] ? access.risk.reasons[0].message : 'review the access surface.'}`, evidenceState: 'Provider-verified' }
+        : { text: 'No issue was found in the provider access inventory.', evidenceState: 'Provider-verified' };
+
+  let action = { text: 'No immediate corrective action is indicated. Continue with the golden path.', evidenceState: 'Inferred' };
+  if (failures.length) action = { text: 'Retry unavailable trust checks before making a sensitive change.', evidenceState: 'Unavailable' };
+  else if (access && access.partial) action = { text: 'Refresh the access inventory with sufficient provider permissions.', evidenceState: 'Stale' };
+  else if (access && access.risk && access.risk.severity !== 'normal') action = { text: 'Review the access surface and resolve the highest-scoring reason first.', evidenceState: 'Inferred' };
+  else if (!evidence || evidence.available === false || !chain || chain.available === false) action = { text: 'Connect durable evidence storage before relying on audit history.', evidenceState: 'Unavailable' };
+  else if (!chain.valid) action = { text: 'Re-verify the evidence chain before relying on audit history.', evidenceState: 'Stale' };
+  else if (live && !live.connected) action = { text: 'Connect verified live events if current event evidence is required.', evidenceState: 'Inferred' };
+
+  const evidenceSummary = !evidence || evidence.available === false || !chain || chain.available === false
+    ? { text: 'Supporting evidence is unavailable without durable persistence.', evidenceState: 'Unavailable' }
+    : chain.valid
+      ? { text: `${chain.checked || 0} chained record(s), ${(evidence.events || []).length} event(s), and ${(evidence.snapshots || []).length} snapshot(s) support this summary.`, evidenceState: 'Deterministic' }
+      : { text: 'Evidence exists, but its chain is not currently verified.', evidenceState: 'Stale' };
+
+  NebulaTrustUI.renderSummary({
+    connection, pipeline, risk, action, evidence: evidenceSummary,
+    announcement: failures.length
+      ? `Repository trust summary updated with ${failures.length} unavailable check${failures.length === 1 ? '' : 's'}.`
+      : 'Repository trust summary updated.'
+  });
+}
 async function openRepo(owner, repo) {
   showPage('work');
   clearGovernanceState();
@@ -980,8 +1198,19 @@ async function openRepo(owner, repo) {
     loadTree('', $('#tree'), true);
     refreshRate();
     saveRoute();
+    loadRepositoryTrustSummary().catch(error => {
+      NebulaTrustUI.renderSummary({
+        connection: { text: 'Repository metadata responded.', evidenceState: 'Provider-verified' },
+        pipeline: { text: 'Trust checks could not be completed.', evidenceState: 'Unavailable' },
+        risk: { text: 'Risk state is unavailable.', evidenceState: 'Unavailable' },
+        action: { text: 'Retry trust checks before making a sensitive change.', evidenceState: 'Unavailable' },
+        evidence: { text: 'Supporting evidence is unavailable.', evidenceState: 'Unavailable' },
+        announcement: 'Repository trust checks are unavailable.'
+      });
+      presentError(error);
+    });
     api(`/api/repo/${owner}/${repo}/star`).then(x => { state.work.starred = x.starred; }).catch(() => {});
-  } catch (e) { toast(e.message, 'err'); showPage('repos'); }
+  } catch (e) { presentError(e); showPage('repos'); }
 }
 async function refreshRepoMetadata() {
   if (!state.work || !state.work.owner || !state.work.repo) return null;
@@ -1001,7 +1230,7 @@ async function toggleStar() {
     const out = await api(`/api/repo/${wPath()}/star`, { method: state.work.starred ? 'DELETE' : 'PUT' });
     state.work.starred = out.starred;
     toast(out.starred ? '★ Starred' : 'Unstarred', 'ok');
-  } catch (e) { toast(e.message, 'err'); }
+  } catch (e) { presentError(e); }
 }
 function fillBranchSelect(sel, names, selected, withGlyph) {
   sel.innerHTML = '';
@@ -1715,6 +1944,8 @@ function applySafetyUI() {
 }
 function dlFile(name, text, type) {
   const a = document.createElement('a');
+  a.setAttribute('aria-hidden', 'true');
+  a.tabIndex = -1;
   a.href = URL.createObjectURL(new Blob([text], { type: type || 'application/json' }));
   a.download = name;
   document.body.appendChild(a); a.click();
@@ -1811,7 +2042,7 @@ async function exportEvidenceFlow() {
     const stamp = new Date(evidence.generatedAt || Date.now()).toISOString().slice(0, 10);
     dlFile(`${state.work.repo}-evidence-${stamp}.json`, JSON.stringify(evidence, null, 2));
     await modal({ title: 'Evidence package exported', okText: 'Done', bodyHTML: `<p class="hint">${(evidence.events || []).length} verified event(s), ${(evidence.snapshots || []).length} signed snapshot(s). Evidence chain: <b>${evidence.chain && evidence.chain.valid ? 'valid' : evidence.chain && evidence.chain.available ? 'verification failed' : 'unavailable without Neon'}</b>.</p>` });
-  } catch (e) { toast(e.message, 'err'); }
+  } catch (e) { presentError(e); }
 }
 async function recoveryFlow() {
   const stored = localStorage.getItem('nv_snap_' + safetyKey());
@@ -1898,6 +2129,7 @@ async function openSafeguards() {
   const sf = state.safety;
   const prot = protectedList();
   setTimeout(() => {
+    if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
     const bind = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
     const ro = $('#sgReadOnly'), fz = $('#sgFreeze');
     if (ro) ro.addEventListener('change', () => setSafety({ readOnly: ro.checked }));
@@ -1926,11 +2158,11 @@ async function openSafeguards() {
       <p class="hint" style="margin:2px 0 10px">Pauses background queue flushing and auto-sync on reconnect. Manual sync still works.</p>
       <div class="set-label">Repository safety</div>
       <div class="about-actions">
-        <button class="btn btn-ghost small" id="sgSnap">Emergency snapshot</button>
-        <button class="btn btn-ghost small" id="sgRecover">Disaster recovery…</button>
-        <button class="btn btn-ghost small" id="sgActivity">Export activity</button>
-        <button class="btn btn-ghost small" id="sgScan">Security scan</button>
-        <button class="btn btn-ghost small" id="sgEvidence">Export evidence</button>
+        <button class="btn btn-ghost small" id="sgSnap" data-feature="recovery">Emergency snapshot</button>
+        <button class="btn btn-ghost small" id="sgRecover" data-feature="recovery">Disaster recovery…</button>
+        <button class="btn btn-ghost small" id="sgActivity" data-feature="governance" data-allow-experimental="true">Export activity</button>
+        <button class="btn btn-ghost small" id="sgScan" data-feature="dependency-audit">Security scan</button>
+        <button class="btn btn-ghost small" id="sgEvidence" data-feature="governance" data-allow-experimental="true">Export evidence</button>
       </div>
       <div class="set-label" style="margin-top:12px">Protected files, folders and patterns ${prot.length ? `(${prot.length})` : ''}</div>
       <div style="display:flex;gap:6px;margin:6px 0 10px"><input id="sgProtectPattern" type="text" placeholder="e.g. .github/workflows/**" autocomplete="off" spellcheck="false" style="flex:1"><button class="btn btn-ghost small" id="sgAddProtect">Protect</button></div>
@@ -2006,9 +2238,9 @@ async function deleteRepoFlow() {
     toast('Repository deleted', 'ok');
     showPage('repos'); loadRepos(true);
   } catch (e) {
-    if (e.message && /403|admin|delete_repo|forbidden/i.test(e.message))
-      toast('Your token lacks the delete_repo scope — regenerate your PAT with it checked', 'err');
-    else toast(e.message, 'err');
+    if (e.message && /403|admin|delete_repo|forbidden/i.test(e.message) && !e.nextAction)
+      e.nextAction = 'Regenerate the provider token with repository deletion permission, then retry.';
+    presentError(e);
   }
 }
 
@@ -2220,7 +2452,7 @@ $('#commitFileBtn').addEventListener('click', async () => {
       expectedHeadSha: currentHeadSha()
     }, e);
     if (queued) { state.file.dirty = false; $('#commitFileBtn').disabled = true; }
-    else toast(e.message, 'err');
+    else presentError(e);
   }
 });
 
@@ -2256,7 +2488,7 @@ $('#deleteFileBtn').addEventListener('click', async () => {
     rememberHead(out.commit);
     toast('File deleted', 'ok');
     closeFile(); loadTree('', $('#tree'), true);
-  } catch (e) { toast(e.message, 'err'); }
+  } catch (e) { presentError(e); }
 });
 
 $('#renameFileBtn').addEventListener('click', async () => {
@@ -2302,7 +2534,7 @@ $('#fileHistoryBtn').addEventListener('click', async () => {
 $('#newFileBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New file',
-    bodyHTML: `<label class="field-label">Path</label><input id="nfPath" type="text" placeholder="docs/notes.md" spellcheck="false">
+    bodyHTML: `<label class="field-label" for="nfPath">Path</label><input id="nfPath" type="text" placeholder="docs/notes.md" spellcheck="false">
       <label class="check"><input type="checkbox" id="nfStage"> Stage instead of committing now</label>`,
     okText: 'Create'
   });
@@ -2325,7 +2557,7 @@ $('#newFileBtn').addEventListener('click', async () => {
     state.fileIndex = null;
     loadTree('', $('#tree'), true);
     openFile(p); closeDrawer();
-  } catch (e) { toast(e.message, 'err'); }
+  } catch (e) { presentError(e); }
 });
 
 /* ================= STAGED CHANGES ================= */
@@ -2386,7 +2618,7 @@ $('#stageCommitBtn').addEventListener('click', async () => {
       message: msg, ops: state.staged.slice(), expectedHeadSha: currentHeadSha()
     }, e);
     if (queued) { state.staged = []; renderStagedCount(); renderStagedPanel(); }
-    else toast(e.message, 'err');
+    else presentError(e);
   }
   finally { $('#stageCommitBtn').disabled = false; }
 });
@@ -2412,6 +2644,11 @@ function ensureNeural() {
     .catch(e => toast(e.message, 'err'));
 }
 function switchTab(name) {
+  const tab = $$('.tab').find(candidate => candidate.dataset.tab === name);
+  const tabCapability = tab && tab.dataset.feature;
+  if (tabCapability && !runCapabilityAction(tabCapability, () => {}, {
+    allowExperimental: tab.dataset.allowExperimental === 'true'
+  })) return;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.tabpane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
   $$('#bottomNav button').forEach(b => b.classList.toggle('active', b.dataset.nav === name));
@@ -2446,43 +2683,45 @@ $('#sheetScrim').addEventListener('click', e => { if (e.target === $('#sheetScri
 $('#sheet').addEventListener('click', e => {
   const item = e.target.closest('.sheet-item');
   if (!item) return;
-  closeSheet();
-  const act = item.dataset.act;
-  if (['pulls', 'issues', 'releases', 'compare', 'actions', 'neural', 'governance'].includes(act)) switchTab(act);
-  else if (act === 'palette') openPalette();
-  else if (act === 'zip') downloadZip();
-  else if (act === 'branches') openBranchManager();
-  else if (act === 'delrepo') deleteRepoFlow();
-  else if (act === 'theme') toggleTheme();
-  else if (act === 'settings') openSettings();
-  else if (act === 'safeguards') openSafeguards();
+  runCapabilityAction(item.dataset.feature, () => {
+    closeSheet();
+    const act = item.dataset.act;
+    if (['pulls', 'issues', 'releases', 'compare', 'actions', 'neural', 'governance'].includes(act)) switchTab(act);
+    else if (act === 'palette') openPalette();
+    else if (act === 'zip') downloadZip();
+    else if (act === 'branches') openBranchManager();
+    else if (act === 'delrepo') deleteRepoFlow();
+    else if (act === 'theme') toggleTheme();
+    else if (act === 'settings') openSettings();
+    else if (act === 'safeguards') openSafeguards();
+  }, { allowExperimental: item.dataset.allowExperimental === 'true' });
 });
 
 /* ================= COMMAND PALETTE ================= */
 let palSel = 0, palItems = [];
 const COMMANDS = [
-  { label: 'New file', kind: 'action', run: () => $('#newFileBtn').click() },
-  { label: 'New branch', kind: 'action', run: () => $('#newBranchBtn').click() },
-  { label: 'Push files (upload)', kind: 'view', run: () => switchTab('upload') },
-  { label: 'Pull requests', kind: 'view', run: () => switchTab('pulls') },
-  { label: 'Issues', kind: 'view', run: () => switchTab('issues') },
-  { label: 'Releases', kind: 'view', run: () => switchTab('releases') },
-  { label: 'Compare branches', kind: 'view', run: () => switchTab('compare') },
-  { label: 'Commits', kind: 'view', run: () => switchTab('commits') },
-  { label: 'Staged changes', kind: 'view', run: () => openStagePanel() },
-  { label: 'Download repo as zip', kind: 'action', run: () => downloadZip() },
+  { label: 'New file', kind: 'action', feature: 'file.write', run: () => $('#newFileBtn').click() },
+  { label: 'New branch', kind: 'action', feature: 'branches.write', run: () => $('#newBranchBtn').click() },
+  { label: 'Push files (upload)', kind: 'view', feature: 'native-push', allowExperimental: true, run: () => switchTab('upload') },
+  { label: 'Pull requests', kind: 'view', feature: 'pulls.read', run: () => switchTab('pulls') },
+  { label: 'Issues', kind: 'view', feature: 'issues.read', run: () => switchTab('issues') },
+  { label: 'Releases', kind: 'view', feature: 'releases.read', run: () => switchTab('releases') },
+  { label: 'Compare branches', kind: 'view', feature: 'recovery', run: () => switchTab('compare') },
+  { label: 'Commits', kind: 'view', feature: 'repository.read', run: () => switchTab('commits') },
+  { label: 'Staged changes', kind: 'view', feature: 'file.batch', run: () => openStagePanel() },
+  { label: 'Download repo as zip', kind: 'action', feature: 'repository.read', run: () => downloadZip() },
   { label: 'Settings', kind: 'action', run: () => openSettings() },
-  { label: 'Safeguards (read-only, protection, recovery)', kind: 'action', run: () => openSafeguards() },
-  { label: 'Emergency recovery snapshot', kind: 'action', run: () => snapshotFlow() },
-  { label: 'Security scan — vulnerable dependencies', kind: 'action', run: () => securityScanFlow() },
-  { label: 'Export recent activity', kind: 'action', run: () => exportActivityFlow() },
+  { label: 'Safeguards (read-only, protection, recovery)', kind: 'action', feature: 'recovery', run: () => openSafeguards() },
+  { label: 'Emergency recovery snapshot', kind: 'action', feature: 'recovery', run: () => snapshotFlow() },
+  { label: 'Security scan — vulnerable dependencies', kind: 'action', feature: 'dependency-audit', allowExperimental: true, run: () => securityScanFlow() },
+  { label: 'Export recent activity', kind: 'action', feature: 'repository.read', run: () => exportActivityFlow() },
   { label: 'Toggle theme', kind: 'action', run: () => toggleTheme() },
-  { label: 'Actions (CI)', kind: 'view', run: () => switchTab('actions') },
-  { label: 'Neural Command Center', kind: 'view', run: () => switchTab('neural') },
-  { label: 'Manage branches', kind: 'action', run: () => openBranchManager() },
-  { label: 'Star / unstar this repo', kind: 'action', run: () => toggleStar() },
-  { label: 'Open the Time Machine', kind: 'action', run: () => openTimeMachine() },
-  { label: 'Delete this repository…', kind: 'danger', run: () => deleteRepoFlow() },
+  { label: 'Actions (CI)', kind: 'view', feature: 'workflows.read', run: () => switchTab('actions') },
+  { label: 'Neural Command Center', kind: 'view', feature: 'access-surface', run: () => switchTab('neural') },
+  { label: 'Manage branches', kind: 'action', feature: 'branches.write', run: () => openBranchManager() },
+  { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', run: () => toggleStar() },
+  { label: 'Open the Time Machine', kind: 'action', feature: 'recovery', run: () => openTimeMachine() },
+  { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', run: () => deleteRepoFlow() },
   { label: 'Back to repositories', kind: 'view', run: () => $('#backBtn').click() }
 ];
 async function openPalette() {
@@ -2524,15 +2763,24 @@ function renderPalette(q) {
     el.className = 'pal-item' + (i === palSel ? ' sel' : '');
     el.innerHTML = `<span class="${it.kind === 'file' ? 'mono' : ''}"></span><span class="pal-kind">${it.kind}</span>`;
     el.querySelector('span').textContent = it.label;
-    el.addEventListener('click', () => { closePalette(); it.run(); });
+    if (it.feature) el.dataset.feature = it.feature;
+    if (it.allowExperimental) el.dataset.allowExperimental = 'true';
+    el.addEventListener('click', () => runPaletteItem(it));
     host.appendChild(el);
   });
+  window.NebulaCapabilityUI.apply(host);
+}
+function runPaletteItem(item) {
+  return runCapabilityAction(item && item.feature, () => {
+    closePalette();
+    item.run();
+  }, { allowExperimental: !!(item && item.allowExperimental) });
 }
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {
   if (e.key === 'ArrowDown') { palSel = Math.min(palSel + 1, palItems.length - 1); paintSel(); e.preventDefault(); }
   else if (e.key === 'ArrowUp') { palSel = Math.max(palSel - 1, 0); paintSel(); e.preventDefault(); }
-  else if (e.key === 'Enter') { const it = palItems[palSel]; if (it) { closePalette(); it.run(); } }
+  else if (e.key === 'Enter') { const it = palItems[palSel]; if (it) runPaletteItem(it); }
   else if (e.key === 'Escape') closePalette();
 });
 function paintSel() {
@@ -4031,8 +4279,9 @@ async function loadActions() {
           });
           const acts = document.createElement('div');
           acts.className = 'detail-actions';
-          acts.innerHTML = `<button class="btn btn-ghost small" data-rerun>Re-run</button>
+          acts.innerHTML = `<button class="btn btn-ghost small" data-rerun data-feature="workflows.rerun" data-allow-experimental="true">Re-run</button>
             <button class="btn btn-ghost small" data-open>Open on GitHub</button>`;
+          if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply(acts);
           acts.querySelector('[data-rerun]').addEventListener('click', async e2 => {
             e2.stopPropagation();
             try { await api(`/api/repo/${wPath()}/actions/${r.id}/rerun`, { method: 'POST' }); toast('Re-run requested ✦', 'ok'); }
@@ -4097,4 +4346,15 @@ function addRetry(item, file) {
 }
 
 
-boot();
+let alphaBootStarted = false;
+function startAuthorizedApp() {
+  if (alphaBootStarted) return;
+  alphaBootStarted = true;
+  boot();
+}
+window.addEventListener('nebula:alpha-access-granted', startAuthorizedApp);
+window.NebulaAlphaUI.boot().then(result => {
+  if (result.allowed) startAuthorizedApp();
+}).catch(() => {
+  window.NebulaAlphaUI.showWaking('Temporarily unavailable');
+});

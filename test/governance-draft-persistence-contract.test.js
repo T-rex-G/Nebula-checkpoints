@@ -1,0 +1,27 @@
+'use strict';
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const migration = path.join(__dirname, '..', 'db', 'migrations', '008_governance_drafts.sql');
+assert(fs.existsSync(migration), 'governance drafts migration must exist');
+const sql = fs.readFileSync(migration, 'utf8');
+assert.match(sql, /CREATE TABLE IF NOT EXISTS nv_governance_policy_drafts/i);
+assert.match(sql, /draft_id\s+uuid\s+PRIMARY KEY/i);
+assert.match(sql, /policy_id\s+uuid\s+NOT NULL/i);
+assert.match(sql, /revision\s+bigint\s+NOT NULL\s+DEFAULT\s+0/i);
+assert.match(sql, /document\s+jsonb\s+NOT NULL/i);
+assert.match(sql, /document_hash\s+text\s+NOT NULL/i);
+assert.match(sql, /required_approvals\s+smallint\s+NOT NULL/i);
+assert.match(sql, /disallow_author_approval\s+boolean\s+NOT NULL/i);
+assert.match(sql, /authored_by_identity_key\s+text\s+NOT NULL/i);
+assert.match(sql, /CONSTRAINT nv_governance_active_draft_per_author\s+UNIQUE\s*\(policy_id,\s*authored_by_identity_key\)/i);
+assert.match(sql, /nv_governance_drafts_policy_time_idx/i);
+
+assert.match(sql, /CREATE TABLE IF NOT EXISTS nv_governance_idempotency/i);
+assert.match(sql, /idempotency_key_hash\s+text\s+NOT NULL/i);
+assert.match(sql, /request_hash\s+text\s+NOT NULL/i);
+assert.match(sql, /response_body\s+jsonb/i);
+assert.match(sql, /PRIMARY KEY\s*\(scope_key,\s*actor_identity_key,\s*operation,\s*idempotency_key_hash\)/i);
+assert(!/idempotency_key\s+text/i.test(sql), 'raw idempotency keys must not be persisted');
+assert(!/(access_token|refresh_token|client_secret|private_key|password|authorization_header|cookie_value)/i.test(sql));
+console.log('governance draft persistence contract tests passed');

@@ -1,0 +1,16 @@
+'use strict';
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const root = path.join(__dirname, '..');
+const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const gateway = fs.readFileSync(path.join(root, 'src', 'mutation-gateway.js'), 'utf8');
+assert(server.includes("versions/:versionId/activate'"), 'activation route must exist');
+assert(server.includes("versions/:versionId/rollback'"), 'rollback route must exist');
+assert(server.includes("policies/:policyId/activations'"), 'activation history route must exist');
+assert(server.includes("governanceAccess('activator')"), 'activation writes require activator role');
+assert(server.includes("governanceMutationContext('governance.policy.activate')"), 'activation must enter mutation gateway');
+assert(server.includes("governanceMutationContext('governance.policy.rollback')"), 'rollback must enter mutation gateway');
+assert(gateway.includes("'governance.policy.activate'"), 'gateway must register activation');
+assert(gateway.includes("'governance.policy.rollback'"), 'gateway must register rollback');
+console.log('governance activation server contract tests passed');

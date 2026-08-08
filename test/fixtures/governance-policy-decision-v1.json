@@ -1,0 +1,172 @@
+{
+  "descriptor": {
+    "mutationId": "11111111-1111-4111-8111-111111111111",
+    "action": "branch.reset",
+    "category": "branch",
+    "risk": "critical",
+    "provider": "github",
+    "authority": "github.com",
+    "owner": "Acme",
+    "repo": "Demo",
+    "scopeKey": "github:github.com:acme/demo",
+    "actorIdentityKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "actorLogin": "Alice",
+    "method": "POST",
+    "route": "/api/repo/Acme/Demo/reset",
+    "metadata": {
+      "branch": "main",
+      "targetSha": "ffffffffffffffffffffffffffffffffffffffff"
+    },
+    "security": {
+      "stepUpAction": "branch.reset",
+      "assurance": "credential",
+      "authorizedAt": 1784750400000
+    },
+    "authorization": {
+      "schemaVersion": 1,
+      "scope": {
+        "provider": "github",
+        "authority": "github.com",
+        "owner": "Acme",
+        "repo": "Demo",
+        "scopeKey": "github:github.com:acme/demo"
+      },
+      "executionPrincipal": {
+        "kind": "user",
+        "identityKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "login": "Alice",
+        "authMethod": "token"
+      },
+      "governanceActor": {
+        "kind": "human",
+        "identityKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "login": "Alice",
+        "verified": true
+      },
+      "repositoryAccess": {
+        "baseRole": "admin",
+        "providerRole": "admin",
+        "level": 50,
+        "source": "provider",
+        "complete": true
+      },
+      "governanceRoles": {
+        "reader": true,
+        "author": true,
+        "reviewer": true,
+        "activator": true,
+        "administrator": true
+      },
+      "installationCapabilities": null,
+      "evidence": {
+        "status": "resolved",
+        "fetchedAt": "2026-07-22T18:00:00.000Z",
+        "expiresAt": "2026-07-22T22:00:00.000Z",
+        "reasonCode": null
+      }
+    }
+  },
+  "decision": {
+    "schemaVersion": 1,
+    "engineVersion": 1,
+    "mutationId": "11111111-1111-4111-8111-111111111111",
+    "scope": {
+      "provider": "github",
+      "authority": "github.com",
+      "owner": "Acme",
+      "repo": "Demo",
+      "scopeKey": "github:github.com:acme/demo"
+    },
+    "action": "branch.reset",
+    "category": "branch",
+    "risk": "critical",
+    "actor": {
+      "identityKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "login": "Alice"
+    },
+    "descriptorHash": "19986bb817e6131d6ae9bcad30c2344264a8892db88989e4f58fe7990a6bd0b1",
+    "source": "active-policy-set",
+    "policySetHash": "81e04a6f1c4df6736c4f08d63a1164355b3ece4c538c0f5e034364b9b69c0902",
+    "activePolicyCount": 1,
+    "policyEvaluations": [
+      {
+        "policyId": "10000000-0000-4000-8000-000000000001",
+        "policyKey": "secure",
+        "versionId": "20000000-0000-4000-8000-000000000002",
+        "versionNumber": 1,
+        "headRevision": 1,
+        "documentHash": "e071d3fbe6706ad0bca89e0da8a781fb50496f0ad4764740ab3010581a2eccd7",
+        "enforcementMode": "block",
+        "effect": "deny",
+        "source": "matched-rules",
+        "conflict": false,
+        "matchedRuleIds": [
+          "deny-reset"
+        ],
+        "matchedRules": [
+          {
+            "id": "deny-reset",
+            "effect": "deny",
+            "controlRefs": [
+              "SOC2-TSC:CC8.1"
+            ]
+          }
+        ],
+        "unsupportedRuleActions": [],
+        "evaluationHash": "27c3b8908484458d57a2f2e8010640a4ba8d6c75c3724d766240a4ca0a08f6ae"
+      }
+    ],
+    "effectiveEffect": "deny",
+    "rolloutMode": "block",
+    "enforcementOutcome": "block",
+    "warningCodes": [],
+    "blockCode": "POLICY_MUTATION_BLOCKED",
+    "controlMapping": {
+      "schemaVersion": 1,
+      "status": "mapped",
+      "catalog": {
+        "id": "nebulaverse-control-catalog",
+        "version": "1.0.0",
+        "frameworkRevision": "2017-revised-2022",
+        "hash": "35c7b590067dac9623b8b5b0949d02323629ff8b2787bce4add5c89488a34198"
+      },
+      "controls": [
+        {
+          "framework": "SOC2-TSC",
+          "frameworkVersion": "2017-revised-2022",
+          "controlId": "CC6.1",
+          "relationship": "supports",
+          "source": "action-catalog",
+          "sources": [
+            {
+              "source": "action-catalog",
+              "action": "branch.reset"
+            }
+          ]
+        },
+        {
+          "framework": "SOC2-TSC",
+          "frameworkVersion": "2017-revised-2022",
+          "controlId": "CC8.1",
+          "relationship": "supports",
+          "source": "action-and-policy",
+          "sources": [
+            {
+              "source": "action-catalog",
+              "action": "branch.reset"
+            },
+            {
+              "source": "policy-rule",
+              "policyId": "10000000-0000-4000-8000-000000000001",
+              "versionId": "20000000-0000-4000-8000-000000000002",
+              "ruleId": "deny-reset"
+            }
+          ]
+        }
+      ],
+      "unmappedReasons": [],
+      "mappingHash": "69dbc26de7287451352b71b00eaf0b566594bf2f3a469fde8f6c5aea2cdfbf8f"
+    },
+    "evaluatedAt": "2026-07-22T19:10:00.000Z"
+  }
+}

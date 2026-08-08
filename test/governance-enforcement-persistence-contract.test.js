@@ -1,0 +1,15 @@
+'use strict';
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const file = path.join(__dirname, '..', 'db', 'migrations', '011_governance_policy_decisions.sql');
+assert(fs.existsSync(file), 'runtime policy decision migration must exist');
+const sql = fs.readFileSync(file, 'utf8');
+for (const text of ['nv_governance_policy_decisions', 'descriptor_hash', 'control_mapping', 'decision_hash', 'previous_hash', 'record_hash', 'enforcement_outcome']) assert(sql.includes(text), `migration must contain ${text}`);
+assert(/BEFORE UPDATE OR DELETE ON nv_governance_policy_decisions/.test(sql), 'policy decisions must be immutable');
+assert(/BEFORE TRUNCATE ON nv_governance_policy_decisions/.test(sql), 'policy decision truncation must be rejected');
+assert(/previous_hash text NOT NULL CHECK/.test(sql), 'previous hashes must be constrained at the database boundary');
+assert(/control_mapping->>'schemaVersion'/.test(sql), 'control mapping schema must be constrained at the database boundary');
+assert(/decision->>'descriptorHash'/.test(sql), 'stored decision JSON must bind the descriptor hash');
+assert(/HAVING count\(\*\) > 100/i.test(sql), 'migration must fail loudly when an existing repository exceeds the active-policy runtime limit');
+console.log('governance enforcement persistence contract tests passed');

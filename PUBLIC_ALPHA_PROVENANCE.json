@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "product": "Nebulaverse-X",
+  "successorVersion": "5.3.0-alpha.17.0",
+  "predecessor": {
+    "archive": "Nebulaverse-X-v5.3.0-alpha.16.3.zip",
+    "sha256": "330b1b65894d1f63d7f4597cd81370d423fa66b60f69a4bb3a1a88084eca8892",
+    "qualifiedPublicationCommit": "c19389f8b25cb67caad6fd56d000ca130ef8520f",
+    "pushRun": "30464094438",
+    "pullRequestRun": "30464096155",
+    "buildSourceCommit": null
+  },
+  "releaseModel": "controlled-hosted-public-alpha",
+  "cohortMaximum": 10
+}

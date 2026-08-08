@@ -1,0 +1,17 @@
+'use strict';
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const sqlPath = path.join(__dirname, '..', 'db', 'migrations', '009_governance_reviews.sql');
+assert(fs.existsSync(sqlPath), 'Task 8 migration must exist');
+const sql = fs.readFileSync(sqlPath, 'utf8');
+assert.match(sql, /CREATE TABLE IF NOT EXISTS nv_governance_review_assignments/i);
+assert.match(sql, /UNIQUE\s*\(version_id,\s*reviewer_identity_key\)/i);
+assert.match(sql, /reviewer_access_level\s+smallint\s+NOT NULL/i);
+assert.match(sql, /authorization_fetched_at\s+timestamptz\s+NOT NULL/i);
+assert.match(sql, /authorization_expires_at\s+timestamptz\s+NOT NULL/i);
+assert.match(sql, /ALTER TABLE nv_governance_approvals\s+ADD COLUMN IF NOT EXISTS assignment_id uuid/i);
+assert.match(sql, /FOREIGN KEY\s*\(assignment_id,\s*version_id,\s*actor_identity_key\)/i);
+assert.match(sql, /nv_governance_review_assignments_immutable/i);
+assert.match(sql, /BEFORE TRUNCATE ON nv_governance_review_assignments/i);
+console.log('governance review persistence contract tests passed');

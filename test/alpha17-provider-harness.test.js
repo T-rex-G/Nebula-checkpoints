@@ -1,0 +1,95 @@
+'use strict';
+
+const assert = require('assert');
+const { createProviderFetchFixture } = require('../ci/alpha17-fixtures');
+const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
+const { runGitlabValidation } = require('../ci/run-gitlab-alpha17-validation');
+const { runGiteaValidation } = require('../ci/run-gitea-alpha17-validation');
+
+const RUN_ID = 'run-2048';
+const SUBJECT = 'a'.repeat(64);
+const SOURCE = 'b'.repeat(40);
+const NOW = '2026-07-29T20:00:00.000Z';
+
+function environment(provider) {
+  const repository = `fixture-owner/nvx-alpha17-${RUN_ID}-${provider}`;
+  return {
+    NV_PUBLIC_ALPHA_SUBJECT_SHA256: SUBJECT,
+    NV_PUBLIC_ALPHA_SOURCE_COMMIT: SOURCE,
+    NV_ALPHA17_WORKFLOW_RUN_ID: RUN_ID,
+    NV_ALPHA17_REPOSITORY: repository,
+    NV_ALPHA17_BRANCH: `nvx-alpha17-${RUN_ID}-proof`,
+    NV_ALPHA17_MUTATION_CREDENTIAL: 'fixture-mutation-credential',
+    NV_ALPHA17_READ_ONLY_CREDENTIAL: 'fixture-readonly-credential',
+    NV_ALPHA17_GITHUB_API_URL: 'https://github.fixture.invalid',
+    NV_ALPHA17_GITLAB_API_URL: 'https://gitlab.fixture.invalid/api/v4',
+    NV_ALPHA17_GITEA_API_URL: 'https://gitea.fixture.invalid/api/v1'
+  };
+}
+
+async function runOne(provider, runner) {
+  const env = environment(provider);
+  const fixture = createProviderFetchFixture({
+    provider,
+    repository: env.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: env.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: env.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  const result = await runner({
+    env,
+    fetchImpl: fixture.fetch,
+    now: () => new Date(NOW)
+  });
+  assert.strictEqual(fixture.state.branches.size, 1, `${provider} must remove its disposable branch`);
+  assert.strictEqual(fixture.state.branches.has('main'), true);
+  return result;
+}
+
+(async () => {
+  const githubResult = await runOne('github', runGithubValidation);
+  const gitlabResult = await runOne('gitlab', runGitlabValidation);
+  const giteaResult = await runOne('gitea', runGiteaValidation);
+
+  for (const result of [githubResult, gitlabResult, giteaResult]) {
+    assert.strictEqual(result.status, 'pass');
+    assert.strictEqual(result.cleanupVerified, true);
+    assert.strictEqual(result.subjectSha256, SUBJECT);
+    assert.strictEqual(result.sourceCommit, SOURCE);
+    assert.match(result.artifactSha256, /^[0-9a-f]{64}$/);
+    const serialized = JSON.stringify(result);
+    assert(!serialized.includes('fixture-mutation-credential'));
+    assert(!serialized.includes('fixture-readonly-credential'));
+    assert(!serialized.includes('fixture-owner'));
+    assert(!serialized.includes(`nvx-alpha17-${RUN_ID}-proof`));
+    assert(result.checks.some(check => check.key === 'stale-head' && check.zeroCommit === true));
+    assert(result.checks.some(check => check.key === 'permission-denial' && check.zeroCommit === true));
+    assert(result.checks.some(check => check.key === 'cleanup-absence' && check.status === 'pass'));
+  }
+  assert(githubResult.capabilities.includes('live-events'));
+  assert(githubResult.capabilities.includes('file.write'));
+  assert(gitlabResult.capabilities.includes('file.write'));
+  assert(giteaResult.capabilities.includes('file.write'));
+  assert(!giteaResult.capabilities.includes('workflows.read'));
+
+  const badEnvironment = environment('github');
+  badEnvironment.NV_ALPHA17_REPOSITORY = 'fixture-owner/not-disposable';
+  const badFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: badEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: badEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: badEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  await assert.rejects(
+    () => runGithubValidation({ env: badEnvironment, fetchImpl: badFixture.fetch, now: () => new Date(NOW) }),
+    error => error && error.code === 'ALPHA17_TARGET_NOT_DISPOSABLE'
+  );
+
+  console.log('alpha17 provider harness tests passed');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

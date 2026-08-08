@@ -35,6 +35,9 @@ function shouldInclude(relative) {
   const name = parts[parts.length - 1];
   if (forbiddenNames.has(name) || name.startsWith('._')) return false;
   if (/\.(?:log|zip|sha256)$/i.test(name)) return false;
+  if (/-Public-Alpha-(?:Qualification\.json|Closeout\.md)$/i.test(name)) return false;
+  if (/(?:provider[-_]?credential|credential[-_]?provider).*\.log$/i.test(name)) return false;
+  if (/(?:database|db)[-_]?backup[-_]?manifest(?:\.[^.]+)?$/i.test(name)) return false;
   return true;
 }
 

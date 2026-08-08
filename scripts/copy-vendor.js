@@ -27,7 +27,7 @@ const files = [
   ['node_modules/codemirror/theme/monokai.css', 'codemirror/5.65.16/theme/monokai.min.css'],
   ['node_modules/codemirror/theme/nord.css', 'codemirror/5.65.16/theme/nord.min.css'],
   ['node_modules/marked/marked.min.js', 'marked/15.0.12/marked.min.js'],
-  ['node_modules/dompurify/dist/purify.min.js', 'dompurify/3.4.12/purify.min.js']
+  ['node_modules/dompurify/dist/purify.min.js', 'dompurify/3.4.13/purify.min.js']
 ];
 
 fs.rmSync(vendorRoot, { recursive: true, force: true });

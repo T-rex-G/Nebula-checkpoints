@@ -44,3 +44,17 @@ live provider parity, production readiness, or cohort qualification.
 Future qualification must bind fresh source, package, live-provider,
 accessibility, Render, Neon, backup/restore, rollback, cleanup, and purge
 evidence to the exact frozen successor candidate.
+
+## Successor qualification record: pending
+
+The Plan 6 qualification schema, CLI, local provider harnesses, hosted harness,
+and gated workflow are source controls, not executed live evidence. Candidate
+qualification remains pending until the external evidence set binds all results
+to the same source commit and archive SHA-256.
+
+Expected external records include the qualification JSON and closeout Markdown,
+provider and hosted evidence artifacts, the signed manual accessibility audit,
+dependency/security classifications, backup and isolated-restore proof,
+rollback proof, and cohort cleanup/purge records. Executed evidence, provider
+credential logs, database backup manifests, and raw provider responses do not
+belong in the source archive.

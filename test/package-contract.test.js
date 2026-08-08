@@ -65,6 +65,17 @@ assert(!render.includes('fromDatabase:'));
 assert(render.includes('NV_GOVERNANCE_AUDIT_SECRET'));
 
 const pkg = JSON.parse(read('package.json'));
+const dependencyLock = JSON.parse(read('package-lock.json'));
+assert.strictEqual(pkg.dependencies.dompurify, '3.4.13', 'DOMPurify must include the alpha.17 XSS fix');
+assert.strictEqual(dependencyLock.packages['node_modules/dompurify'].version, '3.4.13');
+assert.strictEqual(dependencyLock.packages['node_modules/brace-expansion'].version, '5.0.9',
+  'the release packager dependency chain must include the brace-expansion DoS fixes');
+for (const source of ['public/index.html', 'public/sw.js', 'server.js', 'scripts/copy-vendor.js', 'scripts/verify.js']) {
+  assert(read(source).includes('dompurify/3.4.13/purify.min.js'), `${source} has a stale DOMPurify asset path`);
+}
+assert(fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.13/purify.min.js')));
+assert(!fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.12')),
+  'the vulnerable DOMPurify browser asset must not remain releasable');
 const task6Artifacts = [
   'src/alpha-access.js',
   'src/alpha-access-store.js',
@@ -416,6 +427,61 @@ assert(stagingCli.includes('artifact hash mismatch'));
 assert(stagingCli.includes('regular non-symlink file'));
 assert.strictEqual(pkg.scripts['test:matrix'], 'node scripts/test-matrix.js --allow-missing-dependencies');
 assert.strictEqual(pkg.scripts['test:runtime:matrix'], 'node scripts/test-matrix.js --require-all');
+assert.strictEqual(
+  pkg.scripts['test:public-alpha:matrix'],
+  'node scripts/test-matrix.js --require-all --require-subject --report staging/evidence/public-alpha-matrix.json'
+);
+const publicAlphaQualificationArtifacts = [
+  'src/public-alpha-qualification.js',
+  'scripts/public-alpha-gate.js',
+  'staging/PUBLIC_ALPHA_EVIDENCE_TEMPLATE.json',
+  'test/fixtures/public-alpha-qualification-pass.json',
+  'ci/provider-alpha17-common.js',
+  'ci/alpha17-fixtures.js',
+  'ci/run-github-alpha17-validation.js',
+  'ci/run-gitlab-alpha17-validation.js',
+  'ci/run-gitea-alpha17-validation.js',
+  'ci/run-hosted-alpha17-validation.js',
+  'ci/verify-alpha17-authorization.js',
+  '.github/workflows/public-alpha-alpha17.yml',
+  'docs/qualification/PUBLIC_ALPHA_KNOWN_LIMITATIONS.md',
+  'docs/qualification/PUBLIC_ALPHA_COHORT_CHECKLIST.md'
+];
+const publicAlphaQualificationTests = [
+  'test/public-alpha-qualification.test.js',
+  'test/public-alpha-qualification-contract.test.js',
+  'test/public-alpha-gate-cli.test.js',
+  'test/alpha17-provider-harness.test.js',
+  'test/alpha17-hosted-harness.test.js',
+  'test/public-alpha-workflow-contract.test.js'
+];
+const publicAlphaQualificationSyntax = [
+  'src/public-alpha-qualification.js',
+  'scripts/public-alpha-gate.js',
+  'ci/provider-alpha17-common.js',
+  'ci/alpha17-fixtures.js',
+  'ci/run-github-alpha17-validation.js',
+  'ci/run-gitlab-alpha17-validation.js',
+  'ci/run-gitea-alpha17-validation.js',
+  'ci/run-hosted-alpha17-validation.js',
+  'ci/verify-alpha17-authorization.js'
+];
+for (const artifact of [...publicAlphaQualificationArtifacts, ...publicAlphaQualificationTests]) {
+  assert(fs.existsSync(path.join(root, artifact)), `public-alpha qualification artifact missing ${artifact}`);
+  assert(verifyScript.includes(`'${artifact}'`), `build verification missing ${artifact}`);
+}
+let previousQualificationProgram = -1;
+for (const program of publicAlphaQualificationTests) {
+  const programIndex = pkg.scripts['test:unit'].indexOf(`node ${program}`);
+  assert(programIndex > previousQualificationProgram, `test:unit missing or misorders ${program}`);
+  previousQualificationProgram = programIndex;
+}
+for (const source of publicAlphaQualificationSyntax) {
+  assert(pkg.scripts['check:syntax'].includes(`node --check ${source}`), `check:syntax missing ${source}`);
+}
+const alpha17Workflow = read('.github/workflows/public-alpha-alpha17.yml');
+assert(alpha17Workflow.includes('NV_STAGING_SUBJECT_SHA256="${subject_sha256}" npm run test:public-alpha:matrix'));
+assert(alpha17Workflow.includes('staging/evidence/public-alpha-matrix.json'));
 assert(
   pkg.scripts['test:unit'].includes('node test/provider-route-inventory.test.js'),
   'full unit gate must run the exhaustive provider route inventory'
@@ -434,7 +500,11 @@ for (const forbidden of [
   'playwright-report/index.html', 'test-results/result.json',
   'debug.log', 'release.zip', 'release.zip.sha256',
   '.DS_Store', 'assets/._server.js', '__MACOSX/x',
-  'staging/evidence/runtime.json'
+  'staging/evidence/runtime.json',
+  'evidence/Nebulaverse-X-v5.3.0-alpha.17.0-Public-Alpha-Qualification.json',
+  'reports/Nebulaverse-X-v5.3.0-alpha.17.0-Public-Alpha-Closeout.md',
+  'logs/provider-credential.log',
+  'backups/db-backup-manifest.json'
 ]) assert.strictEqual(shouldInclude(forbidden), false, forbidden);
 for (const allowed of [
   'server.js', '.env.example', '.gitignore', '.github/workflows/ci.yml',

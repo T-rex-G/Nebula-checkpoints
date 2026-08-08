@@ -475,7 +475,7 @@ const VENDOR_ALLOWLIST = new Set([
   'codemirror/5.65.16/theme/monokai.min.css',
   'codemirror/5.65.16/theme/nord.min.css',
   'marked/15.0.12/marked.min.js',
-  'dompurify/3.4.12/purify.min.js'
+  'dompurify/3.4.13/purify.min.js'
 ]);
 const GFONTS_ALLOWLIST = new Set([
   'family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap',

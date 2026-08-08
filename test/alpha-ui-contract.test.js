@@ -42,4 +42,14 @@ assert(expiryBlock.includes('alphaBootStarted = false;'),
 assert(expiryBlock.indexOf('await purgeLocalData(true)') < expiryBlock.indexOf('alphaBootStarted = false;'),
   'private browser state must be purged before app restart is re-enabled');
 
+const safeguardsStart = app.indexOf('async function openSafeguards()');
+const safeguardsEnd = app.indexOf('\nasync function moveFolderFlow', safeguardsStart);
+const safeguardsBlock = app.slice(safeguardsStart, safeguardsEnd);
+assert(app.includes("if (typeof onOpen === 'function') onOpen($('#modalBody'));"),
+  'modal controls must support synchronous open-time binding');
+assert(safeguardsBlock.includes('onOpen: () => {'),
+  'Safeguards controls must bind as part of modal rendering');
+assert(!safeguardsBlock.includes('setTimeout(() => {'),
+  'Safeguards must not expose clickable controls before their handlers are bound');
+
 console.log('alpha UI contract tests passed');

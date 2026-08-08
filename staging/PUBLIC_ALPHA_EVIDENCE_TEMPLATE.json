@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "product": "Nebulaverse-X",
+  "version": "5.3.0-alpha.17.0",
+  "subjectSha256": "",
+  "sourceCommit": "",
+  "nodeVersion": "",
+  "latestMigration": "015_alpha_privacy",
+  "generatedAt": "",
+  "automated": {},
+  "providers": {},
+  "hosted": {},
+  "manual": {},
+  "security": {
+    "criticalUnresolved": -1,
+    "highUnresolved": -1
+  },
+  "goldenPathCapabilities": [],
+  "observedEnabledCapabilities": [],
+  "knownLimitations": [],
+  "artifacts": []
+}

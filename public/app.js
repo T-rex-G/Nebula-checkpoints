@@ -229,7 +229,7 @@ function presentError(error) {
 /* ---------------- modal ---------------- */
 let modalResolve = null;
 let modalReturnFocus = null;
-function modal({ title, bodyHTML, okText = 'Confirm', danger = false }) {
+function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = null }) {
   return new Promise(resolve => {
     modalResolve = resolve;
     modalReturnFocus = document.activeElement;
@@ -239,6 +239,7 @@ function modal({ title, bodyHTML, okText = 'Confirm', danger = false }) {
     ok.textContent = okText;
     ok.classList.toggle('danger', danger);
     $('#scrim').hidden = false;
+    if (typeof onOpen === 'function') onOpen($('#modalBody'));
     const fi = $('#modalBody input:not([disabled]), #modalBody textarea:not([disabled]), #modalBody select:not([disabled])');
     const initialFocus = fi || $('#modalCancel');
     if (initialFocus) setTimeout(() => {
@@ -2128,27 +2129,6 @@ async function openSafeguards() {
   await refreshSafety();
   const sf = state.safety;
   const prot = protectedList();
-  setTimeout(() => {
-    if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
-    const bind = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
-    const ro = $('#sgReadOnly'), fz = $('#sgFreeze');
-    if (ro) ro.addEventListener('change', () => setSafety({ readOnly: ro.checked }));
-    if (fz) fz.addEventListener('change', () => setSafety({ freezeSync: fz.checked }));
-    bind('sgSnap', () => { closeModal(false); snapshotFlow(); });
-    bind('sgActivity', () => { closeModal(false); exportActivityFlow(); });
-    bind('sgRecover', () => { closeModal(false); recoveryFlow(); });
-    bind('sgScan', () => { closeModal(false); securityScanFlow(); });
-    bind('sgEvidence', () => { closeModal(false); exportEvidenceFlow(); });
-    bind('sgAddProtect', async () => {
-      const input = $('#sgProtectPattern'); const pattern = input && input.value.trim().replace(/^\/+/, '');
-      if (!pattern) return toast('Enter a file, folder or wildcard pattern', 'err');
-      if (await setSafety({ protect: { repo: safetyKey(), path: pattern, on: true } })) { toast(`${pattern} protected`, 'ok'); closeModal(false); openSafeguards(); }
-    });
-    $$('#modalBody [data-unprot]').forEach(b => b.addEventListener('click', async () => {
-      await setSafety({ protect: { repo: safetyKey(), path: b.dataset.unprot, on: false } });
-      b.closest('p').remove();
-    }));
-  }, 40);
   await modal({
     title: 'Safeguards', okText: 'Done',
     bodyHTML: `
@@ -2168,7 +2148,28 @@ async function openSafeguards() {
       <div style="display:flex;gap:6px;margin:6px 0 10px"><input id="sgProtectPattern" type="text" placeholder="e.g. .github/workflows/**" autocomplete="off" spellcheck="false" style="flex:1"><button class="btn btn-ghost small" id="sgAddProtect">Protect</button></div>
       ${prot.length
         ? prot.map(p => `<p class="hint" style="margin:3px 0"><span class="mono">${esc(p)}</span> <button class="btn btn-ghost small" data-unprot="${esc(p)}">Unlock</button></p>`).join('')
-        : '<p class="hint">None yet — protect a file from the tree or add a folder/wildcard pattern above.</p>'}`
+        : '<p class="hint">None yet — protect a file from the tree or add a folder/wildcard pattern above.</p>'}`,
+    onOpen: () => {
+      if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
+      const bind = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
+      const ro = $('#sgReadOnly'), fz = $('#sgFreeze');
+      if (ro) ro.addEventListener('change', () => setSafety({ readOnly: ro.checked }));
+      if (fz) fz.addEventListener('change', () => setSafety({ freezeSync: fz.checked }));
+      bind('sgSnap', () => { closeModal(false); snapshotFlow(); });
+      bind('sgActivity', () => { closeModal(false); exportActivityFlow(); });
+      bind('sgRecover', () => { closeModal(false); recoveryFlow(); });
+      bind('sgScan', () => { closeModal(false); securityScanFlow(); });
+      bind('sgEvidence', () => { closeModal(false); exportEvidenceFlow(); });
+      bind('sgAddProtect', async () => {
+        const input = $('#sgProtectPattern'); const pattern = input && input.value.trim().replace(/^\/+/, '');
+        if (!pattern) return toast('Enter a file, folder or wildcard pattern', 'err');
+        if (await setSafety({ protect: { repo: safetyKey(), path: pattern, on: true } })) { toast(`${pattern} protected`, 'ok'); closeModal(false); openSafeguards(); }
+      });
+      $$('#modalBody [data-unprot]').forEach(b => b.addEventListener('click', async () => {
+        await setSafety({ protect: { repo: safetyKey(), path: b.dataset.unprot, on: false } });
+        b.closest('p').remove();
+      }));
+    }
   });
 }
 async function moveFolderFlow(dirPath) {

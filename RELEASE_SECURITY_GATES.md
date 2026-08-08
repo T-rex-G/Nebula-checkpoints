@@ -17,6 +17,30 @@ archive hash, schema version, Node version, execution time, and cleanup result.
 - Webhook/temporary-branch cleanup, cold-start/degraded states, and
   backup/restore script validation.
 
+## Dependency and security evidence
+
+The following results are **pending for the exact frozen candidate**. Local
+source checks or an earlier archive do not complete this record.
+
+- Production dependency audit: `npm audit --omit=dev --audit-level=high`; zero
+  critical/high findings required.
+- Development dependency audit: record package, dependency path, severity,
+  affected range, runtime or build exposure, and disposition for every finding.
+  A finding may be accepted only when evidence shows it is unreachable from the
+  production artifact and the disposition is explicit.
+- Repository and staged-evidence secret scan: pass required, including generated
+  qualification summaries and provider/hosted evidence.
+- Security-boundary suite: pass required for invitation, allowlist, credential,
+  mutation, cleanup, revocation, retention, and purge boundaries.
+- Known release defects: zero critical/high findings required.
+
+The external qualification record must contain command status, execution time,
+Node version, source commit, archive SHA-256, tool/database version, sanitized
+finding counts, and the immutable artifact reference. Do not store raw audit
+reports containing paths, repository targets, provider responses, credentials,
+or backup metadata in source. Any unresolved critical/high finding is a no-go;
+it cannot be hidden by a summary or limitation entry.
+
 ## Accessibility gates
 
 - Zero serious/critical axe findings on the golden path.

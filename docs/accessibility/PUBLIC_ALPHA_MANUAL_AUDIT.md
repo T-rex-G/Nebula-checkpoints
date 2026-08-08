@@ -4,6 +4,22 @@ Status: **Not executed**
 
 This record is intentionally incomplete until a human tester executes every item with the named assistive technology. Automated Playwright and axe checks do not replace this audit.
 
+Do not complete or commit an executed copy of this template to the source tree.
+The signed result is external release evidence and must bind to the exact frozen
+candidate named below. A result for another archive or source commit is not
+transferable.
+
+## Candidate binding
+
+- Subject: `Nebulaverse-X-v5.3.0-alpha.17.0`
+- Source commit: ____________________
+- Release archive filename: ____________________
+- Release archive SHA-256: ____________________
+- Qualification schema version: ____________________
+- Hosted candidate URL: ____________________
+- Auditor: ____________________
+- Audit start and end (UTC): ____________________
+
 ## iOS and VoiceOver
 
 - [ ] iOS version: ____________________
@@ -21,6 +37,12 @@ This record is intentionally incomplete until a human tester executes every item
 - [ ] Controlled-action preview and verification states distinguished without relying on color.
   - Evidence/notes: ____________________
 - [ ] Disconnect, provider-revocation guidance, session end, and delete-alpha-data controls announced distinctly.
+  - Evidence/notes: ____________________
+- [ ] Privacy, terms, retention, sandbox-only scope, and provider-revocation responsibilities are reachable and understandable before consent.
+  - Evidence/notes: ____________________
+- [ ] At 200% browser zoom, content reflows without horizontal page scrolling and all controls remain reachable.
+  - Evidence/notes: ____________________
+- [ ] Primary controls and destructive confirmations have usable mobile touch targets without overlap or gesture traps.
   - Evidence/notes: ____________________
 
 ## Desktop screen reader and keyboard
@@ -40,13 +62,13 @@ This record is intentionally incomplete until a human tester executes every item
   - Evidence/notes: ____________________
 - [ ] Reduced-motion preference suppresses non-essential animation and transitions.
   - Evidence/notes: ____________________
+- [ ] Privacy, terms, retention, sandbox-only scope, and provider-revocation responsibilities are reachable and understandable before consent.
+  - Evidence/notes: ____________________
 
 ## Findings and release evidence
 
 - Issues found, severity, owner, and disposition: ____________________
-- Release commit: ____________________
-- Release archive filename: ____________________
-- Release archive SHA-256: ____________________
-- Auditor: ____________________
 - Audit date (UTC): ____________________
 - Final disposition: [ ] Pass  [ ] Pass with documented exceptions  [ ] Fail
+- Signature method and signer identity: ____________________
+- External immutable evidence reference: ____________________

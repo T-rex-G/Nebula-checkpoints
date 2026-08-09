@@ -96,7 +96,7 @@ Copy the three approved handoff plan inputs byte-for-byte from `/workspace/scrat
 
 - [ ] **Step 4: Add the manifest and documentation index**
 
-Create a manifest record for every discovered Markdown path. Assign root navigation to `entrypoint`, `docs/current/*` to `current`, `docs/vision/*` to `vision`, `docs/architecture/*` to `architecture`, `docs/operations/*` to `operational`, `docs/qualification/*` and `docs/release/*` to `qualification`, `docs/history/*` to `historical`, and `docs/superpowers/*` to `development-record`. `docs/README.md` is `entrypoint`.
+Create a manifest record for every discovered Markdown path. Assign root navigation to `entrypoint`, `docs/current/*` and `docs/reference/*` to `current`, `docs/vision/*` to `vision`, `docs/architecture/*` to `architecture`, `docs/operations/*` to `operational`, `docs/qualification/*` and `docs/release/*` to `qualification`, `docs/history/*` to `historical`, and `docs/superpowers/*` to `development-record`. `docs/README.md` is `entrypoint`.
 
 Create `docs/README.md` as the lifecycle navigation page with links to current state, vision, architecture, release, operations, qualification, history, and development records; state that historical documents are evidence rather than current instructions.
 

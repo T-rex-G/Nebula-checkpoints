@@ -1,0 +1,100 @@
+'use strict';
+
+const assert = require('assert');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const root = path.resolve(__dirname, '..');
+const manifestPath = path.join(root, 'docs', 'DOCUMENTATION_MANIFEST.json');
+const ROOT_MARKDOWN = ['CHANGELOG.md', 'README.md'];
+const LIFECYCLES = new Set([
+  'entrypoint',
+  'current',
+  'vision',
+  'architecture',
+  'operational',
+  'qualification',
+  'historical',
+  'development-record'
+]);
+const IGNORED_DIRECTORIES = new Set([
+  '.git',
+  '.cache',
+  'node_modules',
+  'playwright-report',
+  'test-results'
+]);
+const APPROVED_PLAN_HASHES = Object.freeze({
+  'docs/history/public-alpha/approved-plans/2026-07-29-controlled-hosted-public-alpha-design.md':
+    'ce326ff597e36e16ea364fab7666c5ea353dc67d6de345222649aec8e08380bc',
+  'docs/history/public-alpha/approved-plans/2026-07-29-public-alpha-03-privacy-credential-lifecycle.md':
+    '84d948bcaa3100326447581f1448f2ee2b5324eb03326731c6b93d1c222e7ebc',
+  'docs/history/public-alpha/approved-plans/2026-07-29-public-alpha-master-sequence.md':
+    '1793df39b70de37a862ff4f81240d37948cdd7b7419c7b0dd43c74edacd6ce26'
+});
+
+function discoverMarkdown(directory, prefix = '') {
+  const discovered = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) discovered.push(...discoverMarkdown(absolute, relative));
+    else if (entry.isFile() && entry.name.endsWith('.md')) discovered.push(relative);
+  }
+  return discovered.sort();
+}
+
+function expectedLifecycle(documentPath) {
+  if (['README.md', 'CHANGELOG.md', 'docs/README.md'].includes(documentPath)) return 'entrypoint';
+  if (documentPath.startsWith('docs/current/') || documentPath.startsWith('docs/reference/')) return 'current';
+  if (documentPath.startsWith('docs/vision/')) return 'vision';
+  if (documentPath.startsWith('docs/architecture/')) return 'architecture';
+  if (documentPath.startsWith('docs/operations/')) return 'operational';
+  if (documentPath.startsWith('docs/qualification/') || documentPath.startsWith('docs/release/')) {
+    return 'qualification';
+  }
+  if (documentPath.startsWith('docs/history/')) return 'historical';
+  if (documentPath.startsWith('docs/superpowers/')) return 'development-record';
+  return null;
+}
+
+const markdown = discoverMarkdown(root);
+assert.deepStrictEqual(
+  markdown.filter(file => !file.includes('/')),
+  ROOT_MARKDOWN,
+  'root Markdown must contain only README.md and CHANGELOG.md'
+);
+
+assert(fs.existsSync(manifestPath), 'missing docs/DOCUMENTATION_MANIFEST.json');
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+assert.strictEqual(manifest.schemaVersion, 1);
+assert.strictEqual(manifest.project, 'Nebulaverse-X');
+assert(Array.isArray(manifest.documents), 'documentation manifest must contain a documents array');
+
+const manifestPaths = manifest.documents.map(record => record.path);
+assert.strictEqual(new Set(manifestPaths).size, manifestPaths.length, 'manifest paths must be unique');
+assert.deepStrictEqual([...manifestPaths].sort(), markdown, 'manifest must cover every Markdown file exactly once');
+
+for (const record of manifest.documents) {
+  assert.deepStrictEqual(
+    Object.keys(record).sort(),
+    ['authority', 'immutableHistory', 'lifecycle', 'path', 'releaseIncluded'],
+    `${record.path} has an invalid manifest shape`
+  );
+  assert(LIFECYCLES.has(record.lifecycle), `${record.path} has unknown lifecycle ${record.lifecycle}`);
+  assert.strictEqual(record.lifecycle, expectedLifecycle(record.path), `${record.path} is in the wrong lifecycle`);
+  assert.strictEqual(record.releaseIncluded, true, `${record.path} must be included in the release archive`);
+  assert.strictEqual(record.immutableHistory, record.lifecycle === 'historical', `${record.path} history flag is wrong`);
+  assert.strictEqual(typeof record.authority, 'string', `${record.path} authority must be a string`);
+  assert(record.authority.length > 0, `${record.path} authority must not be empty`);
+  assert(fs.existsSync(path.join(root, record.path)), `manifest target does not exist: ${record.path}`);
+}
+
+for (const [relative, expectedHash] of Object.entries(APPROVED_PLAN_HASHES)) {
+  const actualHash = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, relative))).digest('hex');
+  assert.strictEqual(actualHash, expectedHash, `${relative} does not match its approved source bytes`);
+}
+
+console.log('documentation architecture tests passed');

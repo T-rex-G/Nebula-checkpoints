@@ -1,4 +1,9 @@
-# Deploy Nebulaverse-X v5.3.0-alpha.14 on Render Free + existing Neon
+# Deploy Nebulaverse-X 5.3.0-alpha.17.0 Controlled Alpha
+
+Public alpha: **NO-GO** until the exact documentation successor completes the
+automated, live-provider, hosted, manual-accessibility, and final release gates.
+Use one dedicated Render Free service and one dedicated Neon Free project for
+the cohort; do not reuse a production environment.
 
 This package intentionally deploys only one Render resource:
 
@@ -63,7 +68,7 @@ Expected:
 ```json
 { "ok": true }
 { "ok": true, "database": "connected" }
-{ "version": "5.2.2", "product": "Nebulaverse-X" }
+{ "version": "5.3.0-alpha.17.0", "product": "Nebulaverse-X" }
 ```
 
 `/readyz` reports `optional-not-configured` when `DATABASE_URL` is intentionally absent. Basic repository functions can then use encrypted cookie sessions. When `DATABASE_URL` is configured, session storage fails closed during a Neon outage; verified live events, cross-session policies, signed snapshots, and evidence persistence also remain unavailable until readiness recovers.
@@ -83,21 +88,23 @@ When updating an existing Blueprint, Render does not prompt again for manually m
 
 ## 7. Safe rollback
 
-Deploy the previous commit. The v5.2 Neon tables can remain because older application versions ignore them. Export evidence before deleting any v5.2 table.
+Deploy the last externally qualified commit only after confirming database
+compatibility and preserving an encrypted backup. Never delete a table as part
+of rollback; use the verified migration and restore procedures.
 
 
 ## Optional free-tier resource controls
 
 ```text
-NV_LIVE_CLIENTS_PER_REPO=5
-NV_LIVE_CLIENTS_TOTAL=100
-NV_SNAPSHOT_RETENTION_COUNT=50
-NV_SNAPSHOT_MANIFEST_MAX=10000
-NV_EVENT_RETENTION_DAYS=90
-NV_SESSION_RETENTION_DAYS=35
-NV_GIT_DATA_MAX_MB=64
-NV_NATIVE_PUSH_MAX_MB=64
-NV_UPLOAD_MAX_MB=2048
+NV_LIVE_CLIENTS_PER_REPO=2
+NV_LIVE_CLIENTS_TOTAL=10
+NV_SNAPSHOT_RETENTION_COUNT=10
+NV_SNAPSHOT_MANIFEST_MAX=5000
+NV_EVENT_RETENTION_DAYS=30
+NV_SESSION_RETENTION_DAYS=7
+NV_GIT_DATA_MAX_MB=16
+NV_NATIVE_PUSH_MAX_MB=16
+NV_UPLOAD_MAX_MB=25
 NV_UPLOAD_CONCURRENCY=1
 NV_UPLOAD_TIMEOUT_MINUTES=20
 NV_STALE_UPLOAD_HOURS=6
@@ -112,7 +119,7 @@ NV_REQUIRE_YARA=0
 The defaults are intentionally conservative for one Render Free Node process. Native pushes build an in-memory Git pack, so raising `NV_NATIVE_PUSH_MAX_MB` can multiply memory usage. Do not increase these values without checking memory, temporary disk, database, and connection usage.
 
 
-## Optional GitHub App configuration (Phase 1 Task 2)
+## Optional GitHub App configuration
 
 The GitHub App path is optional. If every `GITHUB_APP_*` value is absent, Nebulaverse-X starts normally and PAT/OAuth/GitLab/Gitea connectivity is unchanged. A partial configuration fails startup instead of silently running with broken authentication.
 

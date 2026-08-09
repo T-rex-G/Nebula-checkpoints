@@ -23,8 +23,8 @@ alpha.17.0 hosted pass.
 
 The external immutable closeout record is
 `Nebulaverse-X-v5.3.0-alpha.16.3-Task21-Closeout.md`. Historical in-repository
-detail remains in `BUILD_REPORT.md`, `PHASE_1_TASK_20_REPORT.md`,
-`PHASE_1_TASK_21_REPORT.md`, `staging/`, and the Phase 1 specifications/plans.
+detail remains under `docs/history/phase-1/`, while the last automated alpha.17
+baseline is summarized in `docs/release/QUALIFICATION_BASELINE.md`.
 
 ## Successor foundation: 5.3.0-alpha.17.0
 
@@ -45,12 +45,32 @@ Future qualification must bind fresh source, package, live-provider,
 accessibility, Render, Neon, backup/restore, rollback, cleanup, and purge
 evidence to the exact frozen successor candidate.
 
-## Successor qualification record: pending
+## Recorded alpha.17 automated baseline
 
-The Plan 6 qualification schema, CLI, local provider harnesses, hosted harness,
-and gated workflow are source controls, not executed live evidence. Candidate
-qualification remains pending until the external evidence set binds all results
-to the same source commit and archive SHA-256.
+| Identity or result | Recorded value |
+|---|---|
+| Draft PR head | `4aa3c378475dd7fdb490b206e0ca3cb88d027bbf` |
+| Tree | `29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb` |
+| Candidate SHA-256 | `d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc` |
+| Standard CI | `31322778221` — passed |
+| Exact-archive qualification | `31322778223` — passed |
+| Automated matrix | 137/137 programs and 56/56 browser checks passed |
+| Decision | provider-stage GO; public-alpha NO-GO |
+
+The portability failures remain evidence rather than being erased. Run
+`31321447041` failed before authorization because the pull-request lineage
+referred to a local-only accepted commit; live jobs were skipped. Earlier runs
+`31290968279` and `31314330832` likewise stopped at continuity boundaries with
+live jobs skipped. Their corrections established the published-tree continuity
+model and do not convert those failed runs into passes.
+
+## Documentation-truth successor qualification: pending
+
+The recorded baseline above is green, but reorganizing and correcting Markdown
+changes packaged bytes. Qualification of the documentation-truth successor
+therefore remains pending until external evidence binds all automated results
+to its new source commit, tree, and archive SHA-256. Provider and hosted
+harnesses remain source controls rather than executed live evidence.
 
 Expected external records include the qualification JSON and closeout Markdown,
 provider and hosted evidence artifacts, the signed manual accessibility audit,

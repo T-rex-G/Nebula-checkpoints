@@ -1,5 +1,13 @@
 # Controlled Public Alpha
 
+Public alpha: **NO-GO**
+
+The recorded `d3e86f3…` alpha.17 baseline passed automated exact-archive
+qualification and is provider-stage GO only. This documentation-truth successor
+changes packaged bytes and is **not qualified** until its own external archive
+identity and automated evidence pass. Live-provider, hosted, manual
+accessibility, and final release gates remain pending.
+
 Hosted qualification is pending; the cohort is not open. Plans 1–3 are accepted
 locally, and Plan 4's automated desktop/mobile UX and accessibility checkpoint
 passes. Live hosted, provider, database and manual assistive-technology evidence

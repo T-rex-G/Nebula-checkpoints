@@ -1,23 +1,21 @@
 # Security and deployment guide
 
-## Preserved infrastructure
+## Controlled-alpha infrastructure
 
-Nebulaverse-X v5.3.0-alpha.14 does not create a database in Render. It uses one Render Free web service and your existing Neon PostgreSQL connection.
+Nebulaverse-X 5.3.0-alpha.17.0 controlled alpha uses one dedicated Render Free
+web service and one dedicated Neon Free PostgreSQL project. The Render blueprint
+does not create a Render database, and neither environment may be reused for
+production repositories or data.
 
-The server creates the following tables with non-destructive `CREATE TABLE IF NOT EXISTS` statements:
+The hosted web process verifies the expected migration set and fails readiness
+when it is incomplete; it does not silently apply migrations. Operators apply
+the versioned SQL migrations from a trusted workstation only after an encrypted
+backup and isolated restore rehearsal. Migrations are additive and must not drop
+existing application data as part of deployment.
 
-```text
-nv_sessions
-nv_security_state
-nv_webhooks
-nv_intelligence_events
-nv_recovery_snapshots
-nv_evidence_chain
-nv_github_app_installations
-nv_github_app_audit
-```
-
-No existing application table is dropped. The session table receives an additive `identity_keys` array and GIN index so session containment can query the active identity directly; legacy rows remain readable during migration.
+Persistent sessions, security state, events, recovery evidence, governance,
+controlled-alpha access, credential-cleanup, privacy, and audit records belong
+in Neon. Render's filesystem is ephemeral and is never a backup boundary.
 
 ## Provider authorization evidence
 
@@ -27,7 +25,13 @@ Provider lookup failure does not globally disable existing non-governance reposi
 
 ## Central Mutation Gateway
 
-All repository-changing provider requests must carry a server-created mutation context and are revalidated at the provider helper or Git transport boundary. Unknown operations, provider/repository mismatches, action mismatches, and missing critical step-up evidence fail before the outbound write. Task 4 does not yet evaluate governance policy; do not treat the gateway alone as a provider-side branch-protection replacement.
+All repository-changing provider requests must carry a server-created mutation
+context and are revalidated at the provider helper or Git transport boundary.
+Unknown operations, provider/repository mismatches, action mismatches, and
+missing critical step-up evidence fail before the outbound write. Active
+governance policies are evaluated through the gateway in observe, warn, or
+block mode with immutable decision evidence. This application boundary still
+does not replace provider-native branch protection.
 
 
 ## Secrets
@@ -65,7 +69,10 @@ The setup callback does not trust `installation_id` by itself. It verifies signe
 
 ## GitHub webhook permissions
 
-Webhook connection is opt-in and GitHub-only in v5.2. The credential must be able to create/delete repository webhooks. Nebulaverse-X does not expose the generated webhook secret to the browser after registration.
+Verified live webhook connection is opt-in and GitHub-only for the controlled
+alpha. The credential must be able to create/delete repository webhooks.
+Nebulaverse-X does not expose the generated webhook secret to the browser after
+registration.
 
 On Render, the callback uses `RENDER_EXTERNAL_URL`. On other production hosts, set `PUBLIC_BASE_URL` to a canonical HTTPS origin. The server does not trust an arbitrary production `Host` header to construct callbacks.
 

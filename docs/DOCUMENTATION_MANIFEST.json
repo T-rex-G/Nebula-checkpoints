@@ -598,6 +598,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/vision/FOUNDER_VISION.md",
+      "lifecycle": "vision",
+      "authority": "authored-product-intent",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/vision/PRODUCT_VISION.md",
       "lifecycle": "vision",
       "authority": "authored-product-intent",

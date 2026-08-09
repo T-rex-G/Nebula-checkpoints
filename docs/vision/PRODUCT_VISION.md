@@ -2,6 +2,10 @@
 
 Nebulaverse-X is a cross-provider repository security-governance and recovery platform with a capable Git workbench.
 
+The broader founder intent and its maturity labels are preserved in the
+[Founder Vision](FOUNDER_VISION.md). Current delivery claims remain governed by
+the generated [project state](../current/PROJECT_STATE.md), not by vision prose.
+
 ## Position
 
 The product joins repository work, verifiable security posture, human-governed

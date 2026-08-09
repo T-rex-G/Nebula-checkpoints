@@ -9,6 +9,10 @@ qualification. A `Supported` claim remains release-blocked until the exact
 candidate has applicable live-provider and hosted evidence. The server is
 authoritative and rejects an `Unavailable` operation before provider transport.
 
+See the generated [project state](PROJECT_STATE.md) for the current candidate
+boundary and [release gates](../release/RELEASE_SECURITY_GATES.md) for the
+evidence still required.
+
 Current-state terms are intentionally distinct: **implemented** means code is
 present; **candidate-qualified** means a bounded checkpoint passed its own
 gates; **alpha-supported** means a `Supported` capability whose exact hosted

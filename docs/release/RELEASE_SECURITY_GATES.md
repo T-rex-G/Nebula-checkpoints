@@ -1,8 +1,26 @@
 # Release and Security Gates
 
-Hosted public-alpha qualification for `5.3.0-alpha.17.0` is **Pending**. Every
-gate below is release-blocking and must bind to the exact candidate, commit,
-archive hash, schema version, Node version, execution time, and cleanup result.
+Public alpha: **NO-GO**
+
+- Recorded automated baseline: **Passed**
+- Current documentation successor: **Not qualified**
+- Live-provider gate: **Pending**
+- Hosted gate: **Pending**
+- Manual accessibility gate: **Pending**
+- Final release gate: **Pending**
+
+The recorded baseline is commit `4aa3c378475dd7fdb490b206e0ca3cb88d027bbf`,
+tree `29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb`, and archive SHA-256
+`d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc`.
+Qualification run `31322778223` passed 137/137 program checks, 56/56 browser
+checks, deterministic double packaging, extracted-archive execution, secret and
+syntax scans, and zero production and development audit vulnerabilities.
+
+That evidence applies only to the recorded bytes. The documentation-truth
+successor changes the archive and must earn a new external commit, tree, archive
+hash, and evidence envelope. Every remaining gate is release-blocking and must
+bind to that same exact candidate, schema, Node version, execution time, and
+cleanup result.
 
 ## Automated gates
 

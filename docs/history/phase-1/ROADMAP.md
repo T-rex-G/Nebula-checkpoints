@@ -30,7 +30,7 @@ Target release: **v5.3**
 | 18 | Full Mutation Coverage and Bulk Operation Governance | Complete | Coverage proof for every mutation and bounded governance for batch operations |
 | 19 | Governance Notifications, Webhooks and Audit Exports | Complete | Non-secret lifecycle notifications, signed events and formula-safe evidence exports |
 | 20 | End-to-End Staging, Security, Concurrency and Accessibility | Complete (18/19; alpha.16.1 blocked) | Real-provider, Neon, browser, abuse, race and accessibility validation |
-| 21 | v5.3 Release Readiness, Migration, Documentation and Packaging | In progress (alpha.16.3) | Correct Gitea normalization and mutation transport, preserve immutable failed candidates, and repeat the release gate |
+| 21 | v5.3 Release Readiness, Migration, Documentation and Packaging | Complete (alpha.16.3 qualified) | Corrected Gitea normalization and mutation transport, preserved immutable failed candidates, and completed the candidate-bound release gate |
 
 ## Phase 1 completion definition
 

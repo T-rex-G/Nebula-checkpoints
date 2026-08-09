@@ -1,5 +1,9 @@
 # Nebulaverse-X UX Vision
 
+This intent is bounded by the generated [project state](../current/PROJECT_STATE.md)
+and [release security gates](../release/RELEASE_SECURITY_GATES.md). A designed
+state is not a claim that the current successor has qualified it.
+
 ## Identity
 
 Preserve the dark, technical Nebulaverse-X visual identity, blue/cyan accents,

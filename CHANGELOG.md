@@ -1,3 +1,19 @@
+# Changelog
+
+## Unreleased — Documentation Truth Architecture
+
+- Separated current, vision, architecture, release, operations, qualification,
+  reference, historical, and development records under `docs/`.
+- Made `WORK_CONTINUITY.json` schema v3 the machine-readable state authority and
+  generated project state and continuation instructions deterministically.
+- Recorded the exact green alpha.17 automated baseline while keeping the
+  documentation successor, live providers, hosted environment, manual
+  accessibility, and public alpha explicitly unqualified.
+- Recovered the broader founder vision with implemented, committed-roadmap,
+  exploratory, and out-of-current-scope maturity labels.
+- Preserved historical Task reports/specifications and imported three approved
+  public-alpha plans with their original SHA-256 values.
+
 ## 5.3.0-alpha.17.0
 
 - Began the controlled hosted public-alpha successor from the qualified alpha.16.3 archive.
@@ -46,8 +62,6 @@
 - Added blocked evidence-plan generation and verification CLI.
 - Added browser/accessibility staging specifications and CI contracts.
 - Task 20 remains incomplete until live runtime, browser, Neon, provider, destructive and delivery evidence passes.
-
-# Changelog
 
 ## 5.3.0-alpha.15 — Governance Notifications, Webhooks and Signed Audit Exports (Phase 1 Task 19)
 

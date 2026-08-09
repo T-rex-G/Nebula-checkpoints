@@ -14,11 +14,11 @@ below according to the decision you need to make.
 
 ## Product intent
 
+- [Founder vision](vision/FOUNDER_VISION.md) — complete intent with explicit maturity labels
 - [Product vision](vision/PRODUCT_VISION.md)
 - [UX vision](vision/UX_VISION.md)
 
-The complete founder vision is introduced in the documentation-truth content
-slice. Vision describes intent; it never proves delivery or qualification.
+Vision describes intent; it never proves delivery or qualification.
 
 ## Architecture and release
 

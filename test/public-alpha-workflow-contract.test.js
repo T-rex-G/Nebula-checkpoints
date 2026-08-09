@@ -6,14 +6,39 @@ const fs = require('fs');
 const path = require('path');
 const {
   encodeAuthorizationEnvelope,
+  hashLiveTarget,
+  verifyLiveTargetBinding,
   verifyAuthorizationEnvelope
 } = require('../ci/verify-alpha17-authorization');
 
 const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
 const publicKeyBase64 = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
 const now = new Date('2026-07-29T20:00:00.000Z');
+function expectedTargetHash(jobName, target) {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    apiUrl: target.apiUrl,
+    jobName,
+    repository: target.repository
+  })).digest('hex');
+}
+const targets = {
+  github: {
+    repository: 'fixture-owner/nvx-alpha17-github-qualification',
+    apiUrl: 'https://api.github.com'
+  },
+  gitlab: {
+    repository: 'fixture-owner/nvx-alpha17-gitlab-qualification',
+    apiUrl: 'https://gitlab.com/api/v4'
+  }
+};
+const targetHashes = Object.fromEntries(
+  Object.entries(targets).map(([jobName, target]) => [jobName, expectedTargetHash(jobName, target)])
+);
+for (const [jobName, target] of Object.entries(targets)) {
+  assert.strictEqual(hashLiveTarget(jobName, target), targetHashes[jobName]);
+}
 const payload = {
-  schemaVersion: '1.0.0',
+  schemaVersion: '1.1.0',
   workflow: '.github/workflows/public-alpha-alpha17.yml',
   repository: 'fixture-owner/fixture-repository',
   event: 'workflow_dispatch',
@@ -21,6 +46,7 @@ const payload = {
   sourceCommit: 'b'.repeat(40),
   subjectSha256: 'a'.repeat(64),
   authorizedJobs: ['github', 'gitlab'],
+  targetHashes,
   authorizationId: 'approval-2048',
   expiresAt: '2026-07-29T20:15:00.000Z'
 };
@@ -34,11 +60,22 @@ const verified = verifyAuthorizationEnvelope(token, {
   expectedSourceCommit: payload.sourceCommit,
   expectedSubjectHash: payload.subjectSha256,
   requestedJobs: ['github', 'gitlab'],
+  expectedTargets: targets,
   now
 });
 assert.deepStrictEqual(verified.authorizedJobs, ['github', 'gitlab']);
+assert.deepStrictEqual(verified.targetHashes, targetHashes);
 assert.match(verified.envelopeHash, /^[0-9a-f]{64}$/);
 assert(!JSON.stringify(verified).includes(token));
+
+assert.deepStrictEqual(
+  verifyLiveTargetBinding({
+    jobName: 'github',
+    target: targets.github,
+    signedTargetHash: targetHashes.github
+  }),
+  { ok: true, jobName: 'github', targetHash: targetHashes.github }
+);
 
 assert.throws(
   () => verifyAuthorizationEnvelope(token, {
@@ -49,7 +86,8 @@ assert.throws(
     expectedSourceParent: payload.sourceParent,
     expectedSourceCommit: payload.sourceCommit,
     expectedSubjectHash: 'd'.repeat(64),
-    requestedJobs: ['github'],
+    requestedJobs: ['github', 'gitlab'],
+    expectedTargets: targets,
     now
   }),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_SUBJECT_MISMATCH'
@@ -63,10 +101,71 @@ assert.throws(
     expectedSourceParent: payload.sourceParent,
     expectedSourceCommit: payload.sourceCommit,
     expectedSubjectHash: payload.subjectSha256,
-    requestedJobs: ['github'],
+    requestedJobs: ['github', 'gitlab'],
+    expectedTargets: targets,
     now: new Date('2026-07-29T20:16:00.000Z')
   }),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_EXPIRED'
+);
+assert.throws(
+  () => verifyAuthorizationEnvelope(token, {
+    publicKeyBase64,
+    expectedWorkflow: payload.workflow,
+    expectedRepository: payload.repository,
+    expectedEvent: payload.event,
+    expectedSourceParent: payload.sourceParent,
+    expectedSourceCommit: payload.sourceCommit,
+    expectedSubjectHash: payload.subjectSha256,
+    requestedJobs: ['github', 'gitlab'],
+    expectedTargets: {
+      ...targets,
+      github: { ...targets.github, repository: 'fixture-owner/nvx-alpha17-a-different-repository' }
+    },
+    now
+  }),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
+);
+assert.throws(
+  () => verifyAuthorizationEnvelope(token, {
+    publicKeyBase64,
+    expectedWorkflow: payload.workflow,
+    expectedRepository: payload.repository,
+    expectedEvent: payload.event,
+    expectedSourceParent: payload.sourceParent,
+    expectedSourceCommit: payload.sourceCommit,
+    expectedSubjectHash: payload.subjectSha256,
+    requestedJobs: ['github'],
+    expectedTargets: { github: targets.github },
+    now
+  }),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_JOBS_INVALID'
+);
+assert.throws(
+  () => verifyLiveTargetBinding({
+    jobName: 'github',
+    target: { ...targets.github, repository: 'fixture-owner/nvx-alpha17-a-different-repository' },
+    signedTargetHash: targetHashes.github
+  }),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
+);
+const duplicateJobsToken = encodeAuthorizationEnvelope({
+  ...payload,
+  authorizedJobs: ['github', 'github', 'gitlab']
+}, privateKey);
+assert.throws(
+  () => verifyAuthorizationEnvelope(duplicateJobsToken, {
+    publicKeyBase64,
+    expectedWorkflow: payload.workflow,
+    expectedRepository: payload.repository,
+    expectedEvent: payload.event,
+    expectedSourceParent: payload.sourceParent,
+    expectedSourceCommit: payload.sourceCommit,
+    expectedSubjectHash: payload.subjectSha256,
+    requestedJobs: ['github', 'gitlab'],
+    expectedTargets: targets,
+    now
+  }),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_JOBS_INVALID'
 );
 
 const workflowPath = path.join(__dirname, '..', '.github', 'workflows', 'public-alpha-alpha17.yml');
@@ -111,6 +210,12 @@ const authorization = job('authorize-live');
 assert(authorization.includes("github.event_name == 'workflow_dispatch'"));
 assert(authorization.includes('ci/verify-alpha17-authorization.js'));
 assert(!authorization.includes('${{ secrets.'), 'authorization job must verify before secrets are read');
+for (const variable of [
+  'ALPHA17_GITHUB_REPOSITORY', 'ALPHA17_GITLAB_REPOSITORY',
+  'ALPHA17_GITEA_REPOSITORY', 'ALPHA17_GITEA_API_URL',
+  'ALPHA17_HOSTED_BASE_URL', 'ALPHA17_RENDER_SERVICE_ID',
+  'ALPHA17_NEON_PROJECT_ID'
+]) assert(authorization.includes(variable), `authorization job must bind ${variable}`);
 
 for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) {
   const block = job(name);
@@ -118,6 +223,10 @@ for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) 
   assert(block.includes('needs: [automated, authorize-live]'), `${name} must depend on automated and authorization gates`);
   assert(block.includes('inputs.subject_sha256'), `${name} must bind the subject hash`);
   assert(block.includes('inputs.source_commit'), `${name} must bind the source commit`);
+  const preflightIndex = block.indexOf('Verify signed live target');
+  const firstSecretIndex = block.indexOf('${{ secrets.');
+  assert(preflightIndex >= 0, `${name} must run a signed-target preflight`);
+  assert(firstSecretIndex > preflightIndex, `${name} must not reference credentials before target preflight`);
   const hashIndex = block.indexOf('sha256sum -c');
   const extractIndex = block.indexOf('unzip ');
   assert(hashIndex >= 0 && extractIndex > hashIndex, `${name} must verify the archive before extraction`);

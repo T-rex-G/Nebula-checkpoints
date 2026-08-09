@@ -12,6 +12,9 @@ cannot conceal a failed gate, failed cleanup, or known critical/high defect.
   to 5–10 testers.
 - Sandbox repositories are required. Production, irreplaceable, regulated, or
   materially sensitive repositories and data are prohibited.
+- Live provider qualification requires a separately pre-created repository
+  whose name begins `nvx-alpha17-`. The repository is retained; only the
+  signed, per-run temporary branch and bounded proof files are removed.
 - Render Free may stop after inactivity and can take time to wake. Availability,
   memory, CPU, and ephemeral filesystem behavior are Free-tier constraints.
 - Neon Free may scale to zero, take time to wake, and is constrained by its Free
@@ -29,6 +32,9 @@ cannot conceal a failed gate, failed cleanup, or known critical/high defect.
 - Optional YARA scanning is unavailable unless it is explicitly configured and
   qualifies against the exact candidate. Its absence is not represented as a
   completed scan.
+- One short-lived signed activation authorizes one exact selected job set and
+  the hashed identities of its GitHub/GitLab/Gitea or Render/Neon targets. It
+  cannot be reused for a different target or a different job selection.
 
 ## Resource limits
 

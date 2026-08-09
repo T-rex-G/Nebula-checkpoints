@@ -9,7 +9,30 @@ const { createZipArchive, discoverReleaseManifest } = require('../scripts/packag
 const { checks: foundationChecks } = require('../scripts/foundation-gate');
 const root = path.resolve(__dirname, '..');
 const packageScript = path.join(root, 'scripts', 'package-release.js');
+function ensureLocalManifestRepository() {
+  const current = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd: root,
+    encoding: 'utf8'
+  });
+  if (
+    current.status === 0 &&
+    fs.realpathSync(String(current.stdout).trim()) === fs.realpathSync(root)
+  ) return false;
+  const initialized = spawnSync('git', ['init', '--quiet'], { cwd: root, encoding: 'utf8' });
+  assert.strictEqual(initialized.status, 0, initialized.stderr || initialized.stdout);
+  const staged = spawnSync('git', ['add', '--all'], { cwd: root, encoding: 'utf8' });
+  assert.strictEqual(staged.status, 0, staged.stderr || staged.stdout);
+  return true;
+}
+const temporaryManifestRepository = ensureLocalManifestRepository();
 const quarantineRoot = fs.mkdtempSync(path.join(path.dirname(root), 'nvx-package-test-quarantine-'));
+function cleanupRuntimeState() {
+  if (fs.existsSync(quarantineRoot)) fs.rmSync(quarantineRoot, { recursive: true, force: true });
+  if (temporaryManifestRepository && fs.existsSync(path.join(root, '.git'))) {
+    fs.rmSync(path.join(root, '.git'), { recursive: true, force: true });
+  }
+}
+process.once('exit', cleanupRuntimeState);
 let quarantineSequence = 0;
 const foundationArtifacts = [
   'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js',
@@ -215,7 +238,7 @@ try {
   });
 } finally {
   for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
-  fs.rmSync(quarantineRoot, { recursive: true, force: true });
+  cleanupRuntimeState();
 }
 
 console.log('package release runtime test passed');

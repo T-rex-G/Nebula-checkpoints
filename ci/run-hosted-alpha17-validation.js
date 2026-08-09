@@ -12,6 +12,7 @@ const {
   requireSubjectHash,
   sanitizeEvidence
 } = require('./provider-alpha17-common');
+const { verifyLiveTargetBinding } = require('./verify-alpha17-authorization');
 
 const MAX_RECORD_BYTES = 1024 * 1024;
 const MAX_AGE_MS = 72 * 60 * 60 * 1000;
@@ -183,6 +184,15 @@ async function runHostedValidation(options = {}) {
   const env = options.env || process.env;
   const subjectSha256 = requireSubjectHash(env);
   const sourceCommit = requireExactCommit(env);
+  const targetBinding = verifyLiveTargetBinding({
+    jobName: 'hosted',
+    target: {
+      baseUrl: env.NV_ALPHA_BASE_URL,
+      renderServiceId: env.NV_ALPHA17_RENDER_SERVICE_ID,
+      neonProjectId: env.NV_ALPHA17_NEON_PROJECT_ID
+    },
+    signedTargetHash: env.NV_ALPHA17_SIGNED_TARGET_SHA256
+  });
   const now = options.now || (() => new Date());
   const startedAt = now().toISOString();
   const inputRecord = options.operationalRecord || readOperationalRecord(String(env.NV_ALPHA17_OPERATIONAL_RECORD || ''));
@@ -233,6 +243,7 @@ async function runHostedValidation(options = {}) {
     cleanupVerified: true,
     subjectSha256,
     sourceCommit,
+    authorizedTargetSha256: targetBinding.targetHash,
     checks,
     startedAt,
     completedAt: now().toISOString(),

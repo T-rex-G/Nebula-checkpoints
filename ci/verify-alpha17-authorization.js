@@ -4,8 +4,9 @@
 const crypto = require('crypto');
 const fs = require('fs');
 
-const AUTHORIZATION_SCHEMA_VERSION = '1.0.0';
+const AUTHORIZATION_SCHEMA_VERSION = '1.1.0';
 const ALLOWED_JOBS = Object.freeze(['github', 'gitlab', 'gitea', 'hosted']);
+const PROVIDER_JOBS = new Set(['github', 'gitlab', 'gitea']);
 const MAX_LIFETIME_MS = 30 * 60 * 1000;
 
 function fail(message, code) {
@@ -64,9 +65,128 @@ function publicKey(value) {
 
 function normalizeJobs(value, label) {
   if (!Array.isArray(value) || !value.length) fail(`${label} must name at least one job`, 'ALPHA17_AUTHORIZATION_JOBS_INVALID');
-  const jobs = [...new Set(value.map(item => String(item).trim()))];
+  const rawJobs = value.map(item => String(item).trim());
+  const jobs = [...new Set(rawJobs)];
+  if (jobs.length !== rawJobs.length) fail(`${label} contains a duplicate job`, 'ALPHA17_AUTHORIZATION_JOBS_INVALID');
   if (jobs.some(job => !ALLOWED_JOBS.includes(job))) fail(`${label} contains an unknown job`, 'ALPHA17_AUTHORIZATION_JOBS_INVALID');
   return ALLOWED_JOBS.filter(job => jobs.includes(job));
+}
+
+function normalizeUrl(value, label, options = {}) {
+  let parsed;
+  try {
+    parsed = new URL(String(value || '').trim());
+  } catch {
+    fail(`${label} is invalid`, 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  const loopbackHttp = parsed.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname);
+  if (
+    (parsed.protocol !== 'https:' && !loopbackHttp) ||
+    parsed.username || parsed.password || parsed.search || parsed.hash
+  ) {
+    fail(`${label} is invalid`, 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  if (options.originOnly && parsed.pathname !== '/') {
+    fail(`${label} must identify one service origin`, 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  const pathname = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, '');
+  return `${parsed.origin}${pathname}`;
+}
+
+function normalizeIdentity(value, label) {
+  const identity = String(value || '').trim();
+  if (!/^[A-Za-z0-9._/-]{3,200}$/.test(identity) || identity.includes('//')) {
+    fail(`${label} is invalid`, 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  return identity;
+}
+
+function normalizeLiveTarget(jobName, input) {
+  const job = String(jobName || '').trim();
+  if (!ALLOWED_JOBS.includes(job) || !isPlainObject(input)) {
+    fail('live target is invalid', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  if (PROVIDER_JOBS.has(job)) {
+    if (Object.keys(input).some(key => !['repository', 'apiUrl'].includes(key))) {
+      fail('provider target contains an unexpected field', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+    }
+    const repository = String(input.repository || '').trim();
+    const segments = repository.split('/');
+    if (
+      segments.length !== 2 ||
+      segments.some(segment => !/^[A-Za-z0-9._-]{1,100}$/.test(segment)) ||
+      !segments[1].startsWith('nvx-alpha17-')
+    ) {
+      fail('provider target must be one pre-created disposable alpha.17 repository', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+    }
+    return Object.freeze({
+      apiUrl: normalizeUrl(input.apiUrl, 'provider API URL'),
+      jobName: job,
+      repository
+    });
+  }
+  if (Object.keys(input).some(key => !['baseUrl', 'renderServiceId', 'neonProjectId'].includes(key))) {
+    fail('hosted target contains an unexpected field', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  return Object.freeze({
+    baseUrl: normalizeUrl(input.baseUrl, 'hosted base URL', { originOnly: true }),
+    jobName: job,
+    neonProjectId: normalizeIdentity(input.neonProjectId, 'Neon project identity'),
+    renderServiceId: normalizeIdentity(input.renderServiceId, 'Render service identity')
+  });
+}
+
+function hashLiveTarget(jobName, target) {
+  return sha256(stableJson(normalizeLiveTarget(jobName, target)));
+}
+
+function verifyLiveTargetBinding(options = {}) {
+  const jobName = String(options.jobName || '').trim();
+  const signedTargetHash = String(options.signedTargetHash || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(signedTargetHash) || /^0{64}$/.test(signedTargetHash)) {
+    fail('signed live target hash is invalid', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  const targetHash = hashLiveTarget(jobName, options.target);
+  if (targetHash !== signedTargetHash) {
+    fail('live target does not match the signed authorization envelope', 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH');
+  }
+  return Object.freeze({ ok: true, jobName, targetHash });
+}
+
+function normalizeTargetHashes(value, authorizedJobs) {
+  if (!isPlainObject(value)) fail('authorization target hashes are missing', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  const keys = Object.keys(value).sort();
+  const expected = [...authorizedJobs].sort();
+  if (JSON.stringify(keys) !== JSON.stringify(expected)) {
+    fail('authorization target hashes do not match the authorized jobs', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  const targetHashes = {};
+  for (const jobName of authorizedJobs) {
+    const hash = String(value[jobName] || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(hash) || /^0{64}$/.test(hash)) {
+      fail('authorization target hash is invalid', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+    }
+    targetHashes[jobName] = hash;
+  }
+  return Object.freeze(targetHashes);
+}
+
+function targetFromEnvironment(jobName, env = process.env, prefix = 'NV_ALPHA17') {
+  if (PROVIDER_JOBS.has(jobName)) {
+    const upper = jobName.toUpperCase();
+    return {
+      repository: env[`${prefix}_${upper}_REPOSITORY`],
+      apiUrl: env[`${prefix}_${upper}_API_URL`]
+    };
+  }
+  if (jobName === 'hosted') {
+    return {
+      baseUrl: env[`${prefix}_HOSTED_BASE_URL`],
+      renderServiceId: env[`${prefix}_RENDER_SERVICE_ID`],
+      neonProjectId: env[`${prefix}_NEON_PROJECT_ID`]
+    };
+  }
+  fail('live target job is invalid', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
 }
 
 function encodeAuthorizationEnvelope(payload, privateKey) {
@@ -93,7 +213,8 @@ function verifyAuthorizationEnvelope(token, options = {}) {
   }
   const allowedFields = [
     'schemaVersion', 'workflow', 'repository', 'event', 'sourceParent',
-    'sourceCommit', 'subjectSha256', 'authorizedJobs', 'authorizationId', 'expiresAt'
+    'sourceCommit', 'subjectSha256', 'authorizedJobs', 'targetHashes',
+    'authorizationId', 'expiresAt'
   ];
   if (Object.keys(payload).some(key => !allowedFields.includes(key))) {
     fail('authorization payload contains an unexpected field', 'ALPHA17_AUTHORIZATION_INVALID');
@@ -121,8 +242,19 @@ function verifyAuthorizationEnvelope(token, options = {}) {
   }
   const authorizedJobs = normalizeJobs(payload.authorizedJobs, 'authorizedJobs');
   const requestedJobs = normalizeJobs(options.requestedJobs, 'requestedJobs');
-  if (requestedJobs.some(job => !authorizedJobs.includes(job))) {
-    fail('a requested job is outside the authorization envelope', 'ALPHA17_AUTHORIZATION_JOBS_INVALID');
+  if (JSON.stringify(requestedJobs) !== JSON.stringify(authorizedJobs)) {
+    fail('requested jobs do not exactly match the authorization envelope', 'ALPHA17_AUTHORIZATION_JOBS_INVALID');
+  }
+  const targetHashes = normalizeTargetHashes(payload.targetHashes, authorizedJobs);
+  if (!isPlainObject(options.expectedTargets)) {
+    fail('expected live targets are missing', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  for (const jobName of requestedJobs) {
+    verifyLiveTargetBinding({
+      jobName,
+      target: options.expectedTargets[jobName],
+      signedTargetHash: targetHashes[jobName]
+    });
   }
   const now = options.now instanceof Date ? options.now : new Date(options.now || Date.now());
   const expiresAt = new Date(payload.expiresAt);
@@ -141,13 +273,37 @@ function verifyAuthorizationEnvelope(token, options = {}) {
     ok: true,
     authorizationId: payload.authorizationId,
     authorizedJobs: Object.freeze(authorizedJobs),
+    targetHashes,
     expiresAt: payload.expiresAt,
     envelopeHash: sha256(raw)
   });
 }
 
 function main(env = process.env) {
+  if (process.argv[2] === 'target') {
+    const jobName = String(env.NV_ALPHA17_TARGET_JOB || '').trim();
+    const target = jobName === 'hosted'
+      ? {
+          baseUrl: env.NV_ALPHA17_TARGET_BASE_URL,
+          renderServiceId: env.NV_ALPHA17_TARGET_RENDER_SERVICE_ID,
+          neonProjectId: env.NV_ALPHA17_TARGET_NEON_PROJECT_ID
+        }
+      : {
+          repository: env.NV_ALPHA17_TARGET_REPOSITORY,
+          apiUrl: env.NV_ALPHA17_TARGET_API_URL
+        };
+    const result = verifyLiveTargetBinding({
+      jobName,
+      target,
+      signedTargetHash: env.NV_ALPHA17_SIGNED_TARGET_SHA256
+    });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
   const requestedJobs = String(env.NV_ALPHA17_REQUESTED_JOBS || '').split(',').map(value => value.trim()).filter(Boolean);
+  const expectedTargets = Object.fromEntries(
+    requestedJobs.map(jobName => [jobName, targetFromEnvironment(jobName, env)])
+  );
   const token = fs.readFileSync(0, 'utf8').trim();
   const result = verifyAuthorizationEnvelope(token, {
     publicKeyBase64: env.NV_ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64,
@@ -158,6 +314,7 @@ function main(env = process.env) {
     expectedSourceCommit: env.NV_ALPHA17_EXPECTED_SOURCE_COMMIT,
     expectedSubjectHash: env.NV_ALPHA17_EXPECTED_SUBJECT_SHA256,
     requestedJobs,
+    expectedTargets,
     now: new Date()
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
@@ -175,5 +332,7 @@ if (require.main === module) {
 module.exports = Object.freeze({
   AUTHORIZATION_SCHEMA_VERSION,
   encodeAuthorizationEnvelope,
+  hashLiveTarget,
+  verifyLiveTargetBinding,
   verifyAuthorizationEnvelope
 });

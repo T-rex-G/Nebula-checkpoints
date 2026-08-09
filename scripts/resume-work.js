@@ -26,8 +26,28 @@ function readState() {
   return state;
 }
 
+function unavailableSourceControl(state) {
+  return Object.freeze({
+    ...state,
+    sourceControlAvailable: false,
+    branch: null,
+    currentHead: null,
+    acceptedBoundaryValid: null,
+    worktreeClean: null,
+    dirtyPaths: []
+  });
+}
+
 function collect() {
   const state = readState();
+  const probe = spawnSync(
+    'git',
+    ['rev-parse', '--is-inside-work-tree'],
+    { cwd: root, encoding: 'utf8' }
+  );
+  if (probe.error || probe.status !== 0 || probe.stdout.trim() !== 'true') {
+    return unavailableSourceControl(state);
+  }
   const branch = git(['branch', '--show-current']);
   const currentHead = git(['rev-parse', 'HEAD']);
   if (branch !== state.branch) {
@@ -51,6 +71,7 @@ function collect() {
     .map(line => line.slice(3));
   return Object.freeze({
     ...state,
+    sourceControlAvailable: true,
     branch,
     currentHead,
     acceptedBoundaryValid: true,
@@ -65,10 +86,11 @@ function renderHuman(state) {
     .join('\n');
   return [
     `${state.project} ${state.version}`,
-    `Branch: ${state.branch}`,
-    `HEAD: ${state.currentHead}`,
+    `Source control: ${state.sourceControlAvailable ? 'available' : 'unavailable (release archive)'}`,
+    `Branch: ${state.branch || 'unavailable'}`,
+    `HEAD: ${state.currentHead || 'unavailable'}`,
     `Accepted through: ${state.acceptedThrough}`,
-    `Worktree: ${state.worktreeClean ? 'clean' : `dirty (${state.dirtyPaths.join(', ')})`}`,
+    `Worktree: ${state.worktreeClean === null ? 'unavailable' : state.worktreeClean ? 'clean' : `dirty (${state.dirtyPaths.join(', ')})`}`,
     `Plan ${state.activePlan.number}: ${state.activePlan.status}`,
     tasks,
     `Next action: ${state.nextAction}`,

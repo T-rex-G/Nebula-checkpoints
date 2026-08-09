@@ -33,7 +33,7 @@ on:
         default: false
         type: boolean
       authorization_token:
-        description: Signed single-activation authorization envelope
+        description: Signed short-lived exact activation authorization envelope
         required: true
         type: string
 
@@ -131,6 +131,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       envelope_hash: ${{ steps.authorize.outputs.envelope_hash }}
+      github_target_sha256: ${{ steps.authorize.outputs.github_target_sha256 }}
+      gitlab_target_sha256: ${{ steps.authorize.outputs.gitlab_target_sha256 }}
+      gitea_target_sha256: ${{ steps.authorize.outputs.gitea_target_sha256 }}
+      hosted_target_sha256: ${{ steps.authorize.outputs.hosted_target_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -150,6 +154,15 @@ jobs:
           NV_ALPHA17_EXPECTED_SOURCE_PARENT: ${{ needs.automated.outputs.source_parent }}
           NV_ALPHA17_EXPECTED_SOURCE_COMMIT: ${{ inputs.source_commit }}
           NV_ALPHA17_EXPECTED_SUBJECT_SHA256: ${{ inputs.subject_sha256 }}
+          NV_ALPHA17_GITHUB_REPOSITORY: ${{ vars.ALPHA17_GITHUB_REPOSITORY }}
+          NV_ALPHA17_GITHUB_API_URL: https://api.github.com
+          NV_ALPHA17_GITLAB_REPOSITORY: ${{ vars.ALPHA17_GITLAB_REPOSITORY }}
+          NV_ALPHA17_GITLAB_API_URL: https://gitlab.com/api/v4
+          NV_ALPHA17_GITEA_REPOSITORY: ${{ vars.ALPHA17_GITEA_REPOSITORY }}
+          NV_ALPHA17_GITEA_API_URL: ${{ vars.ALPHA17_GITEA_API_URL }}
+          NV_ALPHA17_HOSTED_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
+          NV_ALPHA17_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
+          NV_ALPHA17_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
           AUTHORIZATION_ENVELOPE: ${{ inputs.authorization_token }}
         run: |
           requested_jobs=""
@@ -162,6 +175,10 @@ jobs:
             node ci/verify-alpha17-authorization.js > "${RUNNER_TEMP}/authorization.json"
           envelope_hash="$(node -e 'const v=require(process.argv[1]); process.stdout.write(v.envelopeHash)' "${RUNNER_TEMP}/authorization.json")"
           echo "envelope_hash=${envelope_hash}" >> "${GITHUB_OUTPUT}"
+          for job_name in github gitlab gitea hosted; do
+            target_hash="$(node -e 'const v=require(process.argv[1]); process.stdout.write(v.targetHashes[process.argv[2]] || "")' "${RUNNER_TEMP}/authorization.json" "${job_name}")"
+            echo "${job_name}_target_sha256=${target_hash}" >> "${GITHUB_OUTPUT}"
+          done
 
   github-live:
     if: github.event_name == 'workflow_dispatch' && inputs.run_github
@@ -180,6 +197,16 @@ jobs:
           echo "${{ inputs.subject_sha256 }}  ${archive}" | sha256sum -c -
           mkdir -p "${RUNNER_TEMP}/subject"
           unzip -q "${archive}" -d "${RUNNER_TEMP}/subject"
+      - name: Verify signed live target
+        shell: bash
+        env:
+          NV_ALPHA17_TARGET_JOB: github
+          NV_ALPHA17_TARGET_REPOSITORY: ${{ vars.ALPHA17_GITHUB_REPOSITORY }}
+          NV_ALPHA17_TARGET_API_URL: https://api.github.com
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.github_target_sha256 }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          (cd "${subject_root}" && node ci/verify-alpha17-authorization.js target)
       - name: Run GitHub disposable gate
         shell: bash
         env:
@@ -191,6 +218,7 @@ jobs:
           NV_ALPHA17_MUTATION_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_MUTATION_CREDENTIAL }}
           NV_ALPHA17_READ_ONLY_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_READ_ONLY_CREDENTIAL }}
           NV_ALPHA17_GITHUB_API_URL: https://api.github.com
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.github_target_sha256 }}
         run: |
           subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           mkdir -p "${subject_root}/staging/evidence"
@@ -221,6 +249,16 @@ jobs:
           echo "${{ inputs.subject_sha256 }}  ${archive}" | sha256sum -c -
           mkdir -p "${RUNNER_TEMP}/subject"
           unzip -q "${archive}" -d "${RUNNER_TEMP}/subject"
+      - name: Verify signed live target
+        shell: bash
+        env:
+          NV_ALPHA17_TARGET_JOB: gitlab
+          NV_ALPHA17_TARGET_REPOSITORY: ${{ vars.ALPHA17_GITLAB_REPOSITORY }}
+          NV_ALPHA17_TARGET_API_URL: https://gitlab.com/api/v4
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.gitlab_target_sha256 }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          (cd "${subject_root}" && node ci/verify-alpha17-authorization.js target)
       - name: Run GitLab disposable gate
         shell: bash
         env:
@@ -232,6 +270,7 @@ jobs:
           NV_ALPHA17_MUTATION_CREDENTIAL: ${{ secrets.ALPHA17_GITLAB_MUTATION_CREDENTIAL }}
           NV_ALPHA17_READ_ONLY_CREDENTIAL: ${{ secrets.ALPHA17_GITLAB_READ_ONLY_CREDENTIAL }}
           NV_ALPHA17_GITLAB_API_URL: https://gitlab.com/api/v4
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.gitlab_target_sha256 }}
         run: |
           subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           mkdir -p "${subject_root}/staging/evidence"
@@ -262,6 +301,16 @@ jobs:
           echo "${{ inputs.subject_sha256 }}  ${archive}" | sha256sum -c -
           mkdir -p "${RUNNER_TEMP}/subject"
           unzip -q "${archive}" -d "${RUNNER_TEMP}/subject"
+      - name: Verify signed live target
+        shell: bash
+        env:
+          NV_ALPHA17_TARGET_JOB: gitea
+          NV_ALPHA17_TARGET_REPOSITORY: ${{ vars.ALPHA17_GITEA_REPOSITORY }}
+          NV_ALPHA17_TARGET_API_URL: ${{ vars.ALPHA17_GITEA_API_URL }}
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.gitea_target_sha256 }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          (cd "${subject_root}" && node ci/verify-alpha17-authorization.js target)
       - name: Run Gitea disposable gate
         shell: bash
         env:
@@ -273,6 +322,7 @@ jobs:
           NV_ALPHA17_MUTATION_CREDENTIAL: ${{ secrets.ALPHA17_GITEA_MUTATION_CREDENTIAL }}
           NV_ALPHA17_READ_ONLY_CREDENTIAL: ${{ secrets.ALPHA17_GITEA_READ_ONLY_CREDENTIAL }}
           NV_ALPHA17_GITEA_API_URL: ${{ vars.ALPHA17_GITEA_API_URL }}
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.gitea_target_sha256 }}
         run: |
           subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           mkdir -p "${subject_root}/staging/evidence"
@@ -303,12 +353,26 @@ jobs:
           echo "${{ inputs.subject_sha256 }}  ${archive}" | sha256sum -c -
           mkdir -p "${RUNNER_TEMP}/subject"
           unzip -q "${archive}" -d "${RUNNER_TEMP}/subject"
+      - name: Verify signed live target
+        shell: bash
+        env:
+          NV_ALPHA17_TARGET_JOB: hosted
+          NV_ALPHA17_TARGET_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
+          NV_ALPHA17_TARGET_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
+          NV_ALPHA17_TARGET_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.hosted_target_sha256 }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          (cd "${subject_root}" && node ci/verify-alpha17-authorization.js target)
       - name: Run hosted gate from signed operator record
         shell: bash
         env:
           NV_PUBLIC_ALPHA_SUBJECT_SHA256: ${{ inputs.subject_sha256 }}
           NV_PUBLIC_ALPHA_SOURCE_COMMIT: ${{ inputs.source_commit }}
           NV_ALPHA_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
+          NV_ALPHA17_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
+          NV_ALPHA17_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.hosted_target_sha256 }}
           NV_ALPHA_SESSION_COOKIES: ${{ secrets.ALPHA17_SESSION_COOKIES }}
           NV_ALPHA_MUTATION_REQUEST: ${{ secrets.ALPHA17_MUTATION_REQUEST }}
           NV_ALPHA_CLEANUP_REQUEST: ${{ secrets.ALPHA17_CLEANUP_REQUEST }}

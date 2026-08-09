@@ -7,6 +7,9 @@ remain release gates and are not claimed here.
 
 The first cohort is invitation-only, limited to 5–10 testers, uses sandbox repositories only, and is not a production service.
 Controlled invitation access remains independent from provider authorization.
+Live qualification uses separately pre-created `nvx-alpha17-` repositories;
+the signed activation binds each exact target, and the harness deletes only its
+per-run branch and proof files, never the repository.
 The release-blocking limitation register is
 `docs/qualification/PUBLIC_ALPHA_KNOWN_LIMITATIONS.md`, and the opening and
 closing procedure is `docs/qualification/PUBLIC_ALPHA_COHORT_CHECKLIST.md`.

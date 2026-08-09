@@ -20,6 +20,15 @@ function stableJson(value) {
   return JSON.stringify(value);
 }
 
+function hostedTargetHash(target) {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    baseUrl: target.baseUrl,
+    jobName: 'hosted',
+    neonProjectId: target.neonProjectId,
+    renderServiceId: target.renderServiceId
+  })).digest('hex');
+}
+
 function signedOperationalRecord(privateKey) {
   const record = {
     schemaVersion: '1.0.0',
@@ -46,7 +55,9 @@ function signedOperationalRecord(privateKey) {
 
 function startFixtureServer() {
   let mutationPresent = false;
+  let requestCount = 0;
   const server = http.createServer((request, response) => {
+    requestCount += 1;
     const url = new URL(request.url, 'http://127.0.0.1');
     response.setHeader('Content-Type', 'application/json');
     response.setHeader('X-Correlation-Id', 'fixture-correlation');
@@ -85,7 +96,8 @@ function startFixtureServer() {
     server.listen(0, '127.0.0.1', () => resolve({
       server,
       baseUrl: `http://127.0.0.1:${server.address().port}`,
-      mutationPresent: () => mutationPresent
+      mutationPresent: () => mutationPresent,
+      requestCount: () => requestCount
     }));
   });
 }
@@ -101,6 +113,8 @@ function startFixtureServer() {
       NV_PUBLIC_ALPHA_SOURCE_COMMIT: SOURCE,
       NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64: publicKeyBase64,
       NV_ALPHA_BASE_URL: fixture.baseUrl,
+      NV_ALPHA17_RENDER_SERVICE_ID: 'fixture-owner/nvx-alpha17-render',
+      NV_ALPHA17_NEON_PROJECT_ID: 'fixture-owner/nvx-alpha17-neon',
       NV_ALPHA_SESSION_COOKIES: JSON.stringify([
         'session=fixture-1',
         'session=fixture-2',
@@ -124,6 +138,11 @@ function startFixtureServer() {
         body: { expectedHeadSha: '2'.repeat(40) }
       })
     };
+    env.NV_ALPHA17_SIGNED_TARGET_SHA256 = hostedTargetHash({
+      baseUrl: env.NV_ALPHA_BASE_URL,
+      renderServiceId: env.NV_ALPHA17_RENDER_SERVICE_ID,
+      neonProjectId: env.NV_ALPHA17_NEON_PROJECT_ID
+    });
     const result = await runHostedValidation({
       env,
       operationalRecord,
@@ -140,6 +159,14 @@ function startFixtureServer() {
     assert.strictEqual(fixture.mutationPresent(), false);
     assert(!JSON.stringify(result).includes('DATABASE_URL'));
     assert(!JSON.stringify(result).includes('session=fixture'));
+
+    const wrongTarget = { ...env, NV_ALPHA17_SIGNED_TARGET_SHA256: 'f'.repeat(64) };
+    const requestCountBeforeMismatch = fixture.requestCount();
+    await assert.rejects(
+      () => runHostedValidation({ env: wrongTarget, operationalRecord, now: () => new Date(NOW) }),
+      error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
+    );
+    assert.strictEqual(fixture.requestCount(), requestCountBeforeMismatch, 'hosted target mismatch must fail before network access');
 
     const wrongSubject = structuredClone(operationalRecord);
     wrongSubject.subjectSha256 = 'd'.repeat(64);

@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const registry = require('../config/public-alpha-capabilities.json');
+const { verifyLiveTargetBinding } = require('./verify-alpha17-authorization');
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
@@ -65,7 +66,7 @@ function assertDisposableTarget(target) {
   if (
     !/^[^/\s]+\/[^/\s]+$/.test(repository) ||
     repository !== actualRepository ||
-    !repositoryName.startsWith(prefix) ||
+    !repositoryName.startsWith('nvx-alpha17-') ||
     !branch.startsWith(prefix) ||
     ['main', 'master', defaultBranch].includes(branch)
   ) {
@@ -219,6 +220,16 @@ async function runProviderQualification({ provider, client, env = process.env, n
   const runId = requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_RUN_ID');
   const repository = requireEnvironment(env, 'NV_ALPHA17_REPOSITORY');
   const branchName = requireEnvironment(env, 'NV_ALPHA17_BRANCH');
+  const repositoryName = repository.split('/').at(-1) || '';
+  if (!/^[^/\s]+\/[^/\s]+$/.test(repository) || !repositoryName.startsWith('nvx-alpha17-')) {
+    fail('provider repository is not a pre-created disposable alpha.17 target', 'ALPHA17_TARGET_NOT_DISPOSABLE');
+  }
+  const apiUrl = requireEnvironment(env, `NV_ALPHA17_${provider.toUpperCase()}_API_URL`);
+  const targetBinding = verifyLiveTargetBinding({
+    jobName: provider,
+    target: { repository, apiUrl },
+    signedTargetHash: requireEnvironment(env, 'NV_ALPHA17_SIGNED_TARGET_SHA256')
+  });
   const startedAt = now().toISOString();
   const repositoryState = await client.getRepository('mutation');
   const target = assertDisposableTarget({
@@ -331,6 +342,7 @@ async function runProviderQualification({ provider, client, env = process.env, n
     sourceCommit,
     provider,
     capabilities: providerCapabilities(provider),
+    authorizedTargetSha256: targetBinding.targetHash,
     targetHash: sha256(`${repository}\n${branchName}\n${proofPath}`),
     checks,
     startedAt,

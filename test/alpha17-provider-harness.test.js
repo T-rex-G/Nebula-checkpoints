@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const crypto = require('crypto');
 const { createProviderFetchFixture } = require('../ci/alpha17-fixtures');
 const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
 const { runGitlabValidation } = require('../ci/run-gitlab-alpha17-validation');
@@ -12,8 +13,8 @@ const SOURCE = 'b'.repeat(40);
 const NOW = '2026-07-29T20:00:00.000Z';
 
 function environment(provider) {
-  const repository = `fixture-owner/nvx-alpha17-${RUN_ID}-${provider}`;
-  return {
+  const repository = `fixture-owner/nvx-alpha17-${provider}-qualification`;
+  const env = {
     NV_PUBLIC_ALPHA_SUBJECT_SHA256: SUBJECT,
     NV_PUBLIC_ALPHA_SOURCE_COMMIT: SOURCE,
     NV_ALPHA17_WORKFLOW_RUN_ID: RUN_ID,
@@ -25,6 +26,17 @@ function environment(provider) {
     NV_ALPHA17_GITLAB_API_URL: 'https://gitlab.fixture.invalid/api/v4',
     NV_ALPHA17_GITEA_API_URL: 'https://gitea.fixture.invalid/api/v1'
   };
+  const apiUrl = {
+    github: env.NV_ALPHA17_GITHUB_API_URL,
+    gitlab: env.NV_ALPHA17_GITLAB_API_URL,
+    gitea: env.NV_ALPHA17_GITEA_API_URL
+  }[provider];
+  env.NV_ALPHA17_SIGNED_TARGET_SHA256 = crypto.createHash('sha256').update(JSON.stringify({
+    apiUrl,
+    jobName: provider,
+    repository
+  })).digest('hex');
+  return env;
 }
 
 async function runOne(provider, runner) {
@@ -87,6 +99,26 @@ async function runOne(provider, runner) {
     () => runGithubValidation({ env: badEnvironment, fetchImpl: badFixture.fetch, now: () => new Date(NOW) }),
     error => error && error.code === 'ALPHA17_TARGET_NOT_DISPOSABLE'
   );
+
+  const mismatchedBindingEnvironment = environment('github');
+  mismatchedBindingEnvironment.NV_ALPHA17_SIGNED_TARGET_SHA256 = 'f'.repeat(64);
+  const mismatchedBindingFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: mismatchedBindingEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: mismatchedBindingEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: mismatchedBindingEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  await assert.rejects(
+    () => runGithubValidation({
+      env: mismatchedBindingEnvironment,
+      fetchImpl: mismatchedBindingFixture.fetch,
+      now: () => new Date(NOW)
+    }),
+    error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
+  );
+  assert.strictEqual(mismatchedBindingFixture.state.requests.length, 0, 'target mismatch must fail before provider access');
 
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {

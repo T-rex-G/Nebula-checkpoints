@@ -35,6 +35,7 @@ function createProviderFetchFixture(options = {}) {
   const state = {
     counter: 1,
     defaultBranch,
+    requests: [],
     branches: new Map([[defaultBranch, { sha: initialSha, files: new Map() }]])
   };
 
@@ -244,7 +245,10 @@ function createProviderFetchFixture(options = {}) {
   const routers = { github: githubFetch, gitlab: gitlabFetch, gitea: giteaFetch };
   return Object.freeze({
     state,
-    fetch: async (url, init = {}) => routers[provider](url, init)
+    fetch: async (url, init = {}) => {
+      state.requests.push({ method: String(init.method || 'GET').toUpperCase(), url: String(url) });
+      return routers[provider](url, init);
+    }
   });
 }
 

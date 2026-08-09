@@ -2,6 +2,23 @@
 
 Use sanitized outputs only. Never paste database URLs, cookies, invitation codes, provider credentials, application secrets, or backup keys into evidence.
 
+## Before live qualification dispatch
+
+- Pre-create one dedicated provider repository per selected provider. Its name
+  must begin `nvx-alpha17-`; do not use the checkpoint repository or any
+  production repository.
+- Record the exact repository/API identity for each selected provider and, for
+  hosted qualification, the exact service origin, Render service identity, and
+  Neon project identity.
+- Generate a fresh Ed25519 authorization envelope using schema `1.1.0`. The
+  selected jobs must exactly match the dispatch switches, and every selected
+  target hash must match the configured repository variables.
+- Confirm the credential-free target preflight succeeds before the workflow
+  reaches any secret-bearing step. Stop on any target or job mismatch.
+- Expect cleanup to remove only the per-run branch and proof files. Repository
+  deletion is outside the qualification harness and requires separate explicit
+  authorization.
+
 ## Daily
 
 - Check Render service state, active deploy, cold starts, and recent restarts.

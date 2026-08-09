@@ -359,3 +359,23 @@ creates and verifies an encrypted external backup, applies migrations with the
 dedicated CLI, and rehearses restore into an isolated Neon branch. Readiness
 fails on schema mismatch. Rollback requires a recorded compatibility decision
 or maintenance mode plus database restore.
+
+## ADR-061 — Live qualification is exact-job and exact-target authorized
+
+**Status:** Accepted
+
+Every secret-bearing alpha.17 qualification activation uses authorization
+schema `1.1.0`. Its Ed25519-signed envelope binds the exact selected job set and
+one canonical SHA-256 target identity per job in addition to the workflow,
+source parent, source commit, candidate archive hash, event, authorization ID,
+and expiry. Provider target identities include the pre-created disposable
+repository and canonical API URL. Hosted target identity includes the service
+origin plus the exact Render service and Neon project identifiers.
+
+Provider repositories are created before dispatch, must use the
+`nvx-alpha17-` prefix, and are never deleted by the qualification harness. Only
+the per-run `nvx-alpha17-<run-id>-...` branch and bounded proof files are
+created and removed. Each live job verifies its signed target without secrets
+before its credential-bearing step, and each harness rechecks the same binding
+before its first network request. A changed, absent, malformed, or extra target
+or job fails closed and produces no provider/hosted request.

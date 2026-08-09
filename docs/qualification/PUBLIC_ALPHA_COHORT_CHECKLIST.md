@@ -13,6 +13,9 @@ backup manifests, or tester identifiers to source.
 - [ ] Freeze and independently verify the source commit, archive, and checksum.
 - [ ] Verify the complete qualification record and artifact references for the
   same source commit and archive SHA-256.
+- [ ] Confirm every selected live job and exact target identity is present in
+  the fresh signed authorization envelope; provider repositories are
+  pre-created `nvx-alpha17-` sandboxes and are not themselves deletion targets.
 - [ ] Verify encrypted pre-deploy backup and an isolated restore through the
   latest migration; retain both outside source and ephemeral hosting storage.
 - [ ] Confirm production/development dependency classification, secret scan,
@@ -34,8 +37,10 @@ backup manifests, or tester identifiers to source.
 - [ ] Stop issuing invitations and reject unused, expired, and revoked codes.
 - [ ] Revoke all application sessions and complete provider-side revocation
   guidance without claiming provider revocation that was not verified.
-- [ ] Remove temporary branches, webhooks, uploads, and provider resources, then
-  verify their absence.
+- [ ] Remove temporary branches, proof files, webhooks, uploads, and other
+  approved temporary resources, then verify their absence. Retain the
+  pre-created qualification repositories unless a separate deletion is
+  explicitly authorized.
 - [ ] Create and verify the final encrypted backup in approved external storage;
   do not retain it in source, workflow artifacts, or Render local storage.
 - [ ] Purge tester token-bearing state, browser/session state, and data scheduled

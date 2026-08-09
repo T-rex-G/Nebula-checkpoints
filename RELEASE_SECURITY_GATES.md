@@ -54,12 +54,19 @@ A pass is public-alpha accessibility qualification, not legal certification.
 
 - GitHub must pass the complete golden path.
 - GitLab and Gitea must each pass every capability advertised as `Supported`.
+- Each provider uses a separately pre-created `nvx-alpha17-` sandbox repository.
+  The signed activation binds its exact repository/API identity; qualification
+  creates and deletes only a per-run temporary branch and proof files.
 - Disposable mutations must prove stale-head rejection, exact readback,
   insufficient-permission denial, and verified cleanup.
+- A target or selected-job mismatch must fail before any live request or
+  credential-bearing step.
 - `Experimental` paths remain isolated and limitation-labelled.
 
 ## Hosted Render/Neon gates
 
+- The signed activation binds the exact hosted origin, Render service identity,
+  and Neon project identity before hosted credentials or traffic are used.
 - Render cold start, Neon scale-to-zero wake, five concurrent invited read
   workflows, and one bounded mutation at a time.
 - Memory/restart observation, active-session revocation, provider disconnect,

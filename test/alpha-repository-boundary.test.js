@@ -559,7 +559,9 @@ function transportEvents() {
 }
 
 function setAlphaState(state) {
-  fs.writeFileSync(alphaStateFile, JSON.stringify({ A: state }), { mode: 0o600 });
+  const replacement = `${alphaStateFile}.${process.pid}.tmp`;
+  fs.writeFileSync(replacement, JSON.stringify({ A: state }), { mode: 0o600 });
+  fs.renameSync(replacement, alphaStateFile);
 }
 
 async function waitForCondition(predicate, description, timeoutMs = 3000) {

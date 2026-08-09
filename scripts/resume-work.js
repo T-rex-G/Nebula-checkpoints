@@ -46,7 +46,7 @@ function readState() {
     state.schemaVersion !== 2 ||
     state.project !== 'Nebulaverse-X' ||
     state.version !== '5.3.0-alpha.17.0' ||
-    !/^[0-9a-f]{40}$/.test(state.acceptedThrough || '') ||
+    !/^[0-9a-f]{40}$/.test(state.acceptedTree || '') ||
     JSON.stringify(state.publishedBaseline) !== JSON.stringify(PUBLISHED_BASELINE) ||
     !Array.isArray(state.failedQualificationRuns) ||
     state.failedQualificationRuns.some(item => !/^[0-9]+$/.test(String(item.runId || '')) || item.liveJobsSkipped !== true) ||
@@ -85,11 +85,16 @@ function collect(options = {}) {
   }
   const branch = git(['branch', '--show-current']);
   const currentHead = git(['rev-parse', 'HEAD']);
-  const ancestor = spawnSync('git', ['merge-base', '--is-ancestor', state.acceptedThrough, currentHead], {
+  const history = spawnSync('git', ['log', '--format=%T', currentHead], {
     cwd: root,
     encoding: 'utf8'
   });
-  if (ancestor.status !== 0) throw new Error('Accepted continuity boundary is not an ancestor of HEAD');
+  const acceptedTreePresent = history.status === 0 && history.stdout
+    .split('\n')
+    .some(tree => tree === state.acceptedTree);
+  if (!acceptedTreePresent) {
+    throw new Error('Accepted continuity tree is not present in HEAD ancestry');
+  }
   const dirtyPaths = execFileSync('git', ['status', '--porcelain=v1'], {
     cwd: root,
     encoding: 'utf8'
@@ -117,7 +122,7 @@ function renderHuman(state) {
     `Source control: ${state.sourceControlAvailable ? 'available' : 'unavailable (release archive)'}`,
     `Branch: ${state.sourceControlAvailable ? state.branch || 'detached HEAD' : 'unavailable'}`,
     `HEAD: ${state.currentHead || 'unavailable'}`,
-    `Accepted through: ${state.acceptedThrough}`,
+    `Accepted tree: ${state.acceptedTree}`,
     `Published baseline: ${state.publishedBaseline.commit} (${state.publishedBaseline.qualificationDecision})`,
     `Published candidate: ${state.publishedBaseline.candidateSha256}`,
     `Worktree: ${state.worktreeClean === null ? 'unavailable' : state.worktreeClean ? 'clean' : `dirty (${state.dirtyPaths.join(', ')})`}`,

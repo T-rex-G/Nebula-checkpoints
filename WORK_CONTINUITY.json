@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "project": "Nebulaverse-X",
   "version": "5.3.0-alpha.17.0",
-  "acceptedThrough": "0f4d9983d08f2b6316e4195e2e7dddd955f207e5",
+  "acceptedTree": "673737fc9a51aeffd54e068d5148de061fb559b2",
   "publishedBaseline": {
     "repository": "T-rex-G/Nebula-checkpoints",
     "branch": "sandbox/alpha17-live-qualification",
@@ -21,6 +21,11 @@
     {
       "runId": "31314330832",
       "failure": "shallow checkout could not prove accepted-boundary ancestry",
+      "liveJobsSkipped": true
+    },
+    {
+      "runId": "31321447041",
+      "failure": "pull-request checkout exposed a local-only accepted commit boundary",
       "liveJobsSkipped": true
     }
   ],

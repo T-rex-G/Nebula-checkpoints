@@ -16,6 +16,8 @@ const sourceControlExpected = fs.existsSync(path.join(root, '.git'));
 assert.strictEqual(state.schemaVersion, 2);
 assert.strictEqual(state.project, 'Nebulaverse-X');
 assert.strictEqual(state.version, '5.3.0-alpha.17.0');
+assert.strictEqual(state.acceptedTree, '673737fc9a51aeffd54e068d5148de061fb559b2');
+assert.strictEqual(Object.hasOwn(state, 'acceptedThrough'), false);
 assert.deepStrictEqual(state.publishedBaseline, {
   repository: 'T-rex-G/Nebula-checkpoints',
   branch: 'sandbox/alpha17-live-qualification',
@@ -27,7 +29,7 @@ assert.deepStrictEqual(state.publishedBaseline, {
 });
 assert.deepStrictEqual(
   state.failedQualificationRuns.map(item => item.runId),
-  ['31290968279', '31314330832']
+  ['31290968279', '31314330832', '31321447041']
 );
 assert.strictEqual(
   state.nextAction,
@@ -88,14 +90,15 @@ try {
     ['-c', 'user.name=Nebulaverse Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'seed'],
     { cwd: fixtureRoot, stdio: 'ignore' }
   );
-  const acceptedThrough = execFileSync('git', ['rev-parse', 'HEAD'], {
+  const acceptedTree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], {
     cwd: fixtureRoot,
     encoding: 'utf8'
   }).trim();
   const fixtureState = {
     ...JSON.parse(fs.readFileSync(path.join(root, 'WORK_CONTINUITY.json'), 'utf8')),
-    acceptedThrough
+    acceptedTree
   };
+  delete fixtureState.acceptedThrough;
   fs.copyFileSync(scriptPath, path.join(fixtureRoot, 'scripts', 'resume-work.js'));
   fs.writeFileSync(
     path.join(fixtureRoot, 'WORK_CONTINUITY.json'),
@@ -160,7 +163,7 @@ try {
     { cwd: fixtureRoot, encoding: 'utf8' }
   );
   assert.notStrictEqual(unrelatedBoundary.status, 0);
-  assert.match(unrelatedBoundary.stderr, /Accepted continuity boundary is not an ancestor of HEAD/);
+  assert.match(unrelatedBoundary.stderr, /Accepted continuity tree is not present in HEAD ancestry/);
 } finally {
   fs.rmSync(fixtureRoot, { recursive: true, force: true });
 }

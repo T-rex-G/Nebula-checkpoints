@@ -16,6 +16,14 @@ assert.ok(pkg.scripts['staging:plan']);
 assert.ok(pkg.scripts['staging:verify']);
 assert.ok(pkg.scripts['test:e2e']);
 assert.match(ci, /test:staging:gate/);
+assert.match(
+  ci,
+  /npm run package:release -- "\$\{RUNNER_TEMP\}\/release"/,
+  'CI must write release artifacts outside the source checkout'
+);
+assert.doesNotMatch(ci, /npm run package:release -- dist/);
+assert.match(ci, /\$\{\{ runner\.temp \}\}\/release\/\*\.zip/);
+assert.match(ci, /\$\{\{ runner\.temp \}\}\/release\/\*\.sha256/);
 assert.match(config, /projects:/);
 assert.match(config, /name: 'desktop'/);
 assert.match(config, /name: 'mobile'/);

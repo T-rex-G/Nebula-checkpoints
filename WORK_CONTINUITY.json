@@ -93,17 +93,23 @@
     "matrixCandidateSha256": "55f3db62528df3b06d1a8ddd2818d7109f8f7affa9ce0ea08a927297e2bbe66e",
     "matrixCandidateStatus": "invalidated_by_archive_continuity_defect",
     "archiveTestCandidateSha256": "19b620e0c85126f2972ed9a47a560dd5643668180172119ea731c6cead61ad67",
-    "archiveTestCandidateStatus": "invalidated_by_archive_test_expectation_defect"
+    "archiveTestCandidateStatus": "invalidated_by_archive_test_expectation_defect",
+    "failedQualificationCandidateSha256": "95c9cc2ef96b02874b8592baaa4e56b398e22328ea77103cd6c6b244ecc1d05e",
+    "failedQualificationCandidateStatus": "invalidated_by_detached_checkout_continuity_contract",
+    "failedQualificationRunId": "31290968279",
+    "detachedCheckoutCorrectionStatus": "verified_locally_node_22_23_1_pending_publication"
   },
-  "nextAction": "Re-freeze Plan 6 Task 8 after the exact-target authorization correction; do not run live, hosted, or manual gates",
+  "nextAction": "Publish the detached-checkout continuity correction to the isolated sandbox branch, rebuild the exact candidate, and rerun GitHub-only qualification; do not run GitLab, Gitea, hosted, or manual gates",
   "verification": {
     "runtime": "Node.js 22.23.1",
     "commit": "0f4d9983d08f2b6316e4195e2e7dddd955f207e5",
     "plan6Tasks1Through7": "passed",
-    "deterministicCandidate": "pending_refreeze_after_target_binding_correction",
+    "deterministicCandidate": "pending_refreeze_after_detached_checkout_correction",
     "liveTargetAuthorization": "focused_contracts_passed_node_22_23_1",
     "freshExtractionReleaseTest": "passed_node_22_23_1",
-    "freshExtractionMatrix": "pending_refreeze_after_archive_continuity_correction",
+    "freshExtractionMatrix": "pending_refreeze_after_detached_checkout_correction",
+    "detachedCheckoutContinuity": "focused_and_full_135_program_matrix_passed_node_22_23_1",
+    "qualificationRun31290968279": "failed_pre_authorization_detached_checkout_continuity_contract_live_jobs_skipped",
     "productionDependencyAudit": "zero_vulnerabilities_after_dompurify_3_4_13_patch",
     "developmentDependencyAudit": "zero_vulnerabilities_after_brace_expansion_5_0_9_patch",
     "safeguardsImmediateBinding": "passed_three_mobile_repetitions_and_full_56_test_matrix",
@@ -129,10 +135,10 @@
     ]
   },
   "remote": {
-    "status": "plan6_sandbox_checkpoint_published_refreeze_pending",
+    "status": "github_qualification_failed_pre_authorization_detached_checkout_correction_pending_publication",
     "repository": "T-rex-G/Nebula-checkpoints",
     "branch": "sandbox/alpha17-live-qualification",
-    "lastPushedCommit": "b593cda334898ad76fea0d6764465e0509e66c20",
-    "lastPushedSourceCommit": "bc489506427ee8d736f6580f6d2700791921ceee"
+    "lastPushedCommit": "06d67c0280fe88db485b65bb55673b50b1373d74",
+    "lastPushedSourceCommit": "a696fea4a1201a2c0b5526648083f1fc43ef1ccb"
   }
 }

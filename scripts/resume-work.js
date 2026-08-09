@@ -50,8 +50,8 @@ function collect() {
   }
   const branch = git(['branch', '--show-current']);
   const currentHead = git(['rev-parse', 'HEAD']);
-  if (branch !== state.branch) {
-    throw new Error(`Continuity branch mismatch: expected ${state.branch}, found ${branch || 'detached HEAD'}`);
+  if (branch && branch !== state.branch) {
+    throw new Error(`Continuity branch mismatch: expected ${state.branch}, found ${branch}`);
   }
   const ancestor = spawnSync(
     'git',
@@ -72,7 +72,7 @@ function collect() {
   return Object.freeze({
     ...state,
     sourceControlAvailable: true,
-    branch,
+    branch: branch || null,
     currentHead,
     acceptedBoundaryValid: true,
     worktreeClean: dirtyPaths.length === 0,
@@ -87,7 +87,7 @@ function renderHuman(state) {
   return [
     `${state.project} ${state.version}`,
     `Source control: ${state.sourceControlAvailable ? 'available' : 'unavailable (release archive)'}`,
-    `Branch: ${state.branch || 'unavailable'}`,
+    `Branch: ${state.sourceControlAvailable ? state.branch || 'detached HEAD' : 'unavailable'}`,
     `HEAD: ${state.currentHead || 'unavailable'}`,
     `Accepted through: ${state.acceptedThrough}`,
     `Worktree: ${state.worktreeClean === null ? 'unavailable' : state.worktreeClean ? 'clean' : `dirty (${state.dirtyPaths.join(', ')})`}`,

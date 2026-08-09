@@ -3,6 +3,8 @@
 - Began the controlled hosted public-alpha successor from the qualified alpha.16.3 archive.
 - Preserved alpha.16.3 and Task 21 evidence as immutable predecessor records.
 - Added explicit provider/deployment capability truth and public-alpha release gates.
+- Made the continuity collector accept verified detached CI checkouts while retaining named-branch mismatch, accepted-boundary ancestry, and worktree-state enforcement.
+- Added a real temporary-Git regression covering detached JSON and human-readable continuity output.
 
 ## 5.3.0-alpha.16.3 — Gitea File Mutation Compatibility (Phase 1 Task 21 in progress)
 

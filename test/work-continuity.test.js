@@ -14,12 +14,16 @@ const output = execFileSync(
 );
 const state = JSON.parse(output);
 const sourceControlExpected = fs.existsSync(path.join(root, '.git'));
+const activeBranch = sourceControlExpected
+  ? execFileSync('git', ['branch', '--show-current'], { cwd: root, encoding: 'utf8' }).trim()
+  : '';
 
 assert.strictEqual(state.schemaVersion, 1);
 assert.strictEqual(state.project, 'Nebulaverse-X');
 assert.strictEqual(state.sourceControlAvailable, sourceControlExpected);
 if (sourceControlExpected) {
-  assert.strictEqual(state.branch, 'public-alpha/alpha17-foundation');
+  assert.strictEqual(state.branch, activeBranch || null);
+  if (activeBranch) assert.strictEqual(activeBranch, 'public-alpha/alpha17-foundation');
   assert.match(state.currentHead, /^[0-9a-f]{40}$/);
   assert.strictEqual(typeof state.worktreeClean, 'boolean');
   assert.strictEqual(state.acceptedBoundaryValid, true);
@@ -57,9 +61,12 @@ for (const [number, acceptedThrough] of [
 for (const number of ['8', '9', '10']) {
   assert.strictEqual(state.activePlan.tasks[number].status, 'pending');
 }
-assert.strictEqual(state.nextAction, 'Re-freeze Plan 6 Task 8 after the exact-target authorization correction; do not run live, hosted, or manual gates');
+assert.strictEqual(
+  state.nextAction,
+  'Publish the detached-checkout continuity correction to the isolated sandbox branch, rebuild the exact candidate, and rerun GitHub-only qualification; do not run GitLab, Gitea, hosted, or manual gates'
+);
 assert.strictEqual(state.verification.plan6Tasks1Through7, 'passed');
-assert.strictEqual(state.verification.deterministicCandidate, 'pending_refreeze_after_target_binding_correction');
+assert.strictEqual(state.verification.deterministicCandidate, 'pending_refreeze_after_detached_checkout_correction');
 assert.strictEqual(state.verification.liveTargetAuthorization, 'focused_contracts_passed_node_22_23_1');
 assert.strictEqual(state.verification.manualAccessibilityAudit, 'not_executed');
 assert.deepStrictEqual(state.correctiveRefreeze, {
@@ -76,15 +83,30 @@ assert.deepStrictEqual(state.correctiveRefreeze, {
   matrixCandidateSha256: '55f3db62528df3b06d1a8ddd2818d7109f8f7affa9ce0ea08a927297e2bbe66e',
   matrixCandidateStatus: 'invalidated_by_archive_continuity_defect',
   archiveTestCandidateSha256: '19b620e0c85126f2972ed9a47a560dd5643668180172119ea731c6cead61ad67',
-  archiveTestCandidateStatus: 'invalidated_by_archive_test_expectation_defect'
+  archiveTestCandidateStatus: 'invalidated_by_archive_test_expectation_defect',
+  failedQualificationCandidateSha256: '95c9cc2ef96b02874b8592baaa4e56b398e22328ea77103cd6c6b244ecc1d05e',
+  failedQualificationCandidateStatus: 'invalidated_by_detached_checkout_continuity_contract',
+  failedQualificationRunId: '31290968279',
+  detachedCheckoutCorrectionStatus: 'verified_locally_node_22_23_1_pending_publication'
 });
 assert.strictEqual(state.verification.freshExtractionReleaseTest, 'passed_node_22_23_1');
-assert.strictEqual(state.verification.freshExtractionMatrix, 'pending_refreeze_after_archive_continuity_correction');
-assert.strictEqual(state.remote.status, 'plan6_sandbox_checkpoint_published_refreeze_pending');
+assert.strictEqual(state.verification.freshExtractionMatrix, 'pending_refreeze_after_detached_checkout_correction');
+assert.strictEqual(
+  state.verification.detachedCheckoutContinuity,
+  'focused_and_full_135_program_matrix_passed_node_22_23_1'
+);
+assert.strictEqual(
+  state.verification.qualificationRun31290968279,
+  'failed_pre_authorization_detached_checkout_continuity_contract_live_jobs_skipped'
+);
+assert.strictEqual(
+  state.remote.status,
+  'github_qualification_failed_pre_authorization_detached_checkout_correction_pending_publication'
+);
 assert.strictEqual(state.remote.repository, 'T-rex-G/Nebula-checkpoints');
 assert.strictEqual(state.remote.branch, 'sandbox/alpha17-live-qualification');
-assert.strictEqual(state.remote.lastPushedCommit, 'b593cda334898ad76fea0d6764465e0509e66c20');
-assert.strictEqual(state.remote.lastPushedSourceCommit, 'bc489506427ee8d736f6580f6d2700791921ceee');
+assert.strictEqual(state.remote.lastPushedCommit, '06d67c0280fe88db485b65bb55673b50b1373d74');
+assert.strictEqual(state.remote.lastPushedSourceCommit, 'a696fea4a1201a2c0b5526648083f1fc43ef1ccb');
 
 const archiveRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-continuity-archive-'));
 try {
@@ -108,6 +130,75 @@ try {
   assert.deepStrictEqual(archiveState.dirtyPaths, []);
 } finally {
   fs.rmSync(archiveRoot, { recursive: true, force: true });
+}
+
+const detachedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-continuity-detached-'));
+try {
+  fs.mkdirSync(path.join(detachedRoot, 'scripts'));
+  fs.writeFileSync(path.join(detachedRoot, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['init', '--initial-branch=main'], { cwd: detachedRoot, stdio: 'ignore' });
+  execFileSync('git', ['add', 'seed.txt'], { cwd: detachedRoot, stdio: 'ignore' });
+  execFileSync(
+    'git',
+    ['-c', 'user.name=Nebulaverse Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'seed'],
+    { cwd: detachedRoot, stdio: 'ignore' }
+  );
+  const acceptedThrough = execFileSync(
+    'git',
+    ['rev-parse', 'HEAD'],
+    { cwd: detachedRoot, encoding: 'utf8' }
+  ).trim();
+  const detachedFixture = {
+    ...JSON.parse(fs.readFileSync(path.join(root, 'WORK_CONTINUITY.json'), 'utf8')),
+    branch: 'main',
+    acceptedThrough
+  };
+  fs.copyFileSync(
+    path.join(root, 'scripts', 'resume-work.js'),
+    path.join(detachedRoot, 'scripts', 'resume-work.js')
+  );
+  fs.writeFileSync(
+    path.join(detachedRoot, 'WORK_CONTINUITY.json'),
+    `${JSON.stringify(detachedFixture, null, 2)}\n`
+  );
+  execFileSync('git', ['add', 'WORK_CONTINUITY.json', 'scripts/resume-work.js'], {
+    cwd: detachedRoot,
+    stdio: 'ignore'
+  });
+  execFileSync(
+    'git',
+    ['-c', 'user.name=Nebulaverse Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'fixture'],
+    { cwd: detachedRoot, stdio: 'ignore' }
+  );
+  const detachedHead = execFileSync(
+    'git',
+    ['rev-parse', 'HEAD'],
+    { cwd: detachedRoot, encoding: 'utf8' }
+  ).trim();
+  execFileSync('git', ['checkout', '--detach', detachedHead], { cwd: detachedRoot, stdio: 'ignore' });
+
+  const detachedOutput = execFileSync(
+    process.execPath,
+    [path.join(detachedRoot, 'scripts', 'resume-work.js'), '--json'],
+    { cwd: detachedRoot, encoding: 'utf8' }
+  );
+  const detachedState = JSON.parse(detachedOutput);
+  assert.strictEqual(detachedState.sourceControlAvailable, true);
+  assert.strictEqual(detachedState.branch, null);
+  assert.strictEqual(detachedState.currentHead, detachedHead);
+  assert.strictEqual(detachedState.acceptedBoundaryValid, true);
+  assert.strictEqual(detachedState.worktreeClean, true);
+  assert.deepStrictEqual(detachedState.dirtyPaths, []);
+
+  const detachedHumanOutput = execFileSync(
+    process.execPath,
+    [path.join(detachedRoot, 'scripts', 'resume-work.js')],
+    { cwd: detachedRoot, encoding: 'utf8' }
+  );
+  assert.match(detachedHumanOutput, /^Source control: available$/m);
+  assert.match(detachedHumanOutput, /^Branch: detached HEAD$/m);
+} finally {
+  fs.rmSync(detachedRoot, { recursive: true, force: true });
 }
 
 console.log('work continuity tests passed');

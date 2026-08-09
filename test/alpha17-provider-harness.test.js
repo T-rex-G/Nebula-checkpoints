@@ -65,25 +65,69 @@ async function runOne(provider, runner) {
   const giteaResult = await runOne('gitea', runGiteaValidation);
 
   for (const result of [githubResult, gitlabResult, giteaResult]) {
+    assert.strictEqual(result.schemaVersion, '1.1.0');
+    assert.strictEqual(result.artifactType, 'provider-live');
     assert.strictEqual(result.status, 'pass');
     assert.strictEqual(result.cleanupVerified, true);
     assert.strictEqual(result.subjectSha256, SUBJECT);
     assert.strictEqual(result.sourceCommit, SOURCE);
     assert.match(result.artifactSha256, /^[0-9a-f]{64}$/);
+    assert.strictEqual(result.originId, `workflow-${RUN_ID}-${result.provider}`);
+    assert.match(result.authorizedTargetSha256, /^[0-9a-f]{64}$/);
     const serialized = JSON.stringify(result);
     assert(!serialized.includes('fixture-mutation-credential'));
     assert(!serialized.includes('fixture-readonly-credential'));
     assert(!serialized.includes('fixture-owner'));
     assert(!serialized.includes(`nvx-alpha17-${RUN_ID}-proof`));
+    assert.deepStrictEqual(result.checks.map(check => check.key), [
+      'repository-read',
+      'default-branch-read',
+      'disposable-branch-create',
+      'expected-head-write',
+      'utf8-readback',
+      'stale-head',
+      'permission-denial',
+      'expected-head-delete',
+      'cleanup-absence'
+    ]);
     assert(result.checks.some(check => check.key === 'stale-head' && check.zeroCommit === true));
     assert(result.checks.some(check => check.key === 'permission-denial' && check.zeroCommit === true));
     assert(result.checks.some(check => check.key === 'cleanup-absence' && check.status === 'pass'));
+    assert.deepStrictEqual(
+      Object.keys(result.claims).sort(),
+      result.capabilities.map(capability => `providers.${result.provider}.${capability}`).sort()
+    );
+    for (const claim of Object.values(result.claims)) {
+      assert.deepStrictEqual(claim, {
+        status: 'pass',
+        cleanupVerified: true,
+        completedAt: NOW
+      });
+    }
   }
-  assert(githubResult.capabilities.includes('live-events'));
-  assert(githubResult.capabilities.includes('file.write'));
-  assert(gitlabResult.capabilities.includes('file.write'));
-  assert(giteaResult.capabilities.includes('file.write'));
-  assert(!giteaResult.capabilities.includes('workflows.read'));
+  assert.deepStrictEqual(githubResult.capabilities, [
+    'branches.read',
+    'branches.write',
+    'file.delete',
+    'file.read',
+    'file.write',
+    'repository.read'
+  ]);
+  for (const result of [gitlabResult, giteaResult]) {
+    assert.deepStrictEqual(result.capabilities, [
+      'branches.read',
+      'file.delete',
+      'file.read',
+      'file.write',
+      'repository.read'
+    ]);
+  }
+  for (const unproven of [
+    'live-events', 'pulls.read', 'pulls.write', 'webhooks.read',
+    'webhooks.write', 'rate-limit', 'auth.app'
+  ]) {
+    assert(!githubResult.capabilities.includes(unproven), `provider harness must not claim ${unproven}`);
+  }
 
   const badEnvironment = environment('github');
   badEnvironment.NV_ALPHA17_REPOSITORY = 'fixture-owner/not-disposable';

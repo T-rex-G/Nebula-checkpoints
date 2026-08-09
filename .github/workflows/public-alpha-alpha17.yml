@@ -41,27 +41,27 @@ permissions:
   contents: read
 
 concurrency:
-  group: alpha17-qualification-${{ github.event_name }}-${{ github.run_id }}
+  group: alpha17-qualification-${{ github.event_name == 'workflow_dispatch' && 'live-shared-targets' || github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   automated:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       subject_sha256: ${{ steps.freeze.outputs.subject_sha256 }}
       source_commit: ${{ steps.freeze.outputs.source_commit }}
       source_parent: ${{ steps.freeze.outputs.source_parent }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_commit || github.sha }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22'
+          node-version: '22.23.1'
           cache: npm
       - name: Verify full-history continuity precondition
-        run: node scripts/resume-work.js --json > /dev/null
+        run: node scripts/resume-work.js --require-clean --json > /dev/null
       - run: npm ci
       - run: npm run check:syntax
       - run: npm run check:secrets
@@ -99,26 +99,29 @@ jobs:
             test "${subject_sha256}" = "${{ inputs.subject_sha256 }}"
             test "$(git rev-parse HEAD)" = "${{ inputs.source_commit }}"
           fi
-          mkdir -p "${RUNNER_TEMP}/candidate-extracted"
-          unzip -q "${archive_a}" -d "${RUNNER_TEMP}/candidate-extracted"
-          candidate_root="$(find "${RUNNER_TEMP}/candidate-extracted" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-          test -n "${candidate_root}"
-          (cd "${candidate_root}" && npm ci)
-          NV_STAGING_SUBJECT_SHA256="${subject_sha256}" npm run test:public-alpha:matrix
-          cp staging/evidence/public-alpha-matrix.json "${RUNNER_TEMP}/automated-evidence/public-alpha-matrix.json"
+          node scripts/qualify-candidate-archive.js \
+            --archive "${archive_a}" \
+            --comparison-archive "${archive_b}" \
+            --sha256 "${subject_sha256}" \
+            --extract-dir "${RUNNER_TEMP}/candidate-extracted" \
+            --report "${RUNNER_TEMP}/automated-evidence/public-alpha-matrix.json" \
+            --browser-report "${RUNNER_TEMP}/automated-evidence/playwright.json" \
+            --evidence "${RUNNER_TEMP}/automated-evidence/automated.json" \
+            --source-commit "$(git rev-parse HEAD)" \
+            --origin-id "workflow-${GITHUB_RUN_ID}-automated"
           cp "${archive_a}" "${RUNNER_TEMP}/Nebulaverse-X-v5.3.0-alpha.17.0.zip"
           printf '%s\n' "${subject_sha256}" > "${RUNNER_TEMP}/automated-evidence/subject.sha256"
           echo "subject_sha256=${subject_sha256}" >> "${GITHUB_OUTPUT}"
           echo "source_commit=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
           echo "source_parent=$(git rev-parse HEAD^)" >> "${GITHUB_OUTPUT}"
       - run: node scripts/check-secrets.js
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: alpha17-automated-evidence
           path: ${{ runner.temp }}/automated-evidence
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: alpha17-candidate
           path: ${{ runner.temp }}/Nebulaverse-X-v5.3.0-alpha.17.0.zip
@@ -130,7 +133,7 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       (inputs.run_github || inputs.run_gitlab || inputs.run_gitea || inputs.run_hosted)
     needs: [automated]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       envelope_hash: ${{ steps.authorize.outputs.envelope_hash }}
       github_target_sha256: ${{ steps.authorize.outputs.github_target_sha256 }}
@@ -138,13 +141,13 @@ jobs:
       gitea_target_sha256: ${{ steps.authorize.outputs.gitea_target_sha256 }}
       hosted_target_sha256: ${{ steps.authorize.outputs.hosted_target_sha256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.source_commit }}
           fetch-depth: 2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22'
+          node-version: '22.23.1'
       - name: Verify exact signed activation envelope
         id: authorize
         shell: bash
@@ -185,13 +188,16 @@ jobs:
   github-live:
     if: github.event_name == 'workflow_dispatch' && inputs.run_github
     needs: [automated, authorize-live]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: alpha17-live-qualification
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: alpha17-candidate
           path: ${{ runner.temp }}/candidate
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
       - name: Verify candidate before extraction
         shell: bash
         run: |
@@ -227,7 +233,7 @@ jobs:
           (cd "${subject_root}" && node ci/run-github-alpha17-validation.js > staging/evidence/github.json)
           (cd "${subject_root}" && node scripts/check-secrets.js)
           cp "${subject_root}/staging/evidence/github.json" "${RUNNER_TEMP}/github.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: alpha17-github-evidence
           path: ${{ runner.temp }}/github.json
@@ -237,13 +243,16 @@ jobs:
   gitlab-live:
     if: github.event_name == 'workflow_dispatch' && inputs.run_gitlab
     needs: [automated, authorize-live]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: alpha17-live-qualification
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: alpha17-candidate
           path: ${{ runner.temp }}/candidate
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
       - name: Verify candidate before extraction
         shell: bash
         run: |
@@ -279,7 +288,7 @@ jobs:
           (cd "${subject_root}" && node ci/run-gitlab-alpha17-validation.js > staging/evidence/gitlab.json)
           (cd "${subject_root}" && node scripts/check-secrets.js)
           cp "${subject_root}/staging/evidence/gitlab.json" "${RUNNER_TEMP}/gitlab.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: alpha17-gitlab-evidence
           path: ${{ runner.temp }}/gitlab.json
@@ -289,13 +298,16 @@ jobs:
   gitea-live:
     if: github.event_name == 'workflow_dispatch' && inputs.run_gitea
     needs: [automated, authorize-live]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: alpha17-live-qualification
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: alpha17-candidate
           path: ${{ runner.temp }}/candidate
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
       - name: Verify candidate before extraction
         shell: bash
         run: |
@@ -331,7 +343,7 @@ jobs:
           (cd "${subject_root}" && node ci/run-gitea-alpha17-validation.js > staging/evidence/gitea.json)
           (cd "${subject_root}" && node scripts/check-secrets.js)
           cp "${subject_root}/staging/evidence/gitea.json" "${RUNNER_TEMP}/gitea.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: alpha17-gitea-evidence
           path: ${{ runner.temp }}/gitea.json
@@ -341,13 +353,16 @@ jobs:
   hosted-live:
     if: github.event_name == 'workflow_dispatch' && inputs.run_hosted
     needs: [automated, authorize-live]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: alpha17-live-qualification
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: alpha17-candidate
           path: ${{ runner.temp }}/candidate
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
       - name: Verify candidate before extraction
         shell: bash
         run: |
@@ -371,6 +386,7 @@ jobs:
         env:
           NV_PUBLIC_ALPHA_SUBJECT_SHA256: ${{ inputs.subject_sha256 }}
           NV_PUBLIC_ALPHA_SOURCE_COMMIT: ${{ inputs.source_commit }}
+          NV_ALPHA17_WORKFLOW_RUN_ID: ${{ github.run_id }}
           NV_ALPHA_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
           NV_ALPHA17_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
           NV_ALPHA17_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
@@ -388,7 +404,7 @@ jobs:
           (cd "${subject_root}" && node ci/run-hosted-alpha17-validation.js > staging/evidence/hosted.json)
           (cd "${subject_root}" && node scripts/check-secrets.js)
           cp "${subject_root}/staging/evidence/hosted.json" "${RUNNER_TEMP}/hosted.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: alpha17-hosted-evidence
           path: ${{ runner.temp }}/hosted.json

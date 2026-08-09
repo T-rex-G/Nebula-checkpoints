@@ -111,6 +111,7 @@ function startFixtureServer() {
     const env = {
       NV_PUBLIC_ALPHA_SUBJECT_SHA256: SUBJECT,
       NV_PUBLIC_ALPHA_SOURCE_COMMIT: SOURCE,
+      NV_ALPHA17_WORKFLOW_RUN_ID: 'run-2048',
       NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64: publicKeyBase64,
       NV_ALPHA_BASE_URL: fixture.baseUrl,
       NV_ALPHA17_RENDER_SERVICE_ID: 'fixture-owner/nvx-alpha17-render',
@@ -148,6 +149,9 @@ function startFixtureServer() {
       operationalRecord,
       now: () => new Date(NOW)
     });
+    assert.strictEqual(result.schemaVersion, '1.1.0');
+    assert.strictEqual(result.artifactType, 'hosted-live');
+    assert.strictEqual(result.originId, 'workflow-run-2048-hosted');
     assert.strictEqual(result.status, 'pass');
     assert.strictEqual(result.cleanupVerified, true);
     assert.strictEqual(result.checks['five-concurrent-read-testers'].workers, 5);
@@ -156,6 +160,19 @@ function startFixtureServer() {
     assert.strictEqual(result.checks['isolated-database-restore'].latestMigration, '015_alpha_privacy');
     assert.strictEqual(result.checks['disposable-tester-purge'].tokenBearingStateRemoved, true);
     assert.match(result.artifactSha256, /^[0-9a-f]{64}$/);
+    assert.match(result.authorizedTargetSha256, /^[0-9a-f]{64}$/);
+    assert.match(result.deploymentSha256, /^[0-9a-f]{64}$/);
+    assert.deepStrictEqual(
+      Object.keys(result.claims).sort(),
+      Object.keys(result.checks).map(key => `hosted.${key}`).sort()
+    );
+    for (const claim of Object.values(result.claims)) {
+      assert.deepStrictEqual(claim, {
+        status: 'pass',
+        cleanupVerified: true,
+        completedAt: NOW
+      });
+    }
     assert.strictEqual(fixture.mutationPresent(), false);
     assert(!JSON.stringify(result).includes('DATABASE_URL'));
     assert(!JSON.stringify(result).includes('session=fixture'));

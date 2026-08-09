@@ -7,6 +7,7 @@ const path = require('path');
 const registry = require('../config/public-alpha-capabilities.json');
 const { APP_VERSION, PRODUCT_NAME } = require('../src/version');
 const { loadMigrations } = require('../src/migrations');
+const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
 const {
   QUALIFICATION_SCHEMA_VERSION,
   qualificationCatalog,
@@ -111,7 +112,14 @@ function createArtifactVerifier() {
   return artifact => {
     if (!path.isAbsolute(artifact.path)) throw new TypeError('artifact paths must be absolute');
     const real = assertRegularFile(artifact.path, MAX_ARTIFACT_BYTES, 'artifact');
-    return hashFileSync(real) === artifact.sha256;
+    if (hashFileSync(real) !== artifact.sha256) throw new TypeError('artifact hash does not match');
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(real, 'utf8'));
+    } catch {
+      throw new TypeError('artifact must contain a valid JSON evidence envelope');
+    }
+    return validateEvidenceEnvelope(parsed);
   };
 }
 

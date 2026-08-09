@@ -1,8 +1,13 @@
 'use strict';
 
 const crypto = require('crypto');
+const {
+  EVIDENCE_SCHEMA_VERSION,
+  artifactTypeForLabel,
+  validateEvidenceEnvelope
+} = require('./qualification-evidence');
 
-const QUALIFICATION_SCHEMA_VERSION = '1.0.0';
+const QUALIFICATION_SCHEMA_VERSION = EVIDENCE_SCHEMA_VERSION;
 const PRODUCT = 'Nebulaverse-X';
 const DEPLOYMENT = 'hosted-alpha';
 const MAX_EVIDENCE_AGE_MS = 72 * 60 * 60 * 1000;
@@ -198,14 +203,34 @@ function assertExactKeys(section, expected, label, missingCode = 'PUBLIC_ALPHA_E
   if (unexpected.length) fail(`${label} evidence contains an unexpected item`, 'PUBLIC_ALPHA_EVIDENCE_UNEXPECTED');
 }
 
-function verifyEvidenceEntry(entry, label, artifactIds, now) {
+function verifyEvidenceEntry(entry, label, artifacts, now, context) {
   if (!isPlainObject(entry)) fail(`${label} evidence is invalid`, 'PUBLIC_ALPHA_EVIDENCE_MISSING');
   if (entry.status !== 'pass') fail(`${label} did not pass`, 'PUBLIC_ALPHA_EVIDENCE_NOT_PASS');
   if (entry.cleanupVerified !== true) fail(`${label} cleanup is not verified`, 'PUBLIC_ALPHA_CLEANUP_UNVERIFIED');
   parseFreshTimestamp(entry.completedAt, now, label);
-  if (typeof entry.artifact !== 'string' || !artifactIds.has(entry.artifact)) {
+  if (typeof entry.artifact !== 'string' || !artifacts.has(entry.artifact)) {
     fail(`${label} is not bound to a verified artifact`, 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISSING');
   }
+  const artifact = artifacts.get(entry.artifact);
+  if (
+    artifact.subjectSha256 !== context.subjectSha256 ||
+    artifact.sourceCommit !== context.sourceCommit ||
+    artifact.artifactType !== artifactTypeForLabel(label)
+  ) fail(`${label} artifact context does not match`, 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_CONTEXT_MISMATCH');
+  if (artifact.artifactType === 'provider-live') {
+    const provider = String(label).split('.')[1];
+    if (artifact.provider !== provider) {
+      fail(`${label} provider artifact context does not match`, 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_CONTEXT_MISMATCH');
+    }
+  }
+  parseFreshTimestamp(artifact.completedAt, now, `${label} artifact`);
+  const claim = artifact.claims[label];
+  if (!isPlainObject(claim)) fail(`${label} is absent from its artifact`, 'PUBLIC_ALPHA_EVIDENCE_CLAIM_MISSING');
+  if (
+    claim.status !== entry.status ||
+    claim.cleanupVerified !== entry.cleanupVerified ||
+    claim.completedAt !== entry.completedAt
+  ) fail(`${label} does not match its artifact claim`, 'PUBLIC_ALPHA_EVIDENCE_CLAIM_MISMATCH');
 }
 
 function capabilityTuple(registry, qualifiedName) {
@@ -245,7 +270,7 @@ function verifyQualification(input, options = {}) {
     fail('qualification artifacts are missing', 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISSING');
   }
   if (typeof options.verifyArtifact !== 'function') fail('artifact verifier is required', 'PUBLIC_ALPHA_OPTIONS_INVALID');
-  const artifactIds = new Set();
+  const artifacts = new Map();
   for (const artifact of record.artifacts) {
     if (
       !isPlainObject(artifact) ||
@@ -253,33 +278,34 @@ function verifyQualification(input, options = {}) {
       typeof artifact.path !== 'string' ||
       artifact.path.length === 0 ||
       !/^[0-9a-f]{64}$/.test(String(artifact.sha256 || '')) ||
-      artifactIds.has(artifact.id)
+      artifacts.has(artifact.id)
     ) {
       fail('qualification artifact metadata is invalid', 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH');
     }
-    let verified = false;
+    let verified = null;
     try {
-      verified = options.verifyArtifact(artifact) === true;
+      verified = validateEvidenceEnvelope(options.verifyArtifact(artifact));
     } catch {
-      verified = false;
+      verified = null;
     }
     if (!verified) fail('qualification artifact does not match', 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH');
-    artifactIds.add(artifact.id);
+    artifacts.set(artifact.id, verified);
   }
 
   const catalog = qualificationCatalog(options.registry);
   assertExactKeys(record.automated, catalog.automated, 'automated');
   assertExactKeys(record.hosted, catalog.hosted, 'hosted');
   assertExactKeys(record.manual, catalog.manual, 'manual');
-  for (const key of catalog.automated) verifyEvidenceEntry(record.automated[key], `automated.${key}`, artifactIds, now);
-  for (const key of catalog.hosted) verifyEvidenceEntry(record.hosted[key], `hosted.${key}`, artifactIds, now);
-  for (const key of catalog.manual) verifyEvidenceEntry(record.manual[key], `manual.${key}`, artifactIds, now);
+  const evidenceContext = { subjectSha256: record.subjectSha256, sourceCommit: record.sourceCommit };
+  for (const key of catalog.automated) verifyEvidenceEntry(record.automated[key], `automated.${key}`, artifacts, now, evidenceContext);
+  for (const key of catalog.hosted) verifyEvidenceEntry(record.hosted[key], `hosted.${key}`, artifacts, now, evidenceContext);
+  for (const key of catalog.manual) verifyEvidenceEntry(record.manual[key], `manual.${key}`, artifacts, now, evidenceContext);
 
   assertExactKeys(record.providers, Object.keys(catalog.providers), 'provider', 'PUBLIC_ALPHA_PROVIDER_EVIDENCE_MISSING');
   for (const [provider, features] of Object.entries(catalog.providers)) {
     assertExactKeys(record.providers[provider], features, provider, 'PUBLIC_ALPHA_PROVIDER_EVIDENCE_MISSING');
     for (const feature of features) {
-      verifyEvidenceEntry(record.providers[provider][feature], `providers.${provider}.${feature}`, artifactIds, now);
+      verifyEvidenceEntry(record.providers[provider][feature], `providers.${provider}.${feature}`, artifacts, now, evidenceContext);
     }
   }
 

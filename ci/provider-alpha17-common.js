@@ -3,9 +3,34 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const registry = require('../config/public-alpha-capabilities.json');
+const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
 const { verifyLiveTargetBinding } = require('./verify-alpha17-authorization');
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
+const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
+  github: {
+    'repository.read': ['repository-read'],
+    'branches.read': ['default-branch-read'],
+    'branches.write': ['disposable-branch-create', 'cleanup-absence'],
+    'file.read': ['utf8-readback'],
+    'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
+    'file.delete': ['expected-head-delete', 'cleanup-absence']
+  },
+  gitlab: {
+    'repository.read': ['repository-read'],
+    'branches.read': ['default-branch-read'],
+    'file.read': ['utf8-readback'],
+    'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
+    'file.delete': ['expected-head-delete', 'cleanup-absence']
+  },
+  gitea: {
+    'repository.read': ['repository-read'],
+    'branches.read': ['default-branch-read'],
+    'file.read': ['utf8-readback'],
+    'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
+    'file.delete': ['expected-head-delete', 'cleanup-absence']
+  }
+});
 
 function fail(message, code) {
   const error = new Error(message);
@@ -110,13 +135,14 @@ function hashArtifact(filePath) {
 function sanitizeEvidence(value) {
   const forbiddenKey = /(credential|password|secret|authorization|cookie|repository|branch|filePath|url)/i;
   const forbiddenValue = /(authorization\s*:\s*bearer|postgres(?:ql)?:\/\/|\bgh[pousr]_|\bglpat-)/i;
-  function sanitize(input) {
-    if (Array.isArray(input)) return input.map(sanitize);
+  const claimLabel = /^(?:automated|hosted|manual)\.[a-z0-9][a-z0-9.-]*$|^providers\.(?:github|gitlab|gitea)\.[a-z0-9][a-z0-9.-]*$/;
+  function sanitize(input, claims = false) {
+    if (Array.isArray(input)) return input.map(item => sanitize(item));
     if (input && typeof input === 'object') {
       const output = {};
       for (const [key, child] of Object.entries(input)) {
-        if (forbiddenKey.test(key)) continue;
-        output[key] = sanitize(child);
+        if (forbiddenKey.test(key) && !(claims && claimLabel.test(key))) continue;
+        output[key] = sanitize(child, key === 'claims');
       }
       return output;
     }
@@ -126,13 +152,34 @@ function sanitizeEvidence(value) {
   return deepFreeze(sanitize(value));
 }
 
-function providerCapabilities(provider) {
+function providerCapabilityRequirements(provider) {
   const deployment = registry.providers[provider] && registry.providers[provider]['hosted-alpha'];
-  if (!deployment) fail('provider is not in the alpha.17 capability registry', 'ALPHA17_PROVIDER_INVALID');
-  return Object.entries(deployment)
-    .filter(([, tuple]) => tuple[0] === 'Supported')
-    .map(([feature]) => feature)
-    .sort();
+  const requirements = PROVIDER_CAPABILITY_REQUIREMENTS[provider];
+  if (!deployment || !requirements) fail('provider is not in the alpha.17 capability registry', 'ALPHA17_PROVIDER_INVALID');
+  for (const capability of Object.keys(requirements)) {
+    if (!Array.isArray(deployment[capability]) || deployment[capability][0] !== 'Supported') {
+      fail('provider claim mapping conflicts with the capability registry', 'ALPHA17_PROVIDER_INVALID');
+    }
+  }
+  return requirements;
+}
+
+function providerClaims(provider, checks, completedAt) {
+  const requirements = providerCapabilityRequirements(provider);
+  const checkStatus = new Map(checks.map(check => [check.key, check.status]));
+  const capabilities = Object.keys(requirements).sort();
+  const claims = {};
+  for (const capability of capabilities) {
+    if (requirements[capability].some(key => checkStatus.get(key) !== 'pass')) {
+      fail(`provider evidence is missing a prerequisite for ${capability}`, 'ALPHA17_PROVIDER_CLAIM_INCOMPLETE');
+    }
+    claims[`providers.${provider}.${capability}`] = {
+      status: 'pass',
+      cleanupVerified: true,
+      completedAt
+    };
+  }
+  return Object.freeze({ capabilities, claims });
 }
 
 function statusClass(status) {
@@ -231,7 +278,9 @@ async function runProviderQualification({ provider, client, env = process.env, n
     signedTargetHash: requireEnvironment(env, 'NV_ALPHA17_SIGNED_TARGET_SHA256')
   });
   const startedAt = now().toISOString();
+  const checks = [];
   const repositoryState = await client.getRepository('mutation');
+  checks.push({ key: 'repository-read', status: 'pass', statusClass: '2xx' });
   const target = assertDisposableTarget({
     runId,
     repository,
@@ -241,17 +290,17 @@ async function runProviderQualification({ provider, client, env = process.env, n
   });
   const defaultBranch = await client.getBranch(target.defaultBranch, 'mutation');
   if (!defaultBranch) fail('provider default branch is unavailable', 'ALPHA17_PROVIDER_REQUEST_FAILED');
+  checks.push({ key: 'default-branch-read', status: 'pass', statusClass: '2xx' });
 
   const proofPath = `${target.prefix}-proof.txt`;
   const permissionPath = `${target.prefix}-permission.txt`;
   const proofBytes = Buffer.from('Nebulaverse-X alpha.17 UTF-8 qualification proof\n', 'utf8');
-  const checks = [];
   let cleanupVerified = false;
   let operationError = null;
 
   try {
     await client.createBranch(target.branch, defaultBranch.sha, 'mutation');
-    checks.push({ key: 'disposable-branch', status: 'pass', statusClass: '2xx' });
+    checks.push({ key: 'disposable-branch-create', status: 'pass', statusClass: '2xx' });
 
     const before = await client.getBranch(target.branch, 'mutation');
     assertExpectedHead(defaultBranch.sha, before.sha);
@@ -264,6 +313,7 @@ async function runProviderQualification({ provider, client, env = process.env, n
     });
     const afterWrite = await client.getBranch(target.branch, 'mutation');
     assertExpectedHead(written.commitSha, afterWrite.sha);
+    checks.push({ key: 'expected-head-write', status: 'pass', statusClass: '2xx' });
     const readback = await client.readFile(target.branch, proofPath, 'mutation');
     verifyUtf8Readback(proofBytes, readback.content);
     checks.push({
@@ -334,32 +384,41 @@ async function runProviderQualification({ provider, client, env = process.env, n
   if (!cleanupVerified) fail('provider cleanup is incomplete', 'ALPHA17_CLEANUP_INCOMPLETE');
   if (operationError) throw operationError;
 
+  const completedAt = now().toISOString();
+  const proof = providerClaims(provider, checks, completedAt);
   const core = sanitizeEvidence({
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
+    artifactType: 'provider-live',
     status: 'pass',
     cleanupVerified: true,
     subjectSha256,
     sourceCommit,
+    originId: `workflow-${runId}-${provider}`,
     provider,
-    capabilities: providerCapabilities(provider),
+    capabilities: proof.capabilities,
     authorizedTargetSha256: targetBinding.targetHash,
     targetHash: sha256(`${repository}\n${branchName}\n${proofPath}`),
     checks,
+    claims: proof.claims,
     startedAt,
-    completedAt: now().toISOString(),
+    completedAt,
     nodeVersion: process.versions.node
   });
+  validateEvidenceEnvelope(core);
   return deepFreeze({ ...core, artifactSha256: sha256(stableJson(core)) });
 }
 
 module.exports = Object.freeze({
   requireSubjectHash,
   requireExactCommit,
+  requireEnvironment,
   sanitizeEvidence,
   assertDisposableTarget,
   assertExpectedHead,
   verifyUtf8Readback,
   hashArtifact,
   requestJson,
+  providerCapabilityRequirements,
+  providerClaims,
   runProviderQualification
 });

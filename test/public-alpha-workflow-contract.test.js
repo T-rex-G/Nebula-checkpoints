@@ -174,7 +174,21 @@ assert(/^on:\n(?:[\s\S]*\n)?  pull_request:/m.test(workflow), 'pull_request trig
 assert(/^  workflow_dispatch:/m.test(workflow), 'workflow_dispatch trigger is required');
 assert(!/^\s{2}push:/m.test(workflow), 'qualification must not run on push');
 assert(/^permissions:\n  contents: read$/m.test(workflow), 'default permissions must be contents: read');
-assert(/node-version:\s*['"]?22['"]?/m.test(workflow), 'Node 22 setup is required');
+assert(/node-version:\s*['"]?22\.23\.1['"]?/m.test(workflow), 'exact Node 22.23.1 setup is required');
+assert(!/group:[^\n]*github\.run_id/.test(workflow), 'live runs must not use a run-unique concurrency group');
+assert(workflow.includes('live-shared-targets'), 'all live dispatches must share one concurrency group');
+assert(/^  cancel-in-progress: false$/m.test(workflow), 'a running destructive qualification must not be cancelled');
+assert.strictEqual((workflow.match(/runs-on: ubuntu-24\.04/g) || []).length, 6, 'every job must pin ubuntu-24.04');
+const actionPins = {
+  'actions/checkout': '11d5960a326750d5838078e36cf38b85af677262',
+  'actions/setup-node': '49933ea5288caeca8642d1e84afbd3f7d6820020',
+  'actions/upload-artifact': 'ea165f8d65b6e75b540449e92b4886f43607fa02',
+  'actions/download-artifact': 'd3f86a106a0bac45b974a628896c90dbdf5c8093'
+};
+for (const [action, commit] of Object.entries(actionPins)) {
+  assert(workflow.includes(`uses: ${action}@${commit}`), `${action} must use its reviewed immutable commit`);
+}
+assert(!/uses:\s*actions\/[a-z-]+@v\d+/i.test(workflow), 'release actions must not use mutable major tags');
 for (const input of [
   'subject_sha256', 'source_commit', 'run_github', 'run_gitlab',
   'run_gitea', 'run_hosted', 'authorization_token'
@@ -195,12 +209,12 @@ function job(name) {
 const automated = job('automated');
 assert(!automated.includes('${{ secrets.'), 'credential-free job must not reference secrets');
 assert(
-  /uses: actions\/checkout@v4[\s\S]*?fetch-depth:\s*0/.test(automated),
+  new RegExp(`uses: actions/checkout@${actionPins['actions/checkout']}[\\s\\S]*?fetch-depth:\\s*0`).test(automated),
   'automated continuity verification requires a full-history checkout'
 );
 for (const command of [
   'npm ci',
-  'node scripts/resume-work.js --json',
+  'node scripts/resume-work.js --require-clean --json',
   'npm run check:syntax',
   'npm run check:secrets',
   'npm audit --omit=dev --audit-level=high',
@@ -210,6 +224,18 @@ for (const command of [
 ]) assert(automated.includes(command), `automated job omits ${command}`);
 assert((automated.match(/npm run package:release/g) || []).length >= 2, 'candidate must be built twice');
 assert(automated.includes('cmp '), 'double package bytes must be compared');
+assert(
+  automated.includes('node scripts/qualify-candidate-archive.js'),
+  'the extracted candidate must own the qualification matrix execution'
+);
+for (const argument of [
+  '--browser-report', '--evidence', '--source-commit', '--origin-id'
+]) assert(automated.includes(argument), `candidate qualifier must bind ${argument}`);
+assert(automated.includes('automated.json'), 'the exact candidate must emit an automated evidence envelope');
+assert(
+  !/NV_STAGING_SUBJECT_SHA256="\$\{subject_sha256\}" npm run test:public-alpha:matrix/.test(automated),
+  'the checkout must not run the packaged-candidate matrix'
+);
 
 const authorization = job('authorize-live');
 assert(authorization.includes("github.event_name == 'workflow_dispatch'"));
@@ -228,6 +254,8 @@ for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) 
   assert(block.includes('needs: [automated, authorize-live]'), `${name} must depend on automated and authorization gates`);
   assert(block.includes('inputs.subject_sha256'), `${name} must bind the subject hash`);
   assert(block.includes('inputs.source_commit'), `${name} must bind the source commit`);
+  assert(block.includes(`actions/setup-node@${actionPins['actions/setup-node']}`), `${name} must pin Node before candidate execution`);
+  assert(/node-version:\s*['"]?22\.23\.1['"]?/.test(block), `${name} must execute with Node 22.23.1`);
   const preflightIndex = block.indexOf('Verify signed live target');
   const firstSecretIndex = block.indexOf('${{ secrets.');
   assert(preflightIndex >= 0, `${name} must run a signed-target preflight`);

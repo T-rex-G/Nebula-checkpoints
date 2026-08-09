@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 const { parseArgs } = require('../scripts/public-alpha-gate');
+const { createPassFixture } = require('./helpers/public-alpha-pass-fixture');
 
 assert.deepStrictEqual(parseArgs(['plan']), { command: 'plan' });
 assert.deepStrictEqual(parseArgs(['verify', '/tmp/evidence.json']), {
@@ -27,10 +28,8 @@ assert.throws(() => parseArgs(['plan', '--unexpected']), /does not accept/);
 const root = path.resolve(__dirname, '..');
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-alpha-gate-test-'));
 try {
-  const artifactPath = path.join(temporaryRoot, 'sanitized-evidence.json');
-  fs.writeFileSync(artifactPath, '{"status":"sanitized"}\n', { mode: 0o600 });
-  const artifactSha256 = crypto.createHash('sha256').update(fs.readFileSync(artifactPath)).digest('hex');
-  const evidence = structuredClone(require('./fixtures/public-alpha-qualification-pass.json'));
+  const fixture = createPassFixture();
+  const evidence = fixture.record;
   const completedAt = new Date().toISOString();
   evidence.generatedAt = completedAt;
   for (const section of [evidence.automated, evidence.hosted, evidence.manual]) {
@@ -39,8 +38,15 @@ try {
   for (const provider of Object.values(evidence.providers)) {
     for (const item of Object.values(provider)) item.completedAt = completedAt;
   }
-  evidence.artifacts[0].path = artifactPath;
-  evidence.artifacts[0].sha256 = artifactSha256;
+  for (const artifact of evidence.artifacts) {
+    const envelope = fixture.envelopes[artifact.id];
+    envelope.completedAt = completedAt;
+    for (const claim of Object.values(envelope.claims)) claim.completedAt = completedAt;
+    const artifactPath = path.join(temporaryRoot, `${artifact.id}.json`);
+    fs.writeFileSync(artifactPath, `${JSON.stringify(envelope, null, 2)}\n`, { mode: 0o600 });
+    artifact.path = artifactPath;
+    artifact.sha256 = crypto.createHash('sha256').update(fs.readFileSync(artifactPath)).digest('hex');
+  }
   evidence.knownLimitations.push('Line one\n# Injected heading https://github.com/acme/private-repo');
   const evidencePath = path.join(temporaryRoot, 'qualification.json');
   fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
@@ -86,6 +92,28 @@ try {
   assert(!/ghp_|glpat-|postgres(?:ql)?:\/\//i.test(closeout));
   assert.strictEqual(fs.statSync(qualificationPath).mode & 0o777, 0o600);
   assert.strictEqual(fs.statSync(closeoutPath).mode & 0o777, 0o600);
+
+  const unrelatedEnvelope = structuredClone(fixture.envelopes['automated-artifact']);
+  unrelatedEnvelope.claims = {
+    'automated.unrelated-check': {
+      status: 'pass',
+      cleanupVerified: true,
+      completedAt
+    }
+  };
+  const unrelatedPath = path.join(temporaryRoot, 'unrelated-but-hash-valid.json');
+  fs.writeFileSync(unrelatedPath, `${JSON.stringify(unrelatedEnvelope, null, 2)}\n`, { mode: 0o600 });
+  const unrelatedRecord = structuredClone(evidence);
+  const automatedMetadata = unrelatedRecord.artifacts.find(item => item.id === 'automated-artifact');
+  automatedMetadata.path = unrelatedPath;
+  automatedMetadata.sha256 = crypto.createHash('sha256').update(fs.readFileSync(unrelatedPath)).digest('hex');
+  const unrelatedRecordPath = path.join(temporaryRoot, 'unrelated-qualification.json');
+  fs.writeFileSync(unrelatedRecordPath, `${JSON.stringify(unrelatedRecord, null, 2)}\n`, { mode: 0o600 });
+  const unrelatedRejected = spawnSync(process.execPath, [
+    'scripts/public-alpha-gate.js', 'verify', unrelatedRecordPath
+  ], { cwd: root, env, encoding: 'utf8' });
+  assert.notStrictEqual(unrelatedRejected.status, 0);
+  assert.match(unrelatedRejected.stderr, /PUBLIC_ALPHA_EVIDENCE_CLAIM_MISSING/);
 
   const symlinkPath = path.join(temporaryRoot, 'evidence-link.json');
   fs.symlinkSync(evidencePath, symlinkPath);

@@ -283,10 +283,11 @@ if (!read('ARCHITECTURE_DECISIONS.md').includes(adr58)) {
 assert.deepStrictEqual(privacyOmissions, [], `Privacy lifecycle binding omissions:\n- ${privacyOmissions.join('\n- ')}`);
 assert.strictEqual(pkg.name, 'nebulaverse-x');
 assert.strictEqual(pkg.version, '5.3.0-alpha.17.0');
-assert.strictEqual(pkg.engines.node, '22.x');
-assert.strictEqual(read('.nvmrc').trim(), '22');
+assert.strictEqual(pkg.engines.node, '22.23.1');
+assert.strictEqual(read('.nvmrc'), '22.23.1\n');
 assert.strictEqual(pkg.scripts['package:release'], 'node scripts/package-release.js');
 assert.strictEqual(pkg.scripts['foundation:gate'], 'node scripts/foundation-gate.js');
+assert.strictEqual(pkg.scripts['test:e2e:evidence'], 'playwright test --reporter=json');
 const lock = JSON.parse(read('package-lock.json'));
 assert.strictEqual(lock.version, pkg.version);
 assert.strictEqual(lock.packages[''].version, pkg.version);
@@ -432,10 +433,14 @@ assert.strictEqual(
   'node scripts/test-matrix.js --require-all --require-subject --report staging/evidence/public-alpha-matrix.json'
 );
 const publicAlphaQualificationArtifacts = [
+  'src/secret-scanner.js',
+  'scripts/check-secrets.js',
+  'src/qualification-evidence.js',
   'src/public-alpha-qualification.js',
   'scripts/public-alpha-gate.js',
+  'scripts/qualify-candidate-archive.js',
   'staging/PUBLIC_ALPHA_EVIDENCE_TEMPLATE.json',
-  'test/fixtures/public-alpha-qualification-pass.json',
+  'test/helpers/public-alpha-pass-fixture.js',
   'ci/provider-alpha17-common.js',
   'ci/alpha17-fixtures.js',
   'ci/run-github-alpha17-validation.js',
@@ -448,6 +453,8 @@ const publicAlphaQualificationArtifacts = [
   'docs/qualification/PUBLIC_ALPHA_COHORT_CHECKLIST.md'
 ];
 const publicAlphaQualificationTests = [
+  'test/secret-scanner.test.js',
+  'test/qualify-candidate-archive.test.js',
   'test/public-alpha-qualification.test.js',
   'test/public-alpha-qualification-contract.test.js',
   'test/public-alpha-gate-cli.test.js',
@@ -456,8 +463,12 @@ const publicAlphaQualificationTests = [
   'test/public-alpha-workflow-contract.test.js'
 ];
 const publicAlphaQualificationSyntax = [
+  'src/secret-scanner.js',
+  'scripts/check-secrets.js',
+  'src/qualification-evidence.js',
   'src/public-alpha-qualification.js',
   'scripts/public-alpha-gate.js',
+  'scripts/qualify-candidate-archive.js',
   'ci/provider-alpha17-common.js',
   'ci/alpha17-fixtures.js',
   'ci/run-github-alpha17-validation.js',
@@ -480,8 +491,8 @@ for (const source of publicAlphaQualificationSyntax) {
   assert(pkg.scripts['check:syntax'].includes(`node --check ${source}`), `check:syntax missing ${source}`);
 }
 const alpha17Workflow = read('.github/workflows/public-alpha-alpha17.yml');
-assert(alpha17Workflow.includes('NV_STAGING_SUBJECT_SHA256="${subject_sha256}" npm run test:public-alpha:matrix'));
-assert(alpha17Workflow.includes('staging/evidence/public-alpha-matrix.json'));
+assert(alpha17Workflow.includes('node scripts/qualify-candidate-archive.js'));
+assert(alpha17Workflow.includes('${RUNNER_TEMP}/automated-evidence/public-alpha-matrix.json'));
 assert(
   pkg.scripts['test:unit'].includes('node test/provider-route-inventory.test.js'),
   'full unit gate must run the exhaustive provider route inventory'

@@ -9,6 +9,8 @@ const root = path.resolve(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 assert.strictEqual(pkg.name, 'nebulaverse-x');
 assert.strictEqual(pkg.version, '5.3.0-alpha.17.0');
+assert.strictEqual(pkg.engines.node, '22.23.1');
+assert.strictEqual(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8'), '22.23.1\n');
 
 const { APP_VERSION, PRODUCT_NAME, ASSET_VERSION } = require('../src/version');
 assert.strictEqual(APP_VERSION, pkg.version);

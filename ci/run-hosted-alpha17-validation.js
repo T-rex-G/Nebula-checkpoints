@@ -7,8 +7,10 @@ const registry = require('../config/public-alpha-capabilities.json');
 const { runSmoke } = require('../scripts/alpha-smoke');
 const { runLoad } = require('../scripts/alpha-load');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
+const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
 const {
   requireExactCommit,
+  requireEnvironment,
   requireSubjectHash,
   sanitizeEvidence
 } = require('./provider-alpha17-common');
@@ -184,6 +186,7 @@ async function runHostedValidation(options = {}) {
   const env = options.env || process.env;
   const subjectSha256 = requireSubjectHash(env);
   const sourceCommit = requireExactCommit(env);
+  const runId = requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_RUN_ID');
   const targetBinding = verifyLiveTargetBinding({
     jobName: 'hosted',
     target: {
@@ -237,18 +240,29 @@ async function runHostedValidation(options = {}) {
   if (hostedKeys.some(key => !checks[key] || checks[key].status !== 'pass')) {
     fail('hosted qualification catalog is incomplete', 'ALPHA17_HOSTED_CATALOG_INCOMPLETE');
   }
+  const completedAt = now().toISOString();
+  const claims = Object.fromEntries(hostedKeys.map(key => [`hosted.${key}`, {
+    status: 'pass',
+    cleanupVerified: true,
+    completedAt
+  }]));
   const core = sanitizeEvidence({
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
+    artifactType: 'hosted-live',
     status: 'pass',
     cleanupVerified: true,
     subjectSha256,
     sourceCommit,
+    originId: `workflow-${runId}-hosted`,
     authorizedTargetSha256: targetBinding.targetHash,
+    deploymentSha256: sha256(`${targetBinding.targetHash}\n${subjectSha256}`),
     checks,
+    claims,
     startedAt,
-    completedAt: now().toISOString(),
+    completedAt,
     nodeVersion: process.versions.node
   });
+  validateEvidenceEnvelope(core);
   return Object.freeze({ ...core, artifactSha256: sha256(stableJson(core)) });
 }
 

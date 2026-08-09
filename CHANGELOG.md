@@ -5,6 +5,9 @@
 - Added explicit provider/deployment capability truth and public-alpha release gates.
 - Made the continuity collector accept verified detached CI checkouts while retaining named-branch mismatch, accepted-boundary ancestry, and worktree-state enforcement.
 - Added a real temporary-Git regression covering detached JSON and human-readable continuity output.
+- Published that four-file correction as sandbox commit `7f721a770df8e658e00163e05ebc259502f99c09`; qualification run `31314330832` then failed safely before authorization because its two-commit checkout could not prove ancestry from the older accepted boundary.
+- Required full Git history for the automated qualification job and added an explicit continuity preflight before dependency installation so a future checkout regression fails early with a direct diagnostic.
+- Added real-Git negative regressions proving a wrong named branch and an unrelated detached commit remain rejected.
 
 ## 5.3.0-alpha.16.3 — Gitea File Mutation Compatibility (Phase 1 Task 21 in progress)
 

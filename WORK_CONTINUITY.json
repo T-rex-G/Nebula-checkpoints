@@ -97,19 +97,26 @@
     "failedQualificationCandidateSha256": "95c9cc2ef96b02874b8592baaa4e56b398e22328ea77103cd6c6b244ecc1d05e",
     "failedQualificationCandidateStatus": "invalidated_by_detached_checkout_continuity_contract",
     "failedQualificationRunId": "31290968279",
-    "detachedCheckoutCorrectionStatus": "verified_locally_node_22_23_1_pending_publication"
+    "detachedCheckoutCorrectionStatus": "published_and_retried",
+    "detachedCheckoutCorrectionCommit": "7f721a770df8e658e00163e05ebc259502f99c09",
+    "shallowQualificationCandidateSha256": "5c84836bee1ed6dec30591285a05a38f5a0078d1280e75b4585be245e61f1887",
+    "shallowQualificationCandidateStatus": "invalidated_by_shallow_checkout_history",
+    "shallowQualificationRunId": "31314330832",
+    "shallowCheckoutCorrectionStatus": "pending_publication"
   },
-  "nextAction": "Publish the detached-checkout continuity correction to the isolated sandbox branch, rebuild the exact candidate, and rerun GitHub-only qualification; do not run GitLab, Gitea, hosted, or manual gates",
+  "nextAction": "Publish the full-history qualification checkout correction to the isolated sandbox branch, rebuild the exact candidate, and rerun GitHub-only qualification; do not run GitLab, Gitea, hosted, or manual gates",
   "verification": {
     "runtime": "Node.js 22.23.1",
     "commit": "0f4d9983d08f2b6316e4195e2e7dddd955f207e5",
     "plan6Tasks1Through7": "passed",
-    "deterministicCandidate": "pending_refreeze_after_detached_checkout_correction",
+    "deterministicCandidate": "pending_refreeze_after_full_history_checkout_correction",
     "liveTargetAuthorization": "focused_contracts_passed_node_22_23_1",
     "freshExtractionReleaseTest": "passed_node_22_23_1",
-    "freshExtractionMatrix": "pending_refreeze_after_detached_checkout_correction",
-    "detachedCheckoutContinuity": "focused_and_full_135_program_matrix_passed_node_22_23_1",
+    "freshExtractionMatrix": "pending_refreeze_after_full_history_checkout_correction",
+    "detachedCheckoutContinuity": "passed_full_history_locally_failed_in_shallow_hosted_checkout",
     "qualificationRun31290968279": "failed_pre_authorization_detached_checkout_continuity_contract_live_jobs_skipped",
+    "qualificationRun31314330832": "failed_pre_authorization_shallow_checkout_history_live_jobs_skipped",
+    "qualificationCheckoutHistory": "fetch_depth_2_confirmed_incompatible_with_accepted_boundary_ancestry",
     "productionDependencyAudit": "zero_vulnerabilities_after_dompurify_3_4_13_patch",
     "developmentDependencyAudit": "zero_vulnerabilities_after_brace_expansion_5_0_9_patch",
     "safeguardsImmediateBinding": "passed_three_mobile_repetitions_and_full_56_test_matrix",
@@ -135,10 +142,10 @@
     ]
   },
   "remote": {
-    "status": "github_qualification_failed_pre_authorization_detached_checkout_correction_pending_publication",
+    "status": "github_qualification_failed_pre_authorization_shallow_history_correction_pending_publication",
     "repository": "T-rex-G/Nebula-checkpoints",
     "branch": "sandbox/alpha17-live-qualification",
-    "lastPushedCommit": "06d67c0280fe88db485b65bb55673b50b1373d74",
+    "lastPushedCommit": "7f721a770df8e658e00163e05ebc259502f99c09",
     "lastPushedSourceCommit": "a696fea4a1201a2c0b5526648083f1fc43ef1ccb"
   }
 }

@@ -194,8 +194,13 @@ function job(name) {
 
 const automated = job('automated');
 assert(!automated.includes('${{ secrets.'), 'credential-free job must not reference secrets');
+assert(
+  /uses: actions\/checkout@v4[\s\S]*?fetch-depth:\s*0/.test(automated),
+  'automated continuity verification requires a full-history checkout'
+);
 for (const command of [
   'npm ci',
+  'node scripts/resume-work.js --json',
   'npm run check:syntax',
   'npm run check:secrets',
   'npm audit --omit=dev --audit-level=high',

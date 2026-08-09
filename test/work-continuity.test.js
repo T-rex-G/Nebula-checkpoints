@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -63,10 +63,10 @@ for (const number of ['8', '9', '10']) {
 }
 assert.strictEqual(
   state.nextAction,
-  'Publish the detached-checkout continuity correction to the isolated sandbox branch, rebuild the exact candidate, and rerun GitHub-only qualification; do not run GitLab, Gitea, hosted, or manual gates'
+  'Publish the full-history qualification checkout correction to the isolated sandbox branch, rebuild the exact candidate, and rerun GitHub-only qualification; do not run GitLab, Gitea, hosted, or manual gates'
 );
 assert.strictEqual(state.verification.plan6Tasks1Through7, 'passed');
-assert.strictEqual(state.verification.deterministicCandidate, 'pending_refreeze_after_detached_checkout_correction');
+assert.strictEqual(state.verification.deterministicCandidate, 'pending_refreeze_after_full_history_checkout_correction');
 assert.strictEqual(state.verification.liveTargetAuthorization, 'focused_contracts_passed_node_22_23_1');
 assert.strictEqual(state.verification.manualAccessibilityAudit, 'not_executed');
 assert.deepStrictEqual(state.correctiveRefreeze, {
@@ -87,25 +87,38 @@ assert.deepStrictEqual(state.correctiveRefreeze, {
   failedQualificationCandidateSha256: '95c9cc2ef96b02874b8592baaa4e56b398e22328ea77103cd6c6b244ecc1d05e',
   failedQualificationCandidateStatus: 'invalidated_by_detached_checkout_continuity_contract',
   failedQualificationRunId: '31290968279',
-  detachedCheckoutCorrectionStatus: 'verified_locally_node_22_23_1_pending_publication'
+  detachedCheckoutCorrectionStatus: 'published_and_retried',
+  detachedCheckoutCorrectionCommit: '7f721a770df8e658e00163e05ebc259502f99c09',
+  shallowQualificationCandidateSha256: '5c84836bee1ed6dec30591285a05a38f5a0078d1280e75b4585be245e61f1887',
+  shallowQualificationCandidateStatus: 'invalidated_by_shallow_checkout_history',
+  shallowQualificationRunId: '31314330832',
+  shallowCheckoutCorrectionStatus: 'pending_publication'
 });
 assert.strictEqual(state.verification.freshExtractionReleaseTest, 'passed_node_22_23_1');
-assert.strictEqual(state.verification.freshExtractionMatrix, 'pending_refreeze_after_detached_checkout_correction');
+assert.strictEqual(state.verification.freshExtractionMatrix, 'pending_refreeze_after_full_history_checkout_correction');
 assert.strictEqual(
   state.verification.detachedCheckoutContinuity,
-  'focused_and_full_135_program_matrix_passed_node_22_23_1'
+  'passed_full_history_locally_failed_in_shallow_hosted_checkout'
 );
 assert.strictEqual(
   state.verification.qualificationRun31290968279,
   'failed_pre_authorization_detached_checkout_continuity_contract_live_jobs_skipped'
 );
 assert.strictEqual(
+  state.verification.qualificationRun31314330832,
+  'failed_pre_authorization_shallow_checkout_history_live_jobs_skipped'
+);
+assert.strictEqual(
+  state.verification.qualificationCheckoutHistory,
+  'fetch_depth_2_confirmed_incompatible_with_accepted_boundary_ancestry'
+);
+assert.strictEqual(
   state.remote.status,
-  'github_qualification_failed_pre_authorization_detached_checkout_correction_pending_publication'
+  'github_qualification_failed_pre_authorization_shallow_history_correction_pending_publication'
 );
 assert.strictEqual(state.remote.repository, 'T-rex-G/Nebula-checkpoints');
 assert.strictEqual(state.remote.branch, 'sandbox/alpha17-live-qualification');
-assert.strictEqual(state.remote.lastPushedCommit, '06d67c0280fe88db485b65bb55673b50b1373d74');
+assert.strictEqual(state.remote.lastPushedCommit, '7f721a770df8e658e00163e05ebc259502f99c09');
 assert.strictEqual(state.remote.lastPushedSourceCommit, 'a696fea4a1201a2c0b5526648083f1fc43ef1ccb');
 
 const archiveRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-continuity-archive-'));
@@ -170,6 +183,15 @@ try {
     ['-c', 'user.name=Nebulaverse Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'fixture'],
     { cwd: detachedRoot, stdio: 'ignore' }
   );
+  execFileSync('git', ['checkout', '-b', 'unexpected'], { cwd: detachedRoot, stdio: 'ignore' });
+  const namedBranchMismatch = spawnSync(
+    process.execPath,
+    [path.join(detachedRoot, 'scripts', 'resume-work.js'), '--json'],
+    { cwd: detachedRoot, encoding: 'utf8' }
+  );
+  assert.notStrictEqual(namedBranchMismatch.status, 0);
+  assert.match(namedBranchMismatch.stderr, /Continuity branch mismatch: expected main, found unexpected/);
+  execFileSync('git', ['checkout', 'main'], { cwd: detachedRoot, stdio: 'ignore' });
   const detachedHead = execFileSync(
     'git',
     ['rev-parse', 'HEAD'],
@@ -197,6 +219,27 @@ try {
   );
   assert.match(detachedHumanOutput, /^Source control: available$/m);
   assert.match(detachedHumanOutput, /^Branch: detached HEAD$/m);
+
+  const gitIdentity = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Nebulaverse Test',
+    GIT_AUTHOR_EMAIL: 'test@localhost',
+    GIT_COMMITTER_NAME: 'Nebulaverse Test',
+    GIT_COMMITTER_EMAIL: 'test@localhost'
+  };
+  const unrelatedHead = execFileSync(
+    'git',
+    ['commit-tree', `${detachedHead}^{tree}`],
+    { cwd: detachedRoot, encoding: 'utf8', input: 'unrelated root\n', env: gitIdentity }
+  ).trim();
+  execFileSync('git', ['checkout', '--detach', unrelatedHead], { cwd: detachedRoot, stdio: 'ignore' });
+  const unrelatedBoundary = spawnSync(
+    process.execPath,
+    [path.join(detachedRoot, 'scripts', 'resume-work.js'), '--json'],
+    { cwd: detachedRoot, encoding: 'utf8' }
+  );
+  assert.notStrictEqual(unrelatedBoundary.status, 0);
+  assert.match(unrelatedBoundary.stderr, /Accepted continuity boundary is not an ancestor of HEAD/);
 } finally {
   fs.rmSync(detachedRoot, { recursive: true, force: true });
 }

@@ -12,6 +12,7 @@ const outputDir = path.resolve(process.argv[2] || path.join(root, 'dist'));
 const basename = `${PRODUCT_NAME}-v${APP_VERSION}`;
 const zipPath = path.join(outputDir, `${basename}.zip`);
 const checksumPath = `${zipPath}.sha256`;
+const continuityGenerator = path.join(root, 'scripts', 'generate-continuity-docs.js');
 const forbiddenSegments = new Set([
   '.git', '.hg', '.svn', '.superpowers', '.agents', '.codex',
   '.cache', '.npm', '.yarn', '.pnpm-store', '.turbo', '.next',
@@ -66,6 +67,20 @@ function assertExternalOutputDirectory() {
   const relative = path.relative(source, target);
   if (relative === '' || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) {
     throw new Error('Release output directory must be outside the source root');
+  }
+}
+
+function assertGeneratedDocumentationCurrent() {
+  const result = spawnSync(process.execPath, [continuityGenerator, '--check'], {
+    cwd: root,
+    encoding: 'utf8'
+  });
+  if (result.error) {
+    throw new Error(`Generated documentation check failed: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || '').trim();
+    throw new Error(detail || `Generated documentation check exited ${result.status}`);
   }
 }
 
@@ -155,6 +170,7 @@ function discoverReleaseManifest() {
 
 async function main() {
   runFoundationGate();
+  assertGeneratedDocumentationCurrent();
   assertExternalOutputDirectory();
   const files = discoverReleaseManifest();
   fs.mkdirSync(outputDir, { recursive: true });
@@ -186,6 +202,7 @@ if (require.main === module) {
 
 module.exports = {
   shouldInclude,
+  assertGeneratedDocumentationCurrent,
   assertExternalOutputDirectory,
   discoverReleaseManifest,
   createZipArchive,

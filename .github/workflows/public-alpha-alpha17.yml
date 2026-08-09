@@ -63,6 +63,7 @@ jobs:
       - name: Verify full-history continuity precondition
         run: node scripts/resume-work.js --require-clean --json > /dev/null
       - run: npm ci
+      - run: npm run docs:check
       - run: npm run check:syntax
       - run: npm run check:secrets
       - run: npm audit --omit=dev --audit-level=high

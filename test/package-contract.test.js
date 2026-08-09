@@ -307,6 +307,16 @@ assert.strictEqual(read('.nvmrc'), '22.23.1\n');
 assert.strictEqual(pkg.scripts['package:release'], 'node scripts/package-release.js');
 assert.strictEqual(pkg.scripts['foundation:gate'], 'node scripts/foundation-gate.js');
 assert.strictEqual(pkg.scripts['test:e2e:evidence'], 'playwright test --reporter=json');
+for (const source of [
+  'src/work-continuity.js',
+  'scripts/generate-continuity-docs.js',
+  'scripts/package-release.js'
+]) {
+  assert(
+    pkg.scripts['check:syntax'].includes(`node --check ${source}`),
+    `check:syntax missing release-gate source ${source}`
+  );
+}
 const lock = JSON.parse(read('package-lock.json'));
 assert.strictEqual(lock.version, pkg.version);
 assert.strictEqual(lock.packages[''].version, pkg.version);

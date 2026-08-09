@@ -170,6 +170,10 @@ assert.throws(
 
 const workflowPath = path.join(__dirname, '..', '.github', 'workflows', 'public-alpha-alpha17.yml');
 const workflow = fs.readFileSync(workflowPath, 'utf8');
+const ciWorkflow = fs.readFileSync(
+  path.join(__dirname, '..', '.github', 'workflows', 'ci.yml'),
+  'utf8'
+);
 assert(/^on:\n(?:[\s\S]*\n)?  pull_request:/m.test(workflow), 'pull_request trigger is required');
 assert(/^  workflow_dispatch:/m.test(workflow), 'workflow_dispatch trigger is required');
 assert(!/^\s{2}push:/m.test(workflow), 'qualification must not run on push');
@@ -222,6 +226,12 @@ for (const command of [
   'npm run test:runtime:matrix',
   'npm run test:e2e'
 ]) assert(automated.includes(command), `automated job omits ${command}`);
+const qualificationDocsCheck = automated.indexOf('npm run docs:check');
+const qualificationPackage = automated.indexOf('npm run package:release');
+assert(
+  qualificationDocsCheck >= 0 && qualificationDocsCheck < qualificationPackage,
+  'qualification must check generated documentation before package creation'
+);
 assert((automated.match(/npm run package:release/g) || []).length >= 2, 'candidate must be built twice');
 assert(automated.includes('cmp '), 'double package bytes must be compared');
 assert(
@@ -273,5 +283,12 @@ for (const artifact of [
   'alpha17-hosted-evidence'
 ]) assert(workflow.includes(`name: ${artifact}`), `missing sanitized artifact ${artifact}`);
 assert(workflow.includes('scripts/check-secrets.js'));
+
+const ciDocsCheck = ciWorkflow.indexOf('npm run docs:check');
+const ciPackage = ciWorkflow.indexOf('npm run package:release');
+assert(
+  ciDocsCheck >= 0 && ciDocsCheck < ciPackage,
+  'standard CI must check generated documentation before package creation'
+);
 
 console.log('public alpha workflow contract tests passed');

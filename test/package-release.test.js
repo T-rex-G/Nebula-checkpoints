@@ -92,13 +92,10 @@ function withArtifact(file, value, callback) {
 }
 
 function withIgnoredSentinels(callback) {
+  const sentinelId = `release-containment-${crypto.randomUUID()}`;
   const sentinels = [
-    ['.env.production', 'synthetic ignored environment sentinel\n'],
-    ['.superpowers/sdd/release-containment-sentinel.txt', 'synthetic internal-state sentinel\n'],
-    ['.cache/release-containment-sentinel.txt', 'synthetic tool-cache sentinel\n']
+    [`node_modules/.${sentinelId}.txt`, 'synthetic ignored dependency-state sentinel\n']
   ];
-  const cacheDirectory = path.join(root, '.cache');
-  const cacheExisted = fs.existsSync(cacheDirectory);
   try {
     for (const [file, value] of sentinels) {
       const target = path.join(root, file);
@@ -111,7 +108,6 @@ function withIgnoredSentinels(callback) {
     for (const [file] of sentinels) {
       quarantineTestPath(path.join(root, file), file.replace(/[^a-z0-9]+/gi, '-'));
     }
-    if (!cacheExisted) quarantineTestPath(cacheDirectory, 'cache-directory');
   }
 }
 
@@ -150,6 +146,21 @@ try {
   }
   assert.strictEqual(new Set(digests).size, 1, `release ZIP is nondeterministic: ${digests.join(', ')}`);
 
+  const driftOutput = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-package-doc-drift-'));
+  roots.push(driftOutput);
+  const generatedState = fs.readFileSync(
+    path.join(root, 'docs', 'current', 'PROJECT_STATE.md'),
+    'utf8'
+  );
+  withArtifact('docs/current/PROJECT_STATE.md', `${generatedState}\nsynthetic generated drift\n`, () => {
+    const result = runPackager(driftOutput);
+    assert.notStrictEqual(result.status, 0, 'packager must fail when generated continuity drifts');
+    assert.match(result.stderr, /Generated continuity document is stale/);
+    assert(!fs.existsSync(
+      path.join(driftOutput, 'Nebulaverse-X-v5.3.0-alpha.17.0.zip')
+    ), 'generated drift must fail before archive creation');
+  });
+
   const nestedOutput = fs.mkdtempSync(path.join(root, 'release-output-sentinel-'));
   fs.writeFileSync(path.join(nestedOutput, 'existing-output.txt'), 'synthetic nested-output sentinel\n');
   const nestedResult = runPackager(nestedOutput);
@@ -157,6 +168,7 @@ try {
     path.join(nestedOutput, 'Nebulaverse-X-v5.3.0-alpha.17.0.zip')
   );
   quarantineTestPath(nestedOutput, 'nested-output');
+  assert(!fs.existsSync(nestedOutput), 'nested-output sentinel must be quarantined before later manifest checks');
   assert.notStrictEqual(nestedResult.status, 0, 'packager must reject an output directory inside the source root');
   assert.match(nestedResult.stderr, /release output directory must be outside the source root/i);
   assert(!nestedZipExists);
@@ -186,19 +198,27 @@ try {
     'release'
   );
   roots.push(path.dirname(untrackedOutput));
-  const untrackedSentinel = `release-untracked-sentinel-${process.pid}.txt`;
-  const untrackedTarget = path.join(root, untrackedSentinel);
-  try {
-    fs.writeFileSync(untrackedTarget, 'synthetic untracked releasable member\n');
-    const result = runPackager(untrackedOutput);
-    assert.notStrictEqual(result.status, 0, 'packager must fail on an untracked releasable path');
-    assert.match(result.stderr, new RegExp(
-      `Release manifest is inconsistent: untracked releasable path: ${untrackedSentinel}`
-    ));
-    assert(!fs.existsSync(untrackedOutput), 'untracked releasable paths must not create release output');
-  } finally {
-    quarantineTestPath(untrackedTarget, 'untracked-release-member');
-  }
+  const fakeGitBin = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-package-fake-git-'));
+  roots.push(fakeGitBin);
+  const untrackedSentinel = 'synthetic-untracked-release-member.txt';
+  const fakeGit = path.join(fakeGitBin, 'git');
+  fs.writeFileSync(fakeGit, [
+    '#!/bin/sh',
+    'if [ "$2" = "--cached" ]; then',
+    "  printf 'package.json\\000'",
+    'else',
+    `  printf '${untrackedSentinel}\\000'`,
+    'fi',
+    ''
+  ].join('\n'), { mode: 0o700 });
+  const untrackedResult = runPackager(untrackedOutput, {
+    env: { PATH: `${fakeGitBin}${path.delimiter}${process.env.PATH || ''}` }
+  });
+  assert.notStrictEqual(untrackedResult.status, 0, 'packager must fail on an untracked releasable path');
+  assert.match(untrackedResult.stderr, new RegExp(
+    `Release manifest is inconsistent: untracked releasable path: ${untrackedSentinel}`
+  ));
+  assert(!fs.existsSync(untrackedOutput), 'untracked releasable paths must not create release output');
 
   const ignoredOutput = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-package-ignored-state-'));
   roots.push(ignoredOutput);

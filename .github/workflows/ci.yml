@@ -18,6 +18,7 @@ jobs:
           node-version: '22.23.1'
           cache: npm
       - run: npm ci
+      - run: npm run docs:check
       - run: npm run check:syntax
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high

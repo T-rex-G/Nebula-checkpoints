@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const root = path.join(__dirname, '..', 'docs', 'runbooks');
+const root = path.join(__dirname, '..', 'docs', 'operations', 'runbooks');
 const required = [
   '01-service-cold-start-outage.md',
   '02-neon-outage-quota.md',

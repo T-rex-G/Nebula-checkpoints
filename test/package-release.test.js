@@ -36,8 +36,10 @@ process.once('exit', cleanupRuntimeState);
 let quarantineSequence = 0;
 const foundationArtifacts = [
   'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js',
-  'ROADMAP.md', 'PRODUCT_VISION.md', 'PROVIDER_CAPABILITIES.md', 'ARCHITECTURE.md',
-  'RELEASE_SECURITY_GATES.md', 'PUBLIC_ALPHA.md', 'UX_VISION.md', 'EVIDENCE_INDEX.md',
+  'docs/current/ROADMAP.md', 'docs/vision/PRODUCT_VISION.md',
+  'docs/current/PROVIDER_CAPABILITIES.md', 'docs/architecture/ARCHITECTURE.md',
+  'docs/release/RELEASE_SECURITY_GATES.md', 'docs/release/PUBLIC_ALPHA.md',
+  'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/provider-route-inventory.test.js',
   'test/public-alpha-documentation.test.js'

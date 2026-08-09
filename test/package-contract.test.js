@@ -11,24 +11,42 @@ const required = [
   'test/alpha-access-persistence-contract.test.js', 'test/alpha-access-store.test.js',
   'test/alpha-access-server-contract.test.js', 'test/alpha-repository-boundary.test.js',
   'test/alpha-invite-cli.test.js',
-  '.gitignore', '.nvmrc', '.env.example', 'CHANGELOG.md', 'DEPLOY_RENDER_NEON.md', 'BUILD_REPORT.md',
-  'UPGRADE_FROM_V5_2_1.md', 'PHASE_0_COVERAGE.md', 'PHASE_1_TASK_1_REPORT.md', 'PHASE_1_TASK_2_REPORT.md',
-  'PHASE_1_TASK_3_REPORT.md', 'PHASE_1_TASK_4_REPORT.md', 'PHASE_1_TASK_5_REPORT.md',
-  'PHASE_1_TASK_6_7_REPORT.md', 'TASK_6_7_GOVERNANCE_API_DRAFT_WORKFLOW_SPEC.md',
-  'PHASE_1_TASK_8_REPORT.md', 'TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md',
-  'PHASE_1_TASK_9_10_REPORT.md', 'TASK_9_10_POLICY_SIMULATION_SPEC.md',
-  'PHASE_1_TASK_11_REPORT.md', 'TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md',
-  'PHASE_1_TASK_12_13_REPORT.md', 'TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md',
-  'PHASE_1_TASK_14_REPORT.md', 'TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md',
-  'PHASE_1_TASK_15_16_REPORT.md', 'TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md',
-  'PHASE_1_TASK_17_REPORT.md', 'TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md',
-  'PHASE_1_TASK_18_REPORT.md', 'TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md',
-  'PHASE_1_TASK_19_REPORT.md', 'TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md',
-  'PHASE_1_TASK_20_REPORT.md', 'TASK_20_STAGING_VALIDATION_SPEC.md',
-  'PHASE_1_TASK_21_REPORT.md',
+  '.gitignore', '.nvmrc', '.env.example', 'CHANGELOG.md',
+  'docs/operations/DEPLOY_RENDER_NEON.md', 'docs/release/QUALIFICATION_BASELINE.md',
+  'docs/history/upgrades/UPGRADE_FROM_V5_2_1.md', 'docs/history/phase-0/PHASE_0_COVERAGE.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_1_REPORT.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_2_REPORT.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_3_REPORT.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_4_REPORT.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_5_REPORT.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_6_7_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_6_7_GOVERNANCE_API_DRAFT_WORKFLOW_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_8_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_9_10_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_9_10_POLICY_SIMULATION_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_11_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_12_13_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_14_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_15_16_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_17_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_18_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_19_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_20_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_20_STAGING_VALIDATION_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_21_REPORT.md',
   'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js',
-  'ROADMAP.md', 'PRODUCT_VISION.md', 'PROVIDER_CAPABILITIES.md', 'ARCHITECTURE.md',
-  'RELEASE_SECURITY_GATES.md', 'PUBLIC_ALPHA.md', 'UX_VISION.md', 'EVIDENCE_INDEX.md',
+  'docs/current/ROADMAP.md', 'docs/vision/PRODUCT_VISION.md',
+  'docs/current/PROVIDER_CAPABILITIES.md', 'docs/architecture/ARCHITECTURE.md',
+  'docs/release/RELEASE_SECURITY_GATES.md', 'docs/release/PUBLIC_ALPHA.md',
+  'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
   'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
@@ -36,11 +54,12 @@ const required = [
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
   'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js',
-  'docs/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
+  'docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
   'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js',
   'staging/TASK_20_EVIDENCE_TEMPLATE.json', 'playwright.config.js',
   'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'public/governance-ui.js',
-  'PROJECT_STATE.md', 'PHASE_1_ROADMAP.md', 'ARCHITECTURE_DECISIONS.md', 'CONTINUATION_PROMPT.md',
+  'docs/current/PROJECT_STATE.md', 'docs/history/phase-1/ROADMAP.md',
+  'docs/architecture/ARCHITECTURE_DECISIONS.md', 'docs/current/CONTINUATION_PROMPT.md',
   'src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/provider-file-mutations.js', 'src/governance-model.js',
   'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js',
   'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js',
@@ -141,7 +160,7 @@ for (const [key, value] of [
   const block = new RegExp(`- key: ${key}\\n\\s+${value.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}`);
   if (!block.test(render)) task6Omissions.push(`hosted configuration does not bind ${key} with ${value}`);
 }
-const alphaDocumentation = `${read('PUBLIC_ALPHA.md')}\n${read('ARCHITECTURE.md')}`;
+const alphaDocumentation = `${read('docs/release/PUBLIC_ALPHA.md')}\n${read('docs/architecture/ARCHITECTURE.md')}`;
 for (const [label, pattern] of [
   ['controlled invitation access', /controlled invitation access/i],
   ['exact repository allowlists', /exact canonical (?:sandbox-)?repository allowlists?/i],
@@ -161,7 +180,7 @@ const adr57 = `## ADR-057 — Alpha invitation secrets are one-time, digest-only
 **Status:** Accepted
 
 The first cohort uses operator-issued high-entropy invitation codes. PostgreSQL stores only a keyed digest. Redemptions are single-use, transactional, rate-limited and enumeration-resistant. Cohort administration remains a local CLI so privileged invite operations do not enlarge the hosted web attack surface.`;
-if (!read('ARCHITECTURE_DECISIONS.md').includes(adr57)) {
+if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr57)) {
   task6Omissions.push('architecture decisions omit the exact ADR-057 decision');
 }
 assert.deepStrictEqual(task6Omissions, [], `Task 6 binding omissions:\n- ${task6Omissions.join('\n- ')}`);
@@ -172,7 +191,7 @@ const uxArtifacts = [
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
   'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js',
-  'docs/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md'
+  'docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md'
 ];
 const uxPrograms = [
   'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
@@ -199,16 +218,16 @@ for (const program of uxPrograms) {
 for (const source of uxSyntaxSources) {
   if (!uxSyntaxGate.includes(`node --check ${source}`)) uxOmissions.push(`syntax gate does not parse ${source}`);
 }
-const manualAudit = read('docs/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md');
+const manualAudit = read('docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md');
 if (!/Status:\s*\*\*Not executed\*\*/.test(manualAudit)) uxOmissions.push('manual accessibility record does not remain explicitly Not executed');
-if (!read('UX_VISION.md').includes('Automated public-alpha accessibility qualification passes')) uxOmissions.push('UX vision omits automated accessibility qualification status');
-if (!read('PUBLIC_ALPHA.md').includes('Manual VoiceOver on iOS and one desktop screen-reader pass remain required')) uxOmissions.push('public-alpha guide omits remaining manual accessibility gates');
+if (!read('docs/vision/UX_VISION.md').includes('Automated public-alpha accessibility qualification passes')) uxOmissions.push('UX vision omits automated accessibility qualification status');
+if (!read('docs/release/PUBLIC_ALPHA.md').includes('Manual VoiceOver on iOS and one desktop screen-reader pass remain required')) uxOmissions.push('public-alpha guide omits remaining manual accessibility gates');
 const adr59 = `## ADR-059 — Public-alpha success is verification-gated and every conclusion carries an evidence state
 
 **Status:** Accepted
 
 The interface distinguishes provider-verified, deterministic, inferred, stale and unavailable evidence. A mutation does not display success until readback and required cleanup are complete. Tester-facing failures describe provider-change uncertainty, current safe state, next action and a correlation ID without exposing credentials or payloads.`;
-if (!read('ARCHITECTURE_DECISIONS.md').includes(adr59)) uxOmissions.push('architecture decisions omit the exact ADR-059 decision');
+if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr59)) uxOmissions.push('architecture decisions omit the exact ADR-059 decision');
 assert.deepStrictEqual(uxOmissions, [], `UX accessibility binding omissions:\n- ${uxOmissions.join('\n- ')}`);
 
 const privacyArtifacts = [
@@ -256,7 +275,7 @@ for (const source of privacySyntaxSources) {
     privacyOmissions.push(`syntax gate does not parse ${source}`);
   }
 }
-const privacyDocumentation = `${read('PUBLIC_ALPHA.md')}\n${read('ARCHITECTURE.md')}`;
+const privacyDocumentation = `${read('docs/release/PUBLIC_ALPHA.md')}\n${read('docs/architecture/ARCHITECTURE.md')}`;
 for (const [label, pattern] of [
   ['local disconnect action', /Disconnect from Nebulaverse-X/],
   ['provider revocation action', /Revoke at provider/],
@@ -277,7 +296,7 @@ const adr58 = `## ADR-058 — Provider cleanup is a verified lifecycle and delet
 **Status:** Accepted
 
 Provider disconnect removes token-bearing application state, but it does not falsely claim provider-side PAT/OAuth/App revocation. Alpha-created webhooks and temporary resources must be deleted or verified absent. A failed cleanup creates a non-secret pending task and blocks completed data deletion and cohort close.`;
-if (!read('ARCHITECTURE_DECISIONS.md').includes(adr58)) {
+if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr58)) {
   privacyOmissions.push('architecture decisions omit the exact ADR-058 decision');
 }
 assert.deepStrictEqual(privacyOmissions, [], `Privacy lifecycle binding omissions:\n- ${privacyOmissions.join('\n- ')}`);
@@ -296,36 +315,39 @@ for (const [packagePath, entry] of Object.entries(lock.packages || {})) {
   assert(String(entry.resolved).startsWith('https://registry.npmjs.org/'), `non-public registry URL for ${packagePath}: ${entry.resolved}`);
 }
 assert(read('CHANGELOG.md').includes('## 5.3.0-alpha.17.0'));
-assert(read('PROJECT_STATE.md').includes('Current successor version: **5.3.0-alpha.17.0**'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 6 | Governance API and Authorization Boundary | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 7 | Policy Draft and Immutable Version Workflow | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 8 | Reviewer Assignment and Approval Workflow | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 9 | Policy Simulation Engine | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 10 | Simulation Evidence and Impact Diff | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 11 | Policy Activation and Rollback Service | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 12 | Gateway Policy Evaluation Integration | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 13 | Observe, Warn and Block Enforcement Modes | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 14 | Exceptions, Waivers and Expiry Workflow | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 15 | Policy Templates and Repository Baselines | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 16 | Policy Digital Twin Read Model | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 17 | Policy Digital Twin Interface | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 18 | Full Mutation Coverage and Bulk Operation Governance | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 19 | Governance Notifications, Webhooks and Audit Exports | Complete'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 20 | End-to-End Staging, Security, Concurrency and Accessibility | Complete (18/19; alpha.16.1 blocked)'));
-assert(read('PHASE_1_ROADMAP.md').includes('| 21 | v5.3 Release Readiness, Migration, Documentation and Packaging | In progress (alpha.16.3)'));
-assert(read('PHASE_1_ROADMAP.md').includes('### Phase 5 — Customer-Controlled Evidence Retention'));
-assert(read('PHASE_1_ROADMAP.md').includes('Phase 1 Task 19 (signed evidence export format) must be complete and stable first'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-041 — Customer-controlled evidence storage is S3-compatible and integrity-preserving'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-042 — Bitbucket is intentionally out of scope pending demand'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-046 — Policy templates and baselines are immutable, provenance-bound and non-activating'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-047 — The Policy Digital Twin is a repeatable-read derived projection'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-048 — The governance interface is live, permission-projected and non-persistent'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-049 — Mutation coverage is machine-verifiable and execution-bounded'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-050 — Aggregate mutations are exact-item-bound and explicit about atomicity'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-051 — Governance delivery uses an immutable outbox and failure-isolated worker'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-052 — Signed evidence envelopes are the stable boundary before external storage'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-053 — Staging readiness is an expiring evidence gate, not a release assertion'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes('## ADR-054 — Staging evidence is candidate-, catalog-, command-, and artifact-bound'));
+const currentState = read('docs/current/PROJECT_STATE.md');
+const phase1Roadmap = read('docs/history/phase-1/ROADMAP.md');
+const architectureDecisions = read('docs/architecture/ARCHITECTURE_DECISIONS.md');
+assert(currentState.includes('Current authored version: **5.3.0-alpha.17.0**'));
+assert(phase1Roadmap.includes('| 6 | Governance API and Authorization Boundary | Complete'));
+assert(phase1Roadmap.includes('| 7 | Policy Draft and Immutable Version Workflow | Complete'));
+assert(phase1Roadmap.includes('| 8 | Reviewer Assignment and Approval Workflow | Complete'));
+assert(phase1Roadmap.includes('| 9 | Policy Simulation Engine | Complete'));
+assert(phase1Roadmap.includes('| 10 | Simulation Evidence and Impact Diff | Complete'));
+assert(phase1Roadmap.includes('| 11 | Policy Activation and Rollback Service | Complete'));
+assert(phase1Roadmap.includes('| 12 | Gateway Policy Evaluation Integration | Complete'));
+assert(phase1Roadmap.includes('| 13 | Observe, Warn and Block Enforcement Modes | Complete'));
+assert(phase1Roadmap.includes('| 14 | Exceptions, Waivers and Expiry Workflow | Complete'));
+assert(phase1Roadmap.includes('| 15 | Policy Templates and Repository Baselines | Complete'));
+assert(phase1Roadmap.includes('| 16 | Policy Digital Twin Read Model | Complete'));
+assert(phase1Roadmap.includes('| 17 | Policy Digital Twin Interface | Complete'));
+assert(phase1Roadmap.includes('| 18 | Full Mutation Coverage and Bulk Operation Governance | Complete'));
+assert(phase1Roadmap.includes('| 19 | Governance Notifications, Webhooks and Audit Exports | Complete'));
+assert(phase1Roadmap.includes('| 20 | End-to-End Staging, Security, Concurrency and Accessibility | Complete (18/19; alpha.16.1 blocked)'));
+assert(phase1Roadmap.includes('| 21 | v5.3 Release Readiness, Migration, Documentation and Packaging | Complete (alpha.16.3 qualified)'));
+assert(phase1Roadmap.includes('### Phase 5 — Customer-Controlled Evidence Retention'));
+assert(phase1Roadmap.includes('Phase 1 Task 19 (signed evidence export format) must be complete and stable first'));
+assert(architectureDecisions.includes('## ADR-041 — Customer-controlled evidence storage is S3-compatible and integrity-preserving'));
+assert(architectureDecisions.includes('## ADR-042 — Bitbucket is intentionally out of scope pending demand'));
+assert(architectureDecisions.includes('## ADR-046 — Policy templates and baselines are immutable, provenance-bound and non-activating'));
+assert(architectureDecisions.includes('## ADR-047 — The Policy Digital Twin is a repeatable-read derived projection'));
+assert(architectureDecisions.includes('## ADR-048 — The governance interface is live, permission-projected and non-persistent'));
+assert(architectureDecisions.includes('## ADR-049 — Mutation coverage is machine-verifiable and execution-bounded'));
+assert(architectureDecisions.includes('## ADR-050 — Aggregate mutations are exact-item-bound and explicit about atomicity'));
+assert(architectureDecisions.includes('## ADR-051 — Governance delivery uses an immutable outbox and failure-isolated worker'));
+assert(architectureDecisions.includes('## ADR-052 — Signed evidence envelopes are the stable boundary before external storage'));
+assert(architectureDecisions.includes('## ADR-053 — Staging readiness is an expiring evidence gate, not a release assertion'));
+assert(architectureDecisions.includes('## ADR-054 — Staging evidence is candidate-, catalog-, command-, and artifact-bound'));
 for (const variable of ['GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET', 'GITHUB_APP_PRIVATE_KEY_BASE64', 'GITHUB_APP_CALLBACK_URL']) {
   assert(read('.env.example').includes(variable), `.env.example missing ${variable}`);
   assert(render.includes(variable), `render.yaml missing ${variable}`);
@@ -397,16 +419,24 @@ for (const source of ['src/provider-file-mutations.js', 'test/gitea-file-mutatio
 }
 const verifyScript = read('scripts/verify.js');
 for (const artifact of [
-  'PHASE_1_TASK_12_13_REPORT.md', 'TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md',
-  'PHASE_1_TASK_14_REPORT.md', 'TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md',
-  'PHASE_1_TASK_15_16_REPORT.md', 'TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md',
-  'PHASE_1_TASK_17_REPORT.md', 'TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md',
-  'PHASE_1_TASK_18_REPORT.md', 'TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md',
-  'PHASE_1_TASK_19_REPORT.md', 'TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md',
-  'PHASE_1_TASK_21_REPORT.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_12_13_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_14_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_15_16_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_17_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_18_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_19_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_21_REPORT.md',
   'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js',
-  'ROADMAP.md', 'PRODUCT_VISION.md', 'PROVIDER_CAPABILITIES.md', 'ARCHITECTURE.md',
-  'RELEASE_SECURITY_GATES.md', 'PUBLIC_ALPHA.md', 'UX_VISION.md', 'EVIDENCE_INDEX.md',
+  'docs/current/ROADMAP.md', 'docs/vision/PRODUCT_VISION.md',
+  'docs/current/PROVIDER_CAPABILITIES.md', 'docs/architecture/ARCHITECTURE.md',
+  'docs/release/RELEASE_SECURITY_GATES.md', 'docs/release/PUBLIC_ALPHA.md',
+  'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
   'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'public/governance-ui.js',
@@ -497,8 +527,8 @@ assert(
   pkg.scripts['test:unit'].includes('node test/provider-route-inventory.test.js'),
   'full unit gate must run the exhaustive provider route inventory'
 );
-assert(read('DEPLOY_RENDER_NEON.md').includes('Nebulaverse-X'));
-assert(read('DEPLOY_RENDER_NEON.md').includes('NV_GOVERNANCE_AUDIT_SECRET'));
+assert(read('docs/operations/DEPLOY_RENDER_NEON.md').includes('Nebulaverse-X'));
+assert(read('docs/operations/DEPLOY_RENDER_NEON.md').includes('NV_GOVERNANCE_AUDIT_SECRET'));
 const { shouldInclude } = require('../scripts/package-release');
 for (const forbidden of [
   '.env', '.env.production', 'config/.env.example',
@@ -541,17 +571,17 @@ const hostedOperationsTests = [
   'test/runbook-contract.test.js'
 ];
 const hostedOperationsRunbooks = [
-  'docs/runbooks/01-service-cold-start-outage.md',
-  'docs/runbooks/02-neon-outage-quota.md',
-  'docs/runbooks/03-provider-outage-rate-limit.md',
-  'docs/runbooks/04-credential-exposure.md',
-  'docs/runbooks/05-orphan-cleanup.md',
-  'docs/runbooks/06-failed-deploy-rollback.md',
-  'docs/runbooks/07-database-backup-restore.md',
-  'docs/runbooks/08-tester-revocation-deletion.md',
-  'docs/runbooks/09-capacity-saturation.md',
-  'docs/runbooks/10-alpha-shutdown.md',
-  'docs/runbooks/OPERATOR_CHECKLIST.md'
+  'docs/operations/runbooks/01-service-cold-start-outage.md',
+  'docs/operations/runbooks/02-neon-outage-quota.md',
+  'docs/operations/runbooks/03-provider-outage-rate-limit.md',
+  'docs/operations/runbooks/04-credential-exposure.md',
+  'docs/operations/runbooks/05-orphan-cleanup.md',
+  'docs/operations/runbooks/06-failed-deploy-rollback.md',
+  'docs/operations/runbooks/07-database-backup-restore.md',
+  'docs/operations/runbooks/08-tester-revocation-deletion.md',
+  'docs/operations/runbooks/09-capacity-saturation.md',
+  'docs/operations/runbooks/10-alpha-shutdown.md',
+  'docs/operations/runbooks/OPERATOR_CHECKLIST.md'
 ];
 for (const artifact of [...hostedOperationsSources, ...hostedOperationsTests, ...hostedOperationsRunbooks]) {
   assert(fs.existsSync(path.join(root, artifact)), `hosted operations artifact missing ${artifact}`);
@@ -564,20 +594,20 @@ for (const source of hostedOperationsSources) {
   assert(pkg.scripts['check:syntax'].includes(`node --check ${source}`), `check:syntax missing ${source}`);
 }
 
-const publicAlpha = read('PUBLIC_ALPHA.md');
+const publicAlpha = read('docs/release/PUBLIC_ALPHA.md');
 assert(publicAlpha.includes('Local hosted-operations qualification'));
 assert(publicAlpha.includes('Live Render/Neon qualification remains pending'));
 assert(publicAlpha.includes('encrypted backup'));
 assert(publicAlpha.includes('isolated restore'));
 assert(publicAlpha.includes('/healthz') && publicAlpha.includes('/readyz'));
-const architecture = read('ARCHITECTURE.md');
+const architecture = read('docs/architecture/ARCHITECTURE.md');
 assert(architecture.includes('verify-only hosted startup'));
 assert(architecture.includes('external encrypted backup'));
 assert(architecture.includes('isolated restore'));
-const releaseSecurityGates = read('RELEASE_SECURITY_GATES.md');
+const releaseSecurityGates = read('docs/release/RELEASE_SECURITY_GATES.md');
 assert(releaseSecurityGates.includes('Local hosted-operations gate: passed'));
 assert(releaseSecurityGates.includes('Live Render/Neon gate: pending'));
-assert(read('ARCHITECTURE_DECISIONS.md').includes(
+assert(read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(
   '## ADR-060 — Hosted-alpha migrations are backup-gated and verified by the web process'
 ));
 console.log('package contract tests passed');

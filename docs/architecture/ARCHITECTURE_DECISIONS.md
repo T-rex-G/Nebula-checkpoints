@@ -379,3 +379,36 @@ created and removed. Each live job verifies its signed target without secrets
 before its credential-bearing step, and each harness rechecks the same binding
 before its first network request. A changed, absent, malformed, or extra target
 or job fails closed and produces no provider/hosted request.
+
+## ADR-062 — Documentation lifecycle and generated continuity are release contracts
+
+**Status:** Accepted
+
+Repository documentation is physically separated by lifecycle and completely
+classified in `docs/DOCUMENTATION_MANIFEST.json`. Root Markdown is limited to
+the README and changelog. `WORK_CONTINUITY.json` is the sole authored source for
+operational continuity, and the project-state and continuation-prompt views are
+deterministically generated from it. Repository validation, packaging, and CI
+must reject manifest gaps, invalid lifecycle placement, broken current links,
+changed approved-plan bytes, stale current-release claims, or generated drift.
+
+**Consequence:** Current instructions, vision, operations, qualification
+evidence, and immutable history remain distinguishable in both source and
+release archives. A documentation-only change can block release when it makes
+the candidate's operational truth ambiguous or irreproducible.
+
+## ADR-063 — Release archives cannot self-attest exact candidate identity
+
+**Status:** Accepted
+
+A file contained in a release archive cannot truthfully embed that archive's
+final SHA-256 without changing the bytes being identified. In-repository
+continuity therefore records the last immutable qualified baseline, the current
+gate states, and the next authorized action, but never claims the current
+archive's commit, tree, hash, run IDs, or evidence hashes. Those identifiers are
+recorded as external, content-addressed qualification evidence after the exact
+candidate is frozen and packaged.
+
+**Consequence:** Candidate identity has one non-circular authority boundary.
+Archives remain resumable without self-attestation, while promotion and live
+dispatch continue to require externally verified exact-candidate evidence.

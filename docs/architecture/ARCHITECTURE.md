@@ -79,7 +79,8 @@ The CLI/store label and revocation-reason limits currently count JavaScript
 UTF-16 code-unit values while PostgreSQL counts Unicode code point values. This
 known minor remains deferred until the CLI and store contract change together.
 
-Durable technical decisions are recorded in `ARCHITECTURE_DECISIONS.md`.
+Durable technical decisions are recorded in the
+[architecture decision record](ARCHITECTURE_DECISIONS.md).
 
 ## Hosted operations boundary
 

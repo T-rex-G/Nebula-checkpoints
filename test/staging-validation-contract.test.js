@@ -9,7 +9,10 @@ const spec = fs.readFileSync('test/e2e/task20-accessibility.spec.js', 'utf8');
 const fixtures = fs.readFileSync('test/e2e/task20-fixtures.js', 'utf8');
 const gate = fs.readFileSync('scripts/staging-gate.js', 'utf8');
 const validation = fs.readFileSync('src/staging-validation.js', 'utf8');
-const stagingSpec = fs.readFileSync('TASK_20_STAGING_VALIDATION_SPEC.md', 'utf8');
+const stagingSpec = fs.readFileSync(
+  'docs/history/phase-1/specifications/TASK_20_STAGING_VALIDATION_SPEC.md',
+  'utf8'
+);
 
 assert.ok(pkg.scripts['test:staging:gate']);
 assert.ok(pkg.scripts['staging:plan']);

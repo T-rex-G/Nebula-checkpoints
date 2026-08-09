@@ -4,27 +4,24 @@
 
 Nebulaverse-X keeps the existing repository workbench—GitHub/GitLab/Gitea browsing, editing, commits, pull requests, issues, releases, Actions, SmartPush, Git LFS, folder/ZIP import, Time Machine, safeguards, dependency auditing, and the Neural Command Center—then adds durable governance, evidence, and recovery foundations without requiring paid AI.
 
-For current version and qualification status, see
-[`PROJECT_STATE.md`](PROJECT_STATE.md). The feature inventory below describes
-implemented and historical delivery, not provider parity, production readiness,
-or completed hosted qualification.
+For current version and qualification status, see the generated
+[project state](docs/current/PROJECT_STATE.md). The feature inventory below
+describes implemented and historical delivery, not provider parity, production
+readiness, or completed hosted qualification.
 
 ## Current documentation
 
-- [`PROJECT_STATE.md`](PROJECT_STATE.md)
-- [`ROADMAP.md`](ROADMAP.md)
-- [`PRODUCT_VISION.md`](PRODUCT_VISION.md)
-- [`PROVIDER_CAPABILITIES.md`](PROVIDER_CAPABILITIES.md)
-- [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- [`RELEASE_SECURITY_GATES.md`](RELEASE_SECURITY_GATES.md)
-- [`PUBLIC_ALPHA.md`](PUBLIC_ALPHA.md)
-- [`UX_VISION.md`](UX_VISION.md)
-- [`ARCHITECTURE_DECISIONS.md`](ARCHITECTURE_DECISIONS.md)
+- [Documentation lifecycle index](docs/README.md)
+- [Project state](docs/current/PROJECT_STATE.md), [roadmap](docs/current/ROADMAP.md), and [provider capabilities](docs/current/PROVIDER_CAPABILITIES.md)
+- [Founder vision](docs/vision/FOUNDER_VISION.md), [product vision](docs/vision/PRODUCT_VISION.md), and [UX vision](docs/vision/UX_VISION.md)
+- [Architecture](docs/architecture/ARCHITECTURE.md) and [architecture decisions](docs/architecture/ARCHITECTURE_DECISIONS.md)
+- [Public-alpha guide](docs/release/PUBLIC_ALPHA.md), [release gates](docs/release/RELEASE_SECURITY_GATES.md), and [evidence index](docs/release/EVIDENCE_INDEX.md)
+- [Render/Neon deployment](docs/operations/DEPLOY_RENDER_NEON.md) and [security deployment](docs/operations/SECURITY_DEPLOYMENT.md)
 
 ## Historical evidence
 
-See [`EVIDENCE_INDEX.md`](EVIDENCE_INDEX.md) for predecessor and successor
-evidence applicability without rewritten outcomes.
+See the [evidence index](docs/release/EVIDENCE_INDEX.md) for predecessor and
+successor evidence applicability without rewritten outcomes.
 
 The existing self-hosted deployment model remains:
 
@@ -60,7 +57,7 @@ Neon schema changes are applied from numbered, checksummed files in `db/migratio
 - Rejects stale preflight heads and compare-and-swap races as `BRANCH_CHANGED`, preventing newer work from being overwritten.
 - Keeps normalized Gitea governance scopes valid across the warn-mode policy-evaluation fallback.
 - Classifies the current high-severity advisory as a dev-only Archiver traversal chain; production dependencies audit clean, and Nebulaverse does not invoke the vulnerable glob path.
-- Candidate-bound Node 22 and fresh live-Gitea records for the immutable alpha.16.3 ZIP are indexed in `EVIDENCE_INDEX.md`; consult `PROJECT_STATE.md` for current qualification status.
+- Candidate-bound Node 22 and fresh live-Gitea records for the immutable alpha.16.3 ZIP are indexed in the [evidence index](docs/release/EVIDENCE_INDEX.md); consult the [project state](docs/current/PROJECT_STATE.md) for current qualification status.
 
 ### End-to-End Staging Validation (Task 20 complete, alpha.16.1 blocked)
 
@@ -173,7 +170,10 @@ Neon schema changes are applied from numbered, checksummed files in `db/migratio
 - Rejects unknown actions, unresolved targets, provider/scope mismatches, nested contexts and sensitive metadata before provider side effects.
 - Keeps the gateway policy-neutral until provider roles and active-policy evaluation are added in later Phase 1 tasks.
 
-The package also includes `PROJECT_STATE.md`, `PHASE_1_ROADMAP.md`, `ARCHITECTURE_DECISIONS.md`, and `CONTINUATION_PROMPT.md` so a new conversation can recover the exact project state from the ZIP alone.
+The package includes the complete [documentation lifecycle](docs/README.md),
+including generated continuity views, current guidance, immutable Phase 1
+history, architectural decisions, and release evidence, so a new conversation
+can recover project state from the ZIP alone.
 
 ### Governance persistence foundation (Task 3)
 
@@ -288,7 +288,7 @@ Without Neon, the original encrypted-session fallback remains available.
 - Appends security, webhook, and recovery actions to a chained evidence ledger.
 - Exports recent events, signed snapshots, bounded evidence-chain records, and chain verification as JSON.
 
-A signed reference snapshot is recovery evidence, not a complete independent Git/LFS backup. See `SECURITY_DEPLOYMENT.md`.
+A signed reference snapshot is recovery evidence, not a complete independent Git/LFS backup. See [security deployment](docs/operations/SECURITY_DEPLOYMENT.md).
 
 ### Security and privacy hardening
 

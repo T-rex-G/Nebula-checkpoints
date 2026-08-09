@@ -60,6 +60,34 @@ function expectedLifecycle(documentPath) {
   return null;
 }
 
+function repositoryRelativeLinks(documentPath) {
+  const source = fs.readFileSync(path.join(root, documentPath), 'utf8');
+  const links = [];
+  const inlineLink = /!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)/g;
+  for (const match of source.matchAll(inlineLink)) {
+    const target = (match[1] || match[2] || '').trim();
+    if (
+      !target ||
+      target.startsWith('#') ||
+      target.startsWith('/') ||
+      /^[a-z][a-z0-9+.-]*:/i.test(target)
+    ) continue;
+    links.push(target);
+  }
+  return links;
+}
+
+function resolveRepositoryLink(documentPath, target) {
+  const withoutFragment = target.split('#', 1)[0].split('?', 1)[0];
+  let decoded = withoutFragment;
+  try {
+    decoded = decodeURIComponent(withoutFragment);
+  } catch {
+    // The existence assertion below reports the original malformed target.
+  }
+  return path.resolve(root, path.dirname(documentPath), decoded);
+}
+
 const markdown = discoverMarkdown(root);
 assert.deepStrictEqual(
   markdown.filter(file => !file.includes('/')),
@@ -95,6 +123,54 @@ for (const record of manifest.documents) {
 for (const [relative, expectedHash] of Object.entries(APPROVED_PLAN_HASHES)) {
   const actualHash = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, relative))).digest('hex');
   assert.strictEqual(actualHash, expectedHash, `${relative} does not match its approved source bytes`);
+}
+
+const linkFailures = [];
+for (const documentPath of markdown) {
+  for (const target of repositoryRelativeLinks(documentPath)) {
+    const resolved = resolveRepositoryLink(documentPath, target);
+    if (!(resolved === root || resolved.startsWith(`${root}${path.sep}`))) {
+      linkFailures.push(`${documentPath} links outside the repository: ${target}`);
+    } else if (!fs.existsSync(resolved)) {
+      linkFailures.push(`${documentPath} has an unresolved repository link: ${target}`);
+    }
+  }
+}
+assert.deepStrictEqual(linkFailures, [], `documentation link failures:\n- ${linkFailures.join('\n- ')}`);
+
+const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+for (const canonicalPath of [
+  'docs/README.md',
+  'docs/current/PROJECT_STATE.md',
+  'docs/current/ROADMAP.md',
+  'docs/vision/FOUNDER_VISION.md',
+  'docs/architecture/ARCHITECTURE.md',
+  'docs/architecture/ARCHITECTURE_DECISIONS.md',
+  'docs/release/PUBLIC_ALPHA.md',
+  'docs/release/RELEASE_SECURITY_GATES.md'
+]) {
+  assert(readme.includes(`](${canonicalPath})`), `README missing canonical link ${canonicalPath}`);
+}
+
+const CURRENT_TRUTH_PREFIXES = [
+  'docs/current/',
+  'docs/reference/',
+  'docs/release/',
+  'docs/operations/'
+];
+const STALE_CURRENT_MARKERS = [
+  /Task 21 is in progress/i,
+  /Current successor version:[^\n]*5\.3\.0-alpha\.16\.3/i,
+  /In progress \(alpha\.16\.3\)/i,
+  /^# Deploy Nebulaverse-X 5\.2\.1$/im,
+  /migrations are applied automatically/i
+];
+for (const documentPath of markdown.filter(file =>
+  CURRENT_TRUTH_PREFIXES.some(prefix => file.startsWith(prefix)))) {
+  const source = fs.readFileSync(path.join(root, documentPath), 'utf8');
+  for (const marker of STALE_CURRENT_MARKERS) {
+    assert(!marker.test(source), `${documentPath} contains stale current-release marker ${marker}`);
+  }
 }
 
 console.log('documentation architecture tests passed');

@@ -12,6 +12,8 @@ const renderReleaseTemplate = value => value
 const must = (cond, msg) => { if (!cond) throw new Error(msg); };
 
 const required = [
+  'src/work-continuity.js', 'scripts/generate-continuity-docs.js', 'scripts/resume-work.js',
+  'test/continuity-generation.test.js',
   'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
   'db/migrations/014_alpha_access.sql', 'test/alpha-access.test.js',
   'test/alpha-access-persistence-contract.test.js', 'test/alpha-access-store.test.js',
@@ -79,7 +81,8 @@ const required = [
 for (const file of required) must(fs.existsSync(path.join(root, file)), `Missing ${file}`);
 
 for (const file of [
-  'server.js', 'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
+  'server.js', 'src/work-continuity.js', 'scripts/generate-continuity-docs.js',
+  'scripts/resume-work.js', 'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
   'src/alpha-privacy.js', 'src/alpha-privacy-store.js', 'src/provider-disconnect.js',
   'scripts/alpha-privacy.js', 'src/public-errors.js',
   'src/hosted-readiness.js', 'src/backup-format.js',

@@ -13,28 +13,38 @@ const state = JSON.parse(output);
 const serialized = JSON.stringify(state);
 const sourceControlExpected = fs.existsSync(path.join(root, '.git'));
 
-assert.strictEqual(state.schemaVersion, 2);
+assert.strictEqual(state.schemaVersion, 3);
 assert.strictEqual(state.project, 'Nebulaverse-X');
 assert.strictEqual(state.version, '5.3.0-alpha.17.0');
-assert.strictEqual(state.acceptedTree, '673737fc9a51aeffd54e068d5148de061fb559b2');
+assert.strictEqual(state.acceptedTree, '29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb');
 assert.strictEqual(Object.hasOwn(state, 'acceptedThrough'), false);
-assert.deepStrictEqual(state.publishedBaseline, {
+assert.deepStrictEqual(state.recordedBaseline, {
   repository: 'T-rex-G/Nebula-checkpoints',
-  branch: 'sandbox/alpha17-live-qualification',
-  commit: '315a88406487117fe32449e59eb3dfce4067b444',
-  parent: '7f721a770df8e658e00163e05ebc259502f99c09',
-  tree: '673737fc9a51aeffd54e068d5148de061fb559b2',
-  candidateSha256: '6d29b357eca034afa413940f07d27352889c4a619be9483fc00a78d08da8b72d',
-  qualificationDecision: 'no-go-evidence-integrity-correction-required'
+  branch: 'agent/alpha17-evidence-integrity',
+  pullRequest: 1,
+  commit: '4aa3c378475dd7fdb490b206e0ca3cb88d027bbf',
+  tree: '29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb',
+  candidateSha256: 'd3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc',
+  ciRunId: '31322778221',
+  qualificationRunId: '31322778223',
+  decision: 'provider-stage-go-public-alpha-no-go'
 });
 assert.deepStrictEqual(
   state.failedQualificationRuns.map(item => item.runId),
   ['31290968279', '31314330832', '31321447041']
 );
-assert.strictEqual(
-  state.nextAction,
-  'Qualify the current immutable branch head only after the local evidence-integrity matrix and archive-root verification pass; dispatch at most one serialized provider stage and do not claim public-alpha GO'
+assert.deepStrictEqual(
+  Object.fromEntries(Object.entries(state.gates).map(([name, gate]) => [name, gate.status])),
+  {
+    automated: 'passed',
+    liveProvider: 'pending',
+    hosted: 'pending',
+    manualAccessibility: 'pending',
+    finalRelease: 'pending'
+  }
 );
+assert.strictEqual(state.nextAuthorizedAction.type, 'qualify-documentation-successor');
+assert.match(state.nextAuthorizedAction.description, /documentation-truth correction/);
 assert(!serialized.includes('lastPushedCommit'));
 assert(!serialized.includes('lastPushedSourceCommit'));
 assert(!serialized.includes('pending_publication'));
@@ -61,8 +71,14 @@ assert.match(unknownArgument.stderr, /unknown argument/i);
 
 const archiveRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-continuity-archive-'));
 try {
+  fs.mkdirSync(path.join(archiveRoot, 'src'));
   fs.mkdirSync(path.join(archiveRoot, 'scripts'));
+  fs.copyFileSync(path.join(root, 'package.json'), path.join(archiveRoot, 'package.json'));
   fs.copyFileSync(path.join(root, 'WORK_CONTINUITY.json'), path.join(archiveRoot, 'WORK_CONTINUITY.json'));
+  fs.copyFileSync(
+    path.join(root, 'src', 'work-continuity.js'),
+    path.join(archiveRoot, 'src', 'work-continuity.js')
+  );
   fs.copyFileSync(scriptPath, path.join(archiveRoot, 'scripts', 'resume-work.js'));
   const archiveState = JSON.parse(execFileSync(
     process.execPath,
@@ -81,6 +97,7 @@ try {
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-continuity-git-'));
 try {
+  fs.mkdirSync(path.join(fixtureRoot, 'src'));
   fs.mkdirSync(path.join(fixtureRoot, 'scripts'));
   fs.writeFileSync(path.join(fixtureRoot, 'seed.txt'), 'seed\n');
   execFileSync('git', ['init', '--initial-branch=main'], { cwd: fixtureRoot, stdio: 'ignore' });
@@ -96,15 +113,30 @@ try {
   }).trim();
   const fixtureState = {
     ...JSON.parse(fs.readFileSync(path.join(root, 'WORK_CONTINUITY.json'), 'utf8')),
-    acceptedTree
+    acceptedTree,
+    recordedBaseline: {
+      ...JSON.parse(fs.readFileSync(path.join(root, 'WORK_CONTINUITY.json'), 'utf8')).recordedBaseline,
+      tree: acceptedTree
+    }
   };
   delete fixtureState.acceptedThrough;
+  fs.copyFileSync(path.join(root, 'package.json'), path.join(fixtureRoot, 'package.json'));
+  fs.copyFileSync(
+    path.join(root, 'src', 'work-continuity.js'),
+    path.join(fixtureRoot, 'src', 'work-continuity.js')
+  );
   fs.copyFileSync(scriptPath, path.join(fixtureRoot, 'scripts', 'resume-work.js'));
   fs.writeFileSync(
     path.join(fixtureRoot, 'WORK_CONTINUITY.json'),
     `${JSON.stringify(fixtureState, null, 2)}\n`
   );
-  execFileSync('git', ['add', 'WORK_CONTINUITY.json', 'scripts/resume-work.js'], {
+  execFileSync('git', [
+    'add',
+    'package.json',
+    'WORK_CONTINUITY.json',
+    'src/work-continuity.js',
+    'scripts/resume-work.js'
+  ], {
     cwd: fixtureRoot,
     stdio: 'ignore'
   });

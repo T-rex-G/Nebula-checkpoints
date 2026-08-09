@@ -1,21 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
+const { readContinuity } = require('../src/work-continuity');
 
 const root = path.resolve(__dirname, '..');
 const statePath = path.join(root, 'WORK_CONTINUITY.json');
-const PUBLISHED_BASELINE = Object.freeze({
-  repository: 'T-rex-G/Nebula-checkpoints',
-  branch: 'sandbox/alpha17-live-qualification',
-  commit: '315a88406487117fe32449e59eb3dfce4067b444',
-  parent: '7f721a770df8e658e00163e05ebc259502f99c09',
-  tree: '673737fc9a51aeffd54e068d5148de061fb559b2',
-  candidateSha256: '6d29b357eca034afa413940f07d27352889c4a619be9483fc00a78d08da8b72d',
-  qualificationDecision: 'no-go-evidence-integrity-correction-required'
-});
 
 function parseArgs(argv) {
   const options = { json: false, requireClean: false };
@@ -36,29 +27,7 @@ function git(args) {
 }
 
 function readState() {
-  let state;
-  try {
-    state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-  } catch {
-    throw new Error('WORK_CONTINUITY.json is not valid JSON');
-  }
-  if (
-    state.schemaVersion !== 2 ||
-    state.project !== 'Nebulaverse-X' ||
-    state.version !== '5.3.0-alpha.17.0' ||
-    !/^[0-9a-f]{40}$/.test(state.acceptedTree || '') ||
-    JSON.stringify(state.publishedBaseline) !== JSON.stringify(PUBLISHED_BASELINE) ||
-    !Array.isArray(state.failedQualificationRuns) ||
-    state.failedQualificationRuns.some(item => !/^[0-9]+$/.test(String(item.runId || '')) || item.liveJobsSkipped !== true) ||
-    !state.verification ||
-    !Array.isArray(state.limitations) ||
-    typeof state.nextAction !== 'string'
-  ) throw new Error('WORK_CONTINUITY.json is invalid');
-  const serialized = JSON.stringify(state);
-  if (/lastPushedCommit|lastPushedSourceCommit|pending_publication/.test(serialized)) {
-    throw new Error('WORK_CONTINUITY.json contains stale publication narration');
-  }
-  return state;
+  return readContinuity(statePath);
 }
 
 function unavailableSourceControl(state, requireClean) {
@@ -123,10 +92,10 @@ function renderHuman(state) {
     `Branch: ${state.sourceControlAvailable ? state.branch || 'detached HEAD' : 'unavailable'}`,
     `HEAD: ${state.currentHead || 'unavailable'}`,
     `Accepted tree: ${state.acceptedTree}`,
-    `Published baseline: ${state.publishedBaseline.commit} (${state.publishedBaseline.qualificationDecision})`,
-    `Published candidate: ${state.publishedBaseline.candidateSha256}`,
+    `Recorded baseline: ${state.recordedBaseline.commit} (${state.recordedBaseline.decision})`,
+    `Recorded candidate: ${state.recordedBaseline.candidateSha256}`,
     `Worktree: ${state.worktreeClean === null ? 'unavailable' : state.worktreeClean ? 'clean' : `dirty (${state.dirtyPaths.join(', ')})`}`,
-    `Next action: ${state.nextAction}`
+    `Next action: ${state.nextAuthorizedAction.description}`
   ].join('\n');
 }
 

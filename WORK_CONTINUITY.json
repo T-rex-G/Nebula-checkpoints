@@ -1,16 +1,51 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "project": "Nebulaverse-X",
   "version": "5.3.0-alpha.17.0",
-  "acceptedTree": "673737fc9a51aeffd54e068d5148de061fb559b2",
-  "publishedBaseline": {
+  "acceptedTree": "29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb",
+  "recordedBaseline": {
     "repository": "T-rex-G/Nebula-checkpoints",
-    "branch": "sandbox/alpha17-live-qualification",
-    "commit": "315a88406487117fe32449e59eb3dfce4067b444",
-    "parent": "7f721a770df8e658e00163e05ebc259502f99c09",
-    "tree": "673737fc9a51aeffd54e068d5148de061fb559b2",
-    "candidateSha256": "6d29b357eca034afa413940f07d27352889c4a619be9483fc00a78d08da8b72d",
-    "qualificationDecision": "no-go-evidence-integrity-correction-required"
+    "branch": "agent/alpha17-evidence-integrity",
+    "pullRequest": 1,
+    "commit": "4aa3c378475dd7fdb490b206e0ca3cb88d027bbf",
+    "tree": "29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb",
+    "candidateSha256": "d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc",
+    "ciRunId": "31322778221",
+    "qualificationRunId": "31322778223",
+    "decision": "provider-stage-go-public-alpha-no-go"
+  },
+  "gates": {
+    "automated": {
+      "status": "passed",
+      "runId": "31322778223",
+      "programs": {
+        "total": 137,
+        "passed": 137,
+        "blocked": 0,
+        "failed": 0
+      },
+      "browser": {
+        "total": 56,
+        "passed": 56,
+        "failed": 0
+      },
+      "productionAuditVulnerabilities": 0,
+      "developmentAuditVulnerabilities": 0,
+      "deterministicArchive": true,
+      "exactArchiveQualified": true
+    },
+    "liveProvider": {
+      "status": "pending"
+    },
+    "hosted": {
+      "status": "pending"
+    },
+    "manualAccessibility": {
+      "status": "pending"
+    },
+    "finalRelease": {
+      "status": "pending"
+    }
   },
   "failedQualificationRuns": [
     {
@@ -29,24 +64,18 @@
       "liveJobsSkipped": true
     }
   ],
-  "verification": {
-    "runtime": "Node.js 22.23.1",
-    "publishedBaselineMatrix": {
-      "programs": 135,
-      "passed": 135,
-      "blocked": 0,
-      "failed": 0,
-      "reportHash": "8dbb2cc975374fe6f47691bcee33fc559b2e8cb7974dccde381260edef441170"
-    },
-    "liveProviderExecution": "not-executed-after-evidence-integrity-audit",
-    "hostedExecution": "not-executed",
-    "manualAccessibilityAudit": "not-executed"
-  },
   "limitations": [
-    "No live PostgreSQL execution",
-    "No live Render or Neon execution",
-    "No live provider execution after the evidence-integrity audit",
-    "Manual VoiceOver and desktop screen-reader passes remain"
+    "No live PostgreSQL execution has qualified the successor",
+    "No live Render or Neon execution has qualified the successor",
+    "No live provider execution has qualified the successor",
+    "Manual VoiceOver and desktop screen-reader passes remain required"
   ],
-  "nextAction": "Qualify the current immutable branch head only after the local evidence-integrity matrix and archive-root verification pass; dispatch at most one serialized provider stage and do not claim public-alpha GO"
+  "currentCandidate": {
+    "qualificationStatus": "not-qualified",
+    "identitySource": "external-qualification-evidence"
+  },
+  "nextAuthorizedAction": {
+    "type": "qualify-documentation-successor",
+    "description": "Complete the documentation-truth correction, freeze one deterministic successor archive, and run the full source and exact-archive automated qualification before any serialized live-provider dispatch."
+  }
 }

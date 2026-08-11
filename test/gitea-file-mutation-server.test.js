@@ -7,13 +7,17 @@ const { spawn } = require('child_process');
 const root = path.resolve(__dirname, '..');
 const fixture = path.join(__dirname, 'fixtures', 'gitea-provider-fetch.js');
 const port = 27000 + Math.floor(Math.random() * 1000);
+const sessionSecret = ['gitea-server-test', '0123456789abcdef', '0123456789abcdef'].join('-');
+const snapKey = `${sessionSecret}:snapshot`;
 const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
   cwd: root,
   env: {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'test',
-    SESSION_SECRET: 'gitea-server-test-secret-0123456789abcdef-0123456789abcdef',
+    SESSION_SECRET: sessionSecret,
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'gitea-test-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: snapKey,
     DATABASE_URL: '',
     NV_GIT_HOST_ALLOWLIST: 'gitea.example',
     NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn'

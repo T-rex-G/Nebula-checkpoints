@@ -26,6 +26,7 @@ const exactValues = {
   NV_LIVE_CLIENTS_TOTAL: '10',
   NV_SNAPSHOT_RETENTION_COUNT: '10',
   NV_SNAPSHOT_MANIFEST_MAX: '5000',
+  NV_SNAPSHOT_SIGNING_KEY_ID: 'alpha17-snapshot-2026-08',
   NV_GIT_DATA_MAX_MB: '16',
   NV_NATIVE_PUSH_MAX_MB: '16',
   NV_UPLOAD_MAX_MB: '25',
@@ -34,6 +35,15 @@ const exactValues = {
   NV_STALE_UPLOAD_HOURS: '2',
   NV_MAINTENANCE_MODE: '0'
 };
+
+for (const generatedSecret of ['SESSION_SECRET', 'NV_SNAPSHOT_SIGNING_SECRET']) {
+  const start = render.indexOf(`key: ${generatedSecret}`);
+  const end = render.indexOf('\n      - key:', start + 1);
+  const block = render.slice(start, end < 0 ? render.length : end);
+  assert(start >= 0, `${generatedSecret} is missing`);
+  assert(block.includes('generateValue: true'), `${generatedSecret} must be generated independently`);
+  assert(!block.includes('value:'), `${generatedSecret} must not have a blueprint value`);
+}
 for (const [key, value] of Object.entries(exactValues)) {
   const block = render.match(new RegExp(`- key: ${key}\\n\\s+value: ([^\\n]+)`));
   assert(block, `render.yaml missing ${key}`);
@@ -60,7 +70,18 @@ for (const [key, value] of Object.entries({
 })) {
   assert(envExample.includes(`${key}=${value}`), `.env.example missing ${key}=${value}`);
 }
-for (const key of ['NV_BACKUP_KEY_BASE64', 'NV_RESTORE_DATABASE_URL']) {
+for (const key of [
+  'NV_BACKUP_KEY_BASE64',
+  'NV_RESTORE_DATABASE_URL',
+  'NV_COHORT_NEON_PROJECT_ID',
+  'NV_COHORT_NEON_BRANCH_ID',
+  'NV_RESTORE_NEON_PROJECT_ID',
+  'NV_RESTORE_NEON_BRANCH_ID',
+  'NV_RESTORE_TARGET_FINGERPRINT',
+  'NV_SNAPSHOT_SIGNING_SECRET',
+  'NV_SNAPSHOT_RETIRED_KEYS_JSON',
+  'NV_SNAPSHOT_LEGACY_KEYS_JSON'
+]) {
   assert(envExample.includes(`${key}=`), `.env.example missing ${key}`);
 }
 

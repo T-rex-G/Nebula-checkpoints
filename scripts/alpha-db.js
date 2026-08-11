@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
@@ -17,12 +18,14 @@ const COMMANDS = Object.freeze({
   backup: Object.freeze({ '--output-dir': 'outputDir' }),
   verify: Object.freeze({ '--backup': 'backup', '--manifest': 'manifest' }),
   migrate: Object.freeze({ '--backup-manifest': 'backupManifest' }),
+  'restore-target': Object.freeze({}),
   restore: Object.freeze({ '--backup': 'backup', '--manifest': 'manifest' })
 });
 const REQUIRED = Object.freeze({
   backup: Object.freeze(['outputDir']),
   verify: Object.freeze(['backup', 'manifest']),
   migrate: Object.freeze(['backupManifest']),
+  'restore-target': Object.freeze([]),
   restore: Object.freeze(['backup', 'manifest'])
 });
 const SAFE_CHILD_ENV_KEYS = Object.freeze([
@@ -33,7 +36,7 @@ function parseArgs(argv) {
   const values = Array.isArray(argv) ? argv : [];
   const command = String(values[0] || '').trim();
   const spec = COMMANDS[command];
-  if (!spec) throw new TypeError('Command must be backup, verify, migrate, or restore');
+  if (!spec) throw new TypeError('Command must be backup, verify, migrate, restore-target, or restore');
   const parsed = { command };
   for (let index = 1; index < values.length; index += 2) {
     const option = String(values[index] || '');
@@ -92,6 +95,76 @@ function assertRestoreTargetDifferent(source, target) {
   if (databaseIdentity(source) === databaseIdentity(target)) {
     throw new TypeError('NV_RESTORE_DATABASE_URL must differ from DATABASE_URL');
   }
+}
+
+function normalizeRestoreContext(input = {}) {
+  const context = {
+    cohortNeonProjectId: String(input.cohortNeonProjectId || '').trim().toLowerCase(),
+    cohortNeonBranchId: String(input.cohortNeonBranchId || '').trim().toLowerCase(),
+    restoreNeonProjectId: String(input.restoreNeonProjectId || '').trim().toLowerCase(),
+    restoreNeonBranchId: String(input.restoreNeonBranchId || '').trim().toLowerCase(),
+    restoreTargetKind: String(input.restoreTargetKind || '').trim().toLowerCase()
+  };
+  if (
+    !/^[a-z0-9][a-z0-9-]{2,127}$/.test(context.cohortNeonProjectId) ||
+    !/^br-[a-z0-9][a-z0-9-]{2,127}$/.test(context.cohortNeonBranchId) ||
+    !/^[a-z0-9][a-z0-9-]{2,127}$/.test(context.restoreNeonProjectId) ||
+    !/^br-[a-z0-9][a-z0-9-]{2,127}$/.test(context.restoreNeonBranchId) ||
+    context.restoreTargetKind !== 'isolated-neon-branch'
+  ) {
+    throw new TypeError('Restore target requires explicit valid Neon project, branch, and isolated-target context');
+  }
+  return context;
+}
+
+function restoreTargetFingerprint(source, target, input) {
+  assertRestoreTargetDifferent(source, target);
+  const context = normalizeRestoreContext(input);
+  if (
+    context.cohortNeonProjectId === context.restoreNeonProjectId &&
+    context.cohortNeonBranchId === context.restoreNeonBranchId
+  ) {
+    throw new TypeError('The isolated Neon branch must differ from the cohort branch');
+  }
+  const preimage = {
+    schemaVersion: 'nvx-isolated-restore-target.v1',
+    source: {
+      databaseIdentity: databaseIdentity(source),
+      neonProjectId: context.cohortNeonProjectId,
+      neonBranchId: context.cohortNeonBranchId
+    },
+    target: {
+      databaseIdentity: databaseIdentity(target),
+      neonProjectId: context.restoreNeonProjectId,
+      neonBranchId: context.restoreNeonBranchId,
+      kind: context.restoreTargetKind
+    }
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(preimage), 'utf8').digest('hex');
+}
+
+function assertIsolatedRestoreTarget(source, target, input) {
+  const context = normalizeRestoreContext(input);
+  const supplied = String(input?.restoreTargetFingerprint || '').trim().toLowerCase();
+  const expected = restoreTargetFingerprint(source, target, context);
+  if (
+    !/^[0-9a-f]{64}$/.test(supplied) ||
+    !crypto.timingSafeEqual(Buffer.from(supplied, 'hex'), Buffer.from(expected, 'hex'))
+  ) {
+    throw new TypeError('NV_RESTORE_TARGET_FINGERPRINT does not match the reviewed isolated restore target');
+  }
+  return Object.freeze({ ...context, fingerprint: expected });
+}
+
+function restoreContextFromEnvironment(env) {
+  return {
+    cohortNeonProjectId: requireEnvironment(env, 'NV_COHORT_NEON_PROJECT_ID'),
+    cohortNeonBranchId: requireEnvironment(env, 'NV_COHORT_NEON_BRANCH_ID'),
+    restoreNeonProjectId: requireEnvironment(env, 'NV_RESTORE_NEON_PROJECT_ID'),
+    restoreNeonBranchId: requireEnvironment(env, 'NV_RESTORE_NEON_BRANCH_ID'),
+    restoreTargetKind: requireEnvironment(env, 'NV_RESTORE_TARGET_KIND'),
+    restoreTargetFingerprint: String(env.NV_RESTORE_TARGET_FINGERPRINT || '').trim()
+  };
 }
 
 function databaseEnvironment(raw, baseEnv = process.env) {
@@ -318,7 +391,7 @@ async function migrateCommand(args, env) {
 async function restoreCommand(args, env) {
   const sourceUrl = requireEnvironment(env, 'DATABASE_URL');
   const targetUrl = requireEnvironment(env, 'NV_RESTORE_DATABASE_URL');
-  assertRestoreTargetDifferent(sourceUrl, targetUrl);
+  assertIsolatedRestoreTarget(sourceUrl, targetUrl, restoreContextFromEnvironment(env));
   const key = decodeBackupKey(requireEnvironment(env, 'NV_BACKUP_KEY_BASE64'));
   const { manifest } = await readBackupRecord(args.manifest);
   const target = parseDatabaseUrl(targetUrl, 'NV_RESTORE_DATABASE_URL');
@@ -354,11 +427,30 @@ async function restoreCommand(args, env) {
   }
 }
 
+function restoreTargetCommand(env) {
+  const sourceUrl = requireEnvironment(env, 'DATABASE_URL');
+  const targetUrl = requireEnvironment(env, 'NV_RESTORE_DATABASE_URL');
+  assertRestoreTargetDifferent(sourceUrl, targetUrl);
+  const context = normalizeRestoreContext(restoreContextFromEnvironment(env));
+  const fingerprint = restoreTargetFingerprint(sourceUrl, targetUrl, context);
+  printResult({
+    command: 'restore-target',
+    kind: context.restoreTargetKind,
+    cohortNeonProjectId: context.cohortNeonProjectId,
+    cohortNeonBranchId: context.cohortNeonBranchId,
+    restoreNeonProjectId: context.restoreNeonProjectId,
+    restoreNeonBranchId: context.restoreNeonBranchId,
+    restoreDatabaseIdentity: databaseIdentity(targetUrl),
+    fingerprint
+  });
+}
+
 async function main(argv = process.argv.slice(2), env = process.env) {
   const args = parseArgs(argv);
   if (args.command === 'backup') return backupCommand(args, env);
   if (args.command === 'verify') return verifyCommand(args, env);
   if (args.command === 'migrate') return migrateCommand(args, env);
+  if (args.command === 'restore-target') return restoreTargetCommand(env);
   return restoreCommand(args, env);
 }
 
@@ -381,7 +473,9 @@ module.exports = {
   parseArgs,
   assertSafeOutputDirectory,
   assertRestoreTargetDifferent,
+  assertIsolatedRestoreTarget,
   databaseEnvironment,
   redactErrorMessage,
+  restoreTargetFingerprint,
   main
 };

@@ -70,6 +70,18 @@ function fail(message, code) {
   throw error;
 }
 
+function failArtifactVerification(artifact, cause) {
+  const causeMessage = cause && cause.message ? String(cause.message) : 'artifact verifier failed';
+  const error = new TypeError(
+    `qualification artifact ${artifact.id} does not match: ${causeMessage}`,
+    { cause }
+  );
+  error.code = 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH';
+  error.artifactId = artifact.id;
+  if (cause && cause.code) error.causeCode = String(cause.code);
+  throw error;
+}
+
 function isPlainObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
@@ -282,13 +294,12 @@ function verifyQualification(input, options = {}) {
     ) {
       fail('qualification artifact metadata is invalid', 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH');
     }
-    let verified = null;
+    let verified;
     try {
       verified = validateEvidenceEnvelope(options.verifyArtifact(artifact));
-    } catch {
-      verified = null;
+    } catch (error) {
+      failArtifactVerification(artifact, error);
     }
-    if (!verified) fail('qualification artifact does not match', 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH');
     artifacts.set(artifact.id, verified);
   }
 

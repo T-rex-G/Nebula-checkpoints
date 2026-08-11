@@ -15,10 +15,11 @@ node scripts/alpha-db.js verify --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKU
 
 ## Verification
 
-Verify the fresh backup before migration, apply/verify migrations through the operator CLI, then restore into the separately configured target.
+Verify the fresh backup before migration and apply/verify migrations through the operator CLI. In the Neon console, confirm the cohort and restore project/branch IDs and that the restore branch is isolated. Preview the sanitized target identity, review and record its fingerprint out of band, then set `NV_RESTORE_TARGET_FINGERPRINT` to that exact approved value before restore. Stop on any URL, project, branch, kind, or fingerprint mismatch.
 
 ```bash
 node scripts/alpha-db.js migrate --backup-manifest "$NV_BACKUP_MANIFEST"
+node scripts/alpha-db.js restore-target
 node scripts/alpha-db.js restore --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
 node scripts/alpha-smoke.js
 ```

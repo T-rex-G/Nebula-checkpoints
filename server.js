@@ -67,7 +67,7 @@ const CAPABILITY_DOCUMENT = loadCapabilityDocument(
 );
 const DEPLOYMENT_PROFILE = 'hosted-alpha';
 const {
-  stableJson, hashJson, hmacJson, evidenceRecordHash, verifyGithubSignature, normalizeGithubWebhook,
+  stableJson, hashJson, evidenceRecordHash, verifyGithubSignature, normalizeGithubWebhook,
   riskForEvent, riskForAccessSurface, compareSnapshots, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
   cleanText, normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, normalizeProviderBranches
 } = require('./src/intelligence');
@@ -95,6 +95,8 @@ const {
   repositoryAllowed
 } = require('./src/alpha-access');
 const { PRODUCT_NAME, APP_VERSION, ASSET_VERSION } = require('./src/version');
+const { computeReleaseFingerprint } = require('./src/release-fingerprint');
+const RELEASE_TREE_SHA256 = computeReleaseFingerprint(__dirname);
 const { createCorrelationId, publicErrorBody } = require('./src/public-errors');
 const { loadMigrations, runMigrations, verifyMigrations } = require('./src/migrations');
 const { scanUploadFile, scannerStatus } = require('./src/file-security');
@@ -115,6 +117,10 @@ const { createGovernanceRuntime } = require('./src/governance-enforcement');
 const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
+const {
+  createSnapshotSignatures,
+  loadSnapshotSigningConfig
+} = require('./src/snapshot-signatures');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -145,6 +151,10 @@ if (process.env.NODE_ENV === 'production' && Buffer.byteLength(SECRET, 'utf8') <
   );
 }
 const KEY = crypto.createHash('sha256').update(SECRET).digest();
+const SNAPSHOT_SIGNATURES = createSnapshotSignatures(loadSnapshotSigningConfig(process.env, {
+  production: process.env.NODE_ENV === 'production',
+  sessionSecret: SECRET
+}));
 const GITHUB_APP_CONFIG = loadGithubAppConfig(process.env, { production: process.env.NODE_ENV === 'production' });
 const githubAppBroker = GITHUB_APP_CONFIG.enabled ? new GithubAppBroker(GITHUB_APP_CONFIG, {
   audit(event) {
@@ -5518,7 +5528,7 @@ app.post('/api/repo/:owner/:repo/signed-snapshot', providerSessionAccess, alphaR
     const includeManifest = !(req.body && req.body.manifest === false);
     const snapshot = await captureRefsSnapshot(req, includeManifest);
     const snapshotId = crypto.randomUUID();
-    const signature = hmacJson(SECRET, { snapshotId, snapshot });
+    const signature = SNAPSHOT_SIGNATURES.sign(snapshotId, snapshot);
     const provider = req.gh.provider || 'github';
     const identity = identityKey(req.gh);
     await pool().query(
@@ -5535,7 +5545,13 @@ app.post('/api/repo/:owner/:repo/signed-snapshot', providerSessionAccess, alphaR
       [provider, req.params.owner, req.params.repo, identity, SNAPSHOT_RETENTION_COUNT]
     );
     const evidence = await appendEvidence(scopedEvidenceKey(provider, req.params.owner, req.params.repo, identity), 'recovery-snapshot', snapshotId, { snapshot, signature });
-    res.status(201).json({ snapshotId, signature, evidence, snapshot });
+    res.status(201).json({
+      snapshotId,
+      signature,
+      signatureKeyId: SNAPSHOT_SIGNATURES.activeKeyId,
+      evidence,
+      snapshot
+    });
   } catch (e) { fail(res, e); }
 });
 
@@ -5575,7 +5591,7 @@ app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alp
         sessionRevocationAvailable: !!inventory.available
       }
     };
-    const signature = hmacJson(SECRET, { snapshotId: manifestId, snapshot: manifest });
+    const signature = SNAPSHOT_SIGNATURES.sign(manifestId, manifest);
     let persisted = false;
     let evidence = null;
     if (await dbReady()) {
@@ -5597,7 +5613,15 @@ app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alp
       evidence = await appendEvidence(scopedEvidenceKey(provider, req.params.owner, req.params.repo, identity), 'emergency-manifest', manifestId, { manifest, signature });
       persisted = true;
     }
-    res.status(201).json({ manifestId, signature, signatureValid: true, persisted, evidence, manifest });
+    res.status(201).json({
+      manifestId,
+      signature,
+      signatureKeyId: SNAPSHOT_SIGNATURES.activeKeyId,
+      signatureValid: true,
+      persisted,
+      evidence,
+      manifest
+    });
   } catch (e) { fail(res, e); }
 });
 
@@ -5610,13 +5634,18 @@ app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaR
        ORDER BY created_at DESC LIMIT 25`,
       [req.gh.provider || 'github', req.params.owner, req.params.repo, identityKey(req.gh)]
     );
-    res.json({ available: true, snapshots: r.rows.map(x => ({
-      snapshotId: x.snapshot_id,
-      signature: x.signature,
-      signatureValid: hmacJson(SECRET, { snapshotId: x.snapshot_id, snapshot: x.snapshot }) === x.signature,
-      createdAt: x.created_at,
-      snapshot: x.snapshot
-    })) });
+    res.json({ available: true, snapshots: r.rows.map(x => {
+      const verification = SNAPSHOT_SIGNATURES.verify(x.signature, x.snapshot_id, x.snapshot);
+      return {
+        snapshotId: x.snapshot_id,
+        signature: x.signature,
+        signatureValid: verification.valid,
+        signatureKeyId: verification.keyId,
+        signatureLegacy: verification.legacy,
+        createdAt: x.created_at,
+        snapshot: x.snapshot
+      };
+    }) });
   } catch (e) { fail(res, e); }
 });
 
@@ -6304,10 +6333,15 @@ app.get('/api/repo/:owner/:repo/evidence', providerSessionAccess, alphaRepositor
       repository: `${req.params.owner}/${req.params.repo}`, chain: chainSummary,
       records: evidenceRecords,
       events: events.rows,
-      snapshots: snapshots.rows.map(row => ({
-        ...row,
-        signature_valid: hmacJson(SECRET, { snapshotId: row.snapshot_id, snapshot: row.snapshot }) === row.signature
-      }))
+      snapshots: snapshots.rows.map(row => {
+        const verification = SNAPSHOT_SIGNATURES.verify(row.signature, row.snapshot_id, row.snapshot);
+        return {
+          ...row,
+          signature_valid: verification.valid,
+          signature_key_id: verification.keyId,
+          signature_legacy: verification.legacy
+        };
+      })
     });
   } catch (e) { fail(res, e); }
 });
@@ -6386,7 +6420,11 @@ app.post('/api/security/revoke-others', auth, async (req, res) => {
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/version', (req, res) => res.json({ version: APP_VERSION, product: PRODUCT_NAME }));
+app.get('/api/version', (req, res) => res.json({
+  version: APP_VERSION,
+  product: PRODUCT_NAME,
+  releaseTreeSha256: RELEASE_TREE_SHA256
+}));
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
   res.setHeader('Cache-Control', 'no-cache');

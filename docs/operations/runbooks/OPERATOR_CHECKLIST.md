@@ -38,13 +38,17 @@ date -u +%Y-%m-%dT%H:%M:%SZ
 ## Weekly
 
 - Create an encrypted external backup from the trusted workstation.
-- Verify the backup and rehearse restore into an isolated Neon branch.
+- Verify the backup and rehearse restore into an isolated Neon branch. Copy the
+  cohort and restore project/branch IDs from the Neon console, confirm the
+  branch identities differ, and approve the exact sanitized target fingerprint
+  before supplying `NV_RESTORE_TARGET_FINGERPRINT`.
 - Run retention and review immutable cleanup/deletion evidence.
 - Review published limits against safe load evidence; limits may decrease only.
 
 ```bash
 node scripts/alpha-db.js backup --output-dir "$NV_BACKUP_OUTPUT_DIR"
 node scripts/alpha-db.js verify --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
+node scripts/alpha-db.js restore-target
 node scripts/alpha-db.js restore --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
 node scripts/alpha-privacy.js retention
 node scripts/alpha-load.js

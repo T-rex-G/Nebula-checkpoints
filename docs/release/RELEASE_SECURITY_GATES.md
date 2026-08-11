@@ -85,6 +85,10 @@ A pass is public-alpha accessibility qualification, not legal certification.
 
 - The signed activation binds the exact hosted origin, Render service identity,
   and Neon project identity before hosted credentials or traffic are used.
+- Before smoke or load traffic, the hosted harness independently hashes the
+  exact candidate release tree and requires `/api/version` to report the same
+  deterministic digest computed by the deployed process. The observed digest,
+  not a hash derived from target metadata, is the hosted evidence deployment ID.
 - Render cold start, Neon scale-to-zero wake, five concurrent invited read
   workflows, and one bounded mutation at a time.
 - Memory/restart observation, active-session revocation, provider disconnect,

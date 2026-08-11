@@ -283,7 +283,8 @@ Without Neon, the original encrypted-session fallback remains available.
 
 - Captures branches, tags, default branch, and an optional file manifest.
 - Stores snapshots in Neon.
-- Signs each snapshot with HMAC-SHA256.
+- Signs each snapshot with a dedicated, key-ID-bearing HMAC-SHA256 key.
+- Continues verifying retained snapshots with explicitly configured retired keys until their retention expires.
 - Reports signature validity when snapshots are read or exported.
 - Appends security, webhook, and recovery actions to a chained evidence ledger.
 - Exports recent events, signed snapshots, bounded evidence-chain records, and chain verification as JSON.
@@ -354,7 +355,7 @@ See `NEURAL_COMMAND_CENTER.md` for the complete behavior.
 DATABASE_URL=postgresql://...-pooler.../dbname?sslmode=require
 ```
 
-5. Keep the generated `SESSION_SECRET`. Do not copy a real secret into GitHub.
+5. Keep the independently generated `SESSION_SECRET` and `NV_SNAPSHOT_SIGNING_SECRET`. Do not copy a real secret into GitHub.
 6. Deploy.
 
 Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses for the GitHub webhook callback. On another production host, set `PUBLIC_BASE_URL` to the application's canonical HTTPS URL.
@@ -363,7 +364,11 @@ Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses fo
 
 | Variable | Requirement | Purpose |
 |---|---|---|
-| `SESSION_SECRET` | Required in production | Encrypts sessions/webhook secrets and signs snapshots |
+| `SESSION_SECRET` | Required in production | Encrypts sessions and stored webhook secrets |
+| `NV_SNAPSHOT_SIGNING_KEY_ID` | Required in production | Non-secret active snapshot-signing key identifier |
+| `NV_SNAPSHOT_SIGNING_SECRET` | Required in production | Dedicated active HMAC key for snapshots and emergency manifests |
+| `NV_SNAPSHOT_RETIRED_KEYS_JSON` | Optional during rotation | Retired key-ID-to-secret map retained until matching snapshots expire |
+| `NV_SNAPSHOT_LEGACY_KEYS_JSON` | Optional migration bridge | Old session-derived snapshot keys retained only for legacy bare signatures |
 | `NODE_ENV=production` | Required in production | Secure cookie/HSTS behavior |
 | `DATABASE_URL` | Required for verified live intelligence | Existing Neon sessions, policies, events, snapshots, evidence |
 | `PUBLIC_BASE_URL` | Optional on Render | Canonical HTTPS webhook callback on other/custom hosts |
@@ -396,14 +401,14 @@ Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses fo
 
 The connected GitHub credential must have permission to create repository webhooks. Existing events remain in Neon when the webhook is disconnected.
 
-Rotating `SESSION_SECRET` intentionally invalidates existing sessions, stored webhook secrets, and old snapshot signatures. Reconnect repository webhooks after a secret rotation.
+Rotating `SESSION_SECRET` intentionally invalidates existing sessions and stored webhook secrets. Snapshot verification uses its independent keyring. Before rotating a session key that signed pre-migration snapshots, retain that old value in `NV_SNAPSHOT_LEGACY_KEYS_JSON` only until those snapshots expire. Reconnect repository webhooks after a session-key rotation.
 
 ## Local validation
 
 ```bash
 npm ci
 npm test
-SESSION_SECRET='replace-with-a-long-development-secret' npm start
+SESSION_SECRET="$NV_DEV_SESSION_SECRET" npm start
 ```
 
 Then open `http://localhost:10000`.

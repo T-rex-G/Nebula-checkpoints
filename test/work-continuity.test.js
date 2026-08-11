@@ -8,6 +8,17 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 const scriptPath = path.join(root, 'scripts', 'resume-work.js');
+const { validateHistoryResult } = require('../scripts/resume-work');
+
+assert.throws(
+  () => validateHistoryResult({ status: 9, stdout: '', stderr: 'synthetic history failure' }, 'a'.repeat(40)),
+  /Git history discovery failed.*exit 9.*synthetic history failure/i
+);
+assert.strictEqual(
+  validateHistoryResult({ status: 0, stdout: `b${'0'.repeat(39)}\n`, stderr: '' }, 'a'.repeat(40)),
+  false
+);
+
 const output = execFileSync(process.execPath, [scriptPath, '--json'], { cwd: root, encoding: 'utf8' });
 const state = JSON.parse(output);
 const serialized = JSON.stringify(state);
@@ -111,11 +122,12 @@ try {
     cwd: fixtureRoot,
     encoding: 'utf8'
   }).trim();
+  const sourceState = JSON.parse(fs.readFileSync(path.join(root, 'WORK_CONTINUITY.json'), 'utf8'));
   const fixtureState = {
-    ...JSON.parse(fs.readFileSync(path.join(root, 'WORK_CONTINUITY.json'), 'utf8')),
+    ...sourceState,
     acceptedTree,
     recordedBaseline: {
-      ...JSON.parse(fs.readFileSync(path.join(root, 'WORK_CONTINUITY.json'), 'utf8')).recordedBaseline,
+      ...sourceState.recordedBaseline,
       tree: acceptedTree
     }
   };

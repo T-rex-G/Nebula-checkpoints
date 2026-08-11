@@ -10,6 +10,7 @@ const { hashJson } = require('../src/intelligence');
 const root = path.resolve(__dirname, '..');
 const port = 30100 + Math.floor(Math.random() * 500);
 const sessionSecret = 'github-app-configured-test-secret-0123456789abcdef-0123456789abcdef';
+const snapKey = `${sessionSecret}:snapshot`;
 const sessionKey = crypto.createHash('sha256').update(sessionSecret).digest();
 
 function seal(value) {
@@ -35,6 +36,8 @@ const child = spawn(process.execPath, ['server.js'], {
     PORT: String(port),
     NODE_ENV: 'production',
     SESSION_SECRET: sessionSecret,
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'github-app-configured-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: snapKey,
     DATABASE_URL: '',
     GITHUB_APP_ID: '4242',
     GITHUB_APP_SLUG: 'nebula-configured-test',

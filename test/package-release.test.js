@@ -5,7 +5,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { createZipArchive, discoverReleaseManifest } = require('../scripts/package-release');
+const {
+  assertGeneratedDocumentationCurrent,
+  createZipArchive,
+  discoverReleaseManifest
+} = require('../scripts/package-release');
 const { checks: foundationChecks } = require('../scripts/foundation-gate');
 const root = path.resolve(__dirname, '..');
 const packageScript = path.join(root, 'scripts', 'package-release.js');
@@ -116,6 +120,25 @@ assert.strictEqual(typeof archive.file, 'function');
 assert.strictEqual(typeof archive.finalize, 'function');
 assert.strictEqual(typeof archive.abort, 'function');
 archive.abort();
+
+let generatedDocsSpawnOptions;
+assertGeneratedDocumentationCurrent((command, args, options) => {
+  generatedDocsSpawnOptions = options;
+  return { status: 0, signal: null, stdout: '', stderr: '' };
+});
+assert(
+  generatedDocsSpawnOptions && generatedDocsSpawnOptions.maxBuffer >= 16 * 1024 * 1024,
+  'generated documentation checks must use an explicit bounded output buffer'
+);
+assert.throws(
+  () => assertGeneratedDocumentationCurrent(() => ({
+    status: null,
+    signal: 'SIGTERM',
+    stdout: '',
+    stderr: ''
+  })),
+  /terminated by signal SIGTERM/i
+);
 
 const digests = [];
 const roots = [];

@@ -165,7 +165,7 @@ A signed snapshot contains:
 - Tags and SHAs, plus an explicit availability/error state when the provider tag inventory cannot be read
 - Optional default-branch file manifest with path, blob SHA, size, and Git mode
 - Capture timestamp
-- HMAC signature
+- Versioned HMAC-SHA256 signature carrying a non-secret key ID
 
 The evidence export includes:
 
@@ -174,7 +174,11 @@ The evidence export includes:
 - Evidence-chain verification result
 - The bounded sequence/hash records used by that verification
 
-Changing `SESSION_SECRET` invalidates old signature verification by design.
+Snapshot signatures use `NV_SNAPSHOT_SIGNING_SECRET`, independently from
+`SESSION_SECRET`. Rotation assigns a new key ID and retains prior key-ID/secret
+pairs only until every matching snapshot reaches its retention deadline.
+Pre-migration bare signatures remain verifiable through the bounded legacy
+keyring during the same compatibility window.
 
 ## Privacy model
 

@@ -174,6 +174,48 @@ const ciWorkflow = fs.readFileSync(
   path.join(__dirname, '..', '.github', 'workflows', 'ci.yml'),
   'utf8'
 );
+
+function remoteActionReferences(source) {
+  return [...source.matchAll(/^\s*(?:-\s*)?uses:\s*([^\s#]+)(?:\s+#.*)?$/gm)]
+    .map(match => match[1])
+    .filter(reference => !reference.startsWith('./') && !reference.startsWith('docker://'));
+}
+
+function actionStepBlocks(source) {
+  const lines = source.split('\n');
+  const blocks = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^(\s*)-\s+uses:\s*([^\s#]+)/.exec(lines[index]);
+    if (!match) continue;
+    const indentation = match[1].length;
+    let end = index + 1;
+    while (end < lines.length && !new RegExp(`^\\s{${indentation}}-\\s+`).test(lines[end])) end += 1;
+    blocks.push({ reference: match[2], source: lines.slice(index, end).join('\n') });
+  }
+  return blocks;
+}
+
+for (const [name, source] of [
+  ['CI', ciWorkflow],
+  ['alpha.17 qualification', workflow]
+]) {
+  for (const reference of remoteActionReferences(source)) {
+    const separator = reference.lastIndexOf('@');
+    assert(separator > 0, `${name} remote action ${reference} must include a ref`);
+    assert.match(
+      reference.slice(separator + 1),
+      /^[0-9a-f]{40}$/,
+      `${name} remote action ${reference} must use a full immutable commit SHA`
+    );
+  }
+  for (const block of actionStepBlocks(source).filter(item => item.reference.startsWith('actions/checkout@'))) {
+    assert(
+      /^\s+persist-credentials:\s*false\s*$/m.test(block.source),
+      `${name} checkout must not persist Git credentials`
+    );
+  }
+}
+
 assert(/^on:\n(?:[\s\S]*\n)?  pull_request:/m.test(workflow), 'pull_request trigger is required');
 assert(/^  workflow_dispatch:/m.test(workflow), 'workflow_dispatch trigger is required');
 assert(!/^\s{2}push:/m.test(workflow), 'qualification must not run on push');
@@ -192,7 +234,6 @@ const actionPins = {
 for (const [action, commit] of Object.entries(actionPins)) {
   assert(workflow.includes(`uses: ${action}@${commit}`), `${action} must use its reviewed immutable commit`);
 }
-assert(!/uses:\s*actions\/[a-z-]+@v\d+/i.test(workflow), 'release actions must not use mutable major tags');
 for (const input of [
   'subject_sha256', 'source_commit', 'run_github', 'run_gitlab',
   'run_gitea', 'run_hosted', 'authorization_token'

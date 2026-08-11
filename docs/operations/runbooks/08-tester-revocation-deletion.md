@@ -11,7 +11,7 @@ Revoke the invitation/tester, end alpha and provider sessions, stop new mutation
 ```bash
 node scripts/alpha-invites.js revoke --tester "$NV_TESTER_ID" --reason "$NV_REVOCATION_REASON"
 node scripts/alpha-privacy.js cleanup-status
-curl --fail --silent --show-error -X POST "$NV_ALPHA_BASE_URL/api/alpha/end" -H 'X-NV: 1' -H "Cookie: $NV_ALPHA_COOKIE"
+curl --proto '=https' --fail --silent --show-error -X POST "$NV_ALPHA_BASE_URL/api/alpha/end" -H 'X-NV: 1' -H "Cookie: $NV_ALPHA_COOKIE"
 ```
 
 ## Verification

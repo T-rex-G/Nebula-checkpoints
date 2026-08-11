@@ -13,6 +13,9 @@ backup manifests, or tester identifiers to source.
 - [ ] Freeze and independently verify the source commit, archive, and checksum.
 - [ ] Verify the complete qualification record and artifact references for the
   same source commit and archive SHA-256.
+- [ ] Verify the deployed `/api/version` release-tree SHA-256 exactly matches
+  the digest independently computed from the frozen candidate before hosted
+  smoke, load, or mutation traffic begins.
 - [ ] Confirm every selected live job and exact target identity is present in
   the fresh signed authorization envelope; provider repositories are
   pre-created `nvx-alpha17-` sandboxes and are not themselves deletion targets.

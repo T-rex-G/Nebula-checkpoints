@@ -6,13 +6,19 @@ const { spawn } = require('child_process');
 
 const port = 22000 + Math.floor(Math.random() * 5000);
 const root = path.resolve(__dirname, '..');
+const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const releaseTreeSha256 = computeReleaseFingerprint(root);
+const sessionSecret = ['smoke-test', '0123456789abcdef', '0123456789abcdef'].join('-');
+const snapKey = `${sessionSecret}:snapshot`;
 const child = spawn(process.execPath, ['server.js'], {
   cwd: root,
   env: {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'production',
-    SESSION_SECRET: 'smoke-test-secret-0123456789abcdef-0123456789abcdef',
+    SESSION_SECRET: sessionSecret,
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'smoke-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: snapKey,
     DATABASE_URL: ''
   },
   stdio: ['ignore', 'pipe', 'pipe']
@@ -61,7 +67,11 @@ async function waitForServer() {
 
     const version = await request('/api/version');
     assert.strictEqual(version.status, 200);
-    assert.deepStrictEqual(await version.json(), { version: '5.3.0-alpha.17.0', product: 'Nebulaverse-X' });
+    assert.deepStrictEqual(await version.json(), {
+      version: '5.3.0-alpha.17.0',
+      product: 'Nebulaverse-X',
+      releaseTreeSha256
+    });
 
     const config = await request('/api/config');
     assert.strictEqual(config.status, 200);

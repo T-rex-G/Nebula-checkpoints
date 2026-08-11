@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { PRODUCT_NAME, APP_VERSION } = require('../src/version');
+const { shouldIncludeReleasePath } = require('../src/release-fingerprint');
 const { runFoundationGate } = require('./foundation-gate');
 
 const root = path.resolve(__dirname, '..');
@@ -13,34 +14,7 @@ const basename = `${PRODUCT_NAME}-v${APP_VERSION}`;
 const zipPath = path.join(outputDir, `${basename}.zip`);
 const checksumPath = `${zipPath}.sha256`;
 const continuityGenerator = path.join(root, 'scripts', 'generate-continuity-docs.js');
-const forbiddenSegments = new Set([
-  '.git', '.hg', '.svn', '.superpowers', '.agents', '.codex',
-  '.cache', '.npm', '.yarn', '.pnpm-store', '.turbo', '.next',
-  'node_modules', 'bower_components', '__MACOSX', 'coverage',
-  'playwright-report', 'test-results', '.tmp', 'tmp', '.temp', 'temp',
-  'dist', 'build', 'out'
-]);
-const forbiddenNames = new Set(['.DS_Store', '.eslintcache']);
-
-function shouldInclude(relative) {
-  const normalized = String(relative || '').replace(/\\/g, '/');
-  if (
-    !normalized ||
-    normalized.startsWith('/') ||
-    path.posix.normalize(normalized) !== normalized
-  ) return false;
-  const parts = normalized.split('/');
-  if (parts.some(part => forbiddenSegments.has(part))) return false;
-  if (normalized !== '.env.example' && parts.some(part => part.startsWith('.env'))) return false;
-  if (normalized === 'staging/evidence' || normalized.startsWith('staging/evidence/')) return false;
-  const name = parts[parts.length - 1];
-  if (forbiddenNames.has(name) || name.startsWith('._')) return false;
-  if (/\.(?:log|zip|sha256)$/i.test(name)) return false;
-  if (/-Public-Alpha-(?:Qualification\.json|Closeout\.md)$/i.test(name)) return false;
-  if (/(?:provider[-_]?credential|credential[-_]?provider).*\.log$/i.test(name)) return false;
-  if (/(?:database|db)[-_]?backup[-_]?manifest(?:\.[^.]+)?$/i.test(name)) return false;
-  return true;
-}
+const shouldInclude = shouldIncludeReleasePath;
 
 
 function createZipArchive() {
@@ -70,17 +44,22 @@ function assertExternalOutputDirectory() {
   }
 }
 
-function assertGeneratedDocumentationCurrent() {
-  const result = spawnSync(process.execPath, [continuityGenerator, '--check'], {
+function assertGeneratedDocumentationCurrent(runner = spawnSync) {
+  const result = runner(process.execPath, [continuityGenerator, '--check'], {
     cwd: root,
-    encoding: 'utf8'
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024
   });
   if (result.error) {
     throw new Error(`Generated documentation check failed: ${result.error.message}`);
   }
+  if (result.signal) {
+    throw new Error(`Generated documentation check terminated by signal ${result.signal}`);
+  }
   if (result.status !== 0) {
-    const detail = String(result.stderr || result.stdout || '').trim();
-    throw new Error(detail || `Generated documentation check exited ${result.status}`);
+    const detail = String(result.stderr || result.stdout || '').trim().slice(0, 4000);
+    const status = Number.isInteger(result.status) ? result.status : 'without an exit status';
+    throw new Error(detail || `Generated documentation check exited ${status}`);
   }
 }
 

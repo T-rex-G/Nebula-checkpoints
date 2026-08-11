@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const {
   parseArgs,
   qualifyCandidateArchive,
@@ -130,6 +130,30 @@ try {
   const comparisonArchivePath = path.join(temporaryRoot, 'candidate-b.zip');
   execFileSync('zip', ['-q', '-X', '-r', archivePath, 'candidate-fixture'], { cwd: fixtureParent });
   fs.copyFileSync(archivePath, comparisonArchivePath);
+  const zeroReadProbe = spawnSync(process.execPath, [
+    '-e',
+    `'use strict';
+const fs = require('fs');
+const { filesEqual } = require(${JSON.stringify(path.join(__dirname, '..', 'scripts', 'qualify-candidate-archive.js'))});
+fs.readSync = () => 0;
+try {
+  filesEqual(process.argv[1], process.argv[2]);
+  process.stderr.write('comparison accepted an incomplete read\\n');
+  process.exit(3);
+} catch (error) {
+  if (!/changed|short read|incomplete read/i.test(error.message)) {
+    process.stderr.write(error.message + '\\n');
+    process.exit(4);
+  }
+}`,
+    archivePath,
+    comparisonArchivePath
+  ], { encoding: 'utf8', timeout: 1000 });
+  assert.strictEqual(
+    zeroReadProbe.status,
+    0,
+    zeroReadProbe.error?.message || zeroReadProbe.stderr || 'archive comparison hung on an incomplete read'
+  );
   const expectedSha256 = sha256(archivePath);
   const extractDir = path.join(temporaryRoot, 'extracted');
   const reportPath = path.join(temporaryRoot, 'evidence', 'matrix.json');

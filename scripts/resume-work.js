@@ -7,6 +7,7 @@ const { readContinuity } = require('../src/work-continuity');
 
 const root = path.resolve(__dirname, '..');
 const statePath = path.join(root, 'WORK_CONTINUITY.json');
+const GIT_MAX_BUFFER = 16 * 1024 * 1024;
 
 function parseArgs(argv) {
   const options = { json: false, requireClean: false };
@@ -23,7 +24,11 @@ function parseArgs(argv) {
 }
 
 function git(args) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+  return execFileSync('git', args, {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: GIT_MAX_BUFFER
+  }).trim();
 }
 
 function readState() {
@@ -43,11 +48,24 @@ function unavailableSourceControl(state, requireClean) {
   });
 }
 
+function validateHistoryResult(result, acceptedTree) {
+  if (result.error) {
+    throw new Error(`Git history discovery failed: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const outcome = result.signal ? `signal ${result.signal}` : `exit ${result.status}`;
+    const detail = String(result.stderr || result.stdout || '').trim().slice(0, 4000);
+    throw new Error(`Git history discovery failed (${outcome})${detail ? `: ${detail}` : ''}`);
+  }
+  return String(result.stdout || '').split('\n').some(tree => tree === acceptedTree);
+}
+
 function collect(options = {}) {
   const state = readState();
   const probe = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
     cwd: root,
-    encoding: 'utf8'
+    encoding: 'utf8',
+    maxBuffer: GIT_MAX_BUFFER
   });
   if (probe.error || probe.status !== 0 || probe.stdout.trim() !== 'true') {
     return unavailableSourceControl(state, options.requireClean === true);
@@ -56,17 +74,17 @@ function collect(options = {}) {
   const currentHead = git(['rev-parse', 'HEAD']);
   const history = spawnSync('git', ['log', '--format=%T', currentHead], {
     cwd: root,
-    encoding: 'utf8'
+    encoding: 'utf8',
+    maxBuffer: GIT_MAX_BUFFER
   });
-  const acceptedTreePresent = history.status === 0 && history.stdout
-    .split('\n')
-    .some(tree => tree === state.acceptedTree);
+  const acceptedTreePresent = validateHistoryResult(history, state.acceptedTree);
   if (!acceptedTreePresent) {
     throw new Error('Accepted continuity tree is not present in HEAD ancestry');
   }
   const dirtyPaths = execFileSync('git', ['status', '--porcelain=v1'], {
     cwd: root,
-    encoding: 'utf8'
+    encoding: 'utf8',
+    maxBuffer: GIT_MAX_BUFFER
   })
     .split('\n')
     .filter(Boolean)
@@ -116,4 +134,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = Object.freeze({ parseArgs, readState, collect, renderHuman, run });
+module.exports = Object.freeze({ parseArgs, readState, validateHistoryResult, collect, renderHuman, run });

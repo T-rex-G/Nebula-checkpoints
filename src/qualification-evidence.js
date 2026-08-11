@@ -5,6 +5,7 @@ const ARTIFACT_TYPES = Object.freeze(new Set(['automated', 'provider-live', 'hos
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 const ORIGIN_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{2,127}$/;
+const MAX_JSON_DEPTH = 64;
 const CLAIM_PATTERN = /^(?:automated|hosted|manual)\.[a-z0-9][a-z0-9.-]*$|^providers\.(?:github|gitlab|gitea)\.[a-z0-9][a-z0-9.-]*$/;
 const SAFE_SECRET_LIKE_FIELDS = Object.freeze(new Set([
   'secret-scan',
@@ -23,22 +24,32 @@ function isPlainObject(value) {
   return prototype === Object.prototype || prototype === null;
 }
 
-function cloneJson(value, location = 'artifact') {
+function assertDepth(depth, location) {
+  if (depth > MAX_JSON_DEPTH) fail(`${location} exceeds the maximum nesting depth`);
+}
+
+function cloneJson(value, location = 'artifact', depth = 0) {
+  assertDepth(depth, location);
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.map((item, index) => cloneJson(item, `${location}[${index}]`));
+  if (Array.isArray(value)) {
+    return value.map((item, index) => cloneJson(item, `${location}[${index}]`, depth + 1));
+  }
   if (!isPlainObject(value)) fail(`${location} must contain JSON data only`);
   const output = {};
   for (const [key, child] of Object.entries(value)) {
     if (child === undefined) fail(`${location} contains undefined data`);
-    output[key] = cloneJson(child, `${location}.${key}`);
+    output[key] = cloneJson(child, `${location}.${key}`, depth + 1);
   }
   return output;
 }
 
-function deepFreeze(value) {
+function deepFreeze(value, location = 'artifact', depth = 0) {
+  assertDepth(depth, location);
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
-  for (const child of Object.values(value)) deepFreeze(child);
+  for (const [key, child] of Object.entries(value)) {
+    deepFreeze(child, `${location}.${key}`, depth + 1);
+  }
   return Object.freeze(value);
 }
 
@@ -50,8 +61,11 @@ function parseIsoTimestamp(value, label) {
   return parsed;
 }
 
-function assertNoSecretMaterial(value, location = 'artifact') {
-  if (Array.isArray(value)) return value.forEach((item, index) => assertNoSecretMaterial(item, `${location}[${index}]`));
+function assertNoSecretMaterial(value, location = 'artifact', depth = 0) {
+  assertDepth(depth, location);
+  if (Array.isArray(value)) {
+    return value.forEach((item, index) => assertNoSecretMaterial(item, `${location}[${index}]`, depth + 1));
+  }
   if (isPlainObject(value)) {
     for (const [key, child] of Object.entries(value)) {
       const normalized = key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
@@ -60,7 +74,7 @@ function assertNoSecretMaterial(value, location = 'artifact') {
         !SAFE_SECRET_LIKE_FIELDS.has(normalized) &&
         /(^|[-_])(password|passwd|credential|token|secret|authorization|cookie|private[-_]?key|api[-_]?key|database[-_]?url)([-_]|$)/.test(normalized)
       ) fail(`${location} contains a secret-like field name`);
-      assertNoSecretMaterial(child, `${location}.${key}`);
+      assertNoSecretMaterial(child, `${location}.${key}`, depth + 1);
     }
     return;
   }

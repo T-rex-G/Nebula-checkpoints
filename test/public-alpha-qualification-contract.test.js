@@ -9,6 +9,7 @@ const {
   verifyQualification
 } = require('../src/public-alpha-qualification');
 const registry = require('../config/public-alpha-capabilities.json');
+const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
 const {
   SUBJECT,
   SOURCE,
@@ -71,13 +72,41 @@ rejects('PUBLIC_ALPHA_CLEANUP_UNVERIFIED', ({ record }) => {
 rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISSING', ({ record }) => {
   record.manual['ios-voiceover'].artifact = 'absent-artifact';
 });
-rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ record }) => {
-  record.artifacts[0].sha256 = 'd'.repeat(64);
-}, {
-  verifyArtifact: artifact => artifact.sha256.startsWith('d')
-    ? true
-    : createPassFixture().envelopes[artifact.id]
-});
+{
+  const fixture = createPassFixture();
+  const expectedEnvelope = structuredClone(fixture.envelopes['automated-artifact']);
+  const differentValidEnvelope = {
+    ...expectedEnvelope,
+    originId: 'workflow-2048-different-automated'
+  };
+  fixture.record.artifacts[0].sha256 = require('crypto')
+    .createHash('sha256')
+    .update(JSON.stringify(expectedEnvelope))
+    .digest('hex');
+  assert.throws(
+    () => verifyQualification(fixture.record, optionsFor(fixture, {
+      verifyArtifact: artifact => {
+        const envelope = artifact.id === 'automated-artifact'
+          ? differentValidEnvelope
+          : fixture.envelopes[artifact.id];
+        const observed = require('crypto').createHash('sha256')
+          .update(JSON.stringify(envelope))
+          .digest('hex');
+        if (observed !== artifact.sha256) {
+          const error = new Error('artifact bytes have a different SHA-256 digest');
+          error.code = 'ARTIFACT_DIGEST_MISMATCH';
+          throw error;
+        }
+        return structuredClone(envelope);
+      }
+    })),
+    error => error &&
+      error.code === 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH' &&
+      error.causeCode === 'ARTIFACT_DIGEST_MISMATCH' &&
+      error.artifactId === 'automated-artifact' &&
+      /different SHA-256 digest/.test(error.message)
+  );
+}
 rejects('PUBLIC_ALPHA_SECURITY_FINDINGS_OPEN', ({ record }) => { record.security.highUnresolved = 1; });
 rejects('PUBLIC_ALPHA_PROVIDER_EVIDENCE_MISSING', ({ record }) => {
   delete record.providers.gitea['file.write'];
@@ -123,6 +152,22 @@ rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
 rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
   envelopes['github-artifact'].authorizedTargetSha256 = 'not-a-hash';
 });
+
+{
+  const deeplyNested = structuredClone(createPassFixture().envelopes['automated-artifact']);
+  deeplyNested.proof = {};
+  let cursor = deeplyNested.proof;
+  for (let depth = 0; depth < 80; depth += 1) {
+    cursor.next = {};
+    cursor = cursor.next;
+  }
+  assert.throws(
+    () => validateEvidenceEnvelope(deeplyNested),
+    error => error &&
+      error.code === 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH' &&
+      /maximum nesting depth/i.test(error.message)
+  );
+}
 
 const templatePath = path.join(__dirname, '..', 'staging', 'PUBLIC_ALPHA_EVIDENCE_TEMPLATE.json');
 assert(fs.existsSync(templatePath), 'qualification evidence template must exist');

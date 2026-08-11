@@ -3,10 +3,12 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const http = require('http');
+const path = require('path');
 const {
   runHostedValidation,
   validateOperationalRecord
 } = require('../ci/run-hosted-alpha17-validation');
+const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 
 const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
@@ -53,9 +55,10 @@ function signedOperationalRecord(privateKey) {
   return { ...record, signature: { algorithm: 'ed25519', keyId: 'fixture-operator', value: signature } };
 }
 
-function startFixtureServer() {
+function startFixtureServer(initialReleaseTreeSha256) {
   let mutationPresent = false;
   let requestCount = 0;
+  let releaseTreeSha256 = initialReleaseTreeSha256;
   const server = http.createServer((request, response) => {
     requestCount += 1;
     const url = new URL(request.url, 'http://127.0.0.1');
@@ -83,7 +86,9 @@ function startFixtureServer() {
     ]);
     if (supported.has(url.pathname)) {
       response.statusCode = 200;
-      const body = JSON.stringify({ ok: true, memoryMb: 128, mutationPresent });
+      const body = JSON.stringify(url.pathname === '/api/version'
+        ? { version: '5.3.0-alpha.17.0', product: 'Nebulaverse-X', releaseTreeSha256 }
+        : { ok: true, memoryMb: 128, mutationPresent });
       response.setHeader('Content-Length', String(Buffer.byteLength(body)));
       response.end(body);
       return;
@@ -97,7 +102,8 @@ function startFixtureServer() {
       server,
       baseUrl: `http://127.0.0.1:${server.address().port}`,
       mutationPresent: () => mutationPresent,
-      requestCount: () => requestCount
+      requestCount: () => requestCount,
+      setReleaseTreeSha256: value => { releaseTreeSha256 = value; }
     }));
   });
 }
@@ -106,7 +112,8 @@ function startFixtureServer() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const publicKeyBase64 = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
   const operationalRecord = signedOperationalRecord(privateKey);
-  const fixture = await startFixtureServer();
+  const expectedDeploymentSha256 = computeReleaseFingerprint(path.resolve(__dirname, '..'));
+  const fixture = await startFixtureServer(expectedDeploymentSha256);
   try {
     const env = {
       NV_PUBLIC_ALPHA_SUBJECT_SHA256: SUBJECT,
@@ -159,9 +166,14 @@ function startFixtureServer() {
     assert.strictEqual(result.checks['ephemeral-filesystem-restart'].stateRecoveredFromDatabase, true);
     assert.strictEqual(result.checks['isolated-database-restore'].latestMigration, '015_alpha_privacy');
     assert.strictEqual(result.checks['disposable-tester-purge'].tokenBearingStateRemoved, true);
-    assert.match(result.artifactSha256, /^[0-9a-f]{64}$/);
-    assert.match(result.authorizedTargetSha256, /^[0-9a-f]{64}$/);
-    assert.match(result.deploymentSha256, /^[0-9a-f]{64}$/);
+    assert.strictEqual(result.authorizedTargetSha256, env.NV_ALPHA17_SIGNED_TARGET_SHA256);
+    assert.strictEqual(result.deploymentSha256, expectedDeploymentSha256);
+    const { artifactSha256, ...artifactCore } = result;
+    assert.strictEqual(
+      artifactSha256,
+      crypto.createHash('sha256').update(stableJson(artifactCore), 'utf8').digest('hex'),
+      'the hosted artifact hash must cover the exact sanitized core'
+    );
     assert.deepStrictEqual(
       Object.keys(result.claims).sort(),
       Object.keys(result.checks).map(key => `hosted.${key}`).sort()
@@ -184,6 +196,19 @@ function startFixtureServer() {
       error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
     );
     assert.strictEqual(fixture.requestCount(), requestCountBeforeMismatch, 'hosted target mismatch must fail before network access');
+
+    fixture.setReleaseTreeSha256('e'.repeat(64));
+    const requestCountBeforeDeploymentMismatch = fixture.requestCount();
+    await assert.rejects(
+      () => runHostedValidation({ env, operationalRecord, now: () => new Date(NOW) }),
+      error => error && error.code === 'ALPHA17_HOSTED_DEPLOYMENT_MISMATCH'
+    );
+    assert.strictEqual(
+      fixture.requestCount(),
+      requestCountBeforeDeploymentMismatch + 1,
+      'deployment mismatch must stop after the single identity request'
+    );
+    assert.strictEqual(fixture.mutationPresent(), false, 'deployment mismatch must not execute a mutation');
 
     const wrongSubject = structuredClone(operationalRecord);
     wrongSubject.subjectSha256 = 'd'.repeat(64);

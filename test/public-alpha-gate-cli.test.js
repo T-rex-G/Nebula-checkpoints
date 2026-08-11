@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { parseArgs } = require('../scripts/public-alpha-gate');
+const { createArtifactVerifier, parseArgs } = require('../scripts/public-alpha-gate');
 const { createPassFixture } = require('./helpers/public-alpha-pass-fixture');
 
 assert.deepStrictEqual(parseArgs(['plan']), { command: 'plan' });
@@ -47,6 +47,38 @@ try {
     artifact.path = artifactPath;
     artifact.sha256 = crypto.createHash('sha256').update(fs.readFileSync(artifactPath)).digest('hex');
   }
+
+  const atomicArtifact = evidence.artifacts[0];
+  const originalArtifactBytes = fs.readFileSync(atomicArtifact.path);
+  const originalArtifact = JSON.parse(originalArtifactBytes);
+  const replacementArtifact = { ...originalArtifact, originId: 'swapped-after-hash' };
+  const replacementPath = `${atomicArtifact.path}.replacement`;
+  fs.writeFileSync(replacementPath, `${JSON.stringify(replacementArtifact, null, 2)}\n`);
+  const originalReadSync = fs.readSync;
+  let swapped = false;
+  fs.readSync = function readAndSwap(...args) {
+    const bytesRead = originalReadSync(...args);
+    if (!swapped && bytesRead > 0) {
+      fs.renameSync(replacementPath, atomicArtifact.path);
+      swapped = true;
+    }
+    return bytesRead;
+  };
+  let atomicallyVerified;
+  try {
+    atomicallyVerified = createArtifactVerifier()(atomicArtifact);
+  } finally {
+    fs.readSync = originalReadSync;
+    fs.writeFileSync(atomicArtifact.path, originalArtifactBytes);
+    fs.rmSync(replacementPath, { force: true });
+  }
+  assert.strictEqual(swapped, true, 'the atomic-read regression fixture must perform the file swap');
+  assert.strictEqual(
+    atomicallyVerified.originId,
+    originalArtifact.originId,
+    'the artifact digest and parsed envelope must come from the same file bytes'
+  );
+
   evidence.knownLimitations.push('Line one\n# Injected heading https://github.com/acme/private-repo');
   const evidencePath = path.join(temporaryRoot, 'qualification.json');
   fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });

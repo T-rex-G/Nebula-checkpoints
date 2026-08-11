@@ -37,7 +37,7 @@ const RULES = Object.freeze([
   }),
   Object.freeze({
     rule: 'contextual-provider-secret',
-    regex: /\b(?:GITEA_(?:TOKEN|API_KEY)|NPM_TOKEN|NEON_(?:API_KEY|TOKEN)|OAUTH_(?:CLIENT_)?SECRET)\b\s*[:=]\s*["']?(?!process\.env\b|\$\{)[A-Za-z0-9_~.+\/-]{20,}["']?/i
+    regex: /\b(?:GITEA_(?:TOKEN|API_KEY)|GITHUB_APP_(?:CLIENT_SECRET|PRIVATE_KEY_BASE64|WEBHOOK_SECRET)|NPM_TOKEN|NEON_(?:API_KEY|TOKEN)|NV_SNAPSHOT_(?:SIGNING_SECRET|RETIRED_KEYS_JSON|LEGACY_KEYS_JSON)|OAUTH_(?:CLIENT_)?SECRET|SESSION_SECRET)\b[ \t]*[:=][ \t]*["']?(?!process\.env\b|\$\{|JSON\.stringify\b)(?:[A-Za-z0-9_~.+\/-]{20,}|[\[{][^\r\n]{20,})["']?/i
   })
 ]);
 

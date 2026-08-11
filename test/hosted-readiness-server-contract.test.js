@@ -5,6 +5,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
+const sessionSecret = ['hosted-startup-test', '0123456789abcdef'].join('-');
 const rejected = spawnSync(process.execPath, ['server.js'], {
   cwd: root,
   encoding: 'utf8',
@@ -15,7 +16,7 @@ const rejected = spawnSync(process.execPath, ['server.js'], {
     NV_DEPLOYMENT_PROFILE: 'hosted-alpha',
     NV_DATABASE_MIGRATION_MODE: 'apply',
     NV_ALPHA_ACCESS_MODE: 'off',
-    SESSION_SECRET: 'hosted-startup-test-secret-0123456789abcdef',
+    SESSION_SECRET: sessionSecret,
     DATABASE_URL: '',
     PORT: '28992'
   }

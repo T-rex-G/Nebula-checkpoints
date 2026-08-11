@@ -101,17 +101,28 @@ function filesEqual(leftPath, rightPath) {
   const rightDescriptor = fs.openSync(rightPath, 'r');
   const leftBuffer = Buffer.allocUnsafe(64 * 1024);
   const rightBuffer = Buffer.allocUnsafe(64 * 1024);
+  const readExact = (descriptor, buffer, length, position) => {
+    let total = 0;
+    while (total < length) {
+      const bytesRead = fs.readSync(
+        descriptor,
+        buffer,
+        total,
+        length - total,
+        position + total
+      );
+      if (bytesRead === 0) fail('candidate archive changed during comparison: incomplete read');
+      total += bytesRead;
+    }
+  };
   try {
     let offset = 0;
     while (offset < left.size) {
       const length = Math.min(leftBuffer.length, left.size - offset);
-      const leftRead = fs.readSync(leftDescriptor, leftBuffer, 0, length, offset);
-      const rightRead = fs.readSync(rightDescriptor, rightBuffer, 0, length, offset);
-      if (
-        leftRead !== rightRead ||
-        !crypto.timingSafeEqual(leftBuffer.subarray(0, leftRead), rightBuffer.subarray(0, rightRead))
-      ) return false;
-      offset += leftRead;
+      readExact(leftDescriptor, leftBuffer, length, offset);
+      readExact(rightDescriptor, rightBuffer, length, offset);
+      if (!crypto.timingSafeEqual(leftBuffer.subarray(0, length), rightBuffer.subarray(0, length))) return false;
+      offset += length;
     }
     return true;
   } finally {
@@ -340,8 +351,8 @@ function qualifyCandidateArchive(options) {
     ...(options.env || process.env),
     NV_STAGING_SUBJECT_SHA256: parsed.expectedSha256
   };
-  runCommand('npm', ['ci'], { cwd: candidateRoot, env: environment, label: 'candidate npm ci' });
   if (process.version !== 'v22.23.1') fail('candidate qualification requires Node v22.23.1');
+  runCommand('npm', ['ci'], { cwd: candidateRoot, env: environment, label: 'candidate npm ci' });
   runCommand('npm', ['run', 'check:syntax'], {
     cwd: candidateRoot,
     env: environment,

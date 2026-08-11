@@ -48,22 +48,6 @@ function parseArgs(argv) {
   throw new TypeError('Command must be plan, verify, or close');
 }
 
-function hashFileSync(filePath) {
-  const hash = crypto.createHash('sha256');
-  const descriptor = fs.openSync(filePath, 'r');
-  const buffer = Buffer.allocUnsafe(64 * 1024);
-  try {
-    let bytesRead = 0;
-    do {
-      bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null);
-      if (bytesRead) hash.update(buffer.subarray(0, bytesRead));
-    } while (bytesRead);
-  } finally {
-    fs.closeSync(descriptor);
-  }
-  return hash.digest('hex');
-}
-
 function assertRegularFile(filePath, maximumBytes, label) {
   let metadata;
   try {
@@ -112,10 +96,13 @@ function createArtifactVerifier() {
   return artifact => {
     if (!path.isAbsolute(artifact.path)) throw new TypeError('artifact paths must be absolute');
     const real = assertRegularFile(artifact.path, MAX_ARTIFACT_BYTES, 'artifact');
-    if (hashFileSync(real) !== artifact.sha256) throw new TypeError('artifact hash does not match');
+    const bytes = fs.readFileSync(real);
+    if (bytes.length > MAX_ARTIFACT_BYTES) throw new TypeError('artifact exceeds the safe size limit');
+    const observedSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (observedSha256 !== artifact.sha256) throw new TypeError('artifact hash does not match');
     let parsed;
     try {
-      parsed = JSON.parse(fs.readFileSync(real, 'utf8'));
+      parsed = JSON.parse(bytes.toString('utf8'));
     } catch {
       throw new TypeError('artifact must contain a valid JSON evidence envelope');
     }
@@ -299,6 +286,5 @@ if (require.main === module) main();
 module.exports = Object.freeze({
   parseArgs,
   run,
-  hashFileSync,
   createArtifactVerifier
 });

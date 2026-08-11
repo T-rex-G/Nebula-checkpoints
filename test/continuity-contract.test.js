@@ -44,8 +44,8 @@ assert(roadmap.includes('Phase 1 Task 19 (signed evidence export format) must be
 
 const decisions = read('docs/architecture/ARCHITECTURE_DECISIONS.md');
 const adrNumbers = [...decisions.matchAll(/^## ADR-(\d{3}) —/gm)].map(match => Number(match[1]));
-assert.strictEqual(adrNumbers.length, 63);
-assert.deepStrictEqual(adrNumbers, Array.from({ length: 63 }, (_, index) => index + 1));
+assert.strictEqual(adrNumbers.length, 67);
+assert.deepStrictEqual(adrNumbers, Array.from({ length: 67 }, (_, index) => index + 1));
 assert(decisions.includes('## ADR-051 — Governance delivery uses an immutable outbox and failure-isolated worker'));
 assert(decisions.includes('## ADR-052 — Signed evidence envelopes are the stable boundary before external storage'));
 assert(decisions.includes('## ADR-053 — Staging readiness is an expiring evidence gate, not a release assertion'));
@@ -57,6 +57,10 @@ assert(decisions.includes('## ADR-060 — Hosted-alpha migrations are backup-gat
 assert(decisions.includes('## ADR-061 — Live qualification is exact-job and exact-target authorized'));
 assert(decisions.includes('## ADR-062 — Documentation lifecycle and generated continuity are release contracts'));
 assert(decisions.includes('## ADR-063 — Release archives cannot self-attest exact candidate identity'));
+assert(decisions.includes('## ADR-064 — Provider operation IDs use a versioned canonical preimage'));
+assert(decisions.includes('## ADR-065 — Destructive database restore requires an exact isolated-target fingerprint'));
+assert(decisions.includes('## ADR-066 — Recovery snapshots use an independently rotatable signing keyring'));
+assert(decisions.includes('## ADR-067 — Hosted evidence observes the deployed release tree'));
 
 const prompt = read('docs/current/CONTINUATION_PROMPT.md');
 assert(prompt.includes('Public alpha: **NO-GO**'));

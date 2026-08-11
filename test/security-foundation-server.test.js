@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
 const secret = 'security-server-test-secret-0123456789abcdef-0123456789abcdef';
+const snapKey = `${secret}:snapshot`;
 const key = crypto.createHash('sha256').update(secret).digest();
 const port = 28500 + Math.floor(Math.random() * 1000);
 
@@ -30,6 +31,8 @@ const child = spawn(process.execPath, ['server.js'], {
     PORT: String(port),
     NODE_ENV: 'production',
     SESSION_SECRET: secret,
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'security-test-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: snapKey,
     DATABASE_URL: ''
   },
   stdio: ['ignore', 'pipe', 'pipe']

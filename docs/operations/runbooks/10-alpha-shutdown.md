@@ -6,13 +6,14 @@ Use this runbook at the approved end of the cohort or when risk requires permane
 
 ## Containment
 
-Stop invitations and mutations, revoke every tester and provider credential, end sessions, and complete provider hook/branch cleanup before closing infrastructure.
+Stop invitations and mutations, revoke every tester and provider credential, end sessions, and complete provider hook/branch cleanup before closing infrastructure. Create and verify the final encrypted backup before closing the cohort. Stop immediately if backup verification fails; do not run `cohort-close` and do not decommission Render or Neon.
 
 ```bash
-node scripts/alpha-privacy.js cleanup-status
-node scripts/alpha-privacy.js cohort-close --confirm CLOSE-ALPHA
+set -euo pipefail
 node scripts/alpha-db.js backup --output-dir "$NV_BACKUP_OUTPUT_DIR"
 node scripts/alpha-db.js verify --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
+node scripts/alpha-privacy.js cleanup-status
+node scripts/alpha-privacy.js cohort-close --confirm CLOSE-ALPHA
 ```
 
 ## Verification

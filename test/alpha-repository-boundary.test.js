@@ -17,6 +17,7 @@ const {
 const root = path.resolve(__dirname, '..');
 const port = 31800 + Math.floor(Math.random() * 800);
 const secret = 'alpha-boundary-test-secret-0123456789abcdef-0123456789abcdef';
+const snapKey = `${secret}:snapshot`;
 const key = crypto.createHash('sha256').update(secret).digest();
 const termsVersion = '2026-07-30';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nv-alpha-server-boundary-'));
@@ -512,6 +513,8 @@ const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
     PORT: String(port),
     NODE_ENV: 'production',
     SESSION_SECRET: secret,
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'alpha-boundary-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: snapKey,
     DATABASE_URL: 'postgresql://alpha:test@db.example.test/alpha?sslmode=verify-full',
     NV_ALPHA_ACCESS_MODE: 'invite',
     NV_ALPHA_INVITE_PEPPER: 'alpha-test-pepper-0123456789abcdef-0123456789abcdef',

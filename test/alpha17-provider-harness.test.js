@@ -12,6 +12,14 @@ const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
 const NOW = '2026-07-29T20:00:00.000Z';
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function environment(provider) {
   const repository = `fixture-owner/nvx-alpha17-${provider}-qualification`;
   const env = {
@@ -71,9 +79,18 @@ async function runOne(provider, runner) {
     assert.strictEqual(result.cleanupVerified, true);
     assert.strictEqual(result.subjectSha256, SUBJECT);
     assert.strictEqual(result.sourceCommit, SOURCE);
-    assert.match(result.artifactSha256, /^[0-9a-f]{64}$/);
+    const { artifactSha256, ...evidenceCore } = result;
+    assert.strictEqual(
+      artifactSha256,
+      crypto.createHash('sha256').update(stableJson(evidenceCore)).digest('hex'),
+      `${result.provider} artifact digest must bind the exact serialized evidence core`
+    );
     assert.strictEqual(result.originId, `workflow-${RUN_ID}-${result.provider}`);
-    assert.match(result.authorizedTargetSha256, /^[0-9a-f]{64}$/);
+    assert.strictEqual(
+      result.authorizedTargetSha256,
+      environment(result.provider).NV_ALPHA17_SIGNED_TARGET_SHA256,
+      `${result.provider} artifact must retain the exact authorized target digest`
+    );
     const serialized = JSON.stringify(result);
     assert(!serialized.includes('fixture-mutation-credential'));
     assert(!serialized.includes('fixture-readonly-credential'));

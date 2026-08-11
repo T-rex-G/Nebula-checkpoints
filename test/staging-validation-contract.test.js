@@ -32,6 +32,8 @@ assert.match(config, /name: 'desktop'/);
 assert.match(config, /name: 'mobile'/);
 assert.match(config, /devices\['Pixel 5'\]/, 'mobile staging must use the installed Chromium engine');
 assert.match(config, /test\/e2e/);
+assert.match(config, /NV_SNAPSHOT_SIGNING_KEY_ID=/, 'production browser server must configure a snapshot key ID');
+assert.match(config, /NV_SNAPSHOT_SIGNING_SECRET=/, 'production browser server must configure a distinct snapshot secret');
 assert.match(spec, /test\.use\(\{ serviceWorkers: 'block' \}\)/, 'route-mocked Task 20 tests must block service workers');
 assert.match(spec, /test\.use\(\{ serviceWorkers: 'allow' \}\)/, 'cache-boundary coverage must exercise the active service worker');
 assert.match(spec, /navigator\.serviceWorker\.ready/, 'cache-boundary coverage must wait for service-worker activation');

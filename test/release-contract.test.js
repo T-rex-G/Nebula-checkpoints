@@ -13,18 +13,23 @@ assert.strictEqual(pkg.engines.node, '22.23.1');
 assert.strictEqual(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8'), '22.23.1\n');
 
 const { APP_VERSION, PRODUCT_NAME, ASSET_VERSION } = require('../src/version');
+const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 assert.strictEqual(APP_VERSION, pkg.version);
 assert.strictEqual(PRODUCT_NAME, 'Nebulaverse-X');
 assert.strictEqual(ASSET_VERSION, '530');
 
 const port = 27000 + Math.floor(Math.random() * 1000);
+const sessionSecret = ['release-contract', '0123456789abcdef', '0123456789abcdef'].join('-');
+const snapKey = `${sessionSecret}:snapshot`;
 const child = spawn(process.execPath, ['server.js'], {
   cwd: root,
   env: {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'production',
-    SESSION_SECRET: 'release-contract-secret-0123456789abcdef-0123456789abcdef',
+    SESSION_SECRET: sessionSecret,
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'release-contract-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: snapKey,
     DATABASE_URL: ''
   },
   stdio: ['ignore', 'pipe', 'pipe']
@@ -50,7 +55,11 @@ async function wait() {
   try {
     await wait();
     const version = await fetch(`http://127.0.0.1:${port}/api/version`).then(r => r.json());
-    assert.deepStrictEqual(version, { version: pkg.version, product: PRODUCT_NAME });
+    assert.deepStrictEqual(version, {
+      version: pkg.version,
+      product: PRODUCT_NAME,
+      releaseTreeSha256: computeReleaseFingerprint(root)
+    });
 
     const html = await fetch(`http://127.0.0.1:${port}/`).then(r => r.text());
     assert(!html.includes('__NV_'), 'release placeholders must be rendered');

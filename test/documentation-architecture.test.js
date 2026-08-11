@@ -60,11 +60,13 @@ function expectedLifecycle(documentPath) {
   return null;
 }
 
-function repositoryRelativeLinks(documentPath) {
-  const source = fs.readFileSync(path.join(root, documentPath), 'utf8');
+function repositoryRelativeLinksFromSource(source) {
   const links = [];
-  const inlineLink = /!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)/g;
-  for (const match of source.matchAll(inlineLink)) {
+  const patterns = [
+    /!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)/g,
+    /^\s{0,3}\[[^\]\n]+\]:\s*(?:<([^>\n]+)>|([^\s]+))(?:\s+.*)?$/gm
+  ];
+  for (const pattern of patterns) for (const match of source.matchAll(pattern)) {
     const target = (match[1] || match[2] || '').trim();
     if (
       !target ||
@@ -76,6 +78,22 @@ function repositoryRelativeLinks(documentPath) {
   }
   return links;
 }
+
+function repositoryRelativeLinks(documentPath) {
+  return repositoryRelativeLinksFromSource(
+    fs.readFileSync(path.join(root, documentPath), 'utf8')
+  );
+}
+
+assert.deepStrictEqual(
+  repositoryRelativeLinksFromSource([
+    'Read the [architecture][architecture-ref].',
+    '[architecture-ref]: ../architecture/ARCHITECTURE.md "Architecture"',
+    '[external-ref]: https://example.invalid/reference'
+  ].join('\n')),
+  ['../architecture/ARCHITECTURE.md'],
+  'reference-style Markdown link definitions must pass through repository link validation'
+);
 
 function resolveRepositoryLink(documentPath, target) {
   const withoutFragment = target.split('#', 1)[0].split('?', 1)[0];

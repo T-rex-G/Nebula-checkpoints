@@ -14,6 +14,8 @@ const MAX_METADATA_DEPTH = 6;
 const MAX_METADATA_KEYS = 80;
 const MAX_METADATA_ARRAY = 100;
 const MAX_METADATA_STRING = 2048;
+const OPERATION_ID_DOMAIN = 'nebulaverse-x.provider-write.operation-id.v1';
+const MAX_OPERATION_TARGET_BYTES = 64 * 1024;
 
 class MutationGatewayError extends Error {
   constructor(message, code, status = 403) {
@@ -138,6 +140,52 @@ function normalizeMetadata(input) {
     fail('Mutation metadata exceeds 16 KiB', 'MUTATION_METADATA_TOO_LARGE', 413);
   }
   return deepFreeze(output);
+}
+
+function providerOperationId(input = {}) {
+  if (!isPlainObject(input)) fail('Provider operation identity is invalid', 'MUTATION_OPERATION_ID_INVALID', 400);
+  const mutationId = String(input.mutationId || '').trim().toLowerCase();
+  const providerWriteIndex = Number(input.providerWriteIndex);
+  const method = String(input.method || '').trim().toUpperCase();
+  const operation = String(input.operation || '').trim().toLowerCase();
+  const scopeKey = String(input.scopeKey || '').trim().toLowerCase();
+  const transport = String(input.transport || 'api').trim().toLowerCase();
+  const apiPath = String(input.apiPath || '').trim();
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId) ||
+    !Number.isSafeInteger(providerWriteIndex) ||
+    providerWriteIndex < 1 ||
+    !MUTATING_METHODS.has(method) ||
+    !operation ||
+    !scopeKey ||
+    !transport ||
+    (!apiPath && transport === 'api') ||
+    Buffer.byteLength(apiPath, 'utf8') > MAX_OPERATION_TARGET_BYTES ||
+    Buffer.byteLength(transport, 'utf8') > 256
+  ) {
+    fail('Provider operation identity is invalid', 'MUTATION_OPERATION_ID_INVALID', 400);
+  }
+  const hash = crypto.createHash('sha256');
+  for (const [label, value] of [
+    ['domain', OPERATION_ID_DOMAIN],
+    ['mutationId', mutationId],
+    ['providerWriteIndex', String(providerWriteIndex)],
+    ['method', method],
+    ['operation', operation],
+    ['scopeKey', scopeKey],
+    ['transport', transport],
+    ['apiPath', apiPath]
+  ]) {
+    const labelBytes = Buffer.from(label, 'utf8');
+    const valueBytes = Buffer.from(value, 'utf8');
+    const lengths = Buffer.allocUnsafe(8);
+    lengths.writeUInt32BE(labelBytes.length, 0);
+    lengths.writeUInt32BE(valueBytes.length, 4);
+    hash.update(lengths);
+    hash.update(labelBytes);
+    hash.update(valueBytes);
+  }
+  return hash.digest('hex');
 }
 
 function normalizeSecurity(input, definition) {
@@ -448,10 +496,15 @@ function createMutationGateway({ eventSink, policyEvaluator } = {}) {
     if (nextIndex > descriptor.execution.maxProviderWrites) {
       fail('Provider write count exceeds the registered mutation execution contract', 'MUTATION_PROVIDER_WRITE_LIMIT', 409);
     }
-    const targetIdentity = `${scope.scopeKey}|${String(target.apiPath || target.transport || '').slice(0, 1000)}`;
-    const operationId = crypto.createHash('sha256').update([
-      descriptor.mutationId, String(nextIndex), method, operation, targetIdentity
-    ].join('|')).digest('hex');
+    const operationId = providerOperationId({
+      mutationId: descriptor.mutationId,
+      providerWriteIndex: nextIndex,
+      method,
+      operation,
+      scopeKey: scope.scopeKey,
+      transport: target.transport || 'api',
+      apiPath: target.apiPath || ''
+    });
     active.runtime.providerWriteCount = nextIndex;
     active.runtime.operationIds.push(operationId);
     emit(publicEvent('provider.write.authorized', descriptor, {
@@ -472,6 +525,7 @@ module.exports = Object.freeze({
   MUTATION_ACTIONS,
   normalizeMutationDescriptor,
   normalizeMutationMetadata: normalizeMetadata,
+  providerOperationId,
   parseProviderRepositoryTarget,
   classifyProviderOperation,
   createMutationGateway

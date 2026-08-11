@@ -6,7 +6,13 @@ Use this runbook when a provider credential, invitation code, session material, 
 
 ## Containment
 
-Revoke the provider credential at the provider first. Then freeze invitations, revoke the affected tester, rotate application/session material in Render, and rotate the backup key only after preserving access to previously encrypted backups.
+Choose the containment order from the exposed credential type:
+
+- For an invitation, session cookie, or application/session secret, freeze invitations and mutations first, revoke the affected tester, and invalidate active sessions before rotating the affected Render value.
+- For a provider credential, revoke it at the provider first, then freeze the affected tester and complete provider-resource cleanup.
+- For a backup key, stop backup/restore operations first and preserve controlled access to the old key until every retained encrypted backup has been re-keyed or expired.
+
+Do not delay the first applicable containment action while investigating unrelated credential classes.
 
 ```bash
 node scripts/alpha-invites.js revoke --tester "$NV_TESTER_ID" --reason "$NV_REVOCATION_REASON"

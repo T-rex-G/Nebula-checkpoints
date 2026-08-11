@@ -3,9 +3,11 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 const registry = require('../config/public-alpha-capabilities.json');
-const { runSmoke } = require('../scripts/alpha-smoke');
-const { runLoad } = require('../scripts/alpha-load');
+const { runSmoke, timedRequest } = require('../scripts/alpha-smoke');
+const { readSafeJson, runLoad } = require('../scripts/alpha-load');
+const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
 const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
 const {
@@ -182,6 +184,29 @@ function readOperationalRecord(filePath) {
   }
 }
 
+async function readDeployedReleaseFingerprint(baseUrl) {
+  let timed;
+  try {
+    timed = await timedRequest(baseUrl, '/api/version', {
+      method: 'GET',
+      timeoutMs: 20000,
+      followRedirects: false
+    });
+  } catch {
+    fail('hosted deployment identity request failed', 'ALPHA17_HOSTED_DEPLOYMENT_INVALID');
+  }
+  if (timed.response.status !== 200) {
+    await timed.response.body?.cancel().catch(() => {});
+    fail('hosted deployment identity request did not pass', 'ALPHA17_HOSTED_DEPLOYMENT_INVALID');
+  }
+  const body = await readSafeJson(timed.response);
+  const fingerprint = String(body?.releaseTreeSha256 || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(fingerprint) || /^0{64}$/.test(fingerprint)) {
+    fail('hosted deployment identity is invalid', 'ALPHA17_HOSTED_DEPLOYMENT_INVALID');
+  }
+  return fingerprint;
+}
+
 async function runHostedValidation(options = {}) {
   const env = options.env || process.env;
   const subjectSha256 = requireSubjectHash(env);
@@ -205,6 +230,12 @@ async function runHostedValidation(options = {}) {
     publicKeyBase64: env.NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64,
     now: now()
   });
+
+  const expectedDeploymentSha256 = computeReleaseFingerprint(path.resolve(__dirname, '..'));
+  const deploymentSha256 = await readDeployedReleaseFingerprint(env.NV_ALPHA_BASE_URL);
+  if (deploymentSha256 !== expectedDeploymentSha256) {
+    fail('hosted deployment does not match the exact candidate release tree', 'ALPHA17_HOSTED_DEPLOYMENT_MISMATCH');
+  }
 
   const smoke = await runSmoke(env.NV_ALPHA_BASE_URL);
   if (!smoke.ok) fail('hosted smoke checks did not pass', 'ALPHA17_HOSTED_SMOKE_FAILED');
@@ -255,7 +286,7 @@ async function runHostedValidation(options = {}) {
     sourceCommit,
     originId: `workflow-${runId}-hosted`,
     authorizedTargetSha256: targetBinding.targetHash,
-    deploymentSha256: sha256(`${targetBinding.targetHash}\n${subjectSha256}`),
+    deploymentSha256,
     checks,
     claims,
     startedAt,
@@ -279,5 +310,6 @@ if (require.main === module) {
 module.exports = Object.freeze({
   validateOperationalRecord,
   readOperationalRecord,
+  readDeployedReleaseFingerprint,
   runHostedValidation
 });

@@ -296,7 +296,7 @@ This file records durable decisions that future tasks and conversations must pre
 
 ## ADR-051 — Governance delivery uses an immutable outbox and failure-isolated worker
 
-**Decision:** Governance lifecycle and runtime decisions append bounded immutable event references in the same authoritative database boundary. Notification and webhook delivery is performed asynchronously from leased outbox records. Delivery failure, retry or dead-letter state cannot roll back or rewrite governance evidence.
+**Decision:** Governance lifecycle and runtime decisions append bounded immutable event references in the same authoritative database boundary. Notification and webhook delivery is performed asynchronously from leased outbox records. Delivery failure, retry or dead-letter state cannot roll back or rewrite governance evidence. The HTTPS worker resolves and pins a validated public address, sends directly to that destination, never follows redirects, and treats every 3xx response as a terminal failure rather than re-resolving a `Location` target.
 
 **Consequence:** Events survive process restarts and temporary provider outages without coupling governance availability to third-party endpoints. Duplicate attempts remain observable and idempotent; response bodies and credentials are never retained.
 
@@ -412,3 +412,83 @@ candidate is frozen and packaged.
 **Consequence:** Candidate identity has one non-circular authority boundary.
 Archives remain resumable without self-attestation, while promotion and live
 dispatch continue to require externally verified exact-candidate evidence.
+
+## ADR-064 — Provider operation IDs use a versioned canonical preimage
+
+**Status:** Accepted
+
+Provider-write operation IDs use the domain
+`nebulaverse-x.provider-write.operation-id.v1` and a fixed ordered field set:
+domain, mutation ID, one-based provider-write index, method, classified
+operation, canonical repository scope key, transport, and the complete request
+path. Every field is UTF-8 encoded and preceded by unsigned 32-bit big-endian
+byte lengths for its field name and value before the complete stream is hashed
+with SHA-256.
+
+The target path is never silently truncated. A target outside the explicit
+64-KiB safety bound is rejected before a provider write rather than mapped to a
+colliding prefix. This contract replaces the historical pipe-delimited,
+1,000-character target representation without rewriting the immutable Task 18
+specification that recorded the earlier design state.
+
+**Consequence:** Operation IDs are stable for the same authorized write,
+distinct across field boundaries and full targets, and versioned for any future
+canonicalization migration.
+
+## ADR-065 — Destructive database restore requires an exact isolated-target fingerprint
+
+**Status:** Accepted
+
+Before `pg_restore --clean`, the operator CLI requires a reviewed SHA-256
+fingerprint over a versioned record containing the source database identity,
+cohort Neon project and branch IDs, restore database identity, restore Neon
+project and branch IDs, and the exact `isolated-neon-branch` classification.
+The cohort and restore branch identities must differ. A credential-free preview
+prints only the sanitized identity and fingerprint; operators verify its project
+and branch values against Neon out of band before authorizing restore.
+
+**Consequence:** Merely changing a hostname or database name cannot authorize a
+destructive restore. Stale URLs, wrong branches, missing isolation context, and
+unreviewed targets fail before decryption or `pg_restore` begins.
+
+## ADR-066 — Recovery snapshots use an independently rotatable signing keyring
+
+**Status:** Accepted
+
+Snapshots and emergency manifests are signed with a dedicated HMAC-SHA256 key,
+not `SESSION_SECRET`. Every new signature carries a version and non-secret key
+ID. Verification accepts the active key and a bounded explicit retired-key map;
+an optional bounded legacy key list verifies pre-migration bare signatures only
+for the remaining snapshot-retention window.
+
+Production requires the active snapshot secret to differ from the session
+secret. Rotation creates a new key ID, retains the old pair until its signed
+snapshots expire, and then removes it. Existing database rows need no migration
+because the version and key ID are encoded in the signature text.
+
+**Consequence:** Session rotation can invalidate sessions and encrypted webhook
+material without destroying retained recovery evidence, while retired signing
+authority has an explicit, time-bounded removal path.
+
+## ADR-067 — Hosted evidence observes the deployed release tree
+
+**Status:** Accepted
+
+The release packager and runtime share one path-inclusion contract. Both the
+deployed process and the hosted qualification harness compute a versioned,
+length-delimited SHA-256 over the sorted releasable paths, byte lengths, and
+exact file bytes. Dependency directories, runtime logs, environment files, and
+qualification evidence are excluded by the same release boundary used for
+packaging. Releasable symbolic links, special files, unsafe paths, unstable
+reads, and bounded-size violations fail closed.
+
+Before any hosted smoke, load, or mutation step, the harness independently
+computes the digest from the frozen candidate and compares it with the digest
+served by the deployed process at `/api/version`. Hosted evidence records that
+observed digest as `deploymentSha256`; it cannot substitute a value derived
+from the authorized target identity or candidate archive hash.
+
+**Consequence:** A healthy service at the authorized Render origin is not
+accepted as the candidate merely because its target metadata is correct. An
+old, partial, or otherwise different deployed release stops qualification
+before credential-bearing traffic or mutations.

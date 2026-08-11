@@ -43,14 +43,26 @@ Use the Render-generated value. It protects:
 - Encrypted cookies
 - Encrypted database session data
 - Stored webhook secrets
-- Snapshot signatures
 
 Rotation response:
 
 1. Rotate the value in Render.
 2. Expect every session to be signed out.
 3. Reconnect verified live events because existing encrypted webhook secrets become unreadable.
-4. Expect snapshots signed with the old value to report `signatureValid: false`.
+4. If the old value signed pre-migration snapshots, place it in the bounded
+   `NV_SNAPSHOT_LEGACY_KEYS_JSON` compatibility keyring before rotation and
+   remove it after every such snapshot expires.
+
+### Snapshot-signing keyring
+
+Production requires an independent `NV_SNAPSHOT_SIGNING_KEY_ID` and
+`NV_SNAPSHOT_SIGNING_SECRET`; the signing secret must differ from
+`SESSION_SECRET`. New signatures embed the non-secret key ID. To rotate, create
+a fresh secret and never-reused key ID, move the previous ID/secret pair to
+`NV_SNAPSHOT_RETIRED_KEYS_JSON`, deploy, and verify both a new snapshot and one
+retained snapshot. Remove a retired pair only after all snapshots signed by it
+have expired. The retired and legacy keyrings are server-only secrets and must
+never appear in evidence or tickets.
 
 ### `DATABASE_URL`
 

@@ -26,6 +26,15 @@ assert.strictEqual(
   ),
   'a'.repeat(40)
 );
+assert.strictEqual(
+  validateHistoryResult(
+    { status: 0, stdout: `${'b'.repeat(40)}\t${'c'.repeat(40)}\n`, stderr: '' },
+    { sourceCommit: 'a'.repeat(40), publishedCommit: 'b'.repeat(40) },
+    'c'.repeat(40)
+  ),
+  'b'.repeat(40),
+  'the recorded published commit with the accepted tree must satisfy continuity'
+);
 assert.strictEqual(validateHistoryResult(
   { status: 0, stdout: `${'d'.repeat(40)}\t${'c'.repeat(40)}\n`, stderr: '' },
   { sourceCommit: 'a'.repeat(40), publishedCommit: 'b'.repeat(40) },
@@ -78,7 +87,13 @@ assert.strictEqual(state.sourceControlAvailable, sourceControlExpected);
 if (sourceControlExpected) {
   assert.match(state.currentHead, /^[0-9a-f]{40}$/);
   assert.strictEqual(state.acceptedBoundaryValid, true);
-  assert.strictEqual(state.acceptedBoundaryCommit, state.recordedBaseline.sourceCommit);
+  assert(
+    [
+      state.recordedBaseline.sourceCommit,
+      state.recordedBaseline.publishedCommit
+    ].includes(state.acceptedBoundaryCommit),
+    'accepted boundary must be one of the recorded transport-specific commits'
+  );
   assert.strictEqual(typeof state.worktreeClean, 'boolean');
 } else {
   assert.strictEqual(state.currentHead, null);
@@ -150,8 +165,8 @@ try {
     acceptedTree,
     recordedBaseline: {
       ...sourceState.recordedBaseline,
-      sourceCommit: acceptedCommit,
-      publishedCommit: 'f'.repeat(40),
+      sourceCommit: 'f'.repeat(40),
+      publishedCommit: acceptedCommit,
       tree: acceptedTree
     }
   };

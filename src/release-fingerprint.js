@@ -11,14 +11,14 @@ const MAX_DEPTH = 64;
 const MAX_PATH_BYTES = 1024;
 const MAX_FILE_BYTES = 512 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
-const FORBIDDEN_SEGMENTS = new Set([
+const FORBIDDEN_SEGMENTS = Object.freeze([
   '.git', '.hg', '.svn', '.superpowers', '.agents', '.codex',
   '.cache', '.npm', '.yarn', '.pnpm-store', '.turbo', '.next',
   'node_modules', 'bower_components', '__MACOSX', 'coverage',
   'playwright-report', 'test-results', '.tmp', 'tmp', '.temp', 'temp',
   'dist', 'build', 'out'
 ]);
-const FORBIDDEN_NAMES = new Set(['.DS_Store', '.eslintcache']);
+const FORBIDDEN_NAMES = Object.freeze(['.DS_Store', '.eslintcache']);
 
 function fail(message) {
   throw new TypeError(message);
@@ -38,7 +38,7 @@ function normalizeReleasePath(relative) {
 
 function hasForbiddenLocation(normalized) {
   const parts = normalized.split('/');
-  if (parts.some(part => FORBIDDEN_SEGMENTS.has(part))) return true;
+  if (parts.some(part => FORBIDDEN_SEGMENTS.includes(part))) return true;
   if (normalized !== '.env.example' && parts.some(part => part.startsWith('.env'))) return true;
   return normalized === 'staging/evidence' || normalized.startsWith('staging/evidence/');
 }
@@ -53,7 +53,7 @@ function shouldIncludeReleasePath(relative) {
   if (normalized === null || hasForbiddenLocation(normalized)) return false;
   const parts = normalized.split('/');
   const name = parts[parts.length - 1];
-  if (FORBIDDEN_NAMES.has(name) || name.startsWith('._')) return false;
+  if (FORBIDDEN_NAMES.includes(name) || name.startsWith('._')) return false;
   if (/\.(?:log|zip|sha256)$/i.test(name)) return false;
   if (/-Public-Alpha-(?:Qualification\.json|Closeout\.md)$/i.test(name)) return false;
   if (/(?:provider[-_]?credential|credential[-_]?provider).*\.log$/i.test(name)) return false;

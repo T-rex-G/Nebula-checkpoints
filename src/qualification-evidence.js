@@ -1,16 +1,16 @@
 'use strict';
 
 const EVIDENCE_SCHEMA_VERSION = '1.1.0';
-const ARTIFACT_TYPES = Object.freeze(new Set(['automated', 'provider-live', 'hosted-live', 'manual']));
+const ARTIFACT_TYPES = Object.freeze(['automated', 'provider-live', 'hosted-live', 'manual']);
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 const ORIGIN_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{2,127}$/;
 const MAX_JSON_DEPTH = 64;
 const CLAIM_PATTERN = /^(?:automated|hosted|manual)\.[a-z0-9][a-z0-9.-]*$|^providers\.(?:github|gitlab|gitea)\.[a-z0-9][a-z0-9.-]*$/;
-const SAFE_SECRET_LIKE_FIELDS = Object.freeze(new Set([
+const SAFE_SECRET_LIKE_FIELDS = Object.freeze([
   'secret-scan',
   'token-bearing-state-removed'
-]));
+]);
 
 function fail(message) {
   const error = new TypeError(message);
@@ -71,7 +71,7 @@ function assertNoSecretMaterial(value, location = 'artifact', depth = 0) {
       const normalized = key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
       if (
         !CLAIM_PATTERN.test(key) &&
-        !SAFE_SECRET_LIKE_FIELDS.has(normalized) &&
+        !SAFE_SECRET_LIKE_FIELDS.includes(normalized) &&
         /(^|[-_])(password|passwd|credential|token|secret|authorization|cookie|private[-_]?key|api[-_]?key|database[-_]?url)([-_]|$)/.test(normalized)
       ) fail(`${location} contains a secret-like field name`);
       assertNoSecretMaterial(child, `${location}.${key}`, depth + 1);
@@ -101,7 +101,7 @@ function validateEvidenceEnvelope(input) {
   const artifact = cloneJson(input);
   assertNoSecretMaterial(artifact);
   if (artifact.schemaVersion !== EVIDENCE_SCHEMA_VERSION) fail('artifact evidence schema does not match');
-  if (!ARTIFACT_TYPES.has(artifact.artifactType)) fail('artifact type is invalid');
+  if (!ARTIFACT_TYPES.includes(artifact.artifactType)) fail('artifact type is invalid');
   if (!SHA256_PATTERN.test(String(artifact.subjectSha256 || '')) || /^0{64}$/.test(artifact.subjectSha256)) {
     fail('artifact subject SHA-256 is invalid');
   }

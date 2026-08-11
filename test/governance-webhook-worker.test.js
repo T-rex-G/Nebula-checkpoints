@@ -73,6 +73,25 @@ const delivery = {
   assert.strictEqual(permanentAttempts[0].terminal, true);
   assert.strictEqual(permanentAttempts[0].errorCode, 'WEBHOOK_HTTP_410');
 
+  const redirectAttempts = [];
+  let redirectTransportCalls = 0;
+  await processWebhookDeliveryBatch({
+    store: {
+      ...store,
+      async recordWebhookDeliveryAttempt(input) { redirectAttempts.push(input); return { status: 'dead-letter' }; }
+    },
+    masterSecret: 'm'.repeat(64),
+    now: () => new Date('2026-07-23T10:01:00.000Z'),
+    resolveAddresses: async () => [{ address: '93.184.216.34', family: 4 }],
+    transport: async () => {
+      redirectTransportCalls += 1;
+      return { statusCode: 302, headers: { location: 'https://redirect.example.invalid/' } };
+    }
+  });
+  assert.strictEqual(redirectTransportCalls, 1, 'webhook delivery must never follow redirects');
+  assert.strictEqual(redirectAttempts[0].terminal, true);
+  assert.strictEqual(redirectAttempts[0].errorCode, 'WEBHOOK_HTTP_302');
+
   const blockedAttempts = [];
   await processWebhookDeliveryBatch({
     store: {

@@ -3,22 +3,25 @@
 Public alpha: **NO-GO**
 
 - Recorded automated baseline: **Passed**
-- Current documentation successor: **Not qualified**
+- Recorded independent review: **Failed**
+- Current review-remediation successor: **Not qualified**
 - Live-provider gate: **Pending**
 - Hosted gate: **Pending**
 - Manual accessibility gate: **Pending**
 - Final release gate: **Pending**
 
-The recorded baseline is commit `4aa3c378475dd7fdb490b206e0ca3cb88d027bbf`,
-tree `29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb`, and archive SHA-256
-`d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc`.
-Qualification run `31322778223` passed 137/137 program checks, 56/56 browser
+The recorded baseline uses local source commit `c67d92edb8c63f11ada74cfdc7835f8a4b387a1c`,
+published commit `d6628de48a32c3a2790dabeec60ec7b7b2ebab49`, tree
+`7bcc2c27029cc1013f176d1070e2cd38a8e69811`, and archive SHA-256
+`1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed`.
+Qualification run `31494468853` passed 141/141 program checks, 56/56 browser
 checks, deterministic double packaging, extracted-archive execution, secret and
 syntax scans, and zero production and development audit vulnerabilities.
 
-That evidence applies only to the recorded bytes. The documentation-truth
-successor changes the archive and must earn a new external commit, tree, archive
-hash, and evidence envelope. Every remaining gate is release-blocking and must
+Independent review `912555dd-72ab-4662-9645-2313007eea3d` then failed with 16
+actionable findings and 8 nitpicks. That result is release-blocking. The
+remediation successor changes the archive and must earn a new external commit,
+tree, archive hash, evidence envelope, and passing follow-up review. Every gate must
 bind to that same exact candidate, schema, Node version, execution time, and
 cleanup result.
 
@@ -63,7 +66,7 @@ it cannot be hidden by a summary or limitation entry.
 
 - Zero serious/critical axe findings on the golden path.
 - Keyboard, focus, dialog, labels, landmarks, status announcements, contrast,
-  non-colour state, reduced motion, 200% reflow, and mobile checks.
+  non-colour state, reduced motion, 320 CSS-pixel/400% reflow, and mobile checks.
 - One manual VoiceOver iOS pass and one manual desktop screen-reader pass.
 
 A pass is public-alpha accessibility qualification, not legal certification.
@@ -75,8 +78,9 @@ A pass is public-alpha accessibility qualification, not legal certification.
 - Each provider uses a separately pre-created `nvx-alpha17-` sandbox repository.
   The signed activation binds its exact repository/API identity; qualification
   creates and deletes only a per-run temporary branch and proof files.
-- Disposable mutations must prove stale-head rejection, exact readback,
-  insufficient-permission denial, and verified cleanup.
+- Disposable mutations must prove stale-head write and delete rejection with
+  zero commits, exact readback, insufficient-permission denial, a valid delete
+  result bound to the observed advanced head, file absence, and verified cleanup.
 - A target or selected-job mismatch must fail before any live request or
   credential-bearing step.
 - `Experimental` paths remain isolated and limitation-labelled.
@@ -94,8 +98,10 @@ A pass is public-alpha accessibility qualification, not legal certification.
 - Memory/restart observation, active-session revocation, provider disconnect,
   filesystem independence, database interruption/recovery, provider 429/outage,
   deploy rollback, tested database restore, and tester purge.
-- Encrypted pre-deploy backup and one isolated restore; no dump in source,
-  Actions artifacts, or Render local storage.
+- Encrypted pre-deploy backup and one isolated restore whose source/target URLs
+  match official Neon branch connection URIs and whose destructive target is
+  rechecked through a live database session; no dump in source, Actions
+  artifacts, or Render local storage.
 
 ## Manual go/no-go
 

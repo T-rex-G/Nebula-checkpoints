@@ -15,7 +15,7 @@ node scripts/alpha-db.js verify --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKU
 
 ## Verification
 
-Verify the fresh backup before migration and apply/verify migrations through the operator CLI. In the Neon console, confirm the cohort and restore project/branch IDs and that the restore branch is isolated. Preview the sanitized target identity, review and record its fingerprint out of band, then set `NV_RESTORE_TARGET_FINGERPRINT` to that exact approved value before restore. Stop on any URL, project, branch, kind, or fingerprint mismatch.
+Verify the fresh backup before migration and apply/verify migrations through the operator CLI. In the Neon console, confirm the cohort and restore project/branch IDs and that the restore branch is isolated. On the trusted workstation only, set a transient `NEON_API_KEY`; the CLI uses Neon’s [official connection-URI endpoint](https://api-docs.neon.tech/reference/getconnectionuri) to bind both declared branches to the configured URLs and opens the target to verify its database and role. Preview the sanitized target identity, review and record its fingerprint out of band, then set `NV_RESTORE_TARGET_FINGERPRINT` to that exact approved value before restore. Stop on any API, live-session, URL, project, branch, kind, or fingerprint mismatch. Unset `NEON_API_KEY` after the rehearsal.
 
 ```bash
 node scripts/alpha-db.js migrate --backup-manifest "$NV_BACKUP_MANIFEST"

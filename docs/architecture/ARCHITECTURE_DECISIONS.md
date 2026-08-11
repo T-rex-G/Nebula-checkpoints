@@ -492,3 +492,79 @@ from the authorized target identity or candidate archive hash.
 accepted as the candidate merely because its target metadata is correct. An
 old, partial, or otherwise different deployed release stops qualification
 before credential-bearing traffic or mutations.
+
+## ADR-068 — Provider delete qualification is negative-and-positive head-bound proof
+
+**Status:** Accepted
+
+Provider `file.delete` qualification first attempts deletion with a stale
+expected head and proves both zero branch advancement and file retention. A
+subsequent valid deletion must return a commit that equals the independently
+observed post-delete branch head, advance that head, and leave the file absent.
+Cleanup absence remains a separate final prerequisite.
+
+**Consequence:** A successful HTTP status cannot by itself create a delete
+claim. Stale-head enforcement, provider result integrity, observable state
+change, and cleanup are all bound into the capability evidence.
+
+## ADR-069 — Destructive Neon restore requires control-plane and live-session ownership proof
+
+**Status:** Accepted
+
+ADR-065's reviewed fingerprint remains necessary but is not sufficient. Before
+printing a restore preview and again immediately before decryption or
+`pg_restore --clean`, the operator CLI uses the official Neon connection-URI
+endpoint to bind both declared project/branch IDs to the configured source and
+target connection identities. It then opens the target and verifies
+`current_database()` and `current_user`. Requests use a fixed HTTPS origin,
+bounded responses, no redirects, and a timeout. The transient `NEON_API_KEY`
+is never passed to database child processes or written to evidence.
+
+**Consequence:** Operator labels, URL fingerprints, or hostname assumptions
+cannot authorize destructive work against a misdeclared branch. Control-plane
+failure, connection-identity mismatch, and live-session mismatch all fail
+before backup decryption and destructive restore execution.
+
+## ADR-070 — Production snapshot compatibility is an explicit operator keyring
+
+**Status:** Accepted
+
+Production never adds `SESSION_SECRET` implicitly to legacy snapshot
+verification. Only secrets deliberately present in
+`NV_SNAPSHOT_LEGACY_KEYS_JSON` may verify pre-keyring bare signatures. Local
+development may retain its compatibility fallback, and production still
+compares the active snapshot secret with `SESSION_SECRET` to prevent key reuse.
+
+**Consequence:** Rotating the session secret cannot silently preserve snapshot
+signing authority. Operators must stage and later remove any genuinely needed
+legacy key, making compatibility bounded, reviewable, and auditable.
+
+## ADR-071 — Continuity accepts exact transport-specific commits paired to one tree
+
+**Status:** Accepted
+
+Qualification publication can create a local source commit and a different
+published pull-request commit with identical trees. Continuity schema 4 records
+both exact commit IDs and their one accepted tree. Resume validation accepts
+only an ancestry entry whose commit is one of those two IDs and whose tree is
+the recorded tree. It also records the independent-review gate separately from
+automated qualification.
+
+**Consequence:** Local and published histories can both prove the same accepted
+bytes without treating every commit that recreates those bytes as trusted. An
+unrelated ancestor with the accepted tree fails the boundary, and a green
+automated run cannot hide a failed independent review.
+
+## ADR-072 — Deployed release identity remains runtime-observed and non-circular
+
+**Status:** Accepted
+
+ADR-063 and ADR-067 remain the release-identity authority. The server computes
+the release-tree fingerprint synchronously from deployed bytes at process
+startup and serves that observation from `/api/version`. It does not trust a
+precomputed digest embedded in the same release tree, because that digest would
+either exclude itself or circularly claim bytes it cannot represent.
+
+**Consequence:** Startup performs one bounded filesystem observation, while
+requests reuse the computed value. Build metadata cannot substitute for the
+hosted harness's independent comparison against the frozen candidate.

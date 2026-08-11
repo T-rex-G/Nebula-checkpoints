@@ -22,32 +22,34 @@ const projectStatePath = path.join(root, 'docs', 'current', 'PROJECT_STATE.md');
 const promptPath = path.join(root, 'docs', 'current', 'CONTINUATION_PROMPT.md');
 const state = readContinuity(statePath);
 
-assert.strictEqual(state.schemaVersion, 3);
+assert.strictEqual(state.schemaVersion, 4);
 assert.strictEqual(state.project, 'Nebulaverse-X');
 assert.strictEqual(state.version, pkg.version);
-assert.strictEqual(state.acceptedTree, '29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb');
+assert.strictEqual(state.acceptedTree, '7bcc2c27029cc1013f176d1070e2cd38a8e69811');
 assert.deepStrictEqual(state.recordedBaseline, {
   repository: 'T-rex-G/Nebula-checkpoints',
   branch: 'agent/alpha17-evidence-integrity',
   pullRequest: 1,
-  commit: '4aa3c378475dd7fdb490b206e0ca3cb88d027bbf',
-  tree: '29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb',
-  candidateSha256: 'd3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc',
-  ciRunId: '31322778221',
-  qualificationRunId: '31322778223',
-  decision: 'provider-stage-go-public-alpha-no-go'
+  sourceCommit: 'c67d92edb8c63f11ada74cfdc7835f8a4b387a1c',
+  publishedCommit: 'd6628de48a32c3a2790dabeec60ec7b7b2ebab49',
+  tree: '7bcc2c27029cc1013f176d1070e2cd38a8e69811',
+  candidateSha256: '1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed',
+  ciRunId: '31494468827',
+  qualificationRunId: '31494468853',
+  decision: 'automated-qualified-independent-review-failed-public-alpha-no-go'
 });
 assert.deepStrictEqual(
   Object.fromEntries(Object.entries(state.gates).map(([name, gate]) => [name, gate.status])),
   {
     automated: 'passed',
+    independentReview: 'failed',
     liveProvider: 'pending',
     hosted: 'pending',
     manualAccessibility: 'pending',
     finalRelease: 'pending'
   }
 );
-assert.deepStrictEqual(state.gates.automated.programs, { total: 137, passed: 137, blocked: 0, failed: 0 });
+assert.deepStrictEqual(state.gates.automated.programs, { total: 141, passed: 141, blocked: 0, failed: 0 });
 assert.deepStrictEqual(state.gates.automated.browser, { total: 56, passed: 56, failed: 0 });
 assert.strictEqual(state.gates.automated.productionAuditVulnerabilities, 0);
 assert.strictEqual(state.gates.automated.developmentAuditVulnerabilities, 0);
@@ -72,7 +74,8 @@ assert.deepStrictEqual(generatedDocuments(state), {
 for (const document of [projectState, continuationPrompt]) {
   assert(document.includes('Generated from `WORK_CONTINUITY.json`'));
   assert(document.includes('Public alpha: **NO-GO**'));
-  assert(document.includes('d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc'));
+  assert(document.includes('1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed'));
+  assert(document.includes('912555dd-72ab-4662-9645-2313007eea3d'));
   assert(!document.includes('Task 21 is in progress'));
   assert(!document.includes('Current candidate SHA-256'));
   assert(!document.includes('Current candidate commit'));
@@ -91,9 +94,11 @@ function clone(value) {
 }
 
 for (const mutate of [
-  candidate => { candidate.schemaVersion = 2; },
+  candidate => { candidate.schemaVersion = 3; },
   candidate => { candidate.version = '5.3.0-alpha.16.3'; },
   candidate => { delete candidate.recordedBaseline.candidateSha256; },
+  candidate => { candidate.recordedBaseline.publishedCommit = candidate.recordedBaseline.sourceCommit; },
+  candidate => { candidate.gates.independentReview.status = 'passed'; },
   candidate => { candidate.gates.liveProvider.status = 'passed'; },
   candidate => { candidate.gates.automated.programs.failed = 1; },
   candidate => { candidate.currentCandidate.commit = '0'.repeat(40); },

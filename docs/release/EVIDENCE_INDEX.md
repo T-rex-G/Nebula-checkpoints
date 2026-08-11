@@ -49,13 +49,15 @@ evidence to the exact frozen successor candidate.
 
 | Identity or result | Recorded value |
 |---|---|
-| Draft PR head | `4aa3c378475dd7fdb490b206e0ca3cb88d027bbf` |
-| Tree | `29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb` |
-| Candidate SHA-256 | `d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc` |
-| Standard CI | `31322778221` — passed |
-| Exact-archive qualification | `31322778223` — passed |
-| Automated matrix | 137/137 programs and 56/56 browser checks passed |
-| Decision | provider-stage GO; public-alpha NO-GO |
+| Local source commit | `c67d92edb8c63f11ada74cfdc7835f8a4b387a1c` |
+| Published draft-PR commit | `d6628de48a32c3a2790dabeec60ec7b7b2ebab49` |
+| Shared tree | `7bcc2c27029cc1013f176d1070e2cd38a8e69811` |
+| Candidate SHA-256 | `1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed` |
+| Standard CI | `31494468827` — passed |
+| Exact-archive qualification | `31494468853` — passed |
+| Automated matrix | 141/141 programs and 56/56 browser checks passed |
+| Independent review | `912555dd-72ab-4662-9645-2313007eea3d` — failed: 16 actionable, 8 nitpicks |
+| Decision | automated qualification passed; independent review failed; public-alpha NO-GO |
 
 The portability failures remain evidence rather than being erased. Run
 `31321447041` failed before authorization because the pull-request lineage
@@ -64,13 +66,13 @@ referred to a local-only accepted commit; live jobs were skipped. Earlier runs
 live jobs skipped. Their corrections established the published-tree continuity
 model and do not convert those failed runs into passes.
 
-## Documentation-truth successor qualification: pending
+## Independent-review remediation successor qualification: pending
 
-The recorded baseline above is green, but reorganizing and correcting Markdown
-changes packaged bytes. Qualification of the documentation-truth successor
-therefore remains pending until external evidence binds all automated results
-to its new source commit, tree, and archive SHA-256. Provider and hosted
-harnesses remain source controls rather than executed live evidence.
+The recorded baseline's automated gate is green but its independent review is
+failed. Remediation changes packaged bytes. Qualification remains pending until
+external evidence binds all automated results and a passing follow-up review to
+the new source commit, tree, and archive SHA-256. Provider and hosted harnesses
+remain source controls rather than executed live evidence.
 
 Expected external records include the qualification JSON and closeout Markdown,
 provider and hosted evidence artifacts, the signed manual accessibility audit,

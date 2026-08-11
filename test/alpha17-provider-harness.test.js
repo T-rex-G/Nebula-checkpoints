@@ -104,11 +104,13 @@ async function runOne(provider, runner) {
       'utf8-readback',
       'stale-head',
       'permission-denial',
+      'stale-head-delete',
       'expected-head-delete',
       'cleanup-absence'
     ]);
     assert(result.checks.some(check => check.key === 'stale-head' && check.zeroCommit === true));
     assert(result.checks.some(check => check.key === 'permission-denial' && check.zeroCommit === true));
+    assert(result.checks.some(check => check.key === 'stale-head-delete' && check.zeroCommit === true));
     assert(result.checks.some(check => check.key === 'cleanup-absence' && check.status === 'pass'));
     assert.deepStrictEqual(
       Object.keys(result.claims).sort(),
@@ -180,6 +182,25 @@ async function runOne(provider, runner) {
     error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
   );
   assert.strictEqual(mismatchedBindingFixture.state.requests.length, 0, 'target mismatch must fail before provider access');
+
+  const forgedDeleteEnvironment = environment('github');
+  const forgedDeleteFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: forgedDeleteEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: forgedDeleteEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: forgedDeleteEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL,
+    deleteCommitSha: 'e'.repeat(40)
+  });
+  await assert.rejects(
+    () => runGithubValidation({
+      env: forgedDeleteEnvironment,
+      fetchImpl: forgedDeleteFixture.fetch,
+      now: () => new Date(NOW)
+    }),
+    error => error && error.code === 'ALPHA17_DELETE_PROOF_FAILED'
+  );
 
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {

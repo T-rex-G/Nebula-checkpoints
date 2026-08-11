@@ -7,6 +7,8 @@ const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 const {
+  assertPinnedNodeVersion,
+  MINIMUM_MATRIX_TESTS,
   parseArgs,
   qualifyCandidateArchive,
   validateArchiveEntries
@@ -14,6 +16,21 @@ const {
 const registry = require('../config/public-alpha-capabilities.json');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
 const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
+
+assert.doesNotThrow(() => assertPinnedNodeVersion('v22.23.1'));
+assert.strictEqual(MINIMUM_MATRIX_TESTS, 141);
+assert.throws(() => assertPinnedNodeVersion('v22.23.0'), /requires Node v22\.23\.1/);
+const processVersionDescriptor = Object.getOwnPropertyDescriptor(process, 'version');
+try {
+  Object.defineProperty(process, 'version', { ...processVersionDescriptor, value: 'v22.23.0' });
+  assert.throws(
+    () => qualifyCandidateArchive(undefined),
+    /requires Node v22\.23\.1/,
+    'the runtime pin must fail before qualifier arguments or archive paths are read'
+  );
+} finally {
+  Object.defineProperty(process, 'version', processVersionDescriptor);
+}
 
 function sha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');

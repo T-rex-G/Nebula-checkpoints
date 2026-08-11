@@ -66,13 +66,15 @@ for (const secret of [
 for (const [key, value] of Object.entries({
   ...exactValues,
   NV_ALPHA_ACCESS_MODE: 'off',
-  NV_DATABASE_MIGRATION_MODE: 'apply'
+  NV_DATABASE_MIGRATION_MODE: 'apply',
+  NV_SNAPSHOT_SIGNING_KEY_ID: ''
 })) {
   assert(envExample.includes(`${key}=${value}`), `.env.example missing ${key}=${value}`);
 }
 for (const key of [
   'NV_BACKUP_KEY_BASE64',
   'NV_RESTORE_DATABASE_URL',
+  'NEON_API_KEY',
   'NV_COHORT_NEON_PROJECT_ID',
   'NV_COHORT_NEON_BRANCH_ID',
   'NV_RESTORE_NEON_PROJECT_ID',
@@ -84,5 +86,6 @@ for (const key of [
 ]) {
   assert(envExample.includes(`${key}=`), `.env.example missing ${key}`);
 }
+assert(!render.includes('NEON_API_KEY'), 'the operator-only Neon API key must never enter Render');
 
 console.log('Render public alpha contract tests passed');

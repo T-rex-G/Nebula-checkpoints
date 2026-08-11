@@ -13,7 +13,7 @@ const DEPLOYMENT = 'hosted-alpha';
 const MAX_EVIDENCE_AGE_MS = 72 * 60 * 60 * 1000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const PREDECESSOR_SUBJECT_SHA256 = '330b1b65894d1f63d7f4597cd81370d423fa66b60f69a4bb3a1a88084eca8892';
-const SAFE_SECRET_LIKE_FIELD_NAMES = Object.freeze(new Set(['secret-scan']));
+const SAFE_SECRET_LIKE_FIELD_NAMES = Object.freeze(['secret-scan']);
 
 const AUTOMATED_KEYS = Object.freeze([
   'node22-clean-install',
@@ -120,7 +120,7 @@ function assertNoSecretMaterial(value, path = 'record') {
     for (const [key, child] of Object.entries(value)) {
       const normalized = normalizedKey(key);
       if (
-        !SAFE_SECRET_LIKE_FIELD_NAMES.has(normalized) &&
+        !SAFE_SECRET_LIKE_FIELD_NAMES.includes(normalized) &&
         /(^|[-_])(password|passwd|token|secret|authorization|cookie|private[-_]?key|api[-_]?key|database[-_]?url)([-_]|$)/.test(normalized)
       ) {
         fail(`${path} contains a secret-like field name`, 'PUBLIC_ALPHA_SECRET_MATERIAL');

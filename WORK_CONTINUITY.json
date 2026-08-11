@@ -1,26 +1,27 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "project": "Nebulaverse-X",
   "version": "5.3.0-alpha.17.0",
-  "acceptedTree": "29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb",
+  "acceptedTree": "7bcc2c27029cc1013f176d1070e2cd38a8e69811",
   "recordedBaseline": {
     "repository": "T-rex-G/Nebula-checkpoints",
     "branch": "agent/alpha17-evidence-integrity",
     "pullRequest": 1,
-    "commit": "4aa3c378475dd7fdb490b206e0ca3cb88d027bbf",
-    "tree": "29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb",
-    "candidateSha256": "d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc",
-    "ciRunId": "31322778221",
-    "qualificationRunId": "31322778223",
-    "decision": "provider-stage-go-public-alpha-no-go"
+    "sourceCommit": "c67d92edb8c63f11ada74cfdc7835f8a4b387a1c",
+    "publishedCommit": "d6628de48a32c3a2790dabeec60ec7b7b2ebab49",
+    "tree": "7bcc2c27029cc1013f176d1070e2cd38a8e69811",
+    "candidateSha256": "1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed",
+    "ciRunId": "31494468827",
+    "qualificationRunId": "31494468853",
+    "decision": "automated-qualified-independent-review-failed-public-alpha-no-go"
   },
   "gates": {
     "automated": {
       "status": "passed",
-      "runId": "31322778223",
+      "runId": "31494468853",
       "programs": {
-        "total": 137,
-        "passed": 137,
+        "total": 141,
+        "passed": 141,
         "blocked": 0,
         "failed": 0
       },
@@ -33,6 +34,12 @@
       "developmentAuditVulnerabilities": 0,
       "deterministicArchive": true,
       "exactArchiveQualified": true
+    },
+    "independentReview": {
+      "status": "failed",
+      "runId": "912555dd-72ab-4662-9645-2313007eea3d",
+      "actionable": 16,
+      "nitpicks": 8
     },
     "liveProvider": {
       "status": "pending"
@@ -65,6 +72,7 @@
     }
   ],
   "limitations": [
+    "Independent review failed with 16 actionable findings and 8 nitpicks; this successor is the remediation round",
     "No live PostgreSQL execution has qualified the successor",
     "No live Render or Neon execution has qualified the successor",
     "No live provider execution has qualified the successor",
@@ -75,7 +83,7 @@
     "identitySource": "external-qualification-evidence"
   },
   "nextAuthorizedAction": {
-    "type": "qualify-documentation-successor",
-    "description": "Complete the documentation-truth correction, freeze one deterministic successor archive, and run the full source and exact-archive automated qualification before any serialized live-provider dispatch."
+    "type": "qualify-review-remediation-successor",
+    "description": "Complete the independent-review remediation, freeze one deterministic successor archive, and run full source and exact-archive qualification plus an independent follow-up review before any serialized live-provider dispatch."
   }
 }

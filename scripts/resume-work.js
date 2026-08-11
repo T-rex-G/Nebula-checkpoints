@@ -43,12 +43,13 @@ function unavailableSourceControl(state, requireClean) {
     branch: null,
     currentHead: null,
     acceptedBoundaryValid: null,
+    acceptedBoundaryCommit: null,
     worktreeClean: null,
     dirtyPaths: []
   });
 }
 
-function validateHistoryResult(result, acceptedTree) {
+function validateHistoryResult(result, recordedBaseline, acceptedTree) {
   if (result.error) {
     throw new Error(`Git history discovery failed: ${result.error.message}`);
   }
@@ -57,7 +58,15 @@ function validateHistoryResult(result, acceptedTree) {
     const detail = String(result.stderr || result.stdout || '').trim().slice(0, 4000);
     throw new Error(`Git history discovery failed (${outcome})${detail ? `: ${detail}` : ''}`);
   }
-  return String(result.stdout || '').split('\n').some(tree => tree === acceptedTree);
+  const acceptedCommits = new Set([
+    recordedBaseline.sourceCommit,
+    recordedBaseline.publishedCommit
+  ]);
+  for (const line of String(result.stdout || '').split('\n')) {
+    const [commit, tree, ...extra] = line.split('\t');
+    if (!extra.length && acceptedCommits.has(commit) && tree === acceptedTree) return commit;
+  }
+  return null;
 }
 
 function collect(options = {}) {
@@ -72,14 +81,18 @@ function collect(options = {}) {
   }
   const branch = git(['branch', '--show-current']);
   const currentHead = git(['rev-parse', 'HEAD']);
-  const history = spawnSync('git', ['log', '--format=%T', currentHead], {
+  const history = spawnSync('git', ['log', '--format=%H%x09%T', currentHead], {
     cwd: root,
     encoding: 'utf8',
     maxBuffer: GIT_MAX_BUFFER
   });
-  const acceptedTreePresent = validateHistoryResult(history, state.acceptedTree);
-  if (!acceptedTreePresent) {
-    throw new Error('Accepted continuity tree is not present in HEAD ancestry');
+  const acceptedBoundaryCommit = validateHistoryResult(
+    history,
+    state.recordedBaseline,
+    state.acceptedTree
+  );
+  if (!acceptedBoundaryCommit) {
+    throw new Error('Accepted continuity commit/tree pair is not present in HEAD ancestry');
   }
   const dirtyPaths = execFileSync('git', ['status', '--porcelain=v1'], {
     cwd: root,
@@ -98,6 +111,7 @@ function collect(options = {}) {
     branch: branch || null,
     currentHead,
     acceptedBoundaryValid: true,
+    acceptedBoundaryCommit,
     worktreeClean: dirtyPaths.length === 0,
     dirtyPaths
   });
@@ -110,7 +124,9 @@ function renderHuman(state) {
     `Branch: ${state.sourceControlAvailable ? state.branch || 'detached HEAD' : 'unavailable'}`,
     `HEAD: ${state.currentHead || 'unavailable'}`,
     `Accepted tree: ${state.acceptedTree}`,
-    `Recorded baseline: ${state.recordedBaseline.commit} (${state.recordedBaseline.decision})`,
+    `Recorded local baseline: ${state.recordedBaseline.sourceCommit}`,
+    `Recorded published baseline: ${state.recordedBaseline.publishedCommit}`,
+    `Baseline decision: ${state.recordedBaseline.decision}`,
     `Recorded candidate: ${state.recordedBaseline.candidateSha256}`,
     `Worktree: ${state.worktreeClean === null ? 'unavailable' : state.worktreeClean ? 'clean' : `dirty (${state.dirtyPaths.join(', ')})`}`,
     `Next action: ${state.nextAuthorizedAction.description}`

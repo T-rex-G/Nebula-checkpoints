@@ -7,18 +7,26 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const registry = require('../config/public-alpha-capabilities.json');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
-const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
+const {
+  EVIDENCE_SCHEMA_VERSION,
+  validateEvidenceEnvelope
+} = require('../src/qualification-evidence');
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 1024 * 1024 * 1024;
 const MAX_ENTRIES = 20_000;
 const MAX_PATH_BYTES = 1024;
-const MINIMUM_MATRIX_TESTS = 137;
+const MINIMUM_MATRIX_TESTS = 141;
 const MINIMUM_BROWSER_TESTS = 56;
 
 function fail(message) {
   throw new TypeError(message);
+}
+
+function assertPinnedNodeVersion(version = process.version) {
+  if (version !== 'v22.23.1') fail('candidate qualification requires Node v22.23.1');
+  return version;
 }
 
 function parseArgs(argv) {
@@ -291,7 +299,7 @@ function writeAutomatedEvidence(options) {
     { status: 'pass', cleanupVerified: true, completedAt }
   ]));
   const evidence = validateEvidenceEnvelope({
-    schemaVersion: '1.1.0',
+    schemaVersion: EVIDENCE_SCHEMA_VERSION,
     artifactType: 'automated',
     subjectSha256: options.subjectSha256,
     sourceCommit: options.sourceCommit,
@@ -323,6 +331,7 @@ function writeAutomatedEvidence(options) {
 }
 
 function qualifyCandidateArchive(options) {
+  assertPinnedNodeVersion();
   const parsed = parseArgs([
     '--archive', options.archivePath,
     '--comparison-archive', options.comparisonArchivePath,
@@ -351,7 +360,6 @@ function qualifyCandidateArchive(options) {
     ...(options.env || process.env),
     NV_STAGING_SUBJECT_SHA256: parsed.expectedSha256
   };
-  if (process.version !== 'v22.23.1') fail('candidate qualification requires Node v22.23.1');
   runCommand('npm', ['ci'], { cwd: candidateRoot, env: environment, label: 'candidate npm ci' });
   runCommand('npm', ['run', 'check:syntax'], {
     cwd: candidateRoot,
@@ -440,6 +448,7 @@ if (require.main === module) main();
 
 module.exports = Object.freeze({
   parseArgs,
+  assertPinnedNodeVersion,
   MINIMUM_MATRIX_TESTS,
   MINIMUM_BROWSER_TESTS,
   hashFile,

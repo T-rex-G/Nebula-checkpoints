@@ -46,12 +46,14 @@ Use the Render-generated value. It protects:
 
 Rotation response:
 
-1. Rotate the value in Render.
-2. Expect every session to be signed out.
-3. Reconnect verified live events because existing encrypted webhook secrets become unreadable.
-4. If the old value signed pre-migration snapshots, place it in the bounded
-   `NV_SNAPSHOT_LEGACY_KEYS_JSON` compatibility keyring before rotation and
-   remove it after every such snapshot expires.
+1. If the old value signed pre-migration snapshots, place it in the bounded
+   `NV_SNAPSHOT_LEGACY_KEYS_JSON` compatibility keyring, deploy, and verify a
+   retained snapshot **before** rotating `SESSION_SECRET`.
+2. Rotate the value in Render and expect every session to be signed out.
+3. Reconnect every approved verified-live-events integration because existing
+   encrypted webhook secrets become unreadable, then independently verify
+   webhook delivery health.
+4. Remove the compatibility key only after every snapshot it signed expires.
 
 ### Snapshot-signing keyring
 

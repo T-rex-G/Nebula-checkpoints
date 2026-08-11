@@ -32,4 +32,20 @@ for (const file of required) {
   assert(!/(?:password|token|secret|key)\s*=\s*[^$\s`][^\s`]*/i.test(text), `${file} contains a literal secret-like value`);
 }
 
+for (const file of ['06-failed-deploy-rollback.md', '09-capacity-saturation.md']) {
+  const text = fs.readFileSync(path.join(root, file), 'utf8');
+  for (const line of text.split('\n').filter(value => value.startsWith('curl '))) {
+    assert(line.includes('--fail'), `${file} verification probe must fail on HTTP errors`);
+  }
+}
+
+const credentialExposure = fs.readFileSync(path.join(root, '04-credential-exposure.md'), 'utf8');
+assert.match(credentialExposure, /SESSION_SECRET.*reconnect.*verified-live-events.*webhook delivery health/is);
+
+const securityDeployment = fs.readFileSync(path.join(root, '..', 'SECURITY_DEPLOYMENT.md'), 'utf8');
+const compatibilityStep = securityDeployment.indexOf('NV_SNAPSHOT_LEGACY_KEYS_JSON` compatibility keyring');
+const rotationStep = securityDeployment.indexOf('Rotate the value in Render');
+assert(compatibilityStep >= 0 && rotationStep > compatibilityStep,
+  'legacy snapshot compatibility must be staged before SESSION_SECRET rotation');
+
 console.log('runbook contract tests passed');

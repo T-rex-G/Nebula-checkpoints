@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, '..');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 const releaseTreeSha256 = computeReleaseFingerprint(root);
 const sessionSecret = ['smoke-test', '0123456789abcdef', '0123456789abcdef'].join('-');
-const snapKey = `${sessionSecret}:snapshot`;
+const snapKey = ['smoke-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
 const child = spawn(process.execPath, ['server.js'], {
   cwd: root,
   env: {

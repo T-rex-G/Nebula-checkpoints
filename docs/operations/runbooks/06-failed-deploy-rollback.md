@@ -9,8 +9,8 @@ Use this runbook when the new Render deploy fails health/startup, repeatedly res
 Stop invitations and mutations. In the Render deploy record, capture the failed deploy ID and its source commit; do not substitute the operator workstation's checkout. Preserve the failed deploy logs. Before selecting an older application image, determine whether its migration contract is compatible with the current database.
 
 ```bash
-curl --proto '=https' --silent --show-error "$NV_ALPHA_BASE_URL/healthz"
-curl --proto '=https' --silent --show-error "$NV_ALPHA_BASE_URL/readyz"
+curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/healthz"
+curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/readyz"
 test -n "$NV_FAILED_RENDER_DEPLOY_ID"
 printf '%s\n' "$NV_FAILED_RENDER_SOURCE_COMMIT" | grep -E '^[0-9a-f]{40}$'
 ```

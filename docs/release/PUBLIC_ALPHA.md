@@ -2,10 +2,11 @@
 
 Public alpha: **NO-GO**
 
-The recorded `d3e86f3…` alpha.17 baseline passed automated exact-archive
-qualification and is provider-stage GO only. This documentation-truth successor
-changes packaged bytes and is **not qualified** until its own external archive
-identity and automated evidence pass. Live-provider, hosted, manual
+The recorded `1a3eba45…` alpha.17 baseline passed automated exact-archive
+qualification, but independent review failed with 16 actionable findings and 8
+nitpicks. This review-remediation successor changes packaged bytes and is **not
+qualified** until its own external archive identity, automated evidence, and
+follow-up independent review pass. Live-provider, hosted, manual
 accessibility, and final release gates remain pending.
 
 Hosted qualification is pending; the cohort is not open. Plans 1–3 are accepted
@@ -47,7 +48,7 @@ whose loss would cause material harm.
 The supported golden-path screens pass automated desktop/mobile checks for
 serious or critical axe findings, keyboard completion, focus containment and
 restoration, live announcements, non-colour trust states, reduced motion and
-200% reflow. Manual VoiceOver on iOS and one desktop screen-reader pass remain required before cohort opening. The manual record starts `Not executed` and no accessibility certification is claimed.
+320 CSS-pixel/400% reflow. Manual VoiceOver on iOS and one desktop screen-reader pass remain required before cohort opening. The manual record starts `Not executed` and no accessibility certification is claimed.
 
 ## Limits and hosting
 

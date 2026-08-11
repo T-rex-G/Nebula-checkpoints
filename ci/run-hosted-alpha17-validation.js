@@ -9,7 +9,10 @@ const { runSmoke, timedRequest } = require('../scripts/alpha-smoke');
 const { readSafeJson, runLoad } = require('../scripts/alpha-load');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
-const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
+const {
+  EVIDENCE_SCHEMA_VERSION,
+  validateEvidenceEnvelope
+} = require('../src/qualification-evidence');
 const {
   requireExactCommit,
   requireEnvironment,
@@ -278,7 +281,7 @@ async function runHostedValidation(options = {}) {
     completedAt
   }]));
   const core = sanitizeEvidence({
-    schemaVersion: '1.1.0',
+    schemaVersion: EVIDENCE_SCHEMA_VERSION,
     artifactType: 'hosted-live',
     status: 'pass',
     cleanupVerified: true,

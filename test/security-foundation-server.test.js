@@ -7,7 +7,7 @@ const { spawn } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
 const secret = 'security-server-test-secret-0123456789abcdef-0123456789abcdef';
-const snapKey = `${secret}:snapshot`;
+const snapKey = 'security-server-snapshot-secret-fedcba9876543210-fedcba9876543210';
 const key = crypto.createHash('sha256').update(secret).digest();
 const port = 28500 + Math.floor(Math.random() * 1000);
 

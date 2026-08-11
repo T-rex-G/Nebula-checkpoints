@@ -17,7 +17,7 @@ const {
 const root = path.resolve(__dirname, '..');
 const port = 31800 + Math.floor(Math.random() * 800);
 const secret = 'alpha-boundary-test-secret-0123456789abcdef-0123456789abcdef';
-const snapKey = `${secret}:snapshot`;
+const snapKey = 'alpha-boundary-snapshot-secret-fedcba9876543210-fedcba9876543210';
 const key = crypto.createHash('sha256').update(secret).digest();
 const termsVersion = '2026-07-30';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nv-alpha-server-boundary-'));

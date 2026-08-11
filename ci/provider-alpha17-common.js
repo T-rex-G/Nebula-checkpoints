@@ -3,7 +3,10 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const registry = require('../config/public-alpha-capabilities.json');
-const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
+const {
+  EVIDENCE_SCHEMA_VERSION,
+  validateEvidenceEnvelope
+} = require('../src/qualification-evidence');
 const { verifyLiveTargetBinding } = require('./verify-alpha17-authorization');
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
@@ -14,21 +17,21 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
     'branches.write': ['disposable-branch-create', 'cleanup-absence'],
     'file.read': ['utf8-readback'],
     'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
-    'file.delete': ['expected-head-delete', 'cleanup-absence']
+    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
   },
   gitlab: {
     'repository.read': ['repository-read'],
     'branches.read': ['default-branch-read'],
     'file.read': ['utf8-readback'],
     'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
-    'file.delete': ['expected-head-delete', 'cleanup-absence']
+    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
   },
   gitea: {
     'repository.read': ['repository-read'],
     'branches.read': ['default-branch-read'],
     'file.read': ['utf8-readback'],
     'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
-    'file.delete': ['expected-head-delete', 'cleanup-absence']
+    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
   }
 });
 
@@ -362,14 +365,66 @@ async function runProviderQualification({ provider, client, env = process.env, n
     if (!permissionZeroCommit) fail('read-only credential changed the branch', 'ALPHA17_PERMISSION_SCOPE_INVALID');
 
     const currentFile = await client.readFile(target.branch, proofPath, 'mutation');
-    await client.deleteFile({
+    let staleDeleteRejected = false;
+    try {
+      await client.deleteFile({
+        branch: target.branch,
+        path: proofPath,
+        fileSha: currentFile.sha,
+        expectedHead: before.sha,
+        credential: 'mutation'
+      });
+    } catch (error) {
+      if (error.code !== 'ALPHA17_STALE_HEAD') throw error;
+      staleDeleteRejected = true;
+    }
+    const afterStaleDelete = await client.getBranch(target.branch, 'mutation');
+    const retainedAfterStaleDelete = await client.readFile(target.branch, proofPath, 'mutation');
+    const staleDeleteZeroCommit = Boolean(
+      staleDeleteRejected &&
+      afterStaleDelete &&
+      afterStaleDelete.sha === afterPermission.sha &&
+      retainedAfterStaleDelete &&
+      retainedAfterStaleDelete.sha === currentFile.sha
+    );
+    checks.push({
+      key: 'stale-head-delete',
+      status: staleDeleteZeroCommit ? 'pass' : 'fail',
+      zeroCommit: staleDeleteZeroCommit,
+      fileRetained: Boolean(retainedAfterStaleDelete)
+    });
+    if (!staleDeleteZeroCommit) {
+      fail('stale-head delete changed the branch or file', 'ALPHA17_DELETE_PROOF_FAILED');
+    }
+
+    const deleted = await client.deleteFile({
       branch: target.branch,
       path: proofPath,
       fileSha: currentFile.sha,
-      expectedHead: afterPermission.sha,
+      expectedHead: afterStaleDelete.sha,
       credential: 'mutation'
     });
-    checks.push({ key: 'expected-head-delete', status: 'pass', statusClass: '2xx' });
+    const afterDelete = await client.getBranch(target.branch, 'mutation');
+    const absentAfterDelete = await client.readFile(target.branch, proofPath, 'mutation');
+    const deleteBoundToObservedHead = Boolean(
+      deleted &&
+      /^[0-9a-f]{40}$/.test(deleted.commitSha) &&
+      deleted.statusClass === '2xx' &&
+      afterDelete &&
+      deleted.commitSha === afterDelete.sha &&
+      afterDelete.sha !== afterStaleDelete.sha &&
+      absentAfterDelete === null
+    );
+    checks.push({
+      key: 'expected-head-delete',
+      status: deleteBoundToObservedHead ? 'pass' : 'fail',
+      statusClass: deleted && deleted.statusClass,
+      headAdvanced: Boolean(afterDelete && afterDelete.sha !== afterStaleDelete.sha),
+      fileAbsent: absentAfterDelete === null
+    });
+    if (!deleteBoundToObservedHead) {
+      fail('delete result is not bound to the observed post-delete head', 'ALPHA17_DELETE_PROOF_FAILED');
+    }
   } catch (error) {
     operationError = error;
   } finally {
@@ -387,7 +442,7 @@ async function runProviderQualification({ provider, client, env = process.env, n
   const completedAt = now().toISOString();
   const proof = providerClaims(provider, checks, completedAt);
   const core = sanitizeEvidence({
-    schemaVersion: '1.1.0',
+    schemaVersion: EVIDENCE_SCHEMA_VERSION,
     artifactType: 'provider-live',
     status: 'pass',
     cleanupVerified: true,

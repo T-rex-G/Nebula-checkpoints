@@ -45,7 +45,7 @@ copyable correlation ID.
 The target is WCAG 2.2 AA behavior for supported golden paths: semantic
 landmarks, labelled controls, full keyboard operation, visible and restored
 focus, focus-contained dialogs, screen-reader announcements, non-colour-only
-states, verified contrast, reduced motion, 200% reflow, and mobile layouts.
+states, verified contrast, reduced motion, 320 CSS-pixel/400% reflow, and mobile layouts.
 
 Automated public-alpha accessibility qualification passes on the supported
 desktop and mobile golden-path screens, including axe serious/critical checks,

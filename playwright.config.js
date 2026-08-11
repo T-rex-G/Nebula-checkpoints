@@ -6,7 +6,7 @@ const launchOptions = localChromium ? {
   args: ['--no-sandbox', '--disable-dev-shm-usage']
 } : undefined;
 const playwrightSessionSecret = ['playwright', '0123456789abcdef', '0123456789abcdef'].join('-');
-const playwrightSnapshotSecret = `${playwrightSessionSecret}:snapshot`;
+const playwrightSnapshotSecret = ['playwright-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
 
 module.exports = defineConfig({
   testDir: './test/e2e',

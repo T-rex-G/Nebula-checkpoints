@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '..');
 const fixture = path.join(__dirname, 'fixtures', 'gitea-provider-fetch.js');
 const port = 27000 + Math.floor(Math.random() * 1000);
 const sessionSecret = ['gitea-server-test', '0123456789abcdef', '0123456789abcdef'].join('-');
-const snapKey = `${sessionSecret}:snapshot`;
+const snapKey = ['gitea-snapshot-test', 'fedcba9876543210', 'fedcba9876543210'].join('-');
 const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
   cwd: root,
   env: {

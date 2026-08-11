@@ -32,7 +32,7 @@ node scripts/alpha-privacy.js cleanup-status
 
 ## Recovery
 
-Issue replacement credentials only after the source of exposure is removed. Redeploy with rotated Render values, invalidate active sessions, and re-enroll only approved testers.
+Issue replacement credentials only after the source of exposure is removed. Redeploy with rotated Render values, invalidate active sessions, and re-enroll only approved testers. After any `SESSION_SECRET` rotation, reconnect each approved verified-live-events integration and independently verify webhook delivery health; encrypted webhook secrets created under the old value are no longer readable.
 
 ## Evidence
 

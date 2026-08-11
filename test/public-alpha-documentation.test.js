@@ -37,10 +37,11 @@ for (const file of canonicalFiles) {
 const state = read('docs/current/PROJECT_STATE.md');
 assert(state.includes('Current authored version: **5.3.0-alpha.17.0**'));
 assert(state.includes('Public alpha: **NO-GO**'));
-assert(state.includes('The documentation-truth successor is **not qualified**'));
-assert(state.includes('d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc'));
+assert(state.includes('The review-remediation successor is **not qualified**'));
+assert(state.includes('1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed'));
 for (const row of [
   '| Automated exact-archive qualification | Passed |',
+  '| Independent review | Failed |',
   '| Live-provider qualification | Pending |',
   '| Hosted qualification | Pending |',
   '| Manual accessibility | Pending |',
@@ -55,7 +56,7 @@ for (const phase of [
   'Phase 5 — Customer-Controlled Evidence Retention'
 ]) assert(roadmap.includes(phase), `roadmap missing ${phase}`);
 assert(roadmap.includes('Public alpha: **NO-GO**'));
-assert(roadmap.includes('documentation-truth successor'));
+assert(roadmap.includes('independent-review remediation successor'));
 
 const productVision = read('docs/vision/PRODUCT_VISION.md');
 assert(productVision.includes(
@@ -135,8 +136,9 @@ assert(alpha.includes(
 
 const releaseGates = read('docs/release/RELEASE_SECURITY_GATES.md');
 assert(releaseGates.includes('Recorded automated baseline: **Passed**'));
-assert(releaseGates.includes('Current documentation successor: **Not qualified**'));
-assert(releaseGates.includes('137/137'));
+assert(releaseGates.includes('Recorded independent review: **Failed**'));
+assert(releaseGates.includes('Current review-remediation successor: **Not qualified**'));
+assert(releaseGates.includes('141/141'));
 assert(releaseGates.includes('56/56'));
 assert(releaseGates.includes('zero production and development audit vulnerabilities'));
 assert(releaseGates.includes('Live-provider gate: **Pending**'));
@@ -147,17 +149,19 @@ assert(releaseGates.includes('Final release gate: **Pending**'));
 const qualification = read('docs/release/QUALIFICATION_BASELINE.md');
 assert(qualification.startsWith('# Recorded Alpha.17 Automated Qualification Baseline'));
 for (const identity of [
-  '4aa3c378475dd7fdb490b206e0ca3cb88d027bbf',
-  '29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb',
-  'd3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc',
-  '31322778221',
-  '31322778223'
+  'c67d92edb8c63f11ada74cfdc7835f8a4b387a1c',
+  'd6628de48a32c3a2790dabeec60ec7b7b2ebab49',
+  '7bcc2c27029cc1013f176d1070e2cd38a8e69811',
+  '1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed',
+  '31494468827',
+  '31494468853',
+  '912555dd-72ab-4662-9645-2313007eea3d'
 ]) assert(qualification.includes(identity), `qualification baseline missing ${identity}`);
-assert(qualification.includes('137/137 program tests'));
+assert(qualification.includes('141/141 program tests'));
 assert(qualification.includes('56/56 browser tests'));
 assert(qualification.includes('zero vulnerabilities'));
-assert(qualification.includes('provider-stage GO'));
-assert(qualification.includes('public-alpha NO-GO'));
+assert(qualification.includes('16 actionable findings'));
+assert(qualification.includes('public alpha are therefore **NO-GO**'));
 assert(!qualification.includes('Task 21 is **in progress**'));
 
 const evidence = read('docs/release/EVIDENCE_INDEX.md');
@@ -165,22 +169,24 @@ for (const identity of [
   '30464094438',
   '30464096155',
   '330b1b65894d1f63d7f4597cd81370d423fa66b60f69a4bb3a1a88084eca8892',
-  '4aa3c378475dd7fdb490b206e0ca3cb88d027bbf',
-  'd3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc',
+  'c67d92edb8c63f11ada74cfdc7835f8a4b387a1c',
+  'd6628de48a32c3a2790dabeec60ec7b7b2ebab49',
+  '1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed',
   '31321447041',
-  '31322778221',
-  '31322778223'
+  '31494468827',
+  '31494468853',
+  '912555dd-72ab-4662-9645-2313007eea3d'
 ]) assert(evidence.includes(identity), `evidence index missing ${identity}`);
 assert(evidence.includes('GitHub/GitLab'));
 assert(evidence.includes('fresh Gitea'));
-assert(evidence.includes('provider-stage GO'));
+assert(evidence.includes('independent review failed'));
 assert(evidence.includes('public-alpha NO-GO'));
 assert(evidence.includes('prove only Plan 1 successor foundation work'));
 assert(evidence.includes('do not prove hosted-public-alpha qualification'));
 
 const deploy = read('docs/operations/DEPLOY_RENDER_NEON.md');
 assert(deploy.startsWith('# Deploy Nebulaverse-X 5.3.0-alpha.17.0 Controlled Alpha'));
-assert(deploy.includes('{ "version": "5.3.0-alpha.17.0", "product": "Nebulaverse-X" }'));
+assert(deploy.includes('{ "version": "5.3.0-alpha.17.0", "product": "Nebulaverse-X", "releaseTreeSha256": "<64 lowercase hex characters>" }'));
 for (const limit of [
   'NV_LIVE_CLIENTS_PER_REPO=2',
   'NV_LIVE_CLIENTS_TOTAL=10',
@@ -196,6 +202,12 @@ assert(security.includes('Nebulaverse-X 5.3.0-alpha.17.0 controlled alpha'));
 assert(security.includes('verifies the expected migration set'));
 assert(!security.includes('Task 4 does not yet evaluate governance policy'));
 assert(!security.includes('GitHub-only in v5.2'));
+
+const manualAccessibility = read('docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md');
+assert(manualAccessibility.includes('Start `/api/version` `releaseTreeSha256`'));
+assert(manualAccessibility.includes('End `/api/version` `releaseTreeSha256`'));
+assert(manualAccessibility.includes('responses are retained externally'));
+assert.strictEqual((manualAccessibility.match(/320 CSS-pixel|400%/g) || []).length >= 4, true);
 
 const decisions = read('docs/architecture/ARCHITECTURE_DECISIONS.md');
 assert(decisions.includes('## ADR-055 — Controlled hosted alpha access is independent from provider authorization'));

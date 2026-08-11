@@ -96,6 +96,8 @@ const {
 } = require('./src/alpha-access');
 const { PRODUCT_NAME, APP_VERSION, ASSET_VERSION } = require('./src/version');
 const { computeReleaseFingerprint } = require('./src/release-fingerprint');
+// ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
+// An embedded build-time digest would be circular and could attest different bytes.
 const RELEASE_TREE_SHA256 = computeReleaseFingerprint(__dirname);
 const { createCorrelationId, publicErrorBody } = require('./src/public-errors');
 const { loadMigrations, runMigrations, verifyMigrations } = require('./src/migrations');
@@ -153,6 +155,8 @@ if (process.env.NODE_ENV === 'production' && Buffer.byteLength(SECRET, 'utf8') <
 const KEY = crypto.createHash('sha256').update(SECRET).digest();
 const SNAPSHOT_SIGNATURES = createSnapshotSignatures(loadSnapshotSigningConfig(process.env, {
   production: process.env.NODE_ENV === 'production',
+  // Production uses this only to reject active-key reuse. Legacy verification
+  // requires the explicit NV_SNAPSHOT_LEGACY_KEYS_JSON operator keyring.
   sessionSecret: SECRET
 }));
 const GITHUB_APP_CONFIG = loadGithubAppConfig(process.env, { production: process.env.NODE_ENV === 'production' });

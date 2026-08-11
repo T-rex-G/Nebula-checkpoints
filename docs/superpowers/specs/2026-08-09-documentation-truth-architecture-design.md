@@ -427,7 +427,7 @@ prepared.
 
 The documentation architecture is complete only when:
 
-- root Markdown is limited to the three approved entry points;
+- root entry points are limited to two approved Markdown files plus the machine-readable `WORK_CONTINUITY.json` source;
 - every Markdown document has exactly one lifecycle classification;
 - current, vision, operational, qualification, historical, and development
   records are physically separated;

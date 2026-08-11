@@ -14,13 +14,14 @@ assert.strictEqual(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8'), '22.23.1\
 
 const { APP_VERSION, PRODUCT_NAME, ASSET_VERSION } = require('../src/version');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const expectedReleaseTreeSha256 = computeReleaseFingerprint(root);
 assert.strictEqual(APP_VERSION, pkg.version);
 assert.strictEqual(PRODUCT_NAME, 'Nebulaverse-X');
 assert.strictEqual(ASSET_VERSION, '530');
 
 const port = 27000 + Math.floor(Math.random() * 1000);
 const sessionSecret = ['release-contract', '0123456789abcdef', '0123456789abcdef'].join('-');
-const snapKey = `${sessionSecret}:snapshot`;
+const snapKey = ['release-contract-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
 const child = spawn(process.execPath, ['server.js'], {
   cwd: root,
   env: {
@@ -58,7 +59,7 @@ async function wait() {
     assert.deepStrictEqual(version, {
       version: pkg.version,
       product: PRODUCT_NAME,
-      releaseTreeSha256: computeReleaseFingerprint(root)
+      releaseTreeSha256: expectedReleaseTreeSha256
     });
 
     const html = await fetch(`http://127.0.0.1:${port}/`).then(r => r.text());

@@ -19,8 +19,8 @@ node scripts/alpha-privacy.js cleanup-status
 Compare p50/p95, status counts, restart observations, active tester count, and pending cleanup against the accepted baseline. Confirm no limit exceeds the published Free-plan envelope.
 
 ```bash
-curl --silent --show-error "$NV_ALPHA_BASE_URL/api/config"
-curl --silent --show-error "$NV_ALPHA_BASE_URL/readyz"
+curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/api/config"
+curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/readyz"
 ```
 
 ## Recovery

@@ -10,7 +10,7 @@ const { hashJson } = require('../src/intelligence');
 const root = path.resolve(__dirname, '..');
 const port = 30100 + Math.floor(Math.random() * 500);
 const sessionSecret = 'github-app-configured-test-secret-0123456789abcdef-0123456789abcdef';
-const snapKey = `${sessionSecret}:snapshot`;
+const snapKey = 'github-app-configured-snapshot-secret-fedcba9876543210-fedcba9876543210';
 const sessionKey = crypto.createHash('sha256').update(sessionSecret).digest();
 
 function seal(value) {

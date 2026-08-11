@@ -24,10 +24,11 @@ for (const file of continuityArtifacts) {
 const state = read('docs/current/PROJECT_STATE.md');
 assert(state.includes('Current authored version: **5.3.0-alpha.17.0**'));
 assert(state.includes('Public alpha: **NO-GO**'));
-assert(state.includes('d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc'));
-assert(state.includes('The documentation-truth successor is **not qualified**'));
+assert(state.includes('1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed'));
+assert(state.includes('The review-remediation successor is **not qualified**'));
 for (const row of [
   '| Automated exact-archive qualification | Passed |',
+  '| Independent review | Failed |',
   '| Live-provider qualification | Pending |',
   '| Hosted qualification | Pending |',
   '| Manual accessibility | Pending |',
@@ -44,8 +45,8 @@ assert(roadmap.includes('Phase 1 Task 19 (signed evidence export format) must be
 
 const decisions = read('docs/architecture/ARCHITECTURE_DECISIONS.md');
 const adrNumbers = [...decisions.matchAll(/^## ADR-(\d{3}) —/gm)].map(match => Number(match[1]));
-assert.strictEqual(adrNumbers.length, 67);
-assert.deepStrictEqual(adrNumbers, Array.from({ length: 67 }, (_, index) => index + 1));
+assert.strictEqual(adrNumbers.length, 72);
+assert.deepStrictEqual(adrNumbers, Array.from({ length: 72 }, (_, index) => index + 1));
 assert(decisions.includes('## ADR-051 — Governance delivery uses an immutable outbox and failure-isolated worker'));
 assert(decisions.includes('## ADR-052 — Signed evidence envelopes are the stable boundary before external storage'));
 assert(decisions.includes('## ADR-053 — Staging readiness is an expiring evidence gate, not a release assertion'));
@@ -61,12 +62,17 @@ assert(decisions.includes('## ADR-064 — Provider operation IDs use a versioned
 assert(decisions.includes('## ADR-065 — Destructive database restore requires an exact isolated-target fingerprint'));
 assert(decisions.includes('## ADR-066 — Recovery snapshots use an independently rotatable signing keyring'));
 assert(decisions.includes('## ADR-067 — Hosted evidence observes the deployed release tree'));
+assert(decisions.includes('## ADR-068 — Provider delete qualification is negative-and-positive head-bound proof'));
+assert(decisions.includes('## ADR-069 — Destructive Neon restore requires control-plane and live-session ownership proof'));
+assert(decisions.includes('## ADR-070 — Production snapshot compatibility is an explicit operator keyring'));
+assert(decisions.includes('## ADR-071 — Continuity accepts exact transport-specific commits paired to one tree'));
+assert(decisions.includes('## ADR-072 — Deployed release identity remains runtime-observed and non-circular'));
 
 const prompt = read('docs/current/CONTINUATION_PROMPT.md');
 assert(prompt.includes('Public alpha: **NO-GO**'));
 assert(prompt.includes('docs/current/PROJECT_STATE.md'));
 assert(prompt.includes('docs/release/RELEASE_SECURITY_GATES.md'));
-assert(prompt.includes('d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc'));
+assert(prompt.includes('1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed'));
 assert(!prompt.includes('Task 21 is in progress'));
 assert(!prompt.includes('Nebulaverse-X-v5.3.0-alpha.16.3.zip'));
 

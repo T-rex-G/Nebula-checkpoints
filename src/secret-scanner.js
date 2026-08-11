@@ -6,10 +6,10 @@ const { spawnSync } = require('child_process');
 
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_FILES = 100_000;
-const EXCLUDED_DIRECTORIES = Object.freeze(new Set([
+const EXCLUDED_DIRECTORIES = Object.freeze([
   '.git', '.hg', '.svn', 'node_modules', 'dist', 'build', 'out',
   'coverage', 'playwright-report', 'test-results', '.cache', '.npm'
-]));
+]);
 const RULES = Object.freeze([
   Object.freeze({
     rule: 'private-key',
@@ -86,7 +86,7 @@ function walkArchiveFiles(root) {
       if (entry.name.startsWith('._')) continue;
       const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        if (!EXCLUDED_DIRECTORIES.has(entry.name)) visit(path.join(directory, entry.name), relative);
+        if (!EXCLUDED_DIRECTORIES.includes(entry.name)) visit(path.join(directory, entry.name), relative);
       } else if (entry.isFile()) {
         files.push(normalizeRelative(relative));
         if (files.length > MAX_FILES) fail('archive file inventory exceeds the safe limit');

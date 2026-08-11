@@ -11,34 +11,48 @@ const scriptPath = path.join(root, 'scripts', 'resume-work.js');
 const { validateHistoryResult } = require('../scripts/resume-work');
 
 assert.throws(
-  () => validateHistoryResult({ status: 9, stdout: '', stderr: 'synthetic history failure' }, 'a'.repeat(40)),
+  () => validateHistoryResult(
+    { status: 9, stdout: '', stderr: 'synthetic history failure' },
+    { sourceCommit: 'a'.repeat(40), publishedCommit: 'b'.repeat(40) },
+    'c'.repeat(40)
+  ),
   /Git history discovery failed.*exit 9.*synthetic history failure/i
 );
 assert.strictEqual(
-  validateHistoryResult({ status: 0, stdout: `b${'0'.repeat(39)}\n`, stderr: '' }, 'a'.repeat(40)),
-  false
+  validateHistoryResult(
+    { status: 0, stdout: `${'a'.repeat(40)}\t${'c'.repeat(40)}\n`, stderr: '' },
+    { sourceCommit: 'a'.repeat(40), publishedCommit: 'b'.repeat(40) },
+    'c'.repeat(40)
+  ),
+  'a'.repeat(40)
 );
+assert.strictEqual(validateHistoryResult(
+  { status: 0, stdout: `${'d'.repeat(40)}\t${'c'.repeat(40)}\n`, stderr: '' },
+  { sourceCommit: 'a'.repeat(40), publishedCommit: 'b'.repeat(40) },
+  'c'.repeat(40)
+), null, 'an unrelated commit with the accepted tree must not satisfy continuity');
 
 const output = execFileSync(process.execPath, [scriptPath, '--json'], { cwd: root, encoding: 'utf8' });
 const state = JSON.parse(output);
 const serialized = JSON.stringify(state);
 const sourceControlExpected = fs.existsSync(path.join(root, '.git'));
 
-assert.strictEqual(state.schemaVersion, 3);
+assert.strictEqual(state.schemaVersion, 4);
 assert.strictEqual(state.project, 'Nebulaverse-X');
 assert.strictEqual(state.version, '5.3.0-alpha.17.0');
-assert.strictEqual(state.acceptedTree, '29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb');
+assert.strictEqual(state.acceptedTree, '7bcc2c27029cc1013f176d1070e2cd38a8e69811');
 assert.strictEqual(Object.hasOwn(state, 'acceptedThrough'), false);
 assert.deepStrictEqual(state.recordedBaseline, {
   repository: 'T-rex-G/Nebula-checkpoints',
   branch: 'agent/alpha17-evidence-integrity',
   pullRequest: 1,
-  commit: '4aa3c378475dd7fdb490b206e0ca3cb88d027bbf',
-  tree: '29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb',
-  candidateSha256: 'd3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc',
-  ciRunId: '31322778221',
-  qualificationRunId: '31322778223',
-  decision: 'provider-stage-go-public-alpha-no-go'
+  sourceCommit: 'c67d92edb8c63f11ada74cfdc7835f8a4b387a1c',
+  publishedCommit: 'd6628de48a32c3a2790dabeec60ec7b7b2ebab49',
+  tree: '7bcc2c27029cc1013f176d1070e2cd38a8e69811',
+  candidateSha256: '1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed',
+  ciRunId: '31494468827',
+  qualificationRunId: '31494468853',
+  decision: 'automated-qualified-independent-review-failed-public-alpha-no-go'
 });
 assert.deepStrictEqual(
   state.failedQualificationRuns.map(item => item.runId),
@@ -48,14 +62,15 @@ assert.deepStrictEqual(
   Object.fromEntries(Object.entries(state.gates).map(([name, gate]) => [name, gate.status])),
   {
     automated: 'passed',
+    independentReview: 'failed',
     liveProvider: 'pending',
     hosted: 'pending',
     manualAccessibility: 'pending',
     finalRelease: 'pending'
   }
 );
-assert.strictEqual(state.nextAuthorizedAction.type, 'qualify-documentation-successor');
-assert.match(state.nextAuthorizedAction.description, /documentation-truth correction/);
+assert.strictEqual(state.nextAuthorizedAction.type, 'qualify-review-remediation-successor');
+assert.match(state.nextAuthorizedAction.description, /independent-review remediation/);
 assert(!serialized.includes('lastPushedCommit'));
 assert(!serialized.includes('lastPushedSourceCommit'));
 assert(!serialized.includes('pending_publication'));
@@ -63,10 +78,12 @@ assert.strictEqual(state.sourceControlAvailable, sourceControlExpected);
 if (sourceControlExpected) {
   assert.match(state.currentHead, /^[0-9a-f]{40}$/);
   assert.strictEqual(state.acceptedBoundaryValid, true);
+  assert.strictEqual(state.acceptedBoundaryCommit, state.recordedBaseline.sourceCommit);
   assert.strictEqual(typeof state.worktreeClean, 'boolean');
 } else {
   assert.strictEqual(state.currentHead, null);
   assert.strictEqual(state.acceptedBoundaryValid, null);
+  assert.strictEqual(state.acceptedBoundaryCommit, null);
   assert.strictEqual(state.worktreeClean, null);
 }
 assert(Array.isArray(state.dirtyPaths));
@@ -100,6 +117,7 @@ try {
   assert.strictEqual(archiveState.branch, null);
   assert.strictEqual(archiveState.currentHead, null);
   assert.strictEqual(archiveState.acceptedBoundaryValid, null);
+  assert.strictEqual(archiveState.acceptedBoundaryCommit, null);
   assert.strictEqual(archiveState.worktreeClean, null);
   assert.deepStrictEqual(archiveState.dirtyPaths, []);
 } finally {
@@ -118,7 +136,11 @@ try {
     ['-c', 'user.name=Nebulaverse Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'seed'],
     { cwd: fixtureRoot, stdio: 'ignore' }
   );
-  const acceptedTree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], {
+  const acceptedCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: fixtureRoot,
+    encoding: 'utf8'
+  }).trim();
+  const acceptedTree = execFileSync('git', ['rev-parse', `${acceptedCommit}^{tree}`], {
     cwd: fixtureRoot,
     encoding: 'utf8'
   }).trim();
@@ -128,6 +150,8 @@ try {
     acceptedTree,
     recordedBaseline: {
       ...sourceState.recordedBaseline,
+      sourceCommit: acceptedCommit,
+      publishedCommit: 'f'.repeat(40),
       tree: acceptedTree
     }
   };
@@ -169,6 +193,7 @@ try {
   ));
   assert.strictEqual(cleanState.branch, null);
   assert.strictEqual(cleanState.currentHead, fixtureHead);
+  assert.strictEqual(cleanState.acceptedBoundaryCommit, acceptedCommit);
   assert.strictEqual(cleanState.worktreeClean, true);
 
   fs.writeFileSync(path.join(fixtureRoot, 'dirty.txt'), 'dirty\n');
@@ -195,10 +220,15 @@ try {
     GIT_COMMITTER_NAME: 'Nebulaverse Test',
     GIT_COMMITTER_EMAIL: 'test@localhost'
   };
+  const unrelatedBoundaryCommit = execFileSync(
+    'git',
+    ['commit-tree', acceptedTree],
+    { cwd: fixtureRoot, encoding: 'utf8', input: 'unrelated root\n', env: gitIdentity }
+  ).trim();
   const unrelatedHead = execFileSync(
     'git',
-    ['commit-tree', `${fixtureHead}^{tree}`],
-    { cwd: fixtureRoot, encoding: 'utf8', input: 'unrelated root\n', env: gitIdentity }
+    ['commit-tree', `${fixtureHead}^{tree}`, '-p', unrelatedBoundaryCommit],
+    { cwd: fixtureRoot, encoding: 'utf8', input: 'unrelated child\n', env: gitIdentity }
   ).trim();
   execFileSync('git', ['checkout', '--detach', unrelatedHead], { cwd: fixtureRoot, stdio: 'ignore' });
   const unrelatedBoundary = spawnSync(
@@ -207,7 +237,7 @@ try {
     { cwd: fixtureRoot, encoding: 'utf8' }
   );
   assert.notStrictEqual(unrelatedBoundary.status, 0);
-  assert.match(unrelatedBoundary.stderr, /Accepted continuity tree is not present in HEAD ancestry/);
+  assert.match(unrelatedBoundary.stderr, /Accepted continuity commit\/tree pair is not present in HEAD ancestry/);
 } finally {
   fs.rmSync(fixtureRoot, { recursive: true, force: true });
 }

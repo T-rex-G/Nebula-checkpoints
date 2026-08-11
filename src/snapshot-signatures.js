@@ -90,7 +90,9 @@ function loadSnapshotSigningConfig(env = process.env, options = {}) {
     throw new TypeError('The active snapshot key ID must not appear in the retired keyring');
   }
   const legacyKeys = parseLegacyKeys(env.NV_SNAPSHOT_LEGACY_KEYS_JSON);
-  if (sessionSecret) legacyKeys.push(sessionSecret);
+  // Local development retains the pre-keyring compatibility path. Production
+  // accepts legacy snapshot keys only from the explicit operator keyring.
+  if (!production && sessionSecret) legacyKeys.push(sessionSecret);
 
   return Object.freeze({
     activeKeyId,

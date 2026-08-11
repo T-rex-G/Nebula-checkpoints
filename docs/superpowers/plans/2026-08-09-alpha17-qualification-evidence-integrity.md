@@ -110,7 +110,7 @@ Use a PR-specific group for pull requests and one stable group for every workflo
 - Modify: `scripts/resume-work.js`
 - Modify: `test/work-continuity.test.js`
 
-**Red:** Require schema 2, immutable baseline commit `315a88406487117fe32449e59eb3dfce4067b444`, parent `7f721a770df8e658e00163e05ebc259502f99c09`, tree `673737fc9a51aeffd54e068d5148de061fb559b2`, and candidate hash `6d29b357eca034afa413940f07d27352889c4a619be9483fc00a78d08da8b72d`. Reject self-referential `lastPushedCommit`, `lastPushedSourceCommit`, and pending-publication fields. Add a disposable-repository test where `--require-clean` rejects a dirty tree but ordinary resume still reports it. Preserve archive/no-Git behavior and detached-HEAD ancestry proof.
+**Superseded continuity contract:** The implemented successor is schema 4. It binds the accepted tree to the exact local-source and published-PR commit identities that legitimately share that tree, records the independent-review gate, and rejects any unrelated ancestor that merely recreates accepted bytes. `WORK_CONTINUITY.json`, `src/work-continuity.js`, and `scripts/resume-work.js` are the authoritative contract. Self-referential pending-publication fields remain forbidden; archive/no-Git behavior and dirty/detached-worktree checks remain preserved.
 
 **Green:** Reduce continuity state to immutable baseline, known failed runs, stable limitations, and a current-head next action. Make CLI parsing explicit and make `--require-clean` fail when Git exists and the worktree is dirty. Derive branch, HEAD, and cleanliness at runtime.
 

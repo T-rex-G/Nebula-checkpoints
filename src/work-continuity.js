@@ -9,6 +9,7 @@ const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const RUN_ID_PATTERN = /^[0-9]+$/;
 const EXPECTED_GATE_NAMES = Object.freeze([
   'automated',
+  'independentReview',
   'liveProvider',
   'hosted',
   'manualAccessibility',
@@ -53,7 +54,7 @@ function validateContinuity(value) {
     'nextAuthorizedAction'
   ])) invalid();
   if (
-    value.schemaVersion !== 3
+    value.schemaVersion !== 4
     || value.project !== 'Nebulaverse-X'
     || value.version !== PACKAGE_VERSION
     || !SHA1_PATTERN.test(value.acceptedTree || '')
@@ -64,7 +65,8 @@ function validateContinuity(value) {
     'repository',
     'branch',
     'pullRequest',
-    'commit',
+    'sourceCommit',
+    'publishedCommit',
     'tree',
     'candidateSha256',
     'ciRunId',
@@ -75,13 +77,25 @@ function validateContinuity(value) {
     baseline.repository !== 'T-rex-G/Nebula-checkpoints'
     || baseline.branch !== 'agent/alpha17-evidence-integrity'
     || baseline.pullRequest !== 1
-    || !SHA1_PATTERN.test(baseline.commit || '')
+    || !SHA1_PATTERN.test(baseline.sourceCommit || '')
+    || !SHA1_PATTERN.test(baseline.publishedCommit || '')
+    || baseline.sourceCommit === baseline.publishedCommit
     || !SHA1_PATTERN.test(baseline.tree || '')
     || baseline.tree !== value.acceptedTree
     || !SHA256_PATTERN.test(baseline.candidateSha256 || '')
     || !RUN_ID_PATTERN.test(baseline.ciRunId || '')
     || !RUN_ID_PATTERN.test(baseline.qualificationRunId || '')
-    || baseline.decision !== 'provider-stage-go-public-alpha-no-go'
+    || baseline.decision !== 'automated-qualified-independent-review-failed-public-alpha-no-go'
+  ) invalid();
+  const independentReview = value.gates.independentReview;
+  if (
+    !hasExactKeys(independentReview, ['status', 'runId', 'actionable', 'nitpicks'])
+    || independentReview.status !== 'failed'
+    || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(independentReview.runId || '')
+    || !Number.isInteger(independentReview.actionable)
+    || independentReview.actionable <= 0
+    || !Number.isInteger(independentReview.nitpicks)
+    || independentReview.nitpicks < 0
   ) invalid();
 
   if (!hasExactKeys(value.gates, EXPECTED_GATE_NAMES)) invalid();
@@ -137,7 +151,7 @@ function validateContinuity(value) {
   ) invalid();
   if (
     !hasExactKeys(value.nextAuthorizedAction, ['type', 'description'])
-    || value.nextAuthorizedAction.type !== 'qualify-documentation-successor'
+    || value.nextAuthorizedAction.type !== 'qualify-review-remediation-successor'
     || !isNonEmptyString(value.nextAuthorizedAction.description)
   ) invalid();
 
@@ -172,13 +186,19 @@ function renderProjectState(state) {
     '',
     '## Identity boundary',
     '',
-    `The last published and automatically qualified immutable baseline is commit \`${baseline.commit}\``,
+    'The last automatically qualified immutable baseline has two transport-specific commit identities:',
+    '',
+    `- local source commit: \`${baseline.sourceCommit}\``,
+    `- published draft-PR commit: \`${baseline.publishedCommit}\``,
+    '',
     `with tree \`${baseline.tree}\` and candidate SHA-256`,
     `\`${baseline.candidateSha256}\` in \`${baseline.repository}\` draft PR #${baseline.pullRequest}.`,
     '',
     `Standard CI run: \`${baseline.ciRunId}\`. Exact-archive qualification run: \`${baseline.qualificationRunId}\`.`,
     '',
-    'The documentation-truth successor is **not qualified**. Its commit, tree, archive SHA-256,',
+    `Independent review \`${state.gates.independentReview.runId}\` failed with ${state.gates.independentReview.actionable} actionable findings and ${state.gates.independentReview.nitpicks} nitpicks.`,
+    '',
+    'The review-remediation successor is **not qualified**. Its commit, tree, archive SHA-256,',
     'and evidence hashes must be recorded externally after exact-candidate qualification; this',
     'archive cannot attest its own final identity.',
     '',
@@ -187,6 +207,7 @@ function renderProjectState(state) {
     '| Gate | Status | Evidence boundary |',
     '|---|---|---|',
     `| Automated exact-archive qualification | ${titleCaseStatus(state.gates.automated.status)} | Recorded baseline run \`${state.gates.automated.runId}\`: ${state.gates.automated.programs.passed}/${state.gates.automated.programs.total} programs and ${state.gates.automated.browser.passed}/${state.gates.automated.browser.total} browser checks |`,
+    `| Independent review | ${titleCaseStatus(state.gates.independentReview.status)} | Review \`${state.gates.independentReview.runId}\`: ${state.gates.independentReview.actionable} actionable findings and ${state.gates.independentReview.nitpicks} nitpicks |`,
     `| Live-provider qualification | ${titleCaseStatus(state.gates.liveProvider.status)} | Must target the externally qualified successor identity |`,
     `| Hosted qualification | ${titleCaseStatus(state.gates.hosted.status)} | Render/Neon execution has not been authorized for the successor |`,
     `| Manual accessibility | ${titleCaseStatus(state.gates.manualAccessibility.status)} | VoiceOver and desktop screen-reader evidence remain required |`,
@@ -223,7 +244,7 @@ function renderContinuationPrompt(state) {
     '',
     '> Generated from `WORK_CONTINUITY.json`. Do not edit this file directly.',
     '',
-    `Resume Nebulaverse-X ${state.version} from the documentation-truth successor line.`,
+    `Resume Nebulaverse-X ${state.version} from the independent-review remediation successor line.`,
     '',
     'Public alpha: **NO-GO**',
     '',
@@ -231,13 +252,16 @@ function renderContinuationPrompt(state) {
     '',
     `- repository: \`${baseline.repository}\``,
     `- draft PR: \`#${baseline.pullRequest}\``,
-    `- commit: \`${baseline.commit}\``,
+    `- local source commit: \`${baseline.sourceCommit}\``,
+    `- published draft-PR commit: \`${baseline.publishedCommit}\``,
     `- tree: \`${baseline.tree}\``,
     `- candidate SHA-256: \`${baseline.candidateSha256}\``,
     `- CI run: \`${baseline.ciRunId}\``,
     `- qualification run: \`${baseline.qualificationRunId}\``,
     '',
-    'Do not reuse that identity for the documentation successor. The current candidate commit,',
+    `Independent review \`${state.gates.independentReview.runId}\` failed with ${state.gates.independentReview.actionable} actionable findings and ${state.gates.independentReview.nitpicks} nitpicks.`,
+    '',
+    'Do not reuse that identity for the remediation successor. The current candidate commit,',
     'tree, archive SHA-256, and evidence hashes are external qualification evidence and remain',
     'unknown until the successor is frozen and qualified.',
     '',

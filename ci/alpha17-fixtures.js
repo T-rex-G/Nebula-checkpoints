@@ -30,6 +30,9 @@ function createProviderFetchFixture(options = {}) {
   const defaultBranch = String(options.defaultBranch || 'main');
   const mutationCredential = String(options.mutationCredential || '');
   const readOnlyCredential = String(options.readOnlyCredential || '');
+  const deleteCommitSha = options.deleteCommitSha == null
+    ? null
+    : String(options.deleteCommitSha).trim().toLowerCase();
   if (!['github', 'gitlab', 'gitea'].includes(provider)) throw new TypeError('fixture provider is invalid');
   const initialSha = '1'.repeat(40);
   const state = {
@@ -133,7 +136,7 @@ function createProviderFetchFixture(options = {}) {
         const file = branch.files.get(filePath);
         if (!file || file.sha !== body.sha) return json({ message: 'conflict' }, 409);
         const changed = mutateFile(body.branch, filePath, Buffer.alloc(0), true);
-        return json({ commit: { sha: changed.sha } }, 200);
+        return json({ commit: { sha: deleteCommitSha || changed.sha } }, 200);
       }
     }
     return json({ message: 'not found' }, 404);
@@ -236,7 +239,7 @@ function createProviderFetchFixture(options = {}) {
         const file = branch.files.get(filePath);
         if (!file || body.sha !== file.sha) return json({ message: 'conflict' }, 409);
         const changed = mutateFile(body.branch, filePath, Buffer.alloc(0), true);
-        return json({ commit: { sha: changed.sha } }, 200);
+        return json({ commit: { sha: deleteCommitSha || changed.sha } }, 200);
       }
     }
     return json({ message: 'not found' }, 404);

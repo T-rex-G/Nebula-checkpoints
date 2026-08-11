@@ -19,6 +19,11 @@ transferable.
 - Hosted candidate URL: ____________________
 - Auditor: ____________________
 - Audit start and end (UTC): ____________________
+- Start `/api/version` `releaseTreeSha256`: ____________________
+- Start `/api/version` response external evidence reference: ____________________
+- End `/api/version` `releaseTreeSha256`: ____________________
+- End `/api/version` response external evidence reference: ____________________
+- [ ] Both responses are retained externally; their release fingerprints are identical and equal the frozen candidate fingerprint.
 
 ## iOS and VoiceOver
 
@@ -40,7 +45,7 @@ transferable.
   - Evidence/notes: ____________________
 - [ ] Privacy, terms, retention, sandbox-only scope, and provider-revocation responsibilities are reachable and understandable before consent.
   - Evidence/notes: ____________________
-- [ ] At 200% browser zoom, content reflows without horizontal page scrolling and all controls remain reachable.
+- [ ] At a 320 CSS-pixel viewport (or the 400% zoom equivalent), content reflows without horizontal page scrolling and all controls remain reachable.
   - Evidence/notes: ____________________
 - [ ] Primary controls and destructive confirmations have usable mobile touch targets without overlap or gesture traps.
   - Evidence/notes: ____________________
@@ -58,7 +63,7 @@ transferable.
   - Evidence/notes: ____________________
 - [ ] Status and error announcements are understandable and are not duplicated excessively.
   - Evidence/notes: ____________________
-- [ ] At 200% browser zoom, content reflows without horizontal page scrolling and all controls remain reachable.
+- [ ] At 400% browser zoom (or a 320 CSS-pixel viewport), content reflows without horizontal page scrolling and all controls remain reachable.
   - Evidence/notes: ____________________
 - [ ] Reduced-motion preference suppresses non-essential animation and transitions.
   - Evidence/notes: ____________________

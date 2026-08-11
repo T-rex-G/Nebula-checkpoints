@@ -38,6 +38,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/architecture/ALPHA17_REVIEW_DISPOSITIONS.md",
+      "lifecycle": "architecture",
+      "authority": "accepted-architecture-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/current/CONTINUATION_PROMPT.md",
       "lifecycle": "current",
       "authority": "generated-from-work-continuity",

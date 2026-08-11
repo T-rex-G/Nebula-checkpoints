@@ -3,14 +3,14 @@
 Public alpha: **NO-GO**
 
 The last immutable automated baseline is recorded in
-[Project State](PROJECT_STATE.md). The documentation-truth successor must be
-frozen and qualified externally before any live-provider dispatch; this roadmap
+[Project State](PROJECT_STATE.md). The independent-review remediation successor
+must be frozen, qualified, and reviewed externally before any live-provider dispatch; this roadmap
 does not convert planned work into release evidence.
 
 ## Phase 1 — Secure Access and Policy Digital Twin
 
 **Status:** Historical Phase 1 work is complete; the recorded alpha.17
-automated baseline is provider-stage GO and public-alpha NO-GO.
+automated gate passed, independent review failed, and public alpha is NO-GO.
 
 Tasks 1–21 delivered and qualified the secure access, central mutation,
 governance, evidence, recovery, and provider-compatibility foundation. This
@@ -18,8 +18,8 @@ closure is not a production-readiness or hosted-public-alpha claim.
 
 ## Controlled hosted public-alpha readiness
 
-**Status:** Documentation-truth successor in progress; live-provider, hosted,
-manual-accessibility, and final gates remain pending.
+**Status:** Independent-review remediation successor in progress; follow-up
+review, live-provider, hosted, manual-accessibility, and final gates remain pending.
 
 The successor programme establishes product truth, controlled invitation and
 sandbox enforcement, credential and privacy lifecycle controls, capability-aware

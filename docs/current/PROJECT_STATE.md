@@ -8,13 +8,19 @@ Public alpha: **NO-GO**
 
 ## Identity boundary
 
-The last published and automatically qualified immutable baseline is commit `4aa3c378475dd7fdb490b206e0ca3cb88d027bbf`
-with tree `29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb` and candidate SHA-256
-`d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc` in `T-rex-G/Nebula-checkpoints` draft PR #1.
+The last automatically qualified immutable baseline has two transport-specific commit identities:
 
-Standard CI run: `31322778221`. Exact-archive qualification run: `31322778223`.
+- local source commit: `c67d92edb8c63f11ada74cfdc7835f8a4b387a1c`
+- published draft-PR commit: `d6628de48a32c3a2790dabeec60ec7b7b2ebab49`
 
-The documentation-truth successor is **not qualified**. Its commit, tree, archive SHA-256,
+with tree `7bcc2c27029cc1013f176d1070e2cd38a8e69811` and candidate SHA-256
+`1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed` in `T-rex-G/Nebula-checkpoints` draft PR #1.
+
+Standard CI run: `31494468827`. Exact-archive qualification run: `31494468853`.
+
+Independent review `912555dd-72ab-4662-9645-2313007eea3d` failed with 16 actionable findings and 8 nitpicks.
+
+The review-remediation successor is **not qualified**. Its commit, tree, archive SHA-256,
 and evidence hashes must be recorded externally after exact-candidate qualification; this
 archive cannot attest its own final identity.
 
@@ -22,7 +28,8 @@ archive cannot attest its own final identity.
 
 | Gate | Status | Evidence boundary |
 |---|---|---|
-| Automated exact-archive qualification | Passed | Recorded baseline run `31322778223`: 137/137 programs and 56/56 browser checks |
+| Automated exact-archive qualification | Passed | Recorded baseline run `31494468853`: 141/141 programs and 56/56 browser checks |
+| Independent review | Failed | Review `912555dd-72ab-4662-9645-2313007eea3d`: 16 actionable findings and 8 nitpicks |
 | Live-provider qualification | Pending | Must target the externally qualified successor identity |
 | Hosted qualification | Pending | Render/Neon execution has not been authorized for the successor |
 | Manual accessibility | Pending | VoiceOver and desktop screen-reader evidence remain required |
@@ -30,6 +37,7 @@ archive cannot attest its own final identity.
 
 ## Known limitations
 
+- Independent review failed with 16 actionable findings and 8 nitpicks; this successor is the remediation round
 - No live PostgreSQL execution has qualified the successor
 - No live Render or Neon execution has qualified the successor
 - No live provider execution has qualified the successor
@@ -37,7 +45,7 @@ archive cannot attest its own final identity.
 
 ## Next authorized action
 
-Complete the documentation-truth correction, freeze one deterministic successor archive, and run the full source and exact-archive automated qualification before any serialized live-provider dispatch.
+Complete the independent-review remediation, freeze one deterministic successor archive, and run full source and exact-archive qualification plus an independent follow-up review before any serialized live-provider dispatch.
 
 No merge, deployment, public cohort opening, or live-provider dispatch is authorized by
 this in-repository state.

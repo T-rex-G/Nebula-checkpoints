@@ -68,8 +68,11 @@ Expected:
 ```json
 { "ok": true }
 { "ok": true, "database": "connected" }
-{ "version": "5.3.0-alpha.17.0", "product": "Nebulaverse-X" }
+{ "version": "5.3.0-alpha.17.0", "product": "Nebulaverse-X", "releaseTreeSha256": "<64 lowercase hex characters>" }
 ```
+
+The `releaseTreeSha256` value must equal the runtime release fingerprint recorded
+for the frozen candidate; a version string alone is not deployment identity.
 
 `/readyz` reports `optional-not-configured` when `DATABASE_URL` is intentionally absent. Basic repository functions can then use encrypted cookie sessions. When `DATABASE_URL` is configured, session storage fails closed during a Neon outage; verified live events, cross-session policies, signed snapshots, and evidence persistence also remain unavailable until readiness recovers.
 

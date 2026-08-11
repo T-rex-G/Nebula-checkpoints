@@ -39,6 +39,16 @@ const configB = loadSnapshotSigningConfig({
   NV_SNAPSHOT_LEGACY_KEYS_JSON: JSON.stringify([legacySessionSecret])
 }, { production: true, sessionSecret });
 const signerB = createSnapshotSignatures(configB);
+const implicitSessionSignature = hmacJson(sessionSecret, payload);
+assert.deepStrictEqual(signerB.verify(
+  implicitSessionSignature,
+  payload.snapshotId,
+  payload.snapshot
+), {
+  valid: false,
+  keyId: 'legacy',
+  legacy: true
+}, 'production must not implicitly trust SESSION_SECRET as a legacy snapshot key');
 assert.deepStrictEqual(signerB.verify(signatureA, payload.snapshotId, payload.snapshot), {
   valid: true,
   keyId: 'snapshot-key-a',

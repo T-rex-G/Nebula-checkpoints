@@ -103,6 +103,27 @@ try {
     assert(!serializedFindings.includes(value), 'findings must never echo the matched secret');
   }
 
+  const archiveRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-secret-archive-'));
+  try {
+    fs.mkdirSync(path.join(archiveRoot, 'src'));
+    fs.mkdirSync(path.join(archiveRoot, 'node_modules', 'ignored'), { recursive: true });
+    fs.mkdirSync(path.join(archiveRoot, 'build'), { recursive: true });
+    fs.mkdirSync(path.join(archiveRoot, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(archiveRoot, 'README.md'), 'archive\n');
+    fs.writeFileSync(path.join(archiveRoot, 'src', 'index.js'), "'use strict';\n");
+    fs.writeFileSync(path.join(archiveRoot, '._metadata'), 'ignored\n');
+    fs.writeFileSync(path.join(archiveRoot, 'node_modules', 'ignored', 'secret.txt'), secrets.github);
+    fs.writeFileSync(path.join(archiveRoot, 'build', 'secret.txt'), secrets.github);
+    fs.writeFileSync(path.join(archiveRoot, '.git', 'secret.txt'), secrets.github);
+    assert.deepStrictEqual(
+      discoverReleasableTextFiles(archiveRoot),
+      ['README.md', 'src/index.js'],
+      'non-Git release archives must use the bounded walk and exclude dependency/build metadata'
+    );
+  } finally {
+    fs.rmSync(archiveRoot, { recursive: true, force: true });
+  }
+
   execFileSync('git', ['init', '--initial-branch=main'], { cwd: temporaryRoot, stdio: 'ignore' });
   execFileSync('git', ['add', 'README', 'harmless.js'], { cwd: temporaryRoot, stdio: 'ignore' });
   const discovered = discoverReleasableTextFiles(temporaryRoot);

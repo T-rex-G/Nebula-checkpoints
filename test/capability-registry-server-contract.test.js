@@ -20,6 +20,11 @@ const key = crypto.createHash('sha256').update(secret).digest();
 const fixtureLog = path.join(os.tmpdir(), `nv-capability-provider-${process.pid}-${port}.log`);
 const focus = process.argv[2] || 'all';
 const sessionNonce = 'a'.repeat(48);
+assert.match(
+  serverSource,
+  /if \(initial\.body\) await initial\.body\.cancel\(\);\s+const location/,
+  'GitHub archive redirects must release the authenticated response body before validation and codeload'
+);
 const account = {
   provider: 'gitea',
   authMethod: 'token',
@@ -450,7 +455,6 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       );
     }
 
-    const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
     assert(serverSource.includes("require('./src/capability-registry')"));
     assert(!/const CAPS\s*=/.test(serverSource), 'legacy CAPS table must not remain an independent truth source');
     console.log('capability registry server contract tests passed');

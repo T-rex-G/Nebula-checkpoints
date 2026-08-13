@@ -227,6 +227,53 @@ function ownershipDependencies(overrides = {}) {
   assert.strictEqual(dependencies.requests.length, 2, 'both declared Neon branches must be control-plane bound');
   assert.strictEqual(dependencies.sessionQueries, 1, 'the destructive target must be verified through a live session');
 
+  const missingApiKey = ownershipDependencies({ neonApiKey: '' });
+  await assert.rejects(
+    () => assertIsolatedRestoreTarget(
+      sourceDatabaseUrl,
+      restoreDatabaseUrl,
+      { ...restoreContext, restoreTargetFingerprint: restoreFingerprint },
+      missingApiKey
+    ),
+    /NEON_API_KEY is required/i
+  );
+  assert.strictEqual(missingApiKey.requests.length, 0, 'a missing Neon API key must fail before control-plane access');
+  assert.strictEqual(missingApiKey.sessionQueries, 0, 'a missing Neon API key must fail before target-session access');
+
+  for (const [label, fetchImpl, expected] of [
+    [
+      'non-200 status',
+      async () => new Response(JSON.stringify({ error: 'synthetic outage' }), { status: 503 }),
+      /control-plane ownership verification failed/i
+    ],
+    [
+      'oversized response',
+      async () => new Response('{}', {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'content-length': String(64 * 1024 + 1) }
+      }),
+      /response exceeds the safe limit/i
+    ],
+    [
+      'missing connection URI',
+      async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+      /control-plane response is invalid/i
+    ]
+  ]) {
+    const rejected = ownershipDependencies({ fetchImpl });
+    await assert.rejects(
+      () => assertIsolatedRestoreTarget(
+        sourceDatabaseUrl,
+        restoreDatabaseUrl,
+        { ...restoreContext, restoreTargetFingerprint: restoreFingerprint },
+        rejected
+      ),
+      expected,
+      `${label} must reject restore ownership verification`
+    );
+    assert.strictEqual(rejected.sessionQueries, 0, `${label} must fail before target-session access`);
+  }
+
   await assert.rejects(
     () => assertIsolatedRestoreTarget(sourceDatabaseUrl, restoreDatabaseUrl, {
       ...restoreContext,

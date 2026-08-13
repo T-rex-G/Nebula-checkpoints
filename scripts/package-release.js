@@ -14,6 +14,7 @@ const basename = `${PRODUCT_NAME}-v${APP_VERSION}`;
 const zipPath = path.join(outputDir, `${basename}.zip`);
 const checksumPath = `${zipPath}.sha256`;
 const continuityGenerator = path.join(root, 'scripts', 'generate-continuity-docs.js');
+const GENERATED_DOCUMENTATION_TIMEOUT_MS = 60_000;
 const shouldInclude = shouldIncludeReleasePath;
 
 
@@ -48,9 +49,13 @@ function assertGeneratedDocumentationCurrent(runner = spawnSync) {
   const result = runner(process.execPath, [continuityGenerator, '--check'], {
     cwd: root,
     encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: GENERATED_DOCUMENTATION_TIMEOUT_MS
   });
   if (result.error) {
+    if (result.error.code === 'ETIMEDOUT') {
+      throw new Error(`Generated documentation check timed out after ${GENERATED_DOCUMENTATION_TIMEOUT_MS} ms`);
+    }
     throw new Error(`Generated documentation check failed: ${result.error.message}`);
   }
   if (result.signal) {
@@ -180,6 +185,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  GENERATED_DOCUMENTATION_TIMEOUT_MS,
   shouldInclude,
   assertGeneratedDocumentationCurrent,
   assertExternalOutputDirectory,

@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const {
+  GENERATED_DOCUMENTATION_TIMEOUT_MS,
   assertGeneratedDocumentationCurrent,
   createZipArchive,
   discoverReleaseManifest
@@ -129,6 +130,21 @@ assertGeneratedDocumentationCurrent((command, args, options) => {
 assert(
   generatedDocsSpawnOptions && generatedDocsSpawnOptions.maxBuffer >= 16 * 1024 * 1024,
   'generated documentation checks must use an explicit bounded output buffer'
+);
+assert.strictEqual(
+  generatedDocsSpawnOptions.timeout,
+  GENERATED_DOCUMENTATION_TIMEOUT_MS,
+  'generated documentation checks must use the finite packaging timeout'
+);
+assert.throws(
+  () => assertGeneratedDocumentationCurrent(() => ({
+    status: null,
+    signal: null,
+    stdout: '',
+    stderr: '',
+    error: Object.assign(new Error('spawnSync timed out'), { code: 'ETIMEDOUT' })
+  })),
+  new RegExp(`timed out after ${GENERATED_DOCUMENTATION_TIMEOUT_MS} ms`, 'i')
 );
 assert.throws(
   () => assertGeneratedDocumentationCurrent(() => ({

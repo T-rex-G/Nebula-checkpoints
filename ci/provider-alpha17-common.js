@@ -308,12 +308,12 @@ async function runProviderQualification({ provider, client, env = process.env, n
     });
 
     let staleRejected = false;
+    const staleProofBytes = Buffer.from('Nebulaverse-X alpha.17 rejected stale-write proof\n', 'utf8');
     try {
-      assertExpectedHead(before.sha, afterWrite.sha);
       await client.writeFile({
         branch: target.branch,
         path: proofPath,
-        content: proofBytes,
+        content: staleProofBytes,
         expectedHead: before.sha,
         credential: 'mutation'
       });
@@ -322,9 +322,26 @@ async function runProviderQualification({ provider, client, env = process.env, n
       staleRejected = true;
     }
     const afterStale = await client.getBranch(target.branch, 'mutation');
-    const staleZeroCommit = staleRejected && afterStale.sha === afterWrite.sha;
-    checks.push({ key: 'stale-head', status: staleZeroCommit ? 'pass' : 'fail', zeroCommit: staleZeroCommit });
-    if (!staleZeroCommit) fail('stale-head attempt changed the branch', 'ALPHA17_STALE_HEAD_PROOF_FAILED');
+    const afterStaleFile = await client.readFile(target.branch, proofPath, 'mutation');
+    let staleFileUnchanged = false;
+    try {
+      verifyUtf8Readback(proofBytes, afterStaleFile && afterStaleFile.content);
+      staleFileUnchanged = Boolean(afterStaleFile && afterStaleFile.sha === readback.sha);
+    } catch {}
+    const staleZeroCommit = Boolean(
+      staleRejected &&
+      afterStale &&
+      afterStale.sha === afterWrite.sha &&
+      staleFileUnchanged
+    );
+    checks.push({
+      key: 'stale-head',
+      status: staleZeroCommit ? 'pass' : 'fail',
+      zeroCommit: staleZeroCommit
+    });
+    if (!staleZeroCommit) {
+      fail('stale-head attempt changed the branch or file', 'ALPHA17_STALE_HEAD_PROOF_FAILED');
+    }
 
     let permissionRejected = false;
     try {

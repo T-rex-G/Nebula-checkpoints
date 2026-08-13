@@ -4,7 +4,7 @@
 
 - Separated current, vision, architecture, release, operations, qualification,
   reference, historical, and development records under `docs/`.
-- Made `WORK_CONTINUITY.json` schema v3 the machine-readable state authority and
+- Made `WORK_CONTINUITY.json` schema v4 the machine-readable state authority and
   generated project state and continuation instructions deterministically.
 - Recorded the exact green alpha.17 automated baseline while keeping the
   documentation successor, live providers, hosted environment, manual

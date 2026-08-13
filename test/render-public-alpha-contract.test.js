@@ -93,6 +93,8 @@ for (const requirement of [
   'NV_ALPHA_ACCESS_MODE=invite',
   'NV_ALPHA_INVITE_PEPPER=<independent random value of at least 32 UTF-8 bytes>',
   'NV_ALPHA_TERMS_VERSION=2026-07-29',
+  'NV_UPLOAD_TIMEOUT_MINUTES=10',
+  'NV_STALE_UPLOAD_HOURS=2',
   'Before opening the cohort, verify the deployed environment still reports'
 ]) {
   assert(deploymentGuide.includes(requirement), `deployment guide missing invite boundary: ${requirement}`);

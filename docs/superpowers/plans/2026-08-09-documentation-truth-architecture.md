@@ -4,7 +4,7 @@
 
 **Goal:** Replace the mixed, stale root-document collection with a lifecycle-enforced documentation architecture whose current state and continuation prompt are deterministically generated from `WORK_CONTINUITY.json` before a successor archive can qualify.
 
-**Architecture:** `WORK_CONTINUITY.json` is the sole authored operational-state source. `src/work-continuity.js` validates schema version 3 and renders the two generated current-state documents; `scripts/generate-continuity-docs.js` writes or checks those views. A complete `docs/DOCUMENTATION_MANIFEST.json` and repository-level validator enforce physical lifecycle separation, link integrity, historical immutability, approved-plan hashes, and the root allowlist.
+**Architecture:** `WORK_CONTINUITY.json` is the sole authored operational-state source. `src/work-continuity.js` validates schema version 4 and renders the two generated current-state documents; `scripts/generate-continuity-docs.js` writes or checks those views. A complete `docs/DOCUMENTATION_MANIFEST.json` and repository-level validator enforce physical lifecycle separation, link integrity, historical immutability, approved-plan hashes, and the root allowlist.
 
 **Tech Stack:** Node.js `22.23.1`, CommonJS, built-in `assert`/`fs`/`path`/`crypto`, Git path migration, deterministic ZIP packaging, existing program-matrix and Playwright qualification.
 
@@ -136,7 +136,7 @@ git commit -m "docs: enforce documentation lifecycle structure"
 **Interfaces:**
 - Produces: `validateContinuity(value)`, `readContinuity(file)`, `renderProjectState(state)`, `renderContinuationPrompt(state)`, and `generatedDocuments(state)` from `src/work-continuity.js`.
 - Produces: `scripts/generate-continuity-docs.js --check` with exit 0 only when both tracked views match deterministic rendering.
-- Consumes: schema version 3 state and package version `5.3.0-alpha.17.0`.
+- Consumes: schema version 4 state and package version `5.3.0-alpha.17.0`.
 
 - [ ] **Step 1: Write schema and generation tests first**
 
@@ -165,9 +165,9 @@ It must mutate each required field to prove validation fails, render twice to pr
 PATH=/tmp/nvx-node22-5Sbv1j/node_modules/node-linux-x64/bin:$PATH node test/continuity-generation.test.js
 ```
 
-Expected: failure because `src/work-continuity.js` and schema version 3 do not exist.
+Expected: failure because `src/work-continuity.js` and schema version 4 do not exist.
 
-- [ ] **Step 3: Implement schema version 3 and pure rendering**
+- [ ] **Step 3: Implement schema version 4 and pure rendering**
 
 Implement validation with exact required keys and fail-closed status values. Record `4aa3c378475dd7fdb490b206e0ca3cb88d027bbf` / `29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb` / `d3e86f3aa16faefc165dca8acd726ca22f8a8f10fd5c943ef3addddbab40d2cc` as `recordedBaseline`; store green run IDs `31322778221` and `31322778223`; preserve the known failed-run records; declare the current successor unqualified and its identity external.
 

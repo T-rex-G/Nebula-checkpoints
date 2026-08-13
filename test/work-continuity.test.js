@@ -9,6 +9,14 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const scriptPath = path.join(root, 'scripts', 'resume-work.js');
 const { validateHistoryResult } = require('../scripts/resume-work');
+const { validateContinuity } = require('../src/work-continuity');
+
+const continuityDocument = JSON.parse(fs.readFileSync(path.join(root, 'WORK_CONTINUITY.json'), 'utf8'));
+assert.throws(
+  () => validateContinuity({ ...continuityDocument, gates: null }),
+  error => error instanceof Error && error.message === 'WORK_CONTINUITY.json is invalid',
+  'a null gates object must fail through the continuity validator instead of throwing a TypeError'
+);
 
 assert.throws(
   () => validateHistoryResult(

@@ -331,11 +331,43 @@ function readJsonReport(reportPath, label, maximumBytes = 64 * 1024 * 1024) {
 
 function validateBrowserReport(reportPath, minimumTests = MINIMUM_BROWSER_TESTS) {
   const report = readJsonReport(reportPath, 'candidate browser report');
+  const tests = [];
+  const collectTests = suites => {
+    if (!Array.isArray(suites)) fail('candidate browser report contains a failed or incomplete run');
+    for (const suite of suites) {
+      if (!suite || typeof suite !== 'object') fail('candidate browser report contains a failed or incomplete run');
+      if (Array.isArray(suite.specs)) {
+        for (const spec of suite.specs) {
+          if (!spec || spec.ok !== true || !Array.isArray(spec.tests)) {
+            fail('candidate browser report contains a failed or incomplete run');
+          }
+          tests.push(...spec.tests);
+        }
+      }
+      if (suite.suites != null) collectTests(suite.suites);
+    }
+  };
+  collectTests(report.suites);
+  const allTestsPassed = tests.every(test =>
+    test &&
+    test.expectedStatus === 'passed' &&
+    test.status === 'expected' &&
+    Array.isArray(test.results) &&
+    test.results.length > 0 &&
+    test.results.every(result => result && result.status === 'passed')
+  );
   if (
     !report.stats ||
     !Number.isInteger(report.stats.expected) ||
-    report.stats.expected < minimumTests ||
+    !Number.isInteger(report.stats.skipped) ||
+    !Number.isInteger(report.stats.unexpected) ||
+    !Number.isInteger(report.stats.flaky) ||
+    tests.length < minimumTests ||
+    report.stats.expected !== tests.length ||
+    report.stats.skipped !== 0 ||
     report.stats.unexpected !== 0 ||
+    report.stats.flaky !== 0 ||
+    !allTestsPassed ||
     !Array.isArray(report.errors) ||
     report.errors.length !== 0
   ) fail('candidate browser report contains a failed or incomplete run');

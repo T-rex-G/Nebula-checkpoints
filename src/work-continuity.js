@@ -87,6 +87,7 @@ function validateContinuity(value) {
     || !RUN_ID_PATTERN.test(baseline.qualificationRunId || '')
     || baseline.decision !== 'automated-qualified-independent-review-failed-public-alpha-no-go'
   ) invalid();
+  if (!hasExactKeys(value.gates, EXPECTED_GATE_NAMES)) invalid();
   const independentReview = value.gates.independentReview;
   if (
     !hasExactKeys(independentReview, ['status', 'runId', 'actionable', 'nitpicks'])
@@ -98,7 +99,6 @@ function validateContinuity(value) {
     || independentReview.nitpicks < 0
   ) invalid();
 
-  if (!hasExactKeys(value.gates, EXPECTED_GATE_NAMES)) invalid();
   const automated = value.gates.automated;
   if (!hasExactKeys(automated, [
     'status',

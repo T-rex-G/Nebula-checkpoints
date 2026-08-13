@@ -13,7 +13,8 @@ const {
   parseArgs,
   qualifyCandidateArchive,
   runCommand,
-  validateArchiveEntries
+  validateArchiveEntries,
+  validateBrowserReport
 } = require('../scripts/qualify-candidate-archive');
 const leakProbe = ['must-not', 'reach-candidate'].join('-');
 const registry = require('../config/public-alpha-capabilities.json');
@@ -45,6 +46,25 @@ try {
 
 function sha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function passingBrowserReport(count = 2) {
+  return {
+    stats: { expected: count, skipped: 0, unexpected: 0, flaky: 0 },
+    errors: [],
+    suites: [{
+      title: 'fixture suite',
+      specs: Array.from({ length: count }, (_, index) => ({
+        title: `fixture browser test ${index + 1}`,
+        ok: true,
+        tests: [{
+          expectedStatus: 'passed',
+          status: 'expected',
+          results: [{ status: 'passed' }]
+        }]
+      }))
+    }]
+  };
 }
 
 function writeFixture(root, options = {}) {
@@ -98,7 +118,19 @@ fs.writeFileSync(reportPath, JSON.stringify({
 const fs = require('fs');
 fs.writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_FILE, JSON.stringify({
   stats: { expected: 2, skipped: 0, unexpected: 0, flaky: 0 },
-  errors: []
+  errors: [],
+  suites: [{
+    title: 'fixture suite',
+    specs: [1, 2].map(index => ({
+      title: 'fixture browser test ' + index,
+      ok: true,
+      tests: [{
+        expectedStatus: 'passed',
+        status: 'expected',
+        results: [{ status: 'passed' }]
+      }]
+    }))
+  }]
 }) + '\\n');
 if (fs.existsSync(require('path').join(__dirname, 'tamper-matrix'))) {
   fs.appendFileSync(process.env.NV_STAGING_MATRIX_REPORT_PATH, ' ');
@@ -171,6 +203,27 @@ for (const entries of [
 
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-candidate-runner-'));
 try {
+  const validBrowserReportPath = path.join(temporaryRoot, 'valid-browser-report.json');
+  fs.writeFileSync(validBrowserReportPath, `${JSON.stringify(passingBrowserReport())}\n`);
+  assert.doesNotThrow(() => validateBrowserReport(validBrowserReportPath, 2));
+  for (const [name, mutate] of [
+    ['expected failure', report => { report.suites[0].specs[0].tests[0].expectedStatus = 'failed'; }],
+    ['skipped result', report => { report.suites[0].specs[0].tests[0].results[0].status = 'skipped'; }],
+    ['flaky run', report => { report.stats.flaky = 1; }],
+    ['skipped run', report => { report.stats.skipped = 1; }],
+    ['failed spec', report => { report.suites[0].specs[0].ok = false; }]
+  ]) {
+    const report = passingBrowserReport();
+    mutate(report);
+    const rejectedPath = path.join(temporaryRoot, `${name.replace(/\s+/g, '-')}.json`);
+    fs.writeFileSync(rejectedPath, `${JSON.stringify(report)}\n`);
+    assert.throws(
+      () => validateBrowserReport(rejectedPath, 2),
+      /failed or incomplete run/i,
+      `${name} must not qualify as passing browser evidence`
+    );
+  }
+
   const fixtureParent = path.join(temporaryRoot, 'source');
   fs.mkdirSync(fixtureParent);
   writeFixture(fixtureParent);

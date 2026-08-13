@@ -4,6 +4,20 @@ const fs = require('fs');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
+const phaseOneGovernanceHistory = [
+  'docs/history/phase-1/reports/PHASE_1_TASK_12_13_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_14_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_15_16_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_17_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_18_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md',
+  'docs/history/phase-1/reports/PHASE_1_TASK_19_REPORT.md',
+  'docs/history/phase-1/specifications/TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md'
+];
 
 const required = [
   'config/historical-document-integrity.json',
@@ -28,18 +42,7 @@ const required = [
   'docs/history/phase-1/specifications/TASK_9_10_POLICY_SIMULATION_SPEC.md',
   'docs/history/phase-1/reports/PHASE_1_TASK_11_REPORT.md',
   'docs/history/phase-1/specifications/TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_12_13_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_14_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_15_16_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_17_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_18_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_19_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md',
+  ...phaseOneGovernanceHistory,
   'docs/history/phase-1/reports/PHASE_1_TASK_20_REPORT.md',
   'docs/history/phase-1/specifications/TASK_20_STAGING_VALIDATION_SPEC.md',
   'docs/history/phase-1/reports/PHASE_1_TASK_21_REPORT.md',
@@ -430,18 +433,7 @@ for (const source of ['src/provider-file-mutations.js', 'test/gitea-file-mutatio
 }
 const verifyScript = read('scripts/verify.js');
 for (const artifact of [
-  'docs/history/phase-1/reports/PHASE_1_TASK_12_13_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_14_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_15_16_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_17_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_18_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md',
-  'docs/history/phase-1/reports/PHASE_1_TASK_19_REPORT.md',
-  'docs/history/phase-1/specifications/TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md',
+  ...phaseOneGovernanceHistory,
   'docs/history/phase-1/reports/PHASE_1_TASK_21_REPORT.md',
   'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js',
   'docs/current/ROADMAP.md', 'docs/vision/PRODUCT_VISION.md',

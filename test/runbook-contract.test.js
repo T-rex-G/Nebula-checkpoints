@@ -27,8 +27,8 @@ for (const file of required) {
     }
     assert(text.includes('```bash'), `${file} must include a copyable command block`);
   }
-  for (const block of text.matchAll(/```bash\n([\s\S]*?)```/g)) {
-    assert(block[1].startsWith('set -euo pipefail\n'), `${file} command blocks must fail fast`);
+  for (const block of text.matchAll(/^[ \t]*```bash[ \t]*\r?\n([\s\S]*?)^[ \t]*```[ \t]*$/gm)) {
+    assert.match(block[1], /^[ \t]*set -euo pipefail\r?\n/, `${file} command blocks must fail fast`);
   }
   assert(!/TB[D]|TO[D]O|fill in|implement\s+later/i.test(text), `${file} contains an unfinished marker`);
   assert(!/postgres(?:ql)?:\/\/[^\s`]+/i.test(text), `${file} contains a literal database URL`);

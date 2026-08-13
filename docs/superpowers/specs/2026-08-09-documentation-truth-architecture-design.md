@@ -235,7 +235,7 @@ a historical file classified as current fails CI.
 
 ### 7.1 Machine-readable state
 
-`WORK_CONTINUITY.json` advances to schema version 3 and records:
+`WORK_CONTINUITY.json` advances to schema version 4 and records:
 
 - project and package version;
 - the accepted ancestor tree used for continuity validation;
@@ -350,7 +350,7 @@ documents, tests must fail for the existing layout and stale state.
 
 `test/continuity-generation.test.js` will prove:
 
-- schema version 3 validation;
+- schema version 4 validation;
 - package/continuity version agreement;
 - deterministic project-state and prompt generation;
 - byte-for-byte generated-file drift detection;

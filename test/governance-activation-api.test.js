@@ -114,15 +114,21 @@ const store = {
     idempotencyKey: 'rollback-activation-12345'
   });
   assert(calls.some(([name]) => name === 'rollback'));
-  const beforeRollbackWithoutKey = calls.length;
-  await assert.rejects(
-    () => service.rollbackVersion({
-      scope, authorization, policyId, versionId: proposed.versionId,
-      input: { ...input, reason: 'Restore known-good version' }
-    }),
-    error => error.code === 'GOVERNANCE_IDEMPOTENCY_KEY_REQUIRED'
-  );
-  assert.strictEqual(calls.length, beforeRollbackWithoutKey, 'rollback must reject a missing key before store access');
+  for (const [idempotencyKey, expectedCode] of [
+    [undefined, 'GOVERNANCE_IDEMPOTENCY_KEY_REQUIRED'],
+    ['short', 'GOVERNANCE_IDEMPOTENCY_KEY_INVALID']
+  ]) {
+    const beforeRollback = calls.length;
+    await assert.rejects(
+      () => service.rollbackVersion({
+        scope, authorization, policyId, versionId: proposed.versionId,
+        input: { ...input, reason: 'Restore known-good version' },
+        idempotencyKey
+      }),
+      error => error.code === expectedCode
+    );
+    assert.strictEqual(calls.length, beforeRollback, `${expectedCode} must fail before rollback store access`);
+  }
   await service.listActivationHistory({ scope, authorization, policyId, limit: 20 });
   assert(calls.some(([name]) => name === 'history'));
   console.log('governance activation API tests passed');

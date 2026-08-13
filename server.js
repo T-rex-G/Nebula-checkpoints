@@ -1868,6 +1868,7 @@ async function githubArchiveResponse(acct, owner, repo, ref) {
     redirect: 'manual'
   });
   if (![301, 302, 303, 307, 308].includes(initial.status)) return initial;
+  if (initial.body) await initial.body.cancel();
   const location = initial.headers.get('location');
   let target;
   try { target = new URL(String(location || '')); }

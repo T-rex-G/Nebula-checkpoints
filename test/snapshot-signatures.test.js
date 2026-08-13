@@ -85,6 +85,13 @@ assert.throws(
 );
 assert.throws(
   () => loadSnapshotSigningConfig({
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'snapshot-key-a'
+  }, { production: false, sessionSecret }),
+  /configuration requires both a dedicated key ID and signing secret/i,
+  'partial local configuration must report the missing pair without claiming production mode'
+);
+assert.throws(
+  () => loadSnapshotSigningConfig({
     NV_SNAPSHOT_SIGNING_KEY_ID: 'snapshot-key-a',
     NV_SNAPSHOT_SIGNING_SECRET: sessionSecret
   }, { production: true, sessionSecret }),

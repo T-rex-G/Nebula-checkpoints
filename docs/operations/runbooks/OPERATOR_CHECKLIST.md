@@ -52,6 +52,16 @@ set -euo pipefail
 node scripts/alpha-db.js backup --output-dir "$NV_BACKUP_OUTPUT_DIR"
 node scripts/alpha-db.js verify --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
 node scripts/alpha-db.js restore-target
+```
+
+Stop after the sanitized `restore-target` preview. Confirm the cohort and
+restore project/branch identities differ, review the exact fingerprint, and set
+`NV_RESTORE_TARGET_FINGERPRINT` to that reviewed value. Only then run the
+destructive restore block:
+
+```bash
+set -euo pipefail
+test -n "${NV_RESTORE_TARGET_FINGERPRINT:-}"
 node scripts/alpha-db.js restore --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
 node scripts/alpha-privacy.js retention
 node scripts/alpha-load.js

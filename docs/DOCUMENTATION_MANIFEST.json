@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Nebulaverse-X",
+  "historicalIntegrityBaseline": "config/historical-document-integrity.json",
   "documents": [
     {
       "path": "CHANGELOG.md",

@@ -99,6 +99,13 @@ try {
   assert(!findings.some(item => item.path === 'binary.data'));
   assert(!findings.some(item => item.path === 'linked-secret'));
   assert(!findings.some(item => item.path === 'harmless.js'));
+  assert(findings.every(item => Number.isInteger(item.line) && item.line >= 1),
+    'findings must identify a safe 1-based source line');
+  assert.deepStrictEqual(
+    findings.filter(item => item.path === 'cloud.txt').map(item => [item.rule, item.line]),
+    [['aws-access-key', 1], ['slack-token', 2], ['authenticated-url', 3]],
+    'line reporting must identify each rule without echoing its matched value'
+  );
   const serializedFindings = JSON.stringify(findings);
   for (const value of Object.values(secrets)) {
     assert(!serializedFindings.includes(value), 'findings must never echo the matched secret');

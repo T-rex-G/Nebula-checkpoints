@@ -34,6 +34,7 @@ const options = {
   expectedLatestMigration: '015_alpha_privacy',
   now: new Date('2026-07-29T20:00:00.000Z'),
   registry,
+  ...fixture.bindings,
   verifyArtifact(artifact) {
     return structuredClone(fixture.envelopes[artifact.id]);
   }

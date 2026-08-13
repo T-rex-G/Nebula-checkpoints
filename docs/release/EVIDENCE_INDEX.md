@@ -57,7 +57,8 @@ evidence to the exact frozen successor candidate.
 | Exact-archive qualification | `31494468853` — passed |
 | Automated matrix | 141/141 programs and 56/56 browser checks passed |
 | Independent review | `912555dd-72ab-4662-9645-2313007eea3d` — failed: 16 actionable, 8 nitpicks |
-| Latest remediation review | `04b93d36-47ea-402d-abda-ca6dfb2a9290` — failed raw inventory: 30 actionable (18 inline plus 12 summary/failed-post), 9 nitpicks; its successor remains unqualified |
+| Previous remediation review | `04b93d36-47ea-402d-abda-ca6dfb2a9290` — failed raw inventory: 30 actionable (18 inline plus 12 summary/failed-post), 9 nitpicks |
+| Latest remediation review | `4ae300c4-410c-4ae7-89cc-b7e15767d22e` — failed raw inventory: 15 actionable, 10 nitpicks; its successor remains unqualified |
 | Decision | automated qualification passed; independent review failed; public-alpha NO-GO |
 
 The portability failures remain evidence rather than being erased. Run
@@ -81,3 +82,9 @@ dependency/security classifications, backup and isolated-restore proof,
 rollback proof, and cohort cleanup/purge records. Executed evidence, provider
 credential logs, database backup manifests, and raw provider responses do not
 belong in the source archive.
+
+The final verifier also requires independent trust inputs for every authorized
+provider/hosted target digest and the operator's Ed25519 public key. It computes
+the candidate deployment fingerprint locally and rejects evidence whose target,
+deployment, key ID, or signature does not match those trusted inputs. Evidence
+cannot authorize or authenticate itself.

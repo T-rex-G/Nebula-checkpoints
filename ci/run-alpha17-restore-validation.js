@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { neonConnectionIdentity } = require('../scripts/alpha-db');
+const { neonConnectionIdentitySha256 } = require('../scripts/alpha-db');
 const { validateRunnerRestoreAttestation } = require('./run-hosted-alpha17-validation');
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
@@ -13,6 +13,7 @@ const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
 const SAFE_COMMAND_ENV_KEYS = Object.freeze([
   'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'SYSTEMROOT', 'WINDIR',
+  'PGSSLROOTCERT',
   'DATABASE_URL', 'NV_RESTORE_DATABASE_URL', 'NV_BACKUP_KEY_BASE64',
   'NEON_API_KEY', 'NV_COHORT_NEON_PROJECT_ID', 'NV_COHORT_NEON_BRANCH_ID',
   'NV_RESTORE_NEON_PROJECT_ID', 'NV_RESTORE_NEON_BRANCH_ID',
@@ -149,10 +150,10 @@ function validateBackupResult(value, backupDirectory) {
   return Object.freeze({ ...value, backupPath, manifestPath });
 }
 
-function validateTargetResult(value, env) {
+function validateTargetResult(value, env, expectedIdentitySha256) {
   if (!hasExactKeys(value, [
     'command', 'kind', 'cohortNeonProjectId', 'cohortNeonBranchId',
-    'restoreNeonProjectId', 'restoreNeonBranchId', 'restoreDatabaseIdentity', 'fingerprint'
+    'restoreNeonProjectId', 'restoreNeonBranchId', 'restoreDatabaseIdentitySha256', 'fingerprint'
   ]) || value.command !== 'restore-target') fail('restore-target result does not match the runner contract');
   const expected = {
     kind: env.NV_RESTORE_TARGET_KIND,
@@ -165,8 +166,11 @@ function validateTargetResult(value, env) {
   for (const [key, expectedValue] of Object.entries(expected)) {
     if (value[key] !== expectedValue) fail(`restore-target ${key} does not match the reviewed target`);
   }
-  if (!value.restoreDatabaseIdentity || /[@\s]/.test(value.restoreDatabaseIdentity)) {
-    fail('restore-target identity is invalid');
+  if (
+    !SHA256_PATTERN.test(String(value.restoreDatabaseIdentitySha256 || '')) ||
+    value.restoreDatabaseIdentitySha256 !== expectedIdentitySha256
+  ) {
+    fail('restore-target identity does not match the configured restore connection');
   }
   return value;
 }
@@ -183,14 +187,6 @@ function validateRestoreResult(value) {
     }
   }
   return value;
-}
-
-function identityDigest(connectionUrl, projectId, branchId) {
-  return sha256(Buffer.from(stableJson({
-    connection: neonConnectionIdentity(connectionUrl),
-    projectId,
-    branchId
-  }), 'utf8'));
 }
 
 function writeExclusive(filePath, value) {
@@ -218,6 +214,26 @@ function runRestoreValidation(options = {}) {
   if (!/^[a-zA-Z0-9._-]{1,80}$/.test(runId)) fail('restore workflow run ID is invalid');
   const commandEnv = commandEnvironment(env);
   const executeCommand = options.executeCommand || ((args, childEnv) => executeAlphaDb(args, childEnv, candidateRoot));
+  const sourceIdentitySha256 = neonConnectionIdentitySha256(
+    commandEnv.DATABASE_URL,
+    commandEnv.NV_COHORT_NEON_PROJECT_ID,
+    commandEnv.NV_COHORT_NEON_BRANCH_ID,
+    'DATABASE_URL'
+  );
+  const targetIdentitySha256 = neonConnectionIdentitySha256(
+    commandEnv.NV_RESTORE_DATABASE_URL,
+    commandEnv.NV_RESTORE_NEON_PROJECT_ID,
+    commandEnv.NV_RESTORE_NEON_BRANCH_ID,
+    'NV_RESTORE_DATABASE_URL'
+  );
+  if (sourceIdentitySha256 === targetIdentitySha256) {
+    fail('restore source and target identities are not distinct');
+  }
+  const target = validateTargetResult(
+    executeCommand(['restore-target'], commandEnv),
+    commandEnv,
+    targetIdentitySha256
+  );
   const backupDirectory = fs.mkdtempSync(path.join(runnerTemp, 'nvx-alpha17-restore-'));
   fs.chmodSync(backupDirectory, 0o700);
   let proof;
@@ -227,21 +243,9 @@ function runRestoreValidation(options = {}) {
       executeCommand(['backup', '--output-dir', backupDirectory], commandEnv),
       backupDirectory
     );
-    const target = validateTargetResult(executeCommand(['restore-target'], commandEnv), commandEnv);
     const restore = validateRestoreResult(executeCommand([
       'restore', '--backup', backup.backupPath, '--manifest', backup.manifestPath
     ], commandEnv));
-    const sourceIdentitySha256 = identityDigest(
-      commandEnv.DATABASE_URL,
-      commandEnv.NV_COHORT_NEON_PROJECT_ID,
-      commandEnv.NV_COHORT_NEON_BRANCH_ID
-    );
-    const targetIdentitySha256 = identityDigest(
-      commandEnv.NV_RESTORE_DATABASE_URL,
-      commandEnv.NV_RESTORE_NEON_PROJECT_ID,
-      commandEnv.NV_RESTORE_NEON_BRANCH_ID
-    );
-    if (sourceIdentitySha256 === targetIdentitySha256) fail('restore source and target identities are not distinct');
     const backupManifestSha256 = hashFile(backup.manifestPath);
     proof = {
       status: 'pass',

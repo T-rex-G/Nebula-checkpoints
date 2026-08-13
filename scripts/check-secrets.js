@@ -17,7 +17,7 @@ function main() {
     const findings = run();
     if (findings.length) {
       process.stderr.write(`Potential embedded secrets detected:\n${findings
-        .map(item => `${item.path}: ${item.rule}`)
+        .map(item => `${item.path}:${item.line}: ${item.rule}`)
         .join('\n')}\n`);
       process.exitCode = 1;
       return;

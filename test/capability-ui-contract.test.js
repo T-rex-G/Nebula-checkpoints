@@ -12,6 +12,16 @@ const sw = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
 const registry = JSON.parse(fs.readFileSync(path.join(root, 'config', 'public-alpha-capabilities.json'), 'utf8'));
 const knownFeatures = new Set(Object.keys(registry.providers.github['hosted-alpha']));
 
+function htmlTagWith(...attributes) {
+  return [...html.matchAll(/<[^>]+>/g)].map(match => match[0])
+    .find(tag => attributes.every(attribute => tag.includes(attribute)));
+}
+
+function commandObject(label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return app.match(new RegExp(`\\{[^{}]*label:\\s*'${escaped}'[^{}]*\\}`, 's'))?.[0] || '';
+}
+
 assert(ui.includes('/api/capabilities'));
 assert(ui.includes("status === 'Unavailable'"));
 assert(ui.includes("status === 'Experimental'"));
@@ -46,11 +56,11 @@ for (const [id, feature] of Object.entries({
   assert(tag && tag[0].includes(`data-feature="${feature}"`), `#${id} must map to ${feature}`);
 }
 assert(
-  html.match(/id="neuralLiveBtn"[^>]*data-allow-experimental="true"/),
+  htmlTagWith('id="neuralLiveBtn"', 'data-allow-experimental="true"'),
   'verified live events must remain an explicitly labelled experimental opt-in'
 );
 assert(
-  html.match(/id="codeSearch"[^>]*data-allow-experimental="true"/),
+  htmlTagWith('id="codeSearch"', 'data-allow-experimental="true"'),
   'bounded repository search must remain an explicitly labelled experimental opt-in'
 );
 for (const [id, feature] of Object.entries({
@@ -65,11 +75,11 @@ for (const [id, feature] of Object.entries({
     `#${id} must remain an explicitly labelled ${feature} experimental opt-in`);
 }
 for (const feature of ['pulls.read', 'issues.read', 'releases.read', 'workflows.read']) {
-  const tag = html.match(new RegExp(`<button[^>]+data-feature="${feature}"[^>]*data-tab=`));
-  assert(tag && tag[0].includes('data-allow-experimental="true"'),
+  const tag = htmlTagWith('<button', `data-feature="${feature}"`, 'data-tab=');
+  assert(tag && tag.includes('data-allow-experimental="true"'),
     `${feature} desktop navigation must remain an explicit experimental opt-in`);
-  const mobile = html.match(new RegExp(`<button[^>]+data-feature="${feature}"[^>]*data-act=`));
-  assert(mobile && mobile[0].includes('data-allow-experimental="true"'),
+  const mobile = htmlTagWith('<button', `data-feature="${feature}"`, 'data-act=');
+  assert(mobile && mobile.includes('data-allow-experimental="true"'),
     `${feature} mobile navigation must remain an explicit experimental opt-in`);
 }
 for (const [label, feature] of [
@@ -79,8 +89,8 @@ for (const [label, feature] of [
   ['Security scan — vulnerable dependencies', 'dependency-audit'],
   ['Delete this repository…', 'repository.delete']
 ]) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  assert(new RegExp(`label: '${escaped}'[^\n]+feature: '${feature}'`).test(app),
+  const command = commandObject(label);
+  assert(command.includes(`feature: '${feature}'`),
     `command ${label} must map to ${feature}`);
 }
 for (const [label, feature] of [
@@ -91,8 +101,8 @@ for (const [label, feature] of [
   ['Actions (CI)', 'workflows.read'],
   ['Star / unstar this repo', 'stars.write']
 ]) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  assert(new RegExp(`label: '${escaped}'[^\n]+feature: '${feature}'[^\n]+allowExperimental: true`).test(app),
+  const command = commandObject(label);
+  assert(command.includes(`feature: '${feature}'`) && command.includes('allowExperimental: true'),
     `command ${label} must remain an explicit experimental opt-in`);
 }
 

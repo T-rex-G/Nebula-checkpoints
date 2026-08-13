@@ -12,6 +12,7 @@ const renderReleaseTemplate = value => value
 const must = (cond, msg) => { if (!cond) throw new Error(msg); };
 
 const required = [
+  'config/historical-document-integrity.json',
   'src/work-continuity.js', 'scripts/generate-continuity-docs.js', 'scripts/resume-work.js',
   'test/continuity-generation.test.js',
   'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',

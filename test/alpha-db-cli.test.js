@@ -7,6 +7,7 @@ const {
   assertRestoreTargetDifferent,
   assertIsolatedRestoreTarget,
   databaseEnvironment,
+  databaseConnectionString,
   redactErrorMessage,
   restoreTargetFingerprint
 } = require('../scripts/alpha-db');
@@ -103,6 +104,7 @@ const childEnv = databaseEnvironment(
   'postgresql://operator:secret@db.example:5433/cohort?sslmode=verify-full',
   {
     PATH: '/usr/bin',
+    PGSSLROOTCERT: '/etc/ssl/certs/ca-certificates.crt',
     DATABASE_URL: 'must-disappear',
     NV_BACKUP_KEY_BASE64: 'must-disappear',
     NEON_API_KEY: 'must-disappear'
@@ -110,6 +112,7 @@ const childEnv = databaseEnvironment(
 );
 assert.deepStrictEqual(childEnv, {
   PATH: '/usr/bin',
+  PGSSLROOTCERT: '/etc/ssl/certs/ca-certificates.crt',
   PGHOST: 'db.example',
   PGPORT: '5433',
   PGUSER: 'operator',
@@ -117,6 +120,28 @@ assert.deepStrictEqual(childEnv, {
   PGDATABASE: 'cohort',
   PGSSLMODE: 'verify-full'
 });
+assert.strictEqual(
+  new URL(databaseConnectionString(
+    'postgresql://operator:secret@db.example/cohort?sslmode=verify-full',
+    { PGSSLROOTCERT: '/etc/ssl/certs/ca-certificates.crt' }
+  )).searchParams.get('sslrootcert'),
+  '/etc/ssl/certs/ca-certificates.crt',
+  'Node pg must use the same explicit trusted CA as libpq children'
+);
+assert.strictEqual(
+  databaseEnvironment(
+    'postgresql://operator:secret@db.example/cohort?sslmode=verify-full&sslrootcert=%2Ftmp%2Fprivate-ca.pem',
+    { PGSSLROOTCERT: '/etc/ssl/certs/ca-certificates.crt' }
+  ).PGSSLROOTCERT,
+  '/tmp/private-ca.pem',
+  'an explicit connection-string CA must be preserved for libpq children'
+);
+assert.throws(
+  () => databaseEnvironment(
+    'postgresql://operator:secret@db.example/cohort?sslmode=verify-full&sslrootcert=system'
+  ),
+  /absolute trusted CA file/i
+);
 assert.throws(
   () => databaseEnvironment('postgresql://operator:secret@db.example/cohort?sslmode=disable'),
   /certificate|sslmode/i

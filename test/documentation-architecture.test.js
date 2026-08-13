@@ -7,6 +7,7 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 const manifestPath = path.join(root, 'docs', 'DOCUMENTATION_MANIFEST.json');
+const HISTORY_INTEGRITY_BASELINE = 'config/historical-document-integrity.json';
 const ROOT_MARKDOWN = ['CHANGELOG.md', 'README.md'];
 const LIFECYCLES = new Set([
   'entrypoint',
@@ -25,15 +26,6 @@ const IGNORED_DIRECTORIES = new Set([
   'playwright-report',
   'test-results'
 ]);
-const APPROVED_PLAN_HASHES = Object.freeze({
-  'docs/history/public-alpha/approved-plans/2026-07-29-controlled-hosted-public-alpha-design.md':
-    'ce326ff597e36e16ea364fab7666c5ea353dc67d6de345222649aec8e08380bc',
-  'docs/history/public-alpha/approved-plans/2026-07-29-public-alpha-03-privacy-credential-lifecycle.md':
-    '84d948bcaa3100326447581f1448f2ee2b5324eb03326731c6b93d1c222e7ebc',
-  'docs/history/public-alpha/approved-plans/2026-07-29-public-alpha-master-sequence.md':
-    '1793df39b70de37a862ff4f81240d37948cdd7b7419c7b0dd43c74edacd6ce26'
-});
-
 function discoverMarkdown(directory, prefix = '') {
   const discovered = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -115,8 +107,13 @@ assert.deepStrictEqual(
 
 assert(fs.existsSync(manifestPath), 'missing docs/DOCUMENTATION_MANIFEST.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+assert.deepStrictEqual(Object.keys(manifest).sort(), [
+  'documents', 'historicalIntegrityBaseline', 'project', 'schemaVersion'
+]);
 assert.strictEqual(manifest.schemaVersion, 1);
 assert.strictEqual(manifest.project, 'Nebulaverse-X');
+assert.strictEqual(manifest.historicalIntegrityBaseline, HISTORY_INTEGRITY_BASELINE,
+  'documentation manifest must reference the reviewed historical integrity baseline');
 assert(Array.isArray(manifest.documents), 'documentation manifest must contain a documents array');
 
 const manifestPaths = manifest.documents.map(record => record.path);
@@ -138,9 +135,23 @@ for (const record of manifest.documents) {
   assert(fs.existsSync(path.join(root, record.path)), `manifest target does not exist: ${record.path}`);
 }
 
-for (const [relative, expectedHash] of Object.entries(APPROVED_PLAN_HASHES)) {
+const historyIntegrityPath = path.join(root, manifest.historicalIntegrityBaseline);
+assert(fs.existsSync(historyIntegrityPath), 'missing historical-document integrity baseline');
+const historyIntegrity = JSON.parse(fs.readFileSync(historyIntegrityPath, 'utf8'));
+assert.deepStrictEqual(Object.keys(historyIntegrity).sort(), ['algorithm', 'records', 'schemaVersion']);
+assert.strictEqual(historyIntegrity.schemaVersion, 1);
+assert.strictEqual(historyIntegrity.algorithm, 'sha256');
+assert(historyIntegrity.records && typeof historyIntegrity.records === 'object' && !Array.isArray(historyIntegrity.records));
+const historicalPaths = manifest.documents
+  .filter(record => record.immutableHistory)
+  .map(record => record.path)
+  .sort();
+assert.deepStrictEqual(Object.keys(historyIntegrity.records).sort(), historicalPaths,
+  'historical integrity baseline must bind every immutable manifest record exactly once');
+for (const [relative, expectedHash] of Object.entries(historyIntegrity.records)) {
+  assert.match(expectedHash, /^[0-9a-f]{64}$/, `${relative} has an invalid historical digest`);
   const actualHash = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, relative))).digest('hex');
-  assert.strictEqual(actualHash, expectedHash, `${relative} does not match its approved source bytes`);
+  assert.strictEqual(actualHash, expectedHash, `${relative} does not match its immutable historical baseline`);
 }
 
 const linkFailures = [];

@@ -53,9 +53,9 @@ assert.deepStrictEqual(state.gates.automated.programs, { total: 141, passed: 141
 assert.deepStrictEqual(state.gates.automated.browser, { total: 56, passed: 56, failed: 0 });
 assert.deepStrictEqual(state.gates.independentReview, {
   status: 'failed',
-  runId: '04b93d36-47ea-402d-abda-ca6dfb2a9290',
-  actionable: 30,
-  nitpicks: 9
+  runId: '4ae300c4-410c-4ae7-89cc-b7e15767d22e',
+  actionable: 15,
+  nitpicks: 10
 });
 assert.strictEqual(state.gates.automated.productionAuditVulnerabilities, 0);
 assert.strictEqual(state.gates.automated.developmentAuditVulnerabilities, 0);
@@ -81,7 +81,7 @@ for (const document of [projectState, continuationPrompt]) {
   assert(document.includes('Generated from `WORK_CONTINUITY.json`'));
   assert(document.includes('Public alpha: **NO-GO**'));
   assert(document.includes('1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed'));
-  assert(document.includes('04b93d36-47ea-402d-abda-ca6dfb2a9290'));
+  assert(document.includes('4ae300c4-410c-4ae7-89cc-b7e15767d22e'));
   assert(!document.includes('Task 21 is in progress'));
   assert(!document.includes('Current candidate SHA-256'));
   assert(!document.includes('Current candidate commit'));
@@ -121,19 +121,6 @@ const cleanCheck = spawnSync(process.execPath, [generatorPath, '--check'], {
 });
 assert.strictEqual(cleanCheck.status, 0, cleanCheck.stderr || cleanCheck.stdout);
 
-const originalProjectState = fs.readFileSync(projectStatePath);
-try {
-  fs.writeFileSync(projectStatePath, Buffer.concat([originalProjectState, Buffer.from('\n')]));
-  const driftCheck = spawnSync(process.execPath, [generatorPath, '--check'], {
-    cwd: root,
-    encoding: 'utf8'
-  });
-  assert.notStrictEqual(driftCheck.status, 0, 'generated-file drift must fail the check');
-  assert.match(driftCheck.stderr, /Generated continuity document is stale: docs\/current\/PROJECT_STATE\.md/);
-} finally {
-  fs.writeFileSync(projectStatePath, originalProjectState);
-}
-
 const unknownArgument = spawnSync(process.execPath, [generatorPath, '--unknown'], {
   cwd: root,
   encoding: 'utf8'
@@ -162,6 +149,16 @@ try {
     { cwd: archiveRoot, encoding: 'utf8' }
   );
   assert.match(archiveCheck, /Generated continuity documents are current/);
+
+  const archiveProjectStatePath = path.join(archiveRoot, 'docs', 'current', 'PROJECT_STATE.md');
+  fs.appendFileSync(archiveProjectStatePath, '\n');
+  const driftCheck = spawnSync(
+    process.execPath,
+    [path.join(archiveRoot, 'scripts', 'generate-continuity-docs.js'), '--check'],
+    { cwd: archiveRoot, encoding: 'utf8' }
+  );
+  assert.notStrictEqual(driftCheck.status, 0, 'generated-file drift must fail the check');
+  assert.match(driftCheck.stderr, /Generated continuity document is stale: docs\/current\/PROJECT_STATE\.md/);
 } finally {
   fs.rmSync(archiveRoot, { recursive: true, force: true });
 }

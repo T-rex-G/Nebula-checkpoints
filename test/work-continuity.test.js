@@ -69,9 +69,9 @@ assert.deepStrictEqual(
 );
 assert.deepStrictEqual(state.gates.independentReview, {
   status: 'failed',
-  runId: '04b93d36-47ea-402d-abda-ca6dfb2a9290',
-  actionable: 30,
-  nitpicks: 9
+  runId: '4ae300c4-410c-4ae7-89cc-b7e15767d22e',
+  actionable: 15,
+  nitpicks: 10
 });
 assert.deepStrictEqual(
   Object.fromEntries(Object.entries(state.gates).map(([name, gate]) => [name, gate.status])),

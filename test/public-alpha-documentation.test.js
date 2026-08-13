@@ -149,7 +149,9 @@ assert(releaseGates.includes('Manual accessibility gate: **Pending**'));
 assert(releaseGates.includes('Final release gate: **Pending**'));
 assert(releaseGates.includes('04b93d36-47ea-402d-abda-ca6dfb2a9290'));
 assert(releaseGates.includes('30 actionable findings'));
-assert(releaseGates.includes('18 inline actions plus 12 summary/failed-post actions'));
+assert(/18 inline actions plus 12\s+summary\/failed-post actions/.test(releaseGates));
+assert(releaseGates.includes('4ae300c4-410c-4ae7-89cc-b7e15767d22e'));
+assert(releaseGates.includes('15 actionable findings and 10 nitpicks'));
 
 const qualification = read('docs/release/QUALIFICATION_BASELINE.md');
 assert(qualification.startsWith('# Recorded Alpha.17 Automated Qualification Baseline'));
@@ -189,6 +191,7 @@ assert(evidence.includes('public-alpha NO-GO'));
 assert(evidence.includes('prove only Plan 1 successor foundation work'));
 assert(evidence.includes('do not prove hosted-public-alpha qualification'));
 assert(evidence.includes('04b93d36-47ea-402d-abda-ca6dfb2a9290'));
+assert(evidence.includes('4ae300c4-410c-4ae7-89cc-b7e15767d22e'));
 
 const deploy = read('docs/operations/DEPLOY_RENDER_NEON.md');
 assert(deploy.startsWith('# Deploy Nebulaverse-X 5.3.0-alpha.17.0 Controlled Alpha'));
@@ -213,7 +216,8 @@ assert(security.includes('reviewed restore runner'));
 assert(security.includes('forbidden from claiming `isolated-database-restore`'));
 
 const reviewDispositions = read('docs/architecture/ALPHA17_REVIEW_DISPOSITIONS.md');
-assert(reviewDispositions.includes('30 actionable findings and 9 nitpicks'));
+assert(/30\s+actionable findings and 9 nitpicks/.test(reviewDispositions));
+assert(reviewDispositions.includes('15 actionable findings and 10 nitpicks'));
 assert.strictEqual(
   (reviewDispositions.match(/^\| `PRRT_[^`]+` \|/gm) || []).length,
   15,
@@ -227,9 +231,12 @@ const manualAccessibility = read('docs/qualification/accessibility/PUBLIC_ALPHA_
 assert(manualAccessibility.includes('Start `/api/version` `releaseTreeSha256`'));
 assert(manualAccessibility.includes('End `/api/version` `releaseTreeSha256`'));
 assert(manualAccessibility.includes('responses are retained externally'));
-const reflowRequirementCount = (manualAccessibility.match(/320 CSS-pixel|400%/g) || []).length;
-assert(reflowRequirementCount >= 4,
-  `manual accessibility audit must state the 320 CSS-pixel/400% boundary at least four times; observed ${reflowRequirementCount}`);
+const narrowViewportRequirementCount = (manualAccessibility.match(/320 CSS-pixel/g) || []).length;
+const zoomRequirementCount = (manualAccessibility.match(/400%/g) || []).length;
+assert(narrowViewportRequirementCount >= 4,
+  `manual accessibility audit must state the 320 CSS-pixel boundary in setup, execution, and evidence; observed ${narrowViewportRequirementCount}`);
+assert(zoomRequirementCount >= 4,
+  `manual accessibility audit must state the 400% zoom boundary in setup, execution, and evidence; observed ${zoomRequirementCount}`);
 
 const decisions = read('docs/architecture/ARCHITECTURE_DECISIONS.md');
 assert(decisions.includes('## ADR-055 — Controlled hosted alpha access is independent from provider authorization'));

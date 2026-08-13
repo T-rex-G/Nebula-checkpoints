@@ -20,13 +20,15 @@ syntax scans, and zero production and development audit vulnerabilities.
 
 Independent review `912555dd-72ab-4662-9645-2313007eea3d` then failed with 16
 actionable findings and 8 nitpicks. That result is release-blocking. The
-later review `04b93d36-47ea-402d-abda-ca6dfb2a9290` also failed the
-pre-remediation PR head; its raw inventory contains 30 actionable findings and
-9 nitpicks (18 inline actions plus 12 summary/failed-post actions). Its current
-remediation changes the archive and must earn a new external commit, tree,
-archive hash, evidence envelope, and passing follow-up review. Every gate must
-bind to that same exact candidate, schema, Node version, execution time, and
-cleanup result.
+later review `04b93d36-47ea-402d-abda-ca6dfb2a9290` failed the pre-remediation
+PR head with 30 actionable findings and 9 nitpicks (18 inline actions plus 12
+summary/failed-post actions). The newest review,
+`4ae300c4-410c-4ae7-89cc-b7e15767d22e`, failed the published remediation head
+with 15 actionable findings and 10 nitpicks. The current successor remediates
+that newest inventory, changes the archive again, and must earn a new external
+commit, tree, archive hash, evidence envelope, and passing follow-up review.
+Every gate must bind to that same exact candidate, schema, Node version,
+execution time, and cleanup result.
 
 ## Automated gates
 

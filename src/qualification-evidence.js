@@ -365,9 +365,45 @@ function artifactTypeForLabel(label) {
   fail('qualification evidence label is invalid');
 }
 
+function verifyHostedOperatorSignature(input, trustedOperatorKeys) {
+  const artifact = validateEvidenceEnvelope(input);
+  if (artifact.artifactType !== 'hosted-live') fail('operator signature verification requires hosted evidence');
+  if (
+    !isPlainObject(trustedOperatorKeys) ||
+    Object.keys(trustedOperatorKeys).length === 0 ||
+    Object.keys(trustedOperatorKeys).length > 16
+  ) fail('trusted operator keyring is invalid');
+  const signedRecord = artifact.operatorAttestation.record;
+  const keyId = signedRecord.signature.keyId;
+  if (!Object.hasOwn(trustedOperatorKeys, keyId)) fail('hosted operator signature key is not trusted');
+  const encoded = String(trustedOperatorKeys[keyId] || '').trim();
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length > 4096) {
+    fail('trusted operator public key is invalid');
+  }
+  let publicKey;
+  try {
+    publicKey = crypto.createPublicKey({
+      key: Buffer.from(encoded, 'base64'),
+      format: 'der',
+      type: 'spki'
+    });
+    if (publicKey.asymmetricKeyType !== 'ed25519') throw new Error('wrong key type');
+  } catch {
+    fail('trusted operator public key is invalid');
+  }
+  const unsigned = cloneJson(signedRecord);
+  const signature = Buffer.from(unsigned.signature.value, 'base64');
+  delete unsigned.signature;
+  if (!crypto.verify(null, Buffer.from(stableJson(unsigned), 'utf8'), publicKey, signature)) {
+    fail('hosted operator signature does not verify');
+  }
+  return true;
+}
+
 module.exports = Object.freeze({
   EVIDENCE_SCHEMA_VERSION,
   PROVIDER_CAPABILITY_REQUIREMENTS,
   validateEvidenceEnvelope,
+  verifyHostedOperatorSignature,
   artifactTypeForLabel
 });

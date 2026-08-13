@@ -135,11 +135,16 @@ function scanFiles(options = {}) {
     const text = decodeText(fs.readFileSync(absolute));
     if (text === null) continue;
     for (const { rule, regex } of RULES) {
-      if (regex.test(text)) findings.push(Object.freeze({ path: relative, rule }));
+      regex.lastIndex = 0;
+      const match = regex.exec(text);
+      if (match) {
+        const line = text.slice(0, match.index).split('\n').length;
+        findings.push(Object.freeze({ path: relative, rule, line }));
+      }
     }
   }
   return Object.freeze(findings.sort((left, right) =>
-    left.path.localeCompare(right.path) || left.rule.localeCompare(right.rule)));
+    left.path.localeCompare(right.path) || left.line - right.line || left.rule.localeCompare(right.rule)));
 }
 
 module.exports = Object.freeze({

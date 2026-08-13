@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { runRestoreValidation } = require('../ci/run-alpha17-restore-validation');
+const { neonConnectionIdentitySha256 } = require('../scripts/alpha-db');
 
 const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
@@ -76,7 +77,12 @@ try {
         cohortNeonBranchId: commandEnv.NV_COHORT_NEON_BRANCH_ID,
         restoreNeonProjectId: commandEnv.NV_RESTORE_NEON_PROJECT_ID,
         restoreNeonBranchId: commandEnv.NV_RESTORE_NEON_BRANCH_ID,
-        restoreDatabaseIdentity: 'ep-restore.example.test:5432/cohort_restore',
+        restoreDatabaseIdentitySha256: neonConnectionIdentitySha256(
+          commandEnv.NV_RESTORE_DATABASE_URL,
+          commandEnv.NV_RESTORE_NEON_PROJECT_ID,
+          commandEnv.NV_RESTORE_NEON_BRANCH_ID,
+          'NV_RESTORE_DATABASE_URL'
+        ),
         fingerprint: commandEnv.NV_RESTORE_TARGET_FINGERPRINT
       };
     }
@@ -93,7 +99,7 @@ try {
   };
 
   const result = runRestoreValidation({ env, executeCommand, candidateRoot, now: () => NOW });
-  assert.deepStrictEqual(commands, ['backup', 'restore-target', 'restore']);
+  assert.deepStrictEqual(commands, ['restore-target', 'backup', 'restore']);
   assert.strictEqual(fs.existsSync(observedBackupDirectory), false, 'encrypted backup material must be erased');
   assert.strictEqual(result.cleanupVerified, true);
   assert.strictEqual(result.check.backupRemoved, true);
@@ -133,12 +139,41 @@ try {
     NV_RESTORE_NEON_PROJECT_ID: env.NV_COHORT_NEON_PROJECT_ID,
     NV_RESTORE_NEON_BRANCH_ID: env.NV_COHORT_NEON_BRANCH_ID
   };
+  const commandsBeforeSameIdentity = commands.length;
   assert.throws(
     () => runRestoreValidation({ env: sameIdentityEnv, executeCommand, candidateRoot, now: () => NOW }),
     /restore source and target identities are not distinct/,
     'a target-only kind label must not make identical source and target infrastructure appear distinct'
   );
+  assert.strictEqual(commands.length, commandsBeforeSameIdentity,
+    'an identical target must fail before restore-target, backup, or restore executes');
   assert.strictEqual(fs.existsSync(sameIdentityAttestationPath), false);
+
+  const mismatchedTargetAttestationPath = path.join(runnerTemp, 'mismatched-target-attestation.json');
+  const commandsBeforeMismatchedTarget = commands.length;
+  assert.throws(
+    () => runRestoreValidation({
+      env: {
+        ...env,
+        NV_ALPHA17_RESTORE_ATTESTATION_PATH: mismatchedTargetAttestationPath
+      },
+      executeCommand(args, commandEnv) {
+        const result = executeCommand(args, commandEnv);
+        return args[0] === 'restore-target'
+          ? { ...result, restoreDatabaseIdentitySha256: 'f'.repeat(64) }
+          : result;
+      },
+      candidateRoot,
+      now: () => NOW
+    }),
+    /identity does not match the configured restore connection/
+  );
+  assert.deepStrictEqual(
+    commands.slice(commandsBeforeMismatchedTarget),
+    ['restore-target'],
+    'a control-plane identity mismatch must fail before backup or restore executes'
+  );
+  assert.strictEqual(fs.existsSync(mismatchedTargetAttestationPath), false);
 } finally {
   fs.rmSync(temporaryRoot, { recursive: true, force: true });
 }

@@ -29,7 +29,8 @@ const REQUIRED = Object.freeze({
   restore: Object.freeze(['backup', 'manifest'])
 });
 const SAFE_CHILD_ENV_KEYS = Object.freeze([
-  'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'SYSTEMROOT', 'WINDIR'
+  'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'SYSTEMROOT', 'WINDIR',
+  'PGSSLROOTCERT'
 ]);
 const NEON_API_ORIGIN = 'https://console.neon.tech';
 const NEON_RESPONSE_MAX_BYTES = 64 * 1024;
@@ -121,6 +122,24 @@ function sameNeonConnectionIdentity(left, right) {
     && left.database === right.database
     && left.role === right.role
     && left.pooled === right.pooled;
+}
+
+function neonConnectionIdentitySha256(raw, projectId, branchId, label = 'database URL') {
+  const project = String(projectId || '').trim().toLowerCase();
+  const branch = String(branchId || '').trim().toLowerCase();
+  if (
+    !/^[a-z0-9][a-z0-9-]{2,127}$/.test(project) ||
+    !/^br-[a-z0-9][a-z0-9-]{2,127}$/.test(branch)
+  ) {
+    throw new TypeError(`${label} identity requires valid Neon project and branch IDs`);
+  }
+  const preimage = {
+    schemaVersion: 'nvx-neon-connection-identity.v1',
+    connection: neonConnectionIdentity(raw, label),
+    projectId: project,
+    branchId: branch
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(preimage), 'utf8').digest('hex');
 }
 
 function databaseIdentity(raw) {
@@ -287,7 +306,7 @@ async function verifyNeonRestoreOwnership(source, target, input, dependencies = 
   const connectDatabaseImpl = dependencies.connectDatabaseImpl || (databaseUrl => connectDatabase(databaseUrl, {
     connectionTimeoutMillis: NEON_REQUEST_TIMEOUT_MS,
     query_timeout: NEON_REQUEST_TIMEOUT_MS
-  }));
+  }, dependencies.databaseEnv || process.env));
   const timeoutMs = Number.isInteger(dependencies.timeoutMs) && dependencies.timeoutMs > 0
     ? Math.min(dependencies.timeoutMs, NEON_REQUEST_TIMEOUT_MS)
     : NEON_REQUEST_TIMEOUT_MS;
@@ -349,6 +368,22 @@ function restoreContextFromEnvironment(env) {
   };
 }
 
+function trustedSslRootCertificate(url, baseEnv = process.env) {
+  const urlValue = url.searchParams.get('sslrootcert');
+  const configured = String(urlValue === null ? baseEnv.PGSSLROOTCERT || '' : urlValue).trim();
+  if (!configured) {
+    if (urlValue !== null) throw new TypeError('sslrootcert must name an absolute trusted CA file');
+    return '';
+  }
+  if (
+    /[\u0000\r\n]/.test(configured) ||
+    !path.isAbsolute(configured)
+  ) {
+    throw new TypeError('PGSSLROOTCERT/sslrootcert must name an absolute trusted CA file');
+  }
+  return path.normalize(configured);
+}
+
 function databaseEnvironment(raw, baseEnv = process.env) {
   const { url, database } = parseDatabaseUrl(raw);
   const env = {};
@@ -365,7 +400,19 @@ function databaseEnvironment(raw, baseEnv = process.env) {
     throw new TypeError('PostgreSQL URLs must explicitly use sslmode=verify-full for certificate and hostname verification');
   }
   env.PGSSLMODE = sslmode;
+  const sslRootCertificate = trustedSslRootCertificate(url, baseEnv);
+  if (sslRootCertificate) env.PGSSLROOTCERT = sslRootCertificate;
+  else delete env.PGSSLROOTCERT;
   return env;
+}
+
+function databaseConnectionString(raw, baseEnv = process.env) {
+  const childEnv = databaseEnvironment(raw, baseEnv);
+  const { url } = parseDatabaseUrl(raw);
+  if (childEnv.PGSSLROOTCERT && !url.searchParams.has('sslrootcert')) {
+    url.searchParams.set('sslrootcert', childEnv.PGSSLROOTCERT);
+  }
+  return url.toString();
 }
 
 function redactErrorMessage(raw, secrets = []) {
@@ -536,9 +583,9 @@ async function verifyCommand(args, env) {
   });
 }
 
-async function connectDatabase(databaseUrl, options = {}) {
+async function connectDatabase(databaseUrl, options = {}, env = process.env) {
   const { Client } = require('pg');
-  const client = new Client({ ...options, connectionString: databaseUrl });
+  const client = new Client({ ...options, connectionString: databaseConnectionString(databaseUrl, env) });
   await client.connect();
   return client;
 }
@@ -551,7 +598,7 @@ async function migrateCommand(args, env) {
   assertFreshBackup(manifest);
   const backupPath = backupPathFromRecord(args.backupManifest, record);
   await withVerifiedPlaintext({ backupPath, manifest, key }, async () => {});
-  const client = await connectDatabase(databaseUrl);
+  const client = await connectDatabase(databaseUrl, {}, env);
   try {
     const migration = await runMigrations(client, {
       directory: path.join(__dirname, '..', 'db', 'migrations'),
@@ -575,7 +622,8 @@ async function restoreCommand(args, env) {
   const sourceUrl = requireEnvironment(env, 'DATABASE_URL');
   const targetUrl = requireEnvironment(env, 'NV_RESTORE_DATABASE_URL');
   await assertIsolatedRestoreTarget(sourceUrl, targetUrl, restoreContextFromEnvironment(env), {
-    neonApiKey: requireEnvironment(env, 'NEON_API_KEY')
+    neonApiKey: requireEnvironment(env, 'NEON_API_KEY'),
+    databaseEnv: env
   });
   const key = decodeBackupKey(requireEnvironment(env, 'NV_BACKUP_KEY_BASE64'));
   const { manifest } = await readBackupRecord(args.manifest);
@@ -590,7 +638,7 @@ async function restoreCommand(args, env) {
       plaintextPath
     ], databaseEnvironment(targetUrl, env));
   });
-  const client = await connectDatabase(targetUrl);
+  const client = await connectDatabase(targetUrl, {}, env);
   try {
     const verification = await verifyMigrations(client, {
       directory: path.join(__dirname, '..', 'db', 'migrations')
@@ -618,7 +666,8 @@ async function restoreTargetCommand(env) {
   assertRestoreTargetDifferent(sourceUrl, targetUrl);
   const context = normalizeRestoreContext(restoreContextFromEnvironment(env));
   await verifyNeonRestoreOwnership(sourceUrl, targetUrl, context, {
-    neonApiKey: requireEnvironment(env, 'NEON_API_KEY')
+    neonApiKey: requireEnvironment(env, 'NEON_API_KEY'),
+    databaseEnv: env
   });
   const fingerprint = restoreTargetFingerprint(sourceUrl, targetUrl, context);
   printResult({
@@ -628,7 +677,12 @@ async function restoreTargetCommand(env) {
     cohortNeonBranchId: context.cohortNeonBranchId,
     restoreNeonProjectId: context.restoreNeonProjectId,
     restoreNeonBranchId: context.restoreNeonBranchId,
-    restoreDatabaseIdentity: databaseIdentity(targetUrl),
+    restoreDatabaseIdentitySha256: neonConnectionIdentitySha256(
+      targetUrl,
+      context.restoreNeonProjectId,
+      context.restoreNeonBranchId,
+      'NV_RESTORE_DATABASE_URL'
+    ),
     fingerprint
   });
 }
@@ -665,7 +719,9 @@ module.exports = {
   assertIsolatedRestoreTarget,
   verifyNeonRestoreOwnership,
   neonConnectionIdentity,
+  neonConnectionIdentitySha256,
   databaseEnvironment,
+  databaseConnectionString,
   redactErrorMessage,
   restoreTargetFingerprint,
   main

@@ -5,7 +5,8 @@ const {
   EVIDENCE_SCHEMA_VERSION,
   PROVIDER_CAPABILITY_REQUIREMENTS,
   artifactTypeForLabel,
-  validateEvidenceEnvelope
+  validateEvidenceEnvelope,
+  verifyHostedOperatorSignature
 } = require('./qualification-evidence');
 
 const QUALIFICATION_SCHEMA_VERSION = EVIDENCE_SCHEMA_VERSION;
@@ -268,11 +269,33 @@ function capabilityTuple(registry, qualifiedName) {
   return tuple;
 }
 
+function liveEvidenceBindings(options) {
+  const expected = options.expectedAuthorizedTargets;
+  const expectedKeys = ['github', 'gitlab', 'gitea', 'hosted'];
+  if (
+    !isPlainObject(expected) ||
+    JSON.stringify(Object.keys(expected).sort()) !== JSON.stringify([...expectedKeys].sort()) ||
+    expectedKeys.some(key => !/^[0-9a-f]{64}$/.test(String(expected[key] || '')) || /^0{64}$/.test(expected[key])) ||
+    !/^[0-9a-f]{64}$/.test(String(options.expectedDeploymentSha256 || '')) ||
+    /^0{64}$/.test(options.expectedDeploymentSha256) ||
+    !isPlainObject(options.trustedOperatorKeys) ||
+    Object.keys(options.trustedOperatorKeys).length === 0
+  ) {
+    fail('trusted live-evidence bindings are required', 'PUBLIC_ALPHA_OPTIONS_INVALID');
+  }
+  return Object.freeze({
+    expectedAuthorizedTargets: expected,
+    expectedDeploymentSha256: options.expectedDeploymentSha256,
+    trustedOperatorKeys: options.trustedOperatorKeys
+  });
+}
+
 function verifyQualification(input, options = {}) {
   const record = validateQualificationRecord(input);
   const now = options.now instanceof Date ? new Date(options.now.getTime()) : new Date(options.now || Date.now());
   if (Number.isNaN(now.getTime())) fail('verification time is invalid', 'PUBLIC_ALPHA_OPTIONS_INVALID');
   if (!isPlainObject(options.registry)) fail('capability registry is required', 'PUBLIC_ALPHA_OPTIONS_INVALID');
+  const liveBindings = liveEvidenceBindings(options);
 
   if (record.schemaVersion !== QUALIFICATION_SCHEMA_VERSION) fail('qualification schema does not match', 'PUBLIC_ALPHA_SCHEMA_MISMATCH');
   if (record.product !== PRODUCT) fail('qualification product does not match', 'PUBLIC_ALPHA_PRODUCT_MISMATCH');
@@ -312,6 +335,24 @@ function verifyQualification(input, options = {}) {
       verified = validateEvidenceEnvelope(options.verifyArtifact(artifact));
     } catch (error) {
       failArtifactVerification(artifact, error);
+    }
+    if (verified.artifactType === 'provider-live') {
+      if (verified.authorizedTargetSha256 !== liveBindings.expectedAuthorizedTargets[verified.provider]) {
+        fail('provider evidence target does not match trusted authorization', 'PUBLIC_ALPHA_EVIDENCE_TARGET_MISMATCH');
+      }
+    }
+    if (verified.artifactType === 'hosted-live') {
+      if (verified.authorizedTargetSha256 !== liveBindings.expectedAuthorizedTargets.hosted) {
+        fail('hosted evidence target does not match trusted authorization', 'PUBLIC_ALPHA_EVIDENCE_TARGET_MISMATCH');
+      }
+      if (verified.deploymentSha256 !== liveBindings.expectedDeploymentSha256) {
+        fail('hosted deployment does not match the trusted candidate tree', 'PUBLIC_ALPHA_DEPLOYMENT_MISMATCH');
+      }
+      try {
+        verifyHostedOperatorSignature(verified, liveBindings.trustedOperatorKeys);
+      } catch (error) {
+        failArtifactVerification(artifact, error);
+      }
     }
     artifacts.set(artifact.id, verified);
   }
@@ -364,6 +405,8 @@ function verifyQualification(input, options = {}) {
       hosted: catalog.hosted.length,
       manual: catalog.manual.length,
       artifacts: record.artifacts.length,
+      trustedLiveTargets: 4,
+      hostedOperatorSignatures: 1,
       cleanupVerified: true,
       securityFindingsOpen: 0
     }

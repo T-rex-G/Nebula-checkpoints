@@ -23,6 +23,8 @@ transferable.
 - Start `/api/version` response external evidence reference: ____________________
 - End `/api/version` `releaseTreeSha256`: ____________________
 - End `/api/version` response external evidence reference: ____________________
+- 320 CSS-pixel test environment: ____________________
+- 400% zoom test environment: ____________________
 - [ ] Both responses are retained externally; their release fingerprints are identical and equal the frozen candidate fingerprint.
 
 ## iOS and VoiceOver
@@ -76,4 +78,6 @@ transferable.
 - Audit date (UTC): ____________________
 - Final disposition: [ ] Pass  [ ] Pass with documented exceptions  [ ] Fail
 - Signature method and signer identity: ____________________
+- 320 CSS-pixel evidence reference: ____________________
+- 400% zoom evidence reference: ____________________
 - External immutable evidence reference: ____________________

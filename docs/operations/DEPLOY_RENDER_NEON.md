@@ -47,9 +47,17 @@ Keep these values:
 NODE_ENV=production
 SESSION_SECRET=<Render-generated value of at least 32 bytes>
 DATABASE_URL=<your existing Neon pooled connection string>
+NV_ALPHA_ACCESS_MODE=invite
+NV_ALPHA_INVITE_PEPPER=<independent random value of at least 32 UTF-8 bytes>
+NV_ALPHA_TERMS_VERSION=2026-07-29
 ```
 
 The Neon URL normally contains `-pooler` and SSL parameters. Nebulaverse-X normalizes secure connections to `sslmode=verify-full` while retaining other parameters such as channel binding.
+
+Before opening the cohort, verify the deployed environment still reports
+invite access as active. Do not issue or accept tester invitations while
+`NV_ALPHA_ACCESS_MODE` is absent or `off`, and rotate the invite pepper only
+through the documented invitation invalidation procedure.
 
 Do not create a Render database and do not add a `fromDatabase` block.
 

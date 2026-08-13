@@ -4,12 +4,13 @@ Public alpha: **NO-GO**
 
 The recorded `1a3eba45…` alpha.17 baseline passed automated exact-archive
 qualification, but independent review failed with 16 actionable findings and 8
-nitpicks. A later review, `04b93d36-47ea-402d-abda-ca6dfb2a9290`, failed the
-pre-remediation PR head with a raw inventory of 30 actionable findings and 9
-nitpicks (18 inline actions plus 12 summary/failed-post actions). This latest
-remediation successor changes packaged bytes again and is **not qualified**
-until its own external archive identity, automated evidence, and follow-up
-independent review pass. Live-provider, hosted, manual
+nitpicks. Review `04b93d36-47ea-402d-abda-ca6dfb2a9290` then failed the
+pre-remediation PR head with 30 actionable findings and 9 nitpicks. The latest
+review, `4ae300c4-410c-4ae7-89cc-b7e15767d22e`, failed the published
+remediation head with 15 actionable findings and 10 nitpicks. This successor
+changes packaged bytes again and is **not qualified** until its own external
+archive identity, automated evidence, and follow-up independent review pass.
+Live-provider, hosted, manual
 accessibility, and final release gates remain pending.
 
 Hosted qualification is pending; the cohort is not open. Plans 1–3 are accepted
@@ -152,3 +153,20 @@ substitute for workflow-executed restore proof.
 Live Render/Neon qualification remains pending. No live deployment, database
 migration, backup, restore, smoke test, or provider mutation is claimed by the
 local Plan 5 evidence.
+
+## Final evidence trust inputs
+
+The final gate is run from the exact frozen candidate tree on a trusted operator
+workstation. Its subject digest and source commit, each provider authorization
+target digest, hosted target digest, operator key ID, and Ed25519 public key are
+supplied independently through the `NV_PUBLIC_ALPHA_*` and
+`NV_ALPHA17_OPERATOR_*` environment variables documented in `.env.example`.
+Those trusted values must come from the separately reviewed activation record
+and operator key registry, not from the evidence bundle being verified.
+
+The gate computes the deployment fingerprint from its own candidate tree. It
+then requires the hosted evidence to bind that exact fingerprint, requires all
+live evidence to bind the independently supplied target digests, and verifies
+the hosted operator record's Ed25519 signature against the trusted public key.
+A structurally valid or self-consistent evidence bundle is insufficient when
+any external binding or cryptographic verification fails.

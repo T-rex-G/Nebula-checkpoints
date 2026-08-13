@@ -18,13 +18,14 @@ node scripts/alpha-db.js verify --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKU
 
 Verify the fresh backup before migration and apply/verify migrations through the operator CLI. In the Neon console, confirm the cohort and restore project/branch IDs and that the restore branch is isolated. Both database URLs must explicitly use `sslmode=verify-full`. On the trusted workstation only, set a transient `NEON_API_KEY`; the CLI uses Neon’s [official connection-URI endpoint](https://api-docs.neon.tech/reference/getconnectionuri) to bind both declared branches to the configured URLs and opens the target to verify its database and role.
 
-The required environment is `DATABASE_URL`, `NV_RESTORE_DATABASE_URL`, `NV_BACKUP_KEY_BASE64`, `NEON_API_KEY`, `NV_COHORT_NEON_PROJECT_ID`, `NV_COHORT_NEON_BRANCH_ID`, `NV_RESTORE_NEON_PROJECT_ID`, `NV_RESTORE_NEON_BRANCH_ID`, and `NV_RESTORE_TARGET_KIND=isolated-neon-branch`. Run `restore-target` with `NV_RESTORE_TARGET_FINGERPRINT` unset, retain its sanitized JSON externally, compare every printed identity with the Neon console, and record its exact `fingerprint`. Only then set `NV_RESTORE_TARGET_FINGERPRINT` to that reviewed value. The destructive restore recomputes the fingerprint and repeats control-plane and live-session verification before decryption. Stop on any API, TLS, live-session, URL, project, branch, kind, or fingerprint mismatch. Unset `NEON_API_KEY` after the rehearsal.
+The required environment is `DATABASE_URL`, `NV_RESTORE_DATABASE_URL`, `NV_BACKUP_KEY_BASE64`, `PGSSLROOTCERT` set to an absolute trusted-CA file, `NEON_API_KEY`, `NV_COHORT_NEON_PROJECT_ID`, `NV_COHORT_NEON_BRANCH_ID`, `NV_RESTORE_NEON_PROJECT_ID`, `NV_RESTORE_NEON_BRANCH_ID`, and `NV_RESTORE_TARGET_KIND=isolated-neon-branch`. Run `restore-target` with `NV_RESTORE_TARGET_FINGERPRINT` unset, retain its sanitized JSON externally, compare every printed identity with the Neon console, and record its exact `fingerprint`. Only then set `NV_RESTORE_TARGET_FINGERPRINT` to that reviewed value. The destructive restore recomputes the fingerprint and repeats control-plane and live-session verification before decryption. Stop on any API, TLS, live-session, URL, project, branch, kind, or fingerprint mismatch. Unset `NEON_API_KEY` after the rehearsal.
 
 ```bash
 set -euo pipefail
 : "${DATABASE_URL:?set the cohort URL with sslmode=verify-full}"
 : "${NV_RESTORE_DATABASE_URL:?set the isolated restore URL with sslmode=verify-full}"
 : "${NV_BACKUP_KEY_BASE64:?set the transient backup key}"
+: "${PGSSLROOTCERT:?set an absolute trusted-CA file}"
 : "${NEON_API_KEY:?set a transient Neon control-plane key}"
 : "${NV_COHORT_NEON_PROJECT_ID:?set the cohort project ID}"
 : "${NV_COHORT_NEON_BRANCH_ID:?set the cohort branch ID}"

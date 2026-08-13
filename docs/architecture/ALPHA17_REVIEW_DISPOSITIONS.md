@@ -1,23 +1,41 @@
 # Alpha.17 Independent Review Dispositions
 
-Latest review: `04b93d36-47ea-402d-abda-ca6dfb2a9290`
+Latest review: `4ae300c4-410c-4ae7-89cc-b7e15767d22e`
 
 Public alpha: **NO-GO**
 
-The latest review failed with **30 actionable findings and 9 nitpicks**. The
-actionable total comprises CodeRabbit's 18-action inline review, 10
-summary-only minor findings, and 2 major findings that GitHub failed to post
-inline. Fifteen GitHub review threads carry the 18-action inline review. The
-tables below preserve that raw inventory and map every item to a remediation
-control or explicit design disposition. This document does not qualify its own
-bytes; the exact successor candidate and a new follow-up review remain external
-release evidence.
+The latest review failed with **15 actionable findings and 10 nitpicks**. GitHub
+materialized 13 actionable inline threads and one outside-diff deployment-guide
+action; the review body also reports failed inline posting and two failed-to-post
+immutable-history linter suggestions, so the raw count is retained without
+inventing a one-to-one mapping GitHub did not expose. This successor remediates
+every materialized current-code finding and the applicable nitpicks. It does not
+qualify its own bytes; the exact successor candidate and a new follow-up review
+remain external release evidence.
+
+The preceding review, `04b93d36-47ea-402d-abda-ca6dfb2a9290`, failed with **30
+actionable findings and 9 nitpicks**. Its 18-action inline review, 10
+summary-only minor findings, and 2 major failed-post findings remain preserved
+in the detailed inventory below.
 
 Immutable historical plans under `docs/history/` were not rewritten. Where a
 review comment targeted a historical statement, the current executable
 boundary was verified or strengthened and the disposition is explicit below.
 
-## Raw actionable inventory
+## Latest-review remediation boundary
+
+| Finding cluster | Disposition |
+|---|---|
+| Restore identity and destructive ordering | Applied: the runner binds the control-plane result to the configured target and rejects identical/mismatched infrastructure before backup or restore. |
+| Evidence file reads and command liveness | Applied: evidence/artifact limits are enforced on the opened descriptor and every qualifier child has a finite command-specific timeout. |
+| Live target, deployment, and operator trust | Applied: external target/deployment bindings are mandatory and the hosted Ed25519 signature is verified against a separately trusted key. |
+| Browser identity isolation | Applied: offline identity is tab-scoped and a real multi-tab test proves the active tab survives while the sibling purges and reloads. |
+| Historical-document integrity | Applied without rewriting history: the manifest references a SHA-256 baseline covering every immutable historical Markdown file. |
+| Restore and deployment operations | Applied: preview and destructive restore blocks are separate; invite mode, independent pepper, terms, and explicit PostgreSQL CA requirements are documented and tested. |
+| Test isolation and contract precision | Applied: continuity drift occurs only in a temporary copy; reflow terms, provider Authorization absence, governance inventories, UI attributes, and curl probes are checked independently. |
+| Immutable-history wording suggestions | Superseded by integrity policy: no historical checkpoint bytes were rewritten; current architecture/runtime controls remain authoritative. |
+
+## Previous raw actionable inventory
 
 ### Inline review — 18 actions across 15 GitHub threads
 
@@ -79,7 +97,7 @@ boundary was verified or strengthened and the disposition is explicit below.
 | R3-A14 | Applied | CI checkout has full history for continuity; workflow contract tests accept commit-pinned JavaScript actions and require digest-pinned Docker action references. |
 | R3-A15 | Applied | Browser reflow automation now exercises an actual 320 CSS-pixel viewport, matching the manual 320 CSS-pixel/400% release requirement. |
 | R3-A16 | Applied | Every operator command block is fail-fast; credential exposure names App-secret rotations, and restore documents/validates every required environment and the preview-before-fingerprint sequence. |
-| R3-A17 | Applied | Continuity now records the complete latest failed-review object (run ID, 30 actionable, 9 nitpicks); generated current documents and exact-object tests were refreshed. |
+| R3-A17 | Applied | That remediation round recorded its complete failed-review object (run ID, 30 actionable, 9 nitpicks); the current continuity record now advances to the latest review. |
 | R3-A18 | Applied with explicit residual | Security/architecture truth now states signed hosted-attestation provenance, webhook receiver replay duties, repository-scoped disposable live credentials, and the reviewed-candidate/egress-isolation trust boundary. |
 | R3-N1 | Applied | Snapshot signature regex construction no longer duplicates protocol constants. |
 | R3-N2 | Applied | Documentation-count assertions report the observed value on failure. |

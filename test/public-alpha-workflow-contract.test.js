@@ -420,6 +420,8 @@ for (const binding of [
 assert(hosted.includes('ci/run-alpha17-restore-validation.js'));
 assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_PATH'));
 assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION'));
+assert(hosted.includes('PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt'),
+  'hosted restore must pin an explicit trusted CA for Node pg and libpq children');
 assert(
   !/path:[^\n]*restore-attestation/.test(hosted),
   'the standalone runner restore attestation must not be uploaded outside the sanitized hosted envelope'

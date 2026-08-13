@@ -116,6 +116,7 @@ function hostedRestoreRunnerRecord() {
 }
 
 function createPassFixture() {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
   const catalog = qualificationCatalog(registry);
   const automatedLabels = catalog.automated.map(key => `automated.${key}`);
   const hostedLabels = catalog.hosted.map(key => `hosted.${key}`);
@@ -127,6 +128,13 @@ function createPassFixture() {
     { id: 'manual-artifact', path: '/evidence/manual.json', sha256: '3'.repeat(64) }
   ];
   const operatorRecord = hostedOperationalRecord();
+  const unsignedOperatorRecord = { ...operatorRecord };
+  delete unsignedOperatorRecord.signature;
+  operatorRecord.signature.value = crypto.sign(
+    null,
+    Buffer.from(stableJson(unsignedOperatorRecord), 'utf8'),
+    privateKey
+  ).toString('base64');
   const restoreRunnerRecord = hostedRestoreRunnerRecord();
   const envelopes = {
     'automated-artifact': envelope('automated', 'workflow-2048-automated', automatedLabels),
@@ -154,6 +162,7 @@ function createPassFixture() {
   };
 
   const targetHashCharacters = ['9', 'a', 'b'];
+  const expectedAuthorizedTargets = { hosted: '4'.repeat(64) };
   for (const [index, [provider, features]] of Object.entries(catalog.providers).entries()) {
     const artifactId = `${provider}-artifact`;
     const labels = features.map(feature => `providers.${provider}.${feature}`);
@@ -172,6 +181,7 @@ function createPassFixture() {
       startedAt: '2026-07-29T18:55:00.000Z',
       nodeVersion: '22.23.1'
     });
+    expectedAuthorizedTargets[provider] = envelopes[artifactId].authorizedTargetSha256;
     providers[provider] = Object.fromEntries(
       features.map(feature => [feature, evidenceEntry(artifactId)])
     );
@@ -207,7 +217,17 @@ function createPassFixture() {
     knownLimitations: ['Render Free wake delay.'],
     artifacts
   };
-  return { record, envelopes };
+  return {
+    record,
+    envelopes,
+    bindings: {
+      expectedAuthorizedTargets,
+      expectedDeploymentSha256: '5'.repeat(64),
+      trustedOperatorKeys: {
+        'fixture-operator': publicKey.export({ format: 'der', type: 'spki' }).toString('base64')
+      }
+    }
+  };
 }
 
 module.exports = Object.freeze({

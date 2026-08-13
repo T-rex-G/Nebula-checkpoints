@@ -19,6 +19,13 @@ const MAX_ENTRIES = 20_000;
 const MAX_PATH_BYTES = 1024;
 const MINIMUM_MATRIX_TESTS = 141;
 const MINIMUM_BROWSER_TESTS = 56;
+const COMMAND_TIMEOUTS_MS = Object.freeze({
+  archive: 60 * 1000,
+  install: 10 * 60 * 1000,
+  gate: 5 * 60 * 1000,
+  matrix: 10 * 60 * 1000,
+  browser: 15 * 60 * 1000
+});
 const SAFE_AMBIENT_ENV_KEYS = Object.freeze([
   'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TERM',
   'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT',
@@ -146,6 +153,10 @@ function filesEqual(leftPath, rightPath) {
 }
 
 function runCommand(command, args, options = {}) {
+  const timeoutMs = options.timeoutMs == null ? COMMAND_TIMEOUTS_MS.archive : options.timeoutMs;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30 * 60 * 1000) {
+    fail('candidate command timeout is invalid');
+  }
   const result = spawnSync(command, args, {
     cwd: options.cwd,
     env: options.env || Object.fromEntries(
@@ -154,8 +165,12 @@ function runCommand(command, args, options = {}) {
         .map(key => [key, String(process.env[key])])
     ),
     encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: timeoutMs
   });
+  if (result.error && result.error.code === 'ETIMEDOUT') {
+    fail(`${options.label || command} timed out after ${timeoutMs} ms`);
+  }
   const allowedStatuses = new Set(options.allowedStatuses || [0]);
   if (result.error || !allowedStatuses.has(result.status)) {
     const detail = String(result.stderr || result.stdout || result.error?.message || '').trim().slice(0, 4000);
@@ -416,33 +431,39 @@ function qualifyCandidateArchive(options) {
   runCommand('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], {
     cwd: candidateRoot,
     env: environment,
-    label: 'candidate npm ci'
+    label: 'candidate npm ci',
+    timeoutMs: COMMAND_TIMEOUTS_MS.install
   });
   runCommand(process.execPath, ['scripts/copy-vendor.js'], {
     cwd: candidateRoot,
     env: environment,
-    label: 'candidate reviewed vendor copy'
+    label: 'candidate reviewed vendor copy',
+    timeoutMs: COMMAND_TIMEOUTS_MS.gate
   });
   runCommand('npm', ['run', 'check:syntax'], {
     cwd: candidateRoot,
     env: environment,
-    label: 'candidate syntax gate'
+    label: 'candidate syntax gate',
+    timeoutMs: COMMAND_TIMEOUTS_MS.gate
   });
   runCommand('npm', ['run', 'check:secrets'], {
     cwd: candidateRoot,
     env: environment,
-    label: 'candidate secret gate'
+    label: 'candidate secret gate',
+    timeoutMs: COMMAND_TIMEOUTS_MS.gate
   });
   runCommand('npm', ['audit', '--omit=dev', '--audit-level=high'], {
     cwd: candidateRoot,
     env: environment,
-    label: 'candidate production audit'
+    label: 'candidate production audit',
+    timeoutMs: COMMAND_TIMEOUTS_MS.gate
   });
   const developmentAudit = validateDevelopmentAudit(runCommand('npm', ['audit', '--json'], {
     cwd: candidateRoot,
     env: environment,
     allowedStatuses: [0, 1],
-    label: 'candidate development audit'
+    label: 'candidate development audit',
+    timeoutMs: COMMAND_TIMEOUTS_MS.gate
   }));
   runCommand(process.execPath, [
     'scripts/test-matrix.js',
@@ -450,7 +471,12 @@ function qualifyCandidateArchive(options) {
     '--require-subject',
     '--report',
     parsed.reportPath
-  ], { cwd: candidateRoot, env: environment, label: 'candidate test matrix' });
+  ], {
+    cwd: candidateRoot,
+    env: environment,
+    label: 'candidate test matrix',
+    timeoutMs: COMMAND_TIMEOUTS_MS.matrix
+  });
   const report = validateMatrixReport(
     parsed.reportPath,
     parsed.expectedSha256,
@@ -465,7 +491,8 @@ function qualifyCandidateArchive(options) {
       PLAYWRIGHT_JSON_OUTPUT_FILE: parsed.browserReportPath,
       NV_STAGING_MATRIX_REPORT_PATH: parsed.reportPath
     },
-    label: 'candidate browser matrix'
+    label: 'candidate browser matrix',
+    timeoutMs: COMMAND_TIMEOUTS_MS.browser
   });
   const browserReport = validateBrowserReport(
     parsed.browserReportPath,
@@ -517,6 +544,8 @@ module.exports = Object.freeze({
   assertPinnedNodeVersion,
   MINIMUM_MATRIX_TESTS,
   MINIMUM_BROWSER_TESTS,
+  COMMAND_TIMEOUTS_MS,
+  runCommand,
   hashFile,
   filesEqual,
   validateArchiveEntries,

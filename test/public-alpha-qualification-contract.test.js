@@ -27,6 +27,7 @@ function optionsFor(fixture, override = {}) {
     expectedLatestMigration: '015_alpha_privacy',
     now: new Date('2026-07-29T20:00:00.000Z'),
     registry,
+    ...fixture.bindings,
     verifyArtifact: artifact => structuredClone(fixture.envelopes[artifact.id]),
     ...override
   };
@@ -162,12 +163,46 @@ rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
 rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
   envelopes['github-artifact'].authorizedTargetSha256 = 'not-a-hash';
 });
+rejects('PUBLIC_ALPHA_EVIDENCE_TARGET_MISMATCH', ({ envelopes }) => {
+  envelopes['github-artifact'].authorizedTargetSha256 = 'c'.repeat(64);
+});
+rejects('PUBLIC_ALPHA_EVIDENCE_TARGET_MISMATCH', ({ envelopes }) => {
+  envelopes['hosted-artifact'].authorizedTargetSha256 = 'c'.repeat(64);
+});
+rejects('PUBLIC_ALPHA_DEPLOYMENT_MISMATCH', ({ envelopes }) => {
+  envelopes['hosted-artifact'].deploymentSha256 = 'c'.repeat(64);
+});
 rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
   delete envelopes['hosted-artifact'].operatorAttestation.recordSha256;
 });
 rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+  const attestation = envelopes['hosted-artifact'].operatorAttestation;
+  attestation.record.signature.value = Buffer.alloc(64, 8).toString('base64');
+  attestation.recordSha256 = require('crypto')
+    .createHash('sha256')
+    .update((function stable(value) {
+      if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+      if (value && typeof value === 'object') {
+        return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}`;
+      }
+      return JSON.stringify(value);
+    })(attestation.record), 'utf8')
+    .digest('hex');
+});
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
   delete envelopes['hosted-artifact'].restoreRunnerAttestation.recordSha256;
 });
+
+{
+  const fixture = createPassFixture();
+  assert.throws(
+    () => verifyQualification(fixture.record, optionsFor(fixture, {
+      expectedAuthorizedTargets: undefined
+    })),
+    error => error && error.code === 'PUBLIC_ALPHA_OPTIONS_INVALID',
+    'final qualification must require externally trusted live-target bindings'
+  );
+}
 rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
   envelopes['hosted-artifact'].restoreRunnerAttestation.record.check.smokePassed = false;
 });

@@ -786,7 +786,7 @@ async function boot() {
   $('#findBtn').addEventListener('click', () => { if (state.file && !state.file.binary) openFindPanel(); });
   try {
     state.me = await api('/api/me');
-    try { localStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
+    try { sessionStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
     refreshSafety();
     state.caps = state.me.caps || null;
     await loadProviderCapabilities();
@@ -796,7 +796,7 @@ async function boot() {
     loadRepos(true);
     if (!(await restoreRoute())) showPage('repos');
   } catch (e) {
-    const cached = (() => { try { return JSON.parse(localStorage.getItem('nv_me') || 'null'); } catch { return null; } })();
+    const cached = (() => { try { return JSON.parse(sessionStorage.getItem('nv_me') || 'null'); } catch { return null; } })();
     if (cached && isOfflineError(e)) {
       /* offline launch: proceed with the last-known identity and cached data */
       state.me = cached;
@@ -844,7 +844,7 @@ async function doLogin() {
       const me2 = await api('/api/me');
       state.me = { ...state.me, ...me2 };
       state.caps = me2.caps || null;
-      localStorage.setItem('nv_me', JSON.stringify(state.me));
+      sessionStorage.setItem('nv_me', JSON.stringify(state.me));
       await loadProviderCapabilities();
     } catch {}
     broadcastIdentityBoundary();
@@ -891,6 +891,8 @@ async function purgeLocalData(full) {
       tx.onabort = r;
     });
   } catch {}
+  /* Remove the pre-alpha.17 shared cache during upgrades; current identity
+     fallback is tab-scoped in sessionStorage and was cleared above. */
   try { localStorage.removeItem('nv_me'); } catch {}
   state.file = null;
   if (state.cm) {
@@ -1080,7 +1082,7 @@ $('#accountBtn').addEventListener('click', async () => {
         broadcastIdentityBoundary();
         closeModal(true);
         toast(`${out.removed} signed out ✦`, 'ok');
-        if (out.empty) { localStorage.removeItem('nv_me'); showPage('login'); return; }
+        if (out.empty) { sessionStorage.removeItem('nv_me'); showPage('login'); return; }
         location.hash = '';
         boot(); loadRepos(true);
       } catch (e) { toast(e.message, 'err'); }

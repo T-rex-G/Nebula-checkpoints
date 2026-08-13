@@ -96,18 +96,36 @@ for (const [method, routePath] of [
   );
 }
 
-const governanceReadRoutes = serverSource.split('\n').filter(line =>
-  line.startsWith("app.get('/api/repo/:owner/:repo/governance/")
-);
+function governanceRegistrations(methods) {
+  const pattern = new RegExp(
+    `\\b(?:app|router)\\s*\\.\\s*(${methods})\\s*\\(\\s*(['"])` +
+      '(\\/api\\/repo\\/:owner\\/:repo\\/governance\\/[^\'"]+)\\2',
+    'g'
+  );
+  return [...serverSource.matchAll(pattern)];
+}
+
+const governanceReadRoutes = governanceRegistrations('get');
 assert(governanceReadRoutes.length >= 15, 'governance read-route inventory unexpectedly shrank');
-assert(governanceReadRoutes.every(line => line.includes("capabilityAccess('governance', { allowExperimental: true })")),
-  'every governance GET route must explicitly opt in to experimental provider views');
-const governanceMutationRoutes = serverSource.split('\n').filter(line =>
-  /^app\.(?:post|put|patch|delete)\('\/api\/repo\/:owner\/:repo\/governance\//.test(line)
+function registrationHeader(match) {
+  const remainder = serverSource.slice(match.index);
+  const handlerIndex = remainder.search(/(?:async\s*)?\(\s*req\s*,\s*res\s*\)\s*=>/);
+  assert(handlerIndex >= 0, `governance route ${match[1].toUpperCase()} ${match[3]} is missing its handler`);
+  return remainder.slice(0, handlerIndex);
+}
+
+const experimentalGovernanceAccess =
+  /capabilityAccess\(\s*'governance'\s*,\s*\{\s*allowExperimental:\s*true\s*\}\s*\)/;
+assert(
+  governanceReadRoutes.every(match => experimentalGovernanceAccess.test(registrationHeader(match))),
+  'every governance GET route must explicitly opt in to experimental provider views'
 );
+const governanceMutationRoutes = governanceRegistrations('post|put|patch|delete');
 assert(governanceMutationRoutes.length >= 15, 'governance mutation-route inventory unexpectedly shrank');
-assert(governanceMutationRoutes.every(line => !line.includes('allowExperimental: true')),
-  'governance mutations must remain blocked for providers with view-only experimental coverage');
+assert(
+  governanceMutationRoutes.every(match => !experimentalGovernanceAccess.test(registrationHeader(match))),
+  'governance mutations must remain blocked for providers with view-only experimental coverage'
+);
 const activeIdentityKey = hashJson({
   provider: account.provider,
   baseUrl: account.baseUrl,
@@ -135,7 +153,7 @@ function sessionCookie(stepUp, selectedAccount = account) {
 
 function fixtureRequests() {
   if (!fs.existsSync(fixtureLog)) return [];
-  return fs.readFileSync(fixtureLog, 'utf8').trim().split('\n').filter(Boolean);
+  return fs.readFileSync(fixtureLog, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
 }
 
 function mutationOptions(method, cookie, body, extraHeaders = {}) {
@@ -336,7 +354,7 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       assert.deepStrictEqual(activityBody.issues, []);
       assert.deepStrictEqual(activityBody.releases, []);
       assert.deepStrictEqual(
-        fixtureRequests().slice(before.length).map(line => new URL(line.slice(line.indexOf(' ') + 1)).pathname),
+        fixtureRequests().slice(before.length).map(entry => new URL(entry.url).pathname),
         ['/api/v1/repos/Acme/Demo/commits'],
         'activity must transport only provider-supported feature subsets'
       );
@@ -361,7 +379,7 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       assert.strictEqual(detail.files[0].filename, 'README.md');
 
       assert.deepStrictEqual(
-        fixtureRequests().slice(before.length).map(line => new URL(line.slice(line.indexOf(' ') + 1)).pathname),
+        fixtureRequests().slice(before.length).map(entry => new URL(entry.url).pathname),
         [
           '/api/v1/repos/Acme/Demo/commits',
           `/api/v1/repos/Acme/Demo/commits/${'1'.repeat(40)}`
@@ -381,9 +399,10 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       assert.strictEqual(raw.status, 409, rawText);
       assert.strictEqual(rawBody.code, 'PROVIDER_CAPABILITY_UNAVAILABLE');
       const rawTransport = fixtureRequests().slice(before.length);
-      assert.strictEqual(rawTransport.length, 1, `unexpected raw transports: ${rawTransport.join(', ')}`);
-      assert.match(rawTransport[0], /^GET https:\/\/gitea\.example\//);
-      assert(!rawTransport.some(line => line.includes('github.com')), 'Gitea credentials must never reach GitHub LFS');
+      assert.strictEqual(rawTransport.length, 1, `unexpected raw transports: ${JSON.stringify(rawTransport)}`);
+      assert.strictEqual(rawTransport[0].method, 'GET');
+      assert.match(rawTransport[0].url, /^https:\/\/gitea\.example\//);
+      assert(!rawTransport.some(entry => entry.url.includes('github.com')), 'Gitea credentials must never reach GitHub LFS');
 
       const githubAccount = {
         provider: 'github',
@@ -416,8 +435,16 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       assert.deepStrictEqual(
         fixtureRequests().slice(before.length),
         [
-          'GET https://api.github.com/repos/Acme/Demo/zipball/main',
-          'GET https://codeload.github.com/Acme/Demo/legacy.zip/refs/heads/main'
+          {
+            method: 'GET',
+            url: 'https://api.github.com/repos/Acme/Demo/zipball/main',
+            hasAuthorization: true
+          },
+          {
+            method: 'GET',
+            url: 'https://codeload.github.com/Acme/Demo/legacy.zip/refs/heads/main',
+            hasAuthorization: false
+          }
         ],
         'archive download must use one validated credential-free codeload hop'
       );

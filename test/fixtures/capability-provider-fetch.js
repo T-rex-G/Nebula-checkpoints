@@ -14,8 +14,18 @@ size ${Buffer.byteLength(lfsObject)}
 
 dns.lookup = async () => [{ address: '93.184.216.34', family: 4 }];
 
-function record(method, url) {
-  if (fixtureLog) fs.appendFileSync(fixtureLog, `${method} ${url}\n`);
+function authorizationHeader(options) {
+  return new Headers(options.headers || {}).get('authorization');
+}
+
+function record(method, url, options) {
+  if (fixtureLog) {
+    fs.appendFileSync(fixtureLog, `${JSON.stringify({
+      method,
+      url,
+      hasAuthorization: authorizationHeader(options) !== null
+    })}\n`);
+  }
 }
 
 function json(status, body) {
@@ -33,7 +43,7 @@ global.fetch = async (input, options = {}) => {
   }
 
   const method = String(options.method || 'GET').toUpperCase();
-  record(method, url.toString());
+  record(method, url.toString(), options);
 
   if (url.origin === giteaOrigin) {
     const route = url.pathname.replace(/^\/api\/v1/, '');
@@ -81,7 +91,7 @@ global.fetch = async (input, options = {}) => {
   }
   if (url.hostname === 'api.github.com' &&
       method === 'GET' && url.pathname === '/repos/Acme/Demo/zipball/main') {
-    if (options.redirect !== 'manual' || options.headers.Authorization !== 'Bearer fixture-github-token') {
+    if (options.redirect !== 'manual' || authorizationHeader(options) !== 'Bearer fixture-github-token') {
       throw new Error('GitHub archive API request must use an authenticated non-following redirect mode');
     }
     return new Response(null, {
@@ -91,7 +101,7 @@ global.fetch = async (input, options = {}) => {
   }
   if (url.hostname === 'codeload.github.com' &&
       method === 'GET' && url.pathname === '/Acme/Demo/legacy.zip/refs/heads/main') {
-    if (options.redirect !== 'error' || options.headers.Authorization) {
+    if (options.redirect !== 'error' || authorizationHeader(options) !== null) {
       throw new Error('Codeload archive request must reject redirects and omit provider credentials');
     }
     return new Response('zip-fixture', {

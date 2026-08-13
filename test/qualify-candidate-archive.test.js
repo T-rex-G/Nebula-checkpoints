@@ -12,6 +12,7 @@ const {
   MINIMUM_MATRIX_TESTS,
   parseArgs,
   qualifyCandidateArchive,
+  runCommand,
   validateArchiveEntries
 } = require('../scripts/qualify-candidate-archive');
 const leakProbe = ['must-not', 'reach-candidate'].join('-');
@@ -22,6 +23,14 @@ const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
 assert.doesNotThrow(() => assertPinnedNodeVersion('v22.23.1'));
 assert.strictEqual(MINIMUM_MATRIX_TESTS, 141);
 assert.throws(() => assertPinnedNodeVersion('v22.23.0'), /requires Node v22\.23\.1/);
+assert.throws(
+  () => runCommand(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    label: 'synthetic stalled qualifier command',
+    timeoutMs: 50
+  }),
+  /synthetic stalled qualifier command timed out after 50 ms/,
+  'every qualifier child process must have an explicit finite timeout'
+);
 const processVersionDescriptor = Object.getOwnPropertyDescriptor(process, 'version');
 try {
   Object.defineProperty(process, 'version', { ...processVersionDescriptor, value: 'v22.23.0' });

@@ -8,6 +8,7 @@ const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 const { createArtifactVerifier, parseArgs } = require('../scripts/public-alpha-gate');
 const { createPassFixture } = require('./helpers/public-alpha-pass-fixture');
+const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 
 assert.deepStrictEqual(parseArgs(['plan']), { command: 'plan' });
 assert.deepStrictEqual(parseArgs(['verify', '/tmp/evidence.json']), {
@@ -29,6 +30,8 @@ const root = path.resolve(__dirname, '..');
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-alpha-gate-test-'));
 try {
   const fixture = createPassFixture();
+  fixture.envelopes['hosted-artifact'].deploymentSha256 = computeReleaseFingerprint(root);
+  fixture.bindings.expectedDeploymentSha256 = fixture.envelopes['hosted-artifact'].deploymentSha256;
   const evidence = fixture.record;
   const completedAt = new Date().toISOString();
   evidence.generatedAt = completedAt;
@@ -79,6 +82,22 @@ try {
     'the artifact digest and parsed envelope must come from the same file bytes'
   );
 
+  const oversizedArtifactPath = path.join(temporaryRoot, 'oversized-artifact.json');
+  const oversizedDescriptor = fs.openSync(oversizedArtifactPath, 'w', 0o600);
+  try {
+    fs.ftruncateSync(oversizedDescriptor, (64 * 1024 * 1024) + 1);
+  } finally {
+    fs.closeSync(oversizedDescriptor);
+  }
+  assert.throws(
+    () => createArtifactVerifier()({
+      ...atomicArtifact,
+      path: oversizedArtifactPath
+    }),
+    /safe size limit/,
+    'artifact size must be rejected from the opened descriptor before content is read'
+  );
+
   evidence.knownLimitations.push('Line one\n# Injected heading https://github.com/acme/private-repo');
   const evidencePath = path.join(temporaryRoot, 'qualification.json');
   fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
@@ -86,7 +105,13 @@ try {
   const env = {
     ...process.env,
     NV_PUBLIC_ALPHA_SUBJECT_SHA256: 'a'.repeat(64),
-    NV_PUBLIC_ALPHA_SOURCE_COMMIT: 'b'.repeat(40)
+    NV_PUBLIC_ALPHA_SOURCE_COMMIT: 'b'.repeat(40),
+    NV_PUBLIC_ALPHA_GITHUB_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.github,
+    NV_PUBLIC_ALPHA_GITLAB_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.gitlab,
+    NV_PUBLIC_ALPHA_GITEA_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.gitea,
+    NV_PUBLIC_ALPHA_HOSTED_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.hosted,
+    NV_ALPHA17_OPERATOR_KEY_ID: 'fixture-operator',
+    NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64: fixture.bindings.trustedOperatorKeys['fixture-operator']
   };
   const plan = JSON.parse(execFileSync(process.execPath, [
     'scripts/public-alpha-gate.js', 'plan'

@@ -37,7 +37,7 @@ for (const file of required) {
 
 for (const file of required) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
-  for (const line of text.split('\n').filter(value => value.startsWith('curl '))) {
+  for (const line of text.split('\n').map(value => value.trimStart()).filter(value => value.startsWith('curl '))) {
     assert(line.includes('--fail'), `${file} verification probe must fail on HTTP errors`);
   }
 }

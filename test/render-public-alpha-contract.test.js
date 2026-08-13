@@ -6,6 +6,7 @@ const path = require('path');
 
 const render = fs.readFileSync(path.join(__dirname, '..', 'render.yaml'), 'utf8');
 const envExample = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
+const deploymentGuide = fs.readFileSync(path.join(__dirname, '..', 'docs', 'operations', 'DEPLOY_RENDER_NEON.md'), 'utf8');
 
 assert.strictEqual((render.match(/^\s*- type:\s*web\s*$/gm) || []).length, 1);
 assert.match(render, /name:\s*nebulaverse-x-public-alpha/);
@@ -74,6 +75,7 @@ for (const [key, value] of Object.entries({
 for (const key of [
   'NV_BACKUP_KEY_BASE64',
   'NV_RESTORE_DATABASE_URL',
+  'PGSSLROOTCERT',
   'NEON_API_KEY',
   'NV_COHORT_NEON_PROJECT_ID',
   'NV_COHORT_NEON_BRANCH_ID',
@@ -87,5 +89,13 @@ for (const key of [
   assert(envExample.includes(`${key}=`), `.env.example missing ${key}`);
 }
 assert(!render.includes('NEON_API_KEY'), 'the operator-only Neon API key must never enter Render');
+for (const requirement of [
+  'NV_ALPHA_ACCESS_MODE=invite',
+  'NV_ALPHA_INVITE_PEPPER=<independent random value of at least 32 UTF-8 bytes>',
+  'NV_ALPHA_TERMS_VERSION=2026-07-29',
+  'Before opening the cohort, verify the deployed environment still reports'
+]) {
+  assert(deploymentGuide.includes(requirement), `deployment guide missing invite boundary: ${requirement}`);
+}
 
 console.log('Render public alpha contract tests passed');

@@ -10,6 +10,10 @@ assert(/data-remove[\s\S]{0,1200}await purgeLocalData\(false\);[\s\S]{0,500}acco
 assert(/async function doLogout\(\)[\s\S]+finally[\s\S]+await purgeLocalData\(true\)/.test(app), 'logout must clear local data even when remote revocation fails');
 assert(app.includes("new BroadcastChannel('nv-identity-boundary-v1')"), 'identity changes must notify other tabs');
 assert(app.includes("window.addEventListener('storage'"), 'identity changes need a cross-tab fallback without BroadcastChannel');
+assert(!/localStorage\.(?:setItem|getItem)\('nv_me'/.test(app),
+  'offline identity fallback must remain tab-scoped so sibling purges cannot delete the active identity');
+assert(app.includes("sessionStorage.setItem('nv_me'") && app.includes("sessionStorage.getItem('nv_me'"),
+  'offline identity fallback must use sessionStorage');
 assert(/accounts\/switch-idx[\s\S]{0,200}broadcastIdentityBoundary\(\)/.test(app), 'successful account switches must purge other tabs');
 assert(/async function receiveIdentityBoundary\(\)[\s\S]{0,300}await purgeLocalData\(true\);[\s\S]{0,100}window\.location\.reload\(\)/.test(app),
   'other tabs must purge identity-bound state before reloading');

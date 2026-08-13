@@ -80,7 +80,10 @@ function loadSnapshotSigningConfig(env = process.env, options = {}) {
     activeSecret = sessionSecret || 'dev-snapshot-signing-key';
   }
   if (!activeKeyId || !activeSecret) {
-    throw new TypeError('Production requires a dedicated snapshot signing key ID and secret');
+    const message = production
+      ? 'Production requires a dedicated snapshot signing key ID and secret'
+      : 'Snapshot signing configuration requires both a dedicated key ID and signing secret';
+    throw new TypeError(message);
   }
   activeKeyId = assertKeyId(activeKeyId, 'Active snapshot key ID');
   activeSecret = assertSecret(activeSecret, 'Active snapshot signing secret', production ? 32 : 16);

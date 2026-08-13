@@ -419,6 +419,7 @@ jobs:
           NV_RESTORE_DATABASE_URL: ${{ secrets.ALPHA17_RESTORE_DATABASE_URL }}
           NV_BACKUP_KEY_BASE64: ${{ secrets.ALPHA17_BACKUP_KEY_BASE64 }}
           NEON_API_KEY: ${{ secrets.ALPHA17_NEON_API_KEY }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
           NV_COHORT_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
           NV_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
           NV_RESTORE_NEON_PROJECT_ID: ${{ vars.ALPHA17_RESTORE_NEON_PROJECT_ID }}

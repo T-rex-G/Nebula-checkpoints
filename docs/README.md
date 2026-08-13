@@ -49,4 +49,5 @@ Vision describes intent; it never proves delivery or qualification.
 Files under `docs/history/` preserve checkpoint evidence. They are not current
 instructions and must not override `WORK_CONTINUITY.json` or generated current
 state. Every Markdown file is classified exactly once in
-`DOCUMENTATION_MANIFEST.json`.
+`DOCUMENTATION_MANIFEST.json`. Its historical records are byte-bound by the
+referenced `config/historical-document-integrity.json` SHA-256 baseline.

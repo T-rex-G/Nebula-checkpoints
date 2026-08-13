@@ -63,7 +63,7 @@ const store = {
   assert.strictEqual(call.simulationEvidence.simulationHash, expected.simulationHash);
   assert.strictEqual(call.idempotencyKey, 'activation-12345');
   await assert.rejects(
-    () => service.activateVersion({ scope, authorization, policyId, versionId: proposed.versionId, input: { ...input, simulation: { ...input.simulation, simulationHash: 'f'.repeat(64) } } }),
+    () => service.activateVersion({ scope, authorization, policyId, versionId: proposed.versionId, input: { ...input, simulation: { ...input.simulation, simulationHash: 'f'.repeat(64) } }, idempotencyKey: 'activation-mismatch-123' }),
     error => error.code === 'GOVERNANCE_SIMULATION_MISMATCH'
   );
   await assert.rejects(
@@ -82,6 +82,19 @@ const store = {
     () => service.activateVersion({ scope, authorization, policyId, versionId: proposed.versionId, input: { ...input, actorLogin: 'mallory' } }),
     error => error.code === 'GOVERNANCE_ACTIVATOR_IDENTITY_FORBIDDEN'
   );
+  for (const [idempotencyKey, expectedCode] of [
+    [undefined, 'GOVERNANCE_IDEMPOTENCY_KEY_REQUIRED'],
+    ['short', 'GOVERNANCE_IDEMPOTENCY_KEY_INVALID']
+  ]) {
+    const before = calls.length;
+    await assert.rejects(
+      () => service.activateVersion({
+        scope, authorization, policyId, versionId: proposed.versionId, input, idempotencyKey
+      }),
+      error => error.code === expectedCode
+    );
+    assert.strictEqual(calls.length, before, `${expectedCode} must fail before any store access`);
+  }
   const humanKey = key('github-app-activator');
   const appAuthorization = {
     ...authorization,
@@ -89,11 +102,27 @@ const store = {
     governanceActor: { kind: 'human', identityKey: humanKey, login: 'human-activator', verified: true },
     installationCapabilities: { repositorySelected: true, repositorySelection: 'selected', permissions: { metadata: 'read', contents: 'write' } }
   };
-  await service.activateVersion({ scope, authorization: appAuthorization, policyId, versionId: proposed.versionId, input });
+  await service.activateVersion({
+    scope, authorization: appAuthorization, policyId, versionId: proposed.versionId, input,
+    idempotencyKey: 'app-activation-12345'
+  });
   const appCall = calls.filter(([name]) => name === 'activate').at(-1)[1];
   assert.deepStrictEqual(appCall.actor, { identityKey: humanKey, login: 'human-activator' });
-  await service.rollbackVersion({ scope, authorization, policyId, versionId: proposed.versionId, input: { ...input, reason: 'Restore known-good version' } });
+  await service.rollbackVersion({
+    scope, authorization, policyId, versionId: proposed.versionId,
+    input: { ...input, reason: 'Restore known-good version' },
+    idempotencyKey: 'rollback-activation-12345'
+  });
   assert(calls.some(([name]) => name === 'rollback'));
+  const beforeRollbackWithoutKey = calls.length;
+  await assert.rejects(
+    () => service.rollbackVersion({
+      scope, authorization, policyId, versionId: proposed.versionId,
+      input: { ...input, reason: 'Restore known-good version' }
+    }),
+    error => error.code === 'GOVERNANCE_IDEMPOTENCY_KEY_REQUIRED'
+  );
+  assert.strictEqual(calls.length, beforeRollbackWithoutKey, 'rollback must reject a missing key before store access');
   await service.listActivationHistory({ scope, authorization, policyId, limit: 20 });
   assert(calls.some(([name]) => name === 'history'));
   console.log('governance activation API tests passed');

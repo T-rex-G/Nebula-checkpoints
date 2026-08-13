@@ -27,7 +27,7 @@ function json(status, body) {
 
 global.fetch = async (input, options = {}) => {
   const url = new URL(String(input));
-  if (url.origin !== giteaOrigin && url.hostname !== 'github.com' &&
+  if (url.origin !== giteaOrigin && url.hostname !== 'github.com' && url.hostname !== 'codeload.github.com' &&
       url.hostname !== 'api.github.com') {
     return realFetch(input, options);
   }
@@ -79,8 +79,29 @@ global.fetch = async (input, options = {}) => {
       headers: { 'content-type': 'application/octet-stream' }
     });
   }
+  if (url.hostname === 'api.github.com' &&
+      method === 'GET' && url.pathname === '/repos/Acme/Demo/zipball/main') {
+    if (options.redirect !== 'manual' || options.headers.Authorization !== 'Bearer fixture-github-token') {
+      throw new Error('GitHub archive API request must use an authenticated non-following redirect mode');
+    }
+    return new Response(null, {
+      status: 302,
+      headers: { location: 'https://codeload.github.com/Acme/Demo/legacy.zip/refs/heads/main' }
+    });
+  }
+  if (url.hostname === 'codeload.github.com' &&
+      method === 'GET' && url.pathname === '/Acme/Demo/legacy.zip/refs/heads/main') {
+    if (options.redirect !== 'error' || options.headers.Authorization) {
+      throw new Error('Codeload archive request must reject redirects and omit provider credentials');
+    }
+    return new Response('zip-fixture', {
+      status: 200,
+      headers: { 'content-type': 'application/zip' }
+    });
+  }
   if (url.hostname === 'github.com' &&
       method === 'POST' && url.pathname === '/Acme/Demo.git/info/lfs/objects/batch') {
+    if (options.redirect !== 'error') throw new Error('LFS batch requests must reject redirects');
     return json(200, {
       objects: [{
         oid: 'a'.repeat(64),

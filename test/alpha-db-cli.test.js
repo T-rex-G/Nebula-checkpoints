@@ -42,7 +42,7 @@ assert.throws(
   /must differ/
 );
 
-const sourceDatabaseUrl = 'postgresql://source:one@ep-source-pooler.us-east-2.aws.neon.tech/cohort?sslmode=require';
+const sourceDatabaseUrl = 'postgresql://source:one@ep-source-pooler.us-east-2.aws.neon.tech/cohort?sslmode=verify-full';
 const restoreDatabaseUrl = 'postgresql://restore:two@ep-restore.us-east-2.aws.neon.tech/cohort_restore?sslmode=verify-full';
 const restoreContext = {
   cohortNeonProjectId: 'quiet-rain-12345678',
@@ -66,8 +66,34 @@ assert.throws(
   'the preview fingerprint must reject the cohort branch'
 );
 assert.throws(
+  () => restoreTargetFingerprint(sourceDatabaseUrl, restoreDatabaseUrl, {
+    ...restoreContext,
+    cohortNeonBranchId: restoreContext.restoreNeonBranchId
+  }),
+  /isolated Neon branch must differ/i,
+  'the preview fingerprint must reject a cohort declaration that aliases the restore branch'
+);
+assert.notStrictEqual(
+  restoreTargetFingerprint(
+    sourceDatabaseUrl.replace('source:one@', 'source-reviewer:one@'),
+    restoreDatabaseUrl,
+    restoreContext
+  ),
+  restoreFingerprint,
+  'the reviewed fingerprint must bind the source database role'
+);
+assert.notStrictEqual(
+  restoreTargetFingerprint(
+    sourceDatabaseUrl,
+    restoreDatabaseUrl.replace('restore:two@', 'restore-reviewer:two@'),
+    restoreContext
+  ),
+  restoreFingerprint,
+  'the reviewed fingerprint must bind the restore database role'
+);
+assert.throws(
   () => assertRestoreTargetDifferent(
-    'postgresql://source:one@db.example/db?sslmode=require',
+    'postgresql://source:one@db.example/db?sslmode=verify-full',
     'postgresql://restore:two@db.example/db?sslmode=verify-full'
   ),
   /must differ/
@@ -93,8 +119,15 @@ assert.deepStrictEqual(childEnv, {
 });
 assert.throws(
   () => databaseEnvironment('postgresql://operator:secret@db.example/cohort?sslmode=disable'),
-  /TLS|sslmode/i
+  /certificate|sslmode/i
 );
+for (const insecureUrl of [
+  'postgresql://operator:secret@db.example/cohort',
+  'postgresql://operator:secret@db.example/cohort?sslmode=require',
+  'postgresql://operator:secret@db.example/cohort?sslmode=verify-ca'
+]) {
+  assert.throws(() => databaseEnvironment(insecureUrl), /sslmode=verify-full/i);
+}
 const redacted = redactErrorMessage(
   'failed for postgresql://operator:secret@db.example/cohort with must-disappear',
   ['must-disappear']
@@ -189,17 +222,18 @@ function ownershipDependencies(overrides = {}) {
 
   const insecureTarget = restoreDatabaseUrl.replace('sslmode=verify-full', 'sslmode=disable');
   const insecureDependencies = ownershipDependencies();
+  assert.throws(
+    () => restoreTargetFingerprint(sourceDatabaseUrl, insecureTarget, restoreContext),
+    /sslmode=verify-full/i
+  );
   await assert.rejects(
     () => assertIsolatedRestoreTarget(
       sourceDatabaseUrl,
       insecureTarget,
-      {
-        ...restoreContext,
-        restoreTargetFingerprint: restoreTargetFingerprint(sourceDatabaseUrl, insecureTarget, restoreContext)
-      },
+      { ...restoreContext, restoreTargetFingerprint: 'a'.repeat(64) },
       insecureDependencies
     ),
-    /must require TLS/i
+    /sslmode=verify-full/i
   );
   assert.strictEqual(insecureDependencies.requests.length, 0, 'invalid TLS must fail before control-plane access');
 

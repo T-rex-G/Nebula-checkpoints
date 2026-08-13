@@ -51,6 +51,12 @@ assert.deepStrictEqual(
 );
 assert.deepStrictEqual(state.gates.automated.programs, { total: 141, passed: 141, blocked: 0, failed: 0 });
 assert.deepStrictEqual(state.gates.automated.browser, { total: 56, passed: 56, failed: 0 });
+assert.deepStrictEqual(state.gates.independentReview, {
+  status: 'failed',
+  runId: '04b93d36-47ea-402d-abda-ca6dfb2a9290',
+  actionable: 30,
+  nitpicks: 9
+});
 assert.strictEqual(state.gates.automated.productionAuditVulnerabilities, 0);
 assert.strictEqual(state.gates.automated.developmentAuditVulnerabilities, 0);
 assert.strictEqual(state.gates.automated.deterministicArchive, true);
@@ -75,7 +81,7 @@ for (const document of [projectState, continuationPrompt]) {
   assert(document.includes('Generated from `WORK_CONTINUITY.json`'));
   assert(document.includes('Public alpha: **NO-GO**'));
   assert(document.includes('1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed'));
-  assert(document.includes('912555dd-72ab-4662-9645-2313007eea3d'));
+  assert(document.includes('04b93d36-47ea-402d-abda-ca6dfb2a9290'));
   assert(!document.includes('Task 21 is in progress'));
   assert(!document.includes('Current candidate SHA-256'));
   assert(!document.includes('Current candidate commit'));

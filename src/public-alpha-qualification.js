@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const {
   EVIDENCE_SCHEMA_VERSION,
+  PROVIDER_CAPABILITY_REQUIREMENTS,
   artifactTypeForLabel,
   validateEvidenceEnvelope
 } = require('./qualification-evidence');
@@ -101,6 +102,9 @@ function cloneJson(value, path = 'record') {
   if (!isPlainObject(value)) fail(`${path} must contain JSON data only`, 'PUBLIC_ALPHA_SCHEMA_INVALID');
   const output = {};
   for (const [key, child] of Object.entries(value)) {
+    if (['__proto__', 'constructor', 'prototype'].includes(key)) {
+      fail(`${path} contains a forbidden property name`, 'PUBLIC_ALPHA_SCHEMA_INVALID');
+    }
     if (child === undefined) fail(`${path} contains an undefined value`, 'PUBLIC_ALPHA_SCHEMA_INVALID');
     output[key] = cloneJson(child, `${path}.${key}`);
   }
@@ -161,11 +165,20 @@ function qualificationCatalog(registry) {
   const providers = {};
   for (const provider of Object.keys(registry.providers).sort()) {
     const deployment = registry.providers[provider] && registry.providers[provider][DEPLOYMENT];
-    if (!isPlainObject(deployment)) fail('capability deployment is missing', 'PUBLIC_ALPHA_REGISTRY_INVALID');
-    providers[provider] = Object.entries(deployment)
-      .filter(([, tuple]) => Array.isArray(tuple) && tuple[0] === 'Supported')
-      .map(([feature]) => feature)
-      .sort();
+    const requirements = PROVIDER_CAPABILITY_REQUIREMENTS[provider];
+    if (!isPlainObject(deployment) || !isPlainObject(requirements)) {
+      fail('capability deployment is missing', 'PUBLIC_ALPHA_REGISTRY_INVALID');
+    }
+    providers[provider] = Object.keys(requirements).sort();
+    for (const feature of providers[provider]) {
+      const tuple = deployment[feature];
+      if (!Array.isArray(tuple) || tuple[0] !== 'Supported' || tuple[1] !== 'Provider-verified') {
+        fail('provider qualification contract conflicts with the capability registry', 'PUBLIC_ALPHA_REGISTRY_INVALID');
+      }
+    }
+  }
+  if (Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS).some(provider => !Object.hasOwn(providers, provider))) {
+    fail('provider qualification contract is missing from the capability registry', 'PUBLIC_ALPHA_REGISTRY_INVALID');
   }
   return deepFreeze({
     automated: [...AUTOMATED_KEYS],

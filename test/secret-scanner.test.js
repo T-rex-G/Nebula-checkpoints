@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const {
+  MAX_DIRECTORY_DEPTH,
   discoverReleasableTextFiles,
   scanFiles
 } = require('../src/secret-scanner');
@@ -122,6 +123,21 @@ try {
     );
   } finally {
     fs.rmSync(archiveRoot, { recursive: true, force: true });
+  }
+
+  const deeplyNestedArchive = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-secret-depth-'));
+  try {
+    let directory = deeplyNestedArchive;
+    for (let depth = 0; depth <= MAX_DIRECTORY_DEPTH; depth += 1) {
+      directory = path.join(directory, `d${depth}`);
+      fs.mkdirSync(directory);
+    }
+    assert.throws(
+      () => discoverReleasableTextFiles(deeplyNestedArchive),
+      /directory nesting exceeds the safe limit/i
+    );
+  } finally {
+    fs.rmSync(deeplyNestedArchive, { recursive: true, force: true });
   }
 
   execFileSync('git', ['init', '--initial-branch=main'], { cwd: temporaryRoot, stdio: 'ignore' });

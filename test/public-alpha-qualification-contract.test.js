@@ -9,7 +9,10 @@ const {
   verifyQualification
 } = require('../src/public-alpha-qualification');
 const registry = require('../config/public-alpha-capabilities.json');
-const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
+const {
+  PROVIDER_CAPABILITY_REQUIREMENTS,
+  validateEvidenceEnvelope
+} = require('../src/qualification-evidence');
 const {
   SUBJECT,
   SOURCE,
@@ -49,11 +52,18 @@ assert.strictEqual(catalog.automated.length, 22);
 assert.strictEqual(catalog.hosted.length, 13);
 assert.strictEqual(catalog.manual.length, 5);
 for (const [provider, deployment] of Object.entries(registry.providers)) {
-  const expected = Object.entries(deployment['hosted-alpha'])
-    .filter(([, tuple]) => tuple[0] === 'Supported')
-    .map(([feature]) => feature)
-    .sort();
+  assert(deployment['hosted-alpha']);
+  const expected = Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS[provider]).sort();
   assert.deepStrictEqual(catalog.providers[provider], expected);
+  const providerVerified = Object.entries(deployment['hosted-alpha'])
+    .filter(([, tuple]) => tuple[1] === 'Provider-verified')
+    .map(([capability]) => capability)
+    .sort();
+  assert.deepStrictEqual(
+    providerVerified,
+    expected,
+    `${provider} must not advertise Provider-verified capabilities outside the live proof contract`
+  );
 }
 
 rejects('PUBLIC_ALPHA_SCHEMA_MISMATCH', ({ record }) => { record.schemaVersion = '0.9.0'; });
@@ -152,6 +162,30 @@ rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
 rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
   envelopes['github-artifact'].authorizedTargetSha256 = 'not-a-hash';
 });
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+  delete envelopes['hosted-artifact'].operatorAttestation.recordSha256;
+});
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+  delete envelopes['hosted-artifact'].restoreRunnerAttestation.recordSha256;
+});
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+  envelopes['hosted-artifact'].restoreRunnerAttestation.record.check.smokePassed = false;
+});
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+  envelopes['github-artifact'].checks.splice(9, 1);
+});
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+  envelopes['github-artifact'].checks.find(check => check.key === 'stale-head').zeroCommit = false;
+});
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+  envelopes['github-artifact'].checks.find(check => check.key === 'expected-head-delete').fileAbsent = false;
+});
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+  envelopes['github-artifact'].capabilities = [
+    ...envelopes['github-artifact'].capabilities,
+    'pulls.read'
+  ];
+});
 
 {
   const deeplyNested = structuredClone(createPassFixture().envelopes['automated-artifact']);
@@ -166,6 +200,18 @@ rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
     error => error &&
       error.code === 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH' &&
       /maximum nesting depth/i.test(error.message)
+  );
+}
+
+for (const forbiddenKey of ['__proto__', 'constructor', 'prototype']) {
+  const envelope = structuredClone(createPassFixture().envelopes['automated-artifact']);
+  envelope.proof = JSON.parse(`{"${forbiddenKey}":{"polluted":true}}`);
+  assert.throws(
+    () => validateEvidenceEnvelope(envelope),
+    error => error &&
+      error.code === 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH' &&
+      /forbidden property name/i.test(error.message),
+    `evidence must reject the prototype-mutating key ${forbiddenKey}`
   );
 }
 

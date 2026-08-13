@@ -21,6 +21,7 @@ node scripts/alpha-privacy.js cohort-close --confirm CLOSE-ALPHA
 Verify zero pending cleanup, cohort closure, final retention/purge reports, encrypted backup integrity, and absence of provider resources. Keep Render/Neon available until these checks finish.
 
 ```bash
+set -euo pipefail
 node scripts/alpha-privacy.js cleanup-status
 node scripts/alpha-privacy.js retention
 ```
@@ -34,6 +35,7 @@ After evidence is complete, disable/delete the dedicated Render service and dedi
 Record closure authorization, tester/provider revocation counts, cleanup and purge digests, final backup digests, service/database closure timestamps, and evidence retention location.
 
 ```bash
+set -euo pipefail
 sha256sum "$NV_BACKUP_FILE" "$NV_BACKUP_MANIFEST"
 date -u +%Y-%m-%dT%H:%M:%SZ
 ```

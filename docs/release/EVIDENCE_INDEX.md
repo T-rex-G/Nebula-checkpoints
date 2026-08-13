@@ -57,6 +57,7 @@ evidence to the exact frozen successor candidate.
 | Exact-archive qualification | `31494468853` — passed |
 | Automated matrix | 141/141 programs and 56/56 browser checks passed |
 | Independent review | `912555dd-72ab-4662-9645-2313007eea3d` — failed: 16 actionable, 8 nitpicks |
+| Latest remediation review | `04b93d36-47ea-402d-abda-ca6dfb2a9290` — failed raw inventory: 30 actionable (18 inline plus 12 summary/failed-post), 9 nitpicks; its successor remains unqualified |
 | Decision | automated qualification passed; independent review failed; public-alpha NO-GO |
 
 The portability failures remain evidence rather than being erased. Run

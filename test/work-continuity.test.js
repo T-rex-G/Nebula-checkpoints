@@ -67,6 +67,12 @@ assert.deepStrictEqual(
   state.failedQualificationRuns.map(item => item.runId),
   ['31290968279', '31314330832', '31321447041']
 );
+assert.deepStrictEqual(state.gates.independentReview, {
+  status: 'failed',
+  runId: '04b93d36-47ea-402d-abda-ca6dfb2a9290',
+  actionable: 30,
+  nitpicks: 9
+});
 assert.deepStrictEqual(
   Object.fromEntries(Object.entries(state.gates).map(([name, gate]) => [name, gate.status])),
   {

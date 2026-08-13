@@ -5,36 +5,12 @@ const fs = require('fs');
 const registry = require('../config/public-alpha-capabilities.json');
 const {
   EVIDENCE_SCHEMA_VERSION,
+  PROVIDER_CAPABILITY_REQUIREMENTS,
   validateEvidenceEnvelope
 } = require('../src/qualification-evidence');
 const { verifyLiveTargetBinding } = require('./verify-alpha17-authorization');
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
-const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
-  github: {
-    'repository.read': ['repository-read'],
-    'branches.read': ['default-branch-read'],
-    'branches.write': ['disposable-branch-create', 'cleanup-absence'],
-    'file.read': ['utf8-readback'],
-    'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
-    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
-  },
-  gitlab: {
-    'repository.read': ['repository-read'],
-    'branches.read': ['default-branch-read'],
-    'file.read': ['utf8-readback'],
-    'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
-    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
-  },
-  gitea: {
-    'repository.read': ['repository-read'],
-    'branches.read': ['default-branch-read'],
-    'file.read': ['utf8-readback'],
-    'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
-    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
-  }
-});
-
 function fail(message, code) {
   const error = new Error(message);
   error.code = code;
@@ -160,7 +136,11 @@ function providerCapabilityRequirements(provider) {
   const requirements = PROVIDER_CAPABILITY_REQUIREMENTS[provider];
   if (!deployment || !requirements) fail('provider is not in the alpha.17 capability registry', 'ALPHA17_PROVIDER_INVALID');
   for (const capability of Object.keys(requirements)) {
-    if (!Array.isArray(deployment[capability]) || deployment[capability][0] !== 'Supported') {
+    if (
+      !Array.isArray(deployment[capability]) ||
+      deployment[capability][0] !== 'Supported' ||
+      deployment[capability][1] !== 'Provider-verified'
+    ) {
       fail('provider claim mapping conflicts with the capability registry', 'ALPHA17_PROVIDER_INVALID');
     }
   }

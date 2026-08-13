@@ -94,19 +94,19 @@ for (const term of ['Supported', 'Experimental', 'Unavailable', 'Provider-verifi
 for (const provider of ['GitHub', 'GitLab', 'Gitea']) assert(capabilities.includes(provider));
 
 const providerMappings = {
-  'GitHub — complete intended golden path': [
-    ['Supported', 'repository, commit, branch, and GitHub rate-limit reads; controlled branch writes; tree and file read/write/delete/rename; bounded file batch; pull-request and issue read/write; workflow reads; release reads; bounded search; notifications; star read/write; folder move; live events; access-surface analysis; dependency audit; recovery; governance; upload security'],
-    ['Experimental', 'workflow rerun; release write; native push (16 MB on Render Free); Git LFS'],
-    ['Unavailable', 'repository create/delete; global search']
+  'GitHub — evidence-bounded alpha subset': [
+    ['Supported', 'repository reads; branch reads and controlled writes; bounded file read/write/delete; access-surface analysis; dependency audit; recovery; governance; upload security'],
+    ['Experimental', 'provider rate-limit and tree reads; file rename/batch; pull-request and issue read/write; workflow read/rerun; release read/write; bounded search; star read/write; native push (16 MB on Render Free); Git LFS; folder move; live events'],
+    ['Unavailable', 'repository create/delete; global search; notifications']
   ],
   'GitLab — registry-qualified subset': [
-    ['Supported', 'repository, commit, branch, tree, and file reads; bounded file write/delete; merge-request read; issue read; upload security'],
-    ['Experimental', 'merge-request write; issue write; dependency audit; read-only recovery comparison; governance views'],
+    ['Supported', 'repository and branch reads; bounded file read/write/delete; upload security'],
+    ['Experimental', 'tree read; merge-request and issue read/write; dependency audit; read-only recovery comparison; governance views'],
     ['Unavailable', 'repository create/delete; provider rate-limit read; branch write; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis']
   ],
   'Gitea — registry-qualified subset': [
-    ['Supported', 'repository, commit, branch, tree, and file reads; expected-head single-file write/delete; upload security'],
-    ['Experimental', 'dependency audit; read-only recovery comparison; governance views'],
+    ['Supported', 'repository and branch reads; bounded file read/write/delete; upload security'],
+    ['Experimental', 'tree read; dependency audit; read-only recovery comparison; governance views'],
     ['Unavailable', 'repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis']
   ]
 };
@@ -122,6 +122,8 @@ for (const [providerHeading, mappings] of Object.entries(providerMappings)) {
   assert(providerSection.includes('`Deterministic` evidence'));
 }
 assert(/A `Supported` claim remains release-blocked until the exact\s+candidate has applicable live-provider and hosted evidence\./.test(capabilities));
+assert(capabilities.includes('Every `Experimental` path requires an explicit UI and server-route opt-in.'));
+assert(/recovery and governance\s+mutations remain blocked\./.test(capabilities));
 
 const alpha = read('docs/release/PUBLIC_ALPHA.md');
 assert(alpha.includes('Public alpha: **NO-GO**'));
@@ -145,6 +147,9 @@ assert(releaseGates.includes('Live-provider gate: **Pending**'));
 assert(releaseGates.includes('Hosted gate: **Pending**'));
 assert(releaseGates.includes('Manual accessibility gate: **Pending**'));
 assert(releaseGates.includes('Final release gate: **Pending**'));
+assert(releaseGates.includes('04b93d36-47ea-402d-abda-ca6dfb2a9290'));
+assert(releaseGates.includes('30 actionable findings'));
+assert(releaseGates.includes('18 inline actions plus 12 summary/failed-post actions'));
 
 const qualification = read('docs/release/QUALIFICATION_BASELINE.md');
 assert(qualification.startsWith('# Recorded Alpha.17 Automated Qualification Baseline'));
@@ -183,6 +188,7 @@ assert(evidence.includes('independent review failed'));
 assert(evidence.includes('public-alpha NO-GO'));
 assert(evidence.includes('prove only Plan 1 successor foundation work'));
 assert(evidence.includes('do not prove hosted-public-alpha qualification'));
+assert(evidence.includes('04b93d36-47ea-402d-abda-ca6dfb2a9290'));
 
 const deploy = read('docs/operations/DEPLOY_RENDER_NEON.md');
 assert(deploy.startsWith('# Deploy Nebulaverse-X 5.3.0-alpha.17.0 Controlled Alpha'));
@@ -202,12 +208,28 @@ assert(security.includes('Nebulaverse-X 5.3.0-alpha.17.0 controlled alpha'));
 assert(security.includes('verifies the expected migration set'));
 assert(!security.includes('Task 4 does not yet evaluate governance policy'));
 assert(!security.includes('GitHub-only in v5.2'));
+assert(security.includes('server recomputes the authenticated session/account/repository scope'));
+assert(security.includes('reviewed restore runner'));
+assert(security.includes('forbidden from claiming `isolated-database-restore`'));
+
+const reviewDispositions = read('docs/architecture/ALPHA17_REVIEW_DISPOSITIONS.md');
+assert(reviewDispositions.includes('30 actionable findings and 9 nitpicks'));
+assert.strictEqual(
+  (reviewDispositions.match(/^\| `PRRT_[^`]+` \|/gm) || []).length,
+  15,
+  'review ledger must retain every inline GitHub thread'
+);
+for (const finding of [
+  'M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10', 'F1', 'F2'
+]) assert(reviewDispositions.includes(`| R3-${finding} |`), `review ledger missing ${finding}`);
 
 const manualAccessibility = read('docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md');
 assert(manualAccessibility.includes('Start `/api/version` `releaseTreeSha256`'));
 assert(manualAccessibility.includes('End `/api/version` `releaseTreeSha256`'));
 assert(manualAccessibility.includes('responses are retained externally'));
-assert.strictEqual((manualAccessibility.match(/320 CSS-pixel|400%/g) || []).length >= 4, true);
+const reflowRequirementCount = (manualAccessibility.match(/320 CSS-pixel|400%/g) || []).length;
+assert(reflowRequirementCount >= 4,
+  `manual accessibility audit must state the 320 CSS-pixel/400% boundary at least four times; observed ${reflowRequirementCount}`);
 
 const decisions = read('docs/architecture/ARCHITECTURE_DECISIONS.md');
 assert(decisions.includes('## ADR-055 — Controlled hosted alpha access is independent from provider authorization'));

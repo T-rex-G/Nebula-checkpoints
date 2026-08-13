@@ -9,6 +9,7 @@ Use this runbook when the new Render deploy fails health/startup, repeatedly res
 Stop invitations and mutations. In the Render deploy record, capture the failed deploy ID and its source commit; do not substitute the operator workstation's checkout. Preserve the failed deploy logs. Before selecting an older application image, determine whether its migration contract is compatible with the current database.
 
 ```bash
+set -euo pipefail
 curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/healthz"
 curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/readyz"
 test -n "$NV_FAILED_RENDER_DEPLOY_ID"
@@ -22,6 +23,7 @@ Do not roll back across an incompatible migration. Use maintenance containment p
 Verify the encrypted pre-deploy backup and record the current migration before any rollback decision.
 
 ```bash
+set -euo pipefail
 node scripts/alpha-db.js verify --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
 ```
 
@@ -34,6 +36,7 @@ Roll back in Render only when compatibility is recorded. Otherwise restore into 
 Record failed and recovery deploy IDs, source commits, migration compatibility decision, backup manifest digest, rollback/restore timestamps, and smoke outputs.
 
 ```bash
+set -euo pipefail
 sha256sum "$NV_BACKUP_MANIFEST"
 date -u +%Y-%m-%dT%H:%M:%SZ
 ```

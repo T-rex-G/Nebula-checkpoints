@@ -1,11 +1,27 @@
 'use strict';
 
+const crypto = require('crypto');
 const registry = require('../../config/public-alpha-capabilities.json');
 const { qualificationCatalog } = require('../../src/public-alpha-qualification');
 
 const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
 const COMPLETED_AT = '2026-07-29T19:00:00.000Z';
+
+function providerChecks() {
+  return [
+    { key: 'repository-read', status: 'pass', statusClass: '2xx' },
+    { key: 'default-branch-read', status: 'pass', statusClass: '2xx' },
+    { key: 'disposable-branch-create', status: 'pass', statusClass: '2xx' },
+    { key: 'expected-head-write', status: 'pass', statusClass: '2xx' },
+    { key: 'utf8-readback', status: 'pass', statusClass: '2xx', bytes: 52, contentSha256: 'c'.repeat(64) },
+    { key: 'stale-head', status: 'pass', zeroCommit: true },
+    { key: 'permission-denial', status: 'pass', zeroCommit: true },
+    { key: 'stale-head-delete', status: 'pass', zeroCommit: true, fileRetained: true },
+    { key: 'expected-head-delete', status: 'pass', statusClass: '2xx', headAdvanced: true, fileAbsent: true },
+    { key: 'cleanup-absence', status: 'pass' }
+  ];
+}
 
 function evidenceEntry(artifact) {
   return {
@@ -38,6 +54,67 @@ function envelope(artifactType, originId, labels, context = {}) {
   };
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function hostedOperationalRecord() {
+  return {
+    schemaVersion: '1.0.0',
+    subjectSha256: SUBJECT,
+    sourceCommit: SOURCE,
+    completedAt: COMPLETED_AT,
+    cleanupVerified: true,
+    checks: {
+      'neon-scale-to-zero-wake': { status: 'pass', wakeRetries: 1 },
+      'memory-restart-observation': { status: 'pass', restartObserved: true },
+      'active-session-revocation': { status: 'pass', deniedAfterRevocation: true },
+      'provider-disconnect': { status: 'pass', browserStatePurged: true },
+      'ephemeral-filesystem-restart': { status: 'pass', stateRecoveredFromDatabase: true },
+      'database-interruption-recovery': { status: 'pass', failClosedDuringInterruption: true },
+      'provider-429-outage': { status: 'pass', retryBounded: true },
+      'application-rollback': { status: 'pass', candidateRestored: true },
+      'disposable-tester-purge': { status: 'pass', tokenBearingStateRemoved: true }
+    },
+    signature: {
+      algorithm: 'ed25519',
+      keyId: 'fixture-operator',
+      value: Buffer.alloc(64, 7).toString('base64')
+    }
+  };
+}
+
+function hostedRestoreRunnerRecord() {
+  return {
+    schemaVersion: '1.0.0',
+    artifactType: 'hosted-restore-runner',
+    subjectSha256: SUBJECT,
+    sourceCommit: SOURCE,
+    originId: 'workflow-2048-restore',
+    completedAt: COMPLETED_AT,
+    cleanupVerified: true,
+    check: {
+      status: 'pass',
+      latestMigration: '015_alpha_privacy',
+      backupManifestSha256: '1'.repeat(64),
+      backupCiphertextSha256: '2'.repeat(64),
+      restoreTargetFingerprint: '3'.repeat(64),
+      restoreEvidenceSha256: '4'.repeat(64),
+      sourceIdentitySha256: '5'.repeat(64),
+      targetIdentitySha256: '6'.repeat(64),
+      sourceTargetDistinct: true,
+      controlPlaneVerified: true,
+      liveTargetVerified: true,
+      smokePassed: true,
+      backupRemoved: true
+    }
+  };
+}
+
 function createPassFixture() {
   const catalog = qualificationCatalog(registry);
   const automatedLabels = catalog.automated.map(key => `automated.${key}`);
@@ -49,11 +126,29 @@ function createPassFixture() {
     { id: 'hosted-artifact', path: '/evidence/hosted.json', sha256: '2'.repeat(64) },
     { id: 'manual-artifact', path: '/evidence/manual.json', sha256: '3'.repeat(64) }
   ];
+  const operatorRecord = hostedOperationalRecord();
+  const restoreRunnerRecord = hostedRestoreRunnerRecord();
   const envelopes = {
     'automated-artifact': envelope('automated', 'workflow-2048-automated', automatedLabels),
     'hosted-artifact': envelope('hosted-live', 'workflow-2048-hosted', hostedLabels, {
       authorizedTargetSha256: '4'.repeat(64),
-      deploymentSha256: '5'.repeat(64)
+      deploymentSha256: '5'.repeat(64),
+      operatorAttestation: {
+        schemaVersion: '1.0.0',
+        keyId: 'fixture-operator',
+        completedAt: COMPLETED_AT,
+        recordSha256: crypto.createHash('sha256').update(stableJson(operatorRecord), 'utf8').digest('hex'),
+        record: operatorRecord
+      },
+      restoreRunnerAttestation: {
+        schemaVersion: '1.0.0',
+        completedAt: COMPLETED_AT,
+        recordSha256: crypto.createHash('sha256').update(stableJson(restoreRunnerRecord), 'utf8').digest('hex'),
+        record: restoreRunnerRecord
+      },
+      checks: {
+        'isolated-database-restore': restoreRunnerRecord.check
+      }
     }),
     'manual-artifact': envelope('manual', 'manual-audit-2048', manualLabels)
   };
@@ -69,7 +164,13 @@ function createPassFixture() {
     });
     envelopes[artifactId] = envelope('provider-live', `workflow-2048-${provider}`, labels, {
       provider,
-      authorizedTargetSha256: targetHashCharacters[index].repeat(64)
+      status: 'pass',
+      authorizedTargetSha256: targetHashCharacters[index].repeat(64),
+      targetHash: String(index + 6).repeat(64),
+      capabilities: features,
+      checks: providerChecks(),
+      startedAt: '2026-07-29T18:55:00.000Z',
+      nodeVersion: '22.23.1'
     });
     providers[provider] = Object.fromEntries(
       features.map(feature => [feature, evidenceEntry(artifactId)])

@@ -9,8 +9,9 @@ Use this runbook when `/healthz` is unavailable, returns a non-200 response, or 
 Stop issuing invitations and announce a temporary mutation freeze. Do not redeploy until a Render wake-up is distinguished from a failed deploy.
 
 ```bash
-curl --fail --silent --show-error "$NV_ALPHA_BASE_URL/healthz"
-curl --silent --show-error --write-out '%{http_code}\n' --output /dev/null "$NV_ALPHA_BASE_URL/readyz"
+set -euo pipefail
+curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/healthz"
+curl --proto '=https' --fail --silent --show-error --write-out '%{http_code}\n' --output /dev/null "$NV_ALPHA_BASE_URL/readyz"
 ```
 
 If health becomes available while readiness remains unavailable, continue with the Neon runbook. If the process repeatedly restarts or health never appears, treat the active deploy as failed.
@@ -20,6 +21,7 @@ If health becomes available while readiness remains unavailable, continue with t
 Run the non-secret smoke client. A cold start may increase duration; it must not change response contracts.
 
 ```bash
+set -euo pipefail
 node scripts/alpha-smoke.js
 ```
 
@@ -32,6 +34,7 @@ Resume invitations only after health, readiness, version, config, and capability
 Record UTC start/end times, Render deploy identifier, restart count, smoke JSON, source commit, and whether the event was a cold wake or failed deploy.
 
 ```bash
+set -euo pipefail
 date -u +%Y-%m-%dT%H:%M:%SZ
 git rev-parse HEAD
 ```

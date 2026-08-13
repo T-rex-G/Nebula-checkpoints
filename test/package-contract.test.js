@@ -487,6 +487,7 @@ const publicAlphaQualificationArtifacts = [
   'ci/run-gitlab-alpha17-validation.js',
   'ci/run-gitea-alpha17-validation.js',
   'ci/run-hosted-alpha17-validation.js',
+  'ci/run-alpha17-restore-validation.js',
   'ci/verify-alpha17-authorization.js',
   '.github/workflows/public-alpha-alpha17.yml',
   'docs/qualification/PUBLIC_ALPHA_KNOWN_LIMITATIONS.md',
@@ -500,7 +501,8 @@ const publicAlphaQualificationTests = [
   'test/public-alpha-gate-cli.test.js',
   'test/alpha17-provider-harness.test.js',
   'test/alpha17-hosted-harness.test.js',
-  'test/public-alpha-workflow-contract.test.js'
+  'test/public-alpha-workflow-contract.test.js',
+  'test/alpha17-restore-runner.test.js'
 ];
 const publicAlphaQualificationSyntax = [
   'src/secret-scanner.js',
@@ -515,6 +517,7 @@ const publicAlphaQualificationSyntax = [
   'ci/run-gitlab-alpha17-validation.js',
   'ci/run-gitea-alpha17-validation.js',
   'ci/run-hosted-alpha17-validation.js',
+  'ci/run-alpha17-restore-validation.js',
   'ci/verify-alpha17-authorization.js'
 ];
 for (const artifact of [...publicAlphaQualificationArtifacts, ...publicAlphaQualificationTests]) {
@@ -522,13 +525,15 @@ for (const artifact of [...publicAlphaQualificationArtifacts, ...publicAlphaQual
   assert(verifyScript.includes(`'${artifact}'`), `build verification missing ${artifact}`);
 }
 let previousQualificationProgram = -1;
+const qualificationUnitGate = `${pkg.scripts['test:unit']} ${pkg.scripts['posttest:unit'] || ''}`;
 for (const program of publicAlphaQualificationTests) {
-  const programIndex = pkg.scripts['test:unit'].indexOf(`node ${program}`);
+  const programIndex = qualificationUnitGate.indexOf(`node ${program}`);
   assert(programIndex > previousQualificationProgram, `test:unit missing or misorders ${program}`);
   previousQualificationProgram = programIndex;
 }
+const qualificationSyntaxGate = `${pkg.scripts['check:syntax']} ${pkg.scripts['postcheck:syntax'] || ''}`;
 for (const source of publicAlphaQualificationSyntax) {
-  assert(pkg.scripts['check:syntax'].includes(`node --check ${source}`), `check:syntax missing ${source}`);
+  assert(qualificationSyntaxGate.includes(`node --check ${source}`), `check:syntax missing ${source}`);
 }
 const alpha17Workflow = read('.github/workflows/public-alpha-alpha17.yml');
 assert(alpha17Workflow.includes('node scripts/qualify-candidate-archive.js'));

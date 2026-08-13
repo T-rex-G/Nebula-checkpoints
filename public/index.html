@@ -181,7 +181,7 @@
     <div class="side-scrim" id="sideScrim" hidden></div>
     <aside class="side glass" id="side">
       <div class="side-head">
-        <input id="codeSearch" class="search-input small" type="search" data-feature="search" placeholder="Search code…  ⏎">
+        <input id="codeSearch" class="search-input small" type="search" data-feature="search" data-allow-experimental="true" placeholder="Search code…  ⏎">
       </div>
       <div class="side-actions">
         <button class="chip" id="newFileBtn" data-feature="file.write"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> File</button>
@@ -206,11 +206,11 @@
         <button class="tab active" data-tab="editor">Editor</button>
         <button class="tab" data-tab="upload" data-feature="native-push" data-allow-experimental="true">Push files</button>
         <button class="tab" data-tab="commits">Commits</button>
-        <button class="tab" data-feature="pulls.read" data-tab="pulls">Pull requests</button>
-        <button class="tab" data-feature="issues.read" data-tab="issues">Issues</button>
-        <button class="tab" data-feature="releases.read" data-tab="releases">Releases</button>
-        <button class="tab" data-feature="workflows.read" data-tab="actions">Actions</button>
-        <button class="tab" data-feature="recovery" data-tab="compare">Compare</button>
+        <button class="tab" data-feature="pulls.read" data-allow-experimental="true" data-tab="pulls">Pull requests</button>
+        <button class="tab" data-feature="issues.read" data-allow-experimental="true" data-tab="issues">Issues</button>
+        <button class="tab" data-feature="releases.read" data-allow-experimental="true" data-tab="releases">Releases</button>
+        <button class="tab" data-feature="workflows.read" data-allow-experimental="true" data-tab="actions">Actions</button>
+        <button class="tab" data-feature="recovery" data-allow-experimental="true" data-tab="compare">Compare</button>
         <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
         <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel"><span aria-hidden="true">◇</span> Governance</button>
       </nav>
@@ -231,7 +231,7 @@
               <button class="btn btn-ghost small" id="findBtn" title="Find in file" aria-label="Find in file"><svg class="ico" width="16" height="16" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
               <button class="btn btn-ghost small" id="diffBtn" title="Diff unsaved edits" aria-label="Diff unsaved edits" disabled><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M9 5h7M12.5 1.5V8.5M8 19h8M4 12.5h16"/></svg></button>
               <button class="btn btn-ghost small" id="fileHistoryBtn" title="File history" aria-label="File history"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.2V12l3.4 2"/></svg></button>
-              <button class="btn btn-ghost small" id="renameFileBtn" title="Rename or move" aria-label="Rename or move file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4 12h13.5M13 6l6 6-6 6"/></svg></button>
+              <button class="btn btn-ghost small" id="renameFileBtn" data-feature="file.rename" data-allow-experimental="true" title="Rename or move" aria-label="Rename or move file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4 12h13.5M13 6l6 6-6 6"/></svg></button>
               <button class="btn btn-ghost small danger" id="deleteFileBtn" title="Delete file" aria-label="Delete file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg></button>
               <button class="btn btn-ghost small" id="stageFileBtn" disabled>Stage</button>
               <button class="btn btn-primary small" id="commitFileBtn" disabled>Commit</button>
@@ -277,7 +277,7 @@
           </div>
           <div class="upload-opts">
             <label class="field-label">Commit mode</label>
-            <div class="seg" data-feature="file.batch" id="uploadMode">
+            <div class="seg" data-feature="file.batch" data-allow-experimental="true" id="uploadMode">
               <button class="seg-btn active" data-v="single">One commit per file</button>
               <button class="seg-btn" data-v="batch">All as one commit</button>
             </div>
@@ -316,7 +316,7 @@
             <button class="seg-btn" data-v="closed">Closed</button>
             <button class="seg-btn" data-v="all">All</button>
           </div>
-          <button class="btn btn-primary small" id="newPrBtn">New PR</button>
+          <button class="btn btn-primary small" id="newPrBtn" data-feature="pulls.write" data-allow-experimental="true">New PR</button>
         </div>
         <div class="item-list" id="prList"></div>
         <div class="detail card" id="prDetail" hidden></div>
@@ -329,7 +329,7 @@
             <button class="seg-btn active" data-v="open">Open</button>
             <button class="seg-btn" data-v="closed">Closed</button>
           </div>
-          <button class="btn btn-primary small" id="newIssueBtn">New issue</button>
+          <button class="btn btn-primary small" id="newIssueBtn" data-feature="issues.write" data-allow-experimental="true">New issue</button>
         </div>
         <div class="item-list" id="issueList"></div>
         <div class="detail card" id="issueDetail" hidden></div>
@@ -339,7 +339,7 @@
       <div class="tabpane" id="tab-releases">
         <div class="list-toolbar">
           <span class="muted" style="font-size:.85rem">Tags & releases</span>
-          <button class="btn btn-primary small" id="newReleaseBtn">New release</button>
+          <button class="btn btn-primary small" id="newReleaseBtn" data-feature="releases.write" data-allow-experimental="true">New release</button>
         </div>
         <div class="item-list" id="releaseList"></div>
       </div>
@@ -376,7 +376,7 @@
               <p>Live topology for security, dependencies, protected assets, activity and recovery paths.</p>
             </div>
             <div class="neural-head-actions">
-              <button class="btn btn-ghost small" id="neuralLiveBtn" data-feature="live-events">Connect verified live events</button>
+              <button class="btn btn-ghost small" id="neuralLiveBtn" data-feature="live-events" data-allow-experimental="true">Connect verified live events</button>
               <button class="btn btn-ghost small" id="neuralRefreshBtn">Refresh data</button>
               <button class="btn btn-primary small neural-emergency-btn" id="neuralEmergencyBtn">Activate Emergency Shield</button>
             </div>
@@ -488,11 +488,11 @@
 <div class="sheet-scrim" id="sheetScrim" hidden>
   <div class="sheet glass" id="sheet">
     <div class="sheet-grab"></div>
-    <button class="sheet-item" data-feature="pulls.read" data-act="pulls"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M7.5 6.8L3.8 10.5l3.7 3.7M3.8 10.5h12M16.5 17.2l3.7-3.7-3.7-3.7M20.2 13.5h-12"/></svg><span>Pull requests</span></button>
-    <button class="sheet-item" data-feature="issues.read" data-act="issues"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg><span>Issues</span></button>
-    <button class="sheet-item" data-feature="releases.read" data-act="releases"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M3.5 12L12 3.5h6.2a2.3 2.3 0 0 1 2.3 2.3V12L12 20.5 3.5 12z"/><circle cx="16" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg><span>Releases</span></button>
-    <button class="sheet-item" data-feature="workflows.read" data-act="actions"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M10 8.6l5.6 3.4L10 15.4z"/></svg><span>Actions (CI)</span></button>
-    <button class="sheet-item" data-feature="recovery" data-act="compare"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M8 3.5v17M8 3.5L4.5 7M8 3.5L11.5 7M16 20.5v-17M16 20.5L12.5 17M16 20.5l3.5-3.5"/></svg><span>Compare branches</span></button>
+    <button class="sheet-item" data-feature="pulls.read" data-allow-experimental="true" data-act="pulls"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M7.5 6.8L3.8 10.5l3.7 3.7M3.8 10.5h12M16.5 17.2l3.7-3.7-3.7-3.7M20.2 13.5h-12"/></svg><span>Pull requests</span></button>
+    <button class="sheet-item" data-feature="issues.read" data-allow-experimental="true" data-act="issues"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg><span>Issues</span></button>
+    <button class="sheet-item" data-feature="releases.read" data-allow-experimental="true" data-act="releases"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M3.5 12L12 3.5h6.2a2.3 2.3 0 0 1 2.3 2.3V12L12 20.5 3.5 12z"/><circle cx="16" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg><span>Releases</span></button>
+    <button class="sheet-item" data-feature="workflows.read" data-allow-experimental="true" data-act="actions"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M10 8.6l5.6 3.4L10 15.4z"/></svg><span>Actions (CI)</span></button>
+    <button class="sheet-item" data-feature="recovery" data-allow-experimental="true" data-act="compare"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M8 3.5v17M8 3.5L4.5 7M8 3.5L11.5 7M16 20.5v-17M16 20.5L12.5 17M16 20.5l3.5-3.5"/></svg><span>Compare branches</span></button>
     <button class="sheet-item" data-feature="access-surface" data-act="neural"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="7" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="18" cy="18" r="1.7"/><circle cx="6" cy="18" r="1.7"/><path d="M7 8.3l3.2 2.3M14 10.2l3.4-2.8M14 13.5l2.7 3M9.9 13.6l-2.7 3"/></svg><span>Neural Command Center</span></button>
     <button class="sheet-item" data-feature="governance" data-allow-experimental="true" data-act="governance"><span class="sheet-glyph" aria-hidden="true">◇</span><span>Policy Digital Twin</span></button>
     <div class="sheet-div"></div>

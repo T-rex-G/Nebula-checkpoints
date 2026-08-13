@@ -49,9 +49,11 @@ const required = [
   'ci/run-gitlab-alpha17-validation.js',
   'ci/run-gitea-alpha17-validation.js',
   'ci/run-hosted-alpha17-validation.js',
+  'ci/run-alpha17-restore-validation.js',
   'ci/verify-alpha17-authorization.js',
   'test/alpha17-provider-harness.test.js',
   'test/alpha17-hosted-harness.test.js',
+  'test/alpha17-restore-runner.test.js',
   'test/public-alpha-workflow-contract.test.js',
   '.github/workflows/public-alpha-alpha17.yml',
   'docs/qualification/PUBLIC_ALPHA_KNOWN_LIMITATIONS.md',
@@ -95,6 +97,7 @@ for (const file of [
   'ci/provider-alpha17-common.js', 'ci/alpha17-fixtures.js',
   'ci/run-github-alpha17-validation.js', 'ci/run-gitlab-alpha17-validation.js',
   'ci/run-gitea-alpha17-validation.js', 'ci/run-hosted-alpha17-validation.js',
+  'ci/run-alpha17-restore-validation.js',
   'ci/verify-alpha17-authorization.js',
   'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js',
   'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
@@ -151,11 +154,13 @@ const qualificationTests = [
   'test/public-alpha-gate-cli.test.js',
   'test/alpha17-provider-harness.test.js',
   'test/alpha17-hosted-harness.test.js',
-  'test/public-alpha-workflow-contract.test.js'
+  'test/public-alpha-workflow-contract.test.js',
+  'test/alpha17-restore-runner.test.js'
 ];
 let previousQualificationTest = -1;
+const qualificationUnitGate = `${pkg.scripts?.['test:unit'] || ''} ${pkg.scripts?.['posttest:unit'] || ''}`;
 for (const program of qualificationTests) {
-  const index = pkg.scripts?.['test:unit']?.indexOf(`node ${program}`) ?? -1;
+  const index = qualificationUnitGate.indexOf(`node ${program}`);
   must(index > previousQualificationTest, `Unit gate missing or misorders ${program}`);
   previousQualificationTest = index;
 }

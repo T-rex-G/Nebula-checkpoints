@@ -365,12 +365,14 @@ or maintenance mode plus database restore.
 **Status:** Accepted
 
 Every secret-bearing alpha.17 qualification activation uses authorization
-schema `1.1.0`. Its Ed25519-signed envelope binds the exact selected job set and
+schema `1.2.0`. Its Ed25519-signed envelope binds the exact selected job set and
 one canonical SHA-256 target identity per job in addition to the workflow,
 source parent, source commit, candidate archive hash, event, authorization ID,
 and expiry. Provider target identities include the pre-created disposable
 repository and canonical API URL. Hosted target identity includes the service
-origin plus the exact Render service and Neon project identifiers.
+origin; exact Render service; cohort and restore Neon project/branch
+identifiers; the `isolated-neon-branch` classification; and the out-of-band
+reviewed restore-target fingerprint.
 
 Provider repositories are created before dispatch, must use the
 `nvx-alpha17-` prefix, and are never deleted by the qualification harness. Only
@@ -440,9 +442,9 @@ canonicalization migration.
 **Status:** Accepted
 
 Before `pg_restore --clean`, the operator CLI requires a reviewed SHA-256
-fingerprint over a versioned record containing the source database identity,
-cohort Neon project and branch IDs, restore database identity, restore Neon
-project and branch IDs, and the exact `isolated-neon-branch` classification.
+fingerprint over a versioned record containing each database host, port, name,
+role, pooling mode, and explicit `sslmode=verify-full`; the cohort and restore
+Neon project and branch IDs; and the exact `isolated-neon-branch` classification.
 The cohort and restore branch identities must differ. A credential-free preview
 prints only the sanitized identity and fingerprint; operators verify its project
 and branch values against Neon out of band before authorizing restore.
@@ -568,3 +570,156 @@ either exclude itself or circularly claim bytes it cannot represent.
 **Consequence:** Startup performs one bounded filesystem observation, while
 requests reuse the computed value. Build metadata cannot substitute for the
 hosted harness's independent comparison against the frozen candidate.
+
+## ADR-073 — Activation and rollback require idempotency before persistence access
+
+**Status:** Accepted
+
+Activation and rollback reject a missing or malformed `Idempotency-Key` after
+request authentication/shape validation but before any governance-store read.
+The browser generates a fresh bounded key for every Policy Digital Twin write;
+accepted keys retain ADR-023's scoped hashing and transactional replay rules.
+
+**Consequence:** A transport retry cannot create a second active-head
+transition, and an unkeyed request cannot learn governance state through a
+store-side failure. This current boundary supersedes the immutable historical
+Task 11 text that described the key as optional without rewriting that record.
+
+## ADR-074 — Unsupported active rules are evaluator failures, never implicit allows
+
+**Status:** Accepted
+
+If any rule in an active policy set is outside the deployed evaluator contract,
+evaluation throws `POLICY_UNSUPPORTED_ACTIVE_RULES`. Runtime failure mode then
+produces an observable warning or a pre-provider block. Governance recovery
+mutations retain the separately authorized recovery-safe behavior in ADR-039.
+
+**Consequence:** Adding or corrupting an unknown active rule cannot weaken the
+effective policy to allow. The unsupported state remains visible and can be
+recovered without turning the control plane into a policy bypass.
+
+## ADR-075 — Governance advisory locks have one nested acquisition order
+
+**Status:** Accepted
+
+When a transaction needs more than one governance advisory lock, it preserves
+this relative order: repository active-policy-set lock, policy lock,
+version/review lock, exception lock, then repository/action active-exception
+lock. An operation that needs only a subset keeps that subset in the same order;
+serialization locks for audit/export chains are acquired only inside their
+separate append boundary.
+
+**Consequence:** Review, activation, runtime loading, exception decisions, and
+revocation do not form opposing nested-lock cycles. This records the current
+implementation contract that supersedes ambiguous historical Task 8 prose.
+
+## ADR-076 — Governance webhook delivery is at-least-once and receiver-deduplicated
+
+**Status:** Accepted
+
+Retries preserve the immutable delivery UUID in both
+`X-Nebulaverse-Delivery` and `Idempotency-Key`. Receivers verify the signature
+over delivery ID, timestamp, and exact body, enforce a narrow timestamp window,
+and deduplicate the delivery ID for at least the retry/dead-letter horizon.
+Redirects remain terminal under ADR-051.
+
+**Consequence:** A successful transport attempt is not misrepresented as
+exactly-once side-effect execution. Receiver replay duties are explicit without
+rewriting the immutable Task 19 design checkpoint.
+
+## ADR-077 — Private offline responses require server-confirmed cache bindings
+
+**Status:** Accepted
+
+Private API caching is opt-in for bounded text/JSON read routes. The server
+recomputes the HMAC session/identity scope and canonical provider/repository key
+after authentication, echoes both only on an exact request match, and keeps all
+other API responses `no-store`. The service worker rejects a response whose
+echoed scope or repository differs from its request decision. Identity changes
+also broadcast a purge/reload boundary to every same-origin tab.
+
+**Consequence:** A stale tab cannot authenticate as a newly selected account
+and place that account's response in the prior account's cache, even if its old
+request headers survive long enough to reach the service worker.
+
+## ADR-078 — Exact-archive qualification uses an allowlisted process environment
+
+**Status:** Accepted
+
+Candidate qualification creates isolated home, temporary, and npm-cache roots;
+inherits only the explicit runtime/locale/certificate/browser allowlist;
+disables npm lifecycle scripts during clean install; and invokes the reviewed
+vendor-copy step explicitly. Candidate tests do not inherit ambient CI tokens,
+npm credentials, `NODE_OPTIONS`, or unrelated operator variables. Matrix output
+is snapshotted before browser execution so a later candidate process cannot
+rewrite an earlier pass.
+
+**Consequence:** Install hooks and ambient environment variables cannot silently
+expand the qualification authority. This is process/env isolation, not an
+egress sandbox for deliberately hostile candidate code.
+
+## ADR-079 — Hosted operational claims retain signed-attestation provenance
+
+**Status:** Accepted
+
+Console/database checks that cannot safely run in the GitHub-hosted job use a
+fresh exact-candidate Ed25519-signed operational record. Isolated restore is a
+separate workflow-runner claim: after exact-target authorization, the reviewed
+candidate runner creates and removes a fresh encrypted backup, verifies the
+control-plane and live target, restores through the expected migration, and
+emits a bounded credential-free record. That record binds nonzero hashes for
+the encrypted backup and manifest, reviewed target fingerprint, sanitized
+restore evidence, and distinct source/target identities. The final hosted
+envelope retains both complete records and independently recomputed SHA-256
+digests; only the operator record has an operator key ID and signature.
+
+**Consequence:** Hosted evidence cannot relabel a human observation as a
+workflow execution or reduce either provenance to `status: pass`. The operator
+record cannot claim restore, and a hosted restore claim is accepted only when
+the exact workflow-runner record is present, bound, complete, and cleanup-safe.
+
+## ADR-080 — Live qualification credentials assume an independently reviewed candidate
+
+**Status:** Accepted
+
+Each live job binds the exact source/archive and target through the signed
+activation envelope, uses repository-scoped disposable credentials, and runs
+behind the protected qualification environment. Because the frozen candidate
+contains the provider harness that receives those credentials, dispatch also
+requires a passing independent review of those exact bytes. Arbitrary untrusted
+candidate execution requires a separately trusted harness or egress-isolated
+runner and is outside this workflow's claim.
+
+**Consequence:** Exact target authorization limits accidental and reviewed
+behavior but is not described as a sandbox against malicious candidate code.
+The residual authority is explicit and credentials have no production reach.
+
+## ADR-081 — Provider claims equal the proof-bearing qualification subset
+
+**Status:** Accepted
+
+The provider evidence catalog contains only registry capabilities marked both
+`Supported` and `Provider-verified` that the disposable harness proves. Each
+provider envelope has an exact capability/claim set and ten ordered checks for
+repository/default-branch reads, disposable branch creation, expected-head
+write, UTF-8 hash readback, stale-write zero-commit, permission denial,
+stale-delete file retention, head-bound valid deletion/file absence, and final
+cleanup.
+
+**Consequence:** A broad `Supported` UI claim cannot inherit provider evidence
+from a narrower mutation test, and an HTTP success without state-change and
+cleanup proof cannot qualify `file.write` or `file.delete`.
+
+## ADR-082 — Credential-bearing outbound requests never follow redirects
+
+**Status:** Accepted
+
+Provider API, OAuth token exchange, Git LFS batch, webhook, and authenticated
+archive-discovery requests treat redirects as errors or manually validate one
+credential-free destination. GitHub archives permit only an exact same-repository
+`https://codeload.github.com/.../legacy.zip/...` hop; the follow-up request
+contains no provider authorization and itself rejects redirects.
+
+**Consequence:** Provider credentials cannot be replayed to a redirect target,
+while the one documented GitHub API-to-codeload transition remains usable under
+an exact origin/path/repository constraint.

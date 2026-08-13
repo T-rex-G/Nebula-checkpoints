@@ -170,6 +170,17 @@ const ghEnd = server.indexOf('\n}', ghStart) + 2;
 const ghBlock = server.slice(ghStart, ghEnd);
 assert(ghBlock.includes("!ALPHA_CONFIG.enabled && acct.authMethod === 'github-app'"),
   'invite-mode provider fallback must not invalidate shared broker state');
+assert(ghBlock.includes("opts.redirect === 'manual' ? 'manual' : 'error'"));
+assert(!ghBlock.includes("'follow'"), 'credential-bearing provider requests must never follow redirects');
+const oauthCallbackStart = server.indexOf("app.get('/api/oauth/callback'");
+const oauthCallbackBlock = server.slice(oauthCallbackStart, server.indexOf('\napp.', oauthCallbackStart + 1));
+assert(oauthCallbackStart >= 0, 'missing GET /api/oauth/callback');
+assert(oauthCallbackBlock.includes("redirect: 'error'"), 'OAuth token exchange must reject redirects');
+assert.strictEqual(
+  (server.match(/info\/lfs\/objects\/batch[\s\S]{0,700}redirect: 'error'/g) || []).length,
+  2,
+  'both authenticated LFS batch negotiations must reject redirects'
+);
 const refreshBlock = routeBlock('/api/github-app/refresh');
 assert(refreshBlock.includes('if (!ALPHA_CONFIG.enabled) githubAppBroker.invalidate(installationId);'),
   'invite-mode refresh must not invalidate shared broker state');

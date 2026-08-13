@@ -22,6 +22,21 @@ assert.deepStrictEqual(classify('/api/repo/acme/demo/file?path=README.md&ref=mai
 assert.deepStrictEqual(classify('/api/repo/acme/demo/commits?ref=main&page=1').mode, 'private-cache');
 assert.deepStrictEqual(classify('/api/repos?page=1').mode, 'private-cache');
 
+const decision = classify('/api/repo/acme/demo/tree?path=&ref=main');
+assert.strictEqual(policy.responseMatchesBinding(new Headers({
+  'x-nv-offline-scope': decision.scope,
+  'x-nv-offline-repo': decision.repoKey
+}), decision), true);
+assert.strictEqual(policy.responseMatchesBinding(new Headers({
+  'x-nv-offline-scope': 'differentScope_1234567890',
+  'x-nv-offline-repo': decision.repoKey
+}), decision), false, 'a response for a new session must not enter the stale session cache');
+assert.strictEqual(policy.responseMatchesBinding(new Headers({
+  'x-nv-offline-scope': decision.scope,
+  'x-nv-offline-repo': 'github:acme/other'
+}), decision), false, 'a response for another repository must not enter this repository cache');
+assert.strictEqual(policy.responseMatchesBinding(new Headers(), decision), false);
+
 for (const path of [
   '/api/session', '/api/me', '/api/accounts', '/api/notifications',
   '/api/repo/acme/demo/raw?path=a.bin', '/api/repo/acme/demo/zip',
@@ -41,4 +56,11 @@ assert.strictEqual(policy.isFresh(Date.now() - policy.TTL_MS - 1000, Date.now())
 const swSource = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'sw.js'), 'utf8');
 assert(swSource.includes("key === 'nv-api-perm'"), 'service worker must delete the legacy shared private cache during activation');
 assert(swSource.includes("key === 'nv-api'"), 'service worker must delete the earlier unscoped API cache during activation');
+assert(swSource.includes('POLICY.responseMatchesBinding(response.headers, decision)'),
+  'service worker must require a server-verified response binding before caching');
+const serverSource = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+assert(serverSource.includes("res.setHeader('Cache-Control', 'no-store')"));
+assert(serverSource.includes("res.setHeader('X-NV-Offline-Scope', binding.scope)"));
+assert(serverSource.includes("res.setHeader('X-NV-Offline-Repo', binding.repoKey)"));
+assert(serverSource.includes("decision.scope !== expectedScope || decision.repoKey !== expectedRepoKey"));
 console.log('offline cache policy tests passed');

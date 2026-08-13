@@ -38,7 +38,7 @@ for (const [jobName, target] of Object.entries(targets)) {
   assert.strictEqual(hashLiveTarget(jobName, target), targetHashes[jobName]);
 }
 const payload = {
-  schemaVersion: '1.1.0',
+  schemaVersion: '1.2.0',
   workflow: '.github/workflows/public-alpha-alpha17.yml',
   repository: 'fixture-owner/fixture-repository',
   event: 'workflow_dispatch',
@@ -75,6 +75,41 @@ assert.deepStrictEqual(
     signedTargetHash: targetHashes.github
   }),
   { ok: true, jobName: 'github', targetHash: targetHashes.github }
+);
+
+const hostedTarget = {
+  baseUrl: 'https://alpha17.example.test',
+  renderServiceId: 'fixture-owner/nvx-alpha17-render',
+  neonProjectId: 'quiet-rain-12345678',
+  cohortNeonBranchId: 'br-cohort-111111',
+  restoreNeonProjectId: 'quiet-rain-12345678',
+  restoreNeonBranchId: 'br-restore-222222',
+  restoreTargetKind: 'isolated-neon-branch',
+  restoreTargetFingerprint: 'f'.repeat(64)
+};
+const hostedTargetHash = crypto.createHash('sha256').update(JSON.stringify({
+  baseUrl: hostedTarget.baseUrl,
+  cohortNeonBranchId: hostedTarget.cohortNeonBranchId,
+  jobName: 'hosted',
+  neonProjectId: hostedTarget.neonProjectId,
+  renderServiceId: hostedTarget.renderServiceId,
+  restoreNeonBranchId: hostedTarget.restoreNeonBranchId,
+  restoreNeonProjectId: hostedTarget.restoreNeonProjectId,
+  restoreTargetFingerprint: hostedTarget.restoreTargetFingerprint,
+  restoreTargetKind: hostedTarget.restoreTargetKind
+})).digest('hex');
+assert.strictEqual(hashLiveTarget('hosted', hostedTarget), hostedTargetHash);
+assert.deepStrictEqual(
+  verifyLiveTargetBinding({ jobName: 'hosted', target: hostedTarget, signedTargetHash: hostedTargetHash }),
+  { ok: true, jobName: 'hosted', targetHash: hostedTargetHash }
+);
+assert.throws(
+  () => verifyLiveTargetBinding({
+    jobName: 'hosted',
+    target: { ...hostedTarget, restoreTargetFingerprint: 'e'.repeat(64) },
+    signedTargetHash: hostedTargetHash
+  }),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
 );
 
 assert.throws(
@@ -178,7 +213,25 @@ const ciWorkflow = fs.readFileSync(
 function remoteActionReferences(source) {
   return [...source.matchAll(/^\s*(?:-\s*)?uses:\s*([^\s#]+)(?:\s+#.*)?$/gm)]
     .map(match => match[1])
-    .filter(reference => !reference.startsWith('./') && !reference.startsWith('docker://'));
+    .filter(reference => !reference.startsWith('./'));
+}
+
+function assertImmutableActionReference(reference, workflowName) {
+  if (reference.startsWith('docker://')) {
+    assert.match(
+      reference,
+      /^docker:\/\/[^\s@]+@sha256:[0-9a-f]{64}$/,
+      `${workflowName} Docker action ${reference} must use an immutable SHA-256 digest`
+    );
+    return;
+  }
+  const separator = reference.lastIndexOf('@');
+  assert(separator > 0, `${workflowName} remote action ${reference} must include a ref`);
+  assert.match(
+    reference.slice(separator + 1),
+    /^[0-9a-f]{40}$/,
+    `${workflowName} remote action ${reference} must use a full immutable commit SHA`
+  );
 }
 
 function actionStepBlocks(source) {
@@ -200,13 +253,7 @@ for (const [name, source] of [
   ['alpha.17 qualification', workflow]
 ]) {
   for (const reference of remoteActionReferences(source)) {
-    const separator = reference.lastIndexOf('@');
-    assert(separator > 0, `${name} remote action ${reference} must include a ref`);
-    assert.match(
-      reference.slice(separator + 1),
-      /^[0-9a-f]{40}$/,
-      `${name} remote action ${reference} must use a full immutable commit SHA`
-    );
+    assertImmutableActionReference(reference, name);
   }
   for (const block of actionStepBlocks(source).filter(item => item.reference.startsWith('actions/checkout@'))) {
     assert(
@@ -215,6 +262,14 @@ for (const [name, source] of [
     );
   }
 }
+assert.doesNotThrow(() => assertImmutableActionReference(
+  `docker://example.invalid/qualifier@sha256:${'a'.repeat(64)}`,
+  'fixture'
+));
+assert.throws(
+  () => assertImmutableActionReference('docker://example.invalid/qualifier:latest', 'fixture'),
+  /immutable SHA-256 digest/i
+);
 
 assert(/^on:\n(?:[\s\S]*\n)?  pull_request:/m.test(workflow), 'pull_request trigger is required');
 assert(/^  workflow_dispatch:/m.test(workflow), 'workflow_dispatch trigger is required');
@@ -296,7 +351,9 @@ for (const variable of [
   'ALPHA17_GITHUB_REPOSITORY', 'ALPHA17_GITLAB_REPOSITORY',
   'ALPHA17_GITEA_REPOSITORY', 'ALPHA17_GITEA_API_URL',
   'ALPHA17_HOSTED_BASE_URL', 'ALPHA17_RENDER_SERVICE_ID',
-  'ALPHA17_NEON_PROJECT_ID'
+  'ALPHA17_NEON_PROJECT_ID', 'ALPHA17_COHORT_NEON_BRANCH_ID',
+  'ALPHA17_RESTORE_NEON_PROJECT_ID', 'ALPHA17_RESTORE_NEON_BRANCH_ID',
+  'ALPHA17_RESTORE_TARGET_FINGERPRINT'
 ]) assert(authorization.includes(variable), `authorization job must bind ${variable}`);
 
 for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) {
@@ -315,6 +372,42 @@ for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) 
   const extractIndex = block.indexOf('unzip ');
   assert(hashIndex >= 0 && extractIndex > hashIndex, `${name} must verify the archive before extraction`);
 }
+
+const hosted = job('hosted-live');
+const hostedPreflightIndex = hosted.indexOf('Verify signed live target');
+const hostedInstallIndex = hosted.indexOf('Install hosted runner dependencies without lifecycle scripts');
+const hostedRestoreIndex = hosted.indexOf('Execute isolated restore and create runner attestation');
+const hostedValidationIndex = hosted.indexOf('Run hosted gate from runner and signed operator records');
+const hostedFirstSecretIndex = hosted.indexOf('${{ secrets.');
+assert(
+  hostedInstallIndex > hostedPreflightIndex && hostedInstallIndex < hostedFirstSecretIndex,
+  'hosted dependencies must be installed without credentials after signed-target preflight'
+);
+assert(
+  hosted.includes('npm ci --ignore-scripts --no-audit --no-fund'),
+  'hosted dependency installation must suppress lifecycle scripts and unrelated network checks'
+);
+assert(
+  hostedRestoreIndex > hostedInstallIndex && hostedValidationIndex > hostedRestoreIndex,
+  'the workflow runner must execute and attest restore before the hosted gate consumes the proof'
+);
+for (const binding of [
+  'ALPHA17_DATABASE_URL',
+  'ALPHA17_RESTORE_DATABASE_URL',
+  'ALPHA17_BACKUP_KEY_BASE64',
+  'ALPHA17_NEON_API_KEY',
+  'ALPHA17_COHORT_NEON_BRANCH_ID',
+  'ALPHA17_RESTORE_NEON_PROJECT_ID',
+  'ALPHA17_RESTORE_NEON_BRANCH_ID',
+  'ALPHA17_RESTORE_TARGET_FINGERPRINT'
+]) assert(hosted.includes(binding), `hosted restore execution must bind ${binding}`);
+assert(hosted.includes('ci/run-alpha17-restore-validation.js'));
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_PATH'));
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION'));
+assert(
+  !/path:[^\n]*restore-attestation/.test(hosted),
+  'the standalone runner restore attestation must not be uploaded outside the sanitized hosted envelope'
+);
 
 for (const artifact of [
   'alpha17-automated-evidence',

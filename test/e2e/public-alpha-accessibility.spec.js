@@ -159,7 +159,7 @@ test('dialogs contain focus, restore it, and trust states do not depend on color
   }
 });
 
-test('reduced motion, 200 percent text reflow, and mobile navigation remain usable', async ({ page }) => {
+test('reduced motion, 320 CSS-pixel reflow, and mobile navigation remain usable', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await openConnectedRepository(page);
   const motion = await page.locator('.orb-a').evaluate(element => ({
@@ -171,8 +171,7 @@ test('reduced motion, 200 percent text reflow, and mobile navigation remain usab
   expect(motion.iterations).toBe('1');
   expect(motion.transitionDuration).toBe('1e-05s');
 
-  await page.setViewportSize({ width: 393, height: 851 });
-  await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+  await page.setViewportSize({ width: 320, height: 800 });
   await expect(page.locator('#bottomNav')).toBeVisible();
   await page.locator('#bottomNav [data-nav="more"]').click();
   await expect(page.locator('#sheetScrim')).toBeVisible();
@@ -182,4 +181,45 @@ test('reduced motion, 200 percent text reflow, and mobile navigation remain usab
     body: document.body.scrollWidth
   }));
   expect(Math.max(reflow.page, reflow.body)).toBeLessThanOrEqual(reflow.viewport + 1);
+  expect(reflow.viewport).toBe(320);
+});
+
+test('identity changes purge private state and reload a sibling tab', async ({ context }) => {
+  const activeTab = await context.newPage();
+  const siblingTab = await context.newPage();
+  await openConnectedRepository(activeTab);
+  await openConnectedRepository(siblingTab);
+
+  await siblingTab.evaluate(async () => {
+    sessionStorage.setItem('nv-sensitive-session-probe', 'present');
+    localStorage.setItem('nv_snap_identity-probe', '{"private":true}');
+    const cache = await caches.open('nv-api-v1-alphaFixtureScope_0123456789abcdef');
+    await cache.put('/api/repos?page=1', new Response('[]', {
+      headers: { 'content-type': 'application/json' }
+    }));
+  });
+
+  await activeTab.locator('#backBtn').click();
+  await expect(activeTab.locator('#page-repos')).toHaveClass(/active/);
+  const logout = await activeTab.locator('#logoutBtn').isVisible()
+    ? activeTab.locator('#logoutBtn')
+    : activeTab.locator('#logoutBtnM');
+
+  await Promise.all([
+    siblingTab.waitForEvent('domcontentloaded'),
+    logout.click()
+  ]);
+
+  await expect.poll(() => siblingTab.evaluate(async () => ({
+    sessionProbe: sessionStorage.getItem('nv-sensitive-session-probe'),
+    snapshotProbe: localStorage.getItem('nv_snap_identity-probe'),
+    privateCaches: (await caches.keys()).filter(key => key.startsWith('nv-api-'))
+  }))).toEqual({
+    sessionProbe: null,
+    snapshotProbe: null,
+    privateCaches: []
+  });
+
+  await activeTab.close();
+  await siblingTab.close();
 });

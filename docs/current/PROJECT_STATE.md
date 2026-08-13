@@ -18,7 +18,7 @@ with tree `7bcc2c27029cc1013f176d1070e2cd38a8e69811` and candidate SHA-256
 
 Standard CI run: `31494468827`. Exact-archive qualification run: `31494468853`.
 
-Independent review `912555dd-72ab-4662-9645-2313007eea3d` failed with 16 actionable findings and 8 nitpicks.
+Independent review `04b93d36-47ea-402d-abda-ca6dfb2a9290` failed with 30 actionable findings and 9 nitpicks.
 
 The review-remediation successor is **not qualified**. Its commit, tree, archive SHA-256,
 and evidence hashes must be recorded externally after exact-candidate qualification; this
@@ -29,7 +29,7 @@ archive cannot attest its own final identity.
 | Gate | Status | Evidence boundary |
 |---|---|---|
 | Automated exact-archive qualification | Passed | Recorded baseline run `31494468853`: 141/141 programs and 56/56 browser checks |
-| Independent review | Failed | Review `912555dd-72ab-4662-9645-2313007eea3d`: 16 actionable findings and 8 nitpicks |
+| Independent review | Failed | Review `04b93d36-47ea-402d-abda-ca6dfb2a9290`: 30 actionable findings and 9 nitpicks |
 | Live-provider qualification | Pending | Must target the externally qualified successor identity |
 | Hosted qualification | Pending | Render/Neon execution has not been authorized for the successor |
 | Manual accessibility | Pending | VoiceOver and desktop screen-reader evidence remain required |
@@ -37,7 +37,7 @@ archive cannot attest its own final identity.
 
 ## Known limitations
 
-- Independent review failed with 16 actionable findings and 8 nitpicks; this successor is the remediation round
+- Latest independent review raw inventory contains 30 actionable findings and 9 nitpicks; this successor is the remediation round
 - No live PostgreSQL execution has qualified the successor
 - No live Render or Neon execution has qualified the successor
 - No live provider execution has qualified the successor

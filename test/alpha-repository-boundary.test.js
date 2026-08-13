@@ -1040,6 +1040,44 @@ async function assertAlphaStreamTermination(state) {
       );
     }
 
+    const cacheIdentityResponse = await request('/api/me', {
+      headers: { cookie: combinedCookie('A', 'provider-github') }
+    });
+    assert.strictEqual(cacheIdentityResponse.status, 200);
+    const cacheIdentity = await json(cacheIdentityResponse);
+    assert.match(cacheIdentity.offlineCacheScope, /^[A-Za-z0-9_-]{32}$/);
+    assert.strictEqual(cacheIdentityResponse.headers.get('cache-control'), 'no-store',
+      'identity endpoints must remain network-only even when they return the cache scope');
+
+    const cacheEligible = await request('/api/repos', {
+      headers: {
+        cookie: combinedCookie('A', 'provider-github'),
+        'x-nv-offline-scope': cacheIdentity.offlineCacheScope,
+        'x-nv-offline-repo': 'account'
+      }
+    });
+    assert.strictEqual(cacheEligible.status, 200);
+    assert.strictEqual(cacheEligible.headers.get('x-nv-offline-scope'), cacheIdentity.offlineCacheScope);
+    assert.strictEqual(cacheEligible.headers.get('x-nv-offline-repo'), 'account');
+    assert.strictEqual(cacheEligible.headers.get('cache-control'), 'private, max-age=0, must-revalidate');
+    for (const vary of ['Cookie', 'X-NV-Offline-Scope', 'X-NV-Offline-Repo']) {
+      assert((cacheEligible.headers.get('vary') || '').toLowerCase().includes(vary.toLowerCase()));
+    }
+    await json(cacheEligible);
+
+    const staleScope = await request('/api/repos', {
+      headers: {
+        cookie: combinedCookie('A', 'provider-github'),
+        'x-nv-offline-scope': 'staleScope_123456789012345',
+        'x-nv-offline-repo': 'account'
+      }
+    });
+    assert.strictEqual(staleScope.status, 200);
+    assert.strictEqual(staleScope.headers.get('x-nv-offline-scope'), null);
+    assert.strictEqual(staleScope.headers.get('x-nv-offline-repo'), null);
+    assert.strictEqual(staleScope.headers.get('cache-control'), 'no-store');
+    await json(staleScope);
+
     const transportBeforeDeniedRepository = transportEvents();
     const deniedRepository = await request('/api/repo/acme/production', {
       headers: { cookie: combinedCookie('A', 'provider-app') }

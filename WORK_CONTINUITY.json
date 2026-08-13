@@ -37,9 +37,9 @@
     },
     "independentReview": {
       "status": "failed",
-      "runId": "912555dd-72ab-4662-9645-2313007eea3d",
-      "actionable": 16,
-      "nitpicks": 8
+      "runId": "04b93d36-47ea-402d-abda-ca6dfb2a9290",
+      "actionable": 30,
+      "nitpicks": 9
     },
     "liveProvider": {
       "status": "pending"
@@ -72,7 +72,7 @@
     }
   ],
   "limitations": [
-    "Independent review failed with 16 actionable findings and 8 nitpicks; this successor is the remediation round",
+    "Latest independent review raw inventory contains 30 actionable findings and 9 nitpicks; this successor is the remediation round",
     "No live PostgreSQL execution has qualified the successor",
     "No live Render or Neon execution has qualified the successor",
     "No live provider execution has qualified the successor",

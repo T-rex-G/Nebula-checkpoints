@@ -81,6 +81,14 @@ The browser receives only non-secret installation metadata. GitHub App installat
 
 The setup callback does not trust `installation_id` by itself. It verifies signed single-use state, rechecks the authorizing GitHub identity, and confirms that the user-authorized token can enumerate the claimed installation before registering it.
 
+Treat the App private key, OAuth client secret, and webhook secret as separate
+rotation domains. If one is exposed, revoke/reset it in GitHub App settings,
+replace only the corresponding Render value, redeploy, and verify a fresh
+installation-token or callback flow. A webhook-secret rotation must update both
+GitHub and Render in one maintenance window and finish with an independently
+verified signed delivery. Never retain an exposed App secret as a compatibility
+key. Follow `runbooks/04-credential-exposure.md` for the exact containment order.
+
 ## GitHub webhook permissions
 
 Verified live webhook connection is opt-in and GitHub-only for the controlled
@@ -110,8 +118,8 @@ For production, set `NV_GIT_HOST_ALLOWLIST` to the exact approved hostnames.
 - CSP blocks plugins/objects, framing, hostile base URLs, and non-self form submissions.
 - Markdown is passed through DOMPurify and falls back to plain text when the sanitizer is unavailable.
 - HTML, SVG, XHTML, XML, XSL/XSLT are served as attachments.
-- Private API responses are not stored by the service worker.
-- Logout and account switching purge repository-scoped drafts, recent-file history, local incident/snapshot data, private API caches, and the offline write queue so data cannot cross account boundaries.
+- Private API caching is disabled by default. A tester may opt one repository into a bounded 24-hour text/JSON cache; sensitive, governance, raw, ZIP, security, session, notification, and mutation routes remain network-only. The server recomputes the authenticated session/account/repository scope and echoes it on eligible responses, and the service worker caches only an exact response/request binding match.
+- Logout, login, account switching/removal, provider disconnect, access revocation, and alpha deletion purge repository-scoped drafts, recent-file history, local incident/snapshot data, private API caches, and the offline write queue. Same-origin tabs receive a `BroadcastChannel`/storage boundary event and purge before reload so stale tabs cannot carry data across identities.
 - Provider-controlled avatar attributes and label colors are escaped/validated before HTML insertion.
 - If Neon is configured but unavailable, database-backed sessions fail closed with `503` rather than downgrading to a full browser-cookie session.
 - ZIP extraction validates archive paths, duplicate names, entry counts, methods, declared/actual sizes, ZIP64 markers, and compression ratios before allocating extracted content.
@@ -167,12 +175,28 @@ Before public exposure:
 - Maintain an independent backup outside Nebulaverse-X.
 - Keep upload concurrency and native-push memory limits conservative on Render Free.
 
+Live-provider qualification credentials must belong only to the pre-created
+`nvx-alpha17-` sandbox repository, be disposable after the run, and have no
+organization or production-repository reach. The signed activation envelope
+binds the exact reviewed candidate and target, but candidate code still runs in
+the credential-bearing job. Therefore live dispatch requires a passing
+independent review of those exact bytes and an environment approval. A candidate
+that is not already trusted must instead run on an egress-isolated runner or
+through a separately trusted harness; the repository workflow does not claim to
+sandbox arbitrary hostile candidate code.
+
+Exact-archive qualification runs `npm ci` with lifecycle scripts disabled in a
+minimal allowlisted environment and invokes the reviewed vendor-copy step
+explicitly. Ambient CI tokens, npm credentials, `NODE_OPTIONS`, and unrelated
+variables are not inherited by candidate tests. This limits accidental secret
+exposure; it is not a network sandbox for malicious code.
+
 ## Governance API and draft security (Tasks 6–7)
 
 - Governance routes use the authenticated server-side authorization snapshot and exact provider authority/repository scope; client role and actor claims are ignored.
 - Governance writes enter the Central Mutation Gateway and are attributed to the verified human actor, including optional GitHub App sessions.
 - Drafts are author-owned and use optimistic revisions. Submitted versions and linked audit records remain append-only.
-- Optional `Idempotency-Key` values are validated and SHA-256 hashed before storage; raw values are not logged or included in mutation/audit evidence. Records are cleaned after 24 hours.
+- Every Policy Digital Twin interface write generates a fresh bounded `Idempotency-Key`. Activation and rollback reject a missing or malformed key before any governance-store read; other governance writes retain their compatibility behavior. Accepted keys are SHA-256 hashed before storage, raw values are not logged or included in mutation/audit evidence, and records are cleaned after 24 hours.
 - Governance JSON rejects sensitive fields, oversized structures, and JavaScript prototype-control keys.
 - Configure a stable `NV_GOVERNANCE_AUDIT_SECRET` of at least 32 bytes before production governance use. It protects both governance lifecycle audit and runtime decision chains. Rotating it breaks verification of records created under the previous secret unless a controlled migration is performed.
 - Keep each repository scope at or below 100 active policies. Migration 011 and later activations enforce this limit so policy evaluation cannot silently become unavailable.
@@ -186,7 +210,38 @@ Before public exposure:
 - Each persisted decision binds the normalized mutation descriptor by SHA-256 and records policy/version/document/head evidence before provider execution.
 - Control mappings are versioned, server-derived, non-authoritative evidence. They use a `supports` relationship and cannot modify enforcement.
 - Active policies and evaluator failures cannot block governance recovery/control-plane mutations. These routes still require their existing server-derived role, approval, simulation, concurrency, PostgreSQL, and HMAC-audit protections.
+- Any unsupported rule found in an active policy is an evaluator failure, never an implicit allow. The configured runtime failure mode converts it to an observable warning or a pre-provider block; recovery/control-plane mutations retain their separate safe fallback.
 - Treat `X-Nebulaverse-Policy-*` headers as operational signals, not authorization claims; authority remains server-side.
+
+## Governance delivery receiver responsibilities
+
+Webhook delivery is at-least-once. Retries preserve the immutable delivery ID
+in `X-Nebulaverse-Delivery` and `Idempotency-Key`; receivers must verify the
+signature over delivery ID, timestamp, and exact body, enforce their own narrow
+timestamp window, and deduplicate that delivery ID for at least the configured
+retry/dead-letter horizon before applying side effects. A 2xx response confirms
+transport acceptance, not exactly-once processing. Redirects are terminal and
+are never followed.
+
+## Hosted restore attestation boundary
+
+The live hosted harness directly measures deployment identity, smoke, bounded
+load, mutation cleanup, and cold-start behavior. After exact-target preflight,
+the protected workflow installs the frozen candidate with lifecycle scripts
+disabled and exposes restore credentials only to the reviewed restore runner.
+That runner creates and removes a fresh encrypted backup, proves distinct
+source/target branch identities, repeats control-plane and live-session target
+verification, executes restore through migration `015_alpha_privacy`, and emits
+a bounded credential-free record with nonzero backup, target, and restore
+digests. The hosted artifact retains that complete record and independently
+recomputed SHA-256; the standalone record and backup material are not uploaded.
+
+Remaining checks that require operator console access use a separate fresh
+Ed25519-signed operational record bound to the same candidate and source commit.
+That operator record is retained with its key ID and recomputed hash, but is
+forbidden from claiming `isolated-database-restore`. The two records preserve
+who executed each check instead of collapsing both into an unqualified
+`status: pass`.
 
 ## Policy simulation security (Tasks 9–10)
 

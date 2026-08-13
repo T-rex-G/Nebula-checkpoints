@@ -4,9 +4,12 @@ Public alpha: **NO-GO**
 
 The recorded `1a3eba45…` alpha.17 baseline passed automated exact-archive
 qualification, but independent review failed with 16 actionable findings and 8
-nitpicks. This review-remediation successor changes packaged bytes and is **not
-qualified** until its own external archive identity, automated evidence, and
-follow-up independent review pass. Live-provider, hosted, manual
+nitpicks. A later review, `04b93d36-47ea-402d-abda-ca6dfb2a9290`, failed the
+pre-remediation PR head with a raw inventory of 30 actionable findings and 9
+nitpicks (18 inline actions plus 12 summary/failed-post actions). This latest
+remediation successor changes packaged bytes again and is **not qualified**
+until its own external archive identity, automated evidence, and follow-up
+independent review pass. Live-provider, hosted, manual
 accessibility, and final release gates remain pending.
 
 Hosted qualification is pending; the cohort is not open. Plans 1–3 are accepted
@@ -138,6 +141,13 @@ migration they create and verify an encrypted backup outside the Render
 filesystem, then rehearse an isolated restore before relying on that recovery
 path. Smoke traffic is read-only by default; the load tool allows at most five
 workers, ten reads, and one explicitly requested mutation.
+
+For the protected live-qualification job, the same reviewed database operations
+are orchestrated by `ci/run-alpha17-restore-validation.js` after signed-target
+preflight. The runner removes its fresh backup material before emitting a
+credential-free restore record; the final hosted envelope binds that record
+separately from the signed operator observations. An operator record cannot
+substitute for workflow-executed restore proof.
 
 Live Render/Neon qualification remains pending. No live deployment, database
 migration, backup, restore, smoke test, or provider mutation is claimed by the

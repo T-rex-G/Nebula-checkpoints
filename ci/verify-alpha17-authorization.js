@@ -4,7 +4,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 
-const AUTHORIZATION_SCHEMA_VERSION = '1.1.0';
+const AUTHORIZATION_SCHEMA_VERSION = '1.2.0';
 const ALLOWED_JOBS = Object.freeze(['github', 'gitlab', 'gitea', 'hosted']);
 const PROVIDER_JOBS = new Set(['github', 'gitlab', 'gitea']);
 const MAX_LIFETIME_MS = 30 * 60 * 1000;
@@ -101,6 +101,14 @@ function normalizeIdentity(value, label) {
   return identity;
 }
 
+function normalizeSha256(value, label) {
+  const digest = String(value || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(digest) || /^0{64}$/.test(digest)) {
+    fail(`${label} is invalid`, 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  return digest;
+}
+
 function normalizeLiveTarget(jobName, input) {
   const job = String(jobName || '').trim();
   if (!ALLOWED_JOBS.includes(job) || !isPlainObject(input)) {
@@ -125,15 +133,33 @@ function normalizeLiveTarget(jobName, input) {
       repository
     });
   }
-  if (Object.keys(input).some(key => !['baseUrl', 'renderServiceId', 'neonProjectId'].includes(key))) {
+  const hostedFields = [
+    'baseUrl', 'renderServiceId', 'neonProjectId', 'cohortNeonBranchId',
+    'restoreNeonProjectId', 'restoreNeonBranchId', 'restoreTargetKind',
+    'restoreTargetFingerprint'
+  ];
+  if (Object.keys(input).some(key => !hostedFields.includes(key))) {
     fail('hosted target contains an unexpected field', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
   }
-  return Object.freeze({
+  const target = {
     baseUrl: normalizeUrl(input.baseUrl, 'hosted base URL', { originOnly: true }),
+    cohortNeonBranchId: normalizeIdentity(input.cohortNeonBranchId, 'cohort Neon branch identity'),
     jobName: job,
     neonProjectId: normalizeIdentity(input.neonProjectId, 'Neon project identity'),
-    renderServiceId: normalizeIdentity(input.renderServiceId, 'Render service identity')
-  });
+    renderServiceId: normalizeIdentity(input.renderServiceId, 'Render service identity'),
+    restoreNeonBranchId: normalizeIdentity(input.restoreNeonBranchId, 'restore Neon branch identity'),
+    restoreNeonProjectId: normalizeIdentity(input.restoreNeonProjectId, 'restore Neon project identity'),
+    restoreTargetFingerprint: normalizeSha256(input.restoreTargetFingerprint, 'restore target fingerprint'),
+    restoreTargetKind: String(input.restoreTargetKind || '').trim()
+  };
+  if (target.restoreTargetKind !== 'isolated-neon-branch') {
+    fail('restore target kind is invalid', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  if (
+    target.neonProjectId === target.restoreNeonProjectId &&
+    target.cohortNeonBranchId === target.restoreNeonBranchId
+  ) fail('hosted restore branch must differ from the cohort branch', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  return Object.freeze(target);
 }
 
 function hashLiveTarget(jobName, target) {
@@ -183,7 +209,12 @@ function targetFromEnvironment(jobName, env = process.env, prefix = 'NV_ALPHA17'
     return {
       baseUrl: env[`${prefix}_HOSTED_BASE_URL`],
       renderServiceId: env[`${prefix}_RENDER_SERVICE_ID`],
-      neonProjectId: env[`${prefix}_NEON_PROJECT_ID`]
+      neonProjectId: env[`${prefix}_NEON_PROJECT_ID`],
+      cohortNeonBranchId: env[`${prefix}_COHORT_NEON_BRANCH_ID`],
+      restoreNeonProjectId: env[`${prefix}_RESTORE_NEON_PROJECT_ID`],
+      restoreNeonBranchId: env[`${prefix}_RESTORE_NEON_BRANCH_ID`],
+      restoreTargetKind: env[`${prefix}_RESTORE_TARGET_KIND`],
+      restoreTargetFingerprint: env[`${prefix}_RESTORE_TARGET_FINGERPRINT`]
     };
   }
   fail('live target job is invalid', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
@@ -286,7 +317,12 @@ function main(env = process.env) {
       ? {
           baseUrl: env.NV_ALPHA17_TARGET_BASE_URL,
           renderServiceId: env.NV_ALPHA17_TARGET_RENDER_SERVICE_ID,
-          neonProjectId: env.NV_ALPHA17_TARGET_NEON_PROJECT_ID
+          neonProjectId: env.NV_ALPHA17_TARGET_NEON_PROJECT_ID,
+          cohortNeonBranchId: env.NV_ALPHA17_TARGET_COHORT_NEON_BRANCH_ID,
+          restoreNeonProjectId: env.NV_ALPHA17_TARGET_RESTORE_NEON_PROJECT_ID,
+          restoreNeonBranchId: env.NV_ALPHA17_TARGET_RESTORE_NEON_BRANCH_ID,
+          restoreTargetKind: env.NV_ALPHA17_TARGET_RESTORE_TARGET_KIND,
+          restoreTargetFingerprint: env.NV_ALPHA17_TARGET_RESTORE_TARGET_FINGERPRINT
         }
       : {
           repository: env.NV_ALPHA17_TARGET_REPOSITORY,

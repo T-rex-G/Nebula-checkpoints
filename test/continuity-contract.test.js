@@ -45,8 +45,8 @@ assert(roadmap.includes('Phase 1 Task 19 (signed evidence export format) must be
 
 const decisions = read('docs/architecture/ARCHITECTURE_DECISIONS.md');
 const adrNumbers = [...decisions.matchAll(/^## ADR-(\d{3}) —/gm)].map(match => Number(match[1]));
-assert.strictEqual(adrNumbers.length, 72);
-assert.deepStrictEqual(adrNumbers, Array.from({ length: 72 }, (_, index) => index + 1));
+assert.strictEqual(adrNumbers.length, 82);
+assert.deepStrictEqual(adrNumbers, Array.from({ length: 82 }, (_, index) => index + 1));
 assert(decisions.includes('## ADR-051 — Governance delivery uses an immutable outbox and failure-isolated worker'));
 assert(decisions.includes('## ADR-052 — Signed evidence envelopes are the stable boundary before external storage'));
 assert(decisions.includes('## ADR-053 — Staging readiness is an expiring evidence gate, not a release assertion'));
@@ -67,6 +67,16 @@ assert(decisions.includes('## ADR-069 — Destructive Neon restore requires cont
 assert(decisions.includes('## ADR-070 — Production snapshot compatibility is an explicit operator keyring'));
 assert(decisions.includes('## ADR-071 — Continuity accepts exact transport-specific commits paired to one tree'));
 assert(decisions.includes('## ADR-072 — Deployed release identity remains runtime-observed and non-circular'));
+assert(decisions.includes('## ADR-073 — Activation and rollback require idempotency before persistence access'));
+assert(decisions.includes('## ADR-074 — Unsupported active rules are evaluator failures, never implicit allows'));
+assert(decisions.includes('## ADR-075 — Governance advisory locks have one nested acquisition order'));
+assert(decisions.includes('## ADR-076 — Governance webhook delivery is at-least-once and receiver-deduplicated'));
+assert(decisions.includes('## ADR-077 — Private offline responses require server-confirmed cache bindings'));
+assert(decisions.includes('## ADR-078 — Exact-archive qualification uses an allowlisted process environment'));
+assert(decisions.includes('## ADR-079 — Hosted operational claims retain signed-attestation provenance'));
+assert(decisions.includes('## ADR-080 — Live qualification credentials assume an independently reviewed candidate'));
+assert(decisions.includes('## ADR-081 — Provider claims equal the proof-bearing qualification subset'));
+assert(decisions.includes('## ADR-082 — Credential-bearing outbound requests never follow redirects'));
 
 const prompt = read('docs/current/CONTINUATION_PROMPT.md');
 assert(prompt.includes('Public alpha: **NO-GO**'));

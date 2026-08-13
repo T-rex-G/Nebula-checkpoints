@@ -24,14 +24,42 @@ const { verifyLiveTargetBinding } = require('./verify-alpha17-authorization');
 const MAX_RECORD_BYTES = 1024 * 1024;
 const MAX_AGE_MS = 72 * 60 * 60 * 1000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const DIRECT_KEYS = Object.freeze([
   'render-cold-start',
   'five-concurrent-read-testers',
   'single-bounded-mutation'
 ]);
+const RESTORE_KEY = 'isolated-database-restore';
 const OPERATIONAL_KEYS = Object.freeze(
-  qualificationCatalog(registry).hosted.filter(key => !DIRECT_KEYS.includes(key))
+  qualificationCatalog(registry).hosted.filter(key => !DIRECT_KEYS.includes(key) && key !== RESTORE_KEY)
 );
+const OPERATIONAL_CHECK_CONTRACT = Object.freeze({
+  'neon-scale-to-zero-wake': Object.freeze({ status: 'pass', wakeRetries: '$positive-integer' }),
+  'memory-restart-observation': Object.freeze({ status: 'pass', restartObserved: true }),
+  'active-session-revocation': Object.freeze({ status: 'pass', deniedAfterRevocation: true }),
+  'provider-disconnect': Object.freeze({ status: 'pass', browserStatePurged: true }),
+  'ephemeral-filesystem-restart': Object.freeze({ status: 'pass', stateRecoveredFromDatabase: true }),
+  'database-interruption-recovery': Object.freeze({ status: 'pass', failClosedDuringInterruption: true }),
+  'provider-429-outage': Object.freeze({ status: 'pass', retryBounded: true }),
+  'application-rollback': Object.freeze({ status: 'pass', candidateRestored: true }),
+  'disposable-tester-purge': Object.freeze({ status: 'pass', tokenBearingStateRemoved: true })
+});
+const RESTORE_CHECK_CONTRACT = Object.freeze({
+  status: 'pass',
+  latestMigration: '015_alpha_privacy',
+  backupManifestSha256: '$sha256',
+  backupCiphertextSha256: '$sha256',
+  restoreTargetFingerprint: '$sha256',
+  restoreEvidenceSha256: '$sha256',
+  sourceIdentitySha256: '$sha256',
+  targetIdentitySha256: '$sha256',
+  sourceTargetDistinct: true,
+  controlPlaneVerified: true,
+  liveTargetVerified: true,
+  smokePassed: true,
+  backupRemoved: true
+});
 
 function fail(message, code) {
   const error = new Error(message);
@@ -43,6 +71,35 @@ function isPlainObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+}
+
+function hasExactKeys(value, keys) {
+  return isPlainObject(value)
+    && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
+}
+
+function isNonzeroSha256(value) {
+  return SHA256_PATTERN.test(String(value || '')) && !/^0{64}$/.test(value);
+}
+
+function validateOperationalCheck(key, check) {
+  const contract = OPERATIONAL_CHECK_CONTRACT[key];
+  if (!contract || !hasExactKeys(check, Object.keys(contract))) {
+    fail('an operational check does not match its signed proof schema', 'ALPHA17_OPERATIONAL_CHECK_FAILED');
+  }
+  for (const [field, rule] of Object.entries(contract)) {
+    if (rule === '$positive-integer') {
+      if (!Number.isSafeInteger(check[field]) || check[field] <= 0) {
+        fail('an operational count is invalid', 'ALPHA17_OPERATIONAL_CHECK_FAILED');
+      }
+    } else if (rule === '$sha256') {
+      if (!isNonzeroSha256(check[field])) {
+        fail('an operational proof digest is invalid', 'ALPHA17_OPERATIONAL_CHECK_FAILED');
+      }
+    } else if (check[field] !== rule) {
+      fail('an operational proof is incomplete', 'ALPHA17_OPERATIONAL_CHECK_FAILED');
+    }
+  }
 }
 
 function stableJson(value) {
@@ -62,14 +119,14 @@ function cloneJson(value) {
 }
 
 function assertNoSecretMaterial(value) {
-  const safeSecretLikeKeys = new Set(['token-bearing-state-removed']);
+  const safeSecretLikeKeys = Object.freeze(['token-bearing-state-removed']);
   function visit(input) {
     if (Array.isArray(input)) return input.forEach(visit);
     if (isPlainObject(input)) {
       for (const [key, child] of Object.entries(input)) {
         const normalized = key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
         if (
-          !safeSecretLikeKeys.has(normalized) &&
+          !safeSecretLikeKeys.includes(normalized) &&
           /(^|[-_])(password|credential|token|authorization|cookie|secret|private[-_]?key|api[-_]?key|database[-_]?url)([-_]|$)/.test(normalized)
         ) {
           fail('operational record contains a secret-like field', 'ALPHA17_OPERATIONAL_SECRET_MATERIAL');
@@ -123,6 +180,10 @@ function validateOperationalRecord(input, options = {}) {
   if (!isPlainObject(input)) fail('operational record must be an object', 'ALPHA17_OPERATIONAL_SCHEMA_INVALID');
   assertNoSecretMaterial(input);
   const record = cloneJson(input);
+  if (!hasExactKeys(record, [
+    'schemaVersion', 'subjectSha256', 'sourceCommit', 'completedAt',
+    'cleanupVerified', 'checks', 'signature'
+  ])) fail('operational record fields do not match the signed schema', 'ALPHA17_OPERATIONAL_SCHEMA_INVALID');
   if (record.schemaVersion !== '1.0.0') fail('operational schema does not match', 'ALPHA17_OPERATIONAL_SCHEMA_INVALID');
   if (record.subjectSha256 !== options.expectedSubjectHash) {
     fail('operational subject does not match', 'ALPHA17_OPERATIONAL_SUBJECT_MISMATCH');
@@ -139,20 +200,10 @@ function validateOperationalRecord(input, options = {}) {
   if (JSON.stringify(actualKeys) !== JSON.stringify([...OPERATIONAL_KEYS].sort())) {
     fail('operational checks do not match the hosted catalog', 'ALPHA17_OPERATIONAL_SCHEMA_INVALID');
   }
-  for (const key of OPERATIONAL_KEYS) {
-    if (!isPlainObject(record.checks[key]) || record.checks[key].status !== 'pass') {
-      fail('an operational check did not pass', 'ALPHA17_OPERATIONAL_CHECK_FAILED');
-    }
+  if (JSON.stringify(Object.keys(OPERATIONAL_CHECK_CONTRACT).sort()) !== JSON.stringify([...OPERATIONAL_KEYS].sort())) {
+    fail('operational proof contract does not match the hosted catalog', 'ALPHA17_OPERATIONAL_SCHEMA_INVALID');
   }
-  if (record.checks['ephemeral-filesystem-restart'].stateRecoveredFromDatabase !== true) {
-    fail('restart recovery did not prove database-backed state', 'ALPHA17_OPERATIONAL_CHECK_FAILED');
-  }
-  if (record.checks['isolated-database-restore'].latestMigration !== '015_alpha_privacy') {
-    fail('isolated restore migration does not match', 'ALPHA17_OPERATIONAL_CHECK_FAILED');
-  }
-  if (record.checks['disposable-tester-purge'].tokenBearingStateRemoved !== true) {
-    fail('tester purge did not remove token-bearing state', 'ALPHA17_OPERATIONAL_CHECK_FAILED');
-  }
+  for (const key of OPERATIONAL_KEYS) validateOperationalCheck(key, record.checks[key]);
   if (!isPlainObject(record.signature) || record.signature.algorithm !== 'ed25519') {
     fail('operational signature is missing', 'ALPHA17_OPERATIONAL_SIGNATURE_INVALID');
   }
@@ -175,6 +226,58 @@ function validateOperationalRecord(input, options = {}) {
   return Object.freeze(record);
 }
 
+function validateRunnerRestoreAttestation(input, options = {}) {
+  if (!isPlainObject(input)) {
+    fail('runner restore attestation must be an object', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+  }
+  assertNoSecretMaterial(input);
+  const record = cloneJson(input);
+  if (!hasExactKeys(record, [
+    'schemaVersion', 'artifactType', 'subjectSha256', 'sourceCommit', 'originId',
+    'completedAt', 'cleanupVerified', 'check'
+  ])) fail('runner restore attestation fields do not match the schema', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+  if (record.schemaVersion !== '1.0.0' || record.artifactType !== 'hosted-restore-runner') {
+    fail('runner restore attestation schema does not match', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+  }
+  if (record.subjectSha256 !== options.expectedSubjectHash) {
+    fail('runner restore subject does not match', 'ALPHA17_RESTORE_ATTESTATION_SUBJECT_MISMATCH');
+  }
+  if (record.sourceCommit !== options.expectedSourceCommit) {
+    fail('runner restore source does not match', 'ALPHA17_RESTORE_ATTESTATION_SOURCE_MISMATCH');
+  }
+  if (record.originId !== options.expectedOriginId) {
+    fail('runner restore origin does not match', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+  }
+  if (record.cleanupVerified !== true) {
+    fail('runner restore cleanup is not verified', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+  }
+  const now = options.now instanceof Date ? options.now : new Date(options.now || Date.now());
+  try {
+    parseFresh(record.completedAt, now);
+  } catch {
+    fail('runner restore attestation is stale', 'ALPHA17_RESTORE_ATTESTATION_STALE');
+  }
+  if (!hasExactKeys(record.check, Object.keys(RESTORE_CHECK_CONTRACT))) {
+    fail('runner restore proof does not match its schema', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+  }
+  for (const [field, rule] of Object.entries(RESTORE_CHECK_CONTRACT)) {
+    if (rule === '$sha256') {
+      if (!isNonzeroSha256(record.check[field])) {
+        fail('runner restore proof contains an invalid digest', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+      }
+    } else if (record.check[field] !== rule) {
+      fail('runner restore proof is incomplete', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+    }
+  }
+  if (record.check.sourceIdentitySha256 === record.check.targetIdentitySha256) {
+    fail('runner restore source and target identities are not distinct', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+  }
+  if (record.check.restoreTargetFingerprint !== options.expectedRestoreTargetFingerprint) {
+    fail('runner restore fingerprint does not match the reviewed target', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+  }
+  return Object.freeze(record);
+}
+
 function readOperationalRecord(filePath) {
   const metadata = fs.lstatSync(filePath);
   if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > MAX_RECORD_BYTES) {
@@ -184,6 +287,24 @@ function readOperationalRecord(filePath) {
     return JSON.parse(fs.readFileSync(fs.realpathSync(filePath), 'utf8'));
   } catch {
     fail('operational record must contain valid JSON', 'ALPHA17_OPERATIONAL_SCHEMA_INVALID');
+  }
+}
+
+function readRunnerRestoreAttestation(filePath) {
+  if (!filePath) fail('runner restore attestation is required', 'ALPHA17_RESTORE_ATTESTATION_MISSING');
+  let metadata;
+  try {
+    metadata = fs.lstatSync(filePath);
+  } catch {
+    fail('runner restore attestation is required', 'ALPHA17_RESTORE_ATTESTATION_MISSING');
+  }
+  if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size <= 0 || metadata.size > MAX_RECORD_BYTES) {
+    fail('runner restore attestation must be a bounded regular file', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
+  }
+  try {
+    return JSON.parse(fs.readFileSync(fs.realpathSync(filePath), 'utf8'));
+  } catch {
+    fail('runner restore attestation must contain valid JSON', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
   }
 }
 
@@ -220,7 +341,12 @@ async function runHostedValidation(options = {}) {
     target: {
       baseUrl: env.NV_ALPHA_BASE_URL,
       renderServiceId: env.NV_ALPHA17_RENDER_SERVICE_ID,
-      neonProjectId: env.NV_ALPHA17_NEON_PROJECT_ID
+      neonProjectId: env.NV_ALPHA17_NEON_PROJECT_ID,
+      cohortNeonBranchId: env.NV_ALPHA17_COHORT_NEON_BRANCH_ID,
+      restoreNeonProjectId: env.NV_ALPHA17_RESTORE_NEON_PROJECT_ID,
+      restoreNeonBranchId: env.NV_ALPHA17_RESTORE_NEON_BRANCH_ID,
+      restoreTargetKind: env.NV_ALPHA17_RESTORE_TARGET_KIND,
+      restoreTargetFingerprint: env.NV_RESTORE_TARGET_FINGERPRINT
     },
     signedTargetHash: env.NV_ALPHA17_SIGNED_TARGET_SHA256
   });
@@ -231,6 +357,16 @@ async function runHostedValidation(options = {}) {
     expectedSubjectHash: subjectSha256,
     expectedSourceCommit: sourceCommit,
     publicKeyBase64: env.NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64,
+    now: now()
+  });
+  const inputRestoreAttestation = options.restoreAttestation || readRunnerRestoreAttestation(
+    String(env.NV_ALPHA17_RESTORE_ATTESTATION || '')
+  );
+  const restoreAttestation = validateRunnerRestoreAttestation(inputRestoreAttestation, {
+    expectedSubjectHash: subjectSha256,
+    expectedSourceCommit: sourceCommit,
+    expectedOriginId: `workflow-${runId}-restore`,
+    expectedRestoreTargetFingerprint: requireEnvironment(env, 'NV_RESTORE_TARGET_FINGERPRINT'),
     now: now()
   });
 
@@ -268,7 +404,8 @@ async function runHostedValidation(options = {}) {
       mutationStatusClass: load.mutation ? `${Math.floor(load.mutation.status / 100)}xx` : 'none',
       cleanupVerified: load.cleanup.ok
     },
-    ...operational.checks
+    ...operational.checks,
+    [RESTORE_KEY]: restoreAttestation.check
   };
   const hostedKeys = qualificationCatalog(registry).hosted;
   if (hostedKeys.some(key => !checks[key] || checks[key].status !== 'pass')) {
@@ -290,6 +427,19 @@ async function runHostedValidation(options = {}) {
     originId: `workflow-${runId}-hosted`,
     authorizedTargetSha256: targetBinding.targetHash,
     deploymentSha256,
+    operatorAttestation: {
+      schemaVersion: operational.schemaVersion,
+      keyId: operational.signature.keyId,
+      completedAt: operational.completedAt,
+      recordSha256: sha256(stableJson(operational)),
+      record: operational
+    },
+    restoreRunnerAttestation: {
+      schemaVersion: restoreAttestation.schemaVersion,
+      completedAt: restoreAttestation.completedAt,
+      recordSha256: sha256(stableJson(restoreAttestation)),
+      record: restoreAttestation
+    },
     checks,
     claims,
     startedAt,
@@ -312,7 +462,9 @@ if (require.main === module) {
 
 module.exports = Object.freeze({
   validateOperationalRecord,
+  validateRunnerRestoreAttestation,
   readOperationalRecord,
+  readRunnerRestoreAttestation,
   readDeployedReleaseFingerprint,
   runHostedValidation
 });

@@ -91,22 +91,26 @@ function parseDatabaseUrl(raw, label = 'database URL') {
   return { url, database };
 }
 
-function neonConnectionIdentity(raw, label = 'database URL') {
+function neonConnectionIdentity(raw, label = 'database URL', options = {}) {
   const { url, database } = parseDatabaseUrl(raw, label);
   let role;
   try { role = decodeURIComponent(url.username || ''); }
   catch { throw new TypeError(`${label} contains invalid role encoding`); }
   if (!role) throw new TypeError(`${label} must name one database role`);
   const hostname = url.hostname.toLowerCase();
-  const sslmode = String(url.searchParams.get('sslmode') || 'verify-full').toLowerCase();
-  if (!['require', 'verify-ca', 'verify-full'].includes(sslmode)) {
-    throw new TypeError(`${label} must require TLS`);
+  const sslmode = String(url.searchParams.get('sslmode') || '').toLowerCase();
+  if (options.requireVerifiedTls !== false && sslmode !== 'verify-full') {
+    throw new TypeError(`${label} must explicitly use sslmode=verify-full for certificate and hostname verification`);
+  }
+  if (options.requireVerifiedTls === false && sslmode && !['require', 'verify-ca', 'verify-full'].includes(sslmode)) {
+    throw new TypeError(`${label} contains an invalid TLS mode`);
   }
   return Object.freeze({
     hostname,
     port: url.port || '5432',
     database,
     role,
+    sslmode,
     pooled: hostname.split('.')[0].endsWith('-pooler')
   });
 }
@@ -153,6 +157,8 @@ function normalizeRestoreContext(input = {}) {
 function restoreTargetFingerprint(source, target, input) {
   assertRestoreTargetDifferent(source, target);
   const context = normalizeRestoreContext(input);
+  const sourceIdentity = neonConnectionIdentity(source, 'DATABASE_URL');
+  const targetIdentity = neonConnectionIdentity(target, 'NV_RESTORE_DATABASE_URL');
   if (
     context.cohortNeonProjectId === context.restoreNeonProjectId &&
     context.cohortNeonBranchId === context.restoreNeonBranchId
@@ -160,14 +166,14 @@ function restoreTargetFingerprint(source, target, input) {
     throw new TypeError('The isolated Neon branch must differ from the cohort branch');
   }
   const preimage = {
-    schemaVersion: 'nvx-isolated-restore-target.v1',
+    schemaVersion: 'nvx-isolated-restore-target.v2',
     source: {
-      databaseIdentity: databaseIdentity(source),
+      connectionIdentity: sourceIdentity,
       neonProjectId: context.cohortNeonProjectId,
       neonBranchId: context.cohortNeonBranchId
     },
     target: {
-      databaseIdentity: databaseIdentity(target),
+      connectionIdentity: targetIdentity,
       neonProjectId: context.restoreNeonProjectId,
       neonBranchId: context.restoreNeonBranchId,
       kind: context.restoreTargetKind
@@ -261,7 +267,11 @@ async function retrieveNeonConnectionIdentity({
     clearTimeout(timer);
   }
   let observed;
-  try { observed = neonConnectionIdentity(record && record.uri, 'Neon control-plane connection URI'); }
+  try {
+    observed = neonConnectionIdentity(record && record.uri, 'Neon control-plane connection URI', {
+      requireVerifiedTls: false
+    });
+  }
   catch { throw new TypeError('Neon control-plane response is invalid'); }
   if (!sameNeonConnectionIdentity(expected, observed)) {
     throw new TypeError('Configured database URL does not match the Neon control-plane connection identity');
@@ -350,9 +360,9 @@ function databaseEnvironment(raw, baseEnv = process.env) {
   if (url.username) env.PGUSER = decodeURIComponent(url.username);
   if (url.password) env.PGPASSWORD = decodeURIComponent(url.password);
   env.PGDATABASE = database;
-  const sslmode = String(url.searchParams.get('sslmode') || 'verify-full').toLowerCase();
-  if (!['require', 'verify-ca', 'verify-full'].includes(sslmode)) {
-    throw new TypeError('PostgreSQL sslmode must require TLS');
+  const sslmode = String(url.searchParams.get('sslmode') || '').toLowerCase();
+  if (sslmode !== 'verify-full') {
+    throw new TypeError('PostgreSQL URLs must explicitly use sslmode=verify-full for certificate and hostname verification');
   }
   env.PGSSLMODE = sslmode;
   return env;
@@ -511,7 +521,7 @@ async function verifyCommand(args, env) {
   const { manifest } = await readBackupRecord(args.manifest);
   await withVerifiedPlaintext({ backupPath: args.backup, manifest, key }, async plaintextPath => {
     await spawnChecked('pg_restore', ['--list', plaintextPath], databaseEnvironment(
-      'postgresql://localhost/verification-only',
+      'postgresql://localhost/verification-only?sslmode=verify-full',
       env
     ));
   });
@@ -535,6 +545,7 @@ async function connectDatabase(databaseUrl, options = {}) {
 
 async function migrateCommand(args, env) {
   const databaseUrl = requireEnvironment(env, 'DATABASE_URL');
+  databaseEnvironment(databaseUrl, env);
   const key = decodeBackupKey(requireEnvironment(env, 'NV_BACKUP_KEY_BASE64'));
   const { record, manifest } = await readBackupRecord(args.backupManifest);
   assertFreshBackup(manifest);
@@ -653,6 +664,7 @@ module.exports = {
   assertRestoreTargetDifferent,
   assertIsolatedRestoreTarget,
   verifyNeonRestoreOwnership,
+  neonConnectionIdentity,
   databaseEnvironment,
   redactErrorMessage,
   restoreTargetFingerprint,

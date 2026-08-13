@@ -5,6 +5,9 @@ const { hmacJson } = require('./intelligence');
 
 const SIGNATURE_PREFIX = 'nvx-snapshot-hmac-v1';
 const KEY_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}$/;
+const SIGNATURE_PATTERN = new RegExp(
+  `^${SIGNATURE_PREFIX}:(${KEY_ID_PATTERN.source.slice(1, -1)}):([0-9a-f]{64})$`
+);
 const MAX_KEYRING_BYTES = 64 * 1024;
 const MAX_RETIRED_KEYS = 16;
 
@@ -126,7 +129,7 @@ function createSnapshotSignatures(config) {
 
   function verify(signature, snapshotId, snapshot) {
     const supplied = String(signature || '');
-    const match = /^nvx-snapshot-hmac-v1:([a-zA-Z0-9][a-zA-Z0-9._-]{2,79}):([0-9a-f]{64})$/.exec(supplied);
+    const match = SIGNATURE_PATTERN.exec(supplied);
     if (match) {
       const [, keyId, digest] = match;
       const secret = keys.get(keyId);

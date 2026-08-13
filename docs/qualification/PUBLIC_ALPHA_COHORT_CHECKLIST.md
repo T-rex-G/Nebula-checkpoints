@@ -20,7 +20,9 @@ backup manifests, or tester identifiers to source.
   the fresh signed authorization envelope; provider repositories are
   pre-created `nvx-alpha17-` sandboxes and are not themselves deletion targets.
 - [ ] Verify encrypted pre-deploy backup and an isolated restore through the
-  latest migration; retain both outside source and ephemeral hosting storage.
+  latest migration. Verify the sanitized hosted envelope binds the workflow
+  runner record and cleanup proof; retain no dump, manifest, or standalone
+  runner record in source, Actions artifacts, or ephemeral hosting storage.
 - [ ] Confirm production/development dependency classification, secret scan,
   security-boundary suite, live-provider, hosted, rollback, cleanup, purge, and
   both manual accessibility gates.

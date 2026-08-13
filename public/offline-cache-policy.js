@@ -44,9 +44,15 @@
     if (!CACHEABLE.some(rx => rx.test(pathname))) return { mode: 'network-only' };
     return { mode: 'private-cache', scope, repoKey, cacheName: cacheNameForScope(scope) };
   }
+  function responseMatchesBinding(headers, decision) {
+    if (!headers || typeof headers.get !== 'function' || !decision || decision.mode !== 'private-cache') return false;
+    if (!validScope(decision.scope) || !validRepoKey(decision.repoKey)) return false;
+    return headers.get('x-nv-offline-scope') === decision.scope
+      && headers.get('x-nv-offline-repo') === decision.repoKey;
+  }
 
   return Object.freeze({
     CACHE_SCHEMA, TTL_MS, MAX_ENTRIES, MAX_RESPONSE_BYTES, MAX_TOTAL_BYTES,
-    validScope, validRepoKey, cacheNameForScope, isFresh, classifyApiRequest
+    validScope, validRepoKey, cacheNameForScope, isFresh, classifyApiRequest, responseMatchesBinding
   });
 });

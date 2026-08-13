@@ -63,17 +63,18 @@ function metadataResponse(response, body, cachedAt) {
   return new Response(body, { status: response.status, statusText: response.statusText, headers });
 }
 
-async function cacheEligibleResponse(cacheName, request, response) {
+async function cacheEligibleResponse(decision, request, response) {
   if (!response.ok || response.status !== 200) return;
+  if (!POLICY.responseMatchesBinding(response.headers, decision)) return;
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
   if (!contentType.includes('application/json') && !contentType.startsWith('text/')) return;
   const declared = Number(response.headers.get('content-length') || 0);
   if (Number.isFinite(declared) && declared > POLICY.MAX_RESPONSE_BYTES) return;
   const body = await response.clone().arrayBuffer();
   if (body.byteLength > POLICY.MAX_RESPONSE_BYTES) return;
-  const cache = await caches.open(cacheName);
+  const cache = await caches.open(decision.cacheName);
   await cache.put(request, metadataResponse(response, body, Date.now()));
-  await prunePrivateCache(cacheName);
+  await prunePrivateCache(decision.cacheName);
 }
 
 async function prunePrivateCache(cacheName) {
@@ -118,7 +119,7 @@ async function cachedFallback(cacheName, request) {
 async function privateNetworkFirst(request, decision) {
   try {
     const response = await fetch(request, { cache: 'no-store' });
-    if (response.ok) cacheEligibleResponse(decision.cacheName, request, response).catch(() => {});
+    if (response.ok) cacheEligibleResponse(decision, request, response).catch(() => {});
     return response;
   } catch {
     return await cachedFallback(decision.cacheName, request) || offlineError('You are offline and this repository view is not cached');

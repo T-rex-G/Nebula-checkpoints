@@ -27,12 +27,15 @@ for (const file of required) {
     }
     assert(text.includes('```bash'), `${file} must include a copyable command block`);
   }
+  for (const block of text.matchAll(/```bash\n([\s\S]*?)```/g)) {
+    assert(block[1].startsWith('set -euo pipefail\n'), `${file} command blocks must fail fast`);
+  }
   assert(!/TB[D]|TO[D]O|fill in|implement\s+later/i.test(text), `${file} contains an unfinished marker`);
   assert(!/postgres(?:ql)?:\/\/[^\s`]+/i.test(text), `${file} contains a literal database URL`);
   assert(!/(?:password|token|secret|key)\s*=\s*[^$\s`][^\s`]*/i.test(text), `${file} contains a literal secret-like value`);
 }
 
-for (const file of ['06-failed-deploy-rollback.md', '09-capacity-saturation.md']) {
+for (const file of required) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   for (const line of text.split('\n').filter(value => value.startsWith('curl '))) {
     assert(line.includes('--fail'), `${file} verification probe must fail on HTTP errors`);

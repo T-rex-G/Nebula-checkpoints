@@ -9,8 +9,9 @@ Use this runbook when `/readyz` reports `waking`, `unavailable`, `migration-mism
 Stop new invitations and repository mutations. Enable the operator maintenance state in Render and keep PostgreSQL-backed sessions, governance, and alpha operations fail-closed. Never downgrade to cookie-only persistence.
 
 ```bash
-curl --silent --show-error "$NV_ALPHA_BASE_URL/healthz"
-curl --silent --show-error "$NV_ALPHA_BASE_URL/readyz"
+set -euo pipefail
+curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/healthz"
+curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/readyz"
 node scripts/alpha-privacy.js cleanup-status
 ```
 
@@ -21,6 +22,7 @@ Do not retry migrations when readiness says `migration-mismatch`; use the backup
 Confirm Neon service state and quota in its console, then verify that health remains live and readiness exposes no host, URL, exception, or quota identifier.
 
 ```bash
+set -euo pipefail
 node scripts/alpha-smoke.js
 ```
 
@@ -33,6 +35,7 @@ Wait for Neon to recover or reduce load within the approved limits. Disable main
 Record UTC timestamps, safe readiness JSON, Neon incident/quota category, pending cleanup counts, recovery action, and source commit. Do not capture database URLs or console secrets.
 
 ```bash
+set -euo pipefail
 date -u +%Y-%m-%dT%H:%M:%SZ
 git rev-parse HEAD
 ```

@@ -98,6 +98,14 @@ assert.throws(
   }, { production: true, sessionSecret }),
   /retired snapshot keyring must be valid JSON/i
 );
+assert.throws(
+  () => loadSnapshotSigningConfig({
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'snapshot-key-a',
+    NV_SNAPSHOT_SIGNING_SECRET: activeSecretA,
+    NV_SNAPSHOT_RETIRED_KEYS_JSON: JSON.stringify({ 'snapshot-key-a': activeSecretB })
+  }, { production: true, sessionSecret }),
+  /active snapshot key ID must not appear in the retired keyring/i
+);
 
 const localConfig = loadSnapshotSigningConfig({}, { production: false, sessionSecret });
 assert.strictEqual(localConfig.activeKeyId, 'local-development');

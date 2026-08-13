@@ -9,6 +9,7 @@ Use this runbook for tester removal, compromised access, consent withdrawal, or 
 Revoke the invitation/tester, end alpha and provider sessions, stop new mutations, and begin provider-resource cleanup before purging retained alpha data.
 
 ```bash
+set -euo pipefail
 node scripts/alpha-invites.js revoke --tester "$NV_TESTER_ID" --reason "$NV_REVOCATION_REASON"
 node scripts/alpha-privacy.js cleanup-status
 curl --proto '=https' --fail --silent --show-error -X POST "$NV_ALPHA_BASE_URL/api/alpha/end" -H 'X-NV: 1' -H "Cookie: $NV_ALPHA_COOKIE"
@@ -19,6 +20,7 @@ curl --proto '=https' --fail --silent --show-error -X POST "$NV_ALPHA_BASE_URL/a
 Verify provider-side credential revocation separately. Confirm cleanup tasks are verified, the alpha session no longer works, and deletion returns only the immutable non-secret report.
 
 ```bash
+set -euo pipefail
 node scripts/alpha-privacy.js cleanup-status
 node scripts/alpha-privacy.js retention
 ```
@@ -32,6 +34,7 @@ Do not restore purged tester data. A future enrollment requires a new invitation
 Record tester reference, reason category, revocation timestamps, provider revocation confirmation, cleanup digest, purge-report digest, and retained-integrity categories. Exclude identity, cookie, and credential values.
 
 ```bash
+set -euo pipefail
 date -u +%Y-%m-%dT%H:%M:%SZ
 git rev-parse HEAD
 ```

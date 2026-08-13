@@ -38,40 +38,52 @@ registry status `Unavailable`.
 
 `Supported` is not a synonym for `Provider-verified`.
 
-## GitHub — complete intended golden path
+Every `Experimental` path requires an explicit UI and server-route opt-in.
+Provider-specific `Unavailable` entries still fail closed. GitLab and Gitea
+recovery opt-ins are limited to read-only comparison/preview routes, and their
+governance opt-ins are limited to view routes; recovery and governance
+mutations remain blocked.
+
+## GitHub — evidence-bounded alpha subset
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository, commit, branch, and GitHub rate-limit reads; controlled branch writes; tree and file read/write/delete/rename; bounded file batch; pull-request and issue read/write; workflow reads; release reads; bounded search; notifications; star read/write; folder move; live events; access-surface analysis; dependency audit; recovery; governance; upload security |
-| Experimental | workflow rerun; release write; native push (16 MB on Render Free); Git LFS |
-| Unavailable | repository create/delete; global search |
+| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; access-surface analysis; dependency audit; recovery; governance; upload security |
+| Experimental | provider rate-limit and tree reads; file rename/batch; pull-request and issue read/write; workflow read/rerun; release read/write; bounded search; star read/write; native push (16 MB on Render Free); Git LFS; folder move; live events |
+| Unavailable | repository create/delete; global search; notifications |
 
-Repository/workbench operations use `Provider-verified` evidence. Access-surface,
-dependency-audit, recovery, governance, and upload-security decisions use
-`Deterministic` evidence as recorded in the registry.
+Only repository read, branch read/write, and bounded file read/write/delete use
+`Provider-verified` evidence. Access-surface, dependency-audit, recovery,
+governance, and upload-security decisions use `Deterministic` evidence. Other
+implemented workbench operations remain `Experimental` + `Inferred` until a
+live harness exercises their exact proof contract.
 
 ## GitLab — registry-qualified subset
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository, commit, branch, tree, and file reads; bounded file write/delete; merge-request read; issue read; upload security |
-| Experimental | merge-request write; issue write; dependency audit; read-only recovery comparison; governance views |
+| Supported | repository and branch reads; bounded file read/write/delete; upload security |
+| Experimental | tree read; merge-request and issue read/write; dependency audit; read-only recovery comparison; governance views |
 | Unavailable | repository create/delete; provider rate-limit read; branch write; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis |
 
-Provider repository operations use `Provider-verified` evidence. Upload security,
-dependency audit, recovery, and governance use `Deterministic` evidence.
+Only repository read, branch read, and bounded file read/write/delete use
+`Provider-verified` evidence. Upload security, dependency audit, recovery, and
+governance use `Deterministic` evidence; the latter three remain experimental.
+Tree, merge-request, and issue paths remain `Experimental` + `Inferred`.
 
 ## Gitea — registry-qualified subset
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository, commit, branch, tree, and file reads; expected-head single-file write/delete; upload security |
-| Experimental | dependency audit; read-only recovery comparison; governance views |
+| Supported | repository and branch reads; bounded file read/write/delete; upload security |
+| Experimental | tree read; dependency audit; read-only recovery comparison; governance views |
 | Unavailable | repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis |
 
-Provider repository operations use `Provider-verified` evidence. Upload security,
-dependency audit, recovery, and governance use `Deterministic` evidence. Gitea
-batch mutation remains unavailable because only single-file Contents API write
-and delete received provider qualification.
+Only repository read, branch read, and bounded file read/write/delete use
+`Provider-verified` evidence. Upload security, dependency audit, recovery, and
+governance use `Deterministic` evidence; the latter three remain experimental.
+Tree read remains `Experimental` + `Inferred`. Gitea batch mutation remains
+unavailable because only single-file Contents API write and delete received
+provider qualification.
 
 Unknown providers, deployments, and capabilities default to `Unavailable`.

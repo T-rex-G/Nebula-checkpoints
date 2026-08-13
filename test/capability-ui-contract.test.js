@@ -45,6 +45,33 @@ for (const [id, feature] of Object.entries({
   const tag = html.match(new RegExp(`<[^>]+id="${id}"[^>]*>`));
   assert(tag && tag[0].includes(`data-feature="${feature}"`), `#${id} must map to ${feature}`);
 }
+assert(
+  html.match(/id="neuralLiveBtn"[^>]*data-allow-experimental="true"/),
+  'verified live events must remain an explicitly labelled experimental opt-in'
+);
+assert(
+  html.match(/id="codeSearch"[^>]*data-allow-experimental="true"/),
+  'bounded repository search must remain an explicitly labelled experimental opt-in'
+);
+for (const [id, feature] of Object.entries({
+  renameFileBtn: 'file.rename',
+  uploadMode: 'file.batch',
+  newPrBtn: 'pulls.write',
+  newIssueBtn: 'issues.write',
+  newReleaseBtn: 'releases.write'
+})) {
+  const tag = html.match(new RegExp(`<[^>]+id="${id}"[^>]*>`));
+  assert(tag && tag[0].includes(`data-feature="${feature}"`) && tag[0].includes('data-allow-experimental="true"'),
+    `#${id} must remain an explicitly labelled ${feature} experimental opt-in`);
+}
+for (const feature of ['pulls.read', 'issues.read', 'releases.read', 'workflows.read']) {
+  const tag = html.match(new RegExp(`<button[^>]+data-feature="${feature}"[^>]*data-tab=`));
+  assert(tag && tag[0].includes('data-allow-experimental="true"'),
+    `${feature} desktop navigation must remain an explicit experimental opt-in`);
+  const mobile = html.match(new RegExp(`<button[^>]+data-feature="${feature}"[^>]*data-act=`));
+  assert(mobile && mobile[0].includes('data-allow-experimental="true"'),
+    `${feature} mobile navigation must remain an explicit experimental opt-in`);
+}
 for (const [label, feature] of [
   ['Push files (upload)', 'native-push'],
   ['New branch', 'branches.write'],
@@ -55,6 +82,18 @@ for (const [label, feature] of [
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   assert(new RegExp(`label: '${escaped}'[^\n]+feature: '${feature}'`).test(app),
     `command ${label} must map to ${feature}`);
+}
+for (const [label, feature] of [
+  ['Pull requests', 'pulls.read'],
+  ['Issues', 'issues.read'],
+  ['Releases', 'releases.read'],
+  ['Staged changes', 'file.batch'],
+  ['Actions (CI)', 'workflows.read'],
+  ['Star / unstar this repo', 'stars.write']
+]) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  assert(new RegExp(`label: '${escaped}'[^\n]+feature: '${feature}'[^\n]+allowExperimental: true`).test(app),
+    `command ${label} must remain an explicit experimental opt-in`);
 }
 
 for (const [id, feature] of Object.entries({

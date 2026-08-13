@@ -19,6 +19,12 @@ const MAX_ENTRIES = 20_000;
 const MAX_PATH_BYTES = 1024;
 const MINIMUM_MATRIX_TESTS = 141;
 const MINIMUM_BROWSER_TESTS = 56;
+const SAFE_AMBIENT_ENV_KEYS = Object.freeze([
+  'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TERM',
+  'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT',
+  'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
+  'PLAYWRIGHT_BROWSERS_PATH'
+]);
 
 function fail(message) {
   throw new TypeError(message);
@@ -142,7 +148,11 @@ function filesEqual(leftPath, rightPath) {
 function runCommand(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd,
-    env: options.env || process.env,
+    env: options.env || Object.fromEntries(
+      SAFE_AMBIENT_ENV_KEYS
+        .filter(key => process.env[key] != null && String(process.env[key]))
+        .map(key => [key, String(process.env[key])])
+    ),
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024
   });
@@ -152,6 +162,44 @@ function runCommand(command, args, options = {}) {
     fail(`${options.label || command} failed${detail ? `: ${detail}` : ''}`);
   }
   return String(result.stdout || '');
+}
+
+function buildQualificationEnvironment(baseEnv, workspace, subjectSha256) {
+  const source = baseEnv && typeof baseEnv === 'object' ? baseEnv : {};
+  const root = path.resolve(workspace);
+  const home = path.join(root, '.qualification-home');
+  const temporary = path.join(root, '.qualification-tmp');
+  const cache = path.join(root, '.qualification-npm-cache');
+  for (const directory of [home, temporary, cache]) {
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  }
+  const environment = {};
+  for (const key of SAFE_AMBIENT_ENV_KEYS) {
+    if (source[key] == null || !String(source[key])) continue;
+    const value = String(source[key]);
+    if (/[\u0000\r\n]/.test(value)) fail(`qualification environment ${key} is invalid`);
+    if (key === 'PLAYWRIGHT_BROWSERS_PATH' && !path.isAbsolute(value)) {
+      fail('PLAYWRIGHT_BROWSERS_PATH must use an absolute path');
+    }
+    environment[key] = value;
+  }
+  if (!environment.PATH) environment.PATH = path.dirname(process.execPath);
+  Object.assign(environment, {
+    HOME: home,
+    USERPROFILE: home,
+    TMPDIR: temporary,
+    TMP: temporary,
+    TEMP: temporary,
+    CI: 'true',
+    NO_COLOR: '1',
+    NPM_CONFIG_CACHE: cache,
+    NPM_CONFIG_USERCONFIG: path.join(home, '.npmrc-disabled'),
+    NPM_CONFIG_IGNORE_SCRIPTS: 'true',
+    NPM_CONFIG_AUDIT: 'false',
+    NPM_CONFIG_FUND: 'false',
+    NV_STAGING_SUBJECT_SHA256: subjectSha256
+  });
+  return Object.freeze(environment);
 }
 
 function validateArchiveEntries(entries) {
@@ -182,7 +230,11 @@ function validateArchiveEntries(entries) {
     if (!rootName) rootName = top;
     if (top !== rootName) fail('archive must contain exactly one candidate root');
   }
-  if (!seen.has(`${rootName}/package.json`) || !seen.has(`${rootName}/scripts/test-matrix.js`)) {
+  if (
+    !seen.has(`${rootName}/package.json`) ||
+    !seen.has(`${rootName}/scripts/test-matrix.js`) ||
+    !seen.has(`${rootName}/scripts/copy-vendor.js`)
+  ) {
     fail('archive is missing the candidate qualification entry points');
   }
   return Object.freeze({ rootName });
@@ -356,11 +408,21 @@ function qualifyCandidateArchive(options) {
   runCommand('unzip', ['-q', parsed.archivePath, '-d', parsed.extractDir], { label: 'candidate extraction' });
   const candidateRoot = path.join(parsed.extractDir, rootName);
   assertExtractedTree(candidateRoot);
-  const environment = {
-    ...(options.env || process.env),
-    NV_STAGING_SUBJECT_SHA256: parsed.expectedSha256
-  };
-  runCommand('npm', ['ci'], { cwd: candidateRoot, env: environment, label: 'candidate npm ci' });
+  const environment = buildQualificationEnvironment(
+    options.env || process.env,
+    parsed.extractDir,
+    parsed.expectedSha256
+  );
+  runCommand('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], {
+    cwd: candidateRoot,
+    env: environment,
+    label: 'candidate npm ci'
+  });
+  runCommand(process.execPath, ['scripts/copy-vendor.js'], {
+    cwd: candidateRoot,
+    env: environment,
+    label: 'candidate reviewed vendor copy'
+  });
   runCommand('npm', ['run', 'check:syntax'], {
     cwd: candidateRoot,
     env: environment,
@@ -398,7 +460,11 @@ function qualifyCandidateArchive(options) {
   fs.mkdirSync(path.dirname(parsed.browserReportPath), { recursive: true, mode: 0o700 });
   runCommand('npm', ['run', 'test:e2e:evidence'], {
     cwd: candidateRoot,
-    env: { ...environment, PLAYWRIGHT_JSON_OUTPUT_FILE: parsed.browserReportPath },
+    env: {
+      ...environment,
+      PLAYWRIGHT_JSON_OUTPUT_FILE: parsed.browserReportPath,
+      NV_STAGING_MATRIX_REPORT_PATH: parsed.reportPath
+    },
     label: 'candidate browser matrix'
   });
   const browserReport = validateBrowserReport(
@@ -458,6 +524,7 @@ module.exports = Object.freeze({
   validateMatrixReport,
   validateBrowserReport,
   validateDevelopmentAudit,
+  buildQualificationEnvironment,
   writeAutomatedEvidence,
   qualifyCandidateArchive
 });

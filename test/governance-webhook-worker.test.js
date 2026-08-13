@@ -2,7 +2,11 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const { processWebhookDeliveryBatch } = require('../src/governance-webhook-worker');
+const { EventEmitter } = require('events');
+const {
+  processWebhookDeliveryBatch,
+  sendPinnedHttpsWebhook
+} = require('../src/governance-webhook-worker');
 const { verifyWebhookSignature } = require('../src/governance-delivery');
 
 const scope = { provider: 'github', baseUrl: 'https://github.com', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo' };
@@ -91,6 +95,38 @@ const delivery = {
   assert.strictEqual(redirectTransportCalls, 1, 'webhook delivery must never follow redirects');
   assert.strictEqual(redirectAttempts[0].terminal, true);
   assert.strictEqual(redirectAttempts[0].errorCode, 'WEBHOOK_HTTP_302');
+
+  let defaultSenderCalls = 0;
+  const redirectResponse = await sendPinnedHttpsWebhook({
+    destination: {
+      url: 'https://hooks.example.com/nebulaverse',
+      addresses: [{ address: '93.184.216.34', family: 4 }]
+    },
+    body: '{}',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': '2' },
+    requestImpl(options, callback) {
+      defaultSenderCalls += 1;
+      assert.strictEqual(options.hostname, 'hooks.example.com');
+      assert.strictEqual(options.agent, false);
+      options.lookup('hooks.example.com', {}, (error, address, family) => {
+        assert.ifError(error);
+        assert.strictEqual(address, '93.184.216.34');
+        assert.strictEqual(family, 4);
+      });
+      const request = new EventEmitter();
+      request.end = () => {
+        const response = new EventEmitter();
+        response.statusCode = 302;
+        response.resume = () => queueMicrotask(() => response.emit('end'));
+        response.destroy = () => {};
+        callback(response);
+      };
+      request.destroy = error => request.emit('error', error);
+      return request;
+    }
+  });
+  assert.deepStrictEqual(redirectResponse, { statusCode: 302 });
+  assert.strictEqual(defaultSenderCalls, 1, 'the default pinned sender must not issue a second request for redirects');
 
   const blockedAttempts = [];
   await processWebhookDeliveryBatch({

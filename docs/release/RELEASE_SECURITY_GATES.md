@@ -20,8 +20,11 @@ syntax scans, and zero production and development audit vulnerabilities.
 
 Independent review `912555dd-72ab-4662-9645-2313007eea3d` then failed with 16
 actionable findings and 8 nitpicks. That result is release-blocking. The
-remediation successor changes the archive and must earn a new external commit,
-tree, archive hash, evidence envelope, and passing follow-up review. Every gate must
+later review `04b93d36-47ea-402d-abda-ca6dfb2a9290` also failed the
+pre-remediation PR head; its raw inventory contains 30 actionable findings and
+9 nitpicks (18 inline actions plus 12 summary/failed-post actions). Its current
+remediation changes the archive and must earn a new external commit, tree,
+archive hash, evidence envelope, and passing follow-up review. Every gate must
 bind to that same exact candidate, schema, Node version, execution time, and
 cleanup result.
 
@@ -84,11 +87,17 @@ A pass is public-alpha accessibility qualification, not legal certification.
 - A target or selected-job mismatch must fail before any live request or
   credential-bearing step.
 - `Experimental` paths remain isolated and limitation-labelled.
+- Live credentials are disposable and scoped only to the exact pre-created
+  sandbox repository. The candidate-supplied harness receives them only after
+  exact-target authorization and environment approval. This assumes those exact
+  bytes passed independent review; arbitrary hostile candidates require an
+  egress-isolated runner or separately trusted harness.
 
 ## Hosted Render/Neon gates
 
 - The signed activation binds the exact hosted origin, Render service identity,
-  and Neon project identity before hosted credentials or traffic are used.
+  cohort/restore Neon project and branch identities, isolated-target kind, and
+  reviewed restore fingerprint before hosted credentials or traffic are used.
 - Before smoke or load traffic, the hosted harness independently hashes the
   exact candidate release tree and requires `/api/version` to report the same
   deterministic digest computed by the deployed process. The observed digest,
@@ -102,6 +111,14 @@ A pass is public-alpha accessibility qualification, not legal certification.
   match official Neon branch connection URIs and whose destructive target is
   rechecked through a live database session; no dump in source, Actions
   artifacts, or Render local storage.
+- The reviewed workflow runner—not the operator record—must execute and attest
+  restore. The hosted envelope retains its complete bounded record and digest
+  and requires backup-manifest/ciphertext, target-fingerprint, branch-identity,
+  and sanitized restore-evidence hashes plus
+  control-plane/live-session/migration/smoke/cleanup proof.
+- A separately signed operator record may cover only the remaining console
+  observations. The hosted envelope retains that record, key ID, and digest and
+  rejects any operator-record `isolated-database-restore` claim.
 
 ## Manual go/no-go
 

@@ -17,7 +17,7 @@ The last immutable baseline that may be cited as automatically qualified is:
 - CI run: `31494468827`
 - qualification run: `31494468853`
 
-Independent review `912555dd-72ab-4662-9645-2313007eea3d` failed with 16 actionable findings and 8 nitpicks.
+Independent review `04b93d36-47ea-402d-abda-ca6dfb2a9290` failed with 30 actionable findings and 9 nitpicks.
 
 Do not reuse that identity for the remediation successor. The current candidate commit,
 tree, archive SHA-256, and evidence hashes are external qualification evidence and remain

@@ -6,7 +6,8 @@ const http = require('http');
 const path = require('path');
 const {
   runHostedValidation,
-  validateOperationalRecord
+  validateOperationalRecord,
+  validateRunnerRestoreAttestation
 } = require('../ci/run-hosted-alpha17-validation');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 
@@ -25,9 +26,14 @@ function stableJson(value) {
 function hostedTargetHash(target) {
   return crypto.createHash('sha256').update(JSON.stringify({
     baseUrl: target.baseUrl,
+    cohortNeonBranchId: target.cohortNeonBranchId,
     jobName: 'hosted',
     neonProjectId: target.neonProjectId,
-    renderServiceId: target.renderServiceId
+    renderServiceId: target.renderServiceId,
+    restoreNeonBranchId: target.restoreNeonBranchId,
+    restoreNeonProjectId: target.restoreNeonProjectId,
+    restoreTargetFingerprint: target.restoreTargetFingerprint,
+    restoreTargetKind: target.restoreTargetKind
   })).digest('hex');
 }
 
@@ -47,12 +53,38 @@ function signedOperationalRecord(privateKey) {
       'database-interruption-recovery': { status: 'pass', failClosedDuringInterruption: true },
       'provider-429-outage': { status: 'pass', retryBounded: true },
       'application-rollback': { status: 'pass', candidateRestored: true },
-      'isolated-database-restore': { status: 'pass', latestMigration: '015_alpha_privacy' },
       'disposable-tester-purge': { status: 'pass', tokenBearingStateRemoved: true }
     }
   };
   const signature = crypto.sign(null, Buffer.from(stableJson(record), 'utf8'), privateKey).toString('base64');
   return { ...record, signature: { algorithm: 'ed25519', keyId: 'fixture-operator', value: signature } };
+}
+
+function runnerRestoreAttestation() {
+  return {
+    schemaVersion: '1.0.0',
+    artifactType: 'hosted-restore-runner',
+    subjectSha256: SUBJECT,
+    sourceCommit: SOURCE,
+    originId: 'workflow-run-2048-restore',
+    completedAt: NOW,
+    cleanupVerified: true,
+    check: {
+      status: 'pass',
+      latestMigration: '015_alpha_privacy',
+      backupManifestSha256: '1'.repeat(64),
+      backupCiphertextSha256: '2'.repeat(64),
+      restoreTargetFingerprint: '3'.repeat(64),
+      restoreEvidenceSha256: '4'.repeat(64),
+      sourceIdentitySha256: '5'.repeat(64),
+      targetIdentitySha256: '6'.repeat(64),
+      sourceTargetDistinct: true,
+      controlPlaneVerified: true,
+      liveTargetVerified: true,
+      smokePassed: true,
+      backupRemoved: true
+    }
+  };
 }
 
 function startFixtureServer(initialReleaseTreeSha256) {
@@ -112,6 +144,7 @@ function startFixtureServer(initialReleaseTreeSha256) {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const publicKeyBase64 = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
   const operationalRecord = signedOperationalRecord(privateKey);
+  const restoreAttestation = runnerRestoreAttestation();
   const expectedDeploymentSha256 = computeReleaseFingerprint(path.resolve(__dirname, '..'));
   const fixture = await startFixtureServer(expectedDeploymentSha256);
   try {
@@ -120,9 +153,14 @@ function startFixtureServer(initialReleaseTreeSha256) {
       NV_PUBLIC_ALPHA_SOURCE_COMMIT: SOURCE,
       NV_ALPHA17_WORKFLOW_RUN_ID: 'run-2048',
       NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64: publicKeyBase64,
+      NV_RESTORE_TARGET_FINGERPRINT: restoreAttestation.check.restoreTargetFingerprint,
       NV_ALPHA_BASE_URL: fixture.baseUrl,
       NV_ALPHA17_RENDER_SERVICE_ID: 'fixture-owner/nvx-alpha17-render',
       NV_ALPHA17_NEON_PROJECT_ID: 'fixture-owner/nvx-alpha17-neon',
+      NV_ALPHA17_COHORT_NEON_BRANCH_ID: 'br-cohort-111111',
+      NV_ALPHA17_RESTORE_NEON_PROJECT_ID: 'fixture-owner/nvx-alpha17-neon',
+      NV_ALPHA17_RESTORE_NEON_BRANCH_ID: 'br-restore-222222',
+      NV_ALPHA17_RESTORE_TARGET_KIND: 'isolated-neon-branch',
       NV_ALPHA_SESSION_COOKIES: JSON.stringify([
         'session=fixture-1',
         'session=fixture-2',
@@ -149,11 +187,17 @@ function startFixtureServer(initialReleaseTreeSha256) {
     env.NV_ALPHA17_SIGNED_TARGET_SHA256 = hostedTargetHash({
       baseUrl: env.NV_ALPHA_BASE_URL,
       renderServiceId: env.NV_ALPHA17_RENDER_SERVICE_ID,
-      neonProjectId: env.NV_ALPHA17_NEON_PROJECT_ID
+      neonProjectId: env.NV_ALPHA17_NEON_PROJECT_ID,
+      cohortNeonBranchId: env.NV_ALPHA17_COHORT_NEON_BRANCH_ID,
+      restoreNeonProjectId: env.NV_ALPHA17_RESTORE_NEON_PROJECT_ID,
+      restoreNeonBranchId: env.NV_ALPHA17_RESTORE_NEON_BRANCH_ID,
+      restoreTargetKind: env.NV_ALPHA17_RESTORE_TARGET_KIND,
+      restoreTargetFingerprint: env.NV_RESTORE_TARGET_FINGERPRINT
     });
     const result = await runHostedValidation({
       env,
       operationalRecord,
+      restoreAttestation,
       now: () => new Date(NOW)
     });
     assert.strictEqual(result.schemaVersion, '1.1.0');
@@ -168,6 +212,20 @@ function startFixtureServer(initialReleaseTreeSha256) {
     assert.strictEqual(result.checks['disposable-tester-purge'].tokenBearingStateRemoved, true);
     assert.strictEqual(result.authorizedTargetSha256, env.NV_ALPHA17_SIGNED_TARGET_SHA256);
     assert.strictEqual(result.deploymentSha256, expectedDeploymentSha256);
+    assert.strictEqual(result.operatorAttestation.schemaVersion, '1.0.0');
+    assert.strictEqual(result.operatorAttestation.keyId, 'fixture-operator');
+    assert.strictEqual(result.operatorAttestation.completedAt, NOW);
+    assert.strictEqual(
+      result.operatorAttestation.recordSha256,
+      crypto.createHash('sha256').update(stableJson(operationalRecord), 'utf8').digest('hex')
+    );
+    assert.deepStrictEqual(result.operatorAttestation.record, operationalRecord);
+    assert.deepStrictEqual(result.restoreRunnerAttestation.record, restoreAttestation);
+    assert.strictEqual(
+      Object.hasOwn(result.operatorAttestation.record.checks, 'isolated-database-restore'),
+      false,
+      'operator-authored evidence must not claim workflow-executed restore proof'
+    );
     const { artifactSha256, ...artifactCore } = result;
     assert.strictEqual(
       artifactSha256,
@@ -189,10 +247,21 @@ function startFixtureServer(initialReleaseTreeSha256) {
     assert(!JSON.stringify(result).includes('DATABASE_URL'));
     assert(!JSON.stringify(result).includes('session=fixture'));
 
+    const requestCountBeforeMissingRestore = fixture.requestCount();
+    await assert.rejects(
+      () => runHostedValidation({ env, operationalRecord, now: () => new Date(NOW) }),
+      error => error && error.code === 'ALPHA17_RESTORE_ATTESTATION_MISSING'
+    );
+    assert.strictEqual(
+      fixture.requestCount(),
+      requestCountBeforeMissingRestore,
+      'missing runner restore proof must fail before hosted traffic'
+    );
+
     const wrongTarget = { ...env, NV_ALPHA17_SIGNED_TARGET_SHA256: 'f'.repeat(64) };
     const requestCountBeforeMismatch = fixture.requestCount();
     await assert.rejects(
-      () => runHostedValidation({ env: wrongTarget, operationalRecord, now: () => new Date(NOW) }),
+      () => runHostedValidation({ env: wrongTarget, operationalRecord, restoreAttestation, now: () => new Date(NOW) }),
       error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
     );
     assert.strictEqual(fixture.requestCount(), requestCountBeforeMismatch, 'hosted target mismatch must fail before network access');
@@ -200,7 +269,7 @@ function startFixtureServer(initialReleaseTreeSha256) {
     fixture.setReleaseTreeSha256('e'.repeat(64));
     const requestCountBeforeDeploymentMismatch = fixture.requestCount();
     await assert.rejects(
-      () => runHostedValidation({ env, operationalRecord, now: () => new Date(NOW) }),
+      () => runHostedValidation({ env, operationalRecord, restoreAttestation, now: () => new Date(NOW) }),
       error => error && error.code === 'ALPHA17_HOSTED_DEPLOYMENT_MISMATCH'
     );
     assert.strictEqual(
@@ -232,6 +301,44 @@ function startFixtureServer(initialReleaseTreeSha256) {
         now: new Date(NOW)
       }),
       error => error && error.code === 'ALPHA17_OPERATIONAL_SECRET_MATERIAL'
+    );
+
+    const unboundRestore = structuredClone(restoreAttestation);
+    unboundRestore.check.liveTargetVerified = false;
+    assert.throws(
+      () => validateRunnerRestoreAttestation(unboundRestore, {
+        expectedSubjectHash: SUBJECT,
+        expectedSourceCommit: SOURCE,
+        expectedOriginId: restoreAttestation.originId,
+        expectedRestoreTargetFingerprint: restoreAttestation.check.restoreTargetFingerprint,
+        now: new Date(NOW)
+      }),
+      error => error && error.code === 'ALPHA17_RESTORE_ATTESTATION_INVALID'
+    );
+
+    const extendedCheck = structuredClone(operationalRecord);
+    extendedCheck.checks['memory-restart-observation'].observedAt = NOW;
+    assert.throws(
+      () => validateOperationalRecord(extendedCheck, {
+        expectedSubjectHash: SUBJECT,
+        expectedSourceCommit: SOURCE,
+        publicKeyBase64,
+        now: new Date(NOW)
+      }),
+      error => error && error.code === 'ALPHA17_OPERATIONAL_CHECK_FAILED'
+    );
+
+    const ambiguousRestore = structuredClone(restoreAttestation);
+    ambiguousRestore.check.targetIdentitySha256 = ambiguousRestore.check.sourceIdentitySha256;
+    assert.throws(
+      () => validateRunnerRestoreAttestation(ambiguousRestore, {
+        expectedSubjectHash: SUBJECT,
+        expectedSourceCommit: SOURCE,
+        expectedOriginId: restoreAttestation.originId,
+        expectedRestoreTargetFingerprint: restoreAttestation.check.restoreTargetFingerprint,
+        now: new Date(NOW)
+      }),
+      error => error && error.code === 'ALPHA17_RESTORE_ATTESTATION_INVALID'
     );
   } finally {
     await new Promise(resolve => fixture.server.close(resolve));

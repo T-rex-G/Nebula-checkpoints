@@ -6,6 +6,7 @@ const { spawnSync } = require('child_process');
 
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_FILES = 100_000;
+const MAX_DIRECTORY_DEPTH = 64;
 const EXCLUDED_DIRECTORIES = Object.freeze([
   '.git', '.hg', '.svn', 'node_modules', 'dist', 'build', 'out',
   'coverage', 'playwright-report', 'test-results', '.cache', '.npm'
@@ -81,12 +82,15 @@ function gitTrackedFiles(root) {
 
 function walkArchiveFiles(root) {
   const files = [];
-  function visit(directory, prefix = '') {
+  function visit(directory, prefix = '', depth = 0) {
+    if (depth > MAX_DIRECTORY_DEPTH) fail('archive directory nesting exceeds the safe limit');
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       if (entry.name.startsWith('._')) continue;
       const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        if (!EXCLUDED_DIRECTORIES.includes(entry.name)) visit(path.join(directory, entry.name), relative);
+        if (!EXCLUDED_DIRECTORIES.includes(entry.name)) {
+          visit(path.join(directory, entry.name), relative, depth + 1);
+        }
       } else if (entry.isFile()) {
         files.push(normalizeRelative(relative));
         if (files.length > MAX_FILES) fail('archive file inventory exceeds the safe limit');
@@ -140,6 +144,7 @@ function scanFiles(options = {}) {
 
 module.exports = Object.freeze({
   MAX_FILE_BYTES,
+  MAX_DIRECTORY_DEPTH,
   RULES,
   discoverReleasableTextFiles,
   scanFiles

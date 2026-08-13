@@ -184,7 +184,7 @@ try {
     ), 'generated drift must fail before archive creation');
   });
 
-  const nestedOutput = fs.mkdtempSync(path.join(root, 'release-output-sentinel-'));
+  const nestedOutput = fs.mkdtempSync(path.join(root, 'node_modules', 'release-output-sentinel-'));
   fs.writeFileSync(path.join(nestedOutput, 'existing-output.txt'), 'synthetic nested-output sentinel\n');
   const nestedResult = runPackager(nestedOutput);
   const nestedZipExists = fs.existsSync(
@@ -209,12 +209,25 @@ try {
     'release'
   );
   roots.push(path.dirname(inconsistentOutput));
-  withArtifact('test/fixtures/gitea-provider-fetch.js', null, () => {
-    const result = runPackager(inconsistentOutput);
-    assert.notStrictEqual(result.status, 0, 'packager must fail when a tracked manifest member is missing');
-    assert.match(result.stderr, /Release manifest is inconsistent: tracked file is missing: test\/fixtures\/gitea-provider-fetch\.js/);
-    assert(!fs.existsSync(inconsistentOutput), 'inconsistent manifest must not create release output');
+  const missingGitBin = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-package-missing-git-'));
+  roots.push(missingGitBin);
+  const missingMember = 'test/fixtures/synthetic-missing-release-member.js';
+  const missingGit = path.join(missingGitBin, 'git');
+  fs.writeFileSync(missingGit, [
+    '#!/bin/sh',
+    'if [ "$2" = "--cached" ]; then',
+    `  printf 'package.json\\000${missingMember}\\000'`,
+    'fi',
+    ''
+  ].join('\n'), { mode: 0o700 });
+  const inconsistentResult = runPackager(inconsistentOutput, {
+    env: { PATH: `${missingGitBin}${path.delimiter}${process.env.PATH || ''}` }
   });
+  assert.notStrictEqual(inconsistentResult.status, 0, 'packager must fail when a tracked manifest member is missing');
+  assert.match(inconsistentResult.stderr, new RegExp(
+    `Release manifest is inconsistent: tracked file is missing: ${missingMember.replaceAll('.', '\\.')}`
+  ));
+  assert(!fs.existsSync(inconsistentOutput), 'inconsistent manifest must not create release output');
 
   const untrackedOutput = path.join(
     fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-package-untracked-manifest-')),

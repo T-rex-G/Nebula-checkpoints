@@ -200,6 +200,14 @@ function evaluateActivePolicySet(input = {}) {
       schemaVersion: 1,
       scenarios: [{ id: 'runtime-mutation', action: descriptor.action, attributes: descriptor.metadata || {} }]
     });
+    if (evaluation.unsupportedRuleActions.length) {
+      fail(
+        'Active policy set contains unsupported mutation actions',
+        'POLICY_UNSUPPORTED_ACTIVE_RULES',
+        500,
+        { actions: evaluation.unsupportedRuleActions }
+      );
+    }
     const result = evaluation.results[0];
     const base = {
       policyId: policy.policyId,

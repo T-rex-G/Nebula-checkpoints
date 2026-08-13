@@ -15,6 +15,7 @@ Choose the containment order from the exposed credential type:
 Do not delay the first applicable containment action while investigating unrelated credential classes.
 
 ```bash
+set -euo pipefail
 node scripts/alpha-invites.js revoke --tester "$NV_TESTER_ID" --reason "$NV_REVOCATION_REASON"
 node scripts/alpha-privacy.js cleanup-status
 ```
@@ -26,19 +27,29 @@ Never paste the exposed value into logs, tickets, evidence, or commands.
 Confirm provider revocation independently, confirm the tester cannot redeem or resume a session, and verify provider cleanup ownership before closing the incident.
 
 ```bash
+set -euo pipefail
 node scripts/alpha-smoke.js
 node scripts/alpha-privacy.js cleanup-status
 ```
 
 ## Recovery
 
-Issue replacement credentials only after the source of exposure is removed. Redeploy with rotated Render values, invalidate active sessions, and re-enroll only approved testers. After any `SESSION_SECRET` rotation, reconnect each approved verified-live-events integration and independently verify webhook delivery health; encrypted webhook secrets created under the old value are no longer readable.
+Issue replacement credentials only after the source of exposure is removed. Redeploy with rotated Render values, invalidate active sessions, and re-enroll only approved testers.
+
+For an optional GitHub App exposure, rotate the affected credential at GitHub and in Render as one coordinated maintenance action:
+
+- delete the exposed App private key in GitHub App settings, create a replacement, update `GITHUB_APP_PRIVATE_KEY_BASE64`, and redeploy;
+- reset an exposed OAuth client secret, update `GITHUB_APP_CLIENT_SECRET`, and verify a fresh authorization callback; and
+- replace an exposed GitHub webhook secret at both GitHub and Render, then verify a newly signed delivery. Do not retain the prior value as compatibility material.
+
+After any `SESSION_SECRET` rotation, reconnect each approved verified-live-events integration and independently verify webhook delivery health; encrypted webhook secrets created under the old value are no longer readable.
 
 ## Evidence
 
 Record credential type, provider-side revocation time, affected tester hash/reference, rotations performed, cleanup result, source commit, and scanner result. Record no credential value.
 
 ```bash
+set -euo pipefail
 node scripts/check-secrets.js
 date -u +%Y-%m-%dT%H:%M:%SZ
 ```

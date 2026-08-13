@@ -9,8 +9,9 @@ Use sanitized outputs only. Never paste database URLs, cookies, invitation codes
   production repository.
 - Record the exact repository/API identity for each selected provider and, for
   hosted qualification, the exact service origin, Render service identity, and
-  Neon project identity.
-- Generate a fresh Ed25519 authorization envelope using schema `1.1.0`. The
+  cohort/restore Neon project and branch identities, isolated-target kind, and
+  reviewed restore-target fingerprint.
+- Generate a fresh Ed25519 authorization envelope using schema `1.2.0`. The
   selected jobs must exactly match the dispatch switches, and every selected
   target hash must match the configured repository variables.
 - Confirm the credential-free target preflight succeeds before the workflow
@@ -29,6 +30,7 @@ Use sanitized outputs only. Never paste database URLs, cookies, invitation codes
 - Confirm `/healthz`, `/readyz`, `/api/version`, `/api/config`, and capabilities.
 
 ```bash
+set -euo pipefail
 node scripts/alpha-smoke.js
 node scripts/alpha-privacy.js cleanup-status
 node scripts/alpha-invites.js list
@@ -46,6 +48,7 @@ date -u +%Y-%m-%dT%H:%M:%SZ
 - Review published limits against safe load evidence; limits may decrease only.
 
 ```bash
+set -euo pipefail
 node scripts/alpha-db.js backup --output-dir "$NV_BACKUP_OUTPUT_DIR"
 node scripts/alpha-db.js verify --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
 node scripts/alpha-db.js restore-target
@@ -62,6 +65,7 @@ node scripts/alpha-load.js
 - Keep live mutations frozen until smoke and readiness pass.
 
 ```bash
+set -euo pipefail
 git status --short
 git rev-parse HEAD
 node --version

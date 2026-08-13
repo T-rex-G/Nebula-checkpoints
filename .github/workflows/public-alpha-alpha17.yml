@@ -171,6 +171,11 @@ jobs:
           NV_ALPHA17_HOSTED_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
           NV_ALPHA17_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
           NV_ALPHA17_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_ALPHA17_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
+          NV_ALPHA17_RESTORE_NEON_PROJECT_ID: ${{ vars.ALPHA17_RESTORE_NEON_PROJECT_ID }}
+          NV_ALPHA17_RESTORE_NEON_BRANCH_ID: ${{ vars.ALPHA17_RESTORE_NEON_BRANCH_ID }}
+          NV_ALPHA17_RESTORE_TARGET_KIND: isolated-neon-branch
+          NV_ALPHA17_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
           AUTHORIZATION_ENVELOPE: ${{ inputs.authorization_token }}
         run: |
           requested_jobs=""
@@ -380,11 +385,46 @@ jobs:
           NV_ALPHA17_TARGET_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
           NV_ALPHA17_TARGET_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
           NV_ALPHA17_TARGET_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_ALPHA17_TARGET_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
+          NV_ALPHA17_TARGET_RESTORE_NEON_PROJECT_ID: ${{ vars.ALPHA17_RESTORE_NEON_PROJECT_ID }}
+          NV_ALPHA17_TARGET_RESTORE_NEON_BRANCH_ID: ${{ vars.ALPHA17_RESTORE_NEON_BRANCH_ID }}
+          NV_ALPHA17_TARGET_RESTORE_TARGET_KIND: isolated-neon-branch
+          NV_ALPHA17_TARGET_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
           NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.hosted_target_sha256 }}
         run: |
           subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           (cd "${subject_root}" && node ci/verify-alpha17-authorization.js target)
-      - name: Run hosted gate from signed operator record
+      - name: Install hosted runner dependencies without lifecycle scripts
+        shell: bash
+        env:
+          NPM_CONFIG_USERCONFIG: /dev/null
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          (cd "${subject_root}" && npm ci --ignore-scripts --no-audit --no-fund)
+          command -v pg_dump >/dev/null
+          command -v pg_restore >/dev/null
+      - name: Execute isolated restore and create runner attestation
+        shell: bash
+        env:
+          NV_PUBLIC_ALPHA_SUBJECT_SHA256: ${{ inputs.subject_sha256 }}
+          NV_PUBLIC_ALPHA_SOURCE_COMMIT: ${{ inputs.source_commit }}
+          NV_ALPHA17_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          DATABASE_URL: ${{ secrets.ALPHA17_DATABASE_URL }}
+          NV_RESTORE_DATABASE_URL: ${{ secrets.ALPHA17_RESTORE_DATABASE_URL }}
+          NV_BACKUP_KEY_BASE64: ${{ secrets.ALPHA17_BACKUP_KEY_BASE64 }}
+          NEON_API_KEY: ${{ secrets.ALPHA17_NEON_API_KEY }}
+          NV_COHORT_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
+          NV_RESTORE_NEON_PROJECT_ID: ${{ vars.ALPHA17_RESTORE_NEON_PROJECT_ID }}
+          NV_RESTORE_NEON_BRANCH_ID: ${{ vars.ALPHA17_RESTORE_NEON_BRANCH_ID }}
+          NV_RESTORE_TARGET_KIND: isolated-neon-branch
+          NV_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          export NV_ALPHA17_RESTORE_ATTESTATION_PATH="${RUNNER_TEMP}/alpha17-restore-attestation.json"
+          (cd "${subject_root}" && node ci/run-alpha17-restore-validation.js)
+          test -s "${NV_ALPHA17_RESTORE_ATTESTATION_PATH}"
+      - name: Run hosted gate from runner and signed operator records
         shell: bash
         env:
           NV_PUBLIC_ALPHA_SUBJECT_SHA256: ${{ inputs.subject_sha256 }}
@@ -393,7 +433,13 @@ jobs:
           NV_ALPHA_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
           NV_ALPHA17_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
           NV_ALPHA17_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_ALPHA17_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
+          NV_ALPHA17_RESTORE_NEON_PROJECT_ID: ${{ vars.ALPHA17_RESTORE_NEON_PROJECT_ID }}
+          NV_ALPHA17_RESTORE_NEON_BRANCH_ID: ${{ vars.ALPHA17_RESTORE_NEON_BRANCH_ID }}
+          NV_ALPHA17_RESTORE_TARGET_KIND: isolated-neon-branch
           NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.hosted_target_sha256 }}
+          NV_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
+          NV_ALPHA17_RESTORE_ATTESTATION: ${{ runner.temp }}/alpha17-restore-attestation.json
           NV_ALPHA_SESSION_COOKIES: ${{ secrets.ALPHA17_SESSION_COOKIES }}
           NV_ALPHA_MUTATION_REQUEST: ${{ secrets.ALPHA17_MUTATION_REQUEST }}
           NV_ALPHA_CLEANUP_REQUEST: ${{ secrets.ALPHA17_CLEANUP_REQUEST }}

@@ -1,7 +1,10 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const {
+  DATABASE_VERIFICATION_OPTIONS,
   parseArgs,
   assertSafeOutputDirectory,
   assertRestoreTargetDifferent,
@@ -11,6 +14,21 @@ const {
   redactErrorMessage,
   restoreTargetFingerprint
 } = require('../scripts/alpha-db');
+
+assert(DATABASE_VERIFICATION_OPTIONS.connectionTimeoutMillis > 0,
+  'migration and restore database connections must have a finite connection timeout');
+assert(DATABASE_VERIFICATION_OPTIONS.statement_timeout > 0,
+  'migration and restore verification statements must have a finite server-side timeout');
+assert(
+  DATABASE_VERIFICATION_OPTIONS.query_timeout
+    > DATABASE_VERIFICATION_OPTIONS.statement_timeout,
+  'the client query timeout must leave time for the server statement timeout to cancel first'
+);
+const alphaDbSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'alpha-db.js'), 'utf8');
+for (const connection of [
+  'connectDatabase(databaseUrl, DATABASE_VERIFICATION_OPTIONS, env)',
+  'connectDatabase(targetUrl, DATABASE_VERIFICATION_OPTIONS, env)'
+]) assert(alphaDbSource.includes(connection), `${connection} must use bounded database options`);
 
 assert.deepStrictEqual(parseArgs(['backup', '--output-dir', '/tmp/nvx-backups']), {
   command: 'backup',
@@ -200,8 +218,9 @@ function ownershipDependencies(overrides = {}) {
         headers: { 'content-type': 'application/json' }
       });
     },
-    connectDatabaseImpl: async databaseUrl => {
+    connectDatabaseImpl: async (databaseUrl, options) => {
       assert.strictEqual(databaseUrl, restoreDatabaseUrl);
+      assert.deepStrictEqual(options, DATABASE_VERIFICATION_OPTIONS);
       return {
         async query(statement) {
           sessionQueries += 1;

@@ -36,6 +36,11 @@ assert.strictEqual(policy.responseMatchesBinding(new Headers({
   'x-nv-offline-repo': 'github:acme/other'
 }), decision), false, 'a response for another repository must not enter this repository cache');
 assert.strictEqual(policy.responseMatchesBinding(new Headers(), decision), false);
+assert.strictEqual(policy.responseMatchesBinding(new Headers({
+  'x-nv-offline-scope': decision.scope,
+  'x-nv-offline-repo': decision.repoKey
+}), { ...decision, mode: 'network-only' }), false,
+'a network-only decision must never become cacheable even when its response headers match');
 
 for (const path of [
   '/api/session', '/api/me', '/api/accounts', '/api/notifications',
@@ -59,8 +64,13 @@ assert(swSource.includes("key === 'nv-api'"), 'service worker must delete the ea
 assert(swSource.includes('POLICY.responseMatchesBinding(response.headers, decision)'),
   'service worker must require a server-verified response binding before caching');
 const serverSource = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
-assert(serverSource.includes("res.setHeader('Cache-Control', 'no-store')"));
-assert(serverSource.includes("res.setHeader('X-NV-Offline-Scope', binding.scope)"));
-assert(serverSource.includes("res.setHeader('X-NV-Offline-Repo', binding.repoKey)"));
+const offlineBoundaryStart = serverSource.indexOf('/* Private offline reads are opt-in');
+const offlineBoundaryEnd = serverSource.indexOf('/* Browser request boundary', offlineBoundaryStart);
+assert(offlineBoundaryStart >= 0 && offlineBoundaryEnd > offlineBoundaryStart,
+  'server must retain the bounded private offline response middleware');
+const offlineBoundary = serverSource.slice(offlineBoundaryStart, offlineBoundaryEnd);
+assert(offlineBoundary.includes("res.setHeader('Cache-Control', 'no-store')"));
+assert(offlineBoundary.includes("res.setHeader('X-NV-Offline-Scope', binding.scope)"));
+assert(offlineBoundary.includes("res.setHeader('X-NV-Offline-Repo', binding.repoKey)"));
 assert(serverSource.includes("decision.scope !== expectedScope || decision.repoKey !== expectedRepoKey"));
 console.log('offline cache policy tests passed');

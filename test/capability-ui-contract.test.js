@@ -12,15 +12,52 @@ const sw = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
 const registry = JSON.parse(fs.readFileSync(path.join(root, 'config', 'public-alpha-capabilities.json'), 'utf8'));
 const knownFeatures = new Set(Object.keys(registry.providers.github['hosted-alpha']));
 
-function htmlTagWith(...attributes) {
+function uniqueMatch(matches, label) {
+  assert.strictEqual(matches.length, 1, `${label} must match exactly once; observed ${matches.length}`);
+  return matches[0];
+}
+
+function htmlTagsWith(...attributes) {
   return [...html.matchAll(/<[^>]+>/g)].map(match => match[0])
-    .find(tag => attributes.every(attribute => tag.includes(attribute)));
+    .filter(tag => attributes.every(attribute => tag.includes(attribute)));
+}
+
+function htmlTagWith(...attributes) {
+  return uniqueMatch(htmlTagsWith(...attributes), `HTML tag with ${attributes.join(', ')}`);
+}
+
+function commandObjectAt(start) {
+  let depth = 0;
+  let quote = '';
+  let escapedCharacter = false;
+  for (let index = start; index < app.length; index += 1) {
+    const character = app[index];
+    if (quote) {
+      if (escapedCharacter) escapedCharacter = false;
+      else if (character === '\\') escapedCharacter = true;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (["'", '"', '`'].includes(character)) quote = character;
+    else if (character === '{') depth += 1;
+    else if (character === '}' && --depth === 0) return app.slice(start, index + 1);
+  }
+  return null;
+}
+
+function commandObjects(label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return [...app.matchAll(new RegExp(`\\{\\s*label:\\s*'${escaped}'`, 'g'))]
+    .map(marker => commandObjectAt(marker.index))
+    .filter(Boolean);
 }
 
 function commandObject(label) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return app.match(new RegExp(`\\{[^{}]*label:\\s*'${escaped}'[^{}]*\\}`, 's'))?.[0] || '';
+  return uniqueMatch(commandObjects(label), `command ${label}`);
 }
+
+assert.deepStrictEqual(commandObjects('Synthetic command that is absent'), []);
+assert.throws(() => uniqueMatch(['first', 'second'], 'synthetic duplicate'), /match exactly once/);
 
 assert(ui.includes('/api/capabilities'));
 assert(ui.includes("status === 'Unavailable'"));
@@ -90,6 +127,7 @@ for (const [label, feature] of [
   ['Delete this repository…', 'repository.delete']
 ]) {
   const command = commandObject(label);
+  assert(command, `command ${label} is missing`);
   assert(command.includes(`feature: '${feature}'`),
     `command ${label} must map to ${feature}`);
 }
@@ -102,6 +140,7 @@ for (const [label, feature] of [
   ['Star / unstar this repo', 'stars.write']
 ]) {
   const command = commandObject(label);
+  assert(command, `command ${label} is missing`);
   assert(command.includes(`feature: '${feature}'`) && command.includes('allowExperimental: true'),
     `command ${label} must remain an explicit experimental opt-in`);
 }

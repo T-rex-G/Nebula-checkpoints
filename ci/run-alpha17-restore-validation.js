@@ -11,6 +11,7 @@ const { validateRunnerRestoreAttestation } = require('./run-hosted-alpha17-valid
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
+const MAX_COMMAND_DURATION_MS = 15 * 60 * 1000;
 const SAFE_COMMAND_ENV_KEYS = Object.freeze([
   'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'SYSTEMROOT', 'WINDIR',
   'PGSSLROOTCERT',
@@ -101,15 +102,17 @@ function commandEnvironment(env) {
   return Object.freeze(output);
 }
 
-function executeAlphaDb(args, env, candidateRoot) {
+function executeAlphaDb(args, env, candidateRoot, runner = spawnSync) {
   const script = path.join(candidateRoot, 'scripts', 'alpha-db.js');
-  const result = spawnSync(process.execPath, [script, ...args], {
+  const result = runner(process.execPath, [script, ...args], {
     cwd: candidateRoot,
     env,
     encoding: 'utf8',
-    maxBuffer: MAX_COMMAND_OUTPUT_BYTES
+    maxBuffer: MAX_COMMAND_OUTPUT_BYTES,
+    timeout: MAX_COMMAND_DURATION_MS,
+    killSignal: 'SIGKILL'
   });
-  if (result.error || result.status !== 0) fail(`alpha-db ${args[0]} failed`);
+  if (result.error || result.signal || result.status !== 0) fail(`alpha-db ${args[0]} failed`);
   const output = String(result.stdout || '').trim();
   if (!output || Buffer.byteLength(output, 'utf8') > MAX_COMMAND_OUTPUT_BYTES) {
     fail(`alpha-db ${args[0]} output is invalid`);
@@ -326,7 +329,9 @@ function main() {
 if (require.main === module) main();
 
 module.exports = Object.freeze({
+  MAX_COMMAND_DURATION_MS,
   commandEnvironment,
+  executeAlphaDb,
   validateBackupResult,
   validateTargetResult,
   validateRestoreResult,

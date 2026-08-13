@@ -15,7 +15,14 @@ function providerChecks() {
     { key: 'disposable-branch-create', status: 'pass', statusClass: '2xx' },
     { key: 'expected-head-write', status: 'pass', statusClass: '2xx' },
     { key: 'utf8-readback', status: 'pass', statusClass: '2xx', bytes: 52, contentSha256: 'c'.repeat(64) },
-    { key: 'stale-head', status: 'pass', zeroCommit: true },
+    {
+      key: 'stale-head',
+      status: 'pass',
+      zeroCommit: true,
+      fileVerificationStatus: 'verified',
+      fileVerificationReasonCode: null,
+      fileVerificationDetail: 'content bytes and provider file identity match'
+    },
     { key: 'permission-denial', status: 'pass', zeroCommit: true },
     { key: 'stale-head-delete', status: 'pass', zeroCommit: true, fileRetained: true },
     { key: 'expected-head-delete', status: 'pass', statusClass: '2xx', headAdvanced: true, fileAbsent: true },

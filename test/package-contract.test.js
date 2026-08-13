@@ -88,6 +88,11 @@ assert(!render.includes('fromDatabase:'));
 assert(render.includes('NV_GOVERNANCE_AUDIT_SECRET'));
 
 const pkg = JSON.parse(read('package.json'));
+const syntaxGate = [
+  pkg.scripts['precheck:syntax'],
+  pkg.scripts['check:syntax'],
+  pkg.scripts['postcheck:syntax']
+].filter(Boolean).join(' ');
 const dependencyLock = JSON.parse(read('package-lock.json'));
 assert.strictEqual(pkg.dependencies.dompurify, '3.4.13', 'DOMPurify must include the alpha.17 XSS fix');
 assert.strictEqual(dependencyLock.packages['node_modules/dompurify'].version, '3.4.13');
@@ -142,7 +147,7 @@ for (const program of task6Programs) {
   previousTask6Program = programIndex;
 }
 for (const source of task6SyntaxSources) {
-  if (!pkg.scripts['check:syntax'].includes(`node --check ${source}`)) {
+  if (!syntaxGate.includes(`node --check ${source}`)) {
     task6Omissions.push(`syntax gate does not parse ${source}`);
   }
 }
@@ -208,7 +213,6 @@ const uxSyntaxSources = [
 ];
 const uxOmissions = [];
 const uxUnitGate = `${pkg.scripts['pretest:unit'] || ''} ${pkg.scripts['test:unit'] || ''}`;
-const uxSyntaxGate = `${pkg.scripts['precheck:syntax'] || ''} ${pkg.scripts['check:syntax'] || ''}`;
 for (const artifact of uxArtifacts) {
   if (!verifySource.includes(`'${artifact}'`)) uxOmissions.push(`build gate does not require ${artifact}`);
 }
@@ -220,7 +224,7 @@ for (const program of uxPrograms) {
   previousUxProgram = programIndex;
 }
 for (const source of uxSyntaxSources) {
-  if (!uxSyntaxGate.includes(`node --check ${source}`)) uxOmissions.push(`syntax gate does not parse ${source}`);
+  if (!syntaxGate.includes(`node --check ${source}`)) uxOmissions.push(`syntax gate does not parse ${source}`);
 }
 const manualAudit = read('docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md');
 if (!/Status:\s*\*\*Not executed\*\*/.test(manualAudit)) uxOmissions.push('manual accessibility record does not remain explicitly Not executed');
@@ -275,7 +279,7 @@ for (const program of privacyPrograms) {
   previousPrivacyProgram = programIndex;
 }
 for (const source of privacySyntaxSources) {
-  if (!pkg.scripts['check:syntax'].includes(`node --check ${source}`)) {
+  if (!syntaxGate.includes(`node --check ${source}`)) {
     privacyOmissions.push(`syntax gate does not parse ${source}`);
   }
 }
@@ -317,8 +321,8 @@ for (const source of [
   'scripts/package-release.js'
 ]) {
   assert(
-    pkg.scripts['check:syntax'].includes(`node --check ${source}`),
-    `check:syntax missing release-gate source ${source}`
+    syntaxGate.includes(`node --check ${source}`),
+    `syntax gate missing release-gate source ${source}`
   );
 }
 const lock = JSON.parse(read('package-lock.json'));
@@ -426,10 +430,10 @@ for (const testFile of ['gitea-file-mutations.test.js', 'gitea-file-mutation-ser
   assert(pkg.scripts.posttest.includes(testFile), `posttest missing ${testFile}`);
 }
 for (const source of ['src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/governance-model.js', 'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js', 'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'scripts/foundation-gate.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'playwright.config.js', 'public/governance-ui.js', 'src/capability-registry.js']) {
-  assert(pkg.scripts['check:syntax'].includes(source), `check:syntax missing ${source}`);
+  assert(syntaxGate.includes(source), `syntax gate missing ${source}`);
 }
 for (const source of ['src/provider-file-mutations.js', 'test/gitea-file-mutations.test.js', 'test/gitea-file-mutation-server.test.js', 'test/fixtures/gitea-provider-fetch.js']) {
-  assert(pkg.scripts['postcheck:syntax'].includes(source), `postcheck:syntax missing ${source}`);
+  assert(syntaxGate.includes(source), `syntax gate missing ${source}`);
 }
 const verifyScript = read('scripts/verify.js');
 for (const artifact of [
@@ -497,22 +501,9 @@ const publicAlphaQualificationTests = [
   'test/public-alpha-workflow-contract.test.js',
   'test/alpha17-restore-runner.test.js'
 ];
-const publicAlphaQualificationSyntax = [
-  'src/secret-scanner.js',
-  'scripts/check-secrets.js',
-  'src/qualification-evidence.js',
-  'src/public-alpha-qualification.js',
-  'scripts/public-alpha-gate.js',
-  'scripts/qualify-candidate-archive.js',
-  'ci/provider-alpha17-common.js',
-  'ci/alpha17-fixtures.js',
-  'ci/run-github-alpha17-validation.js',
-  'ci/run-gitlab-alpha17-validation.js',
-  'ci/run-gitea-alpha17-validation.js',
-  'ci/run-hosted-alpha17-validation.js',
-  'ci/run-alpha17-restore-validation.js',
-  'ci/verify-alpha17-authorization.js'
-];
+const publicAlphaQualificationSyntax = publicAlphaQualificationArtifacts.filter(
+  artifact => artifact.endsWith('.js') && !artifact.startsWith('test/')
+);
 for (const artifact of [...publicAlphaQualificationArtifacts, ...publicAlphaQualificationTests]) {
   assert(fs.existsSync(path.join(root, artifact)), `public-alpha qualification artifact missing ${artifact}`);
   assert(verifyScript.includes(`'${artifact}'`), `build verification missing ${artifact}`);
@@ -524,9 +515,8 @@ for (const program of publicAlphaQualificationTests) {
   assert(programIndex > previousQualificationProgram, `test:unit missing or misorders ${program}`);
   previousQualificationProgram = programIndex;
 }
-const qualificationSyntaxGate = `${pkg.scripts['check:syntax']} ${pkg.scripts['postcheck:syntax'] || ''}`;
 for (const source of publicAlphaQualificationSyntax) {
-  assert(qualificationSyntaxGate.includes(`node --check ${source}`), `check:syntax missing ${source}`);
+  assert(syntaxGate.includes(`node --check ${source}`), `syntax gate missing ${source}`);
 }
 const alpha17Workflow = read('.github/workflows/public-alpha-alpha17.yml');
 assert(alpha17Workflow.includes('node scripts/qualify-candidate-archive.js'));
@@ -599,7 +589,7 @@ for (const program of hostedOperationsTests) {
   assert(pkg.scripts['test:unit'].includes(`node ${program}`), `test:unit missing ${program}`);
 }
 for (const source of hostedOperationsSources) {
-  assert(pkg.scripts['check:syntax'].includes(`node --check ${source}`), `check:syntax missing ${source}`);
+  assert(syntaxGate.includes(`node --check ${source}`), `syntax gate missing ${source}`);
 }
 
 const publicAlpha = read('docs/release/PUBLIC_ALPHA.md');

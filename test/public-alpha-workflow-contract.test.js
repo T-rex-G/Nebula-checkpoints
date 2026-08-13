@@ -242,11 +242,31 @@ function actionStepBlocks(source) {
     if (!match) continue;
     const indentation = match[1].length;
     let end = index + 1;
-    while (end < lines.length && !new RegExp(`^\\s{${indentation}}-\\s+`).test(lines[end])) end += 1;
+    while (end < lines.length) {
+      if (lines[end].trim()) {
+        const nextIndentation = /^(\s*)/.exec(lines[end])[1].length;
+        if (nextIndentation <= indentation) break;
+      }
+      end += 1;
+    }
     blocks.push({ reference: match[2], source: lines.slice(index, end).join('\n') });
   }
   return blocks;
 }
+
+const boundedActionFixture = [
+  'jobs:',
+  '  verify:',
+  '    steps:',
+  `      - uses: actions/checkout@${'a'.repeat(40)}`,
+  '        with:',
+  '          persist-credentials: false',
+  '  unrelated:',
+  '    persist-credentials: true'
+].join('\n');
+const [boundedAction] = actionStepBlocks(boundedActionFixture);
+assert(boundedAction.source.includes('persist-credentials: false'));
+assert(!boundedAction.source.includes('unrelated:'), 'action blocks must stop at the first non-empty dedent');
 
 for (const [name, source] of [
   ['CI', ciWorkflow],
@@ -396,9 +416,17 @@ const hostedRestoreIndex = hosted.indexOf('Execute isolated restore and create r
 const hostedValidationIndex = hosted.indexOf('Run hosted gate from runner and signed operator records');
 const hostedFirstSecretIndex = hosted.indexOf('${{ secrets.');
 assert(
-  hostedInstallIndex > hostedPreflightIndex && hostedInstallIndex < hostedFirstSecretIndex,
+  hostedPreflightIndex >= 0 && hostedInstallIndex > hostedPreflightIndex && hostedInstallIndex < hostedFirstSecretIndex,
   'hosted dependencies must be installed without credentials after signed-target preflight'
 );
+assert.strictEqual(
+  (hosted.match(/alpha17-restore-attestation\.json/g) || []).length,
+  1,
+  'the hosted job must define the restore-attestation path exactly once'
+);
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_FILE='));
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_PATH="${NV_ALPHA17_RESTORE_ATTESTATION_FILE}"'));
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION="${NV_ALPHA17_RESTORE_ATTESTATION_FILE}"'));
 assert(
   hosted.includes('npm ci --ignore-scripts --no-audit --no-fund'),
   'hosted dependency installation must suppress lifecycle scripts and unrelated network checks'

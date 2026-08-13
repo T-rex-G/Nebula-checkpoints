@@ -322,25 +322,64 @@ async function runProviderQualification({ provider, client, env = process.env, n
       staleRejected = true;
     }
     const afterStale = await client.getBranch(target.branch, 'mutation');
-    const afterStaleFile = await client.readFile(target.branch, proofPath, 'mutation');
+    let afterStaleFile = null;
     let staleFileUnchanged = false;
+    let staleFileVerification = {
+      status: 'missing-or-unreadable',
+      reasonCode: 'ALPHA17_STALE_FILE_UNAVAILABLE',
+      detail: 'the post-rejection file could not be read'
+    };
     try {
-      verifyUtf8Readback(proofBytes, afterStaleFile && afterStaleFile.content);
-      staleFileUnchanged = Boolean(afterStaleFile && afterStaleFile.sha === readback.sha);
-    } catch {}
+      afterStaleFile = await client.readFile(target.branch, proofPath, 'mutation');
+      if (afterStaleFile === null) {
+        staleFileVerification = {
+          status: 'missing',
+          reasonCode: 'ALPHA17_STALE_FILE_MISSING',
+          detail: 'the post-rejection file is absent'
+        };
+      } else {
+        verifyUtf8Readback(proofBytes, afterStaleFile.content);
+        staleFileUnchanged = afterStaleFile.sha === readback.sha;
+        staleFileVerification = staleFileUnchanged
+          ? { status: 'verified', reasonCode: null, detail: 'content bytes and provider file identity match' }
+          : {
+              status: 'identity-mismatch',
+              reasonCode: 'ALPHA17_STALE_FILE_IDENTITY_MISMATCH',
+              detail: 'content matches but the provider file identity changed'
+            };
+      }
+    } catch (error) {
+      const reasonCode = String(error && error.code || 'ALPHA17_PROVIDER_REQUEST_FAILED');
+      staleFileVerification = {
+        status: reasonCode === 'ALPHA17_READBACK_MISMATCH' ? 'content-mismatch' : 'unreadable',
+        reasonCode: /^[A-Z][A-Z0-9_]{2,79}$/.test(reasonCode)
+          ? reasonCode
+          : 'ALPHA17_PROVIDER_REQUEST_FAILED',
+        detail: reasonCode === 'ALPHA17_READBACK_MISMATCH'
+          ? 'the post-rejection content differs from the expected proof bytes'
+          : 'the post-rejection file read failed before comparison'
+      };
+    }
     const staleZeroCommit = Boolean(
       staleRejected &&
       afterStale &&
       afterStale.sha === afterWrite.sha &&
       staleFileUnchanged
     );
-    checks.push({
+    const staleHeadCheck = {
       key: 'stale-head',
       status: staleZeroCommit ? 'pass' : 'fail',
-      zeroCommit: staleZeroCommit
-    });
+      zeroCommit: staleZeroCommit,
+      fileVerificationStatus: staleFileVerification.status,
+      fileVerificationReasonCode: staleFileVerification.reasonCode,
+      fileVerificationDetail: staleFileVerification.detail
+    };
+    checks.push(staleHeadCheck);
     if (!staleZeroCommit) {
-      fail('stale-head attempt changed the branch or file', 'ALPHA17_STALE_HEAD_PROOF_FAILED');
+      const error = new Error('stale-head attempt changed the branch or file');
+      error.code = 'ALPHA17_STALE_HEAD_PROOF_FAILED';
+      error.check = deepFreeze({ ...staleHeadCheck });
+      throw error;
     }
 
     let permissionRejected = false;

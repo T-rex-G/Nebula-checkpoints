@@ -10,6 +10,7 @@ Choose the containment order from the exposed credential type:
 
 - For an invitation, session cookie, or application/session secret, freeze invitations and mutations first, revoke the affected tester, and invalidate active sessions before rotating the affected Render value.
 - For a provider credential, revoke it at the provider first, then freeze the affected tester and complete provider-resource cleanup.
+- For an exposed `GITHUB_APP_PRIVATE_KEY_BASE64`, delete the exposed private key in GitHub App settings before creating a replacement and updating the Render value.
 - For a backup key, stop backup/restore operations first and preserve controlled access to the old key until every retained encrypted backup has been re-keyed or expired.
 
 Do not delay the first applicable containment action while investigating unrelated credential classes.

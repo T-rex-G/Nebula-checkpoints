@@ -409,7 +409,12 @@ function normalizePolicyDecision(input, descriptor = null) {
   const warningCodes = Array.isArray(input.warningCodes) ? [...new Set(input.warningCodes.map(value => String(value || '').trim()))].sort() : [];
   if (warningCodes.length > 32 || warningCodes.some(value => !/^[A-Z][A-Z0-9_]{2,79}$/.test(value))) fail('Policy warning codes are invalid');
   const blockCode = input.blockCode == null ? null : String(input.blockCode).trim();
-  if ((enforcementOutcome === 'block') !== !!blockCode || (blockCode && !['POLICY_MUTATION_BLOCKED', 'POLICY_APPROVAL_REQUIRED', 'POLICY_EVALUATION_UNAVAILABLE'].includes(blockCode))) {
+  if ((enforcementOutcome === 'block') !== !!blockCode || (blockCode && ![
+    'POLICY_MUTATION_BLOCKED',
+    'POLICY_APPROVAL_REQUIRED',
+    'POLICY_EVALUATION_UNAVAILABLE',
+    'POLICY_UNSUPPORTED_ACTIVE_RULES'
+  ].includes(blockCode))) {
     fail('Policy block code is invalid');
   }
   const evaluatedAt = new Date(input.evaluatedAt);
@@ -419,13 +424,28 @@ function normalizePolicyDecision(input, descriptor = null) {
   const normalizedExceptionSetHash = engineVersion >= 2 ? hash(input.exceptionSetHash, 'Exception set hash') : null;
   if (source === 'evaluation-unavailable') {
     const expectedControlPlane = definition.category === 'governance';
-    const expectedOutcome = input.rolloutMode === 'block' && !expectedControlPlane ? 'block' : 'warn';
-    const expectedWarnings = ['POLICY_EVALUATION_UNAVAILABLE', ...(expectedControlPlane ? ['POLICY_CONTROL_PLANE_NON_BLOCKING'] : [])].sort();
-    const expectedBlockCode = expectedOutcome === 'block' ? 'POLICY_EVALUATION_UNAVAILABLE' : null;
+    const unsupportedActiveRules = warningCodes.includes('POLICY_UNSUPPORTED_ACTIVE_RULES');
+    const expectedOutcome = !expectedControlPlane && (input.rolloutMode === 'block' || unsupportedActiveRules)
+      ? 'block'
+      : 'warn';
+    const expectedWarnings = [
+      'POLICY_EVALUATION_UNAVAILABLE',
+      ...(unsupportedActiveRules ? ['POLICY_UNSUPPORTED_ACTIVE_RULES'] : []),
+      ...(expectedControlPlane ? ['POLICY_CONTROL_PLANE_NON_BLOCKING'] : [])
+    ].sort();
+    const expectedBlockCode = expectedOutcome === 'block'
+      ? (unsupportedActiveRules ? 'POLICY_UNSUPPORTED_ACTIVE_RULES' : 'POLICY_EVALUATION_UNAVAILABLE')
+      : null;
+    const expectedUnmappedReasons = [
+      'POLICY_EVALUATION_UNAVAILABLE',
+      ...(unsupportedActiveRules ? ['POLICY_UNSUPPORTED_ACTIVE_RULES'] : [])
+    ].sort();
     if (evaluations.length !== 0 || activePolicyCount !== 0 || normalizedPolicySetHash !== sha256([]) ||
         effectiveEffect !== 'allow' || enforcementOutcome !== expectedOutcome || rolloutMode !== expectedOutcome ||
         blockCode !== expectedBlockCode || stableJson(warningCodes) !== stableJson(expectedWarnings) ||
-        normalizedControlMapping.status !== 'unavailable' || (engineVersion >= 2 && normalizedExceptionSetHash !== sha256([]))) {
+        normalizedControlMapping.status !== 'unavailable' ||
+        stableJson(normalizedControlMapping.unmappedReasons) !== stableJson(expectedUnmappedReasons) ||
+        (engineVersion >= 2 && normalizedExceptionSetHash !== sha256([]))) {
       fail('Unavailable policy decision evidence is inconsistent');
     }
   } else {
@@ -483,7 +503,7 @@ function normalizePolicyDecision(input, descriptor = null) {
   return deepFreeze(output);
 }
 
-function unavailableControlMapping() {
+function unavailableControlMapping(reasons = ['POLICY_EVALUATION_UNAVAILABLE']) {
   const body = {
     schemaVersion: 1,
     status: 'unavailable',
@@ -494,7 +514,7 @@ function unavailableControlMapping() {
       hash: CONTROL_CATALOG.hash
     },
     controls: [],
-    unmappedReasons: ['POLICY_EVALUATION_UNAVAILABLE']
+    unmappedReasons: [...new Set(reasons)].sort()
   };
   return normalizeControlMapping({ ...body, mappingHash: sha256(body) });
 }
@@ -509,10 +529,12 @@ function descriptorPolicyScope(descriptor) {
   };
 }
 
-function unavailableDecision(descriptor, failureMode, now) {
+function unavailableDecision(descriptor, failureMode, now, failureCode = 'POLICY_EVALUATION_FAILED') {
   const controlPlaneRecovery = descriptor.category === 'governance';
-  const block = failureMode === 'block' && !controlPlaneRecovery;
+  const unsupportedActiveRules = failureCode === 'POLICY_UNSUPPORTED_ACTIVE_RULES';
+  const block = !controlPlaneRecovery && (failureMode === 'block' || unsupportedActiveRules);
   const warningCodes = ['POLICY_EVALUATION_UNAVAILABLE'];
+  if (unsupportedActiveRules) warningCodes.push('POLICY_UNSUPPORTED_ACTIVE_RULES');
   if (controlPlaneRecovery) warningCodes.push('POLICY_CONTROL_PLANE_NON_BLOCKING');
   const body = {
     schemaVersion: 1,
@@ -533,8 +555,13 @@ function unavailableDecision(descriptor, failureMode, now) {
     rolloutMode: block ? 'block' : 'warn',
     enforcementOutcome: block ? 'block' : 'warn',
     warningCodes,
-    blockCode: block ? 'POLICY_EVALUATION_UNAVAILABLE' : null,
-    controlMapping: unavailableControlMapping(),
+    blockCode: block
+      ? (unsupportedActiveRules ? 'POLICY_UNSUPPORTED_ACTIVE_RULES' : 'POLICY_EVALUATION_UNAVAILABLE')
+      : null,
+    controlMapping: unavailableControlMapping([
+      'POLICY_EVALUATION_UNAVAILABLE',
+      ...(unsupportedActiveRules ? ['POLICY_UNSUPPORTED_ACTIVE_RULES'] : [])
+    ]),
     evaluatedAt: new Date(now()).toISOString()
   };
   return normalizePolicyDecision(body, descriptor);
@@ -560,7 +587,7 @@ function createGovernanceRuntime({ store, failureMode = 'warn', now = () => new 
             scopeKey: descriptor.scopeKey
           }));
         } catch {}
-        return unavailableDecision(descriptor, mode, now);
+        return unavailableDecision(descriptor, mode, now, error && error.code);
       }
     }
   });

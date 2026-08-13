@@ -10,8 +10,8 @@ Stop issuing invitations and announce a temporary mutation freeze. Do not redepl
 
 ```bash
 set -euo pipefail
-curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/healthz"
-curl --proto '=https' --fail --silent --show-error --write-out '%{http_code}\n' --output /dev/null "$NV_ALPHA_BASE_URL/readyz"
+curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output /dev/null "$NV_ALPHA_BASE_URL/healthz" | grep -qx '200'
+curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output /dev/null "$NV_ALPHA_BASE_URL/readyz" | grep -qx '200'
 ```
 
 If health becomes available while readiness remains unavailable, continue with the Neon runbook. If the process repeatedly restarts or health never appears, treat the active deploy as failed.

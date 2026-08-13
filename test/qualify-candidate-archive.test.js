@@ -14,7 +14,8 @@ const {
   qualifyCandidateArchive,
   runCommand,
   validateArchiveEntries,
-  validateBrowserReport
+  validateBrowserReport,
+  validateMatrixReport
 } = require('../scripts/qualify-candidate-archive');
 const leakProbe = ['must-not', 'reach-candidate'].join('-');
 const registry = require('../config/public-alpha-capabilities.json');
@@ -91,19 +92,33 @@ function writeFixture(root, options = {}) {
     }
   }, null, 2)}\n`);
   fs.writeFileSync(path.join(candidate, 'scripts', 'test-matrix.js'), `'use strict';
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+function stableJson(value) {
+  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stableJson(value[key])).join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
 const args = process.argv.slice(2);
 const reportIndex = args.indexOf('--report');
 if (!args.includes('--require-all') || !args.includes('--require-subject') || reportIndex < 0) process.exit(9);
 const reportPath = path.resolve(args[reportIndex + 1]);
 fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-fs.writeFileSync(reportPath, JSON.stringify({
+const reportCore = {
   schemaVersion: '1.0.0',
+  mode: 'require-all',
   subjectHash: process.env.NV_STAGING_SUBJECT_SHA256,
   nodeVersion: process.version,
+  platform: process.platform + '-' + process.arch,
   counts: { total: 1, passed: 1, blocked: 0, failed: 0 },
-  tests: [{ path: 'test/from-archive.test.js', status: 'pass' }],
+  tests: [{ path: 'test/from-archive.test.js', status: 'pass' }]
+};
+fs.writeFileSync(reportPath, JSON.stringify({
+  ...reportCore,
+  generatedAt: new Date().toISOString(),
   observedEnvironment: {
     cwd: process.cwd(),
     home: process.env.HOME,
@@ -111,7 +126,7 @@ fs.writeFileSync(reportPath, JSON.stringify({
     leakedToken: process.env.GITHUB_TOKEN || process.env.NPM_TOKEN || process.env.NV_FAKE_SECRET || null,
     nodeOptions: process.env.NODE_OPTIONS || null
   },
-  reportHash: 'a'.repeat(64)
+  reportHash: crypto.createHash('sha256').update(stableJson(reportCore)).digest('hex')
 }) + '\\n');
 `);
   fs.writeFileSync(path.join(candidate, 'scripts', 'fake-browser.js'), `'use strict';
@@ -180,6 +195,21 @@ assert.throws(
     '--origin-id', 'workflow-2048-automated'
   ]),
   /absolute/
+);
+assert.throws(
+  () => parseArgs([
+    '--archive', '/tmp/a.zip',
+    '--comparison-archive', '/tmp/b.zip',
+    '--sha256', 'a'.repeat(64),
+    '--extract-dir', '/tmp/subject',
+    '--report', '/tmp/report.json',
+    '--browser-report', '/tmp/browser.json',
+    '--evidence', '/tmp/automated.json',
+    '--source-commit', 'b'.repeat(40),
+    '--origin-id'
+  ]),
+  /arguments are invalid/,
+  'a trailing --origin-id must not become the literal string undefined'
 );
 assert.deepStrictEqual(
   validateArchiveEntries([
@@ -294,6 +324,13 @@ try {
   assert.strictEqual(report.observedEnvironment.ignoreScripts, 'true');
   assert.strictEqual(report.observedEnvironment.leakedToken, null);
   assert.strictEqual(report.observedEnvironment.nodeOptions, null);
+  const forgedReportPath = path.join(temporaryRoot, 'evidence', 'forged-matrix.json');
+  fs.writeFileSync(forgedReportPath, `${JSON.stringify({ ...report, reportHash: 'f'.repeat(64) })}\n`);
+  assert.throws(
+    () => validateMatrixReport(forgedReportPath, expectedSha256, 1),
+    /does not prove the exact subject/,
+    'a syntactically valid but forged matrix core hash must be rejected'
+  );
   const automatedEvidence = validateEvidenceEnvelope(JSON.parse(fs.readFileSync(evidencePath, 'utf8')));
   assert.strictEqual(automatedEvidence.artifactType, 'automated');
   assert.strictEqual(automatedEvidence.subjectSha256, expectedSha256);

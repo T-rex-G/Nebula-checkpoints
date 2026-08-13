@@ -2,7 +2,7 @@
 const assert = require('assert');
 const { createMutationGateway, normalizeMutationDescriptor } = require('../src/mutation-gateway');
 const { deriveControlMapping } = require('../src/control-catalog');
-const { evaluateActivePolicySet } = require('../src/governance-enforcement');
+const { createGovernanceRuntime, evaluateActivePolicySet } = require('../src/governance-enforcement');
 const { policyDocumentHash } = require('../src/governance-model');
 const authorization = {
   schemaVersion: 1,
@@ -54,5 +54,21 @@ function decision(outcome, extra = {}) {
 
   const mismatchGateway = createMutationGateway({ policyEvaluator: async () => decision('allow', { mutationId: '50000000-0000-4000-8000-000000000005' }) });
   await assert.rejects(() => mismatchGateway.run(base, async () => {}), error => error.code === 'MUTATION_POLICY_DECISION_MISMATCH');
+
+  let unsupportedCallbackRan = false;
+  const unsupportedRuntime = createGovernanceRuntime({
+    failureMode: 'warn',
+    store: {
+      async evaluateAndAppendPolicyDecision() {
+        throw Object.assign(new Error('unsupported active policy'), { code: 'POLICY_UNSUPPORTED_ACTIVE_RULES' });
+      }
+    }
+  });
+  const unsupportedGateway = createMutationGateway({ policyEvaluator: unsupportedRuntime.evaluate });
+  await assert.rejects(
+    () => unsupportedGateway.run(base, async () => { unsupportedCallbackRan = true; }),
+    error => error.code === 'POLICY_UNSUPPORTED_ACTIVE_RULES' && error.status === 503
+  );
+  assert.strictEqual(unsupportedCallbackRan, false, 'unsupported active rules must block before provider mutation');
   console.log('mutation gateway policy tests passed');
 })().catch(error => { console.error(error.stack || error); process.exitCode = 1; });

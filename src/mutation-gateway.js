@@ -441,8 +441,13 @@ function createMutationGateway({ eventSink, policyEvaluator } = {}) {
             decisionId: policyDecision.decisionId || null,
             blockCode: policyDecision.blockCode
           }));
-          const unavailable = policyDecision.blockCode === 'POLICY_EVALUATION_UNAVAILABLE';
-          fail(unavailable ? 'Policy evaluation is unavailable' :
+          const unavailable = [
+            'POLICY_EVALUATION_UNAVAILABLE',
+            'POLICY_UNSUPPORTED_ACTIVE_RULES'
+          ].includes(policyDecision.blockCode);
+          fail(policyDecision.blockCode === 'POLICY_UNSUPPORTED_ACTIVE_RULES'
+            ? 'Policy evaluation cannot safely evaluate the active rules'
+            : unavailable ? 'Policy evaluation is unavailable' :
             policyDecision.blockCode === 'POLICY_APPROVAL_REQUIRED' ? 'This mutation requires approval under the active policy' :
               'This mutation is blocked by the active policy',
           policyDecision.blockCode, unavailable ? 503 : 403);

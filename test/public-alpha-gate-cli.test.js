@@ -98,6 +98,7 @@ try {
     'artifact size must be rejected from the opened descriptor before content is read'
   );
 
+  const cleanEvidence = structuredClone(evidence);
   evidence.knownLimitations.push('Line one\n# Injected heading https://github.com/acme/private-repo');
   const evidencePath = path.join(temporaryRoot, 'qualification.json');
   fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
@@ -160,7 +161,7 @@ try {
   };
   const unrelatedPath = path.join(temporaryRoot, 'unrelated-but-hash-valid.json');
   fs.writeFileSync(unrelatedPath, `${JSON.stringify(unrelatedEnvelope, null, 2)}\n`, { mode: 0o600 });
-  const unrelatedRecord = structuredClone(evidence);
+  const unrelatedRecord = structuredClone(cleanEvidence);
   const automatedMetadata = unrelatedRecord.artifacts.find(item => item.id === 'automated-artifact');
   automatedMetadata.path = unrelatedPath;
   automatedMetadata.sha256 = crypto.createHash('sha256').update(fs.readFileSync(unrelatedPath)).digest('hex');

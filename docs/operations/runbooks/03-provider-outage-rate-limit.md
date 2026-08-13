@@ -10,7 +10,7 @@ Stop mutation retries immediately. Preserve the last expected-head value and do 
 
 ```bash
 set -euo pipefail
-curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/api/capabilities?provider=$NV_PROVIDER&authority=$NV_PROVIDER_AUTHORITY"
+curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output /dev/null "$NV_ALPHA_BASE_URL/api/capabilities?provider=$NV_PROVIDER&authority=$NV_PROVIDER_AUTHORITY" | grep -qx '200'
 node scripts/alpha-privacy.js cleanup-status
 ```
 

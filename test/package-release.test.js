@@ -191,6 +191,7 @@ try {
     path.join(root, 'docs', 'current', 'PROJECT_STATE.md'),
     'utf8'
   );
+  const generatedStateDigest = crypto.createHash('sha256').update(generatedState).digest('hex');
   withArtifact('docs/current/PROJECT_STATE.md', `${generatedState}\nsynthetic generated drift\n`, () => {
     const result = runPackager(driftOutput);
     assert.notStrictEqual(result.status, 0, 'packager must fail when generated continuity drifts');
@@ -199,6 +200,13 @@ try {
       path.join(driftOutput, 'Nebulaverse-X-v5.3.0-alpha.17.0.zip')
     ), 'generated drift must fail before archive creation');
   });
+  assert.strictEqual(
+    crypto.createHash('sha256').update(fs.readFileSync(
+      path.join(root, 'docs', 'current', 'PROJECT_STATE.md')
+    )).digest('hex'),
+    generatedStateDigest,
+    'the generated-document drift test must restore the tracked bytes exactly'
+  );
 
   const nestedOutput = fs.mkdtempSync(path.join(root, 'node_modules', 'release-output-sentinel-'));
   fs.writeFileSync(path.join(nestedOutput, 'existing-output.txt'), 'synthetic nested-output sentinel\n');

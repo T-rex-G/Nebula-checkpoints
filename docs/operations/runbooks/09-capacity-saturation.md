@@ -21,8 +21,13 @@ Compare p50/p95, status counts, restart observations, active tester count, and p
 
 ```bash
 set -euo pipefail
-curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/api/config"
-curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/readyz"
+NV_CONFIG_RESPONSE="$(mktemp)"
+NV_READY_RESPONSE="$(mktemp)"
+trap 'rm -f -- "$NV_CONFIG_RESPONSE" "$NV_READY_RESPONSE"' EXIT
+curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output "$NV_CONFIG_RESPONSE" "$NV_ALPHA_BASE_URL/api/config" | grep -qx '200'
+curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output "$NV_READY_RESPONSE" "$NV_ALPHA_BASE_URL/readyz" | grep -qx '200'
+cat "$NV_CONFIG_RESPONSE"
+cat "$NV_READY_RESPONSE"
 ```
 
 ## Recovery

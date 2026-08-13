@@ -8,6 +8,42 @@ const render = fs.readFileSync(path.join(__dirname, '..', 'render.yaml'), 'utf8'
 const envExample = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
 const deploymentGuide = fs.readFileSync(path.join(__dirname, '..', 'docs', 'operations', 'DEPLOY_RENDER_NEON.md'), 'utf8');
 
+function yamlEnvironmentEntry(source, key) {
+  assert.match(key, /^[A-Z][A-Z0-9_]*$/, `invalid environment key fixture: ${key}`);
+  const lines = source.split(/\r?\n/);
+  let start = -1;
+  let indentation = -1;
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^(\s*)-\s+key:\s*([A-Z][A-Z0-9_]*)\s*$/.exec(lines[index]);
+    if (match && match[2] === key) {
+      start = index;
+      indentation = match[1].length;
+      break;
+    }
+  }
+  assert(start >= 0, `${key} is missing`);
+  let end = start + 1;
+  while (end < lines.length) {
+    if (lines[end].trim()) {
+      const nextIndentation = /^(\s*)/.exec(lines[end])[1].length;
+      if (nextIndentation <= indentation) break;
+    }
+    end += 1;
+  }
+  return lines.slice(start, end).join('\n');
+}
+
+const boundedEntryFixture = [
+  'envVars:',
+  '  - key: FIRST_SECRET',
+  '    generateValue: true',
+  'nextSection:',
+  '  - key: SHADOW_SECRET',
+  '    value: must-not-be-included'
+].join('\n');
+assert(!yamlEnvironmentEntry(boundedEntryFixture, 'FIRST_SECRET').includes('SHADOW_SECRET'));
+assert.throws(() => yamlEnvironmentEntry(boundedEntryFixture, 'MISSING_SECRET'), /is missing/);
+
 assert.strictEqual((render.match(/^\s*- type:\s*web\s*$/gm) || []).length, 1);
 assert.match(render, /name:\s*nebulaverse-x-public-alpha/);
 assert.match(render, /plan:\s*free/);
@@ -38,10 +74,7 @@ const exactValues = {
 };
 
 for (const generatedSecret of ['SESSION_SECRET', 'NV_SNAPSHOT_SIGNING_SECRET']) {
-  const start = render.indexOf(`key: ${generatedSecret}`);
-  const end = render.indexOf('\n      - key:', start + 1);
-  const block = render.slice(start, end < 0 ? render.length : end);
-  assert(start >= 0, `${generatedSecret} is missing`);
+  const block = yamlEnvironmentEntry(render, generatedSecret);
   assert(block.includes('generateValue: true'), `${generatedSecret} must be generated independently`);
   assert(!block.includes('value:'), `${generatedSecret} must not have a blueprint value`);
 }
@@ -56,10 +89,7 @@ for (const secret of [
   'NV_ALPHA_INVITE_PEPPER',
   'NV_GOVERNANCE_AUDIT_SECRET'
 ]) {
-  const start = render.indexOf(`key: ${secret}`);
-  const end = render.indexOf('\n      - key:', start + 1);
-  const block = render.slice(start, end < 0 ? render.length : end);
-  assert(start >= 0, `${secret} is missing`);
+  const block = yamlEnvironmentEntry(render, secret);
   assert(block.includes('sync: false'), `${secret} must be entered manually`);
   assert(!block.includes('value:'), `${secret} must not have a blueprint value`);
 }

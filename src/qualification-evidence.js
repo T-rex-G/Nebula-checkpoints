@@ -46,7 +46,16 @@ const PROVIDER_CHECK_CONTRACT = deepFreeze([
     key: 'utf8-readback',
     fields: { status: 'pass', statusClass: '2xx', bytes: '$positive-integer', contentSha256: '$sha256' }
   },
-  { key: 'stale-head', fields: { status: 'pass', zeroCommit: true } },
+  {
+    key: 'stale-head',
+    fields: {
+      status: 'pass',
+      zeroCommit: true,
+      fileVerificationStatus: 'verified',
+      fileVerificationReasonCode: null,
+      fileVerificationDetail: 'content bytes and provider file identity match'
+    }
+  },
   { key: 'permission-denial', fields: { status: 'pass', zeroCommit: true } },
   { key: 'stale-head-delete', fields: { status: 'pass', zeroCommit: true, fileRetained: true } },
   {

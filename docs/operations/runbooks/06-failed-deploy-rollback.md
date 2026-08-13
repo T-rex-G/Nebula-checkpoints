@@ -10,10 +10,11 @@ Stop invitations and mutations. In the Render deploy record, capture the failed 
 
 ```bash
 set -euo pipefail
-curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/healthz"
-curl --proto '=https' --fail --silent --show-error "$NV_ALPHA_BASE_URL/readyz"
+curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output /dev/null "$NV_ALPHA_BASE_URL/healthz" | grep -qx '200'
+curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output /dev/null "$NV_ALPHA_BASE_URL/readyz" | grep -qx '200'
 test -n "$NV_FAILED_RENDER_DEPLOY_ID"
-printf '%s\n' "$NV_FAILED_RENDER_SOURCE_COMMIT" | grep -E '^[0-9a-f]{40}$'
+test "${#NV_FAILED_RENDER_SOURCE_COMMIT}" -eq 40
+printf '%s\n' "$NV_FAILED_RENDER_SOURCE_COMMIT" | grep -qxE '[0-9a-f]{40}'
 ```
 
 Do not roll back across an incompatible migration. Use maintenance containment plus an isolated, verified database restore instead.

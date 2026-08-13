@@ -35,6 +35,14 @@ const SAFE_CHILD_ENV_KEYS = Object.freeze([
 const NEON_API_ORIGIN = 'https://console.neon.tech';
 const NEON_RESPONSE_MAX_BYTES = 64 * 1024;
 const NEON_REQUEST_TIMEOUT_MS = 10_000;
+const DATABASE_CONNECTION_TIMEOUT_MS = 10_000;
+const DATABASE_STATEMENT_TIMEOUT_MS = 60_000;
+const DATABASE_QUERY_TIMEOUT_MS = DATABASE_STATEMENT_TIMEOUT_MS + 5_000;
+const DATABASE_VERIFICATION_OPTIONS = Object.freeze({
+  connectionTimeoutMillis: DATABASE_CONNECTION_TIMEOUT_MS,
+  statement_timeout: DATABASE_STATEMENT_TIMEOUT_MS,
+  query_timeout: DATABASE_QUERY_TIMEOUT_MS
+});
 
 function parseArgs(argv) {
   const values = Array.isArray(argv) ? argv : [];
@@ -303,10 +311,13 @@ async function verifyNeonRestoreOwnership(source, target, input, dependencies = 
   const neonApiKey = String(dependencies.neonApiKey || '').trim();
   if (!neonApiKey) throw new TypeError('NEON_API_KEY is required for restore ownership verification');
   const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
-  const connectDatabaseImpl = dependencies.connectDatabaseImpl || (databaseUrl => connectDatabase(databaseUrl, {
-    connectionTimeoutMillis: NEON_REQUEST_TIMEOUT_MS,
-    query_timeout: NEON_REQUEST_TIMEOUT_MS
-  }, dependencies.databaseEnv || process.env));
+  const connectDatabaseImpl = dependencies.connectDatabaseImpl || (
+    (databaseUrl, options) => connectDatabase(
+      databaseUrl,
+      options,
+      dependencies.databaseEnv || process.env
+    )
+  );
   const timeoutMs = Number.isInteger(dependencies.timeoutMs) && dependencies.timeoutMs > 0
     ? Math.min(dependencies.timeoutMs, NEON_REQUEST_TIMEOUT_MS)
     : NEON_REQUEST_TIMEOUT_MS;
@@ -334,7 +345,7 @@ async function verifyNeonRestoreOwnership(source, target, input, dependencies = 
       timeoutMs
     })
   ]);
-  const client = await connectDatabaseImpl(target);
+  const client = await connectDatabaseImpl(target, DATABASE_VERIFICATION_OPTIONS);
   try {
     const result = await client.query('SELECT current_database() AS database, current_user AS role');
     const observed = result && result.rows && result.rows[0];
@@ -598,7 +609,7 @@ async function migrateCommand(args, env) {
   assertFreshBackup(manifest);
   const backupPath = backupPathFromRecord(args.backupManifest, record);
   await withVerifiedPlaintext({ backupPath, manifest, key }, async () => {});
-  const client = await connectDatabase(databaseUrl, {}, env);
+  const client = await connectDatabase(databaseUrl, DATABASE_VERIFICATION_OPTIONS, env);
   try {
     const migration = await runMigrations(client, {
       directory: path.join(__dirname, '..', 'db', 'migrations'),
@@ -638,7 +649,7 @@ async function restoreCommand(args, env) {
       plaintextPath
     ], databaseEnvironment(targetUrl, env));
   });
-  const client = await connectDatabase(targetUrl, {}, env);
+  const client = await connectDatabase(targetUrl, DATABASE_VERIFICATION_OPTIONS, env);
   try {
     const verification = await verifyMigrations(client, {
       directory: path.join(__dirname, '..', 'db', 'migrations')
@@ -713,6 +724,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  DATABASE_VERIFICATION_OPTIONS,
   parseArgs,
   assertSafeOutputDirectory,
   assertRestoreTargetDifferent,

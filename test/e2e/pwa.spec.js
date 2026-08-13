@@ -115,7 +115,9 @@ test('login boundary keeps the active offline identity while purging the sibling
 
   await sibling.goto('/');
   await expect(sibling.locator('#page-repos')).toHaveClass(/active/);
-  expect(JSON.parse(await sibling.evaluate(() => sessionStorage.getItem('nv_me'))).login).toBe('bob');
+  await expect.poll(
+    () => sibling.evaluate(() => JSON.parse(sessionStorage.getItem('nv_me') || 'null')?.login)
+  ).toBe('bob');
   siblingOnline = false;
 
   await page.goto('/');

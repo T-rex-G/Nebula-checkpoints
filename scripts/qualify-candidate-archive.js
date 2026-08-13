@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const registry = require('../config/public-alpha-capabilities.json');
+const { stableJson } = require('../src/governance-model');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
 const {
   EVIDENCE_SCHEMA_VERSION,
@@ -43,7 +44,7 @@ function assertPinnedNodeVersion(version = process.version) {
 }
 
 function parseArgs(argv) {
-  const values = Array.isArray(argv) ? argv.map(String) : [];
+  const values = Array.isArray(argv) ? argv : [];
   const names = new Map([
     ['--archive', 'archivePath'],
     ['--comparison-archive', 'comparisonArchivePath'],
@@ -57,13 +58,13 @@ function parseArgs(argv) {
   ]);
   const output = {};
   for (let index = 0; index < values.length; index += 2) {
-    const name = values[index];
+    const name = String(values[index]);
     const target = names.get(name);
-    const value = values[index + 1];
-    if (!target || value == null || value === '' || Object.hasOwn(output, target)) {
+    const rawValue = values[index + 1];
+    if (!target || rawValue == null || rawValue === '' || Object.hasOwn(output, target)) {
       fail('candidate qualifier arguments are invalid');
     }
-    output[target] = value;
+    output[target] = String(rawValue);
   }
   if (Object.keys(output).length !== names.size) fail('candidate qualifier requires every named argument');
   for (const field of [
@@ -304,15 +305,39 @@ function validateMatrixReport(reportPath, expectedSha256, minimumTests = MINIMUM
   } catch {
     fail('candidate matrix report is missing or invalid');
   }
+  const tests = Array.isArray(report.tests) ? report.tests : [];
+  const reportCore = {
+    schemaVersion: report.schemaVersion,
+    mode: report.mode,
+    subjectHash: report.subjectHash,
+    nodeVersion: report.nodeVersion,
+    platform: report.platform,
+    counts: report.counts,
+    tests: tests.map(test => {
+      if (!test || typeof test !== 'object' || Array.isArray(test)) return test;
+      const { durationMs, ...deterministicTest } = test;
+      return deterministicTest;
+    })
+  };
+  const observedReportHash = crypto.createHash('sha256')
+    .update(stableJson(reportCore), 'utf8')
+    .digest('hex');
   if (
+    report.schemaVersion !== '1.0.0' ||
+    report.mode !== 'require-all' ||
     report.subjectHash !== expectedSha256 ||
+    report.nodeVersion !== process.version ||
+    report.platform !== `${process.platform}-${process.arch}` ||
     !report.counts ||
     !Number.isInteger(report.counts.total) ||
     report.counts.total < minimumTests ||
     report.counts.passed !== report.counts.total ||
     report.counts.blocked !== 0 ||
     report.counts.failed !== 0 ||
-    !SHA256_PATTERN.test(String(report.reportHash || ''))
+    tests.length !== report.counts.total ||
+    tests.some(test => !test || test.status !== 'pass') ||
+    !SHA256_PATTERN.test(String(report.reportHash || '')) ||
+    report.reportHash !== observedReportHash
   ) fail('candidate matrix report does not prove the exact subject');
   return report;
 }

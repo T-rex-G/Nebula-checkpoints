@@ -259,9 +259,6 @@ assert(adr56.includes('browser consumes a read-only projection'));
 assert(adr56.includes('server rejects unavailable operations before provider transport'));
 assert(adr56.includes('A Supported public-alpha claim remains release-blocked'));
 
-const currentTruth = canonicalFiles
-  .map(file => `${file}\n${read(file)}`)
-  .join('\n');
 for (const [label, pattern] of [
   ['stale Task 21 status', /Task 21 is in progress/i],
   ['stale alpha.14 deployment label', /v5\.3\.0-alpha\.14/i],
@@ -272,7 +269,9 @@ for (const [label, pattern] of [
   ['production-readiness claim', /Nebulaverse-X (?:is|has been) (?:a )?production[- ]ready/i],
   ['unfinished marker', /\b(?:TODO|TBD|FIXME|PLACEHOLDER)\b/i]
 ]) {
-  assert(!pattern.test(currentTruth), `current documentation contains ${label}`);
+  for (const file of canonicalFiles) {
+    assert(!pattern.test(read(file)), `${file} contains ${label}`);
+  }
 }
 
 const phaseOneRoadmap = read('docs/history/phase-1/ROADMAP.md');

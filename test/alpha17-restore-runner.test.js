@@ -5,7 +5,11 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { runRestoreValidation } = require('../ci/run-alpha17-restore-validation');
+const {
+  MAX_COMMAND_DURATION_MS,
+  executeAlphaDb,
+  runRestoreValidation
+} = require('../ci/run-alpha17-restore-validation');
 const { neonConnectionIdentitySha256 } = require('../scripts/alpha-db');
 
 const SUBJECT = 'a'.repeat(64);
@@ -17,6 +21,30 @@ const neonApiProbe = ['neon', 'api', 'fixture', 'must', 'not', 'leak'].join('-')
 function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
+
+let observedSpawnOptions;
+assert.deepStrictEqual(
+  executeAlphaDb(['restore-target'], {}, path.resolve(__dirname, '..'), (command, args, options) => {
+    assert.strictEqual(command, process.execPath);
+    assert(args[0].endsWith(path.join('scripts', 'alpha-db.js')));
+    observedSpawnOptions = options;
+    return { status: 0, signal: null, error: null, stdout: '{}\n', stderr: '' };
+  }),
+  {}
+);
+assert.strictEqual(observedSpawnOptions.timeout, MAX_COMMAND_DURATION_MS);
+assert.strictEqual(observedSpawnOptions.killSignal, 'SIGKILL');
+assert.throws(
+  () => executeAlphaDb(['restore'], {}, path.resolve(__dirname, '..'), () => ({
+    status: null,
+    signal: 'SIGKILL',
+    error: null,
+    stdout: '',
+    stderr: ''
+  })),
+  error => error && error.code === 'ALPHA17_RESTORE_RUNNER_FAILED',
+  'a timed-out or signalled alpha-db child must fail through the restore-runner boundary'
+);
 
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-restore-runner-test-'));
 try {

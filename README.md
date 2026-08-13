@@ -408,8 +408,13 @@ Rotating `SESSION_SECRET` intentionally invalidates existing sessions and stored
 ```bash
 npm ci
 npm test
+NV_DEV_SESSION_SECRET="$(node -e "process.stdout.write(require('crypto').randomBytes(48).toString('base64url'))")"
+export NV_DEV_SESSION_SECRET
 SESSION_SECRET="$NV_DEV_SESSION_SECRET" npm start
 ```
+
+Generate `NV_DEV_SESSION_SECRET` once per local validation session as shown; do
+not reuse a production, provider, or snapshot-signing secret.
 
 Then open `http://localhost:10000`.
 

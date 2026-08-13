@@ -590,9 +590,10 @@ Task 11 text that described the key as optional without rewriting that record.
 **Status:** Accepted
 
 If any rule in an active policy set is outside the deployed evaluator contract,
-evaluation throws `POLICY_UNSUPPORTED_ACTIVE_RULES`. Runtime failure mode then
-produces an observable warning or a pre-provider block. Governance recovery
-mutations retain the separately authorized recovery-safe behavior in ADR-039.
+evaluation throws `POLICY_UNSUPPORTED_ACTIVE_RULES`. Ordinary mutations then
+block before provider transport regardless of the general runtime failure mode.
+Governance recovery mutations retain the separately authorized recovery-safe
+behavior in ADR-039.
 
 **Consequence:** Adding or corrupting an unknown active rule cannot weaken the
 effective policy to allow. The unsupported state remains visible and can be

@@ -89,7 +89,7 @@ boundary was verified or strengthened and the disposition is explicit below.
 | R3-A6 | Applied | Restore source/target URLs require explicit `sslmode=verify-full`; the v2 fingerprint includes host, port, database, role, TLS mode, pool state, project, branch, and kind. |
 | R3-A7 | Applied | The hosted workflow itself creates a fresh encrypted backup, verifies the isolated Neon target, restores it, verifies migration/data smoke, erases backup material, and emits a bounded runner restore attestation. Operator-signed evidence covers only the remaining operator-observed checks and cannot claim the workflow-executed restore. |
 | R3-A8 | Applied | Activation and rollback require a bounded `Idempotency-Key` before any governance-store read, with zero-store-access regressions. |
-| R3-A9 | Applied | Any unsupported active rule throws an evaluator failure and is converted only through the configured warn/block boundary; implicit allow is impossible. |
+| R3-A9 | Applied | Any unsupported active rule throws an evaluator failure and blocks ordinary mutations before provider transport regardless of the general warn/block setting; the separately authorized governance recovery path remains non-blocking. |
 | R3-A10 | Applied | The production HTTPS webhook sender has direct redirect-terminal regression coverage using its injected transport boundary. |
 | R3-A11 | Applied | Snapshot configuration rejects reuse of the active key ID in retired keys; signature parsing derives from the shared version/algorithm constants. |
 | R3-A12 | Applied | Emergency-manifest responses are produced only after verifying the freshly created signature through the configured keyring. |

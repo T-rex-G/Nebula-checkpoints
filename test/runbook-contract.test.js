@@ -35,15 +35,46 @@ for (const file of required) {
   assert(!/(?:password|token|secret|key)\s*=\s*[^$\s`][^\s`]*/i.test(text), `${file} contains a literal secret-like value`);
 }
 
+function logicalShellLines(text) {
+  return text.replace(/\\\r?\n[ \t]*/g, ' ')
+    .split(/\r?\n/)
+    .map(value => value.trimStart());
+}
+
 for (const file of required) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
-  for (const line of text.split('\n').map(value => value.trimStart()).filter(value => value.startsWith('curl '))) {
+  for (const line of logicalShellLines(text).filter(value => value.startsWith('curl '))) {
     assert(line.includes('--fail'), `${file} verification probe must fail on HTTP errors`);
+    if (/\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/capabilities)/.test(line)) {
+      assert(line.includes("--write-out '%{http_code}\\n'"), `${file} service probe must expose its HTTP status`);
+      assert(/--output (?:\/dev\/null|"\$NV_[A-Z_]+")/.test(line),
+        `${file} service probe must keep its response body separate from the status check`);
+      assert(line.includes("| grep -qx '200'"), `${file} service probe must accept only HTTP 200`);
+    }
   }
 }
 
 const credentialExposure = fs.readFileSync(path.join(root, '04-credential-exposure.md'), 'utf8');
 assert.match(credentialExposure, /SESSION_SECRET.*reconnect.*verified-live-events.*webhook delivery health/is);
+const credentialContainment = credentialExposure.slice(0, credentialExposure.indexOf('## Verification'));
+assert.match(
+  credentialContainment,
+  /GITHUB_APP_PRIVATE_KEY_BASE64.*delete the exposed private key in GitHub App settings/is,
+  'an exposed GitHub App private key must be revoked at GitHub during containment'
+);
+
+for (const file of ['10-alpha-shutdown.md', 'OPERATOR_CHECKLIST.md']) {
+  const text = fs.readFileSync(path.join(root, file), 'utf8');
+  assert.match(text, /NV_BACKUP_RESULT="\$\(node scripts\/alpha-db\.js backup/,
+    `${file} must capture the exact backup result`);
+  assert.match(text, /readonly NV_BACKUP_FILE NV_BACKUP_MANIFEST/,
+    `${file} must bind immutable paths from the backup result`);
+  assert.match(text, /alpha-db\.js verify --backup "\$NV_BACKUP_FILE" --manifest "\$NV_BACKUP_MANIFEST"/,
+    `${file} must verify the captured backup paths`);
+}
+const rollback = fs.readFileSync(path.join(root, '06-failed-deploy-rollback.md'), 'utf8');
+assert.match(rollback, /test "\$\{#NV_FAILED_RENDER_SOURCE_COMMIT\}" -eq 40/);
+assert.match(rollback, /grep -qxE '\[0-9a-f\]\{40\}'/);
 
 const securityDeployment = fs.readFileSync(path.join(root, '..', 'SECURITY_DEPLOYMENT.md'), 'utf8');
 const compatibilityStep = securityDeployment.indexOf('NV_SNAPSHOT_LEGACY_KEYS_JSON` compatibility keyring');

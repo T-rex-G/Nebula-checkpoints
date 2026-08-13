@@ -56,27 +56,29 @@ assert(decisions.includes('## ADR-058 — Provider cleanup is a verified lifecyc
 assert(decisions.includes('## ADR-059 — Public-alpha success is verification-gated and every conclusion carries an evidence state'));
 assert(decisions.includes('## ADR-060 — Hosted-alpha migrations are backup-gated and verified by the web process'));
 assert(decisions.includes('## ADR-061 — Live qualification is exact-job and exact-target authorized'));
-assert(decisions.includes('## ADR-062 — Documentation lifecycle and generated continuity are release contracts'));
-assert(decisions.includes('## ADR-063 — Release archives cannot self-attest exact candidate identity'));
-assert(decisions.includes('## ADR-064 — Provider operation IDs use a versioned canonical preimage'));
-assert(decisions.includes('## ADR-065 — Destructive database restore requires an exact isolated-target fingerprint'));
-assert(decisions.includes('## ADR-066 — Recovery snapshots use an independently rotatable signing keyring'));
-assert(decisions.includes('## ADR-067 — Hosted evidence observes the deployed release tree'));
-assert(decisions.includes('## ADR-068 — Provider delete qualification is negative-and-positive head-bound proof'));
-assert(decisions.includes('## ADR-069 — Destructive Neon restore requires control-plane and live-session ownership proof'));
-assert(decisions.includes('## ADR-070 — Production snapshot compatibility is an explicit operator keyring'));
-assert(decisions.includes('## ADR-071 — Continuity accepts exact transport-specific commits paired to one tree'));
-assert(decisions.includes('## ADR-072 — Deployed release identity remains runtime-observed and non-circular'));
-assert(decisions.includes('## ADR-073 — Activation and rollback require idempotency before persistence access'));
-assert(decisions.includes('## ADR-074 — Unsupported active rules are evaluator failures, never implicit allows'));
-assert(decisions.includes('## ADR-075 — Governance advisory locks have one nested acquisition order'));
-assert(decisions.includes('## ADR-076 — Governance webhook delivery is at-least-once and receiver-deduplicated'));
-assert(decisions.includes('## ADR-077 — Private offline responses require server-confirmed cache bindings'));
-assert(decisions.includes('## ADR-078 — Exact-archive qualification uses an allowlisted process environment'));
-assert(decisions.includes('## ADR-079 — Hosted operational claims retain signed-attestation provenance'));
-assert(decisions.includes('## ADR-080 — Live qualification credentials assume an independently reviewed candidate'));
-assert(decisions.includes('## ADR-081 — Provider claims equal the proof-bearing qualification subset'));
-assert(decisions.includes('## ADR-082 — Credential-bearing outbound requests never follow redirects'));
+for (const title of [
+  'ADR-062 — Documentation lifecycle and generated continuity are release contracts',
+  'ADR-063 — Release archives cannot self-attest exact candidate identity',
+  'ADR-064 — Provider operation IDs use a versioned canonical preimage',
+  'ADR-065 — Destructive database restore requires an exact isolated-target fingerprint',
+  'ADR-066 — Recovery snapshots use an independently rotatable signing keyring',
+  'ADR-067 — Hosted evidence observes the deployed release tree',
+  'ADR-068 — Provider delete qualification is negative-and-positive head-bound proof',
+  'ADR-069 — Destructive Neon restore requires control-plane and live-session ownership proof',
+  'ADR-070 — Production snapshot compatibility is an explicit operator keyring',
+  'ADR-071 — Continuity accepts exact transport-specific commits paired to one tree',
+  'ADR-072 — Deployed release identity remains runtime-observed and non-circular',
+  'ADR-073 — Activation and rollback require idempotency before persistence access',
+  'ADR-074 — Unsupported active rules are evaluator failures, never implicit allows',
+  'ADR-075 — Governance advisory locks have one nested acquisition order',
+  'ADR-076 — Governance webhook delivery is at-least-once and receiver-deduplicated',
+  'ADR-077 — Private offline responses require server-confirmed cache bindings',
+  'ADR-078 — Exact-archive qualification uses an allowlisted process environment',
+  'ADR-079 — Hosted operational claims retain signed-attestation provenance',
+  'ADR-080 — Live qualification credentials assume an independently reviewed candidate',
+  'ADR-081 — Provider claims equal the proof-bearing qualification subset',
+  'ADR-082 — Credential-bearing outbound requests never follow redirects'
+]) assert(decisions.includes(`## ${title}`), `architecture decisions missing ${title}`);
 
 const prompt = read('docs/current/CONTINUATION_PROMPT.md');
 assert(prompt.includes('Public alpha: **NO-GO**'));

@@ -186,11 +186,17 @@ assert(!mixedNonBlocking.warningCodes.includes('POLICY_DENY_WARNING'), 'observe-
     }
   };
   const unsupportedWarn = await createGovernanceRuntime({ store: unsupportedStore, failureMode: 'warn' }).evaluate(descriptor);
-  assert.strictEqual(unsupportedWarn.enforcementOutcome, 'warn');
+  assert.strictEqual(unsupportedWarn.enforcementOutcome, 'block');
+  assert.strictEqual(unsupportedWarn.blockCode, 'POLICY_UNSUPPORTED_ACTIVE_RULES');
+  assert(unsupportedWarn.warningCodes.includes('POLICY_UNSUPPORTED_ACTIVE_RULES'));
   const unsupportedBlock = await createGovernanceRuntime({ store: unsupportedStore, failureMode: 'block' }).evaluate(descriptor);
   assert.strictEqual(unsupportedBlock.enforcementOutcome, 'block');
+  assert.strictEqual(unsupportedBlock.blockCode, 'POLICY_UNSUPPORTED_ACTIVE_RULES');
   const unsupportedRecovery = await createGovernanceRuntime({ store: unsupportedStore, failureMode: 'block' }).evaluate(governanceDescriptor);
   assert.strictEqual(unsupportedRecovery.enforcementOutcome, 'warn', 'control-plane recovery remains non-blocking during evaluator failure');
+  const unsupportedWarnRecovery = await createGovernanceRuntime({ store: unsupportedStore, failureMode: 'warn' }).evaluate(governanceDescriptor);
+  assert.strictEqual(unsupportedWarnRecovery.enforcementOutcome, 'warn', 'control-plane recovery remains non-blocking in warn mode');
+  assert(unsupportedWarnRecovery.warningCodes.includes('POLICY_UNSUPPORTED_ACTIVE_RULES'));
 
   const giteaAuthorization = {
     ...authorization,

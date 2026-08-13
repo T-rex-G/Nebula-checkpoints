@@ -4248,6 +4248,15 @@ app.get('/api/repo/:owner/:repo/raw', providerSessionAccess, alphaRepositoryAcce
     res.end();
   } catch (e) { fail(res, e); }
 });
+function requireHttpsLfsActionUrl(raw, action) {
+  let target;
+  try { target = new URL(String(raw || '')); }
+  catch { throw Object.assign(new Error(`LFS ${action} URL is invalid`), { status: 502 }); }
+  if (target.protocol !== 'https:' || target.username || target.password) {
+    throw Object.assign(new Error(`LFS ${action} URL must use HTTPS without embedded credentials`), { status: 502 });
+  }
+  return target;
+}
 async function lfsDownloadStream(sess, owner, repo, oid, size) {
   assertProviderBoundLfs(sess);
   const basic = Buffer.from(`${sess.login}:${sess.token}`).toString('base64');
@@ -4265,7 +4274,8 @@ async function lfsDownloadStream(sess, owner, repo, oid, size) {
   const obj = batch.objects && batch.objects[0];
   const act = obj && obj.actions && obj.actions.download;
   if (!act) throw Object.assign(new Error('LFS object not found in storage'), { status: 404 });
-  const dl = await fetchT(act.href, { headers: act.header || {}, redirect: 'error' }, UPLOAD_TIMEOUT_MS);
+  const downloadUrl = requireHttpsLfsActionUrl(act.href, 'download');
+  const dl = await fetchT(downloadUrl, { headers: act.header || {}, redirect: 'error' }, UPLOAD_TIMEOUT_MS);
   if (!dl.ok) throw Object.assign(new Error(`LFS storage fetch failed (${dl.status})`), { status: 502 });
   return dl.body;
 }
@@ -5199,8 +5209,9 @@ async function uploadViaLFS(sess, owner, repo, branch, p, tmp, oid, size, messag
   if (obj && obj.error) throw Object.assign(new Error(`LFS: ${obj.error.message}`), { status: 502 });
   const uploadAction = obj && obj.actions && obj.actions.upload;
   if (uploadAction) {
+    const uploadUrl = requireHttpsLfsActionUrl(uploadAction.href, 'upload');
     mutationGateway.assertProviderMutation({ provider: sess.provider || 'github', baseUrl: sess.baseUrl, method: 'PUT', owner, repo, transport: 'git-lfs.upload' });
-    const up = await fetchT(uploadAction.href, {
+    const up = await fetchT(uploadUrl, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(size), ...(uploadAction.header || {}) },
       body: fs.createReadStream(tmp), duplex: 'half', redirect: 'error'
@@ -5211,16 +5222,17 @@ async function uploadViaLFS(sess, owner, repo, branch, p, tmp, oid, size, messag
     }
     const verify = obj.actions.verify;
     if (verify) {
+      const verifyUrl = requireHttpsLfsActionUrl(verify.href, 'verification');
       const verifyHeaders = {
         Accept: 'application/vnd.git-lfs+json',
         'Content-Type': 'application/vnd.git-lfs+json',
         ...(verify.header || {})
       };
-      try {
-        if (new URL(verify.href).hostname === 'github.com' && !verifyHeaders.Authorization) verifyHeaders.Authorization = `Basic ${basic}`;
-      } catch { throw Object.assign(new Error('LFS verification URL is invalid'), { status: 502 }); }
+      if (verifyUrl.hostname === 'github.com' && !verifyHeaders.Authorization) {
+        verifyHeaders.Authorization = `Basic ${basic}`;
+      }
       mutationGateway.assertProviderMutation({ provider: sess.provider || 'github', baseUrl: sess.baseUrl, method: 'POST', owner, repo, transport: 'git-lfs.verify' });
-      const verified = await fetchT(verify.href, {
+      const verified = await fetchT(verifyUrl, {
         method: 'POST', headers: verifyHeaders, body: JSON.stringify({ oid, size }), redirect: 'error'
       });
       if (!verified.ok) {

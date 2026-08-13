@@ -384,6 +384,7 @@ jobs:
           echo "${{ inputs.subject_sha256 }}  ${archive}" | sha256sum -c -
           mkdir -p "${RUNNER_TEMP}/subject"
           unzip -q "${archive}" -d "${RUNNER_TEMP}/subject"
+          printf 'NV_ALPHA17_RESTORE_ATTESTATION_FILE=%s\n' "${RUNNER_TEMP}/alpha17-restore-attestation.json" >> "${GITHUB_ENV}"
       - name: Verify signed live target
         shell: bash
         env:
@@ -428,7 +429,7 @@ jobs:
           NV_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
         run: |
           subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-          export NV_ALPHA17_RESTORE_ATTESTATION_PATH="${RUNNER_TEMP}/alpha17-restore-attestation.json"
+          export NV_ALPHA17_RESTORE_ATTESTATION_PATH="${NV_ALPHA17_RESTORE_ATTESTATION_FILE}"
           (cd "${subject_root}" && node ci/run-alpha17-restore-validation.js)
           test -s "${NV_ALPHA17_RESTORE_ATTESTATION_PATH}"
       - name: Run hosted gate from runner and signed operator records
@@ -446,7 +447,6 @@ jobs:
           NV_ALPHA17_RESTORE_TARGET_KIND: isolated-neon-branch
           NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.hosted_target_sha256 }}
           NV_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
-          NV_ALPHA17_RESTORE_ATTESTATION: ${{ runner.temp }}/alpha17-restore-attestation.json
           NV_ALPHA_SESSION_COOKIES: ${{ secrets.ALPHA17_SESSION_COOKIES }}
           NV_ALPHA_MUTATION_REQUEST: ${{ secrets.ALPHA17_MUTATION_REQUEST }}
           NV_ALPHA_CLEANUP_REQUEST: ${{ secrets.ALPHA17_CLEANUP_REQUEST }}
@@ -457,6 +457,7 @@ jobs:
           mkdir -p "${subject_root}/staging/evidence"
           printf '%s' "${OPERATIONAL_RECORD_BASE64}" | base64 -d > "${subject_root}/staging/evidence/operational.json"
           export NV_ALPHA17_OPERATIONAL_RECORD="${subject_root}/staging/evidence/operational.json"
+          export NV_ALPHA17_RESTORE_ATTESTATION="${NV_ALPHA17_RESTORE_ATTESTATION_FILE}"
           (cd "${subject_root}" && node ci/run-hosted-alpha17-validation.js > staging/evidence/hosted.json)
           (cd "${subject_root}" && node scripts/check-secrets.js)
           cp "${subject_root}/staging/evidence/hosted.json" "${RUNNER_TEMP}/hosted.json"

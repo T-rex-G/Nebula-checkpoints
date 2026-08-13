@@ -10,7 +10,10 @@ Stop invitations and mutations, revoke every tester and provider credential, end
 
 ```bash
 set -euo pipefail
-node scripts/alpha-db.js backup --output-dir "$NV_BACKUP_OUTPUT_DIR"
+NV_BACKUP_RESULT="$(node scripts/alpha-db.js backup --output-dir "$NV_BACKUP_OUTPUT_DIR")"
+NV_BACKUP_FILE="$(node -e 'const r=JSON.parse(process.argv[1]); if(typeof r.backupPath!=="string"||!r.backupPath)process.exit(2); process.stdout.write(r.backupPath)' "$NV_BACKUP_RESULT")"
+NV_BACKUP_MANIFEST="$(node -e 'const r=JSON.parse(process.argv[1]); if(typeof r.manifestPath!=="string"||!r.manifestPath)process.exit(2); process.stdout.write(r.manifestPath)' "$NV_BACKUP_RESULT")"
+readonly NV_BACKUP_FILE NV_BACKUP_MANIFEST
 node scripts/alpha-db.js verify --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
 node scripts/alpha-privacy.js cleanup-status
 node scripts/alpha-privacy.js cohort-close --confirm CLOSE-ALPHA

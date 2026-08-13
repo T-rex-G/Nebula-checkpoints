@@ -174,11 +174,14 @@ The evidence export includes:
 - Evidence-chain verification result
 - The bounded sequence/hash records used by that verification
 
-Snapshot signatures use `NV_SNAPSHOT_SIGNING_SECRET`, independently from
-`SESSION_SECRET`. Rotation assigns a new key ID and retains prior key-ID/secret
-pairs only until every matching snapshot reaches its retention deadline.
-Pre-migration bare signatures remain verifiable through the bounded legacy
-keyring during the same compatibility window.
+Production snapshot signatures use `NV_SNAPSHOT_SIGNING_SECRET` independently
+from `SESSION_SECRET`; local development may fall back to `SESSION_SECRET` when
+no dedicated snapshot key is configured. Rotation assigns a new key ID, while
+retired key-ID/secret pairs and pre-migration bare-signature keys remain
+verifiable only when operators explicitly retain them in their respective
+keyrings. Each keyring is limited to 16 entries. The application does not
+enforce snapshot-retention deadlines, so operators must remove retired entries
+after the documented compatibility window expires.
 
 ## Privacy model
 

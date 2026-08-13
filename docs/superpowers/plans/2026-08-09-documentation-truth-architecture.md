@@ -143,7 +143,7 @@ git commit -m "docs: enforce documentation lifecycle structure"
 The failing test must independently assert:
 
 ```js
-assert.strictEqual(state.schemaVersion, 3);
+assert.strictEqual(state.schemaVersion, 4);
 assert.strictEqual(state.version, pkg.version);
 assert.strictEqual(state.acceptedTree, '29112ef5d5d9b4912b3e3ee1e71e44bfe36a9fdb');
 assert.deepStrictEqual(Object.fromEntries(Object.entries(state.gates).map(([name, gate]) => [name, gate.status])), {

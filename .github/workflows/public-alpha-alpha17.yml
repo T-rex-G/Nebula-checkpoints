@@ -61,6 +61,12 @@ jobs:
         with:
           node-version: '22.23.1'
           cache: npm
+      - name: Bind Playwright cache for extracted-candidate qualification
+        shell: bash
+        run: |
+          playwright_browsers="${RUNNER_TEMP}/ms-playwright"
+          mkdir -p "${playwright_browsers}"
+          printf 'PLAYWRIGHT_BROWSERS_PATH=%s\n' "${playwright_browsers}" >> "${GITHUB_ENV}"
       - name: Verify full-history continuity precondition
         run: node scripts/resume-work.js --require-clean --json > /dev/null
       - run: npm ci

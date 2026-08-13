@@ -328,6 +328,22 @@ assert(
   qualificationDocsCheck >= 0 && qualificationDocsCheck < qualificationPackage,
   'qualification must check generated documentation before package creation'
 );
+const playwrightCacheBinding = automated.indexOf('PLAYWRIGHT_BROWSERS_PATH=%s');
+const playwrightInstall = automated.indexOf('npx playwright install --with-deps chromium');
+const checkoutBrowserMatrix = automated.indexOf('npm run test:e2e');
+const extractedCandidateQualifier = automated.indexOf('node scripts/qualify-candidate-archive.js');
+assert(
+  playwrightCacheBinding >= 0 &&
+    playwrightCacheBinding < playwrightInstall &&
+    playwrightInstall < checkoutBrowserMatrix &&
+    checkoutBrowserMatrix < extractedCandidateQualifier,
+  'Playwright installation and both browser matrices must share one cache bound before installation'
+);
+assert(
+  automated.includes('playwright_browsers="${RUNNER_TEMP}/ms-playwright"') &&
+    automated.includes('>> "${GITHUB_ENV}"'),
+  'the automated job must persist an absolute runner-temp Playwright cache for subsequent isolated steps'
+);
 assert((automated.match(/npm run package:release/g) || []).length >= 2, 'candidate must be built twice');
 assert(automated.includes('cmp '), 'double package bytes must be compared');
 assert(

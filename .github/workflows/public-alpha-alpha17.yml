@@ -424,9 +424,11 @@ jobs:
           NV_ALPHA17_TARGET_RESTORE_APP_BASE_URL: ${{ vars.ALPHA17_RESTORE_APP_BASE_URL }}
           NV_ALPHA17_TARGET_RESTORE_APP_DEPLOY_ID: ${{ vars.ALPHA17_RESTORE_APP_DEPLOY_ID }}
           NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.hosted_target_sha256 }}
+          NV_ALPHA17_EXPECTED_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}
         run: |
           trusted_root="${GITHUB_WORKSPACE}/trusted-runner"
-          test "$(git -C "${trusted_root}" rev-parse HEAD)" = "${{ needs.automated.outputs.source_commit }}"
+          printf '%s\n' "${NV_ALPHA17_EXPECTED_SOURCE_COMMIT}" | grep -qxE '[0-9a-f]{40}'
+          test "$(git -C "${trusted_root}" rev-parse HEAD)" = "${NV_ALPHA17_EXPECTED_SOURCE_COMMIT}"
           (cd "${trusted_root}" && node ci/verify-alpha17-authorization.js target)
       - name: Install hosted runner dependencies without lifecycle scripts
         shell: bash

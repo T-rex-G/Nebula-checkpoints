@@ -11,6 +11,7 @@ const {
   signRunnerRestoreAttestation,
   validateRunnerRestoreAttestation
 } = require('./alpha17-restore-attestation');
+const { hasExactKeys, isPlainObject, stableJson } = require('./alpha17-json');
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
@@ -38,25 +39,6 @@ function fail(message, code = 'ALPHA17_RESTORE_RUNNER_FAILED') {
   const error = new Error(message);
   error.code = code;
   throw error;
-}
-
-function isPlainObject(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function hasExactKeys(value, keys) {
-  return isPlainObject(value)
-    && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
-}
-
-function stableJson(value) {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function sha256(value) {
@@ -216,6 +198,8 @@ async function runRestoreValidation(options = {}) {
   const subjectSha256 = requireEnvironment(env, 'NV_PUBLIC_ALPHA_SUBJECT_SHA256').toLowerCase();
   const sourceCommit = requireEnvironment(env, 'NV_PUBLIC_ALPHA_SOURCE_COMMIT').toLowerCase();
   const runId = requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_RUN_ID');
+  const restoreAppBaseUrl = requireEnvironment(env, 'NV_ALPHA17_RESTORE_APP_BASE_URL');
+  const restoreAppDeployId = requireEnvironment(env, 'NV_ALPHA17_RESTORE_APP_DEPLOY_ID');
   if (!SHA256_PATTERN.test(subjectSha256) || /^0{64}$/.test(subjectSha256)) fail('restore subject is invalid');
   if (!COMMIT_PATTERN.test(sourceCommit) || /^0{40}$/.test(sourceCommit)) fail('restore source commit is invalid');
   if (!/^[a-zA-Z0-9._-]{1,80}$/.test(runId)) fail('restore workflow run ID is invalid');
@@ -253,8 +237,6 @@ async function runRestoreValidation(options = {}) {
     const restore = validateRestoreResult(executeCommand([
       'restore', '--backup', backup.backupPath, '--manifest', backup.manifestPath
     ], commandEnv));
-    const restoreAppBaseUrl = requireEnvironment(env, 'NV_ALPHA17_RESTORE_APP_BASE_URL');
-    const restoreAppDeployId = requireEnvironment(env, 'NV_ALPHA17_RESTORE_APP_DEPLOY_ID');
     const smoke = await (options.runSmokeImpl || runSmoke)(restoreAppBaseUrl);
     if (!smoke || smoke.ok !== true) fail('restore-backed application smoke failed');
     const backupManifestSha256 = hashFile(backup.manifestPath);
@@ -320,10 +302,7 @@ async function runRestoreValidation(options = {}) {
     expectedSourceCommit: sourceCommit,
     expectedOriginId: `workflow-${runId}-restore`,
     expectedRestoreTargetFingerprint: commandEnv.NV_RESTORE_TARGET_FINGERPRINT,
-    expectedRestoreAppDeployIdSha256: sha256(Buffer.from(
-      requireEnvironment(env, 'NV_ALPHA17_RESTORE_APP_DEPLOY_ID'),
-      'utf8'
-    )),
+    expectedRestoreAppDeployIdSha256: sha256(Buffer.from(restoreAppDeployId, 'utf8')),
     workflowRepository: requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_REPOSITORY'),
     workflowPath: requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_PATH'),
     workflowRunId: runId,

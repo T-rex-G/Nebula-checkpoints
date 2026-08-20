@@ -25,6 +25,7 @@ const leakProbe = ['must-not', 'reach-candidate'].join('-');
 const registry = require('../config/public-alpha-capabilities.json');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
 const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
+const repositoryRoot = path.join(__dirname, '..');
 
 assert.doesNotThrow(() => assertPinnedNodeVersion('v22.23.1'));
 assert.strictEqual(MINIMUM_MATRIX_TESTS, 141);
@@ -237,6 +238,36 @@ function fixtureClaimRequirements() {
     .flatMap(requirement => requirement.matrix || []))];
   const browserProofs = Object.values(AUTOMATED_CLAIM_REQUIREMENTS)
     .flatMap(requirement => requirement.browser || []);
+  for (const matrixPath of matrixPaths) {
+    const resolvedMatrixPath = path.join(repositoryRoot, matrixPath);
+    assert(fs.existsSync(resolvedMatrixPath) && fs.lstatSync(resolvedMatrixPath).isFile(),
+      `automated matrix proof must name a repository file: ${matrixPath}`);
+  }
+  const playwrightList = JSON.parse(execFileSync(
+    process.execPath,
+    [require.resolve('@playwright/test/cli'), 'test', '--list', '--reporter=json'],
+    { cwd: repositoryRoot, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }
+  ));
+  const listedBrowserProofs = new Set();
+  const collectListedBrowserProofs = (suites, inheritedFile = '') => {
+    for (const suite of suites || []) {
+      const file = path.posix.basename(String(suite.file || inheritedFile || '').replaceAll('\\', '/'));
+      for (const spec of suite.specs || []) {
+        for (const test of spec.tests || []) {
+          listedBrowserProofs.add(`${file}\u0000${String(spec.title || '')}\u0000${String(test.projectName || '')}`);
+        }
+      }
+      collectListedBrowserProofs(suite.suites, file);
+    }
+  };
+  collectListedBrowserProofs(playwrightList.suites);
+  for (const proof of browserProofs) {
+    const browserPath = path.join(repositoryRoot, 'test', 'e2e', proof.file);
+    assert(fs.existsSync(browserPath) && fs.lstatSync(browserPath).isFile(),
+      `automated browser proof must name a repository spec: ${proof.file}`);
+    assert(listedBrowserProofs.has(`${proof.file}\u0000${proof.title}\u0000${proof.project}`),
+      `automated browser proof must match Playwright's exact file, title, and project: ${JSON.stringify(proof)}`);
+  }
   const directOutcomes = Object.fromEntries(
     [...new Set(Object.values(AUTOMATED_CLAIM_REQUIREMENTS)
       .flatMap(requirement => requirement.direct || []))].map(key => [key, true])

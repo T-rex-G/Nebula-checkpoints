@@ -136,6 +136,25 @@ try {
     assert.strictEqual(baseUrl, env.NV_ALPHA17_RESTORE_APP_BASE_URL);
     return { ok: true, checks: [] };
   };
+  for (const key of ['NV_ALPHA17_RESTORE_APP_BASE_URL', 'NV_ALPHA17_RESTORE_APP_DEPLOY_ID']) {
+    const missingEnv = {
+      ...env,
+      NV_ALPHA17_RESTORE_ATTESTATION_PATH: path.join(runnerTemp, `missing-${key}.json`)
+    };
+    delete missingEnv[key];
+    await assert.rejects(
+      () => runRestoreValidation({
+        env: missingEnv,
+        executeCommand,
+        candidateRoot,
+        now: () => NOW,
+        runSmokeImpl
+      }),
+      new RegExp(`${key} is required`),
+      `${key} must be validated before any restore command executes`
+    );
+    assert.deepStrictEqual(commands, [], `${key} must fail before restore-target, backup, or restore executes`);
+  }
   const result = await runRestoreValidation({
     env,
     executeCommand,

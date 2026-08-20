@@ -434,11 +434,24 @@ assert(
   'hosted dependencies must be installed without credentials after signed-target preflight'
 );
 assert(hosted.includes('path: trusted-runner'), 'hosted validation must execute from an exact trusted checkout');
-assert(hosted.includes('restore_attestation="${RUNNER_TEMP}/alpha17-restore-attestation.json"'));
-assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_PATH="${restore_attestation}"'));
-assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION="${restore_attestation}"'));
-assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64="$(openssl rand -base64 32)"'));
-assert(hosted.includes('unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64'));
+assert(
+  hosted.includes('NV_ALPHA17_EXPECTED_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}'),
+  'the trusted-checkout source identity must enter the shell through the step environment'
+);
+assert(
+  hosted.includes("printf '%s\\n' \"${NV_ALPHA17_EXPECTED_SOURCE_COMMIT}\" | grep -qxE '[0-9a-f]{40}'"),
+  'the trusted-checkout source identity must be validated before comparison'
+);
+assert(hosted.includes('restore_attestation="${RUNNER_TEMP}/alpha17-restore-attestation.json"'),
+  'the restore attestation must be written under RUNNER_TEMP');
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_PATH="${restore_attestation}"'),
+  'the restore runner must write the attestation to the bound path');
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION="${restore_attestation}"'),
+  'the hosted gate must read the attestation from the bound path');
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64="$(openssl rand -base64 32)"'),
+  'the attestation key must be generated per run');
+assert(hosted.includes('unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64'),
+  'the attestation key must be unset before the candidate secret scan');
 assert(
   hosted.includes('npm ci --ignore-scripts --no-audit --no-fund'),
   'hosted dependency installation must suppress lifecycle scripts and unrelated network checks'

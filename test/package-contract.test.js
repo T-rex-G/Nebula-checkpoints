@@ -485,6 +485,8 @@ const publicAlphaQualificationArtifacts = [
   'ci/run-gitlab-alpha17-validation.js',
   'ci/run-gitea-alpha17-validation.js',
   'ci/run-hosted-alpha17-validation.js',
+  'ci/alpha17-json.js',
+  'ci/alpha17-restore-attestation.js',
   'ci/run-alpha17-restore-validation.js',
   'ci/verify-alpha17-authorization.js',
   '.github/workflows/public-alpha-alpha17.yml',

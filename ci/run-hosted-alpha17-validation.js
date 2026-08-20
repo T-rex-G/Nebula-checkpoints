@@ -22,11 +22,17 @@ const {
 } = require('./provider-alpha17-common');
 const { verifyLiveTargetBinding } = require('./verify-alpha17-authorization');
 const { validateRunnerRestoreAttestation } = require('./alpha17-restore-attestation');
+const {
+  cloneJson,
+  hasExactKeys,
+  isNonzeroSha256,
+  isPlainObject,
+  stableJson
+} = require('./alpha17-json');
 
 const MAX_RECORD_BYTES = 1024 * 1024;
 const MAX_AGE_MS = 72 * 60 * 60 * 1000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
-const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const DIRECT_KEYS = Object.freeze([
   'render-cold-start',
   'five-concurrent-read-testers',
@@ -54,21 +60,6 @@ function fail(message, code) {
   throw error;
 }
 
-function isPlainObject(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function hasExactKeys(value, keys) {
-  return isPlainObject(value)
-    && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
-}
-
-function isNonzeroSha256(value) {
-  return SHA256_PATTERN.test(String(value || '')) && !/^0{64}$/.test(value);
-}
-
 function validateOperationalCheck(key, check) {
   const contract = OPERATIONAL_CHECK_CONTRACT[key];
   if (!contract || !hasExactKeys(check, Object.keys(contract))) {
@@ -89,20 +80,8 @@ function validateOperationalCheck(key, check) {
   }
 }
 
-function stableJson(value) {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
 function sha256(value) {
   return crypto.createHash('sha256').update(String(value), 'utf8').digest('hex');
-}
-
-function cloneJson(value) {
-  return JSON.parse(JSON.stringify(value));
 }
 
 function assertNoSecretMaterial(value) {

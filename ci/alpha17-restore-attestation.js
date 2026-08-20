@@ -1,6 +1,13 @@
 'use strict';
 
 const crypto = require('crypto');
+const {
+  cloneJson,
+  hasExactKeys,
+  isNonzeroSha256,
+  isPlainObject,
+  stableJson
+} = require('./alpha17-json');
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const MAX_AGE_MS = 72 * 60 * 60 * 1000;
@@ -26,33 +33,6 @@ function fail(message, code = 'ALPHA17_RESTORE_ATTESTATION_INVALID') {
   const error = new Error(message);
   error.code = code;
   throw error;
-}
-
-function isPlainObject(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function hasExactKeys(value, keys) {
-  return isPlainObject(value)
-    && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
-}
-
-function stableJson(value) {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function cloneJson(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function isNonzeroSha256(value) {
-  return SHA256_PATTERN.test(String(value || '')) && !/^0{64}$/.test(value);
 }
 
 function parseFresh(value, now) {

@@ -41,9 +41,17 @@ function logicalShellLines(text) {
     .map(value => value.trimStart());
 }
 
+function isCurlCommandLine(value) {
+  return /(?:^|\$\(\s*)curl /.test(value);
+}
+
+for (const line of ['status=$(curl --fail https://example.test)', 'status=$( curl --fail https://example.test)']) {
+  assert(isCurlCommandLine(line), `curl contract must inspect unquoted command substitution: ${line}`);
+}
+
 for (const file of required) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
-  for (const line of logicalShellLines(text).filter(value => /(?:^|"\$\()curl /.test(value))) {
+  for (const line of logicalShellLines(text).filter(isCurlCommandLine)) {
     const degradedEvidenceProbe = ['06-failed-deploy-rollback.md', '09-capacity-saturation.md'].includes(file)
       && /\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/config)/.test(line);
     if (degradedEvidenceProbe) {
@@ -84,7 +92,9 @@ for (const file of ['10-alpha-shutdown.md', 'OPERATOR_CHECKLIST.md']) {
 const rollback = fs.readFileSync(path.join(root, '06-failed-deploy-rollback.md'), 'utf8');
 assert.match(rollback, /test "\$\{#NV_FAILED_RENDER_SOURCE_COMMIT\}" -eq 40/);
 assert.match(rollback, /grep -qxE '\[0-9a-f\]\{40\}'/);
-assert(rollback.indexOf('test -n "$NV_FAILED_RENDER_DEPLOY_ID"') < rollback.indexOf('curl --proto'),
+const deployIdentityCheck = rollback.indexOf('test -n "$NV_FAILED_RENDER_DEPLOY_ID"');
+const degradedProbe = rollback.indexOf('curl --proto');
+assert(deployIdentityCheck >= 0 && degradedProbe >= 0 && deployIdentityCheck < degradedProbe,
   'failed deploy identity must be captured before degraded probes run');
 
 const databaseRestore = fs.readFileSync(path.join(root, '07-database-backup-restore.md'), 'utf8');

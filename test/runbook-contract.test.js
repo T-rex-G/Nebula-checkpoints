@@ -42,7 +42,7 @@ function logicalShellLines(text) {
 }
 
 function isCurlCommandLine(value) {
-  return /(?:^|[;&|]\s*|\$\(\s*)curl(?:[ \t]|$)/.test(value);
+  return /(?:^|[;&|]\s*|\$\(\s*)(?:![ \t]+)?curl(?:[ \t]|$)/.test(value);
 }
 
 function assertCurlContract(file, line) {
@@ -72,7 +72,10 @@ for (const line of [
   'true && curl --fail https://example.test',
   'false || curl --fail https://example.test',
   'printf ready | curl --fail https://example.test',
-  'sleep 1 & curl --fail https://example.test'
+  'sleep 1 & curl --fail https://example.test',
+  '! curl --fail https://example.test',
+  'false || ! curl --fail https://example.test',
+  'status=$( !\tcurl --fail https://example.test)'
 ]) {
   assert(isCurlCommandLine(line), `curl contract must inspect command form: ${line}`);
   assert.doesNotThrow(() => assertCurlContract('synthetic-runbook.md', line));
@@ -83,7 +86,10 @@ for (const [line, description] of [
   ['true && curl --proto =https https://example.test', 'AND-list command'],
   ['false || curl --proto =https https://example.test', 'OR-list command'],
   ['printf ready | curl --proto =https https://example.test', 'pipeline command'],
-  ['sleep 1 & curl --proto =https https://example.test', 'background-list command']
+  ['sleep 1 & curl --proto =https https://example.test', 'background-list command'],
+  ['! curl --proto =https https://example.test', 'negated command'],
+  ['true && ! curl --proto =https https://example.test', 'negated AND-list command'],
+  ['status=$( !\tcurl --proto =https https://example.test)', 'negated command substitution']
 ]) {
   assert(isCurlCommandLine(line), `curl contract must inspect ${description}`);
   assert.throws(
@@ -91,6 +97,13 @@ for (const [line, description] of [
     /verification probe must fail on HTTP errors/,
     `a ${description} must not bypass the --fail requirement`
   );
+}
+for (const line of [
+  '!curl --fail https://example.test',
+  'echo ! curl --fail https://example.test',
+  'printf "! curl --fail https://example.test"'
+]) {
+  assert(!isCurlCommandLine(line), `curl contract must ignore non-command token: ${line}`);
 }
 
 for (const file of required) {

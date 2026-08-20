@@ -8,7 +8,11 @@ const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 const {
   assertPinnedNodeVersion,
+  assertTrustedQualificationPrograms,
+  AUTOMATED_CLAIM_REQUIREMENTS,
+  buildPackageManagerEnvironment,
   buildQualificationEnvironment,
+  deriveTrustedAutomatedClaims,
   MINIMUM_MATRIX_TESTS,
   parseArgs,
   qualifyCandidateArchive,
@@ -126,7 +130,9 @@ fs.writeFileSync(reportPath, JSON.stringify({
     leakedToken: process.env.GITHUB_TOKEN || process.env.NPM_TOKEN || process.env.NV_FAKE_SECRET || null,
     nodeOptions: process.env.NODE_OPTIONS || null
   },
-  reportHash: crypto.createHash('sha256').update(stableJson(reportCore)).digest('hex')
+  reportHash: ${options.forgeReportHash
+    ? "'f'.repeat(64)"
+    : "crypto.createHash('sha256').update(stableJson(reportCore)).digest('hex')"}
 }) + '\\n');
 `);
   fs.writeFileSync(path.join(candidate, 'scripts', 'fake-browser.js'), `'use strict';
@@ -159,6 +165,131 @@ require('fs').writeFileSync(require('path').join(__dirname, '..', 'lifecycle.mar
 `);
   if (options.tamperMatrix) fs.writeFileSync(path.join(candidate, 'scripts', 'tamper-matrix'), 'enabled\n');
   return candidate;
+}
+
+const fixtureTrustedProgramPaths = Object.freeze([
+  'package.json',
+  'package-lock.json',
+  'scripts/test-matrix.js',
+  'scripts/fake-browser.js',
+  'scripts/copy-vendor.js'
+]);
+
+function fixtureClaimRequirements() {
+  return Object.fromEntries(
+    qualificationCatalog(registry).automated.map(key => [key, { direct: ['cleanInstall'] }])
+  );
+}
+
+{
+  const trustedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-trusted-programs-'));
+  const candidateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-candidate-programs-'));
+  const requiredFiles = [
+    'package.json',
+    'package-lock.json',
+    'playwright.config.js',
+    'scripts/test-matrix.js',
+    'scripts/copy-vendor.js',
+    'scripts/check-secrets.js',
+    'src/test-matrix.js',
+    'src/governance-model.js',
+    'test/example.test.js'
+  ];
+  try {
+    for (const relativePath of requiredFiles) {
+      const contents = `'use strict'; // ${relativePath}\n`;
+      for (const root of [trustedRoot, candidateRoot]) {
+        const absolutePath = path.join(root, relativePath);
+        fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+        fs.writeFileSync(absolutePath, contents);
+      }
+    }
+    assert.doesNotThrow(() => assertTrustedQualificationPrograms(candidateRoot, trustedRoot));
+    assert.throws(
+      () => assertTrustedQualificationPrograms(candidateRoot, trustedRoot, ['/etc/passwd']),
+      /trusted qualification program path is invalid/,
+      'the trusted-program inventory must remain relative to the reviewed checkout'
+    );
+    fs.appendFileSync(path.join(candidateRoot, 'src', 'test-matrix.js'), '// forged pass\n');
+    assert.throws(
+      () => assertTrustedQualificationPrograms(candidateRoot, trustedRoot),
+      /does not match trusted source: src\/test-matrix\.js/,
+      'the candidate must not replace the matrix implementation behind the trusted launcher'
+    );
+    fs.copyFileSync(
+      path.join(trustedRoot, 'src', 'test-matrix.js'),
+      path.join(candidateRoot, 'src', 'test-matrix.js')
+    );
+    fs.appendFileSync(path.join(candidateRoot, 'src', 'governance-model.js'), '// forged hash\n');
+    assert.throws(
+      () => assertTrustedQualificationPrograms(candidateRoot, trustedRoot),
+      /does not match trusted source: src\/governance-model\.js/,
+      'the candidate must not replace the matrix report canonicalizer'
+    );
+  } finally {
+    fs.rmSync(trustedRoot, { recursive: true, force: true });
+    fs.rmSync(candidateRoot, { recursive: true, force: true });
+  }
+}
+
+{
+  const matrixPaths = [...new Set(Object.values(AUTOMATED_CLAIM_REQUIREMENTS)
+    .flatMap(requirement => requirement.matrix || []))];
+  const browserProofs = Object.values(AUTOMATED_CLAIM_REQUIREMENTS)
+    .flatMap(requirement => requirement.browser || []);
+  const directOutcomes = Object.fromEntries(
+    [...new Set(Object.values(AUTOMATED_CLAIM_REQUIREMENTS)
+      .flatMap(requirement => requirement.direct || []))].map(key => [key, true])
+  );
+  const matrixReport = { tests: matrixPaths.map(testPath => ({ path: testPath, status: 'pass' })) };
+  const browserReport = {
+    suites: browserProofs.map(proof => ({
+      file: proof.file,
+      specs: [{
+        title: proof.title,
+        ok: true,
+        tests: [{
+          projectName: proof.project,
+          expectedStatus: 'passed',
+          status: 'expected',
+          results: [{ status: 'passed' }]
+        }]
+      }]
+    }))
+  };
+  const completedAt = '2026-08-13T00:00:00.000Z';
+  const claims = deriveTrustedAutomatedClaims({
+    directOutcomes,
+    matrixReport,
+    browserReport,
+    completedAt
+  });
+  assert.deepStrictEqual(
+    Object.keys(claims).sort(),
+    qualificationCatalog(registry).automated.map(key => `automated.${key}`).sort()
+  );
+  assert.throws(
+    () => deriveTrustedAutomatedClaims({
+      directOutcomes,
+      matrixReport: {
+        tests: matrixReport.tests.filter(test => test.path !== 'test/alpha-repository-boundary.test.js')
+      },
+      browserReport,
+      completedAt
+    }),
+    /repository-allowlist is missing an exact matrix proof/,
+    'a passing aggregate report must not imply a missing claim-specific proof'
+  );
+  assert.throws(
+    () => deriveTrustedAutomatedClaims({
+      directOutcomes: { ...directOutcomes, syntax: false },
+      matrixReport,
+      browserReport,
+      completedAt
+    }),
+    /syntax is missing a trusted runner outcome/,
+    'a candidate cannot blanket-pass a failed trusted runner outcome'
+  );
 }
 
 assert.deepStrictEqual(parseArgs([
@@ -303,6 +434,10 @@ try {
     originId: 'workflow-2048-automated',
     minimumMatrixTests: 1,
     minimumBrowserTests: 2,
+    trustedRoot: path.join(fixtureParent, 'candidate-fixture'),
+    trustedProgramPaths: fixtureTrustedProgramPaths,
+    claimRequirements: fixtureClaimRequirements(),
+    useFixtureCommands: true,
     env: {
       ...process.env,
       GITHUB_TOKEN: leakProbe,
@@ -390,11 +525,49 @@ try {
       originId: 'workflow-2048-automated',
       minimumMatrixTests: 1,
       minimumBrowserTests: 2,
+      trustedRoot: path.join(tamperedFixtureParent, 'candidate-fixture'),
+      trustedProgramPaths: fixtureTrustedProgramPaths,
+      claimRequirements: fixtureClaimRequirements(),
+      useFixtureCommands: true,
       env: { ...process.env, NV_FAKE_SECRET: leakProbe }
     }),
     /modified the program matrix report/
   );
   assert.strictEqual(fs.existsSync(path.join(temporaryRoot, 'tampered-evidence.json')), false);
+
+  const forgedFixtureParent = path.join(temporaryRoot, 'forged-report-source');
+  fs.mkdirSync(forgedFixtureParent);
+  writeFixture(forgedFixtureParent, { forgeReportHash: true });
+  const forgedArchivePath = path.join(temporaryRoot, 'forged-report-a.zip');
+  const forgedComparisonPath = path.join(temporaryRoot, 'forged-report-b.zip');
+  execFileSync('zip', ['-q', '-X', '-r', forgedArchivePath, 'candidate-fixture'], {
+    cwd: forgedFixtureParent
+  });
+  fs.copyFileSync(forgedArchivePath, forgedComparisonPath);
+  const forgedEvidencePath = path.join(temporaryRoot, 'forged-report-evidence.json');
+  assert.throws(
+    () => qualifyCandidateArchive({
+      archivePath: forgedArchivePath,
+      comparisonArchivePath: forgedComparisonPath,
+      expectedSha256: sha256(forgedArchivePath),
+      extractDir: path.join(temporaryRoot, 'forged-report-extract'),
+      reportPath: path.join(temporaryRoot, 'forged-report-matrix.json'),
+      browserReportPath: path.join(temporaryRoot, 'forged-report-browser.json'),
+      evidencePath: forgedEvidencePath,
+      sourceCommit: 'b'.repeat(40),
+      originId: 'workflow-2048-automated',
+      minimumMatrixTests: 1,
+      minimumBrowserTests: 2,
+      trustedRoot: path.join(forgedFixtureParent, 'candidate-fixture'),
+      trustedProgramPaths: fixtureTrustedProgramPaths,
+      claimRequirements: fixtureClaimRequirements(),
+      useFixtureCommands: true,
+      env: process.env
+    }),
+    /does not prove the exact subject/,
+    'the full qualifier must reject a candidate-authored forged matrix reportHash'
+  );
+  assert.strictEqual(fs.existsSync(forgedEvidencePath), false);
 
   fs.appendFileSync(comparisonArchivePath, 'different');
   assert.throws(
@@ -437,6 +610,23 @@ try {
     }
     assert.notStrictEqual(environment.NPM_CONFIG_USERCONFIG, '/hidden/.npmrc');
     assert(environment.HOME.startsWith(environmentRoot));
+    const packageManagerEnvironment = buildPackageManagerEnvironment({
+      HTTP_PROXY: 'http://127.0.0.1:3128/',
+      HTTPS_PROXY: 'https://proxy.example.test',
+      NO_PROXY: 'localhost,127.0.0.1'
+    }, environment);
+    assert.strictEqual(Object.hasOwn(environment, 'HTTP_PROXY'), false,
+      'candidate programs must not inherit the package-manager proxy');
+    assert.strictEqual(packageManagerEnvironment.HTTP_PROXY, 'http://127.0.0.1:3128');
+    assert.strictEqual(packageManagerEnvironment.HTTPS_PROXY, 'https://proxy.example.test');
+    assert.strictEqual(packageManagerEnvironment.NO_PROXY, 'localhost,127.0.0.1');
+    assert.throws(
+      () => buildPackageManagerEnvironment({
+        HTTPS_PROXY: 'https://proxy-user:proxy-password@proxy.example.test'
+      }, environment),
+      /credential-free HTTP\(S\) origin/,
+      'proxy credentials must never cross into candidate package-manager execution'
+    );
   } finally {
     fs.rmSync(environmentRoot, { recursive: true, force: true });
   }

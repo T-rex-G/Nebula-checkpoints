@@ -89,8 +89,8 @@ for (const [id, feature] of Object.entries({
   neuralLiveBtn: 'live-events',
   govTabLabel: 'governance'
 })) {
-  const tag = html.match(new RegExp(`<[^>]+id="${id}"[^>]*>`));
-  assert(tag && tag[0].includes(`data-feature="${feature}"`), `#${id} must map to ${feature}`);
+  const tag = htmlTagWith(`id="${id}"`, `data-feature="${feature}"`);
+  assert(tag, `#${id} must map to ${feature}`);
 }
 assert(
   htmlTagWith('id="neuralLiveBtn"', 'data-allow-experimental="true"'),
@@ -107,8 +107,12 @@ for (const [id, feature] of Object.entries({
   newIssueBtn: 'issues.write',
   newReleaseBtn: 'releases.write'
 })) {
-  const tag = html.match(new RegExp(`<[^>]+id="${id}"[^>]*>`));
-  assert(tag && tag[0].includes(`data-feature="${feature}"`) && tag[0].includes('data-allow-experimental="true"'),
+  const tag = htmlTagWith(
+    `id="${id}"`,
+    `data-feature="${feature}"`,
+    'data-allow-experimental="true"'
+  );
+  assert(tag,
     `#${id} must remain an explicitly labelled ${feature} experimental opt-in`);
 }
 for (const feature of ['pulls.read', 'issues.read', 'releases.read', 'workflows.read']) {

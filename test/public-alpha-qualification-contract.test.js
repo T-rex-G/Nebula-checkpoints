@@ -176,6 +176,9 @@ rejects('PUBLIC_ALPHA_DEPLOYMENT_MISMATCH', ({ envelopes }) => {
   envelopes['hosted-artifact'].deploymentSha256 = 'c'.repeat(64);
 });
 rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+  envelopes['hosted-artifact'].originId = 'workflow-2048';
+});
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
   delete envelopes['hosted-artifact'].operatorAttestation.recordSha256;
 });
 rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {

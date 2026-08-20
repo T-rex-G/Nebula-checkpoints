@@ -9,11 +9,17 @@ const {
   validateOperationalRecord,
   validateRunnerRestoreAttestation
 } = require('../ci/run-hosted-alpha17-validation');
+const { signRunnerRestoreAttestation } = require('../ci/alpha17-restore-attestation');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 
 const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
 const NOW = '2026-07-29T20:00:00.000Z';
+const RESTORE_ATTESTATION_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
+const WORKFLOW_REPOSITORY = 'fixture-owner/fixture-repository';
+const WORKFLOW_PATH = '.github/workflows/public-alpha-alpha17.yml';
+const RESTORE_APP_BASE_URL = 'https://restore-alpha17.example.test';
+const RESTORE_APP_DEPLOY_ID = 'deploy-restore-2048';
 
 function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
@@ -30,6 +36,8 @@ function hostedTargetHash(target) {
     jobName: 'hosted',
     neonProjectId: target.neonProjectId,
     renderServiceId: target.renderServiceId,
+    restoreAppBaseUrl: target.restoreAppBaseUrl,
+    restoreAppDeployId: target.restoreAppDeployId,
     restoreNeonBranchId: target.restoreNeonBranchId,
     restoreNeonProjectId: target.restoreNeonProjectId,
     restoreTargetFingerprint: target.restoreTargetFingerprint,
@@ -61,7 +69,7 @@ function signedOperationalRecord(privateKey) {
 }
 
 function runnerRestoreAttestation() {
-  return {
+  return signRunnerRestoreAttestation({
     schemaVersion: '1.0.0',
     artifactType: 'hosted-restore-runner',
     subjectSha256: SUBJECT,
@@ -75,6 +83,9 @@ function runnerRestoreAttestation() {
       backupManifestSha256: '1'.repeat(64),
       backupCiphertextSha256: '2'.repeat(64),
       restoreTargetFingerprint: '3'.repeat(64),
+      restoreAppDeployIdSha256: crypto.createHash('sha256')
+        .update(RESTORE_APP_DEPLOY_ID, 'utf8')
+        .digest('hex'),
       restoreEvidenceSha256: '4'.repeat(64),
       sourceIdentitySha256: '5'.repeat(64),
       targetIdentitySha256: '6'.repeat(64),
@@ -84,7 +95,12 @@ function runnerRestoreAttestation() {
       smokePassed: true,
       backupRemoved: true
     }
-  };
+  }, {
+    workflowRepository: WORKFLOW_REPOSITORY,
+    workflowPath: WORKFLOW_PATH,
+    workflowRunId: 'run-2048',
+    attestationKeyBase64: RESTORE_ATTESTATION_KEY_BASE64
+  });
 }
 
 function startFixtureServer(initialReleaseTreeSha256) {
@@ -152,7 +168,13 @@ function startFixtureServer(initialReleaseTreeSha256) {
       NV_PUBLIC_ALPHA_SUBJECT_SHA256: SUBJECT,
       NV_PUBLIC_ALPHA_SOURCE_COMMIT: SOURCE,
       NV_ALPHA17_WORKFLOW_RUN_ID: 'run-2048',
+      NV_ALPHA17_WORKFLOW_REPOSITORY: WORKFLOW_REPOSITORY,
+      NV_ALPHA17_WORKFLOW_PATH: WORKFLOW_PATH,
+      NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64: RESTORE_ATTESTATION_KEY_BASE64,
+      NV_ALPHA17_RESTORE_APP_BASE_URL: RESTORE_APP_BASE_URL,
+      NV_ALPHA17_RESTORE_APP_DEPLOY_ID: RESTORE_APP_DEPLOY_ID,
       NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64: publicKeyBase64,
+      NV_ALPHA17_OPERATOR_KEY_ID: 'fixture-operator',
       NV_RESTORE_TARGET_FINGERPRINT: restoreAttestation.check.restoreTargetFingerprint,
       NV_ALPHA_BASE_URL: fixture.baseUrl,
       NV_ALPHA17_RENDER_SERVICE_ID: 'fixture-owner/nvx-alpha17-render',
@@ -192,7 +214,9 @@ function startFixtureServer(initialReleaseTreeSha256) {
       restoreNeonProjectId: env.NV_ALPHA17_RESTORE_NEON_PROJECT_ID,
       restoreNeonBranchId: env.NV_ALPHA17_RESTORE_NEON_BRANCH_ID,
       restoreTargetKind: env.NV_ALPHA17_RESTORE_TARGET_KIND,
-      restoreTargetFingerprint: env.NV_RESTORE_TARGET_FINGERPRINT
+      restoreTargetFingerprint: env.NV_RESTORE_TARGET_FINGERPRINT,
+      restoreAppBaseUrl: env.NV_ALPHA17_RESTORE_APP_BASE_URL,
+      restoreAppDeployId: env.NV_ALPHA17_RESTORE_APP_DEPLOY_ID
     });
     const result = await runHostedValidation({
       env,
@@ -258,6 +282,23 @@ function startFixtureServer(initialReleaseTreeSha256) {
       'missing runner restore proof must fail before hosted traffic'
     );
 
+    const wrongOperatorKeyId = { ...env, NV_ALPHA17_OPERATOR_KEY_ID: 'different-operator' };
+    const requestCountBeforeWrongOperator = fixture.requestCount();
+    await assert.rejects(
+      () => runHostedValidation({
+        env: wrongOperatorKeyId,
+        operationalRecord,
+        restoreAttestation,
+        now: () => new Date(NOW)
+      }),
+      error => error && error.code === 'ALPHA17_OPERATIONAL_SIGNATURE_INVALID'
+    );
+    assert.strictEqual(
+      fixture.requestCount(),
+      requestCountBeforeWrongOperator,
+      'an untrusted operator key ID must fail before hosted traffic'
+    );
+
     const wrongTarget = { ...env, NV_ALPHA17_SIGNED_TARGET_SHA256: 'f'.repeat(64) };
     const requestCountBeforeMismatch = fixture.requestCount();
     await assert.rejects(
@@ -311,6 +352,11 @@ function startFixtureServer(initialReleaseTreeSha256) {
         expectedSourceCommit: SOURCE,
         expectedOriginId: restoreAttestation.originId,
         expectedRestoreTargetFingerprint: restoreAttestation.check.restoreTargetFingerprint,
+        expectedRestoreAppDeployIdSha256: restoreAttestation.check.restoreAppDeployIdSha256,
+        workflowRepository: WORKFLOW_REPOSITORY,
+        workflowPath: WORKFLOW_PATH,
+        workflowRunId: 'run-2048',
+        attestationKeyBase64: RESTORE_ATTESTATION_KEY_BASE64,
         now: new Date(NOW)
       }),
       error => error && error.code === 'ALPHA17_RESTORE_ATTESTATION_INVALID'
@@ -336,6 +382,47 @@ function startFixtureServer(initialReleaseTreeSha256) {
         expectedSourceCommit: SOURCE,
         expectedOriginId: restoreAttestation.originId,
         expectedRestoreTargetFingerprint: restoreAttestation.check.restoreTargetFingerprint,
+        expectedRestoreAppDeployIdSha256: restoreAttestation.check.restoreAppDeployIdSha256,
+        workflowRepository: WORKFLOW_REPOSITORY,
+        workflowPath: WORKFLOW_PATH,
+        workflowRunId: 'run-2048',
+        attestationKeyBase64: RESTORE_ATTESTATION_KEY_BASE64,
+        now: new Date(NOW)
+      }),
+      error => error && error.code === 'ALPHA17_RESTORE_ATTESTATION_INVALID'
+    );
+
+    const tamperedProvenance = structuredClone(restoreAttestation);
+    tamperedProvenance.provenance.workflowOwnerProjectSha256 = '8'.repeat(64);
+    assert.throws(
+      () => validateRunnerRestoreAttestation(tamperedProvenance, {
+        expectedSubjectHash: SUBJECT,
+        expectedSourceCommit: SOURCE,
+        expectedOriginId: restoreAttestation.originId,
+        expectedRestoreTargetFingerprint: restoreAttestation.check.restoreTargetFingerprint,
+        expectedRestoreAppDeployIdSha256: restoreAttestation.check.restoreAppDeployIdSha256,
+        workflowRepository: WORKFLOW_REPOSITORY,
+        workflowPath: WORKFLOW_PATH,
+        workflowRunId: 'run-2048',
+        attestationKeyBase64: RESTORE_ATTESTATION_KEY_BASE64,
+        now: new Date(NOW)
+      }),
+      error => error && error.code === 'ALPHA17_RESTORE_ATTESTATION_INVALID'
+    );
+
+    const tamperedSignature = structuredClone(restoreAttestation);
+    tamperedSignature.check.backupManifestSha256 = '9'.repeat(64);
+    assert.throws(
+      () => validateRunnerRestoreAttestation(tamperedSignature, {
+        expectedSubjectHash: SUBJECT,
+        expectedSourceCommit: SOURCE,
+        expectedOriginId: restoreAttestation.originId,
+        expectedRestoreTargetFingerprint: restoreAttestation.check.restoreTargetFingerprint,
+        expectedRestoreAppDeployIdSha256: restoreAttestation.check.restoreAppDeployIdSha256,
+        workflowRepository: WORKFLOW_REPOSITORY,
+        workflowPath: WORKFLOW_PATH,
+        workflowRunId: 'run-2048',
+        attestationKeyBase64: RESTORE_ATTESTATION_KEY_BASE64,
         now: new Date(NOW)
       }),
       error => error && error.code === 'ALPHA17_RESTORE_ATTESTATION_INVALID'

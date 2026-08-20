@@ -85,7 +85,9 @@ const hostedTarget = {
   restoreNeonProjectId: 'quiet-rain-12345678',
   restoreNeonBranchId: 'br-restore-222222',
   restoreTargetKind: 'isolated-neon-branch',
-  restoreTargetFingerprint: 'f'.repeat(64)
+  restoreTargetFingerprint: 'f'.repeat(64),
+  restoreAppBaseUrl: 'https://restore-alpha17.example.test',
+  restoreAppDeployId: 'deploy-restore-alpha17'
 };
 const hostedTargetHash = crypto.createHash('sha256').update(JSON.stringify({
   baseUrl: hostedTarget.baseUrl,
@@ -93,6 +95,8 @@ const hostedTargetHash = crypto.createHash('sha256').update(JSON.stringify({
   jobName: 'hosted',
   neonProjectId: hostedTarget.neonProjectId,
   renderServiceId: hostedTarget.renderServiceId,
+  restoreAppBaseUrl: hostedTarget.restoreAppBaseUrl,
+  restoreAppDeployId: hostedTarget.restoreAppDeployId,
   restoreNeonBranchId: hostedTarget.restoreNeonBranchId,
   restoreNeonProjectId: hostedTarget.restoreNeonProjectId,
   restoreTargetFingerprint: hostedTarget.restoreTargetFingerprint,
@@ -110,6 +114,14 @@ assert.throws(
     signedTargetHash: hostedTargetHash
   }),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
+);
+assert.throws(
+  () => hashLiveTarget('hosted', {
+    ...hostedTarget,
+    restoreAppBaseUrl: hostedTarget.baseUrl
+  }),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_INVALID',
+  'the restore-backed application must not reuse the cohort application origin'
 );
 
 assert.throws(
@@ -389,15 +401,18 @@ for (const variable of [
   'ALPHA17_HOSTED_BASE_URL', 'ALPHA17_RENDER_SERVICE_ID',
   'ALPHA17_NEON_PROJECT_ID', 'ALPHA17_COHORT_NEON_BRANCH_ID',
   'ALPHA17_RESTORE_NEON_PROJECT_ID', 'ALPHA17_RESTORE_NEON_BRANCH_ID',
-  'ALPHA17_RESTORE_TARGET_FINGERPRINT'
+  'ALPHA17_RESTORE_TARGET_FINGERPRINT', 'ALPHA17_RESTORE_APP_BASE_URL',
+  'ALPHA17_RESTORE_APP_DEPLOY_ID'
 ]) assert(authorization.includes(variable), `authorization job must bind ${variable}`);
 
 for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) {
   const block = job(name);
   assert(block.includes("github.event_name == 'workflow_dispatch'"), `${name} must be dispatch-only`);
   assert(block.includes('needs: [automated, authorize-live]'), `${name} must depend on automated and authorization gates`);
-  assert(block.includes('inputs.subject_sha256'), `${name} must bind the subject hash`);
-  assert(block.includes('inputs.source_commit'), `${name} must bind the source commit`);
+  assert(block.includes('needs.automated.outputs.subject_sha256'), `${name} must bind the qualified subject hash`);
+  assert(block.includes('needs.automated.outputs.source_commit'), `${name} must bind the qualified source commit`);
+  assert(!block.includes('${{ inputs.subject_sha256 }}'), `${name} must not interpolate an untrusted subject input`);
+  assert(!block.includes('${{ inputs.source_commit }}'), `${name} must not interpolate an untrusted source input`);
   assert(block.includes(`actions/setup-node@${actionPins['actions/setup-node']}`), `${name} must pin Node before candidate execution`);
   assert(/node-version:\s*['"]?22\.23\.1['"]?/.test(block), `${name} must execute with Node 22.23.1`);
   const preflightIndex = block.indexOf('Verify signed live target');
@@ -412,28 +427,25 @@ for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) 
 const hosted = job('hosted-live');
 const hostedPreflightIndex = hosted.indexOf('Verify signed live target');
 const hostedInstallIndex = hosted.indexOf('Install hosted runner dependencies without lifecycle scripts');
-const hostedRestoreIndex = hosted.indexOf('Execute isolated restore and create runner attestation');
-const hostedValidationIndex = hosted.indexOf('Run hosted gate from runner and signed operator records');
+const hostedValidationIndex = hosted.indexOf('Run authenticated restore and hosted gate from trusted runner');
 const hostedFirstSecretIndex = hosted.indexOf('${{ secrets.');
 assert(
   hostedPreflightIndex >= 0 && hostedInstallIndex > hostedPreflightIndex && hostedInstallIndex < hostedFirstSecretIndex,
   'hosted dependencies must be installed without credentials after signed-target preflight'
 );
-assert.strictEqual(
-  (hosted.match(/alpha17-restore-attestation\.json/g) || []).length,
-  1,
-  'the hosted job must define the restore-attestation path exactly once'
-);
-assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_FILE='));
-assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_PATH="${NV_ALPHA17_RESTORE_ATTESTATION_FILE}"'));
-assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION="${NV_ALPHA17_RESTORE_ATTESTATION_FILE}"'));
+assert(hosted.includes('path: trusted-runner'), 'hosted validation must execute from an exact trusted checkout');
+assert(hosted.includes('restore_attestation="${RUNNER_TEMP}/alpha17-restore-attestation.json"'));
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_PATH="${restore_attestation}"'));
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION="${restore_attestation}"'));
+assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64="$(openssl rand -base64 32)"'));
+assert(hosted.includes('unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64'));
 assert(
   hosted.includes('npm ci --ignore-scripts --no-audit --no-fund'),
   'hosted dependency installation must suppress lifecycle scripts and unrelated network checks'
 );
 assert(
-  hostedRestoreIndex > hostedInstallIndex && hostedValidationIndex > hostedRestoreIndex,
-  'the workflow runner must execute and attest restore before the hosted gate consumes the proof'
+  hostedValidationIndex > hostedInstallIndex,
+  'the trusted workflow runner must execute restore before the hosted gate consumes the proof'
 );
 for (const binding of [
   'ALPHA17_DATABASE_URL',
@@ -443,7 +455,10 @@ for (const binding of [
   'ALPHA17_COHORT_NEON_BRANCH_ID',
   'ALPHA17_RESTORE_NEON_PROJECT_ID',
   'ALPHA17_RESTORE_NEON_BRANCH_ID',
-  'ALPHA17_RESTORE_TARGET_FINGERPRINT'
+  'ALPHA17_RESTORE_TARGET_FINGERPRINT',
+  'ALPHA17_RESTORE_APP_BASE_URL',
+  'ALPHA17_RESTORE_APP_DEPLOY_ID',
+  'ALPHA17_OPERATOR_KEY_ID'
 ]) assert(hosted.includes(binding), `hosted restore execution must bind ${binding}`);
 assert(hosted.includes('ci/run-alpha17-restore-validation.js'));
 assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_PATH'));

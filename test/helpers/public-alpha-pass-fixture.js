@@ -110,6 +110,7 @@ function hostedRestoreRunnerRecord() {
       backupManifestSha256: '1'.repeat(64),
       backupCiphertextSha256: '2'.repeat(64),
       restoreTargetFingerprint: '3'.repeat(64),
+      restoreAppDeployIdSha256: '8'.repeat(64),
       restoreEvidenceSha256: '4'.repeat(64),
       sourceIdentitySha256: '5'.repeat(64),
       targetIdentitySha256: '6'.repeat(64),
@@ -118,6 +119,19 @@ function hostedRestoreRunnerRecord() {
       liveTargetVerified: true,
       smokePassed: true,
       backupRemoved: true
+    },
+    provenance: {
+      issuer: 'github-actions',
+      workflowOwnerProjectSha256: crypto.createHash('sha256')
+        .update('fixture-owner/fixture-repository', 'utf8')
+        .digest('hex'),
+      workflow: '.github/workflows/public-alpha-alpha17.yml',
+      runId: '2048'
+    },
+    signature: {
+      algorithm: 'hmac-sha256',
+      keyId: 'github-actions-2048',
+      value: '7'.repeat(64)
     }
   };
 }

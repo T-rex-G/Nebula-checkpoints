@@ -147,7 +147,7 @@ try {
     fs.rmSync(deeplyNestedArchive, { recursive: true, force: true });
   }
 
-  execFileSync('git', ['init', '--initial-branch=main'], { cwd: temporaryRoot, stdio: 'ignore' });
+  execFileSync('git', ['init'], { cwd: temporaryRoot, stdio: 'ignore' });
   execFileSync('git', ['add', 'README', 'harmless.js'], { cwd: temporaryRoot, stdio: 'ignore' });
   const discovered = discoverReleasableTextFiles(temporaryRoot);
   assert.deepStrictEqual(discovered, ['README', 'harmless.js']);

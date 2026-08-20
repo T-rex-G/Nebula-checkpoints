@@ -43,7 +43,16 @@ function logicalShellLines(text) {
 
 for (const file of required) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
-  for (const line of logicalShellLines(text).filter(value => value.startsWith('curl '))) {
+  for (const line of logicalShellLines(text).filter(value => /(?:^|"\$\()curl /.test(value))) {
+    const degradedEvidenceProbe = ['06-failed-deploy-rollback.md', '09-capacity-saturation.md'].includes(file)
+      && /\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/config)/.test(line);
+    if (degradedEvidenceProbe) {
+      assert(!line.includes('--fail'), `${file} degraded-state probe must preserve non-2xx evidence`);
+      assert(line.includes('--max-time 10'), `${file} degraded-state probe must remain bounded`);
+      assert(line.includes("--write-out '%{http_code}'"), `${file} degraded-state probe must record HTTP status`);
+      assert(/--output "\$NV_[A-Z_]+"/.test(line), `${file} degraded-state probe must capture the response body`);
+      continue;
+    }
     assert(line.includes('--fail'), `${file} verification probe must fail on HTTP errors`);
     if (/\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/capabilities)/.test(line)) {
       assert(line.includes("--write-out '%{http_code}\\n'"), `${file} service probe must expose its HTTP status`);
@@ -75,11 +84,24 @@ for (const file of ['10-alpha-shutdown.md', 'OPERATOR_CHECKLIST.md']) {
 const rollback = fs.readFileSync(path.join(root, '06-failed-deploy-rollback.md'), 'utf8');
 assert.match(rollback, /test "\$\{#NV_FAILED_RENDER_SOURCE_COMMIT\}" -eq 40/);
 assert.match(rollback, /grep -qxE '\[0-9a-f\]\{40\}'/);
+assert(rollback.indexOf('test -n "$NV_FAILED_RENDER_DEPLOY_ID"') < rollback.indexOf('curl --proto'),
+  'failed deploy identity must be captured before degraded probes run');
+
+const databaseRestore = fs.readFileSync(path.join(root, '07-database-backup-restore.md'), 'utf8');
+assert.match(databaseRestore, /NV_BACKUP_RESULT="\$\(node scripts\/alpha-db\.js backup/);
+assert.match(databaseRestore, /readonly NV_BACKUP_FILE NV_BACKUP_MANIFEST/);
+assert.match(databaseRestore, /continue every remaining phase in this same trusted shell/i);
+assert.match(databaseRestore, /NV_ALPHA_BASE_URL="\$NV_RESTORE_APP_BASE_URL"/);
+assert.match(databaseRestore, /NV_RESTORE_APP_DEPLOY_ID/);
 
 const securityDeployment = fs.readFileSync(path.join(root, '..', 'SECURITY_DEPLOYMENT.md'), 'utf8');
 const compatibilityStep = securityDeployment.indexOf('NV_SNAPSHOT_LEGACY_KEYS_JSON` compatibility keyring');
 const rotationStep = securityDeployment.indexOf('Rotate the value in Render');
 assert(compatibilityStep >= 0 && rotationStep > compatibilityStep,
   'legacy snapshot compatibility must be staged before SESSION_SECRET rotation');
+
+const deploymentGuide = fs.readFileSync(path.join(root, '..', 'DEPLOY_RENDER_NEON.md'), 'utf8');
+assert.match(deploymentGuide, /NV_SNAPSHOT_SIGNING_KEY_ID=<new unique snapshot-signing key ID>/);
+assert.match(deploymentGuide, /NV_SNAPSHOT_SIGNING_SECRET=<independent random value of at least 32 bytes>/);
 
 console.log('runbook contract tests passed');

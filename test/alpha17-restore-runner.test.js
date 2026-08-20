@@ -46,6 +46,7 @@ assert.throws(
   'a timed-out or signalled alpha-db child must fail through the restore-runner boundary'
 );
 
+(async () => {
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-restore-runner-test-'));
 try {
   const runnerTemp = path.join(temporaryRoot, 'runner');
@@ -63,6 +64,11 @@ try {
     NV_PUBLIC_ALPHA_SUBJECT_SHA256: SUBJECT,
     NV_PUBLIC_ALPHA_SOURCE_COMMIT: SOURCE,
     NV_ALPHA17_WORKFLOW_RUN_ID: '2048',
+    NV_ALPHA17_WORKFLOW_REPOSITORY: 'fixture-owner/fixture-repository',
+    NV_ALPHA17_WORKFLOW_PATH: '.github/workflows/public-alpha-alpha17.yml',
+    NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64: Buffer.alloc(32, 9).toString('base64'),
+    NV_ALPHA17_RESTORE_APP_BASE_URL: 'https://restore-app.example.test',
+    NV_ALPHA17_RESTORE_APP_DEPLOY_ID: 'deploy-restore-2048',
     DATABASE_URL: 'postgresql://source:secret@ep-source-pooler.example.test/cohort?sslmode=verify-full',
     NV_RESTORE_DATABASE_URL: 'postgresql://restore:secret@ep-restore.example.test/cohort_restore?sslmode=verify-full',
     NV_BACKUP_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
@@ -126,26 +132,54 @@ try {
     throw new Error(`unexpected alpha-db command: ${args[0]}`);
   };
 
-  const result = runRestoreValidation({ env, executeCommand, candidateRoot, now: () => NOW });
+  const runSmokeImpl = async baseUrl => {
+    assert.strictEqual(baseUrl, env.NV_ALPHA17_RESTORE_APP_BASE_URL);
+    return { ok: true, checks: [] };
+  };
+  const result = await runRestoreValidation({
+    env,
+    executeCommand,
+    candidateRoot,
+    now: () => NOW,
+    runSmokeImpl
+  });
   assert.deepStrictEqual(commands, ['restore-target', 'backup', 'restore']);
   assert.strictEqual(fs.existsSync(observedBackupDirectory), false, 'encrypted backup material must be erased');
   assert.strictEqual(result.cleanupVerified, true);
   assert.strictEqual(result.check.backupRemoved, true);
   assert.strictEqual(result.check.restoreTargetFingerprint, FINGERPRINT);
+  assert.strictEqual(
+    result.check.restoreAppDeployIdSha256,
+    sha256(env.NV_ALPHA17_RESTORE_APP_DEPLOY_ID)
+  );
   assert.strictEqual(result.check.latestMigration, '015_alpha_privacy');
   assert.match(result.check.backupManifestSha256, /^[0-9a-f]{64}$/);
   assert.match(result.check.backupCiphertextSha256, /^[0-9a-f]{64}$/);
   assert.notStrictEqual(result.check.sourceIdentitySha256, result.check.targetIdentitySha256);
+  assert.deepStrictEqual(result.provenance, {
+    issuer: 'github-actions',
+    workflowOwnerProjectSha256: sha256(env.NV_ALPHA17_WORKFLOW_REPOSITORY),
+    workflow: env.NV_ALPHA17_WORKFLOW_PATH,
+    runId: env.NV_ALPHA17_WORKFLOW_RUN_ID
+  });
+  assert.strictEqual(result.signature.algorithm, 'hmac-sha256');
+  assert.match(result.signature.value, /^[0-9a-f]{64}$/);
   assert.strictEqual(fs.existsSync(attestationPath), true);
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(attestationPath, 'utf8')), result);
   const serialized = JSON.stringify(result);
-  for (const secret of ['source:secret', 'restore:secret', env.NV_BACKUP_KEY_BASE64, env.NEON_API_KEY]) {
+  for (const secret of [
+    'source:secret',
+    'restore:secret',
+    env.NV_BACKUP_KEY_BASE64,
+    env.NEON_API_KEY,
+    env.NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64
+  ]) {
     assert.strictEqual(serialized.includes(secret), false, 'runner evidence must not contain secret material');
   }
 
   const unsafeRunnerTemp = path.join(candidateRoot, 'unsafe-runner-temp');
   fs.mkdirSync(unsafeRunnerTemp, { mode: 0o700 });
-  assert.throws(
+  await assert.rejects(
     () => runRestoreValidation({
       env: {
         ...env,
@@ -154,7 +188,8 @@ try {
       },
       executeCommand,
       candidateRoot,
-      now: () => NOW
+      now: () => NOW,
+      runSmokeImpl
     }),
     /temporary storage must be outside the candidate source tree/
   );
@@ -168,7 +203,7 @@ try {
     NV_RESTORE_NEON_BRANCH_ID: env.NV_COHORT_NEON_BRANCH_ID
   };
   const commandsBeforeSameIdentity = commands.length;
-  assert.throws(
+  await assert.rejects(
     () => runRestoreValidation({ env: sameIdentityEnv, executeCommand, candidateRoot, now: () => NOW }),
     /restore source and target identities are not distinct/,
     'a target-only kind label must not make identical source and target infrastructure appear distinct'
@@ -179,7 +214,7 @@ try {
 
   const mismatchedTargetAttestationPath = path.join(runnerTemp, 'mismatched-target-attestation.json');
   const commandsBeforeMismatchedTarget = commands.length;
-  assert.throws(
+  await assert.rejects(
     () => runRestoreValidation({
       env: {
         ...env,
@@ -192,7 +227,8 @@ try {
           : result;
       },
       candidateRoot,
-      now: () => NOW
+      now: () => NOW,
+      runSmokeImpl
     }),
     /identity does not match the configured restore connection/
   );
@@ -207,3 +243,7 @@ try {
 }
 
 console.log('alpha17 restore runner tests passed');
+})().catch(error => {
+  console.error(error.stack || error);
+  process.exitCode = 1;
+});

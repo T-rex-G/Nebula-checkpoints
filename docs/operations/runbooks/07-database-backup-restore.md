@@ -10,9 +10,16 @@ Freeze new invitations and mutations. Use a trusted workstation with `pg_dump` a
 
 ```bash
 set -euo pipefail
-node scripts/alpha-db.js backup --output-dir "$NV_BACKUP_OUTPUT_DIR"
+NV_BACKUP_RESULT="$(node scripts/alpha-db.js backup --output-dir "$NV_BACKUP_OUTPUT_DIR")"
+NV_BACKUP_FILE="$(node -e 'const r=JSON.parse(process.argv[1]); if(typeof r.backupPath!=="string"||!r.backupPath)process.exit(2); process.stdout.write(r.backupPath)' "$NV_BACKUP_RESULT")"
+NV_BACKUP_MANIFEST="$(node -e 'const r=JSON.parse(process.argv[1]); if(typeof r.manifestPath!=="string"||!r.manifestPath)process.exit(2); process.stdout.write(r.manifestPath)' "$NV_BACKUP_RESULT")"
+readonly NV_BACKUP_FILE NV_BACKUP_MANIFEST
 node scripts/alpha-db.js verify --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
 ```
+
+Continue every remaining phase in this same trusted shell so the readonly paths
+remain bound to that exact backup result. Do not retype the paths or create a
+second backup between verification, migration, restore, and evidence capture.
 
 ## Verification
 
@@ -38,11 +45,19 @@ node scripts/alpha-db.js restore-target
 ```
 
 After the sanitized preview has been reviewed and its exact fingerprint has
-been set out of band, run the destructive phase separately:
+been set out of band, expose a separately approved application deployment whose
+database connection is the isolated restore branch. Record its immutable deploy
+ID and origin as `NV_RESTORE_APP_DEPLOY_ID` and `NV_RESTORE_APP_BASE_URL`; never
+run the smoke check against the cohort application. Then continue in the same
+trusted shell:
 
 ```bash
 set -euo pipefail
 : "${NV_RESTORE_TARGET_FINGERPRINT:?set only the exact reviewed fingerprint from restore-target}"
+: "${NV_RESTORE_APP_DEPLOY_ID:?set the approved restore-backed application deploy ID}"
+: "${NV_RESTORE_APP_BASE_URL:?set the approved restore-backed application origin}"
+NV_ALPHA_BASE_URL="$NV_RESTORE_APP_BASE_URL"
+readonly NV_ALPHA_BASE_URL NV_RESTORE_APP_DEPLOY_ID
 node scripts/alpha-db.js restore --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
 node scripts/alpha-smoke.js
 unset NEON_API_KEY
@@ -68,15 +83,24 @@ For the protected Alpha.17 live-qualification workflow, configure the
 `ALPHA17_BACKUP_KEY_BASE64`, and `ALPHA17_NEON_API_KEY`; configure variables
 `ALPHA17_NEON_PROJECT_ID`, `ALPHA17_COHORT_NEON_BRANCH_ID`,
 `ALPHA17_RESTORE_NEON_PROJECT_ID`, `ALPHA17_RESTORE_NEON_BRANCH_ID`, and the
-out-of-band-reviewed `ALPHA17_RESTORE_TARGET_FINGERPRINT`. The hosted job
+out-of-band-reviewed `ALPHA17_RESTORE_TARGET_FINGERPRINT`, plus
+`ALPHA17_RESTORE_APP_BASE_URL` and its immutable
+`ALPHA17_RESTORE_APP_DEPLOY_ID` for the separately approved application wired
+to that isolated branch; also configure
+`ALPHA17_OPERATOR_KEY_ID` and `ALPHA17_OPERATOR_PUBLIC_KEY_BASE64` as one
+reviewed Ed25519 verification-key binding. The hosted job
 requires authorization schema `1.2.0`; its target hash binds all of those
 project/branch identifiers, the isolated-target kind, and the reviewed
-fingerprint. It verifies that signed target and installs the frozen candidate without lifecycle
-scripts before any of these secrets are exposed. Its reviewed runner then
+fingerprint. It verifies that signed target from an exact trusted checkout and
+installs that checkout without lifecycle scripts before any of these secrets are
+exposed. Its reviewed runner then
 creates a fresh encrypted backup, verifies the isolated target, performs the
 restore, records migration/count evidence, removes the backup directory, and
 writes a bounded credential-free runner attestation directly under
-`RUNNER_TEMP`.
+`RUNNER_TEMP`. A per-run HMAC authenticates that record and binds the repository,
+workflow path, workflow run, exact source/candidate identity, and reviewed
+restore-target fingerprint; the ephemeral HMAC key is never written to an
+artifact or exposed to candidate code.
 
 Only the final sanitized hosted envelope is uploaded. It binds that complete
 runner record and its SHA-256; neither the encrypted dump, its manifest, nor the

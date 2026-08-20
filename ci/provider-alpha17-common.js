@@ -116,7 +116,7 @@ function sanitizeEvidence(value) {
   const forbiddenValue = /(authorization\s*:\s*bearer|postgres(?:ql)?:\/\/|\bgh[pousr]_|\bglpat-)/i;
   const claimLabel = /^(?:automated|hosted|manual)\.[a-z0-9][a-z0-9.-]*$|^providers\.(?:github|gitlab|gitea)\.[a-z0-9][a-z0-9.-]*$/;
   function sanitize(input, claims = false) {
-    if (Array.isArray(input)) return input.map(item => sanitize(item));
+    if (Array.isArray(input)) return input.map(item => sanitize(item, claims));
     if (input && typeof input === 'object') {
       const output = {};
       for (const [key, child] of Object.entries(input)) {

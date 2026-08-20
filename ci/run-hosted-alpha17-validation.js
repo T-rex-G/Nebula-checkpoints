@@ -11,7 +11,8 @@ const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
 const {
   EVIDENCE_SCHEMA_VERSION,
-  validateEvidenceEnvelope
+  validateEvidenceEnvelope,
+  verifyHostedOperatorSignature
 } = require('../src/qualification-evidence');
 const {
   requireExactCommit,
@@ -20,6 +21,7 @@ const {
   sanitizeEvidence
 } = require('./provider-alpha17-common');
 const { verifyLiveTargetBinding } = require('./verify-alpha17-authorization');
+const { validateRunnerRestoreAttestation } = require('./alpha17-restore-attestation');
 
 const MAX_RECORD_BYTES = 1024 * 1024;
 const MAX_AGE_MS = 72 * 60 * 60 * 1000;
@@ -44,21 +46,6 @@ const OPERATIONAL_CHECK_CONTRACT = Object.freeze({
   'provider-429-outage': Object.freeze({ status: 'pass', retryBounded: true }),
   'application-rollback': Object.freeze({ status: 'pass', candidateRestored: true }),
   'disposable-tester-purge': Object.freeze({ status: 'pass', tokenBearingStateRemoved: true })
-});
-const RESTORE_CHECK_CONTRACT = Object.freeze({
-  status: 'pass',
-  latestMigration: '015_alpha_privacy',
-  backupManifestSha256: '$sha256',
-  backupCiphertextSha256: '$sha256',
-  restoreTargetFingerprint: '$sha256',
-  restoreEvidenceSha256: '$sha256',
-  sourceIdentitySha256: '$sha256',
-  targetIdentitySha256: '$sha256',
-  sourceTargetDistinct: true,
-  controlPlaneVerified: true,
-  liveTargetVerified: true,
-  smokePassed: true,
-  backupRemoved: true
 });
 
 function fail(message, code) {
@@ -226,58 +213,6 @@ function validateOperationalRecord(input, options = {}) {
   return Object.freeze(record);
 }
 
-function validateRunnerRestoreAttestation(input, options = {}) {
-  if (!isPlainObject(input)) {
-    fail('runner restore attestation must be an object', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
-  }
-  assertNoSecretMaterial(input);
-  const record = cloneJson(input);
-  if (!hasExactKeys(record, [
-    'schemaVersion', 'artifactType', 'subjectSha256', 'sourceCommit', 'originId',
-    'completedAt', 'cleanupVerified', 'check'
-  ])) fail('runner restore attestation fields do not match the schema', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
-  if (record.schemaVersion !== '1.0.0' || record.artifactType !== 'hosted-restore-runner') {
-    fail('runner restore attestation schema does not match', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
-  }
-  if (record.subjectSha256 !== options.expectedSubjectHash) {
-    fail('runner restore subject does not match', 'ALPHA17_RESTORE_ATTESTATION_SUBJECT_MISMATCH');
-  }
-  if (record.sourceCommit !== options.expectedSourceCommit) {
-    fail('runner restore source does not match', 'ALPHA17_RESTORE_ATTESTATION_SOURCE_MISMATCH');
-  }
-  if (record.originId !== options.expectedOriginId) {
-    fail('runner restore origin does not match', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
-  }
-  if (record.cleanupVerified !== true) {
-    fail('runner restore cleanup is not verified', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
-  }
-  const now = options.now instanceof Date ? options.now : new Date(options.now || Date.now());
-  try {
-    parseFresh(record.completedAt, now);
-  } catch {
-    fail('runner restore attestation is stale', 'ALPHA17_RESTORE_ATTESTATION_STALE');
-  }
-  if (!hasExactKeys(record.check, Object.keys(RESTORE_CHECK_CONTRACT))) {
-    fail('runner restore proof does not match its schema', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
-  }
-  for (const [field, rule] of Object.entries(RESTORE_CHECK_CONTRACT)) {
-    if (rule === '$sha256') {
-      if (!isNonzeroSha256(record.check[field])) {
-        fail('runner restore proof contains an invalid digest', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
-      }
-    } else if (record.check[field] !== rule) {
-      fail('runner restore proof is incomplete', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
-    }
-  }
-  if (record.check.sourceIdentitySha256 === record.check.targetIdentitySha256) {
-    fail('runner restore source and target identities are not distinct', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
-  }
-  if (record.check.restoreTargetFingerprint !== options.expectedRestoreTargetFingerprint) {
-    fail('runner restore fingerprint does not match the reviewed target', 'ALPHA17_RESTORE_ATTESTATION_INVALID');
-  }
-  return Object.freeze(record);
-}
-
 function readOperationalRecord(filePath) {
   const metadata = fs.lstatSync(filePath);
   if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > MAX_RECORD_BYTES) {
@@ -346,7 +281,9 @@ async function runHostedValidation(options = {}) {
       restoreNeonProjectId: env.NV_ALPHA17_RESTORE_NEON_PROJECT_ID,
       restoreNeonBranchId: env.NV_ALPHA17_RESTORE_NEON_BRANCH_ID,
       restoreTargetKind: env.NV_ALPHA17_RESTORE_TARGET_KIND,
-      restoreTargetFingerprint: env.NV_RESTORE_TARGET_FINGERPRINT
+      restoreTargetFingerprint: env.NV_RESTORE_TARGET_FINGERPRINT,
+      restoreAppBaseUrl: env.NV_ALPHA17_RESTORE_APP_BASE_URL,
+      restoreAppDeployId: env.NV_ALPHA17_RESTORE_APP_DEPLOY_ID
     },
     signedTargetHash: env.NV_ALPHA17_SIGNED_TARGET_SHA256
   });
@@ -359,6 +296,10 @@ async function runHostedValidation(options = {}) {
     publicKeyBase64: env.NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64,
     now: now()
   });
+  const operatorKeyId = requireEnvironment(env, 'NV_ALPHA17_OPERATOR_KEY_ID');
+  if (operational.signature.keyId !== operatorKeyId) {
+    fail('operational signature key ID is not the trusted operator key', 'ALPHA17_OPERATIONAL_SIGNATURE_INVALID');
+  }
   const inputRestoreAttestation = options.restoreAttestation || readRunnerRestoreAttestation(
     String(env.NV_ALPHA17_RESTORE_ATTESTATION || '')
   );
@@ -367,6 +308,11 @@ async function runHostedValidation(options = {}) {
     expectedSourceCommit: sourceCommit,
     expectedOriginId: `workflow-${runId}-restore`,
     expectedRestoreTargetFingerprint: requireEnvironment(env, 'NV_RESTORE_TARGET_FINGERPRINT'),
+    expectedRestoreAppDeployIdSha256: sha256(requireEnvironment(env, 'NV_ALPHA17_RESTORE_APP_DEPLOY_ID')),
+    workflowRepository: requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_REPOSITORY'),
+    workflowPath: requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_PATH'),
+    workflowRunId: runId,
+    attestationKeyBase64: requireEnvironment(env, 'NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64'),
     now: now()
   });
 
@@ -447,6 +393,9 @@ async function runHostedValidation(options = {}) {
     nodeVersion: process.versions.node
   });
   validateEvidenceEnvelope(core);
+  verifyHostedOperatorSignature(core, {
+    [operatorKeyId]: requireEnvironment(env, 'NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64')
+  });
   return Object.freeze({ ...core, artifactSha256: sha256(stableJson(core)) });
 }
 

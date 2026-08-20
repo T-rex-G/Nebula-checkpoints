@@ -6,7 +6,11 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { neonConnectionIdentitySha256 } = require('../scripts/alpha-db');
-const { validateRunnerRestoreAttestation } = require('./run-hosted-alpha17-validation');
+const { runSmoke } = require('../scripts/alpha-smoke');
+const {
+  signRunnerRestoreAttestation,
+  validateRunnerRestoreAttestation
+} = require('./alpha17-restore-attestation');
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
@@ -201,7 +205,7 @@ function writeExclusive(filePath, value) {
   }
 }
 
-function runRestoreValidation(options = {}) {
+async function runRestoreValidation(options = {}) {
   const env = options.env || process.env;
   const candidateRoot = path.resolve(options.candidateRoot || path.join(__dirname, '..'));
   const runnerTemp = assertRunnerDirectory(requireEnvironment(env, 'RUNNER_TEMP'), candidateRoot);
@@ -249,6 +253,10 @@ function runRestoreValidation(options = {}) {
     const restore = validateRestoreResult(executeCommand([
       'restore', '--backup', backup.backupPath, '--manifest', backup.manifestPath
     ], commandEnv));
+    const restoreAppBaseUrl = requireEnvironment(env, 'NV_ALPHA17_RESTORE_APP_BASE_URL');
+    const restoreAppDeployId = requireEnvironment(env, 'NV_ALPHA17_RESTORE_APP_DEPLOY_ID');
+    const smoke = await (options.runSmokeImpl || runSmoke)(restoreAppBaseUrl);
+    if (!smoke || smoke.ok !== true) fail('restore-backed application smoke failed');
     const backupManifestSha256 = hashFile(backup.manifestPath);
     proof = {
       status: 'pass',
@@ -256,6 +264,7 @@ function runRestoreValidation(options = {}) {
       backupManifestSha256,
       backupCiphertextSha256: backup.ciphertextSha256,
       restoreTargetFingerprint: target.fingerprint,
+      restoreAppDeployIdSha256: sha256(Buffer.from(restoreAppDeployId, 'utf8')),
       restoreEvidenceSha256: sha256(Buffer.from(stableJson({
         backup: {
           schemaVersion: backup.schemaVersion,
@@ -291,7 +300,7 @@ function runRestoreValidation(options = {}) {
   if (fs.existsSync(backupDirectory)) fail('restore backup cleanup failed');
   if (operationError) throw operationError;
   const completedAt = (options.now ? options.now() : new Date()).toISOString();
-  const attestation = validateRunnerRestoreAttestation({
+  const signedAttestation = signRunnerRestoreAttestation({
     schemaVersion: '1.0.0',
     artifactType: 'hosted-restore-runner',
     subjectSha256,
@@ -301,19 +310,33 @@ function runRestoreValidation(options = {}) {
     cleanupVerified: true,
     check: proof
   }, {
+    workflowRepository: requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_REPOSITORY'),
+    workflowPath: requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_PATH'),
+    workflowRunId: runId,
+    attestationKeyBase64: requireEnvironment(env, 'NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64')
+  });
+  const attestation = validateRunnerRestoreAttestation(signedAttestation, {
     expectedSubjectHash: subjectSha256,
     expectedSourceCommit: sourceCommit,
     expectedOriginId: `workflow-${runId}-restore`,
     expectedRestoreTargetFingerprint: commandEnv.NV_RESTORE_TARGET_FINGERPRINT,
+    expectedRestoreAppDeployIdSha256: sha256(Buffer.from(
+      requireEnvironment(env, 'NV_ALPHA17_RESTORE_APP_DEPLOY_ID'),
+      'utf8'
+    )),
+    workflowRepository: requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_REPOSITORY'),
+    workflowPath: requireEnvironment(env, 'NV_ALPHA17_WORKFLOW_PATH'),
+    workflowRunId: runId,
+    attestationKeyBase64: requireEnvironment(env, 'NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64'),
     now: new Date(completedAt)
   });
   writeExclusive(attestationPath, attestation);
   return attestation;
 }
 
-function main() {
+async function main() {
   try {
-    const result = runRestoreValidation();
+    const result = await runRestoreValidation();
     process.stdout.write(`${JSON.stringify({
       ok: true,
       subjectSha256: result.subjectSha256,

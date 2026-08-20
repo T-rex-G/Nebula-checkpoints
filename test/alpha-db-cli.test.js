@@ -1,8 +1,6 @@
 'use strict';
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const {
   DATABASE_VERIFICATION_OPTIONS,
   parseArgs,
@@ -12,7 +10,9 @@ const {
   databaseEnvironment,
   databaseConnectionString,
   redactErrorMessage,
-  restoreTargetFingerprint
+  restoreTargetFingerprint,
+  migrateCommand,
+  restoreCommand
 } = require('../scripts/alpha-db');
 
 assert(DATABASE_VERIFICATION_OPTIONS.connectionTimeoutMillis > 0,
@@ -24,12 +24,6 @@ assert(
     > DATABASE_VERIFICATION_OPTIONS.statement_timeout,
   'the client query timeout must leave time for the server statement timeout to cancel first'
 );
-const alphaDbSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'alpha-db.js'), 'utf8');
-for (const connection of [
-  'connectDatabase(databaseUrl, DATABASE_VERIFICATION_OPTIONS, env)',
-  'connectDatabase(targetUrl, DATABASE_VERIFICATION_OPTIONS, env)'
-]) assert(alphaDbSource.includes(connection), `${connection} must use bounded database options`);
-
 assert.deepStrictEqual(parseArgs(['backup', '--output-dir', '/tmp/nvx-backups']), {
   command: 'backup',
   outputDir: '/tmp/nvx-backups'
@@ -235,6 +229,62 @@ function ownershipDependencies(overrides = {}) {
 }
 
 (async () => {
+  const observedVerificationOptions = [];
+  const fakeClient = {
+    async query() {
+      return { rows: [{ testers: '0', invites: '0', feedback: '0', cleanup_tasks: '0', deletion_requests: '0' }] };
+    },
+    async end() {}
+  };
+  const connectDatabaseImpl = async (_databaseUrl, options) => {
+    observedVerificationOptions.push(options);
+    return fakeClient;
+  };
+  await migrateCommand({ backupManifest: '/tmp/nvx-backups/backup.nvxbackup.json' }, {
+    DATABASE_URL: sourceDatabaseUrl,
+    NV_BACKUP_KEY_BASE64: 'fixture-key'
+  }, {
+    decodeBackupKeyImpl: () => Buffer.alloc(32),
+    readBackupRecordImpl: async () => ({
+      record: { backupFile: 'backup.nvxenc' },
+      manifest: { metadata: { createdAt: new Date().toISOString() } }
+    }),
+    withVerifiedPlaintextImpl: async (_input, operation) => operation('/tmp/verified.dump'),
+    connectDatabaseImpl,
+    runMigrationsImpl: async () => ({ applied: [] }),
+    verifyMigrationsImpl: async () => ({ ok: true, expectedLatest: '015_alpha_privacy' }),
+    printResultImpl() {}
+  });
+  await restoreCommand({
+    backup: '/tmp/nvx-backups/backup.nvxenc',
+    manifest: '/tmp/nvx-backups/backup.nvxbackup.json'
+  }, {
+    DATABASE_URL: sourceDatabaseUrl,
+    NV_RESTORE_DATABASE_URL: restoreDatabaseUrl,
+    NV_BACKUP_KEY_BASE64: 'fixture-key',
+    NEON_API_KEY: 'fixture-neon-key',
+    NV_COHORT_NEON_PROJECT_ID: restoreContext.cohortNeonProjectId,
+    NV_COHORT_NEON_BRANCH_ID: restoreContext.cohortNeonBranchId,
+    NV_RESTORE_NEON_PROJECT_ID: restoreContext.restoreNeonProjectId,
+    NV_RESTORE_NEON_BRANCH_ID: restoreContext.restoreNeonBranchId,
+    NV_RESTORE_TARGET_KIND: restoreContext.restoreTargetKind,
+    NV_RESTORE_TARGET_FINGERPRINT: restoreFingerprint
+  }, {
+    assertIsolatedRestoreTargetImpl: async () => true,
+    decodeBackupKeyImpl: () => Buffer.alloc(32),
+    readBackupRecordImpl: async () => ({ manifest: {} }),
+    withVerifiedPlaintextImpl: async (_input, operation) => operation('/tmp/verified.dump'),
+    spawnCheckedImpl: async () => true,
+    connectDatabaseImpl,
+    verifyMigrationsImpl: async () => ({ ok: true, expectedLatest: '015_alpha_privacy' }),
+    printResultImpl() {}
+  });
+  assert.strictEqual(observedVerificationOptions.length, 2);
+  for (const options of observedVerificationOptions) {
+    assert.deepStrictEqual(options, DATABASE_VERIFICATION_OPTIONS,
+      'migrate and restore must inject the finite database verification timeouts');
+  }
+
   const dependencies = ownershipDependencies();
   const verified = await assertIsolatedRestoreTarget(
     sourceDatabaseUrl,

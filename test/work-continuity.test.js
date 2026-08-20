@@ -9,7 +9,11 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const scriptPath = path.join(root, 'scripts', 'resume-work.js');
 const { validateHistoryResult } = require('../scripts/resume-work');
-const { validateContinuity } = require('../src/work-continuity');
+const {
+  renderContinuationPrompt,
+  renderProjectState,
+  validateContinuity
+} = require('../src/work-continuity');
 
 const continuityDocument = JSON.parse(fs.readFileSync(path.join(root, 'WORK_CONTINUITY.json'), 'utf8'));
 assert.throws(
@@ -75,6 +79,17 @@ assert.deepStrictEqual(
   state.failedQualificationRuns.map(item => item.runId),
   ['31290968279', '31314330832', '31321447041']
 );
+for (const rendered of [
+  renderProjectState(continuityDocument),
+  renderContinuationPrompt(continuityDocument)
+]) {
+  for (const failedRun of continuityDocument.failedQualificationRuns) {
+    assert(rendered.includes(`run \`${failedRun.runId}\``),
+      `generated continuity document must render failed run ${failedRun.runId}`);
+    assert(rendered.includes(failedRun.failure),
+      `generated continuity document must render the failure for ${failedRun.runId}`);
+  }
+}
 assert.deepStrictEqual(state.gates.independentReview, {
   status: 'failed',
   runId: '4ae300c4-410c-4ae7-89cc-b7e15767d22e',

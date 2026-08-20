@@ -20,6 +20,12 @@ Standard CI run: `31494468827`. Exact-archive qualification run: `31494468853`.
 
 Independent review `4ae300c4-410c-4ae7-89cc-b7e15767d22e` failed with 15 actionable findings and 10 nitpicks.
 
+## Failed qualification attempts
+
+- run `31290968279`: detached-checkout continuity boundary was not available Live jobs skipped: yes.
+- run `31314330832`: shallow checkout could not prove accepted-boundary ancestry Live jobs skipped: yes.
+- run `31321447041`: pull-request checkout exposed a local-only accepted commit boundary Live jobs skipped: yes.
+
 The review-remediation successor is **not qualified**. Its commit, tree, archive SHA-256,
 and evidence hashes must be recorded externally after exact-candidate qualification; this
 archive cannot attest its own final identity.

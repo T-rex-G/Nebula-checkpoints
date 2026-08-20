@@ -24,8 +24,12 @@ set -euo pipefail
 NV_CONFIG_RESPONSE="$(mktemp)"
 NV_READY_RESPONSE="$(mktemp)"
 trap 'rm -f -- "$NV_CONFIG_RESPONSE" "$NV_READY_RESPONSE"' EXIT
-curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output "$NV_CONFIG_RESPONSE" "$NV_ALPHA_BASE_URL/api/config" | grep -qx '200'
-curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output "$NV_READY_RESPONSE" "$NV_ALPHA_BASE_URL/readyz" | grep -qx '200'
+NV_CONFIG_TRANSPORT_EXIT=0
+NV_READY_TRANSPORT_EXIT=0
+NV_CONFIG_STATUS="$(curl --proto '=https' --silent --show-error --max-time 10 --write-out '%{http_code}' --output "$NV_CONFIG_RESPONSE" "$NV_ALPHA_BASE_URL/api/config")" || NV_CONFIG_TRANSPORT_EXIT=$?
+NV_READY_STATUS="$(curl --proto '=https' --silent --show-error --max-time 10 --write-out '%{http_code}' --output "$NV_READY_RESPONSE" "$NV_ALPHA_BASE_URL/readyz")" || NV_READY_TRANSPORT_EXIT=$?
+printf 'config_status=%s config_transport_exit=%s ready_status=%s ready_transport_exit=%s\n' \
+  "$NV_CONFIG_STATUS" "$NV_CONFIG_TRANSPORT_EXIT" "$NV_READY_STATUS" "$NV_READY_TRANSPORT_EXIT"
 cat "$NV_CONFIG_RESPONSE"
 cat "$NV_READY_RESPONSE"
 ```

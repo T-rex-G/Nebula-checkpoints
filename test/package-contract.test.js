@@ -92,7 +92,8 @@ const syntaxGate = [
   pkg.scripts['precheck:syntax'],
   pkg.scripts['check:syntax'],
   pkg.scripts['postcheck:syntax']
-].filter(Boolean).join(' ');
+].filter(Boolean).join(' && ');
+const syntaxChecks = source => syntaxGate.split(/\s*&&\s*/).includes(`node --check ${source}`);
 const dependencyLock = JSON.parse(read('package-lock.json'));
 assert.strictEqual(pkg.dependencies.dompurify, '3.4.13', 'DOMPurify must include the alpha.17 XSS fix');
 assert.strictEqual(dependencyLock.packages['node_modules/dompurify'].version, '3.4.13');
@@ -147,7 +148,7 @@ for (const program of task6Programs) {
   previousTask6Program = programIndex;
 }
 for (const source of task6SyntaxSources) {
-  if (!syntaxGate.includes(`node --check ${source}`)) {
+  if (!syntaxChecks(source)) {
     task6Omissions.push(`syntax gate does not parse ${source}`);
   }
 }
@@ -224,7 +225,7 @@ for (const program of uxPrograms) {
   previousUxProgram = programIndex;
 }
 for (const source of uxSyntaxSources) {
-  if (!syntaxGate.includes(`node --check ${source}`)) uxOmissions.push(`syntax gate does not parse ${source}`);
+  if (!syntaxChecks(source)) uxOmissions.push(`syntax gate does not parse ${source}`);
 }
 const manualAudit = read('docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md');
 if (!/Status:\s*\*\*Not executed\*\*/.test(manualAudit)) uxOmissions.push('manual accessibility record does not remain explicitly Not executed');
@@ -279,7 +280,7 @@ for (const program of privacyPrograms) {
   previousPrivacyProgram = programIndex;
 }
 for (const source of privacySyntaxSources) {
-  if (!syntaxGate.includes(`node --check ${source}`)) {
+  if (!syntaxChecks(source)) {
     privacyOmissions.push(`syntax gate does not parse ${source}`);
   }
 }
@@ -321,7 +322,7 @@ for (const source of [
   'scripts/package-release.js'
 ]) {
   assert(
-    syntaxGate.includes(`node --check ${source}`),
+    syntaxChecks(source),
     `syntax gate missing release-gate source ${source}`
   );
 }
@@ -516,7 +517,7 @@ for (const program of publicAlphaQualificationTests) {
   previousQualificationProgram = programIndex;
 }
 for (const source of publicAlphaQualificationSyntax) {
-  assert(syntaxGate.includes(`node --check ${source}`), `syntax gate missing ${source}`);
+  assert(syntaxChecks(source), `syntax gate missing ${source}`);
 }
 const alpha17Workflow = read('.github/workflows/public-alpha-alpha17.yml');
 assert(alpha17Workflow.includes('node scripts/qualify-candidate-archive.js'));
@@ -589,7 +590,7 @@ for (const program of hostedOperationsTests) {
   assert(pkg.scripts['test:unit'].includes(`node ${program}`), `test:unit missing ${program}`);
 }
 for (const source of hostedOperationsSources) {
-  assert(syntaxGate.includes(`node --check ${source}`), `syntax gate missing ${source}`);
+  assert(syntaxChecks(source), `syntax gate missing ${source}`);
 }
 
 const publicAlpha = read('docs/release/PUBLIC_ALPHA.md');

@@ -136,7 +136,7 @@ function normalizeLiveTarget(jobName, input) {
   const hostedFields = [
     'baseUrl', 'renderServiceId', 'neonProjectId', 'cohortNeonBranchId',
     'restoreNeonProjectId', 'restoreNeonBranchId', 'restoreTargetKind',
-    'restoreTargetFingerprint'
+    'restoreTargetFingerprint', 'restoreAppBaseUrl', 'restoreAppDeployId'
   ];
   if (Object.keys(input).some(key => !hostedFields.includes(key))) {
     fail('hosted target contains an unexpected field', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
@@ -149,6 +149,8 @@ function normalizeLiveTarget(jobName, input) {
     renderServiceId: normalizeIdentity(input.renderServiceId, 'Render service identity'),
     restoreNeonBranchId: normalizeIdentity(input.restoreNeonBranchId, 'restore Neon branch identity'),
     restoreNeonProjectId: normalizeIdentity(input.restoreNeonProjectId, 'restore Neon project identity'),
+    restoreAppBaseUrl: normalizeUrl(input.restoreAppBaseUrl, 'restore application base URL', { originOnly: true }),
+    restoreAppDeployId: normalizeIdentity(input.restoreAppDeployId, 'restore application deploy identity'),
     restoreTargetFingerprint: normalizeSha256(input.restoreTargetFingerprint, 'restore target fingerprint'),
     restoreTargetKind: String(input.restoreTargetKind || '').trim()
   };
@@ -159,6 +161,9 @@ function normalizeLiveTarget(jobName, input) {
     target.neonProjectId === target.restoreNeonProjectId &&
     target.cohortNeonBranchId === target.restoreNeonBranchId
   ) fail('hosted restore branch must differ from the cohort branch', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  if (target.baseUrl === target.restoreAppBaseUrl) {
+    fail('hosted restore application must differ from the cohort application', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
   return Object.freeze(target);
 }
 
@@ -214,7 +219,9 @@ function targetFromEnvironment(jobName, env = process.env, prefix = 'NV_ALPHA17'
       restoreNeonProjectId: env[`${prefix}_RESTORE_NEON_PROJECT_ID`],
       restoreNeonBranchId: env[`${prefix}_RESTORE_NEON_BRANCH_ID`],
       restoreTargetKind: env[`${prefix}_RESTORE_TARGET_KIND`],
-      restoreTargetFingerprint: env[`${prefix}_RESTORE_TARGET_FINGERPRINT`]
+      restoreTargetFingerprint: env[`${prefix}_RESTORE_TARGET_FINGERPRINT`],
+      restoreAppBaseUrl: env[`${prefix}_RESTORE_APP_BASE_URL`],
+      restoreAppDeployId: env[`${prefix}_RESTORE_APP_DEPLOY_ID`]
     };
   }
   fail('live target job is invalid', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
@@ -322,7 +329,9 @@ function main(env = process.env) {
           restoreNeonProjectId: env.NV_ALPHA17_TARGET_RESTORE_NEON_PROJECT_ID,
           restoreNeonBranchId: env.NV_ALPHA17_TARGET_RESTORE_NEON_BRANCH_ID,
           restoreTargetKind: env.NV_ALPHA17_TARGET_RESTORE_TARGET_KIND,
-          restoreTargetFingerprint: env.NV_ALPHA17_TARGET_RESTORE_TARGET_FINGERPRINT
+          restoreTargetFingerprint: env.NV_ALPHA17_TARGET_RESTORE_TARGET_FINGERPRINT,
+          restoreAppBaseUrl: env.NV_ALPHA17_TARGET_RESTORE_APP_BASE_URL,
+          restoreAppDeployId: env.NV_ALPHA17_TARGET_RESTORE_APP_DEPLOY_ID
         }
       : {
           repository: env.NV_ALPHA17_TARGET_REPOSITORY,

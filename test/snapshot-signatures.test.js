@@ -109,6 +109,15 @@ assert.throws(
   () => loadSnapshotSigningConfig({
     NV_SNAPSHOT_SIGNING_KEY_ID: 'snapshot-key-a',
     NV_SNAPSHOT_SIGNING_SECRET: activeSecretA,
+    NV_SNAPSHOT_LEGACY_KEYS_JSON: '{not-json}'
+  }, { production: true, sessionSecret }),
+  /legacy snapshot keyring must be valid JSON/i,
+  'malformed legacy compatibility configuration must fail closed'
+);
+assert.throws(
+  () => loadSnapshotSigningConfig({
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'snapshot-key-a',
+    NV_SNAPSHOT_SIGNING_SECRET: activeSecretA,
     NV_SNAPSHOT_RETIRED_KEYS_JSON: JSON.stringify({ 'snapshot-key-a': activeSecretB })
   }, { production: true, sessionSecret }),
   /active snapshot key ID must not appear in the retired keyring/i

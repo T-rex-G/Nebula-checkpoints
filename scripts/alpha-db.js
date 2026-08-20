@@ -38,6 +38,8 @@ const NEON_REQUEST_TIMEOUT_MS = 10_000;
 const DATABASE_CONNECTION_TIMEOUT_MS = 10_000;
 const DATABASE_STATEMENT_TIMEOUT_MS = 60_000;
 const DATABASE_QUERY_TIMEOUT_MS = DATABASE_STATEMENT_TIMEOUT_MS + 5_000;
+const NEON_PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{2,127}$/;
+const NEON_BRANCH_ID_PATTERN = /^br-[a-z0-9][a-z0-9-]{2,127}$/;
 const DATABASE_VERIFICATION_OPTIONS = Object.freeze({
   connectionTimeoutMillis: DATABASE_CONNECTION_TIMEOUT_MS,
   statement_timeout: DATABASE_STATEMENT_TIMEOUT_MS,
@@ -136,8 +138,8 @@ function neonConnectionIdentitySha256(raw, projectId, branchId, label = 'databas
   const project = String(projectId || '').trim().toLowerCase();
   const branch = String(branchId || '').trim().toLowerCase();
   if (
-    !/^[a-z0-9][a-z0-9-]{2,127}$/.test(project) ||
-    !/^br-[a-z0-9][a-z0-9-]{2,127}$/.test(branch)
+    !NEON_PROJECT_ID_PATTERN.test(project) ||
+    !NEON_BRANCH_ID_PATTERN.test(branch)
   ) {
     throw new TypeError(`${label} identity requires valid Neon project and branch IDs`);
   }
@@ -170,10 +172,10 @@ function normalizeRestoreContext(input = {}) {
     restoreTargetKind: String(input.restoreTargetKind || '').trim().toLowerCase()
   };
   if (
-    !/^[a-z0-9][a-z0-9-]{2,127}$/.test(context.cohortNeonProjectId) ||
-    !/^br-[a-z0-9][a-z0-9-]{2,127}$/.test(context.cohortNeonBranchId) ||
-    !/^[a-z0-9][a-z0-9-]{2,127}$/.test(context.restoreNeonProjectId) ||
-    !/^br-[a-z0-9][a-z0-9-]{2,127}$/.test(context.restoreNeonBranchId) ||
+    !NEON_PROJECT_ID_PATTERN.test(context.cohortNeonProjectId) ||
+    !NEON_BRANCH_ID_PATTERN.test(context.cohortNeonBranchId) ||
+    !NEON_PROJECT_ID_PATTERN.test(context.restoreNeonProjectId) ||
+    !NEON_BRANCH_ID_PATTERN.test(context.restoreNeonBranchId) ||
     context.restoreTargetKind !== 'isolated-neon-branch'
   ) {
     throw new TypeError('Restore target requires explicit valid Neon project, branch, and isolated-target context');
@@ -601,25 +603,32 @@ async function connectDatabase(databaseUrl, options = {}, env = process.env) {
   return client;
 }
 
-async function migrateCommand(args, env) {
+async function migrateCommand(args, env, dependencies = {}) {
   const databaseUrl = requireEnvironment(env, 'DATABASE_URL');
   databaseEnvironment(databaseUrl, env);
-  const key = decodeBackupKey(requireEnvironment(env, 'NV_BACKUP_KEY_BASE64'));
-  const { record, manifest } = await readBackupRecord(args.backupManifest);
+  const key = (dependencies.decodeBackupKeyImpl || decodeBackupKey)(requireEnvironment(env, 'NV_BACKUP_KEY_BASE64'));
+  const { record, manifest } = await (dependencies.readBackupRecordImpl || readBackupRecord)(args.backupManifest);
   assertFreshBackup(manifest);
   const backupPath = backupPathFromRecord(args.backupManifest, record);
-  await withVerifiedPlaintext({ backupPath, manifest, key }, async () => {});
-  const client = await connectDatabase(databaseUrl, DATABASE_VERIFICATION_OPTIONS, env);
+  await (dependencies.withVerifiedPlaintextImpl || withVerifiedPlaintext)(
+    { backupPath, manifest, key },
+    async () => {}
+  );
+  const client = await (dependencies.connectDatabaseImpl || connectDatabase)(
+    databaseUrl,
+    DATABASE_VERIFICATION_OPTIONS,
+    env
+  );
   try {
-    const migration = await runMigrations(client, {
+    const migration = await (dependencies.runMigrationsImpl || runMigrations)(client, {
       directory: path.join(__dirname, '..', 'db', 'migrations'),
       logger: { info() {} }
     });
-    const verification = await verifyMigrations(client, {
+    const verification = await (dependencies.verifyMigrationsImpl || verifyMigrations)(client, {
       directory: path.join(__dirname, '..', 'db', 'migrations')
     });
     if (!verification.ok) throw new Error('Database migration verification failed');
-    printResult({
+    (dependencies.printResultImpl || printResult)({
       command: 'migrate',
       applied: migration.applied,
       migration: verification.expectedLatest
@@ -629,29 +638,41 @@ async function migrateCommand(args, env) {
   }
 }
 
-async function restoreCommand(args, env) {
+async function restoreCommand(args, env, dependencies = {}) {
   const sourceUrl = requireEnvironment(env, 'DATABASE_URL');
   const targetUrl = requireEnvironment(env, 'NV_RESTORE_DATABASE_URL');
-  await assertIsolatedRestoreTarget(sourceUrl, targetUrl, restoreContextFromEnvironment(env), {
-    neonApiKey: requireEnvironment(env, 'NEON_API_KEY'),
-    databaseEnv: env
-  });
-  const key = decodeBackupKey(requireEnvironment(env, 'NV_BACKUP_KEY_BASE64'));
-  const { manifest } = await readBackupRecord(args.manifest);
+  await (dependencies.assertIsolatedRestoreTargetImpl || assertIsolatedRestoreTarget)(
+    sourceUrl,
+    targetUrl,
+    restoreContextFromEnvironment(env),
+    {
+      neonApiKey: requireEnvironment(env, 'NEON_API_KEY'),
+      databaseEnv: env
+    }
+  );
+  const key = (dependencies.decodeBackupKeyImpl || decodeBackupKey)(requireEnvironment(env, 'NV_BACKUP_KEY_BASE64'));
+  const { manifest } = await (dependencies.readBackupRecordImpl || readBackupRecord)(args.manifest);
   const target = parseDatabaseUrl(targetUrl, 'NV_RESTORE_DATABASE_URL');
-  await withVerifiedPlaintext({ backupPath: args.backup, manifest, key }, async plaintextPath => {
-    await spawnChecked('pg_restore', [
-      '--clean',
-      '--if-exists',
-      '--no-owner',
-      '--no-privileges',
-      '--dbname', target.database,
-      plaintextPath
-    ], databaseEnvironment(targetUrl, env));
-  });
-  const client = await connectDatabase(targetUrl, DATABASE_VERIFICATION_OPTIONS, env);
+  await (dependencies.withVerifiedPlaintextImpl || withVerifiedPlaintext)(
+    { backupPath: args.backup, manifest, key },
+    async plaintextPath => {
+      await (dependencies.spawnCheckedImpl || spawnChecked)('pg_restore', [
+        '--clean',
+        '--if-exists',
+        '--no-owner',
+        '--no-privileges',
+        '--dbname', target.database,
+        plaintextPath
+      ], databaseEnvironment(targetUrl, env));
+    }
+  );
+  const client = await (dependencies.connectDatabaseImpl || connectDatabase)(
+    targetUrl,
+    DATABASE_VERIFICATION_OPTIONS,
+    env
+  );
   try {
-    const verification = await verifyMigrations(client, {
+    const verification = await (dependencies.verifyMigrationsImpl || verifyMigrations)(client, {
       directory: path.join(__dirname, '..', 'db', 'migrations')
     });
     if (!verification.ok) throw new Error('Restored database migration verification failed');
@@ -661,7 +682,7 @@ async function restoreCommand(args, env) {
       (SELECT count(*)::bigint FROM nv_alpha_feedback) AS feedback,
       (SELECT count(*)::bigint FROM nv_alpha_cleanup_tasks) AS cleanup_tasks,
       (SELECT count(*)::bigint FROM nv_alpha_deletion_requests) AS deletion_requests`);
-    printResult({
+    (dependencies.printResultImpl || printResult)({
       command: 'restore',
       migration: verification.expectedLatest,
       counts: counts.rows[0]
@@ -736,5 +757,7 @@ module.exports = {
   databaseConnectionString,
   redactErrorMessage,
   restoreTargetFingerprint,
+  migrateCommand,
+  restoreCommand,
   main
 };

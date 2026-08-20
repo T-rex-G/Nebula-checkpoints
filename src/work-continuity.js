@@ -172,6 +172,12 @@ function titleCaseStatus(value) {
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }
 
+function failedQualificationRunLines(state) {
+  return state.failedQualificationRuns.map(item =>
+    `- run \`${item.runId}\`: ${item.failure} Live jobs skipped: ${item.liveJobsSkipped ? 'yes' : 'no'}.`
+  );
+}
+
 function renderProjectState(state) {
   validateContinuity(state);
   const baseline = state.recordedBaseline;
@@ -197,6 +203,10 @@ function renderProjectState(state) {
     `Standard CI run: \`${baseline.ciRunId}\`. Exact-archive qualification run: \`${baseline.qualificationRunId}\`.`,
     '',
     `Independent review \`${state.gates.independentReview.runId}\` failed with ${state.gates.independentReview.actionable} actionable findings and ${state.gates.independentReview.nitpicks} nitpicks.`,
+    '',
+    '## Failed qualification attempts',
+    '',
+    ...failedQualificationRunLines(state),
     '',
     'The review-remediation successor is **not qualified**. Its commit, tree, archive SHA-256,',
     'and evidence hashes must be recorded externally after exact-candidate qualification; this',
@@ -260,6 +270,10 @@ function renderContinuationPrompt(state) {
     `- qualification run: \`${baseline.qualificationRunId}\``,
     '',
     `Independent review \`${state.gates.independentReview.runId}\` failed with ${state.gates.independentReview.actionable} actionable findings and ${state.gates.independentReview.nitpicks} nitpicks.`,
+    '',
+    'Failed qualification attempts:',
+    '',
+    ...failedQualificationRunLines(state),
     '',
     'Do not reuse that identity for the remediation successor. The current candidate commit,',
     'tree, archive SHA-256, and evidence hashes are external qualification evidence and remain',

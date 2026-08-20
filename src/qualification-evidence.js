@@ -70,6 +70,7 @@ const RESTORE_RUNNER_CHECK_CONTRACT = deepFreeze({
   backupManifestSha256: '$sha256',
   backupCiphertextSha256: '$sha256',
   restoreTargetFingerprint: '$sha256',
+  restoreAppDeployIdSha256: '$sha256',
   restoreEvidenceSha256: '$sha256',
   sourceIdentitySha256: '$sha256',
   targetIdentitySha256: '$sha256',
@@ -265,6 +266,7 @@ function validateEvidenceEnvelope(input) {
   }
   if (artifact.artifactType === 'hosted-live') {
     if (
+      !artifact.originId.endsWith('-hosted') ||
       !SHA256_PATTERN.test(String(artifact.authorizedTargetSha256 || '')) ||
       /^0{64}$/.test(artifact.authorizedTargetSha256) ||
       !SHA256_PATTERN.test(String(artifact.deploymentSha256 || '')) ||
@@ -325,7 +327,7 @@ function validateEvidenceEnvelope(input) {
     if (
       !hasExactKeys(restoreRecord, [
         'schemaVersion', 'artifactType', 'subjectSha256', 'sourceCommit', 'originId',
-        'completedAt', 'cleanupVerified', 'check'
+        'completedAt', 'cleanupVerified', 'check', 'provenance', 'signature'
       ]) ||
       restoreRecord.schemaVersion !== restoreAttestation.schemaVersion ||
       restoreRecord.artifactType !== 'hosted-restore-runner' ||
@@ -336,6 +338,20 @@ function validateEvidenceEnvelope(input) {
       restoreRecord.cleanupVerified !== true ||
       sha256(stableJson(restoreRecord)) !== restoreAttestation.recordSha256
     ) fail('hosted restore runner record does not match its attestation');
+    const restoreProvenance = restoreRecord.provenance;
+    const restoreSignature = restoreRecord.signature;
+    const restoreRunId = expectedRestoreOrigin.slice('workflow-'.length, -'-restore'.length);
+    if (
+      !hasExactKeys(restoreProvenance, ['issuer', 'workflowOwnerProjectSha256', 'workflow', 'runId']) ||
+      restoreProvenance.issuer !== 'github-actions' ||
+      !isNonzeroSha256(restoreProvenance.workflowOwnerProjectSha256) ||
+      !/^\.github\/workflows\/[a-zA-Z0-9._-]+\.ya?ml$/.test(String(restoreProvenance.workflow || '')) ||
+      restoreProvenance.runId !== restoreRunId ||
+      !hasExactKeys(restoreSignature, ['algorithm', 'keyId', 'value']) ||
+      restoreSignature.algorithm !== 'hmac-sha256' ||
+      restoreSignature.keyId !== `github-actions-${restoreRunId}` ||
+      !isNonzeroSha256(restoreSignature.value)
+    ) fail('hosted restore runner provenance is invalid');
     if (!hasExactKeys(restoreRecord.check, Object.keys(RESTORE_RUNNER_CHECK_CONTRACT))) {
       fail('hosted restore runner proof is invalid');
     }

@@ -42,33 +42,45 @@ function logicalShellLines(text) {
 }
 
 function isCurlCommandLine(value) {
-  return /(?:^|\$\(\s*)curl /.test(value);
+  return /(?:^|\$\(\s*)curl(?:[ \t]|$)/.test(value);
 }
 
-for (const line of ['status=$(curl --fail https://example.test)', 'status=$( curl --fail https://example.test)']) {
-  assert(isCurlCommandLine(line), `curl contract must inspect unquoted command substitution: ${line}`);
+function assertCurlContract(file, line) {
+  const degradedEvidenceProbe = ['06-failed-deploy-rollback.md', '09-capacity-saturation.md'].includes(file)
+    && /\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/config)/.test(line);
+  if (degradedEvidenceProbe) {
+    assert(!line.includes('--fail'), `${file} degraded-state probe must preserve non-2xx evidence`);
+    assert(line.includes('--max-time 10'), `${file} degraded-state probe must remain bounded`);
+    assert(line.includes("--write-out '%{http_code}'"), `${file} degraded-state probe must record HTTP status`);
+    assert(/--output "\$NV_[A-Z_]+"/.test(line), `${file} degraded-state probe must capture the response body`);
+    return;
+  }
+  assert(line.includes('--fail'), `${file} verification probe must fail on HTTP errors`);
+  if (/\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/capabilities)/.test(line)) {
+    assert(line.includes("--write-out '%{http_code}\\n'"), `${file} service probe must expose its HTTP status`);
+    assert(/--output (?:\/dev\/null|"\$NV_[A-Z_]+")/.test(line),
+      `${file} service probe must keep its response body separate from the status check`);
+    assert(line.includes("| grep -qx '200'"), `${file} service probe must accept only HTTP 200`);
+  }
 }
+
+for (const line of [
+  'status=$(curl --fail https://example.test)',
+  'status=$( curl --fail https://example.test)',
+  'status=$(curl\t--fail https://example.test)'
+]) {
+  assert(isCurlCommandLine(line), `curl contract must inspect unquoted command substitution: ${line}`);
+  assert.doesNotThrow(() => assertCurlContract('synthetic-runbook.md', line));
+}
+assert.throws(
+  () => assertCurlContract('synthetic-runbook.md', 'status=$(curl\t--proto =https https://example.test)'),
+  /verification probe must fail on HTTP errors/,
+  'a tab-separated curl command must not bypass the --fail requirement'
+);
 
 for (const file of required) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
-  for (const line of logicalShellLines(text).filter(isCurlCommandLine)) {
-    const degradedEvidenceProbe = ['06-failed-deploy-rollback.md', '09-capacity-saturation.md'].includes(file)
-      && /\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/config)/.test(line);
-    if (degradedEvidenceProbe) {
-      assert(!line.includes('--fail'), `${file} degraded-state probe must preserve non-2xx evidence`);
-      assert(line.includes('--max-time 10'), `${file} degraded-state probe must remain bounded`);
-      assert(line.includes("--write-out '%{http_code}'"), `${file} degraded-state probe must record HTTP status`);
-      assert(/--output "\$NV_[A-Z_]+"/.test(line), `${file} degraded-state probe must capture the response body`);
-      continue;
-    }
-    assert(line.includes('--fail'), `${file} verification probe must fail on HTTP errors`);
-    if (/\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/capabilities)/.test(line)) {
-      assert(line.includes("--write-out '%{http_code}\\n'"), `${file} service probe must expose its HTTP status`);
-      assert(/--output (?:\/dev\/null|"\$NV_[A-Z_]+")/.test(line),
-        `${file} service probe must keep its response body separate from the status check`);
-      assert(line.includes("| grep -qx '200'"), `${file} service probe must accept only HTTP 200`);
-    }
-  }
+  for (const line of logicalShellLines(text).filter(isCurlCommandLine)) assertCurlContract(file, line);
 }
 
 const credentialExposure = fs.readFileSync(path.join(root, '04-credential-exposure.md'), 'utf8');

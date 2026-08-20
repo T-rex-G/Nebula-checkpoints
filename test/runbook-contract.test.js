@@ -42,7 +42,7 @@ function logicalShellLines(text) {
 }
 
 function isCurlCommandLine(value) {
-  return /(?:^|\$\(\s*)curl(?:[ \t]|$)/.test(value);
+  return /(?:^|[;&|]\s*|\$\(\s*)curl(?:[ \t]|$)/.test(value);
 }
 
 function assertCurlContract(file, line) {
@@ -67,16 +67,31 @@ function assertCurlContract(file, line) {
 for (const line of [
   'status=$(curl --fail https://example.test)',
   'status=$( curl --fail https://example.test)',
-  'status=$(curl\t--fail https://example.test)'
+  'status=$(curl\t--fail https://example.test)',
+  'status=ready; curl --fail https://example.test',
+  'true && curl --fail https://example.test',
+  'false || curl --fail https://example.test',
+  'printf ready | curl --fail https://example.test',
+  'sleep 1 & curl --fail https://example.test'
 ]) {
-  assert(isCurlCommandLine(line), `curl contract must inspect unquoted command substitution: ${line}`);
+  assert(isCurlCommandLine(line), `curl contract must inspect command form: ${line}`);
   assert.doesNotThrow(() => assertCurlContract('synthetic-runbook.md', line));
 }
-assert.throws(
-  () => assertCurlContract('synthetic-runbook.md', 'status=$(curl\t--proto =https https://example.test)'),
-  /verification probe must fail on HTTP errors/,
-  'a tab-separated curl command must not bypass the --fail requirement'
-);
+for (const [line, description] of [
+  ['status=$(curl\t--proto =https https://example.test)', 'tab-separated command'],
+  ['status=ready; curl --proto =https https://example.test', 'semicolon-delimited command'],
+  ['true && curl --proto =https https://example.test', 'AND-list command'],
+  ['false || curl --proto =https https://example.test', 'OR-list command'],
+  ['printf ready | curl --proto =https https://example.test', 'pipeline command'],
+  ['sleep 1 & curl --proto =https https://example.test', 'background-list command']
+]) {
+  assert(isCurlCommandLine(line), `curl contract must inspect ${description}`);
+  assert.throws(
+    () => assertCurlContract('synthetic-runbook.md', line),
+    /verification probe must fail on HTTP errors/,
+    `a ${description} must not bypass the --fail requirement`
+  );
+}
 
 for (const file of required) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');

@@ -72,6 +72,7 @@ jobs:
       - run: npm ci
       - run: npm run docs:check
       - run: npm run check:syntax
+      - run: npm run lint
       - run: npm run check:secrets
       - run: npm audit --omit=dev --audit-level=high
       - name: Classify development audit without raw advisory upload

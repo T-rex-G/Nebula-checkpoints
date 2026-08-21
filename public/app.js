@@ -1777,7 +1777,7 @@ async function editGovernanceNotificationPreferences() {
   const current = state.governance.delivery.preferences || {};
   const enabled = current.enabled !== false;
   const types = Array.isArray(current.eventTypes) ? current.eventTypes.join('\n') : '';
-  const ok = await modal({ title: 'Notification preferences', okText: 'Save preferences', bodyHTML: `<label class="field-label"><input id="govNotificationEnabled" type="checkbox" ${enabled ? 'checked' : ''}> Enable notifications</label><label class="field-label">Event types, one per line</label><textarea id="govNotificationTypes" rows="10">${escapeHtml(types)}</textarea>` });
+  const ok = await modal({ title: 'Notification preferences', okText: 'Save preferences', bodyHTML: `<label class="field-label"><input id="govNotificationEnabled" type="checkbox" ${enabled ? 'checked' : ''}> Enable notifications</label><label class="field-label">Event types, one per line</label><textarea id="govNotificationTypes" rows="10">${esc(types)}</textarea>` });
   if (!ok) return;
   const eventTypes = $('#govNotificationTypes').value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
   await api(`${governanceBasePath()}/notifications/preferences`, { method: 'PUT', headers: governanceHeaders('notification-preferences'), body: { enabled: $('#govNotificationEnabled').checked, eventTypes } });

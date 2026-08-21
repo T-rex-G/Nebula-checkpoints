@@ -611,4 +611,29 @@ assert(releaseSecurityGates.includes('Live Render/Neon gate: pending'));
 assert(read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(
   '## ADR-060 — Hosted-alpha migrations are backup-gated and verified by the web process'
 ));
+
+/*
+ * The unit gate names its programs by hand while scripts/test-matrix.js
+ * discovers them from disk, so the two inventories can drift apart and a
+ * program can stop running in the standard workflow without any gate saying
+ * so. Compare the real inventories rather than a source pattern.
+ */
+const discoveredPrograms = fs.readdirSync(path.join(root, 'test'), { withFileTypes: true })
+  .filter(entry => entry.isFile() && entry.name.endsWith('.test.js'))
+  .map(entry => `test/${entry.name}`)
+  .sort();
+assert(discoveredPrograms.length > 0, 'no test programs were discovered on disk');
+const unitGateChain = [
+  pkg.scripts['pretest:unit'],
+  pkg.scripts['test:unit'],
+  pkg.scripts['posttest:unit'],
+  pkg.scripts.posttest
+].filter(Boolean).join(' && ');
+const ungatedPrograms = discoveredPrograms.filter(program => !unitGateChain.includes(`node ${program}`));
+assert.deepStrictEqual(
+  ungatedPrograms,
+  [],
+  `unit gate does not execute discovered test programs: ${ungatedPrograms.join(', ')}`
+);
+
 console.log('package contract tests passed');

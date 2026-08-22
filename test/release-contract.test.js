@@ -21,8 +21,14 @@ assert.strictEqual(PRODUCT_NAME, 'Nebulaverse-X');
 /*
  * The asset stamp names the service-worker shell cache and carries the
  * week-long max-age on every static asset, so distinct releases must never
- * share one. Assert the property rather than a fixed value: a literal would
- * still have passed while every 5.3.0 prerelease collapsed onto "530".
+ * share one.
+ *
+ * Both kinds of assertion are needed here. The property assertions below catch
+ * a derivation that collides, which a fixed value cannot: the previous literal
+ * '530' passed happily while every 5.3.0 prerelease shared one stamp. The
+ * fixed values further down catch a derivation that silently changes shape,
+ * which the property assertions cannot, and which would orphan every already
+ * deployed cache.
  */
 assert.strictEqual(ASSET_VERSION, deriveAssetVersion(APP_VERSION), 'the stamp must derive from the exact version');
 assert.strictEqual(deriveAssetVersion(APP_VERSION), deriveAssetVersion(APP_VERSION), 'the stamp must be stable');
@@ -43,6 +49,35 @@ for (const version of distinctReleases) {
   assert.match(deriveAssetVersion(version), /^[0-9]+$/, `stamp for ${version} must be numeric`);
 }
 assert.throws(() => deriveAssetVersion(''), /asset version requires an application version/);
+
+/*
+ * Pin the encoding itself. The property assertions above prove distinctness;
+ * these prove the stamp cannot silently change shape, which would orphan every
+ * already deployed service-worker shell cache.
+ */
+assert.strictEqual(deriveAssetVersion('5.3.0'), '053046051046048');
+assert.strictEqual(deriveAssetVersion('5.3.0-alpha.17.0'),
+  '053046051046048045097108112104097046049055046048');
+assert.strictEqual(deriveAssetVersion('5.3.0-alpha.1.70'),
+  '053046051046048045097108112104097046049046055048');
+assert.strictEqual(ASSET_VERSION, '053046051046048045097108112104097046049055046048');
+
+/*
+ * Injectivity is structural rather than probabilistic: every byte occupies
+ * exactly three digits, so the stamp decodes back to the exact version it came
+ * from. A truncated hash could not support this assertion.
+ */
+function decodeAssetVersion(stamp) {
+  assert.match(stamp, /^(?:[0-9]{3})+$/, 'the stamp must be whole three-digit byte groups');
+  const bytes = stamp.match(/.{3}/g).map(Number);
+  assert(bytes.every(byte => byte <= 255), 'each group must be a byte value');
+  return Buffer.from(bytes).toString('utf8');
+}
+for (const version of [...distinctReleases, APP_VERSION, '9.9.9+build.1']) {
+  assert.strictEqual(decodeAssetVersion(deriveAssetVersion(version)), version,
+    `the stamp for ${version} must decode back to it`);
+}
+
 
 const port = 27000 + Math.floor(Math.random() * 1000);
 const sessionSecret = ['release-contract', '0123456789abcdef', '0123456789abcdef'].join('-');

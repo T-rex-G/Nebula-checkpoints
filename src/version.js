@@ -1,6 +1,5 @@
 'use strict';
 
-const crypto = require('crypto');
 const pkg = require('../package.json');
 
 const PRODUCT_NAME = 'Nebulaverse-X';
@@ -20,16 +19,25 @@ if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(APP_VERSION)) {
  * shell cache is named from it, so a returning tester kept running the
  * previously cached bundle against a freshly deployed server.
  *
- * Hashing the exact version string keeps the stamp numeric, which the shell
- * URL and cache-name contracts rely on, while making it injective across
- * every distinct release. Concatenating the version's digits would not:
- * 5.3.0-alpha.1.70 and 5.3.0-alpha.17.0 both render as 530170.
+ * The stamp encodes the version's own UTF-8 bytes as fixed-width decimal
+ * groups. Every byte becomes exactly three digits, so the mapping is injective
+ * by construction: two versions share a stamp only when their bytes are
+ * identical. It stays numeric, which the shell URL and cache-name contracts
+ * rely on.
+ *
+ * Two shorter derivations were rejected. Concatenating the version's digits
+ * collides: 5.3.0-alpha.1.70 and 5.3.0-alpha.17.0 both render as 530170. A
+ * truncated SHA-256 is collision-resistant but not injective — the version
+ * validator accepts unbounded distinct strings, so collisions exist by
+ * counting, and a collision here silently reuses an already deployed cache.
  */
 function deriveAssetVersion(version) {
   const value = String(version == null ? '' : version).trim();
   if (!value) throw new Error('asset version requires an application version');
-  const digest = crypto.createHash('sha256').update(value, 'utf8').digest('hex');
-  return BigInt(`0x${digest.slice(0, 12)}`).toString(10);
+  return Array.from(
+    Buffer.from(value, 'utf8'),
+    byte => String(byte).padStart(3, '0')
+  ).join('');
 }
 
 const ASSET_VERSION = deriveAssetVersion(APP_VERSION);

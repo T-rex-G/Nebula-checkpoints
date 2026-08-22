@@ -2,6 +2,24 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockTask20Api, openRepository } = require('./task20-fixtures');
+const ui = require('./semantic');
+
+/*
+ * The governance workspace is reached differently on each width: a tab bar on
+ * desktop, the More sheet on mobile. Both name the same destination, so the
+ * helper asks for whichever the viewport offers rather than branching on a
+ * class that happens to be hidden.
+ */
+async function openGovernance(page) {
+  const tab = page.getByRole('button', { name: 'Governance' });
+  if (await tab.isVisible()) {
+    await tab.click();
+    return;
+  }
+  await page.getByRole('navigation', { name: 'Mobile repository navigation' })
+    .getByRole('button', { name: 'More' }).click();
+  await page.getByRole('button', { name: 'Policy Digital Twin' }).click();
+}
 
 test.describe('Task 20 browser and accessibility staging', () => {
   test.use({ serviceWorkers: 'block' });
@@ -10,32 +28,33 @@ test.describe('Task 20 browser and accessibility staging', () => {
     await mockTask20Api(page);
     await openRepository(page);
 
-    const settingsButton = page.locator('#settingsBtnWork');
-    const trigger = await settingsButton.isVisible() ? settingsButton : page.locator('#paletteBtn');
+    const settingsButton = ui.button(page, 'Settings');
+    const trigger = await settingsButton.isVisible() ? settingsButton : ui.button(page, 'Command palette');
     await trigger.focus();
     if (await settingsButton.isVisible()) await page.keyboard.press('Enter');
     else await page.evaluate(() => { void openSettings(); });
 
-    const scrim = page.locator('#scrim');
-    const dialog = page.locator('#modal');
-    await expect(scrim).toBeVisible();
-    await expect(dialog).toHaveAttribute('role', 'dialog');
-    await expect(dialog).toHaveAttribute('aria-modal', 'true');
-    await expect(dialog).toHaveAttribute('aria-labelledby', 'modalTitle');
-    await expect(page.locator('#modalTitle')).toHaveText('Settings');
+    /*
+     * Asking for the dialog by name subsumes the three attribute assertions
+     * this used to make: nothing resolves as a named dialog unless role,
+     * aria-modal and the labelling are all right together.
+     */
+    const dialog = ui.dialog(page, 'Settings');
+    await expect(dialog).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.querySelector('#modal').contains(document.activeElement))).toBe(true);
 
     const firstFocusable = dialog.locator('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])').first();
-    await page.locator('#modalOk').focus();
+    const commit = ui.button(dialog, 'Done');
+    await commit.focus();
     await page.keyboard.press('Tab');
     await expect(firstFocusable).toBeFocused();
 
     await firstFocusable.focus();
     await page.keyboard.press('Shift+Tab');
-    await expect(page.locator('#modalOk')).toBeFocused();
+    await expect(commit).toBeFocused();
 
     await page.keyboard.press('Escape');
-    await expect(scrim).toBeHidden();
+    await expect(dialog).toBeHidden();
     await expect(trigger).toBeFocused();
   });
 
@@ -45,28 +64,25 @@ test.describe('Task 20 browser and accessibility staging', () => {
     await mockTask20Api(page, state);
     await openRepository(page);
 
-    await page.locator('#bottomNav [data-nav="more"]').click();
-    await expect(page.locator('#sheetScrim')).toBeVisible();
-    await page.locator('#sheet .sheet-item[data-act="governance"]').click();
+    await page.getByRole('navigation', { name: 'Mobile repository navigation' })
+      .getByRole('button', { name: 'More' }).click();
+    const sheetEntry = page.getByRole('button', { name: 'Policy Digital Twin' });
+    await expect(sheetEntry).toBeVisible();
+    await sheetEntry.click();
 
-    await expect(page.locator('#sheetScrim')).toBeHidden();
-    await expect(page.locator('#tab-governance')).toHaveClass(/active/);
-    await expect(page.locator('#tab-governance h2')).toHaveText('Policy Digital Twin');
-    await expect(page.locator('#govDeliveryTitle')).toBeVisible();
+    const governance = page.getByRole('region', { name: 'Governance' });
+    await expect(governance).toBeVisible();
+    await expect(governance.getByRole('heading', { name: 'Policy Digital Twin' })).toBeVisible();
     expect(state.governanceRequests).toBeGreaterThanOrEqual(4);
   });
 
   test('offline refresh cannot reuse governance API responses from Cache Storage', async ({ page, context }) => {
     await mockTask20Api(page);
     await openRepository(page);
-    const governanceTab = page.locator('.tab[data-tab="governance"]');
-    if (await governanceTab.isVisible()) {
-      await governanceTab.click();
-    } else {
-      await page.locator('#bottomNav [data-nav="more"]').click();
-      await page.locator('#sheet .sheet-item[data-act="governance"]').click();
-    }
-    await expect(page.locator('#tab-governance h2')).toHaveText('Policy Digital Twin');
+    await openGovernance(page);
+    await expect(
+      page.getByRole('region', { name: 'Governance' }).getByRole('heading', { name: 'Policy Digital Twin' })
+    ).toBeVisible();
 
     const cachedGovernanceUrls = await page.evaluate(async () => {
       const urls = [];
@@ -84,8 +100,9 @@ test.describe('Task 20 browser and accessibility staging', () => {
     await context.setOffline(true);
     await page.locator('[data-gov-action="refresh"]').click();
 
-    await expect(page.getByRole('alert')).toContainText('Governance evidence unavailable');
-    await expect(page.locator('#govLive')).not.toHaveText('Policy Digital Twin and delivery evidence refreshed');
+    await expect(ui.alert(page)).toContainText('Governance evidence unavailable');
+    await expect(ui.status(page, 'Governance updates'))
+      .not.toHaveText('Policy Digital Twin and delivery evidence refreshed');
   });
 });
 

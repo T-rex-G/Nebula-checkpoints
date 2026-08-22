@@ -179,9 +179,9 @@ async function requestStepUp(action, scope, label = 'sensitive action') {
     danger: true,
     okText: 'Authorize once',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(label)}</b> requires a short-lived, single-use authorization bound to this exact operation.</p>
-      <label class="field-label">Type the active account login <b class="mono">${esc(login)}</b></label>
+      <label class="field-label" for="stepUpLogin">Type the active account login <b class="mono">${esc(login)}</b></label>
       <input id="stepUpLogin" type="text" autocomplete="off" spellcheck="false">
-      ${tokenMethod ? `<label class="field-label">Re-enter the current provider token</label><input id="stepUpCredential" type="password" autocomplete="off" spellcheck="false">` : `<p class="hint">Your OAuth authorization will be revalidated with the provider. The grant expires in five minutes and can be used only once.</p>`}`
+      ${tokenMethod ? `<label class="field-label" for="stepUpCredential">Re-enter the current provider token</label><input id="stepUpCredential" type="password" autocomplete="off" spellcheck="false">` : `<p class="hint">Your OAuth authorization will be revalidated with the provider. The grant expires in five minutes and can be used only once.</p>`}`
   });
   if (!ok) return '';
   const loginInput = $('#stepUpLogin');

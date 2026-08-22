@@ -76,6 +76,14 @@ em{color:var(--teal);font-style:normal}
 
 /* responsive visibility helpers */
 .show-sm{display:none}
+/*
+ * .btn sets display:inline-flex later in this file at the same specificity, so
+ * the rule above lost and the mobile-only sign-out rendered full width on
+ * desktop beside the one in the top bar. Hiding is asserted at desktop widths
+ * instead; below the breakpoint nothing is forced, so a .show-sm button keeps
+ * whatever display its own component rule gives it.
+ */
+@media (min-width:901px){ .show-sm{display:none !important} }
 @media (max-width:900px){ .hide-sm{display:none !important} .show-sm{display:initial} }
 
 /* ---------------- wallpaper ---------------- */

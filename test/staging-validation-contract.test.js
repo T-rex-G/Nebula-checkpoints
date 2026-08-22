@@ -52,15 +52,22 @@ assert.doesNotMatch(validation, /--project=mobile --grep "mobile"/, 'the mobile 
 assert.match(stagingSpec, /--project=mobile --grep "More navigation activates"/, 'the staging spec must match the prescribed mobile command');
 
 for (const signal of [
-  '#settingsBtnWork',
+  /*
+   * These name the behaviours the staged browser pass has to keep covering.
+   * Three of them named the selectors that reached those behaviours, which
+   * tied the contract to the markup rather than to the coverage; they name the
+   * destinations instead, so a redesign that moves a control cannot look like
+   * a lost assertion.
+   */
+  "ui.button(page, 'Settings')",
   'Shift+Tab',
   'toBeFocused',
-  '#sheetScrim',
-  'data-act="governance"',
+  "getByRole('button', { name: 'More' })",
+  "getByRole('region', { name: 'Governance' })",
   'caches.keys',
   "unroute('**/api/**')",
   'setOffline(true)',
-  "getByRole('alert')"
+  'ui.alert(page)'
 ]) assert.ok(spec.includes(signal), `missing behavioral browser assertion: ${signal}`);
 
 for (const route of [

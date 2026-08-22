@@ -291,6 +291,15 @@ must(stagingValidation.includes('evidence requires at least one artifact file') 
 must(read('scripts/staging-gate.js').includes('NV_STAGING_SUBJECT_SHA256') && read('scripts/staging-gate.js').includes('versioned object envelope') && read('scripts/staging-gate.js').includes('artifact hash mismatch'), 'Task 20 staging CLI is not fail-closed');
 must(read('scripts/test-matrix.js').includes('--allow-missing-dependencies') && read('src/test-matrix.js').includes('runTestMatrix'), 'Task 20 independent test matrix is missing');
 const task20Browser = read('test/e2e/task20-accessibility.spec.js');
-for (const signal of ['Shift+Tab', 'toBeFocused', 'setOffline(true)', "unroute('**/api/**')", 'data-act="governance"']) must(task20Browser.includes(signal), `Task 20 browser behavior missing: ${signal}`);
+/*
+ * The governance workspace used to be reached by a data attribute, so this
+ * asked for that attribute by name. The spec reaches it by the name a reader
+ * reads instead, which is what has to keep being covered -- the destination and
+ * the keyboard and offline behaviour around it, not the selector that finds it.
+ */
+for (const signal of [
+  'Shift+Tab', 'toBeFocused', 'setOffline(true)', "unroute('**/api/**')",
+  "getByRole('region', { name: 'Governance' })", 'openGovernance'
+]) must(task20Browser.includes(signal), `Task 20 browser behavior missing: ${signal}`);
 
 console.log('Nebulaverse-X build verification passed.');

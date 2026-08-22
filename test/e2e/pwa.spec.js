@@ -1,5 +1,6 @@
 'use strict';
 const { test, expect } = require('@playwright/test');
+const ui = require('./semantic');
 const { ASSET_VERSION } = require('../../src/version');
 
 const scope = 'scopeAlice_0123456789abcdefXYZ';
@@ -30,7 +31,7 @@ test('PWA shell uses official release identity and installs a versioned shell ca
   await mockApi(page);
   await page.goto('/');
   await expect(page).toHaveTitle(/Nebulaverse-X/);
-  await expect(page.locator('#page-repos')).toHaveClass(/active/);
+  await expect(ui.screen(page, 'repos')).toBeVisible();
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.evaluate(async () => {
     await caches.open('nv-api-perm');
@@ -52,7 +53,7 @@ test('offline repository access is opt-in and account switching purges scoped ca
   await page.goto('/');
   await page.locator('.repo-card').first().click();
   await expect(page.locator('#page-work')).toHaveClass(/active/);
-  await expect(page.locator('#branchSelect option')).toHaveCount(1);
+  await expect(page.getByRole('combobox', { name: 'Repository branch' }).locator('option')).toHaveCount(1);
   await page.evaluate(() => { void openSettings(); });
   const toggle = page.locator('#setOfflineRepo');
   await expect(toggle).toBeVisible();
@@ -83,11 +84,14 @@ test('failed remote logout still clears local private data and returns to login'
     localStorage.setItem(`nv_offline_repos:${scopeValue}`, JSON.stringify(['github:acme/demo']));
     await caches.open(`nv-api-${scopeValue}`);
   }, scope);
-  const logout = await page.locator('#logoutBtn').isVisible()
-    ? page.locator('#logoutBtn')
-    : page.locator('#logoutBtnM');
+  /*
+   * Two sign-out controls exist, one for each width, and only the one for the
+   * current viewport is visible. Role queries skip hidden elements, so asking
+   * for the button by name resolves to whichever is actually offered.
+   */
+  const logout = ui.button(page, 'Sign out');
   await logout.click();
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
+  await expect(ui.screen(page, 'login')).toBeVisible();
   const result = await page.evaluate(() => ({ me: sessionStorage.getItem('nv_me'), caches: [] }));
   result.caches = await page.evaluate(() => caches.keys().then(keys => keys.filter(key => key.startsWith('nv-api-'))));
   expect(result.me).toBeNull();
@@ -115,20 +119,20 @@ test('login boundary keeps the active offline identity while purging the sibling
   });
 
   await sibling.goto('/');
-  await expect(sibling.locator('#page-repos')).toHaveClass(/active/);
+  await expect(ui.screen(sibling, 'repos')).toBeVisible();
   await expect.poll(
     () => sibling.evaluate(() => JSON.parse(sessionStorage.getItem('nv_me') || 'null')?.login)
   ).toBe('bob');
   siblingOnline = false;
 
   await page.goto('/');
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
-  await page.locator('#tokenInput').fill('synthetic-login-token');
-  await page.locator('#loginBtn').click();
-  await expect(page.locator('#page-repos')).toHaveClass(/active/);
+  await expect(ui.screen(page, 'login')).toBeVisible();
+  await ui.secretField(page, 'GitHub Personal Access Token').fill('synthetic-login-token');
+  await ui.button(ui.screen(page, 'login'), 'Enter orbit').click();
+  await expect(ui.screen(page, 'repos')).toBeVisible();
   await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem('nv_me') || 'null')?.login)).toBe('alice');
 
-  await expect(sibling.locator('#page-login')).toHaveClass(/active/);
+  await expect(ui.screen(sibling, 'login')).toBeVisible();
   /*
    * Poll rather than read once. A single read assumes the sibling clears its
    * identity before it switches page; if the page switch lands first and the

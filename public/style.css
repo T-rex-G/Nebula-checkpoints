@@ -37,13 +37,27 @@
   font-weight:400;font-style:normal;font-display:swap}
 @font-face{font-family:'DM Mono';src:url('/vendor/fonts/dm-mono-500-latin.woff2') format('woff2');
   font-weight:500;font-style:normal;font-display:swap}
+/*
+ * The palette comes from the product's design language. Every value below was
+ * checked against the page ground it sits on before it was adopted: --muted
+ * was the one that failed body contrast at its original 42% opacity, so it is
+ * carried here at a strength that passes rather than at the value that looked
+ * right in isolation.
+ */
 :root, [data-theme="dark"]{
-  --bg:#070712; --text:#eef0fb; --text2:#b5b9d7; --muted:#9ca2c7; --focus:#5fffea;
-  --accent:#7c6cff; --accent2:#9486ff; --teal:#38e0c8;
-  --green:#34d97b; --red:#ff5470; --amber:#ffbe4d;
+  --bg:#06030f; --text:#F5F3FF; --text2:rgba(232,229,255,.72); --muted:rgba(232,229,255,.58);
+  --focus:#67E8F9;
+  --accent:#8B5CF6; --accent2:#A78BFA; --teal:#22D3EE;
+  --green:#34D399; --red:#F43F6E; --amber:#F59E0B; --magenta:#D946EF;
+  --lab:#B9A8F7;
   --radius:14px;
-  --glass-border:rgba(255,255,255,0.11);
-  --glass-fill:rgba(8,8,22,0.34);
+  --glass-border:rgba(178,160,255,0.17);
+  --glass-fill:rgba(20,14,44,0.55);
+  --bloom:radial-gradient(1300px 780px at 76% -6%, rgba(109,40,217,.34), transparent 62%),
+          radial-gradient(1000px 700px at 12% 108%, rgba(76,29,149,.26), transparent 62%);
+  --card-grad:linear-gradient(155deg, rgba(146,124,255,.13), rgba(126,104,235,.05) 46%, rgba(255,255,255,.028));
+  --card-shadow:0 22px 60px rgba(4,1,18,.5), inset 0 1px 0 rgba(255,255,255,.09);
+  --btn-a:#4C1D95; --btn-b:#7C3AED; --btn-glow:0 18px 44px rgba(109,40,217,.55);
   --ease:cubic-bezier(0.16,1,0.3,1);
   --topbar-h:62px; --bnav-h:64px;
   --ed-font:0.84rem;
@@ -227,7 +241,20 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .hint{font-size:.75rem;color:var(--muted);margin-top:12px;line-height:1.55}
 .check{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--text2);margin-top:14px;cursor:pointer;min-height:32px}
 .check input{width:18px;height:18px;min-height:0;accent-color:var(--accent);-webkit-appearance:checkbox;appearance:checkbox}
-.capability-state{display:block;margin:4px 0 7px;color:var(--muted);font-size:.62rem;line-height:1.35}
+/*
+ * A compact chip, not a paragraph. The status is the whole visible content;
+ * the reason travels in the title and in text only a screen reader reads, so
+ * a disabled control explains itself without printing a sentence beside every
+ * instance of it.
+ */
+.capability-state{display:inline-flex;align-items:center;gap:5px;margin:4px 6px 4px 0;
+  padding:2px 8px;border-radius:999px;font-size:.64rem;line-height:1.5;letter-spacing:.01em;
+  color:var(--text2);background:rgba(178,160,255,.09);border:1px solid var(--glass-border);
+  max-width:100%;white-space:nowrap;vertical-align:middle}
+.capability-state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.8;flex:none}
+.capability-supported{color:var(--green);background:rgba(52,211,153,.10);border-color:rgba(52,211,153,.22)}
+.capability-unavailable{color:var(--muted);background:rgba(232,229,255,.05)}
+.capability-experimental{color:var(--amber);background:rgba(245,158,11,.10);border-color:rgba(245,158,11,.22)}
 .capability-supported{color:var(--teal)}
 .capability-experimental{color:#ffcd78}
 .capability-unavailable{color:var(--text2)}

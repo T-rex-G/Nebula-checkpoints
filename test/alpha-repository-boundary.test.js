@@ -134,6 +134,7 @@ const fs = require('fs');
 const path = require('path');
 const Module = require('module');
 const { hashJson, evidenceRecordHash } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'src', 'intelligence'));
+const { KEY_PURPOSES, deriveSecret } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'src', 'key-derivation'));
 const sessionSecret = process.env.SESSION_SECRET;
 const originalLoad = Module._load;
 const originalSetInterval = global.setInterval;
@@ -159,26 +160,40 @@ const evidenceRows = [];
  * afterwards extends a chain that straddles the rotation.
  *
  * Records carry no key identifier; verification tries the active key and then
- * the retired one. Without the retired key these rows would fail to reproduce
- * their hash, and a tamper-evident ledger would report tampering that never
- * happened.
+ * each retired one. Two eras are seeded, because this ledger has survived two
+ * key changes: one record hashed with the raw session secret from before the
+ * evidence key was separated, and one hashed with the evidence key derived from
+ * a previous SESSION_SECRET, from before that secret was rotated.
+ *
+ * Without the retired keys these rows would fail to reproduce their hash, and a
+ * tamper-evident ledger would report tampering that never happened.
  */
 const EVIDENCE_GENESIS = 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
 function seedLegacyEvidence(repoKey) {
   if (!repoKey || evidenceRows.some(row => row.repo_key === repoKey)) return;
-  const payloadHash = hashJson({ record: 'pre-rotation' });
-  evidenceRows.push({
-    seq: evidenceRows.length + 1,
-    repo_key: repoKey,
-    kind: 'webhook',
-    record_id: 'pre-rotation-record',
-    previous_hash: EVIDENCE_GENESIS,
-    record_hash: evidenceRecordHash(
-      sessionSecret, EVIDENCE_GENESIS, repoKey, 'webhook', 'pre-rotation-record', payloadHash
-    ),
-    payload_hash: payloadHash,
-    created_at: new Date().toISOString()
-  });
+  const priorSecret = JSON.parse(process.env.NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON)[0];
+  const eras = [
+    { recordId: 'pre-separation-record', secret: sessionSecret },
+    { recordId: 'pre-rotation-record', secret: deriveSecret(priorSecret, KEY_PURPOSES.EVIDENCE_LEDGER) }
+  ];
+  let previousHash = EVIDENCE_GENESIS;
+  for (const era of eras) {
+    const payloadHash = hashJson({ record: era.recordId });
+    const recordHash = evidenceRecordHash(
+      era.secret, previousHash, repoKey, 'webhook', era.recordId, payloadHash
+    );
+    evidenceRows.push({
+      seq: evidenceRows.length + 1,
+      repo_key: repoKey,
+      kind: 'webhook',
+      record_id: era.recordId,
+      previous_hash: previousHash,
+      record_hash: recordHash,
+      payload_hash: payloadHash,
+      created_at: new Date().toISOString()
+    });
+    previousHash = recordHash;
+  }
 }
 
 function record(event) {
@@ -585,6 +600,11 @@ const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
        from SESSION_SECRET, so it opts in to accepting that retired key. Without
        this the chain below is refused, which is the production default. */
     NV_EVIDENCE_LEGACY_SESSION_KEY: 'true',
+    /* This ledger also predates a SESSION_SECRET rotation, so the previous
+       secret is supplied and its derived evidence key stays verifiable. */
+    NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON: JSON.stringify([
+      'alpha-boundary-prior-secret-0123456789abcdef-0123456789abcdef'
+    ]),
     SESSION_SECRET: secret,
     NV_SNAPSHOT_SIGNING_KEY_ID: 'alpha-boundary-snapshot-key',
     NV_SNAPSHOT_SIGNING_SECRET: snapKey,
@@ -1362,10 +1382,11 @@ ${logs}`
     assert(!serializedLogs.includes('nvx_alpha_private'));
 
     /*
- * The chain the server built straddles the key rotation: its first record was
- * hashed with the former raw session secret, every later one with the derived
- * key. Verification must still report the ledger valid, and must say how many
- * records verified under the retired key.
+ * The chain the server built spans three key eras: a record hashed with the raw
+ * session secret from before the evidence key was separated, a record hashed
+ * with the evidence key derived from a previous SESSION_SECRET, and the records
+ * the server appended under the current derived key. Verification must report
+ * the ledger valid and say how many verified under a retired key.
  *
  * This is the false alarm the retired keyring exists to prevent. The ledger is
  * tamper-evident, so without it every pre-rotation record would reproduce the
@@ -1378,8 +1399,8 @@ assert.strictEqual(evidenceExport.status, 200, 'the evidence export must be reac
 const evidenceBody = await json(evidenceExport);
 assert(evidenceBody.records.length > 1,
   'the exported chain must span more than the seeded record, or this proves nothing');
-assert.strictEqual(evidenceBody.chain.legacyRecords, 1,
-  'exactly the pre-rotation record must verify under the retired key');
+assert.strictEqual(evidenceBody.chain.legacyRecords, 2,
+  'both the pre-separation and pre-rotation records must verify under retired keys');
 assert.strictEqual(evidenceBody.chain.valid, true,
   'a chain written before the key rotation and extended after it must still verify');
 assert.strictEqual(evidenceBody.chain.available, true);

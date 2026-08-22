@@ -60,6 +60,46 @@ function acceptsLegacySessionKey(env) {
   return source.NODE_ENV !== 'production';
 }
 
+/*
+ * Prior SESSION_SECRET values, for verifying records written before a rotation.
+ *
+ * The evidence key is derived from SESSION_SECRET, so rotating that secret moves
+ * the derived key and every record written under the old one stops reproducing
+ * its hash. On a tamper-evident ledger that reads as tampering after nothing
+ * worse than routine key hygiene, which is the same failure the retired key
+ * already prevents for the pre-separation records.
+ *
+ * Operators therefore supply the previous secrets, bounded, and the caller
+ * derives an evidence key from each. This mirrors the snapshot retired keyring.
+ */
+const MAX_RETIRED_SESSION_SECRETS = 8;
+const MIN_SESSION_SECRET_BYTES = 32;
+const MAX_SESSION_SECRET_BYTES = 4096;
+
+function parseRetiredSessionSecrets(raw) {
+  const source = String(raw == null ? '' : raw).trim();
+  if (!source) return Object.freeze([]);
+  let parsed;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    throw new TypeError('Retired evidence session secrets must be valid JSON');
+  }
+  if (!Array.isArray(parsed) || parsed.length > MAX_RETIRED_SESSION_SECRETS) {
+    throw new TypeError(`Retired evidence session secrets must be an array of at most ${MAX_RETIRED_SESSION_SECRETS} values`);
+  }
+  const secrets = [];
+  for (const value of parsed) {
+    if (typeof value !== 'string') throw new TypeError('Each retired evidence session secret must be a string');
+    const size = Buffer.byteLength(value, 'utf8');
+    if (size < MIN_SESSION_SECRET_BYTES || size > MAX_SESSION_SECRET_BYTES) {
+      throw new TypeError(`Each retired evidence session secret must contain ${MIN_SESSION_SECRET_BYTES} to ${MAX_SESSION_SECRET_BYTES} UTF-8 bytes`);
+    }
+    if (!secrets.includes(value)) secrets.push(value);
+  }
+  return Object.freeze(secrets);
+}
+
 function verifyEvidenceRecord(keyring, recordHash, previousHash, repoKey, kind, recordId, payloadHash) {
   const supplied = String(recordHash || '');
   const miss = Object.freeze({ valid: false, keyId: null, legacy: false });
@@ -504,6 +544,7 @@ module.exports = {
   EVIDENCE_ACTIVE_KEY_ID,
   EVIDENCE_LEGACY_KEY_ID,
   acceptsLegacySessionKey,
+  parseRetiredSessionSecrets,
   evidenceRecordHash,
   verifyEvidenceRecord,
   verifyGithubSignature,

@@ -71,6 +71,14 @@
   pre-separation records is told so: verification reports `legacyKeyRequired`
   rather than a bare failure, so an unmigrated chain is distinguishable from
   tampering.
+- Kept evidence provable across a `SESSION_SECRET` rotation. The evidence key is
+  derived from that secret, so rotating it moved the derived key and every
+  record written under the old one stopped reproducing its hash — the same false
+  alarm the retired key already prevented for pre-separation records, reachable
+  through nothing worse than routine key hygiene. Operators now carry previous
+  secrets forward in `NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON`, bounded to
+  eight, and malformed input fails at startup rather than silently shrinking the
+  keyring.
 
 ### Documentation Truth Architecture
 

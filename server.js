@@ -68,7 +68,7 @@ const CAPABILITY_DOCUMENT = loadCapabilityDocument(
 const DEPLOYMENT_PROFILE = 'hosted-alpha';
 const {
   stableJson, hashJson, evidenceRecordHash,
-  verifyEvidenceRecord, acceptsLegacySessionKey, verifyGithubSignature, normalizeGithubWebhook,
+  verifyEvidenceRecord, acceptsLegacySessionKey, parseRetiredSessionSecrets, verifyGithubSignature, normalizeGithubWebhook,
   riskForEvent, riskForAccessSurface, compareSnapshots, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
   cleanText, normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, normalizeProviderBranches
 } = require('./src/intelligence');
@@ -183,9 +183,25 @@ const EVIDENCE_LEDGER_SECRET = deriveSecret(SECRET, KEY_PURPOSES.EVIDENCE_LEDGER
  * bare failure, so the operator can tell an unmigrated chain from tampering.
  */
 const EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED = acceptsLegacySessionKey(process.env);
+/*
+ * Rotating SESSION_SECRET moves the derived evidence key with it, so records
+ * written under a previous secret stop reproducing their hash. Operators keep
+ * them provable by supplying the previous secrets; each contributes its derived
+ * evidence key, and, when the pre-separation path is accepted, its raw form too,
+ * because a ledger old enough to predate separation may also predate a rotation.
+ */
+const EVIDENCE_RETIRED_SESSION_SECRETS =
+  parseRetiredSessionSecrets(process.env.NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON);
 const EVIDENCE_KEYRING = Object.freeze({
   active: EVIDENCE_LEDGER_SECRET,
-  retired: Object.freeze(EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED ? [SECRET] : [])
+  retired: Object.freeze([
+    ...EVIDENCE_RETIRED_SESSION_SECRETS.map(
+      secret => deriveSecret(secret, KEY_PURPOSES.EVIDENCE_LEDGER)
+    ),
+    ...(EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED
+      ? [SECRET, ...EVIDENCE_RETIRED_SESSION_SECRETS]
+      : [])
+  ])
 });
 const EVIDENCE_LEGACY_PROBE = Object.freeze({ active: SECRET, retired: Object.freeze([]) });
 const SNAPSHOT_SIGNATURES = createSnapshotSignatures(loadSnapshotSigningConfig(process.env, {

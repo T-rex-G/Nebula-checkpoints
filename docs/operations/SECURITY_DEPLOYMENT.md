@@ -83,8 +83,31 @@ Removal path:
 
 To remove it while pre-separation records still exist, first re-anchor: export
 and archive the existing chain as a closed record, then let the ledger begin a
-new chain under the derived key. Rotating `SESSION_SECRET` itself does not
-retire this key, because the derived key moves with it.
+new chain under the derived key.
+
+#### Rotating `SESSION_SECRET`
+
+The evidence key is derived from `SESSION_SECRET`, so rotating that secret moves
+the derived key too and every record written under the old one stops reproducing
+its hash. On a tamper-evident ledger that reads as tampering after nothing worse
+than routine key hygiene, so the previous secrets must be carried forward:
+
+```
+NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON=["<previous SESSION_SECRET>"]
+```
+
+At most eight, each 32 to 4096 bytes. Each contributes the evidence key derived
+from it, and, when `NV_EVIDENCE_LEGACY_SESSION_KEY` is `true`, its raw form as
+well, because a ledger old enough to predate the derived key may also predate a
+rotation. Set this **before** rotating, and verify one export afterwards.
+
+Malformed input fails at startup rather than being skipped, because a silently
+dropped key would surface later as a ledger reporting tampering.
+
+Remove a retired secret once `legacyRecords` reaches zero for every repository,
+or re-anchor first. Rotating `SESSION_SECRET` does not by itself retire the
+pre-separation raw key: that one is governed by `NV_EVIDENCE_LEGACY_SESSION_KEY`
+above and outlives any number of rotations.
 
 ### Snapshot-signing keyring
 

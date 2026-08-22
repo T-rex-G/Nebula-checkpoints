@@ -3,7 +3,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const {
   stableJson, hashJson, hmacJson, evidenceRecordHash, verifyGithubSignature, normalizeGithubWebhook,
-  EVIDENCE_ACTIVE_KEY_ID, EVIDENCE_LEGACY_KEY_ID, verifyEvidenceRecord, acceptsLegacySessionKey,
+  EVIDENCE_ACTIVE_KEY_ID, EVIDENCE_LEGACY_KEY_ID, verifyEvidenceRecord, acceptsLegacySessionKey, parseRetiredSessionSecrets,
   riskForEvent, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
   normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, shortestPath,
   compareSnapshots, riskForAccessSurface, normalizeProviderBranches
@@ -327,5 +327,55 @@ for (const bad of [null, undefined, 'env', 42]) {
   assert.strictEqual(acceptsLegacySessionKey(bad), true,
     'a missing environment must not be read as production');
 }
+
+/*
+ * Rotating SESSION_SECRET moves the derived evidence key, so records written
+ * under a previous secret must stay verifiable through an explicit, bounded
+ * list of those secrets. Anything malformed must fail loudly at startup rather
+ * than silently shrinking the keyring, because a silently missing key reads as
+ * tampering later.
+ */
+const priorA = 'prior-session-secret-a-0123456789abcdef0123';
+const priorB = 'prior-session-secret-b-0123456789abcdef0123';
+assert.deepStrictEqual(parseRetiredSessionSecrets(''), []);
+assert.deepStrictEqual(parseRetiredSessionSecrets('   '), []);
+assert.deepStrictEqual(parseRetiredSessionSecrets(null), []);
+assert.deepStrictEqual(parseRetiredSessionSecrets(undefined), []);
+assert.deepStrictEqual(parseRetiredSessionSecrets('[]'), []);
+assert.deepStrictEqual(parseRetiredSessionSecrets(JSON.stringify([priorA])), [priorA]);
+assert.deepStrictEqual(parseRetiredSessionSecrets(JSON.stringify([priorA, priorB])), [priorA, priorB]);
+assert.deepStrictEqual(parseRetiredSessionSecrets(JSON.stringify([priorA, priorA])), [priorA],
+  'duplicates must collapse rather than widening the keyring');
+assert(Object.isFrozen(parseRetiredSessionSecrets(JSON.stringify([priorA]))));
+
+assert.throws(() => parseRetiredSessionSecrets('not json'), /must be valid JSON/);
+assert.throws(() => parseRetiredSessionSecrets('{}'), /must be an array/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify([priorA])+'x'), /must be valid JSON/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify(Array(9).fill(priorA).map((v,i)=>v+i))), /at most 8/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify([42])), /must be a string/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify([null])), /must be a string/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify(['too-short'])), /32 to 4096/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify(['x'.repeat(4097)])), /32 to 4096/);
+assert.deepStrictEqual(parseRetiredSessionSecrets(JSON.stringify(['y'.repeat(32)])), ['y'.repeat(32)],
+  'exactly the minimum length must be accepted');
+
+/*
+ * A record written under a previous secret's derived key must verify once that
+ * secret is supplied, and must not verify when it is missing. The second half is
+ * the regression: without it a routine rotation makes the ledger accuse itself.
+ */
+const priorDerived = 'derived-from-prior-secret-0123456789abcdef';
+const currentDerived = 'derived-from-current-secret-0123456789abcd';
+const rotatedRecord = record(priorDerived, GENESIS, 'push', 'rotated');
+assert.strictEqual(
+  verifyEvidenceRecord({ active: currentDerived, retired: [priorDerived] },
+    rotatedRecord.record_hash, GENESIS, repoKey, 'push', 'rotated', rotatedRecord.payload_hash).valid,
+  true,
+  'a record written before the secret rotation must verify once the prior key is supplied');
+assert.strictEqual(
+  verifyEvidenceRecord({ active: currentDerived, retired: [] },
+    rotatedRecord.record_hash, GENESIS, repoKey, 'push', 'rotated', rotatedRecord.payload_hash).valid,
+  false,
+  'without the prior key a routine SESSION_SECRET rotation makes the ledger report tampering');
 
 console.log('intelligence tests passed');

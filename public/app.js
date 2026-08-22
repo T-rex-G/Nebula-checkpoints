@@ -215,11 +215,25 @@ function safeHexColor(value, fallback = '8a8fa8') {
   const color = String(value || '').replace(/^#/, '');
   return /^[0-9a-f]{6}$/i.test(color) ? color : fallback;
 }
+const TOAST_TONE = { ok: 'Success', err: 'Error' };
 function toast(msg, kind = '') {
   if (kind === 'ok') hapt(10);
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
-  el.textContent = msg;
+  /*
+   * Outcome was carried by colour alone: a reader saw green or red, and anyone
+   * listening heard only the message. The tone is announced now, as text
+   * placed before it and hidden visually, so the same distinction reaches both
+   * without changing what the toast looks like.
+   */
+  const tone = TOAST_TONE[kind];
+  if (tone) {
+    const label = document.createElement('span');
+    label.className = 'sr-only';
+    label.textContent = `${tone}: `;
+    el.appendChild(label);
+  }
+  el.appendChild(document.createTextNode(msg));
   $('#toasts').appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .4s'; setTimeout(() => el.remove(), 400); }, 3600);
 }

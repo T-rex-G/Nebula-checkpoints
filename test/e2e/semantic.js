@@ -86,6 +86,21 @@ function dialog(target, name) {
 }
 
 /*
+ * The trust panel is addressed from the page rather than through the screen
+ * that contains it. Accessible names are unique here, so the extra hop buys no
+ * precision, and it costs resolution time -- enough to miss the loading state,
+ * which is visible for about a tenth of a second before the verdict replaces
+ * it.
+ */
+function trust(target) {
+  return target.getByRole('region', { name: 'Repository trust summary' });
+}
+
+function trustArticle(target, name) {
+  return target.getByRole('article', { name });
+}
+
+/*
  * There are several live regions, so a status lookup names one. Unnamed they
  * were indistinguishable both to this suite and to anyone navigating by
  * region, which is how the ambiguity surfaced.
@@ -107,5 +122,7 @@ module.exports = Object.freeze({
   paletteOption,
   screen,
   secretField,
-  status
+  status,
+  trust,
+  trustArticle
 });

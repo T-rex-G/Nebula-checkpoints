@@ -1,6 +1,42 @@
 /* ============================================================
    NEBULAVERSE v5.2 — liquid glass, adaptive mobile ⇄ desktop
    ============================================================ */
+
+/*
+ * Typefaces are served from this origin. font-src is 'self', so a hosted
+ * stylesheet would be blocked by the policy rather than merely discouraged,
+ * and a font fetched at run time would be absent offline and absent from the
+ * release archive whose fingerprint the hosted gate verifies.
+ *
+ * Each file is a variable upright latin face carrying the whole weight axis,
+ * so three requests cover every weight the interface uses. font-display:swap
+ * renders in the fallback immediately and swaps when the face arrives; the
+ * fallback stacks below are chosen to be metrically close enough that the swap
+ * does not move layout much.
+ */
+@font-face{font-family:'Archivo Variable';src:url('/vendor/fonts/archivo-variable-latin.woff2') format('woff2-variations');
+  font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:'Public Sans Variable';src:url('/vendor/fonts/public-sans-variable-latin.woff2') format('woff2-variations');
+  font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:'JetBrains Mono Variable';src:url('/vendor/fonts/jetbrains-mono-variable-latin.woff2') format('woff2-variations');
+  font-weight:100 800;font-style:normal;font-display:swap}
+
+/* Editor picker faces. Declared, not downloaded: the browser fetches one only
+   once a rule applies it, so five choices cost one file. */
+@font-face{font-family:'JetBrains Mono';src:url('/vendor/fonts/jetbrains-mono-variable-latin.woff2') format('woff2-variations');
+  font-weight:100 800;font-style:normal;font-display:swap}
+@font-face{font-family:'Fira Code';src:url('/vendor/fonts/fira-code-variable-latin.woff2') format('woff2-variations');
+  font-weight:300 700;font-style:normal;font-display:swap}
+@font-face{font-family:'Source Code Pro';src:url('/vendor/fonts/source-code-pro-variable-latin.woff2') format('woff2-variations');
+  font-weight:200 900;font-style:normal;font-display:swap}
+@font-face{font-family:'IBM Plex Mono';src:url('/vendor/fonts/ibm-plex-mono-400-latin.woff2') format('woff2');
+  font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'IBM Plex Mono';src:url('/vendor/fonts/ibm-plex-mono-500-latin.woff2') format('woff2');
+  font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:'DM Mono';src:url('/vendor/fonts/dm-mono-400-latin.woff2') format('woff2');
+  font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'DM Mono';src:url('/vendor/fonts/dm-mono-500-latin.woff2') format('woff2');
+  font-weight:500;font-style:normal;font-display:swap}
 :root, [data-theme="dark"]{
   --bg:#070712; --text:#eef0fb; --text2:#b5b9d7; --muted:#9ca2c7; --focus:#5fffea;
   --accent:#7c6cff; --accent2:#9486ff; --teal:#38e0c8;
@@ -11,7 +47,10 @@
   --ease:cubic-bezier(0.16,1,0.3,1);
   --topbar-h:62px; --bnav-h:64px;
   --ed-font:0.84rem;
-  --ed-family:'DM Mono',ui-monospace,monospace;
+  --font-display:'Archivo Variable',ui-sans-serif,system-ui,sans-serif;
+  --font-body:'Public Sans Variable',ui-sans-serif,system-ui,sans-serif;
+  --font-mono:'JetBrains Mono Variable',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --ed-family:var(--font-mono);
 }
 [data-theme="light"]{
   --bg:#e9ecf8; --text:#111227; --text2:#343753; --muted:#4f5578; --focus:#005fcc;
@@ -24,13 +63,14 @@
 *{box-sizing:border-box;margin:0;padding:0}
 [hidden]{display:none !important}
 html,body{height:100%}
-body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var(--bg);
+body{font-family:var(--font-body);color:var(--text);background:var(--bg);
   -webkit-font-smoothing:antialiased;overflow-x:hidden;overflow-x:clip;
   -webkit-tap-highlight-color:transparent}
-.mono,code,pre,.CodeMirror{font-family:'DM Mono',ui-monospace,monospace}
+.mono,code,pre,.CodeMirror{font-family:var(--font-mono)}
+h1,h2,h3,.eyebrow{font-family:var(--font-display);letter-spacing:-0.011em}
 em{color:var(--teal);font-style:normal}
 .muted{color:var(--muted);font-weight:400}
-.kbd{font-family:'DM Mono',monospace;font-size:.78em;border:1px solid var(--glass-border);
+.kbd{font-family:var(--font-mono);font-size:.78em;border:1px solid var(--glass-border);
   border-radius:6px;padding:1px 6px;background:rgba(255,255,255,0.06)}
 .w100{width:100%;max-width:none}
 

@@ -1,7 +1,7 @@
 {
   "name": "nebulaverse-x",
   "version": "5.3.0-alpha.17.0",
-  "description": "Nebulaverse-X — a visual Git security, governance, recovery and large-file operations platform with verified live intelligence.",
+  "description": "Nebulaverse-X \u2014 a visual Git security, governance, recovery and large-file operations platform with verified live intelligence.",
   "main": "server.js",
   "type": "commonjs",
   "engines": {
@@ -36,6 +36,13 @@
     "test:public-alpha:matrix": "node scripts/test-matrix.js --require-all --require-subject --report staging/evidence/public-alpha-matrix.json"
   },
   "dependencies": {
+    "@fontsource-variable/archivo": "5.3.0",
+    "@fontsource-variable/fira-code": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "@fontsource-variable/public-sans": "5.3.0",
+    "@fontsource-variable/source-code-pro": "5.3.0",
+    "@fontsource/dm-mono": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
     "codemirror": "5.65.16",
     "dompurify": "3.4.13",
     "express": "4.22.2",

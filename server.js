@@ -548,11 +548,16 @@ const VENDOR_ALLOWLIST = new Set([
   'codemirror/5.65.16/theme/monokai.min.css',
   'codemirror/5.65.16/theme/nord.min.css',
   'marked/15.0.12/marked.min.js',
-  'dompurify/3.4.13/purify.min.js'
-]);
-const GFONTS_ALLOWLIST = new Set([
-  'family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap',
-  'family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&family=Source+Code+Pro:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap'
+  'dompurify/3.4.13/purify.min.js',
+  'fonts/archivo-variable-latin.woff2',
+  'fonts/public-sans-variable-latin.woff2',
+  'fonts/jetbrains-mono-variable-latin.woff2',
+  'fonts/fira-code-variable-latin.woff2',
+  'fonts/source-code-pro-variable-latin.woff2',
+  'fonts/ibm-plex-mono-400-latin.woff2',
+  'fonts/ibm-plex-mono-500-latin.woff2',
+  'fonts/dm-mono-400-latin.woff2',
+  'fonts/dm-mono-500-latin.woff2'
 ]);
 async function readBoundedResponse(response, maxBytes = 2 * MB) {
   const declared = Number(response.headers.get('content-length') || 0);
@@ -573,7 +578,7 @@ async function readBoundedResponse(response, maxBytes = 2 * MB) {
   }
   return Buffer.concat(chunks, total);
 }
-async function proxyAsset(res, upstream, rewriteGstatic) {
+async function proxyAsset(res, upstream) {
   const hit = VCACHE.get(upstream);
   if (hit) {
     res.setHeader('Content-Type', hit.type);
@@ -586,7 +591,6 @@ async function proxyAsset(res, upstream, rewriteGstatic) {
   if (!r.ok) return res.status(502).json({ error: `Vendor upstream ${r.status}` });
   let buf = await readBoundedResponse(r, 2 * MB);
   const type = r.headers.get('content-type') || 'application/octet-stream';
-  if (rewriteGstatic) buf = Buffer.from(buf.toString('utf8').split('https://fonts.gstatic.com').join('/gstatic'));
   if (buf.length <= 2 * MB) {
     vBytes += buf.length;
     VCACHE.set(upstream, { buf, type });
@@ -611,23 +615,8 @@ app.get('/vendor/*', async (req, res) => {
       return res.sendFile(localPath);
     }
     /* Exact allowlisted CDN fallback only; normal deployments bundle every vendor asset. */
-    await proxyAsset(res, 'https://cdnjs.cloudflare.com/ajax/libs/' + p, false);
+    await proxyAsset(res, 'https://cdnjs.cloudflare.com/ajax/libs/' + p);
   } catch (e) { res.status(502).json({ error: e.message }); }
-});
-app.get('/gfonts/css2', async (req, res) => {
-  try {
-    const qs = (req.url.split('?')[1] || '');
-    if (!GFONTS_ALLOWLIST.has(qs)) return res.status(404).end();
-    await proxyAsset(res, 'https://fonts.googleapis.com/css2?' + qs, true);
-  } catch (e) { res.status(502).json({ error: e.message }); }
-});
-const FONT_ASSET_RX = /^s\/[a-z0-9_-]+\/v\d+\/[A-Za-z0-9_-]+\.woff2$/i;
-app.get('/gstatic/*', async (req, res) => {
-  try {
-    const p = req.params[0] || '';
-    if (!SAFE_ASSET.test(p) || p.includes('..') || !FONT_ASSET_RX.test(p)) return res.status(404).end();
-    await proxyAsset(res, 'https://fonts.gstatic.com/' + p, false);
-  } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
 });
 /* GitHub sends the exact bytes used to calculate X-Hub-Signature-256. */
 app.post('/hooks/github/:hookId', express.raw({ type: 'application/json', limit: '2mb' }), receiveGithubWebhook);

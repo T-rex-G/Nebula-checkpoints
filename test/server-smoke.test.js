@@ -131,8 +131,31 @@ async function waitForServer() {
     const unknownVendor = await request('/vendor/arbitrary/1.0.0/file.js');
     assert.strictEqual(unknownVendor.status, 404);
 
-    const unknownFont = await request('/gstatic/not/an-allowlisted-font.js');
-    assert.strictEqual(unknownFont.status, 404);
+    /*
+     * Typefaces are served from this origin. The former Google Fonts proxy
+     * routes are gone, so a request for one must not resolve at all, and the
+     * vendored faces must be reachable without leaving the origin.
+     */
+    for (const removed of [
+      '/gstatic/s/dmsans/v11/abcdef.woff2',
+      '/gfonts/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap'
+    ]) {
+      /*
+       * Unmatched paths fall through to the application shell, so the removal
+       * shows as the absence of font or stylesheet bytes rather than as a 404.
+       * The second path is the exact query the old allowlist accepted, so this
+       * fails if the proxy is ever restored.
+       */
+      const response = await request(removed);
+      const type = String(response.headers['content-type'] || '');
+      assert(
+        !/font|css/i.test(type),
+        `${removed} must not resolve to font or stylesheet bytes, got ${type}`
+      );
+    }
+
+    const servedFont = await request('/vendor/fonts/public-sans-variable-latin.woff2');
+    assert.strictEqual(servedFont.status, 200, 'the interface must serve its own body face');
 
     console.log('server smoke tests passed');
   } finally {

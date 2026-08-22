@@ -52,4 +52,87 @@ assert(safeguardsBlock.includes('onOpen: () => {'),
 assert(!safeguardsBlock.includes('setTimeout(() => {'),
   'Safeguards must not expose clickable controls before their handlers are bound');
 
+
+/*
+ * Every typeface the interface names must be one this origin actually serves.
+ *
+ * The stylesheet asked for DM Sans and DM Mono for two releases and nothing
+ * ever loaded them: there was no @font-face rule and font-src is 'self', so a
+ * hosted stylesheet would have been refused by the policy anyway. Every user
+ * silently got the system fallback, and nothing failed, because no check tied
+ * the names in the font stacks to the files on disk. This is that check.
+ */
+{
+  const styles = fs.readFileSync(path.join(root, 'public', 'style.css'), 'utf8');
+  const declared = new Set(
+    [...styles.matchAll(/@font-face\{font-family:'([^']+)'/g)].map(match => match[1])
+  );
+  assert(declared.size >= 3, 'the interface must declare its own faces rather than assume the system has them');
+
+  for (const family of declared) {
+    const rule = styles.slice(styles.indexOf(`@font-face{font-family:'${family}'`));
+    const source = /url\('([^']+)'\)/.exec(rule);
+    assert(source, `${family} must name a file`);
+    assert(
+      fs.existsSync(path.join(root, 'public', source[1])),
+      `${family} names ${source[1]}, which this origin does not serve`
+    );
+    assert(/font-display:swap/.test(rule.slice(0, rule.indexOf('}'))),
+      `${family} must render in a fallback while it loads`);
+  }
+
+  /*
+   * Every quoted family named by a stack must resolve to a declared face.
+   *
+   * The stacks live in custom properties, not only in font-family, which an
+   * earlier version of this check did not read -- so it still accepted the very
+   * bug it was written for. Both declaration forms are scanned now.
+   */
+  const stacks = styles.replace(/@font-face\{[^}]*\}/g, '');
+  const stackDeclarations = [...stacks.matchAll(/(?:font-family|--font-[a-z-]+|--ed-family)\s*:([^;}]*)/g)];
+  assert(
+    stackDeclarations.length >= 4,
+    'the font stacks must be readable as declarations for this check to mean anything'
+  );
+  for (const [, value] of stackDeclarations) {
+    for (const [, family] of value.matchAll(/'([^']+)'/g)) {
+      assert(declared.has(family), `a font stack asks for ${family}, which this origin never loads`);
+    }
+  }
+
+  /*
+   * Canvas text names its own face and is reached by no stylesheet rule, which
+   * is how neural.js kept asking for a typeface nobody shipped. Interpolations
+   * are removed first: the quoted values inside them are weights and node
+   * kinds, not families.
+   */
+  const neural = fs.readFileSync(path.join(root, 'public', 'neural.js'), 'utf8');
+  for (const [, literal] of neural.matchAll(/ctx\.font\s*=\s*`([^`]*)`/g)) {
+    for (const [, family] of literal.replace(/\$\{[^}]*\}/g, '').matchAll(/'([^']+)'/g)) {
+      assert(declared.has(family), `canvas text asks for ${family}, which this origin never loads`);
+    }
+  }
+
+  /*
+   * Only the faces every visit loads are warmed.
+   *
+   * The core stacks apply on first paint, so a first offline visit needs them
+   * already in the cache. The editor picker faces do not: a declared face is
+   * not downloaded until a rule applies it, and the worker's static branch
+   * caches any same-origin asset it fetches, so a chosen face is kept from
+   * first use. Warming all nine would download every picker face on install to
+   * serve the one a reader actually picked.
+   */
+  const worker = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
+  const coreStacks = [...styles.matchAll(/--font-(?:display|body|mono)\s*:([^;}]*)/g)];
+  assert.strictEqual(coreStacks.length, 3, 'the three core stacks must be declared');
+  for (const [, value] of coreStacks) {
+    for (const [, family] of value.matchAll(/'([^']+)'/g)) {
+      const rule = styles.slice(styles.indexOf(`@font-face{font-family:'${family}'`));
+      const file = /url\('([^']+)'\)/.exec(rule)[1];
+      assert(worker.includes(file), `a first offline visit needs ${family}: ${file} is not warmed`);
+    }
+  }
+}
+
 console.log('alpha UI contract tests passed');

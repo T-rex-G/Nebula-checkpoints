@@ -234,7 +234,17 @@ must(offlinePolicy.includes("const CACHE_SCHEMA = 'v1'") && offlinePolicy.includ
 must(sw.includes("key === 'nv-api-perm'") && sw.includes("key === 'nv-api'"), 'Service worker upgrades must delete legacy shared API caches');
 must(server.includes('/hooks/github/:hookId') && server.includes('verifyGithubSignature'), 'Verified GitHub webhook intake is missing');
 must(server.includes("object-src 'none'") && server.includes("base-uri 'none'"), 'CSP active-content restrictions are incomplete');
-must(server.includes('VENDOR_ALLOWLIST') && server.includes('GFONTS_ALLOWLIST'), 'Vendor proxy allowlists are missing');
+must(server.includes('VENDOR_ALLOWLIST'), 'The vendor proxy allowlist is missing');
+/*
+ * Typefaces were proxied from Google through an allowlisted route, so every
+ * reader's address reached a third party, an offline session lost the faces,
+ * and the proxied bytes were absent from the archive whose fingerprint the
+ * hosted gate verifies. They are served from this origin now, so the stronger
+ * property is that no font proxy exists at all.
+ */
+must(!/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/.test(server), 'A stylesheet font proxy has returned');
+must(!/\/gstatic|fonts\.gstatic/.test(server), 'A font-file proxy has returned');
+must(server.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hosted interface faces are not served');
 must(server.includes("path.join(__dirname, 'public', 'vendor')") && server.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
 must(server.includes('allowWebhookRequest') && server.includes('Webhook delivery rate exceeded'), 'Webhook abuse limiter is missing');
 must(server.includes('/readyz'), 'Readiness endpoint is missing');

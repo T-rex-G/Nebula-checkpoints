@@ -4,12 +4,15 @@ const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
+const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
 
 const root = path.resolve(__dirname, '..');
 const secret = 'security-server-test-secret-0123456789abcdef-0123456789abcdef';
 const snapKey = ['security', 'server', 'snapshot', 'secret',
   'fedcba9876543210', 'fedcba9876543210'].join('-');
-const key = crypto.createHash('sha256').update(secret).digest();
+/* The server derives a purpose-specific session key; mirror that derivation
+   rather than the raw digest it replaced. */
+const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
 const port = 28500 + Math.floor(Math.random() * 1000);
 
 function seal(value) {

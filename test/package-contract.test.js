@@ -99,6 +99,40 @@ assert.strictEqual(pkg.dependencies.dompurify, '3.4.13', 'DOMPurify must include
 assert.strictEqual(dependencyLock.packages['node_modules/dompurify'].version, '3.4.13');
 assert.strictEqual(dependencyLock.packages['node_modules/brace-expansion'].version, '5.0.9',
   'the release packager dependency chain must include the brace-expansion DoS fixes');
+
+/*
+ * Every dependency is pinned to one exact version, and the lockfile must agree.
+ *
+ * A range is not made safe by the presence of a lockfile. `npm ci` honours the
+ * lock, but `npm install` resolves the range again and silently rewrites it:
+ * `express ^4.19.2` had already drifted to 4.22.2 and `pg ^8.11.5` to 8.22.0
+ * without any deliberate upgrade. This project re-qualifies an exact archive
+ * and compares byte-identical builds, so the declared tree must name the exact
+ * versions rather than a set of versions that happen to resolve today.
+ */
+const declaredDependencies = Object.entries({
+  ...pkg.dependencies,
+  ...pkg.devDependencies
+}).sort(([left], [right]) => left.localeCompare(right));
+assert(declaredDependencies.length > 0, 'the dependency contract must cover a non-empty tree');
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const unpinned = declaredDependencies
+  .filter(([, range]) => !EXACT_VERSION.test(range))
+  .map(([name, range]) => `${name}@${range}`);
+assert.deepStrictEqual(unpinned, [],
+  `every dependency must be pinned to an exact version: ${unpinned.join(', ')}`);
+for (const [name, version] of declaredDependencies) {
+  const locked = dependencyLock.packages[`node_modules/${name}`];
+  assert(locked, `${name} must be present in the lockfile`);
+  assert.strictEqual(locked.version, version,
+    `${name} is declared ${version} but locked at ${locked.version}`);
+}
+const lockRoot = dependencyLock.packages[''];
+assert.deepStrictEqual(
+  { ...lockRoot.dependencies, ...lockRoot.devDependencies },
+  { ...pkg.dependencies, ...pkg.devDependencies },
+  'the lockfile root must declare the same versions as package.json'
+);
 for (const source of ['public/index.html', 'public/sw.js', 'server.js', 'scripts/copy-vendor.js', 'scripts/verify.js']) {
   assert(read(source).includes('dompurify/3.4.13/purify.min.js'), `${source} has a stale DOMPurify asset path`);
 }

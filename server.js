@@ -110,6 +110,7 @@ const {
 const {
   GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker
 } = require('./src/github-app');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation');
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
@@ -153,7 +154,18 @@ if (process.env.NODE_ENV === 'production' && Buffer.byteLength(SECRET, 'utf8') <
     'then set it in the Render dashboard under Environment.'
   );
 }
-const KEY = crypto.createHash('sha256').update(SECRET).digest();
+/*
+ * Every keyed construction below derives its own key from SECRET through a
+ * distinct HKDF purpose. See src/key-derivation.js for why the previous shared
+ * key was a hazard even though nothing was exploitable.
+ */
+const SESSION_CONTENT_KEY = deriveKey(SECRET, KEY_PURPOSES.SESSION_CONTENT);
+const OFFLINE_CACHE_SCOPE_KEY = deriveKey(SECRET, KEY_PURPOSES.OFFLINE_CACHE_SCOPE);
+const GITHUB_APP_STATE_REPLAY_KEY = deriveKey(SECRET, KEY_PURPOSES.GITHUB_APP_STATE_REPLAY);
+const CSRF_SECRET = deriveSecret(SECRET, KEY_PURPOSES.CSRF_TOKEN);
+const STEP_UP_SECRET = deriveSecret(SECRET, KEY_PURPOSES.STEP_UP_GRANT);
+const GITHUB_APP_STATE_SECRET = deriveSecret(SECRET, KEY_PURPOSES.GITHUB_APP_STATE);
+const EVIDENCE_LEDGER_SECRET = deriveSecret(SECRET, KEY_PURPOSES.EVIDENCE_LEDGER);
 const SNAPSHOT_SIGNATURES = createSnapshotSignatures(loadSnapshotSigningConfig(process.env, {
   production: process.env.NODE_ENV === 'production',
   // Production uses this only to reject active-key reuse. Legacy verification
@@ -623,14 +635,14 @@ app.use(express.static(path.join(__dirname, 'public'), {
 /* ---------------- encrypted cookie session ---------------- */
 function seal(obj) {
   const iv = crypto.randomBytes(12);
-  const c = crypto.createCipheriv('aes-256-gcm', KEY, iv);
+  const c = crypto.createCipheriv('aes-256-gcm', SESSION_CONTENT_KEY, iv);
   const enc = Buffer.concat([c.update(JSON.stringify(obj), 'utf8'), c.final()]);
   return Buffer.concat([iv, c.getAuthTag(), enc]).toString('base64url');
 }
 function unseal(str) {
   try {
     const raw = Buffer.from(str, 'base64url');
-    const d = crypto.createDecipheriv('aes-256-gcm', KEY, raw.subarray(0, 12));
+    const d = crypto.createDecipheriv('aes-256-gcm', SESSION_CONTENT_KEY, raw.subarray(0, 12));
     d.setAuthTag(raw.subarray(12, 28));
     return JSON.parse(Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString('utf8'));
   } catch { return null; }
@@ -1059,9 +1071,10 @@ if (process.env.NODE_ENV === 'production' && process.env.NV_GOVERNANCE_AUDIT_SEC
     Buffer.byteLength(process.env.NV_GOVERNANCE_AUDIT_SECRET, 'utf8') < 32) {
   throw new Error('NV_GOVERNANCE_AUDIT_SECRET must contain at least 32 bytes in production when configured.');
 }
-const GOVERNANCE_AUDIT_SECRET = crypto.createHash('sha256')
-  .update(`governance-audit:${GOVERNANCE_AUDIT_SECRET_SOURCE}`)
-  .digest('hex');
+const GOVERNANCE_AUDIT_SECRET = deriveKey(
+  GOVERNANCE_AUDIT_SECRET_SOURCE,
+  KEY_PURPOSES.GOVERNANCE_AUDIT
+).toString('hex');
 let _governanceStore = null;
 let _governanceApiService = null;
 let governanceWebhookWorker = null;
@@ -1459,13 +1472,13 @@ function verifyRequestCsrf(req) {
   if (SAFE_API_METHODS.has(req.method)) return null;
   const token = String(req.headers['x-nv-csrf'] || '');
   if (!token) throw Object.assign(new Error('A fresh CSRF token is required'), { status: 403, code: 'CSRF_REQUIRED' });
-  return verifyCsrfToken(SECRET, token, requestSecurityContext(req));
+  return verifyCsrfToken(CSRF_SECRET, token, requestSecurityContext(req));
 }
 async function consumeStepUpAuthorization(req, res, operation) {
   const token = String(req.headers['x-nv-step-up'] || '');
   if (!token) throw Object.assign(new Error('This sensitive action requires step-up authorization'), { status: 403, code: 'STEP_UP_REQUIRED' });
   const context = requestSecurityContext(req);
-  const claims = verifyStepUpGrant(SECRET, token, { ...context, action: operation.action, scope: operation.scope });
+  const claims = verifyStepUpGrant(STEP_UP_SECRET, token, { ...context, action: operation.action, scope: operation.scope });
   const state = sessionSecurityState(req.session);
   req.stepUp = consumePendingStepUp(state, claims, operation, { replayStore: USED_STEP_UP_GRANTS });
   await setSession(req, res, req.session);
@@ -1476,7 +1489,7 @@ function offlineCacheScope(req) {
   const cookie = getCookie(req, 'nv_session') || '';
   const sessionBinding = sid || crypto.createHash('sha256').update(cookie).digest('hex');
   if (!sessionBinding || !req.gh) return '';
-  return crypto.createHmac('sha256', KEY)
+  return crypto.createHmac('sha256', OFFLINE_CACHE_SCOPE_KEY)
     .update(`${sessionBinding}|${identityKey(req.gh)}`)
     .digest('base64url')
     .slice(0, 32);
@@ -1546,7 +1559,7 @@ async function appendEvidence(repoK, kind, recordId, payload) {
     const prev = await client.query('SELECT record_hash FROM nv_evidence_chain WHERE repo_key=$1 ORDER BY seq DESC LIMIT 1', [repoK]);
     const previousHash = prev.rows[0] && prev.rows[0].record_hash || 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
     const payloadHash = hashJson(payload);
-    const recordHash = evidenceRecordHash(SECRET, previousHash, repoK, kind, recordId, payloadHash);
+    const recordHash = evidenceRecordHash(EVIDENCE_LEDGER_SECRET, previousHash, repoK, kind, recordId, payloadHash);
     const out = await client.query(
       `INSERT INTO nv_evidence_chain(repo_key,kind,record_id,previous_hash,record_hash,payload_hash)
        VALUES($1,$2,$3,$4,$5,$6) RETURNING seq,created_at`,
@@ -1572,7 +1585,7 @@ async function verifyEvidenceChain(repoK, limit = 1000) {
   const total = count.rows[0] ? Number(count.rows[0].total || 0) : 0;
   let previousHash = 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
   for (const row of r.rows) {
-    const expected = evidenceRecordHash(SECRET, previousHash, repoK, row.kind, row.record_id, row.payload_hash);
+    const expected = evidenceRecordHash(EVIDENCE_LEDGER_SECRET, previousHash, repoK, row.kind, row.record_id, row.payload_hash);
     if (row.previous_hash !== previousHash || row.record_hash !== expected) {
       return {
         available: true, valid: false, complete: r.rows.length === total,
@@ -2973,7 +2986,7 @@ function pruneUsedGithubAppStates(now = Date.now()) {
   }
 }
 function githubAppStateReplayKey(slot, nonce, identity) {
-  return crypto.createHmac('sha256', KEY)
+  return crypto.createHmac('sha256', GITHUB_APP_STATE_REPLAY_KEY)
     .update(`${String(slot)}|${String(nonce)}|${String(identity)}`)
     .digest('base64url');
 }
@@ -3084,7 +3097,7 @@ app.post('/api/github-app/connect', requireGithubAppFeature, auth, async (req, r
     const context = requestSecurityContext(req);
     const nonce = crypto.randomBytes(18).toString('base64url');
     const now = Date.now();
-    const state = createGithubAppState(SECRET, { ...context, purpose: 'user-auth' }, {
+    const state = createGithubAppState(GITHUB_APP_STATE_SECRET, { ...context, purpose: 'user-auth' }, {
       now, ttlMs: GITHUB_APP_FLOW_TTL_MS, nonce
     });
     githubAppPending(req.session).userAuth = {
@@ -3107,7 +3120,7 @@ app.get('/api/github-app/oauth/callback', requireGithubAppFeature, async (req, r
   res.setHeader('Cache-Control', 'no-store');
   try {
     const context = await githubAppCallbackContext(req, res);
-    const claims = verifyGithubAppState(SECRET, req.query && req.query.state, { ...context, purpose: 'user-auth' });
+    const claims = verifyGithubAppState(GITHUB_APP_STATE_SECRET, req.query && req.query.state, { ...context, purpose: 'user-auth' });
     const pending = consumeGithubAppPending(req.session, 'userAuth', claims.nonce, context.identityKey);
     await setSession(req, res, req.session);
     const exchange = await githubAppBroker.exchangeUserCode(req.query && req.query.code);
@@ -3118,7 +3131,7 @@ app.get('/api/github-app/oauth/callback', requireGithubAppFeature, async (req, r
     const nonce = crypto.randomBytes(18).toString('base64url');
     const now = Date.now();
     const tokenLifetime = exchange.expiresIn > 0 ? Math.min(GITHUB_APP_FLOW_TTL_MS, exchange.expiresIn * 1000) : GITHUB_APP_FLOW_TTL_MS;
-    const state = createGithubAppState(SECRET, { ...context, purpose: 'installation-claim' }, {
+    const state = createGithubAppState(GITHUB_APP_STATE_SECRET, { ...context, purpose: 'installation-claim' }, {
       now, ttlMs: tokenLifetime, nonce
     });
     githubAppPending(req.session).installation = {
@@ -3142,7 +3155,7 @@ app.get('/api/github-app/setup', requireGithubAppFeature, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
     const context = await githubAppCallbackContext(req, res);
-    const claims = verifyGithubAppState(SECRET, req.query && req.query.state, { ...context, purpose: 'installation-claim' });
+    const claims = verifyGithubAppState(GITHUB_APP_STATE_SECRET, req.query && req.query.state, { ...context, purpose: 'installation-claim' });
     const pending = consumeGithubAppPending(req.session, 'installation', claims.nonce, context.identityKey);
     await setSession(req, res, req.session);
     const installationId = Number(req.query && req.query.installation_id);
@@ -3315,7 +3328,7 @@ app.get('/api/security/scanner-status', auth, capabilityAccess('upload-security'
 app.get('/api/security/csrf', accountAuth, (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const now = Date.now();
-  const token = createCsrfToken(SECRET, requestSecurityContext(req), { now, ttlMs: CSRF_TTL_MS });
+  const token = createCsrfToken(CSRF_SECRET, requestSecurityContext(req), { now, ttlMs: CSRF_TTL_MS });
   res.json({ token, expiresAt: new Date(now + CSRF_TTL_MS).toISOString() });
 });
 app.post('/api/security/step-up', providerSessionAccess, alphaStepUpRepositoryAccess, auth, async (req, res) => {
@@ -3361,7 +3374,7 @@ app.post('/api/security/step-up', providerSessionAccess, alphaStepUpRepositoryAc
     const now = Date.now();
     const expiresAt = now + STEP_UP_TTL_MS;
     const jti = crypto.randomUUID();
-    const grant = createStepUpGrant(SECRET, {
+    const grant = createStepUpGrant(STEP_UP_SECRET, {
       ...requestSecurityContext(req), action: operation.action, scope: operation.scope, assurance
     }, { now, ttlMs: STEP_UP_TTL_MS, jti });
     sessionSecurityState(req.session).stepUp = {

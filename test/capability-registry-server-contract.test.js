@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { hashJson } = require('../src/intelligence');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
 const {
   createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash
 } = require('../src/security-foundation');
@@ -16,7 +17,11 @@ const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const fixture = path.join(__dirname, 'fixtures', 'capability-provider-fetch.js');
 const port = 31000 + Math.floor(Math.random() * 1000);
 const secret = 'capability-server-test-secret-0123456789abcdef-0123456789abcdef';
-const key = crypto.createHash('sha256').update(secret).digest();
+/* The server derives a purpose-specific key per construction; mirror those
+   derivations rather than the single raw secret they replaced. */
+const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
+const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);
+const stepUpSecret = deriveSecret(secret, KEY_PURPOSES.STEP_UP_GRANT);
 const fixtureLog = path.join(os.tmpdir(), `nv-capability-provider-${process.pid}-${port}.log`);
 const focus = process.argv[2] || 'all';
 const sessionNonce = 'a'.repeat(48);
@@ -136,7 +141,7 @@ const activeIdentityKey = hashJson({
   baseUrl: account.baseUrl,
   login: account.login
 });
-const csrf = createCsrfToken(secret, {
+const csrf = createCsrfToken(csrfSecret, {
   sessionBinding: sessionNonce,
   identityKey: activeIdentityKey
 });
@@ -332,7 +337,7 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
         expiresAt: Date.now() + 300000,
         assurance: 'credential'
       };
-      const stepUpGrant = createStepUpGrant(secret, {
+      const stepUpGrant = createStepUpGrant(stepUpSecret, {
         sessionBinding: sessionNonce,
         identityKey: activeIdentityKey,
         action: resetOperation.action,

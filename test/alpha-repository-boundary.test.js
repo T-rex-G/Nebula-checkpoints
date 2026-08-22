@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { hashJson } = require('../src/intelligence');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
 const {
   createCsrfToken,
   createStepUpGrant,
@@ -18,7 +19,11 @@ const root = path.resolve(__dirname, '..');
 const port = 31800 + Math.floor(Math.random() * 800);
 const secret = 'alpha-boundary-test-secret-0123456789abcdef-0123456789abcdef';
 const snapKey = 'alpha-boundary-snapshot-secret-fedcba9876543210-fedcba9876543210';
-const key = crypto.createHash('sha256').update(secret).digest();
+/* The server derives a purpose-specific key per construction; mirror those
+   derivations rather than the single raw secret they replaced. */
+const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
+const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);
+const stepUpSecret = deriveSecret(secret, KEY_PURPOSES.STEP_UP_GRANT);
 const termsVersion = '2026-07-30';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nv-alpha-server-boundary-'));
 const fixture = path.join(tmp, 'fixture.js');
@@ -105,7 +110,7 @@ const appDeleteStepUp = {
   expiresAt: Date.now() + 300000,
   assurance: 'github-app'
 };
-const appDeleteGrant = createStepUpGrant(secret, {
+const appDeleteGrant = createStepUpGrant(stepUpSecret, {
   sessionBinding: sessionNonce,
   identityKey: identityKey(accounts.githubApp),
   action: appDeleteOperation.action,
@@ -683,7 +688,7 @@ function postJson(body, headers = {}) {
 }
 
 function csrfFor(selectedAccount) {
-  return createCsrfToken(secret, {
+  return createCsrfToken(csrfSecret, {
     sessionBinding: sessionNonce,
     identityKey: identityKey(selectedAccount)
   });

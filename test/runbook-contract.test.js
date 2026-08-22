@@ -41,8 +41,35 @@ function logicalShellLines(text) {
     .map(value => value.trimStart());
 }
 
-function isCurlCommandLine(value) {
-  return /(?:^|[;&|]\s*|\$\(\s*)(?:![ \t]+)?curl(?:[ \t]|$)/.test(value);
+/*
+ * Curl lines are found by scope, not by grammar.
+ *
+ * The previous matcher recognised curl only at a boundary it enumerated -- line
+ * start, `;&|`, `$(` -- and so skipped `( curl ... )`, `if curl ...; then` and
+ * `while curl ...`, silently exempting them from the --fail contract. Adding a
+ * fourth alternative would invite a fifth; the same mistake in the workflow
+ * contract took three rounds to stop making.
+ *
+ * So the question changes from "is this line a curl command?", which needs a
+ * shell grammar, to "is this line inside a runbook's copyable command block?",
+ * which is a heading scan. Inside such a block every line naming curl is held
+ * to the contract, whatever its shell construct.
+ *
+ * That is deliberately over-strict: a comment or an echo mentioning curl inside
+ * a command block must satisfy the contract or be reworded. Over-strict fails
+ * loudly at authoring time. The previous under-strict version failed silently,
+ * in production runbooks, for as long as nobody looked.
+ */
+function commandBlockLines(text) {
+  const lines = [];
+  for (const block of text.matchAll(/^[ \t]*```bash[ \t]*\r?\n([\s\S]*?)^[ \t]*```[ \t]*$/gm)) {
+    lines.push(...logicalShellLines(block[1]));
+  }
+  return lines;
+}
+
+function namesCurl(value) {
+  return /\bcurl\b/.test(value);
 }
 
 /*
@@ -94,7 +121,7 @@ for (const line of [
   'false || ! curl --fail https://example.test',
   'status=$( !\tcurl --fail https://example.test)'
 ]) {
-  assert(isCurlCommandLine(line), `curl contract must inspect command form: ${line}`);
+  assert(namesCurl(line), `curl contract must inspect command form: ${line}`);
   assert.doesNotThrow(() => assertCurlContract('synthetic-runbook.md', line));
 }
 for (const [line, description] of [
@@ -108,24 +135,51 @@ for (const [line, description] of [
   ['true && ! curl --proto =https https://example.test', 'negated AND-list command'],
   ['status=$( !\tcurl --proto =https https://example.test)', 'negated command substitution']
 ]) {
-  assert(isCurlCommandLine(line), `curl contract must inspect ${description}`);
+  assert(namesCurl(line), `curl contract must inspect ${description}`);
   assert.throws(
     () => assertCurlContract('synthetic-runbook.md', line),
     /verification probe must fail on HTTP errors/,
     `a ${description} must not bypass the --fail requirement`
   );
 }
-for (const line of [
-  '!curl --fail https://example.test',
-  'echo ! curl --fail https://example.test',
-  'printf "! curl --fail https://example.test"'
+/*
+ * Shell constructs the enumerated-boundary matcher skipped entirely. Each is a
+ * real way to run curl, and each previously escaped the --fail requirement.
+ */
+for (const [line, description] of [
+  ['( curl --proto =https https://example.test )', 'grouped command'],
+  ['if curl --proto =https https://example.test; then', 'conditional command'],
+  ['while curl --proto =https https://example.test; do', 'loop command'],
+  ['until curl --proto =https https://example.test; do', 'until-loop command'],
+  ['for host in a b; do curl --proto =https https://example.test; done', 'loop body command']
 ]) {
-  assert(!isCurlCommandLine(line), `curl contract must ignore non-command token: ${line}`);
+  assert(namesCurl(line), `curl contract must inspect ${description}`);
+  assert.throws(
+    () => assertCurlContract('synthetic-runbook.md', line),
+    /verification probe must fail on HTTP errors/,
+    `a ${description} must not bypass the --fail requirement`
+  );
 }
+
+/* Prose outside a command block is not a command, and is not scanned. */
+const proseOnly = [
+  '# Notes',
+  'Explain why `curl` alone would pass silently here.',
+  '```bash',
+  'set -euo pipefail',
+  'curl --proto =https --fail https://example.test',
+  '```',
+  'A trailing paragraph mentioning curl again.'
+].join('\n');
+assert.deepStrictEqual(
+  commandBlockLines(proseOnly).filter(namesCurl),
+  ['curl --proto =https --fail https://example.test'],
+  'only command-block lines are held to the curl contract'
+);
 
 for (const file of required) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
-  for (const line of logicalShellLines(text).filter(isCurlCommandLine)) assertCurlContract(file, line);
+  for (const line of commandBlockLines(text).filter(namesCurl)) assertCurlContract(file, line);
 }
 
 const credentialExposure = fs.readFileSync(path.join(root, '04-credential-exposure.md'), 'utf8');

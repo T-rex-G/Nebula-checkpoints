@@ -246,123 +246,6 @@ function assertImmutableActionReference(reference, workflowName) {
   );
 }
 
-/*
- * Step boundaries come from the list-item indentation, and the action
- * reference is then located inside the block at the step's own key column.
- *
- * Keying off `- uses:` instead would silently skip every step that names
- * itself first, and requiring content after the dash skips the bare `-` form
- * whose keys begin on the next line. Both are ordinary ways to write a step,
- * and a checkout written either way would never reach the persist-credentials
- * assertion below -- the contract would report a pass it never checked.
- *
- * The key column is read rather than assumed, because a bare `-` may indent
- * its mapping arbitrarily. Matching at that exact column is what keeps a
- * `uses:` nested under `with:` from being mistaken for the step's own action.
- */
-function actionStepBlocks(source) {
-  const lines = source.split('\n');
-  const blocks = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = /^(\s*)-(\s+\S.*)?\s*$/.exec(lines[index]);
-    if (!match) continue;
-    const indentation = match[1].length;
-    let end = index + 1;
-    while (end < lines.length) {
-      if (lines[end].trim()) {
-        const nextIndentation = /^(\s*)/.exec(lines[end])[1].length;
-        if (nextIndentation <= indentation) break;
-      }
-      end += 1;
-    }
-    const block = lines.slice(index, end);
-    const rest = block.slice(1);
-    /* An inline first key sits right after "- "; a bare dash defers to the
-       first line that follows, which establishes the mapping's own column. */
-    const keyColumn = match[2]
-      ? indentation + 2
-      : (/^(\s*)\S/.exec(rest.find(line => line.trim()) || '') || [, ''])[1].length;
-    const aligned = [
-      `${' '.repeat(indentation + 2)}${block[0].trim().replace(/^-\s*/, '')}`,
-      ...rest
-    ];
-    const uses = aligned
-      .map(line => new RegExp(`^ {${keyColumn}}uses:\\s*([^\\s#]+)`).exec(line))
-      .find(Boolean);
-    if (uses) blocks.push({ reference: uses[1], source: block.join('\n') });
-  }
-  return blocks;
-}
-
-const boundedActionFixture = [
-  'jobs:',
-  '  verify:',
-  '    steps:',
-  `      - uses: actions/checkout@${'a'.repeat(40)}`,
-  '        with:',
-  '          persist-credentials: false',
-  '  unrelated:',
-  '    persist-credentials: true'
-].join('\n');
-const [boundedAction] = actionStepBlocks(boundedActionFixture);
-assert(boundedAction.source.includes('persist-credentials: false'));
-assert(!boundedAction.source.includes('unrelated:'), 'action blocks must stop at the first non-empty dedent');
-
-/* A step that names itself before it names its action is still a step. */
-const namedActionFixture = [
-  'jobs:',
-  '  verify:',
-  '    steps:',
-  '      - name: Check out the candidate',
-  `        uses: actions/checkout@${'b'.repeat(40)}`,
-  '        with:',
-  '          persist-credentials: true'
-].join('\n');
-const namedActionBlocks = actionStepBlocks(namedActionFixture);
-assert.strictEqual(namedActionBlocks.length, 1, 'a named step must still be discovered');
-assert.strictEqual(namedActionBlocks[0].reference, `actions/checkout@${'b'.repeat(40)}`,
-  'the action reference must be read from inside the block, not from its first line');
-assert(namedActionBlocks[0].source.includes('persist-credentials: true'),
-  'a named checkout must reach the persist-credentials assertion rather than be skipped');
-
-/*
- * A bare `-` opens a step whose keys sit on the following lines. It is valid
- * YAML, Actions accepts it, and a checkout written this way must not slip past
- * the persist-credentials assertion the way a named one used to.
- */
-for (const [label, indent] of [['conventional', '        '], ['deeper', '          ']]) {
-  const bareActionFixture = [
-    'jobs:',
-    '  verify:',
-    '    steps:',
-    '      -',
-    `${indent}uses: actions/checkout@${'c'.repeat(40)}`,
-    `${indent}with:`,
-    `${indent}  persist-credentials: true`
-  ].join('\n');
-  const bareBlocks = actionStepBlocks(bareActionFixture);
-  assert.strictEqual(bareBlocks.length, 1, `a bare-dash step must be discovered (${label} indentation)`);
-  assert.strictEqual(bareBlocks[0].reference, `actions/checkout@${'c'.repeat(40)}`,
-    `the action reference must be read from a bare-dash block (${label} indentation)`);
-  assert(bareBlocks[0].source.includes('persist-credentials: true'),
-    `a bare-dash checkout must reach the persist-credentials assertion (${label} indentation)`);
-}
-
-/* A nested `uses:` value is not the step's own action. */
-assert.deepStrictEqual(
-  actionStepBlocks([
-    '    steps:',
-    '      - name: Configure',
-    '        with:',
-    '          uses: not-a-step-action'
-  ].join('\n')),
-  [], 'only the step\'s own uses key names its action');
-
-/* A step with no action at all contributes nothing. */
-assert.deepStrictEqual(
-  actionStepBlocks(['    steps:', '      - name: Run tests', '        run: npm test'].join('\n')),
-  [], 'a run step declares no action reference');
-
 for (const [name, source] of [
   ['CI', ciWorkflow],
   ['alpha.17 qualification', workflow]
@@ -370,12 +253,35 @@ for (const [name, source] of [
   for (const reference of remoteActionReferences(source)) {
     assertImmutableActionReference(reference, name);
   }
-  for (const block of actionStepBlocks(source).filter(item => item.reference.startsWith('actions/checkout@'))) {
-    assert(
-      /^\s+persist-credentials:\s*false\s*$/m.test(block.source),
-      `${name} checkout must not persist Git credentials`
-    );
+  /*
+   * Checked without parsing the workflow.
+   *
+   * Three consecutive reviews found a valid YAML spelling that the previous
+   * step-parser skipped -- a named step, then a bare dash, then a comment after
+   * the dash -- and each time the contract reported a pass it had never made.
+   * The lesson is not to parse better; a fourth regular expression still owes
+   * flow mappings, quoted keys, anchors and block scalars. It is to assert a
+   * property that does not depend on where a step begins.
+   *
+   * Two facts give that property. actions/checkout defaults persist-credentials
+   * to true, so an omitted setting is the dangerous state, not a neutral one --
+   * which the count catches. And every setting present must read false, which
+   * the value check catches. No layout can satisfy both while leaving a
+   * checkout persisting credentials.
+   *
+   * What it deliberately does not prove: which false belongs to which checkout.
+   * Two on one step and none on another would pass. That limit is visible in
+   * four lines, which is the whole point -- the parser's limits were invisible
+   * and surprised us three times.
+   */
+  const checkouts = source.match(/uses:[ \t]*actions\/checkout@/g) || [];
+  const persistSettings = [...source.matchAll(/persist-credentials:[ \t]*(\S*)/g)];
+  for (const [, value] of persistSettings) {
+    assert.strictEqual(value, 'false',
+      `${name} must never set persist-credentials to anything but false`);
   }
+  assert.strictEqual(persistSettings.length, checkouts.length,
+    `${name} must set persist-credentials: false on every checkout, including omitted ones`);
 }
 assert.doesNotThrow(() => assertImmutableActionReference(
   `docker://example.invalid/qualifier@sha256:${'a'.repeat(64)}`,

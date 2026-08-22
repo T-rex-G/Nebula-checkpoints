@@ -1,11 +1,15 @@
 'use strict';
 
 const assert = require('assert');
+const childProcess = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const {
+  AUTHORIZATION_SCHEMA_VERSION,
   encodeAuthorizationEnvelope,
+  fileClaimLedger,
   hashLiveTarget,
   verifyLiveTargetBinding,
   verifyAuthorizationEnvelope
@@ -38,9 +42,10 @@ for (const [jobName, target] of Object.entries(targets)) {
   assert.strictEqual(hashLiveTarget(jobName, target), targetHashes[jobName]);
 }
 const payload = {
-  schemaVersion: '1.2.0',
+  schemaVersion: '1.3.0',
   workflow: '.github/workflows/public-alpha-alpha17.yml',
   repository: 'fixture-owner/fixture-repository',
+  ref: 'refs/heads/sandbox/alpha17-live-qualification',
   event: 'workflow_dispatch',
   sourceParent: 'c'.repeat(40),
   sourceCommit: 'b'.repeat(40),
@@ -50,19 +55,48 @@ const payload = {
   authorizationId: 'approval-2048',
   expiresAt: '2026-07-29T20:15:00.000Z'
 };
+assert.strictEqual(AUTHORIZATION_SCHEMA_VERSION, payload.schemaVersion);
+
+/*
+ * Every activation envelope is spendable exactly once, so a verification that
+ * shares a ledger with another verification is a different test from one that
+ * does not. Each assertion below therefore gets its own ledger unless it is
+ * deliberately probing replay, and the replay assertions name their shared
+ * ledger explicitly.
+ */
+function memoryClaimLedger() {
+  const spent = new Set();
+  return {
+    spent,
+    record(id) {
+      assert.match(id, /^[0-9a-f]{64}$/, 'the ledger must receive an opaque fixed-width claim identifier');
+      if (spent.has(id)) return false;
+      spent.add(id);
+      return true;
+    }
+  };
+}
+
+function verifyOptions(overrides = {}) {
+  return {
+    publicKeyBase64,
+    expectedWorkflow: payload.workflow,
+    expectedRepository: payload.repository,
+    expectedRef: payload.ref,
+    expectedEvent: payload.event,
+    expectedSourceParent: payload.sourceParent,
+    expectedSourceCommit: payload.sourceCommit,
+    expectedSubjectHash: payload.subjectSha256,
+    requestedJobs: ['github', 'gitlab'],
+    expectedTargets: targets,
+    claims: memoryClaimLedger(),
+    now,
+    ...overrides
+  };
+}
+
 const token = encodeAuthorizationEnvelope(payload, privateKey);
-const verified = verifyAuthorizationEnvelope(token, {
-  publicKeyBase64,
-  expectedWorkflow: payload.workflow,
-  expectedRepository: payload.repository,
-  expectedEvent: payload.event,
-  expectedSourceParent: payload.sourceParent,
-  expectedSourceCommit: payload.sourceCommit,
-  expectedSubjectHash: payload.subjectSha256,
-  requestedJobs: ['github', 'gitlab'],
-  expectedTargets: targets,
-  now
-});
+const verified = verifyAuthorizationEnvelope(token, verifyOptions());
 assert.deepStrictEqual(verified.authorizedJobs, ['github', 'gitlab']);
 assert.deepStrictEqual(verified.targetHashes, targetHashes);
 assert.match(verified.envelopeHash, /^[0-9a-f]{64}$/);
@@ -125,66 +159,31 @@ assert.throws(
 );
 
 assert.throws(
-  () => verifyAuthorizationEnvelope(token, {
-    publicKeyBase64,
-    expectedWorkflow: payload.workflow,
-    expectedRepository: payload.repository,
-    expectedEvent: payload.event,
-    expectedSourceParent: payload.sourceParent,
-    expectedSourceCommit: payload.sourceCommit,
-    expectedSubjectHash: 'd'.repeat(64),
-    requestedJobs: ['github', 'gitlab'],
-    expectedTargets: targets,
-    now
-  }),
+  () => verifyAuthorizationEnvelope(token, verifyOptions({
+    expectedSubjectHash: 'd'.repeat(64)
+  })),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_SUBJECT_MISMATCH'
 );
 assert.throws(
-  () => verifyAuthorizationEnvelope(token, {
-    publicKeyBase64,
-    expectedWorkflow: payload.workflow,
-    expectedRepository: payload.repository,
-    expectedEvent: payload.event,
-    expectedSourceParent: payload.sourceParent,
-    expectedSourceCommit: payload.sourceCommit,
-    expectedSubjectHash: payload.subjectSha256,
-    requestedJobs: ['github', 'gitlab'],
-    expectedTargets: targets,
+  () => verifyAuthorizationEnvelope(token, verifyOptions({
     now: new Date('2026-07-29T20:16:00.000Z')
-  }),
+  })),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_EXPIRED'
 );
 assert.throws(
-  () => verifyAuthorizationEnvelope(token, {
-    publicKeyBase64,
-    expectedWorkflow: payload.workflow,
-    expectedRepository: payload.repository,
-    expectedEvent: payload.event,
-    expectedSourceParent: payload.sourceParent,
-    expectedSourceCommit: payload.sourceCommit,
-    expectedSubjectHash: payload.subjectSha256,
-    requestedJobs: ['github', 'gitlab'],
+  () => verifyAuthorizationEnvelope(token, verifyOptions({
     expectedTargets: {
       ...targets,
       github: { ...targets.github, repository: 'fixture-owner/nvx-alpha17-a-different-repository' }
-    },
-    now
-  }),
+    }
+  })),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
 );
 assert.throws(
-  () => verifyAuthorizationEnvelope(token, {
-    publicKeyBase64,
-    expectedWorkflow: payload.workflow,
-    expectedRepository: payload.repository,
-    expectedEvent: payload.event,
-    expectedSourceParent: payload.sourceParent,
-    expectedSourceCommit: payload.sourceCommit,
-    expectedSubjectHash: payload.subjectSha256,
+  () => verifyAuthorizationEnvelope(token, verifyOptions({
     requestedJobs: ['github'],
-    expectedTargets: { github: targets.github },
-    now
-  }),
+    expectedTargets: { github: targets.github }
+  })),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_JOBS_INVALID'
 );
 assert.throws(
@@ -200,19 +199,242 @@ const duplicateJobsToken = encodeAuthorizationEnvelope({
   authorizedJobs: ['github', 'github', 'gitlab']
 }, privateKey);
 assert.throws(
-  () => verifyAuthorizationEnvelope(duplicateJobsToken, {
-    publicKeyBase64,
-    expectedWorkflow: payload.workflow,
-    expectedRepository: payload.repository,
-    expectedEvent: payload.event,
-    expectedSourceParent: payload.sourceParent,
-    expectedSourceCommit: payload.sourceCommit,
-    expectedSubjectHash: payload.subjectSha256,
-    requestedJobs: ['github', 'gitlab'],
-    expectedTargets: targets,
-    now
-  }),
+  () => verifyAuthorizationEnvelope(duplicateJobsToken, verifyOptions()),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_JOBS_INVALID'
+);
+
+/*
+ * Single use.
+ *
+ * The envelope is a workflow_dispatch input, so it is recorded in the run's
+ * event payload and readable by anyone who can read the run. It is therefore
+ * not a secret after its first use, and every field it binds -- workflow,
+ * repository, ref, event, source parent and commit, subject, jobs, targets --
+ * is identical across repeated dispatches of the same candidate. Expiry alone
+ * leaves a window in which a captured envelope activates the live targets
+ * again. The signer's authorizationId is the nonce that closes it, and these
+ * assertions are what make it one.
+ */
+const sharedLedger = memoryClaimLedger();
+assert.strictEqual(
+  verifyAuthorizationEnvelope(token, verifyOptions({ claims: sharedLedger })).authorizationId,
+  payload.authorizationId
+);
+assert.throws(
+  () => verifyAuthorizationEnvelope(token, verifyOptions({ claims: sharedLedger })),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_REPLAYED',
+  'the same envelope must not activate live targets twice'
+);
+
+/*
+ * The claim is on the signer's identifier, not on the bytes that carry it.
+ * Re-signing the same approval with a later expiry produces different bytes,
+ * and a byte-keyed ledger would admit it.
+ */
+const resignedToken = encodeAuthorizationEnvelope(
+  { ...payload, expiresAt: '2026-07-29T20:20:00.000Z' },
+  privateKey
+);
+assert.notStrictEqual(resignedToken, token);
+assert.throws(
+  () => verifyAuthorizationEnvelope(resignedToken, verifyOptions({ claims: sharedLedger })),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_REPLAYED',
+  're-signing a spent approval identifier must not mint a second activation'
+);
+
+const freshApprovalToken = encodeAuthorizationEnvelope(
+  { ...payload, authorizationId: 'approval-2049' },
+  privateKey
+);
+assert.strictEqual(
+  verifyAuthorizationEnvelope(freshApprovalToken, verifyOptions({ claims: sharedLedger })).authorizationId,
+  'approval-2049',
+  'a distinct approval must still activate'
+);
+
+/*
+ * A rejected envelope must not spend its identifier. Otherwise any reader of
+ * the run could burn a pending approval by dispatching it against the wrong
+ * subject, and the operator would have to re-sign to recover.
+ */
+const survivingLedger = memoryClaimLedger();
+assert.throws(
+  () => verifyAuthorizationEnvelope(token, verifyOptions({
+    claims: survivingLedger,
+    expectedSubjectHash: 'd'.repeat(64)
+  })),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_SUBJECT_MISMATCH'
+);
+assert.strictEqual(survivingLedger.spent.size, 0, 'a rejected envelope must not spend its approval identifier');
+assert.strictEqual(
+  verifyAuthorizationEnvelope(token, verifyOptions({ claims: survivingLedger })).authorizationId,
+  payload.authorizationId
+);
+
+/*
+ * Fail closed. A verifier that cannot record the spend cannot claim the
+ * envelope is unspent, so an absent or broken ledger is a refusal and not a
+ * silent downgrade to expiry-only checking.
+ */
+for (const [label, claims] of [
+  ['an absent ledger', undefined],
+  ['a ledger with no record method', {}],
+  ['a throwing ledger', { record() { throw new Error('cache unavailable'); } }],
+  ['a ledger that does not report novelty', { record() { return 'yes'; } }]
+]) {
+  assert.throws(
+    () => verifyAuthorizationEnvelope(token, verifyOptions({ claims })),
+    error => error && error.code === 'ALPHA17_AUTHORIZATION_LEDGER_UNAVAILABLE',
+    `${label} must refuse activation`
+  );
+}
+
+/*
+ * The dispatch ref is bound because the ledger is only durable within one
+ * cache scope. Without this, the same commit pushed to a second branch would
+ * be dispatched against a ledger that has never seen the approval.
+ */
+assert.throws(
+  () => verifyAuthorizationEnvelope(token, verifyOptions({ expectedRef: 'refs/heads/other-branch' })),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_SCOPE_MISMATCH',
+  'an envelope must not activate on a ref it does not name'
+);
+for (const badRef of ['', 'sandbox/alpha17-live-qualification', 'refs/heads/../../etc', 'refs/heads/a//b']) {
+  assert.throws(
+    () => verifyAuthorizationEnvelope(
+      encodeAuthorizationEnvelope({ ...payload, ref: badRef }, privateKey),
+      verifyOptions({ expectedRef: badRef })
+    ),
+    error => error && error.code === 'ALPHA17_AUTHORIZATION_SCOPE_MISMATCH',
+    `ref ${JSON.stringify(badRef)} must be rejected`
+  );
+}
+
+/*
+ * An envelope signed under the previous schema must not verify. Only the
+ * schema value differs: an envelope that also dropped `ref` would be refused
+ * by the completeness check below, which raises the same code, and the
+ * assertion would pass without the schema comparison ever running.
+ */
+assert.throws(
+  () => verifyAuthorizationEnvelope(
+    encodeAuthorizationEnvelope({ ...payload, schemaVersion: '1.2.0' }, privateKey),
+    verifyOptions()
+  ),
+  error => error && error.code === 'ALPHA17_AUTHORIZATION_INVALID',
+  'an envelope declaring the previous schema must not verify'
+);
+
+/*
+ * An omitted field is malformed, not a scope failure. Without an explicit
+ * completeness check an absent ref reaches the ref comparison and is reported
+ * as a mismatched ref, which sends an operator looking for a branch problem
+ * that does not exist. Each field is deleted from an otherwise valid envelope
+ * so the check cannot be satisfied by whichever downstream check happens to
+ * notice first.
+ */
+for (const field of Object.keys(payload)) {
+  const incomplete = { ...payload };
+  delete incomplete[field];
+  assert.throws(
+    () => verifyAuthorizationEnvelope(
+      encodeAuthorizationEnvelope(incomplete, privateKey),
+      verifyOptions()
+    ),
+    error => error && error.code === 'ALPHA17_AUTHORIZATION_INVALID',
+    `an envelope omitting ${field} must be rejected as malformed`
+  );
+}
+
+/*
+ * The shipped ledger. It claims by exclusive create, so the record and the
+ * novelty answer are one filesystem operation rather than a check followed by
+ * a write that a concurrent dispatch could interleave with.
+ */
+const ledgerRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alpha17-claims-'));
+const fileLedger = fileClaimLedger(ledgerRoot);
+const sampleClaim = 'a1'.repeat(32);
+assert.strictEqual(fileLedger.record(sampleClaim), true);
+assert.strictEqual(fileLedger.record(sampleClaim), false, 'a recorded claim must report itself as spent');
+assert.strictEqual(fs.readdirSync(ledgerRoot).length, 1);
+assert.throws(() => fileLedger.record('not-a-claim-identifier'), TypeError);
+assert.throws(
+  () => fileClaimLedger(path.join(ledgerRoot, 'absent')).record(sampleClaim),
+  error => error && error.code === 'ENOENT',
+  'an unwritable ledger must surface as unavailable rather than as an unspent claim'
+);
+assert.throws(() => fileClaimLedger(''), TypeError);
+const claimedIdentifiers = new Set();
+for (const approvalId of ['approval-2048', 'approval-2049', '........']) {
+  const ledger = { record(id) { claimedIdentifiers.add(id); return true; } };
+  verifyAuthorizationEnvelope(
+    encodeAuthorizationEnvelope({ ...payload, authorizationId: approvalId }, privateKey),
+    verifyOptions({ claims: ledger })
+  );
+}
+assert.strictEqual(claimedIdentifiers.size, 3);
+for (const id of claimedIdentifiers) {
+  assert.match(id, /^[0-9a-f]{64}$/, 'approval identifiers must never reach the ledger as path segments');
+}
+
+/*
+ * The command line is what the workflow actually runs, so the refusal is
+ * exercised through it rather than only through the exported function. The
+ * two runs below differ in nothing but the ledger they share.
+ */
+const cliLedgerRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alpha17-cli-claims-'));
+/* main() reads the real clock, so this envelope expires against it. */
+const cliToken = encodeAuthorizationEnvelope({
+  ...payload,
+  authorizationId: 'approval-cli-1',
+  expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+}, privateKey);
+function runVerifierCli(input, env = {}) {
+  return childProcess.spawnSync(
+    process.execPath,
+    [path.join(__dirname, '..', 'ci', 'verify-alpha17-authorization.js')],
+    {
+      input,
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        NV_ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64: publicKeyBase64,
+        NV_ALPHA17_AUTHORIZATION_CLAIM_DIR: cliLedgerRoot,
+        NV_ALPHA17_EXPECTED_WORKFLOW: payload.workflow,
+        NV_ALPHA17_EXPECTED_REPOSITORY: payload.repository,
+        NV_ALPHA17_EXPECTED_REF: payload.ref,
+        NV_ALPHA17_EXPECTED_EVENT: payload.event,
+        NV_ALPHA17_EXPECTED_SOURCE_PARENT: payload.sourceParent,
+        NV_ALPHA17_EXPECTED_SOURCE_COMMIT: payload.sourceCommit,
+        NV_ALPHA17_EXPECTED_SUBJECT_SHA256: payload.subjectSha256,
+        NV_ALPHA17_REQUESTED_JOBS: 'github,gitlab',
+        NV_ALPHA17_GITHUB_REPOSITORY: targets.github.repository,
+        NV_ALPHA17_GITHUB_API_URL: targets.github.apiUrl,
+        NV_ALPHA17_GITLAB_REPOSITORY: targets.gitlab.repository,
+        NV_ALPHA17_GITLAB_API_URL: targets.gitlab.apiUrl,
+        ...env
+      }
+    }
+  );
+}
+const firstCliRun = runVerifierCli(cliToken);
+assert.strictEqual(firstCliRun.status, 0, `first activation must succeed: ${firstCliRun.stderr}`);
+assert.strictEqual(JSON.parse(firstCliRun.stdout).authorizationId, 'approval-cli-1');
+const replayedCliRun = runVerifierCli(cliToken);
+assert.strictEqual(replayedCliRun.status, 1, 'a replayed activation must exit non-zero');
+assert(
+  replayedCliRun.stderr.includes('ALPHA17_AUTHORIZATION_REPLAYED'),
+  `a replayed activation must name the replay: ${replayedCliRun.stderr}`
+);
+const unconfiguredCliRun = runVerifierCli(cliToken, { NV_ALPHA17_AUTHORIZATION_CLAIM_DIR: '' });
+assert.strictEqual(unconfiguredCliRun.status, 1);
+assert(
+  unconfiguredCliRun.stderr.includes('ALPHA17_AUTHORIZATION_LEDGER_UNAVAILABLE'),
+  `an unconfigured ledger must refuse before verifying: ${unconfiguredCliRun.stderr}`
+);
+assert(
+  !unconfiguredCliRun.stdout.trim(),
+  'a refused activation must not emit an authorization result'
 );
 
 const workflowPath = path.join(__dirname, '..', '.github', 'workflows', 'public-alpha-alpha17.yml');
@@ -305,7 +527,9 @@ const actionPins = {
   'actions/checkout': '11d5960a326750d5838078e36cf38b85af677262',
   'actions/setup-node': '49933ea5288caeca8642d1e84afbd3f7d6820020',
   'actions/upload-artifact': 'ea165f8d65b6e75b540449e92b4886f43607fa02',
-  'actions/download-artifact': 'd3f86a106a0bac45b974a628896c90dbdf5c8093'
+  'actions/download-artifact': 'd3f86a106a0bac45b974a628896c90dbdf5c8093',
+  'actions/cache/restore': '0057852bfaa89a56745cba8c7296529d2fc39830',
+  'actions/cache/save': '0057852bfaa89a56745cba8c7296529d2fc39830'
 };
 for (const [action, commit] of Object.entries(actionPins)) {
   assert(workflow.includes(`uses: ${action}@${commit}`), `${action} must use its reviewed immutable commit`);
@@ -394,6 +618,78 @@ for (const variable of [
   'ALPHA17_RESTORE_TARGET_FINGERPRINT', 'ALPHA17_RESTORE_APP_BASE_URL',
   'ALPHA17_RESTORE_APP_DEPLOY_ID'
 ]) assert(authorization.includes(variable), `authorization job must bind ${variable}`);
+
+
+/*
+ * The spend ledger must be restored before the envelope is verified and saved
+ * after, and the verifier must be told where it lives. Order is the property
+ * that matters: a save that preceded the verification would persist nothing,
+ * and a verification that preceded the restore would read an empty ledger and
+ * accept every replay.
+ */
+const claimRestore = authorization.indexOf('uses: actions/cache/restore@');
+const claimVerify = authorization.indexOf('ci/verify-alpha17-authorization.js');
+const claimSave = authorization.indexOf('uses: actions/cache/save@');
+assert(
+  claimRestore >= 0 && claimRestore < claimVerify && claimVerify < claimSave,
+  'the spent-approval ledger must be restored before verification and saved after it'
+);
+/*
+ * Checked by value, not by presence.
+ *
+ * A presence check passes on the shell reference inside the run block, so it
+ * stays green with the binding deleted -- the verifier would then refuse every
+ * dispatch, but the contract would have reported a pass it never made. What
+ * actually has to hold is that one directory is bound to the verifier and that
+ * the same directory is the one cached. If those diverge the cache preserves
+ * an empty ledger and every replay is admitted, which no presence check sees.
+ */
+const claimDirectoryBindings = [...authorization.matchAll(/NV_ALPHA17_AUTHORIZATION_CLAIM_DIR: ([^\n]+)/g)]
+  .map(match => match[1].trim());
+assert.strictEqual(
+  claimDirectoryBindings.length, 1,
+  'the spent-approval ledger directory must be bound to the verifier exactly once'
+);
+const cachedLedgerPaths = [...authorization.matchAll(/^[ \t]+path: ([^\n]*authorization-claims[^\n]*)$/gm)]
+  .map(match => match[1].trim());
+assert.strictEqual(cachedLedgerPaths.length, 2, 'restore and save must both carry the ledger');
+for (const cached of cachedLedgerPaths) {
+  assert.strictEqual(
+    cached, claimDirectoryBindings[0],
+    'the cached ledger must be the exact directory the verifier records spends in'
+  );
+}
+assert(
+  authorization.includes('NV_ALPHA17_EXPECTED_REF: ${{ github.ref }}'),
+  'the authorization job must bind the exact dispatch ref the envelope names'
+);
+/*
+ * A run-unique save key with a shared restore prefix is what makes the ledger
+ * roll forward. A key that did not vary per run could never be written twice,
+ * so the ledger would freeze at its first entry and stop detecting replays.
+ */
+const claimKeys = [...authorization.matchAll(/key: (alpha17-authorization-claims[^\n]*)/g)]
+  .map(match => match[1].trim());
+assert.strictEqual(claimKeys.length, 2, 'restore and save must both name the ledger cache');
+for (const key of claimKeys) {
+  assert(key.includes('github.run_id'), `ledger cache key ${key} must be unique per run`);
+}
+assert(
+  /restore-keys: \|\n\s+alpha17-authorization-claims-\n/.test(authorization),
+  'the ledger must restore the most recent prior run through a shared key prefix'
+);
+/*
+ * The spend is recorded before the verification step finishes -- the step goes
+ * on to extract the envelope and target hashes -- so a failure in that tail
+ * would discard a spend that had already happened, and the approval would be
+ * replayable for the rest of its lifetime. The save therefore runs on failure
+ * as well.
+ */
+const ledgerSaveStep = authorization.slice(authorization.indexOf('- name: Persist spent-approval ledger'));
+assert(
+  /^\s+if: always\(\)$/m.test(ledgerSaveStep.slice(0, ledgerSaveStep.indexOf('uses:'))),
+  'the spent-approval ledger must be saved even when verification fails after recording a spend'
+);
 
 for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) {
   const block = job(name);

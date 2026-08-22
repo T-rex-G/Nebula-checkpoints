@@ -90,7 +90,7 @@
     "Manual VoiceOver and desktop screen-reader passes remain required",
     "The browser matrix runs against Playwright route fixtures, so it proves the client contract rather than server route behaviour",
     "An interrupted hosted restore can leave backup or attestation material behind, because that teardown runs on the success path rather than in a finally block",
-    "A signed activation envelope can be presented more than once inside its 30-minute lifetime, because no durable single-use record exists in CI. A replay cannot be redirected or rescoped, since the envelope pins the repository, workflow, source commit, authorized jobs and per-job target hashes, and the live concurrency group prevents overlapping runs; it can only repeat an identical already-authorized operation, and only for a principal that already holds repository write access"
+    "A signed activation envelope is spendable once: its approval identifier is recorded in a CI-side ledger before the run is authorized, and the envelope also pins the dispatch ref so the ledger cannot be evaded by dispatching the same commit on another branch. The ledger is an Actions cache, which a principal holding actions:write can delete; such a principal can already dispatch the workflow, so deletion widens no reach beyond a replay of an identical already-authorized operation"
   ],
   "currentCandidate": {
     "qualificationStatus": "not-qualified",

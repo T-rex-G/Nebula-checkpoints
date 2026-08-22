@@ -11,9 +11,18 @@ Use sanitized outputs only. Never paste database URLs, cookies, invitation codes
   hosted qualification, the exact service origin, Render service identity, and
   cohort/restore Neon project and branch identities, isolated-target kind, and
   reviewed restore-target fingerprint.
-- Generate a fresh Ed25519 authorization envelope using schema `1.2.0`. The
-  selected jobs must exactly match the dispatch switches, and every selected
-  target hash must match the configured repository variables.
+- Generate a fresh Ed25519 authorization envelope using schema `1.3.0`. The
+  selected jobs must exactly match the dispatch switches, every selected target
+  hash must match the configured repository variables, and `ref` must name the
+  exact ref the dispatch runs on.
+- Allocate a new `authorizationId` for every dispatch. An identifier is spent on
+  first use and is refused afterwards, so re-signing a spent approval with a
+  later expiry does not produce a second activation. A dispatch that the
+  verifier rejects does not spend its identifier and may be corrected and
+  retried unchanged.
+- Re-running an authorized workflow run is not a retry. It presents the same
+  spent identifier and is refused, so recover by signing a fresh approval and
+  dispatching again.
 - Confirm the credential-free target preflight succeeds before the workflow
   reaches any secret-bearing step. Stop on any target or job mismatch.
 - Expect cleanup to remove only the per-run branch and proof files. Repository

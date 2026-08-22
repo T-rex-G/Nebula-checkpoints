@@ -232,8 +232,8 @@ Before public exposure:
 Live-provider qualification credentials must belong only to the pre-created
 `nvx-alpha17-` sandbox repository, be disposable after the run, and have no
 organization or production-repository reach. The signed activation envelope
-binds the exact reviewed candidate and target, but candidate code still runs in
-the credential-bearing job. Therefore live dispatch requires a passing
+binds the exact reviewed candidate, dispatch ref, and target, and is spendable
+once; but candidate code still runs in the credential-bearing job. Therefore live dispatch requires a passing
 independent review of those exact bytes and an environment approval. A candidate
 that is not already trusted must instead run on an egress-isolated runner or
 through a separately trusted harness; the repository workflow does not claim to

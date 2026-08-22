@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { AUTHORIZATION_SCHEMA_VERSION } = require('../ci/verify-alpha17-authorization');
 
 const root = path.join(__dirname, '..', 'docs', 'operations', 'runbooks');
 const required = [
@@ -271,6 +272,24 @@ assert.match(
   'verification must name the evidence that sessions actually ended'
 );
 
+
+/*
+ * The checklist tells the operator which envelope schema to sign. A literal
+ * copied into prose drifts silently the next time the verifier's schema moves,
+ * and the operator only learns of it when a signed envelope is refused at
+ * dispatch, so the number is read back from the verifier rather than trusted.
+ */
+const operatorChecklist = fs.readFileSync(path.join(root, 'OPERATOR_CHECKLIST.md'), 'utf8');
+const schemaMentions = [...operatorChecklist.matchAll(/envelope using schema `([^`]+)`/g)].map(match => match[1]);
+assert.strictEqual(schemaMentions.length, 1, 'the checklist must name the envelope schema exactly once');
+assert.strictEqual(
+  schemaMentions[0], AUTHORIZATION_SCHEMA_VERSION,
+  'the checklist must name the schema the verifier actually accepts'
+);
+assert.match(
+  operatorChecklist, /Allocate a new `authorizationId` for every dispatch/,
+  'the checklist must tell the operator that an approval identifier is single-use'
+);
 
 for (const file of ['10-alpha-shutdown.md', 'OPERATOR_CHECKLIST.md']) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');

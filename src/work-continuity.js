@@ -283,9 +283,22 @@ function titleCaseStatus(value) {
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }
 
-/* Public alpha is a release position, not a stored flag: it follows the gate. */
-function publicAlphaPosition(state) {
+/*
+ * Public alpha is a release position, not a stored flag: it follows the gate.
+ *
+ * The internal form assumes a record its caller has already validated; the
+ * renderers validate at entry, so revalidating per call would be wasted work.
+ * The exported form validates first, because a caller outside this module
+ * could otherwise hand it a hand-built object and be told GO by a record that
+ * never had to satisfy the gate contract.
+ */
+function releasePosition(state) {
   return state.gates.finalRelease.status === 'passed' ? 'GO' : 'NO-GO';
+}
+
+function publicAlphaPosition(state) {
+  validateContinuity(state);
+  return releasePosition(state);
 }
 
 function commitIdentityLines(baseline) {
@@ -381,7 +394,7 @@ function renderProjectState(state) {
     '',
     `Current authored version: **${state.version}**`,
     '',
-    `Public alpha: **${publicAlphaPosition(state)}**`,
+    `Public alpha: **${releasePosition(state)}**`,
     '',
     '## Identity boundary',
     '',
@@ -445,7 +458,7 @@ function renderContinuationPrompt(state) {
     '',
     `Resume Nebulaverse-X ${state.version} from the recorded qualified baseline.`,
     '',
-    `Public alpha: **${publicAlphaPosition(state)}**`,
+    `Public alpha: **${releasePosition(state)}**`,
     '',
     'The last immutable baseline that may be cited as automatically qualified is:',
     '',

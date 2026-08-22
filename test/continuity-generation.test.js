@@ -10,6 +10,7 @@ const root = path.resolve(__dirname, '..');
 const pkg = require('../package.json');
 const {
   generatedDocuments,
+  publicAlphaPosition,
   readContinuity,
   renderContinuationPrompt,
   renderProjectState,
@@ -176,6 +177,34 @@ const releasedPrompt = renderContinuationPrompt(released);
 
 assert(releasedState.includes('Public alpha: **GO**'));
 assert(renderProjectState(state).includes('Public alpha: **NO-GO**'));
+
+/*
+ * The exported position helper is the one path into the release verdict that
+ * does not arrive through a renderer, so it has to enforce the record contract
+ * itself. Without that a caller could hand it an object that never satisfied
+ * the gate schema and be told GO on the strength of a single hand-written key.
+ */
+assert.strictEqual(publicAlphaPosition(state), 'NO-GO');
+assert.strictEqual(publicAlphaPosition(released), 'GO');
+for (const [label, forged] of [
+  ['a hand-built object carrying only a passed final gate', { gates: { finalRelease: { status: 'passed' } } }],
+  ['a record whose final gate claims success without a run', (() => {
+    const candidate = clone(released);
+    candidate.gates.finalRelease = { status: 'passed', runId: null };
+    return candidate;
+  })()],
+  ['a record whose final gate outruns its predecessors', (() => {
+    const candidate = clone(state);
+    candidate.gates.finalRelease = { status: 'passed', runId: '32540542682' };
+    return candidate;
+  })()]
+]) {
+  assert.throws(
+    () => publicAlphaPosition(forged),
+    error => error instanceof Error && error.message === 'WORK_CONTINUITY.json is invalid',
+    `the exported position must refuse to report a verdict for ${label}`
+  );
+}
 
 for (const row of [
   '| Live-provider qualification | Passed | Qualified by run `32540542682` |',

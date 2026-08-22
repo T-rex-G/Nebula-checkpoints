@@ -2,8 +2,13 @@
 
 Public alpha: **NO-GO**
 
+Throughout these documents *the recorded independent review* means the review of
+the recorded baseline. A review that passed against a later successor is always
+named as a remediation review, because it qualifies different bytes.
+
 - Recorded automated baseline: **Passed**
-- Recorded independent review: **Passed**
+- Recorded baseline's independent review: **Failed** — `912555dd-72ab-4662-9645-2313007eea3d`
+- Latest remediation review: **Passed** — `4d47a6a5-e9d9-4a92-8a59-3883615069e8`
 - Current successor: **Not qualified**
 - Live-provider gate: **Pending**
 - Hosted gate: **Pending**

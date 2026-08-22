@@ -10,7 +10,10 @@ does not convert planned work into release evidence.
 ## Phase 1 — Secure Access and Policy Digital Twin
 
 **Status:** Historical Phase 1 work is complete; the recorded alpha.17
-automated gate passed, independent review failed, and public alpha is NO-GO.
+baseline's automated gate passed while its own independent review
+`912555dd-72ab-4662-9645-2313007eea3d` failed, and public alpha is NO-GO. A
+later remediation review passed against a successor; that does not change the
+recorded baseline's result.
 
 Tasks 1–21 delivered and qualified the secure access, central mutation,
 governance, evidence, recovery, and provider-compatibility foundation. This

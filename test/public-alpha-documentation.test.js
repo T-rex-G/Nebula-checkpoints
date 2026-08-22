@@ -138,7 +138,27 @@ assert(alpha.includes(
 
 const releaseGates = read('docs/release/RELEASE_SECURITY_GATES.md');
 assert(releaseGates.includes('Recorded automated baseline: **Passed**'));
-assert(releaseGates.includes('Recorded independent review: **Passed**'));
+/*
+ * The bare phrase was the whole ambiguity: it read as Passed here and as failed
+ * in ROADMAP, for the same words. "The recorded independent review" means the
+ * review of the recorded baseline, which failed; a review that passed against a
+ * later successor qualifies different bytes and is named as remediation. Both
+ * halves are pinned so the two documents cannot drift apart again.
+ */
+assert(releaseGates.includes(
+  "Recorded baseline's independent review: **Failed** — `912555dd-72ab-4662-9645-2313007eea3d`"
+));
+assert(releaseGates.includes(
+  'Latest remediation review: **Passed** — `4d47a6a5-e9d9-4a92-8a59-3883615069e8`'
+));
+assert.doesNotMatch(releaseGates, /Recorded independent review: \*\*Passed\*\*/,
+  'the bare phrase must not return: it contradicted ROADMAP for the same words');
+
+const currentRoadmap = read('docs/current/ROADMAP.md');
+assert(currentRoadmap.includes('912555dd-72ab-4662-9645-2313007eea3d'),
+  'ROADMAP must name the baseline review it reports as failed');
+assert.doesNotMatch(currentRoadmap, /independent review failed(?![\s\S]{0,200}912555dd)/,
+  'ROADMAP must not report a failed review without naming which one');
 assert(releaseGates.includes('Current successor: **Not qualified**'));
 assert(releaseGates.includes('142/142'));
 assert(releaseGates.includes('60/60'));

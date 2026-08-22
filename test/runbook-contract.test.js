@@ -147,6 +147,24 @@ assert.match(
 );
 
 /*
+ * An exposed invitation nobody redeemed has no tester behind it, so tester
+ * revocation cannot reach it and the code stays redeemable for its whole
+ * lifetime. Containment must revoke the code itself, and must do so by
+ * identifier: passing the code would put the secret into shell history and
+ * process listings at the moment it is known to have leaked.
+ */
+assert.match(
+  credentialContainment,
+  /alpha-invites\.js revoke-invite --invite "\$NV_INVITE_ID"/,
+  'containment must revoke an exposed invitation by identifier'
+);
+assert.doesNotMatch(
+  credentialContainment,
+  /revoke-invite[^\n]*NV_INVITE_CODE/,
+  'the invitation secret must never be placed on a command line'
+);
+
+/*
  * Revoking a tester revokes every session it owns, so the access boundary
  * refuses a subsequent session-end request. Under `set -euo pipefail` a
  * `--fail` probe of it therefore aborts containment at the moment containment

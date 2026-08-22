@@ -56,7 +56,7 @@ evidence to the exact frozen successor candidate.
 | Standard CI | `32540542681` — passed |
 | Exact-archive qualification | `32540542682` — passed |
 | Automated matrix | 142/142 programs and 60/60 browser checks passed |
-| Independent review | `912555dd-72ab-4662-9645-2313007eea3d` — failed: 16 actionable, 8 nitpicks |
+| Baseline independent review | `912555dd-72ab-4662-9645-2313007eea3d` — failed: 16 actionable, 8 nitpicks |
 | Previous remediation review | `04b93d36-47ea-402d-abda-ca6dfb2a9290` — failed raw inventory: 30 actionable (18 inline plus 12 summary/failed-post), 9 nitpicks |
 | Earlier remediation review | `4ae300c4-410c-4ae7-89cc-b7e15767d22e` — failed raw inventory: 15 actionable, 10 nitpicks |
 | Latest remediation review | `4d47a6a5-e9d9-4a92-8a59-3883615069e8` — passed: 0 actionable, 0 nitpicks |

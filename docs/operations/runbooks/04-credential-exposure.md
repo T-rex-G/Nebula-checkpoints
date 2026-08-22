@@ -8,18 +8,38 @@ Use this runbook when a provider credential, invitation code, session material, 
 
 Choose the containment order from the exposed credential type:
 
-- For an invitation, session cookie, or application/session secret, freeze invitations and mutations first, revoke the affected tester, and invalidate active sessions before rotating the affected Render value.
+- For an exposed invitation, revoke the invitation code itself. An unredeemed invitation has no tester behind it, so tester revocation cannot reach it and the code stays redeemable for its whole lifetime. If it has already been redeemed, `revoke-invite` refuses and names that state: revoke the tester instead, which also ends its sessions.
+- For a session cookie or application/session secret, freeze invitations and mutations first, revoke the affected tester, and invalidate active sessions before rotating the affected Render value.
 - For a provider credential, revoke it at the provider first, then freeze the affected tester and complete provider-resource cleanup.
 - For an exposed `GITHUB_APP_PRIVATE_KEY_BASE64`, delete the exposed private key in GitHub App settings before creating a replacement and updating the Render value.
 - For a backup key, stop backup/restore operations first and preserve controlled access to the old key until every retained encrypted backup has been re-keyed or expired.
 
 Do not delay the first applicable containment action while investigating unrelated credential classes.
 
+Revoke the exposed invitation by its identifier, never by its code. The
+identifier is the portion between `nvx_alpha_` and the separator, and
+`alpha-invites.js list` prints it. Passing the code would place the secret in
+shell history and process listings at the moment it is known to have leaked.
+
+```bash
+set -euo pipefail
+node scripts/alpha-invites.js revoke-invite --invite "$NV_INVITE_ID"
+```
+
+`revoke-invite` exits non-zero unless it revoked the invitation, so a refusal
+stops this block rather than reading as containment.
+
+Then, for a redeemed invitation or any exposure with a tester behind it:
+
 ```bash
 set -euo pipefail
 node scripts/alpha-invites.js revoke --tester "$NV_TESTER_ID" --reason "$NV_REVOCATION_REASON"
 node scripts/alpha-privacy.js cleanup-status
 ```
+
+Record the reason in the incident record. The invitations table holds no reason
+column, and adding one would move the migration head that qualification evidence
+pins.
 
 Never paste the exposed value into logs, tickets, evidence, or commands.
 

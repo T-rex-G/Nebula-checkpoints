@@ -14,6 +14,7 @@ const ISSUE_WARNING =
   'This plaintext invitation is shown once. Store and transmit it securely.';
 const OPERATIONAL_FAILURE =
   'Alpha invitation operation could not be completed.';
+const INVITE_ID_RX = /^[0-9a-z]{20,40}$/;
 const TESTER_ID_RX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LIST_LIMIT = 100;
@@ -107,6 +108,44 @@ function parseRevokeArgs(args) {
   return { command: 'revoke', tester, reason };
 }
 
+/*
+ * `revoke` needs a tester, which an unredeemed invitation does not have, so an
+ * exposed code needs its own command rather than an extra flag on that one --
+ * two mutually exclusive flags on one command is the wrong thing to hand an
+ * operator working an incident.
+ *
+ * It takes the invitation id, never the code. The id is the public half: `list`
+ * prints it, and it is legible inside an exposed code, so requiring it keeps
+ * the secret out of shell history and process listings at the moment the
+ * secret is already known to have leaked.
+ *
+ * There is no --reason. The invitations table has no column to hold one, and
+ * adding it would move the migration head that qualification evidence pins.
+ * Accepting a reason and discarding it would be worse than not taking one: the
+ * incident record is where it belongs.
+ */
+function parseRevokeInviteArgs(args) {
+  let invite = null;
+
+  for (let index = 1; index < args.length; index += 2) {
+    const flag = args[index];
+    if (flag !== '--invite') {
+      throw inputError('revoke-invite accepts only --invite');
+    }
+    const value = requireValue(args, index, flag);
+    if (invite !== null) {
+      throw inputError('--invite may be provided only once');
+    }
+    invite = value.trim().toLowerCase();
+    if (!INVITE_ID_RX.test(invite)) {
+      throw inputError('--invite must be an invitation id, not an invitation code');
+    }
+  }
+
+  if (invite === null) throw inputError('revoke-invite requires --invite');
+  return { command: 'revoke-invite', invite };
+}
+
 function parseArgs(argv) {
   if (!Array.isArray(argv) || argv.some(value => typeof value !== 'string')) {
     throw inputError('command arguments must be strings');
@@ -115,13 +154,14 @@ function parseArgs(argv) {
   const command = args[0];
   if (command === 'issue') return parseIssueArgs(args);
   if (command === 'revoke') return parseRevokeArgs(args);
+  if (command === 'revoke-invite') return parseRevokeInviteArgs(args);
   if (command === 'list' || command === 'purge') {
     if (args.length !== 1) {
       throw inputError(`${command} does not accept flags`);
     }
     return { command };
   }
-  throw inputError('command must be issue, list, revoke, or purge');
+  throw inputError('command must be issue, list, revoke, revoke-invite, or purge');
 }
 
 function publicInviteView(invitation) {
@@ -217,6 +257,9 @@ async function executeCommand(command, context) {
     });
     return publicInviteView(invitation);
   }
+  if (command.command === 'revoke-invite') {
+    return store.revokeInvite(command.invite);
+  }
   if (command.command === 'revoke') {
     const result = await store.revokeTester(command.tester, command.reason);
     return {
@@ -262,6 +305,7 @@ async function main(options = {}) {
   const Store = dependencies.AlphaAccessStore || AlphaAccessStore;
   let pool = null;
   let serializedOutput = null;
+  let refusedRevocation = '';
   let status = 0;
 
   try {
@@ -280,6 +324,9 @@ async function main(options = {}) {
       Store
     });
     serializedOutput = `${JSON.stringify(output)}\n`;
+    if (command.command === 'revoke-invite' && output.revoked !== true) {
+      refusedRevocation = String(output.state || 'unknown');
+    }
   } catch {
     status = 1;
     stderr.write(`${OPERATIONAL_FAILURE}\n`);
@@ -303,6 +350,18 @@ async function main(options = {}) {
       status = 1;
       stderr.write(`${OPERATIONAL_FAILURE}\n`);
     }
+  }
+  /*
+   * A refusal is not a success. revoke-invite reports the state it found --
+   * redeemed, already revoked, unknown, purged -- and every one of those means
+   * the exposed code was not revoked by this call. Exiting zero would let a
+   * containment block under `set -euo pipefail` continue as though it had been,
+   * during the incident where that belief is most costly. The payload is still
+   * printed first, so the operator sees which state to act on.
+   */
+  if (status === 0 && command.command === 'revoke-invite' && refusedRevocation) {
+    status = 1;
+    stderr.write(`Invitation was not revoked: ${refusedRevocation}\n`);
   }
   if (status !== 0) setExitCode(status);
   return status;

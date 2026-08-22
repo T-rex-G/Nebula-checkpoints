@@ -381,10 +381,12 @@ class Pool {
       return { rows: head ? [{ record_hash: head.record_hash }] : [], rowCount: head ? 1 : 0 };
     }
     if (normalized.startsWith('SELECT count(*)::int AS total FROM nv_evidence_chain')) {
+      seedLegacyEvidence(String(params[0]));
       const total = evidenceRows.filter(row => row.repo_key === String(params[0])).length;
       return { rows: [{ total }], rowCount: 1 };
     }
     if (normalized.startsWith('SELECT seq,kind,record_id,previous_hash,record_hash,payload_hash,created_at FROM nv_evidence_chain')) {
+      seedLegacyEvidence(String(params[0]));
       const chain = evidenceRows
         .filter(row => row.repo_key === String(params[0]))
         .slice(0, Number(params[1]));

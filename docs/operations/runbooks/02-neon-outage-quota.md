@@ -10,10 +10,21 @@ Stop new invitations and repository mutations. Enable the operator maintenance s
 
 ```bash
 set -euo pipefail
+NV_READY_RESPONSE="$(mktemp)"
+trap 'rm -f -- "$NV_READY_RESPONSE"' EXIT
+NV_READY_TRANSPORT_EXIT=0
 curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output /dev/null "$NV_ALPHA_BASE_URL/healthz" | grep -qx '200'
-curl --proto '=https' --fail --silent --show-error --max-time 10 --write-out '%{http_code}\n' --output /dev/null "$NV_ALPHA_BASE_URL/readyz" | grep -qx '200'
+NV_READY_STATUS="$(curl --proto '=https' --silent --show-error --max-time 10 --write-out '%{http_code}' --output "$NV_READY_RESPONSE" "$NV_ALPHA_BASE_URL/readyz")" || NV_READY_TRANSPORT_EXIT=$?
+printf 'ready_status=%s ready_transport_exit=%s\n' "$NV_READY_STATUS" "$NV_READY_TRANSPORT_EXIT"
+cat "$NV_READY_RESPONSE"
 node scripts/alpha-privacy.js cleanup-status
 ```
+
+Readiness is recorded, not asserted, because `waking`, `unavailable` and
+`migration-mismatch` are the states that bring you to this runbook. Requiring
+HTTP 200 here would abort containment exactly when it is needed. The liveness
+probe still requires 200: the application being reachable is a precondition for
+the rest of this block.
 
 Do not retry migrations when readiness says `migration-mismatch`; use the backup/migration runbook.
 

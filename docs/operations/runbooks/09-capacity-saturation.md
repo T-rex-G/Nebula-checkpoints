@@ -32,7 +32,16 @@ printf 'config_status=%s config_transport_exit=%s ready_status=%s ready_transpor
   "$NV_CONFIG_STATUS" "$NV_CONFIG_TRANSPORT_EXIT" "$NV_READY_STATUS" "$NV_READY_TRANSPORT_EXIT"
 cat "$NV_CONFIG_RESPONSE"
 cat "$NV_READY_RESPONSE"
+test "$NV_CONFIG_TRANSPORT_EXIT" -eq 0
+test "$NV_READY_TRANSPORT_EXIT" -eq 0
+test "$NV_CONFIG_STATUS" = 200
+test "$NV_READY_STATUS" = 200
 ```
+
+The probes record status and body without `--fail` so a degraded response is
+captured as evidence, and the assertions run afterwards. Verification therefore
+prints what it saw and then fails, rather than passing silently because `curl`
+does not treat an HTTP 503 as an error.
 
 ## Recovery
 

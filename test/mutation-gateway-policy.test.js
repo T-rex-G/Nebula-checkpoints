@@ -55,6 +55,14 @@ function decision(outcome, extra = {}) {
   const mismatchGateway = createMutationGateway({ policyEvaluator: async () => decision('allow', { mutationId: '50000000-0000-4000-8000-000000000005' }) });
   await assert.rejects(() => mismatchGateway.run(base, async () => {}), error => error.code === 'MUTATION_POLICY_DECISION_MISMATCH');
 
+  /*
+   * warn is deliberate and load-bearing, not an oversight.
+   *
+   * unavailableDecision blocks when `failureMode === 'block' || unsupportedActiveRules`,
+   * so unsupported active rules fail closed whatever the operator configured.
+   * Asserting that under warn proves the fail-closed path; asserting it under
+   * block would only prove that block mode blocks.
+   */
   let unsupportedCallbackRan = false;
   const unsupportedRuntime = createGovernanceRuntime({
     failureMode: 'warn',

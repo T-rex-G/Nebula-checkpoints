@@ -192,11 +192,13 @@ const lfsUrlHelper = server.slice(lfsUrlHelperStart, lfsUrlHelperEnd);
 assert(lfsUrlHelper.includes("target.protocol !== 'https:'"));
 assert(lfsUrlHelper.includes('target.username || target.password'));
 const lfsDownloadStart = server.indexOf('async function lfsDownloadStream(');
+assert(lfsDownloadStart >= 0, 'missing lfsDownloadStream');
 const lfsDownloadEnd = server.indexOf('\n}', lfsDownloadStart) + 2;
 const lfsDownloadBlock = server.slice(lfsDownloadStart, lfsDownloadEnd);
 assert(lfsDownloadBlock.includes("requireHttpsLfsActionUrl(act.href, 'download')"));
 assert(lfsDownloadBlock.includes('fetchT(downloadUrl,'));
 const lfsUploadStart = server.indexOf('async function uploadViaLFS(');
+assert(lfsUploadStart >= 0, 'missing uploadViaLFS');
 const lfsUploadEnd = server.indexOf('\n}', lfsUploadStart) + 2;
 const lfsUploadBlock = server.slice(lfsUploadStart, lfsUploadEnd);
 for (const expected of [

@@ -2,7 +2,8 @@
 
 Public alpha: **NO-GO**
 
-The recorded `1a3eba45…` alpha.17 baseline passed automated exact-archive
+The recorded `3995a81e64ced1011f7e5c0662307f270c67e2b8` alpha.17 baseline
+passed automated exact-archive
 qualification, but independent review failed with 16 actionable findings and 8
 nitpicks. Review `04b93d36-47ea-402d-abda-ca6dfb2a9290` then failed the
 pre-remediation PR head with 30 actionable findings and 9 nitpicks. The latest

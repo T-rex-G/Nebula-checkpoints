@@ -274,13 +274,25 @@ async function runRestoreValidation(options = {}) {
   } catch (error) {
     operationError = error;
   }
+  /*
+   * Cleanup runs whether or not the operation failed, but it must never replace
+   * the reason the operation failed. A workflow told only that cleanup failed
+   * would be debugging the symptom.
+   */
+  let cleanupError = null;
   try {
     fs.rmSync(backupDirectory, { recursive: true, force: true });
-  } catch {
-    fail('restore backup cleanup failed');
+  } catch (error) {
+    cleanupError = error;
   }
-  if (fs.existsSync(backupDirectory)) fail('restore backup cleanup failed');
-  if (operationError) throw operationError;
+  if (!cleanupError && fs.existsSync(backupDirectory)) {
+    cleanupError = new Error('restore backup cleanup failed');
+  }
+  if (operationError) {
+    if (cleanupError) operationError.cleanupFailed = true;
+    throw operationError;
+  }
+  if (cleanupError) fail('restore backup cleanup failed');
   const completedAt = (options.now ? options.now() : new Date()).toISOString();
   const signedAttestation = signRunnerRestoreAttestation({
     schemaVersion: '1.0.0',

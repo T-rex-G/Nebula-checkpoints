@@ -362,7 +362,8 @@ assert(
 );
 const playwrightCacheBinding = automated.indexOf('PLAYWRIGHT_BROWSERS_PATH=%s');
 const playwrightInstall = automated.indexOf('npx playwright install --with-deps chromium');
-const checkoutBrowserMatrix = automated.indexOf('npm run test:e2e');
+/* The message below claims both matrices, so bound the last invocation. */
+const checkoutBrowserMatrix = automated.lastIndexOf('npm run test:e2e');
 const extractedCandidateQualifier = automated.indexOf('node scripts/qualify-candidate-archive.js');
 assert(
   playwrightCacheBinding >= 0 &&

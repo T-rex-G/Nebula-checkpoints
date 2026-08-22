@@ -71,10 +71,6 @@ for (const value of textual) {
   assert.strictEqual(Buffer.from(value, 'base64url').length, DERIVED_KEY_BYTES);
 }
 const rawCoerced = purposes.map(purpose => String(deriveKey(SECRET, purpose)));
-assert(
-  new Set(rawCoerced).size <= purposes.length,
-  'sanity: coercing raw bytes is the hazard deriveSecret avoids'
-);
 for (const value of rawCoerced) {
   assert.notStrictEqual(Buffer.byteLength(value, 'utf8'), DERIVED_KEY_BYTES,
     'coercing raw derived bytes must be observably lossy, which is why deriveSecret exists');

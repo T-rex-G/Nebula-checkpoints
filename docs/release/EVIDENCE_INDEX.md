@@ -60,7 +60,7 @@ evidence to the exact frozen successor candidate.
 | Previous remediation review | `04b93d36-47ea-402d-abda-ca6dfb2a9290` — failed raw inventory: 30 actionable (18 inline plus 12 summary/failed-post), 9 nitpicks |
 | Earlier remediation review | `4ae300c4-410c-4ae7-89cc-b7e15767d22e` — failed raw inventory: 15 actionable, 10 nitpicks |
 | Latest remediation review | `4d47a6a5-e9d9-4a92-8a59-3883615069e8` — passed: 0 actionable, 0 nitpicks |
-| Decision | automated qualification passed; independent review passed; live, hosted, accessibility and final gates pending; public-alpha NO-GO |
+| Decision | automated qualification passed; this baseline's own independent review failed, and the later remediation review passed; live, hosted, accessibility and final gates pending; public-alpha NO-GO |
 
 The portability failures remain evidence rather than being erased. Run
 `31321447041` failed before authorization because the pull-request lineage

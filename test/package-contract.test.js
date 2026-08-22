@@ -465,10 +465,10 @@ for (const testFile of ['gitea-file-mutations.test.js', 'gitea-file-mutation-ser
   assert(pkg.scripts.posttest.includes(testFile), `posttest missing ${testFile}`);
 }
 for (const source of ['src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/governance-model.js', 'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js', 'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'scripts/foundation-gate.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'playwright.config.js', 'public/governance-ui.js', 'src/capability-registry.js']) {
-  assert(syntaxGate.includes(source), `syntax gate missing ${source}`);
+  assert(syntaxChecks(source), `syntax gate missing ${source}`);
 }
 for (const source of ['src/provider-file-mutations.js', 'test/gitea-file-mutations.test.js', 'test/gitea-file-mutation-server.test.js', 'test/fixtures/gitea-provider-fetch.js']) {
-  assert(syntaxGate.includes(source), `syntax gate missing ${source}`);
+  assert(syntaxChecks(source), `syntax gate missing ${source}`);
 }
 const verifyScript = read('scripts/verify.js');
 for (const artifact of [

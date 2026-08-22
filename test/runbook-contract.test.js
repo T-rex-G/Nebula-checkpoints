@@ -45,9 +45,26 @@ function isCurlCommandLine(value) {
   return /(?:^|[;&|]\s*|\$\(\s*)(?:![ \t]+)?curl(?:[ \t]|$)/.test(value);
 }
 
+/*
+ * Probes that must record a degraded response rather than abort on it.
+ *
+ * Scoped per file and per endpoint, because a runbook can need both kinds. Neon
+ * outage containment runs while readiness reports waking, unavailable or
+ * migration-mismatch -- the very states that bring an operator here -- so its
+ * readiness probe records them, while its liveness probe still requires 200
+ * because the application being reachable is a precondition for that block.
+ */
+const DEGRADED_EVIDENCE_PROBES = Object.freeze({
+  '06-failed-deploy-rollback.md': /\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/config)/,
+  '09-capacity-saturation.md': /\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/config)/,
+  '02-neon-outage-quota.md': /\$NV_ALPHA_BASE_URL\/readyz/
+});
+
 function assertCurlContract(file, line) {
-  const degradedEvidenceProbe = ['06-failed-deploy-rollback.md', '09-capacity-saturation.md'].includes(file)
-    && /\$NV_ALPHA_BASE_URL\/(?:healthz|readyz|api\/config)/.test(line);
+  const degradedPattern = Object.prototype.hasOwnProperty.call(DEGRADED_EVIDENCE_PROBES, file)
+    ? DEGRADED_EVIDENCE_PROBES[file]
+    : null;
+  const degradedEvidenceProbe = !!degradedPattern && degradedPattern.test(line);
   if (degradedEvidenceProbe) {
     assert(!line.includes('--fail'), `${file} degraded-state probe must preserve non-2xx evidence`);
     assert(line.includes('--max-time 10'), `${file} degraded-state probe must remain bounded`);

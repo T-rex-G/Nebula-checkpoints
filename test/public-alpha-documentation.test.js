@@ -187,7 +187,40 @@ for (const identity of [
 ]) assert(evidence.includes(identity), `evidence index missing ${identity}`);
 assert(evidence.includes('GitHub/GitLab'));
 assert(evidence.includes('fresh Gitea'));
-assert(evidence.includes('independent review passed'));
+/*
+ * The baseline's own review failed; the remediation review passed. Pinning the
+ * bare phrase "independent review passed" let the decision row read as though
+ * the baseline itself had passed, and the test enforced that reading rather
+ * than catching it. Assert both halves so neither can be dropped.
+ */
+/*
+ * Release documents must cite the recorded baseline, not a string that once
+ * looked like it. The prose carried `1a3eba45…` for some time; that prefix
+ * resolves to no object in this repository, so the claim it anchored could not
+ * be checked by a reader.
+ *
+ * Cross-checked against WORK_CONTINUITY.json rather than resolved through git,
+ * because these tests also run inside the extracted candidate archive, which
+ * has no repository metadata.
+ */
+const recordedCommits = JSON.parse(
+  fs.readFileSync(path.join(root, 'WORK_CONTINUITY.json'), 'utf8')
+).recordedBaseline.commits.map(entry => entry.commit);
+const publicAlpha = read('docs/release/PUBLIC_ALPHA.md');
+assert(
+  recordedCommits.some(commit => publicAlpha.includes(commit)),
+  'the public alpha document must cite a recorded baseline commit'
+);
+for (const candidate of publicAlpha.match(/`[0-9a-f]{8,40}…?`/g) || []) {
+  const identifier = candidate.replace(/[`…]/g, '');
+  assert(
+    recordedCommits.some(commit => commit.startsWith(identifier)),
+    `public alpha document cites an identifier that is not a recorded baseline: ${identifier}`
+  );
+}
+
+assert(evidence.includes("this baseline's own independent review failed"));
+assert(evidence.includes('the later remediation review passed'));
 assert(evidence.includes('public-alpha NO-GO'));
 assert(evidence.includes('prove only Plan 1 successor foundation work'));
 assert(evidence.includes('do not prove hosted-public-alpha qualification'));

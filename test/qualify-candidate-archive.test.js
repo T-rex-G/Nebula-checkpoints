@@ -246,7 +246,7 @@ function fixtureClaimRequirements() {
   const playwrightList = JSON.parse(execFileSync(
     process.execPath,
     [require.resolve('@playwright/test/cli'), 'test', '--list', '--reporter=json'],
-    { cwd: repositoryRoot, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }
+    { cwd: repositoryRoot, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 5 * 60 * 1000 }
   ));
   const listedBrowserProofs = new Set();
   const collectListedBrowserProofs = (suites, inheritedFile = '') => {

@@ -56,7 +56,7 @@ set -euo pipefail
 : "${NV_RESTORE_TARGET_FINGERPRINT:?set only the exact reviewed fingerprint from restore-target}"
 : "${NV_RESTORE_APP_DEPLOY_ID:?set the approved restore-backed application deploy ID}"
 : "${NV_RESTORE_APP_BASE_URL:?set the approved restore-backed application origin}"
-NV_ALPHA_BASE_URL="$NV_RESTORE_APP_BASE_URL"
+export NV_ALPHA_BASE_URL="$NV_RESTORE_APP_BASE_URL"
 readonly NV_ALPHA_BASE_URL NV_RESTORE_APP_DEPLOY_ID
 node scripts/alpha-db.js restore --backup "$NV_BACKUP_FILE" --manifest "$NV_BACKUP_MANIFEST"
 node scripts/alpha-smoke.js

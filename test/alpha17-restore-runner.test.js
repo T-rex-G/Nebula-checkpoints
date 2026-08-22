@@ -223,7 +223,11 @@ try {
   };
   const commandsBeforeSameIdentity = commands.length;
   await assert.rejects(
-    () => runRestoreValidation({ env: sameIdentityEnv, executeCommand, candidateRoot, now: () => NOW }),
+    /* runSmokeImpl is injected so an ordering regression fails on the assertion
+       below rather than on a network timeout against the restore origin. */
+    () => runRestoreValidation({
+      env: sameIdentityEnv, executeCommand, candidateRoot, now: () => NOW, runSmokeImpl
+    }),
     /restore source and target identities are not distinct/,
     'a target-only kind label must not make identical source and target infrastructure appear distinct'
   );

@@ -158,7 +158,8 @@ const evidenceRows = [];
  * raw session secret and marked legacy, so every record the server appends
  * afterwards extends a chain that straddles the rotation.
  *
- * Without the stored key id those pre-rotation rows would fail to reproduce
+ * Records carry no key identifier; verification tries the active key and then
+ * the retired one. Without the retired key these rows would fail to reproduce
  * their hash, and a tamper-evident ledger would report tampering that never
  * happened.
  */
@@ -345,12 +346,6 @@ class Pool {
       return { rows: [], rowCount: 1 };
     }
     if (normalized.startsWith('INSERT INTO nv_evidence_chain')) {
-      /*
-       * The ledger is tamper-evident, so every row must name the key that
-       * hashed it; a row written without one would be unverifiable after any
-       * later rotation. Capture the persisted key so the append path is held
-       * to that, rather than trusting the source text.
-       */
       record({ kind: 'evidence.write' });
       evidenceRows.push({
         seq: evidenceRows.length + 1,
@@ -1367,10 +1362,6 @@ ${logs}`
     assert(!serializedLogs.includes('nvx_alpha_private'));
 
     /*
- * Evidence appends must persist the active key id. Verified against the writes
- * this suite actually performs, so the assertion cannot pass vacuously.
- */
-/*
  * The chain the server built straddles the key rotation: its first record was
  * hashed with the former raw session secret, every later one with the derived
  * key. Verification must still report the ledger valid, and must say how many

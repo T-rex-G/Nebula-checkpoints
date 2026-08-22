@@ -55,6 +55,37 @@ Rotation response:
    webhook delivery health.
 4. Remove the compatibility key only after every snapshot it signed expires.
 
+### Evidence-ledger key
+
+Evidence records are hashed with a key derived from `SESSION_SECRET` for that
+purpose alone. Records written before that derivation existed were hashed with
+the raw secret, so verification tries the derived key first and then the raw
+one.
+
+Accepting the raw secret lets anyone holding it forge evidence that verifies, so
+production accepts it only when `NV_EVIDENCE_LEGACY_SESSION_KEY` is exactly
+`true`. Leave it unset unless this deployment's ledger predates the derived key.
+
+Two properties make this unlike the snapshot keyring. Evidence records never
+expire, so there is no retention window to wait out: the compatibility key stays
+needed for as long as those records must remain provable. And a deployment that
+needs it is told so rather than left guessing, because verification reports
+`legacyKeyRequired` when a record links correctly and would verify under the
+retired key, which distinguishes an unmigrated chain from tampering.
+
+Removal path:
+
+1. Confirm the export reports `legacyRecords: 0` for every repository, which
+   means no record still depends on the retired key.
+2. Unset `NV_EVIDENCE_LEGACY_SESSION_KEY` and redeploy.
+3. Verify each ledger still reports `valid: true` with `legacyKeyRequired`
+   absent or false.
+
+To remove it while pre-separation records still exist, first re-anchor: export
+and archive the existing chain as a closed record, then let the ledger begin a
+new chain under the derived key. Rotating `SESSION_SECRET` itself does not
+retire this key, because the derived key moves with it.
+
 ### Snapshot-signing keyring
 
 Production requires an independent `NV_SNAPSHOT_SIGNING_KEY_ID` and

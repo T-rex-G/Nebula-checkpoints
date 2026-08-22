@@ -1,5 +1,6 @@
 'use strict';
 const { test, expect } = require('@playwright/test');
+const { ASSET_VERSION } = require('../../src/version');
 
 const scope = 'scopeAlice_0123456789abcdefXYZ';
 
@@ -39,7 +40,7 @@ test('PWA shell uses official release identity and installs a versioned shell ca
   await page.reload();
   await page.evaluate(() => navigator.serviceWorker.ready);
   const keys = await page.evaluate(() => caches.keys());
-  expect(keys).toContain('nv-static-v530');
+  expect(keys).toContain(`nv-static-v${ASSET_VERSION}`);
   expect(keys).not.toContain('nv-api-perm');
 });
 

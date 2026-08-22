@@ -135,4 +135,62 @@ assert(!safeguardsBlock.includes('setTimeout(() => {'),
   }
 }
 
+
+/*
+ * A visible label must actually name its control.
+ *
+ * Fifty-seven field labels sat beside inputs they were not associated with:
+ * no for attribute, not wrapping the control. Every one looked correct on
+ * screen and named nothing to a screen reader, including both fields of the
+ * step-up dialog that re-authenticates a sensitive mutation, and the confirm
+ * fields of delete-repository, delete-folder and hard-reset. An automated
+ * accessibility rule does report this, but only on a screen it visits, and
+ * most of these live in dialogs the staged pass never opens.
+ */
+{
+  const sources = [
+    ['index.html', fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8')],
+    ['app.js', fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8')],
+    ['governance-ui.js', fs.readFileSync(path.join(root, 'public', 'governance-ui.js'), 'utf8')]
+  ];
+  const LABEL = /<label\b([^>]*)>((?:(?!<\/label>).){0,400})<\/label>/gs;
+  let checked = 0;
+  for (const [name, source] of sources) {
+    for (const [, attributes, body] of source.matchAll(LABEL)) {
+      checked += 1;
+      if (/\bfor=/.test(attributes)) continue;
+      if (/<(?:input|select|textarea)\b/.test(body)) continue;
+      assert.fail(
+        `${name} has a label naming nothing: ${body.replace(/<[^>]+>/g, '').trim().slice(0, 48)}`
+      );
+    }
+  }
+  assert(checked >= 50, 'the label sweep must actually be reading the interface');
+
+  /*
+   * A segmented control is a set of choices. Which one is chosen was a class,
+   * so the selection was visible and unannounced -- the same defect as the
+   * palette, in four more places.
+   */
+  const markup = sources[0][1];
+  const groups = [...markup.matchAll(/<div class="seg"[^>]*id="([^"]+)"[^>]*>/g)];
+  assert(groups.length >= 4, 'the segmented controls must be discoverable');
+  for (const [tag, id] of groups) {
+    assert(/role="radiogroup"/.test(tag), `${id} must present itself as a set of choices`);
+    assert(/aria-label(?:ledby)?="/.test(tag), `${id} must be named`);
+  }
+  const segButtons = [...markup.matchAll(/<button class="seg-btn[^"]*"[^>]*>/g)];
+  assert(segButtons.length >= 10, 'the segmented buttons must be discoverable');
+  for (const [tag] of segButtons) {
+    assert(/role="radio"/.test(tag), `a segmented button must present itself as a choice: ${tag.slice(0, 60)}`);
+    assert(/aria-checked="(?:true|false)"/.test(tag), `a segmented button must say whether it is chosen: ${tag.slice(0, 60)}`);
+  }
+  const behaviour = sources[1][1];
+  assert(
+    !/\.seg-btn'\)\.forEach\([^)]*classList\.toggle\('active'/.test(behaviour),
+    'segment selection must move through selectSegment, so the class and the announcement cannot drift'
+  );
+  assert(behaviour.includes('function selectSegment('), 'the segment selection helper must exist');
+}
+
 console.log('alpha UI contract tests passed');

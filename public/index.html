@@ -96,10 +96,10 @@
     <p class="brand-sub">GitHub · GitLab · Gitea, from your pocket — offline-ready, pushes of <em>any</em> size.</p>
     <div class="card login-card">
       <div class="field-label" id="providerLabel">Provider</div>
-      <div class="seg" id="provSeg" role="group" aria-labelledby="providerLabel">
-        <button class="seg-btn active" data-v="github"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>GitHub</button>
-        <button class="seg-btn" data-v="gitlab"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>GitLab</button>
-        <button class="seg-btn" data-v="gitea"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24"><path d="M4.5 8h11v6.5a4.5 4.5 0 0 1-4.5 4.5H9a4.5 4.5 0 0 1-4.5-4.5V8z"/><path d="M15.5 9.5h2a2.5 2.5 0 0 1 0 5h-2M8 5.5V4M11.5 5.5V3.5"/></svg>Gitea</button>
+      <div class="seg" id="provSeg" role="group" aria-labelledby="providerLabel" role="radiogroup" aria-label="Provider">
+        <button class="seg-btn active" data-v="github" role="radio" aria-checked="true"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>GitHub</button>
+        <button class="seg-btn" data-v="gitlab" role="radio" aria-checked="false"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>GitLab</button>
+        <button class="seg-btn" data-v="gitea" role="radio" aria-checked="false"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24"><path d="M4.5 8h11v6.5a4.5 4.5 0 0 1-4.5 4.5H9a4.5 4.5 0 0 1-4.5-4.5V8z"/><path d="M15.5 9.5h2a2.5 2.5 0 0 1 0 5h-2M8 5.5V4M11.5 5.5V3.5"/></svg>Gitea</button>
       </div>
       <div id="baseUrlWrap" hidden>
         <label class="field-label" for="baseUrl">Server URL</label>
@@ -274,10 +274,10 @@
             <input type="file" id="filePicker" multiple hidden>
           </div>
           <div class="upload-opts">
-            <label class="field-label">Commit mode</label>
-            <div class="seg" data-feature="file.batch" data-allow-experimental="true" id="uploadMode">
-              <button class="seg-btn active" data-v="single">One commit per file</button>
-              <button class="seg-btn" data-v="batch">All as one commit</button>
+            <span class="field-label" id="uploadModeLabel">Commit mode</span>
+            <div class="seg" data-feature="file.batch" data-allow-experimental="true" id="uploadMode" role="radiogroup" aria-labelledby="uploadModeLabel">
+              <button class="seg-btn active" data-v="single" role="radio" aria-checked="true">One commit per file</button>
+              <button class="seg-btn" data-v="batch" role="radio" aria-checked="false">All as one commit</button>
             </div>
             <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btn-ghost small" data-feature="native-push" data-allow-experimental="true" id="folderPickBtn">Select a whole folder…</button>
@@ -285,9 +285,9 @@
             </div>
             <input type="file" id="folderPicker" webkitdirectory multiple hidden>
             <input type="file" id="zipPicker" accept=".zip,application/zip" hidden>
-            <label class="field-label">Destination folder <span class="muted">(optional)</span></label>
+            <label class="field-label" for="uploadDir">Destination folder <span class="muted">(optional)</span></label>
             <input id="uploadDir" type="text" placeholder="repository root" spellcheck="false">
-            <label class="field-label">Commit message</label>
+            <label class="field-label" for="uploadMsg">Commit message</label>
             <input id="uploadMsg" type="text" placeholder="Add files via __NV_PRODUCT_NAME__" spellcheck="false">
             <label class="check"><input type="checkbox" id="forceLfs"> Force Git LFS for all files</label>
           </div>
@@ -309,10 +309,10 @@
       <!-- PULLS -->
       <div class="tabpane" id="tab-pulls">
         <div class="list-toolbar">
-          <div class="seg" id="prState">
-            <button class="seg-btn active" data-v="open">Open</button>
-            <button class="seg-btn" data-v="closed">Closed</button>
-            <button class="seg-btn" data-v="all">All</button>
+          <div class="seg" id="prState" role="radiogroup" aria-label="Pull request state">
+            <button class="seg-btn active" data-v="open" role="radio" aria-checked="true">Open</button>
+            <button class="seg-btn" data-v="closed" role="radio" aria-checked="false">Closed</button>
+            <button class="seg-btn" data-v="all" role="radio" aria-checked="false">All</button>
           </div>
           <button class="btn btn-primary small" id="newPrBtn" data-feature="pulls.write" data-allow-experimental="true">New PR</button>
         </div>
@@ -323,9 +323,9 @@
       <!-- ISSUES -->
       <div class="tabpane" id="tab-issues">
         <div class="list-toolbar">
-          <div class="seg" id="issueState">
-            <button class="seg-btn active" data-v="open">Open</button>
-            <button class="seg-btn" data-v="closed">Closed</button>
+          <div class="seg" id="issueState" role="radiogroup" aria-label="Issue state">
+            <button class="seg-btn active" data-v="open" role="radio" aria-checked="true">Open</button>
+            <button class="seg-btn" data-v="closed" role="radio" aria-checked="false">Closed</button>
           </div>
           <button class="btn btn-primary small" id="newIssueBtn" data-feature="issues.write" data-allow-experimental="true">New issue</button>
         </div>
@@ -355,9 +355,9 @@
       <div class="tabpane" id="tab-compare">
         <div class="card compare-card">
           <div class="compare-row">
-            <div><label class="field-label">Base</label><select id="cmpBase" class="branch-select w100"></select></div>
+            <div><label class="field-label" for="cmpBase">Base</label><select id="cmpBase" class="branch-select w100"></select></div>
             <span class="cmp-arrow">←</span>
-            <div><label class="field-label">Head</label><select id="cmpHead" class="branch-select w100"></select></div>
+            <div><label class="field-label" for="cmpHead">Head</label><select id="cmpHead" class="branch-select w100"></select></div>
             <button class="btn btn-primary" id="cmpGo">Compare</button>
           </div>
           <div id="cmpResult"></div>

@@ -216,6 +216,20 @@ function safeHexColor(value, fallback = '8a8fa8') {
   return /^[0-9a-f]{6}$/i.test(color) ? color : fallback;
 }
 const TOAST_TONE = { ok: 'Success', err: 'Error' };
+/*
+ * A segmented control is a set of choices, and which one is chosen was carried
+ * only by an .active class -- visible, but silent. Selection moves through
+ * here so the class and the announced state cannot drift apart at any of the
+ * places that repaint one.
+ */
+function selectSegment(groupSelector, isChosen) {
+  $$(`${groupSelector} .seg-btn`).forEach((button, index) => {
+    const chosen = !!isChosen(button, index);
+    button.classList.toggle('active', chosen);
+    button.setAttribute('aria-checked', String(chosen));
+  });
+}
+
 function toast(msg, kind = '') {
   if (kind === 'ok') hapt(10);
   const el = document.createElement('div');
@@ -733,7 +747,7 @@ function ensureLoginAlphaSessionControls() {
 }
 $('#provSeg').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#provSeg .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#provSeg', x => x === b);
   loginProvider = b.dataset.v;
   $('#oauthBtn').hidden = loginProvider !== 'github' || !window._oauthOn;
   $('#baseUrlWrap').hidden = loginProvider === 'github';
@@ -758,7 +772,7 @@ function applyCaps() {
   if (lfsLabel) lfsLabel.hidden = false;
   if (!caps.batch && typeof uploadModeV !== 'undefined' && uploadModeV === 'batch') {
     uploadModeV = 'single';
-    $$('#uploadMode .seg-btn').forEach(b2 => b2.classList.toggle('active', b2.dataset.v === 'single'));
+    selectSegment('#uploadMode', b2 => b2.dataset.v === 'single');
   }
   window.NebulaCapabilityUI.apply();
 }
@@ -1137,8 +1151,8 @@ $('#newRepoBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New repository',
     bodyHTML: `
-      <label class="field-label">Name</label><input id="nrName" type="text" placeholder="my-nebula" spellcheck="false">
-      <label class="field-label">Description</label><input id="nrDesc" type="text" placeholder="Optional">
+      <label class="field-label" for="nrName">Name</label><input id="nrName" type="text" placeholder="my-nebula" spellcheck="false">
+      <label class="field-label" for="nrDesc">Description</label><input id="nrDesc" type="text" placeholder="Optional">
       <label class="check"><input type="checkbox" id="nrPriv" checked> Private</label>`,
     okText: 'Create'
   });
@@ -1330,7 +1344,7 @@ $('#branchSelect').addEventListener('change', e => {
 $('#newBranchBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New branch',
-    bodyHTML: `<label class="field-label">Branch name</label><input id="nbName" type="text" placeholder="feature/starlight" spellcheck="false">
+    bodyHTML: `<label class="field-label" for="nbName">Branch name</label><input id="nbName" type="text" placeholder="feature/starlight" spellcheck="false">
       <p class="hint">Created from <b>${esc(state.work.branch)}</b></p>`,
     okText: 'Create branch'
   });
@@ -1566,9 +1580,9 @@ function governanceReadJson(selector, label) {
 async function createGovernancePolicy() {
   const ok = await modal({
     title: 'Create governance policy', okText: 'Create policy',
-    bodyHTML: `<label class="field-label">Stable policy key</label><input id="govPolicyKey" type="text" placeholder="release-safety" spellcheck="false">
-      <label class="field-label">Name</label><input id="govPolicyName" type="text" placeholder="Release safety">
-      <label class="field-label">Description</label><textarea id="govPolicyDescription" rows="4" placeholder="What this policy protects"></textarea>
+    bodyHTML: `<label class="field-label" for="govPolicyKey">Stable policy key</label><input id="govPolicyKey" type="text" placeholder="release-safety" spellcheck="false">
+      <label class="field-label" for="govPolicyName">Name</label><input id="govPolicyName" type="text" placeholder="Release safety">
+      <label class="field-label" for="govPolicyDescription">Description</label><textarea id="govPolicyDescription" rows="4" placeholder="What this policy protects"></textarea>
       <p class="hint">Creating a policy does not create, submit or activate a version.</p>`
   });
   if (!ok) return;
@@ -1587,8 +1601,8 @@ async function createGovernanceDraft(policyId, seed) {
   let approvalPolicy = seed && seed.approvalPolicy ? seed.approvalPolicy : governanceDefaultApproval();
   const ok = await modal({
     title: 'Create policy draft', okText: 'Create draft',
-    bodyHTML: `<label class="field-label">Policy document (JSON)</label><textarea id="govDraftDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(document, null, 2))}</textarea>
-      <label class="field-label">Approval policy (JSON)</label><textarea id="govDraftApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>
+    bodyHTML: `<label class="field-label" for="govDraftDocument">Policy document (JSON)</label><textarea id="govDraftDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(document, null, 2))}</textarea>
+      <label class="field-label" for="govDraftApproval">Approval policy (JSON)</label><textarea id="govDraftApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>
       <p class="hint">The draft remains mutable until submission. Nothing is activated automatically.</p>`
   });
   if (!ok) return;
@@ -1607,7 +1621,7 @@ async function generateGovernanceBaseline() {
   const options = templates.map(item => `<option value="${escAttr(item.templateId)}">${esc(item.name || item.templateId)}</option>`).join('');
   const ok = await modal({
     title: 'Generate repository baseline', okText: 'Generate',
-    bodyHTML: `<label class="field-label">Template</label><select id="govTemplateId">${options}</select>
+    bodyHTML: `<label class="field-label" for="govTemplateId">Template</label><select id="govTemplateId">${options}</select>
       <p class="hint">Generation is read-only. The result is not persisted or activated.</p>`
   });
   if (!ok) return;
@@ -1618,8 +1632,8 @@ async function generateGovernanceBaseline() {
   const accept = await modal({
     title: 'Baseline generated', okText: 'Create policy and draft',
     bodyHTML: `<div class="gov-banner ${baseline && baseline.readiness && baseline.readiness.status === 'ready' ? 'ok' : 'warn'}"><strong>${baseline && baseline.readiness && baseline.readiness.status === 'ready' ? 'Repository facts complete' : 'Review incomplete repository facts'}</strong></div>
-      <label class="field-label">Policy key</label><input id="govBaselineKey" type="text" value="${escAttr((baseline.templateId || 'baseline').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase())}" spellcheck="false">
-      <label class="field-label">Policy name</label><input id="govBaselineName" type="text" value="${escAttr(selectedTemplate.name || 'Repository baseline')}">
+      <label class="field-label" for="govBaselineKey">Policy key</label><input id="govBaselineKey" type="text" value="${escAttr((baseline.templateId || 'baseline').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase())}" spellcheck="false">
+      <label class="field-label" for="govBaselineName">Policy name</label><input id="govBaselineName" type="text" value="${escAttr(selectedTemplate.name || 'Repository baseline')}">
       <pre class="mono gov-json-view">${esc(JSON.stringify(baseline, null, 2))}</pre>`
   });
   if (!accept) return;
@@ -1647,8 +1661,8 @@ async function editGovernanceDraft(policyId, draftId) {
   const approvalPolicy = { requiredApprovals: draft.requiredApprovals, disallowAuthorApproval: draft.disallowAuthorApproval };
   const ok = await modal({
     title: `Edit draft r${draft.revision}`, okText: 'Save draft',
-    bodyHTML: `<label class="field-label">Policy document (JSON)</label><textarea id="govEditDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(draft.document, null, 2))}</textarea>
-      <label class="field-label">Approval policy (JSON)</label><textarea id="govEditApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>`
+    bodyHTML: `<label class="field-label" for="govEditDocument">Policy document (JSON)</label><textarea id="govEditDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(draft.document, null, 2))}</textarea>
+      <label class="field-label" for="govEditApproval">Approval policy (JSON)</label><textarea id="govEditApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>`
   });
   if (!ok) return;
   await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/drafts/${encodeURIComponent(draftId)}`, {
@@ -1681,7 +1695,7 @@ async function simulateGovernanceVersion(policyId, versionId) {
     : window.NebulaGovernanceUI.defaultSimulationRequest(state.work.default_branch || state.work.branch || 'main');
   const ok = await modal({
     title: 'Simulate policy version', okText: 'Run simulation',
-    bodyHTML: `<label class="field-label">Bounded scenario request (JSON)</label><textarea id="govSimulationRequest" rows="16" class="mono" spellcheck="false">${esc(JSON.stringify(previous, null, 2))}</textarea>
+    bodyHTML: `<label class="field-label" for="govSimulationRequest">Bounded scenario request (JSON)</label><textarea id="govSimulationRequest" rows="16" class="mono" spellcheck="false">${esc(JSON.stringify(previous, null, 2))}</textarea>
       <p class="hint">Simulation is read-only and must exercise every proposed rule before activation.</p>`
   });
   if (!ok) return null;
@@ -1703,7 +1717,7 @@ async function decideGovernanceReview(policyId, versionId, decision) {
   const ok = await modal({
     title: rejecting ? 'Reject policy version' : 'Approve policy version', danger: rejecting, okText: rejecting ? 'Reject' : 'Approve',
     bodyHTML: `<p>${rejecting ? 'Rejection is terminal for this review.' : 'Your approval becomes immutable governance evidence.'}</p>
-      <label class="field-label">Rationale${rejecting ? ' (required)' : ''}</label><textarea id="govReviewRationale" rows="5"></textarea>`
+      <label class="field-label" for="govReviewRationale">Rationale${rejecting ? ' (required)' : ''}</label><textarea id="govReviewRationale" rows="5"></textarea>`
   });
   if (!ok) return;
   await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/versions/${encodeURIComponent(versionId)}/decisions`, {
@@ -1723,7 +1737,7 @@ async function governanceActivateOrRollback(policyId, versionId, operation) {
   const ok = await modal({
     title: operation === 'rollback' ? 'Rollback active policy?' : 'Activate policy version?', danger: true,
     okText: operation === 'rollback' ? 'Rollback' : 'Activate',
-    bodyHTML: `<p>This changes the authoritative policy head after server-side evidence is recomputed.</p><label class="field-label">Reason</label><textarea id="govActivationReason" rows="5"></textarea>`
+    bodyHTML: `<p>This changes the authoritative policy head after server-side evidence is recomputed.</p><label class="field-label" for="govActivationReason">Reason</label><textarea id="govActivationReason" rows="5"></textarea>`
   });
   if (!ok) return;
   await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/versions/${encodeURIComponent(versionId)}/${operation}`, {
@@ -1740,12 +1754,12 @@ async function requestGovernanceException(policyId, versionId) {
   const local = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const ok = await modal({
     title: 'Request exception or waiver', okText: 'Submit request',
-    bodyHTML: `<label class="field-label">Kind</label><select id="govExceptionKind"><option value="exception">Exception (deny rules)</option><option value="waiver">Waiver (approval rules)</option></select>
-      <label class="field-label">Registered mutation action</label><input id="govExceptionAction" type="text" placeholder="file.write" spellcheck="false">
-      <label class="field-label">Rule IDs (comma separated)</label><input id="govExceptionRules" type="text" placeholder="protected-main-write" spellcheck="false">
-      <label class="field-label">Exact mutation target (JSON)</label><textarea id="govExceptionTarget" rows="6" class="mono" spellcheck="false">${esc(JSON.stringify({ branch: state.work.branch }, null, 2))}</textarea>
-      <label class="field-label">Expires</label><input id="govExceptionExpires" type="datetime-local" value="${escAttr(local)}">
-      <label class="field-label">Reason</label><textarea id="govExceptionReason" rows="5"></textarea>
+    bodyHTML: `<label class="field-label" for="govExceptionKind">Kind</label><select id="govExceptionKind"><option value="exception">Exception (deny rules)</option><option value="waiver">Waiver (approval rules)</option></select>
+      <label class="field-label" for="govExceptionAction">Registered mutation action</label><input id="govExceptionAction" type="text" placeholder="file.write" spellcheck="false">
+      <label class="field-label" for="govExceptionRules">Rule IDs (comma separated)</label><input id="govExceptionRules" type="text" placeholder="protected-main-write" spellcheck="false">
+      <label class="field-label" for="govExceptionTarget">Exact mutation target (JSON)</label><textarea id="govExceptionTarget" rows="6" class="mono" spellcheck="false">${esc(JSON.stringify({ branch: state.work.branch }, null, 2))}</textarea>
+      <label class="field-label" for="govExceptionExpires">Expires</label><input id="govExceptionExpires" type="datetime-local" value="${escAttr(local)}">
+      <label class="field-label" for="govExceptionReason">Reason</label><textarea id="govExceptionReason" rows="5"></textarea>
       <p class="hint">The request is bound to your verified human identity and this exact target.</p>`
   });
   if (!ok) return;
@@ -1765,8 +1779,8 @@ async function viewGovernanceException(exceptionId) {
 async function decideGovernanceException(exceptionId) {
   const ok = await modal({
     title: 'Decide exception request', okText: 'Record decision', danger: true,
-    bodyHTML: `<label class="field-label">Decision</label><select id="govExceptionDecision"><option value="approve">Approve</option><option value="reject">Reject</option></select>
-      <label class="field-label">Reason</label><textarea id="govExceptionDecisionReason" rows="5"></textarea>
+    bodyHTML: `<label class="field-label" for="govExceptionDecision">Decision</label><select id="govExceptionDecision"><option value="approve">Approve</option><option value="reject">Reject</option></select>
+      <label class="field-label" for="govExceptionDecisionReason">Reason</label><textarea id="govExceptionDecisionReason" rows="5"></textarea>
       <p class="hint">The requester cannot approve their own request.</p>`
   });
   if (!ok) return;
@@ -1778,7 +1792,7 @@ async function decideGovernanceException(exceptionId) {
   await loadGovernanceTwin(true);
 }
 async function revokeGovernanceException(exceptionId) {
-  const ok = await modal({ title: 'Revoke exception?', danger: true, okText: 'Revoke', bodyHTML: '<label class="field-label">Reason</label><textarea id="govExceptionRevokeReason" rows="5"></textarea>' });
+  const ok = await modal({ title: 'Revoke exception?', danger: true, okText: 'Revoke', bodyHTML: '<label class="field-label" for="govExceptionRevokeReason">Reason</label><textarea id="govExceptionRevokeReason" rows="5"></textarea>' });
   if (!ok) return;
   await api(`${governanceBasePath()}/exceptions/${encodeURIComponent(exceptionId)}/revoke`, {
     method: 'POST', headers: governanceHeaders('exception-revoke'), body: { reason: $('#govExceptionRevokeReason').value.trim() }
@@ -1791,7 +1805,7 @@ async function editGovernanceNotificationPreferences() {
   const current = state.governance.delivery.preferences || {};
   const enabled = current.enabled !== false;
   const types = Array.isArray(current.eventTypes) ? current.eventTypes.join('\n') : '';
-  const ok = await modal({ title: 'Notification preferences', okText: 'Save preferences', bodyHTML: `<label class="field-label"><input id="govNotificationEnabled" type="checkbox" ${enabled ? 'checked' : ''}> Enable notifications</label><label class="field-label">Event types, one per line</label><textarea id="govNotificationTypes" rows="10">${esc(types)}</textarea>` });
+  const ok = await modal({ title: 'Notification preferences', okText: 'Save preferences', bodyHTML: `<label class="field-label"><input id="govNotificationEnabled" type="checkbox" ${enabled ? 'checked' : ''}> Enable notifications</label><label class="field-label" for="govNotificationTypes">Event types, one per line</label><textarea id="govNotificationTypes" rows="10">${esc(types)}</textarea>` });
   if (!ok) return;
   const eventTypes = $('#govNotificationTypes').value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
   await api(`${governanceBasePath()}/notifications/preferences`, { method: 'PUT', headers: governanceHeaders('notification-preferences'), body: { enabled: $('#govNotificationEnabled').checked, eventTypes } });
@@ -1802,7 +1816,7 @@ async function markGovernanceNotificationsRead(throughSeq) {
   await loadGovernanceDelivery();
 }
 async function createGovernanceEvidenceExport() {
-  const ok = await modal({ title: 'Create signed evidence export', okText: 'Create export', bodyHTML: '<label class="field-label">Format</label><select id="govExportFormat"><option value="json">JSON</option><option value="csv">CSV</option></select><label class="field-label">Maximum events (1–1000)</label><input id="govExportLimit" type="number" min="1" max="1000" value="1000">' });
+  const ok = await modal({ title: 'Create signed evidence export', okText: 'Create export', bodyHTML: '<label class="field-label" for="govExportFormat">Format</label><select id="govExportFormat"><option value="json">JSON</option><option value="csv">CSV</option></select><label class="field-label" for="govExportLimit">Maximum events (1–1000)</label><input id="govExportLimit" type="number" min="1" max="1000" value="1000">' });
   if (!ok) return;
   await api(`${governanceBasePath()}/exports`, { method: 'POST', headers: governanceHeaders('audit-export'), body: { format: $('#govExportFormat').value, afterEventSeq: 0, limit: Number($('#govExportLimit').value) } });
   await loadGovernanceDelivery();
@@ -1817,7 +1831,7 @@ async function verifyGovernanceExport(exportId) {
   await showGovernanceJson('Evidence export verification', result.verification || result);
 }
 async function createGovernanceWebhook() {
-  const ok = await modal({ title: 'Add governance webhook', okText: 'Create webhook', bodyHTML: '<label class="field-label">Name</label><input id="govWebhookName" maxlength="120"><label class="field-label">HTTPS URL</label><input id="govWebhookUrl" type="url" placeholder="https://hooks.example.com/governance"><label class="field-label">Event types, one per line</label><textarea id="govWebhookTypes" rows="8">policy.activated\npolicy.decision.block</textarea>' });
+  const ok = await modal({ title: 'Add governance webhook', okText: 'Create webhook', bodyHTML: '<label class="field-label" for="govWebhookName">Name</label><input id="govWebhookName" maxlength="120"><label class="field-label" for="govWebhookUrl">HTTPS URL</label><input id="govWebhookUrl" type="url" placeholder="https://hooks.example.com/governance"><label class="field-label" for="govWebhookTypes">Event types, one per line</label><textarea id="govWebhookTypes" rows="8">policy.activated\npolicy.decision.block</textarea>' });
   if (!ok) return;
   const result = await api(`${governanceBasePath()}/webhooks`, { method: 'POST', headers: governanceHeaders('webhook-create'), body: { name: $('#govWebhookName').value.trim(), url: $('#govWebhookUrl').value.trim(), eventTypes: $('#govWebhookTypes').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean), enabled: true } });
   await showGovernanceJson('Webhook signing secret — save now', { signingSecret: result.signingSecret, warning: 'This secret is shown once and cannot be recovered.' });
@@ -1972,7 +1986,7 @@ function openItemMenu(it) {
     else if (act === 'rename') {
       const ok = await modal({
         title: 'Rename / move',
-        bodyHTML: `<label class="field-label">New path</label><input id="rnTo2" type="text" value="${esc(it.path)}" spellcheck="false">`,
+        bodyHTML: `<label class="field-label" for="rnTo2">New path</label><input id="rnTo2" type="text" value="${esc(it.path)}" spellcheck="false">`,
         okText: 'Rename ✦'
       });
       if (!ok) return;
@@ -2177,7 +2191,7 @@ async function recoveryFlow() {
     const confirm = await modal({
       title: 'Confirm branch reference recovery', okText: 'Restore refs', danger: true,
       bodyHTML: `<p class="hint">This force-updates or recreates <b>${actions.length}</b> branch reference(s). Commits created after the snapshot are not deleted, but these branches will no longer point to them.</p>
-        <label class="field-label">Type <span class="mono">RESTORE</span> to confirm</label>
+        <label class="field-label" for="recConfirm">Type <span class="mono">RESTORE</span> to confirm</label>
         <input id="recConfirm" type="text" autocomplete="off" spellcheck="false" placeholder="RESTORE">`
     });
     if (!confirm) return;
@@ -2272,7 +2286,7 @@ async function moveFolderFlow(dirPath) {
   const ok = await modal({
     title: 'Rename / move folder',
     bodyHTML: `<p class="hint">Every file under <b class="mono">${esc(dirPath)}/</b> moves in one atomic commit.</p>
-      <label class="set-label" style="margin-top:8px">New path</label>
+      <label class="set-label" for="mvDirTo" style="margin-top:8px">New path</label>
       <input id="mvDirTo" type="text" value="${esc(dirPath)}" autocomplete="off" spellcheck="false" style="width:100%">
       <p class="hint" style="margin-top:6px">Rename in place (<span class="mono">docs</span> → <span class="mono">guides</span>) or move deeper (<span class="mono">assets/logos</span>).</p>`,
     okText: 'Move ✦'
@@ -2301,7 +2315,7 @@ async function deleteFolderFlow(dirPath) {
   const ok = await modal({
     title: 'Delete folder',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6">This deletes <b>${victims.length} file${victims.length > 1 ? 's' : ''}</b> under <b class="mono">${esc(dirPath)}/</b> from <b>${esc(state.work.branch)}</b> in ${Math.ceil(victims.length / 100)} commit${victims.length > 100 ? 's' : ''}.</p>
-      <label class="field-label">Type <b class="mono">${esc(leaf)}</b> to confirm</label><input id="delFolderName" type="text" autocomplete="off" spellcheck="false">`,
+      <label class="field-label" for="delFolderName">Type <b class="mono">${esc(leaf)}</b> to confirm</label><input id="delFolderName" type="text" autocomplete="off" spellcheck="false">`,
     okText: 'Delete folder', danger: true
   });
   if (!ok) return;
@@ -2322,7 +2336,7 @@ async function deleteRepoFlow() {
   const ok = await modal({
     title: 'Delete repository',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(wPath())}</b> will be permanently deleted on GitHub — code, history, issues, releases. <b>This cannot be undone.</b></p>
-      <label class="field-label">Type <b class="mono">${esc(state.work.repo)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" spellcheck="false">`,
+      <label class="field-label" for="drName">Type <b class="mono">${esc(state.work.repo)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" spellcheck="false">`,
     okText: 'Delete forever', danger: true
   });
   if (!ok) return;
@@ -2508,7 +2522,7 @@ $('#commitFileBtn').addEventListener('click', async () => {
   if (!state.file || state.file.binary) return;
   const ok = await modal({
     title: 'Commit changes',
-    bodyHTML: `<label class="field-label">Commit message</label>
+    bodyHTML: `<label class="field-label" for="cmMsg">Commit message</label>
       <input id="cmMsg" type="text" value="Update ${esc(state.file.path)}" spellcheck="false">
       <p class="hint">Committing directly to <b>${esc(state.work.branch)}</b></p>`,
     okText: 'Commit ✦'
@@ -2592,7 +2606,7 @@ $('#renameFileBtn').addEventListener('click', async () => {
   if (!state.file) return;
   const ok = await modal({
     title: 'Rename / move file',
-    bodyHTML: `<label class="field-label">New path</label>
+    bodyHTML: `<label class="field-label" for="rnTo">New path</label>
       <input id="rnTo" type="text" value="${esc(state.file.path)}" spellcheck="false">
       <p class="hint">Works for files of any size — the blob is re-linked, not re-uploaded.</p>`,
     okText: 'Rename ✦'
@@ -2970,7 +2984,7 @@ let uploadModeV = 'single';
 const batchQueue = []; // { file, targetPath, item }
 $('#uploadMode').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#uploadMode .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#uploadMode', x => x === b);
   uploadModeV = b.dataset.v;
 });
 $('#folderPickBtn').addEventListener('click', () => $('#folderPicker').click());
@@ -3110,7 +3124,7 @@ async function handleZip(zipFile) {
     if (entries.length > 500) return toast(`Zip has ${entries.length} files — the limit is 500 per batch`, 'err');
     if (uploadModeV !== 'batch') {
       uploadModeV = 'batch';
-      $$('#uploadMode .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.v === 'batch'));
+      selectSegment('#uploadMode', b => b.dataset.v === 'batch');
       toast('Batch mode enabled — everything will land as one commit', 'ok');
     }
     queueEntries(entries);
@@ -3382,7 +3396,7 @@ function renderDiffFiles(host, files) {
 /* ================= PULL REQUESTS ================= */
 $('#prState').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#prState .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#prState', x => x === b);
   state.prState = b.dataset.v;
   loadPRs();
 });
@@ -3436,7 +3450,7 @@ async function openPR(num) {
       <div class="detail-actions" id="prActions"></div>
       <div id="prFiles" style="margin-top:14px"></div>
       <div id="prComments" style="margin-top:14px"></div>
-      <label class="field-label">Add a comment</label>
+      <label class="field-label" for="prNewComment">Add a comment</label>
       <textarea id="prNewComment" placeholder="Write a comment…"></textarea>
       <div class="detail-actions"><button class="btn btn-primary small" id="prCommentBtn">Comment ✦</button></div>`;
     box.querySelector('.detail-title').textContent = p.title;
@@ -3478,7 +3492,7 @@ async function openPR(num) {
         b.addEventListener('click', async () => {
           const ok = await modal({
             title: label,
-            bodyHTML: `<label class="field-label">Review comment ${ev === 'REQUEST_CHANGES' ? '(required)' : '(optional)'}</label>
+            bodyHTML: `<label class="field-label" for="rvBody">Review comment ${ev === 'REQUEST_CHANGES' ? '(required)' : '(optional)'}</label>
               <textarea id="rvBody" placeholder="Feedback for the author…"></textarea>`,
             okText: label
           });
@@ -3529,12 +3543,12 @@ $('#newPrBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New pull request',
     bodyHTML: `
-      <label class="field-label">Title</label><input id="prTitle" type="text" spellcheck="false">
-      <label class="field-label">Head (your changes)</label>
+      <label class="field-label" for="prTitle">Title</label><input id="prTitle" type="text" spellcheck="false">
+      <label class="field-label" for="prHead">Head (your changes)</label>
       <select id="prHead">${names.map(n => `<option ${n === state.work.branch ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
-      <label class="field-label">Base (merge into)</label>
+      <label class="field-label" for="prBase">Base (merge into)</label>
       <select id="prBase">${names.map(n => `<option ${n === state.work.default_branch ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
-      <label class="field-label">Description</label><textarea id="prDesc" placeholder="Optional"></textarea>
+      <label class="field-label" for="prDesc">Description</label><textarea id="prDesc" placeholder="Optional"></textarea>
       <label class="check"><input type="checkbox" id="prDraft"> Draft</label>`,
     okText: 'Open PR ✦'
   });
@@ -3554,7 +3568,7 @@ $('#newPrBtn').addEventListener('click', async () => {
 /* ================= ISSUES ================= */
 $('#issueState').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#issueState .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#issueState', x => x === b);
   state.issueState = b.dataset.v;
   loadIssues();
 });
@@ -3606,7 +3620,7 @@ async function openIssue(num) {
       <div class="detail-meta"><span>#${i.number} by ${esc(i.user || '')}</span><span>${timeAgo(i.created_at)}</span></div>
       <div class="detail-body" id="issBody" hidden></div>
       <div id="issComments"></div>
-      <label class="field-label">Add a comment</label>
+      <label class="field-label" for="issNewComment">Add a comment</label>
       <textarea id="issNewComment" placeholder="Write a comment…"></textarea>
       <div class="detail-actions">
         <button class="btn btn-primary small" id="issCommentBtn">Comment ✦</button>
@@ -3645,8 +3659,8 @@ async function openIssue(num) {
 $('#newIssueBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New issue',
-    bodyHTML: `<label class="field-label">Title</label><input id="niTitle" type="text" spellcheck="false">
-      <label class="field-label">Description</label><textarea id="niBody" placeholder="Optional"></textarea>`,
+    bodyHTML: `<label class="field-label" for="niTitle">Title</label><input id="niTitle" type="text" spellcheck="false">
+      <label class="field-label" for="niBody">Description</label><textarea id="niBody" placeholder="Optional"></textarea>`,
     okText: 'Open issue ✦'
   });
   if (!ok) return;
@@ -3693,9 +3707,9 @@ $('#newReleaseBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New release',
     bodyHTML: `
-      <label class="field-label">Tag</label><input id="relTag" type="text" placeholder="v1.0.0" spellcheck="false">
-      <label class="field-label">Title</label><input id="relName" type="text" placeholder="Defaults to tag" spellcheck="false">
-      <label class="field-label">Notes</label><textarea id="relBody" placeholder="What changed?"></textarea>
+      <label class="field-label" for="relTag">Tag</label><input id="relTag" type="text" placeholder="v1.0.0" spellcheck="false">
+      <label class="field-label" for="relName">Title</label><input id="relName" type="text" placeholder="Defaults to tag" spellcheck="false">
+      <label class="field-label" for="relBody">Notes</label><textarea id="relBody" placeholder="What changed?"></textarea>
       <label class="check"><input type="checkbox" id="relPre"> Pre-release</label>
       <p class="hint">Tag will be created from <b>${esc(state.work.branch)}</b> if it doesn't exist.</p>`,
     okText: 'Publish ✦'
@@ -4127,7 +4141,7 @@ async function timeMachine(kind, sha, msg) {
       const ok = await modal({
         title: 'Restore from this commit',
         bodyHTML: `<p style="font-size:.9rem;line-height:1.6">Bring back a file or a whole folder <b>as it was at</b> <b class="mono">${short}</b>, without touching anything else. Perfect for un-deleting.</p>
-          <label class="field-label">Path to restore <span class="muted">(e.g. <span class="mono">public</span> or <span class="mono">src/app.js</span>)</span></label>
+          <label class="field-label" for="tmPath">Path to restore <span class="muted">(e.g. <span class="mono">public</span> or <span class="mono">src/app.js</span>)</span></label>
           <input id="tmPath" type="text" spellcheck="false" autocomplete="off">`,
         okText: 'Restore path ✦'
       });
@@ -4142,7 +4156,7 @@ async function timeMachine(kind, sha, msg) {
       const ok = await modal({
         title: 'Hard reset — destructive',
         bodyHTML: `<p style="font-size:.9rem;line-height:1.6">Moves <b>${esc(br)}</b> back to <b class="mono">${short}</b> and <b style="color:var(--red)">erases every later commit from this branch</b> — they vanish from its history. Use Revert or Restore instead unless you truly need history rewritten.</p>
-          <label class="field-label">Type the branch name <b class="mono">${esc(br)}</b> to confirm</label>
+          <label class="field-label" for="tmReset">Type the branch name <b class="mono">${esc(br)}</b> to confirm</label>
           <input id="tmReset" type="text" spellcheck="false" autocomplete="off">`,
         okText: 'Hard reset', danger: true
       });

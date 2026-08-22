@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { hashJson } = require('../src/intelligence');
+const { hashJson, evidenceRecordHash } = require('../src/intelligence');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
 const {
   createCsrfToken,
@@ -131,7 +131,10 @@ const providerSessions = {
 const fixtureSource = String.raw`
 'use strict';
 const fs = require('fs');
+const path = require('path');
 const Module = require('module');
+const { hashJson, evidenceRecordHash } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'src', 'intelligence'));
+const sessionSecret = process.env.SESSION_SECRET;
 const originalLoad = Module._load;
 const originalSetInterval = global.setInterval;
 const eventLog = process.env.NV_ALPHA_TEST_EVENT_LOG;
@@ -142,6 +145,40 @@ const sessionRevisions = new Map([...sessions.keys()].map(sid => [sid, 0]));
 global.setInterval = function acceleratedLiveValidation(callback, delay, ...args) {
   return originalSetInterval(callback, delay === 15000 ? 5 : delay, ...args);
 };
+
+/*
+ * The evidence ledger is only meaningful if a written chain can be read back
+ * and verified, so this store keeps appended rows instead of discarding them.
+ */
+const evidenceRows = [];
+
+/*
+ * Stand in for a deployment that already had an evidence chain when the hashing
+ * key was rotated. The first record for a repository is hashed with the former
+ * raw session secret and marked legacy, so every record the server appends
+ * afterwards extends a chain that straddles the rotation.
+ *
+ * Without the stored key id those pre-rotation rows would fail to reproduce
+ * their hash, and a tamper-evident ledger would report tampering that never
+ * happened.
+ */
+const EVIDENCE_GENESIS = 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
+function seedLegacyEvidence(repoKey) {
+  if (!repoKey || evidenceRows.some(row => row.repo_key === repoKey)) return;
+  const payloadHash = hashJson({ record: 'pre-rotation' });
+  evidenceRows.push({
+    seq: evidenceRows.length + 1,
+    repo_key: repoKey,
+    kind: 'webhook',
+    record_id: 'pre-rotation-record',
+    previous_hash: EVIDENCE_GENESIS,
+    record_hash: evidenceRecordHash(
+      sessionSecret, EVIDENCE_GENESIS, repoKey, 'webhook', 'pre-rotation-record', payloadHash
+    ),
+    payload_hash: payloadHash,
+    created_at: new Date().toISOString()
+  });
+}
 
 function record(event) {
   fs.appendFileSync(eventLog, JSON.stringify(event) + '\n');
@@ -308,8 +345,40 @@ class Pool {
       return { rows: [], rowCount: 1 };
     }
     if (normalized.startsWith('INSERT INTO nv_evidence_chain')) {
+      /*
+       * The ledger is tamper-evident, so every row must name the key that
+       * hashed it; a row written without one would be unverifiable after any
+       * later rotation. Capture the persisted key so the append path is held
+       * to that, rather than trusting the source text.
+       */
       record({ kind: 'evidence.write' });
-      return { rows: [{ seq: 1, created_at: new Date().toISOString() }], rowCount: 1 };
+      evidenceRows.push({
+        seq: evidenceRows.length + 1,
+        repo_key: String(params[0]),
+        kind: String(params[1]),
+        record_id: String(params[2]),
+        previous_hash: String(params[3]),
+        record_hash: String(params[4]),
+        payload_hash: String(params[5]),
+        created_at: new Date().toISOString()
+      });
+      return { rows: [{ seq: evidenceRows.length, created_at: new Date().toISOString() }], rowCount: 1 };
+    }
+    if (normalized.startsWith('SELECT record_hash FROM nv_evidence_chain')) {
+      seedLegacyEvidence(String(params[0]));
+      const chain = evidenceRows.filter(row => row.repo_key === String(params[0]));
+      const head = chain[chain.length - 1];
+      return { rows: head ? [{ record_hash: head.record_hash }] : [], rowCount: head ? 1 : 0 };
+    }
+    if (normalized.startsWith('SELECT count(*)::int AS total FROM nv_evidence_chain')) {
+      const total = evidenceRows.filter(row => row.repo_key === String(params[0])).length;
+      return { rows: [{ total }], rowCount: 1 };
+    }
+    if (normalized.startsWith('SELECT seq,kind,record_id,previous_hash,record_hash,payload_hash,created_at FROM nv_evidence_chain')) {
+      const chain = evidenceRows
+        .filter(row => row.repo_key === String(params[0]))
+        .slice(0, Number(params[1]));
+      return { rows: chain, rowCount: chain.length };
     }
     if (normalized.startsWith('SELECT hook_id,owner,repo,identity_key,secret_enc,active FROM nv_webhooks')) {
       return {
@@ -526,6 +595,7 @@ const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
     NV_ALPHA_TERMS_VERSION: termsVersion,
     NV_GIT_HOST_ALLOWLIST: 'gitlab.com,gitea.example',
     NV_ALPHA_TEST_EVENT_LOG: eventLog,
+    NV_ALPHA_TEST_ROOT: root,
     NV_ALPHA_TEST_STATE_FILE: alphaStateFile,
     NV_ALPHA_TEST_WEBHOOK_ID: webhookId,
     NV_ALPHA_TEST_WEBHOOK_IDENTITY: identityKey(accounts.github),
@@ -713,7 +783,8 @@ async function assertAlphaStreamTermination(state) {
     assert.strictEqual(
       activeWebhook.status,
       202,
-      `repository event before alpha ${state} must be accepted`
+      `repository event before alpha ${state} must be accepted: ${await activeWebhook.clone().text()}
+${logs}`
     );
     await collector.waitFor(
       stream => stream.text.includes(activeMarker),
@@ -1291,7 +1362,34 @@ async function assertAlphaStreamTermination(state) {
     assert(!serializedLogs.includes('raw database detail'));
     assert(!serializedLogs.includes('nvx_alpha_private'));
 
-    console.log('alpha repository boundary integration tests passed');
+    /*
+ * Evidence appends must persist the active key id. Verified against the writes
+ * this suite actually performs, so the assertion cannot pass vacuously.
+ */
+/*
+ * The chain the server built straddles the key rotation: its first record was
+ * hashed with the former raw session secret, every later one with the derived
+ * key. Verification must still report the ledger valid, and must say how many
+ * records verified under the retired key.
+ *
+ * This is the false alarm the retired keyring exists to prevent. The ledger is
+ * tamper-evident, so without it every pre-rotation record would reproduce the
+ * wrong hash and the export would accuse itself of tampering on first deploy.
+ */
+const evidenceExport = await request('/api/repo/acme/demo/evidence', {
+  headers: { cookie: combinedCookie('A', 'provider-github') }
+});
+assert.strictEqual(evidenceExport.status, 200, 'the evidence export must be reachable');
+const evidenceBody = await json(evidenceExport);
+assert(evidenceBody.records.length > 1,
+  'the exported chain must span more than the seeded record, or this proves nothing');
+assert.strictEqual(evidenceBody.chain.legacyRecords, 1,
+  'exactly the pre-rotation record must verify under the retired key');
+assert.strictEqual(evidenceBody.chain.valid, true,
+  'a chain written before the key rotation and extended after it must still verify');
+assert.strictEqual(evidenceBody.chain.available, true);
+
+console.log('alpha repository boundary integration tests passed');
   } finally {
     child.kill('SIGTERM');
     await new Promise(resolve => {

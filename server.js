@@ -67,7 +67,8 @@ const CAPABILITY_DOCUMENT = loadCapabilityDocument(
 );
 const DEPLOYMENT_PROFILE = 'hosted-alpha';
 const {
-  stableJson, hashJson, evidenceRecordHash, verifyGithubSignature, normalizeGithubWebhook,
+  stableJson, hashJson, evidenceRecordHash,
+  verifyEvidenceRecord, verifyGithubSignature, normalizeGithubWebhook,
   riskForEvent, riskForAccessSurface, compareSnapshots, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
   cleanText, normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, normalizeProviderBranches
 } = require('./src/intelligence');
@@ -166,6 +167,15 @@ const CSRF_SECRET = deriveSecret(SECRET, KEY_PURPOSES.CSRF_TOKEN);
 const STEP_UP_SECRET = deriveSecret(SECRET, KEY_PURPOSES.STEP_UP_GRANT);
 const GITHUB_APP_STATE_SECRET = deriveSecret(SECRET, KEY_PURPOSES.GITHUB_APP_STATE);
 const EVIDENCE_LEDGER_SECRET = deriveSecret(SECRET, KEY_PURPOSES.EVIDENCE_LEDGER);
+/*
+ * Rows written before key separation were hashed with the raw session secret.
+ * The keyring keeps that key available for verification only, so an existing
+ * chain stays provable instead of reporting itself as tampered on first deploy.
+ */
+const EVIDENCE_KEYRING = Object.freeze({
+  active: EVIDENCE_LEDGER_SECRET,
+  retired: Object.freeze([SECRET])
+});
 const SNAPSHOT_SIGNATURES = createSnapshotSignatures(loadSnapshotSigningConfig(process.env, {
   production: process.env.NODE_ENV === 'production',
   // Production uses this only to reject active-key reuse. Legacy verification
@@ -1584,18 +1594,24 @@ async function verifyEvidenceChain(repoK, limit = 1000) {
   ]);
   const total = count.rows[0] ? Number(count.rows[0].total || 0) : 0;
   let previousHash = 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
+  /* Records written before the hashing key was separated by purpose still
+     verify, under the retired key, and are counted so the export can say so. */
+  let legacyRecords = 0;
   for (const row of r.rows) {
-    const expected = evidenceRecordHash(EVIDENCE_LEDGER_SECRET, previousHash, repoK, row.kind, row.record_id, row.payload_hash);
-    if (row.previous_hash !== previousHash || row.record_hash !== expected) {
+    const check = verifyEvidenceRecord(
+      EVIDENCE_KEYRING, row.record_hash, previousHash, repoK, row.kind, row.record_id, row.payload_hash
+    );
+    if (check.legacy) legacyRecords += 1;
+    if (row.previous_hash !== previousHash || !check.valid) {
       return {
         available: true, valid: false, complete: r.rows.length === total,
-        checked: r.rows.indexOf(row) + 1, total, failedAt: row.seq,
+        checked: r.rows.indexOf(row) + 1, total, failedAt: row.seq, legacyRecords,
         records: r.rows
       };
     }
     previousHash = row.record_hash;
   }
-  return { available: true, valid: true, complete: r.rows.length === total, checked: r.rows.length, total, head: previousHash, records: r.rows };
+  return { available: true, valid: true, complete: r.rows.length === total, checked: r.rows.length, total, head: previousHash, legacyRecords, records: r.rows };
 }
 function liveStreamKey(provider, owner, repo, identity) {
   return scopedEvidenceKey(provider, owner, repo, identity);

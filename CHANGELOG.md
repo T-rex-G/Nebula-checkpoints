@@ -55,6 +55,13 @@
   already drifted to 4.22.2 and `pg ^8.11.5` to 8.22.0 with no deliberate
   upgrade. Added a contract guard that rejects any range and any disagreement
   between the declared version and the locked one.
+- Kept existing evidence chains provable across that key rotation. The ledger is
+  tamper-evident, so a record that cannot reproduce its hash is reported as
+  tampering; changing the hashing key would have made every record written
+  under the old one accuse itself on first deploy. Verification now tries the
+  active key and then the retired one and reports which matched, the same shape
+  the snapshot signatures already use, and the export states how many records
+  verified under the retired key.
 
 ### Documentation Truth Architecture
 

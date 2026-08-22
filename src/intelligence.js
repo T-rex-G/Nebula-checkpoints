@@ -24,6 +24,44 @@ function evidenceRecordHash(secret, previousHash, repoKey, kind, recordId, paylo
     .digest('hex');
 }
 
+/*
+ * The evidence ledger is tamper-evident, so a record that fails to reproduce
+ * its hash is reported as tampering. That makes the hashing key part of the
+ * record's meaning: rotating it would make every record written under the old
+ * key accuse itself, which is the one false alarm this feature must not raise.
+ *
+ * Verification therefore tries the active key first and then any retired key,
+ * and reports which one matched. This is the same shape the snapshot signatures
+ * already use for rotation, and it needs no stored key column: the record hash
+ * is an HMAC, so a record only verifies under a key the operator holds, and a
+ * forged record verifies under none of them.
+ */
+const EVIDENCE_ACTIVE_KEY_ID = 'hkdf-v1';
+const EVIDENCE_LEGACY_KEY_ID = 'legacy-session-secret';
+
+function sameHex(left, right) {
+  const a = Buffer.from(String(left || ''), 'utf8');
+  const b = Buffer.from(String(right || ''), 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function verifyEvidenceRecord(keyring, recordHash, previousHash, repoKey, kind, recordId, payloadHash) {
+  const supplied = String(recordHash || '');
+  const miss = Object.freeze({ valid: false, keyId: null, legacy: false });
+  if (!/^[0-9a-f]{64}$/.test(supplied) || !keyring || typeof keyring !== 'object') return miss;
+  const expected = secret => evidenceRecordHash(secret, previousHash, repoKey, kind, recordId, payloadHash);
+  const active = typeof keyring.active === 'string' ? keyring.active : '';
+  if (active && sameHex(supplied, expected(active))) {
+    return Object.freeze({ valid: true, keyId: EVIDENCE_ACTIVE_KEY_ID, legacy: false });
+  }
+  for (const secret of Array.isArray(keyring.retired) ? keyring.retired : []) {
+    if (typeof secret === 'string' && secret && sameHex(supplied, expected(secret))) {
+      return Object.freeze({ valid: true, keyId: EVIDENCE_LEGACY_KEY_ID, legacy: true });
+    }
+  }
+  return miss;
+}
+
 function verifyGithubSignature(secret, rawBody, signature) {
   if (!secret || !Buffer.isBuffer(rawBody) || typeof signature !== 'string' || !signature.startsWith('sha256=')) return false;
   const expected = Buffer.from(`sha256=${crypto.createHmac('sha256', secret).update(rawBody).digest('hex')}`);
@@ -448,7 +486,10 @@ module.exports = {
   stableJson,
   hashJson,
   hmacJson,
+  EVIDENCE_ACTIVE_KEY_ID,
+  EVIDENCE_LEGACY_KEY_ID,
   evidenceRecordHash,
+  verifyEvidenceRecord,
   verifyGithubSignature,
   normalizeGithubWebhook,
   riskForEvent,

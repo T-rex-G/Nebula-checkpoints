@@ -3,6 +3,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const {
   stableJson, hashJson, hmacJson, evidenceRecordHash, verifyGithubSignature, normalizeGithubWebhook,
+  EVIDENCE_ACTIVE_KEY_ID, EVIDENCE_LEGACY_KEY_ID, verifyEvidenceRecord,
   riskForEvent, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
   normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, shortestPath,
   compareSnapshots, riskForAccessSurface, normalizeProviderBranches
@@ -197,5 +198,108 @@ assert.strictEqual(accessRisk.severity, 'critical');
 assert(accessRisk.reasons.some(r => r.code === 'WRITABLE_DEPLOY_KEY'));
 assert(accessRisk.reasons.some(r => r.code === 'INSECURE_WEBHOOK_TLS'));
 assert.strictEqual(riskForAccessSurface({ collaborators: [], deployKeys: [], webhooks: [], partial: true }).reasons.some(r => r.code === 'ACCESS_INVENTORY_PARTIAL'), true);
+
+/*
+ * Evidence-chain key rotation.
+ *
+ * The ledger reports a record that fails to reproduce its hash as tampering, so
+ * rotating the hashing key without accepting the retired one would make every
+ * pre-rotation record accuse itself on first deploy. These assert the property
+ * that prevents it: a chain written before the rotation and extended after it
+ * verifies end to end, while tampering still fails.
+ */
+const legacySecret = 'legacy-raw-session-secret-0123456789abcdef';
+const rotatedSecret = 'derived-evidence-secret-0123456789abcdef';
+const keyring = Object.freeze({ active: rotatedSecret, retired: Object.freeze([legacySecret]) });
+const GENESIS = 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
+const repoKey = 'github:Acme/Demo';
+
+assert.notStrictEqual(legacySecret, rotatedSecret, 'the rotation must actually change the key');
+
+function record(secret, previousHash, kind, recordId) {
+  const payloadHash = hashJson({ record: recordId });
+  return {
+    kind,
+    recordId,
+    payload_hash: payloadHash,
+    previous_hash: previousHash,
+    record_hash: evidenceRecordHash(secret, previousHash, repoKey, kind, recordId, payloadHash)
+  };
+}
+function check(row, previousHash) {
+  return verifyEvidenceRecord(
+    keyring, row.record_hash, previousHash, repoKey, row.kind, row.recordId, row.payload_hash
+  );
+}
+
+/* A record written under either key verifies, and names the key that matched. */
+const preRotation = record(legacySecret, GENESIS, 'push', 'r1');
+const postRotation = record(rotatedSecret, preRotation.record_hash, 'push', 'r2');
+assert.deepStrictEqual(check(preRotation, GENESIS),
+  { valid: true, keyId: EVIDENCE_LEGACY_KEY_ID, legacy: true },
+  'a pre-rotation record must verify under the retired key and be reported as legacy');
+assert.deepStrictEqual(check(postRotation, preRotation.record_hash),
+  { valid: true, keyId: EVIDENCE_ACTIVE_KEY_ID, legacy: false },
+  'a post-rotation record must verify under the active key');
+
+/* Build a chain that straddles the rotation and verify it as the server does. */
+function verifyChain(rows) {
+  let previousHash = GENESIS;
+  let legacyRecords = 0;
+  for (const row of rows) {
+    const result = check(row, previousHash);
+    if (result.legacy) legacyRecords += 1;
+    if (row.previous_hash !== previousHash || !result.valid) {
+      return { valid: false, failedAt: row.recordId, legacyRecords };
+    }
+    previousHash = row.record_hash;
+  }
+  return { valid: true, head: previousHash, legacyRecords };
+}
+const r3 = record(rotatedSecret, postRotation.record_hash, 'merge', 'r3');
+const mixedChain = [preRotation, postRotation, r3];
+assert.deepStrictEqual(verifyChain(mixedChain),
+  { valid: true, head: r3.record_hash, legacyRecords: 1 },
+  'a chain written before the rotation and extended after it must verify, and count the legacy record');
+
+/*
+ * Falsify: drop the retired key and the pre-rotation record fails immediately.
+ * That failure is precisely the false alarm the retired keyring prevents.
+ */
+const activeOnly = Object.freeze({ active: rotatedSecret, retired: Object.freeze([]) });
+assert.strictEqual(
+  verifyEvidenceRecord(activeOnly, preRotation.record_hash, GENESIS, repoKey,
+    preRotation.kind, preRotation.recordId, preRotation.payload_hash).valid,
+  false,
+  'without the retired key a pre-rotation record reports as tampered, which is the regression being prevented'
+);
+
+/* Rotation must not weaken tamper detection anywhere in the chain. */
+for (const index of [0, 1, 2]) {
+  const tampered = mixedChain.map((row, position) =>
+    position === index ? { ...row, payload_hash: hashJson({ record: 'tampered' }) } : row);
+  assert.strictEqual(verifyChain(tampered).valid, false,
+    `a tampered payload at position ${index} must still be detected after rotation`);
+}
+assert.strictEqual(verifyChain([postRotation, preRotation, r3]).valid, false,
+  'reordering must still break the chain');
+
+/* A record forged under an unheld key must verify under neither. */
+const forged = record('an-attacker-secret-not-in-the-keyring', GENESIS, 'push', 'r1');
+assert.strictEqual(check(forged, GENESIS).valid, false,
+  'a record hashed with a key the operator does not hold must not verify');
+
+/* Malformed and hostile inputs must not resolve to a valid record. */
+for (const bad of ['', 'not-hex', 'a'.repeat(63), 'A'.repeat(64), null, undefined, 42, {}]) {
+  assert.strictEqual(
+    verifyEvidenceRecord(keyring, bad, GENESIS, repoKey, 'push', 'r1', hashJson({ record: 'r1' })).valid,
+    false, `record hash ${JSON.stringify(bad)} must not verify`);
+}
+for (const badKeyring of [null, undefined, 'secret', 42, {}, { active: 42 }, { retired: 'nope' }]) {
+  assert.strictEqual(
+    verifyEvidenceRecord(badKeyring, preRotation.record_hash, GENESIS, repoKey,
+      preRotation.kind, preRotation.recordId, preRotation.payload_hash).valid,
+    false, `keyring ${JSON.stringify(badKeyring)} must not verify`);
+}
 
 console.log('intelligence tests passed');

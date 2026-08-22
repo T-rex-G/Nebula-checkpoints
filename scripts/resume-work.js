@@ -58,10 +58,9 @@ function validateHistoryResult(result, recordedBaseline, acceptedTree) {
     const detail = String(result.stderr || result.stdout || '').trim().slice(0, 4000);
     throw new Error(`Git history discovery failed (${outcome})${detail ? `: ${detail}` : ''}`);
   }
-  const acceptedCommits = new Set([
-    recordedBaseline.sourceCommit,
-    recordedBaseline.publishedCommit
-  ]);
+  /* One accepted tree can be reached through several transport-specific
+     commits, so any recorded identity carrying that tree proves the boundary. */
+  const acceptedCommits = new Set(recordedBaseline.commits.map(entry => entry.commit));
   for (const line of String(result.stdout || '').split('\n')) {
     const [commit, tree, ...extra] = line.split('\t');
     if (!extra.length && acceptedCommits.has(commit) && tree === acceptedTree) return commit;
@@ -124,8 +123,8 @@ function renderHuman(state) {
     `Branch: ${state.sourceControlAvailable ? state.branch || 'detached HEAD' : 'unavailable'}`,
     `HEAD: ${state.currentHead || 'unavailable'}`,
     `Accepted tree: ${state.acceptedTree}`,
-    `Recorded local baseline: ${state.recordedBaseline.sourceCommit}`,
-    `Recorded published baseline: ${state.recordedBaseline.publishedCommit}`,
+    ...state.recordedBaseline.commits.map(entry =>
+      `Recorded ${entry.role} baseline: ${entry.commit}`),
     `Baseline decision: ${state.recordedBaseline.decision}`,
     `Recorded candidate: ${state.recordedBaseline.candidateSha256}`,
     `Worktree: ${state.worktreeClean === null ? 'unavailable' : state.worktreeClean ? 'clean' : `dirty (${state.dirtyPaths.join(', ')})`}`,

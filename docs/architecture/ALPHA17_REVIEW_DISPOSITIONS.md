@@ -1,6 +1,7 @@
 # Alpha.17 Independent Review Dispositions
 
-Latest review: `4ae300c4-410c-4ae7-89cc-b7e15767d22e`
+Latest review: `4d47a6a5-e9d9-4a92-8a59-3883615069e8` — passed with no actionable
+findings. Last failing review: `4ae300c4-410c-4ae7-89cc-b7e15767d22e`
 
 Public alpha: **NO-GO**
 

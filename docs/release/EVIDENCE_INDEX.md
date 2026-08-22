@@ -49,17 +49,18 @@ evidence to the exact frozen successor candidate.
 
 | Identity or result | Recorded value |
 |---|---|
-| Local source commit | `c67d92edb8c63f11ada74cfdc7835f8a4b387a1c` |
-| Published draft-PR commit | `d6628de48a32c3a2790dabeec60ec7b7b2ebab49` |
-| Shared tree | `7bcc2c27029cc1013f176d1070e2cd38a8e69811` |
-| Candidate SHA-256 | `1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed` |
-| Standard CI | `31494468827` — passed |
-| Exact-archive qualification | `31494468853` — passed |
-| Automated matrix | 141/141 programs and 56/56 browser checks passed |
+| Branch-head commit | `3995a81e64ced1011f7e5c0662307f270c67e2b8` |
+| Pull-request merge commit | `379f96daa85709bbc4c002f60501819690b00de2` |
+| Shared tree | `b0945a403beaa4c4242a1d6526aa7c3d80d48f08` |
+| Candidate SHA-256 | `58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711` |
+| Standard CI | `32540542681` — passed |
+| Exact-archive qualification | `32540542682` — passed |
+| Automated matrix | 142/142 programs and 60/60 browser checks passed |
 | Independent review | `912555dd-72ab-4662-9645-2313007eea3d` — failed: 16 actionable, 8 nitpicks |
 | Previous remediation review | `04b93d36-47ea-402d-abda-ca6dfb2a9290` — failed raw inventory: 30 actionable (18 inline plus 12 summary/failed-post), 9 nitpicks |
-| Latest remediation review | `4ae300c4-410c-4ae7-89cc-b7e15767d22e` — failed raw inventory: 15 actionable, 10 nitpicks; its successor remains unqualified |
-| Decision | automated qualification passed; independent review failed; public-alpha NO-GO |
+| Earlier remediation review | `4ae300c4-410c-4ae7-89cc-b7e15767d22e` — failed raw inventory: 15 actionable, 10 nitpicks |
+| Latest remediation review | `4d47a6a5-e9d9-4a92-8a59-3883615069e8` — passed: 0 actionable, 0 nitpicks |
+| Decision | automated qualification passed; independent review passed; live, hosted, accessibility and final gates pending; public-alpha NO-GO |
 
 The portability failures remain evidence rather than being erased. Run
 `31321447041` failed before authorization because the pull-request lineage

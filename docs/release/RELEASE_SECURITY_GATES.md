@@ -3,18 +3,18 @@
 Public alpha: **NO-GO**
 
 - Recorded automated baseline: **Passed**
-- Recorded independent review: **Failed**
-- Current review-remediation successor: **Not qualified**
+- Recorded independent review: **Passed**
+- Current successor: **Not qualified**
 - Live-provider gate: **Pending**
 - Hosted gate: **Pending**
 - Manual accessibility gate: **Pending**
 - Final release gate: **Pending**
 
-The recorded baseline uses local source commit `c67d92edb8c63f11ada74cfdc7835f8a4b387a1c`,
-published commit `d6628de48a32c3a2790dabeec60ec7b7b2ebab49`, tree
-`7bcc2c27029cc1013f176d1070e2cd38a8e69811`, and archive SHA-256
-`1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed`.
-Qualification run `31494468853` passed 141/141 program checks, 56/56 browser
+The recorded baseline uses branch-head commit `3995a81e64ced1011f7e5c0662307f270c67e2b8`,
+pull-request merge commit `379f96daa85709bbc4c002f60501819690b00de2`, tree
+`b0945a403beaa4c4242a1d6526aa7c3d80d48f08`, and archive SHA-256
+`58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711`.
+Qualification run `32540542682` passed 142/142 program checks, 60/60 browser
 checks, deterministic double packaging, extracted-archive execution, secret and
 syntax scans, and zero production and development audit vulnerabilities.
 
@@ -24,9 +24,11 @@ later review `04b93d36-47ea-402d-abda-ca6dfb2a9290` failed the pre-remediation
 PR head with 30 actionable findings and 9 nitpicks (18 inline actions plus 12
 summary/failed-post actions). The newest review,
 `4ae300c4-410c-4ae7-89cc-b7e15767d22e`, failed the published remediation head
-with 15 actionable findings and 10 nitpicks. The current successor remediates
-that newest inventory, changes the archive again, and must earn a new external
-commit, tree, archive hash, evidence envelope, and passing follow-up review.
+with 15 actionable findings and 10 nitpicks. That inventory was remediated, and
+review `4d47a6a5-e9d9-4a92-8a59-3883615069e8` returned no actionable findings
+against the recorded baseline above. Each further successor changes the archive
+again and must earn a new external commit, tree, archive hash, evidence
+envelope, and passing follow-up review.
 Every gate must bind to that same exact candidate, schema, Node version,
 execution time, and cleanup result.
 

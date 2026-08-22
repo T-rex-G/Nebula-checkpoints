@@ -2,25 +2,25 @@
 
 This document records the last immutable alpha.17 candidate that completed the
 automated exact-archive boundary. It is prior evidence, not a self-attestation
-for the independent-review remediation successor now being built.
+for the successor now being built.
 
 ## Immutable identity
 
 - Repository: `T-rex-G/Nebula-checkpoints`
 - Draft PR: `#1`
 - Branch: `agent/alpha17-evidence-integrity`
-- Local source commit: `c67d92edb8c63f11ada74cfdc7835f8a4b387a1c`
-- Published draft-PR commit: `d6628de48a32c3a2790dabeec60ec7b7b2ebab49`
-- Tree shared by both commit identities: `7bcc2c27029cc1013f176d1070e2cd38a8e69811`
-- Candidate SHA-256: `1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed`
-- Standard CI run: `31494468827`
-- Qualification run: `31494468853`
+- Branch-head commit: `3995a81e64ced1011f7e5c0662307f270c67e2b8`
+- Pull-request merge commit: `379f96daa85709bbc4c002f60501819690b00de2`
+- Tree shared by both commit identities: `b0945a403beaa4c4242a1d6526aa7c3d80d48f08`
+- Candidate SHA-256: `58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711`
+- Standard CI run: `32540542681`
+- Qualification run: `32540542682`
 
 ## Automated proof
 
 - Node.js `22.23.1` lockfile installation completed.
-- 141/141 program tests passed.
-- 56/56 browser tests passed across the desktop/mobile matrix.
+- 142/142 program tests passed.
+- 60/60 browser tests passed across the desktop/mobile matrix.
 - Production and development audits reported zero vulnerabilities.
 - Syntax and expanded repository secret scanning passed.
 - Two release builds were byte-identical.
@@ -33,9 +33,14 @@ for the independent-review remediation successor now being built.
 
 ## Decision boundary
 
-The automated exact-archive gate passed, but independent review
+The automated exact-archive gate passed. Independent review
+`4d47a6a5-e9d9-4a92-8a59-3883615069e8` returned no actionable findings against
+this baseline. Earlier baselines did not clear that gate: review
 `912555dd-72ab-4662-9645-2313007eea3d` failed with 16 actionable findings and
-8 nitpicks. The recorded baseline and public alpha are therefore **NO-GO**.
+8 nitpicks, and later rounds failed again before the inventory was remediated.
+
+Public alpha remains **NO-GO**. Live-provider, hosted, manual accessibility and
+final release are still pending, and no automated result stands in for them.
 No live-provider dispatch is authorized. The baseline also does not prove live
 providers, Render, Neon, manual assistive technology, backup/restore, or final
 cohort readiness.

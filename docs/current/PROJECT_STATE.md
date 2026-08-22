@@ -8,34 +8,35 @@ Public alpha: **NO-GO**
 
 ## Identity boundary
 
-The last automatically qualified immutable baseline has two transport-specific commit identities:
+The last automatically qualified immutable baseline is one accepted tree reached
+through these transport-specific commit identities:
 
-- local source commit: `c67d92edb8c63f11ada74cfdc7835f8a4b387a1c`
-- published draft-PR commit: `d6628de48a32c3a2790dabeec60ec7b7b2ebab49`
+- branch head commit: `3995a81e64ced1011f7e5c0662307f270c67e2b8`
+- pull-request merge commit: `379f96daa85709bbc4c002f60501819690b00de2`
 
-with tree `7bcc2c27029cc1013f176d1070e2cd38a8e69811` and candidate SHA-256
-`1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed` in `T-rex-G/Nebula-checkpoints` draft PR #1.
+with tree `b0945a403beaa4c4242a1d6526aa7c3d80d48f08` and candidate SHA-256
+`58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711` in `T-rex-G/Nebula-checkpoints` draft PR #1.
 
-Standard CI run: `31494468827`. Exact-archive qualification run: `31494468853`.
+Standard CI run: `32540542681`. Exact-archive qualification run: `32540542682`.
 
-Independent review `4ae300c4-410c-4ae7-89cc-b7e15767d22e` failed with 15 actionable findings and 10 nitpicks.
+Independent review `4d47a6a5-e9d9-4a92-8a59-3883615069e8` passed with 0 actionable findings and 0 nitpicks.
 
 ## Failed qualification attempts
 
-- run `31290968279`: detached-checkout continuity boundary was not available Live jobs skipped: yes.
-- run `31314330832`: shallow checkout could not prove accepted-boundary ancestry Live jobs skipped: yes.
-- run `31321447041`: pull-request checkout exposed a local-only accepted commit boundary Live jobs skipped: yes.
+- run `31290968279`: detached-checkout continuity boundary was not available. Live jobs skipped: yes.
+- run `31314330832`: shallow checkout could not prove accepted-boundary ancestry. Live jobs skipped: yes.
+- run `31321447041`: pull-request checkout exposed a local-only accepted commit boundary. Live jobs skipped: yes.
 
-The review-remediation successor is **not qualified**. Its commit, tree, archive SHA-256,
-and evidence hashes must be recorded externally after exact-candidate qualification; this
+The successor now in progress is **not qualified**. Its commit,
+tree, archive SHA-256, and evidence hashes remain external qualification evidence; this
 archive cannot attest its own final identity.
 
 ## Gate state
 
 | Gate | Status | Evidence boundary |
 |---|---|---|
-| Automated exact-archive qualification | Passed | Recorded baseline run `31494468853`: 141/141 programs and 56/56 browser checks |
-| Independent review | Failed | Review `4ae300c4-410c-4ae7-89cc-b7e15767d22e`: 15 actionable findings and 10 nitpicks |
+| Automated exact-archive qualification | Passed | Recorded baseline run `32540542682`: 142/142 programs and 60/60 browser checks |
+| Independent review | Passed | Independent review `4d47a6a5-e9d9-4a92-8a59-3883615069e8` passed with 0 actionable findings and 0 nitpicks. |
 | Live-provider qualification | Pending | Must target the externally qualified successor identity |
 | Hosted qualification | Pending | Render/Neon execution has not been authorized for the successor |
 | Manual accessibility | Pending | VoiceOver and desktop screen-reader evidence remain required |
@@ -43,15 +44,16 @@ archive cannot attest its own final identity.
 
 ## Known limitations
 
-- Latest independent review raw inventory contains 15 actionable findings and 10 nitpicks; this successor is the remediation round
 - No live PostgreSQL execution has qualified the successor
 - No live Render or Neon execution has qualified the successor
 - No live provider execution has qualified the successor
 - Manual VoiceOver and desktop screen-reader passes remain required
+- The browser matrix runs against Playwright route fixtures, so it proves the client contract rather than server route behaviour
+- An interrupted hosted restore can leave backup or attestation material behind, because that teardown runs on the success path rather than in a finally block
 
 ## Next authorized action
 
-Complete the independent-review remediation, freeze one deterministic successor archive, and run full source and exact-archive qualification plus an independent follow-up review before any serialized live-provider dispatch.
+Qualify the schema-5 continuity successor, then continue the remediation backlog. Live-provider, hosted, manual-accessibility and final-release gates stay pending and require separate authorization.
 
 No merge, deployment, public cohort opening, or live-provider dispatch is authorized by
 this in-repository state.

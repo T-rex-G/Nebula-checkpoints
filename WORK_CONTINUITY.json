@@ -1,33 +1,41 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "project": "Nebulaverse-X",
   "version": "5.3.0-alpha.17.0",
-  "acceptedTree": "7bcc2c27029cc1013f176d1070e2cd38a8e69811",
+  "acceptedTree": "b0945a403beaa4c4242a1d6526aa7c3d80d48f08",
   "recordedBaseline": {
     "repository": "T-rex-G/Nebula-checkpoints",
     "branch": "agent/alpha17-evidence-integrity",
     "pullRequest": 1,
-    "sourceCommit": "c67d92edb8c63f11ada74cfdc7835f8a4b387a1c",
-    "publishedCommit": "d6628de48a32c3a2790dabeec60ec7b7b2ebab49",
-    "tree": "7bcc2c27029cc1013f176d1070e2cd38a8e69811",
-    "candidateSha256": "1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed",
-    "ciRunId": "31494468827",
-    "qualificationRunId": "31494468853",
-    "decision": "automated-qualified-independent-review-failed-public-alpha-no-go"
+    "commits": [
+      {
+        "role": "branch-head",
+        "commit": "3995a81e64ced1011f7e5c0662307f270c67e2b8"
+      },
+      {
+        "role": "pull-request-merge",
+        "commit": "379f96daa85709bbc4c002f60501819690b00de2"
+      }
+    ],
+    "tree": "b0945a403beaa4c4242a1d6526aa7c3d80d48f08",
+    "candidateSha256": "58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711",
+    "ciRunId": "32540542681",
+    "qualificationRunId": "32540542682",
+    "decision": "automated-qualified-independent-review-passed-public-alpha-no-go"
   },
   "gates": {
     "automated": {
       "status": "passed",
-      "runId": "31494468853",
+      "runId": "32540542682",
       "programs": {
-        "total": 141,
-        "passed": 141,
+        "total": 142,
+        "passed": 142,
         "blocked": 0,
         "failed": 0
       },
       "browser": {
-        "total": 56,
-        "passed": 56,
+        "total": 60,
+        "passed": 60,
         "failed": 0
       },
       "productionAuditVulnerabilities": 0,
@@ -36,54 +44,59 @@
       "exactArchiveQualified": true
     },
     "independentReview": {
-      "status": "failed",
-      "runId": "4ae300c4-410c-4ae7-89cc-b7e15767d22e",
-      "actionable": 15,
-      "nitpicks": 10
+      "status": "passed",
+      "runId": "4d47a6a5-e9d9-4a92-8a59-3883615069e8",
+      "actionable": 0,
+      "nitpicks": 0
     },
     "liveProvider": {
-      "status": "pending"
+      "status": "pending",
+      "runId": null
     },
     "hosted": {
-      "status": "pending"
+      "status": "pending",
+      "runId": null
     },
     "manualAccessibility": {
-      "status": "pending"
+      "status": "pending",
+      "runId": null
     },
     "finalRelease": {
-      "status": "pending"
+      "status": "pending",
+      "runId": null
     }
   },
   "failedQualificationRuns": [
     {
       "runId": "31290968279",
-      "failure": "detached-checkout continuity boundary was not available",
+      "failure": "detached-checkout continuity boundary was not available.",
       "liveJobsSkipped": true
     },
     {
       "runId": "31314330832",
-      "failure": "shallow checkout could not prove accepted-boundary ancestry",
+      "failure": "shallow checkout could not prove accepted-boundary ancestry.",
       "liveJobsSkipped": true
     },
     {
       "runId": "31321447041",
-      "failure": "pull-request checkout exposed a local-only accepted commit boundary",
+      "failure": "pull-request checkout exposed a local-only accepted commit boundary.",
       "liveJobsSkipped": true
     }
   ],
   "limitations": [
-    "Latest independent review raw inventory contains 15 actionable findings and 10 nitpicks; this successor is the remediation round",
     "No live PostgreSQL execution has qualified the successor",
     "No live Render or Neon execution has qualified the successor",
     "No live provider execution has qualified the successor",
-    "Manual VoiceOver and desktop screen-reader passes remain required"
+    "Manual VoiceOver and desktop screen-reader passes remain required",
+    "The browser matrix runs against Playwright route fixtures, so it proves the client contract rather than server route behaviour",
+    "An interrupted hosted restore can leave backup or attestation material behind, because that teardown runs on the success path rather than in a finally block"
   ],
   "currentCandidate": {
     "qualificationStatus": "not-qualified",
     "identitySource": "external-qualification-evidence"
   },
   "nextAuthorizedAction": {
-    "type": "qualify-review-remediation-successor",
-    "description": "Complete the independent-review remediation, freeze one deterministic successor archive, and run full source and exact-archive qualification plus an independent follow-up review before any serialized live-provider dispatch."
+    "type": "qualify-continuity-schema-successor",
+    "description": "Qualify the schema-5 continuity successor, then continue the remediation backlog. Live-provider, hosted, manual-accessibility and final-release gates stay pending and require separate authorization."
   }
 }

@@ -25,7 +25,7 @@ assert.throws(
 assert.throws(
   () => validateHistoryResult(
     { status: 9, stdout: '', stderr: 'synthetic history failure' },
-    { sourceCommit: 'a'.repeat(40), publishedCommit: 'b'.repeat(40) },
+    { commits: [{ role: 'local-source', commit: 'a'.repeat(40) }, { role: 'published', commit: 'b'.repeat(40) }] },
     'c'.repeat(40)
   ),
   /Git history discovery failed.*exit 9.*synthetic history failure/i
@@ -33,7 +33,7 @@ assert.throws(
 assert.strictEqual(
   validateHistoryResult(
     { status: 0, stdout: `${'a'.repeat(40)}\t${'c'.repeat(40)}\n`, stderr: '' },
-    { sourceCommit: 'a'.repeat(40), publishedCommit: 'b'.repeat(40) },
+    { commits: [{ role: 'local-source', commit: 'a'.repeat(40) }, { role: 'published', commit: 'b'.repeat(40) }] },
     'c'.repeat(40)
   ),
   'a'.repeat(40)
@@ -41,7 +41,7 @@ assert.strictEqual(
 assert.strictEqual(
   validateHistoryResult(
     { status: 0, stdout: `${'b'.repeat(40)}\t${'c'.repeat(40)}\n`, stderr: '' },
-    { sourceCommit: 'a'.repeat(40), publishedCommit: 'b'.repeat(40) },
+    { commits: [{ role: 'local-source', commit: 'a'.repeat(40) }, { role: 'published', commit: 'b'.repeat(40) }] },
     'c'.repeat(40)
   ),
   'b'.repeat(40),
@@ -49,7 +49,7 @@ assert.strictEqual(
 );
 assert.strictEqual(validateHistoryResult(
   { status: 0, stdout: `${'d'.repeat(40)}\t${'c'.repeat(40)}\n`, stderr: '' },
-  { sourceCommit: 'a'.repeat(40), publishedCommit: 'b'.repeat(40) },
+  { commits: [{ role: 'local-source', commit: 'a'.repeat(40) }, { role: 'published', commit: 'b'.repeat(40) }] },
   'c'.repeat(40)
 ), null, 'an unrelated commit with the accepted tree must not satisfy continuity');
 
@@ -58,22 +58,24 @@ const state = JSON.parse(output);
 const serialized = JSON.stringify(state);
 const sourceControlExpected = fs.existsSync(path.join(root, '.git'));
 
-assert.strictEqual(state.schemaVersion, 4);
+assert.strictEqual(state.schemaVersion, 5);
 assert.strictEqual(state.project, 'Nebulaverse-X');
 assert.strictEqual(state.version, '5.3.0-alpha.17.0');
-assert.strictEqual(state.acceptedTree, '7bcc2c27029cc1013f176d1070e2cd38a8e69811');
+assert.strictEqual(state.acceptedTree, 'b0945a403beaa4c4242a1d6526aa7c3d80d48f08');
 assert.strictEqual(Object.hasOwn(state, 'acceptedThrough'), false);
 assert.deepStrictEqual(state.recordedBaseline, {
   repository: 'T-rex-G/Nebula-checkpoints',
   branch: 'agent/alpha17-evidence-integrity',
   pullRequest: 1,
-  sourceCommit: 'c67d92edb8c63f11ada74cfdc7835f8a4b387a1c',
-  publishedCommit: 'd6628de48a32c3a2790dabeec60ec7b7b2ebab49',
-  tree: '7bcc2c27029cc1013f176d1070e2cd38a8e69811',
-  candidateSha256: '1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed',
-  ciRunId: '31494468827',
-  qualificationRunId: '31494468853',
-  decision: 'automated-qualified-independent-review-failed-public-alpha-no-go'
+  commits: [
+    { role: 'branch-head', commit: '3995a81e64ced1011f7e5c0662307f270c67e2b8' },
+    { role: 'pull-request-merge', commit: '379f96daa85709bbc4c002f60501819690b00de2' }
+  ],
+  tree: 'b0945a403beaa4c4242a1d6526aa7c3d80d48f08',
+  candidateSha256: '58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711',
+  ciRunId: '32540542681',
+  qualificationRunId: '32540542682',
+  decision: 'automated-qualified-independent-review-passed-public-alpha-no-go'
 });
 assert.deepStrictEqual(
   state.failedQualificationRuns.map(item => item.runId),
@@ -91,24 +93,25 @@ for (const rendered of [
   }
 }
 assert.deepStrictEqual(state.gates.independentReview, {
-  status: 'failed',
-  runId: '4ae300c4-410c-4ae7-89cc-b7e15767d22e',
-  actionable: 15,
-  nitpicks: 10
+  status: 'passed',
+  runId: '4d47a6a5-e9d9-4a92-8a59-3883615069e8',
+  actionable: 0,
+  nitpicks: 0
 });
 assert.deepStrictEqual(
   Object.fromEntries(Object.entries(state.gates).map(([name, gate]) => [name, gate.status])),
   {
     automated: 'passed',
-    independentReview: 'failed',
+    independentReview: 'passed',
     liveProvider: 'pending',
     hosted: 'pending',
     manualAccessibility: 'pending',
     finalRelease: 'pending'
   }
 );
-assert.strictEqual(state.nextAuthorizedAction.type, 'qualify-review-remediation-successor');
-assert.match(state.nextAuthorizedAction.description, /independent-review remediation/);
+assert.strictEqual(state.nextAuthorizedAction.type, 'qualify-continuity-schema-successor');
+/* The description is free text; assert it still states the pending posture. */
+assert.match(state.nextAuthorizedAction.description, /pending/i);
 assert(!serialized.includes('lastPushedCommit'));
 assert(!serialized.includes('lastPushedSourceCommit'));
 assert(!serialized.includes('pending_publication'));
@@ -117,10 +120,7 @@ if (sourceControlExpected) {
   assert.match(state.currentHead, /^[0-9a-f]{40}$/);
   assert.strictEqual(state.acceptedBoundaryValid, true);
   assert(
-    [
-      state.recordedBaseline.sourceCommit,
-      state.recordedBaseline.publishedCommit
-    ].includes(state.acceptedBoundaryCommit),
+    state.recordedBaseline.commits.some(entry => entry.commit === state.acceptedBoundaryCommit),
     'accepted boundary must be one of the recorded transport-specific commits'
   );
   assert.strictEqual(typeof state.worktreeClean, 'boolean');
@@ -194,8 +194,10 @@ try {
     acceptedTree,
     recordedBaseline: {
       ...sourceState.recordedBaseline,
-      sourceCommit: 'f'.repeat(40),
-      publishedCommit: acceptedCommit,
+      commits: [
+        { role: 'local-source', commit: 'f'.repeat(40) },
+        { role: 'published', commit: acceptedCommit }
+      ],
       tree: acceptedTree
     }
   };

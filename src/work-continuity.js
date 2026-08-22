@@ -4,9 +4,43 @@ const fs = require('fs');
 const path = require('path');
 
 const PACKAGE_VERSION = require('../package.json').version;
+
+/*
+ * Schema 5 separates the shape of the continuity record from the values it
+ * happens to hold.
+ *
+ * Schema 4 encoded one moment as the schema itself: the review gate had to
+ * read `failed`, the actionable count had to exceed zero, the candidate had to
+ * be `not-qualified`, and the repository, branch, pull request and decision
+ * were literals. Recording that a gate had advanced was therefore impossible
+ * without editing this file, so the record could not track the work it exists
+ * to describe, and the documents generated from it stated a position the
+ * project had already left.
+ *
+ * What is enforced here instead are invariants that stay true whatever the
+ * project's position is: exact field sets, digest and identifier formats,
+ * cross-field agreement, and two policy rules — a gate never reports `passed`
+ * without an evidence run behind it, and final release never reports `passed`
+ * while any preceding gate has not.
+ *
+ * Commit identity is a set rather than a pair. One accepted tree can be
+ * reached through several transport-specific commits: a local source commit
+ * and its published counterpart, or a branch head and the pull-request merge
+ * commit that carries the same tree into a workflow checkout. Naming exactly
+ * two of them, and requiring them to differ, could not describe either case
+ * honestly once the transports changed.
+ */
+const SCHEMA_VERSION = 5;
+
 const SHA1_PATTERN = /^[0-9a-f]{40}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const RUN_ID_PATTERN = /^[0-9]+$/;
+const REVIEW_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+const REPOSITORY_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MAX_COMMIT_IDENTITIES = 8;
+
+const GATE_STATUSES = Object.freeze(['passed', 'failed', 'pending']);
 const EXPECTED_GATE_NAMES = Object.freeze([
   'automated',
   'independentReview',
@@ -15,12 +49,25 @@ const EXPECTED_GATE_NAMES = Object.freeze([
   'manualAccessibility',
   'finalRelease'
 ]);
-const PENDING_GATE_NAMES = Object.freeze([
+const STAGED_GATE_NAMES = Object.freeze([
   'liveProvider',
   'hosted',
   'manualAccessibility',
   'finalRelease'
 ]);
+const COMMIT_ROLES = Object.freeze([
+  'branch-head',
+  'pull-request-merge',
+  'local-source',
+  'published'
+]);
+const COMMIT_ROLE_LABELS = Object.freeze({
+  'branch-head': 'branch head',
+  'pull-request-merge': 'pull-request merge',
+  'local-source': 'local source',
+  published: 'published'
+});
+const QUALIFICATION_STATUSES = Object.freeze(['qualified', 'not-qualified']);
 
 function hasExactKeys(value, keys) {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -40,6 +87,112 @@ function invalid() {
   throw new Error('WORK_CONTINUITY.json is invalid');
 }
 
+function validateCommitIdentities(value) {
+  if (
+    !Array.isArray(value)
+    || value.length === 0
+    || value.length > MAX_COMMIT_IDENTITIES
+  ) invalid();
+  const roles = new Set();
+  const commits = new Set();
+  for (const entry of value) {
+    if (
+      !hasExactKeys(entry, ['role', 'commit'])
+      || !COMMIT_ROLES.includes(entry.role)
+      || !SHA1_PATTERN.test(entry.commit || '')
+      || /^0{40}$/.test(entry.commit)
+      || roles.has(entry.role)
+      || commits.has(entry.commit)
+    ) invalid();
+    roles.add(entry.role);
+    commits.add(entry.commit);
+  }
+}
+
+function validateAutomatedGate(gate, baseline) {
+  if (!hasExactKeys(gate, [
+    'status',
+    'runId',
+    'programs',
+    'browser',
+    'productionAuditVulnerabilities',
+    'developmentAuditVulnerabilities',
+    'deterministicArchive',
+    'exactArchiveQualified'
+  ])) invalid();
+  if (
+    !GATE_STATUSES.includes(gate.status)
+    || !RUN_ID_PATTERN.test(gate.runId || '')
+    || gate.runId !== baseline.qualificationRunId
+    || !isValidCountSet(gate.programs, ['total', 'passed', 'blocked', 'failed'])
+    || !isValidCountSet(gate.browser, ['total', 'passed', 'failed'])
+    || !Number.isInteger(gate.productionAuditVulnerabilities)
+    || gate.productionAuditVulnerabilities < 0
+    || !Number.isInteger(gate.developmentAuditVulnerabilities)
+    || gate.developmentAuditVulnerabilities < 0
+    || typeof gate.deterministicArchive !== 'boolean'
+    || typeof gate.exactArchiveQualified !== 'boolean'
+  ) invalid();
+  /* A passing automated gate has to agree with the counts it reports. */
+  if (gate.status === 'passed' && (
+    gate.programs.total === 0
+    || gate.programs.total !== gate.programs.passed
+    || gate.programs.blocked !== 0
+    || gate.programs.failed !== 0
+    || gate.browser.total === 0
+    || gate.browser.total !== gate.browser.passed
+    || gate.browser.failed !== 0
+    || gate.productionAuditVulnerabilities !== 0
+    || gate.developmentAuditVulnerabilities !== 0
+    || gate.deterministicArchive !== true
+    || gate.exactArchiveQualified !== true
+  )) invalid();
+}
+
+function validateIndependentReviewGate(gate) {
+  if (!hasExactKeys(gate, ['status', 'runId', 'actionable', 'nitpicks'])) invalid();
+  if (
+    !GATE_STATUSES.includes(gate.status)
+    || !Number.isInteger(gate.actionable)
+    || gate.actionable < 0
+    || !Number.isInteger(gate.nitpicks)
+    || gate.nitpicks < 0
+  ) invalid();
+  /* A recorded review outcome names the review that produced it. */
+  if (gate.status === 'pending') {
+    if (gate.runId !== null) invalid();
+  } else if (!REVIEW_ID_PATTERN.test(gate.runId || '')) invalid();
+  /* The verdict and the finding count cannot disagree. */
+  if (gate.status === 'passed' && gate.actionable !== 0) invalid();
+  if (gate.status === 'failed' && gate.actionable === 0) invalid();
+}
+
+function validateStagedGate(gate) {
+  if (!hasExactKeys(gate, ['status', 'runId'])) invalid();
+  if (!GATE_STATUSES.includes(gate.status)) invalid();
+  /* No staged gate reports success without an evidence run behind it. */
+  if (gate.status === 'passed') {
+    if (!RUN_ID_PATTERN.test(gate.runId || '')) invalid();
+    return;
+  }
+  /* A gate that has not been attempted carries no run; one that was attempted
+     and failed names the run that failed, so both remain recordable. */
+  if (gate.status === 'pending' && gate.runId !== null) invalid();
+  if (gate.status === 'failed' && gate.runId !== null && !RUN_ID_PATTERN.test(gate.runId)) invalid();
+}
+
+function validateGates(gates, baseline) {
+  if (!hasExactKeys(gates, EXPECTED_GATE_NAMES)) invalid();
+  validateAutomatedGate(gates.automated, baseline);
+  validateIndependentReviewGate(gates.independentReview);
+  for (const name of STAGED_GATE_NAMES) validateStagedGate(gates[name]);
+  /* Final release is a ratchet over every preceding gate. */
+  if (gates.finalRelease.status === 'passed') {
+    const preceding = EXPECTED_GATE_NAMES.filter(name => name !== 'finalRelease');
+    if (preceding.some(name => gates[name].status !== 'passed')) invalid();
+  }
+}
+
 function validateContinuity(value) {
   if (!hasExactKeys(value, [
     'schemaVersion',
@@ -54,7 +207,7 @@ function validateContinuity(value) {
     'nextAuthorizedAction'
   ])) invalid();
   if (
-    value.schemaVersion !== 4
+    value.schemaVersion !== SCHEMA_VERSION
     || value.project !== 'Nebulaverse-X'
     || value.version !== PACKAGE_VERSION
     || !SHA1_PATTERN.test(value.acceptedTree || '')
@@ -65,8 +218,7 @@ function validateContinuity(value) {
     'repository',
     'branch',
     'pullRequest',
-    'sourceCommit',
-    'publishedCommit',
+    'commits',
     'tree',
     'candidateSha256',
     'ciRunId',
@@ -74,69 +226,28 @@ function validateContinuity(value) {
     'decision'
   ])) invalid();
   if (
-    baseline.repository !== 'T-rex-G/Nebula-checkpoints'
-    || baseline.branch !== 'agent/alpha17-evidence-integrity'
-    || baseline.pullRequest !== 1
-    || !SHA1_PATTERN.test(baseline.sourceCommit || '')
-    || !SHA1_PATTERN.test(baseline.publishedCommit || '')
-    || baseline.sourceCommit === baseline.publishedCommit
+    !REPOSITORY_PATTERN.test(baseline.repository || '')
+    || !isNonEmptyString(baseline.branch)
+    || !Number.isInteger(baseline.pullRequest)
+    || baseline.pullRequest <= 0
     || !SHA1_PATTERN.test(baseline.tree || '')
     || baseline.tree !== value.acceptedTree
     || !SHA256_PATTERN.test(baseline.candidateSha256 || '')
     || !RUN_ID_PATTERN.test(baseline.ciRunId || '')
     || !RUN_ID_PATTERN.test(baseline.qualificationRunId || '')
-    || baseline.decision !== 'automated-qualified-independent-review-failed-public-alpha-no-go'
+    || !SLUG_PATTERN.test(baseline.decision || '')
   ) invalid();
-  if (!hasExactKeys(value.gates, EXPECTED_GATE_NAMES)) invalid();
-  const independentReview = value.gates.independentReview;
-  if (
-    !hasExactKeys(independentReview, ['status', 'runId', 'actionable', 'nitpicks'])
-    || independentReview.status !== 'failed'
-    || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(independentReview.runId || '')
-    || !Number.isInteger(independentReview.actionable)
-    || independentReview.actionable <= 0
-    || !Number.isInteger(independentReview.nitpicks)
-    || independentReview.nitpicks < 0
-  ) invalid();
+  validateCommitIdentities(baseline.commits);
 
-  const automated = value.gates.automated;
-  if (!hasExactKeys(automated, [
-    'status',
-    'runId',
-    'programs',
-    'browser',
-    'productionAuditVulnerabilities',
-    'developmentAuditVulnerabilities',
-    'deterministicArchive',
-    'exactArchiveQualified'
-  ])) invalid();
-  if (
-    automated.status !== 'passed'
-    || automated.runId !== baseline.qualificationRunId
-    || !isValidCountSet(automated.programs, ['total', 'passed', 'blocked', 'failed'])
-    || automated.programs.total !== automated.programs.passed
-    || automated.programs.blocked !== 0
-    || automated.programs.failed !== 0
-    || !isValidCountSet(automated.browser, ['total', 'passed', 'failed'])
-    || automated.browser.total !== automated.browser.passed
-    || automated.browser.failed !== 0
-    || automated.productionAuditVulnerabilities !== 0
-    || automated.developmentAuditVulnerabilities !== 0
-    || automated.deterministicArchive !== true
-    || automated.exactArchiveQualified !== true
-  ) invalid();
-  for (const name of PENDING_GATE_NAMES) {
-    if (!hasExactKeys(value.gates[name], ['status']) || value.gates[name].status !== 'pending') invalid();
-  }
+  validateGates(value.gates, baseline);
 
   if (
     !Array.isArray(value.failedQualificationRuns)
-    || value.failedQualificationRuns.length === 0
     || value.failedQualificationRuns.some(item =>
       !hasExactKeys(item, ['runId', 'failure', 'liveJobsSkipped'])
       || !RUN_ID_PATTERN.test(String(item.runId || ''))
       || !isNonEmptyString(item.failure)
-      || item.liveJobsSkipped !== true
+      || typeof item.liveJobsSkipped !== 'boolean'
     )
   ) invalid();
   if (
@@ -146,12 +257,12 @@ function validateContinuity(value) {
   ) invalid();
   if (
     !hasExactKeys(value.currentCandidate, ['qualificationStatus', 'identitySource'])
-    || value.currentCandidate.qualificationStatus !== 'not-qualified'
-    || value.currentCandidate.identitySource !== 'external-qualification-evidence'
+    || !QUALIFICATION_STATUSES.includes(value.currentCandidate.qualificationStatus)
+    || !SLUG_PATTERN.test(value.currentCandidate.identitySource || '')
   ) invalid();
   if (
     !hasExactKeys(value.nextAuthorizedAction, ['type', 'description'])
-    || value.nextAuthorizedAction.type !== 'qualify-review-remediation-successor'
+    || !SLUG_PATTERN.test(value.nextAuthorizedAction.type || '')
     || !isNonEmptyString(value.nextAuthorizedAction.description)
   ) invalid();
 
@@ -172,7 +283,35 @@ function titleCaseStatus(value) {
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }
 
+/* Public alpha is a release position, not a stored flag: it follows the gate. */
+function publicAlphaPosition(state) {
+  return state.gates.finalRelease.status === 'passed' ? 'GO' : 'NO-GO';
+}
+
+function commitIdentityLines(baseline) {
+  return baseline.commits.map(entry =>
+    `- ${COMMIT_ROLE_LABELS[entry.role]} commit: \`${entry.commit}\``
+  );
+}
+
+function reviewSentence(gate) {
+  if (gate.status === 'pending') return 'No independent review has been recorded for this baseline.';
+  const verdict = gate.status === 'passed' ? 'passed' : 'failed';
+  return `Independent review \`${gate.runId}\` ${verdict} with ${gate.actionable} actionable `
+    + `findings and ${gate.nitpicks} nitpicks.`;
+}
+
+function candidateSentence(state) {
+  const qualified = state.currentCandidate.qualificationStatus === 'qualified';
+  return [
+    `The successor now in progress is **${qualified ? 'qualified' : 'not qualified'}**. Its commit,`,
+    'tree, archive SHA-256, and evidence hashes remain external qualification evidence; this',
+    'archive cannot attest its own final identity.'
+  ].join('\n');
+}
+
 function failedQualificationRunLines(state) {
+  if (!state.failedQualificationRuns.length) return ['- none recorded.'];
   return state.failedQualificationRuns.map(item =>
     `- run \`${item.runId}\`: ${item.failure} Live jobs skipped: ${item.liveJobsSkipped ? 'yes' : 'no'}.`
   );
@@ -181,6 +320,7 @@ function failedQualificationRunLines(state) {
 function renderProjectState(state) {
   validateContinuity(state);
   const baseline = state.recordedBaseline;
+  const automated = state.gates.automated;
   return [
     '# Nebulaverse-X Project State',
     '',
@@ -188,36 +328,34 @@ function renderProjectState(state) {
     '',
     `Current authored version: **${state.version}**`,
     '',
-    'Public alpha: **NO-GO**',
+    `Public alpha: **${publicAlphaPosition(state)}**`,
     '',
     '## Identity boundary',
     '',
-    'The last automatically qualified immutable baseline has two transport-specific commit identities:',
+    'The last automatically qualified immutable baseline is one accepted tree reached',
+    'through these transport-specific commit identities:',
     '',
-    `- local source commit: \`${baseline.sourceCommit}\``,
-    `- published draft-PR commit: \`${baseline.publishedCommit}\``,
+    ...commitIdentityLines(baseline),
     '',
     `with tree \`${baseline.tree}\` and candidate SHA-256`,
     `\`${baseline.candidateSha256}\` in \`${baseline.repository}\` draft PR #${baseline.pullRequest}.`,
     '',
     `Standard CI run: \`${baseline.ciRunId}\`. Exact-archive qualification run: \`${baseline.qualificationRunId}\`.`,
     '',
-    `Independent review \`${state.gates.independentReview.runId}\` failed with ${state.gates.independentReview.actionable} actionable findings and ${state.gates.independentReview.nitpicks} nitpicks.`,
+    reviewSentence(state.gates.independentReview),
     '',
     '## Failed qualification attempts',
     '',
     ...failedQualificationRunLines(state),
     '',
-    'The review-remediation successor is **not qualified**. Its commit, tree, archive SHA-256,',
-    'and evidence hashes must be recorded externally after exact-candidate qualification; this',
-    'archive cannot attest its own final identity.',
+    candidateSentence(state),
     '',
     '## Gate state',
     '',
     '| Gate | Status | Evidence boundary |',
     '|---|---|---|',
-    `| Automated exact-archive qualification | ${titleCaseStatus(state.gates.automated.status)} | Recorded baseline run \`${state.gates.automated.runId}\`: ${state.gates.automated.programs.passed}/${state.gates.automated.programs.total} programs and ${state.gates.automated.browser.passed}/${state.gates.automated.browser.total} browser checks |`,
-    `| Independent review | ${titleCaseStatus(state.gates.independentReview.status)} | Review \`${state.gates.independentReview.runId}\`: ${state.gates.independentReview.actionable} actionable findings and ${state.gates.independentReview.nitpicks} nitpicks |`,
+    `| Automated exact-archive qualification | ${titleCaseStatus(automated.status)} | Recorded baseline run \`${automated.runId}\`: ${automated.programs.passed}/${automated.programs.total} programs and ${automated.browser.passed}/${automated.browser.total} browser checks |`,
+    `| Independent review | ${titleCaseStatus(state.gates.independentReview.status)} | ${reviewSentence(state.gates.independentReview)} |`,
     `| Live-provider qualification | ${titleCaseStatus(state.gates.liveProvider.status)} | Must target the externally qualified successor identity |`,
     `| Hosted qualification | ${titleCaseStatus(state.gates.hosted.status)} | Render/Neon execution has not been authorized for the successor |`,
     `| Manual accessibility | ${titleCaseStatus(state.gates.manualAccessibility.status)} | VoiceOver and desktop screen-reader evidence remain required |`,
@@ -254,30 +392,31 @@ function renderContinuationPrompt(state) {
     '',
     '> Generated from `WORK_CONTINUITY.json`. Do not edit this file directly.',
     '',
-    `Resume Nebulaverse-X ${state.version} from the independent-review remediation successor line.`,
+    `Resume Nebulaverse-X ${state.version} from the recorded qualified baseline.`,
     '',
-    'Public alpha: **NO-GO**',
+    `Public alpha: **${publicAlphaPosition(state)}**`,
     '',
     'The last immutable baseline that may be cited as automatically qualified is:',
     '',
     `- repository: \`${baseline.repository}\``,
+    `- branch: \`${baseline.branch}\``,
     `- draft PR: \`#${baseline.pullRequest}\``,
-    `- local source commit: \`${baseline.sourceCommit}\``,
-    `- published draft-PR commit: \`${baseline.publishedCommit}\``,
+    ...commitIdentityLines(baseline),
     `- tree: \`${baseline.tree}\``,
     `- candidate SHA-256: \`${baseline.candidateSha256}\``,
     `- CI run: \`${baseline.ciRunId}\``,
     `- qualification run: \`${baseline.qualificationRunId}\``,
+    `- decision: \`${baseline.decision}\``,
     '',
-    `Independent review \`${state.gates.independentReview.runId}\` failed with ${state.gates.independentReview.actionable} actionable findings and ${state.gates.independentReview.nitpicks} nitpicks.`,
+    reviewSentence(state.gates.independentReview),
     '',
     'Failed qualification attempts:',
     '',
     ...failedQualificationRunLines(state),
     '',
-    'Do not reuse that identity for the remediation successor. The current candidate commit,',
-    'tree, archive SHA-256, and evidence hashes are external qualification evidence and remain',
-    'unknown until the successor is frozen and qualified.',
+    'Do not reuse that identity for a successor. The current candidate commit, tree, archive',
+    'SHA-256, and evidence hashes are external qualification evidence and remain unknown until',
+    'the successor is frozen and qualified.',
     '',
     'Read in order:',
     '',
@@ -306,8 +445,12 @@ function generatedDocuments(state) {
 }
 
 module.exports = Object.freeze({
+  COMMIT_ROLES,
   EXPECTED_GATE_NAMES,
+  GATE_STATUSES,
+  SCHEMA_VERSION,
   generatedDocuments,
+  publicAlphaPosition,
   readContinuity,
   renderContinuationPrompt,
   renderProjectState,

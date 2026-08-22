@@ -37,11 +37,11 @@ for (const file of canonicalFiles) {
 const state = read('docs/current/PROJECT_STATE.md');
 assert(state.includes('Current authored version: **5.3.0-alpha.17.0**'));
 assert(state.includes('Public alpha: **NO-GO**'));
-assert(state.includes('The review-remediation successor is **not qualified**'));
-assert(state.includes('1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed'));
+assert(state.includes('is **not qualified**'));
+assert(state.includes('58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711'));
 for (const row of [
   '| Automated exact-archive qualification | Passed |',
-  '| Independent review | Failed |',
+  '| Independent review | Passed |',
   '| Live-provider qualification | Pending |',
   '| Hosted qualification | Pending |',
   '| Manual accessibility | Pending |',
@@ -138,10 +138,10 @@ assert(alpha.includes(
 
 const releaseGates = read('docs/release/RELEASE_SECURITY_GATES.md');
 assert(releaseGates.includes('Recorded automated baseline: **Passed**'));
-assert(releaseGates.includes('Recorded independent review: **Failed**'));
-assert(releaseGates.includes('Current review-remediation successor: **Not qualified**'));
-assert(releaseGates.includes('141/141'));
-assert(releaseGates.includes('56/56'));
+assert(releaseGates.includes('Recorded independent review: **Passed**'));
+assert(releaseGates.includes('Current successor: **Not qualified**'));
+assert(releaseGates.includes('142/142'));
+assert(releaseGates.includes('60/60'));
 assert(releaseGates.includes('zero production and development audit vulnerabilities'));
 assert(releaseGates.includes('Live-provider gate: **Pending**'));
 assert(releaseGates.includes('Hosted gate: **Pending**'));
@@ -151,24 +151,25 @@ assert(releaseGates.includes('04b93d36-47ea-402d-abda-ca6dfb2a9290'));
 assert(releaseGates.includes('30 actionable findings'));
 assert(/18 inline actions plus 12\s+summary\/failed-post actions/.test(releaseGates));
 assert(releaseGates.includes('4ae300c4-410c-4ae7-89cc-b7e15767d22e'));
+assert(releaseGates.includes('4d47a6a5-e9d9-4a92-8a59-3883615069e8'));
 assert(releaseGates.includes('15 actionable findings and 10 nitpicks'));
 
 const qualification = read('docs/release/QUALIFICATION_BASELINE.md');
 assert(qualification.startsWith('# Recorded Alpha.17 Automated Qualification Baseline'));
 for (const identity of [
-  'c67d92edb8c63f11ada74cfdc7835f8a4b387a1c',
-  'd6628de48a32c3a2790dabeec60ec7b7b2ebab49',
-  '7bcc2c27029cc1013f176d1070e2cd38a8e69811',
-  '1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed',
-  '31494468827',
-  '31494468853',
+  '3995a81e64ced1011f7e5c0662307f270c67e2b8',
+  '379f96daa85709bbc4c002f60501819690b00de2',
+  'b0945a403beaa4c4242a1d6526aa7c3d80d48f08',
+  '58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711',
+  '32540542681',
+  '32540542682',
   '912555dd-72ab-4662-9645-2313007eea3d'
 ]) assert(qualification.includes(identity), `qualification baseline missing ${identity}`);
-assert(qualification.includes('141/141 program tests'));
-assert(qualification.includes('56/56 browser tests'));
+assert(qualification.includes('142/142 program tests'));
+assert(qualification.includes('60/60 browser tests'));
 assert(qualification.includes('zero vulnerabilities'));
 assert(qualification.includes('16 actionable findings'));
-assert(qualification.includes('public alpha are therefore **NO-GO**'));
+assert(qualification.includes('**NO-GO**'), 'the recorded baseline must state the public-alpha position');
 assert(!qualification.includes('Task 21 is **in progress**'));
 
 const evidence = read('docs/release/EVIDENCE_INDEX.md');
@@ -176,22 +177,23 @@ for (const identity of [
   '30464094438',
   '30464096155',
   '330b1b65894d1f63d7f4597cd81370d423fa66b60f69a4bb3a1a88084eca8892',
-  'c67d92edb8c63f11ada74cfdc7835f8a4b387a1c',
-  'd6628de48a32c3a2790dabeec60ec7b7b2ebab49',
-  '1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed',
+  '3995a81e64ced1011f7e5c0662307f270c67e2b8',
+  '379f96daa85709bbc4c002f60501819690b00de2',
+  '58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711',
   '31321447041',
-  '31494468827',
-  '31494468853',
+  '32540542681',
+  '32540542682',
   '912555dd-72ab-4662-9645-2313007eea3d'
 ]) assert(evidence.includes(identity), `evidence index missing ${identity}`);
 assert(evidence.includes('GitHub/GitLab'));
 assert(evidence.includes('fresh Gitea'));
-assert(evidence.includes('independent review failed'));
+assert(evidence.includes('independent review passed'));
 assert(evidence.includes('public-alpha NO-GO'));
 assert(evidence.includes('prove only Plan 1 successor foundation work'));
 assert(evidence.includes('do not prove hosted-public-alpha qualification'));
 assert(evidence.includes('04b93d36-47ea-402d-abda-ca6dfb2a9290'));
 assert(evidence.includes('4ae300c4-410c-4ae7-89cc-b7e15767d22e'));
+assert(evidence.includes('4d47a6a5-e9d9-4a92-8a59-3883615069e8'));
 
 const deploy = read('docs/operations/DEPLOY_RENDER_NEON.md');
 assert(deploy.startsWith('# Deploy Nebulaverse-X 5.3.0-alpha.17.0 Controlled Alpha'));

@@ -543,7 +543,7 @@ legacy key, making compatibility bounded, reviewable, and auditable.
 
 ## ADR-071 — Continuity accepts exact transport-specific commits paired to one tree
 
-**Status:** Accepted
+**Status:** Superseded by ADR-083
 
 Qualification publication can create a local source commit and a different
 published pull-request commit with identical trees. Continuity schema 4 records
@@ -724,3 +724,39 @@ contains no provider authorization and itself rejects redirects.
 **Consequence:** Provider credentials cannot be replayed to a redirect target,
 while the one documented GitHub API-to-codeload transition remains usable under
 an exact origin/path/repository constraint.
+
+## ADR-083 — Continuity records a state, not one frozen position
+
+**Status:** Accepted
+
+Supersedes ADR-071. Schema 5 keeps that decision's insight — one accepted tree,
+reached through more than one commit identity — and drops the two assumptions
+that made it unusable.
+
+The first was arity. ADR-071 named exactly two identities, `sourceCommit` and
+`publishedCommit`, and required them to differ. That described one transport
+pair: a local source commit and its published counterpart. It could not describe
+a branch head and the pull-request merge commit that carries the same tree into
+a workflow checkout, nor a single identity when work happens directly in the
+repository of record. Schema 5 records `commits` as a set of role-tagged
+identities, each resolving to the accepted tree, and resume validation accepts
+any of them.
+
+The second was that the validator encoded the project's position as the schema.
+The review gate had to read `failed`, the actionable count had to exceed zero,
+and the candidate had to be `not-qualified`. Advancing a gate therefore required
+editing the validator, so the record could not track the work it exists to
+describe, and the documents generated from it stated a position the project had
+already left. Schema 5 validates shape, format and cross-field agreement, plus
+two policy rules: a gate never reports `passed` without an evidence run behind
+it, and final release never reports `passed` while any preceding gate has not.
+
+Public-alpha position is derived from the final-release gate rather than stored,
+so no document can assert GO while a gate is outstanding.
+
+**Consequence:** Continuity can record progress and regression alike without a
+code change, while an unrelated ancestor carrying the accepted tree still fails
+the boundary and a green automated run still cannot hide a failed independent
+review. The cost is that the record no longer proves by construction which
+position the project is in; that now rests on the evidence run identifiers each
+gate carries.

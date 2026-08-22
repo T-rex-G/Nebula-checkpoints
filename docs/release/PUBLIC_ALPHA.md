@@ -6,10 +6,12 @@ The recorded `1a3eba45…` alpha.17 baseline passed automated exact-archive
 qualification, but independent review failed with 16 actionable findings and 8
 nitpicks. Review `04b93d36-47ea-402d-abda-ca6dfb2a9290` then failed the
 pre-remediation PR head with 30 actionable findings and 9 nitpicks. The latest
-review, `4ae300c4-410c-4ae7-89cc-b7e15767d22e`, failed the published
-remediation head with 15 actionable findings and 10 nitpicks. This successor
-changes packaged bytes again and is **not qualified** until its own external
-archive identity, automated evidence, and follow-up independent review pass.
+review to fail, `4ae300c4-410c-4ae7-89cc-b7e15767d22e`, reported 15 actionable
+findings and 10 nitpicks against the published remediation head. That inventory
+was remediated and review `4d47a6a5-e9d9-4a92-8a59-3883615069e8` returned no
+actionable findings. Each further successor changes packaged bytes again and is
+**not qualified** until its own external archive identity, automated evidence,
+and follow-up independent review pass.
 Live-provider, hosted, manual
 accessibility, and final release gates remain pending.
 

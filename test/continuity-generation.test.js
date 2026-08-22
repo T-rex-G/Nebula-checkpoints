@@ -22,40 +22,42 @@ const projectStatePath = path.join(root, 'docs', 'current', 'PROJECT_STATE.md');
 const promptPath = path.join(root, 'docs', 'current', 'CONTINUATION_PROMPT.md');
 const state = readContinuity(statePath);
 
-assert.strictEqual(state.schemaVersion, 4);
+assert.strictEqual(state.schemaVersion, 5);
 assert.strictEqual(state.project, 'Nebulaverse-X');
 assert.strictEqual(state.version, pkg.version);
-assert.strictEqual(state.acceptedTree, '7bcc2c27029cc1013f176d1070e2cd38a8e69811');
+assert.strictEqual(state.acceptedTree, 'b0945a403beaa4c4242a1d6526aa7c3d80d48f08');
 assert.deepStrictEqual(state.recordedBaseline, {
   repository: 'T-rex-G/Nebula-checkpoints',
   branch: 'agent/alpha17-evidence-integrity',
   pullRequest: 1,
-  sourceCommit: 'c67d92edb8c63f11ada74cfdc7835f8a4b387a1c',
-  publishedCommit: 'd6628de48a32c3a2790dabeec60ec7b7b2ebab49',
-  tree: '7bcc2c27029cc1013f176d1070e2cd38a8e69811',
-  candidateSha256: '1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed',
-  ciRunId: '31494468827',
-  qualificationRunId: '31494468853',
-  decision: 'automated-qualified-independent-review-failed-public-alpha-no-go'
+  commits: [
+    { role: 'branch-head', commit: '3995a81e64ced1011f7e5c0662307f270c67e2b8' },
+    { role: 'pull-request-merge', commit: '379f96daa85709bbc4c002f60501819690b00de2' }
+  ],
+  tree: 'b0945a403beaa4c4242a1d6526aa7c3d80d48f08',
+  candidateSha256: '58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711',
+  ciRunId: '32540542681',
+  qualificationRunId: '32540542682',
+  decision: 'automated-qualified-independent-review-passed-public-alpha-no-go'
 });
 assert.deepStrictEqual(
   Object.fromEntries(Object.entries(state.gates).map(([name, gate]) => [name, gate.status])),
   {
     automated: 'passed',
-    independentReview: 'failed',
+    independentReview: 'passed',
     liveProvider: 'pending',
     hosted: 'pending',
     manualAccessibility: 'pending',
     finalRelease: 'pending'
   }
 );
-assert.deepStrictEqual(state.gates.automated.programs, { total: 141, passed: 141, blocked: 0, failed: 0 });
-assert.deepStrictEqual(state.gates.automated.browser, { total: 56, passed: 56, failed: 0 });
+assert.deepStrictEqual(state.gates.automated.programs, { total: 142, passed: 142, blocked: 0, failed: 0 });
+assert.deepStrictEqual(state.gates.automated.browser, { total: 60, passed: 60, failed: 0 });
 assert.deepStrictEqual(state.gates.independentReview, {
-  status: 'failed',
-  runId: '4ae300c4-410c-4ae7-89cc-b7e15767d22e',
-  actionable: 15,
-  nitpicks: 10
+  status: 'passed',
+  runId: '4d47a6a5-e9d9-4a92-8a59-3883615069e8',
+  actionable: 0,
+  nitpicks: 0
 });
 assert.strictEqual(state.gates.automated.productionAuditVulnerabilities, 0);
 assert.strictEqual(state.gates.automated.developmentAuditVulnerabilities, 0);
@@ -80,13 +82,14 @@ assert.deepStrictEqual(generatedDocuments(state), {
 for (const document of [projectState, continuationPrompt]) {
   assert(document.includes('Generated from `WORK_CONTINUITY.json`'));
   assert(document.includes('Public alpha: **NO-GO**'));
-  assert(document.includes('1a3eba455b23c61d09060749d3041598e332b04bc5bbba9efd23b77ff41e34ed'));
-  assert(document.includes('4ae300c4-410c-4ae7-89cc-b7e15767d22e'));
+  assert(document.includes('58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711'));
+  assert(document.includes('4d47a6a5-e9d9-4a92-8a59-3883615069e8'));
   assert(!document.includes('Task 21 is in progress'));
   assert(!document.includes('Current candidate SHA-256'));
   assert(!document.includes('Current candidate commit'));
 }
 assert(projectState.includes('| Automated exact-archive qualification | Passed |'));
+assert(projectState.includes('| Independent review | Passed |'));
 assert(projectState.includes('| Live-provider qualification | Pending |'));
 assert(projectState.includes('| Hosted qualification | Pending |'));
 assert(projectState.includes('| Manual accessibility | Pending |'));
@@ -99,14 +102,26 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+/*
+ * Schema 5 no longer freezes the project's position, so these exercise the
+ * invariants that must hold at any position rather than one snapshot of it.
+ */
 for (const mutate of [
-  candidate => { candidate.schemaVersion = 3; },
+  candidate => { candidate.schemaVersion = 4; },
   candidate => { candidate.version = '5.3.0-alpha.16.3'; },
   candidate => { delete candidate.recordedBaseline.candidateSha256; },
-  candidate => { candidate.recordedBaseline.publishedCommit = candidate.recordedBaseline.sourceCommit; },
-  candidate => { candidate.gates.independentReview.status = 'passed'; },
-  candidate => { candidate.gates.liveProvider.status = 'passed'; },
+  candidate => { candidate.recordedBaseline.tree = 'f'.repeat(40); },
+  candidate => { candidate.recordedBaseline.commits = []; },
+  candidate => { candidate.recordedBaseline.commits.push(candidate.recordedBaseline.commits[0]); },
+  candidate => { candidate.recordedBaseline.commits[0].role = 'not-a-transport'; },
+  candidate => { candidate.recordedBaseline.decision = 'Not A Slug'; },
+  candidate => { candidate.gates.automated.runId = '999'; },
   candidate => { candidate.gates.automated.programs.failed = 1; },
+  candidate => { candidate.gates.independentReview.actionable = 3; },
+  candidate => { candidate.gates.independentReview.status = 'failed'; },
+  candidate => { candidate.gates.independentReview.status = 'unknown'; },
+  candidate => { candidate.gates.liveProvider.status = 'passed'; },
+  candidate => { candidate.gates.finalRelease = { status: 'passed', runId: '32540542682' }; },
   candidate => { candidate.currentCandidate.commit = '0'.repeat(40); },
   candidate => { candidate.nextAuthorizedAction.description = ''; }
 ]) {
@@ -114,6 +129,45 @@ for (const mutate of [
   mutate(candidate);
   assert.throws(() => validateContinuity(candidate), /WORK_CONTINUITY\.json is invalid/);
 }
+
+/*
+ * The point of schema 5 is that the record can move. Schema 4 rejected every
+ * one of these as malformed, which is why the shipped documents kept asserting
+ * a position the project had already left.
+ */
+for (const [label, advance] of [
+  ['a live gate that passed with evidence', candidate => {
+    candidate.gates.liveProvider = { status: 'passed', runId: '32540542682' };
+  }],
+  ['a live gate that failed and names its run', candidate => {
+    candidate.gates.liveProvider = { status: 'failed', runId: '32540542682' };
+  }],
+  ['a single recorded commit identity', candidate => {
+    candidate.recordedBaseline.commits = [candidate.recordedBaseline.commits[0]];
+  }],
+  ['a qualified candidate', candidate => {
+    candidate.currentCandidate.qualificationStatus = 'qualified';
+  }],
+  ['every gate passed through to final release', candidate => {
+    for (const name of ['liveProvider', 'hosted', 'manualAccessibility', 'finalRelease']) {
+      candidate.gates[name] = { status: 'passed', runId: '32540542682' };
+    }
+  }]
+]) {
+  const candidate = clone(state);
+  advance(candidate);
+  assert.doesNotThrow(() => validateContinuity(candidate), `continuity must be able to record ${label}`);
+  assert.doesNotThrow(() => renderProjectState(candidate), `project state must render ${label}`);
+  assert.doesNotThrow(() => renderContinuationPrompt(candidate), `prompt must render ${label}`);
+}
+
+/* Public alpha follows the final-release gate rather than a stored flag. */
+const released = clone(state);
+for (const name of ['liveProvider', 'hosted', 'manualAccessibility', 'finalRelease']) {
+  released.gates[name] = { status: 'passed', runId: '32540542682' };
+}
+assert(renderProjectState(released).includes('Public alpha: **GO**'));
+assert(renderProjectState(state).includes('Public alpha: **NO-GO**'));
 
 const cleanCheck = spawnSync(process.execPath, [generatorPath, '--check'], {
   cwd: root,

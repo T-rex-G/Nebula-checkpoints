@@ -59,7 +59,7 @@ test('invited tester completes the GitHub sandbox golden path and cleanup', asyn
   await page.locator('#modalOk').click();
 
   await startNewFileAction(page, 'alpha-proof.txt');
-  await expect(page.locator('#toasts')).toContainText('Created alpha-proof.txt');
+  await expect(ui.status(page, 'Notifications')).toContainText('Created alpha-proof.txt');
   expect(fixture.mutationRequests).toHaveLength(1);
   expect(fixture.mutationRequests[0].expectedHeadSha).toBe(HEAD_SHA);
 

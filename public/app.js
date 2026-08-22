@@ -2840,10 +2840,33 @@ function renderPalette(q) {
   palItems = q ? [...files, ...cmds.slice(0, 6)] : [...recents.slice(0, 5), ...cmds, ...files.slice(0, 6)];
   palSel = 0;
   host.innerHTML = '';
-  if (!palItems.length) { host.innerHTML = '<div class="pal-item">No matches</div>'; return; }
+  /*
+   * The results are a listbox and each row an option, so the selection a
+   * reader sees highlighted is the one a screen reader announces. Before this
+   * the rows were plain divs: the arrow keys moved a class nobody could hear,
+   * and no automated rule could report it, because a div list is not incorrect
+   * markup -- it is merely silent.
+   */
+  const input = $('#paletteInput');
+  if (!palItems.length) {
+    host.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'pal-item';
+    empty.setAttribute('role', 'option');
+    empty.setAttribute('aria-selected', 'false');
+    empty.setAttribute('aria-disabled', 'true');
+    empty.textContent = 'No matches';
+    host.appendChild(empty);
+    input.setAttribute('aria-expanded', 'true');
+    input.removeAttribute('aria-activedescendant');
+    return;
+  }
   palItems.forEach((it, i) => {
     const el = document.createElement('div');
     el.className = 'pal-item' + (i === palSel ? ' sel' : '');
+    el.id = `pal-option-${i}`;
+    el.setAttribute('role', 'option');
+    el.setAttribute('aria-selected', i === palSel ? 'true' : 'false');
     el.innerHTML = `<span class="${it.kind === 'file' ? 'mono' : ''}"></span><span class="pal-kind">${it.kind}</span>`;
     el.querySelector('span').textContent = it.label;
     if (it.feature) el.dataset.feature = it.feature;
@@ -2851,6 +2874,8 @@ function renderPalette(q) {
     el.addEventListener('click', () => runPaletteItem(it));
     host.appendChild(el);
   });
+  input.setAttribute('aria-expanded', 'true');
+  input.setAttribute('aria-activedescendant', `pal-option-${palSel}`);
   window.NebulaCapabilityUI.apply(host);
 }
 function runPaletteItem(item) {
@@ -2867,9 +2892,15 @@ $('#paletteInput').addEventListener('keydown', e => {
   else if (e.key === 'Escape') closePalette();
 });
 function paintSel() {
-  $$('#paletteList .pal-item').forEach((el, i) => el.classList.toggle('sel', i === palSel));
+  $$('#paletteList .pal-item').forEach((el, i) => {
+    el.classList.toggle('sel', i === palSel);
+    el.setAttribute('aria-selected', i === palSel ? 'true' : 'false');
+  });
   const sel = $('#paletteList .pal-item.sel');
   if (sel) sel.scrollIntoView({ block: 'nearest' });
+  /* The input keeps focus, so the moved selection is announced through it. */
+  const input = $('#paletteInput');
+  if (sel && sel.id) input.setAttribute('aria-activedescendant', sel.id);
 }
 
 /* global shortcuts */

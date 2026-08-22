@@ -39,7 +39,7 @@
     <p class="eyebrow">Controlled hosted public alpha</p>
     <h1 id="alphaAccessTitle">Enter the Nebulaverse-X test orbit</h1>
     <p class="alpha-access-rule">Use only a sandbox/test repository containing no real secrets, personal data, production deployments, or irreplaceable source.</p>
-    <div class="alpha-wake-state" id="alphaWakeState" role="status" aria-live="polite">Checking service readiness…</div>
+    <div class="alpha-wake-state" id="alphaWakeState" role="status" aria-live="polite" aria-label="Service readiness">Checking service readiness…</div>
     <label class="field-label" for="alphaInviteInput">One-time invitation</label>
     <input id="alphaInviteInput" type="password" autocomplete="one-time-code" spellcheck="false">
     <label class="check" for="alphaTermsAccept">
@@ -199,7 +199,7 @@
         <article id="trustAction" aria-label="Next action"></article>
         <article id="trustEvidence" aria-label="Evidence"></article>
       </section>
-      <div class="sr-only" id="a11yStatus" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div class="sr-only" id="a11yStatus" role="status" aria-live="polite" aria-label="Workspace updates" aria-atomic="true"></div>
       <nav class="tabs glass" id="deskTabs" aria-label="Repository sections">
         <button class="tab active" data-tab="editor">Editor</button>
         <button class="tab" data-tab="upload" data-feature="native-push" data-allow-experimental="true">Push files</button>
@@ -467,7 +467,7 @@
             <div class="gov-summary-grid"><div class="card gov-skeleton gov-skeleton-card"></div><div class="card gov-skeleton gov-skeleton-card"></div><div class="card gov-skeleton gov-skeleton-card"></div><div class="card gov-skeleton gov-skeleton-card"></div></div>
           </section>
         </div>
-        <div id="govLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div id="govLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Governance updates"></div>
       </div>
     </section>
   </div>
@@ -522,8 +522,10 @@
 <!-- command palette -->
 <div class="palette-scrim" id="paletteScrim" hidden>
   <div class="palette glass">
-    <input id="paletteInput" type="text" placeholder="Jump to file or run a command…" autocomplete="off" spellcheck="false">
-    <div class="palette-list" id="paletteList"></div>
+    <input id="paletteInput" type="text" placeholder="Jump to file or run a command…" autocomplete="off" spellcheck="false"
+      aria-label="Jump to file or run a command" role="combobox" aria-expanded="false"
+      aria-controls="paletteList" aria-autocomplete="list">
+    <div class="palette-list" id="paletteList" role="listbox" aria-label="Command palette results"></div>
   </div>
 </div>
 
@@ -581,7 +583,7 @@
   <span id="netBarText">Offline — commits will be queued ✦</span>
   <button class="btn btn-ghost small" id="queueOpenBtn" hidden>Queue (<span id="queueCount">0</span>)</button>
 </div>
-<div class="toast-stack" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
+<div class="toast-stack" id="toasts" role="status" aria-live="polite" aria-atomic="false" aria-label="Notifications"></div>
 
 <script src="/vendor/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="/vendor/codemirror/5.65.16/mode/meta.min.js"></script>

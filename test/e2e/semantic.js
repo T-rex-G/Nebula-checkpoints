@@ -63,8 +63,35 @@ function alert(target) {
   return target.getByRole('alert');
 }
 
-function status(target) {
-  return target.getByRole('status');
+/*
+ * The command palette is a combobox over a listbox. Reaching its rows by role
+ * asserts the thing that matters: that the row a reader sees highlighted is an
+ * option a screen reader can find and hear as selected.
+ */
+function palette(target) {
+  return target.getByRole('combobox', { name: 'Jump to file or run a command' });
+}
+
+function paletteOption(target, name) {
+  return target.getByRole('option', { name });
+}
+
+/*
+ * The modal takes its accessible name from its heading, so asking for the
+ * dialog by name asserts what a screen reader announces on open -- which the
+ * heading's text content alone does not.
+ */
+function dialog(target, name) {
+  return target.getByRole('dialog', { name });
+}
+
+/*
+ * There are several live regions, so a status lookup names one. Unnamed they
+ * were indistinguishable both to this suite and to anyone navigating by
+ * region, which is how the ambiguity surfaced.
+ */
+function status(target, name) {
+  return name === undefined ? target.getByRole('status') : target.getByRole('status', { name });
 }
 
 module.exports = Object.freeze({
@@ -73,8 +100,11 @@ module.exports = Object.freeze({
   alert,
   button,
   checkbox,
+  dialog,
   field,
   heading,
+  palette,
+  paletteOption,
   screen,
   secretField,
   status

@@ -146,6 +146,23 @@ assert.match(
   'an exposed GitHub App private key must be revoked at GitHub during containment'
 );
 
+/*
+ * Revoking a tester revokes every session it owns, so the access boundary
+ * refuses a subsequent session-end request. Under `set -euo pipefail` a
+ * `--fail` probe of it therefore aborts containment at the moment containment
+ * succeeded, which is the worst time to report a false failure. Verification
+ * confirms the session is dead; containment must not re-prove it.
+ */
+const testerRevocation = fs.readFileSync(path.join(root, '08-tester-revocation-deletion.md'), 'utf8');
+const revocationVerification = testerRevocation.indexOf('## Verification');
+assert(revocationVerification > 0,
+  '08-tester-revocation-deletion.md must define a Verification section to bound containment');
+assert.doesNotMatch(
+  testerRevocation.slice(0, revocationVerification),
+  /api\/alpha\/end/,
+  'containment must not probe a session its own revocation step has just revoked'
+);
+
 for (const file of ['10-alpha-shutdown.md', 'OPERATOR_CHECKLIST.md']) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   assert.match(text, /NV_BACKUP_RESULT="\$\(node scripts\/alpha-db\.js backup/,

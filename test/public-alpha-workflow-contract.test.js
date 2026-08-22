@@ -248,18 +248,23 @@ function assertImmutableActionReference(reference, workflowName) {
 
 /*
  * Step boundaries come from the list-item indentation, and the action
- * reference is then located inside the block.
+ * reference is then located inside the block at the step's own key column.
  *
  * Keying off `- uses:` instead would silently skip every step that names
- * itself first, which is the ordinary way to write a workflow step. A named
- * checkout would then never reach the persist-credentials assertion below and
- * the contract would report a pass it never checked.
+ * itself first, and requiring content after the dash skips the bare `-` form
+ * whose keys begin on the next line. Both are ordinary ways to write a step,
+ * and a checkout written either way would never reach the persist-credentials
+ * assertion below -- the contract would report a pass it never checked.
+ *
+ * The key column is read rather than assumed, because a bare `-` may indent
+ * its mapping arbitrarily. Matching at that exact column is what keeps a
+ * `uses:` nested under `with:` from being mistaken for the step's own action.
  */
 function actionStepBlocks(source) {
   const lines = source.split('\n');
   const blocks = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const match = /^(\s*)-\s+\S/.exec(lines[index]);
+    const match = /^(\s*)-(\s+\S.*)?\s*$/.exec(lines[index]);
     if (!match) continue;
     const indentation = match[1].length;
     let end = index + 1;
@@ -271,11 +276,18 @@ function actionStepBlocks(source) {
       end += 1;
     }
     const block = lines.slice(index, end);
-    /* The leading "- " introduces the first key; align it with the rest so a
-       step's own keys are distinguishable from anything nested beneath them. */
-    const aligned = [`${' '.repeat(indentation + 2)}${block[0].trim().replace(/^-\s+/, '')}`, ...block.slice(1)];
+    const rest = block.slice(1);
+    /* An inline first key sits right after "- "; a bare dash defers to the
+       first line that follows, which establishes the mapping's own column. */
+    const keyColumn = match[2]
+      ? indentation + 2
+      : (/^(\s*)\S/.exec(rest.find(line => line.trim()) || '') || [, ''])[1].length;
+    const aligned = [
+      `${' '.repeat(indentation + 2)}${block[0].trim().replace(/^-\s*/, '')}`,
+      ...rest
+    ];
     const uses = aligned
-      .map(line => new RegExp(`^ {${indentation + 2}}uses:\\s*([^\\s#]+)`).exec(line))
+      .map(line => new RegExp(`^ {${keyColumn}}uses:\\s*([^\\s#]+)`).exec(line))
       .find(Boolean);
     if (uses) blocks.push({ reference: uses[1], source: block.join('\n') });
   }
@@ -312,6 +324,39 @@ assert.strictEqual(namedActionBlocks[0].reference, `actions/checkout@${'b'.repea
   'the action reference must be read from inside the block, not from its first line');
 assert(namedActionBlocks[0].source.includes('persist-credentials: true'),
   'a named checkout must reach the persist-credentials assertion rather than be skipped');
+
+/*
+ * A bare `-` opens a step whose keys sit on the following lines. It is valid
+ * YAML, Actions accepts it, and a checkout written this way must not slip past
+ * the persist-credentials assertion the way a named one used to.
+ */
+for (const [label, indent] of [['conventional', '        '], ['deeper', '          ']]) {
+  const bareActionFixture = [
+    'jobs:',
+    '  verify:',
+    '    steps:',
+    '      -',
+    `${indent}uses: actions/checkout@${'c'.repeat(40)}`,
+    `${indent}with:`,
+    `${indent}  persist-credentials: true`
+  ].join('\n');
+  const bareBlocks = actionStepBlocks(bareActionFixture);
+  assert.strictEqual(bareBlocks.length, 1, `a bare-dash step must be discovered (${label} indentation)`);
+  assert.strictEqual(bareBlocks[0].reference, `actions/checkout@${'c'.repeat(40)}`,
+    `the action reference must be read from a bare-dash block (${label} indentation)`);
+  assert(bareBlocks[0].source.includes('persist-credentials: true'),
+    `a bare-dash checkout must reach the persist-credentials assertion (${label} indentation)`);
+}
+
+/* A nested `uses:` value is not the step's own action. */
+assert.deepStrictEqual(
+  actionStepBlocks([
+    '    steps:',
+    '      - name: Configure',
+    '        with:',
+    '          uses: not-a-step-action'
+  ].join('\n')),
+  [], 'only the step\'s own uses key names its action');
 
 /* A step with no action at all contributes nothing. */
 assert.deepStrictEqual(

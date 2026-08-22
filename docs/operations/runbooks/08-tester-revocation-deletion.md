@@ -6,13 +6,18 @@ Use this runbook for tester removal, compromised access, consent withdrawal, or 
 
 ## Containment
 
-Revoke the invitation/tester, end alpha and provider sessions, stop new mutations, and begin provider-resource cleanup before purging retained alpha data.
+Revoke the invitation/tester, stop new mutations, and begin provider-resource cleanup before purging retained alpha data.
+
+Revocation ends every alpha session the tester owns, so there is no separate
+session-end call here. Adding one would fail the block rather than harden it:
+the session it would target has just been revoked, so the request is refused and
+`--fail` aborts containment on success. Provider sessions are revoked at the
+provider. Verification below confirms the alpha session no longer works.
 
 ```bash
 set -euo pipefail
 node scripts/alpha-invites.js revoke --tester "$NV_TESTER_ID" --reason "$NV_REVOCATION_REASON"
 node scripts/alpha-privacy.js cleanup-status
-curl --proto '=https' --fail --silent --show-error -X POST "$NV_ALPHA_BASE_URL/api/alpha/end" -H 'X-NV: 1' -H "Cookie: $NV_ALPHA_COOKIE"
 ```
 
 ## Verification

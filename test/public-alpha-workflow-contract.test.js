@@ -310,12 +310,15 @@ for (const badRef of ['', 'sandbox/alpha17-live-qualification', 'refs/heads/../.
   );
 }
 
-/* An envelope signed under the previous schema must not verify. */
-const previousSchemaPayload = { ...payload, schemaVersion: '1.2.0' };
-delete previousSchemaPayload.ref;
+/*
+ * An envelope signed under the previous schema must not verify. Only the
+ * schema value differs: an envelope that also dropped `ref` would be refused
+ * by the completeness check below, which raises the same code, and the
+ * assertion would pass without the schema comparison ever running.
+ */
 assert.throws(
   () => verifyAuthorizationEnvelope(
-    encodeAuthorizationEnvelope(previousSchemaPayload, privateKey),
+    encodeAuthorizationEnvelope({ ...payload, schemaVersion: '1.2.0' }, privateKey),
     verifyOptions()
   ),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_INVALID',
@@ -674,6 +677,18 @@ for (const key of claimKeys) {
 assert(
   /restore-keys: \|\n\s+alpha17-authorization-claims-\n/.test(authorization),
   'the ledger must restore the most recent prior run through a shared key prefix'
+);
+/*
+ * The spend is recorded before the verification step finishes -- the step goes
+ * on to extract the envelope and target hashes -- so a failure in that tail
+ * would discard a spend that had already happened, and the approval would be
+ * replayable for the rest of its lifetime. The save therefore runs on failure
+ * as well.
+ */
+const ledgerSaveStep = authorization.slice(authorization.indexOf('- name: Persist spent-approval ledger'));
+assert(
+  /^\s+if: always\(\)$/m.test(ledgerSaveStep.slice(0, ledgerSaveStep.indexOf('uses:'))),
+  'the spent-approval ledger must be saved even when verification fails after recording a spend'
 );
 
 for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) {

@@ -175,11 +175,48 @@ const testerRevocation = fs.readFileSync(path.join(root, '08-tester-revocation-d
 const revocationVerification = testerRevocation.indexOf('## Verification');
 assert(revocationVerification > 0,
   '08-tester-revocation-deletion.md must define a Verification section to bound containment');
+const testerRevocationContainment = testerRevocation.slice(0, revocationVerification);
 assert.doesNotMatch(
-  testerRevocation.slice(0, revocationVerification),
+  testerRevocationContainment,
   /api\/alpha\/end/,
   'containment must not probe a session its own revocation step has just revoked'
 );
+
+/*
+ * Compromised access covers an invitation that leaked before anyone redeemed
+ * it, which has no tester behind it. Containment must offer that branch, or the
+ * runbook reads as complete while leaving the exposed code redeemable.
+ */
+assert.match(
+  testerRevocationContainment,
+  /alpha-invites\.js revoke-invite --invite "\$NV_INVITE_ID"/,
+  'containment must offer the unredeemed-invitation branch'
+);
+assert.match(
+  testerRevocationContainment,
+  /alpha-invites\.js revoke --tester "\$NV_TESTER_ID"/,
+  'containment must keep the redeemed-invitation branch'
+);
+
+/*
+ * Verification must not claim a check it does not perform. cleanup-status and
+ * retention do not touch session access, and proving a specific session is dead
+ * would need the tester's cookie -- which containment has just said never to
+ * handle. The revocation transaction's own sessionsRevoked count is the
+ * evidence, so the document must cite that rather than assert the check.
+ */
+const testerRevocationVerification = testerRevocation.slice(revocationVerification);
+assert.doesNotMatch(
+  testerRevocationVerification,
+  /the alpha session no longer works/,
+  'verification must not claim a session check these commands do not perform'
+);
+assert.match(
+  testerRevocationVerification,
+  /sessionsRevoked/,
+  'verification must name the evidence that sessions actually ended'
+);
+
 
 for (const file of ['10-alpha-shutdown.md', 'OPERATOR_CHECKLIST.md']) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');

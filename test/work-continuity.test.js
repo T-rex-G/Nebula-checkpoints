@@ -173,11 +173,23 @@ try {
   fs.mkdirSync(path.join(fixtureRoot, 'src'));
   fs.mkdirSync(path.join(fixtureRoot, 'scripts'));
   fs.writeFileSync(path.join(fixtureRoot, 'seed.txt'), 'seed\n');
+  /*
+   * Identity and signing are both overridden per command. A contributor with
+   * commit.gpgsign set globally and no key available in this shell would
+   * otherwise have both commits fail, aborting the suite before a single
+   * assertion runs -- a fixture detail deciding whether the tests run at all.
+   */
+  const FIXTURE_COMMIT_CONFIG = Object.freeze([
+    '-c', 'user.name=Nebulaverse Test',
+    '-c', 'user.email=test@localhost',
+    '-c', 'commit.gpgsign=false',
+    '-c', 'tag.gpgsign=false'
+  ]);
   execFileSync('git', ['init', '--initial-branch=main'], { cwd: fixtureRoot, stdio: 'ignore' });
   execFileSync('git', ['add', 'seed.txt'], { cwd: fixtureRoot, stdio: 'ignore' });
   execFileSync(
     'git',
-    ['-c', 'user.name=Nebulaverse Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'seed'],
+    [...FIXTURE_COMMIT_CONFIG, 'commit', '-m', 'seed'],
     { cwd: fixtureRoot, stdio: 'ignore' }
   );
   const acceptedCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
@@ -224,7 +236,7 @@ try {
   });
   execFileSync(
     'git',
-    ['-c', 'user.name=Nebulaverse Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'fixture'],
+    [...FIXTURE_COMMIT_CONFIG, 'commit', '-m', 'fixture'],
     { cwd: fixtureRoot, stdio: 'ignore' }
   );
   const fixtureHead = execFileSync('git', ['rev-parse', 'HEAD'], {

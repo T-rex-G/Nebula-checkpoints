@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { KEY_PURPOSES, deriveSecret } = require('./key-derivation');
 
 const MAX_REASON_COUNT = 12;
 
@@ -98,6 +99,52 @@ function parseRetiredSessionSecrets(raw) {
     if (!secrets.includes(value)) secrets.push(value);
   }
   return Object.freeze(secrets);
+}
+
+/*
+ * The two keyrings evidence verification needs, built from one description of
+ * the operator's key history so they cannot disagree.
+ *
+ * `keyring` decides what verifies. `legacyProbe` only explains a failure: when a
+ * record does not verify, it answers "was this written before the ledger key was
+ * separated from SESSION_SECRET?" so the caller can report an unmigrated chain
+ * rather than tampering.
+ *
+ * Their retired lists differ deliberately, and the difference is the point:
+ *
+ *   - `keyring.retired` always carries each supplied prior secret's *derived*
+ *     evidence key, because a rotation is routine key hygiene and must not cost
+ *     the ledger its history. It carries the *raw* secrets only on the explicit
+ *     pre-separation opt-in, since accepting those forever would leave a leaked
+ *     SESSION_SECRET able to forge evidence that verifies.
+ *
+ *   - `legacyProbe.retired` always carries the raw secrets, opt-in or not.
+ *     Diagnosis is not acceptance: the probe never widens what verifies, and an
+ *     operator who declines the opt-in still has to be able to tell an
+ *     unmigrated chain from a forged one.
+ *
+ * Assembling both here is what keeps that true. Held as two separate lists at
+ * the call site they drifted, and a record signed with a retired raw secret was
+ * reported as tampering with no indication that migration was what it needed.
+ */
+function evidenceKeyrings(env, { sessionSecret, ledgerSecret } = {}) {
+  const legacyAccepted = acceptsLegacySessionKey(env);
+  const source = env && typeof env === 'object' ? env : {};
+  const retiredSessionSecrets = parseRetiredSessionSecrets(source.NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON);
+  return Object.freeze({
+    legacyAccepted,
+    keyring: Object.freeze({
+      active: ledgerSecret,
+      retired: Object.freeze([
+        ...retiredSessionSecrets.map(secret => deriveSecret(secret, KEY_PURPOSES.EVIDENCE_LEDGER)),
+        ...(legacyAccepted ? [sessionSecret, ...retiredSessionSecrets] : [])
+      ])
+    }),
+    legacyProbe: Object.freeze({
+      active: sessionSecret,
+      retired: Object.freeze([...retiredSessionSecrets])
+    })
+  });
 }
 
 function verifyEvidenceRecord(keyring, recordHash, previousHash, repoKey, kind, recordId, payloadHash) {
@@ -545,6 +592,7 @@ module.exports = {
   EVIDENCE_LEGACY_KEY_ID,
   acceptsLegacySessionKey,
   parseRetiredSessionSecrets,
+  evidenceKeyrings,
   evidenceRecordHash,
   verifyEvidenceRecord,
   verifyGithubSignature,

@@ -37,8 +37,16 @@ const RULES = Object.freeze([
     regex: /\b(?:https?|postgres(?:ql)?):\/\/[^\s/:@]+:[^\s@/]{16,}@[^\s]+/i
   }),
   Object.freeze({
+    /*
+     * A secret does not stop being one because it is serialized on the way
+     * out, so the first alternative steps over a JSON.stringify( prefix. It
+     * admits only a quoted literal, which is the whole distinction worth
+     * drawing: stringifying process.env, a variable, or an object expression
+     * exposes nothing and is ordinary code, and flagging it would turn this
+     * gate into noise operators learn to scroll past.
+     */
     rule: 'contextual-provider-secret',
-    regex: /\b(?:GITEA_(?:TOKEN|API_KEY)|GITHUB_APP_(?:CLIENT_SECRET|PRIVATE_KEY_BASE64|WEBHOOK_SECRET)|NPM_TOKEN|NEON_(?:API_KEY|TOKEN)|NV_SNAPSHOT_(?:SIGNING_SECRET|RETIRED_KEYS_JSON|LEGACY_KEYS_JSON)|OAUTH_(?:CLIENT_)?SECRET|SESSION_SECRET)\b[ \t]*[:=][ \t]*["']?(?!process\.env\b|\$\{|JSON\.stringify\b)(?:[A-Za-z0-9_~.+\/-]{20,}|[\[{][^\r\n]{20,})["']?/i
+    regex: /\b(?:GITEA_(?:TOKEN|API_KEY)|GITHUB_APP_(?:CLIENT_SECRET|PRIVATE_KEY_BASE64|WEBHOOK_SECRET)|NPM_TOKEN|NEON_(?:API_KEY|TOKEN)|NV_SNAPSHOT_(?:SIGNING_SECRET|RETIRED_KEYS_JSON|LEGACY_KEYS_JSON)|OAUTH_(?:CLIENT_)?SECRET|SESSION_SECRET)\b[ \t]*[:=][ \t]*(?:JSON\.stringify\([ \t]*["'][A-Za-z0-9_~.+\/-]{20,}["']|["']?(?!process\.env\b|\$\{)(?:[A-Za-z0-9_~.+\/-]{20,}|[\[{][^\r\n]{20,})["']?)/i
   })
 ]);
 

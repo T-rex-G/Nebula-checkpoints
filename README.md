@@ -369,6 +369,8 @@ Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses fo
 | `NV_SNAPSHOT_SIGNING_SECRET` | Required in production | Dedicated active HMAC key for snapshots and emergency manifests |
 | `NV_SNAPSHOT_RETIRED_KEYS_JSON` | Optional during rotation | Retired key-ID-to-secret map retained until matching snapshots expire |
 | `NV_SNAPSHOT_LEGACY_KEYS_JSON` | Optional migration bridge | Old session-derived snapshot keys retained only for legacy bare signatures |
+| `NV_EVIDENCE_LEGACY_SESSION_KEY` | Optional migration bridge | Set to `true` to keep verifying evidence records written before the ledger key was separated from `SESSION_SECRET` |
+| `NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON` | Optional during rotation | Previous `SESSION_SECRET` values, so evidence written before a rotation still verifies |
 | `NODE_ENV=production` | Required in production | Secure cookie/HSTS behavior |
 | `DATABASE_URL` | Required for verified live intelligence | Existing Neon sessions, policies, events, snapshots, evidence |
 | `PUBLIC_BASE_URL` | Optional on Render | Canonical HTTPS webhook callback on other/custom hosts |
@@ -402,6 +404,10 @@ Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses fo
 The connected GitHub credential must have permission to create repository webhooks. Existing events remain in Neon when the webhook is disconnected.
 
 Rotating `SESSION_SECRET` intentionally invalidates existing sessions and stored webhook secrets. Snapshot verification uses its independent keyring. Before rotating a session key that signed pre-migration snapshots, retain that old value in `NV_SNAPSHOT_LEGACY_KEYS_JSON` only until those snapshots expire. Reconnect repository webhooks after a session-key rotation.
+
+The evidence ledger has its own rotation path, because it keeps records rather than expiring them. Its hashing key is derived from `SESSION_SECRET`, so rotating that secret moves the key and records written under the previous one stop reproducing their hash — on a tamper-evident ledger that reads as tampering after nothing worse than routine key hygiene. Populate `NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON` with the outgoing value **before** rotating, not after. Records predating the key separation need `NV_EVIDENCE_LEGACY_SESSION_KEY=true` as well, which is a migration setting: leaving it on permanently means a leaked `SESSION_SECRET` can still forge evidence that verifies.
+
+Neither value expires on its own. Remove one only once the evidence export reports `legacyRecords: 0` for every repository, or re-anchor the chain first; a deployment that declines the legacy opt-in while such records remain is told so by `legacyKeyRequired` rather than being left to read an unmigrated chain as tampering. `docs/operations/SECURITY_DEPLOYMENT.md` carries the full procedure.
 
 ## Local validation
 

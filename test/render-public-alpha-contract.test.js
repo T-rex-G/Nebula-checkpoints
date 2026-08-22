@@ -94,13 +94,23 @@ for (const secret of [
   assert(!block.includes('value:'), `${secret} must not have a blueprint value`);
 }
 
+const envExampleLines = envExample.split(/\r?\n/);
 for (const [key, value] of Object.entries({
   ...exactValues,
   NV_ALPHA_ACCESS_MODE: 'off',
   NV_DATABASE_MIGRATION_MODE: 'apply',
   NV_SNAPSHOT_SIGNING_KEY_ID: ''
 })) {
-  assert(envExample.includes(`${key}=${value}`), `.env.example missing ${key}=${value}`);
+  /*
+   * Match the whole line. A substring check cannot express an empty value:
+   * `NV_SNAPSHOT_SIGNING_KEY_ID=` is a prefix of every non-empty setting of the
+   * same key, so the one entry that must ship blank is the one the assertion
+   * could not have caught.
+   */
+  assert(
+    envExampleLines.includes(`${key}=${value}`),
+    `.env.example missing ${key}=${value}`
+  );
 }
 for (const key of [
   'NV_BACKUP_KEY_BASE64',

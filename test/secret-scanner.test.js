@@ -156,4 +156,42 @@ try {
   fs.rmSync(temporaryRoot, { recursive: true, force: true });
 }
 
+/*
+ * A secret does not stop being a secret because it is serialized on its way
+ * out. `SESSION_SECRET: JSON.stringify('...')` embeds the literal exactly as
+ * plainly as an assignment does, and an archive carrying one must not qualify.
+ *
+ * The distinction the scanner has to keep is between a serialized *literal* and
+ * a serialized *reference*: stringifying process.env or a variable exposes
+ * nothing and is ordinary code, so those must stay quiet or the gate becomes
+ * noise an operator learns to ignore.
+ */
+const serializedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-secret-serialized-'));
+try {
+  const literal = 'z'.repeat(24);
+  const cases = {
+    'stringify-single.js': `SESSION_SECRET: JSON.stringify('${literal}')`,
+    'stringify-double.js': `GITEA_TOKEN: JSON.stringify("${literal}")`,
+    'stringify-spaced.js': `NPM_TOKEN: JSON.stringify( '${literal}' )`,
+    'stringify-assign.js': `SESSION_SECRET = JSON.stringify('${literal}')`,
+    'stringify-env.js': 'SESSION_SECRET: JSON.stringify(process.env.SESSION_SECRET)',
+    'stringify-variable.js': 'SESSION_SECRET: JSON.stringify(retiredKeys)',
+    'stringify-template.js': 'SESSION_SECRET: JSON.stringify(`${SESSION_SECRET}`)'
+  };
+  for (const [relative, content] of Object.entries(cases)) {
+    fs.writeFileSync(path.join(serializedRoot, relative), `${content}\n`);
+  }
+  const flagged = new Set(
+    scanFiles({ root: serializedRoot, files: Object.keys(cases) }).map(item => item.path)
+  );
+  for (const relative of ['stringify-single.js', 'stringify-double.js', 'stringify-spaced.js', 'stringify-assign.js']) {
+    assert(flagged.has(relative), `a secret serialized through JSON.stringify must be flagged: ${relative}`);
+  }
+  for (const relative of ['stringify-env.js', 'stringify-variable.js', 'stringify-template.js']) {
+    assert(!flagged.has(relative), `serializing a reference exposes nothing and must stay quiet: ${relative}`);
+  }
+} finally {
+  fs.rmSync(serializedRoot, { recursive: true, force: true });
+}
+
 console.log('secret scanner tests passed');

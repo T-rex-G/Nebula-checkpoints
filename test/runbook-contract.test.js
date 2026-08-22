@@ -130,7 +130,16 @@ for (const file of required) {
 
 const credentialExposure = fs.readFileSync(path.join(root, '04-credential-exposure.md'), 'utf8');
 assert.match(credentialExposure, /SESSION_SECRET.*reconnect.*verified-live-events.*webhook delivery health/is);
-const credentialContainment = credentialExposure.slice(0, credentialExposure.indexOf('## Verification'));
+/*
+ * Slice at the heading only once it is known to exist. On a miss indexOf gives
+ * -1, slice(0, -1) keeps all but the last character, and the containment
+ * assertion below would then be satisfied by text from the verification
+ * section -- passing while proving the opposite of what it claims.
+ */
+const credentialVerificationHeading = credentialExposure.indexOf('## Verification');
+assert(credentialVerificationHeading > 0,
+  '04-credential-exposure.md must define a Verification section to bound containment');
+const credentialContainment = credentialExposure.slice(0, credentialVerificationHeading);
 assert.match(
   credentialContainment,
   /GITHUB_APP_PRIVATE_KEY_BASE64.*delete the exposed private key in GitHub App settings/is,

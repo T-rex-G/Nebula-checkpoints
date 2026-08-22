@@ -129,7 +129,15 @@ test('login boundary keeps the active offline identity while purging the sibling
   await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem('nv_me') || 'null')?.login)).toBe('alice');
 
   await expect(sibling.locator('#page-login')).toHaveClass(/active/);
-  expect(await sibling.evaluate(() => sessionStorage.getItem('nv_me'))).toBeNull();
+  /*
+   * Poll rather than read once. A single read assumes the sibling clears its
+   * identity before it switches page; if the page switch lands first and the
+   * clear follows in a later microtask, this observes the stale value and the
+   * test fails for a reason that has nothing to do with the behaviour it checks.
+   */
+  await expect
+    .poll(() => sibling.evaluate(() => sessionStorage.getItem('nv_me')))
+    .toBeNull();
   await sibling.close();
 });
 

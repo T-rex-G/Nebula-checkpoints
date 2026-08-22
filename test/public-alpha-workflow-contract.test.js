@@ -246,11 +246,20 @@ function assertImmutableActionReference(reference, workflowName) {
   );
 }
 
+/*
+ * Step boundaries come from the list-item indentation, and the action
+ * reference is then located inside the block.
+ *
+ * Keying off `- uses:` instead would silently skip every step that names
+ * itself first, which is the ordinary way to write a workflow step. A named
+ * checkout would then never reach the persist-credentials assertion below and
+ * the contract would report a pass it never checked.
+ */
 function actionStepBlocks(source) {
   const lines = source.split('\n');
   const blocks = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const match = /^(\s*)-\s+uses:\s*([^\s#]+)/.exec(lines[index]);
+    const match = /^(\s*)-\s+\S/.exec(lines[index]);
     if (!match) continue;
     const indentation = match[1].length;
     let end = index + 1;
@@ -261,7 +270,14 @@ function actionStepBlocks(source) {
       }
       end += 1;
     }
-    blocks.push({ reference: match[2], source: lines.slice(index, end).join('\n') });
+    const block = lines.slice(index, end);
+    /* The leading "- " introduces the first key; align it with the rest so a
+       step's own keys are distinguishable from anything nested beneath them. */
+    const aligned = [`${' '.repeat(indentation + 2)}${block[0].trim().replace(/^-\s+/, '')}`, ...block.slice(1)];
+    const uses = aligned
+      .map(line => new RegExp(`^ {${indentation + 2}}uses:\\s*([^\\s#]+)`).exec(line))
+      .find(Boolean);
+    if (uses) blocks.push({ reference: uses[1], source: block.join('\n') });
   }
   return blocks;
 }
@@ -279,6 +295,28 @@ const boundedActionFixture = [
 const [boundedAction] = actionStepBlocks(boundedActionFixture);
 assert(boundedAction.source.includes('persist-credentials: false'));
 assert(!boundedAction.source.includes('unrelated:'), 'action blocks must stop at the first non-empty dedent');
+
+/* A step that names itself before it names its action is still a step. */
+const namedActionFixture = [
+  'jobs:',
+  '  verify:',
+  '    steps:',
+  '      - name: Check out the candidate',
+  `        uses: actions/checkout@${'b'.repeat(40)}`,
+  '        with:',
+  '          persist-credentials: true'
+].join('\n');
+const namedActionBlocks = actionStepBlocks(namedActionFixture);
+assert.strictEqual(namedActionBlocks.length, 1, 'a named step must still be discovered');
+assert.strictEqual(namedActionBlocks[0].reference, `actions/checkout@${'b'.repeat(40)}`,
+  'the action reference must be read from inside the block, not from its first line');
+assert(namedActionBlocks[0].source.includes('persist-credentials: true'),
+  'a named checkout must reach the persist-credentials assertion rather than be skipped');
+
+/* A step with no action at all contributes nothing. */
+assert.deepStrictEqual(
+  actionStepBlocks(['    steps:', '      - name: Run tests', '        run: npm test'].join('\n')),
+  [], 'a run step declares no action reference');
 
 for (const [name, source] of [
   ['CI', ciWorkflow],

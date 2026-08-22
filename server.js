@@ -68,7 +68,7 @@ const CAPABILITY_DOCUMENT = loadCapabilityDocument(
 const DEPLOYMENT_PROFILE = 'hosted-alpha';
 const {
   stableJson, hashJson, evidenceRecordHash,
-  verifyEvidenceRecord, acceptsLegacySessionKey, parseRetiredSessionSecrets, verifyGithubSignature, normalizeGithubWebhook,
+  verifyEvidenceRecord, evidenceKeyrings, verifyGithubSignature, normalizeGithubWebhook,
   riskForEvent, riskForAccessSurface, compareSnapshots, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
   cleanText, normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, normalizeProviderBranches
 } = require('./src/intelligence');
@@ -168,42 +168,28 @@ const STEP_UP_SECRET = deriveSecret(SECRET, KEY_PURPOSES.STEP_UP_GRANT);
 const GITHUB_APP_STATE_SECRET = deriveSecret(SECRET, KEY_PURPOSES.GITHUB_APP_STATE);
 const EVIDENCE_LEDGER_SECRET = deriveSecret(SECRET, KEY_PURPOSES.EVIDENCE_LEDGER);
 /*
+ * Evidence verification holds two keyrings, assembled together in
+ * src/intelligence.js so their retired lists cannot drift apart.
+ *
  * Rows written before key separation were hashed with the raw session secret,
- * so verification can still accept that key for records the active key cannot
- * reproduce. Keeping it available unconditionally would undo half the point of
- * separating the keys: a leaked SESSION_SECRET would forge evidence records
- * that verify, permanently.
+ * and rows written before a SESSION_SECRET rotation with a key derived from the
+ * previous secret. Accepting the raw secret unconditionally would undo half the
+ * point of separating the keys -- a leaked SESSION_SECRET could forge records
+ * that verify, permanently -- so production accepts it only on an explicit
+ * opt-in, the rule src/snapshot-signatures.js already applies to legacy
+ * snapshot keys. Development keeps the compatibility path.
  *
- * Production therefore accepts it only when the operator opts in, which is the
- * rule src/snapshot-signatures.js already applies to legacy snapshot keys.
- * Development keeps the compatibility path so a local chain keeps verifying.
- *
- * A deployment that declines the opt-in and still holds pre-separation records
- * is not left guessing: verification reports legacyKeyRequired rather than a
- * bare failure, so the operator can tell an unmigrated chain from tampering.
+ * A deployment that declines the opt-in is not left guessing: the probe reports
+ * legacyKeyRequired, so the operator can tell an unmigrated chain from real
+ * tampering without having to accept the key to find out.
  */
-const EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED = acceptsLegacySessionKey(process.env);
-/*
- * Rotating SESSION_SECRET moves the derived evidence key with it, so records
- * written under a previous secret stop reproducing their hash. Operators keep
- * them provable by supplying the previous secrets; each contributes its derived
- * evidence key, and, when the pre-separation path is accepted, its raw form too,
- * because a ledger old enough to predate separation may also predate a rotation.
- */
-const EVIDENCE_RETIRED_SESSION_SECRETS =
-  parseRetiredSessionSecrets(process.env.NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON);
-const EVIDENCE_KEYRING = Object.freeze({
-  active: EVIDENCE_LEDGER_SECRET,
-  retired: Object.freeze([
-    ...EVIDENCE_RETIRED_SESSION_SECRETS.map(
-      secret => deriveSecret(secret, KEY_PURPOSES.EVIDENCE_LEDGER)
-    ),
-    ...(EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED
-      ? [SECRET, ...EVIDENCE_RETIRED_SESSION_SECRETS]
-      : [])
-  ])
+const EVIDENCE_KEYRINGS = evidenceKeyrings(process.env, {
+  sessionSecret: SECRET,
+  ledgerSecret: EVIDENCE_LEDGER_SECRET
 });
-const EVIDENCE_LEGACY_PROBE = Object.freeze({ active: SECRET, retired: Object.freeze([]) });
+const EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED = EVIDENCE_KEYRINGS.legacyAccepted;
+const EVIDENCE_KEYRING = EVIDENCE_KEYRINGS.keyring;
+const EVIDENCE_LEGACY_PROBE = EVIDENCE_KEYRINGS.legacyProbe;
 const SNAPSHOT_SIGNATURES = createSnapshotSignatures(loadSnapshotSigningConfig(process.env, {
   production: process.env.NODE_ENV === 'production',
   // Production uses this only to reject active-key reuse. Legacy verification

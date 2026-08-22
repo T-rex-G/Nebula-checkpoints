@@ -62,6 +62,15 @@
   active key and then the retired one and reports which matched, the same shape
   the snapshot signatures already use, and the export states how many records
   verified under the retired key.
+- Made that retired key opt-in rather than permanent. Accepting the raw session
+  secret forever would have undone half the point of separating it, leaving a
+  leaked `SESSION_SECRET` able to forge evidence that verifies. Production now
+  accepts it only when `NV_EVIDENCE_LEGACY_SESSION_KEY=true`, matching the rule
+  already applied to legacy snapshot keys, and development keeps the
+  compatibility path. A deployment that declines the opt-in while still holding
+  pre-separation records is told so: verification reports `legacyKeyRequired`
+  rather than a bare failure, so an unmigrated chain is distinguishable from
+  tampering.
 
 ### Documentation Truth Architecture
 

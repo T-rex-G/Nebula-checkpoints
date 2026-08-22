@@ -68,7 +68,7 @@ const CAPABILITY_DOCUMENT = loadCapabilityDocument(
 const DEPLOYMENT_PROFILE = 'hosted-alpha';
 const {
   stableJson, hashJson, evidenceRecordHash,
-  verifyEvidenceRecord, verifyGithubSignature, normalizeGithubWebhook,
+  verifyEvidenceRecord, acceptsLegacySessionKey, verifyGithubSignature, normalizeGithubWebhook,
   riskForEvent, riskForAccessSurface, compareSnapshots, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
   cleanText, normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, normalizeProviderBranches
 } = require('./src/intelligence');
@@ -168,14 +168,26 @@ const STEP_UP_SECRET = deriveSecret(SECRET, KEY_PURPOSES.STEP_UP_GRANT);
 const GITHUB_APP_STATE_SECRET = deriveSecret(SECRET, KEY_PURPOSES.GITHUB_APP_STATE);
 const EVIDENCE_LEDGER_SECRET = deriveSecret(SECRET, KEY_PURPOSES.EVIDENCE_LEDGER);
 /*
- * Rows written before key separation were hashed with the raw session secret.
- * The keyring keeps that key available for verification only, so an existing
- * chain stays provable instead of reporting itself as tampered on first deploy.
+ * Rows written before key separation were hashed with the raw session secret,
+ * so verification can still accept that key for records the active key cannot
+ * reproduce. Keeping it available unconditionally would undo half the point of
+ * separating the keys: a leaked SESSION_SECRET would forge evidence records
+ * that verify, permanently.
+ *
+ * Production therefore accepts it only when the operator opts in, which is the
+ * rule src/snapshot-signatures.js already applies to legacy snapshot keys.
+ * Development keeps the compatibility path so a local chain keeps verifying.
+ *
+ * A deployment that declines the opt-in and still holds pre-separation records
+ * is not left guessing: verification reports legacyKeyRequired rather than a
+ * bare failure, so the operator can tell an unmigrated chain from tampering.
  */
+const EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED = acceptsLegacySessionKey(process.env);
 const EVIDENCE_KEYRING = Object.freeze({
   active: EVIDENCE_LEDGER_SECRET,
-  retired: Object.freeze([SECRET])
+  retired: Object.freeze(EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED ? [SECRET] : [])
 });
+const EVIDENCE_LEGACY_PROBE = Object.freeze({ active: SECRET, retired: Object.freeze([]) });
 const SNAPSHOT_SIGNATURES = createSnapshotSignatures(loadSnapshotSigningConfig(process.env, {
   production: process.env.NODE_ENV === 'production',
   // Production uses this only to reject active-key reuse. Legacy verification
@@ -1603,15 +1615,23 @@ async function verifyEvidenceChain(repoK, limit = 1000) {
     );
     if (check.legacy) legacyRecords += 1;
     if (row.previous_hash !== previousHash || !check.valid) {
+      /* Distinguish an unmigrated pre-separation chain from real tampering. */
+      const legacyKeyRequired = !EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED &&
+        row.previous_hash === previousHash &&
+        verifyEvidenceRecord(
+          EVIDENCE_LEGACY_PROBE, row.record_hash, previousHash, repoK,
+          row.kind, row.record_id, row.payload_hash
+        ).valid;
       return {
         available: true, valid: false, complete: r.rows.length === total,
         checked: r.rows.indexOf(row) + 1, total, failedAt: row.seq, legacyRecords,
+        legacyKeyRequired,
         records: r.rows
       };
     }
     previousHash = row.record_hash;
   }
-  return { available: true, valid: true, complete: r.rows.length === total, checked: r.rows.length, total, head: previousHash, legacyRecords, records: r.rows };
+  return { available: true, valid: true, complete: r.rows.length === total, checked: r.rows.length, total, head: previousHash, legacyRecords, legacyKeyRequired: false, records: r.rows };
 }
 function liveStreamKey(provider, owner, repo, identity) {
   return scopedEvidenceKey(provider, owner, repo, identity);

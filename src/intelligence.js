@@ -45,6 +45,21 @@ function sameHex(left, right) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/*
+ * Whether the raw session secret may still verify pre-separation records.
+ *
+ * Accepting it forever would undo half the point of separating the keys: a
+ * leaked SESSION_SECRET could forge evidence that verifies. Production
+ * therefore requires an explicit opt-in, which is the rule snapshot signatures
+ * already apply to their legacy keys; development keeps the compatibility path
+ * so a local chain keeps verifying.
+ */
+function acceptsLegacySessionKey(env) {
+  const source = env && typeof env === 'object' ? env : {};
+  if (String(source.NV_EVIDENCE_LEGACY_SESSION_KEY || '').trim() === 'true') return true;
+  return source.NODE_ENV !== 'production';
+}
+
 function verifyEvidenceRecord(keyring, recordHash, previousHash, repoKey, kind, recordId, payloadHash) {
   const supplied = String(recordHash || '');
   const miss = Object.freeze({ valid: false, keyId: null, legacy: false });
@@ -488,6 +503,7 @@ module.exports = {
   hmacJson,
   EVIDENCE_ACTIVE_KEY_ID,
   EVIDENCE_LEGACY_KEY_ID,
+  acceptsLegacySessionKey,
   evidenceRecordHash,
   verifyEvidenceRecord,
   verifyGithubSignature,

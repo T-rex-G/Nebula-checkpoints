@@ -586,6 +586,10 @@ const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'production',
+    /* This deployment holds records written before the ledger key was separated
+       from SESSION_SECRET, so it opts in to accepting that retired key. Without
+       this the chain below is refused, which is the production default. */
+    NV_EVIDENCE_LEGACY_SESSION_KEY: 'true',
     SESSION_SECRET: secret,
     NV_SNAPSHOT_SIGNING_KEY_ID: 'alpha-boundary-snapshot-key',
     NV_SNAPSHOT_SIGNING_SECRET: snapKey,
@@ -1388,6 +1392,8 @@ assert.strictEqual(evidenceBody.chain.legacyRecords, 1,
 assert.strictEqual(evidenceBody.chain.valid, true,
   'a chain written before the key rotation and extended after it must still verify');
 assert.strictEqual(evidenceBody.chain.available, true);
+assert.strictEqual(evidenceBody.chain.legacyKeyRequired, false,
+  'an opted-in deployment must not report the retired key as still required');
 
 console.log('alpha repository boundary integration tests passed');
   } finally {

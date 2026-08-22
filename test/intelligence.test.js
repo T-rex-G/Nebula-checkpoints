@@ -3,7 +3,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const {
   stableJson, hashJson, hmacJson, evidenceRecordHash, verifyGithubSignature, normalizeGithubWebhook,
-  EVIDENCE_ACTIVE_KEY_ID, EVIDENCE_LEGACY_KEY_ID, verifyEvidenceRecord,
+  EVIDENCE_ACTIVE_KEY_ID, EVIDENCE_LEGACY_KEY_ID, verifyEvidenceRecord, acceptsLegacySessionKey,
   riskForEvent, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
   normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, shortestPath,
   compareSnapshots, riskForAccessSurface, normalizeProviderBranches
@@ -300,6 +300,32 @@ for (const badKeyring of [null, undefined, 'secret', 42, {}, { active: 42 }, { r
     verifyEvidenceRecord(badKeyring, preRotation.record_hash, GENESIS, repoKey,
       preRotation.kind, preRotation.recordId, preRotation.payload_hash).valid,
     false, `keyring ${JSON.stringify(badKeyring)} must not verify`);
+}
+
+/*
+ * Retiring the legacy key is the point of separating it. Accepting the raw
+ * session secret forever would leave a leaked SESSION_SECRET able to forge
+ * evidence that verifies, so production must opt in deliberately.
+ */
+assert.strictEqual(acceptsLegacySessionKey({ NODE_ENV: 'production' }), false,
+  'production must not accept the retired session key by default');
+assert.strictEqual(acceptsLegacySessionKey({ NODE_ENV: 'production', NV_EVIDENCE_LEGACY_SESSION_KEY: 'true' }), true,
+  'production must accept it only on an explicit opt-in');
+assert.strictEqual(acceptsLegacySessionKey({}), true,
+  'development keeps the compatibility path');
+assert.strictEqual(acceptsLegacySessionKey({ NODE_ENV: 'development' }), true);
+
+/* Only an exact opt-in counts; near-misses must not silently enable it. */
+for (const value of ['', 'false', 'TRUE', 'True', '1', 'yes', 'true ', ' true', 'trueish', null, undefined, 0, 1, {}]) {
+  assert.strictEqual(
+    acceptsLegacySessionKey({ NODE_ENV: 'production', NV_EVIDENCE_LEGACY_SESSION_KEY: value }),
+    typeof value === 'string' && value.trim() === 'true',
+    `opt-in value ${JSON.stringify(value)} must be handled exactly`
+  );
+}
+for (const bad of [null, undefined, 'env', 42]) {
+  assert.strictEqual(acceptsLegacySessionKey(bad), true,
+    'a missing environment must not be read as production');
 }
 
 console.log('intelligence tests passed');

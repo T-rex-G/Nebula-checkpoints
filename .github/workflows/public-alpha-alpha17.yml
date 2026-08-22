@@ -163,6 +163,17 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.23.1'
+      # The activation envelope travels as a dispatch input, so it is readable
+      # by anyone who can read this run and is not a secret once used. This
+      # cache carries the identifiers already spent, so a captured envelope
+      # cannot activate the live targets a second time inside its lifetime.
+      - name: Restore spent-approval ledger
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/authorization-claims
+          key: alpha17-authorization-claims-${{ github.run_id }}
+          restore-keys: |
+            alpha17-authorization-claims-
       - name: Verify exact signed activation envelope
         id: authorize
         shell: bash
@@ -170,7 +181,9 @@ jobs:
           NV_ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64: ${{ vars.ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64 }}
           NV_ALPHA17_EXPECTED_WORKFLOW: .github/workflows/public-alpha-alpha17.yml
           NV_ALPHA17_EXPECTED_REPOSITORY: ${{ github.repository }}
+          NV_ALPHA17_EXPECTED_REF: ${{ github.ref }}
           NV_ALPHA17_EXPECTED_EVENT: ${{ github.event_name }}
+          NV_ALPHA17_AUTHORIZATION_CLAIM_DIR: ${{ runner.temp }}/authorization-claims
           NV_ALPHA17_EXPECTED_SOURCE_PARENT: ${{ needs.automated.outputs.source_parent }}
           NV_ALPHA17_EXPECTED_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}
           NV_ALPHA17_EXPECTED_SUBJECT_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
@@ -198,6 +211,7 @@ jobs:
           [ "${{ inputs.run_gitea }}" = "true" ] && requested_jobs="${requested_jobs},gitea"
           [ "${{ inputs.run_hosted }}" = "true" ] && requested_jobs="${requested_jobs},hosted"
           export NV_ALPHA17_REQUESTED_JOBS="${requested_jobs#,}"
+          mkdir -p "${NV_ALPHA17_AUTHORIZATION_CLAIM_DIR}"
           printf '%s' "${AUTHORIZATION_ENVELOPE}" |
             node ci/verify-alpha17-authorization.js > "${RUNNER_TEMP}/authorization.json"
           envelope_hash="$(node -e 'const v=require(process.argv[1]); process.stdout.write(v.envelopeHash)' "${RUNNER_TEMP}/authorization.json")"
@@ -206,6 +220,13 @@ jobs:
             target_hash="$(node -e 'const v=require(process.argv[1]); process.stdout.write(v.targetHashes[process.argv[2]] || "")' "${RUNNER_TEMP}/authorization.json" "${job_name}")"
             echo "${job_name}_target_sha256=${target_hash}" >> "${GITHUB_OUTPUT}"
           done
+      # Saved under a run-unique key so the ledger rolls forward; a fixed key
+      # could only ever be written once and would freeze at its first entry.
+      - name: Persist spent-approval ledger
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/authorization-claims
+          key: alpha17-authorization-claims-${{ github.run_id }}
 
   github-live:
     if: github.event_name == 'workflow_dispatch' && inputs.run_github

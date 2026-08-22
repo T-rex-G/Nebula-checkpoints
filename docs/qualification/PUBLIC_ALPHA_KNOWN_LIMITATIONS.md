@@ -34,7 +34,13 @@ cannot conceal a failed gate, failed cleanup, or known critical/high defect.
   completed scan.
 - One short-lived signed activation authorizes one exact selected job set and
   the hashed identities of its GitHub/GitLab/Gitea or Render/Neon targets. It
-  cannot be reused for a different target or a different job selection.
+  cannot be reused for a different target or a different job selection, and it
+  cannot be presented twice: the approval identifier is spent on first use.
+- The spend ledger is a CI cache rather than an external store. Deleting it, or
+  a cache-service failure that drops the write after a run is authorized,
+  restores the replay window for approvals still inside their 30-minute
+  lifetime. Deleting it requires the same access that dispatching the workflow
+  requires.
 
 ## Resource limits
 

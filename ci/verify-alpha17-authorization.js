@@ -3,8 +3,9 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 
-const AUTHORIZATION_SCHEMA_VERSION = '1.2.0';
+const AUTHORIZATION_SCHEMA_VERSION = '1.3.0';
 const ALLOWED_JOBS = Object.freeze(['github', 'gitlab', 'gitea', 'hosted']);
 const PROVIDER_JOBS = new Set(['github', 'gitlab', 'gitea']);
 const MAX_LIFETIME_MS = 30 * 60 * 1000;
@@ -107,6 +108,84 @@ function normalizeSha256(value, label) {
     fail(`${label} is invalid`, 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
   }
   return digest;
+}
+
+function normalizeRef(value, label) {
+  const ref = String(value || '').trim();
+  if (
+    !/^refs\/(?:heads|tags)\/[A-Za-z0-9._\/-]{1,180}$/.test(ref) ||
+    ref.includes('//') ||
+    /(?:^|\/)\.\.?(?:\/|$)/.test(ref)
+  ) {
+    fail(`${label} is invalid`, 'ALPHA17_AUTHORIZATION_SCOPE_MISMATCH');
+  }
+  return ref;
+}
+
+/*
+ * The signer's authorizationId is a nonce, and this is where it is spent.
+ *
+ * It is hashed before it reaches the ledger for two reasons. The identifier
+ * grammar admits '.' and therefore admits path segments such as '........',
+ * which a directory-backed ledger would resolve rather than store; and a
+ * fixed-width opaque identifier lets any ledger -- a directory today, a table
+ * later -- key on it without re-deriving the grammar.
+ */
+function authorizationClaimId(authorizationId) {
+  return sha256(`alpha17-authorization-claim\n${authorizationId}`);
+}
+
+/*
+ * Fail closed. A verifier that cannot record the spend has not established
+ * that the envelope is unspent, so an absent, broken, or uncommunicative
+ * ledger refuses the activation instead of degrading to expiry-only checking.
+ */
+function spendAuthorizationClaim(claims, authorizationId) {
+  if (!claims || typeof claims.record !== 'function') {
+    fail('authorization claim ledger is unavailable', 'ALPHA17_AUTHORIZATION_LEDGER_UNAVAILABLE');
+  }
+  let recorded;
+  try {
+    recorded = claims.record(authorizationClaimId(authorizationId));
+  } catch (error) {
+    fail(
+      `authorization claim ledger is unavailable: ${error && error.message ? error.message : 'unknown error'}`,
+      'ALPHA17_AUTHORIZATION_LEDGER_UNAVAILABLE'
+    );
+  }
+  if (recorded !== true && recorded !== false) {
+    fail('authorization claim ledger did not report whether the claim was new', 'ALPHA17_AUTHORIZATION_LEDGER_UNAVAILABLE');
+  }
+  if (!recorded) {
+    fail('authorization envelope has already been spent', 'ALPHA17_AUTHORIZATION_REPLAYED');
+  }
+}
+
+/*
+ * Exclusive create is the claim. Reading the directory and then writing to it
+ * would leave a window between the two in which a second dispatch reads the
+ * same absence, so novelty is decided by whether the create succeeded.
+ */
+function fileClaimLedger(directory) {
+  const root = String(directory || '').trim();
+  if (!root) throw new TypeError('authorization claim ledger directory is required');
+  return Object.freeze({
+    record(claimId) {
+      if (!/^[0-9a-f]{64}$/.test(String(claimId))) {
+        throw new TypeError('authorization claim identifier is invalid');
+      }
+      try {
+        fs.writeFileSync(path.join(root, `${claimId}.claim`), `${new Date().toISOString()}\n`, {
+          flag: 'wx',
+          mode: 0o600
+        });
+      } catch (error) {
+        if (error && error.code === 'EEXIST') return false;
+        throw error;
+      }
+      return true;
+    }
+  });
 }
 
 function normalizeLiveTarget(jobName, input) {
@@ -250,10 +329,13 @@ function verifyAuthorizationEnvelope(token, options = {}) {
     fail('authorization payload is not canonical JSON', 'ALPHA17_AUTHORIZATION_INVALID');
   }
   const allowedFields = [
-    'schemaVersion', 'workflow', 'repository', 'event', 'sourceParent',
+    'schemaVersion', 'workflow', 'repository', 'ref', 'event', 'sourceParent',
     'sourceCommit', 'subjectSha256', 'authorizedJobs', 'targetHashes',
     'authorizationId', 'expiresAt'
   ];
+  if (!allowedFields.every(field => Object.prototype.hasOwnProperty.call(payload, field))) {
+    fail('authorization payload is missing a required field', 'ALPHA17_AUTHORIZATION_INVALID');
+  }
   if (Object.keys(payload).some(key => !allowedFields.includes(key))) {
     fail('authorization payload contains an unexpected field', 'ALPHA17_AUTHORIZATION_INVALID');
   }
@@ -263,6 +345,9 @@ function verifyAuthorizationEnvelope(token, options = {}) {
   if (payload.schemaVersion !== AUTHORIZATION_SCHEMA_VERSION) fail('authorization schema does not match', 'ALPHA17_AUTHORIZATION_INVALID');
   if (payload.workflow !== options.expectedWorkflow) fail('authorization workflow does not match', 'ALPHA17_AUTHORIZATION_SCOPE_MISMATCH');
   if (payload.repository !== options.expectedRepository) fail('authorization repository does not match', 'ALPHA17_AUTHORIZATION_SCOPE_MISMATCH');
+  if (normalizeRef(payload.ref, 'authorization ref') !== normalizeRef(options.expectedRef, 'dispatch ref')) {
+    fail('authorization ref does not match', 'ALPHA17_AUTHORIZATION_SCOPE_MISMATCH');
+  }
   if (payload.event !== options.expectedEvent || payload.event !== 'workflow_dispatch') {
     fail('authorization event does not match', 'ALPHA17_AUTHORIZATION_SCOPE_MISMATCH');
   }
@@ -307,6 +392,13 @@ function verifyAuthorizationEnvelope(token, options = {}) {
   if (expiresAt.getTime() - now.getTime() > MAX_LIFETIME_MS) {
     fail('authorization lifetime exceeds 30 minutes', 'ALPHA17_AUTHORIZATION_EXPIRED');
   }
+  /*
+   * Spent last, so a rejected envelope keeps its approval identifier. The
+   * envelope travels as a readable dispatch input, so any reader could
+   * otherwise burn a pending approval by dispatching it against the wrong
+   * subject and force the operator to re-sign.
+   */
+  spendAuthorizationClaim(options.claims, payload.authorizationId);
   return Object.freeze({
     ok: true,
     authorizationId: payload.authorizationId,
@@ -349,11 +441,17 @@ function main(env = process.env) {
   const expectedTargets = Object.fromEntries(
     requestedJobs.map(jobName => [jobName, targetFromEnvironment(jobName, env)])
   );
+  const claimDirectory = String(env.NV_ALPHA17_AUTHORIZATION_CLAIM_DIR || '').trim();
+  if (!claimDirectory) {
+    fail('authorization claim ledger directory is not configured', 'ALPHA17_AUTHORIZATION_LEDGER_UNAVAILABLE');
+  }
   const token = fs.readFileSync(0, 'utf8').trim();
   const result = verifyAuthorizationEnvelope(token, {
     publicKeyBase64: env.NV_ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64,
+    claims: fileClaimLedger(claimDirectory),
     expectedWorkflow: env.NV_ALPHA17_EXPECTED_WORKFLOW,
     expectedRepository: env.NV_ALPHA17_EXPECTED_REPOSITORY,
+    expectedRef: env.NV_ALPHA17_EXPECTED_REF,
     expectedEvent: env.NV_ALPHA17_EXPECTED_EVENT,
     expectedSourceParent: env.NV_ALPHA17_EXPECTED_SOURCE_PARENT,
     expectedSourceCommit: env.NV_ALPHA17_EXPECTED_SOURCE_COMMIT,
@@ -377,6 +475,7 @@ if (require.main === module) {
 module.exports = Object.freeze({
   AUTHORIZATION_SCHEMA_VERSION,
   encodeAuthorizationEnvelope,
+  fileClaimLedger,
   hashLiveTarget,
   verifyLiveTargetBinding,
   verifyAuthorizationEnvelope

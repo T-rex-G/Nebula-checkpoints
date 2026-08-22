@@ -7,6 +7,8 @@ const path = require('path');
 const registry = require('../config/public-alpha-capabilities.json');
 const { APP_VERSION, PRODUCT_NAME } = require('../src/version');
 const { loadMigrations } = require('../src/migrations');
+const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
 const {
   QUALIFICATION_SCHEMA_VERSION,
   qualificationCatalog,
@@ -47,41 +49,42 @@ function parseArgs(argv) {
   throw new TypeError('Command must be plan, verify, or close');
 }
 
-function hashFileSync(filePath) {
-  const hash = crypto.createHash('sha256');
-  const descriptor = fs.openSync(filePath, 'r');
-  const buffer = Buffer.allocUnsafe(64 * 1024);
+function readBoundedRegularFile(filePath, maximumBytes, label) {
+  let descriptor;
   try {
-    let bytesRead = 0;
-    do {
-      bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null);
-      if (bytesRead) hash.update(buffer.subarray(0, bytesRead));
-    } while (bytesRead);
-  } finally {
-    fs.closeSync(descriptor);
-  }
-  return hash.digest('hex');
-}
-
-function assertRegularFile(filePath, maximumBytes, label) {
-  let metadata;
-  try {
-    metadata = fs.lstatSync(filePath);
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)
+    );
   } catch {
     throw new TypeError(`${label} must be a readable regular non-symlink file`);
   }
-  if (metadata.isSymbolicLink() || !metadata.isFile()) {
-    throw new TypeError(`${label} must be a regular non-symlink file`);
+  try {
+    const metadata = fs.fstatSync(descriptor);
+    if (!metadata.isFile()) throw new TypeError(`${label} must be a regular non-symlink file`);
+    if (metadata.size > maximumBytes) throw new TypeError(`${label} exceeds the safe size limit`);
+    const chunks = [];
+    let total = 0;
+    const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, maximumBytes + 1));
+    while (true) {
+      const remaining = maximumBytes - total + 1;
+      const bytesRead = fs.readSync(descriptor, buffer, 0, Math.min(buffer.length, remaining), null);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+      if (total > maximumBytes) throw new TypeError(`${label} exceeds the safe size limit`);
+      chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+    }
+    return Buffer.concat(chunks, total);
+  } finally {
+    fs.closeSync(descriptor);
   }
-  if (metadata.size > maximumBytes) throw new TypeError(`${label} exceeds the safe size limit`);
-  return fs.realpathSync(filePath);
 }
 
 function readEvidence(filePath) {
-  const real = assertRegularFile(filePath, MAX_RECORD_BYTES, 'evidence');
+  const bytes = readBoundedRegularFile(filePath, MAX_RECORD_BYTES, 'evidence');
   let record;
   try {
-    record = JSON.parse(fs.readFileSync(real, 'utf8'));
+    record = JSON.parse(bytes.toString('utf8'));
   } catch {
     throw new TypeError('evidence must contain valid JSON');
   }
@@ -97,7 +100,35 @@ function environmentBindings(env) {
   if (!/^[0-9a-f]{40}$/.test(sourceCommit) || /^0{40}$/.test(sourceCommit)) {
     throw new TypeError('NV_PUBLIC_ALPHA_SOURCE_COMMIT must bind the exact non-zero source commit');
   }
-  return Object.freeze({ subjectSha256, sourceCommit });
+  const targetVariables = Object.freeze({
+    github: 'NV_PUBLIC_ALPHA_GITHUB_TARGET_SHA256',
+    gitlab: 'NV_PUBLIC_ALPHA_GITLAB_TARGET_SHA256',
+    gitea: 'NV_PUBLIC_ALPHA_GITEA_TARGET_SHA256',
+    hosted: 'NV_PUBLIC_ALPHA_HOSTED_TARGET_SHA256'
+  });
+  const expectedAuthorizedTargets = {};
+  for (const [target, variable] of Object.entries(targetVariables)) {
+    const value = String(env[variable] || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(value) || /^0{64}$/.test(value)) {
+      throw new TypeError(`${variable} must bind the exact signed target digest`);
+    }
+    expectedAuthorizedTargets[target] = value;
+  }
+  const operatorKeyId = String(env.NV_ALPHA17_OPERATOR_KEY_ID || '').trim();
+  const operatorPublicKey = String(env.NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64 || '').trim();
+  if (
+    !/^[a-zA-Z0-9._-]{3,80}$/.test(operatorKeyId) ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(operatorPublicKey) ||
+    operatorPublicKey.length > 4096
+  ) {
+    throw new TypeError('trusted Alpha.17 operator key ID and public key are required');
+  }
+  return Object.freeze({
+    subjectSha256,
+    sourceCommit,
+    expectedAuthorizedTargets: Object.freeze(expectedAuthorizedTargets),
+    trustedOperatorKeys: Object.freeze({ [operatorKeyId]: operatorPublicKey })
+  });
 }
 
 function latestMigration() {
@@ -110,8 +141,16 @@ function latestMigration() {
 function createArtifactVerifier() {
   return artifact => {
     if (!path.isAbsolute(artifact.path)) throw new TypeError('artifact paths must be absolute');
-    const real = assertRegularFile(artifact.path, MAX_ARTIFACT_BYTES, 'artifact');
-    return hashFileSync(real) === artifact.sha256;
+    const bytes = readBoundedRegularFile(artifact.path, MAX_ARTIFACT_BYTES, 'artifact');
+    const observedSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (observedSha256 !== artifact.sha256) throw new TypeError('artifact hash does not match');
+    let parsed;
+    try {
+      parsed = JSON.parse(bytes.toString('utf8'));
+    } catch {
+      throw new TypeError('artifact must contain a valid JSON evidence envelope');
+    }
+    return validateEvidenceEnvelope(parsed);
   };
 }
 
@@ -122,6 +161,9 @@ function verifyRecord(record, env, now = new Date()) {
     expectedSubjectHash: bindings.subjectSha256,
     expectedSourceCommit: bindings.sourceCommit,
     expectedLatestMigration: latestMigration(),
+    expectedAuthorizedTargets: bindings.expectedAuthorizedTargets,
+    expectedDeploymentSha256: computeReleaseFingerprint(path.resolve(__dirname, '..')),
+    trustedOperatorKeys: bindings.trustedOperatorKeys,
     now,
     registry,
     verifyArtifact: createArtifactVerifier()
@@ -155,6 +197,14 @@ function planOutput() {
     requirements: Object.freeze({
       subjectBinding: 'NV_PUBLIC_ALPHA_SUBJECT_SHA256',
       sourceBinding: 'NV_PUBLIC_ALPHA_SOURCE_COMMIT',
+      liveTargetBindings: [
+        'NV_PUBLIC_ALPHA_GITHUB_TARGET_SHA256',
+        'NV_PUBLIC_ALPHA_GITLAB_TARGET_SHA256',
+        'NV_PUBLIC_ALPHA_GITEA_TARGET_SHA256',
+        'NV_PUBLIC_ALPHA_HOSTED_TARGET_SHA256'
+      ],
+      operatorTrustBinding: ['NV_ALPHA17_OPERATOR_KEY_ID', 'NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64'],
+      deploymentBinding: 'computed from the exact local release tree',
       evidenceMaxAgeHours: 72,
       evidenceFiles: 'regular non-symlink files',
       decision: 'go only when every catalog item and cleanup check passes'
@@ -291,6 +341,5 @@ if (require.main === module) main();
 module.exports = Object.freeze({
   parseArgs,
   run,
-  hashFileSync,
   createArtifactVerifier
 });

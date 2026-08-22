@@ -1,0 +1,83 @@
+# Public Alpha Manual Accessibility Audit
+
+Status: **Not executed**
+
+This record is intentionally incomplete until a human tester executes every item with the named assistive technology. Automated Playwright and axe checks do not replace this audit.
+
+Do not complete or commit an executed copy of this template to the source tree.
+The signed result is external release evidence and must bind to the exact frozen
+candidate named below. A result for another archive or source commit is not
+transferable.
+
+## Candidate binding
+
+- Subject: `Nebulaverse-X-v5.3.0-alpha.17.0`
+- Source commit: ____________________
+- Release archive filename: ____________________
+- Release archive SHA-256: ____________________
+- Qualification schema version: ____________________
+- Hosted candidate URL: ____________________
+- Auditor: ____________________
+- Audit start and end (UTC): ____________________
+- Start `/api/version` `releaseTreeSha256`: ____________________
+- Start `/api/version` response external evidence reference: ____________________
+- End `/api/version` `releaseTreeSha256`: ____________________
+- End `/api/version` response external evidence reference: ____________________
+- 320 CSS-pixel test environment: ____________________
+- 400% zoom test environment: ____________________
+- [ ] Both responses are retained externally; their release fingerprints are identical and equal the frozen candidate fingerprint.
+
+## iOS and VoiceOver
+
+- [ ] iOS version: ____________________
+- [ ] Device model: ____________________
+- [ ] Browser and version: ____________________
+- [ ] VoiceOver enabled and version recorded: ____________________
+- [ ] Invitation entry, terms acceptance, validation, and service-readiness announcement completed without touch-only gestures.
+  - Evidence/notes: ____________________
+- [ ] Provider permission guidance read in a logical order before credential entry.
+  - Evidence/notes: ____________________
+- [ ] Repository trust summary read in this order: connection, evidence pipeline, risk, next safe action, supporting evidence.
+  - Evidence/notes: ____________________
+- [ ] Evidence detail opened, read, and closed with focus returned to its invoking control.
+  - Evidence/notes: ____________________
+- [ ] Controlled-action preview and verification states distinguished without relying on color.
+  - Evidence/notes: ____________________
+- [ ] Disconnect, provider-revocation guidance, session end, and delete-alpha-data controls announced distinctly.
+  - Evidence/notes: ____________________
+- [ ] Privacy, terms, retention, sandbox-only scope, and provider-revocation responsibilities are reachable and understandable before consent.
+  - Evidence/notes: ____________________
+- [ ] At a 320 CSS-pixel viewport (or the 400% zoom equivalent), content reflows without horizontal page scrolling and all controls remain reachable.
+  - Evidence/notes: ____________________
+- [ ] Primary controls and destructive confirmations have usable mobile touch targets without overlap or gesture traps.
+  - Evidence/notes: ____________________
+
+## Desktop screen reader and keyboard
+
+- [ ] Operating system and version: ____________________
+- [ ] Browser and version: ____________________
+- [ ] Screen reader and version: ____________________
+- [ ] Keyboard-only golden path completed from invitation through verified mutation and cleanup.
+  - Evidence/notes: ____________________
+- [ ] Visible focus present on every interactive control reached during the path.
+  - Evidence/notes: ____________________
+- [ ] Modal and safe-error dialogs contain focus, close with Escape, and restore focus.
+  - Evidence/notes: ____________________
+- [ ] Status and error announcements are understandable and are not duplicated excessively.
+  - Evidence/notes: ____________________
+- [ ] At 400% browser zoom (or a 320 CSS-pixel viewport), content reflows without horizontal page scrolling and all controls remain reachable.
+  - Evidence/notes: ____________________
+- [ ] Reduced-motion preference suppresses non-essential animation and transitions.
+  - Evidence/notes: ____________________
+- [ ] Privacy, terms, retention, sandbox-only scope, and provider-revocation responsibilities are reachable and understandable before consent.
+  - Evidence/notes: ____________________
+
+## Findings and release evidence
+
+- Issues found, severity, owner, and disposition: ____________________
+- Audit date (UTC): ____________________
+- Final disposition: [ ] Pass  [ ] Pass with documented exceptions  [ ] Fail
+- Signature method and signer identity: ____________________
+- 320 CSS-pixel evidence reference: ____________________
+- 400% zoom evidence reference: ____________________
+- External immutable evidence reference: ____________________

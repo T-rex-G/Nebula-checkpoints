@@ -4,27 +4,24 @@
 
 Nebulaverse-X keeps the existing repository workbench—GitHub/GitLab/Gitea browsing, editing, commits, pull requests, issues, releases, Actions, SmartPush, Git LFS, folder/ZIP import, Time Machine, safeguards, dependency auditing, and the Neural Command Center—then adds durable governance, evidence, and recovery foundations without requiring paid AI.
 
-For current version and qualification status, see
-[`PROJECT_STATE.md`](PROJECT_STATE.md). The feature inventory below describes
-implemented and historical delivery, not provider parity, production readiness,
-or completed hosted qualification.
+For current version and qualification status, see the generated
+[project state](docs/current/PROJECT_STATE.md). The feature inventory below
+describes implemented and historical delivery, not provider parity, production
+readiness, or completed hosted qualification.
 
 ## Current documentation
 
-- [`PROJECT_STATE.md`](PROJECT_STATE.md)
-- [`ROADMAP.md`](ROADMAP.md)
-- [`PRODUCT_VISION.md`](PRODUCT_VISION.md)
-- [`PROVIDER_CAPABILITIES.md`](PROVIDER_CAPABILITIES.md)
-- [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- [`RELEASE_SECURITY_GATES.md`](RELEASE_SECURITY_GATES.md)
-- [`PUBLIC_ALPHA.md`](PUBLIC_ALPHA.md)
-- [`UX_VISION.md`](UX_VISION.md)
-- [`ARCHITECTURE_DECISIONS.md`](ARCHITECTURE_DECISIONS.md)
+- [Documentation lifecycle index](docs/README.md)
+- [Project state](docs/current/PROJECT_STATE.md), [roadmap](docs/current/ROADMAP.md), and [provider capabilities](docs/current/PROVIDER_CAPABILITIES.md)
+- [Founder vision](docs/vision/FOUNDER_VISION.md), [product vision](docs/vision/PRODUCT_VISION.md), and [UX vision](docs/vision/UX_VISION.md)
+- [Architecture](docs/architecture/ARCHITECTURE.md) and [architecture decisions](docs/architecture/ARCHITECTURE_DECISIONS.md)
+- [Public-alpha guide](docs/release/PUBLIC_ALPHA.md), [release gates](docs/release/RELEASE_SECURITY_GATES.md), and [evidence index](docs/release/EVIDENCE_INDEX.md)
+- [Render/Neon deployment](docs/operations/DEPLOY_RENDER_NEON.md) and [security deployment](docs/operations/SECURITY_DEPLOYMENT.md)
 
 ## Historical evidence
 
-See [`EVIDENCE_INDEX.md`](EVIDENCE_INDEX.md) for predecessor and successor
-evidence applicability without rewritten outcomes.
+See the [evidence index](docs/release/EVIDENCE_INDEX.md) for predecessor and
+successor evidence applicability without rewritten outcomes.
 
 The existing self-hosted deployment model remains:
 
@@ -60,7 +57,7 @@ Neon schema changes are applied from numbered, checksummed files in `db/migratio
 - Rejects stale preflight heads and compare-and-swap races as `BRANCH_CHANGED`, preventing newer work from being overwritten.
 - Keeps normalized Gitea governance scopes valid across the warn-mode policy-evaluation fallback.
 - Classifies the current high-severity advisory as a dev-only Archiver traversal chain; production dependencies audit clean, and Nebulaverse does not invoke the vulnerable glob path.
-- Candidate-bound Node 22 and fresh live-Gitea records for the immutable alpha.16.3 ZIP are indexed in `EVIDENCE_INDEX.md`; consult `PROJECT_STATE.md` for current qualification status.
+- Candidate-bound Node 22 and fresh live-Gitea records for the immutable alpha.16.3 ZIP are indexed in the [evidence index](docs/release/EVIDENCE_INDEX.md); consult the [project state](docs/current/PROJECT_STATE.md) for current qualification status.
 
 ### End-to-End Staging Validation (Task 20 complete, alpha.16.1 blocked)
 
@@ -173,7 +170,10 @@ Neon schema changes are applied from numbered, checksummed files in `db/migratio
 - Rejects unknown actions, unresolved targets, provider/scope mismatches, nested contexts and sensitive metadata before provider side effects.
 - Keeps the gateway policy-neutral until provider roles and active-policy evaluation are added in later Phase 1 tasks.
 
-The package also includes `PROJECT_STATE.md`, `PHASE_1_ROADMAP.md`, `ARCHITECTURE_DECISIONS.md`, and `CONTINUATION_PROMPT.md` so a new conversation can recover the exact project state from the ZIP alone.
+The package includes the complete [documentation lifecycle](docs/README.md),
+including generated continuity views, current guidance, immutable Phase 1
+history, architectural decisions, and release evidence, so a new conversation
+can recover project state from the ZIP alone.
 
 ### Governance persistence foundation (Task 3)
 
@@ -283,12 +283,13 @@ Without Neon, the original encrypted-session fallback remains available.
 
 - Captures branches, tags, default branch, and an optional file manifest.
 - Stores snapshots in Neon.
-- Signs each snapshot with HMAC-SHA256.
+- Signs each snapshot with a dedicated, key-ID-bearing HMAC-SHA256 key.
+- Continues verifying retained snapshots with explicitly configured retired keys until their retention expires.
 - Reports signature validity when snapshots are read or exported.
 - Appends security, webhook, and recovery actions to a chained evidence ledger.
 - Exports recent events, signed snapshots, bounded evidence-chain records, and chain verification as JSON.
 
-A signed reference snapshot is recovery evidence, not a complete independent Git/LFS backup. See `SECURITY_DEPLOYMENT.md`.
+A signed reference snapshot is recovery evidence, not a complete independent Git/LFS backup. See [security deployment](docs/operations/SECURITY_DEPLOYMENT.md).
 
 ### Security and privacy hardening
 
@@ -354,7 +355,7 @@ See `NEURAL_COMMAND_CENTER.md` for the complete behavior.
 DATABASE_URL=postgresql://...-pooler.../dbname?sslmode=require
 ```
 
-5. Keep the generated `SESSION_SECRET`. Do not copy a real secret into GitHub.
+5. Keep the independently generated `SESSION_SECRET` and `NV_SNAPSHOT_SIGNING_SECRET`. Do not copy a real secret into GitHub.
 6. Deploy.
 
 Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses for the GitHub webhook callback. On another production host, set `PUBLIC_BASE_URL` to the application's canonical HTTPS URL.
@@ -363,7 +364,13 @@ Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses fo
 
 | Variable | Requirement | Purpose |
 |---|---|---|
-| `SESSION_SECRET` | Required in production | Encrypts sessions/webhook secrets and signs snapshots |
+| `SESSION_SECRET` | Required in production | Encrypts sessions and stored webhook secrets |
+| `NV_SNAPSHOT_SIGNING_KEY_ID` | Required in production | Non-secret active snapshot-signing key identifier |
+| `NV_SNAPSHOT_SIGNING_SECRET` | Required in production | Dedicated active HMAC key for snapshots and emergency manifests |
+| `NV_SNAPSHOT_RETIRED_KEYS_JSON` | Optional during rotation | Retired key-ID-to-secret map retained until matching snapshots expire |
+| `NV_SNAPSHOT_LEGACY_KEYS_JSON` | Optional migration bridge | Old session-derived snapshot keys retained only for legacy bare signatures |
+| `NV_EVIDENCE_LEGACY_SESSION_KEY` | Optional migration bridge | Set to `true` to keep verifying evidence records written before the ledger key was separated from `SESSION_SECRET` |
+| `NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON` | Optional during rotation | Previous `SESSION_SECRET` values, so evidence written before a rotation still verifies |
 | `NODE_ENV=production` | Required in production | Secure cookie/HSTS behavior |
 | `DATABASE_URL` | Required for verified live intelligence | Existing Neon sessions, policies, events, snapshots, evidence |
 | `PUBLIC_BASE_URL` | Optional on Render | Canonical HTTPS webhook callback on other/custom hosts |
@@ -396,15 +403,24 @@ Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses fo
 
 The connected GitHub credential must have permission to create repository webhooks. Existing events remain in Neon when the webhook is disconnected.
 
-Rotating `SESSION_SECRET` intentionally invalidates existing sessions, stored webhook secrets, and old snapshot signatures. Reconnect repository webhooks after a secret rotation.
+Rotating `SESSION_SECRET` intentionally invalidates existing sessions and stored webhook secrets. Snapshot verification uses its independent keyring. Before rotating a session key that signed pre-migration snapshots, retain that old value in `NV_SNAPSHOT_LEGACY_KEYS_JSON` only until those snapshots expire. Reconnect repository webhooks after a session-key rotation.
+
+The evidence ledger has its own rotation path, because it keeps records rather than expiring them. Its hashing key is derived from `SESSION_SECRET`, so rotating that secret moves the key and records written under the previous one stop reproducing their hash — on a tamper-evident ledger that reads as tampering after nothing worse than routine key hygiene. Populate `NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON` with the outgoing value **before** rotating, not after. Records predating the key separation need `NV_EVIDENCE_LEGACY_SESSION_KEY=true` as well, which is a migration setting: leaving it on permanently means a leaked `SESSION_SECRET` can still forge evidence that verifies.
+
+Neither value expires on its own. Remove one only once the evidence export reports `legacyRecords: 0` for every repository, or re-anchor the chain first; a deployment that declines the legacy opt-in while such records remain is told so by `legacyKeyRequired` rather than being left to read an unmigrated chain as tampering. `docs/operations/SECURITY_DEPLOYMENT.md` carries the full procedure.
 
 ## Local validation
 
 ```bash
 npm ci
 npm test
-SESSION_SECRET='replace-with-a-long-development-secret' npm start
+NV_DEV_SESSION_SECRET="$(node -e "process.stdout.write(require('crypto').randomBytes(48).toString('base64url'))")"
+export NV_DEV_SESSION_SECRET
+SESSION_SECRET="$NV_DEV_SESSION_SECRET" npm start
 ```
+
+Generate `NV_DEV_SESSION_SECRET` once per local validation session as shown; do
+not reuse a production, provider, or snapshot-signing secret.
 
 Then open `http://localhost:10000`.
 

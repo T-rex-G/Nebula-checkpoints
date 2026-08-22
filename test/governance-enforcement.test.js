@@ -93,6 +93,29 @@ const none = evaluateActivePolicySet({ scope: authorization.scope, descriptor, a
 assert.strictEqual(none.source, 'no-active-policy');
 assert.strictEqual(none.enforcementOutcome, 'allow');
 
+const unsupportedDocument = {
+  schemaVersion: 1,
+  enforcement: { mode: 'block' },
+  rules: [{ id: 'future-rule', action: 'future.mutation', effect: 'deny' }]
+};
+assert.throws(
+  () => evaluateActivePolicySet({
+    scope: authorization.scope,
+    descriptor,
+    activePolicies: [{
+      policyId: '10000000-0000-4000-8000-000000000009',
+      policyKey: 'future-policy',
+      versionId: '20000000-0000-4000-8000-000000000009',
+      versionNumber: 1,
+      headRevision: 1,
+      document: unsupportedDocument,
+      documentHash: policyDocumentHash(unsupportedDocument)
+    }]
+  }),
+  error => error.code === 'POLICY_UNSUPPORTED_ACTIVE_RULES',
+  'unsupported rules in the active set must fail evaluation instead of default-allowing the mutation'
+);
+
 const changedDescriptor = normalizeMutationDescriptor({
   mutationId: descriptor.mutationId, action: 'branch.reset', provider: 'github', owner: 'Acme', repo: 'Demo',
   actorIdentityKey: 'a'.repeat(64), actorLogin: 'Alice', method: 'POST', route: '/api/repo/Acme/Demo/reset',
@@ -156,6 +179,24 @@ assert(!mixedNonBlocking.warningCodes.includes('POLICY_DENY_WARNING'), 'observe-
   assert.strictEqual(recoveryDuringFailure.enforcementOutcome, 'warn', 'evaluation failure must not lock the governance recovery path');
   assert.strictEqual(recoveryDuringFailure.blockCode, null);
   assert(recoveryDuringFailure.warningCodes.includes('POLICY_CONTROL_PLANE_NON_BLOCKING'));
+
+  const unsupportedStore = {
+    async evaluateAndAppendPolicyDecision() {
+      throw Object.assign(new Error('unsupported active policy'), { code: 'POLICY_UNSUPPORTED_ACTIVE_RULES' });
+    }
+  };
+  const unsupportedWarn = await createGovernanceRuntime({ store: unsupportedStore, failureMode: 'warn' }).evaluate(descriptor);
+  assert.strictEqual(unsupportedWarn.enforcementOutcome, 'block');
+  assert.strictEqual(unsupportedWarn.blockCode, 'POLICY_UNSUPPORTED_ACTIVE_RULES');
+  assert(unsupportedWarn.warningCodes.includes('POLICY_UNSUPPORTED_ACTIVE_RULES'));
+  const unsupportedBlock = await createGovernanceRuntime({ store: unsupportedStore, failureMode: 'block' }).evaluate(descriptor);
+  assert.strictEqual(unsupportedBlock.enforcementOutcome, 'block');
+  assert.strictEqual(unsupportedBlock.blockCode, 'POLICY_UNSUPPORTED_ACTIVE_RULES');
+  const unsupportedRecovery = await createGovernanceRuntime({ store: unsupportedStore, failureMode: 'block' }).evaluate(governanceDescriptor);
+  assert.strictEqual(unsupportedRecovery.enforcementOutcome, 'warn', 'control-plane recovery remains non-blocking during evaluator failure');
+  const unsupportedWarnRecovery = await createGovernanceRuntime({ store: unsupportedStore, failureMode: 'warn' }).evaluate(governanceDescriptor);
+  assert.strictEqual(unsupportedWarnRecovery.enforcementOutcome, 'warn', 'control-plane recovery remains non-blocking in warn mode');
+  assert(unsupportedWarnRecovery.warningCodes.includes('POLICY_UNSUPPORTED_ACTIVE_RULES'));
 
   const giteaAuthorization = {
     ...authorization,

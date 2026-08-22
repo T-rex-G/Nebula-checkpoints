@@ -9,20 +9,88 @@ const root = path.resolve(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 assert.strictEqual(pkg.name, 'nebulaverse-x');
 assert.strictEqual(pkg.version, '5.3.0-alpha.17.0');
+assert.strictEqual(pkg.engines.node, '22.23.1');
+assert.strictEqual(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8'), '22.23.1\n');
 
-const { APP_VERSION, PRODUCT_NAME, ASSET_VERSION } = require('../src/version');
+const { APP_VERSION, PRODUCT_NAME, ASSET_VERSION, deriveAssetVersion } = require('../src/version');
+const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const expectedReleaseTreeSha256 = computeReleaseFingerprint(root);
 assert.strictEqual(APP_VERSION, pkg.version);
 assert.strictEqual(PRODUCT_NAME, 'Nebulaverse-X');
-assert.strictEqual(ASSET_VERSION, '530');
+
+/*
+ * The asset stamp names the service-worker shell cache and carries the
+ * week-long max-age on every static asset, so distinct releases must never
+ * share one.
+ *
+ * Both kinds of assertion are needed here. The property assertions below catch
+ * a derivation that collides, which a fixed value cannot: the previous literal
+ * '530' passed happily while every 5.3.0 prerelease shared one stamp. The
+ * fixed values further down catch a derivation that silently changes shape,
+ * which the property assertions cannot, and which would orphan every already
+ * deployed cache.
+ */
+assert.strictEqual(ASSET_VERSION, deriveAssetVersion(APP_VERSION), 'the stamp must derive from the exact version');
+assert.strictEqual(deriveAssetVersion(APP_VERSION), deriveAssetVersion(APP_VERSION), 'the stamp must be stable');
+assert.match(ASSET_VERSION, /^[0-9]+$/, 'the shell URL and cache-name contracts require a numeric stamp');
+const distinctReleases = [
+  '5.3.0-alpha.16.3',
+  '5.3.0-alpha.17.0',
+  '5.3.0-alpha.1.70',
+  '5.3.1-alpha.17.0',
+  '5.3.0'
+];
+assert.strictEqual(
+  new Set(distinctReleases.map(deriveAssetVersion)).size,
+  distinctReleases.length,
+  'each distinct release must produce a distinct asset stamp'
+);
+for (const version of distinctReleases) {
+  assert.match(deriveAssetVersion(version), /^[0-9]+$/, `stamp for ${version} must be numeric`);
+}
+assert.throws(() => deriveAssetVersion(''), /asset version requires an application version/);
+
+/*
+ * Pin the encoding itself. The property assertions above prove distinctness;
+ * these prove the stamp cannot silently change shape, which would orphan every
+ * already deployed service-worker shell cache.
+ */
+assert.strictEqual(deriveAssetVersion('5.3.0'), '053046051046048');
+assert.strictEqual(deriveAssetVersion('5.3.0-alpha.17.0'),
+  '053046051046048045097108112104097046049055046048');
+assert.strictEqual(deriveAssetVersion('5.3.0-alpha.1.70'),
+  '053046051046048045097108112104097046049046055048');
+assert.strictEqual(ASSET_VERSION, '053046051046048045097108112104097046049055046048');
+
+/*
+ * Injectivity is structural rather than probabilistic: every byte occupies
+ * exactly three digits, so the stamp decodes back to the exact version it came
+ * from. A truncated hash could not support this assertion.
+ */
+function decodeAssetVersion(stamp) {
+  assert.match(stamp, /^(?:[0-9]{3})+$/, 'the stamp must be whole three-digit byte groups');
+  const bytes = stamp.match(/.{3}/g).map(Number);
+  assert(bytes.every(byte => byte <= 255), 'each group must be a byte value');
+  return Buffer.from(bytes).toString('utf8');
+}
+for (const version of [...distinctReleases, APP_VERSION, '9.9.9+build.1']) {
+  assert.strictEqual(decodeAssetVersion(deriveAssetVersion(version)), version,
+    `the stamp for ${version} must decode back to it`);
+}
+
 
 const port = 27000 + Math.floor(Math.random() * 1000);
+const sessionSecret = ['release-contract', '0123456789abcdef', '0123456789abcdef'].join('-');
+const snapKey = ['release-contract-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
 const child = spawn(process.execPath, ['server.js'], {
   cwd: root,
   env: {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'production',
-    SESSION_SECRET: 'release-contract-secret-0123456789abcdef-0123456789abcdef',
+    SESSION_SECRET: sessionSecret,
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'release-contract-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: snapKey,
     DATABASE_URL: ''
   },
   stdio: ['ignore', 'pipe', 'pipe']
@@ -48,7 +116,11 @@ async function wait() {
   try {
     await wait();
     const version = await fetch(`http://127.0.0.1:${port}/api/version`).then(r => r.json());
-    assert.deepStrictEqual(version, { version: pkg.version, product: PRODUCT_NAME });
+    assert.deepStrictEqual(version, {
+      version: pkg.version,
+      product: PRODUCT_NAME,
+      releaseTreeSha256: expectedReleaseTreeSha256
+    });
 
     const html = await fetch(`http://127.0.0.1:${port}/`).then(r => r.text());
     assert(!html.includes('__NV_'), 'release placeholders must be rendered');

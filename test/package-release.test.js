@@ -5,7 +5,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { createZipArchive, discoverReleaseManifest } = require('../scripts/package-release');
+const {
+  GENERATED_DOCUMENTATION_TIMEOUT_MS,
+  assertGeneratedDocumentationCurrent,
+  createZipArchive,
+  discoverReleaseManifest
+} = require('../scripts/package-release');
 const { checks: foundationChecks } = require('../scripts/foundation-gate');
 const root = path.resolve(__dirname, '..');
 const packageScript = path.join(root, 'scripts', 'package-release.js');
@@ -36,8 +41,10 @@ process.once('exit', cleanupRuntimeState);
 let quarantineSequence = 0;
 const foundationArtifacts = [
   'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js',
-  'ROADMAP.md', 'PRODUCT_VISION.md', 'PROVIDER_CAPABILITIES.md', 'ARCHITECTURE.md',
-  'RELEASE_SECURITY_GATES.md', 'PUBLIC_ALPHA.md', 'UX_VISION.md', 'EVIDENCE_INDEX.md',
+  'docs/current/ROADMAP.md', 'docs/vision/PRODUCT_VISION.md',
+  'docs/current/PROVIDER_CAPABILITIES.md', 'docs/architecture/ARCHITECTURE.md',
+  'docs/release/RELEASE_SECURITY_GATES.md', 'docs/release/PUBLIC_ALPHA.md',
+  'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/provider-route-inventory.test.js',
   'test/public-alpha-documentation.test.js'
@@ -90,13 +97,10 @@ function withArtifact(file, value, callback) {
 }
 
 function withIgnoredSentinels(callback) {
+  const sentinelId = `release-containment-${crypto.randomUUID()}`;
   const sentinels = [
-    ['.env.production', 'synthetic ignored environment sentinel\n'],
-    ['.superpowers/sdd/release-containment-sentinel.txt', 'synthetic internal-state sentinel\n'],
-    ['.cache/release-containment-sentinel.txt', 'synthetic tool-cache sentinel\n']
+    [`node_modules/.${sentinelId}.txt`, 'synthetic ignored dependency-state sentinel\n']
   ];
-  const cacheDirectory = path.join(root, '.cache');
-  const cacheExisted = fs.existsSync(cacheDirectory);
   try {
     for (const [file, value] of sentinels) {
       const target = path.join(root, file);
@@ -109,7 +113,6 @@ function withIgnoredSentinels(callback) {
     for (const [file] of sentinels) {
       quarantineTestPath(path.join(root, file), file.replace(/[^a-z0-9]+/gi, '-'));
     }
-    if (!cacheExisted) quarantineTestPath(cacheDirectory, 'cache-directory');
   }
 }
 
@@ -118,6 +121,40 @@ assert.strictEqual(typeof archive.file, 'function');
 assert.strictEqual(typeof archive.finalize, 'function');
 assert.strictEqual(typeof archive.abort, 'function');
 archive.abort();
+
+let generatedDocsSpawnOptions;
+assertGeneratedDocumentationCurrent((command, args, options) => {
+  generatedDocsSpawnOptions = options;
+  return { status: 0, signal: null, stdout: '', stderr: '' };
+});
+assert(
+  generatedDocsSpawnOptions && generatedDocsSpawnOptions.maxBuffer >= 16 * 1024 * 1024,
+  'generated documentation checks must use an explicit bounded output buffer'
+);
+assert.strictEqual(
+  generatedDocsSpawnOptions.timeout,
+  GENERATED_DOCUMENTATION_TIMEOUT_MS,
+  'generated documentation checks must use the finite packaging timeout'
+);
+assert.throws(
+  () => assertGeneratedDocumentationCurrent(() => ({
+    status: null,
+    signal: null,
+    stdout: '',
+    stderr: '',
+    error: Object.assign(new Error('spawnSync timed out'), { code: 'ETIMEDOUT' })
+  })),
+  new RegExp(`timed out after ${GENERATED_DOCUMENTATION_TIMEOUT_MS} ms`, 'i')
+);
+assert.throws(
+  () => assertGeneratedDocumentationCurrent(() => ({
+    status: null,
+    signal: 'SIGTERM',
+    stdout: '',
+    stderr: ''
+  })),
+  /terminated by signal SIGTERM/i
+);
 
 const digests = [];
 const roots = [];
@@ -148,13 +185,37 @@ try {
   }
   assert.strictEqual(new Set(digests).size, 1, `release ZIP is nondeterministic: ${digests.join(', ')}`);
 
-  const nestedOutput = fs.mkdtempSync(path.join(root, 'release-output-sentinel-'));
+  const driftOutput = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-package-doc-drift-'));
+  roots.push(driftOutput);
+  const generatedState = fs.readFileSync(
+    path.join(root, 'docs', 'current', 'PROJECT_STATE.md'),
+    'utf8'
+  );
+  const generatedStateDigest = crypto.createHash('sha256').update(generatedState).digest('hex');
+  withArtifact('docs/current/PROJECT_STATE.md', `${generatedState}\nsynthetic generated drift\n`, () => {
+    const result = runPackager(driftOutput);
+    assert.notStrictEqual(result.status, 0, 'packager must fail when generated continuity drifts');
+    assert.match(result.stderr, /Generated continuity document is stale/);
+    assert(!fs.existsSync(
+      path.join(driftOutput, 'Nebulaverse-X-v5.3.0-alpha.17.0.zip')
+    ), 'generated drift must fail before archive creation');
+  });
+  assert.strictEqual(
+    crypto.createHash('sha256').update(fs.readFileSync(
+      path.join(root, 'docs', 'current', 'PROJECT_STATE.md')
+    )).digest('hex'),
+    generatedStateDigest,
+    'the generated-document drift test must restore the tracked bytes exactly'
+  );
+
+  const nestedOutput = fs.mkdtempSync(path.join(root, 'node_modules', 'release-output-sentinel-'));
   fs.writeFileSync(path.join(nestedOutput, 'existing-output.txt'), 'synthetic nested-output sentinel\n');
   const nestedResult = runPackager(nestedOutput);
   const nestedZipExists = fs.existsSync(
     path.join(nestedOutput, 'Nebulaverse-X-v5.3.0-alpha.17.0.zip')
   );
   quarantineTestPath(nestedOutput, 'nested-output');
+  assert(!fs.existsSync(nestedOutput), 'nested-output sentinel must be quarantined before later manifest checks');
   assert.notStrictEqual(nestedResult.status, 0, 'packager must reject an output directory inside the source root');
   assert.match(nestedResult.stderr, /release output directory must be outside the source root/i);
   assert(!nestedZipExists);
@@ -172,31 +233,52 @@ try {
     'release'
   );
   roots.push(path.dirname(inconsistentOutput));
-  withArtifact('test/fixtures/gitea-provider-fetch.js', null, () => {
-    const result = runPackager(inconsistentOutput);
-    assert.notStrictEqual(result.status, 0, 'packager must fail when a tracked manifest member is missing');
-    assert.match(result.stderr, /Release manifest is inconsistent: tracked file is missing: test\/fixtures\/gitea-provider-fetch\.js/);
-    assert(!fs.existsSync(inconsistentOutput), 'inconsistent manifest must not create release output');
+  const missingGitBin = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-package-missing-git-'));
+  roots.push(missingGitBin);
+  const missingMember = 'test/fixtures/synthetic-missing-release-member.js';
+  const missingGit = path.join(missingGitBin, 'git');
+  fs.writeFileSync(missingGit, [
+    '#!/bin/sh',
+    'if [ "$2" = "--cached" ]; then',
+    `  printf 'package.json\\000${missingMember}\\000'`,
+    'fi',
+    ''
+  ].join('\n'), { mode: 0o700 });
+  const inconsistentResult = runPackager(inconsistentOutput, {
+    env: { PATH: `${missingGitBin}${path.delimiter}${process.env.PATH || ''}` }
   });
+  assert.notStrictEqual(inconsistentResult.status, 0, 'packager must fail when a tracked manifest member is missing');
+  assert.match(inconsistentResult.stderr, new RegExp(
+    `Release manifest is inconsistent: tracked file is missing: ${missingMember.replaceAll('.', '\\.')}`
+  ));
+  assert(!fs.existsSync(inconsistentOutput), 'inconsistent manifest must not create release output');
 
   const untrackedOutput = path.join(
     fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-package-untracked-manifest-')),
     'release'
   );
   roots.push(path.dirname(untrackedOutput));
-  const untrackedSentinel = `release-untracked-sentinel-${process.pid}.txt`;
-  const untrackedTarget = path.join(root, untrackedSentinel);
-  try {
-    fs.writeFileSync(untrackedTarget, 'synthetic untracked releasable member\n');
-    const result = runPackager(untrackedOutput);
-    assert.notStrictEqual(result.status, 0, 'packager must fail on an untracked releasable path');
-    assert.match(result.stderr, new RegExp(
-      `Release manifest is inconsistent: untracked releasable path: ${untrackedSentinel}`
-    ));
-    assert(!fs.existsSync(untrackedOutput), 'untracked releasable paths must not create release output');
-  } finally {
-    quarantineTestPath(untrackedTarget, 'untracked-release-member');
-  }
+  const fakeGitBin = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-package-fake-git-'));
+  roots.push(fakeGitBin);
+  const untrackedSentinel = 'synthetic-untracked-release-member.txt';
+  const fakeGit = path.join(fakeGitBin, 'git');
+  fs.writeFileSync(fakeGit, [
+    '#!/bin/sh',
+    'if [ "$2" = "--cached" ]; then',
+    "  printf 'package.json\\000'",
+    'else',
+    `  printf '${untrackedSentinel}\\000'`,
+    'fi',
+    ''
+  ].join('\n'), { mode: 0o700 });
+  const untrackedResult = runPackager(untrackedOutput, {
+    env: { PATH: `${fakeGitBin}${path.delimiter}${process.env.PATH || ''}` }
+  });
+  assert.notStrictEqual(untrackedResult.status, 0, 'packager must fail on an untracked releasable path');
+  assert.match(untrackedResult.stderr, new RegExp(
+    `Release manifest is inconsistent: untracked releasable path: ${untrackedSentinel}`
+  ));
+  assert(!fs.existsSync(untrackedOutput), 'untracked releasable paths must not create release output');
 
   const ignoredOutput = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-package-ignored-state-'));
   roots.push(ignoredOutput);

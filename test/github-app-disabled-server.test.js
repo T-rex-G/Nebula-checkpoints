@@ -6,13 +6,17 @@ const { spawn } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
 const port = 29600 + Math.floor(Math.random() * 500);
+const sessionSecret = ['github-app-disabled-test', '0123456789abcdef', '0123456789abcdef'].join('-');
+const snapKey = ['github-app-disabled-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
 const child = spawn(process.execPath, ['server.js'], {
   cwd: root,
   env: {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'production',
-    SESSION_SECRET: 'github-app-disabled-test-secret-0123456789abcdef-0123456789abcdef',
+    SESSION_SECRET: sessionSecret,
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'github-app-disabled-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: snapKey,
     DATABASE_URL: '',
     GITHUB_APP_ID: '', GITHUB_APP_SLUG: '', GITHUB_APP_CLIENT_ID: '', GITHUB_APP_CLIENT_SECRET: '',
     GITHUB_APP_PRIVATE_KEY: '', GITHUB_APP_PRIVATE_KEY_BASE64: '', GITHUB_APP_CALLBACK_URL: '', GITHUB_APP_WEBHOOK_SECRET: ''

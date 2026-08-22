@@ -13,4 +13,18 @@ assert(app.includes("$('#govRoot').innerHTML = window.NebulaGovernanceUI.renderG
 assert(app.includes('clearGovernanceState();') && app.indexOf('clearGovernanceState();') < app.indexOf('state.work = { owner, repo'), 'opening a repository must clear prior governance state before assigning the new repository');
 assert(!app.includes('nv_governance') && !app.includes('localStorage.setItem(\'governance'), 'governance evidence must not be persisted in browser storage');
 assert(app.includes("data-gov-action") || app.includes("closest('[data-gov-action]')"), 'client needs delegated governance actions');
+assert(app.includes('GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS'), 'client must define the experimental governance view allowlist');
+assert(app.includes('function applyGovernanceCapabilityBoundary'), 'client must enforce provider governance view-only presentation');
+const governanceViewAllowlist = app.match(
+  /const GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS\s*=\s*Object\.freeze\(\[([\s\S]*?)\]\);/
+);
+assert(governanceViewAllowlist, 'client must expose a statically reviewable experimental governance view allowlist');
+for (const action of [
+  'refresh', 'select-policy', 'view-version', 'view-exception', 'verify-chain',
+  'load-more-decisions', 'delivery-refresh', 'download-export', 'verify-export'
+]) assert(governanceViewAllowlist[1].includes(`'${action}'`), `experimental governance view allowlist missing ${action}`);
+assert(app.includes("decision('governance').status !== 'Experimental'"),
+  'governance mutation controls must be disabled only for the view-only experimental boundary');
+assert(app.includes("button.dataset.governanceExperimentalDisabled = 'true'"),
+  'experimental governance mutations must carry an explicit disabled reason');
 console.log('governance interface client contract tests passed');

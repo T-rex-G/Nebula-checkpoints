@@ -107,6 +107,13 @@ function createDependencies(options = {}) {
       };
     }
 
+    async revokeInvite(inviteId) {
+      events.push(['revoke-invite', inviteId]);
+      if (options.revokeInviteError) throw options.revokeInviteError;
+      return options.revokeInviteResult
+        || { inviteId, state: 'revoked', revoked: true };
+    }
+
     async revokeTester(testerId, reason) {
       events.push(['revoke', testerId, reason]);
       if (options.revokeError) throw options.revokeError;
@@ -217,6 +224,11 @@ async function tests() {
     reason: 'cohort access ended'
   });
   assert.deepStrictEqual(parseArgs(['purge']), { command: 'purge' });
+  assert.deepStrictEqual(
+    parseArgs(['revoke-invite', '--invite', ' 0123456789ABCDEF0123456789 ']),
+    { command: 'revoke-invite', invite: '0123456789abcdef0123456789' },
+    'an invitation id is matched case-insensitively and trimmed'
+  );
 
   for (const invalid of [
     [],
@@ -238,7 +250,17 @@ async function tests() {
     ['revoke', '--tester', TESTER_ID, '--tester', TESTER_ID, '--reason', 'ended'],
     ['revoke', '--tester', TESTER_ID, '--reason', 'ended', '--reason', 'again'],
     ['revoke', '--tester', TESTER_ID, '--reason'],
-    ['revoke', '--tester', TESTER_ID, '--reason', '--other']
+    ['revoke', '--tester', TESTER_ID, '--reason', '--other'],
+    ['revoke-invite'],
+    ['revoke-invite', '--invite'],
+    ['revoke-invite', '--invite', 'too-short'],
+    ['revoke-invite', '--invite', 'x'.repeat(41)],
+    ['revoke-invite', '--invite', 'bad_character_0123456789'],
+    ['revoke-invite', '--invite', '0123456789abcdef0123456789', '--invite', '0123456789abcdef0123456789'],
+    ['revoke-invite', '--invite', '0123456789abcdef0123456789', '--reason', 'exposed'],
+    /* The secret half must never be accepted, so it can never be logged. */
+    ['revoke-invite', '--invite', CODE],
+    ['revoke-invite', '--code', CODE]
   ]) {
     assert.throws(
       () => parseArgs(invalid),
@@ -503,7 +525,53 @@ async function tests() {
   assert(!configFailed.stderr.includes(runtimeSecret));
   assert.strictEqual(configFailed.poolInstances.length, 0);
 
-  console.log('alpha invite CLI tests passed');
+  /*
+ * An exposed invitation nobody redeemed has no tester behind it, so `revoke`
+ * cannot reach it. The command takes the invitation id -- the public half,
+ * which `list` prints and which is legible inside an exposed code -- so the
+ * secret never reaches a shell history, a process list, or this output.
+ */
+const inviteRevocation = await runMain(['revoke-invite', '--invite', '0123456789abcdef0123456789']);
+assert.strictEqual(inviteRevocation.status, 0);
+assert.deepStrictEqual(
+  inviteRevocation.events.filter(event => event[0] === 'revoke-invite'),
+  [['revoke-invite', '0123456789abcdef0123456789']]
+);
+assert.deepStrictEqual(JSON.parse(inviteRevocation.stdout), {
+  inviteId: '0123456789abcdef0123456789',
+  state: 'revoked',
+  revoked: true
+});
+assert(!inviteRevocation.stdout.includes(CODE),
+  'the invitation secret must never appear in output');
+
+/*
+ * A redeemed invitation belongs to a tester, and revoking the code would not
+ * end the session it produced. The command must report that rather than let an
+ * operator stop at a revocation that leaves the tester active.
+ */
+const redeemedRevocation = await runMain(
+  ['revoke-invite', '--invite', '0123456789abcdef0123456789'],
+  { revokeInviteResult: { inviteId: '0123456789abcdef0123456789', state: 'redeemed', revoked: false } }
+);
+assert.strictEqual(redeemedRevocation.status, 1,
+  'a refusal must not exit zero, or a containment block would continue past it');
+assert.deepStrictEqual(redeemedRevocation.exitCodes, [1]);
+assert.deepStrictEqual(JSON.parse(redeemedRevocation.stdout), {
+  inviteId: '0123456789abcdef0123456789', state: 'redeemed', revoked: false
+}, 'the state must still be printed so the operator knows which path to take');
+assert.match(redeemedRevocation.stderr, /Invitation was not revoked: redeemed/);
+
+/* Every non-revoking state must refuse, not just the redeemed one. */
+for (const state of ['already-revoked', 'unknown', 'purged']) {
+  const refusal = await runMain(
+    ['revoke-invite', '--invite', '0123456789abcdef0123456789'],
+    { revokeInviteResult: { inviteId: '0123456789abcdef0123456789', state, revoked: false } }
+  );
+  assert.strictEqual(refusal.status, 1, `state ${state} must exit non-zero`);
+}
+
+console.log('alpha invite CLI tests passed');
 }
 
 tests().catch(error => {

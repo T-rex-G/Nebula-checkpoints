@@ -9,16 +9,21 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          node-version: 22
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
           cache: npm
       - run: npm ci
+      - run: npm run docs:check
       - run: npm run check:syntax
+      - run: npm run lint
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run check:secrets
@@ -26,11 +31,11 @@ jobs:
       - run: npm run test:release
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
-      - run: npm run package:release -- dist
-      - uses: actions/upload-artifact@v4
+      - run: npm run package:release -- "${RUNNER_TEMP}/release"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Nebulaverse-X-release
           path: |
-            dist/*.zip
-            dist/*.sha256
+            ${{ runner.temp }}/release/*.zip
+            ${{ runner.temp }}/release/*.sha256
           if-no-files-found: error

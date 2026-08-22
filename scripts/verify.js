@@ -12,6 +12,9 @@ const renderReleaseTemplate = value => value
 const must = (cond, msg) => { if (!cond) throw new Error(msg); };
 
 const required = [
+  'config/historical-document-integrity.json',
+  'src/work-continuity.js', 'scripts/generate-continuity-docs.js', 'scripts/resume-work.js',
+  'test/continuity-generation.test.js',
   'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
   'db/migrations/014_alpha_access.sql', 'test/alpha-access.test.js',
   'test/alpha-access-persistence-contract.test.js', 'test/alpha-access-store.test.js',
@@ -31,21 +34,29 @@ const required = [
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
   'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js',
-  'docs/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
-  'src/public-alpha-qualification.js', 'scripts/public-alpha-gate.js',
+  'docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
+  'src/secret-scanner.js', 'scripts/check-secrets.js',
+  'src/release-fingerprint.js', 'test/release-fingerprint.test.js',
+  'src/qualification-evidence.js', 'src/public-alpha-qualification.js',
+  'scripts/public-alpha-gate.js', 'scripts/qualify-candidate-archive.js',
   'staging/PUBLIC_ALPHA_EVIDENCE_TEMPLATE.json',
-  'test/fixtures/public-alpha-qualification-pass.json',
+  'test/helpers/public-alpha-pass-fixture.js',
   'test/public-alpha-qualification.test.js',
   'test/public-alpha-qualification-contract.test.js',
   'test/public-alpha-gate-cli.test.js',
+  'test/secret-scanner.test.js', 'test/qualify-candidate-archive.test.js',
   'ci/provider-alpha17-common.js', 'ci/alpha17-fixtures.js',
   'ci/run-github-alpha17-validation.js',
   'ci/run-gitlab-alpha17-validation.js',
   'ci/run-gitea-alpha17-validation.js',
   'ci/run-hosted-alpha17-validation.js',
+  'ci/alpha17-json.js',
+  'ci/alpha17-restore-attestation.js',
+  'ci/run-alpha17-restore-validation.js',
   'ci/verify-alpha17-authorization.js',
   'test/alpha17-provider-harness.test.js',
   'test/alpha17-hosted-harness.test.js',
+  'test/alpha17-restore-runner.test.js',
   'test/public-alpha-workflow-contract.test.js',
   '.github/workflows/public-alpha-alpha17.yml',
   'docs/qualification/PUBLIC_ALPHA_KNOWN_LIMITATIONS.md',
@@ -56,19 +67,19 @@ const required = [
   'test/backup-format.test.js', 'test/alpha-db-cli.test.js',
   'test/alpha-smoke.test.js', 'test/alpha-load.test.js',
   'test/render-public-alpha-contract.test.js', 'test/runbook-contract.test.js',
-  'docs/runbooks/01-service-cold-start-outage.md',
-  'docs/runbooks/02-neon-outage-quota.md',
-  'docs/runbooks/03-provider-outage-rate-limit.md',
-  'docs/runbooks/04-credential-exposure.md',
-  'docs/runbooks/05-orphan-cleanup.md',
-  'docs/runbooks/06-failed-deploy-rollback.md',
-  'docs/runbooks/07-database-backup-restore.md',
-  'docs/runbooks/08-tester-revocation-deletion.md',
-  'docs/runbooks/09-capacity-saturation.md',
-  'docs/runbooks/10-alpha-shutdown.md',
-  'docs/runbooks/OPERATOR_CHECKLIST.md',
-  'src/provider-file-mutations.js', 'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js', 'ROADMAP.md', 'PRODUCT_VISION.md', 'PROVIDER_CAPABILITIES.md', 'ARCHITECTURE.md', 'RELEASE_SECURITY_GATES.md', 'PUBLIC_ALPHA.md', 'UX_VISION.md', 'EVIDENCE_INDEX.md', 'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js', 'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
-  'server.js', 'package.json', 'package-lock.json', 'render.yaml', 'README.md', 'PROJECT_STATE.md', 'PHASE_1_ROADMAP.md', 'ARCHITECTURE_DECISIONS.md', 'CONTINUATION_PROMPT.md', 'PHASE_1_TASK_5_REPORT.md', 'PHASE_1_TASK_6_7_REPORT.md', 'PHASE_1_TASK_8_REPORT.md', 'TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md', 'PHASE_1_TASK_9_10_REPORT.md', 'TASK_9_10_POLICY_SIMULATION_SPEC.md', 'PHASE_1_TASK_11_REPORT.md', 'TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md', 'PHASE_1_TASK_12_13_REPORT.md', 'TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md', 'PHASE_1_TASK_14_REPORT.md', 'TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md', 'PHASE_1_TASK_15_16_REPORT.md', 'TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md', 'PHASE_1_TASK_17_REPORT.md', 'TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md', 'PHASE_1_TASK_18_REPORT.md', 'TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md', 'PHASE_1_TASK_19_REPORT.md', 'TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md', 'PHASE_1_TASK_20_REPORT.md', 'TASK_20_STAGING_VALIDATION_SPEC.md', 'PHASE_1_TASK_21_REPORT.md', 'docs/superpowers/specs/2026-07-22-provider-authorization-resolver-design.md', 'docs/superpowers/plans/2026-07-22-provider-authorization-resolver.md',
+  'docs/operations/runbooks/01-service-cold-start-outage.md',
+  'docs/operations/runbooks/02-neon-outage-quota.md',
+  'docs/operations/runbooks/03-provider-outage-rate-limit.md',
+  'docs/operations/runbooks/04-credential-exposure.md',
+  'docs/operations/runbooks/05-orphan-cleanup.md',
+  'docs/operations/runbooks/06-failed-deploy-rollback.md',
+  'docs/operations/runbooks/07-database-backup-restore.md',
+  'docs/operations/runbooks/08-tester-revocation-deletion.md',
+  'docs/operations/runbooks/09-capacity-saturation.md',
+  'docs/operations/runbooks/10-alpha-shutdown.md',
+  'docs/operations/runbooks/OPERATOR_CHECKLIST.md',
+  'src/provider-file-mutations.js', 'src/snapshot-signatures.js', 'test/snapshot-signatures.test.js', 'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js', 'docs/current/ROADMAP.md', 'docs/vision/PRODUCT_VISION.md', 'docs/current/PROVIDER_CAPABILITIES.md', 'docs/architecture/ARCHITECTURE.md', 'docs/release/RELEASE_SECURITY_GATES.md', 'docs/release/PUBLIC_ALPHA.md', 'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md', 'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js', 'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
+  'server.js', 'package.json', 'package-lock.json', 'render.yaml', 'README.md', 'docs/README.md', 'docs/DOCUMENTATION_MANIFEST.json', 'docs/current/PROJECT_STATE.md', 'docs/history/phase-1/ROADMAP.md', 'docs/architecture/ARCHITECTURE_DECISIONS.md', 'docs/current/CONTINUATION_PROMPT.md', 'docs/history/phase-1/reports/PHASE_1_TASK_5_REPORT.md', 'docs/history/phase-1/reports/PHASE_1_TASK_6_7_REPORT.md', 'docs/history/phase-1/reports/PHASE_1_TASK_8_REPORT.md', 'docs/history/phase-1/specifications/TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_9_10_REPORT.md', 'docs/history/phase-1/specifications/TASK_9_10_POLICY_SIMULATION_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_11_REPORT.md', 'docs/history/phase-1/specifications/TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_12_13_REPORT.md', 'docs/history/phase-1/specifications/TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_14_REPORT.md', 'docs/history/phase-1/specifications/TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_15_16_REPORT.md', 'docs/history/phase-1/specifications/TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_17_REPORT.md', 'docs/history/phase-1/specifications/TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_18_REPORT.md', 'docs/history/phase-1/specifications/TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_19_REPORT.md', 'docs/history/phase-1/specifications/TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_20_REPORT.md', 'docs/history/phase-1/specifications/TASK_20_STAGING_VALIDATION_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_21_REPORT.md', 'docs/superpowers/specs/2026-07-22-provider-authorization-resolver-design.md', 'docs/superpowers/plans/2026-07-22-provider-authorization-resolver.md',
   'public/index.html', 'public/governance-ui.js', 'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js', 'public/app.js', 'public/neural.js', 'public/style.css', 'public/sw.js',
   'src/intelligence.js', 'src/file-security.js', 'src/config.js', 'src/version.js', 'src/migrations.js', 'src/security-foundation.js', 'src/authorization-resolver.js', 'src/github-app.js', 'src/provider-credentials.js', 'src/governance-model.js', 'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js', 'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/staging-validation.js', 'src/test-matrix.js', 'db/migrations/001_sessions.sql', 'db/migrations/002_security.sql', 'db/migrations/003_intelligence.sql', 'db/migrations/004_recovery.sql', 'db/migrations/005_evidence.sql', 'db/migrations/006_github_app.sql', 'db/migrations/007_governance.sql', 'db/migrations/008_governance_drafts.sql', 'db/migrations/009_governance_reviews.sql', 'db/migrations/010_governance_activation_evidence.sql', 'db/migrations/011_governance_policy_decisions.sql', 'db/migrations/013_governance_notifications_exports.sql', 'db/migrations/012_governance_exceptions.sql', 'scripts/copy-vendor.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'staging/TASK_20_EVIDENCE_TEMPLATE.json', 'playwright.config.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'test/staging-validation.test.js', 'test/staging-validation-contract.test.js', 'test/staging-validation-cli.test.js', 'test/test-matrix.test.js', 'test/intelligence.test.js', 'test/config-startup.test.js', 'test/archive-safety.test.js', 'test/export-safety.test.js', 'test/file-security.test.js', 'test/hardening-contract.test.js', 'test/security-foundation.test.js', 'test/security-foundation-contract.test.js', 'test/security-foundation-server.test.js', 'test/authorization-resolver.test.js', 'test/authorization-resolver-server-contract.test.js', 'test/governance-model.test.js', 'test/governance-persistence-contract.test.js', 'test/governance-store.test.js', 'test/governance-review-model.test.js', 'test/governance-review-persistence-contract.test.js', 'test/governance-review-store.test.js', 'test/governance-review-api.test.js', 'test/governance-templates.test.js', 'test/governance-digital-twin.test.js', 'test/governance-digital-twin-store.test.js', 'test/governance-template-digital-twin-api.test.js', 'test/governance-template-digital-twin-server-contract.test.js', 'test/governance-interface-access.test.js', 'test/governance-interface-server-contract.test.js', 'test/governance-interface-renderer.test.js', 'test/governance-interface-client-contract.test.js', 'test/governance-interface-workflow-contract.test.js', 'test/governance-interface-ui-contract.test.js', 'test/mutation-coverage.test.js', 'test/mutation-coverage-server-contract.test.js', 'test/mutation-gateway-execution.test.js', 'test/server-smoke.test.js',
   'public/vendor/codemirror/5.65.16/codemirror.min.js', 'public/vendor/marked/15.0.12/marked.min.js', 'public/vendor/dompurify/3.4.13/purify.min.js'
@@ -76,15 +87,21 @@ const required = [
 for (const file of required) must(fs.existsSync(path.join(root, file)), `Missing ${file}`);
 
 for (const file of [
-  'server.js', 'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
+  'server.js', 'src/work-continuity.js', 'scripts/generate-continuity-docs.js',
+  'scripts/resume-work.js', 'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
   'src/alpha-privacy.js', 'src/alpha-privacy-store.js', 'src/provider-disconnect.js',
   'scripts/alpha-privacy.js', 'src/public-errors.js',
   'src/hosted-readiness.js', 'src/backup-format.js',
   'scripts/alpha-db.js', 'scripts/alpha-smoke.js', 'scripts/alpha-load.js',
-  'src/public-alpha-qualification.js', 'scripts/public-alpha-gate.js',
+  'src/secret-scanner.js', 'scripts/check-secrets.js', 'src/snapshot-signatures.js',
+  'src/release-fingerprint.js',
+  'src/qualification-evidence.js', 'src/public-alpha-qualification.js',
+  'scripts/public-alpha-gate.js', 'scripts/qualify-candidate-archive.js',
   'ci/provider-alpha17-common.js', 'ci/alpha17-fixtures.js',
   'ci/run-github-alpha17-validation.js', 'ci/run-gitlab-alpha17-validation.js',
   'ci/run-gitea-alpha17-validation.js', 'ci/run-hosted-alpha17-validation.js',
+  'ci/alpha17-json.js', 'ci/alpha17-restore-attestation.js',
+  'ci/run-alpha17-restore-validation.js',
   'ci/verify-alpha17-authorization.js',
   'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js',
   'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
@@ -141,11 +158,13 @@ const qualificationTests = [
   'test/public-alpha-gate-cli.test.js',
   'test/alpha17-provider-harness.test.js',
   'test/alpha17-hosted-harness.test.js',
-  'test/public-alpha-workflow-contract.test.js'
+  'test/public-alpha-workflow-contract.test.js',
+  'test/alpha17-restore-runner.test.js'
 ];
 let previousQualificationTest = -1;
+const qualificationUnitGate = `${pkg.scripts?.['test:unit'] || ''} ${pkg.scripts?.['posttest:unit'] || ''}`;
 for (const program of qualificationTests) {
-  const index = pkg.scripts?.['test:unit']?.indexOf(`node ${program}`) ?? -1;
+  const index = qualificationUnitGate.indexOf(`node ${program}`);
   must(index > previousQualificationTest, `Unit gate missing or misorders ${program}`);
   previousQualificationTest = index;
 }

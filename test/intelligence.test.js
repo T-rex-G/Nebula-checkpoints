@@ -3,11 +3,14 @@ const assert = require('assert');
 const crypto = require('crypto');
 const {
   stableJson, hashJson, hmacJson, evidenceRecordHash, verifyGithubSignature, normalizeGithubWebhook,
+  EVIDENCE_ACTIVE_KEY_ID, EVIDENCE_LEGACY_KEY_ID, verifyEvidenceRecord, acceptsLegacySessionKey, parseRetiredSessionSecrets,
+  evidenceKeyrings,
   riskForEvent, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
   normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, shortestPath,
   compareSnapshots, riskForAccessSurface, normalizeProviderBranches
 } = require('../src/intelligence');
 const { normalizeDatabaseUrl } = require('../src/config');
+const { KEY_PURPOSES, deriveSecret } = require('../src/key-derivation');
 
 assert.strictEqual(stableJson({ b: 2, a: 1 }), '{"a":1,"b":2}');
 assert.strictEqual(stableJson({ z: [2, { b: true, a: false }], a: null }), '{"a":null,"z":[2,{"a":false,"b":true}]}');
@@ -197,5 +200,262 @@ assert.strictEqual(accessRisk.severity, 'critical');
 assert(accessRisk.reasons.some(r => r.code === 'WRITABLE_DEPLOY_KEY'));
 assert(accessRisk.reasons.some(r => r.code === 'INSECURE_WEBHOOK_TLS'));
 assert.strictEqual(riskForAccessSurface({ collaborators: [], deployKeys: [], webhooks: [], partial: true }).reasons.some(r => r.code === 'ACCESS_INVENTORY_PARTIAL'), true);
+
+/*
+ * Evidence-chain key rotation.
+ *
+ * The ledger reports a record that fails to reproduce its hash as tampering, so
+ * rotating the hashing key without accepting the retired one would make every
+ * pre-rotation record accuse itself on first deploy. These assert the property
+ * that prevents it: a chain written before the rotation and extended after it
+ * verifies end to end, while tampering still fails.
+ */
+const legacySecret = 'legacy-raw-session-secret-0123456789abcdef';
+const rotatedSecret = 'derived-evidence-secret-0123456789abcdef';
+const keyring = Object.freeze({ active: rotatedSecret, retired: Object.freeze([legacySecret]) });
+const GENESIS = 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
+const repoKey = 'github:Acme/Demo';
+
+assert.notStrictEqual(legacySecret, rotatedSecret, 'the rotation must actually change the key');
+
+function record(secret, previousHash, kind, recordId) {
+  const payloadHash = hashJson({ record: recordId });
+  return {
+    kind,
+    recordId,
+    payload_hash: payloadHash,
+    previous_hash: previousHash,
+    record_hash: evidenceRecordHash(secret, previousHash, repoKey, kind, recordId, payloadHash)
+  };
+}
+function check(row, previousHash) {
+  return verifyEvidenceRecord(
+    keyring, row.record_hash, previousHash, repoKey, row.kind, row.recordId, row.payload_hash
+  );
+}
+
+/* A record written under either key verifies, and names the key that matched. */
+const preRotation = record(legacySecret, GENESIS, 'push', 'r1');
+const postRotation = record(rotatedSecret, preRotation.record_hash, 'push', 'r2');
+assert.deepStrictEqual(check(preRotation, GENESIS),
+  { valid: true, keyId: EVIDENCE_LEGACY_KEY_ID, legacy: true },
+  'a pre-rotation record must verify under the retired key and be reported as legacy');
+assert.deepStrictEqual(check(postRotation, preRotation.record_hash),
+  { valid: true, keyId: EVIDENCE_ACTIVE_KEY_ID, legacy: false },
+  'a post-rotation record must verify under the active key');
+
+/* Build a chain that straddles the rotation and verify it as the server does. */
+function verifyChain(rows) {
+  let previousHash = GENESIS;
+  let legacyRecords = 0;
+  for (const row of rows) {
+    const result = check(row, previousHash);
+    if (result.legacy) legacyRecords += 1;
+    if (row.previous_hash !== previousHash || !result.valid) {
+      return { valid: false, failedAt: row.recordId, legacyRecords };
+    }
+    previousHash = row.record_hash;
+  }
+  return { valid: true, head: previousHash, legacyRecords };
+}
+const r3 = record(rotatedSecret, postRotation.record_hash, 'merge', 'r3');
+const mixedChain = [preRotation, postRotation, r3];
+assert.deepStrictEqual(verifyChain(mixedChain),
+  { valid: true, head: r3.record_hash, legacyRecords: 1 },
+  'a chain written before the rotation and extended after it must verify, and count the legacy record');
+
+/*
+ * Falsify: drop the retired key and the pre-rotation record fails immediately.
+ * That failure is precisely the false alarm the retired keyring prevents.
+ */
+const activeOnly = Object.freeze({ active: rotatedSecret, retired: Object.freeze([]) });
+assert.strictEqual(
+  verifyEvidenceRecord(activeOnly, preRotation.record_hash, GENESIS, repoKey,
+    preRotation.kind, preRotation.recordId, preRotation.payload_hash).valid,
+  false,
+  'without the retired key a pre-rotation record reports as tampered, which is the regression being prevented'
+);
+
+/* Rotation must not weaken tamper detection anywhere in the chain. */
+for (const index of [0, 1, 2]) {
+  const tampered = mixedChain.map((row, position) =>
+    position === index ? { ...row, payload_hash: hashJson({ record: 'tampered' }) } : row);
+  assert.strictEqual(verifyChain(tampered).valid, false,
+    `a tampered payload at position ${index} must still be detected after rotation`);
+}
+assert.strictEqual(verifyChain([postRotation, preRotation, r3]).valid, false,
+  'reordering must still break the chain');
+
+/* A record forged under an unheld key must verify under neither. */
+const forged = record('an-attacker-secret-not-in-the-keyring', GENESIS, 'push', 'r1');
+assert.strictEqual(check(forged, GENESIS).valid, false,
+  'a record hashed with a key the operator does not hold must not verify');
+
+/* Malformed and hostile inputs must not resolve to a valid record. */
+for (const bad of ['', 'not-hex', 'a'.repeat(63), 'A'.repeat(64), null, undefined, 42, {}]) {
+  assert.strictEqual(
+    verifyEvidenceRecord(keyring, bad, GENESIS, repoKey, 'push', 'r1', hashJson({ record: 'r1' })).valid,
+    false, `record hash ${JSON.stringify(bad)} must not verify`);
+}
+for (const badKeyring of [null, undefined, 'secret', 42, {}, { active: 42 }, { retired: 'nope' }]) {
+  assert.strictEqual(
+    verifyEvidenceRecord(badKeyring, preRotation.record_hash, GENESIS, repoKey,
+      preRotation.kind, preRotation.recordId, preRotation.payload_hash).valid,
+    false, `keyring ${JSON.stringify(badKeyring)} must not verify`);
+}
+
+/*
+ * Retiring the legacy key is the point of separating it. Accepting the raw
+ * session secret forever would leave a leaked SESSION_SECRET able to forge
+ * evidence that verifies, so production must opt in deliberately.
+ */
+assert.strictEqual(acceptsLegacySessionKey({ NODE_ENV: 'production' }), false,
+  'production must not accept the retired session key by default');
+assert.strictEqual(acceptsLegacySessionKey({ NODE_ENV: 'production', NV_EVIDENCE_LEGACY_SESSION_KEY: 'true' }), true,
+  'production must accept it only on an explicit opt-in');
+assert.strictEqual(acceptsLegacySessionKey({}), true,
+  'development keeps the compatibility path');
+assert.strictEqual(acceptsLegacySessionKey({ NODE_ENV: 'development' }), true);
+
+/* Only an exact opt-in counts; near-misses must not silently enable it. */
+for (const value of ['', 'false', 'TRUE', 'True', '1', 'yes', 'true ', ' true', 'trueish', null, undefined, 0, 1, {}]) {
+  assert.strictEqual(
+    acceptsLegacySessionKey({ NODE_ENV: 'production', NV_EVIDENCE_LEGACY_SESSION_KEY: value }),
+    typeof value === 'string' && value.trim() === 'true',
+    `opt-in value ${JSON.stringify(value)} must be handled exactly`
+  );
+}
+for (const bad of [null, undefined, 'env', 42]) {
+  assert.strictEqual(acceptsLegacySessionKey(bad), true,
+    'a missing environment must not be read as production');
+}
+
+/*
+ * Rotating SESSION_SECRET moves the derived evidence key, so records written
+ * under a previous secret must stay verifiable through an explicit, bounded
+ * list of those secrets. Anything malformed must fail loudly at startup rather
+ * than silently shrinking the keyring, because a silently missing key reads as
+ * tampering later.
+ */
+const priorA = 'prior-session-secret-a-0123456789abcdef0123';
+const priorB = 'prior-session-secret-b-0123456789abcdef0123';
+assert.deepStrictEqual(parseRetiredSessionSecrets(''), []);
+assert.deepStrictEqual(parseRetiredSessionSecrets('   '), []);
+assert.deepStrictEqual(parseRetiredSessionSecrets(null), []);
+assert.deepStrictEqual(parseRetiredSessionSecrets(undefined), []);
+assert.deepStrictEqual(parseRetiredSessionSecrets('[]'), []);
+assert.deepStrictEqual(parseRetiredSessionSecrets(JSON.stringify([priorA])), [priorA]);
+assert.deepStrictEqual(parseRetiredSessionSecrets(JSON.stringify([priorA, priorB])), [priorA, priorB]);
+assert.deepStrictEqual(parseRetiredSessionSecrets(JSON.stringify([priorA, priorA])), [priorA],
+  'duplicates must collapse rather than widening the keyring');
+assert(Object.isFrozen(parseRetiredSessionSecrets(JSON.stringify([priorA]))));
+
+assert.throws(() => parseRetiredSessionSecrets('not json'), /must be valid JSON/);
+assert.throws(() => parseRetiredSessionSecrets('{}'), /must be an array/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify([priorA])+'x'), /must be valid JSON/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify(Array(9).fill(priorA).map((v,i)=>v+i))), /at most 8/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify([42])), /must be a string/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify([null])), /must be a string/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify(['too-short'])), /32 to 4096/);
+assert.throws(() => parseRetiredSessionSecrets(JSON.stringify(['x'.repeat(4097)])), /32 to 4096/);
+assert.deepStrictEqual(parseRetiredSessionSecrets(JSON.stringify(['y'.repeat(32)])), ['y'.repeat(32)],
+  'exactly the minimum length must be accepted');
+
+/*
+ * A record written under a previous secret's derived key must verify once that
+ * secret is supplied, and must not verify when it is missing. The second half is
+ * the regression: without it a routine rotation makes the ledger accuse itself.
+ */
+const priorDerived = 'derived-from-prior-secret-0123456789abcdef';
+const currentDerived = 'derived-from-current-secret-0123456789abcd';
+const rotatedRecord = record(priorDerived, GENESIS, 'push', 'rotated');
+assert.strictEqual(
+  verifyEvidenceRecord({ active: currentDerived, retired: [priorDerived] },
+    rotatedRecord.record_hash, GENESIS, repoKey, 'push', 'rotated', rotatedRecord.payload_hash).valid,
+  true,
+  'a record written before the secret rotation must verify once the prior key is supplied');
+assert.strictEqual(
+  verifyEvidenceRecord({ active: currentDerived, retired: [] },
+    rotatedRecord.record_hash, GENESIS, repoKey, 'push', 'rotated', rotatedRecord.payload_hash).valid,
+  false,
+  'without the prior key a routine SESSION_SECRET rotation makes the ledger report tampering');
+
+/*
+ * The acceptance keyring and the diagnostic probe are assembled together,
+ * because holding the same retired secrets in two hand-maintained lists is how
+ * they drift: the keyring listed them and the probe did not, so a record signed
+ * with a retired raw secret was reported as tampering rather than as a chain
+ * still awaiting migration.
+ *
+ * The two have opposite jobs. The keyring decides what verifies. The probe only
+ * explains a failure, so it always holds the pre-separation secrets -- knowing
+ * why a record failed must never depend on being willing to accept it.
+ */
+const ledgerActive = 'derived-from-current-secret-0123456789abcd';
+const rawCurrent = 'current-session-secret-0123456789abcdef0123';
+const retiredJson = JSON.stringify([priorA, priorB]);
+
+const openRing = evidenceKeyrings(
+  { NODE_ENV: 'production', NV_EVIDENCE_LEGACY_SESSION_KEY: 'true', NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON: retiredJson },
+  { sessionSecret: rawCurrent, ledgerSecret: ledgerActive }
+);
+const closedRing = evidenceKeyrings(
+  { NODE_ENV: 'production', NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON: retiredJson },
+  { sessionSecret: rawCurrent, ledgerSecret: ledgerActive }
+);
+
+assert.strictEqual(openRing.legacyAccepted, true);
+assert.strictEqual(closedRing.legacyAccepted, false);
+for (const ring of [openRing, closedRing]) {
+  assert.strictEqual(ring.keyring.active, ledgerActive, 'the active key is always the derived ledger key');
+  assert.strictEqual(ring.legacyProbe.active, rawCurrent, 'the probe always tests the raw session secret');
+  assert(Object.isFrozen(ring.keyring.retired) && Object.isFrozen(ring.legacyProbe.retired));
+}
+
+/*
+ * A record from before the key separation, written with a session secret that
+ * has since been rotated away. This is the row the probe existed to explain and
+ * could not: it is signed with neither the active key nor any derived key.
+ */
+const preSeparationRotated = record(priorA, GENESIS, 'webhook', 'pre-separation-rotated');
+const verifyWith = (ring, row) => verifyEvidenceRecord(
+  ring, row.record_hash, GENESIS, repoKey, row.kind, row.recordId, row.payload_hash
+);
+
+assert.strictEqual(verifyWith(closedRing.keyring, preSeparationRotated).valid, false,
+  'declining the opt-in must still refuse a record signed with a retired raw secret');
+assert.strictEqual(verifyWith(closedRing.legacyProbe, preSeparationRotated).valid, true,
+  'the probe must recognise it, or the operator cannot tell an unmigrated chain from tampering');
+assert.strictEqual(verifyWith(openRing.keyring, preSeparationRotated).valid, true,
+  'opting in must accept it');
+
+/* Opting in must not be required to explain a pre-separation record either. */
+const preSeparationCurrent = record(rawCurrent, GENESIS, 'webhook', 'pre-separation-current');
+assert.strictEqual(verifyWith(closedRing.keyring, preSeparationCurrent).valid, false);
+assert.strictEqual(verifyWith(closedRing.legacyProbe, preSeparationCurrent).valid, true);
+
+/* A record under a rotated-away derived key verifies outright: no opt-in needed. */
+const rotatedDerived = record(deriveSecret(priorB, KEY_PURPOSES.EVIDENCE_LEDGER), GENESIS, 'webhook', 'rotated-derived');
+assert.strictEqual(verifyWith(closedRing.keyring, rotatedDerived).valid, true,
+  'supplying a prior secret must keep its derived key verifying without the pre-separation opt-in');
+
+/* Forged records verify under nothing, which is what makes the ledger evidence. */
+const forgedRecord = record('attacker-key-0123456789abcdef0123456789ab', GENESIS, 'webhook', 'forged');
+for (const ring of [closedRing.keyring, closedRing.legacyProbe, openRing.keyring, openRing.legacyProbe]) {
+  assert.strictEqual(verifyWith(ring, forgedRecord).valid, false, 'a forged record must verify under no key');
+}
+
+/* Without retired secrets the probe still covers the un-rotated legacy case. */
+const bare = evidenceKeyrings({ NODE_ENV: 'production' }, { sessionSecret: rawCurrent, ledgerSecret: ledgerActive });
+assert.deepStrictEqual(bare.keyring.retired, []);
+assert.deepStrictEqual(bare.legacyProbe.retired, []);
+assert.strictEqual(verifyWith(bare.legacyProbe, preSeparationCurrent).valid, true);
+
+/* Malformed operator input must fail at startup rather than shrink the keyring. */
+assert.throws(
+  () => evidenceKeyrings({ NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON: 'not json' },
+    { sessionSecret: rawCurrent, ledgerSecret: ledgerActive }),
+  /must be valid JSON/
+);
 
 console.log('intelligence tests passed');

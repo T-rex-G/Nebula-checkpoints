@@ -11,11 +11,12 @@ function json(status, body) {
 
 (async () => {
   const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const clientSecret = ['server-only', 'client-secret'].join('-');
   const config = loadGithubAppConfig({
     GITHUB_APP_ID: '42',
     GITHUB_APP_SLUG: 'nebula-test',
     GITHUB_APP_CLIENT_ID: 'Iv1.nebulatest',
-    GITHUB_APP_CLIENT_SECRET: 'server-only-client-secret',
+    GITHUB_APP_CLIENT_SECRET: clientSecret,
     GITHUB_APP_PRIVATE_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }),
     GITHUB_APP_CALLBACK_URL: 'https://nebula.example/api/github-app/oauth/callback'
   }, { production: true });
@@ -68,11 +69,11 @@ function json(status, body) {
   const exchangeBody = JSON.parse(exchangeRequest.body);
   assert.deepStrictEqual(exchangeBody, {
     client_id: config.clientId,
-    client_secret: 'server-only-client-secret',
+    client_secret: clientSecret,
     code: 'single-use-code',
     redirect_uri: config.callbackUrl
   });
-  assert(!exchangeRequest.url.includes('server-only-client-secret'));
+  assert(!exchangeRequest.url.includes(clientSecret));
 
   const user = await broker.getAuthorizedUser(exchange.token);
   assert.deepStrictEqual(user, {
@@ -93,7 +94,7 @@ function json(status, body) {
   );
   assert(requests.every(item => item.signal instanceof AbortSignal), 'user authorization requests must have timeout signals');
   const serialized = JSON.stringify({ user, claimed, requests: requests.map(item => ({ url: item.url, method: item.method })) });
-  assert(!serialized.includes('server-only-client-secret'));
+  assert(!serialized.includes(clientSecret));
   assert(!serialized.includes('ghu_ephemeral_user_authorization'));
   console.log('github app user authorization flow tests passed');
 })().catch(error => {

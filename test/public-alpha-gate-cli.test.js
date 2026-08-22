@@ -6,7 +6,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { parseArgs } = require('../scripts/public-alpha-gate');
+const { createArtifactVerifier, parseArgs } = require('../scripts/public-alpha-gate');
+const { createPassFixture } = require('./helpers/public-alpha-pass-fixture');
+const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 
 assert.deepStrictEqual(parseArgs(['plan']), { command: 'plan' });
 assert.deepStrictEqual(parseArgs(['verify', '/tmp/evidence.json']), {
@@ -27,10 +29,10 @@ assert.throws(() => parseArgs(['plan', '--unexpected']), /does not accept/);
 const root = path.resolve(__dirname, '..');
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-alpha-gate-test-'));
 try {
-  const artifactPath = path.join(temporaryRoot, 'sanitized-evidence.json');
-  fs.writeFileSync(artifactPath, '{"status":"sanitized"}\n', { mode: 0o600 });
-  const artifactSha256 = crypto.createHash('sha256').update(fs.readFileSync(artifactPath)).digest('hex');
-  const evidence = structuredClone(require('./fixtures/public-alpha-qualification-pass.json'));
+  const fixture = createPassFixture();
+  fixture.envelopes['hosted-artifact'].deploymentSha256 = computeReleaseFingerprint(root);
+  fixture.bindings.expectedDeploymentSha256 = fixture.envelopes['hosted-artifact'].deploymentSha256;
+  const evidence = fixture.record;
   const completedAt = new Date().toISOString();
   evidence.generatedAt = completedAt;
   for (const section of [evidence.automated, evidence.hosted, evidence.manual]) {
@@ -39,8 +41,64 @@ try {
   for (const provider of Object.values(evidence.providers)) {
     for (const item of Object.values(provider)) item.completedAt = completedAt;
   }
-  evidence.artifacts[0].path = artifactPath;
-  evidence.artifacts[0].sha256 = artifactSha256;
+  for (const artifact of evidence.artifacts) {
+    const envelope = fixture.envelopes[artifact.id];
+    envelope.completedAt = completedAt;
+    for (const claim of Object.values(envelope.claims)) claim.completedAt = completedAt;
+    const artifactPath = path.join(temporaryRoot, `${artifact.id}.json`);
+    fs.writeFileSync(artifactPath, `${JSON.stringify(envelope, null, 2)}\n`, { mode: 0o600 });
+    artifact.path = artifactPath;
+    artifact.sha256 = crypto.createHash('sha256').update(fs.readFileSync(artifactPath)).digest('hex');
+  }
+
+  const atomicArtifact = evidence.artifacts[0];
+  const originalArtifactBytes = fs.readFileSync(atomicArtifact.path);
+  const originalArtifact = JSON.parse(originalArtifactBytes);
+  const replacementArtifact = { ...originalArtifact, originId: 'swapped-after-hash' };
+  const replacementPath = `${atomicArtifact.path}.replacement`;
+  fs.writeFileSync(replacementPath, `${JSON.stringify(replacementArtifact, null, 2)}\n`);
+  const originalReadSync = fs.readSync;
+  let swapped = false;
+  fs.readSync = function readAndSwap(...args) {
+    const bytesRead = originalReadSync(...args);
+    if (!swapped && bytesRead > 0) {
+      fs.renameSync(replacementPath, atomicArtifact.path);
+      swapped = true;
+    }
+    return bytesRead;
+  };
+  let atomicallyVerified;
+  try {
+    atomicallyVerified = createArtifactVerifier()(atomicArtifact);
+  } finally {
+    fs.readSync = originalReadSync;
+    fs.writeFileSync(atomicArtifact.path, originalArtifactBytes);
+    fs.rmSync(replacementPath, { force: true });
+  }
+  assert.strictEqual(swapped, true, 'the atomic-read regression fixture must perform the file swap');
+  assert.strictEqual(
+    atomicallyVerified.originId,
+    originalArtifact.originId,
+    'the artifact digest and parsed envelope must come from the same file bytes'
+  );
+
+  const oversizedArtifactPath = path.join(temporaryRoot, 'oversized-artifact.json');
+  const oversizedDescriptor = fs.openSync(oversizedArtifactPath, 'w', 0o600);
+  try {
+    fs.ftruncateSync(oversizedDescriptor, (64 * 1024 * 1024) + 1);
+  } finally {
+    fs.closeSync(oversizedDescriptor);
+  }
+  assert.throws(
+    () => createArtifactVerifier()({
+      ...atomicArtifact,
+      path: oversizedArtifactPath
+    }),
+    /safe size limit/,
+    'artifact size must be rejected from the opened descriptor before content is read'
+  );
+
+  const cleanEvidence = structuredClone(evidence);
   evidence.knownLimitations.push('Line one\n# Injected heading https://github.com/acme/private-repo');
   const evidencePath = path.join(temporaryRoot, 'qualification.json');
   fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
@@ -48,7 +106,13 @@ try {
   const env = {
     ...process.env,
     NV_PUBLIC_ALPHA_SUBJECT_SHA256: 'a'.repeat(64),
-    NV_PUBLIC_ALPHA_SOURCE_COMMIT: 'b'.repeat(40)
+    NV_PUBLIC_ALPHA_SOURCE_COMMIT: 'b'.repeat(40),
+    NV_PUBLIC_ALPHA_GITHUB_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.github,
+    NV_PUBLIC_ALPHA_GITLAB_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.gitlab,
+    NV_PUBLIC_ALPHA_GITEA_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.gitea,
+    NV_PUBLIC_ALPHA_HOSTED_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.hosted,
+    NV_ALPHA17_OPERATOR_KEY_ID: 'fixture-operator',
+    NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64: fixture.bindings.trustedOperatorKeys['fixture-operator']
   };
   const plan = JSON.parse(execFileSync(process.execPath, [
     'scripts/public-alpha-gate.js', 'plan'
@@ -76,7 +140,7 @@ try {
   assert.strictEqual(qualification.sourceCommit, 'b'.repeat(40));
   assert(closeout.includes(`Subject SHA-256: \`${'a'.repeat(64)}\``));
   assert(closeout.includes(`Source commit: \`${'b'.repeat(40)}\``));
-  assert(closeout.includes('Provider evidence: 42/42 passed'));
+  assert(closeout.includes('Provider evidence: 16/16 passed'));
   assert(closeout.includes('Hosted evidence: 13/13 passed'));
   assert(closeout.includes('Manual evidence: 5/5 passed'));
   assert(closeout.includes('Cleanup: verified'));
@@ -86,6 +150,28 @@ try {
   assert(!/ghp_|glpat-|postgres(?:ql)?:\/\//i.test(closeout));
   assert.strictEqual(fs.statSync(qualificationPath).mode & 0o777, 0o600);
   assert.strictEqual(fs.statSync(closeoutPath).mode & 0o777, 0o600);
+
+  const unrelatedEnvelope = structuredClone(fixture.envelopes['automated-artifact']);
+  unrelatedEnvelope.claims = {
+    'automated.unrelated-check': {
+      status: 'pass',
+      cleanupVerified: true,
+      completedAt
+    }
+  };
+  const unrelatedPath = path.join(temporaryRoot, 'unrelated-but-hash-valid.json');
+  fs.writeFileSync(unrelatedPath, `${JSON.stringify(unrelatedEnvelope, null, 2)}\n`, { mode: 0o600 });
+  const unrelatedRecord = structuredClone(cleanEvidence);
+  const automatedMetadata = unrelatedRecord.artifacts.find(item => item.id === 'automated-artifact');
+  automatedMetadata.path = unrelatedPath;
+  automatedMetadata.sha256 = crypto.createHash('sha256').update(fs.readFileSync(unrelatedPath)).digest('hex');
+  const unrelatedRecordPath = path.join(temporaryRoot, 'unrelated-qualification.json');
+  fs.writeFileSync(unrelatedRecordPath, `${JSON.stringify(unrelatedRecord, null, 2)}\n`, { mode: 0o600 });
+  const unrelatedRejected = spawnSync(process.execPath, [
+    'scripts/public-alpha-gate.js', 'verify', unrelatedRecordPath
+  ], { cwd: root, env, encoding: 'utf8' });
+  assert.notStrictEqual(unrelatedRejected.status, 0);
+  assert.match(unrelatedRejected.stderr, /PUBLIC_ALPHA_EVIDENCE_CLAIM_MISSING/);
 
   const symlinkPath = path.join(temporaryRoot, 'evidence-link.json');
   fs.symlinkSync(evidencePath, symlinkPath);

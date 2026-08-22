@@ -152,6 +152,7 @@ async function api(path, opts = {}, allowCsrfRetry = true) {
     }
     if (['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(error.code)) {
       await purgeLocalData(true);
+      broadcastIdentityBoundary();
       alphaBootStarted = false;
       window.NebulaAlphaUI.showExpired(error.code);
       _page = 'alpha-access';
@@ -467,6 +468,7 @@ document.addEventListener('click', async event => {
       if (!window.confirm('Disconnect this GitHub App installation from Nebulaverse-X? This does not uninstall it from GitHub.')) return;
       const result = await api('/api/github-app/disconnect', { method: 'POST', body: { installationId } });
       await purgeLocalData(!!result.empty);
+      broadcastIdentityBoundary();
       toast('GitHub App installation disconnected ✦', 'ok');
       if (result.empty) {
         state.me = null;
@@ -562,6 +564,7 @@ async function disconnectAlphaProviders(openGuidance) {
     return;
   }
   await purgeLocalData(true);
+  broadcastIdentityBoundary();
   ensureAlphaProviderGuidance();
   ensureLoginAlphaSessionControls();
   showPage('login');
@@ -599,6 +602,7 @@ async function deleteAlphaData() {
     return;
   }
   await purgeLocalData(true);
+  broadcastIdentityBoundary();
   showPage('login');
   toast('Alpha data deletion completed ✦', 'ok');
 }
@@ -615,6 +619,7 @@ document.addEventListener('click', async event => {
     if (action === 'end') {
       await api('/api/alpha/end', { method: 'POST', body: {} });
       await purgeLocalData(true);
+      broadcastIdentityBoundary();
       showPage('login');
       toast('Alpha session ended ✦', 'ok');
     }
@@ -750,6 +755,7 @@ async function loadProviderCapabilities() {
   ) || (provider === 'github' ? 'github.com' : '');
   await window.NebulaCapabilityUI.load(provider, authority);
   window.NebulaCapabilityUI.apply();
+  applyGovernanceCapabilityBoundary($('#govRoot'));
 }
 function runCapabilityAction(feature, action, options = {}) {
   if (!feature) {
@@ -780,7 +786,7 @@ async function boot() {
   $('#findBtn').addEventListener('click', () => { if (state.file && !state.file.binary) openFindPanel(); });
   try {
     state.me = await api('/api/me');
-    try { localStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
+    try { sessionStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
     refreshSafety();
     state.caps = state.me.caps || null;
     await loadProviderCapabilities();
@@ -790,7 +796,7 @@ async function boot() {
     loadRepos(true);
     if (!(await restoreRoute())) showPage('repos');
   } catch (e) {
-    const cached = (() => { try { return JSON.parse(localStorage.getItem('nv_me') || 'null'); } catch { return null; } })();
+    const cached = (() => { try { return JSON.parse(sessionStorage.getItem('nv_me') || 'null'); } catch { return null; } })();
     if (cached && isOfflineError(e)) {
       /* offline launch: proceed with the last-known identity and cached data */
       state.me = cached;
@@ -838,9 +844,10 @@ async function doLogin() {
       const me2 = await api('/api/me');
       state.me = { ...state.me, ...me2 };
       state.caps = me2.caps || null;
-      localStorage.setItem('nv_me', JSON.stringify(state.me));
+      sessionStorage.setItem('nv_me', JSON.stringify(state.me));
       await loadProviderCapabilities();
     } catch {}
+    broadcastIdentityBoundary();
     $('#loginBackBtn').hidden = true;
     applyCaps();
     $('#tokenInput').value = '';
@@ -884,6 +891,8 @@ async function purgeLocalData(full) {
       tx.onabort = r;
     });
   } catch {}
+  /* Remove the pre-alpha.17 shared cache during upgrades; current identity
+     fallback is tab-scoped in sessionStorage and was cleared above. */
   try { localStorage.removeItem('nv_me'); } catch {}
   state.file = null;
   if (state.cm) {
@@ -912,6 +921,31 @@ async function purgeLocalData(full) {
   if (full) _cache.clear();
 }
 window.NebulaPwa = Object.freeze({ purgePrivateData: purgeLocalData, purgePrivateCaches, isOfflineRepoEnabled });
+const NV_IDENTITY_BOUNDARY_STORAGE_KEY = 'nv_identity_boundary_event';
+const identityBoundaryChannel = (() => {
+  try { return typeof BroadcastChannel === 'function' ? new BroadcastChannel('nv-identity-boundary-v1') : null; }
+  catch { return null; }
+})();
+let handlingRemoteIdentityBoundary = false;
+async function receiveIdentityBoundary() {
+  if (handlingRemoteIdentityBoundary) return;
+  handlingRemoteIdentityBoundary = true;
+  await purgeLocalData(true);
+  window.location.reload();
+}
+function broadcastIdentityBoundary() {
+  const marker = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  try { if (identityBoundaryChannel) identityBoundaryChannel.postMessage({ type: 'NV_IDENTITY_BOUNDARY', marker }); } catch {}
+  try { localStorage.setItem(NV_IDENTITY_BOUNDARY_STORAGE_KEY, marker); } catch {}
+}
+if (identityBoundaryChannel) {
+  identityBoundaryChannel.addEventListener('message', event => {
+    if (event.data && event.data.type === 'NV_IDENTITY_BOUNDARY') receiveIdentityBoundary().catch(() => {});
+  });
+}
+window.addEventListener('storage', event => {
+  if (event.key === NV_IDENTITY_BOUNDARY_STORAGE_KEY && event.newValue) receiveIdentityBoundary().catch(() => {});
+});
 async function doLogout() {
   let remoteError = null;
   try {
@@ -920,6 +954,7 @@ async function doLogout() {
     remoteError = error;
   } finally {
     await purgeLocalData(true);
+    broadcastIdentityBoundary();
     state.me = null;
     showPage('login');
   }
@@ -1032,6 +1067,7 @@ $('#accountBtn').addEventListener('click', async () => {
       try {
         await purgeLocalData(false);
         const out = await api('/api/accounts/switch-idx', { method: 'POST', body: { idx: +b.dataset.switch } });
+        broadcastIdentityBoundary();
         closeModal(true);
         toast(`Switched to ${out.login} ✦`, 'ok');
         location.hash = '';
@@ -1043,9 +1079,10 @@ $('#accountBtn').addEventListener('click', async () => {
         await purgeLocalData(false);
         const out = await api('/api/accounts/remove', { method: 'POST', body: { idx: +b.dataset.remove } });
         await purgeLocalData(!!out.empty);
+        broadcastIdentityBoundary();
         closeModal(true);
         toast(`${out.removed} signed out ✦`, 'ok');
-        if (out.empty) { localStorage.removeItem('nv_me'); showPage('login'); return; }
+        if (out.empty) { sessionStorage.removeItem('nv_me'); showPage('login'); return; }
         location.hash = '';
         boot(); loadRepos(true);
       } catch (e) { toast(e.message, 'err'); }
@@ -1310,6 +1347,49 @@ function downloadZip() {
 const wPath = () => `${state.work.owner}/${state.work.repo}`;
 
 let governanceExpiryTimer = null;
+const GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS = Object.freeze([
+  'refresh', 'select-policy', 'view-version', 'view-exception', 'verify-chain',
+  'load-more-decisions', 'delivery-refresh', 'download-export', 'verify-export'
+]);
+function applyGovernanceCapabilityBoundary(root) {
+  if (!root) return;
+  const banner = root.querySelector('[data-governance-experimental-banner]');
+  if (!window.NebulaCapabilityUI ||
+      window.NebulaCapabilityUI.decision('governance').status !== 'Experimental') {
+    if (banner) banner.remove();
+    root.querySelectorAll('[data-governance-experimental-disabled="true"]').forEach(button => {
+      button.disabled = button.dataset.governanceOriginalDisabled === 'true';
+      const originalTitle = button.dataset.governanceOriginalTitle || '';
+      if (originalTitle) button.title = originalTitle;
+      else button.removeAttribute('title');
+      delete button.dataset.governanceExperimentalDisabled;
+      delete button.dataset.governanceOriginalDisabled;
+      delete button.dataset.governanceOriginalTitle;
+    });
+    return;
+  }
+  const shell = root.querySelector('.gov-shell');
+  if (shell && !banner) {
+    const notice = document.createElement('div');
+    notice.className = 'gov-banner warn';
+    notice.setAttribute('role', 'status');
+    notice.dataset.governanceExperimentalBanner = 'true';
+    notice.textContent = 'Experimental provider governance is view-only; mutations remain unavailable.';
+    const hero = shell.querySelector('.gov-hero');
+    if (hero) hero.insertAdjacentElement('afterend', notice);
+    else shell.prepend(notice);
+  }
+  root.querySelectorAll('[data-gov-action]').forEach(button => {
+    if (GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS.includes(button.dataset.govAction)) return;
+    if (button.dataset.governanceExperimentalDisabled !== 'true') {
+      button.dataset.governanceOriginalDisabled = String(button.disabled);
+      button.dataset.governanceOriginalTitle = button.getAttribute('title') || '';
+    }
+    button.dataset.governanceExperimentalDisabled = 'true';
+    button.disabled = true;
+    button.title = 'Unavailable: experimental governance is view-only for this provider.';
+  });
+}
 function clearGovernanceState() {
   if (governanceExpiryTimer) clearTimeout(governanceExpiryTimer);
   governanceExpiryTimer = null;
@@ -1355,6 +1435,7 @@ function renderGovernanceInterface() {
     verification: state.governance.verification,
     delivery: state.governance.delivery
   });
+  applyGovernanceCapabilityBoundary(root);
 }
 async function loadGovernanceTwin(force = false) {
   if (!state.work || !state.work.owner || !state.work.repo || state.governance.loading) return;
@@ -1696,7 +1777,7 @@ async function editGovernanceNotificationPreferences() {
   const current = state.governance.delivery.preferences || {};
   const enabled = current.enabled !== false;
   const types = Array.isArray(current.eventTypes) ? current.eventTypes.join('\n') : '';
-  const ok = await modal({ title: 'Notification preferences', okText: 'Save preferences', bodyHTML: `<label class="field-label"><input id="govNotificationEnabled" type="checkbox" ${enabled ? 'checked' : ''}> Enable notifications</label><label class="field-label">Event types, one per line</label><textarea id="govNotificationTypes" rows="10">${escapeHtml(types)}</textarea>` });
+  const ok = await modal({ title: 'Notification preferences', okText: 'Save preferences', bodyHTML: `<label class="field-label"><input id="govNotificationEnabled" type="checkbox" ${enabled ? 'checked' : ''}> Enable notifications</label><label class="field-label">Event types, one per line</label><textarea id="govNotificationTypes" rows="10">${esc(types)}</textarea>` });
   if (!ok) return;
   const eventTypes = $('#govNotificationTypes').value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
   await api(`${governanceBasePath()}/notifications/preferences`, { method: 'PUT', headers: governanceHeaders('notification-preferences'), body: { enabled: $('#govNotificationEnabled').checked, eventTypes } });
@@ -1856,12 +1937,13 @@ function openItemMenu(it) {
     title: it.name + (isDir ? '/' : ''), okText: 'Close',
     bodyHTML: `
       ${isDir ? '' : `<button class="btn btn-ghost btn-block" data-mi="open" style="margin-top:0">Open in editor</button>
-      <button class="btn btn-ghost btn-block" data-mi="rename">Rename / move</button>
+      <button class="btn btn-ghost btn-block" data-mi="rename" data-feature="file.rename" data-allow-experimental="true">Rename / move</button>
       <button class="btn btn-ghost btn-block" data-mi="download">Download</button>`}
-      ${isDir ? '<button class="btn btn-ghost btn-block" data-mi="movedir">Rename / move folder…</button>'
+      ${isDir ? '<button class="btn btn-ghost btn-block" data-mi="movedir" data-feature="folder.move" data-allow-experimental="true">Rename / move folder…</button>'
         : `<button class="btn btn-ghost btn-block" data-mi="protect">${isProtectedPath(it.path) ? 'Unprotect file' : 'Protect file'}</button>`}
       <button class="btn btn-ghost btn-block danger" data-mi="delete" ${isDir ? 'style="margin-top:0"' : ''}>${isDir ? 'Delete folder…' : 'Delete file…'}</button>`
   });
+  if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
   $('#modalBody').addEventListener('click', async e => {
     const b = e.target.closest('[data-mi]');
     if (!b) return;
@@ -2141,7 +2223,7 @@ async function openSafeguards() {
         <button class="btn btn-ghost small" id="sgSnap" data-feature="recovery">Emergency snapshot</button>
         <button class="btn btn-ghost small" id="sgRecover" data-feature="recovery">Disaster recovery…</button>
         <button class="btn btn-ghost small" id="sgActivity" data-feature="governance" data-allow-experimental="true">Export activity</button>
-        <button class="btn btn-ghost small" id="sgScan" data-feature="dependency-audit">Security scan</button>
+        <button class="btn btn-ghost small" id="sgScan" data-feature="dependency-audit" data-allow-experimental="true">Security scan</button>
         <button class="btn btn-ghost small" id="sgEvidence" data-feature="governance" data-allow-experimental="true">Export evidence</button>
       </div>
       <div class="set-label" style="margin-top:12px">Protected files, folders and patterns ${prot.length ? `(${prot.length})` : ''}</div>
@@ -2704,12 +2786,12 @@ const COMMANDS = [
   { label: 'New file', kind: 'action', feature: 'file.write', run: () => $('#newFileBtn').click() },
   { label: 'New branch', kind: 'action', feature: 'branches.write', run: () => $('#newBranchBtn').click() },
   { label: 'Push files (upload)', kind: 'view', feature: 'native-push', allowExperimental: true, run: () => switchTab('upload') },
-  { label: 'Pull requests', kind: 'view', feature: 'pulls.read', run: () => switchTab('pulls') },
-  { label: 'Issues', kind: 'view', feature: 'issues.read', run: () => switchTab('issues') },
-  { label: 'Releases', kind: 'view', feature: 'releases.read', run: () => switchTab('releases') },
-  { label: 'Compare branches', kind: 'view', feature: 'recovery', run: () => switchTab('compare') },
+  { label: 'Pull requests', kind: 'view', feature: 'pulls.read', allowExperimental: true, run: () => switchTab('pulls') },
+  { label: 'Issues', kind: 'view', feature: 'issues.read', allowExperimental: true, run: () => switchTab('issues') },
+  { label: 'Releases', kind: 'view', feature: 'releases.read', allowExperimental: true, run: () => switchTab('releases') },
+  { label: 'Compare branches', kind: 'view', feature: 'recovery', allowExperimental: true, run: () => switchTab('compare') },
   { label: 'Commits', kind: 'view', feature: 'repository.read', run: () => switchTab('commits') },
-  { label: 'Staged changes', kind: 'view', feature: 'file.batch', run: () => openStagePanel() },
+  { label: 'Staged changes', kind: 'view', feature: 'file.batch', allowExperimental: true, run: () => openStagePanel() },
   { label: 'Download repo as zip', kind: 'action', feature: 'repository.read', run: () => downloadZip() },
   { label: 'Settings', kind: 'action', run: () => openSettings() },
   { label: 'Safeguards (read-only, protection, recovery)', kind: 'action', feature: 'recovery', run: () => openSafeguards() },
@@ -2717,10 +2799,10 @@ const COMMANDS = [
   { label: 'Security scan — vulnerable dependencies', kind: 'action', feature: 'dependency-audit', allowExperimental: true, run: () => securityScanFlow() },
   { label: 'Export recent activity', kind: 'action', feature: 'repository.read', run: () => exportActivityFlow() },
   { label: 'Toggle theme', kind: 'action', run: () => toggleTheme() },
-  { label: 'Actions (CI)', kind: 'view', feature: 'workflows.read', run: () => switchTab('actions') },
+  { label: 'Actions (CI)', kind: 'view', feature: 'workflows.read', allowExperimental: true, run: () => switchTab('actions') },
   { label: 'Neural Command Center', kind: 'view', feature: 'access-surface', run: () => switchTab('neural') },
   { label: 'Manage branches', kind: 'action', feature: 'branches.write', run: () => openBranchManager() },
-  { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', run: () => toggleStar() },
+  { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', allowExperimental: true, run: () => toggleStar() },
   { label: 'Open the Time Machine', kind: 'action', feature: 'recovery', run: () => openTimeMachine() },
   { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', run: () => deleteRepoFlow() },
   { label: 'Back to repositories', kind: 'view', run: () => $('#backBtn').click() }

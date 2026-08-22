@@ -1,5 +1,6 @@
 'use strict';
 const { test, expect } = require('@playwright/test');
+const { ASSET_VERSION } = require('../../src/version');
 
 const scope = 'scopeAlice_0123456789abcdefXYZ';
 
@@ -39,7 +40,7 @@ test('PWA shell uses official release identity and installs a versioned shell ca
   await page.reload();
   await page.evaluate(() => navigator.serviceWorker.ready);
   const keys = await page.evaluate(() => caches.keys());
-  expect(keys).toContain('nv-static-v530');
+  expect(keys).toContain(`nv-static-v${ASSET_VERSION}`);
   expect(keys).not.toContain('nv-api-perm');
 });
 
@@ -78,7 +79,7 @@ test('failed remote logout still clears local private data and returns to login'
   });
   await page.goto('/');
   await page.evaluate(async scopeValue => {
-    localStorage.setItem('nv_me', JSON.stringify({ login: 'alice', offlineCacheScope: scopeValue }));
+    sessionStorage.setItem('nv_me', JSON.stringify({ login: 'alice', offlineCacheScope: scopeValue }));
     localStorage.setItem(`nv_offline_repos:${scopeValue}`, JSON.stringify(['github:acme/demo']));
     await caches.open(`nv-api-${scopeValue}`);
   }, scope);
@@ -87,10 +88,57 @@ test('failed remote logout still clears local private data and returns to login'
     : page.locator('#logoutBtnM');
   await logout.click();
   await expect(page.locator('#page-login')).toHaveClass(/active/);
-  const result = await page.evaluate(() => ({ me: localStorage.getItem('nv_me'), caches: [] }));
+  const result = await page.evaluate(() => ({ me: sessionStorage.getItem('nv_me'), caches: [] }));
   result.caches = await page.evaluate(() => caches.keys().then(keys => keys.filter(key => key.startsWith('nv-api-'))));
   expect(result.me).toBeNull();
   expect(result.caches).toEqual([]);
+});
+
+test('login boundary keeps the active offline identity while purging the sibling tab', async ({ page, context }) => {
+  let activeAuthenticated = false;
+  await mockApi(page, {
+    'GET /api/me': route => activeAuthenticated
+      ? route.fulfill({ json: { login: 'alice', name: 'Alice', avatar: '', provider: 'github', authMethod: 'token', caps: {}, offlineCacheScope: scope } })
+      : route.fulfill({ status: 401, json: { error: 'sign in required', code: 'AUTH_REQUIRED' } }),
+    'POST /api/login': route => {
+      activeAuthenticated = true;
+      return route.fulfill({ json: { login: 'alice', provider: 'github', authMethod: 'token' } });
+    }
+  });
+
+  const sibling = await context.newPage();
+  let siblingOnline = true;
+  await mockApi(sibling, {
+    'GET /api/me': route => siblingOnline
+      ? route.fulfill({ json: { login: 'bob', name: 'Bob', avatar: '', provider: 'github', authMethod: 'token', caps: {}, offlineCacheScope: 'scopeBob_0123456789abcdefXYZ' } })
+      : route.fulfill({ status: 503, json: { error: 'offline' } })
+  });
+
+  await sibling.goto('/');
+  await expect(sibling.locator('#page-repos')).toHaveClass(/active/);
+  await expect.poll(
+    () => sibling.evaluate(() => JSON.parse(sessionStorage.getItem('nv_me') || 'null')?.login)
+  ).toBe('bob');
+  siblingOnline = false;
+
+  await page.goto('/');
+  await expect(page.locator('#page-login')).toHaveClass(/active/);
+  await page.locator('#tokenInput').fill('synthetic-login-token');
+  await page.locator('#loginBtn').click();
+  await expect(page.locator('#page-repos')).toHaveClass(/active/);
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem('nv_me') || 'null')?.login)).toBe('alice');
+
+  await expect(sibling.locator('#page-login')).toHaveClass(/active/);
+  /*
+   * Poll rather than read once. A single read assumes the sibling clears its
+   * identity before it switches page; if the page switch lands first and the
+   * clear follows in a later microtask, this observes the stale value and the
+   * test fails for a reason that has nothing to do with the behaviour it checks.
+   */
+  await expect
+    .poll(() => sibling.evaluate(() => sessionStorage.getItem('nv_me')))
+    .toBeNull();
+  await sibling.close();
 });
 
 });

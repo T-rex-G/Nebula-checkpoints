@@ -1,3 +1,99 @@
+# Changelog
+
+## Unreleased
+
+### Continuity State and Release-Identity Correctness
+
+- Added a static identifier-resolution gate (`eslint.config.js`, `no-undef` only)
+  that declares the real cross-script global surface of the no-bundler app shell,
+  and made `npm run lint` blocking in both the CI and alpha.17 qualification
+  workflows.
+- Fixed an unresolved identifier in the notification-preferences dialog, where
+  `escapeHtml` was called outside the closure that defines it; the four sibling
+  governance dialogs already used the app-shell `esc` helper.
+- Closed a unit-gate inventory gap: two test programs existed but were never
+  executed by the gate chain. Added them (140 to 142 programs) and added a drift
+  guard that fails when any discovered `test/*.test.js` is absent from the chain.
+- Made the static-asset stamp injective by construction. Deriving it from the
+  release-numeric prefix collapsed every 5.3.0 prerelease onto `530`, so a
+  returning tester kept a stale service-worker shell cache against a freshly
+  deployed server. The stamp now encodes the version's own UTF-8 bytes as
+  fixed-width decimal groups and decodes back to the exact version.
+- Replaced a hardcoded shell-cache name in the browser matrix and two static
+  assertions that passed regardless of the asset stamp, because `express.static`
+  ignores the query string.
+- Replaced continuity schema 4 with schema 5, which separates shape validation
+  from stored values so the record can move as gates advance. Schema 4 accepted
+  exactly one frozen position and rejected every legitimate advance as malformed,
+  which is why the generated documents kept asserting a state the project had
+  already left. Commit identity became a role-tagged set, so one accepted tree
+  can be proven through several transport-specific commits. Added ADR-083,
+  superseding ADR-071.
+- Bound generated gate prose to gate status. The evidence and restriction text in
+  `PROJECT_STATE.md` and `CONTINUATION_PROMPT.md` was fixed, so a passed gate
+  would have rendered beside prose insisting its evidence was still missing.
+- Made the exported `publicAlphaPosition` validate the continuity record before
+  returning a release position, so a caller outside the module cannot be told
+  `GO` by a hand-built object that never satisfied the gate schema, the run-id
+  contract, or the final-release ratchet.
+
+### Key Separation and Dependency Determinism
+
+- Gave every keyed construction its own HKDF-SHA256 derived key. One
+  `SESSION_SECRET` previously backed the session cookie, CSRF tokens, step-up
+  grants, GitHub App OAuth state, the evidence-ledger hash chain and the
+  governance audit secret, while its SHA-256 digest served simultaneously as the
+  AES-256-GCM session key and as the HMAC key for offline cache scopes and for
+  GitHub App state replay detection. Nothing was exploitable, because the
+  message shapes are disjoint and the token codec tags its own kind inside the
+  signed payload, but that safety was an unwritten invariant rather than a
+  property of the design. The snapshot-signing reuse check still compares
+  against the raw secret, which is what it exists to do.
+- Pinned every dependency to an exact version and made the lockfile agree.
+  A lockfile does not make a range safe: `npm ci` honours the lock but
+  `npm install` re-resolves and silently rewrites it, and `express ^4.19.2` had
+  already drifted to 4.22.2 and `pg ^8.11.5` to 8.22.0 with no deliberate
+  upgrade. Added a contract guard that rejects any range and any disagreement
+  between the declared version and the locked one.
+- Kept existing evidence chains provable across that key rotation. The ledger is
+  tamper-evident, so a record that cannot reproduce its hash is reported as
+  tampering; changing the hashing key would have made every record written
+  under the old one accuse itself on first deploy. Verification now tries the
+  active key and then the retired one and reports which matched, the same shape
+  the snapshot signatures already use, and the export states how many records
+  verified under the retired key.
+- Made that retired key opt-in rather than permanent. Accepting the raw session
+  secret forever would have undone half the point of separating it, leaving a
+  leaked `SESSION_SECRET` able to forge evidence that verifies. Production now
+  accepts it only when `NV_EVIDENCE_LEGACY_SESSION_KEY=true`, matching the rule
+  already applied to legacy snapshot keys, and development keeps the
+  compatibility path. A deployment that declines the opt-in while still holding
+  pre-separation records is told so: verification reports `legacyKeyRequired`
+  rather than a bare failure, so an unmigrated chain is distinguishable from
+  tampering.
+- Kept evidence provable across a `SESSION_SECRET` rotation. The evidence key is
+  derived from that secret, so rotating it moved the derived key and every
+  record written under the old one stopped reproducing its hash — the same false
+  alarm the retired key already prevented for pre-separation records, reachable
+  through nothing worse than routine key hygiene. Operators now carry previous
+  secrets forward in `NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON`, bounded to
+  eight, and malformed input fails at startup rather than silently shrinking the
+  keyring.
+
+### Documentation Truth Architecture
+
+- Separated current, vision, architecture, release, operations, qualification,
+  reference, historical, and development records under `docs/`.
+- Made `WORK_CONTINUITY.json` schema v4 the machine-readable state authority and
+  generated project state and continuation instructions deterministically.
+- Recorded the exact green alpha.17 automated baseline while keeping the
+  documentation successor, live providers, hosted environment, manual
+  accessibility, and public alpha explicitly unqualified.
+- Recovered the broader founder vision with implemented, committed-roadmap,
+  exploratory, and out-of-current-scope maturity labels.
+- Preserved historical Task reports/specifications and imported three approved
+  public-alpha plans with their original SHA-256 values.
+
 ## 5.3.0-alpha.17.0
 
 - Began the controlled hosted public-alpha successor from the qualified alpha.16.3 archive.
@@ -46,8 +142,6 @@
 - Added blocked evidence-plan generation and verification CLI.
 - Added browser/accessibility staging specifications and CI contracts.
 - Task 20 remains incomplete until live runtime, browser, Neon, provider, destructive and delivery evidence passes.
-
-# Changelog
 
 ## 5.3.0-alpha.15 — Governance Notifications, Webhooks and Signed Audit Exports (Phase 1 Task 19)
 

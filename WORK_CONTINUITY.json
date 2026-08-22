@@ -1,151 +1,103 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 5,
   "project": "Nebulaverse-X",
   "version": "5.3.0-alpha.17.0",
-  "branch": "public-alpha/alpha17-foundation",
-  "acceptedThrough": "0f4d9983d08f2b6316e4195e2e7dddd955f207e5",
-  "completedPlans": [
+  "acceptedTree": "b0945a403beaa4c4242a1d6526aa7c3d80d48f08",
+  "recordedBaseline": {
+    "repository": "T-rex-G/Nebula-checkpoints",
+    "branch": "agent/alpha17-evidence-integrity",
+    "pullRequest": 1,
+    "commits": [
+      {
+        "role": "branch-head",
+        "commit": "3995a81e64ced1011f7e5c0662307f270c67e2b8"
+      },
+      {
+        "role": "pull-request-merge",
+        "commit": "379f96daa85709bbc4c002f60501819690b00de2"
+      }
+    ],
+    "tree": "b0945a403beaa4c4242a1d6526aa7c3d80d48f08",
+    "candidateSha256": "58adb78f3a5a4e51e65d0d53742a3ec1064cb950b0256d7210aeb2ad8259d711",
+    "ciRunId": "32540542681",
+    "qualificationRunId": "32540542682",
+    "decision": "automated-qualified-independent-review-passed-public-alpha-no-go"
+  },
+  "gates": {
+    "automated": {
+      "status": "passed",
+      "runId": "32540542682",
+      "programs": {
+        "total": 142,
+        "passed": 142,
+        "blocked": 0,
+        "failed": 0
+      },
+      "browser": {
+        "total": 60,
+        "passed": 60,
+        "failed": 0
+      },
+      "productionAuditVulnerabilities": 0,
+      "developmentAuditVulnerabilities": 0,
+      "deterministicArchive": true,
+      "exactArchiveQualified": true
+    },
+    "independentReview": {
+      "status": "passed",
+      "runId": "4d47a6a5-e9d9-4a92-8a59-3883615069e8",
+      "actionable": 0,
+      "nitpicks": 0
+    },
+    "liveProvider": {
+      "status": "pending",
+      "runId": null
+    },
+    "hosted": {
+      "status": "pending",
+      "runId": null
+    },
+    "manualAccessibility": {
+      "status": "pending",
+      "runId": null
+    },
+    "finalRelease": {
+      "status": "pending",
+      "runId": null
+    }
+  },
+  "failedQualificationRuns": [
     {
-      "number": 1,
-      "name": "truth-successor-foundation",
-      "status": "completed"
+      "runId": "31290968279",
+      "failure": "detached-checkout continuity boundary was not available.",
+      "liveJobsSkipped": true
     },
     {
-      "number": 2,
-      "name": "controlled-access",
-      "status": "completed"
+      "runId": "31314330832",
+      "failure": "shallow checkout could not prove accepted-boundary ancestry.",
+      "liveJobsSkipped": true
     },
     {
-      "number": 3,
-      "name": "privacy-credential-lifecycle",
-      "status": "completed",
-      "acceptedThrough": "e6c81e7c16972af390feb1936ee41d628e327c15"
-    },
-    {
-      "number": 4,
-      "name": "ux-accessibility",
-      "status": "completed",
-      "acceptedThrough": "aacb808d96587d61b795bfc98e8bdefc8367bfc6"
-    },
-    {
-      "number": 5,
-      "name": "hosted-operations",
-      "status": "completed",
-      "acceptedThrough": "8c2e45a98708f5204c6017194ba4214d4c12e969"
+      "runId": "31321447041",
+      "failure": "pull-request checkout exposed a local-only accepted commit boundary.",
+      "liveJobsSkipped": true
     }
   ],
-  "activePlan": {
-    "number": 6,
-    "name": "qualification-release",
-    "status": "in_progress",
-    "planFile": "../plans/Nebulaverse-X-v5.3.0-alpha.17.0-Public-Alpha-Implementation-Plans.zip::public-alpha-readiness/docs/superpowers/plans/2026-07-29-public-alpha-06-qualification-release.md",
-    "tasks": {
-      "1": {
-        "status": "completed",
-        "acceptedThrough": "0d4d179e596cc8ce27e7aebe6a6f34a71acefeae"
-      },
-      "2": {
-        "status": "completed",
-        "acceptedThrough": "bea3f9b209c22a7dbe98bbed6e4ee394f96177c8"
-      },
-      "3": {
-        "status": "completed",
-        "acceptedThrough": "13b800ac47e5fba97705bea7aafb4a0ef126764f"
-      },
-      "4": {
-        "status": "completed",
-        "acceptedThrough": "695ff3c7484d91a425d5797a82f06def92e78fdc"
-      },
-      "5": {
-        "status": "completed",
-        "acceptedThrough": "3d4163d79ae9b42187626f8e64dec123f59ce72c"
-      },
-      "6": {
-        "status": "completed",
-        "acceptedThrough": "2e2a452d86b8f4830b4263f13d8e23c281d17d8e"
-      },
-      "7": {
-        "status": "completed",
-        "acceptedThrough": "0f4d9983d08f2b6316e4195e2e7dddd955f207e5"
-      },
-      "8": {
-        "status": "pending"
-      },
-      "9": {
-        "status": "pending"
-      },
-      "10": {
-        "status": "pending"
-      }
-    }
+  "limitations": [
+    "No live PostgreSQL execution has qualified the successor",
+    "No live Render or Neon execution has qualified the successor",
+    "No live provider execution has qualified the successor",
+    "Manual VoiceOver and desktop screen-reader passes remain required",
+    "The browser matrix runs against Playwright route fixtures, so it proves the client contract rather than server route behaviour",
+    "An interrupted hosted restore can leave backup or attestation material behind, because that teardown runs on the success path rather than in a finally block",
+    "A signed activation envelope can be presented more than once inside its 30-minute lifetime, because no durable single-use record exists in CI. A replay cannot be redirected or rescoped, since the envelope pins the repository, workflow, source commit, authorized jobs and per-job target hashes, and the live concurrency group prevents overlapping runs; it can only repeat an identical already-authorized operation, and only for a principal that already holds repository write access"
+  ],
+  "currentCandidate": {
+    "qualificationStatus": "not-qualified",
+    "identitySource": "external-qualification-evidence"
   },
-  "correctiveRefreeze": {
-    "reason": "live_target_authorization_binding",
-    "acceptedThrough": "f6ba0a4fc6587863125ee56d997825c248b04dca",
-    "releaseTestAcceptedThrough": "114062fc9d77348922ea78bb4189f8c6fae7ae69",
-    "archiveContinuityAcceptedThrough": "2c614633c82a9400d1f2d18420135ccaf2c272be",
-    "archiveTestAcceptedThrough": "9efa0250e57f9d5272e57d664fe70e56f8173922",
-    "authorizationSchema": "1.1.0",
-    "previousCandidateSha256": "d686c037e33524688357e2480b92fa12717a3fc496c90375437e9329e7c54707",
-    "previousCandidateStatus": "invalidated",
-    "intermediateCandidateSha256": "1b90c3cd28679f2f3d2ccc06daef93ea184921482132874d870c40a5f3837333",
-    "intermediateCandidateStatus": "invalidated_by_extraction_test_defect",
-    "matrixCandidateSha256": "55f3db62528df3b06d1a8ddd2818d7109f8f7affa9ce0ea08a927297e2bbe66e",
-    "matrixCandidateStatus": "invalidated_by_archive_continuity_defect",
-    "archiveTestCandidateSha256": "19b620e0c85126f2972ed9a47a560dd5643668180172119ea731c6cead61ad67",
-    "archiveTestCandidateStatus": "invalidated_by_archive_test_expectation_defect",
-    "failedQualificationCandidateSha256": "95c9cc2ef96b02874b8592baaa4e56b398e22328ea77103cd6c6b244ecc1d05e",
-    "failedQualificationCandidateStatus": "invalidated_by_detached_checkout_continuity_contract",
-    "failedQualificationRunId": "31290968279",
-    "detachedCheckoutCorrectionStatus": "published_and_retried",
-    "detachedCheckoutCorrectionCommit": "7f721a770df8e658e00163e05ebc259502f99c09",
-    "shallowQualificationCandidateSha256": "5c84836bee1ed6dec30591285a05a38f5a0078d1280e75b4585be245e61f1887",
-    "shallowQualificationCandidateStatus": "invalidated_by_shallow_checkout_history",
-    "shallowQualificationRunId": "31314330832",
-    "shallowCheckoutCorrectionStatus": "pending_publication"
-  },
-  "nextAction": "Publish the full-history qualification checkout correction to the isolated sandbox branch, rebuild the exact candidate, and rerun GitHub-only qualification; do not run GitLab, Gitea, hosted, or manual gates",
-  "verification": {
-    "runtime": "Node.js 22.23.1",
-    "commit": "0f4d9983d08f2b6316e4195e2e7dddd955f207e5",
-    "plan6Tasks1Through7": "passed",
-    "deterministicCandidate": "pending_refreeze_after_full_history_checkout_correction",
-    "liveTargetAuthorization": "focused_contracts_passed_node_22_23_1",
-    "freshExtractionReleaseTest": "passed_node_22_23_1",
-    "freshExtractionMatrix": "pending_refreeze_after_full_history_checkout_correction",
-    "detachedCheckoutContinuity": "passed_full_history_locally_failed_in_shallow_hosted_checkout",
-    "qualificationRun31290968279": "failed_pre_authorization_detached_checkout_continuity_contract_live_jobs_skipped",
-    "qualificationRun31314330832": "failed_pre_authorization_shallow_checkout_history_live_jobs_skipped",
-    "qualificationCheckoutHistory": "fetch_depth_2_confirmed_incompatible_with_accepted_boundary_ancestry",
-    "productionDependencyAudit": "zero_vulnerabilities_after_dompurify_3_4_13_patch",
-    "developmentDependencyAudit": "zero_vulnerabilities_after_brace_expansion_5_0_9_patch",
-    "safeguardsImmediateBinding": "passed_three_mobile_repetitions_and_full_56_test_matrix",
-    "plan5Task1": "passed",
-    "plan5Task2": "passed",
-    "plan5Task3": "passed",
-    "plan5Task4": "passed",
-    "plan5Task5": "passed",
-    "plan5Task6": "passed",
-    "plan5Tasks1Through8": "passed",
-    "plan4Tasks1Through7": "passed",
-    "accessibilityFocusedDesktopAndMobile": "12_passed_repeated",
-    "browserMatrixDesktopAndMobile": "56_passed",
-    "checkSyntax": "passed",
-    "npmTestAndPosttest": "passed",
-    "manualAccessibilityAudit": "not_executed",
-    "review": "passed_local",
-    "limitations": [
-      "No live PostgreSQL execution",
-      "No live Render or Neon execution",
-      "No live provider execution",
-      "Manual VoiceOver and desktop screen-reader passes remain"
-    ]
-  },
-  "remote": {
-    "status": "github_qualification_failed_pre_authorization_shallow_history_correction_pending_publication",
-    "repository": "T-rex-G/Nebula-checkpoints",
-    "branch": "sandbox/alpha17-live-qualification",
-    "lastPushedCommit": "7f721a770df8e658e00163e05ebc259502f99c09",
-    "lastPushedSourceCommit": "a696fea4a1201a2c0b5526648083f1fc43ef1ccb"
+  "nextAuthorizedAction": {
+    "type": "qualify-continuity-schema-successor",
+    "description": "Qualify the schema-5 continuity successor, then continue the remediation backlog. Live-provider, hosted, manual-accessibility and final-release gates stay pending and require separate authorization."
   }
 }

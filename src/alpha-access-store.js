@@ -22,6 +22,7 @@ const DEFAULT_PURGE_LIMIT = 500;
 const MAX_PURGE_LIMIT = 1000;
 const TERMS_VERSION_RX = /^\d{4}-\d{2}-\d{2}(?:\.[1-9]\d*)?$/;
 const SESSION_ID_RX = /^[A-Za-z0-9_-]{43}$/;
+const INVITE_ID_RX = /^[0-9a-z]{20,40}$/;
 const TESTER_ID_RX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GENERIC_REDEMPTION_ERROR = 'Invitation could not be redeemed';
@@ -553,7 +554,50 @@ class AlphaAccessStore {
     }));
   }
 
-  async revokeTester(testerId, reason) {
+/*
+   * Revoke an invitation that nobody has redeemed.
+   *
+   * revokeTester needs a tester, and an exposed invitation that was never
+   * redeemed has none -- so without this an operator responding to a leaked
+   * code could only wait out its lifetime or purge the cohort. Redemption
+   * already refuses an invite carrying revoked_at, so this sets that flag
+   * rather than adding a second rule redemption would have to honour.
+   *
+   * Each refusal is named instead of collapsing into a bare false. A redeemed
+   * invitation in particular must not read as revoked: revoking the code does
+   * not end the session it produced, and an operator told "revoked" would stop
+   * at exactly the wrong point.
+   */
+  async revokeInvite(inviteId) {
+    if (typeof inviteId !== 'string' || !INVITE_ID_RX.test(inviteId)) {
+      throw new TypeError('invitation id must use the invitation identifier format');
+    }
+    const now = this.currentTime();
+
+    return this.operational(() => this.withTransaction(async client => {
+      const found = await client.query(
+        `SELECT invite_id, redeemed_at, revoked_at, metadata_purged_at
+           FROM nv_alpha_invites
+          WHERE invite_id = $1
+          FOR UPDATE`,
+        [inviteId]
+      );
+      const invite = found.rows[0] || null;
+      if (!invite) return { inviteId, state: 'unknown', revoked: false };
+      /* Purged rows are immutable; the retention trigger would refuse. */
+      if (invite.metadata_purged_at) return { inviteId, state: 'purged', revoked: false };
+      if (invite.redeemed_at) return { inviteId, state: 'redeemed', revoked: false };
+      if (invite.revoked_at) return { inviteId, state: 'already-revoked', revoked: false };
+
+      await client.query(
+        'UPDATE nv_alpha_invites SET revoked_at = $2 WHERE invite_id = $1',
+        [inviteId, now]
+      );
+      return { inviteId, state: 'revoked', revoked: true };
+    }));
+  }
+
+    async revokeTester(testerId, reason) {
     if (typeof testerId !== 'string' || !TESTER_ID_RX.test(testerId)) {
       throw new TypeError('tester id must be a valid UUID');
     }

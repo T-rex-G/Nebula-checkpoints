@@ -1,6 +1,10 @@
 'use strict';
 const assert = require('assert');
-const { createMutationGateway, normalizeMutationDescriptor } = require('../src/mutation-gateway');
+const {
+  createMutationGateway,
+  normalizeMutationDescriptor,
+  providerOperationId
+} = require('../src/mutation-gateway');
 const authorization = {
   schemaVersion:1,
   scope:{provider:'github',authority:'github.com',owner:'Acme',repo:'Demo',scopeKey:'github:github.com:acme/demo'},
@@ -14,6 +18,31 @@ const base={mutationId:'11111111-1111-4111-8111-111111111111',action:'repository
 const normalized=normalizeMutationDescriptor(base);
 assert(Object.isFrozen(normalized.execution));
 assert.strictEqual(normalized.execution.mode,'single');
+const operationIdentity = {
+  mutationId: base.mutationId,
+  providerWriteIndex: 1,
+  method: 'DELETE',
+  operation: 'repository.delete',
+  scopeKey: 'github:github.com:acme/demo',
+  transport: 'api',
+  apiPath: '/repos/Acme/Demo'
+};
+assert.strictEqual(
+  providerOperationId(operationIdentity),
+  'e93f9e43721a7d3f6bb7e18c3e0e2be960af7a0fea2524289c77dec3d73795a3',
+  'operation IDs must preserve the versioned canonical preimage contract'
+);
+const sharedLongPrefix = `/repos/Acme/Demo/contents/${'a'.repeat(1200)}`;
+assert.notStrictEqual(
+  providerOperationId({ ...operationIdentity, apiPath: `${sharedLongPrefix}-first` }),
+  providerOperationId({ ...operationIdentity, apiPath: `${sharedLongPrefix}-second` }),
+  'operation IDs must bind the entire provider target, including bytes after the old truncation boundary'
+);
+assert.notStrictEqual(
+  providerOperationId({ ...operationIdentity, transport: 'api|alternate', apiPath: '/target' }),
+  providerOperationId({ ...operationIdentity, transport: 'api', apiPath: 'alternate|/target' }),
+  'length-delimited operation fields must not admit separator collisions'
+);
 (async()=>{
  const events=[];
  const gateway=createMutationGateway({eventSink:e=>events.push(e)});

@@ -12,6 +12,14 @@ const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
 const NOW = '2026-07-29T20:00:00.000Z';
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function environment(provider) {
   const repository = `fixture-owner/nvx-alpha17-${provider}-qualification`;
   const env = {
@@ -65,25 +73,116 @@ async function runOne(provider, runner) {
   const giteaResult = await runOne('gitea', runGiteaValidation);
 
   for (const result of [githubResult, gitlabResult, giteaResult]) {
+    assert.strictEqual(result.schemaVersion, '1.1.0');
+    assert.strictEqual(result.artifactType, 'provider-live');
     assert.strictEqual(result.status, 'pass');
     assert.strictEqual(result.cleanupVerified, true);
     assert.strictEqual(result.subjectSha256, SUBJECT);
     assert.strictEqual(result.sourceCommit, SOURCE);
-    assert.match(result.artifactSha256, /^[0-9a-f]{64}$/);
+    const { artifactSha256, ...evidenceCore } = result;
+    assert.strictEqual(
+      artifactSha256,
+      crypto.createHash('sha256').update(stableJson(evidenceCore)).digest('hex'),
+      `${result.provider} artifact digest must bind the exact serialized evidence core`
+    );
+    assert.strictEqual(result.originId, `workflow-${RUN_ID}-${result.provider}`);
+    assert.strictEqual(
+      result.authorizedTargetSha256,
+      environment(result.provider).NV_ALPHA17_SIGNED_TARGET_SHA256,
+      `${result.provider} artifact must retain the exact authorized target digest`
+    );
     const serialized = JSON.stringify(result);
     assert(!serialized.includes('fixture-mutation-credential'));
     assert(!serialized.includes('fixture-readonly-credential'));
     assert(!serialized.includes('fixture-owner'));
     assert(!serialized.includes(`nvx-alpha17-${RUN_ID}-proof`));
-    assert(result.checks.some(check => check.key === 'stale-head' && check.zeroCommit === true));
+    assert.deepStrictEqual(result.checks.map(check => check.key), [
+      'repository-read',
+      'default-branch-read',
+      'disposable-branch-create',
+      'expected-head-write',
+      'utf8-readback',
+      'stale-head',
+      'permission-denial',
+      'stale-head-delete',
+      'expected-head-delete',
+      'cleanup-absence'
+    ]);
+    assert(result.checks.some(check => check.key === 'stale-head' && check.zeroCommit === true &&
+      check.fileVerificationStatus === 'verified' && check.fileVerificationReasonCode === null));
     assert(result.checks.some(check => check.key === 'permission-denial' && check.zeroCommit === true));
+    assert(result.checks.some(check => check.key === 'stale-head-delete' && check.zeroCommit === true));
     assert(result.checks.some(check => check.key === 'cleanup-absence' && check.status === 'pass'));
+    assert.deepStrictEqual(
+      Object.keys(result.claims).sort(),
+      result.capabilities.map(capability => `providers.${result.provider}.${capability}`).sort()
+    );
+    for (const claim of Object.values(result.claims)) {
+      assert.deepStrictEqual(claim, {
+        status: 'pass',
+        cleanupVerified: true,
+        completedAt: NOW
+      });
+    }
   }
-  assert(githubResult.capabilities.includes('live-events'));
-  assert(githubResult.capabilities.includes('file.write'));
-  assert(gitlabResult.capabilities.includes('file.write'));
-  assert(giteaResult.capabilities.includes('file.write'));
-  assert(!giteaResult.capabilities.includes('workflows.read'));
+  assert.deepStrictEqual(githubResult.capabilities, [
+    'branches.read',
+    'branches.write',
+    'file.delete',
+    'file.read',
+    'file.write',
+    'repository.read'
+  ]);
+  for (const result of [gitlabResult, giteaResult]) {
+    assert.deepStrictEqual(result.capabilities, [
+      'branches.read',
+      'file.delete',
+      'file.read',
+      'file.write',
+      'repository.read'
+    ]);
+  }
+  for (const unproven of [
+    'live-events', 'pulls.read', 'pulls.write', 'webhooks.read',
+    'webhooks.write', 'rate-limit', 'auth.app'
+  ]) {
+    assert(!githubResult.capabilities.includes(unproven), `provider harness must not claim ${unproven}`);
+  }
+
+  const missingReadbackEnvironment = environment('github');
+  const missingReadbackFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: missingReadbackEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: missingReadbackEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: missingReadbackEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  let proofReadCount = 0;
+  await assert.rejects(
+    () => runGithubValidation({
+      env: missingReadbackEnvironment,
+      now: () => new Date(NOW),
+      fetchImpl: async (url, init = {}) => {
+        const isProofRead = String(init.method || 'GET').toUpperCase() === 'GET' &&
+          new URL(url).pathname.includes('/contents/nvx-alpha17-run-2048-proof.txt');
+        if (isProofRead && ++proofReadCount === 2) {
+          const body = JSON.stringify({ message: 'not found' });
+          return new Response(body, {
+            status: 404,
+            headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) }
+          });
+        }
+        return missingReadbackFixture.fetch(url, init);
+      }
+    }),
+    error => error &&
+      error.code === 'ALPHA17_STALE_HEAD_PROOF_FAILED' &&
+      error.check &&
+      error.check.fileVerificationStatus === 'missing' &&
+      error.check.fileVerificationReasonCode === 'ALPHA17_STALE_FILE_MISSING',
+    'a missing post-rejection file must retain its classified stale-head proof failure'
+  );
 
   const badEnvironment = environment('github');
   badEnvironment.NV_ALPHA17_REPOSITORY = 'fixture-owner/not-disposable';
@@ -119,6 +218,25 @@ async function runOne(provider, runner) {
     error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
   );
   assert.strictEqual(mismatchedBindingFixture.state.requests.length, 0, 'target mismatch must fail before provider access');
+
+  const forgedDeleteEnvironment = environment('github');
+  const forgedDeleteFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: forgedDeleteEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: forgedDeleteEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: forgedDeleteEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL,
+    deleteCommitSha: 'e'.repeat(40)
+  });
+  await assert.rejects(
+    () => runGithubValidation({
+      env: forgedDeleteEnvironment,
+      fetchImpl: forgedDeleteFixture.fetch,
+      now: () => new Date(NOW)
+    }),
+    error => error && error.code === 'ALPHA17_DELETE_PROOF_FAILED'
+  );
 
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {

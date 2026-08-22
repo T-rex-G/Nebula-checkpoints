@@ -170,6 +170,43 @@ const ghEnd = server.indexOf('\n}', ghStart) + 2;
 const ghBlock = server.slice(ghStart, ghEnd);
 assert(ghBlock.includes("!ALPHA_CONFIG.enabled && acct.authMethod === 'github-app'"),
   'invite-mode provider fallback must not invalidate shared broker state');
+assert(ghBlock.includes("opts.redirect === 'manual' ? 'manual' : 'error'"));
+assert(!ghBlock.includes("'follow'"), 'credential-bearing provider requests must never follow redirects');
+const oauthCallbackStart = server.indexOf("app.get('/api/oauth/callback'");
+assert(oauthCallbackStart >= 0, 'missing GET /api/oauth/callback');
+const oauthCallbackEnd = server.indexOf('\napp.', oauthCallbackStart + 1);
+const oauthCallbackBlock = server.slice(
+  oauthCallbackStart,
+  oauthCallbackEnd < 0 ? server.length : oauthCallbackEnd
+);
+assert(oauthCallbackBlock.includes("redirect: 'error'"), 'OAuth token exchange must reject redirects');
+assert.strictEqual(
+  (server.match(/info\/lfs\/objects\/batch[\s\S]{0,700}redirect: 'error'/g) || []).length,
+  2,
+  'both authenticated LFS batch negotiations must reject redirects'
+);
+const lfsUrlHelperStart = server.indexOf('function requireHttpsLfsActionUrl(');
+const lfsUrlHelperEnd = server.indexOf('\n}', lfsUrlHelperStart) + 2;
+assert(lfsUrlHelperStart >= 0, 'missing HTTPS-only LFS action URL validator');
+const lfsUrlHelper = server.slice(lfsUrlHelperStart, lfsUrlHelperEnd);
+assert(lfsUrlHelper.includes("target.protocol !== 'https:'"));
+assert(lfsUrlHelper.includes('target.username || target.password'));
+const lfsDownloadStart = server.indexOf('async function lfsDownloadStream(');
+assert(lfsDownloadStart >= 0, 'missing lfsDownloadStream');
+const lfsDownloadEnd = server.indexOf('\n}', lfsDownloadStart) + 2;
+const lfsDownloadBlock = server.slice(lfsDownloadStart, lfsDownloadEnd);
+assert(lfsDownloadBlock.includes("requireHttpsLfsActionUrl(act.href, 'download')"));
+assert(lfsDownloadBlock.includes('fetchT(downloadUrl,'));
+const lfsUploadStart = server.indexOf('async function uploadViaLFS(');
+assert(lfsUploadStart >= 0, 'missing uploadViaLFS');
+const lfsUploadEnd = server.indexOf('\n}', lfsUploadStart) + 2;
+const lfsUploadBlock = server.slice(lfsUploadStart, lfsUploadEnd);
+for (const expected of [
+  "requireHttpsLfsActionUrl(uploadAction.href, 'upload')",
+  "requireHttpsLfsActionUrl(verify.href, 'verification')",
+  'fetchT(uploadUrl,',
+  'fetchT(verifyUrl,'
+]) assert(lfsUploadBlock.includes(expected), `LFS upload boundary missing ${expected}`);
 const refreshBlock = routeBlock('/api/github-app/refresh');
 assert(refreshBlock.includes('if (!ALPHA_CONFIG.enabled) githubAppBroker.invalidate(installationId);'),
   'invite-mode refresh must not invalidate shared broker state');

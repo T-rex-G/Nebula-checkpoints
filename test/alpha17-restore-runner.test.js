@@ -5,6 +5,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawn, execFileSync } = require('child_process');
+
+const root = path.resolve(__dirname, '..');
 const {
   MAX_COMMAND_DURATION_MS,
   executeAlphaDb,
@@ -261,11 +264,53 @@ try {
     'a control-plane identity mismatch must fail before backup or restore executes'
   );
   assert.strictEqual(fs.existsSync(mismatchedTargetAttestationPath), false);
+  /*
+   * The backup directory holds decryptable database material, so a failed run
+   * must not leave it behind. Cleanup lives in a finally rather than after the
+   * catch, so an early return cannot skip it.
+   *
+   * Cancellation is not covered here and cannot be: every alpha-db command runs
+   * through execFileSync, which blocks the event loop, so no JavaScript handler
+   * could run during the work it would clean up after. The workflow's EXIT trap
+   * covers that layer, and test/public-alpha-workflow-contract.test.js asserts
+   * the trap includes this directory.
+   */
+  const failingCleanupEnv = {
+    ...env,
+    NV_ALPHA17_RESTORE_ATTESTATION_PATH: path.join(runnerTemp, 'cleanup-attestation.json')
+  };
+  const backupDirectoriesBefore = fs.readdirSync(runnerTemp)
+    .filter(entry => entry.startsWith('nvx-alpha17-restore-'));
+  await assert.rejects(
+    () => runRestoreValidation({
+      env: failingCleanupEnv,
+      candidateRoot,
+      now: () => NOW,
+      runSmokeImpl,
+      executeCommand: (args, commandEnv) => {
+        const result = executeCommand(args, commandEnv);
+        if (args[0] === 'backup') throw new Error('restore interrupted after backup');
+        return result;
+      }
+    }),
+    /restore interrupted after backup/,
+    'the operation failure must survive cleanup rather than be replaced by it'
+  );
+  assert.deepStrictEqual(
+    fs.readdirSync(runnerTemp).filter(entry => entry.startsWith('nvx-alpha17-restore-')),
+    backupDirectoriesBefore,
+    'a failed restore must not leave its backup directory behind'
+  );
+
+  console.log('alpha17 restore cleanup regression passed');
+
 } finally {
   fs.rmSync(temporaryRoot, { recursive: true, force: true });
 }
 
 console.log('alpha17 restore runner tests passed');
+
+
 })().catch(error => {
   console.error(error.stack || error);
   process.exitCode = 1;

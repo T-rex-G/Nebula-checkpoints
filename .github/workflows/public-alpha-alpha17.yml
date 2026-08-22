@@ -481,7 +481,11 @@ jobs:
           subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           operational_record="${RUNNER_TEMP}/alpha17-operational.json"
           restore_attestation="${RUNNER_TEMP}/alpha17-restore-attestation.json"
-          trap 'unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64; rm -f -- "${operational_record}" "${restore_attestation}"' EXIT
+          # The restore runner removes its own backup directory on success and on
+          # failure, but a cancelled job never reaches that code. This trap is the
+          # layer that survives cancellation, so it clears the decryptable backup
+          # material too.
+          trap 'unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64; rm -f -- "${operational_record}" "${restore_attestation}"; rm -rf -- "${RUNNER_TEMP}"/nvx-alpha17-restore-*' EXIT
           printf '%s' "${OPERATIONAL_RECORD_BASE64}" | base64 -d > "${operational_record}"
           export NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64
           NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64="$(openssl rand -base64 32)"

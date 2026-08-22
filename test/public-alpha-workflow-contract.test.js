@@ -451,6 +451,15 @@ assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION="${restore_attestation}"'
   'the hosted gate must read the attestation from the bound path');
 assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64="$(openssl rand -base64 32)"'),
   'the attestation key must be generated per run');
+/*
+ * The restore runner clears its own backup directory on success and failure,
+ * but a cancelled job never reaches that code, and every alpha-db command
+ * blocks the event loop so no in-process handler could. This trap is the layer
+ * that survives cancellation, so it must cover the decryptable backup material.
+ */
+assert(/trap '[^']*rm -rf -- "\$\{RUNNER_TEMP\}"\/nvx-alpha17-restore-\*[^']*' EXIT/.test(hosted),
+  'the hosted step must clear restore backup material on cancellation');
+
 assert(hosted.includes('unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64'),
   'the attestation key must be unset before the candidate secret scan');
 assert(

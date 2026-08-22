@@ -227,8 +227,40 @@ async function runRestoreValidation(options = {}) {
   );
   const backupDirectory = fs.mkdtempSync(path.join(runnerTemp, 'nvx-alpha17-restore-'));
   fs.chmodSync(backupDirectory, 0o700);
+
+  /*
+   * The backup directory holds decryptable database material, so it must not
+   * outlive this function.
+   *
+   * A catch block covers the failure path but leaves the directory behind when
+   * the operation returns early, so removal happens in a finally instead.
+   *
+   * Cancellation is deliberately not handled here. Every alpha-db command runs
+   * through execFileSync, which blocks the event loop, so a JavaScript signal
+   * handler could not run during the work it would need to clean up after --
+   * and installing one would suppress Node's default termination, leaving a
+   * cancelled run hanging instead of exiting. The workflow's EXIT trap removes
+   * the directory on cancellation, which is the layer that can.
+   *
+   * removeBackupDirectory is idempotent: rmSync with force treats an absent
+   * path as already done.
+   */
+  let backupRemoved = false;
+  const removeBackupDirectory = () => {
+    if (backupRemoved) return null;
+    try {
+      fs.rmSync(backupDirectory, { recursive: true, force: true });
+    } catch (error) {
+      return error;
+    }
+    if (fs.existsSync(backupDirectory)) return new Error('restore backup cleanup failed');
+    backupRemoved = true;
+    return null;
+  };
+
   let proof;
   let operationError = null;
+  let cleanupError = null;
   try {
     const backup = validateBackupResult(
       executeCommand(['backup', '--output-dir', backupDirectory], commandEnv),
@@ -273,21 +305,13 @@ async function runRestoreValidation(options = {}) {
     };
   } catch (error) {
     operationError = error;
+  } finally {
+    cleanupError = removeBackupDirectory();
   }
   /*
-   * Cleanup runs whether or not the operation failed, but it must never replace
-   * the reason the operation failed. A workflow told only that cleanup failed
-   * would be debugging the symptom.
+   * Cleanup must never replace the reason the operation failed. A workflow told
+   * only that cleanup failed would be debugging the symptom.
    */
-  let cleanupError = null;
-  try {
-    fs.rmSync(backupDirectory, { recursive: true, force: true });
-  } catch (error) {
-    cleanupError = error;
-  }
-  if (!cleanupError && fs.existsSync(backupDirectory)) {
-    cleanupError = new Error('restore backup cleanup failed');
-  }
   if (operationError) {
     if (cleanupError) operationError.cleanupFailed = true;
     throw operationError;

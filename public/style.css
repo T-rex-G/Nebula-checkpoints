@@ -242,19 +242,16 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .check{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--text2);margin-top:14px;cursor:pointer;min-height:32px}
 .check input{width:18px;height:18px;min-height:0;accent-color:var(--accent);-webkit-appearance:checkbox;appearance:checkbox}
 /*
- * A compact chip, not a paragraph. The status is the whole visible content;
- * the reason travels in the title and in text only a screen reader reads, so
- * a disabled control explains itself without printing a sentence beside every
- * instance of it.
+ * Out of the layout entirely.
+ *
+ * A control that cannot be used is already disabled, and the design carries
+ * status on the object it belongs to -- a badge on a repository card -- not as
+ * a label pinned beside every button. The note stays in the document so the
+ * reason still reaches a screen reader and the control's own tooltip, and it
+ * takes no space and draws no attention while doing so.
  */
-.capability-state{display:inline-flex;align-items:center;gap:5px;margin:4px 6px 4px 0;
-  padding:2px 8px;border-radius:999px;font-size:.64rem;line-height:1.5;letter-spacing:.01em;
-  color:var(--text2);background:rgba(178,160,255,.09);border:1px solid var(--glass-border);
-  max-width:100%;white-space:nowrap;vertical-align:middle}
-.capability-state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.8;flex:none}
-.capability-supported{color:var(--green);background:rgba(52,211,153,.10);border-color:rgba(52,211,153,.22)}
-.capability-unavailable{color:var(--muted);background:rgba(232,229,255,.05)}
-.capability-experimental{color:var(--amber);background:rgba(245,158,11,.10);border-color:rgba(245,158,11,.22)}
+.capability-state{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
 .capability-supported{color:var(--teal)}
 .capability-experimental{color:#ffcd78}
 .capability-unavailable{color:var(--text2)}
@@ -1078,3 +1075,45 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     scroll-behavior:auto!important;
   }
 }
+
+/* ============================================================
+   GALAXY INVENTORY — the repositories section
+   ============================================================ */
+.gx-hero{padding:34px 0 6px;max-width:780px}
+.gx-eyebrow{display:flex;gap:10px;align-items:center;font-family:var(--font-display);
+  font-size:.66rem;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--lab);margin-bottom:16px}
+.gx-eyebrow span[aria-hidden]{opacity:.45}
+.gx-title{font-family:var(--font-display);font-size:clamp(1.9rem,4.4vw,3.05rem);font-weight:700;
+  line-height:1.06;letter-spacing:-.026em;color:var(--text);margin-bottom:16px}
+.gx-title em{font-style:normal;color:var(--accent2)}
+.gx-lede{max-width:56ch;color:var(--text2);font-size:.95rem;line-height:1.62}
+.gx-hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+
+.gx-pulse{margin:30px 0 6px}
+.gx-pulse-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));margin:0}
+.gx-pulse-cell{background:var(--card-grad);border:1px solid var(--glass-border);border-radius:var(--radius);
+  padding:15px 17px 14px;box-shadow:var(--card-shadow);backdrop-filter:blur(26px) saturate(1.5)}
+.gx-pulse-cell dt{font-family:var(--font-display);font-size:.62rem;font-weight:600;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:9px}
+.gx-pulse-cell dd{margin:0;display:flex;align-items:baseline;gap:9px}
+.gx-pulse-value{font-family:var(--font-display);font-size:1.72rem;font-weight:700;letter-spacing:-.02em;color:var(--text);line-height:1}
+.gx-pulse-note{font-size:.72rem;color:var(--text2)}
+
+.repo-card{position:relative}
+.repo-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;
+  font-size:.63rem;font-weight:600;letter-spacing:.02em;border:1px solid transparent;vertical-align:middle}
+.repo-badge::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.repo-badge-healthy{color:var(--green);background:rgba(52,211,153,.10);border-color:rgba(52,211,153,.24)}
+.repo-badge-private{color:var(--amber);background:rgba(245,158,11,.10);border-color:rgba(245,158,11,.24)}
+.repo-meta-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:9px;
+  font-size:.72rem;color:var(--muted)}
+.repo-open{margin-top:13px;font-family:var(--font-display);font-size:.74rem;font-weight:600;
+  color:var(--accent2);display:inline-flex;align-items:center;gap:6px}
+.repo-open::after{content:"→";transition:transform .18s var(--ease)}
+.repo-card:hover .repo-open::after,.repo-card:focus-visible .repo-open::after{transform:translateX(3px)}
+
+/* The inventory toolbar belongs above the grid, reading left to right with it. */
+#page-repos .page-head{display:flex;justify-content:flex-start;margin-top:26px}
+#page-repos .page-head-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:0 1 auto;justify-content:flex-start;margin-left:0}
+.repo-card h3{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.repo-card .repo-name{font-family:var(--font-display);letter-spacing:-.012em}

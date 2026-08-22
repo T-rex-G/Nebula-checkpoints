@@ -136,8 +136,27 @@
     </div>
   </header>
   <div class="container">
-    <div class="page-head">
-      <h2 id="reposTitle">Your galaxies</h2>
+    <section class="gx-hero" aria-labelledby="gxHeroTitle">
+        <p class="gx-eyebrow"><span>Connected systems</span><span aria-hidden="true">/</span><span>Galaxy inventory</span></p>
+        <h2 class="gx-title" id="gxHeroTitle">Your galaxies,<br><em>one clear</em> next move.</h2>
+        <p class="gx-lede">Browse provider-connected systems with conservative activity context, then hand off to the proven workbench when you&rsquo;re ready to act.</p>
+        <div class="gx-hero-actions">
+          <button class="btn btn-primary" id="reposRefreshBtn">Refresh</button>
+        </div>
+      </section>
+
+      <!--
+        Galaxy pulse. Every figure is computed from what this session actually
+        loaded. A measure with no source is left out rather than shown with a
+        placeholder: a surface whose whole claim is trust cannot invent a
+        number on it.
+      -->
+      <section class="gx-pulse" id="reposPulse" aria-label="Galaxy pulse" hidden>
+        <dl class="gx-pulse-grid" id="reposPulseGrid"></dl>
+      </section>
+
+      <div class="page-head">
+      <h2 id="reposTitle" class="sr-only">Your galaxies</h2>
       <div class="page-head-tools">
         <select id="repoSort" class="branch-select" aria-label="Sort repositories">
           <option value="pushed">Recently pushed</option>

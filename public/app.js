@@ -222,6 +222,43 @@ const TOAST_TONE = { ok: 'Success', err: 'Error' };
  * here so the class and the announced state cannot drift apart at any of the
  * places that repaint one.
  */
+/*
+ * The pulse reports what this session actually loaded. Each measure names its
+ * own source, and a measure without one is not rendered: the design shows a
+ * trust score, and nothing in this product computes one yet, so that tile is
+ * absent rather than invented.
+ */
+function renderGalaxyPulse(repos) {
+  const section = $('#reposPulse');
+  const grid = $('#reposPulseGrid');
+  if (!section || !grid) return;
+  const list = Array.isArray(repos) ? repos : [];
+  const languages = new Set(list.map(r => r && r.language).filter(Boolean));
+  const measures = [
+    { label: 'Galaxies online', value: list.length, note: list.length === 1 ? 'connected system' : 'connected systems' },
+    { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
+    { label: 'Languages', value: languages.size, note: languages.size === 1 ? 'in use' : 'across the set' }
+  ].filter(measure => Number.isFinite(measure.value));
+  grid.innerHTML = '';
+  for (const measure of measures) {
+    const cell = document.createElement('div');
+    cell.className = 'gx-pulse-cell';
+    const dt = document.createElement('dt');
+    dt.textContent = measure.label;
+    const dd = document.createElement('dd');
+    const value = document.createElement('span');
+    value.className = 'gx-pulse-value';
+    value.textContent = String(measure.value);
+    const note = document.createElement('span');
+    note.className = 'gx-pulse-note';
+    note.textContent = measure.note;
+    dd.append(value, note);
+    cell.append(dt, dd);
+    grid.appendChild(cell);
+  }
+  section.hidden = measures.length === 0;
+}
+
 function selectSegment(groupSelector, isChosen) {
   $$(`${groupSelector} .seg-btn`).forEach((button, index) => {
     const chosen = !!isChosen(button, index);
@@ -1002,7 +1039,8 @@ async function loadRepos(reset) {
     batch.forEach(r => grid.appendChild(repoCard(r)));
     $('#moreReposBtn').hidden = batch.length < 30;
     if (!state.repos.length) grid.innerHTML = '<div class="card editor-empty"><div class="empty-icon">✦</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>';
-  } catch (e) { toast(e.message, 'err'); grid.innerHTML = ''; }
+    renderGalaxyPulse(state.repos);
+  } catch (e) { toast(e.message, 'err'); grid.innerHTML = ''; renderGalaxyPulse([]); }
 }
 const LOCK_SVG = '<svg class="lock-ico" width="13" height="13" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 function repoCard(r) {
@@ -1012,13 +1050,15 @@ function repoCard(r) {
   el.setAttribute('role', 'button');
   el.setAttribute('aria-label', `Open repository ${r.full_name}`);
   el.innerHTML = `
-    <h3>${r.private ? LOCK_SVG : ''}<span></span></h3>
+    <h3>${r.private ? LOCK_SVG : ''}<span class="repo-name"></span>
+      <span class="repo-badge ${r.private ? 'repo-badge-private' : 'repo-badge-healthy'}">${r.private ? 'Private' : 'Public'}</span></h3>
     <p class="desc"></p>
     <div class="repo-meta">
       ${r.language ? `<span><span class="lang-dot"></span>${esc(r.language)}</span>` : ''}
       <span>★ ${r.stars}</span><span>⑂ ${r.forks}</span><span>${timeAgo(r.pushed_at)}</span>
-    </div>`;
-  el.querySelector('h3 span:last-child').textContent = r.full_name;
+    </div>
+    <span class="repo-open">Open workspace</span>`;
+  el.querySelector('h3 .repo-name').textContent = r.full_name;
   el.querySelector('.desc').textContent = r.description || 'No description';
   const open = () => openRepo(r.owner, r.name);
   el.addEventListener('click', open);
@@ -2912,6 +2952,7 @@ function runPaletteItem(item) {
     item.run();
   }, { allowExperimental: !!(item && item.allowExperimental) });
 }
+$('#reposRefreshBtn') && $('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {
   if (e.key === 'ArrowDown') { palSel = Math.min(palSel + 1, palItems.length - 1); paintSel(); e.preventDefault(); }

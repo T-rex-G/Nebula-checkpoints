@@ -294,6 +294,59 @@ function commitIdentityLines(baseline) {
   );
 }
 
+/*
+ * What a staged gate still needs, stated only while it still needs it. Making
+ * the status dynamic while leaving these sentences fixed would reproduce the
+ * schema-4 defect one layer up: the table would report a gate as Passed beside
+ * prose insisting its evidence is missing.
+ */
+const STAGED_GATE_LABELS = Object.freeze({
+  liveProvider: 'Live-provider qualification',
+  hosted: 'Hosted qualification',
+  manualAccessibility: 'Manual accessibility',
+  finalRelease: 'Final release'
+});
+const STAGED_GATE_OUTSTANDING_EVIDENCE = Object.freeze({
+  liveProvider: 'Must target the externally qualified successor identity',
+  hosted: 'Render/Neon execution has not been authorized for the successor',
+  manualAccessibility: 'VoiceOver and desktop screen-reader evidence remain required',
+  finalRelease: 'Requires every preceding gate for one exact candidate'
+});
+
+function stagedGateEvidence(name, gate) {
+  if (gate.status === 'passed') return `Qualified by run \`${gate.runId}\``;
+  if (gate.status === 'failed') {
+    return gate.runId
+      ? `Run \`${gate.runId}\` failed. ${STAGED_GATE_OUTSTANDING_EVIDENCE[name]}`
+      : `Recorded as failed without a run. ${STAGED_GATE_OUTSTANDING_EVIDENCE[name]}`;
+  }
+  return STAGED_GATE_OUTSTANDING_EVIDENCE[name];
+}
+
+function outstandingStagedGates(state) {
+  return STAGED_GATE_NAMES.filter(name => state.gates[name].status !== 'passed');
+}
+
+function joinLabels(labels) {
+  if (labels.length === 1) return labels[0];
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
+
+function stagedGateRestriction(state) {
+  const outstanding = outstandingStagedGates(state);
+  if (!outstanding.length) {
+    return [
+      'Every recorded gate has passed. Merging, deployment, cohort opening, and live dispatch',
+      'remain separate operator decisions and are not authorized by this prompt.'
+    ];
+  }
+  const labels = joinLabels(outstanding.map(name => STAGED_GATE_LABELS[name].toLowerCase()));
+  return [
+    `Keep the ${labels} ${outstanding.length === 1 ? 'gate' : 'gates'} as recorded. Do not merge,`,
+    'deploy, open the cohort, or dispatch live qualification from this prompt.'
+  ];
+}
+
 function reviewSentence(gate) {
   if (gate.status === 'pending') return 'No independent review has been recorded for this baseline.';
   const verdict = gate.status === 'passed' ? 'passed' : 'failed';
@@ -356,10 +409,8 @@ function renderProjectState(state) {
     '|---|---|---|',
     `| Automated exact-archive qualification | ${titleCaseStatus(automated.status)} | Recorded baseline run \`${automated.runId}\`: ${automated.programs.passed}/${automated.programs.total} programs and ${automated.browser.passed}/${automated.browser.total} browser checks |`,
     `| Independent review | ${titleCaseStatus(state.gates.independentReview.status)} | ${reviewSentence(state.gates.independentReview)} |`,
-    `| Live-provider qualification | ${titleCaseStatus(state.gates.liveProvider.status)} | Must target the externally qualified successor identity |`,
-    `| Hosted qualification | ${titleCaseStatus(state.gates.hosted.status)} | Render/Neon execution has not been authorized for the successor |`,
-    `| Manual accessibility | ${titleCaseStatus(state.gates.manualAccessibility.status)} | VoiceOver and desktop screen-reader evidence remain required |`,
-    `| Final release | ${titleCaseStatus(state.gates.finalRelease.status)} | Requires every preceding gate for one exact candidate |`,
+    ...STAGED_GATE_NAMES.map(name =>
+      `| ${STAGED_GATE_LABELS[name]} | ${titleCaseStatus(state.gates[name].status)} | ${stagedGateEvidence(name, state.gates[name])} |`),
     '',
     '## Known limitations',
     '',
@@ -431,8 +482,7 @@ function renderContinuationPrompt(state) {
     '',
     state.nextAuthorizedAction.description,
     '',
-    'Keep live-provider, hosted, manual-accessibility, and final-release gates pending. Do not',
-    'merge, deploy, open the cohort, or dispatch live qualification from this prompt.',
+    ...stagedGateRestriction(state),
     ''
   ].join('\n');
 }

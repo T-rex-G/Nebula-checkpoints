@@ -161,13 +161,55 @@ for (const [label, advance] of [
   assert.doesNotThrow(() => renderContinuationPrompt(candidate), `prompt must render ${label}`);
 }
 
-/* Public alpha follows the final-release gate rather than a stored flag. */
+/*
+ * Rendering must follow gate state, not merely avoid throwing. A document that
+ * reports a gate as Passed beside prose insisting its evidence is missing would
+ * reproduce the schema-4 defect one layer up, so assert the advanced wording
+ * appears and the outstanding wording is gone.
+ */
 const released = clone(state);
 for (const name of ['liveProvider', 'hosted', 'manualAccessibility', 'finalRelease']) {
   released.gates[name] = { status: 'passed', runId: '32540542682' };
 }
-assert(renderProjectState(released).includes('Public alpha: **GO**'));
+const releasedState = renderProjectState(released);
+const releasedPrompt = renderContinuationPrompt(released);
+
+assert(releasedState.includes('Public alpha: **GO**'));
 assert(renderProjectState(state).includes('Public alpha: **NO-GO**'));
+
+for (const row of [
+  '| Live-provider qualification | Passed | Qualified by run `32540542682` |',
+  '| Hosted qualification | Passed | Qualified by run `32540542682` |',
+  '| Manual accessibility | Passed | Qualified by run `32540542682` |',
+  '| Final release | Passed | Qualified by run `32540542682` |'
+]) assert(releasedState.includes(row), `advanced gate table must render ${row}`);
+
+for (const outstanding of [
+  'Must target the externally qualified successor identity',
+  'Render/Neon execution has not been authorized for the successor',
+  'VoiceOver and desktop screen-reader evidence remain required',
+  'Requires every preceding gate for one exact candidate'
+]) {
+  assert(!releasedState.includes(outstanding),
+    `a passed gate must not still claim: ${outstanding}`);
+  assert(renderProjectState(state).includes(outstanding),
+    `an outstanding gate must still state: ${outstanding}`);
+}
+
+assert(releasedPrompt.includes('Every recorded gate has passed'));
+assert(!releasedPrompt.includes('Do not merge'),
+  'a fully passed record must not instruct the reader to hold every gate');
+assert(renderContinuationPrompt(state).includes('Do not merge'),
+  'an outstanding record must keep the restriction');
+
+/* A failed gate names the run that failed and still states what it needs. */
+const regressed = clone(state);
+regressed.gates.hosted = { status: 'failed', runId: '31716799288' };
+const regressedState = renderProjectState(regressed);
+assert(regressedState.includes(
+  '| Hosted qualification | Failed | Run `31716799288` failed. Render/Neon execution has not been authorized for the successor |'
+));
+assert(renderContinuationPrompt(regressed).includes('Do not merge'));
 
 const cleanCheck = spawnSync(process.execPath, [generatorPath, '--check'], {
   cwd: root,

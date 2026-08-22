@@ -44,5 +44,5 @@ Next authorized action:
 
 Qualify the schema-5 continuity successor, then continue the remediation backlog. Live-provider, hosted, manual-accessibility and final-release gates stay pending and require separate authorization.
 
-Keep live-provider, hosted, manual-accessibility, and final-release gates pending. Do not
-merge, deploy, open the cohort, or dispatch live qualification from this prompt.
+Keep the live-provider qualification, hosted qualification, manual accessibility and final release gates as recorded. Do not merge,
+deploy, open the cohort, or dispatch live qualification from this prompt.

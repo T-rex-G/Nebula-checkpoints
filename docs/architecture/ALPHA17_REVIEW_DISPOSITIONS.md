@@ -5,7 +5,8 @@ findings. Last failing review: `4ae300c4-410c-4ae7-89cc-b7e15767d22e`
 
 Public alpha: **NO-GO**
 
-The latest review failed with **15 actionable findings and 10 nitpicks**. GitHub
+The last failing review, `4ae300c4-410c-4ae7-89cc-b7e15767d22e`, reported
+**15 actionable findings and 10 nitpicks**. GitHub
 materialized 13 actionable inline threads and one outside-diff deployment-guide
 action; the review body also reports failed inline posting and two failed-to-post
 immutable-history linter suggestions, so the raw count is retained without
@@ -23,7 +24,7 @@ Immutable historical plans under `docs/history/` were not rewritten. Where a
 review comment targeted a historical statement, the current executable
 boundary was verified or strengthened and the disposition is explicit below.
 
-## Latest-review remediation boundary
+## Last-failing-review remediation boundary
 
 | Finding cluster | Disposition |
 |---|---|

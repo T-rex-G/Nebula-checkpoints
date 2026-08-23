@@ -103,8 +103,18 @@ try {
   const evidencePath = path.join(temporaryRoot, 'qualification.json');
   fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
 
+  /*
+   * The operator's restore witness reaches the CLI as a file, the same way the
+   * evidence does. Without it the gate refuses to run at all, which is the
+   * intended posture: an unwitnessed restore proof is not a weaker proof, it
+   * is an unverifiable one.
+   */
+  const witnessPath = path.join(temporaryRoot, 'restore-witness.json');
+  fs.writeFileSync(witnessPath, `${JSON.stringify(fixture.bindings.restoreWitness, null, 2)}\n`, { mode: 0o600 });
+
   const env = {
     ...process.env,
+    NV_PUBLIC_ALPHA_RESTORE_WITNESS: witnessPath,
     NV_PUBLIC_ALPHA_SUBJECT_SHA256: 'a'.repeat(64),
     NV_PUBLIC_ALPHA_SOURCE_COMMIT: 'b'.repeat(40),
     NV_PUBLIC_ALPHA_GITHUB_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.github,

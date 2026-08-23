@@ -29,6 +29,36 @@ Use sanitized outputs only. Never paste database URLs, cookies, invitation codes
   deletion is outside the qualification harness and requires separate explicit
   authorization.
 
+## After live qualification, before the go/no-go
+
+- Sign the restore witness. The restore runner signs its record with a key it
+  generates inside its own job and destroys when the job ends, so that
+  signature cannot be verified anywhere else. Without your witness, a restore
+  record with invented digests passes every other check the gate makes.
+
+  Download the hosted evidence artifact from the run, then:
+
+  ```
+  NV_ALPHA17_OPERATOR_KEY_ID=<your key id> \
+  NV_ALPHA17_OPERATOR_PRIVATE_KEY_BASE64=<your Ed25519 PKCS#8 DER, base64> \
+  node scripts/sign-restore-witness.js hosted.json > restore-witness.json
+  ```
+
+  The command prints what you are witnessing before it signs anything. Read the
+  run identity and confirm it against the workflow run you authorized. Your
+  signature says *this record came from that run*; it does not endorse the
+  restore's claims, which the gate checks separately. Signing a record from a
+  run you cannot identify defeats the control entirely.
+
+- Pass the witness to the gate as `NV_PUBLIC_ALPHA_RESTORE_WITNESS`. The gate
+  refuses to produce a verdict without it, by design: an unwitnessed restore
+  proof is not a weaker proof, it is an unverifiable one.
+
+- Keep the private key off the runner and out of the repository. It is the
+  operator key, not a CI secret; a copy inside CI would make the witness
+  forgeable by anyone who can run the workflow, which is the exact gap it
+  exists to close.
+
 ## Daily
 
 - Check Render service state, active deploy, cold starts, and recent restarts.

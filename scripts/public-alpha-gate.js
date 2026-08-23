@@ -123,11 +123,30 @@ function environmentBindings(env) {
   ) {
     throw new TypeError('trusted Alpha.17 operator key ID and public key are required');
   }
+  /*
+   * The operator's restore witness is a required binding, not an optional
+   * extra: the restore runner's own signature cannot be verified outside the
+   * job that made it, so a run reaching this gate without a witness has no
+   * checkable restore proof at all. Missing means no-go, never "skip it".
+   */
+  const witnessPath = String(env.NV_PUBLIC_ALPHA_RESTORE_WITNESS || '').trim();
+  if (!witnessPath) {
+    throw new TypeError('NV_PUBLIC_ALPHA_RESTORE_WITNESS must point at the operator restore witness');
+  }
+  let restoreWitness;
+  try {
+    restoreWitness = JSON.parse(
+      readBoundedRegularFile(witnessPath, MAX_ARTIFACT_BYTES, 'restore witness').toString('utf8')
+    );
+  } catch (error) {
+    throw new TypeError(`the operator restore witness could not be read: ${error.message}`);
+  }
   return Object.freeze({
     subjectSha256,
     sourceCommit,
     expectedAuthorizedTargets: Object.freeze(expectedAuthorizedTargets),
-    trustedOperatorKeys: Object.freeze({ [operatorKeyId]: operatorPublicKey })
+    trustedOperatorKeys: Object.freeze({ [operatorKeyId]: operatorPublicKey }),
+    restoreWitness
   });
 }
 
@@ -164,6 +183,7 @@ function verifyRecord(record, env, now = new Date()) {
     expectedAuthorizedTargets: bindings.expectedAuthorizedTargets,
     expectedDeploymentSha256: computeReleaseFingerprint(path.resolve(__dirname, '..')),
     trustedOperatorKeys: bindings.trustedOperatorKeys,
+    restoreWitness: bindings.restoreWitness,
     now,
     registry,
     verifyArtifact: createArtifactVerifier()

@@ -16,8 +16,8 @@
     release:       { color: '#49d9ad', glyph: 'R', radius: 11, label: 'Release' },
     workflow:      { color: '#55d7f4', glyph: 'W', radius: 11, label: 'Workflow' },
     package:       { color: '#b795ff', glyph: 'D', radius: 10, label: 'Dependency' },
-    vulnerability: { color: '#ff5470', glyph: '!', radius: 13, label: 'Vulnerability' },
-    protected:     { color: '#38e0c8', glyph: 'L', radius: 12, label: 'Protected asset' },
+    vulnerability: { color: '#F43F6E', glyph: '!', radius: 13, label: 'Vulnerability' },
+    protected:     { color: '#22D3EE', glyph: 'L', radius: 12, label: 'Protected asset' },
     snapshot:      { color: '#5c9fff', glyph: '↺', radius: 13, label: 'Recovery snapshot' },
     safety:        { color: '#ff6d8d', glyph: '◆', radius: 13, label: 'Safety control' },
     external:      { color: '#ff7469', glyph: 'X', radius: 12, label: 'External destination' },
@@ -735,7 +735,7 @@
   }
 
   function drawEdge(ctx, edge, p1, p2, now, selected, dim) {
-    const sevColor = edge.severity === 'critical' ? '#ff5470' : edge.severity === 'warning' ? '#ffbd59' : '#7c8fbf';
+    const sevColor = edge.severity === 'critical' ? '#F43F6E' : edge.severity === 'warning' ? '#F59E0B' : '#7c8fbf';
     const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
     const dx = p2.x - p1.x, dy = p2.y - p1.y;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -767,7 +767,7 @@
     let radius = node.r * NVN.zoom;
     radius = clamp(radius, node.type === 'repo' ? 16 : 7, node.type === 'repo' ? 31 : 19);
     if (hover || selected || eventHot) radius *= 1.14;
-    const severityColor = node.severity === 'critical' ? '#ff5470' : node.severity === 'warning' ? '#ffbd59' : node.color;
+    const severityColor = node.severity === 'critical' ? '#F43F6E' : node.severity === 'warning' ? '#F59E0B' : node.color;
     ctx.save();
     ctx.globalAlpha = dim ? .14 : 1;
     const auraR = radius * (selected ? 3.0 : node.severity === 'critical' ? 2.5 : 2.0);

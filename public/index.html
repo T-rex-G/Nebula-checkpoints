@@ -36,6 +36,34 @@
 -->
 <div id="nebula" aria-hidden="true"></div>
 
+<!--
+  The mark, once, as a sprite.
+
+  Its geometry is the design's own: the four plates are the same triangles the
+  dimensional mark folds in nebula-mark-3d.js, so the flat mark and the one
+  that turns in the trust panel are the same shape rather than two drawings
+  that resemble each other. Defined once and referenced, so the gradients
+  cannot collide between instances.
+-->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <linearGradient id="nvMarkLight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#C4B1FB"/><stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="nvMarkDeep" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8B5CF6"/><stop offset="100%" stop-color="#4C1D95"/>
+    </linearGradient>
+    <symbol id="nvMark" viewBox="28 11 228 218">
+      <path d="M79 25 L40 217 L106 116 Z" fill="url(#nvMarkDeep)"/>
+      <path d="M79 25 L106 116 L171 112 Z" fill="url(#nvMarkLight)"/>
+      <path d="M244 23 L178 124 L205 215 Z" fill="url(#nvMarkDeep)"/>
+      <path d="M178 124 L113 128 L205 215 Z" fill="url(#nvMarkLight)"/>
+    </symbol>
+  </defs>
+</svg>
+
+
+
 <!-- ======================= CONTROLLED ALPHA ACCESS ======================= -->
 <main class="page active" id="page-alpha-access" aria-labelledby="alphaAccessTitle">
   <section class="alpha-access card">
@@ -67,33 +95,14 @@
         <span class="tt-knob"></span>
       </button>
     </div>
+    <!--
+      The mark at hero size. What stood here was an orbiting-comet emblem whose
+      gradient ran to teal -- the previous brand's colour, on the first screen
+      anyone sees. It is the same mark as the sidebar's and the same geometry
+      as the one that folds in the trust panel.
+    -->
     <div class="nv-logo nv-logo-lg" aria-hidden="true">
-      <svg width="96" height="96" viewBox="0 0 120 120">
-        <defs>
-          <linearGradient id="nvg" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#7c6cff"/><stop offset="1" stop-color="#38e0c8"/>
-          </linearGradient>
-          <radialGradient id="nvcore">
-            <stop offset="0" stop-color="#ffffff"/><stop offset="35%" stop-color="#b9b0ff"/><stop offset="100%" stop-color="#7c6cff" stop-opacity="0"/>
-          </radialGradient>
-          <radialGradient id="nvglowT"><stop offset="0" stop-color="#38e0c8"/><stop offset="100%" stop-color="#38e0c8" stop-opacity="0"/></radialGradient>
-          <radialGradient id="nvglowP"><stop offset="0" stop-color="#9486ff"/><stop offset="100%" stop-color="#9486ff" stop-opacity="0"/></radialGradient>
-        </defs>
-        <circle class="nvl-halo" cx="60" cy="60" r="24" fill="url(#nvcore)" opacity=".8"/>
-        <g class="nvl-spin s1"><circle cx="60" cy="60" r="47" fill="none" stroke="url(#nvg)" stroke-width="2" opacity=".9"/></g>
-        <g transform="rotate(-24 60 60)">
-          <ellipse cx="60" cy="60" rx="45" ry="17" fill="none" stroke="url(#nvg)" stroke-width="1.1" opacity=".32"/>
-          <circle r="8" fill="url(#nvglowT)" opacity=".85"><animateMotion dur="4.2s" repeatCount="indefinite" path="M15,60 a45,17 0 1,0 90,0 a45,17 0 1,0 -90,0"/></circle>
-          <circle r="3.6" fill="#38e0c8"><animateMotion dur="4.2s" repeatCount="indefinite" path="M15,60 a45,17 0 1,0 90,0 a45,17 0 1,0 -90,0"/></circle>
-        </g>
-        <g transform="rotate(32 60 60)">
-          <ellipse cx="60" cy="60" rx="45" ry="17" fill="none" stroke="url(#nvg)" stroke-width="1.1" opacity=".22"/>
-          <circle r="6.5" fill="url(#nvglowP)" opacity=".8"><animateMotion dur="6.8s" repeatCount="indefinite" path="M105,60 a45,17 0 1,1 -90,0 a45,17 0 1,1 90,0"/></circle>
-          <circle r="2.9" fill="#9486ff"><animateMotion dur="6.8s" repeatCount="indefinite" path="M105,60 a45,17 0 1,1 -90,0 a45,17 0 1,1 90,0"/></circle>
-        </g>
-        <circle r="1.6" fill="#ffffff" opacity=".9"><animateMotion dur="11s" repeatCount="indefinite" path="M13,60 a47,47 0 1,0 94,0 a47,47 0 1,0 -94,0"/></circle>
-        <circle class="nvl-core" cx="60" cy="60" r="8.5" fill="#ffffff"/>
-      </svg>
+      <svg class="nv-mark nv-mark-lg" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
     </div>
     <h1 class="brand-title" id="loginTitle">__NV_PRODUCT_NAME__</h1>
     <p class="brand-sub">GitHub · GitLab · Gitea, from your pocket — offline-ready, pushes of <em>any</em> size.</p>
@@ -126,7 +135,7 @@
 -->
 <nav class="nv-rail" id="navRail" aria-label="Primary" hidden>
   <div class="nv-rail-head">
-    <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
+    <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
     <span class="nv-rail-brand">__NV_PRODUCT_NAME__</span>
     <span class="nv-rail-sub">Trust operations</span>
   </div>
@@ -180,7 +189,6 @@
 <main class="page" id="page-overview" aria-label="Workspace overview">
   <header class="topbar glass">
     <button class="topbar-brand" id="ovHomeBtn" type="button" aria-label="Workspace overview">
-      <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </button>
     <nav class="ov-crumbs" aria-label="Location">
@@ -273,7 +281,6 @@
 <main class="page" id="page-repos" aria-labelledby="reposTitle">
   <header class="topbar glass">
     <button class="topbar-brand" id="homeBtn" type="button" aria-label="Workspace overview">
-      <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </button>
     <div class="topbar-actions">

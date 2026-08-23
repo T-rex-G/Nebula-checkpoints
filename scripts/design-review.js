@@ -20,6 +20,13 @@
  * the sign-in screen is an artifact of the renderer, not of the product -- on
  * hardware, and with the artwork left off, it is not there.
  *
+ * Service workers are blocked here. The product's worker re-issues API GETs
+ * from its own scope, and requests that originate there never pass through the
+ * page's route table -- so the fixtures missed them, the real server answered
+ * "Not signed in", and the overview drew itself with no repositories and a
+ * failure toast. That was the harness losing the fixtures, not the product
+ * losing its session.
+ *
  *   node scripts/design-review.js [outputDirectory]
  */
 
@@ -122,7 +129,8 @@ async function main() {
     for (const mode of MODES) {
       const context = await browser.newContext({
         viewport: { width: mode.width, height: mode.height },
-        baseURL: process.env.NV_REVIEW_URL || 'http://127.0.0.1:21999'
+        baseURL: process.env.NV_REVIEW_URL || 'http://127.0.0.1:21999',
+        serviceWorkers: 'block'
       });
       const page = await context.newPage();
       await presentAsHardwareRenderer(page);
@@ -142,6 +150,21 @@ async function main() {
         await page.screenshot({ path: path.join(out, `${screen}-${mode.name}.png`) });
         process.stdout.write(`${screen}-${mode.name}\n`);
       }
+      /*
+       * The sidebar collapse is photographed because the reflow it causes is
+       * the point of it: the shell has to give the freed width back to the
+       * cards rather than leave it as margin. A still of the collapsed rail
+       * shows whether it did.
+       */
+      if (mode.width >= 900) {
+        await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Overview' }).click();
+        await page.getByRole('main', { name: 'Workspace overview' }).waitFor({ state: 'visible' });
+        await page.getByRole('button', { name: 'Collapse the sidebar' }).click();
+        await page.waitForTimeout(1400);
+        await page.screenshot({ path: path.join(out, `collapsed-${mode.name}.png`) });
+        process.stdout.write(`collapsed-${mode.name}\n`);
+      }
+
       await context.close();
 
       /*
@@ -152,7 +175,8 @@ async function main() {
       if (mode.width < 900) {
         const fresh = await browser.newContext({
           viewport: { width: mode.width, height: mode.height },
-          baseURL: process.env.NV_REVIEW_URL || 'http://127.0.0.1:21999'
+          baseURL: process.env.NV_REVIEW_URL || 'http://127.0.0.1:21999',
+          serviceWorkers: 'block'
         });
         await captureMobilePalette(fresh, out, mode);
         await fresh.close();

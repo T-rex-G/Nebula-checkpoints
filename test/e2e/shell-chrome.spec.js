@@ -25,9 +25,16 @@ test.describe('desktop shell', () => {
     const rail = page.getByRole('navigation', { name: 'Primary' });
     const expanded = (await rail.boundingBox()).width;
 
+    /*
+     * The rail animates to its narrow width, so its box has to be read once it
+     * has settled rather than on the frame after the click -- measuring
+     * immediately caught it still at its full width and reported a working
+     * collapse as a broken one.
+     */
     await ui.button(page, 'Collapse the sidebar').click();
+    await expect.poll(async () => (await rail.boundingBox()).width,
+      { message: 'collapsing must actually narrow the rail' }).toBeLessThan(expanded - 80);
     const collapsed = (await rail.boundingBox()).width;
-    expect(collapsed, 'collapsing must actually narrow the rail').toBeLessThan(expanded - 80);
 
     /*
      * Narrowed to marks, the entries still have to say what they are: a rail
@@ -41,10 +48,10 @@ test.describe('desktop shell', () => {
     /* The preference is the reader's, so it survives a reload. */
     await page.reload();
     await expect(ui.screen(page, 'overview')).toBeVisible();
-    expect((await rail.boundingBox()).width).toBeLessThan(expanded - 80);
+    await expect.poll(async () => (await rail.boundingBox()).width).toBeLessThan(expanded - 80);
 
     await ui.button(page, 'Expand the sidebar').click();
-    expect((await rail.boundingBox()).width).toBeGreaterThan(collapsed + 80);
+    await expect.poll(async () => (await rail.boundingBox()).width).toBeGreaterThan(collapsed + 80);
   });
 });
 

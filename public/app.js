@@ -1143,14 +1143,12 @@ async function loadRepos(reset) {
     $('#moreReposBtn').hidden = batch.length < 30;
     if (!state.repos.length) grid.innerHTML = '<div class="card editor-empty"><div class="empty-icon">✦</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>';
     renderGalaxyPulse(state.repos);
-    renderOverviewPulse(state.repos);
     renderWorkspacePulse();
   } catch (e) {
     toast(e.message, 'err');
     grid.innerHTML = '';
     renderGalaxyPulse([]);
-    renderOverviewPulse([]);
-    renderWorkspacePulse();
+    renderWorkspacePulse([]);
   }
 }
 const LOCK_SVG = '<svg class="lock-ico" width="13" height="13" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
@@ -1235,7 +1233,6 @@ $('#ovOpenBrowser') && $('#ovOpenBrowser').addEventListener('click', () => showP
 function showOverview() {
   const who = $('#ovWho');
   if (who) who.textContent = (state.me && (state.me.name || state.me.login)) || 'tester';
-  renderOverviewPulse(state.repos);
   renderWorkspacePulse();
   loadScannerPosture();
   showPage('overview');
@@ -1291,44 +1288,102 @@ function mountNebulaVisual(kind, selector) {
   window.NebulaVisuals.mount(kind, host);
 }
 
-function renderWorkspacePulse() {
+function renderWorkspacePulse(repos) {
   if (!window.NebulaWorkspacePulse) return;
-  const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
-  if (!roots.trust && !roots.signals && !roots.activity) return;
   const capabilities = window.NebulaCapabilityUI;
-  window.NebulaWorkspacePulse.render(roots, window.NebulaWorkspacePulse.model({
-    repos: state.repos,
+  /* The inventory's failure path reports an empty set without discarding what
+   * the session still holds, so the caller may override the list it reads. */
+  const list = Array.isArray(repos) ? repos : state.repos;
+  /*
+   * One model, two readings. The summary row and the cards below it used to be
+   * computed apart, which let the row say one thing and the card under it say
+   * another about the same session. They now share a single measurement.
+   */
+  const pulse = window.NebulaWorkspacePulse.model({
+    repos: list,
     features: capabilities && capabilities.features ? capabilities.features() : null,
     recoveryStatus: capabilities ? capabilities.decision('recovery').status : null,
     scanner: state.scanner,
     identity: state.me
-  }));
+  });
+  renderOverviewPulse(list, pulse);
+  const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
+  if (roots.trust || roots.signals || roots.activity) window.NebulaWorkspacePulse.render(roots, pulse);
 }
 
 /*
- * Reports what this session loaded. The design also shows a trust score and a
- * live-signal count; nothing computes either yet, so those are absent rather
- * than filled with a number that would read as measured.
+ * The summary row across the top of the overview. Every figure here is read
+ * off the same pulse model the cards below use, so the row can never disagree
+ * with the card that explains it -- and a measure without a source shows an em
+ * dash and the word "Not measured" rather than a plausible-looking zero.
  */
-function renderOverviewPulse(repos) {
+const PULSE_ICONS = Object.freeze({
+  repositories: 'M4 6.5A2.5 2.5 0 0 1 6.5 4H19v13H6.5A2.5 2.5 0 0 0 4 19.5z',
+  private: 'M6 10.5h12v9H6zM9 10.5V7.5a3 3 0 0 1 6 0v3',
+  trust: 'M12 3.2l7 3v5.3c0 4.2-2.9 7.6-7 9.3-4.1-1.7-7-5.1-7-9.3V6.2z',
+  signals: 'M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22',
+  attention: 'M12 4.4l8.4 15H3.6zM12 10.4v4M12 17.1h.01'
+});
+
+function pulseMeasures(list, pulse) {
+  const trust = pulse && pulse.trust;
+  const signals = pulse && pulse.signals;
+  /*
+   * "Needs attention" counts the components the model itself scored as warning
+   * or critical. Components it could not measure are not counted -- an unknown
+   * is not a problem, and reporting it as one would invent a fault.
+   */
+  const flagged = trust && Array.isArray(trust.components)
+    ? trust.components.filter(c => c.status === 'warning' || c.status === 'critical').length
+    : null;
+  return [
+    { icon: 'repositories', label: 'Repositories', value: list.length, note: 'connected' },
+    { icon: 'private', label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
+    {
+      icon: 'trust', label: 'Trust score',
+      value: trust && trust.score !== null && trust.score !== undefined ? trust.score : null,
+      note: trust && trust.score !== null && trust.score !== undefined
+        ? `${trust.measuredCount} of ${trust.componentCount} measured`
+        : 'Not measured'
+    },
+    {
+      icon: 'signals', label: 'Live signals',
+      value: signals && signals.measured ? signals.live : null,
+      note: signals && signals.measured ? `of ${signals.total} verified` : 'Not measured'
+    },
+    {
+      icon: 'attention', label: 'Needs attention',
+      value: flagged === null ? null : flagged,
+      note: flagged === null ? 'Not measured' : (flagged === 1 ? 'component flagged' : 'components flagged')
+    }
+  ];
+}
+
+function renderOverviewPulse(repos, pulse) {
   const section = $('#ovPulse');
   const grid = $('#ovPulseGrid');
   if (!section || !grid) return;
   const list = Array.isArray(repos) ? repos : [];
-  const measures = [
-    { label: 'Repositories', value: list.length, note: 'connected' },
-    { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' }
-  ];
   grid.innerHTML = '';
-  for (const measure of measures) {
+  for (const measure of pulseMeasures(list, pulse)) {
     const cell = document.createElement('div');
     cell.className = 'gx-pulse-cell';
+    if (measure.value === null) cell.classList.add('is-unmeasured');
     const dt = document.createElement('dt');
-    dt.textContent = measure.label;
+    const mark = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    mark.setAttribute('class', 'gx-pulse-ico');
+    mark.setAttribute('viewBox', '0 0 24 24');
+    mark.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', PULSE_ICONS[measure.icon]);
+    mark.appendChild(path);
+    const name = document.createElement('span');
+    name.textContent = measure.label;
+    dt.append(mark, name);
     const dd = document.createElement('dd');
     const value = document.createElement('span');
     value.className = 'gx-pulse-value';
-    value.textContent = String(measure.value);
+    value.textContent = measure.value === null ? '\u2014' : String(measure.value);
     const note = document.createElement('span');
     note.className = 'gx-pulse-note';
     note.textContent = measure.note;

@@ -1458,14 +1458,17 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * card's padding on purpose: boxed inside it, the plot reads as a widget placed
  * on the card rather than as the card's own surface.
  */
-.wp-area{position:absolute;left:0;right:0;bottom:0;width:100%;height:108px;pointer-events:none}
 /*
- * The card is given the height the reference gives it. Without a floor the
- * card shrinks to its text and the bottom-anchored plot rises straight through
- * the caption -- the chart is out of flow, so nothing else can reserve the
- * room for it.
+ * The plot sits in the flow of the card rather than being pinned to its
+ * bottom. Pinned, it resolved against the body element -- which is positioned
+ * so the reading can sit above it -- and not against the card, so it hung off
+ * the top edge and drew its line straight through the caption. Reserving room
+ * with padding on the card could never have fixed that: the two boxes were
+ * measured from different origins. In flow, the chart takes its own room and
+ * the caption below it is where it looks.
  */
-.wp-card-activity{position:relative;overflow:hidden;min-height:210px;padding-bottom:104px}
+.wp-area{display:block;width:100%;height:104px;margin:12px 0 4px;pointer-events:none;color:var(--wp-muted)}
+.wp-card-activity{position:relative;overflow:hidden;min-height:210px}
 .wp-card-activity>.wp-body{position:relative;z-index:1}
 .wp-hero-figure{margin:2px 0 0;font-family:var(--font-body);font-size:56px;line-height:1.02;font-weight:600;color:var(--fg);letter-spacing:-.02em}
 .wp-hero-figure.wp-hero-empty{font-size:22px;font-weight:500;color:var(--fg2);letter-spacing:0}
@@ -1493,7 +1496,10 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 .wp-stat-value{margin:2px 0 0;font-family:var(--font-body);font-size:34px;line-height:1.05;font-weight:600;color:var(--fg)}
 .wp-stat-value.wp-stat-empty{font-size:19px;font-weight:500;color:var(--fg2)}
-.wp-segments{display:block;width:100%;height:14px;margin-top:12px}
+/* The same weight as the component meters below it. At 14px of saturated fill
+   the breakdown read as a chart borrowed from somewhere else; the reading is
+   unchanged, the bar just stops shouting over the figure above it. */
+.wp-segments{display:block;width:100%;height:8px;margin-top:12px}
 .wp-fill-good{fill:var(--wp-good);background:var(--wp-good)}
 .wp-fill-warning{fill:var(--wp-warning);background:var(--wp-warning)}
 .wp-fill-muted{fill:var(--wp-muted);background:var(--wp-muted)}

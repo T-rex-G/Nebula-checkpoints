@@ -388,7 +388,7 @@
 
     const total = signals.total || 1;
     const chart = svg('svg', {
-      class: 'wp-segments', viewBox: '0 0 300 14', preserveAspectRatio: 'none',
+      class: 'wp-segments', viewBox: '0 0 300 8', preserveAspectRatio: 'none',
       role: 'img', 'aria-label': signals.breakdown.map(part => `${part.count} ${part.label}`).join(', ')
     });
     let offset = 0;
@@ -396,7 +396,7 @@
       if (!part.count) continue;
       const width = (part.count / total) * 300;
       const bar = svg('rect', {
-        x: offset, y: 0, width: Math.max(0, width - 2), height: 14, rx: 4,
+        x: offset, y: 0, width: Math.max(0, width - 3), height: 8, rx: 4,
         class: `wp-segment wp-fill-${part.status}`
       });
       bar.appendChild(svg('title', {})).textContent = `${part.label}: ${part.count} of ${signals.total}`;
@@ -439,14 +439,28 @@
   function areaChart(values, label) {
     const width = 380;
     const height = 120;
+    /*
+     * The plot is inset on every side. Drawn edge to edge, a series that is
+     * mostly zero laid its baseline exactly on the bottom of the frame, where
+     * the card's overflow clipped it away, and a single trailing spike landed
+     * exactly on the right edge -- so the whole reading appeared as one stray
+     * vertical line at the border of the card. The data was right; there was
+     * nowhere for it to be drawn.
+     */
+    const padX = 4;
+    const padTop = 14;
+    const padBottom = 9;
+    const plotW = width - padX * 2;
+    const plotH = height - padTop - padBottom;
     const id = `wp-area-${areaSequence += 1}`;
     const peak = Math.max(...values, 1);
-    const step = values.length > 1 ? width / (values.length - 1) : width;
+    const step = values.length > 1 ? plotW / (values.length - 1) : plotW;
     const points = values.map((value, index) => {
-      const x = Math.round(index * step * 10) / 10;
-      const y = Math.round((height - (value / peak) * (height - 16)) * 10) / 10;
+      const x = Math.round((padX + index * step) * 10) / 10;
+      const y = Math.round((padTop + (1 - value / peak) * plotH) * 10) / 10;
       return `${x},${y}`;
     });
+    const baseY = padTop + plotH;
 
     const chart = svg('svg', {
       class: 'wp-area', viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: 'none',
@@ -462,8 +476,14 @@
     fill.appendChild(svg('stop', { offset: '100%', 'stop-color': '#6366F1', 'stop-opacity': '0' }));
     defs.append(stroke, fill);
     chart.appendChild(defs);
+    /* A zero line, so a flat stretch reads as measured zero and not as no data. */
+    chart.appendChild(svg('line', {
+      x1: padX, y1: baseY, x2: width - padX, y2: baseY,
+      stroke: 'currentColor', 'stroke-width': 1, opacity: '.22',
+      'vector-effect': 'non-scaling-stroke'
+    }));
     chart.appendChild(svg('polygon', {
-      points: `${points.join(' ')} ${width},${height} 0,${height}`, fill: `url(#${id}-f)`
+      points: `${points.join(' ')} ${width - padX},${baseY} ${padX},${baseY}`, fill: `url(#${id}-f)`
     }));
     chart.appendChild(svg('polyline', {
       points: points.join(' '), fill: 'none', stroke: `url(#${id}-s)`,

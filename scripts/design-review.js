@@ -27,6 +27,14 @@
  * failure toast. That was the harness losing the fixtures, not the product
  * losing its session.
  *
+ * Reading the -full.png captures: the application shell is one fixed plate, and
+ * a full-page capture paints a fixed layer only over the first viewport. Below
+ * that line the plate is missing, so translucent cards lose their ground and
+ * appear to be cut across by a hard horizontal edge. That edge sits exactly at
+ * the viewport height and is the capture, not the product -- scroll the real
+ * page and it is not there. The full captures are still worth having: every
+ * composition defect found so far has been below the fold.
+ *
  *   node scripts/design-review.js [outputDirectory]
  */
 
@@ -148,6 +156,13 @@ async function main() {
         }
         await page.waitForTimeout(2600);
         await page.screenshot({ path: path.join(out, `${screen}-${mode.name}.png`) });
+        /*
+         * And the whole scroll, not just the fold. Every defect found by
+         * looking at these so far has been below it -- a row that stopped
+         * short of the width, a card that kept the previous palette -- and a
+         * viewport-sized shot is exactly the evidence that hides them.
+         */
+        await page.screenshot({ path: path.join(out, `${screen}-${mode.name}-full.png`), fullPage: true });
         process.stdout.write(`${screen}-${mode.name}\n`);
       }
       /*

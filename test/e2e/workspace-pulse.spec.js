@@ -86,3 +86,54 @@ test('the overview never invents a figure it could not measure', async ({ page }
     expect(Number(shown)).toBeLessThanOrEqual(100);
   }
 });
+
+/*
+ * The activity plot is drawn into a card that clips its overflow. A series that
+ * is mostly zero with one recent push -- the ordinary case for a session with a
+ * single repository -- laid its baseline on the bottom of the frame and its
+ * spike on the right edge, so the whole reading disappeared into the border and
+ * left one stray vertical line behind. The guard is geometric: every plotted
+ * point has to sit inside the frame, not on it.
+ */
+test('the activity plot is drawn inside its frame, not along the edges', async ({ page }) => {
+  await signIn(page);
+  const activity = page.getByRole('article', { name: 'Repository activity' });
+  await expect(activity).toBeVisible();
+
+  const chart = activity.locator('svg.wp-area');
+  await expect(chart).toBeVisible();
+
+  const box = await chart.evaluate(node => {
+    const view = node.getAttribute('viewBox').split(/\s+/).map(Number);
+    const line = node.querySelector('polyline');
+    const points = line.getAttribute('points').trim().split(/\s+/).map(pair => {
+      const [x, y] = pair.split(',').map(Number);
+      return { x, y };
+    });
+    return { width: view[2], height: view[3], points };
+  });
+
+  expect(box.points.length).toBeGreaterThan(1);
+  for (const point of box.points) {
+    expect(point.x).toBeGreaterThan(0);
+    expect(point.x).toBeLessThan(box.width);
+    expect(point.y).toBeGreaterThan(0);
+    expect(point.y).toBeLessThan(box.height);
+  }
+
+  /* And it has to use the height it was given, not collapse onto one level. */
+  const levels = new Set(box.points.map(point => point.y));
+  expect(levels.size).toBeGreaterThan(1);
+
+  /*
+   * The frame itself has to be inside the card. It was pinned to the bottom of
+   * a positioned body element rather than the card, which put it above the
+   * card's top edge and ran its line through the caption -- a chart that is
+   * geometrically correct and still drawn in the wrong place.
+   */
+  const card = await activity.boundingBox();
+  const plot = await chart.boundingBox();
+  expect(plot.y).toBeGreaterThanOrEqual(card.y);
+  expect(plot.y + plot.height).toBeLessThanOrEqual(card.y + card.height + 1);
+  expect(plot.height).toBeGreaterThan(40);
+});

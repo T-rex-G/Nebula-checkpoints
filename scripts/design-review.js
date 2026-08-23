@@ -38,6 +38,47 @@ const MODES = Object.freeze([
 const SCREENS = Object.freeze(['overview', 'repos']);
 
 /*
+ * The command palette lives on the repository workspace, and on a narrow
+ * screen its only entry point is the floating action -- the top bar has no
+ * room for it there. So the mobile capture opens a repository and presses the
+ * control a thumb would, then shoots the palette open over the workspace.
+ *
+ * The workspace is entered by its own route rather than by tapping through the
+ * inventory. Tapping works, but boot finishes a moment later and moves the
+ * screen out from under the capture; restoring the route puts the workspace up
+ * as the settled destination instead of as a place the app is passing through.
+ * That the tapped route does not hold is a defect in the product, not in this
+ * script -- it is worth fixing, and worth not hiding behind a longer wait here.
+ */
+async function captureMobilePalette(context, out, mode) {
+  const page = await context.newPage();
+  await presentAsHardwareRenderer(page);
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor({ timeout: 20000 });
+  await page.evaluate(theme => {
+    document.documentElement.dataset.theme = theme;
+    if (window.NebulaVisuals) window.NebulaVisuals.repaint();
+  }, mode.theme);
+  await page.waitForTimeout(1400);
+  await page.screenshot({ path: path.join(out, `work-${mode.name}.png`) });
+  process.stdout.write(`work-${mode.name}\n`);
+
+  /*
+   * Addressed by id, not by name: the top bar and the floating action share
+   * the accessible name "Command palette", and only one of them exists at this
+   * width. A review script wants the specific control it is photographing.
+   */
+  const fab = page.locator('#paletteFab');
+  await fab.waitFor({ state: 'visible' });
+  await fab.click();
+  await page.locator('#paletteScrim:not([hidden])').waitFor();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(out, `palette-${mode.name}.png`) });
+  process.stdout.write(`palette-${mode.name}\n`);
+}
+
+/*
  * The container has no GPU, and the product declines software rasterisers on
  * purpose, so a review that wants to see the artwork has to present itself as
  * a machine that can draw it. This is a lie told to the probe, never shipped.
@@ -79,7 +120,10 @@ async function main() {
   });
   try {
     for (const mode of MODES) {
-      const context = await browser.newContext({ viewport: { width: mode.width, height: mode.height } });
+      const context = await browser.newContext({
+        viewport: { width: mode.width, height: mode.height },
+        baseURL: process.env.NV_REVIEW_URL || 'http://127.0.0.1:21999'
+      });
       const page = await context.newPage();
       await presentAsHardwareRenderer(page);
       await signIn(page);
@@ -99,11 +143,26 @@ async function main() {
         process.stdout.write(`${screen}-${mode.name}\n`);
       }
       await context.close();
+
+      /*
+       * A context of its own. Reusing the signed-in one carried its session
+       * into the fixture's own entry, which then landed somewhere the entry
+       * did not expect and waited for a control that screen does not show.
+       */
+      if (mode.width < 900) {
+        const fresh = await browser.newContext({
+          viewport: { width: mode.width, height: mode.height },
+          baseURL: process.env.NV_REVIEW_URL || 'http://127.0.0.1:21999'
+        });
+        await captureMobilePalette(fresh, out, mode);
+        await fresh.close();
+      }
     }
   } finally {
     await browser.close();
   }
-  process.stdout.write(`\nWrote ${MODES.length * SCREENS.length} views to ${out}\n`);
+  const written = fs.readdirSync(out).filter(name => name.endsWith('.png')).length;
+  process.stdout.write(`\nWrote ${written} views to ${out}\n`);
 }
 
 main().catch(error => {

@@ -2931,8 +2931,19 @@ const COMMANDS = [
   { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', run: () => deleteRepoFlow() },
   { label: 'Back to repositories', kind: 'view', run: () => $('#backBtn').click() }
 ];
+/*
+ * Where focus goes when the palette closes.
+ *
+ * The palette takes focus into a layer it then hides, so every exit -- Escape,
+ * a click on the backdrop, or picking a row -- left focus on the document
+ * body. Picking a row was the worst of the three: the command that opens a
+ * dialog ran with nothing focused, so the dialog recorded nothing to return
+ * to, and closing it stranded a keyboard reader at the top of the page.
+ */
+let paletteReturnFocus = null;
 async function openPalette() {
   if (_page !== 'work') return;
+  paletteReturnFocus = document.activeElement;
   $('#paletteScrim').hidden = false;
   const inp = $('#paletteInput');
   inp.value = ''; renderPalette('');
@@ -2945,7 +2956,32 @@ async function openPalette() {
     } catch { state.fileIndex = []; }
   }
 }
-function closePalette() { $('#paletteScrim').hidden = true; }
+function closePalette() {
+  const scrim = $('#paletteScrim');
+  /*
+   * Pressing a row blurs the input before the handler runs -- the rows are
+   * options, not focusable elements -- so by the time this is reached focus is
+   * already on the body. Both that and focus still inside the layer mean the
+   * reader has nowhere to return to; anything else is a deliberate target and
+   * is left alone.
+   */
+  const active = document.activeElement;
+  const strayed = !active || active === document.body || scrim.contains(active);
+  scrim.hidden = true;
+  /*
+   * The input keeps combobox state, and hiding the scrim does not clear it, so
+   * a reader who closed the palette was still told it was expanded and still
+   * pointed at a row that is no longer shown.
+   */
+  const input = $('#paletteInput');
+  if (input) {
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  }
+  const restore = paletteReturnFocus;
+  paletteReturnFocus = null;
+  if (strayed && restore && restore.isConnected && typeof restore.focus === 'function') restore.focus();
+}
 $('#paletteBtn').addEventListener('click', openPalette);
 $('#paletteScrim').addEventListener('click', e => { if (e.target === $('#paletteScrim')) closePalette(); });
 function fuzzy(q, s) {

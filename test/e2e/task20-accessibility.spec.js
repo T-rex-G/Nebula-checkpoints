@@ -28,11 +28,24 @@ test.describe('Task 20 browser and accessibility staging', () => {
     await mockTask20Api(page);
     await openRepository(page);
 
+    /*
+     * Narrow widths hide the Settings control behind the command palette, so
+     * the test walks that route rather than calling the handler through
+     * page.evaluate. Reaching in that way proved the dialog worked when
+     * something opened it, not that anything a reader can touch does -- the
+     * palette row could have gone missing and this would still have passed.
+     */
     const settingsButton = ui.button(page, 'Settings');
-    const trigger = await settingsButton.isVisible() ? settingsButton : ui.button(page, 'Command palette');
+    const onDesktop = await settingsButton.isVisible();
+    const trigger = onDesktop ? settingsButton : ui.button(page, 'Command palette');
     await trigger.focus();
-    if (await settingsButton.isVisible()) await page.keyboard.press('Enter');
-    else await page.evaluate(() => { void openSettings(); });
+    if (onDesktop) {
+      await page.keyboard.press('Enter');
+    } else {
+      await page.keyboard.press('Enter');
+      await ui.palette(page).fill('Settings');
+      await ui.paletteOption(page, /Settings/i).first().click();
+    }
 
     /*
      * Asking for the dialog by name subsumes the three attribute assertions

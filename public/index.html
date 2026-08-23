@@ -15,8 +15,6 @@
 <meta name="apple-mobile-web-app-title" content="__NV_PRODUCT_NAME__">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link href="/gfonts/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link href="/gfonts/css2?family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&family=Source+Code+Pro:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/vendor/codemirror/5.65.16/codemirror.min.css">
 <link rel="stylesheet" href="/vendor/codemirror/5.65.16/theme/material-ocean.min.css">
 <link rel="stylesheet" href="/vendor/codemirror/5.65.16/theme/dracula.min.css">
@@ -41,7 +39,7 @@
     <p class="eyebrow">Controlled hosted public alpha</p>
     <h1 id="alphaAccessTitle">Enter the Nebulaverse-X test orbit</h1>
     <p class="alpha-access-rule">Use only a sandbox/test repository containing no real secrets, personal data, production deployments, or irreplaceable source.</p>
-    <div class="alpha-wake-state" id="alphaWakeState" role="status" aria-live="polite">Checking service readiness…</div>
+    <div class="alpha-wake-state" id="alphaWakeState" role="status" aria-live="polite" aria-label="Service readiness">Checking service readiness…</div>
     <label class="field-label" for="alphaInviteInput">One-time invitation</label>
     <input id="alphaInviteInput" type="password" autocomplete="one-time-code" spellcheck="false">
     <label class="check" for="alphaTermsAccept">
@@ -98,10 +96,10 @@
     <p class="brand-sub">GitHub · GitLab · Gitea, from your pocket — offline-ready, pushes of <em>any</em> size.</p>
     <div class="card login-card">
       <div class="field-label" id="providerLabel">Provider</div>
-      <div class="seg" id="provSeg" role="group" aria-labelledby="providerLabel">
-        <button class="seg-btn active" data-v="github"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>GitHub</button>
-        <button class="seg-btn" data-v="gitlab"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>GitLab</button>
-        <button class="seg-btn" data-v="gitea"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24"><path d="M4.5 8h11v6.5a4.5 4.5 0 0 1-4.5 4.5H9a4.5 4.5 0 0 1-4.5-4.5V8z"/><path d="M15.5 9.5h2a2.5 2.5 0 0 1 0 5h-2M8 5.5V4M11.5 5.5V3.5"/></svg>Gitea</button>
+      <div class="seg" id="provSeg" role="radiogroup" aria-labelledby="providerLabel">
+        <button class="seg-btn active" data-v="github" role="radio" aria-checked="true"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>GitHub</button>
+        <button class="seg-btn" data-v="gitlab" role="radio" aria-checked="false"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>GitLab</button>
+        <button class="seg-btn" data-v="gitea" role="radio" aria-checked="false"><svg class="prov-ico" width="15" height="15" viewBox="0 0 24 24"><path d="M4.5 8h11v6.5a4.5 4.5 0 0 1-4.5 4.5H9a4.5 4.5 0 0 1-4.5-4.5V8z"/><path d="M15.5 9.5h2a2.5 2.5 0 0 1 0 5h-2M8 5.5V4M11.5 5.5V3.5"/></svg>Gitea</button>
       </div>
       <div id="baseUrlWrap" hidden>
         <label class="field-label" for="baseUrl">Server URL</label>
@@ -117,13 +115,108 @@
   </div>
 </main>
 
+<!--
+  Primary navigation. One instance rather than a copy inside each screen: the
+  rail is chrome around the screens, not part of any one of them, so it is a
+  sibling of them and is shown once a session is authenticated. Below the wide
+  breakpoint it gives way to the bottom navigation the workspace already has.
+-->
+<nav class="nv-rail" id="navRail" aria-label="Primary" hidden>
+  <div class="nv-rail-head">
+    <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
+    <span class="nv-rail-brand">__NV_PRODUCT_NAME__</span>
+    <span class="nv-rail-sub">Trust operations</span>
+  </div>
+
+  <ul class="nv-rail-nav">
+    <li><button type="button" class="nv-rail-item" data-rail="overview">
+      <span class="nv-rail-t">Overview</span></button></li>
+    <li><button type="button" class="nv-rail-item" data-rail="repos">
+      <span class="nv-rail-t">Repositories</span>
+      <span class="nv-rail-d">Connected systems</span></button></li>
+    <li><button type="button" class="nv-rail-item" data-rail="neural">
+      <span class="nv-rail-t">Neural</span>
+      <span class="nv-rail-d">Signal topology</span></button></li>
+    <li><button type="button" class="nv-rail-item" data-rail="work">
+      <span class="nv-rail-t">Classic workbench</span>
+      <span class="nv-rail-d">Full repository tools</span></button></li>
+  </ul>
+
+  <div class="nv-rail-foot">
+    <p class="nv-rail-state" id="navBoundary">
+      <span class="nv-rail-dot" aria-hidden="true"></span>
+      <span><span class="nv-rail-state-t">Boundary online</span>
+        <span class="nv-rail-d">Server-owned controls active</span></span>
+    </p>
+    <p class="nv-rail-user" id="navUser" hidden>
+      <span class="nv-rail-avatar" id="navUserInitial" aria-hidden="true"></span>
+      <span><span class="nv-rail-state-t" id="navUserName"></span>
+        <span class="nv-rail-d" id="navUserSub"></span></span>
+    </p>
+  </div>
+</nav>
+
+<!-- ======================= OVERVIEW ======================= -->
+<main class="page" id="page-overview" aria-label="Workspace overview">
+  <header class="topbar glass">
+    <button class="topbar-brand" id="ovHomeBtn" type="button" aria-label="Workspace overview">
+      <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
+      <span class="hide-sm">__NV_PRODUCT_NAME__</span>
+    </button>
+    <nav class="ov-crumbs" aria-label="Location">
+      <span>__NV_PRODUCT_NAME__</span><span aria-hidden="true">/</span><span aria-current="page">Overview</span>
+    </nav>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" id="ovGoRepos">Repositories</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <section class="ov-hero">
+      <div class="ov-hero-copy">
+        <p class="gx-eyebrow"><span>Trust operations</span><span aria-hidden="true">/</span><span>Authenticated workspace</span></p>
+        <h2 class="gx-title" id="ovTitle">Good to see you,<br><em id="ovWho">tester</em>.<br>Make <em>one</em> safe move.</h2>
+        <p class="gx-lede">Connect a repository, understand its current health, and prove the next change
+          before it reaches a provider.</p>
+        <div class="gx-hero-actions">
+          <button class="btn btn-primary" id="ovOpenBrowser">Open repository browser</button>
+        </div>
+      </div>
+      <aside class="ov-core" aria-labelledby="ovCoreTitle">
+        <p class="ov-core-head"><span id="ovCoreTitle">Trust core</span><span class="ov-live">Live</span></p>
+        <div class="ov-core-art" aria-hidden="true"><span class="ov-core-glow"></span></div>
+        <p class="ov-core-line">Secure by default. Proven by design.</p>
+      </aside>
+    </section>
+
+    <section class="ov-path" aria-labelledby="ovPathTitle">
+      <p class="gx-eyebrow" id="ovPathTitle"><span>Golden path</span></p>
+      <p class="ov-path-lede">The fastest safe route through the overview.</p>
+      <ol class="ov-steps">
+        <li><span class="ov-step-n">01</span><span class="ov-step-t">Connect</span><span class="ov-step-d">Choose one repository</span></li>
+        <li><span class="ov-step-n">02</span><span class="ov-step-t">Understand</span><span class="ov-step-d">See health and signals</span></li>
+        <li><span class="ov-step-n">03</span><span class="ov-step-t">Prove</span><span class="ov-step-d">Preview every action</span></li>
+      </ol>
+    </section>
+
+    <!--
+      Overview pulse. Same rule as the inventory: every figure is computed
+      from what the session loaded, and a measure without a source is absent
+      rather than filled with a plausible number.
+    -->
+    <section class="gx-pulse" id="ovPulse" aria-label="Workspace pulse" hidden>
+      <dl class="gx-pulse-grid" id="ovPulseGrid"></dl>
+    </section>
+  </div>
+</main>
+
 <!-- ======================= REPOS ======================= -->
 <main class="page" id="page-repos" aria-labelledby="reposTitle">
   <header class="topbar glass">
-    <div class="topbar-brand" id="homeBtn">
+    <button class="topbar-brand" id="homeBtn" type="button" aria-label="Workspace overview">
       <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
-    </div>
+    </button>
     <div class="topbar-actions">
       <button class="btn btn-ghost" id="newRepoBtn" data-feature="repository.create" aria-label="Create repository"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm"> New repo</span></button>
       <button class="btn btn-ghost icon-btn" data-feature="notifications" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg></button>
@@ -138,8 +231,27 @@
     </div>
   </header>
   <div class="container">
-    <div class="page-head">
-      <h2 id="reposTitle">Your galaxies</h2>
+    <section class="gx-hero" aria-labelledby="gxHeroTitle">
+        <p class="gx-eyebrow"><span>Connected systems</span><span aria-hidden="true">/</span><span>Galaxy inventory</span></p>
+        <h2 class="gx-title" id="gxHeroTitle">Your galaxies,<br><em>one clear</em> next move.</h2>
+        <p class="gx-lede">Browse provider-connected systems with conservative activity context, then hand off to the proven workbench when you&rsquo;re ready to act.</p>
+        <div class="gx-hero-actions">
+          <button class="btn btn-primary" id="reposRefreshBtn">Refresh</button>
+        </div>
+      </section>
+
+      <!--
+        Galaxy pulse. Every figure is computed from what this session actually
+        loaded. A measure with no source is left out rather than shown with a
+        placeholder: a surface whose whole claim is trust cannot invent a
+        number on it.
+      -->
+      <section class="gx-pulse" id="reposPulse" aria-label="Galaxy pulse" hidden>
+        <dl class="gx-pulse-grid" id="reposPulseGrid"></dl>
+      </section>
+
+      <div class="page-head">
+      <h2 id="reposTitle" class="sr-only">Your galaxies</h2>
       <div class="page-head-tools">
         <select id="repoSort" class="branch-select" aria-label="Sort repositories">
           <option value="pushed">Recently pushed</option>
@@ -168,7 +280,7 @@
     <div class="topbar-actions">
       <span class="rate mono hide-sm" id="rateChip" title="GitHub API calls remaining this hour" hidden><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M13 2.5L4.5 13.5H11L10 21.5l8.5-11H12l1-8z"/></svg><span id="rateVal"></span></span>
       <button class="btn btn-ghost icon-btn hide-sm" id="settingsBtnWork" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
-      <button class="btn btn-ghost icon-btn" id="paletteBtn" title="Command palette (Ctrl+K)" aria-label="Command palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg></button>
+      <button class="btn btn-ghost icon-btn hide-sm" id="paletteBtn" title="Command palette (Ctrl+K)" aria-label="Command palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg></button>
       <button class="btn btn-ghost icon-btn" id="syncBtn" title="Refresh repo" aria-label="Refresh repo"><svg class="ico" width="17" height="17" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1M20.5 3.5v4h-4"/></svg></button>
       <span class="ro-chip" id="roChip" hidden>READ-ONLY</span><span class="ro-chip freeze" id="freezeChip" hidden>SYNC FROZEN</span><span class="shield-chip" id="branchShield" hidden title="This branch is protected"><svg class="ico" width="13" height="13" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg></span><select id="branchSelect" class="branch-select" title="Branch" aria-label="Repository branch"></select>
       <button class="btn btn-ghost icon-btn staged-btn" id="stagedBtn" title="Staged changes" aria-label="Staged changes">
@@ -195,13 +307,13 @@
 
     <section class="main-pane">
       <section class="trust-summary" id="trustSummary" aria-label="Repository trust summary" hidden>
-        <article id="trustConnection"></article>
-        <article id="trustPipeline"></article>
-        <article id="trustRisk"></article>
-        <article id="trustAction"></article>
-        <article id="trustEvidence"></article>
+        <article id="trustConnection" aria-label="Connection trust"></article>
+        <article id="trustPipeline" aria-label="Pipeline trust"></article>
+        <article id="trustRisk" aria-label="Risk"></article>
+        <article id="trustAction" aria-label="Next action"></article>
+        <article id="trustEvidence" aria-label="Evidence"></article>
       </section>
-      <div class="sr-only" id="a11yStatus" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div class="sr-only" id="a11yStatus" role="status" aria-live="polite" aria-label="Workspace updates" aria-atomic="true"></div>
       <nav class="tabs glass" id="deskTabs" aria-label="Repository sections">
         <button class="tab active" data-tab="editor">Editor</button>
         <button class="tab" data-tab="upload" data-feature="native-push" data-allow-experimental="true">Push files</button>
@@ -276,10 +388,10 @@
             <input type="file" id="filePicker" multiple hidden>
           </div>
           <div class="upload-opts">
-            <label class="field-label">Commit mode</label>
-            <div class="seg" data-feature="file.batch" data-allow-experimental="true" id="uploadMode">
-              <button class="seg-btn active" data-v="single">One commit per file</button>
-              <button class="seg-btn" data-v="batch">All as one commit</button>
+            <span class="field-label" id="uploadModeLabel">Commit mode</span>
+            <div class="seg" data-feature="file.batch" data-allow-experimental="true" id="uploadMode" role="radiogroup" aria-labelledby="uploadModeLabel">
+              <button class="seg-btn active" data-v="single" role="radio" aria-checked="true">One commit per file</button>
+              <button class="seg-btn" data-v="batch" role="radio" aria-checked="false">All as one commit</button>
             </div>
             <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btn-ghost small" data-feature="native-push" data-allow-experimental="true" id="folderPickBtn">Select a whole folder…</button>
@@ -287,9 +399,9 @@
             </div>
             <input type="file" id="folderPicker" webkitdirectory multiple hidden>
             <input type="file" id="zipPicker" accept=".zip,application/zip" hidden>
-            <label class="field-label">Destination folder <span class="muted">(optional)</span></label>
+            <label class="field-label" for="uploadDir">Destination folder <span class="muted">(optional)</span></label>
             <input id="uploadDir" type="text" placeholder="repository root" spellcheck="false">
-            <label class="field-label">Commit message</label>
+            <label class="field-label" for="uploadMsg">Commit message</label>
             <input id="uploadMsg" type="text" placeholder="Add files via __NV_PRODUCT_NAME__" spellcheck="false">
             <label class="check"><input type="checkbox" id="forceLfs"> Force Git LFS for all files</label>
           </div>
@@ -311,10 +423,10 @@
       <!-- PULLS -->
       <div class="tabpane" id="tab-pulls">
         <div class="list-toolbar">
-          <div class="seg" id="prState">
-            <button class="seg-btn active" data-v="open">Open</button>
-            <button class="seg-btn" data-v="closed">Closed</button>
-            <button class="seg-btn" data-v="all">All</button>
+          <div class="seg" id="prState" role="radiogroup" aria-label="Pull request state">
+            <button class="seg-btn active" data-v="open" role="radio" aria-checked="true">Open</button>
+            <button class="seg-btn" data-v="closed" role="radio" aria-checked="false">Closed</button>
+            <button class="seg-btn" data-v="all" role="radio" aria-checked="false">All</button>
           </div>
           <button class="btn btn-primary small" id="newPrBtn" data-feature="pulls.write" data-allow-experimental="true">New PR</button>
         </div>
@@ -325,9 +437,9 @@
       <!-- ISSUES -->
       <div class="tabpane" id="tab-issues">
         <div class="list-toolbar">
-          <div class="seg" id="issueState">
-            <button class="seg-btn active" data-v="open">Open</button>
-            <button class="seg-btn" data-v="closed">Closed</button>
+          <div class="seg" id="issueState" role="radiogroup" aria-label="Issue state">
+            <button class="seg-btn active" data-v="open" role="radio" aria-checked="true">Open</button>
+            <button class="seg-btn" data-v="closed" role="radio" aria-checked="false">Closed</button>
           </div>
           <button class="btn btn-primary small" id="newIssueBtn" data-feature="issues.write" data-allow-experimental="true">New issue</button>
         </div>
@@ -357,9 +469,9 @@
       <div class="tabpane" id="tab-compare">
         <div class="card compare-card">
           <div class="compare-row">
-            <div><label class="field-label">Base</label><select id="cmpBase" class="branch-select w100"></select></div>
+            <div><label class="field-label" for="cmpBase">Base</label><select id="cmpBase" class="branch-select w100"></select></div>
             <span class="cmp-arrow">←</span>
-            <div><label class="field-label">Head</label><select id="cmpHead" class="branch-select w100"></select></div>
+            <div><label class="field-label" for="cmpHead">Head</label><select id="cmpHead" class="branch-select w100"></select></div>
             <button class="btn btn-primary" id="cmpGo">Compare</button>
           </div>
           <div id="cmpResult"></div>
@@ -469,7 +581,7 @@
             <div class="gov-summary-grid"><div class="card gov-skeleton gov-skeleton-card"></div><div class="card gov-skeleton gov-skeleton-card"></div><div class="card gov-skeleton gov-skeleton-card"></div><div class="card gov-skeleton gov-skeleton-card"></div></div>
           </section>
         </div>
-        <div id="govLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div id="govLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Governance updates"></div>
       </div>
     </section>
   </div>
@@ -482,6 +594,19 @@
     <button data-nav="commits"><svg width="21" height="21" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v6.8M12 15.2V22" stroke="currentColor" stroke-width="1.7"/></svg><span>History</span></button>
     <button data-nav="more"><svg width="21" height="21" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg><span>More</span></button>
   </nav>
+
+  <!--
+    One action, two placements. The top bar carries the palette on wide
+    screens; below the breakpoint that bar has no room, so the same action
+    floats instead. Exactly one is ever displayed, so a reader -- and anything
+    addressing the interface by name -- finds a single "Command palette".
+  -->
+  <button class="nv-fab show-sm" id="paletteFab" type="button" aria-label="Command palette"
+    title="Command palette (Ctrl+K)">
+    <svg width="21" height="21" class="ico" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/>
+    </svg>
+  </button>
 </main>
 
 <!-- mobile "More" sheet -->
@@ -524,8 +649,10 @@
 <!-- command palette -->
 <div class="palette-scrim" id="paletteScrim" hidden>
   <div class="palette glass">
-    <input id="paletteInput" type="text" placeholder="Jump to file or run a command…" autocomplete="off" spellcheck="false">
-    <div class="palette-list" id="paletteList"></div>
+    <input id="paletteInput" type="text" placeholder="Jump to file or run a command…" autocomplete="off" spellcheck="false"
+      aria-label="Jump to file or run a command" role="combobox" aria-expanded="false"
+      aria-controls="paletteList" aria-autocomplete="list">
+    <div class="palette-list" id="paletteList" role="listbox" aria-label="Command palette results"></div>
   </div>
 </div>
 
@@ -583,7 +710,7 @@
   <span id="netBarText">Offline — commits will be queued ✦</span>
   <button class="btn btn-ghost small" id="queueOpenBtn" hidden>Queue (<span id="queueCount">0</span>)</button>
 </div>
-<div class="toast-stack" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
+<div class="toast-stack" id="toasts" role="status" aria-live="polite" aria-atomic="false" aria-label="Notifications"></div>
 
 <script src="/vendor/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="/vendor/codemirror/5.65.16/mode/meta.min.js"></script>

@@ -1,5 +1,7 @@
 'use strict';
 
+const ui = require('./semantic');
+
 const capabilityDocument = require('../../config/public-alpha-capabilities.json');
 
 const HEAD_SHA = 'a'.repeat(40);
@@ -10,7 +12,14 @@ const VALID = Object.freeze({
   provider: new Set(['github', 'gitlab', 'gitea']),
   repositoryState: new Set(['empty', 'current', 'stale', 'partial', 'degraded', 'error']),
   mutation: new Set(['verified', 'blocked', 'failed-unchanged', 'unknown']),
-  cleanup: new Set(['verified', 'pending'])
+  cleanup: new Set(['verified', 'pending']),
+  /*
+   * How long the trust endpoints stay unanswered. 'settled' keeps the short
+   * delay the other scenarios rely on; 'pending' holds them open so the
+   * loading state can be asserted deliberately rather than raced against the
+   * verdict that replaces it about a tenth of a second later.
+   */
+  trust: new Set(['settled', 'pending'])
 });
 
 function normalizedScenario(input = {}) {
@@ -20,7 +29,8 @@ function normalizedScenario(input = {}) {
     provider: input.provider || 'github',
     repositoryState: input.repositoryState || 'current',
     mutation: input.mutation || 'verified',
-    cleanup: input.cleanup || 'verified'
+    cleanup: input.cleanup || 'verified',
+    trust: input.trust || 'settled'
   };
   for (const [key, values] of Object.entries(VALID)) {
     if (!values.has(scenario[key])) throw new TypeError(`Unsupported public-alpha fixture ${key}: ${scenario[key]}`);
@@ -96,7 +106,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     const method = request.method();
     const fulfill = (json, status = 200) => route.fulfill({ status, json: sanitized(json) });
     if (/\/api\/repo\/sandbox\/demo\/(?:live-events\/status|access-surface|evidence)$/.test(pathname)) {
-      await new Promise(resolve => setTimeout(resolve, 120));
+      await new Promise(resolve => setTimeout(resolve, scenario.trust === 'pending' ? 2500 : 120));
     }
 
     if (pathname === '/api/alpha/status') {
@@ -216,7 +226,8 @@ async function openConnectedRepository(page, scenario = {}) {
 }
 
 async function startNewFileAction(page, path = 'alpha-proof.txt') {
-  await page.locator('#paletteBtn').click();
+  /* Reached by name, so it follows the control between the bar and the floating action. */
+  await ui.button(page, 'Command palette').click();
   await page.locator('#paletteInput').fill('New file');
   await page.locator('.pal-item', { hasText: 'New file' }).first().click();
   await page.locator('#nfPath').fill(path);

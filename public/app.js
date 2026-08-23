@@ -179,9 +179,9 @@ async function requestStepUp(action, scope, label = 'sensitive action') {
     danger: true,
     okText: 'Authorize once',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(label)}</b> requires a short-lived, single-use authorization bound to this exact operation.</p>
-      <label class="field-label">Type the active account login <b class="mono">${esc(login)}</b></label>
+      <label class="field-label" for="stepUpLogin">Type the active account login <b class="mono">${esc(login)}</b></label>
       <input id="stepUpLogin" type="text" autocomplete="off" spellcheck="false">
-      ${tokenMethod ? `<label class="field-label">Re-enter the current provider token</label><input id="stepUpCredential" type="password" autocomplete="off" spellcheck="false">` : `<p class="hint">Your OAuth authorization will be revalidated with the provider. The grant expires in five minutes and can be used only once.</p>`}`
+      ${tokenMethod ? `<label class="field-label" for="stepUpCredential">Re-enter the current provider token</label><input id="stepUpCredential" type="password" autocomplete="off" spellcheck="false">` : `<p class="hint">Your OAuth authorization will be revalidated with the provider. The grant expires in five minutes and can be used only once.</p>`}`
   });
   if (!ok) return '';
   const loginInput = $('#stepUpLogin');
@@ -215,11 +215,76 @@ function safeHexColor(value, fallback = '8a8fa8') {
   const color = String(value || '').replace(/^#/, '');
   return /^[0-9a-f]{6}$/i.test(color) ? color : fallback;
 }
+const TOAST_TONE = { ok: 'Success', err: 'Error' };
+/*
+ * A segmented control is a set of choices, and which one is chosen was carried
+ * only by an .active class -- visible, but silent. Selection moves through
+ * here so the class and the announced state cannot drift apart at any of the
+ * places that repaint one.
+ */
+/*
+ * The pulse reports what this session actually loaded. Each measure names its
+ * own source, and a measure without one is not rendered: the design shows a
+ * trust score, and nothing in this product computes one yet, so that tile is
+ * absent rather than invented.
+ */
+function renderGalaxyPulse(repos) {
+  const section = $('#reposPulse');
+  const grid = $('#reposPulseGrid');
+  if (!section || !grid) return;
+  const list = Array.isArray(repos) ? repos : [];
+  const languages = new Set(list.map(r => r && r.language).filter(Boolean));
+  const measures = [
+    { label: 'Galaxies online', value: list.length, note: list.length === 1 ? 'connected system' : 'connected systems' },
+    { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
+    { label: 'Languages', value: languages.size, note: languages.size === 1 ? 'in use' : 'across the set' }
+  ].filter(measure => Number.isFinite(measure.value));
+  grid.innerHTML = '';
+  for (const measure of measures) {
+    const cell = document.createElement('div');
+    cell.className = 'gx-pulse-cell';
+    const dt = document.createElement('dt');
+    dt.textContent = measure.label;
+    const dd = document.createElement('dd');
+    const value = document.createElement('span');
+    value.className = 'gx-pulse-value';
+    value.textContent = String(measure.value);
+    const note = document.createElement('span');
+    note.className = 'gx-pulse-note';
+    note.textContent = measure.note;
+    dd.append(value, note);
+    cell.append(dt, dd);
+    grid.appendChild(cell);
+  }
+  section.hidden = measures.length === 0;
+}
+
+function selectSegment(groupSelector, isChosen) {
+  $$(`${groupSelector} .seg-btn`).forEach((button, index) => {
+    const chosen = !!isChosen(button, index);
+    button.classList.toggle('active', chosen);
+    button.setAttribute('aria-checked', String(chosen));
+  });
+}
+
 function toast(msg, kind = '') {
   if (kind === 'ok') hapt(10);
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
-  el.textContent = msg;
+  /*
+   * Outcome was carried by colour alone: a reader saw green or red, and anyone
+   * listening heard only the message. The tone is announced now, as text
+   * placed before it and hidden visually, so the same distinction reaches both
+   * without changing what the toast looks like.
+   */
+  const tone = TOAST_TONE[kind];
+  if (tone) {
+    const label = document.createElement('span');
+    label.className = 'sr-only';
+    label.textContent = `${tone}: `;
+    el.appendChild(label);
+  }
+  el.appendChild(document.createTextNode(msg));
   $('#toasts').appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .4s'; setTimeout(() => el.remove(), 400); }, 3600);
 }
@@ -280,6 +345,7 @@ function showPage(name) {
   setTimeout(measureTopbar, 30);
   if (_page === name) return;
   _page = name;
+  paintRail(name);
   withTransition(() => {
     $$('.page').forEach(p => p.classList.remove('active'));
     $('#page-' + name).classList.add('active');
@@ -719,7 +785,7 @@ function ensureLoginAlphaSessionControls() {
 }
 $('#provSeg').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#provSeg .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#provSeg', x => x === b);
   loginProvider = b.dataset.v;
   $('#oauthBtn').hidden = loginProvider !== 'github' || !window._oauthOn;
   $('#baseUrlWrap').hidden = loginProvider === 'github';
@@ -744,7 +810,7 @@ function applyCaps() {
   if (lfsLabel) lfsLabel.hidden = false;
   if (!caps.batch && typeof uploadModeV !== 'undefined' && uploadModeV === 'batch') {
     uploadModeV = 'single';
-    $$('#uploadMode .seg-btn').forEach(b2 => b2.classList.toggle('active', b2.dataset.v === 'single'));
+    selectSegment('#uploadMode', b2 => b2.dataset.v === 'single');
   }
   window.NebulaCapabilityUI.apply();
 }
@@ -974,7 +1040,8 @@ async function loadRepos(reset) {
     batch.forEach(r => grid.appendChild(repoCard(r)));
     $('#moreReposBtn').hidden = batch.length < 30;
     if (!state.repos.length) grid.innerHTML = '<div class="card editor-empty"><div class="empty-icon">✦</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>';
-  } catch (e) { toast(e.message, 'err'); grid.innerHTML = ''; }
+    renderGalaxyPulse(state.repos);
+  } catch (e) { toast(e.message, 'err'); grid.innerHTML = ''; renderGalaxyPulse([]); }
 }
 const LOCK_SVG = '<svg class="lock-ico" width="13" height="13" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 function repoCard(r) {
@@ -984,13 +1051,15 @@ function repoCard(r) {
   el.setAttribute('role', 'button');
   el.setAttribute('aria-label', `Open repository ${r.full_name}`);
   el.innerHTML = `
-    <h3>${r.private ? LOCK_SVG : ''}<span></span></h3>
+    <h3>${r.private ? LOCK_SVG : ''}<span class="repo-name"></span>
+      <span class="repo-badge ${r.private ? 'repo-badge-private' : 'repo-badge-healthy'}">${r.private ? 'Private' : 'Public'}</span></h3>
     <p class="desc"></p>
     <div class="repo-meta">
       ${r.language ? `<span><span class="lang-dot"></span>${esc(r.language)}</span>` : ''}
       <span>★ ${r.stars}</span><span>⑂ ${r.forks}</span><span>${timeAgo(r.pushed_at)}</span>
-    </div>`;
-  el.querySelector('h3 span:last-child').textContent = r.full_name;
+    </div>
+    <span class="repo-open">Open workspace</span>`;
+  el.querySelector('h3 .repo-name').textContent = r.full_name;
   el.querySelector('.desc').textContent = r.description || 'No description';
   const open = () => openRepo(r.owner, r.name);
   el.addEventListener('click', open);
@@ -1042,7 +1111,57 @@ $('#repoFilter').addEventListener('input', e => {
   const q = e.target.value.toLowerCase();
   $$('#repoGrid .repo-card').forEach(c => { c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none'; });
 });
-$('#homeBtn').addEventListener('click', () => showPage('repos'));
+/*
+ * The brand mark leads to the overview, which is the design's authenticated
+ * home. Where a session lands after sign-in is left alone for now: that is a
+ * change to the qualified tester journey rather than a change of surface, and
+ * it belongs in its own change with its own evidence.
+ */
+$('#homeBtn').addEventListener('click', () => showOverview());
+$('#ovHomeBtn') && $('#ovHomeBtn').addEventListener('click', () => showOverview());
+$('#ovGoRepos') && $('#ovGoRepos').addEventListener('click', () => showPage('repos'));
+$('#ovOpenBrowser') && $('#ovOpenBrowser').addEventListener('click', () => showPage('repos'));
+
+function showOverview() {
+  const who = $('#ovWho');
+  if (who) who.textContent = (state.me && (state.me.name || state.me.login)) || 'tester';
+  renderOverviewPulse(state.repos);
+  showPage('overview');
+}
+
+/*
+ * Reports what this session loaded. The design also shows a trust score and a
+ * live-signal count; nothing computes either yet, so those are absent rather
+ * than filled with a number that would read as measured.
+ */
+function renderOverviewPulse(repos) {
+  const section = $('#ovPulse');
+  const grid = $('#ovPulseGrid');
+  if (!section || !grid) return;
+  const list = Array.isArray(repos) ? repos : [];
+  const measures = [
+    { label: 'Repositories', value: list.length, note: 'connected' },
+    { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' }
+  ];
+  grid.innerHTML = '';
+  for (const measure of measures) {
+    const cell = document.createElement('div');
+    cell.className = 'gx-pulse-cell';
+    const dt = document.createElement('dt');
+    dt.textContent = measure.label;
+    const dd = document.createElement('dd');
+    const value = document.createElement('span');
+    value.className = 'gx-pulse-value';
+    value.textContent = String(measure.value);
+    const note = document.createElement('span');
+    note.className = 'gx-pulse-note';
+    note.textContent = measure.note;
+    dd.append(value, note);
+    cell.append(dt, dd);
+    grid.appendChild(cell);
+  }
+  section.hidden = false;
+}
 $('#accountBtn').addEventListener('click', async () => {
   modal({ title: 'Accounts', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:60px"></div>' });
   try {
@@ -1123,8 +1242,8 @@ $('#newRepoBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New repository',
     bodyHTML: `
-      <label class="field-label">Name</label><input id="nrName" type="text" placeholder="my-nebula" spellcheck="false">
-      <label class="field-label">Description</label><input id="nrDesc" type="text" placeholder="Optional">
+      <label class="field-label" for="nrName">Name</label><input id="nrName" type="text" placeholder="my-nebula" spellcheck="false">
+      <label class="field-label" for="nrDesc">Description</label><input id="nrDesc" type="text" placeholder="Optional">
       <label class="check"><input type="checkbox" id="nrPriv" checked> Private</label>`,
     okText: 'Create'
   });
@@ -1316,7 +1435,7 @@ $('#branchSelect').addEventListener('change', e => {
 $('#newBranchBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New branch',
-    bodyHTML: `<label class="field-label">Branch name</label><input id="nbName" type="text" placeholder="feature/starlight" spellcheck="false">
+    bodyHTML: `<label class="field-label" for="nbName">Branch name</label><input id="nbName" type="text" placeholder="feature/starlight" spellcheck="false">
       <p class="hint">Created from <b>${esc(state.work.branch)}</b></p>`,
     okText: 'Create branch'
   });
@@ -1552,9 +1671,9 @@ function governanceReadJson(selector, label) {
 async function createGovernancePolicy() {
   const ok = await modal({
     title: 'Create governance policy', okText: 'Create policy',
-    bodyHTML: `<label class="field-label">Stable policy key</label><input id="govPolicyKey" type="text" placeholder="release-safety" spellcheck="false">
-      <label class="field-label">Name</label><input id="govPolicyName" type="text" placeholder="Release safety">
-      <label class="field-label">Description</label><textarea id="govPolicyDescription" rows="4" placeholder="What this policy protects"></textarea>
+    bodyHTML: `<label class="field-label" for="govPolicyKey">Stable policy key</label><input id="govPolicyKey" type="text" placeholder="release-safety" spellcheck="false">
+      <label class="field-label" for="govPolicyName">Name</label><input id="govPolicyName" type="text" placeholder="Release safety">
+      <label class="field-label" for="govPolicyDescription">Description</label><textarea id="govPolicyDescription" rows="4" placeholder="What this policy protects"></textarea>
       <p class="hint">Creating a policy does not create, submit or activate a version.</p>`
   });
   if (!ok) return;
@@ -1573,8 +1692,8 @@ async function createGovernanceDraft(policyId, seed) {
   let approvalPolicy = seed && seed.approvalPolicy ? seed.approvalPolicy : governanceDefaultApproval();
   const ok = await modal({
     title: 'Create policy draft', okText: 'Create draft',
-    bodyHTML: `<label class="field-label">Policy document (JSON)</label><textarea id="govDraftDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(document, null, 2))}</textarea>
-      <label class="field-label">Approval policy (JSON)</label><textarea id="govDraftApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>
+    bodyHTML: `<label class="field-label" for="govDraftDocument">Policy document (JSON)</label><textarea id="govDraftDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(document, null, 2))}</textarea>
+      <label class="field-label" for="govDraftApproval">Approval policy (JSON)</label><textarea id="govDraftApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>
       <p class="hint">The draft remains mutable until submission. Nothing is activated automatically.</p>`
   });
   if (!ok) return;
@@ -1593,7 +1712,7 @@ async function generateGovernanceBaseline() {
   const options = templates.map(item => `<option value="${escAttr(item.templateId)}">${esc(item.name || item.templateId)}</option>`).join('');
   const ok = await modal({
     title: 'Generate repository baseline', okText: 'Generate',
-    bodyHTML: `<label class="field-label">Template</label><select id="govTemplateId">${options}</select>
+    bodyHTML: `<label class="field-label" for="govTemplateId">Template</label><select id="govTemplateId">${options}</select>
       <p class="hint">Generation is read-only. The result is not persisted or activated.</p>`
   });
   if (!ok) return;
@@ -1604,8 +1723,8 @@ async function generateGovernanceBaseline() {
   const accept = await modal({
     title: 'Baseline generated', okText: 'Create policy and draft',
     bodyHTML: `<div class="gov-banner ${baseline && baseline.readiness && baseline.readiness.status === 'ready' ? 'ok' : 'warn'}"><strong>${baseline && baseline.readiness && baseline.readiness.status === 'ready' ? 'Repository facts complete' : 'Review incomplete repository facts'}</strong></div>
-      <label class="field-label">Policy key</label><input id="govBaselineKey" type="text" value="${escAttr((baseline.templateId || 'baseline').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase())}" spellcheck="false">
-      <label class="field-label">Policy name</label><input id="govBaselineName" type="text" value="${escAttr(selectedTemplate.name || 'Repository baseline')}">
+      <label class="field-label" for="govBaselineKey">Policy key</label><input id="govBaselineKey" type="text" value="${escAttr((baseline.templateId || 'baseline').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase())}" spellcheck="false">
+      <label class="field-label" for="govBaselineName">Policy name</label><input id="govBaselineName" type="text" value="${escAttr(selectedTemplate.name || 'Repository baseline')}">
       <pre class="mono gov-json-view">${esc(JSON.stringify(baseline, null, 2))}</pre>`
   });
   if (!accept) return;
@@ -1633,8 +1752,8 @@ async function editGovernanceDraft(policyId, draftId) {
   const approvalPolicy = { requiredApprovals: draft.requiredApprovals, disallowAuthorApproval: draft.disallowAuthorApproval };
   const ok = await modal({
     title: `Edit draft r${draft.revision}`, okText: 'Save draft',
-    bodyHTML: `<label class="field-label">Policy document (JSON)</label><textarea id="govEditDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(draft.document, null, 2))}</textarea>
-      <label class="field-label">Approval policy (JSON)</label><textarea id="govEditApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>`
+    bodyHTML: `<label class="field-label" for="govEditDocument">Policy document (JSON)</label><textarea id="govEditDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(draft.document, null, 2))}</textarea>
+      <label class="field-label" for="govEditApproval">Approval policy (JSON)</label><textarea id="govEditApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>`
   });
   if (!ok) return;
   await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/drafts/${encodeURIComponent(draftId)}`, {
@@ -1667,7 +1786,7 @@ async function simulateGovernanceVersion(policyId, versionId) {
     : window.NebulaGovernanceUI.defaultSimulationRequest(state.work.default_branch || state.work.branch || 'main');
   const ok = await modal({
     title: 'Simulate policy version', okText: 'Run simulation',
-    bodyHTML: `<label class="field-label">Bounded scenario request (JSON)</label><textarea id="govSimulationRequest" rows="16" class="mono" spellcheck="false">${esc(JSON.stringify(previous, null, 2))}</textarea>
+    bodyHTML: `<label class="field-label" for="govSimulationRequest">Bounded scenario request (JSON)</label><textarea id="govSimulationRequest" rows="16" class="mono" spellcheck="false">${esc(JSON.stringify(previous, null, 2))}</textarea>
       <p class="hint">Simulation is read-only and must exercise every proposed rule before activation.</p>`
   });
   if (!ok) return null;
@@ -1689,7 +1808,7 @@ async function decideGovernanceReview(policyId, versionId, decision) {
   const ok = await modal({
     title: rejecting ? 'Reject policy version' : 'Approve policy version', danger: rejecting, okText: rejecting ? 'Reject' : 'Approve',
     bodyHTML: `<p>${rejecting ? 'Rejection is terminal for this review.' : 'Your approval becomes immutable governance evidence.'}</p>
-      <label class="field-label">Rationale${rejecting ? ' (required)' : ''}</label><textarea id="govReviewRationale" rows="5"></textarea>`
+      <label class="field-label" for="govReviewRationale">Rationale${rejecting ? ' (required)' : ''}</label><textarea id="govReviewRationale" rows="5"></textarea>`
   });
   if (!ok) return;
   await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/versions/${encodeURIComponent(versionId)}/decisions`, {
@@ -1709,7 +1828,7 @@ async function governanceActivateOrRollback(policyId, versionId, operation) {
   const ok = await modal({
     title: operation === 'rollback' ? 'Rollback active policy?' : 'Activate policy version?', danger: true,
     okText: operation === 'rollback' ? 'Rollback' : 'Activate',
-    bodyHTML: `<p>This changes the authoritative policy head after server-side evidence is recomputed.</p><label class="field-label">Reason</label><textarea id="govActivationReason" rows="5"></textarea>`
+    bodyHTML: `<p>This changes the authoritative policy head after server-side evidence is recomputed.</p><label class="field-label" for="govActivationReason">Reason</label><textarea id="govActivationReason" rows="5"></textarea>`
   });
   if (!ok) return;
   await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/versions/${encodeURIComponent(versionId)}/${operation}`, {
@@ -1726,12 +1845,12 @@ async function requestGovernanceException(policyId, versionId) {
   const local = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const ok = await modal({
     title: 'Request exception or waiver', okText: 'Submit request',
-    bodyHTML: `<label class="field-label">Kind</label><select id="govExceptionKind"><option value="exception">Exception (deny rules)</option><option value="waiver">Waiver (approval rules)</option></select>
-      <label class="field-label">Registered mutation action</label><input id="govExceptionAction" type="text" placeholder="file.write" spellcheck="false">
-      <label class="field-label">Rule IDs (comma separated)</label><input id="govExceptionRules" type="text" placeholder="protected-main-write" spellcheck="false">
-      <label class="field-label">Exact mutation target (JSON)</label><textarea id="govExceptionTarget" rows="6" class="mono" spellcheck="false">${esc(JSON.stringify({ branch: state.work.branch }, null, 2))}</textarea>
-      <label class="field-label">Expires</label><input id="govExceptionExpires" type="datetime-local" value="${escAttr(local)}">
-      <label class="field-label">Reason</label><textarea id="govExceptionReason" rows="5"></textarea>
+    bodyHTML: `<label class="field-label" for="govExceptionKind">Kind</label><select id="govExceptionKind"><option value="exception">Exception (deny rules)</option><option value="waiver">Waiver (approval rules)</option></select>
+      <label class="field-label" for="govExceptionAction">Registered mutation action</label><input id="govExceptionAction" type="text" placeholder="file.write" spellcheck="false">
+      <label class="field-label" for="govExceptionRules">Rule IDs (comma separated)</label><input id="govExceptionRules" type="text" placeholder="protected-main-write" spellcheck="false">
+      <label class="field-label" for="govExceptionTarget">Exact mutation target (JSON)</label><textarea id="govExceptionTarget" rows="6" class="mono" spellcheck="false">${esc(JSON.stringify({ branch: state.work.branch }, null, 2))}</textarea>
+      <label class="field-label" for="govExceptionExpires">Expires</label><input id="govExceptionExpires" type="datetime-local" value="${escAttr(local)}">
+      <label class="field-label" for="govExceptionReason">Reason</label><textarea id="govExceptionReason" rows="5"></textarea>
       <p class="hint">The request is bound to your verified human identity and this exact target.</p>`
   });
   if (!ok) return;
@@ -1751,8 +1870,8 @@ async function viewGovernanceException(exceptionId) {
 async function decideGovernanceException(exceptionId) {
   const ok = await modal({
     title: 'Decide exception request', okText: 'Record decision', danger: true,
-    bodyHTML: `<label class="field-label">Decision</label><select id="govExceptionDecision"><option value="approve">Approve</option><option value="reject">Reject</option></select>
-      <label class="field-label">Reason</label><textarea id="govExceptionDecisionReason" rows="5"></textarea>
+    bodyHTML: `<label class="field-label" for="govExceptionDecision">Decision</label><select id="govExceptionDecision"><option value="approve">Approve</option><option value="reject">Reject</option></select>
+      <label class="field-label" for="govExceptionDecisionReason">Reason</label><textarea id="govExceptionDecisionReason" rows="5"></textarea>
       <p class="hint">The requester cannot approve their own request.</p>`
   });
   if (!ok) return;
@@ -1764,7 +1883,7 @@ async function decideGovernanceException(exceptionId) {
   await loadGovernanceTwin(true);
 }
 async function revokeGovernanceException(exceptionId) {
-  const ok = await modal({ title: 'Revoke exception?', danger: true, okText: 'Revoke', bodyHTML: '<label class="field-label">Reason</label><textarea id="govExceptionRevokeReason" rows="5"></textarea>' });
+  const ok = await modal({ title: 'Revoke exception?', danger: true, okText: 'Revoke', bodyHTML: '<label class="field-label" for="govExceptionRevokeReason">Reason</label><textarea id="govExceptionRevokeReason" rows="5"></textarea>' });
   if (!ok) return;
   await api(`${governanceBasePath()}/exceptions/${encodeURIComponent(exceptionId)}/revoke`, {
     method: 'POST', headers: governanceHeaders('exception-revoke'), body: { reason: $('#govExceptionRevokeReason').value.trim() }
@@ -1777,7 +1896,7 @@ async function editGovernanceNotificationPreferences() {
   const current = state.governance.delivery.preferences || {};
   const enabled = current.enabled !== false;
   const types = Array.isArray(current.eventTypes) ? current.eventTypes.join('\n') : '';
-  const ok = await modal({ title: 'Notification preferences', okText: 'Save preferences', bodyHTML: `<label class="field-label"><input id="govNotificationEnabled" type="checkbox" ${enabled ? 'checked' : ''}> Enable notifications</label><label class="field-label">Event types, one per line</label><textarea id="govNotificationTypes" rows="10">${esc(types)}</textarea>` });
+  const ok = await modal({ title: 'Notification preferences', okText: 'Save preferences', bodyHTML: `<label class="field-label"><input id="govNotificationEnabled" type="checkbox" ${enabled ? 'checked' : ''}> Enable notifications</label><label class="field-label" for="govNotificationTypes">Event types, one per line</label><textarea id="govNotificationTypes" rows="10">${esc(types)}</textarea>` });
   if (!ok) return;
   const eventTypes = $('#govNotificationTypes').value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
   await api(`${governanceBasePath()}/notifications/preferences`, { method: 'PUT', headers: governanceHeaders('notification-preferences'), body: { enabled: $('#govNotificationEnabled').checked, eventTypes } });
@@ -1788,7 +1907,7 @@ async function markGovernanceNotificationsRead(throughSeq) {
   await loadGovernanceDelivery();
 }
 async function createGovernanceEvidenceExport() {
-  const ok = await modal({ title: 'Create signed evidence export', okText: 'Create export', bodyHTML: '<label class="field-label">Format</label><select id="govExportFormat"><option value="json">JSON</option><option value="csv">CSV</option></select><label class="field-label">Maximum events (1–1000)</label><input id="govExportLimit" type="number" min="1" max="1000" value="1000">' });
+  const ok = await modal({ title: 'Create signed evidence export', okText: 'Create export', bodyHTML: '<label class="field-label" for="govExportFormat">Format</label><select id="govExportFormat"><option value="json">JSON</option><option value="csv">CSV</option></select><label class="field-label" for="govExportLimit">Maximum events (1–1000)</label><input id="govExportLimit" type="number" min="1" max="1000" value="1000">' });
   if (!ok) return;
   await api(`${governanceBasePath()}/exports`, { method: 'POST', headers: governanceHeaders('audit-export'), body: { format: $('#govExportFormat').value, afterEventSeq: 0, limit: Number($('#govExportLimit').value) } });
   await loadGovernanceDelivery();
@@ -1803,7 +1922,7 @@ async function verifyGovernanceExport(exportId) {
   await showGovernanceJson('Evidence export verification', result.verification || result);
 }
 async function createGovernanceWebhook() {
-  const ok = await modal({ title: 'Add governance webhook', okText: 'Create webhook', bodyHTML: '<label class="field-label">Name</label><input id="govWebhookName" maxlength="120"><label class="field-label">HTTPS URL</label><input id="govWebhookUrl" type="url" placeholder="https://hooks.example.com/governance"><label class="field-label">Event types, one per line</label><textarea id="govWebhookTypes" rows="8">policy.activated\npolicy.decision.block</textarea>' });
+  const ok = await modal({ title: 'Add governance webhook', okText: 'Create webhook', bodyHTML: '<label class="field-label" for="govWebhookName">Name</label><input id="govWebhookName" maxlength="120"><label class="field-label" for="govWebhookUrl">HTTPS URL</label><input id="govWebhookUrl" type="url" placeholder="https://hooks.example.com/governance"><label class="field-label" for="govWebhookTypes">Event types, one per line</label><textarea id="govWebhookTypes" rows="8">policy.activated\npolicy.decision.block</textarea>' });
   if (!ok) return;
   const result = await api(`${governanceBasePath()}/webhooks`, { method: 'POST', headers: governanceHeaders('webhook-create'), body: { name: $('#govWebhookName').value.trim(), url: $('#govWebhookUrl').value.trim(), eventTypes: $('#govWebhookTypes').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean), enabled: true } });
   await showGovernanceJson('Webhook signing secret — save now', { signingSecret: result.signingSecret, warning: 'This secret is shown once and cannot be recovered.' });
@@ -1958,7 +2077,7 @@ function openItemMenu(it) {
     else if (act === 'rename') {
       const ok = await modal({
         title: 'Rename / move',
-        bodyHTML: `<label class="field-label">New path</label><input id="rnTo2" type="text" value="${esc(it.path)}" spellcheck="false">`,
+        bodyHTML: `<label class="field-label" for="rnTo2">New path</label><input id="rnTo2" type="text" value="${esc(it.path)}" spellcheck="false">`,
         okText: 'Rename ✦'
       });
       if (!ok) return;
@@ -2163,7 +2282,7 @@ async function recoveryFlow() {
     const confirm = await modal({
       title: 'Confirm branch reference recovery', okText: 'Restore refs', danger: true,
       bodyHTML: `<p class="hint">This force-updates or recreates <b>${actions.length}</b> branch reference(s). Commits created after the snapshot are not deleted, but these branches will no longer point to them.</p>
-        <label class="field-label">Type <span class="mono">RESTORE</span> to confirm</label>
+        <label class="field-label" for="recConfirm">Type <span class="mono">RESTORE</span> to confirm</label>
         <input id="recConfirm" type="text" autocomplete="off" spellcheck="false" placeholder="RESTORE">`
     });
     if (!confirm) return;
@@ -2258,7 +2377,7 @@ async function moveFolderFlow(dirPath) {
   const ok = await modal({
     title: 'Rename / move folder',
     bodyHTML: `<p class="hint">Every file under <b class="mono">${esc(dirPath)}/</b> moves in one atomic commit.</p>
-      <label class="set-label" style="margin-top:8px">New path</label>
+      <label class="set-label" for="mvDirTo" style="margin-top:8px">New path</label>
       <input id="mvDirTo" type="text" value="${esc(dirPath)}" autocomplete="off" spellcheck="false" style="width:100%">
       <p class="hint" style="margin-top:6px">Rename in place (<span class="mono">docs</span> → <span class="mono">guides</span>) or move deeper (<span class="mono">assets/logos</span>).</p>`,
     okText: 'Move ✦'
@@ -2287,7 +2406,7 @@ async function deleteFolderFlow(dirPath) {
   const ok = await modal({
     title: 'Delete folder',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6">This deletes <b>${victims.length} file${victims.length > 1 ? 's' : ''}</b> under <b class="mono">${esc(dirPath)}/</b> from <b>${esc(state.work.branch)}</b> in ${Math.ceil(victims.length / 100)} commit${victims.length > 100 ? 's' : ''}.</p>
-      <label class="field-label">Type <b class="mono">${esc(leaf)}</b> to confirm</label><input id="delFolderName" type="text" autocomplete="off" spellcheck="false">`,
+      <label class="field-label" for="delFolderName">Type <b class="mono">${esc(leaf)}</b> to confirm</label><input id="delFolderName" type="text" autocomplete="off" spellcheck="false">`,
     okText: 'Delete folder', danger: true
   });
   if (!ok) return;
@@ -2308,7 +2427,7 @@ async function deleteRepoFlow() {
   const ok = await modal({
     title: 'Delete repository',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(wPath())}</b> will be permanently deleted on GitHub — code, history, issues, releases. <b>This cannot be undone.</b></p>
-      <label class="field-label">Type <b class="mono">${esc(state.work.repo)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" spellcheck="false">`,
+      <label class="field-label" for="drName">Type <b class="mono">${esc(state.work.repo)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" spellcheck="false">`,
     okText: 'Delete forever', danger: true
   });
   if (!ok) return;
@@ -2494,7 +2613,7 @@ $('#commitFileBtn').addEventListener('click', async () => {
   if (!state.file || state.file.binary) return;
   const ok = await modal({
     title: 'Commit changes',
-    bodyHTML: `<label class="field-label">Commit message</label>
+    bodyHTML: `<label class="field-label" for="cmMsg">Commit message</label>
       <input id="cmMsg" type="text" value="Update ${esc(state.file.path)}" spellcheck="false">
       <p class="hint">Committing directly to <b>${esc(state.work.branch)}</b></p>`,
     okText: 'Commit ✦'
@@ -2578,7 +2697,7 @@ $('#renameFileBtn').addEventListener('click', async () => {
   if (!state.file) return;
   const ok = await modal({
     title: 'Rename / move file',
-    bodyHTML: `<label class="field-label">New path</label>
+    bodyHTML: `<label class="field-label" for="rnTo">New path</label>
       <input id="rnTo" type="text" value="${esc(state.file.path)}" spellcheck="false">
       <p class="hint">Works for files of any size — the blob is re-linked, not re-uploaded.</p>`,
     okText: 'Rename ✦'
@@ -2734,6 +2853,11 @@ function switchTab(name) {
   })) return;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.tabpane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  /*
+   * Repainted here rather than by the click handler, so a tab reached from the
+   * command palette marks the rail exactly as a pointer click does.
+   */
+  paintRail('work');
   $$('#bottomNav button').forEach(b => b.classList.toggle('active', b.dataset.nav === name));
   if (name === 'commits' && !$('#commitList').children.length) loadCommits(true);
   if (name === 'pulls' && !$('#prList').children.length) loadPRs();
@@ -2807,8 +2931,19 @@ const COMMANDS = [
   { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', run: () => deleteRepoFlow() },
   { label: 'Back to repositories', kind: 'view', run: () => $('#backBtn').click() }
 ];
+/*
+ * Where focus goes when the palette closes.
+ *
+ * The palette takes focus into a layer it then hides, so every exit -- Escape,
+ * a click on the backdrop, or picking a row -- left focus on the document
+ * body. Picking a row was the worst of the three: the command that opens a
+ * dialog ran with nothing focused, so the dialog recorded nothing to return
+ * to, and closing it stranded a keyboard reader at the top of the page.
+ */
+let paletteReturnFocus = null;
 async function openPalette() {
   if (_page !== 'work') return;
+  paletteReturnFocus = document.activeElement;
   $('#paletteScrim').hidden = false;
   const inp = $('#paletteInput');
   inp.value = ''; renderPalette('');
@@ -2821,7 +2956,32 @@ async function openPalette() {
     } catch { state.fileIndex = []; }
   }
 }
-function closePalette() { $('#paletteScrim').hidden = true; }
+function closePalette() {
+  const scrim = $('#paletteScrim');
+  /*
+   * Pressing a row blurs the input before the handler runs -- the rows are
+   * options, not focusable elements -- so by the time this is reached focus is
+   * already on the body. Both that and focus still inside the layer mean the
+   * reader has nowhere to return to; anything else is a deliberate target and
+   * is left alone.
+   */
+  const active = document.activeElement;
+  const strayed = !active || active === document.body || scrim.contains(active);
+  scrim.hidden = true;
+  /*
+   * The input keeps combobox state, and hiding the scrim does not clear it, so
+   * a reader who closed the palette was still told it was expanded and still
+   * pointed at a row that is no longer shown.
+   */
+  const input = $('#paletteInput');
+  if (input) {
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  }
+  const restore = paletteReturnFocus;
+  paletteReturnFocus = null;
+  if (strayed && restore && restore.isConnected && typeof restore.focus === 'function') restore.focus();
+}
 $('#paletteBtn').addEventListener('click', openPalette);
 $('#paletteScrim').addEventListener('click', e => { if (e.target === $('#paletteScrim')) closePalette(); });
 function fuzzy(q, s) {
@@ -2840,10 +3000,33 @@ function renderPalette(q) {
   palItems = q ? [...files, ...cmds.slice(0, 6)] : [...recents.slice(0, 5), ...cmds, ...files.slice(0, 6)];
   palSel = 0;
   host.innerHTML = '';
-  if (!palItems.length) { host.innerHTML = '<div class="pal-item">No matches</div>'; return; }
+  /*
+   * The results are a listbox and each row an option, so the selection a
+   * reader sees highlighted is the one a screen reader announces. Before this
+   * the rows were plain divs: the arrow keys moved a class nobody could hear,
+   * and no automated rule could report it, because a div list is not incorrect
+   * markup -- it is merely silent.
+   */
+  const input = $('#paletteInput');
+  if (!palItems.length) {
+    host.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'pal-item';
+    empty.setAttribute('role', 'option');
+    empty.setAttribute('aria-selected', 'false');
+    empty.setAttribute('aria-disabled', 'true');
+    empty.textContent = 'No matches';
+    host.appendChild(empty);
+    input.setAttribute('aria-expanded', 'true');
+    input.removeAttribute('aria-activedescendant');
+    return;
+  }
   palItems.forEach((it, i) => {
     const el = document.createElement('div');
     el.className = 'pal-item' + (i === palSel ? ' sel' : '');
+    el.id = `pal-option-${i}`;
+    el.setAttribute('role', 'option');
+    el.setAttribute('aria-selected', i === palSel ? 'true' : 'false');
     el.innerHTML = `<span class="${it.kind === 'file' ? 'mono' : ''}"></span><span class="pal-kind">${it.kind}</span>`;
     el.querySelector('span').textContent = it.label;
     if (it.feature) el.dataset.feature = it.feature;
@@ -2851,6 +3034,8 @@ function renderPalette(q) {
     el.addEventListener('click', () => runPaletteItem(it));
     host.appendChild(el);
   });
+  input.setAttribute('aria-expanded', 'true');
+  input.setAttribute('aria-activedescendant', `pal-option-${palSel}`);
   window.NebulaCapabilityUI.apply(host);
 }
 function runPaletteItem(item) {
@@ -2859,6 +3044,54 @@ function runPaletteItem(item) {
     item.run();
   }, { allowExperimental: !!(item && item.allowExperimental) });
 }
+$('#reposRefreshBtn') && $('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
+/* The floating control opens the same palette the top bar does. */
+$('#paletteFab') && $('#paletteFab').addEventListener('click', () => openPalette());
+
+/*
+ * The rail is chrome around the screens, so it follows them rather than each
+ * screen carrying a copy. It appears once a session is authenticated and marks
+ * the screen in view as current, which is what a reader navigating by landmark
+ * relies on to know where they are.
+ */
+const RAIL_SCREENS = new Set(['overview', 'repos', 'work']);
+function paintRail(name) {
+  const rail = $('#navRail');
+  if (!rail) return;
+  rail.hidden = !RAIL_SCREENS.has(name);
+  const activeTab = ($('.tabpane.active') || {}).id || '';
+  const shown = name === 'work' && activeTab === 'tab-neural' ? 'neural' : name;
+  $$('.nv-rail-item').forEach(item => {
+    const current = item.dataset.rail === shown;
+    if (current) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  });
+  const user = $('#navUser');
+  const me = state.me;
+  if (user) {
+    const label = me && (me.name || me.login);
+    user.hidden = !label;
+    if (label) {
+      $('#navUserInitial').textContent = String(label).trim().charAt(0).toUpperCase();
+      $('#navUserName').textContent = label;
+      $('#navUserSub').textContent = (me && me.login) ? `@${me.login}` : '';
+    }
+  }
+}
+/*
+ * Neural and the workbench are views of an open repository rather than places
+ * of their own, so the rail offers them as destinations and refuses when there
+ * is no repository to show, instead of opening an empty one.
+ */
+$$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
+  const target = item.dataset.rail;
+  if (target === 'overview') return showOverview();
+  if (target === 'repos') return showPage('repos');
+  if (!state.work) return toast('Open a repository first.', 'err');
+  showPage('work');
+  if (target === 'neural') switchTab('neural');
+  else paintRail('work');
+}));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {
   if (e.key === 'ArrowDown') { palSel = Math.min(palSel + 1, palItems.length - 1); paintSel(); e.preventDefault(); }
@@ -2867,9 +3100,15 @@ $('#paletteInput').addEventListener('keydown', e => {
   else if (e.key === 'Escape') closePalette();
 });
 function paintSel() {
-  $$('#paletteList .pal-item').forEach((el, i) => el.classList.toggle('sel', i === palSel));
+  $$('#paletteList .pal-item').forEach((el, i) => {
+    el.classList.toggle('sel', i === palSel);
+    el.setAttribute('aria-selected', i === palSel ? 'true' : 'false');
+  });
   const sel = $('#paletteList .pal-item.sel');
   if (sel) sel.scrollIntoView({ block: 'nearest' });
+  /* The input keeps focus, so the moved selection is announced through it. */
+  const input = $('#paletteInput');
+  if (sel && sel.id) input.setAttribute('aria-activedescendant', sel.id);
 }
 
 /* global shortcuts */
@@ -2925,7 +3164,7 @@ let uploadModeV = 'single';
 const batchQueue = []; // { file, targetPath, item }
 $('#uploadMode').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#uploadMode .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#uploadMode', x => x === b);
   uploadModeV = b.dataset.v;
 });
 $('#folderPickBtn').addEventListener('click', () => $('#folderPicker').click());
@@ -3065,7 +3304,7 @@ async function handleZip(zipFile) {
     if (entries.length > 500) return toast(`Zip has ${entries.length} files — the limit is 500 per batch`, 'err');
     if (uploadModeV !== 'batch') {
       uploadModeV = 'batch';
-      $$('#uploadMode .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.v === 'batch'));
+      selectSegment('#uploadMode', b => b.dataset.v === 'batch');
       toast('Batch mode enabled — everything will land as one commit', 'ok');
     }
     queueEntries(entries);
@@ -3337,7 +3576,7 @@ function renderDiffFiles(host, files) {
 /* ================= PULL REQUESTS ================= */
 $('#prState').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#prState .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#prState', x => x === b);
   state.prState = b.dataset.v;
   loadPRs();
 });
@@ -3391,7 +3630,7 @@ async function openPR(num) {
       <div class="detail-actions" id="prActions"></div>
       <div id="prFiles" style="margin-top:14px"></div>
       <div id="prComments" style="margin-top:14px"></div>
-      <label class="field-label">Add a comment</label>
+      <label class="field-label" for="prNewComment">Add a comment</label>
       <textarea id="prNewComment" placeholder="Write a comment…"></textarea>
       <div class="detail-actions"><button class="btn btn-primary small" id="prCommentBtn">Comment ✦</button></div>`;
     box.querySelector('.detail-title').textContent = p.title;
@@ -3433,7 +3672,7 @@ async function openPR(num) {
         b.addEventListener('click', async () => {
           const ok = await modal({
             title: label,
-            bodyHTML: `<label class="field-label">Review comment ${ev === 'REQUEST_CHANGES' ? '(required)' : '(optional)'}</label>
+            bodyHTML: `<label class="field-label" for="rvBody">Review comment ${ev === 'REQUEST_CHANGES' ? '(required)' : '(optional)'}</label>
               <textarea id="rvBody" placeholder="Feedback for the author…"></textarea>`,
             okText: label
           });
@@ -3484,12 +3723,12 @@ $('#newPrBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New pull request',
     bodyHTML: `
-      <label class="field-label">Title</label><input id="prTitle" type="text" spellcheck="false">
-      <label class="field-label">Head (your changes)</label>
+      <label class="field-label" for="prTitle">Title</label><input id="prTitle" type="text" spellcheck="false">
+      <label class="field-label" for="prHead">Head (your changes)</label>
       <select id="prHead">${names.map(n => `<option ${n === state.work.branch ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
-      <label class="field-label">Base (merge into)</label>
+      <label class="field-label" for="prBase">Base (merge into)</label>
       <select id="prBase">${names.map(n => `<option ${n === state.work.default_branch ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
-      <label class="field-label">Description</label><textarea id="prDesc" placeholder="Optional"></textarea>
+      <label class="field-label" for="prDesc">Description</label><textarea id="prDesc" placeholder="Optional"></textarea>
       <label class="check"><input type="checkbox" id="prDraft"> Draft</label>`,
     okText: 'Open PR ✦'
   });
@@ -3509,7 +3748,7 @@ $('#newPrBtn').addEventListener('click', async () => {
 /* ================= ISSUES ================= */
 $('#issueState').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#issueState .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#issueState', x => x === b);
   state.issueState = b.dataset.v;
   loadIssues();
 });
@@ -3561,7 +3800,7 @@ async function openIssue(num) {
       <div class="detail-meta"><span>#${i.number} by ${esc(i.user || '')}</span><span>${timeAgo(i.created_at)}</span></div>
       <div class="detail-body" id="issBody" hidden></div>
       <div id="issComments"></div>
-      <label class="field-label">Add a comment</label>
+      <label class="field-label" for="issNewComment">Add a comment</label>
       <textarea id="issNewComment" placeholder="Write a comment…"></textarea>
       <div class="detail-actions">
         <button class="btn btn-primary small" id="issCommentBtn">Comment ✦</button>
@@ -3600,8 +3839,8 @@ async function openIssue(num) {
 $('#newIssueBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New issue',
-    bodyHTML: `<label class="field-label">Title</label><input id="niTitle" type="text" spellcheck="false">
-      <label class="field-label">Description</label><textarea id="niBody" placeholder="Optional"></textarea>`,
+    bodyHTML: `<label class="field-label" for="niTitle">Title</label><input id="niTitle" type="text" spellcheck="false">
+      <label class="field-label" for="niBody">Description</label><textarea id="niBody" placeholder="Optional"></textarea>`,
     okText: 'Open issue ✦'
   });
   if (!ok) return;
@@ -3648,9 +3887,9 @@ $('#newReleaseBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New release',
     bodyHTML: `
-      <label class="field-label">Tag</label><input id="relTag" type="text" placeholder="v1.0.0" spellcheck="false">
-      <label class="field-label">Title</label><input id="relName" type="text" placeholder="Defaults to tag" spellcheck="false">
-      <label class="field-label">Notes</label><textarea id="relBody" placeholder="What changed?"></textarea>
+      <label class="field-label" for="relTag">Tag</label><input id="relTag" type="text" placeholder="v1.0.0" spellcheck="false">
+      <label class="field-label" for="relName">Title</label><input id="relName" type="text" placeholder="Defaults to tag" spellcheck="false">
+      <label class="field-label" for="relBody">Notes</label><textarea id="relBody" placeholder="What changed?"></textarea>
       <label class="check"><input type="checkbox" id="relPre"> Pre-release</label>
       <p class="hint">Tag will be created from <b>${esc(state.work.branch)}</b> if it doesn't exist.</p>`,
     okText: 'Publish ✦'
@@ -4082,7 +4321,7 @@ async function timeMachine(kind, sha, msg) {
       const ok = await modal({
         title: 'Restore from this commit',
         bodyHTML: `<p style="font-size:.9rem;line-height:1.6">Bring back a file or a whole folder <b>as it was at</b> <b class="mono">${short}</b>, without touching anything else. Perfect for un-deleting.</p>
-          <label class="field-label">Path to restore <span class="muted">(e.g. <span class="mono">public</span> or <span class="mono">src/app.js</span>)</span></label>
+          <label class="field-label" for="tmPath">Path to restore <span class="muted">(e.g. <span class="mono">public</span> or <span class="mono">src/app.js</span>)</span></label>
           <input id="tmPath" type="text" spellcheck="false" autocomplete="off">`,
         okText: 'Restore path ✦'
       });
@@ -4097,7 +4336,7 @@ async function timeMachine(kind, sha, msg) {
       const ok = await modal({
         title: 'Hard reset — destructive',
         bodyHTML: `<p style="font-size:.9rem;line-height:1.6">Moves <b>${esc(br)}</b> back to <b class="mono">${short}</b> and <b style="color:var(--red)">erases every later commit from this branch</b> — they vanish from its history. Use Revert or Restore instead unless you truly need history rewritten.</p>
-          <label class="field-label">Type the branch name <b class="mono">${esc(br)}</b> to confirm</label>
+          <label class="field-label" for="tmReset">Type the branch name <b class="mono">${esc(br)}</b> to confirm</label>
           <input id="tmReset" type="text" spellcheck="false" autocomplete="off">`,
         okText: 'Hard reset', danger: true
       });

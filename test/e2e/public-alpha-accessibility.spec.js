@@ -3,6 +3,7 @@
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
 const { mockPublicAlphaApi, openConnectedRepository } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -22,10 +23,17 @@ async function expectNoHighImpactViolations(page, screen) {
 }
 
 async function redeemInvitation(page) {
-  await page.locator('#alphaInviteInput').fill('fixture-invitation');
-  await page.locator('#alphaTermsAccept').check();
-  await page.locator('#alphaRedeemBtn').click();
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
+  await ui.secretField(page, 'One-time invitation').fill('fixture-invitation');
+  await ui.checkbox(page, /I accept/).check();
+  await ui.button(ui.screen(page, 'access'), 'Continue').click();
+  await expect(ui.screen(page, 'login')).toBeVisible();
+}
+
+/* Open the palette and run one entry by the name a reader reads. */
+async function runFromPalette(page, name) {
+  await ui.button(page, 'Command palette').click();
+  await ui.palette(page).fill(name);
+  await ui.paletteOption(page, new RegExp(name, 'i')).first().click();
 }
 
 test('required alpha screens have no critical or serious axe violations', async ({ page }) => {
@@ -35,40 +43,36 @@ test('required alpha screens have no critical or serious axe violations', async 
   await expectNoHighImpactViolations(page, 'invitation access');
 
   await redeemInvitation(page);
-  await expect(page.locator('#alphaProviderGuidance')).toBeVisible();
+  await expect(ui.screen(page, 'login')).toContainText('GitHub App');
   await expectNoHighImpactViolations(page, 'provider connection');
 
-  await page.locator('#tokenInput').fill('fixture-provider-credential');
-  await page.locator('#loginBtn').click();
-  await expect(page.locator('#page-repos')).toHaveClass(/active/);
+  await ui.secretField(page, 'GitHub Personal Access Token').fill('fixture-provider-credential');
+  await ui.button(ui.screen(page, 'login'), 'Enter orbit').click();
+  await expect(ui.screen(page, 'repos')).toBeVisible();
   await expectNoHighImpactViolations(page, 'repository list');
 
-  await page.locator('.repo-card').first().click();
-  await expect(page.locator('#trustSummary')).toBeVisible();
+  await ui.button(ui.screen(page, 'repos'), /^Open repository /).first().click();
+  await expect(ui.screen(page, 'work').getByRole('region', { name: 'Repository trust summary' })).toBeVisible();
   await expectNoHighImpactViolations(page, 'repository trust summary');
 
-  await page.locator('#paletteBtn').click();
-  await page.locator('#paletteInput').fill('New file');
-  await page.locator('.pal-item', { hasText: 'New file' }).first().click();
-  await expect(page.locator('#modalTitle')).toHaveText('New file');
+  await runFromPalette(page, 'New file');
+  await expect(ui.dialog(page, 'New file')).toBeVisible();
   await expectNoHighImpactViolations(page, 'controlled action dialog');
-  await page.locator('#modalCancel').click();
+  await ui.button(ui.dialog(page, 'New file'), 'Cancel').click();
 
-  await page.locator('#paletteBtn').click();
-  await page.locator('#paletteInput').fill('Safeguards');
-  await page.locator('.pal-item', { hasText: 'Safeguards' }).first().click();
+  await runFromPalette(page, 'Safeguards');
   await page.locator('#sgEvidence').click();
-  await expect(page.locator('#modalTitle')).toHaveText('Evidence package exported');
+  await expect(ui.dialog(page, 'Evidence package exported')).toBeVisible();
   await expectNoHighImpactViolations(page, 'evidence detail');
-  await page.locator('#modalOk').click();
+  await ui.button(ui.dialog(page, 'Evidence package exported'), 'Done').click();
 
-  await page.locator('#paletteBtn').focus();
+  await ui.button(page, 'Command palette').focus();
   await page.evaluate(() => { void openSettings(); });
   await expect(page.locator('[data-alpha-privacy-action="disconnect"]')).toBeVisible();
   await expect(page.locator('[data-alpha-privacy-action="delete"]')).toBeVisible();
   await expectNoHighImpactViolations(page, 'disconnect and delete controls');
   await page.locator('[data-alpha-privacy-action="delete"]').click();
-  await expect(page.locator('#modalTitle')).toHaveText('Delete alpha data');
+  await expect(ui.dialog(page, 'Delete alpha data')).toBeVisible();
   await expectNoHighImpactViolations(page, 'delete confirmation');
 });
 
@@ -76,46 +80,51 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await mockPublicAlphaApi(page, { access: 'required', mutation: 'verified', cleanup: 'verified' });
   await page.goto('/');
 
-  await page.locator('#alphaInviteInput').focus();
+  await ui.focusAndConfirm(expect, ui.secretField(page, 'One-time invitation'));
   await page.keyboard.type('fixture-invitation');
-  await page.locator('#alphaTermsAccept').focus();
+  await ui.checkbox(page, /I accept/).focus();
   await page.keyboard.press('Space');
-  await page.locator('#alphaRedeemBtn').focus();
-  await expect(page.locator('#alphaRedeemBtn')).toHaveCSS('outline-style', 'solid');
+  const redeem = ui.button(ui.screen(page, 'access'), 'Continue');
+  await redeem.focus();
+  await expect(redeem).toHaveCSS('outline-style', 'solid');
   await page.keyboard.press('Enter');
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
-  await page.waitForTimeout(350);
+  await expect(ui.screen(page, 'login')).toBeVisible();
 
-  await page.locator('#tokenInput').focus();
+  await ui.focusAndConfirm(expect, ui.secretField(page, 'GitHub Personal Access Token'));
   await page.keyboard.type('fixture-provider-credential');
   await page.keyboard.press('Tab');
-  await expect(page.locator('#loginBtn')).toBeFocused();
+  await expect(ui.button(ui.screen(page, 'login'), 'Enter orbit')).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.locator('#page-repos')).toHaveClass(/active/);
+  await expect(ui.screen(page, 'repos')).toBeVisible();
 
-  const repo = page.locator('.repo-card').first();
+  const repo = ui.button(ui.screen(page, 'repos'), /^Open repository /).first();
   await repo.focus();
   await expect(repo).toHaveCSS('outline-style', 'solid');
   await page.keyboard.press('Enter');
-  await expect(page.locator('#page-work')).toHaveClass(/active/);
+  await expect(ui.screen(page, 'work')).toBeVisible();
   await page.waitForTimeout(350);
 
-  await page.locator('#paletteBtn').focus();
+  await ui.button(page, 'Command palette').focus();
   await page.keyboard.press('Enter');
-  await page.locator('#paletteInput').fill('New file');
+  await ui.palette(page).fill('New file');
+  /*
+   * The palette is a combobox, so the row the arrow keys select is named by
+   * aria-activedescendant. Asserting it before committing proves the keyboard
+   * selection is the one a screen reader would announce.
+   */
+  await expect(ui.palette(page)).toHaveAttribute('aria-activedescendant', /pal-option-\d+/);
   await page.keyboard.press('Enter');
-  await expect(page.locator('#modalTitle')).toHaveText('New file');
+  await expect(ui.dialog(page, 'New file')).toBeVisible();
   await page.waitForTimeout(100);
   await page.locator('#nfPath').focus();
   await page.keyboard.type('keyboard-proof.txt');
   await page.keyboard.press('Shift+Tab');
-  await expect(page.locator('#modalOk')).toBeFocused();
+  await expect(ui.button(ui.dialog(page, 'New file'), 'Create')).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.locator('#toasts')).toContainText('Created keyboard-proof.txt');
-  await expect(page.locator('#toasts')).toHaveAttribute('role', 'status');
-  await expect(page.locator('#toasts')).toHaveAttribute('aria-live', 'polite');
+  await expect(ui.status(page, 'Notifications')).toContainText('Created keyboard-proof.txt');
+  await expect(ui.status(page, 'Notifications')).toHaveAttribute('aria-live', 'polite');
 
-  await page.locator('#paletteBtn').focus();
+  await ui.button(page, 'Command palette').focus();
   await page.keyboard.press('Enter');
   await page.locator('#paletteInput').fill('Settings');
   await page.keyboard.press('Enter');
@@ -123,13 +132,13 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await expect(disconnect).toBeVisible();
   await disconnect.focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
-  await expect(page.locator('#toasts')).toContainText('Disconnected from Nebulaverse-X');
+  await expect(ui.screen(page, 'login')).toBeVisible();
+  await expect(ui.status(page, 'Notifications')).toContainText('Disconnected from Nebulaverse-X');
 });
 
 test('dialogs contain focus, restore it, and trust states do not depend on color', async ({ page }) => {
   await openConnectedRepository(page, { mutation: 'blocked' });
-  const trigger = page.locator('#paletteBtn');
+  const trigger = ui.button(page, 'Command palette');
   await trigger.focus();
   await page.evaluate(() => { void openSettings(); });
   await page.locator('#modalOk').focus();

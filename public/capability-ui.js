@@ -56,8 +56,42 @@
     return note;
   }
 
+  /*
+   * One note per feature, on the outermost control that carries it.
+   *
+   * Six elements declare the recovery feature and three declare
+   * repository.read, so a single unavailable capability printed the same
+   * sentence six times beside six controls. A note on an element whose
+   * ancestor already carries the same feature says nothing the ancestor's
+   * note has not already said.
+   */
+  /*
+   * One note per feature per screen.
+   *
+   * Six elements declare the recovery feature and three declare
+   * repository.read, and several more are siblings sharing one feature, so a
+   * single unavailable capability announced itself six times over. The first
+   * control carrying a feature owns the note; every other control with that
+   * feature is described by the same note, so each is still explained without
+   * the screen repeating itself.
+   */
+  function screenOf(element) {
+    /*
+     * Walks upward by hand rather than through closest(), because this runs
+     * against a stubbed document in the behaviour tests where elements carry
+     * only the surface the module actually uses.
+     */
+    for (let node = element; node; node = node.parentElement) {
+      const tag = String(node.tagName || '').toLowerCase();
+      if (tag === 'main' || tag === 'body') return node;
+    }
+    return null;
+  }
+
+  const noteOwners = new Map();
   function apply(root = document) {
     const controls = [...root.querySelectorAll('[data-feature]')];
+    for (const [key, owner] of noteOwners) if (owner.isConnected === false) noteOwners.delete(key);
     for (const element of controls) {
       const resolved = decision(element.dataset.feature);
       const experimentalAllowed = element.dataset.allowExperimental === 'true';
@@ -84,13 +118,39 @@
           }
         }
       }
+      const screen = screenOf(element);
+      const screenKey = `${(screen && screen.id) || 'root'}::${element.dataset.feature}`;
+      const owner = noteOwners.get(screenKey);
+      if (owner && owner !== element) {
+        const stale = element.dataset.capabilityNoteId
+          && document.getElementById(element.dataset.capabilityNoteId);
+        if (stale) stale.remove();
+        delete element.dataset.capabilityNoteId;
+        const shared = owner.dataset.capabilityNoteId;
+        if (shared) for (const target of targets) target.setAttribute('aria-describedby', shared);
+        continue;
+      }
+      noteOwners.set(screenKey, element);
       const note = capabilityNote(element);
       note.className = `capability-state capability-${resolved.status.toLowerCase()}`;
-      note.textContent = resolved.status === 'Supported'
+      /*
+       * The status is shown; the reason is carried as text a screen reader
+       * reads and a pointer reveals. Printing the whole sentence inline put a
+       * paragraph of prose beside every disabled control, which crowded the
+       * top bar and told a reader the same thing several times over.
+       */
+      note.textContent = resolved.status;
+      /*
+       * Sighted readers get the status; the accessible name carries the reason
+       * as well, so the explanation reaches a screen reader without printing a
+       * sentence beside every disabled control.
+       */
+      note.setAttribute('aria-label', resolved.status === 'Supported'
         ? 'Supported'
-        : `${resolved.status} — ${resolved.reason}`;
+        : `${resolved.status} — ${resolved.reason}`);
       note.title = resolved.reason;
       note.dataset.feature = resolved.feature;
+      for (const target of targets) target.setAttribute('aria-describedby', note.id);
     }
     return controls.map(element => decision(element.dataset.feature));
   }

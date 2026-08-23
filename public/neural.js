@@ -785,7 +785,7 @@
     ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0; ctx.strokeStyle = selected ? '#fff' : hexAlpha(severityColor, .62); ctx.lineWidth = selected ? 1.8 : .75; ctx.stroke();
     ctx.fillStyle = node.type === 'repo' ? '#fff' : 'rgba(255,255,255,.9)';
-    ctx.font = `${Math.max(7, radius * .57)}px DM Sans, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(node.glyph, p.x, p.y + .3);
+    ctx.font = `${Math.max(7, radius * .57)}px 'Public Sans Variable', system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(node.glyph, p.x, p.y + .3);
     const shouldLabel = selected || hover || eventHot || node.type === 'repo' || node.match || (NVN.zoom > 1.18 && radius > 8);
     if (shouldLabel) drawNodeLabel(ctx, node, p, radius, dim);
     ctx.restore();
@@ -793,7 +793,7 @@
 
   function drawNodeLabel(ctx, node, p, radius, dim) {
     const text = short(node.label, node.type === 'repo' ? 36 : 28);
-    ctx.font = `${node.type === 'repo' ? '600 11px' : '500 9px'} DM Sans, sans-serif`;
+    ctx.font = `${node.type === 'repo' ? '600 11px' : '500 9px'} 'Public Sans Variable', system-ui, sans-serif`;
     const width = ctx.measureText(text).width + 13;
     const y = p.y + radius + 9;
     ctx.globalAlpha = dim ? .12 : .92;

@@ -12,7 +12,13 @@ const PRECACHE = [
   `/governance-ui.js?v=__NV_ASSET_VERSION__`, `/neural.js?v=__NV_ASSET_VERSION__`,
   '/manifest.webmanifest', '/assets/icon.svg', '/assets/icon-192.png'
 ];
+const FONTS = [
+  '/vendor/fonts/archivo-variable-latin.woff2',
+  '/vendor/fonts/public-sans-variable-latin.woff2',
+  '/vendor/fonts/jetbrains-mono-variable-latin.woff2'
+];
 const VENDOR_WARM = [
+  ...FONTS,
   '/vendor/codemirror/5.65.16/codemirror.min.js',
   '/vendor/codemirror/5.65.16/codemirror.min.css',
   '/vendor/codemirror/5.65.16/mode/meta.min.js',

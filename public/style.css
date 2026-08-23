@@ -1,17 +1,101 @@
 /* ============================================================
    NEBULAVERSE v5.2 — liquid glass, adaptive mobile ⇄ desktop
    ============================================================ */
+
+/*
+ * Typefaces are served from this origin. font-src is 'self', so a hosted
+ * stylesheet would be blocked by the policy rather than merely discouraged,
+ * and a font fetched at run time would be absent offline and absent from the
+ * release archive whose fingerprint the hosted gate verifies.
+ *
+ * Each file is a variable upright latin face carrying the whole weight axis,
+ * so three requests cover every weight the interface uses. font-display:swap
+ * renders in the fallback immediately and swaps when the face arrives; the
+ * fallback stacks below are chosen to be metrically close enough that the swap
+ * does not move layout much.
+ */
+@font-face{font-family:'Archivo Variable';src:url('/vendor/fonts/archivo-variable-latin.woff2') format('woff2-variations');
+  font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:'Public Sans Variable';src:url('/vendor/fonts/public-sans-variable-latin.woff2') format('woff2-variations');
+  font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:'JetBrains Mono Variable';src:url('/vendor/fonts/jetbrains-mono-variable-latin.woff2') format('woff2-variations');
+  font-weight:100 800;font-style:normal;font-display:swap}
+
+/* Editor picker faces. Declared, not downloaded: the browser fetches one only
+   once a rule applies it, so five choices cost one file. */
+@font-face{font-family:'JetBrains Mono';src:url('/vendor/fonts/jetbrains-mono-variable-latin.woff2') format('woff2-variations');
+  font-weight:100 800;font-style:normal;font-display:swap}
+@font-face{font-family:'Fira Code';src:url('/vendor/fonts/fira-code-variable-latin.woff2') format('woff2-variations');
+  font-weight:300 700;font-style:normal;font-display:swap}
+@font-face{font-family:'Source Code Pro';src:url('/vendor/fonts/source-code-pro-variable-latin.woff2') format('woff2-variations');
+  font-weight:200 900;font-style:normal;font-display:swap}
+@font-face{font-family:'IBM Plex Mono';src:url('/vendor/fonts/ibm-plex-mono-400-latin.woff2') format('woff2');
+  font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'IBM Plex Mono';src:url('/vendor/fonts/ibm-plex-mono-500-latin.woff2') format('woff2');
+  font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:'DM Mono';src:url('/vendor/fonts/dm-mono-400-latin.woff2') format('woff2');
+  font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'DM Mono';src:url('/vendor/fonts/dm-mono-500-latin.woff2') format('woff2');
+  font-weight:500;font-style:normal;font-display:swap}
+/*
+ * The design system, named as the design names it.
+ *
+ * These are the reference tokens verbatim, so the design and the product share
+ * one vocabulary and a change to the design is a change to this block. The
+ * product's older names are kept below as aliases, which is what lets the
+ * existing stylesheet go on working while everything new speaks the design's
+ * language.
+ *
+ * One value is not aliased straight through. --fg3 is the design's faintest
+ * text and measures 3.45:1 on --page, which carries large text but fails body
+ * contrast, so --muted -- which the product uses at body size -- resolves to a
+ * step that passes at 5.79:1. --fg3 itself is kept exactly as given for the
+ * decorative and large-text roles it was drawn for.
+ */
 :root, [data-theme="dark"]{
-  --bg:#070712; --text:#eef0fb; --text2:#b5b9d7; --muted:#9ca2c7; --focus:#5fffea;
-  --accent:#7c6cff; --accent2:#9486ff; --teal:#38e0c8;
-  --green:#34d97b; --red:#ff5470; --amber:#ffbe4d;
+  --page:#06030f;
+  --bloom:radial-gradient(1300px 780px at 76% -6%, rgba(109,40,217,.34), transparent 62%),
+          radial-gradient(1000px 700px at 12% 108%, rgba(76,29,149,.26), transparent 62%);
+  --shell:#08051391; --shellSolid:#080513; --side:#06030f; --sb:rgba(155,135,255,.16);
+  --shellShadow:0 60px 140px rgba(6,2,20,.9), 0 0 0 1px rgba(155,135,255,.06);
+  --card:linear-gradient(155deg, rgba(146,124,255,.13), rgba(126,104,235,.05) 46%, rgba(255,255,255,.028));
+  --card2:rgba(20,14,44,.55); --cb:rgba(178,160,255,.17); --hair:rgba(255,255,255,.07);
+  --glass:blur(26px) saturate(1.5);
+  --cardShadow:0 22px 60px rgba(4,1,18,.5), inset 0 1px 0 rgba(255,255,255,.09);
+  --fg:#F5F3FF; --fg2:rgba(232,229,255,.62); --fg3:rgba(232,229,255,.42);
+  --lab:#B9A8F7; --mint:#34D399; --cyan:#22D3EE; --orange:#F59E0B; --mag:#D946EF;
+  --violet:#8B5CF6;
+  --btnA:#4C1D95; --btnB:#7C3AED; --btnFg:#FFFFFF;
+  --btnGlow:0 18px 44px rgba(109,40,217,.55);
+  --field:rgba(255,255,255,.035); --fieldB:rgba(155,135,255,.16);
+  --navBg:linear-gradient(100deg, rgba(76,29,149,.42), rgba(30,20,70,.22));
+  --navB:rgba(139,92,246,.42);
+  --navGlow:0 0 0 1px rgba(139,92,246,.10), 0 16px 40px rgba(76,29,149,.28);
+  --navHov:rgba(255,255,255,.035);
+  --ttl:var(--fg); --ico:var(--fg2); --tabc:var(--fg3);
+  --artHalo:radial-gradient(closest-side, rgba(124,58,237,.42), transparent 72%);
+  --gxAura:radial-gradient(ellipse 58% 62% at 50% 48%, rgba(124,58,237,.30), rgba(76,29,149,.12) 55%, transparent 78%);
+  --gxMask:radial-gradient(ellipse 74% 76% at 50% 50%, #000 58%, rgba(0,0,0,.55) 82%, transparent 100%);
+
+  /* The product's established names, resolved onto the design's. */
+  --bg:var(--page); --text:var(--fg); --text2:var(--fg2);
+  --muted:rgba(232,229,255,.58);
+  --focus:var(--cyan);
+  --accent:var(--violet); --accent2:#A78BFA; --teal:var(--cyan);
+  --green:var(--mint); --red:#F43F6E; --amber:var(--orange); --magenta:var(--mag);
   --radius:14px;
-  --glass-border:rgba(255,255,255,0.11);
-  --glass-fill:rgba(8,8,22,0.34);
+  --glass-border:var(--cb);
+  --glass-fill:var(--card2);
+  --card-grad:var(--card);
+  --card-shadow:var(--cardShadow);
+  --btn-a:var(--btnA); --btn-b:var(--btnB); --btn-glow:var(--btnGlow);
   --ease:cubic-bezier(0.16,1,0.3,1);
   --topbar-h:62px; --bnav-h:64px;
   --ed-font:0.84rem;
-  --ed-family:'DM Mono',ui-monospace,monospace;
+  --font-display:'Archivo Variable',ui-sans-serif,system-ui,sans-serif;
+  --font-body:'Public Sans Variable',ui-sans-serif,system-ui,sans-serif;
+  --font-mono:'JetBrains Mono Variable',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --ed-family:var(--font-mono);
 }
 [data-theme="light"]{
   --bg:#e9ecf8; --text:#111227; --text2:#343753; --muted:#4f5578; --focus:#005fcc;
@@ -24,18 +108,33 @@
 *{box-sizing:border-box;margin:0;padding:0}
 [hidden]{display:none !important}
 html,body{height:100%}
-body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var(--bg);
+/*
+ * The ground the design draws on: the page colour with the two violet blooms
+ * fixed over it, so the light stays put as content scrolls rather than sliding
+ * with it.
+ */
+body{font-family:var(--font-body);color:var(--text);background:var(--page);
   -webkit-font-smoothing:antialiased;overflow-x:hidden;overflow-x:clip;
   -webkit-tap-highlight-color:transparent}
-.mono,code,pre,.CodeMirror{font-family:'DM Mono',ui-monospace,monospace}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:var(--bloom)}
+.mono,code,pre,.CodeMirror{font-family:var(--font-mono)}
+h1,h2,h3,.eyebrow{font-family:var(--font-display);letter-spacing:-0.011em}
 em{color:var(--teal);font-style:normal}
 .muted{color:var(--muted);font-weight:400}
-.kbd{font-family:'DM Mono',monospace;font-size:.78em;border:1px solid var(--glass-border);
+.kbd{font-family:var(--font-mono);font-size:.78em;border:1px solid var(--glass-border);
   border-radius:6px;padding:1px 6px;background:rgba(255,255,255,0.06)}
 .w100{width:100%;max-width:none}
 
 /* responsive visibility helpers */
 .show-sm{display:none}
+/*
+ * .btn sets display:inline-flex later in this file at the same specificity, so
+ * the rule above lost and the mobile-only sign-out rendered full width on
+ * desktop beside the one in the top bar. Hiding is asserted at desktop widths
+ * instead; below the breakpoint nothing is forced, so a .show-sm button keeps
+ * whatever display its own component rule gives it.
+ */
+@media (min-width:901px){ .show-sm{display:none !important} }
 @media (max-width:900px){ .hide-sm{display:none !important} .show-sm{display:initial} }
 
 /* ---------------- wallpaper ---------------- */
@@ -98,7 +197,7 @@ em{color:var(--teal);font-style:normal}
 
 /* ---------------- pages ---------------- */
 .page{display:none;min-height:100dvh}
-#page-repos, #page-work{padding-top:calc(var(--tbh, 62px) + env(safe-area-inset-top) + 16px)}
+#page-overview, #page-repos, #page-work{padding-top:calc(var(--tbh, 62px) + env(safe-area-inset-top) + 16px)}
 .page.active{display:block;animation:pageIn .24s var(--ease) both}
 @keyframes pageIn{from{opacity:0}to{opacity:1}}
 
@@ -179,7 +278,17 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .hint{font-size:.75rem;color:var(--muted);margin-top:12px;line-height:1.55}
 .check{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--text2);margin-top:14px;cursor:pointer;min-height:32px}
 .check input{width:18px;height:18px;min-height:0;accent-color:var(--accent);-webkit-appearance:checkbox;appearance:checkbox}
-.capability-state{display:block;margin:4px 0 7px;color:var(--muted);font-size:.62rem;line-height:1.35}
+/*
+ * Out of the layout entirely.
+ *
+ * A control that cannot be used is already disabled, and the design carries
+ * status on the object it belongs to -- a badge on a repository card -- not as
+ * a label pinned beside every button. The note stays in the document so the
+ * reason still reaches a screen reader and the control's own tooltip, and it
+ * takes no space and draws no attention while doing so.
+ */
+.capability-state{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
 .capability-supported{color:var(--teal)}
 .capability-experimental{color:#ffcd78}
 .capability-unavailable{color:var(--text2)}
@@ -1002,4 +1111,162 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     transition-duration:.01ms!important;
     scroll-behavior:auto!important;
   }
+}
+
+/* ============================================================
+   GALAXY INVENTORY — the repositories section
+   ============================================================ */
+.gx-hero{padding:34px 0 6px;max-width:780px}
+.gx-eyebrow{display:flex;gap:10px;align-items:center;font-family:var(--font-display);
+  font-size:.66rem;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--lab);margin-bottom:16px}
+.gx-eyebrow span[aria-hidden]{opacity:.45}
+.gx-title{font-family:var(--font-display);font-size:clamp(1.9rem,4.4vw,3.05rem);font-weight:700;
+  line-height:1.06;letter-spacing:-.026em;color:var(--text);margin-bottom:16px}
+.gx-title em{font-style:normal;color:var(--accent2)}
+.gx-lede{max-width:56ch;color:var(--text2);font-size:.95rem;line-height:1.62}
+.gx-hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+
+.gx-pulse{margin:30px 0 6px}
+.gx-pulse-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));margin:0}
+.gx-pulse-cell{background:var(--card-grad);border:1px solid var(--glass-border);border-radius:var(--radius);
+  padding:15px 17px 14px;box-shadow:var(--card-shadow);backdrop-filter:blur(26px) saturate(1.5)}
+.gx-pulse-cell dt{font-family:var(--font-display);font-size:.62rem;font-weight:600;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:9px}
+.gx-pulse-cell dd{margin:0;display:flex;align-items:baseline;gap:9px}
+.gx-pulse-value{font-family:var(--font-display);font-size:1.72rem;font-weight:700;letter-spacing:-.02em;color:var(--text);line-height:1}
+.gx-pulse-note{font-size:.72rem;color:var(--text2)}
+
+.repo-card{position:relative}
+.repo-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;
+  font-size:.63rem;font-weight:600;letter-spacing:.02em;border:1px solid transparent;vertical-align:middle}
+.repo-badge::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.repo-badge-healthy{color:var(--green);background:rgba(52,211,153,.10);border-color:rgba(52,211,153,.24)}
+.repo-badge-private{color:var(--amber);background:rgba(245,158,11,.10);border-color:rgba(245,158,11,.24)}
+.repo-meta-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:9px;
+  font-size:.72rem;color:var(--muted)}
+.repo-open{margin-top:13px;font-family:var(--font-display);font-size:.74rem;font-weight:600;
+  color:var(--accent2);display:inline-flex;align-items:center;gap:6px}
+.repo-open::after{content:"→";transition:transform .18s var(--ease)}
+.repo-card:hover .repo-open::after,.repo-card:focus-visible .repo-open::after{transform:translateX(3px)}
+
+/* The inventory toolbar belongs above the grid, reading left to right with it. */
+#page-repos .page-head{display:flex;justify-content:flex-start;margin-top:26px}
+#page-repos .page-head-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:0 1 auto;justify-content:flex-start;margin-left:0}
+.repo-card h3{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.repo-card .repo-name{font-family:var(--font-display);letter-spacing:-.012em}
+
+/* ============================================================
+   OVERVIEW — the authenticated workspace section
+   ============================================================ */
+.ov-crumbs{display:none;gap:9px;align-items:center;font-family:var(--font-display);font-size:.68rem;
+  font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.ov-crumbs [aria-current]{color:var(--text2)}
+.ov-crumbs span[aria-hidden]{opacity:.4}
+@media (min-width:901px){ .ov-crumbs{display:flex} }
+
+.ov-hero{display:grid;gap:26px;grid-template-columns:1fr;padding:34px 0 8px;align-items:center}
+@media (min-width:1020px){ .ov-hero{grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:44px} }
+.ov-hero-copy{max-width:640px}
+
+.ov-core{position:relative;border:1px solid var(--glass-border);border-radius:20px;padding:20px;
+  background:var(--card-grad);box-shadow:var(--card-shadow);backdrop-filter:blur(26px) saturate(1.5);overflow:hidden}
+.ov-core-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  font-family:var(--font-display);font-size:.64rem;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted)}
+.ov-live{display:inline-flex;align-items:center;gap:6px;color:var(--teal);letter-spacing:.1em}
+.ov-live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
+  box-shadow:0 0 0 0 currentColor;animation:ov-pulse 2.4s var(--ease) infinite}
+@keyframes ov-pulse{0%{box-shadow:0 0 0 0 rgba(34,211,238,.5)}70%{box-shadow:0 0 0 9px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
+.ov-core-art{position:relative;height:186px;margin:16px 0 14px;border-radius:14px;overflow:hidden;
+  background:radial-gradient(ellipse 62% 66% at 50% 50%, rgba(124,58,237,.34), rgba(76,29,149,.13) 55%, transparent 78%)}
+.ov-core-glow{position:absolute;inset:0;
+  background:conic-gradient(from 210deg at 50% 50%, rgba(139,92,246,.55), rgba(217,70,239,.32), rgba(34,211,238,.30), rgba(139,92,246,.55));
+  filter:blur(26px);opacity:.75;animation:ov-spin 26s linear infinite}
+@keyframes ov-spin{to{transform:rotate(1turn)}}
+.ov-core-line{font-family:var(--font-display);font-size:.9rem;font-weight:600;color:var(--text);letter-spacing:-.008em}
+
+.ov-path{margin:34px 0 4px}
+.ov-path-lede{color:var(--text2);font-size:.88rem;margin:-6px 0 16px}
+.ov-steps{list-style:none;display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));margin:0;padding:0}
+.ov-steps li{display:grid;gap:5px;padding:16px 18px;border:1px solid var(--glass-border);border-radius:var(--radius);
+  background:var(--card-grad);box-shadow:var(--card-shadow);backdrop-filter:blur(26px) saturate(1.5)}
+.ov-step-n{font-family:var(--font-mono);font-size:.7rem;color:var(--accent2);letter-spacing:.08em}
+.ov-step-t{font-family:var(--font-display);font-size:1rem;font-weight:700;color:var(--text);letter-spacing:-.012em}
+.ov-step-d{font-size:.78rem;color:var(--text2)}
+
+@media (prefers-reduced-motion:reduce){
+  .ov-core-glow{animation:none}
+  .ov-live::before{animation:none}
+}
+
+/* ============================================================
+   FLOATING ACTION — the primary action where the bar has no room
+   ============================================================ */
+.nv-fab{position:fixed;right:calc(16px + env(safe-area-inset-right));
+  bottom:calc(var(--bnav-h) + 18px + env(safe-area-inset-bottom));
+  z-index:45;width:56px;height:56px;padding:0;border-radius:18px;cursor:pointer;
+  display:none;align-items:center;justify-content:center;
+  color:var(--btnFg);border:1px solid var(--navB);
+  background:linear-gradient(140deg, var(--btnB), var(--btnA));
+  box-shadow:var(--btnGlow), 0 0 0 1px rgba(255,255,255,.06) inset;
+  transition:transform .18s var(--ease), box-shadow .18s var(--ease)}
+/*
+ * Displayed only below the breakpoint, where the top bar has no room for it.
+ * .show-sm alone would lose to the display this rule sets, which is the same
+ * cascade collision that once put a mobile-only control on every desktop.
+ */
+@media (min-width:901px){ .nv-fab{display:none !important} }
+@media (max-width:900px){ .nv-fab{display:inline-flex} }
+.nv-fab:hover{transform:translateY(-2px)}
+.nv-fab:active{transform:translateY(0)}
+.nv-fab:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.nv-fab .ico{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+@media (prefers-reduced-motion:reduce){ .nv-fab{transition:none} .nv-fab:hover{transform:none} }
+
+/* ============================================================
+   PRIMARY RAIL — the design's left navigation
+   ============================================================ */
+.nv-rail{display:none}
+@media (min-width:1140px){
+  .nv-rail{display:flex;flex-direction:column;gap:22px;position:fixed;z-index:40;
+    top:calc(6px + env(safe-area-inset-top));left:12px;bottom:12px;width:246px;padding:20px 16px;
+    border-radius:20px;border:1px solid var(--sb);background:var(--shell);
+    box-shadow:var(--shellShadow);backdrop-filter:var(--glass)}
+  /* The screens make room for it rather than sliding underneath. */
+  #page-overview .container,#page-repos .container,#page-work .container{margin-left:250px}
+  #page-overview .topbar,#page-repos .topbar,#page-work .topbar{left:270px}
+  .nv-fab{left:auto}
+}
+.nv-rail-head{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center}
+.nv-rail-brand{font-family:var(--font-display);font-size:.94rem;font-weight:700;color:var(--ttl);letter-spacing:-.012em}
+.nv-rail-sub{grid-column:2;font-family:var(--font-display);font-size:.58rem;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--lab)}
+.nv-rail-nav{list-style:none;display:grid;gap:4px;margin:0;padding:0;flex:1;align-content:start}
+.nv-rail-item{display:grid;gap:2px;width:100%;text-align:left;padding:10px 12px;border-radius:12px;
+  border:1px solid transparent;background:none;color:var(--ico);cursor:pointer;font:inherit;
+  transition:background .16s var(--ease),border-color .16s var(--ease)}
+.nv-rail-item:hover{background:var(--navHov)}
+.nv-rail-item:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.nv-rail-item[aria-current="page"]{background:var(--navBg);border-color:var(--navB);box-shadow:var(--navGlow)}
+.nv-rail-item[aria-current="page"] .nv-rail-t{color:var(--fg)}
+.nv-rail-t{font-family:var(--font-display);font-size:.86rem;font-weight:600;color:var(--ttl);letter-spacing:-.008em}
+.nv-rail-d{display:block;font-size:.7rem;color:var(--muted)}
+.nv-rail-foot{display:grid;gap:10px;padding-top:14px;border-top:1px solid var(--hair)}
+.nv-rail-state,.nv-rail-user{display:flex;gap:9px;align-items:center;margin:0}
+.nv-rail-state-t{display:block;font-size:.76rem;font-weight:600;color:var(--fg2)}
+.nv-rail-dot{width:7px;height:7px;border-radius:50%;background:var(--mint);flex:none;
+  box-shadow:0 0 0 3px rgba(52,211,153,.14)}
+.nv-rail-avatar{width:26px;height:26px;border-radius:9px;flex:none;display:grid;place-items:center;
+  font-family:var(--font-display);font-size:.72rem;font-weight:700;color:var(--btnFg);
+  background:linear-gradient(140deg,var(--btnB),var(--btnA))}
+
+@media (min-width:1140px){
+  /*
+   * The rail names the product, so the bar does not repeat it. The control
+   * stays in the document and keeps its accessible name, because it is the
+   * route back to the overview for anyone navigating by keyboard.
+   */
+  #page-overview .topbar-brand .hide-sm,
+  #page-repos .topbar-brand .hide-sm{display:none}
+  #page-repos .page-head-tools{flex-wrap:nowrap}
 }

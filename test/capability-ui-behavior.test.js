@@ -48,7 +48,19 @@ const body = {
 const window = {};
 const document = {
   getElementById: id => notes.get(id) || null,
-  createElement: () => ({ id: '', className: '', textContent: '', dataset: {} })
+  createElement: () => {
+    /*
+     * Models the surface the module uses on a created node. setAttribute is
+     * here because the capability note carries its reason in an accessible
+     * name rather than in visible prose.
+     */
+    const attributes = {};
+    return {
+      id: '', className: '', textContent: '', title: '', dataset: {}, attributes,
+      setAttribute(name, value) { attributes[name] = String(value); },
+      getAttribute(name) { return Object.hasOwn(attributes, name) ? attributes[name] : null; }
+    };
+  }
 };
 const sandbox = {
   window,
@@ -85,8 +97,22 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
     batchContainer.dataset.capabilityReason,
     'Atomic batch is not qualified for GitLab.'
   );
+  /*
+   * The reason must reach the reader; where it lives is the note's business.
+   * It used to be printed inline, which put a sentence beside every control
+   * carrying the feature -- six of them for one capability. The status is
+   * shown and the reason travels in the accessible name and the tooltip, so
+   * this asserts that it is reachable rather than that it is rendered as prose.
+   */
   const note = notes.get(batchContainer.dataset.capabilityNoteId);
-  assert(note && note.textContent.includes('Unavailable — Atomic batch is not qualified for GitLab.'));
+  assert(note, 'an unavailable control must carry a note');
+  assert.strictEqual(note.textContent, 'Unavailable', 'the note shows the status');
+  const reason = 'Atomic batch is not qualified for GitLab.';
+  assert(
+    String(note.getAttribute('aria-label') || '').includes(reason),
+    'the reason must reach a screen reader through the note'
+  );
+  assert(String(note.title || '').includes(reason), 'the reason must be reachable by pointer');
   assert.strictEqual(
     window.NebulaCapabilityUI.decision('unknown.feature').status,
     'Unavailable',

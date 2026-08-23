@@ -234,7 +234,17 @@ must(offlinePolicy.includes("const CACHE_SCHEMA = 'v1'") && offlinePolicy.includ
 must(sw.includes("key === 'nv-api-perm'") && sw.includes("key === 'nv-api'"), 'Service worker upgrades must delete legacy shared API caches');
 must(server.includes('/hooks/github/:hookId') && server.includes('verifyGithubSignature'), 'Verified GitHub webhook intake is missing');
 must(server.includes("object-src 'none'") && server.includes("base-uri 'none'"), 'CSP active-content restrictions are incomplete');
-must(server.includes('VENDOR_ALLOWLIST') && server.includes('GFONTS_ALLOWLIST'), 'Vendor proxy allowlists are missing');
+must(server.includes('VENDOR_ALLOWLIST'), 'The vendor proxy allowlist is missing');
+/*
+ * Typefaces were proxied from Google through an allowlisted route, so every
+ * reader's address reached a third party, an offline session lost the faces,
+ * and the proxied bytes were absent from the archive whose fingerprint the
+ * hosted gate verifies. They are served from this origin now, so the stronger
+ * property is that no font proxy exists at all.
+ */
+must(!/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/.test(server), 'A stylesheet font proxy has returned');
+must(!/\/gstatic|fonts\.gstatic/.test(server), 'A font-file proxy has returned');
+must(server.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hosted interface faces are not served');
 must(server.includes("path.join(__dirname, 'public', 'vendor')") && server.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
 must(server.includes('allowWebhookRequest') && server.includes('Webhook delivery rate exceeded'), 'Webhook abuse limiter is missing');
 must(server.includes('/readyz'), 'Readiness endpoint is missing');
@@ -281,6 +291,15 @@ must(stagingValidation.includes('evidence requires at least one artifact file') 
 must(read('scripts/staging-gate.js').includes('NV_STAGING_SUBJECT_SHA256') && read('scripts/staging-gate.js').includes('versioned object envelope') && read('scripts/staging-gate.js').includes('artifact hash mismatch'), 'Task 20 staging CLI is not fail-closed');
 must(read('scripts/test-matrix.js').includes('--allow-missing-dependencies') && read('src/test-matrix.js').includes('runTestMatrix'), 'Task 20 independent test matrix is missing');
 const task20Browser = read('test/e2e/task20-accessibility.spec.js');
-for (const signal of ['Shift+Tab', 'toBeFocused', 'setOffline(true)', "unroute('**/api/**')", 'data-act="governance"']) must(task20Browser.includes(signal), `Task 20 browser behavior missing: ${signal}`);
+/*
+ * The governance workspace used to be reached by a data attribute, so this
+ * asked for that attribute by name. The spec reaches it by the name a reader
+ * reads instead, which is what has to keep being covered -- the destination and
+ * the keyboard and offline behaviour around it, not the selector that finds it.
+ */
+for (const signal of [
+  'Shift+Tab', 'toBeFocused', 'setOffline(true)', "unroute('**/api/**')",
+  "getByRole('region', { name: 'Governance' })", 'openGovernance'
+]) must(task20Browser.includes(signal), `Task 20 browser behavior missing: ${signal}`);
 
 console.log('Nebulaverse-X build verification passed.');

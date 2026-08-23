@@ -147,7 +147,7 @@ async function waitForServer() {
        * fails if the proxy is ever restored.
        */
       const response = await request(removed);
-      const type = String(response.headers['content-type'] || '');
+      const type = String(response.headers.get('content-type') || '');
       assert(
         !/font|css/i.test(type),
         `${removed} must not resolve to font or stylesheet bytes, got ${type}`

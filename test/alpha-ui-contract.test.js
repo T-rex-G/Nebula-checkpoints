@@ -171,19 +171,42 @@ assert(!safeguardsBlock.includes('setTimeout(() => {'),
    * A segmented control is a set of choices. Which one is chosen was a class,
    * so the selection was visible and unannounced -- the same defect as the
    * palette, in four more places.
+   *
+   * Attributes are read into a map rather than matched in the tag text, so
+   * what is asserted is the value the browser resolves. A second role= later
+   * in the same tag is dead text the parser discards -- and a guard that
+   * greps for it passes on markup that does nothing, which is how a
+   * radiogroup shipped that was never a radiogroup.
    */
+  const attributesOf = (tag, subject) => {
+    const found = new Map();
+    for (const [, name, value] of tag.matchAll(/\s([a-zA-Z-]+)="([^"]*)"/g)) {
+      assert(!found.has(name), `${subject} declares ${name} twice; only the first one applies`);
+      found.set(name, value);
+    }
+    return found;
+  };
   const markup = sources[0][1];
   const groups = [...markup.matchAll(/<div class="seg"[^>]*id="([^"]+)"[^>]*>/g)];
   assert(groups.length >= 4, 'the segmented controls must be discoverable');
   for (const [tag, id] of groups) {
-    assert(/role="radiogroup"/.test(tag), `${id} must present itself as a set of choices`);
-    assert(/aria-label(?:ledby)?="/.test(tag), `${id} must be named`);
+    const attributes = attributesOf(tag, id);
+    assert.strictEqual(attributes.get('role'), 'radiogroup', `${id} must present itself as a set of choices`);
+    assert(
+      attributes.has('aria-label') || attributes.has('aria-labelledby'),
+      `${id} must be named`
+    );
   }
   const segButtons = [...markup.matchAll(/<button class="seg-btn[^"]*"[^>]*>/g)];
   assert(segButtons.length >= 10, 'the segmented buttons must be discoverable');
   for (const [tag] of segButtons) {
-    assert(/role="radio"/.test(tag), `a segmented button must present itself as a choice: ${tag.slice(0, 60)}`);
-    assert(/aria-checked="(?:true|false)"/.test(tag), `a segmented button must say whether it is chosen: ${tag.slice(0, 60)}`);
+    const subject = tag.slice(0, 60);
+    const attributes = attributesOf(tag, subject);
+    assert.strictEqual(attributes.get('role'), 'radio', `a segmented button must present itself as a choice: ${subject}`);
+    assert(
+      ['true', 'false'].includes(attributes.get('aria-checked')),
+      `a segmented button must say whether it is chosen: ${subject}`
+    );
   }
   const behaviour = sources[1][1];
   assert(

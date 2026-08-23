@@ -23,6 +23,11 @@ const PRODUCT_NAME = 'Nebulaverse-X';
 const SCREENS = Object.freeze({
   access: 'Enter the Nebulaverse-X test orbit',
   login: PRODUCT_NAME,
+  /*
+   * The overview greets the reader by name, so its heading is not a stable
+   * label. The landmark carries its own.
+   */
+  overview: 'Workspace overview',
   repos: 'Your galaxies',
   work: 'Repository workspace'
 });
@@ -57,6 +62,24 @@ function checkbox(target, name) {
 
 function heading(target, name) {
   return target.getByRole('heading', { name });
+}
+
+/*
+ * Wait for the control, focus it, then confirm the focus took.
+ *
+ * The sign-in field is display:none for roughly the first third of a second
+ * after its screen appears, and locator.focus() does not wait for visibility,
+ * so a focus issued inside that window silently does nothing. The keys then go
+ * to the document and the following Tab starts from the top of the page, which
+ * presented as an intermittent failure about tab order rather than as a focus
+ * that never happened. The journey had been waiting a fixed 350ms, which sat
+ * right on the boundary -- hence a failure that came and went.
+ */
+async function focusAndConfirm(expect, locator) {
+  await expect(locator).toBeVisible();
+  await locator.focus();
+  await expect(locator).toBeFocused();
+  return locator;
 }
 
 function alert(target) {
@@ -121,6 +144,7 @@ module.exports = Object.freeze({
   palette,
   paletteOption,
   screen,
+  focusAndConfirm,
   secretField,
   status,
   trust,

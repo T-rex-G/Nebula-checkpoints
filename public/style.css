@@ -160,7 +160,7 @@ em{color:var(--teal);font-style:normal}
 
 /* ---------------- pages ---------------- */
 .page{display:none;min-height:100dvh}
-#page-repos, #page-work{padding-top:calc(var(--tbh, 62px) + env(safe-area-inset-top) + 16px)}
+#page-overview, #page-repos, #page-work{padding-top:calc(var(--tbh, 62px) + env(safe-area-inset-top) + 16px)}
 .page.active{display:block;animation:pageIn .24s var(--ease) both}
 @keyframes pageIn{from{opacity:0}to{opacity:1}}
 
@@ -1117,3 +1117,47 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 #page-repos .page-head-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:0 1 auto;justify-content:flex-start;margin-left:0}
 .repo-card h3{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .repo-card .repo-name{font-family:var(--font-display);letter-spacing:-.012em}
+
+/* ============================================================
+   OVERVIEW — the authenticated workspace section
+   ============================================================ */
+.ov-crumbs{display:none;gap:9px;align-items:center;font-family:var(--font-display);font-size:.68rem;
+  font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.ov-crumbs [aria-current]{color:var(--text2)}
+.ov-crumbs span[aria-hidden]{opacity:.4}
+@media (min-width:901px){ .ov-crumbs{display:flex} }
+
+.ov-hero{display:grid;gap:26px;grid-template-columns:1fr;padding:34px 0 8px;align-items:center}
+@media (min-width:1020px){ .ov-hero{grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:44px} }
+.ov-hero-copy{max-width:640px}
+
+.ov-core{position:relative;border:1px solid var(--glass-border);border-radius:20px;padding:20px;
+  background:var(--card-grad);box-shadow:var(--card-shadow);backdrop-filter:blur(26px) saturate(1.5);overflow:hidden}
+.ov-core-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  font-family:var(--font-display);font-size:.64rem;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted)}
+.ov-live{display:inline-flex;align-items:center;gap:6px;color:var(--teal);letter-spacing:.1em}
+.ov-live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
+  box-shadow:0 0 0 0 currentColor;animation:ov-pulse 2.4s var(--ease) infinite}
+@keyframes ov-pulse{0%{box-shadow:0 0 0 0 rgba(34,211,238,.5)}70%{box-shadow:0 0 0 9px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
+.ov-core-art{position:relative;height:186px;margin:16px 0 14px;border-radius:14px;overflow:hidden;
+  background:radial-gradient(ellipse 62% 66% at 50% 50%, rgba(124,58,237,.34), rgba(76,29,149,.13) 55%, transparent 78%)}
+.ov-core-glow{position:absolute;inset:0;
+  background:conic-gradient(from 210deg at 50% 50%, rgba(139,92,246,.55), rgba(217,70,239,.32), rgba(34,211,238,.30), rgba(139,92,246,.55));
+  filter:blur(26px);opacity:.75;animation:ov-spin 26s linear infinite}
+@keyframes ov-spin{to{transform:rotate(1turn)}}
+.ov-core-line{font-family:var(--font-display);font-size:.9rem;font-weight:600;color:var(--text);letter-spacing:-.008em}
+
+.ov-path{margin:34px 0 4px}
+.ov-path-lede{color:var(--text2);font-size:.88rem;margin:-6px 0 16px}
+.ov-steps{list-style:none;display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));margin:0;padding:0}
+.ov-steps li{display:grid;gap:5px;padding:16px 18px;border:1px solid var(--glass-border);border-radius:var(--radius);
+  background:var(--card-grad);box-shadow:var(--card-shadow);backdrop-filter:blur(26px) saturate(1.5)}
+.ov-step-n{font-family:var(--font-mono);font-size:.7rem;color:var(--accent2);letter-spacing:.08em}
+.ov-step-t{font-family:var(--font-display);font-size:1rem;font-weight:700;color:var(--text);letter-spacing:-.012em}
+.ov-step-d{font-size:.78rem;color:var(--text2)}
+
+@media (prefers-reduced-motion:reduce){
+  .ov-core-glow{animation:none}
+  .ov-live::before{animation:none}
+}

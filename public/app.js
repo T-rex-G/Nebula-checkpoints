@@ -1110,7 +1110,57 @@ $('#repoFilter').addEventListener('input', e => {
   const q = e.target.value.toLowerCase();
   $$('#repoGrid .repo-card').forEach(c => { c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none'; });
 });
-$('#homeBtn').addEventListener('click', () => showPage('repos'));
+/*
+ * The brand mark leads to the overview, which is the design's authenticated
+ * home. Where a session lands after sign-in is left alone for now: that is a
+ * change to the qualified tester journey rather than a change of surface, and
+ * it belongs in its own change with its own evidence.
+ */
+$('#homeBtn').addEventListener('click', () => showOverview());
+$('#ovHomeBtn') && $('#ovHomeBtn').addEventListener('click', () => showOverview());
+$('#ovGoRepos') && $('#ovGoRepos').addEventListener('click', () => showPage('repos'));
+$('#ovOpenBrowser') && $('#ovOpenBrowser').addEventListener('click', () => showPage('repos'));
+
+function showOverview() {
+  const who = $('#ovWho');
+  if (who) who.textContent = (state.me && (state.me.name || state.me.login)) || 'tester';
+  renderOverviewPulse(state.repos);
+  showPage('overview');
+}
+
+/*
+ * Reports what this session loaded. The design also shows a trust score and a
+ * live-signal count; nothing computes either yet, so those are absent rather
+ * than filled with a number that would read as measured.
+ */
+function renderOverviewPulse(repos) {
+  const section = $('#ovPulse');
+  const grid = $('#ovPulseGrid');
+  if (!section || !grid) return;
+  const list = Array.isArray(repos) ? repos : [];
+  const measures = [
+    { label: 'Repositories', value: list.length, note: 'connected' },
+    { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' }
+  ];
+  grid.innerHTML = '';
+  for (const measure of measures) {
+    const cell = document.createElement('div');
+    cell.className = 'gx-pulse-cell';
+    const dt = document.createElement('dt');
+    dt.textContent = measure.label;
+    const dd = document.createElement('dd');
+    const value = document.createElement('span');
+    value.className = 'gx-pulse-value';
+    value.textContent = String(measure.value);
+    const note = document.createElement('span');
+    note.className = 'gx-pulse-note';
+    note.textContent = measure.note;
+    dd.append(value, note);
+    cell.append(dt, dd);
+    grid.appendChild(cell);
+  }
+  section.hidden = false;
+}
 $('#accountBtn').addEventListener('click', async () => {
   modal({ title: 'Accounts', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:60px"></div>' });
   try {

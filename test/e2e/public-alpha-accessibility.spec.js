@@ -80,7 +80,7 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await mockPublicAlphaApi(page, { access: 'required', mutation: 'verified', cleanup: 'verified' });
   await page.goto('/');
 
-  await ui.secretField(page, 'One-time invitation').focus();
+  await ui.focusAndConfirm(expect, ui.secretField(page, 'One-time invitation'));
   await page.keyboard.type('fixture-invitation');
   await ui.checkbox(page, /I accept/).focus();
   await page.keyboard.press('Space');
@@ -89,9 +89,8 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await expect(redeem).toHaveCSS('outline-style', 'solid');
   await page.keyboard.press('Enter');
   await expect(ui.screen(page, 'login')).toBeVisible();
-  await page.waitForTimeout(350);
 
-  await ui.secretField(page, 'GitHub Personal Access Token').focus();
+  await ui.focusAndConfirm(expect, ui.secretField(page, 'GitHub Personal Access Token'));
   await page.keyboard.type('fixture-provider-credential');
   await page.keyboard.press('Tab');
   await expect(ui.button(ui.screen(page, 'login'), 'Enter orbit')).toBeFocused();

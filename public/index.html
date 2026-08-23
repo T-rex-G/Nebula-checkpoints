@@ -115,13 +115,67 @@
   </div>
 </main>
 
+<!-- ======================= OVERVIEW ======================= -->
+<main class="page" id="page-overview" aria-label="Workspace overview">
+  <header class="topbar glass">
+    <button class="topbar-brand" id="ovHomeBtn" type="button" aria-label="Workspace overview">
+      <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
+      <span class="hide-sm">__NV_PRODUCT_NAME__</span>
+    </button>
+    <nav class="ov-crumbs" aria-label="Location">
+      <span>__NV_PRODUCT_NAME__</span><span aria-hidden="true">/</span><span aria-current="page">Overview</span>
+    </nav>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" id="ovGoRepos">Repositories</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <section class="ov-hero">
+      <div class="ov-hero-copy">
+        <p class="gx-eyebrow"><span>Trust operations</span><span aria-hidden="true">/</span><span>Authenticated workspace</span></p>
+        <h2 class="gx-title" id="ovTitle">Good to see you,<br><em id="ovWho">tester</em>.<br>Make <em>one</em> safe move.</h2>
+        <p class="gx-lede">Connect a repository, understand its current health, and prove the next change
+          before it reaches a provider.</p>
+        <div class="gx-hero-actions">
+          <button class="btn btn-primary" id="ovOpenBrowser">Open repository browser</button>
+        </div>
+      </div>
+      <aside class="ov-core" aria-labelledby="ovCoreTitle">
+        <p class="ov-core-head"><span id="ovCoreTitle">Trust core</span><span class="ov-live">Live</span></p>
+        <div class="ov-core-art" aria-hidden="true"><span class="ov-core-glow"></span></div>
+        <p class="ov-core-line">Secure by default. Proven by design.</p>
+      </aside>
+    </section>
+
+    <section class="ov-path" aria-labelledby="ovPathTitle">
+      <p class="gx-eyebrow" id="ovPathTitle"><span>Golden path</span></p>
+      <p class="ov-path-lede">The fastest safe route through the overview.</p>
+      <ol class="ov-steps">
+        <li><span class="ov-step-n">01</span><span class="ov-step-t">Connect</span><span class="ov-step-d">Choose one repository</span></li>
+        <li><span class="ov-step-n">02</span><span class="ov-step-t">Understand</span><span class="ov-step-d">See health and signals</span></li>
+        <li><span class="ov-step-n">03</span><span class="ov-step-t">Prove</span><span class="ov-step-d">Preview every action</span></li>
+      </ol>
+    </section>
+
+    <!--
+      Overview pulse. Same rule as the inventory: every figure is computed
+      from what the session loaded, and a measure without a source is absent
+      rather than filled with a plausible number.
+    -->
+    <section class="gx-pulse" id="ovPulse" aria-label="Workspace pulse" hidden>
+      <dl class="gx-pulse-grid" id="ovPulseGrid"></dl>
+    </section>
+  </div>
+</main>
+
 <!-- ======================= REPOS ======================= -->
 <main class="page" id="page-repos" aria-labelledby="reposTitle">
   <header class="topbar glass">
-    <div class="topbar-brand" id="homeBtn">
+    <button class="topbar-brand" id="homeBtn" type="button" aria-label="Workspace overview">
       <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
-    </div>
+    </button>
     <div class="topbar-actions">
       <button class="btn btn-ghost" id="newRepoBtn" data-feature="repository.create" aria-label="Create repository"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm"> New repo</span></button>
       <button class="btn btn-ghost icon-btn" data-feature="notifications" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg></button>

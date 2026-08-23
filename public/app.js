@@ -2853,6 +2853,11 @@ function switchTab(name) {
   })) return;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.tabpane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  /*
+   * Repainted here rather than by the click handler, so a tab reached from the
+   * command palette marks the rail exactly as a pointer click does.
+   */
+  paintRail('work');
   $$('#bottomNav button').forEach(b => b.classList.toggle('active', b.dataset.nav === name));
   if (name === 'commits' && !$('#commitList').children.length) loadCommits(true);
   if (name === 'pulls' && !$('#prList').children.length) loadPRs();
@@ -2865,7 +2870,7 @@ function switchTab(name) {
   if (name === 'editor' && state.cm) setTimeout(() => state.cm.refresh(), 30);
   saveRoute();
 }
-$$('.tab').forEach(t => t.addEventListener('click', () => { switchTab(t.dataset.tab); paintRail('work'); }));
+$$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
 
 $('#bottomNav').addEventListener('click', e => {
   const btn = e.target.closest('button');
@@ -3049,8 +3054,7 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   if (!state.work) return toast('Open a repository first.', 'err');
   showPage('work');
   if (target === 'neural') switchTab('neural');
-  /* showPage paints the rail before the tab moves, so the mark is set after. */
-  paintRail('work');
+  else paintRail('work');
 }));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {

@@ -147,6 +147,28 @@ const PERFECT = {
   );
 }
 
+/*
+ * The plotted series is smoothed; the counts beside it are not. The window
+ * total must count repositories, never plotted points -- summing a trailing
+ * window counts each push once per day it stays in the window, which is how a
+ * card ends up claiming more repositories than the workspace has.
+ */
+{
+  const repos = [];
+  for (let i = 0; i < 9; i += 1) {
+    repos.push({ private: true, pushed_at: new Date(NOW - (i * 3 * DAY)).toISOString() });
+  }
+  const { activity } = pulse.model({ ...PERFECT, repos });
+  assert.strictEqual(activity.total, 9);
+  assert.strictEqual(activity.windowTotal, 9, 'the window total counts repositories, not plotted points');
+  assert(activity.windowTotal <= activity.total, 'the window can never hold more than the whole');
+  assert.strictEqual(activity.series.length, activity.windowDays);
+  assert(
+    Math.max(...activity.series) <= activity.rollingDays * 9,
+    'the smoothed series must stay within what the window can hold'
+  );
+}
+
 /* The model hands back frozen structures: a view cannot edit the reading. */
 {
   const model = pulse.model(PERFECT);

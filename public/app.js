@@ -855,7 +855,6 @@ async function boot() {
     state.me = await api('/api/me');
     try { sessionStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
     refreshSafety();
-    loadScannerPosture();
     state.caps = state.me.caps || null;
     await loadProviderCapabilities();
     applyCaps();
@@ -1141,6 +1140,7 @@ function showOverview() {
   if (who) who.textContent = (state.me && (state.me.name || state.me.login)) || 'tester';
   renderOverviewPulse(state.repos);
   renderWorkspacePulse();
+  loadScannerPosture();
   showPage('overview');
 }
 
@@ -1160,7 +1160,15 @@ function showOverview() {
  * with a refusal, and reporting that as "not scanned" would accuse a
  * deployment of something this client never established.
  */
+let scannerPostureAsked = false;
 async function loadScannerPosture() {
+  /*
+   * Asked for once, and only once the overview is actually on screen. Reading
+   * it during boot spent a request on every sign-in, sign-out and reconnect
+   * cycle -- including the ones that never reach a screen that shows it.
+   */
+  if (scannerPostureAsked) return;
+  scannerPostureAsked = true;
   try {
     const status = await api('/api/security/scanner-status');
     state.scanner = {

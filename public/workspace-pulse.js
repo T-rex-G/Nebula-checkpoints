@@ -132,6 +132,46 @@
     });
   }
 
+  /*
+   * A daily series over the trailing window, for the area chart the design
+   * draws across the card. The buckets below still carry the same repositories
+   * -- they are the same measurement read at two grains, so the summary and the
+   * plot can never disagree.
+   */
+  const SERIES_DAYS = 60;
+
+  const ROLLING_DAYS = 7;
+
+  function dailySeries(stamps, now) {
+    const counts = new Array(SERIES_DAYS).fill(0);
+    for (const stamp of stamps) {
+      const age = Math.floor((now - stamp) / DAY);
+      if (age >= 0 && age < SERIES_DAYS) counts[SERIES_DAYS - 1 - age] += 1;
+    }
+    /*
+     * Read as a trailing seven-day count rather than a raw daily one. Pushes
+     * are bursty, so the raw series is a flat line with a few spikes, which
+     * says less about activity than it appears to. The window is named in the
+     * caption and in the chart's description -- a smoothed series presented as
+     * a raw one would be the chart lying about its own grain.
+     */
+    const rolling = counts.map((_, index) => {
+      let total = 0;
+      for (let back = 0; back < ROLLING_DAYS; back += 1) {
+        const at = index - back;
+        if (at >= 0) total += counts[at];
+      }
+      return total;
+    });
+    /*
+     * The window total counts repositories, not plotted points. Summing the
+     * rolling series instead would count each push once per day it stays in
+     * the window -- which is how a card ends up claiming more repositories
+     * than the workspace has.
+     */
+    return { rolling, total: counts.reduce((sum, value) => sum + value, 0) };
+  }
+
   function activity(repos, now) {
     const list = Array.isArray(repos) ? repos : [];
     const stamps = list
@@ -143,10 +183,15 @@
       const bucket = buckets.find(entry => age < entry.within) || buckets[buckets.length - 1];
       bucket.count += 1;
     }
+    const daily = dailySeries(stamps, now);
     return Object.freeze({
       measured: stamps.length > 0,
       total: stamps.length,
       unknownCount: list.length - stamps.length,
+      windowDays: SERIES_DAYS,
+      rollingDays: ROLLING_DAYS,
+      windowTotal: daily.total,
+      series: Object.freeze(daily.rolling),
       buckets: Object.freeze(buckets.map(bucket => Object.freeze(bucket)))
     });
   }
@@ -278,7 +323,22 @@
      */
     const figure = element('p', 'wp-hero-figure', trust.score === null ? 'Not measured' : String(trust.score));
     figure.classList.toggle('wp-hero-empty', trust.score === null);
-    head.append(element('p', 'wp-hero-label', 'Trust score'), figure);
+    /*
+     * The label row the design uses everywhere: a mono caption on the left and
+     * the live reading on the right. The dot pulses only while there is a
+     * reading to pulse about -- animating an unmeasured state would suggest
+     * something is live when nothing is.
+     */
+    const row = element('div', 'wp-head');
+    row.append(element('span', 'wp-label', 'TRUST SCORE'));
+    if (trust.score !== null) {
+      const live = element('span', `wp-live wp-${trust.status}`);
+      const dot = element('span', 'wp-dot');
+      dot.setAttribute('aria-hidden', 'true');
+      live.append(dot, element('span', null, STATUS_WORD[trust.status]));
+      row.appendChild(live);
+    }
+    head.append(row, figure);
     head.appendChild(element('p', 'wp-hero-note', trust.score === null
       ? 'No signal has loaded yet.'
       : `From ${trust.measuredCount} of ${trust.componentCount} signals measured in this session.`));
@@ -319,7 +379,7 @@
      * for, which reads as an alarm rather than as "nothing has loaded".
      */
     value.classList.toggle('wp-stat-empty', !signals.measured);
-    head.append(element('p', 'wp-stat-label', 'Live signals'), value);
+    head.append(element('span', 'wp-label', 'LIVE SIGNALS'), value);
     head.appendChild(element('p', 'wp-stat-note', signals.measured
       ? `verified of ${signals.total} capabilities this provider projects`
       : 'The capability projection has not loaded.'));
@@ -365,30 +425,70 @@
    * recency, so the ramp itself carries the ordering. Only the largest bucket
    * is labelled on the plot -- a number on every bar is noise.
    */
+  /*
+   * The area the design draws across the bottom of the card: a violet-to-cyan
+   * stroke over an indigo fade, bled past the card's padding so the plot reads
+   * as the card's own surface rather than as a boxed widget sitting on it.
+   *
+   * Gradient ids are namespaced per card. Two cards with the same id would have
+   * the second silently paint with the first's ramp, which is the kind of bug
+   * that looks like a rendering quirk and never gets traced.
+   */
+  let areaSequence = 0;
+
+  function areaChart(values, label) {
+    const width = 380;
+    const height = 120;
+    const id = `wp-area-${areaSequence += 1}`;
+    const peak = Math.max(...values, 1);
+    const step = values.length > 1 ? width / (values.length - 1) : width;
+    const points = values.map((value, index) => {
+      const x = Math.round(index * step * 10) / 10;
+      const y = Math.round((height - (value / peak) * (height - 16)) * 10) / 10;
+      return `${x},${y}`;
+    });
+
+    const chart = svg('svg', {
+      class: 'wp-area', viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: 'none',
+      role: 'img', 'aria-label': label
+    });
+    const defs = svg('defs', {});
+    const stroke = svg('linearGradient', { id: `${id}-s`, x1: 0, y1: 0, x2: 1, y2: 0 });
+    for (const [offset, color] of [['0%', '#8B5CF6'], ['55%', '#6366F1'], ['100%', '#22D3EE']]) {
+      stroke.appendChild(svg('stop', { offset, 'stop-color': color }));
+    }
+    const fill = svg('linearGradient', { id: `${id}-f`, x1: 0, y1: 0, x2: 0, y2: 1 });
+    fill.appendChild(svg('stop', { offset: '0%', 'stop-color': '#6366F1', 'stop-opacity': '.45' }));
+    fill.appendChild(svg('stop', { offset: '100%', 'stop-color': '#6366F1', 'stop-opacity': '0' }));
+    defs.append(stroke, fill);
+    chart.appendChild(defs);
+    chart.appendChild(svg('polygon', {
+      points: `${points.join(' ')} ${width},${height} 0,${height}`, fill: `url(#${id}-f)`
+    }));
+    chart.appendChild(svg('polyline', {
+      points: points.join(' '), fill: 'none', stroke: `url(#${id}-s)`,
+      'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+      'vector-effect': 'non-scaling-stroke'
+    }));
+    return chart;
+  }
+
   function renderActivity(host, activity) {
     host.textContent = '';
-    host.appendChild(element('p', 'wp-stat-label', 'Repository activity'));
+    const head = element('div', 'wp-head');
+    head.append(element('span', 'wp-label', 'REPOSITORY ACTIVITY'));
+    host.appendChild(head);
     if (!activity.measured) {
       host.appendChild(element('p', 'wp-stat-note', 'No repository has reported a last-push time yet.'));
       return;
     }
-    const peak = Math.max(...activity.buckets.map(bucket => bucket.count), 1);
-    const chart = element('div', 'wp-bars');
-    for (const bucket of activity.buckets) {
-      const row = element('div', 'wp-bar-row');
-      row.title = `${bucket.label}: ${bucket.count} of ${activity.total}`;
-      const track = element('span', 'wp-bar-track');
-      const fill = element('span', `wp-bar-fill wp-step-${bucket.id}`);
-      fill.style.width = `${Math.max(bucket.count ? 3 : 0, (bucket.count / peak) * 100)}%`;
-      track.appendChild(fill);
-      row.append(
-        element('span', 'wp-bar-label', bucket.label),
-        track,
-        element('span', `wp-bar-value${bucket.count === peak ? ' wp-bar-peak' : ''}`, String(bucket.count))
-      );
-      chart.appendChild(row);
-    }
-    host.appendChild(chart);
+    host.appendChild(element('p', 'wp-stat-note',
+      `${activity.windowTotal} of ${activity.total} repositories pushed in the last ${activity.windowDays} days, shown as a trailing ${activity.rollingDays}-day count.`));
+    host.appendChild(areaChart(
+      activity.series,
+      `Repositories pushed, as a trailing ${activity.rollingDays}-day count over the last ${activity.windowDays} days.`
+    ));
+
     if (activity.unknownCount > 0) {
       host.appendChild(element('p', 'wp-stat-note',
         `${activity.unknownCount} repository${activity.unknownCount === 1 ? '' : 's'} reported no last-push time and ${activity.unknownCount === 1 ? 'is' : 'are'} not counted above.`));

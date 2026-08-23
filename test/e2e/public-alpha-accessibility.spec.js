@@ -132,7 +132,15 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await expect(disconnect).toBeVisible();
   await disconnect.focus();
   await page.keyboard.press('Enter');
-  await expect(ui.screen(page, 'login')).toBeVisible();
+  /*
+   * Disconnecting purges local state, which makes the access gate re-evaluate
+   * before the app settles on the login screen. That intermediate frame is the
+   * designed flow, not a fault, so this waits for the destination rather than
+   * for the first repaint after the keypress -- measured at about half a second
+   * in isolation, but the purge is I/O and the budget has to survive a loaded
+   * machine.
+   */
+  await expect(ui.screen(page, 'login')).toBeVisible({ timeout: 20000 });
   await expect(ui.status(page, 'Notifications')).toContainText('Disconnected from Nebulaverse-X');
 });
 

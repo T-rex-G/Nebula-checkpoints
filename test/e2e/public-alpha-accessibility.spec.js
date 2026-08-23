@@ -128,10 +128,20 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await page.keyboard.press('Enter');
   await page.locator('#paletteInput').fill('Settings');
   await page.keyboard.press('Enter');
-  const disconnect = page.locator('[data-alpha-privacy-action="disconnect"]');
-  await expect(disconnect).toBeVisible();
-  await disconnect.focus();
-  await page.keyboard.press('Enter');
+  /*
+   * Wait for the dialog itself, then for focus to rest on the control, before
+   * pressing anything. Reaching straight for the button raced two things at
+   * once: the dialog still opening, and the dialog placing its own initial
+   * focus. About one run in four the keypress landed on nothing and the
+   * journey simply stopped, which read as a slow transition rather than as a
+   * key that never arrived.
+   */
+  await expect(ui.dialog(page, 'Settings')).toBeVisible();
+  const disconnect = await ui.focusAndConfirm(
+    expect,
+    page.locator('[data-alpha-privacy-action="disconnect"]')
+  );
+  await disconnect.press('Enter');
   /*
    * Disconnecting purges local state, which makes the access gate re-evaluate
    * before the app settles on the login screen. That intermediate frame is the

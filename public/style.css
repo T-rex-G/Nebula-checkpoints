@@ -1388,3 +1388,33 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 @media (prefers-reduced-motion:reduce){
   .wp-meter-fill,.wp-bar-fill{transition:none}
 }
+
+/* ================= DESIGN ARTWORK ================= */
+/*
+ * Hosts for the reference's WebGL pieces. Both sit behind their content and
+ * take no pointer events, so the copy over them stays selectable and every
+ * control keeps its own hit area. Neither host reserves space it cannot fill:
+ * without WebGL the galaxy host is an empty absolutely-positioned layer and
+ * the core panel keeps the CSS glow it already had.
+ */
+/*
+ * The hero clips its own decoration. Without this the artwork's negative
+ * offsets and over-100% height extend the page's scrollable area: the layer
+ * takes no pointer events, but it still grows the document, which moves every
+ * control below it out from under where a reader -- or a click -- expects it.
+ * The galaxy fades to nothing inside its own frame, so clipping costs nothing
+ * visible.
+ */
+.gx-hero{position:relative;overflow:hidden}
+/*
+ * Placed to the right of the headline, as the reference draws it, and given
+ * room to overflow the hero on every side -- the artwork fades to nothing
+ * inside its own frame, so a tight box would cut the disc off at a hard edge.
+ */
+.gx-hero-art{position:absolute;right:-12%;top:-58%;width:72%;height:216%;z-index:0;pointer-events:none;opacity:.85;
+  -webkit-mask-image:radial-gradient(closest-side at 52% 50%, #000 62%, transparent 100%);
+  mask-image:radial-gradient(closest-side at 52% 50%, #000 62%, transparent 100%)}
+.gx-hero>:not(.gx-hero-art){position:relative;z-index:1}
+.ov-core-art{position:relative}
+.ov-core-art nebula-mark-3d{position:absolute;inset:0;z-index:1;pointer-events:none}
+@media (max-width:900px){ .gx-hero-art{right:-30%;top:-30%;width:110%;height:150%;opacity:.45} }

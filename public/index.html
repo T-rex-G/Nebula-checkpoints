@@ -192,7 +192,13 @@
       </div>
       <aside class="ov-core" aria-labelledby="ovCoreTitle">
         <p class="ov-core-head"><span id="ovCoreTitle">Trust core</span><span class="ov-live">Live</span></p>
-        <div class="ov-core-art" aria-hidden="true"><span class="ov-core-glow"></span></div>
+        <!--
+          The dimensional mark mounts here when the device can draw it. The
+          glow behind it is not a placeholder to be replaced: it is what the
+          panel looks like without WebGL, and it stays so the panel is never
+          an empty frame.
+        -->
+        <div class="ov-core-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"></span></div>
         <p class="ov-core-line">Secure by default. Proven by design.</p>
       </aside>
     </section>
@@ -265,6 +271,12 @@
   </header>
   <div class="container">
     <section class="gx-hero" aria-labelledby="gxHeroTitle">
+        <!--
+          The galaxy sits behind the hero copy, not beside it. It is decoration
+          and carries no meaning, so it is hidden from assistive technology and
+          takes no pointer events -- the text over it stays selectable.
+        -->
+        <div class="gx-hero-art" id="gxHeroArt" aria-hidden="true"></div>
         <p class="gx-eyebrow"><span>Connected systems</span><span aria-hidden="true">/</span><span>Galaxy inventory</span></p>
         <h2 class="gx-title" id="gxHeroTitle">Your galaxies,<br><em>one clear</em> next move.</h2>
         <p class="gx-lede">Browse provider-connected systems with conservative activity context, then hand off to the proven workbench when you&rsquo;re ready to act.</p>
@@ -764,6 +776,7 @@
 <script src="/alpha-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/nebula-visuals.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/trust-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/app.js?v=__NV_ASSET_VERSION__"></script>
 </body>

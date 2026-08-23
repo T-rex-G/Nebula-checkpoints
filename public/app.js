@@ -341,11 +341,22 @@ function measureTopbar() {
 }
 window.addEventListener('resize', measureTopbar);
 window.addEventListener('orientationchange', measureTopbar);
+/* Which screen owns which piece of the design's artwork. */
+const NEBULA_VISUALS = Object.freeze({ overview: ['mark', '#ovCoreArt'], repos: ['galaxy', '#gxHeroArt'] });
+
 function showPage(name) {
   setTimeout(measureTopbar, 30);
   if (_page === name) return;
   _page = name;
   paintRail(name);
+  /*
+   * Mounted here rather than by each caller. Six paths reach these screens,
+   * and a mount attached to one of them would leave the artwork missing from
+   * the other five -- the same defect the rail carried when its repaint lived
+   * in a click handler.
+   */
+  const visual = NEBULA_VISUALS[name];
+  if (visual) mountNebulaVisual(visual[0], visual[1]);
   withTransition(() => {
     $$('.page').forEach(p => p.classList.remove('active'));
     $('#page-' + name).classList.add('active');
@@ -411,6 +422,8 @@ function toggleTheme() {
   if (meta) meta.content = next === 'dark' ? '#070712' : '#e9ecf8';
   try { localStorage.setItem('nv_theme', next); } catch {}
   $$('.theme-toggle').forEach(t => t.setAttribute('aria-checked', String(next === 'dark')));
+  /* The artwork has its own palettes; it follows the toggle like everything else. */
+  if (window.NebulaVisuals) window.NebulaVisuals.repaint();
 }
 document.addEventListener('click', e => {
   const t = e.target.closest('.theme-toggle');
@@ -1179,6 +1192,19 @@ async function loadScannerPosture() {
     state.scanner = null;
   }
   renderWorkspacePulse();
+}
+
+/*
+ * The design's WebGL pieces mount when their screen is shown, never at boot.
+ * They pull three.js behind them, so a session that never opens the screen
+ * never pays for the download -- and a device that cannot draw them, or a
+ * reader on a metered connection, never does either. The loader decides; this
+ * only says which host belongs to which screen.
+ */
+function mountNebulaVisual(kind, selector) {
+  const host = $(selector);
+  if (!host || !window.NebulaVisuals) return;
+  window.NebulaVisuals.mount(kind, host);
 }
 
 function renderWorkspacePulse() {

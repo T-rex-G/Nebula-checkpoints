@@ -548,6 +548,8 @@ const VENDOR_ALLOWLIST = new Set([
   'codemirror/5.65.16/theme/monokai.min.css',
   'codemirror/5.65.16/theme/nord.min.css',
   'marked/15.0.12/marked.min.js',
+  'three/0.185.1/three.module.min.js',
+  'three/0.185.1/three.core.min.js',
   'dompurify/3.4.13/purify.min.js',
   'fonts/archivo-variable-latin.woff2',
   'fonts/public-sans-variable-latin.woff2',

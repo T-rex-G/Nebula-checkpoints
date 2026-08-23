@@ -71,6 +71,17 @@ const DUAL_TARGET_MODULES = Object.freeze([
   'public/workspace-pulse.js'
 ]);
 
+/*
+ * The design's WebGL artwork. These are the only true ES modules in the
+ * browser layer: they are loaded by dynamic import rather than a script tag,
+ * because three.js ships as a module and a bare specifier would have cost an
+ * inline import map -- and an inline script means relaxing script-src.
+ */
+const BROWSER_ES_MODULES = Object.freeze([
+  'public/nebula-galaxy.js',
+  'public/nebula-mark-3d.js'
+]);
+
 const RULES = Object.freeze({ 'no-undef': 'error' });
 
 module.exports = [
@@ -121,7 +132,7 @@ module.exports = [
   {
     name: 'nebulaverse/browser-classic-scripts',
     files: ['public/*.js'],
-    ignores: ['public/sw.js', ...DUAL_TARGET_MODULES],
+    ignores: ['public/sw.js', ...DUAL_TARGET_MODULES, ...BROWSER_ES_MODULES],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'script',
@@ -131,6 +142,16 @@ module.exports = [
         ...APP_SHELL_GLOBALS,
         ...PUBLISHED_MODULE_GLOBALS
       }
+    },
+    rules: RULES
+  },
+  {
+    name: 'nebulaverse/browser-es-modules',
+    files: BROWSER_ES_MODULES,
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: { ...globals.browser }
     },
     rules: RULES
   },

@@ -1,7 +1,7 @@
 {
   "name": "nebulaverse-x",
   "version": "5.3.0-alpha.17.0",
-  "description": "Nebulaverse-X \u2014 a visual Git security, governance, recovery and large-file operations platform with verified live intelligence.",
+  "description": "Nebulaverse-X — a visual Git security, governance, recovery and large-file operations platform with verified live intelligence.",
   "main": "server.js",
   "type": "commonjs",
   "engines": {
@@ -14,7 +14,7 @@
     "docs:check": "node scripts/generate-continuity-docs.js --check",
     "test": "npm run test:unit",
     "posttest": "node test/gitea-file-mutations.test.js && node test/gitea-file-mutation-server.test.js",
-    "posttest:unit": "node test/alpha17-restore-runner.test.js && node test/alpha17-restore-witness.test.js && node test/workspace-pulse.test.js",
+    "posttest:unit": "node test/alpha17-restore-runner.test.js && node test/alpha17-restore-witness.test.js && node test/workspace-pulse.test.js && node test/nebula-visuals-contract.test.js",
     "lint": "eslint .",
     "verify": "node scripts/verify.js",
     "foundation:gate": "node scripts/foundation-gate.js",
@@ -47,7 +47,8 @@
     "dompurify": "3.4.13",
     "express": "4.22.2",
     "marked": "15.0.12",
-    "pg": "8.22.0"
+    "pg": "8.22.0",
+    "three": "0.185.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.12.1",

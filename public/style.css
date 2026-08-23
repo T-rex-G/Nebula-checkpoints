@@ -279,7 +279,7 @@ em{color:var(--teal);font-style:normal}
   color:var(--red);background:rgba(255,84,112,0.08);border:1px solid rgba(255,84,112,0.28)}
 
 /* ---------------- topbar ---------------- */
-.topbar{position:fixed;top:calc(6px + env(safe-area-inset-top));left:12px;right:12px;margin:0;z-index:50;background:rgba(13,12,36,0.86);
+.topbar{position:fixed;top:calc(6px + env(safe-area-inset-top));left:12px;right:12px;margin:0;z-index:50;background:var(--shell);
   display:flex;align-items:center;justify-content:space-between;gap:8px;
   padding:9px 14px;border-radius:16px;min-height:var(--topbar-h)}
 .topbar-brand{display:flex;align-items:center;gap:9px;font-weight:600;cursor:pointer;font-size:.95rem;min-height:44px;min-width:0}
@@ -1291,14 +1291,37 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    PRIMARY RAIL — the design's left navigation
    ============================================================ */
 .nv-rail{display:none}
+/*
+ * The shell.
+ *
+ * The reference does not run the application to the edges of the window: it
+ * floats one rounded panel on the bloom, with the sidebar inside it behind a
+ * hairline rather than beside it as a second card. That single plate is most
+ * of why the reference reads as a product and a full-bleed page reads as the
+ * page it replaced -- the bloom only registers as a ground when something
+ * sits on it.
+ *
+ * It is drawn as one fixed plate behind the whole application rather than as
+ * a background on each part, so the sidebar and the content cannot drift out
+ * of alignment or show a seam between two separately-rounded boxes.
+ */
 @media (min-width:1140px){
+  body:has(#page-overview.active, #page-repos.active, #page-work.active)::after{
+    content:'';position:fixed;inset:22px;z-index:-1;pointer-events:none;
+    border-radius:24px;border:1px solid var(--sb);background:var(--shellSolid);
+    box-shadow:var(--shellShadow)}
+
+  /* Inside the plate the sidebar is a region, not a card. */
   .nv-rail{display:flex;flex-direction:column;gap:22px;position:fixed;z-index:40;
-    top:calc(6px + env(safe-area-inset-top));left:12px;bottom:12px;width:246px;padding:20px 16px;
-    border-radius:20px;border:1px solid var(--sb);background:var(--shell);
-    box-shadow:var(--shellShadow);backdrop-filter:var(--glass)}
+    top:23px;left:23px;bottom:23px;width:252px;padding:24px 18px;
+    border-radius:23px 0 0 23px;border:0;border-right:1px solid var(--sb);
+    background:var(--side);box-shadow:none}
+
   /* The screens make room for it rather than sliding underneath. */
-  #page-overview .container,#page-repos .container,#page-work .container{margin-left:250px}
-  #page-overview .topbar,#page-repos .topbar,#page-work .topbar{left:270px}
+  #page-overview .container,#page-repos .container,#page-work .container{margin-left:276px;margin-right:26px}
+  #page-overview .topbar,#page-repos .topbar,#page-work .topbar{
+    left:276px;right:23px;top:23px;border-radius:0 23px 0 0;
+    background:transparent;border-bottom:1px solid var(--sb)}
   .nv-fab{left:auto}
 }
 .nv-rail-head{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center}
@@ -1306,14 +1329,31 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .nv-rail-sub{grid-column:2;font-family:var(--font-display);font-size:.58rem;font-weight:600;
   letter-spacing:.16em;text-transform:uppercase;color:var(--lab)}
 .nv-rail-nav{list-style:none;display:grid;gap:4px;margin:0;padding:0;flex:1;align-content:start}
-.nv-rail-item{display:grid;gap:2px;width:100%;text-align:left;padding:10px 12px;border-radius:12px;
+/*
+ * Icon, then title and subtitle -- the shape the reference gives every entry.
+ * The glyph is decoration beside a real label, never the label itself, so the
+ * entry still reads as its name with images off or at a size where a 17px
+ * mark is unreadable.
+ */
+.nv-rail-i{grid-column:1;grid-row:1 / span 2;align-self:center;width:17px;height:17px;
+  fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;opacity:.9}
+.nv-rail-t{grid-column:2;grid-row:1}
+.nv-rail-d{grid-column:2;grid-row:2}
+/* Placed explicitly rather than auto-flowed: an entry without a subtitle has
+   one row, and auto-placement then pushed the next entry's subtitle into a
+   third column instead of under its own title. */
+.nv-rail-item{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;
+  gap:1px 11px;align-items:center;
+  width:100%;text-align:left;padding:10px 12px;border-radius:12px;
   border:1px solid transparent;background:none;color:var(--ico);cursor:pointer;font:inherit;
   transition:background .16s var(--ease),border-color .16s var(--ease)}
 .nv-rail-item:hover{background:var(--navHov)}
 .nv-rail-item:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .nv-rail-item[aria-current="page"]{background:var(--navBg);border-color:var(--navB);box-shadow:var(--navGlow)}
+.nv-rail-item[aria-current="page"] .nv-rail-i{color:var(--violet);opacity:1}
 .nv-rail-item[aria-current="page"] .nv-rail-t{color:var(--fg)}
-.nv-rail-t{font-family:var(--font-display);font-size:.86rem;font-weight:600;color:var(--ttl);letter-spacing:-.008em}
+.nv-rail-t{font-family:var(--font-display);font-size:.72rem;font-weight:700;color:var(--ttl);
+  letter-spacing:.09em;text-transform:uppercase}
 .nv-rail-d{display:block;font-size:.7rem;color:var(--muted)}
 .nv-rail-foot{display:grid;gap:10px;padding-top:14px;border-top:1px solid var(--hair)}
 .nv-rail-state,.nv-rail-user{display:flex;gap:9px;align-items:center;margin:0}

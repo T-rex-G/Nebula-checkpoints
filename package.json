@@ -33,7 +33,8 @@
     "staging:verify": "node scripts/staging-gate.js verify",
     "test:matrix": "node scripts/test-matrix.js --allow-missing-dependencies",
     "test:runtime:matrix": "node scripts/test-matrix.js --require-all",
-    "test:public-alpha:matrix": "node scripts/test-matrix.js --require-all --require-subject --report staging/evidence/public-alpha-matrix.json"
+    "test:public-alpha:matrix": "node scripts/test-matrix.js --require-all --require-subject --report staging/evidence/public-alpha-matrix.json",
+    "design:review": "node scripts/design-review.js"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "5.3.0",

@@ -1222,3 +1222,51 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .nv-fab:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
 .nv-fab .ico{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 @media (prefers-reduced-motion:reduce){ .nv-fab{transition:none} .nv-fab:hover{transform:none} }
+
+/* ============================================================
+   PRIMARY RAIL — the design's left navigation
+   ============================================================ */
+.nv-rail{display:none}
+@media (min-width:1140px){
+  .nv-rail{display:flex;flex-direction:column;gap:22px;position:fixed;z-index:40;
+    top:calc(6px + env(safe-area-inset-top));left:12px;bottom:12px;width:246px;padding:20px 16px;
+    border-radius:20px;border:1px solid var(--sb);background:var(--shell);
+    box-shadow:var(--shellShadow);backdrop-filter:var(--glass)}
+  /* The screens make room for it rather than sliding underneath. */
+  #page-overview .container,#page-repos .container,#page-work .container{margin-left:250px}
+  #page-overview .topbar,#page-repos .topbar,#page-work .topbar{left:270px}
+  .nv-fab{left:auto}
+}
+.nv-rail-head{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center}
+.nv-rail-brand{font-family:var(--font-display);font-size:.94rem;font-weight:700;color:var(--ttl);letter-spacing:-.012em}
+.nv-rail-sub{grid-column:2;font-family:var(--font-display);font-size:.58rem;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--lab)}
+.nv-rail-nav{list-style:none;display:grid;gap:4px;margin:0;padding:0;flex:1;align-content:start}
+.nv-rail-item{display:grid;gap:2px;width:100%;text-align:left;padding:10px 12px;border-radius:12px;
+  border:1px solid transparent;background:none;color:var(--ico);cursor:pointer;font:inherit;
+  transition:background .16s var(--ease),border-color .16s var(--ease)}
+.nv-rail-item:hover{background:var(--navHov)}
+.nv-rail-item:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.nv-rail-item[aria-current="page"]{background:var(--navBg);border-color:var(--navB);box-shadow:var(--navGlow)}
+.nv-rail-item[aria-current="page"] .nv-rail-t{color:var(--fg)}
+.nv-rail-t{font-family:var(--font-display);font-size:.86rem;font-weight:600;color:var(--ttl);letter-spacing:-.008em}
+.nv-rail-d{display:block;font-size:.7rem;color:var(--muted)}
+.nv-rail-foot{display:grid;gap:10px;padding-top:14px;border-top:1px solid var(--hair)}
+.nv-rail-state,.nv-rail-user{display:flex;gap:9px;align-items:center;margin:0}
+.nv-rail-state-t{display:block;font-size:.76rem;font-weight:600;color:var(--fg2)}
+.nv-rail-dot{width:7px;height:7px;border-radius:50%;background:var(--mint);flex:none;
+  box-shadow:0 0 0 3px rgba(52,211,153,.14)}
+.nv-rail-avatar{width:26px;height:26px;border-radius:9px;flex:none;display:grid;place-items:center;
+  font-family:var(--font-display);font-size:.72rem;font-weight:700;color:var(--btnFg);
+  background:linear-gradient(140deg,var(--btnB),var(--btnA))}
+
+@media (min-width:1140px){
+  /*
+   * The rail names the product, so the bar does not repeat it. The control
+   * stays in the document and keeps its accessible name, because it is the
+   * route back to the overview for anyone navigating by keyboard.
+   */
+  #page-overview .topbar-brand .hide-sm,
+  #page-repos .topbar-brand .hide-sm{display:none}
+  #page-repos .page-head-tools{flex-wrap:nowrap}
+}

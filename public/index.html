@@ -115,6 +115,44 @@
   </div>
 </main>
 
+<!--
+  Primary navigation. One instance rather than a copy inside each screen: the
+  rail is chrome around the screens, not part of any one of them, so it is a
+  sibling of them and is shown once a session is authenticated. Below the wide
+  breakpoint it gives way to the bottom navigation the workspace already has.
+-->
+<nav class="nv-rail" id="navRail" aria-label="Primary" hidden>
+  <div class="nv-rail-head">
+    <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
+    <span class="nv-rail-brand">__NV_PRODUCT_NAME__</span>
+    <span class="nv-rail-sub">Trust operations</span>
+  </div>
+
+  <ul class="nv-rail-nav">
+    <li><button type="button" class="nv-rail-item" data-rail="overview">
+      <span class="nv-rail-t">Overview</span></button></li>
+    <li><button type="button" class="nv-rail-item" data-rail="repos">
+      <span class="nv-rail-t">Repositories</span>
+      <span class="nv-rail-d">Connected systems</span></button></li>
+    <li><button type="button" class="nv-rail-item" data-rail="work">
+      <span class="nv-rail-t">Classic workbench</span>
+      <span class="nv-rail-d">Full repository tools</span></button></li>
+  </ul>
+
+  <div class="nv-rail-foot">
+    <p class="nv-rail-state" id="navBoundary">
+      <span class="nv-rail-dot" aria-hidden="true"></span>
+      <span><span class="nv-rail-state-t">Boundary online</span>
+        <span class="nv-rail-d">Server-owned controls active</span></span>
+    </p>
+    <p class="nv-rail-user" id="navUser" hidden>
+      <span class="nv-rail-avatar" id="navUserInitial" aria-hidden="true"></span>
+      <span><span class="nv-rail-state-t" id="navUserName"></span>
+        <span class="nv-rail-d" id="navUserSub"></span></span>
+    </p>
+  </div>
+</nav>
+
 <!-- ======================= OVERVIEW ======================= -->
 <main class="page" id="page-overview" aria-label="Workspace overview">
   <header class="topbar glass">

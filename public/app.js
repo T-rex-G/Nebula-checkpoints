@@ -345,6 +345,7 @@ function showPage(name) {
   setTimeout(measureTopbar, 30);
   if (_page === name) return;
   _page = name;
+  paintRail(name);
   withTransition(() => {
     $$('.page').forEach(p => p.classList.remove('active'));
     $('#page-' + name).classList.add('active');
@@ -3005,6 +3006,41 @@ function runPaletteItem(item) {
 $('#reposRefreshBtn') && $('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
 /* The floating control opens the same palette the top bar does. */
 $('#paletteFab') && $('#paletteFab').addEventListener('click', () => openPalette());
+
+/*
+ * The rail is chrome around the screens, so it follows them rather than each
+ * screen carrying a copy. It appears once a session is authenticated and marks
+ * the screen in view as current, which is what a reader navigating by landmark
+ * relies on to know where they are.
+ */
+const RAIL_SCREENS = new Set(['overview', 'repos', 'work']);
+function paintRail(name) {
+  const rail = $('#navRail');
+  if (!rail) return;
+  rail.hidden = !RAIL_SCREENS.has(name);
+  $$('.nv-rail-item').forEach(item => {
+    const current = item.dataset.rail === name;
+    if (current) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  });
+  const user = $('#navUser');
+  const me = state.me;
+  if (user) {
+    const label = me && (me.name || me.login);
+    user.hidden = !label;
+    if (label) {
+      $('#navUserInitial').textContent = String(label).trim().charAt(0).toUpperCase();
+      $('#navUserName').textContent = label;
+      $('#navUserSub').textContent = (me && me.login) ? `@${me.login}` : '';
+    }
+  }
+}
+$$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
+  const target = item.dataset.rail;
+  if (target === 'overview') return showOverview();
+  if (target === 'work' && !state.work) return toast('Open a repository first.', 'err');
+  showPage(target);
+}));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {
   if (e.key === 'ArrowDown') { palSel = Math.min(palSel + 1, palItems.length - 1); paintSel(); e.preventDefault(); }

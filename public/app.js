@@ -2865,7 +2865,7 @@ function switchTab(name) {
   if (name === 'editor' && state.cm) setTimeout(() => state.cm.refresh(), 30);
   saveRoute();
 }
-$$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+$$('.tab').forEach(t => t.addEventListener('click', () => { switchTab(t.dataset.tab); paintRail('work'); }));
 
 $('#bottomNav').addEventListener('click', e => {
   const btn = e.target.closest('button');
@@ -3018,8 +3018,10 @@ function paintRail(name) {
   const rail = $('#navRail');
   if (!rail) return;
   rail.hidden = !RAIL_SCREENS.has(name);
+  const activeTab = ($('.tabpane.active') || {}).id || '';
+  const shown = name === 'work' && activeTab === 'tab-neural' ? 'neural' : name;
   $$('.nv-rail-item').forEach(item => {
-    const current = item.dataset.rail === name;
+    const current = item.dataset.rail === shown;
     if (current) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
   });
@@ -3035,11 +3037,20 @@ function paintRail(name) {
     }
   }
 }
+/*
+ * Neural and the workbench are views of an open repository rather than places
+ * of their own, so the rail offers them as destinations and refuses when there
+ * is no repository to show, instead of opening an empty one.
+ */
 $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   const target = item.dataset.rail;
   if (target === 'overview') return showOverview();
-  if (target === 'work' && !state.work) return toast('Open a repository first.', 'err');
-  showPage(target);
+  if (target === 'repos') return showPage('repos');
+  if (!state.work) return toast('Open a repository first.', 'err');
+  showPage('work');
+  if (target === 'neural') switchTab('neural');
+  /* showPage paints the rail before the tab moves, so the mark is set after. */
+  paintRail('work');
 }));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {

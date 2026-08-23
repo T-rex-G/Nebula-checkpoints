@@ -67,7 +67,8 @@ const DUAL_TARGET_MODULES = Object.freeze([
   'public/archive-safety.js',
   'public/export-safety.js',
   'public/governance-ui.js',
-  'public/offline-cache-policy.js'
+  'public/offline-cache-policy.js',
+  'public/workspace-pulse.js'
 ]);
 
 const RULES = Object.freeze({ 'no-undef': 'error' });

@@ -417,6 +417,7 @@ document.addEventListener('click', e => {
   if (t) toggleTheme();
 });
 $('#settingsBtnRepos').addEventListener('click', openSettings);
+$('#settingsBtnOv') && $('#settingsBtnOv').addEventListener('click', openSettings);
 $('#settingsBtnWork').addEventListener('click', openSettings);
 const ED_THEMES = [
   ['material-ocean', 'Material Ocean'], ['dracula', 'Dracula'], ['monokai', 'Monokai'],
@@ -854,13 +855,14 @@ async function boot() {
     state.me = await api('/api/me');
     try { sessionStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
     refreshSafety();
+    loadScannerPosture();
     state.caps = state.me.caps || null;
     await loadProviderCapabilities();
     applyCaps();
     setAvatar(state.me.avatar);
     flushQueue();
     loadRepos(true);
-    if (!(await restoreRoute())) showPage('repos');
+    if (!(await restoreRoute())) showOverview();
   } catch (e) {
     const cached = (() => { try { return JSON.parse(sessionStorage.getItem('nv_me') || 'null'); } catch { return null; } })();
     if (cached && isOfflineError(e)) {
@@ -872,7 +874,7 @@ async function boot() {
       setAvatar(cached.avatar);
       updateNetBar();
       loadRepos(true);
-      if (!(await restoreRoute())) showPage('repos');
+      if (!(await restoreRoute())) showOverview();
       toast('Offline mode — showing cached data ✦', 'ok');
     } else if (!['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(e.code)) {
       ensureAlphaProviderGuidance();
@@ -888,12 +890,15 @@ $('#loginBackBtn').addEventListener('click', () => {
 $('#loginBtn').addEventListener('click', doLogin);
 $('#tokenInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 function setAvatar(url) {
-  const img = $('#meAvatar');
-  img.hidden = true;
-  if (!url) return;
-  img.onload = () => { img.hidden = false; };
-  img.onerror = () => { img.hidden = true; };
-  img.src = url;
+  /* Both home screens carry an account control, so both carry the avatar. */
+  for (const img of [$('#meAvatar'), $('#meAvatarOv')]) {
+    if (!img) continue;
+    img.hidden = true;
+    if (!url) continue;
+    img.onload = () => { img.hidden = false; };
+    img.onerror = () => { img.hidden = true; };
+    img.src = url;
+  }
 }
 async function doLogin() {
   const token = $('#tokenInput').value.trim();
@@ -919,7 +924,7 @@ async function doLogin() {
     $('#tokenInput').value = '';
     setAvatar(state.me.avatar);
     toast(`Welcome aboard, ${state.me.login} ✦`, 'ok');
-    showPage('repos'); loadRepos(true);
+    showOverview(); loadRepos(true);
   } catch (e) { err.hidden = true; presentError(e); }
   finally { $('#loginBtn').disabled = false; $('#loginBtn').textContent = 'Enter orbit'; }
 }
@@ -1028,6 +1033,7 @@ async function doLogout() {
 }
 $('#logoutBtn').addEventListener('click', doLogout);
 $('#logoutBtnM').addEventListener('click', doLogout);
+$('#logoutBtnOv') && $('#logoutBtnOv').addEventListener('click', doLogout);
 
 /* ================= REPOS ================= */
 async function loadRepos(reset) {
@@ -1041,7 +1047,15 @@ async function loadRepos(reset) {
     $('#moreReposBtn').hidden = batch.length < 30;
     if (!state.repos.length) grid.innerHTML = '<div class="card editor-empty"><div class="empty-icon">✦</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>';
     renderGalaxyPulse(state.repos);
-  } catch (e) { toast(e.message, 'err'); grid.innerHTML = ''; renderGalaxyPulse([]); }
+    renderOverviewPulse(state.repos);
+    renderWorkspacePulse();
+  } catch (e) {
+    toast(e.message, 'err');
+    grid.innerHTML = '';
+    renderGalaxyPulse([]);
+    renderOverviewPulse([]);
+    renderWorkspacePulse();
+  }
 }
 const LOCK_SVG = '<svg class="lock-ico" width="13" height="13" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 function repoCard(r) {
@@ -1126,7 +1140,51 @@ function showOverview() {
   const who = $('#ovWho');
   if (who) who.textContent = (state.me && (state.me.name || state.me.login)) || 'tester';
   renderOverviewPulse(state.repos);
+  renderWorkspacePulse();
   showPage('overview');
+}
+
+/*
+ * The trust score and live-signal count.
+ *
+ * Every input is read from what this session already holds -- no measure
+ * triggers a request of its own, so opening the overview cannot spend a
+ * reader's rate limit to draw a number at them. Anything absent stays absent:
+ * the model reports it as unmeasured rather than scoring it zero.
+ */
+/*
+ * Upload-scanning posture, read once per session.
+ *
+ * A failure here is left as an absent reading rather than a false one: the
+ * endpoint is capability-gated, so a provider that does not offer it answers
+ * with a refusal, and reporting that as "not scanned" would accuse a
+ * deployment of something this client never established.
+ */
+async function loadScannerPosture() {
+  try {
+    const status = await api('/api/security/scanner-status');
+    state.scanner = {
+      active: !!(status.builtin && status.builtin.available) || !!(status.yara && status.yara.configured),
+      rulesConfigured: !!(status.yara && status.yara.configured)
+    };
+  } catch {
+    state.scanner = null;
+  }
+  renderWorkspacePulse();
+}
+
+function renderWorkspacePulse() {
+  if (!window.NebulaWorkspacePulse) return;
+  const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
+  if (!roots.trust && !roots.signals && !roots.activity) return;
+  const capabilities = window.NebulaCapabilityUI;
+  window.NebulaWorkspacePulse.render(roots, window.NebulaWorkspacePulse.model({
+    repos: state.repos,
+    features: capabilities && capabilities.features ? capabilities.features() : null,
+    recoveryStatus: capabilities ? capabilities.decision('recovery').status : null,
+    scanner: state.scanner,
+    identity: state.me
+  }));
 }
 
 /*
@@ -1162,7 +1220,8 @@ function renderOverviewPulse(repos) {
   }
   section.hidden = false;
 }
-$('#accountBtn').addEventListener('click', async () => {
+/* Both home screens open the same account sheet. */
+async function openAccounts() {
   modal({ title: 'Accounts', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:60px"></div>' });
   try {
     const a = await api('/api/accounts');
@@ -1213,7 +1272,9 @@ $('#accountBtn').addEventListener('click', async () => {
     });
     $('#accOut').addEventListener('click', async () => { closeModal(true); doLogout(); });
   } catch (e) { if (!$('#scrim').hidden) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
-});
+}
+$('#accountBtn').addEventListener('click', openAccounts);
+$('#accountBtnOv') && $('#accountBtnOv').addEventListener('click', openAccounts);
 $('#notifBtn').addEventListener('click', async () => {
   modal({ title: 'Notifications', okText: 'Close', bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
   try {

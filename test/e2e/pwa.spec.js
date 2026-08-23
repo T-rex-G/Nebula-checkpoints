@@ -31,7 +31,7 @@ test('PWA shell uses official release identity and installs a versioned shell ca
   await mockApi(page);
   await page.goto('/');
   await expect(page).toHaveTitle(/Nebulaverse-X/);
-  await expect(ui.screen(page, 'repos')).toBeVisible();
+  await expect(await ui.enterRepositories(page)).toBeVisible();
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.evaluate(async () => {
     await caches.open('nv-api-perm');
@@ -51,6 +51,7 @@ test.describe('identity-boundary UI', () => {
 test('offline repository access is opt-in and account switching purges scoped caches first', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
+  await ui.enterRepositories(page);
   await page.locator('.repo-card').first().click();
   await expect(page.locator('#page-work')).toHaveClass(/active/);
   await expect(page.getByRole('combobox', { name: 'Repository branch' }).locator('option')).toHaveCount(1);
@@ -119,7 +120,7 @@ test('login boundary keeps the active offline identity while purging the sibling
   });
 
   await sibling.goto('/');
-  await expect(ui.screen(sibling, 'repos')).toBeVisible();
+  await expect(await ui.enterRepositories(sibling)).toBeVisible();
   await expect.poll(
     () => sibling.evaluate(() => JSON.parse(sessionStorage.getItem('nv_me') || 'null')?.login)
   ).toBe('bob');
@@ -129,7 +130,7 @@ test('login boundary keeps the active offline identity while purging the sibling
   await expect(ui.screen(page, 'login')).toBeVisible();
   await ui.secretField(page, 'GitHub Personal Access Token').fill('synthetic-login-token');
   await ui.button(ui.screen(page, 'login'), 'Enter orbit').click();
-  await expect(ui.screen(page, 'repos')).toBeVisible();
+  await expect(await ui.enterRepositories(page)).toBeVisible();
   await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem('nv_me') || 'null')?.login)).toBe('alice');
 
   await expect(ui.screen(sibling, 'login')).toBeVisible();

@@ -1270,3 +1270,92 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   #page-repos .topbar-brand .hide-sm{display:none}
   #page-repos .page-head-tools{flex-wrap:nowrap}
 }
+
+/* ================= WORKSPACE PULSE ================= */
+/*
+ * Charts for the overview. Status colours are the fixed four -- they are never
+ * themed, and never carry meaning alone: every one ships beside a glyph and a
+ * word. The single data series is the product violet, validated at >=3:1 on
+ * this surface; the status set was validated the same way rather than eyeballed.
+ */
+:root, [data-theme="dark"]{
+  --wp-good:#0ca30c; --wp-warning:#fab219; --wp-critical:#d03b3b;
+  --wp-muted:rgba(232,229,255,.34);
+  --wp-track:rgba(139,92,246,.16);
+}
+.wp-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:16px;margin-top:18px}
+.wp-column{display:grid;gap:16px;align-content:start;min-width:0}
+.wp-card{padding:18px 18px 14px;min-width:0}
+
+/* One hero figure per view, in the body sans -- a display face here reads as
+   decoration rather than as a measurement. Proportional figures, not tabular:
+   a standalone number should not be spaced like a column. */
+.wp-hero-label,.wp-stat-label{margin:0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg3)}
+.wp-hero-figure{margin:2px 0 0;font-family:var(--font-body);font-size:56px;line-height:1.02;font-weight:600;color:var(--fg);letter-spacing:-.02em}
+.wp-hero-figure.wp-hero-empty{font-size:22px;font-weight:500;color:var(--fg2);letter-spacing:0}
+.wp-hero-note,.wp-stat-note{margin:6px 0 0;font-size:12.5px;color:var(--fg2);line-height:1.5}
+.wp-components{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:13px}
+.wp-component-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.wp-component-label{font-size:13px;font-weight:500;color:var(--fg)}
+.wp-component-detail{margin:5px 0 0;font-size:12px;color:var(--fg2);line-height:1.45}
+
+/* Meter: severity in the fill, a lighter step of the same ramp in the track,
+   so the state reads across the whole bar and not only where the fill ends. */
+.wp-meter{display:block;height:6px;margin-top:7px;border-radius:4px;background:var(--wp-track);overflow:hidden}
+.wp-meter-fill{display:block;height:100%;border-radius:4px;background:var(--wp-muted);transition:width .5s var(--ease)}
+.wp-meter[data-status="good"] .wp-meter-fill{background:var(--wp-good)}
+.wp-meter[data-status="warning"] .wp-meter-fill{background:var(--wp-warning)}
+.wp-meter[data-status="critical"] .wp-meter-fill{background:var(--wp-critical)}
+.wp-meter[data-status="unknown"] .wp-meter-fill{background:transparent}
+
+.wp-mark{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;white-space:nowrap;color:var(--fg2)}
+.wp-mark-glyph{font-size:12px;line-height:1}
+.wp-good .wp-mark-glyph{color:var(--wp-good)}
+.wp-warning .wp-mark-glyph{color:var(--wp-warning)}
+.wp-critical .wp-mark-glyph{color:var(--wp-critical)}
+.wp-unknown .wp-mark-glyph,.wp-muted .wp-mark-glyph{color:var(--fg3)}
+
+.wp-stat-value{margin:2px 0 0;font-family:var(--font-body);font-size:34px;line-height:1.05;font-weight:600;color:var(--fg)}
+.wp-stat-value.wp-stat-empty{font-size:19px;font-weight:500;color:var(--fg2)}
+.wp-segments{display:block;width:100%;height:14px;margin-top:12px}
+.wp-fill-good{fill:var(--wp-good);background:var(--wp-good)}
+.wp-fill-warning{fill:var(--wp-warning);background:var(--wp-warning)}
+.wp-fill-muted{fill:var(--wp-muted);background:var(--wp-muted)}
+.wp-legend{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px 16px}
+.wp-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg2)}
+.wp-swatch{width:9px;height:9px;border-radius:3px;flex:none}
+.wp-legend-value{color:var(--fg);font-weight:500}
+
+/* Ordered buckets in one hue, stepped with recency so the ramp carries the
+   ordering. No step goes lighter than the ordinal floor against this surface. */
+.wp-bars{display:grid;gap:8px;margin-top:12px}
+.wp-bar-row{display:grid;grid-template-columns:88px minmax(0,1fr) 28px;align-items:center;gap:10px}
+.wp-bar-label{font-size:12px;color:var(--fg2);white-space:nowrap}
+.wp-bar-track{height:8px;border-radius:4px;background:var(--wp-track);overflow:hidden}
+.wp-bar-fill{display:block;height:100%;border-radius:4px;transition:width .5s var(--ease)}
+.wp-step-day{background:#c4b1fb}
+.wp-step-week{background:#a78bfa}
+.wp-step-month{background:#8b5cf6}
+.wp-step-quarter{background:#7c3aed}
+.wp-step-older{background:#5b21b6}
+.wp-bar-value{font-size:12px;color:var(--fg2);text-align:right;font-variant-numeric:tabular-nums}
+.wp-bar-value.wp-bar-peak{color:var(--fg);font-weight:600}
+
+.wp-numbers{margin-top:14px}
+.wp-numbers>summary{font-size:12px;color:var(--fg2);cursor:pointer;padding:3px 0}
+.wp-numbers>summary:hover{color:var(--fg)}
+.wp-numbers table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+.wp-numbers caption{text-align:left;color:var(--fg3);font-size:11px;padding-bottom:6px}
+.wp-numbers th,.wp-numbers td{text-align:left;padding:5px 8px 5px 0;border-bottom:1px solid var(--sb);color:var(--fg2)}
+.wp-numbers thead th{color:var(--fg3);font-weight:500;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.wp-numbers tbody th{color:var(--fg);font-weight:500}
+.wp-numbers td:last-child,.wp-numbers th:last-child{padding-right:0}
+
+@media (max-width:900px){
+  .wp-grid{grid-template-columns:1fr}
+  .wp-hero-figure{font-size:46px}
+  .wp-bar-row{grid-template-columns:76px minmax(0,1fr) 26px}
+}
+@media (prefers-reduced-motion:reduce){
+  .wp-meter-fill,.wp-bar-fill{transition:none}
+}

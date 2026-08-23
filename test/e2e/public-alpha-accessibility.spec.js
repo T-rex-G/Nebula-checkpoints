@@ -48,10 +48,10 @@ test('required alpha screens have no critical or serious axe violations', async 
 
   await ui.secretField(page, 'GitHub Personal Access Token').fill('fixture-provider-credential');
   await ui.button(ui.screen(page, 'login'), 'Enter orbit').click();
-  await expect(ui.screen(page, 'repos')).toBeVisible();
+  await expect(await ui.enterRepositories(page)).toBeVisible();
   await expectNoHighImpactViolations(page, 'repository list');
 
-  await ui.button(ui.screen(page, 'repos'), /^Open repository /).first().click();
+  await ui.button(await ui.enterRepositories(page), /^Open repository /).first().click();
   await expect(ui.screen(page, 'work').getByRole('region', { name: 'Repository trust summary' })).toBeVisible();
   await expectNoHighImpactViolations(page, 'repository trust summary');
 
@@ -95,9 +95,9 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await page.keyboard.press('Tab');
   await expect(ui.button(ui.screen(page, 'login'), 'Enter orbit')).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(ui.screen(page, 'repos')).toBeVisible();
+  await expect(await ui.enterRepositories(page)).toBeVisible();
 
-  const repo = ui.button(ui.screen(page, 'repos'), /^Open repository /).first();
+  const repo = ui.button(await ui.enterRepositories(page), /^Open repository /).first();
   await repo.focus();
   await expect(repo).toHaveCSS('outline-style', 'solid');
   await page.keyboard.press('Enter');

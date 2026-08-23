@@ -83,6 +83,8 @@ async function mockTask20Api(page, state = {}) {
 
 async function openRepository(page) {
   await page.goto('/');
+  /* A signed-in session lands on the overview; the inventory is one step in. */
+  await require('./semantic').enterRepositories(page);
   await page.locator('.repo-card').first().click();
   await page.locator('#page-work.active').waitFor();
 }

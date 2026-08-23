@@ -132,11 +132,36 @@ function status(target, name) {
   return name === undefined ? target.getByRole('status') : target.getByRole('status', { name });
 }
 
+/*
+ * An authenticated session opens on the overview, so a journey that begins at
+ * the repository inventory has to walk there the way a reader does. Asking for
+ * the destination and clicking the control that names it keeps the step
+ * truthful: if the overview ever stops offering a way through to repositories,
+ * this fails rather than quietly reaching past the interface.
+ */
+async function enterRepositories(page) {
+  const repos = screen(page, 'repos');
+  if (await repos.isVisible().catch(() => false)) return repos;
+  const through = page.getByRole('button', { name: 'Repositories', exact: true });
+  /*
+   * Activated from the keyboard rather than clicked. A pointer click sets the
+   * browser's last input modality to mouse, and :focus-visible then withholds
+   * the focus ring from whatever the test focuses next -- so a navigation step
+   * would silently disarm the focus assertions further down the journey.
+   */
+  await through.waitFor({ state: 'visible' });
+  await through.focus();
+  await page.keyboard.press('Enter');
+  await repos.waitFor({ state: 'visible' });
+  return repos;
+}
+
 module.exports = Object.freeze({
   PRODUCT_NAME,
   SCREENS,
   alert,
   button,
+  enterRepositories,
   checkbox,
   dialog,
   field,

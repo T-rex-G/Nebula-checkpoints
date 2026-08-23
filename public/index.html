@@ -166,8 +166,16 @@
     <nav class="ov-crumbs" aria-label="Location">
       <span>__NV_PRODUCT_NAME__</span><span aria-hidden="true">/</span><span aria-current="page">Overview</span>
     </nav>
+    <!--
+      The overview is where a signed-in session now starts, so it carries the
+      account controls the inventory carries. A home screen a reader cannot
+      sign out of is not a home screen.
+    -->
     <div class="topbar-actions">
       <button class="btn btn-ghost" id="ovGoRepos">Repositories</button>
+      <button class="btn btn-ghost icon-btn" id="settingsBtnOv" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <button class="avatar-btn" id="accountBtnOv" title="Accounts" aria-label="Accounts"><svg class="ico avatar-fallback" width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.7"/><path d="M4.8 19.5a7.2 7.2 0 0 1 14.4 0"/></svg><img class="avatar" id="meAvatarOv" alt="" hidden></button>
+      <button class="btn btn-ghost" id="logoutBtnOv">Sign out</button>
     </div>
   </header>
 
@@ -206,6 +214,31 @@
     -->
     <section class="gx-pulse" id="ovPulse" aria-label="Workspace pulse" hidden>
       <dl class="gx-pulse-grid" id="ovPulseGrid"></dl>
+    </section>
+
+    <!--
+      The trust score and live-signal count the design calls for. Both are
+      computed in workspace-pulse.js from signals this session actually holds,
+      and both say "not measured" rather than showing a number when they have
+      no source. The score is never shown alone: the components that produced
+      it are on screen so a reader can argue with it.
+    -->
+    <section class="wp-grid" aria-labelledby="wpTitle">
+      <h2 class="sr-only" id="wpTitle">Workspace trust</h2>
+      <article class="card wp-card wp-card-trust" id="wpTrust" aria-labelledby="wpTrustTitle">
+        <h3 class="sr-only" id="wpTrustTitle">Trust score</h3>
+        <div class="wp-body"></div>
+      </article>
+      <div class="wp-column">
+        <article class="card wp-card" id="wpSignals" aria-labelledby="wpSignalsTitle">
+          <h3 class="sr-only" id="wpSignalsTitle">Live signals</h3>
+          <div class="wp-body"></div>
+        </article>
+        <article class="card wp-card" id="wpActivity" aria-labelledby="wpActivityTitle">
+          <h3 class="sr-only" id="wpActivityTitle">Repository activity</h3>
+          <div class="wp-body"></div>
+        </article>
+      </div>
     </section>
   </div>
 </main>
@@ -730,6 +763,7 @@
 <script src="/governance-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/alpha-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/trust-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/app.js?v=__NV_ASSET_VERSION__"></script>
 </body>

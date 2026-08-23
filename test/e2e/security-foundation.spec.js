@@ -38,7 +38,7 @@ test('PAT sensitive mutation obtains a scoped grant and sends both CSRF and step
   });
 
   await page.goto('/');
-  await expect(ui.screen(page, 'repos')).toBeVisible();
+  await expect(await ui.enterRepositories(page)).toBeVisible();
 
   await page.evaluate(() => {
     window.__sensitiveResult = stepUpApi(

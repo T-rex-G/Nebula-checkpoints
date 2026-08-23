@@ -34,7 +34,7 @@ test('invited tester completes the GitHub sandbox golden path and cleanup', asyn
   await ui.secretField(page, 'GitHub Personal Access Token').fill('fixture-provider-credential');
   await ui.button(login, 'Enter orbit').click();
 
-  const repos = ui.screen(page, 'repos');
+  const repos = await ui.enterRepositories(page);
   await expect(repos).toBeVisible();
   const repository = ui.button(repos, 'Open repository sandbox/demo');
   await expect(repository).toHaveCount(1);

@@ -189,7 +189,14 @@ test('dialogs contain focus, restore it, and trust states do not depend on color
 test('reduced motion, 320 CSS-pixel reflow, and mobile navigation remain usable', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await openConnectedRepository(page);
-  const motion = await page.locator('.orb-a').evaluate(element => ({
+  /*
+   * Asserted on the floating action, which is decoration-adjacent motion that
+   * exists on this screen. It used to be asserted on a drifting background orb
+   * -- that orb is gone with the rest of the previous interface's sky, and a
+   * test pinned to deleted decoration proves nothing about the rule, which is
+   * global and applies to whatever is actually on screen.
+   */
+  const motion = await page.locator('.nv-fab').evaluate(element => ({
     animationDuration: getComputedStyle(element).animationDuration,
     iterations: getComputedStyle(element).animationIterationCount,
     transitionDuration: getComputedStyle(element).transitionDuration

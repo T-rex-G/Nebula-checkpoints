@@ -28,10 +28,13 @@
 </head>
 <body>
 
-<div id="nebula" aria-hidden="true">
-  <div class="orb orb-a"></div><div class="orb orb-b"></div><div class="orb orb-c"></div>
-  <div class="stars"></div><div class="grain"></div>
-</div>
+<!--
+  The ground. The reference draws exactly two violet blooms over the page
+  colour and nothing else: no drifting orbs, no star field, no grain. Those
+  belonged to the interface this one replaces, and they were what kept the
+  background reading as the old product however well the tokens matched.
+-->
+<div id="nebula" aria-hidden="true"></div>
 
 <!-- ======================= CONTROLLED ALPHA ACCESS ======================= -->
 <main class="page active" id="page-alpha-access" aria-labelledby="alphaAccessTitle">
@@ -126,6 +129,19 @@
     <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
     <span class="nv-rail-brand">__NV_PRODUCT_NAME__</span>
     <span class="nv-rail-sub">Trust operations</span>
+  </div>
+
+  <!--
+    The section label and its collapse control, as the reference draws them.
+    Collapsing narrows the rail to its icons; the entries keep their names for
+    assistive technology, so the rail never becomes a row of unlabelled marks.
+  -->
+  <div class="nv-rail-section">
+    <span class="nv-rail-section-t">Workspace</span>
+    <button type="button" class="nv-rail-collapse" id="railCollapse"
+      aria-expanded="true" aria-controls="navRail" aria-label="Collapse the sidebar">
+      <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 7l-5 5 5 5"/><path d="M19 7l-5 5 5 5"/></svg>
+    </button>
   </div>
 
   <ul class="nv-rail-nav">

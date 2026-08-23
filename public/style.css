@@ -195,30 +195,11 @@ em{color:var(--teal);font-style:normal}
  * magenta that made light mode read as a different product.
  */
 #nebula{position:fixed;inset:0;z-index:-2;overflow:hidden;background:var(--bloom),var(--page);}
-.orb{position:absolute;border-radius:50%;opacity:.55;will-change:transform;}
-.orb-a{width:55vmax;height:55vmax;left:-12vmax;top:-18vmax;
-  background:radial-gradient(circle at 35% 35%, rgba(124,58,237,.80) 0%, rgba(124,58,237,.38) 30%, rgba(124,58,237,.11) 52%, transparent 72%);
-  animation:driftA 16s ease-in-out infinite alternate;}
-.orb-b{width:48vmax;height:48vmax;right:-16vmax;top:22vh;
-  background:radial-gradient(circle at 60% 40%, rgba(167,139,250,.62) 0%, rgba(167,139,250,.28) 30%, rgba(167,139,250,.08) 50%, transparent 70%);
-  animation:driftB 21s ease-in-out infinite alternate;opacity:.4;}
-.orb-c{width:40vmax;height:40vmax;left:28vw;bottom:-22vmax;
-  background:radial-gradient(circle at 50% 50%, rgba(76,29,149,.70) 0%, rgba(76,29,149,.28) 30%, rgba(76,29,149,.07) 50%, transparent 68%);
-  animation:driftC 18s ease-in-out infinite alternate;opacity:.34;}
-[data-theme="light"] .orb{opacity:.5}
-@keyframes driftA{to{transform:translate(11vmax,8vmax) scale(1.18)}}
-@keyframes driftB{to{transform:translate(-10vmax,-7vmax) scale(1.14)}}
-@keyframes driftC{to{transform:translate(-8vmax,-11vmax) scale(1.22)}}
-.stars{position:absolute;inset:0;opacity:.5;background-image:
-  radial-gradient(1px 1px at 12% 22%, rgba(255,255,255,.7) 50%, transparent 51%),
-  radial-gradient(1px 1px at 68% 12%, rgba(255,255,255,.5) 50%, transparent 51%),
-  radial-gradient(1.5px 1.5px at 42% 62%, rgba(255,255,255,.6) 50%, transparent 51%),
-  radial-gradient(1px 1px at 86% 48%, rgba(255,255,255,.45) 50%, transparent 51%),
-  radial-gradient(1px 1px at 24% 82%, rgba(255,255,255,.5) 50%, transparent 51%),
-  radial-gradient(1.5px 1.5px at 92% 86%, rgba(255,255,255,.55) 50%, transparent 51%)}
-[data-theme="light"] .stars{opacity:.15}
-.grain{position:absolute;inset:0;opacity:.035;mix-blend-mode:overlay;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");}
+/*
+ * The orbs, star field and grain that used to live here are gone. The
+ * reference's ground is the bloom over the page colour, full stop; anything
+ * drifting over it was the previous interface showing through.
+ */
 [data-motion="off"] .orb{animation:none}
 /* reduce-motion sets the DEFAULT of the in-app toggle (see loadSettings); the toggle itself is authoritative */
 
@@ -787,22 +768,14 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
 
 /* ============================================================
-   v3.4.0 — living nebula (aurora + twinkle), login toggle, LFS
+   Ground, login toggle, LFS
    ============================================================ */
-#nebula::before{content:'';position:absolute;inset:-12%;pointer-events:none;
-  background:conic-gradient(from 0deg at 50% 42%,
-    transparent 0deg, rgba(124,108,255,0.11) 60deg, transparent 140deg,
-    rgba(56,224,200,0.09) 210deg, transparent 290deg, rgba(176,67,154,0.07) 330deg, transparent 360deg);
-  animation:auroraSpin 44s linear infinite;transform-origin:50% 50%}
-[data-theme="light"] #nebula::before{opacity:.55}
-@keyframes auroraSpin{to{transform:rotate(360deg)}}
-.stars{animation:twinkle 4.8s ease-in-out infinite alternate}
-@keyframes twinkle{from{opacity:.32}to{opacity:.72}}
-[data-theme="light"] .stars{animation-name:twinkleL}
-@keyframes twinkleL{from{opacity:.07}to{opacity:.2}}
-[data-motion="off"] #nebula::before,[data-motion="off"] .stars{animation:none}
-[data-motion="off"] .stars{opacity:.5}
-[data-theme="light"][data-motion="off"] .stars{opacity:.15}
+/*
+ * The spinning conic aurora that used to sit here is gone with the orbs. It
+ * swept teal and magenta across every screen, which is why light mode read as
+ * a different product and why the background kept looking like the interface
+ * this one replaces. The reference's ground has no such layer.
+ */
 
 .login-wrap{position:relative}
 .login-theme{position:absolute;top:calc(14px + env(safe-area-inset-top));right:16px}
@@ -1328,6 +1301,45 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .nv-rail-brand{font-family:var(--font-display);font-size:.94rem;font-weight:700;color:var(--ttl);letter-spacing:-.012em}
 .nv-rail-sub{grid-column:2;font-family:var(--font-display);font-size:.58rem;font-weight:600;
   letter-spacing:.16em;text-transform:uppercase;color:var(--lab)}
+.nv-rail-section{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:-6px}
+.nv-rail-section-t{font-family:var(--font-mono);font-size:10px;letter-spacing:.17em;
+  text-transform:uppercase;color:var(--lab)}
+.nv-rail-collapse{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
+  padding:0;border-radius:9px;border:1px solid var(--sb);background:transparent;color:var(--fg2);
+  cursor:pointer;transition:background .16s var(--ease),color .16s var(--ease)}
+.nv-rail-collapse svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.nv-rail-collapse:hover{background:var(--navHov);color:var(--fg)}
+.nv-rail-collapse:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+/*
+ * Collapsed: the rail narrows to its icons. Names are not deleted, only taken
+ * out of the visual flow -- a rail of unlabelled marks would still have to
+ * announce itself, and a title attribute restores the name on hover for
+ * everyone else.
+ */
+@media (min-width:1140px){
+  body[data-rail="collapsed"] .nv-rail{width:76px;padding:24px 12px}
+  body[data-rail="collapsed"] .nv-rail-brand,
+  body[data-rail="collapsed"] .nv-rail-sub,
+  body[data-rail="collapsed"] .nv-rail-section-t,
+  body[data-rail="collapsed"] .nv-rail-t,
+  body[data-rail="collapsed"] .nv-rail-d,
+  body[data-rail="collapsed"] .nv-rail-state span:not(.nv-rail-dot),
+  body[data-rail="collapsed"] .nv-rail-user span:not(.nv-rail-avatar){position:absolute;width:1px;height:1px;
+    overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+  body[data-rail="collapsed"] .nv-rail-state,
+  body[data-rail="collapsed"] .nv-rail-user{justify-content:center}
+  body[data-rail="collapsed"] .nv-rail-item{grid-template-columns:auto;justify-items:center;padding:11px 0}
+  body[data-rail="collapsed"] .nv-rail-head,
+  body[data-rail="collapsed"] .nv-rail-section{justify-content:center}
+  body[data-rail="collapsed"] .nv-rail-collapse svg{transform:scaleX(-1)}
+  body[data-rail="collapsed"] #page-overview .container,
+  body[data-rail="collapsed"] #page-repos .container,
+  body[data-rail="collapsed"] #page-work .container{margin-left:100px}
+  body[data-rail="collapsed"] #page-overview .topbar,
+  body[data-rail="collapsed"] #page-repos .topbar,
+  body[data-rail="collapsed"] #page-work .topbar{left:100px}
+}
 .nv-rail-nav{list-style:none;display:grid;gap:4px;margin:0;padding:0;flex:1;align-content:start}
 /*
  * Icon, then title and subtitle -- the shape the reference gives every entry.

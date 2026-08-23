@@ -145,11 +145,22 @@ test.describe('Task 20 governance service-worker boundary', () => {
     expect(cachedWhileOnline).toEqual([]);
 
     await context.setOffline(true);
-    const offlineResponse = await page.evaluate(async url => {
-      const response = await fetch(url);
-      return { status: response.status, body: await response.json() };
-    }, governanceUrl);
-    expect(offlineResponse.status).toBe(503);
+    /*
+     * Polled rather than sampled once. Going offline and the worker taking the
+     * request are two separate events, and a request issued in the gap reaches
+     * the network and comes back authorised-or-not instead of refused. The
+     * property under test is that a governance response is never served from
+     * a cache while offline -- so what matters is where it settles, not which
+     * of the two events happened to win the first attempt.
+     */
+    let offlineResponse;
+    await expect.poll(async () => {
+      offlineResponse = await page.evaluate(async url => {
+        const response = await fetch(url);
+        return { status: response.status, body: await response.json() };
+      }, governanceUrl);
+      return offlineResponse.status;
+    }).toBe(503);
     expect(offlineResponse.body.error).toContain('live connection');
 
     const cachedWhileOffline = await page.evaluate(async () => {

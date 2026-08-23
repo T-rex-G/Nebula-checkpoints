@@ -341,6 +341,89 @@ function measureTopbar() {
 }
 window.addEventListener('resize', measureTopbar);
 window.addEventListener('orientationchange', measureTopbar);
+/*
+ * The sidebar's collapsed state. Remembered per reader, because a rail width
+ * is a working preference rather than a per-visit decision, and restored
+ * before the first paint of any authenticated screen so it does not visibly
+ * snap narrower a moment after arriving.
+ */
+function setRailCollapsed(collapsed) {
+  document.body.dataset.rail = collapsed ? 'collapsed' : 'expanded';
+  const toggle = $('#railCollapse');
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute('aria-label', collapsed ? 'Expand the sidebar' : 'Collapse the sidebar');
+  }
+  /*
+   * Collapsed entries show only their mark, so the name has to survive
+   * somewhere a pointer can reach it as well as in the accessibility tree.
+   */
+  $$('.nv-rail-item').forEach(item => {
+    const name = (item.querySelector('.nv-rail-t') || {}).textContent || '';
+    if (collapsed) item.title = name.trim();
+    else item.removeAttribute('title');
+  });
+  try { localStorage.setItem('nv_rail_collapsed', collapsed ? '1' : '0'); } catch {}
+}
+
+$('#railCollapse') && $('#railCollapse').addEventListener('click', () => {
+  setRailCollapsed(document.body.dataset.rail !== 'collapsed');
+});
+
+(function restoreRailPreference() {
+  let collapsed = false;
+  try { collapsed = localStorage.getItem('nv_rail_collapsed') === '1'; } catch {}
+  setRailCollapsed(collapsed);
+})();
+
+/*
+ * The floating action is not one button that always opens the palette. Each
+ * screen has a different next thing a reader reaches for, and below the
+ * breakpoint the top bar has no room to offer it -- so the action carries
+ * whatever that screen's is, and says so in its own name.
+ */
+const FLOATING_ACTIONS = Object.freeze({
+  overview: Object.freeze({
+    label: 'Open repository browser',
+    icon: 'M4 7.5A2.5 2.5 0 0 1 6.5 5H10l2 2.5h5.5A2.5 2.5 0 0 1 20 10v6.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z',
+    run: () => showPage('repos')
+  }),
+  repos: Object.freeze({
+    label: 'Create repository',
+    icon: 'M12 5v14M5 12h14',
+    feature: 'repository.create',
+    run: () => $('#newRepoBtn').click()
+  }),
+  work: Object.freeze({
+    label: 'Command palette',
+    icon: 'M7.5 9.5l3 2.5-3 2.5M13 15h4',
+    run: () => openPalette()
+  })
+});
+
+function paintFloatingAction(name) {
+  const fab = $('#paletteFab');
+  const action = FLOATING_ACTIONS[name];
+  if (!fab) return;
+  fab.hidden = !action;
+  if (!action) return;
+  fab.setAttribute('aria-label', action.label);
+  fab.title = action.label;
+  if (action.feature) fab.dataset.feature = action.feature;
+  else delete fab.dataset.feature;
+  const path = fab.querySelector('svg path');
+  const frame = fab.querySelector('svg rect');
+  if (path) path.setAttribute('d', action.icon);
+  if (frame) frame.style.display = name === 'work' ? '' : 'none';
+  fab.dataset.action = name;
+}
+
+$('#paletteFab') && $('#paletteFab').addEventListener('click', () => {
+  const action = FLOATING_ACTIONS[$('#paletteFab').dataset.action || ''];
+  if (!action) return;
+  runCapabilityAction(action.feature, action.run);
+});
+
 /* Which screen owns which piece of the design's artwork. */
 const NEBULA_VISUALS = Object.freeze({ overview: ['mark', '#ovCoreArt'], repos: ['galaxy', '#gxHeroArt'] });
 
@@ -357,6 +440,7 @@ function showPage(name) {
    */
   const visual = NEBULA_VISUALS[name];
   if (visual) mountNebulaVisual(visual[0], visual[1]);
+  paintFloatingAction(name);
   withTransition(() => {
     $$('.page').forEach(p => p.classList.remove('active'));
     $('#page-' + name).classList.add('active');
@@ -3140,8 +3224,6 @@ function runPaletteItem(item) {
   }, { allowExperimental: !!(item && item.allowExperimental) });
 }
 $('#reposRefreshBtn') && $('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
-/* The floating control opens the same palette the top bar does. */
-$('#paletteFab') && $('#paletteFab').addEventListener('click', () => openPalette());
 
 /*
  * The rail is chrome around the screens, so it follows them rather than each

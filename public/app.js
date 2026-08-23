@@ -3003,6 +3003,8 @@ function runPaletteItem(item) {
   }, { allowExperimental: !!(item && item.allowExperimental) });
 }
 $('#reposRefreshBtn') && $('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
+/* The floating control opens the same palette the top bar does. */
+$('#paletteFab') && $('#paletteFab').addEventListener('click', () => openPalette());
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {
   if (e.key === 'ArrowDown') { palSel = Math.min(palSel + 1, palItems.length - 1); paintSel(); e.preventDefault(); }

@@ -124,7 +124,7 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await expect(ui.status(page, 'Notifications')).toContainText('Created keyboard-proof.txt');
   await expect(ui.status(page, 'Notifications')).toHaveAttribute('aria-live', 'polite');
 
-  await page.locator('#paletteBtn').focus();
+  await ui.button(page, 'Command palette').focus();
   await page.keyboard.press('Enter');
   await page.locator('#paletteInput').fill('Settings');
   await page.keyboard.press('Enter');

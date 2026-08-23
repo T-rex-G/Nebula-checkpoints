@@ -1,5 +1,7 @@
 'use strict';
 
+const ui = require('./semantic');
+
 const capabilityDocument = require('../../config/public-alpha-capabilities.json');
 
 const HEAD_SHA = 'a'.repeat(40);
@@ -224,7 +226,8 @@ async function openConnectedRepository(page, scenario = {}) {
 }
 
 async function startNewFileAction(page, path = 'alpha-proof.txt') {
-  await page.locator('#paletteBtn').click();
+  /* Reached by name, so it follows the control between the bar and the floating action. */
+  await ui.button(page, 'Command palette').click();
   await page.locator('#paletteInput').fill('New file');
   await page.locator('.pal-item', { hasText: 'New file' }).first().click();
   await page.locator('#nfPath').fill(path);

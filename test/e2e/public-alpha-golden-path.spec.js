@@ -49,7 +49,7 @@ test('invited tester completes the GitHub sandbox golden path and cleanup', asyn
   await expect(trust.getByRole('article', { name: 'Risk' })).toContainText('No issue');
   await expect(trust.getByRole('article', { name: 'Evidence' })).toContainText('chained record');
 
-  await page.locator('#paletteBtn').click();
+  await ui.button(page, 'Command palette').click();
   await page.locator('#paletteInput').fill('Safeguards');
   await page.locator('.pal-item', { hasText: 'Safeguards' }).first().click();
   await expect(page.locator('#sgEvidence')).toBeVisible();
@@ -63,7 +63,7 @@ test('invited tester completes the GitHub sandbox golden path and cleanup', asyn
   expect(fixture.mutationRequests).toHaveLength(1);
   expect(fixture.mutationRequests[0].expectedHeadSha).toBe(HEAD_SHA);
 
-  await page.locator('#paletteBtn').click();
+  await ui.button(page, 'Command palette').click();
   await page.locator('#paletteInput').fill('Settings');
   await page.locator('.pal-item', { hasText: 'Settings' }).first().click();
   await page.locator('#modalBody [data-alpha-privacy-action="disconnect"]').click();

@@ -382,59 +382,51 @@ $('#railCollapse') && $('#railCollapse').addEventListener('click', () => {
  * breakpoint the top bar has no room to offer it -- so the action carries
  * whatever that screen's is, and says so in its own name.
  */
-const FLOATING_ACTIONS = Object.freeze({
-  /*
-   * The workbench, and only the workbench.
-   *
-   * This control exists to solve a placement problem, not to add a second way
-   * to reach things. Counting what a phone actually shows: the overview offers
-   * five controls and the inventory ten, and every action a floating menu
-   * would have carried is already among them -- so on those two screens it was
-   * a duplicate of the screen behind it. The workbench is the screen with the
-   * problem: its top bar drops four controls below the breakpoint for want of
-   * room, and the command palette is left with no placement at all except a
-   * row buried in the More sheet.
-   *
-   * So the entries here are the ones this screen cannot otherwise place: the
-   * palette, and the two write actions that live inside the file drawer and
-   * are therefore behind a tab before they are behind anything else.
-   */
-  work: Object.freeze({
-    label: 'Workspace actions',
-    items: Object.freeze([
-      Object.freeze({
-        label: 'Command palette',
-        icon: 'M7.5 9.5l3 2.5-3 2.5M13 15h4',
-        frame: true,
-        run: () => openPalette()
-      }),
-      Object.freeze({
-        label: 'New file',
-        icon: 'M13 3.5H7.2A1.7 1.7 0 0 0 5.5 5.2v13.6A1.7 1.7 0 0 0 7.2 20.5h9.6a1.7 1.7 0 0 0 1.7-1.7V9zM13 3.5V9h5.5',
-        feature: 'file.write',
-        run: () => $('#newFileBtn') && $('#newFileBtn').click()
-      }),
-      Object.freeze({
-        label: 'New branch',
-        icon: 'M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8',
-        feature: 'branches.write',
-        run: () => $('#newBranchBtn') && $('#newBranchBtn').click()
-      })
-    ])
-  })
-});
-
 /*
- * The floating action is a menu, not a button. Each screen offers a different
- * set of next steps, and below the breakpoint the top bar has no room for any
- * of them, so the set travels with the screen. The primary entry stays first,
- * so the reach for the obvious thing is still one press and one tap.
+ * The floating action carries the controls this screen could not place.
  *
- * The entries are built fresh on each screen rather than hidden and reshown,
- * because a menu that keeps another screen's entries in the accessibility tree
- * offers a screen-reader user actions that are not on the screen in front of
- * them.
+ * Not a written list. The top bar drops controls below the breakpoint for want
+ * of room -- they are marked as dropped in the markup -- and those are exactly
+ * the controls that then have nowhere to be. Reading them off the bar means
+ * the dock cannot fall out of step with it: a control that stops fitting turns
+ * up here without anyone remembering to add it, and one that finds a place of
+ * its own stops being offered here without anyone remembering to remove it.
+ *
+ * Which is why it is empty on the overview and the inventory. Those bars drop
+ * nothing a reader cannot otherwise reach, so there is nothing for a floating
+ * menu to solve, and a menu that repeats the screen behind it is worse than no
+ * menu at all. The workbench drops two, and gets a dock with two entries.
  */
+const DOCK_LABELS = Object.freeze({ overview: 'Overview actions', repos: 'Repository actions', work: 'Workspace actions' });
+
+function accessibleName(control) {
+  return (control.getAttribute('aria-label') || control.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+function placedElsewhere(page, control, name) {
+  /*
+   * Same action, somewhere a thumb can already reach. The inventory's bar
+   * drops "Sign out" and the inventory's own body offers it as a full-width
+   * control, so it is placed -- just not in the bar.
+   */
+  return [...page.querySelectorAll('button, a[href]')].some(other => other !== control
+    && !control.contains(other)
+    && other.offsetParent !== null
+    && accessibleName(other) === name);
+}
+
+function floatingActionsFor(name) {
+  const page = $('#page-' + name);
+  if (!page) return null;
+  const bar = page.querySelector('.topbar');
+  if (!bar) return null;
+  const dropped = [...bar.querySelectorAll('button.hide-sm')]
+    .map(control => ({ control, label: accessibleName(control) }))
+    .filter(entry => entry.label && !placedElsewhere(page, entry.control, entry.label));
+  if (!dropped.length) return null;
+  return { label: DOCK_LABELS[name] || 'Actions', items: dropped };
+}
+
 function closeFloatingActions({ restoreFocus = true } = {}) {
   const fab = $('#paletteFab');
   const menu = $('#fabMenu');
@@ -457,11 +449,11 @@ function openFloatingActions() {
 function paintFloatingAction(name) {
   const fab = $('#paletteFab');
   const menu = $('#fabMenu');
-  const action = FLOATING_ACTIONS[name];
   if (!fab || !menu) return;
   closeFloatingActions({ restoreFocus: false });
-  fab.hidden = !action;
   menu.innerHTML = '';
+  const action = floatingActionsFor(name);
+  fab.hidden = !action;
   if (!action) return;
   fab.setAttribute('aria-label', action.label);
   fab.title = action.label;
@@ -472,28 +464,24 @@ function paintFloatingAction(name) {
     const entry = document.createElement('button');
     entry.type = 'button';
     entry.className = 'nv-fab-item';
-    if (item.feature) entry.dataset.feature = item.feature;
-    const mark = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    mark.setAttribute('class', 'ico');
-    mark.setAttribute('viewBox', '0 0 24 24');
-    mark.setAttribute('aria-hidden', 'true');
-    if (item.frame) {
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      rect.setAttribute('x', '3.5'); rect.setAttribute('y', '5');
-      rect.setAttribute('width', '17'); rect.setAttribute('height', '14'); rect.setAttribute('rx', '3');
-      mark.appendChild(rect);
+    /*
+     * The gate travels with the control. An action that is refused in the bar
+     * and offered here would be an action with no gate at all.
+     */
+    if (item.control.dataset.feature) entry.dataset.feature = item.control.dataset.feature;
+    if (item.control.dataset.allowExperimental) entry.dataset.allowExperimental = item.control.dataset.allowExperimental;
+    const mark = item.control.querySelector('svg');
+    if (mark) {
+      const copy = mark.cloneNode(true);
+      copy.setAttribute('class', 'ico');
+      copy.removeAttribute('width');
+      copy.removeAttribute('height');
+      copy.setAttribute('aria-hidden', 'true');
+      entry.appendChild(copy);
     }
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', item.icon);
-    mark.appendChild(path);
     const text = document.createElement('span');
     text.textContent = item.label;
-    entry.append(mark, text);
-    /*
-     * Each entry sits in a wrapper so the capability note, which is inserted
-     * as the next sibling of the control it gates, stays beside its own entry
-     * rather than becoming a loose child of the group.
-     */
+    entry.appendChild(text);
     const slot = document.createElement('div');
     slot.className = 'nv-fab-slot';
     slot.appendChild(entry);
@@ -506,7 +494,7 @@ function paintFloatingAction(name) {
        * existed, and it landed on the body instead.
        */
       closeFloatingActions();
-      runCapabilityAction(item.feature, item.run);
+      item.control.click();
     });
     menu.appendChild(slot);
   }
@@ -567,7 +555,6 @@ function showPage(name) {
    */
   const visual = NEBULA_VISUALS[name];
   if (visual) mountNebulaVisual(visual[0], visual[1]);
-  paintFloatingAction(name);
   withTransition(() => {
     $$('.page').forEach(p => p.classList.remove('active'));
     const shown = $('#page-' + name);
@@ -583,6 +570,22 @@ function showPage(name) {
     if (region) region.scrollTop = 0;
     if (name !== 'work') history.replaceState(null, '', location.pathname);
   });
+  /*
+   * After the swap has been laid out, not during it.
+   *
+   * The dock works out which of a screen's controls have nowhere to be by
+   * asking what is on screen, so it has to ask once the screen is. Asked
+   * before the swap it read the previous screen -- the inventory offered its
+   * own bar's "Sign out" because the copy in its body was not up yet, and the
+   * workbench offered nothing because the inventory's Settings was still
+   * standing in for its own. Asked inside the swap it read a document mid-
+   * mutation, with a view transition holding the old frame, and saw nothing at
+   * all. Two frames later both are settled.
+   */
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    paintFloatingAction(name);
+    paintTabOverflow();
+  }));
 }
 function saveRoute() {
   if (_page !== 'work' || !state.work || !state.work.repo) return;
@@ -3228,6 +3231,24 @@ function ensureNeural() {
   _neuralLoad.then(nn => { if (nn && currentTab() === 'neural') nn.activate(); })
     .catch(e => toast(e.message, 'err'));
 }
+/*
+ * Which way the tab strip has more to show, written onto the strip so its edge
+ * fades can say so. A strip that hides content and gives no sign of it reads
+ * as a strip that is missing a tab -- which is exactly how the Governance tab
+ * came to be reported as absent.
+ */
+function paintTabOverflow() {
+  for (const strip of $$('.tabs')) {
+    const slack = strip.scrollWidth - strip.clientWidth;
+    if (slack <= 1) { strip.dataset.overflow = 'none'; continue; }
+    const atStart = strip.scrollLeft <= 1;
+    const atEnd = strip.scrollLeft >= slack - 1;
+    strip.dataset.overflow = atStart ? 'end' : atEnd ? 'start' : 'both';
+  }
+}
+$$('.tabs').forEach(strip => strip.addEventListener('scroll', paintTabOverflow, { passive: true }));
+window.addEventListener('resize', paintTabOverflow);
+
 function switchTab(name) {
   const tab = $$('.tab').find(candidate => candidate.dataset.tab === name);
   const tabCapability = tab && tab.dataset.feature;
@@ -3236,6 +3257,14 @@ function switchTab(name) {
   })) return;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.tabpane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  /*
+   * The strip carries more destinations than it can show, so the one just
+   * chosen is brought into view. Reached from the palette or the rail, a tab
+   * past the fold used to be marked active somewhere off screen -- the reader
+   * saw the pane change and no tab move.
+   */
+  if (tab && tab.scrollIntoView) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  paintTabOverflow();
   /*
    * Repainted here rather than by the click handler, so a tab reached from the
    * command palette marks the rail exactly as a pointer click does.

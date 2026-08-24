@@ -85,4 +85,78 @@ for (const name of names) {
   }
 }
 
+
+/*
+ * Fitted to its tile.
+ *
+ * Facets radiate at whatever angles the name chooses, so the ink lands
+ * wherever those angles point: drawn into a fixed frame, a mark with three
+ * facets in one quadrant covered a third of it and sat off to one side, while
+ * another filled it. A wall of them then read as small specks of different
+ * sizes adrift by different amounts -- which is what made distinct marks look
+ * like the same mark repeated. The frame is fitted to what was actually drawn,
+ * so every mark carries the same weight and the same centre.
+ */
+function frameOf(name) {
+  const elements = [];
+  const doc = {
+    createElementNS(_ns, tag) {
+      const node = {
+        tag, attributes: {}, children: [],
+        setAttribute(key, value) { this.attributes[key] = String(value); },
+        appendChild(child) { this.children.push(child); return child; }
+      };
+      elements.push(node);
+      return node;
+    }
+  };
+  const root = sigil.render(name, doc);
+  const [x, y, width, height] = root.attributes.viewBox.split(/\s+/).map(Number);
+  const xs = [];
+  const ys = [];
+  for (const node of elements) {
+    if (node.tag === 'polygon') {
+      for (const pair of node.attributes.points.trim().split(/\s+/)) {
+        const [px, py] = pair.split(',').map(Number);
+        xs.push(px);
+        ys.push(py);
+      }
+    }
+    if (node.tag === 'circle') {
+      const cx = Number(node.attributes.cx);
+      const cy = Number(node.attributes.cy);
+      const r = Number(node.attributes.r);
+      xs.push(cx - r, cx + r);
+      ys.push(cy - r, cy + r);
+    }
+  }
+  return {
+    frame: { x, y, width, height },
+    ink: { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
+  };
+}
+
+for (const name of names) {
+  const { frame, ink } = frameOf(name);
+
+  /* Square, so a wide mark and a tall one are drawn at the same scale. */
+  assert.equal(Math.round(frame.width), Math.round(frame.height), `${name} is drawn in a non-square frame`);
+
+  /* Everything drawn is inside the frame. */
+  assert.ok(ink.minX >= frame.x - 0.01, `${name} draws left of its frame`);
+  assert.ok(ink.maxX <= frame.x + frame.width + 0.01, `${name} draws right of its frame`);
+  assert.ok(ink.minY >= frame.y - 0.01, `${name} draws above its frame`);
+  assert.ok(ink.maxY <= frame.y + frame.height + 0.01, `${name} draws below its frame`);
+
+  /* And fills it: the longer side of the mark spans most of the frame, so no
+     mark is a speck floating in a tile the next one fills. */
+  const spans = Math.max(ink.maxX - ink.minX, ink.maxY - ink.minY) / frame.width;
+  assert.ok(spans > 0.8, `${name} fills only ${Math.round(spans * 100)}% of its frame`);
+
+  /* Centred, so a row of them sits on one line rather than wandering. */
+  const offX = Math.abs((ink.minX + ink.maxX) / 2 - (frame.x + frame.width / 2)) / frame.width;
+  const offY = Math.abs((ink.minY + ink.maxY) / 2 - (frame.y + frame.height / 2)) / frame.height;
+  assert.ok(offX < 0.02 && offY < 0.02, `${name} is off-centre in its frame`);
+}
+
 process.stdout.write('repository sigil tests passed\n');

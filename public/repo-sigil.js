@@ -80,6 +80,9 @@
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const CENTRE = 24;
+  /* Where the facets meet, and the radius of the core that covers the join. */
+  const HINGE = 7.4;
+  const CORE = 4.2;
 
   function point(angle, radius) {
     const radians = (angle - 90) * Math.PI / 180;
@@ -89,13 +92,58 @@
     ];
   }
 
+  /*
+   * The drawn extent of a sigil, so it can be fitted to its tile.
+   *
+   * Facets radiate from a common hinge at angles the name chooses, so the ink
+   * lands wherever those angles point: a mark with three facets in one quadrant
+   * covers a third of the frame and sits off to one side of it. Drawn into a
+   * fixed viewBox that produced marks of visibly different sizes, each adrift
+   * in its own tile by a different amount -- which is what made a wall of them
+   * read as small specks rather than as distinct marks. Measuring what was
+   * actually drawn and fitting the viewBox to it gives every mark the same
+   * weight and the same centre, and lets the differences between them be the
+   * thing you notice.
+   */
+  function extent(shape) {
+    const xs = [];
+    const ys = [];
+    for (const wedge of shape.wedges) {
+      for (const [angle, radius] of [
+        [wedge.angle + wedge.lean, wedge.reach],
+        [wedge.angle - wedge.waist, HINGE],
+        [wedge.angle + wedge.waist, HINGE]
+      ]) {
+        const [x, y] = point(angle, radius);
+        xs.push(x);
+        ys.push(y);
+      }
+    }
+    /* The core is drawn at the centre and has to stay inside the frame too. */
+    xs.push(CENTRE - CORE, CENTRE + CORE);
+    ys.push(CENTRE - CORE, CENTRE + CORE);
+    return {
+      minX: Math.min(...xs), maxX: Math.max(...xs),
+      minY: Math.min(...ys), maxY: Math.max(...ys)
+    };
+  }
+
   function render(name, document_) {
     const doc = document_ || (typeof document === 'object' ? document : null);
     if (!doc) return null;
     const shape = plan(name);
+    const box = extent(shape);
+    /* Square, so a wide mark and a tall one are drawn at the same scale. */
+    const span = Math.max(box.maxX - box.minX, box.maxY - box.minY);
+    const margin = span * 0.09;
+    const side = span + margin * 2;
+    const originX = (box.minX + box.maxX) / 2 - side / 2;
+    const originY = (box.minY + box.maxY) / 2 - side / 2;
+    const round = value => Math.round(value * 100) / 100;
+
     const root = doc.createElementNS(SVG_NS, 'svg');
     root.setAttribute('class', 'repo-sigil');
-    root.setAttribute('viewBox', '0 0 48 48');
+    root.setAttribute('viewBox', `${round(originX)} ${round(originY)} ${round(side)} ${round(side)}`);
     /* Decoration beside the name it belongs to, so it is not announced. */
     root.setAttribute('aria-hidden', 'true');
     root.setAttribute('focusable', 'false');
@@ -106,7 +154,6 @@
      * asterisk of loose slivers; brought in to a common hinge they read as one
      * folded shape, which is the language the brand mark is drawn in.
      */
-    const HINGE = 7.4;
     for (const wedge of shape.wedges) {
       const tip = point(wedge.angle + wedge.lean, wedge.reach);
       const left = point(wedge.angle - wedge.waist, HINGE);
@@ -133,7 +180,7 @@
     const core = doc.createElementNS(SVG_NS, 'circle');
     core.setAttribute('cx', String(CENTRE));
     core.setAttribute('cy', String(CENTRE));
-    core.setAttribute('r', '4.2');
+    core.setAttribute('r', String(CORE));
     core.setAttribute('fill', `hsl(${shape.hue} 80% 74%)`);
     root.appendChild(core);
     return root;

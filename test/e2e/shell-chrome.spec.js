@@ -330,3 +330,80 @@ test.describe('the inventory toolbar', () => {
     expect(placement.headTop).toBeGreaterThanOrEqual(placement.barBottom - 1);
   });
 });
+
+/*
+ * The workbench's tab strip carries more destinations than it can show.
+ *
+ * With the scrollbar hidden and no other sign, the tenth -- Governance -- was
+ * simply absent from the screen, and a strip that hides content without
+ * saying so is indistinguishable from a strip that is missing a tab. Two
+ * things have to hold: the strip declares which way it has more, and choosing
+ * a destination brings it into view rather than marking it active somewhere
+ * off screen.
+ */
+test.describe('the workbench tab strip', () => {
+  /* Below the breakpoint the bottom navigation carries these destinations and
+     the strip is not on the screen at all. */
+  test.skip(({ viewport }) => !viewport || viewport.width < 901, 'the strip exists above 900px');
+
+  test('says when it has more to show, and brings a chosen tab into view', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/files');
+    await page.locator('#page-work.active').waitFor();
+
+    const strip = page.locator('.tabs').first();
+    await expect(strip).toBeVisible();
+
+    const state = await strip.evaluate(node => ({
+      overflowing: node.scrollWidth > node.clientWidth + 1,
+      declared: node.dataset.overflow
+    }));
+
+    /* Where it does not overflow there is nothing to declare, and a fade there
+       would only dim the ends of a strip that is entirely in view. */
+    if (!state.overflowing) {
+      expect(state.declared).toBe('none');
+      return;
+    }
+    expect(['start', 'end', 'both']).toContain(state.declared);
+
+    /* The furthest destination, reached the way the palette and the rail reach
+       it rather than by dragging the strip. */
+    const last = strip.locator('.tab').last();
+    const name = await last.getAttribute('data-tab');
+    await page.evaluate(tab => window.switchTab(tab), name);
+
+    await expect.poll(async () => strip.evaluate((node, tab) => {
+      const chosen = node.querySelector(`.tab[data-tab="${tab}"]`);
+      const stripBox = node.getBoundingClientRect();
+      const tabBox = chosen.getBoundingClientRect();
+      return Math.round(Math.min(tabBox.left - stripBox.left, stripBox.right - tabBox.right));
+    }, name), { message: 'the chosen tab must be brought into view' }).toBeGreaterThanOrEqual(-1);
+  });
+});
+
+/*
+ * The artwork stays on the screen it decorates. On a phone it hung sixty-four
+ * pixels past the right edge, so the viewport clipped the spiral through its
+ * middle and left a straight cut where the arm should have faded -- which
+ * reads as a rendering fault rather than as decoration.
+ */
+test('the inventory artwork is not clipped by the edge of the screen', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await ui.enterRepositories(page);
+  await expect(ui.screen(page, 'repos')).toBeVisible();
+
+  const art = page.locator('#gxHeroArt');
+  const box = await art.evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, viewport: window.innerWidth };
+  });
+  expect(box.left).toBeGreaterThanOrEqual(-1);
+  expect(box.right).toBeLessThanOrEqual(box.viewport + 1);
+
+  /* And the page it sits on gains no horizontal scroll from it. */
+  const overflow = await page.evaluate(() => document.body.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});

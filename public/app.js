@@ -383,47 +383,22 @@ $('#railCollapse') && $('#railCollapse').addEventListener('click', () => {
  * whatever that screen's is, and says so in its own name.
  */
 const FLOATING_ACTIONS = Object.freeze({
-  overview: Object.freeze({
-    label: 'Overview actions',
-    items: Object.freeze([
-      Object.freeze({
-        label: 'Open repository browser',
-        icon: 'M4 7.5A2.5 2.5 0 0 1 6.5 5H10l2 2.5h5.5A2.5 2.5 0 0 1 20 10v6.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z',
-        run: () => showPage('repos')
-      }),
-      Object.freeze({
-        label: 'Toggle dark or light theme',
-        icon: 'M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z',
-        run: () => $('#themeBtn') && $('#themeBtn').click()
-      }),
-      Object.freeze({
-        label: 'Settings',
-        icon: 'M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21',
-        run: () => $('#settingsBtnOv') && $('#settingsBtnOv').click()
-      })
-    ])
-  }),
-  repos: Object.freeze({
-    label: 'Repository actions',
-    items: Object.freeze([
-      Object.freeze({
-        label: 'Create repository',
-        icon: 'M12 5v14M5 12h14',
-        feature: 'repository.create',
-        run: () => $('#newRepoBtn').click()
-      }),
-      Object.freeze({
-        label: 'Filter repositories',
-        icon: 'M10.5 17.5h3M6 12h12M3 6.5h18',
-        run: () => { const box = $('#repoFilter'); if (box) { box.scrollIntoView({ block: 'center' }); box.focus(); } }
-      }),
-      Object.freeze({
-        label: 'Refresh repositories',
-        icon: 'M20.5 12a8.5 8.5 0 1 1-2.6-6.1M20.5 3.5v4h-4',
-        run: () => $('#reposRefreshBtn') && $('#reposRefreshBtn').click()
-      })
-    ])
-  }),
+  /*
+   * The workbench, and only the workbench.
+   *
+   * This control exists to solve a placement problem, not to add a second way
+   * to reach things. Counting what a phone actually shows: the overview offers
+   * five controls and the inventory ten, and every action a floating menu
+   * would have carried is already among them -- so on those two screens it was
+   * a duplicate of the screen behind it. The workbench is the screen with the
+   * problem: its top bar drops four controls below the breakpoint for want of
+   * room, and the command palette is left with no placement at all except a
+   * row buried in the More sheet.
+   *
+   * So the entries here are the ones this screen cannot otherwise place: the
+   * palette, and the two write actions that live inside the file drawer and
+   * are therefore behind a tab before they are behind anything else.
+   */
   work: Object.freeze({
     label: 'Workspace actions',
     items: Object.freeze([
@@ -444,11 +419,6 @@ const FLOATING_ACTIONS = Object.freeze({
         icon: 'M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8',
         feature: 'branches.write',
         run: () => $('#newBranchBtn') && $('#newBranchBtn').click()
-      }),
-      Object.freeze({
-        label: 'Push files',
-        icon: 'M12 17V5M6 11l6-6 6 6M4 20h16',
-        run: () => switchTab('upload')
       })
     ])
   })
@@ -600,8 +570,17 @@ function showPage(name) {
   paintFloatingAction(name);
   withTransition(() => {
     $$('.page').forEach(p => p.classList.remove('active'));
-    $('#page-' + name).classList.add('active');
+    const shown = $('#page-' + name);
+    shown.classList.add('active');
+    /*
+     * Both, because which one is scrolling depends on the width. Inside the
+     * plate the content region is the scroller and the document does not move;
+     * below that breakpoint the document is the scroller. Resetting only the
+     * window left a desktop reader arriving on a new screen part way down it.
+     */
     window.scrollTo(0, 0);
+    const region = shown.querySelector('.container');
+    if (region) region.scrollTop = 0;
     if (name !== 'work') history.replaceState(null, '', location.pathname);
   });
 }

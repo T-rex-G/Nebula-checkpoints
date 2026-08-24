@@ -65,7 +65,16 @@
              linear-gradient(168deg, rgba(146,124,255,.055), transparent 46%);
   --railArt:linear-gradient(196deg, rgba(124,92,246,.14), transparent 38%),
             radial-gradient(420px 300px at 0% 100%, rgba(76,29,149,.20), transparent 70%);
-  --shellShadow:0 60px 140px rgba(6,2,20,.9), 0 0 0 1px rgba(155,135,255,.06);
+  /*
+   * Elevation that falls below the plate instead of haloing it. A 140px blur
+   * offset 60px down still reaches ten pixels above the top edge, and against
+   * the bright top of the page that read as a dark line drawn just outside the
+   * frame. The negative spread pulls the cast back under the plate, which is
+   * where an object's shadow belongs. The 0 0 0 1px ring is gone with it: the
+   * plate already has a real border, and two rings a pixel apart read as one
+   * thick muddy seam rather than as an edge.
+   */
+  --shellShadow:0 48px 90px -40px rgba(6,2,20,.92);
   --card:linear-gradient(155deg, rgba(146,124,255,.13), rgba(126,104,235,.05) 46%, rgba(255,255,255,.028));
   --card2:rgba(20,14,44,.55); --cb:rgba(178,160,255,.17); --hair:rgba(255,255,255,.07);
   --glass:blur(26px) saturate(1.5);
@@ -125,7 +134,7 @@
              linear-gradient(168deg, rgba(255,255,255,.7), transparent 40%);
   --railArt:linear-gradient(196deg, rgba(167,139,250,.13), transparent 40%),
             radial-gradient(420px 300px at 0% 100%, rgba(196,181,253,.20), transparent 70%);
-  --shellShadow:0 50px 120px rgba(38,26,90,.14), 0 0 0 1px rgba(20,14,50,.04);
+  --shellShadow:0 40px 80px -36px rgba(38,26,90,.30);
   --card:linear-gradient(155deg, rgba(255,255,255,.86), rgba(255,255,255,.58) 52%, rgba(238,233,255,.52));
   --card2:rgba(255,255,255,.72); --cb:rgba(83,60,190,.14); --hair:rgba(20,14,50,.08);
   --glass:blur(26px) saturate(1.6);
@@ -384,6 +393,51 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px;flex-wrap:wrap}
 .page-head h2{font-size:1.35rem;font-weight:600;letter-spacing:-0.01em}
 .page-head-tools{display:flex;gap:10px;align-items:center;flex:1;justify-content:flex-end;min-width:0}
+/* ---------------- phone layout ---------------- */
+/*
+ * Three things this had wrong on a phone, all of them visible the moment the
+ * page is scrolled at all.
+ *
+ * The bar was translucent over scrolling content, so the numbers behind it
+ * read straight through the controls sitting on top of them. A blurred bar is
+ * only legible while what passes under it is quiet, and this one passes over
+ * large figures. It is opaque here; the plate above the breakpoint keeps the
+ * translucency, because there is nothing moving behind it there.
+ *
+ * The toolbar was a flex row of three unrelated widths, so the sort control
+ * was squeezed until "Recently pushed" was cut mid-word -- a menu whose label
+ * cannot be read is a menu that cannot be used. It is a two-row grid now:
+ * the filter takes the width, the other two share the row beneath it.
+ *
+ * And the summary cells fell to one per row at 420px, which turned four short
+ * figures into four full-width panels. Two hold their reading down to 340.
+ */
+@media (max-width:900px){
+  .topbar{background:var(--shellSolid);border-bottom:1px solid var(--sb);
+    backdrop-filter:none;-webkit-backdrop-filter:none}
+  /* Stated through :where(body) so it outranks the desktop layout for this
+     toolbar, which is written later in the file at the same weight. */
+  body #page-repos .page-head-tools{display:grid;gap:9px;width:100%;
+    grid-template-columns:minmax(0,1fr) auto}
+  body #page-repos .page-head-tools .search-input{grid-column:1 / -1;grid-row:1;max-width:none;width:100%}
+  body #page-repos .page-head-tools .branch-select{grid-column:1;grid-row:2;max-width:none;width:100%}
+  body #page-repos .page-head-tools .btn{grid-column:2;grid-row:2;align-self:stretch}
+  /*
+   * The toolbar sticks under the bar. An inventory is a list you scroll and
+   * then want to narrow, and the control for narrowing it was at the top of
+   * that scroll -- so filtering meant scrolling all the way back before you
+   * could start. It stays put now, on its own ground so the cards pass behind
+   * it rather than through it.
+   */
+  body #page-repos .page-head{position:sticky;z-index:18;
+    top:calc(var(--tbh, 62px) + env(safe-area-inset-top) + 10px);
+    margin-inline:-16px;padding:10px 16px 12px;
+    background:var(--shellSolid);border-bottom:1px solid var(--sb)}
+  .gx-pulse-cell{padding:13px 14px 12px}
+  .gx-pulse-value{font-size:1.5rem}
+}
+@media (max-width:340px){.gx-pulse-grid{grid-auto-flow:row;grid-template-columns:minmax(0,1fr)}}
+
 .repo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
 .repo-card{padding:18px;cursor:pointer;transition:transform .2s var(--ease), box-shadow .2s var(--ease)}
 @media (hover:hover) and (pointer:fine){
@@ -1172,7 +1226,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  */
 @media (max-width:1180px){.gx-pulse-grid{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:760px){.gx-pulse-grid{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:420px){.gx-pulse-grid{grid-auto-flow:row;grid-template-columns:minmax(0,1fr)}}
+
 .gx-pulse-cell{background:var(--card-grad);border:1px solid var(--glass-border);border-radius:var(--radius);
   padding:15px 17px 14px;box-shadow:var(--card-shadow);backdrop-filter:blur(26px) saturate(1.5)}
 .gx-pulse-cell dt{display:flex;align-items:center;gap:7px;font-family:var(--font-display);font-size:.62rem;
@@ -1378,10 +1432,35 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   body{--shell-inset:276px}
   body[data-rail="collapsed"]{--shell-inset:100px}
 
-  #page-overview .container,#page-repos .container,#page-work .container,
-  #page-work .workspace{
+  /*
+   * The plate is a window, so the content scrolls inside it.
+   *
+   * Scrolling the document instead meant the cards travelled over the plate's
+   * own edges: at the top they passed above the frame and floated on the page
+   * behind it, and at the bottom they ran straight through the rounded corner
+   * and out of the frame. No amount of padding fixes that -- a fixed frame and
+   * a scrolling document are two different coordinate systems, and content in
+   * the second cannot be clipped by the first. Making the content region the
+   * scroller puts them back in one: the region is fixed to the plate, and what
+   * moves is what is inside it.
+   *
+   * The workbench is already built this way -- a full-height grid that scrolls
+   * its own panes -- which is why it never showed this and the other two did.
+   */
+  #page-overview .container,#page-repos .container{
+    position:fixed;top:calc(23px + var(--tbh, 62px));bottom:23px;
+    left:var(--shell-inset);right:23px;
+    max-width:none;margin:0;padding:24px 26px 44px;
+    overflow-y:auto;overscroll-behavior:contain;
+    border-radius:0 0 23px 0;
+    transition:left .34s cubic-bezier(.4,0,.2,1)}
+  #page-work .container,#page-work .workspace{
     max-width:none;margin-left:var(--shell-inset);margin-right:26px;
     transition:margin-left .34s cubic-bezier(.4,0,.2,1)}
+  /* The pages no longer reserve room for a bar that is now outside their
+     scroll, and the document itself has nothing left to scroll. */
+  #page-overview,#page-repos{padding-top:0}
+  body:has(#page-overview.active, #page-repos.active){overflow:hidden}
   /* The workbench is a full-height grid, so it keeps its own padding and takes
      the inset as a margin; the right margin is the plate's, not the page's. */
   #page-work .workspace{margin-right:23px;padding-left:0;padding-right:0}
@@ -1397,7 +1476,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    */
   #page-overview .topbar,#page-repos .topbar,#page-work .topbar{
     left:var(--shell-inset);right:23px;top:23px;border-radius:0 23px 0 0;
-    background:transparent;border-bottom:1px solid var(--sb);
+    background:transparent;border-top:0;border-left:0;border-right:0;
+    border-bottom:1px solid var(--sb);
     backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none;
     transition:left .34s cubic-bezier(.4,0,.2,1)}
   .nv-rail{transition:width .34s cubic-bezier(.4,0,.2,1),padding .34s ease}

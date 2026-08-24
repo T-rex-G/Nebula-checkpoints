@@ -63,42 +63,53 @@ test.describe('desktop shell', () => {
 test.describe('the floating action', () => {
   test.skip(({ viewport }) => !viewport || viewport.width >= 901, 'the dock exists below 901px');
 
-  test('carries the actions of the screen it is on', async ({ page }) => {
+  /*
+   * It is offered where the screen cannot place its own actions, and nowhere
+   * else. On a phone the overview shows five controls and the inventory ten,
+   * and everything a floating menu would carry is already among them -- so on
+   * those screens it was a second way to reach what was on screen anyway. The
+   * workbench is the screen with the problem, and it is the screen that has
+   * one. Guarding its absence matters as much as guarding its contents: a
+   * control that turns up everywhere is the defect this replaced.
+   */
+  test('appears only where the screen cannot place its own actions', async ({ page }) => {
     await openWorkspace(page);
     const dock = page.locator('#paletteFab');
-
-    /*
-     * Each screen offers a different set. What is guarded is not the wording of
-     * any one entry but the property that makes the control worth having: the
-     * menu on one screen is not the menu on another, and the entries it offers
-     * belong to the screen in front of the reader. A menu that kept every
-     * screen's entries would pass a check for the presence of any single one.
-     */
-    const entries = async () => {
-      if ((await dock.getAttribute('aria-expanded')) !== 'true') await dock.click();
-      await expect(page.locator('#fabMenu')).toBeVisible();
-      return page.locator('#fabMenu .nv-fab-item').allInnerTexts();
-    };
-
-    await expect(dock).toHaveAttribute('aria-controls', 'fabMenu');
-    const onOverview = await entries();
-    expect(onOverview).toContain('Open repository browser');
-    await page.keyboard.press('Escape');
+    await expect(dock).toBeHidden();
 
     await ui.enterRepositories(page);
     await expect(ui.screen(page, 'repos')).toBeVisible();
-    const onRepos = await entries();
-    expect(onRepos).toContain('Create repository');
-    expect(onRepos).not.toContain('Open repository browser');
-    await page.keyboard.press('Escape');
+    await expect(dock).toBeHidden();
 
     await page.locator('.repo-card').first().click();
     await page.locator('#page-work.active').waitFor();
-    const onWork = await entries();
-    expect(onWork).toContain('Command palette');
-    expect(onWork).not.toContain('Create repository');
+    await expect(dock).toBeVisible();
+  });
 
-    /* Escape closes it and gives focus back to the control that opened it. */
+  test('carries the actions the workbench has nowhere else to put', async ({ page }) => {
+    await openWorkspace(page);
+    await ui.enterRepositories(page);
+    await page.locator('.repo-card').first().click();
+    await page.locator('#page-work.active').waitFor();
+
+    const dock = page.locator('#paletteFab');
+    await expect(dock).toHaveAttribute('aria-controls', 'fabMenu');
+    await dock.click();
+    await expect(page.locator('#fabMenu')).toBeVisible();
+
+    const entries = await page.locator('#fabMenu .nv-fab-item').allInnerTexts();
+    expect(entries).toContain('Command palette');
+
+    /*
+     * And each entry has to be something the screen does not already show. A
+     * menu that repeats a control a thumb can already reach is the duplicate
+     * this was meant to stop being.
+     */
+    for (const entry of entries) {
+      const elsewhere = page.locator('.page.active').getByRole('button', { name: entry, exact: true });
+      await expect(elsewhere).toBeHidden();
+    }
+
     await page.keyboard.press('Escape');
     await expect(page.locator('#fabMenu')).toBeHidden();
     await expect(dock).toBeFocused();
@@ -273,5 +284,49 @@ test.describe('the mobile menu', () => {
 
     /* And it has to be pressable where it ended up, not merely painted. */
     await expect(last).toBeEnabled();
+  });
+});
+
+/*
+ * The inventory's controls stay reachable while the list moves.
+ *
+ * An inventory is a list you scroll and then want to narrow, and the control
+ * for narrowing it sat at the top of that scroll -- so filtering meant
+ * scrolling all the way back before you could begin. On a phone, where the
+ * list is one card per row and the scroll is long, that is most of the screen's
+ * work.
+ */
+test.describe('the inventory toolbar', () => {
+  test.skip(({ viewport }) => !viewport || viewport.width >= 901, 'the phone layout');
+
+  test('stays under the bar while the list scrolls past it', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/');
+    await expect(ui.screen(page, 'overview')).toBeVisible();
+    await ui.enterRepositories(page);
+    await expect(ui.screen(page, 'repos')).toBeVisible();
+
+    /* A single repository does not scroll, so there is nothing to stay put
+       through. The list is lengthened here to give it something. */
+    await page.evaluate(() => {
+      const grid = document.getElementById('repoGrid');
+      const card = grid.firstElementChild;
+      for (let index = 0; index < 8; index += 1) grid.appendChild(card.cloneNode(true));
+    });
+
+    const filter = page.getByRole('searchbox', { name: 'Filter repositories' });
+    await expect(filter).toBeInViewport();
+
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBeGreaterThan(600);
+
+    /* Still on screen, and still under the bar rather than behind it. */
+    await expect(filter).toBeInViewport();
+    const placement = await page.evaluate(() => {
+      const head = document.querySelector('#page-repos .page-head').getBoundingClientRect();
+      const bar = document.querySelector('#page-repos .topbar').getBoundingClientRect();
+      return { headTop: head.top, barBottom: bar.bottom };
+    });
+    expect(placement.headTop).toBeGreaterThanOrEqual(placement.barBottom - 1);
   });
 });

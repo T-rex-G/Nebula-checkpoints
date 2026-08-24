@@ -279,6 +279,13 @@ em{color:var(--teal);font-style:normal}
 .topbar-brand{display:flex;align-items:center;gap:9px;font-weight:600;cursor:pointer;font-size:.95rem;min-height:44px;min-width:0}
 .topbar-brand:is(button){font:inherit;color:inherit;border:0;background:transparent;padding:0;text-align:left}
 .repo-name-trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38vw;font-size:.85rem}
+/* The generated repository mark. Sized to the heading beside it rather than
+   set in pixels, so it holds its proportion when the text scales. */
+.repo-head{display:flex;align-items:flex-start;gap:11px;min-width:0}
+.repo-head h3{margin:0;min-width:0;flex:1}
+.repo-sigil-slot{flex:none;line-height:0;margin-top:1px}
+.repo-sigil{display:block;width:2.1em;height:2.1em;
+  border-radius:12px;padding:2px;background:var(--card2);border:1px solid var(--glass-border)}
 .back-chev{font-size:1.5rem;line-height:1;color:var(--accent2)}
 .topbar-actions{display:flex;align-items:center;gap:7px;flex-shrink:0}
 .avatar{width:32px;height:32px;border-radius:50%;border:1px solid var(--glass-border)}
@@ -563,11 +570,31 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   background:rgba(5,5,15,0.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   animation:fadeIn .2s ease both}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+/*
+ * The sheet scrolls. It carries fourteen entries and had no height limit and
+ * no overflow, so it grew past the bottom of the screen and the last entries
+ * were clipped away with no way to reach them -- the taller the menu got, the
+ * more of it simply did not exist. It is now capped short of the screen and
+ * scrolls inside itself, and the scroll is contained so dragging the menu does
+ * not drag the screen behind it.
+ *
+ * The cap is a percentage of the scrim, which is inset:0 and so is exactly the
+ * viewport. Written in dvh it resolved a few pixels taller than the viewport
+ * actually was and the sheet hung off the bottom by that margin -- a unit
+ * meant to track the viewport, not quite tracking it. A percentage of a box
+ * that is the viewport cannot drift.
+ */
 .sheet{position:absolute;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));
+  max-height:calc(100% - 96px);display:flex;flex-direction:column;
+  overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
   border-radius:20px;padding:10px 12px calc(12px + env(safe-area-inset-bottom)/2);
   animation:sheetIn .3s var(--ease) both}
 @keyframes sheetIn{from{transform:translateY(30px);opacity:0}to{transform:none;opacity:1}}
-.sheet-grab{width:38px;height:4px;border-radius:99px;background:var(--glass-border);margin:2px auto 10px}
+/* The handle stays put while the list moves under it, so the sheet still reads
+   as one surface being scrolled rather than a page that has come loose. */
+.sheet-grab{position:sticky;top:-10px;z-index:1;flex:none;
+  width:38px;height:4px;border-radius:99px;background:var(--glass-border);margin:2px auto 10px}
+.sheet-item,.sheet-div{flex:none}
 .sheet-item{display:flex;width:100%;font:inherit;font-size:.92rem;font-weight:500;color:var(--text);
   background:transparent;border:none;border-radius:12px;padding:13px 14px;cursor:pointer;min-height:48px;align-items:center}
 .sheet-item:active{background:rgba(255,255,255,0.08)}
@@ -1241,21 +1268,54 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 /* ============================================================
    FLOATING ACTION — the primary action where the bar has no room
    ============================================================ */
-.nv-fab{position:fixed;right:calc(16px + env(safe-area-inset-right));
+/*
+ * The dock owns the position; the button and its menu stack inside it, so the
+ * menu opens upward from the button rather than being placed against the
+ * viewport a second time and drifting out of step with it.
+ */
+.nv-fab-dock{position:fixed;right:calc(16px + env(safe-area-inset-right));
   bottom:calc(var(--bnav-h) + 18px + env(safe-area-inset-bottom));
-  z-index:45;width:56px;height:56px;padding:0;border-radius:18px;cursor:pointer;
-  display:none;align-items:center;justify-content:center;
+  z-index:45;display:none;flex-direction:column;align-items:flex-end;gap:10px}
+@media (min-width:901px){ .nv-fab-dock{display:none !important} }
+@media (max-width:900px){ .nv-fab-dock{display:flex} }
+.nv-fab-menu{display:flex;flex-direction:column;align-items:stretch;gap:6px;
+  min-width:210px;max-width:min(280px, calc(100vw - 32px));padding:8px;
+  border-radius:18px;border:1px solid var(--glass-border);background:var(--card2);
+  box-shadow:var(--cardShadow);
+  animation:fabMenuIn .2s var(--ease) both}
+.nv-fab-menu[hidden]{display:none}
+@keyframes fabMenuIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){ .nv-fab-menu{animation:none} }
+.nv-fab-item{display:flex;align-items:center;gap:11px;width:100%;min-height:46px;
+  font:inherit;font-size:.88rem;font-weight:500;text-align:left;color:var(--text);
+  padding:10px 12px;border:0;border-radius:12px;background:transparent;cursor:pointer;
+  transition:background .15s var(--ease)}
+.nv-fab-item:hover{background:var(--navHov)}
+.nv-fab-item:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.nv-fab-item .ico{width:18px;height:18px;flex:none;color:var(--accent2);
+  stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.nv-fab-item[aria-disabled="true"]{opacity:.5}
+.nv-fab-slot{display:flex;flex-direction:column;gap:2px}
+.nv-fab-slot .capability-state{padding:0 12px 4px;font-size:.7rem}
+
+.nv-fab{position:relative;
+  width:56px;height:56px;padding:0;border-radius:18px;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;
   color:var(--btnFg);border:1px solid var(--navB);
   background:linear-gradient(140deg, var(--btnB), var(--btnA));
   box-shadow:var(--btnGlow), 0 0 0 1px rgba(255,255,255,.06) inset;
   transition:transform .18s var(--ease), box-shadow .18s var(--ease)}
+/* Open, the button turns its plus into a close mark -- the same control, so
+   the way out is where the way in was. */
+.nv-fab[aria-expanded="true"] .ico{transform:rotate(45deg)}
+.nv-fab .ico{transition:transform .2s var(--ease)}
+@media (prefers-reduced-motion:reduce){ .nv-fab .ico{transition:none} }
 /*
- * Displayed only below the breakpoint, where the top bar has no room for it.
- * .show-sm alone would lose to the display this rule sets, which is the same
- * cascade collision that once put a mobile-only control on every desktop.
+ * The dock is displayed only below the breakpoint, where the top bar has no
+ * room for these actions. .show-sm alone would lose to the display the rule
+ * above sets, which is the same cascade collision that once put a mobile-only
+ * control on every desktop -- so the breakpoint is stated here as well.
  */
-@media (min-width:901px){ .nv-fab{display:none !important} }
-@media (max-width:900px){ .nv-fab{display:inline-flex} }
 .nv-fab:hover{transform:translateY(-2px)}
 .nv-fab:active{transform:translateY(0)}
 .nv-fab:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
@@ -1341,7 +1401,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none;
     transition:left .34s cubic-bezier(.4,0,.2,1)}
   .nv-rail{transition:width .34s cubic-bezier(.4,0,.2,1),padding .34s ease}
-  .nv-fab{left:auto}
+  .nv-fab-dock{left:auto}
 }
 .nv-rail-head{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center}
 .nv-rail-brand{font-family:var(--font-display);font-size:.94rem;font-weight:700;color:var(--ttl);letter-spacing:-.012em}
@@ -1615,3 +1675,15 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  */
 @media (max-width:900px){ .gx-hero-art{right:-22%;top:-40%;width:88%;height:124%;opacity:.34} }
 @media (max-width:900px){ [data-theme="light"] .gx-hero-art{opacity:.22} }
+/*
+ * Inside the plate the hero spans the region and only the copy is capped. The
+ * cap used to sit on the section, so on a wide screen the artwork was measured
+ * against 780px of a 1115px region: it landed on top of the sentence and
+ * stopped short of the right edge, floating in the middle with nothing to
+ * anchor it. The copy keeps its measure; the artwork gets the margin.
+ */
+@media (min-width:1140px){
+  .gx-hero{max-width:none}
+  .gx-hero>:not(.gx-hero-art){max-width:720px}
+  .gx-hero-art{right:0;top:-20%;width:47%;height:150%}
+}

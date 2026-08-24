@@ -384,44 +384,201 @@ $('#railCollapse') && $('#railCollapse').addEventListener('click', () => {
  */
 const FLOATING_ACTIONS = Object.freeze({
   overview: Object.freeze({
-    label: 'Open repository browser',
-    icon: 'M4 7.5A2.5 2.5 0 0 1 6.5 5H10l2 2.5h5.5A2.5 2.5 0 0 1 20 10v6.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z',
-    run: () => showPage('repos')
+    label: 'Overview actions',
+    items: Object.freeze([
+      Object.freeze({
+        label: 'Open repository browser',
+        icon: 'M4 7.5A2.5 2.5 0 0 1 6.5 5H10l2 2.5h5.5A2.5 2.5 0 0 1 20 10v6.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z',
+        run: () => showPage('repos')
+      }),
+      Object.freeze({
+        label: 'Toggle dark or light theme',
+        icon: 'M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z',
+        run: () => $('#themeBtn') && $('#themeBtn').click()
+      }),
+      Object.freeze({
+        label: 'Settings',
+        icon: 'M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21',
+        run: () => $('#settingsBtnOv') && $('#settingsBtnOv').click()
+      })
+    ])
   }),
   repos: Object.freeze({
-    label: 'Create repository',
-    icon: 'M12 5v14M5 12h14',
-    feature: 'repository.create',
-    run: () => $('#newRepoBtn').click()
+    label: 'Repository actions',
+    items: Object.freeze([
+      Object.freeze({
+        label: 'Create repository',
+        icon: 'M12 5v14M5 12h14',
+        feature: 'repository.create',
+        run: () => $('#newRepoBtn').click()
+      }),
+      Object.freeze({
+        label: 'Filter repositories',
+        icon: 'M10.5 17.5h3M6 12h12M3 6.5h18',
+        run: () => { const box = $('#repoFilter'); if (box) { box.scrollIntoView({ block: 'center' }); box.focus(); } }
+      }),
+      Object.freeze({
+        label: 'Refresh repositories',
+        icon: 'M20.5 12a8.5 8.5 0 1 1-2.6-6.1M20.5 3.5v4h-4',
+        run: () => $('#reposRefreshBtn') && $('#reposRefreshBtn').click()
+      })
+    ])
   }),
   work: Object.freeze({
-    label: 'Command palette',
-    icon: 'M7.5 9.5l3 2.5-3 2.5M13 15h4',
-    run: () => openPalette()
+    label: 'Workspace actions',
+    items: Object.freeze([
+      Object.freeze({
+        label: 'Command palette',
+        icon: 'M7.5 9.5l3 2.5-3 2.5M13 15h4',
+        frame: true,
+        run: () => openPalette()
+      }),
+      Object.freeze({
+        label: 'New file',
+        icon: 'M13 3.5H7.2A1.7 1.7 0 0 0 5.5 5.2v13.6A1.7 1.7 0 0 0 7.2 20.5h9.6a1.7 1.7 0 0 0 1.7-1.7V9zM13 3.5V9h5.5',
+        feature: 'file.write',
+        run: () => $('#newFileBtn') && $('#newFileBtn').click()
+      }),
+      Object.freeze({
+        label: 'New branch',
+        icon: 'M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8',
+        feature: 'branches.write',
+        run: () => $('#newBranchBtn') && $('#newBranchBtn').click()
+      }),
+      Object.freeze({
+        label: 'Push files',
+        icon: 'M12 17V5M6 11l6-6 6 6M4 20h16',
+        run: () => switchTab('upload')
+      })
+    ])
   })
 });
 
+/*
+ * The floating action is a menu, not a button. Each screen offers a different
+ * set of next steps, and below the breakpoint the top bar has no room for any
+ * of them, so the set travels with the screen. The primary entry stays first,
+ * so the reach for the obvious thing is still one press and one tap.
+ *
+ * The entries are built fresh on each screen rather than hidden and reshown,
+ * because a menu that keeps another screen's entries in the accessibility tree
+ * offers a screen-reader user actions that are not on the screen in front of
+ * them.
+ */
+function closeFloatingActions({ restoreFocus = true } = {}) {
+  const fab = $('#paletteFab');
+  const menu = $('#fabMenu');
+  if (!fab || !menu || menu.hidden) return;
+  menu.hidden = true;
+  fab.setAttribute('aria-expanded', 'false');
+  if (restoreFocus && fab.offsetParent !== null) fab.focus();
+}
+
+function openFloatingActions() {
+  const fab = $('#paletteFab');
+  const menu = $('#fabMenu');
+  if (!fab || !menu) return;
+  menu.hidden = false;
+  fab.setAttribute('aria-expanded', 'true');
+  const first = menu.querySelector('.nv-fab-item:not([hidden])');
+  if (first) first.focus();
+}
+
 function paintFloatingAction(name) {
   const fab = $('#paletteFab');
+  const menu = $('#fabMenu');
   const action = FLOATING_ACTIONS[name];
-  if (!fab) return;
+  if (!fab || !menu) return;
+  closeFloatingActions({ restoreFocus: false });
   fab.hidden = !action;
+  menu.innerHTML = '';
   if (!action) return;
   fab.setAttribute('aria-label', action.label);
   fab.title = action.label;
-  if (action.feature) fab.dataset.feature = action.feature;
-  else delete fab.dataset.feature;
-  const path = fab.querySelector('svg path');
-  const frame = fab.querySelector('svg rect');
-  if (path) path.setAttribute('d', action.icon);
-  if (frame) frame.style.display = name === 'work' ? '' : 'none';
+  fab.setAttribute('aria-expanded', 'false');
+  menu.setAttribute('aria-label', action.label);
+
+  for (const item of action.items) {
+    const entry = document.createElement('button');
+    entry.type = 'button';
+    entry.className = 'nv-fab-item';
+    if (item.feature) entry.dataset.feature = item.feature;
+    const mark = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    mark.setAttribute('class', 'ico');
+    mark.setAttribute('viewBox', '0 0 24 24');
+    mark.setAttribute('aria-hidden', 'true');
+    if (item.frame) {
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', '3.5'); rect.setAttribute('y', '5');
+      rect.setAttribute('width', '17'); rect.setAttribute('height', '14'); rect.setAttribute('rx', '3');
+      mark.appendChild(rect);
+    }
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', item.icon);
+    mark.appendChild(path);
+    const text = document.createElement('span');
+    text.textContent = item.label;
+    entry.append(mark, text);
+    /*
+     * Each entry sits in a wrapper so the capability note, which is inserted
+     * as the next sibling of the control it gates, stays beside its own entry
+     * rather than becoming a loose child of the group.
+     */
+    const slot = document.createElement('div');
+    slot.className = 'nv-fab-slot';
+    slot.appendChild(entry);
+    entry.addEventListener('click', () => {
+      /*
+       * Focus returns to the dock before the action runs, not after. Anything
+       * the action opens records what was focused when it opened, and the
+       * entry that was pressed is removed with the menu -- so a dialog that
+       * restored focus faithfully was handing it to an element that no longer
+       * existed, and it landed on the body instead.
+       */
+      closeFloatingActions();
+      runCapabilityAction(item.feature, item.run);
+    });
+    menu.appendChild(slot);
+  }
   fab.dataset.action = name;
+  /* Freshly built entries have to be re-read against the session's
+     capabilities, or a blocked action arrives looking available. */
+  if (window.NebulaCapabilityUI && window.NebulaCapabilityUI.apply) window.NebulaCapabilityUI.apply(menu);
 }
 
 $('#paletteFab') && $('#paletteFab').addEventListener('click', () => {
-  const action = FLOATING_ACTIONS[$('#paletteFab').dataset.action || ''];
-  if (!action) return;
-  runCapabilityAction(action.feature, action.run);
+  const menu = $('#fabMenu');
+  if (!menu) return;
+  if (menu.hidden) openFloatingActions();
+  else closeFloatingActions();
+});
+
+/*
+ * Escape closes it and hands focus back, and a press anywhere outside closes it
+ * without stealing focus from wherever the reader chose to go.
+ */
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  const menu = $('#fabMenu');
+  const fab = $('#paletteFab');
+  if (!menu || menu.hidden) return;
+  /*
+   * Only when the reader is actually in it, and never in the capture phase.
+   * Listening first and stopping the event meant that any dialog opened while
+   * these actions happened to be showing could no longer be dismissed with
+   * Escape: this closed the actions behind it and swallowed the key. Escape
+   * belongs to whatever holds focus.
+   */
+  const active = document.activeElement;
+  if (!menu.contains(active) && active !== fab) return;
+  closeFloatingActions();
+});
+document.addEventListener('pointerdown', event => {
+  const menu = $('#fabMenu');
+  const fab = $('#paletteFab');
+  if (!menu || menu.hidden) return;
+  if (menu.contains(event.target) || (fab && fab.contains(event.target))) return;
+  closeFloatingActions({ restoreFocus: false });
 });
 
 /* Which screen owns which piece of the design's artwork. */
@@ -1159,8 +1316,11 @@ function repoCard(r) {
   el.setAttribute('role', 'button');
   el.setAttribute('aria-label', `Open repository ${r.full_name}`);
   el.innerHTML = `
-    <h3>${r.private ? LOCK_SVG : ''}<span class="repo-name"></span>
-      <span class="repo-badge ${r.private ? 'repo-badge-private' : 'repo-badge-healthy'}">${r.private ? 'Private' : 'Public'}</span></h3>
+    <div class="repo-head">
+      <span class="repo-sigil-slot"></span>
+      <h3>${r.private ? LOCK_SVG : ''}<span class="repo-name"></span>
+        <span class="repo-badge ${r.private ? 'repo-badge-private' : 'repo-badge-healthy'}">${r.private ? 'Private' : 'Public'}</span></h3>
+    </div>
     <p class="desc"></p>
     <div class="repo-meta">
       ${r.language ? `<span><span class="lang-dot"></span>${esc(r.language)}</span>` : ''}
@@ -1169,6 +1329,16 @@ function repoCard(r) {
     <span class="repo-open">Open workspace</span>`;
   el.querySelector('h3 .repo-name').textContent = r.full_name;
   el.querySelector('.desc').textContent = r.description || 'No description';
+  /*
+   * A mark derived from the repository's own name, so the inventory is
+   * something to recognise rather than only to read. Decoration beside the
+   * name and never instead of it: it is hidden from assistive technology, and
+   * a session that cannot draw it loses nothing but the picture.
+   */
+  if (window.NebulaRepoSigil) {
+    const sigil = window.NebulaRepoSigil.render(r.full_name);
+    if (sigil) el.querySelector('.repo-sigil-slot').appendChild(sigil);
+  }
   const open = () => openRepo(r.owner, r.name);
   el.addEventListener('click', open);
   el.addEventListener('keydown', event => {

@@ -31,7 +31,7 @@ async function redeemInvitation(page) {
 
 /* Open the palette and run one entry by the name a reader reads. */
 async function runFromPalette(page, name) {
-  await ui.button(page, 'Command palette').click();
+  await (await ui.action(page, 'Command palette')).click();
   await ui.palette(page).fill(name);
   await ui.paletteOption(page, new RegExp(name, 'i')).first().click();
 }
@@ -66,7 +66,7 @@ test('required alpha screens have no critical or serious axe violations', async 
   await expectNoHighImpactViolations(page, 'evidence detail');
   await ui.button(ui.dialog(page, 'Evidence package exported'), 'Done').click();
 
-  await ui.button(page, 'Command palette').focus();
+  await (await ui.action(page, 'Command palette')).focus();
   await page.evaluate(() => { void openSettings(); });
   await expect(page.locator('[data-alpha-privacy-action="disconnect"]')).toBeVisible();
   await expect(page.locator('[data-alpha-privacy-action="delete"]')).toBeVisible();
@@ -104,7 +104,7 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await expect(ui.screen(page, 'work')).toBeVisible();
   await page.waitForTimeout(350);
 
-  await ui.button(page, 'Command palette').focus();
+  await (await ui.action(page, 'Command palette')).focus();
   await page.keyboard.press('Enter');
   await ui.palette(page).fill('New file');
   /*
@@ -124,7 +124,7 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await expect(ui.status(page, 'Notifications')).toContainText('Created keyboard-proof.txt');
   await expect(ui.status(page, 'Notifications')).toHaveAttribute('aria-live', 'polite');
 
-  await ui.button(page, 'Command palette').focus();
+  await (await ui.action(page, 'Command palette')).focus();
   await page.keyboard.press('Enter');
   await page.locator('#paletteInput').fill('Settings');
   await page.keyboard.press('Enter');
@@ -156,7 +156,7 @@ test('keyboard-only tester path exposes visible focus and status announcements',
 
 test('dialogs contain focus, restore it, and trust states do not depend on color', async ({ page }) => {
   await openConnectedRepository(page, { mutation: 'blocked' });
-  const trigger = ui.button(page, 'Command palette');
+  const trigger = await ui.action(page, 'Command palette');
   await trigger.focus();
   await page.evaluate(() => { void openSettings(); });
   await page.locator('#modalOk').focus();

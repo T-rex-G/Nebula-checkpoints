@@ -14,7 +14,7 @@
     "docs:check": "node scripts/generate-continuity-docs.js --check",
     "test": "npm run test:unit",
     "posttest": "node test/gitea-file-mutations.test.js && node test/gitea-file-mutation-server.test.js",
-    "posttest:unit": "node test/alpha17-restore-runner.test.js && node test/alpha17-restore-witness.test.js && node test/workspace-pulse.test.js && node test/nebula-visuals-contract.test.js",
+    "posttest:unit": "node test/alpha17-restore-runner.test.js && node test/alpha17-restore-witness.test.js && node test/workspace-pulse.test.js && node test/repo-sigil.test.js && node test/service-worker-offline.test.js && node test/nebula-visuals-contract.test.js",
     "lint": "eslint .",
     "verify": "node scripts/verify.js",
     "foundation:gate": "node scripts/foundation-gate.js",

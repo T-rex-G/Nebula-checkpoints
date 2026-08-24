@@ -52,8 +52,24 @@ function commandObjects(label) {
     .filter(Boolean);
 }
 
+/*
+ * The palette's own entries, told apart from anywhere else in the interface
+ * that offers the same action. Every palette command declares a kind; the
+ * floating action's entries do not. Without that distinction the arrival of a
+ * second placement for "New branch" read as a duplicate palette command, when
+ * what had actually happened is that the action is now reachable from two
+ * places -- which is fine, and is exactly what the check below insists on:
+ * wherever an action is offered, it is gated on the same capability.
+ */
 function commandObject(label) {
-  return uniqueMatch(commandObjects(label), `command ${label}`);
+  const palette = commandObjects(label).filter(entry => /\bkind:\s*'/.test(entry));
+  return uniqueMatch(palette, `palette command ${label}`);
+}
+
+function everyPlacement(label) {
+  const placements = commandObjects(label);
+  assert(placements.length >= 1, `${label} is offered nowhere`);
+  return placements;
 }
 
 assert.deepStrictEqual(commandObjects('Synthetic command that is absent'), []);
@@ -132,8 +148,14 @@ for (const [label, feature] of [
 ]) {
   const command = commandObject(label);
   assert(command, `command ${label} is missing`);
-  assert(command.includes(`feature: '${feature}'`),
-    `command ${label} must map to ${feature}`);
+  /*
+   * Every placement, not just the palette's. An action that is gated in the
+   * palette and ungated in the floating menu is an action with no gate.
+   */
+  for (const placement of everyPlacement(label)) {
+    assert(placement.includes(`feature: '${feature}'`),
+      `${label} must map to ${feature} wherever it is offered`);
+  }
 }
 for (const [label, feature] of [
   ['Pull requests', 'pulls.read'],

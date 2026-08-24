@@ -68,6 +68,7 @@ const DUAL_TARGET_MODULES = Object.freeze([
   'public/export-safety.js',
   'public/governance-ui.js',
   'public/offline-cache-policy.js',
+  'public/repo-sigil.js',
   'public/workspace-pulse.js'
 ]);
 

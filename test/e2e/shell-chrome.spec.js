@@ -55,35 +55,57 @@ test.describe('desktop shell', () => {
   });
 });
 
-test('the floating action carries the action of the screen it is on', async ({ page }) => {
-  await openWorkspace(page);
-  const fab = page.locator('#paletteFab');
+/*
+ * Below the breakpoint only. Above it the top bar has room for these actions
+ * and carries them directly, so the dock is not on the screen at all -- a
+ * check that ran there was reading attributes off a control no one can press.
+ */
+test.describe('the floating action', () => {
+  test.skip(({ viewport }) => !viewport || viewport.width >= 901, 'the dock exists below 901px');
 
-  /*
-   * One control, three jobs. The overview's next step is the inventory, the
-   * inventory's is a new repository, and the workspace's is the palette --
-   * and the control says which it is, rather than being a fixed icon whose
-   * meaning a reader has to learn.
-   */
-  await expect(fab).toHaveAttribute('aria-label', 'Open repository browser');
+  test('carries the actions of the screen it is on', async ({ page }) => {
+    await openWorkspace(page);
+    const dock = page.locator('#paletteFab');
 
-  await ui.button(page, 'Open repository browser').first().click();
-  await expect(ui.screen(page, 'repos')).toBeVisible();
-  await expect(fab).toHaveAttribute('aria-label', 'Create repository');
+    /*
+     * Each screen offers a different set. What is guarded is not the wording of
+     * any one entry but the property that makes the control worth having: the
+     * menu on one screen is not the menu on another, and the entries it offers
+     * belong to the screen in front of the reader. A menu that kept every
+     * screen's entries would pass a check for the presence of any single one.
+     */
+    const entries = async () => {
+      if ((await dock.getAttribute('aria-expanded')) !== 'true') await dock.click();
+      await expect(page.locator('#fabMenu')).toBeVisible();
+      return page.locator('#fabMenu .nv-fab-item').allInnerTexts();
+    };
 
-  await page.locator('.repo-card').first().click();
-  await page.locator('#page-work.active').waitFor();
-  await expect(fab).toHaveAttribute('aria-label', 'Command palette');
+    await expect(dock).toHaveAttribute('aria-controls', 'fabMenu');
+    const onOverview = await entries();
+    expect(onOverview).toContain('Open repository browser');
+    await page.keyboard.press('Escape');
+
+    await ui.enterRepositories(page);
+    await expect(ui.screen(page, 'repos')).toBeVisible();
+    const onRepos = await entries();
+    expect(onRepos).toContain('Create repository');
+    expect(onRepos).not.toContain('Open repository browser');
+    await page.keyboard.press('Escape');
+
+    await page.locator('.repo-card').first().click();
+    await page.locator('#page-work.active').waitFor();
+    const onWork = await entries();
+    expect(onWork).toContain('Command palette');
+    expect(onWork).not.toContain('Create repository');
+
+    /* Escape closes it and gives focus back to the control that opened it. */
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#fabMenu')).toBeHidden();
+    await expect(dock).toBeFocused();
+    await expect(dock).toHaveAttribute('aria-expanded', 'false');
+  });
 });
 
-/*
- * Every screen inside the plate, not just the two that were remembered. The
- * workbench read no inset at all, so its file tree spent every desktop session
- * underneath the sidebar -- present in the accessibility tree, reachable by
- * keyboard, and completely hidden from anyone looking at the screen. The guard
- * is the same for all three: whatever the rail's width, the content region
- * begins where the rail ends.
- */
 test.describe('desktop shell regions', () => {
   test.skip(({ viewport }) => !viewport || viewport.width < 1140, 'the sidebar exists above 1140px');
 
@@ -179,5 +201,77 @@ test.describe('the application plate', () => {
     const rail = await page.getByRole('navigation', { name: 'Primary' }).boundingBox();
     expect(rail.x).toBeGreaterThanOrEqual(box.x);
     expect(rail.y).toBeGreaterThanOrEqual(box.y);
+  });
+});
+
+/*
+ * The mobile menu had no height limit and no overflow. It carries fourteen
+ * entries, so it grew past the bottom of the screen and everything below the
+ * fold was clipped away with no way to reach it -- Settings, the last entry,
+ * simply did not exist on a phone. The guard is that the last entry can be
+ * brought into view, which is the property that actually matters; capping the
+ * height without making it scroll would pass a check on height alone.
+ */
+test.describe('the mobile menu', () => {
+  test.skip(({ viewport }) => !viewport || viewport.width >= 900, 'the menu is a phone surface');
+
+  test('scrolls, so its last entry can be reached', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/files');
+    await page.locator('#page-work.active').waitFor();
+
+    await page.locator('[data-nav="more"]').click();
+    const sheet = page.locator('#sheet');
+    await expect(sheet).toBeVisible();
+
+    /*
+     * It must not extend past the screen it is drawn on -- measured against
+     * the viewport, which is what a fixed layer is positioned against.
+     * boundingBox() reports document coordinates, so on a page scrolled down a
+     * little it put a sheet that fits perfectly well past the bottom of the
+     * screen by exactly the scroll offset.
+     *
+     * And measured once it has arrived. The sheet slides up from thirty pixels
+     * below its resting place, so a rect read while that is still running is
+     * the rect of a sheet part way through the journey: it reported a sheet
+     * hanging off the bottom of the screen by whatever was left of the slide.
+     */
+    const box = await sheet.evaluate(async node => {
+      await Promise.all(node.getAnimations().map(animation => animation.finished.catch(() => {})));
+      const rect = node.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom, viewport: window.innerHeight };
+    });
+    expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.bottom).toBeLessThanOrEqual(box.viewport + 1);
+
+    /*
+     * The entry has to end up inside the sheet's own box, not merely inside
+     * the viewport. Asking Playwright to scroll it into view and then checking
+     * the viewport passes either way: with no scroll container it scrolls the
+     * page instead, which moves the whole sheet and satisfies the check while
+     * the entry is still clipped away by the sheet's overflow. The clipping is
+     * the defect, so the clipping is what the guard has to measure.
+     */
+    const last = sheet.locator('.sheet-item').last();
+    const reading = await sheet.evaluate(node => {
+      const overflows = node.scrollHeight > node.clientHeight + 1;
+      /*
+       * overflow:hidden is still scrollable from script -- setting scrollTop
+       * moves it -- and is not scrollable by a finger at all. So the state is
+       * read before scrolling: an overflowing box that is not auto or scroll
+       * is a box whose tail no one can reach, however well scrollTop works.
+       */
+      const usable = /^(auto|scroll)$/.test(getComputedStyle(node).overflowY);
+      node.scrollTop = node.scrollHeight;
+      const box = node.getBoundingClientRect();
+      const entry = node.querySelector('.sheet-item:last-of-type').getBoundingClientRect();
+      return { overflows, usable, top: entry.top - box.top, bottom: box.bottom - entry.bottom };
+    });
+    if (reading.overflows) expect(reading.usable, 'an overflowing menu has to be scrollable').toBe(true);
+    expect(reading.top).toBeGreaterThanOrEqual(-1);
+    expect(reading.bottom).toBeGreaterThanOrEqual(-1);
+
+    /* And it has to be pressable where it ended up, not merely painted. */
+    await expect(last).toBeEnabled();
   });
 });

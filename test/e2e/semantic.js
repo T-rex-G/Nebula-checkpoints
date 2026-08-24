@@ -82,6 +82,45 @@ async function focusAndConfirm(expect, locator) {
   return locator;
 }
 
+/*
+ * Reach an action however the screen in front of you offers it.
+ *
+ * The same action lives in two places by design: the top bar carries it where
+ * there is room, and below the breakpoint it moves into the floating menu,
+ * which is closed until pressed. A journey that asked for the control by name
+ * therefore found it on a desktop and found nothing on a phone -- not because
+ * the action was missing, but because reaching it takes one press first. This
+ * opens the menu only when the named control is not already on screen, so the
+ * step still fails if the action is genuinely gone.
+ */
+/*
+ * The control that holds focus after an action has been activated and whatever
+ * it opened has closed.
+ *
+ * Where the action lives in the top bar, that is the action's own button.
+ * Where it lives in the floating dock, activating an entry closes the dock --
+ * so the entry is gone by the time focus comes back, and the control the
+ * reader returns to is the dock itself. A journey that asserted focus on the
+ * entry was asking about an element the interface had correctly removed.
+ */
+async function actionAnchor(page, name) {
+  const dock = page.getByRole('button', { name: /actions$/i });
+  if (await dock.isVisible().catch(() => false)) return dock;
+  return page.getByRole('button', { name, exact: true });
+}
+
+async function action(page, name) {
+  const direct = page.getByRole('button', { name, exact: true });
+  if (await direct.isVisible().catch(() => false)) return direct;
+
+  const dock = page.getByRole('button', { name: /actions$/i });
+  if (await dock.isVisible().catch(() => false)) {
+    if ((await dock.getAttribute('aria-expanded')) !== 'true') await dock.click();
+    return page.getByRole('group').getByRole('button', { name, exact: true });
+  }
+  return direct;
+}
+
 function alert(target) {
   return target.getByRole('alert');
 }
@@ -159,6 +198,8 @@ async function enterRepositories(page) {
 module.exports = Object.freeze({
   PRODUCT_NAME,
   SCREENS,
+  action,
+  actionAnchor,
   alert,
   button,
   enterRepositories,

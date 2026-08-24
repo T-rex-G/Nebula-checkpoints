@@ -80,13 +80,19 @@ async function captureMobilePalette(context, out, mode) {
   process.stdout.write(`work-${mode.name}\n`);
 
   /*
-   * Addressed by id, not by name: the top bar and the floating action share
-   * the accessible name "Command palette", and only one of them exists at this
-   * width. A review script wants the specific control it is photographing.
+   * The floating action now opens a menu, so there are two things worth
+   * photographing: the menu a thumb reaches, and the palette one of its
+   * entries opens.
    */
   const fab = page.locator('#paletteFab');
   await fab.waitFor({ state: 'visible' });
   await fab.click();
+  await page.locator('#fabMenu:not([hidden])').waitFor();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(out, `actions-${mode.name}.png`) });
+  process.stdout.write(`actions-${mode.name}\n`);
+
+  await page.locator('#fabMenu .nv-fab-item', { hasText: 'Command palette' }).click();
   await page.locator('#paletteScrim:not([hidden])').waitFor();
   await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(out, `palette-${mode.name}.png`) });

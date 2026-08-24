@@ -679,19 +679,37 @@
     <button data-nav="more"><svg width="21" height="21" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg><span>More</span></button>
   </nav>
 
-  <!--
-    One action, two placements. The top bar carries the palette on wide
-    screens; below the breakpoint that bar has no room, so the same action
-    floats instead. Exactly one is ever displayed, so a reader -- and anything
-    addressing the interface by name -- finds a single "Command palette".
-  -->
-  <button class="nv-fab show-sm" id="paletteFab" type="button" aria-label="Command palette"
-    title="Command palette (Ctrl+K)">
+</main>
+
+<!--
+  The screen's actions, where the top bar cannot carry them. Above the
+  breakpoint the bar offers them directly; below it there is no room, so they
+  travel with the screen as a menu behind one press. The entries are built
+  per screen rather than hidden and reshown, so the accessibility tree never
+  offers an action that belongs to a screen the reader is not on.
+
+  It is a disclosure of buttons, not role="menu". That role promises menu
+  keyboard semantics -- arrow keys, typeahead, wrapping -- which this does not
+  implement, and it forbids any child that is not a menu item, which put the
+  capability status notes in violation of it. A labelled group of buttons is
+  what this actually is: Tab walks it, Escape closes it, and every entry keeps
+  its own name.
+
+  It sits outside the screens, not inside one of them. It used to live at the
+  end of the workbench, so on every other screen it was a descendant of a
+  hidden page: present in the markup, painting nothing, and pressable by
+  nobody -- which is why the action that was supposed to change with the
+  screen only ever appeared on one.
+-->
+<div class="nv-fab-dock show-sm">
+  <div class="nv-fab-menu" id="fabMenu" role="group" hidden></div>
+  <button class="nv-fab" id="paletteFab" type="button" aria-expanded="false"
+    aria-controls="fabMenu" aria-label="Workspace actions" title="Workspace actions">
     <svg width="21" height="21" class="ico" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/>
+      <path d="M12 5v14M5 12h14"/>
     </svg>
   </button>
-</main>
+</div>
 
 <!-- mobile "More" sheet -->
 <div class="sheet-scrim" id="sheetScrim" hidden>
@@ -814,6 +832,7 @@
 <script src="/governance-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/alpha-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/repo-sigil.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/nebula-visuals.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/trust-ui.js?v=__NV_ASSET_VERSION__"></script>

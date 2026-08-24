@@ -75,3 +75,109 @@ test('the floating action carries the action of the screen it is on', async ({ p
   await page.locator('#page-work.active').waitFor();
   await expect(fab).toHaveAttribute('aria-label', 'Command palette');
 });
+
+/*
+ * Every screen inside the plate, not just the two that were remembered. The
+ * workbench read no inset at all, so its file tree spent every desktop session
+ * underneath the sidebar -- present in the accessibility tree, reachable by
+ * keyboard, and completely hidden from anyone looking at the screen. The guard
+ * is the same for all three: whatever the rail's width, the content region
+ * begins where the rail ends.
+ */
+test.describe('desktop shell regions', () => {
+  test.skip(({ viewport }) => !viewport || viewport.width < 1140, 'the sidebar exists above 1140px');
+
+  test('no screen lays its content underneath the sidebar', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/files');
+    await page.locator('#page-work.active').waitFor();
+
+    const rail = page.getByRole('navigation', { name: 'Primary' });
+    const regions = [
+      {
+        name: 'workbench',
+        open: async () => {
+          await rail.getByRole('button', { name: 'Classic workbench' }).click();
+          await page.locator('#page-work.active').waitFor();
+        },
+        locator: page.locator('#page-work .workspace')
+      },
+      {
+        name: 'overview',
+        open: async () => {
+          await rail.getByRole('button', { name: 'Overview' }).click();
+          await expect(ui.screen(page, 'overview')).toBeVisible();
+        },
+        locator: page.locator('#page-overview .container')
+      },
+      {
+        name: 'repositories',
+        open: async () => {
+          await rail.getByRole('button', { name: 'Repositories' }).click();
+          await expect(ui.screen(page, 'repos')).toBeVisible();
+        },
+        locator: page.locator('#page-repos .container')
+      }
+    ];
+
+    for (const collapsed of [false, true]) {
+      if (collapsed) await ui.button(page, 'Collapse the sidebar').click();
+      for (const region of regions) {
+        await region.open();
+        /* Polled, because the inset animates: the frame after a click still
+         * holds the previous width. */
+        await expect.poll(async () => {
+          const edge = await rail.boundingBox();
+          const content = await region.locator.boundingBox();
+          return content ? Math.round(content.x - (edge.x + edge.width)) : null;
+        }, { message: `${region.name} must start after the rail ends` }).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+});
+
+/*
+ * The plate is the application's ground -- the surface the sidebar and every
+ * screen sit on. It was a pseudo-element that another rule already claimed:
+ * body::after belongs to the standalone status-bar backdrop as well, and an
+ * element has only one. The two declarations merged, the status bar's
+ * height:env(safe-area-inset-top) survived because nothing in the plate's own
+ * rule set a height, and an explicit height beats a bottom offset -- so the
+ * plate computed to zero pixels tall. All that ever reached the screen was its
+ * two borders, a 2px band across the top of the page whose corner radii CSS
+ * clamps away at that height. The ground was never drawn, which is exactly
+ * what it looked like.
+ */
+test.describe('the application plate', () => {
+  test.skip(({ viewport }) => !viewport || viewport.width < 1140, 'the plate is drawn above 1140px');
+
+  test('is a surface with real height and corners, not a hairline', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/');
+    await expect(ui.screen(page, 'overview')).toBeVisible();
+
+    const plate = page.locator('#shellPlate');
+    const box = await plate.boundingBox();
+    const viewport = page.viewportSize();
+
+    /* It has to cover the workspace, not sit on top of it as a strip. */
+    expect(box.height).toBeGreaterThan(viewport.height * 0.8);
+    expect(box.width).toBeGreaterThan(viewport.width * 0.8);
+
+    /*
+     * And its corners have to be round. CSS scales border radii down when the
+     * box is too small to hold them, so a collapsed plate reports a radius it
+     * does not draw -- comparing the declared radius against the box is what
+     * catches that, not reading the radius alone.
+     */
+    const radius = await plate.evaluate(node => parseFloat(getComputedStyle(node).borderTopRightRadius));
+    expect(radius).toBeGreaterThan(8);
+    expect(box.height).toBeGreaterThan(radius * 2);
+    expect(box.width).toBeGreaterThan(radius * 2);
+
+    /* The sidebar sits on the plate; it must not hang off it. */
+    const rail = await page.getByRole('navigation', { name: 'Primary' }).boundingBox();
+    expect(rail.x).toBeGreaterThanOrEqual(box.x);
+    expect(rail.y).toBeGreaterThanOrEqual(box.y);
+  });
+});

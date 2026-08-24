@@ -1280,9 +1280,10 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * a background on each part, so the sidebar and the content cannot drift out
  * of alignment or show a seam between two separately-rounded boxes.
  */
+#shellPlate{display:none}
 @media (min-width:1140px){
-  body:has(#page-overview.active, #page-repos.active, #page-work.active)::after{
-    content:'';position:fixed;inset:22px;z-index:-1;pointer-events:none;
+  body:has(#page-overview.active, #page-repos.active, #page-work.active) #shellPlate{
+    display:block;position:fixed;inset:22px;z-index:-1;pointer-events:none;
     border-radius:24px;border:1px solid var(--sb);
     background:var(--shellArt),var(--shellSolid);
     box-shadow:var(--shellShadow)}
@@ -1306,12 +1307,38 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    * The easing and duration are the reference's own, taken from the transition
    * it puts on this exact interaction.
    */
-  #page-overview .container,#page-repos .container,#page-work .container{
-    max-width:none;margin-left:276px;margin-right:26px;
+  /*
+   * One inset, read by every region inside the plate. It was written out per
+   * screen before, and the workbench was simply left off the list -- so its
+   * file tree spent every desktop session underneath the sidebar, unreachable,
+   * while the two screens that were on the list reflowed correctly. A screen
+   * that forgets to read this is a screen that overlaps the rail, which is
+   * obvious; a screen that reads it cannot fall out of step.
+   */
+  body{--shell-inset:276px}
+  body[data-rail="collapsed"]{--shell-inset:100px}
+
+  #page-overview .container,#page-repos .container,#page-work .container,
+  #page-work .workspace{
+    max-width:none;margin-left:var(--shell-inset);margin-right:26px;
     transition:margin-left .34s cubic-bezier(.4,0,.2,1)}
+  /* The workbench is a full-height grid, so it keeps its own padding and takes
+     the inset as a margin; the right margin is the plate's, not the page's. */
+  #page-work .workspace{margin-right:23px;padding-left:0;padding-right:0}
+  /*
+   * No backdrop blur on the bar inside the plate. Chromium paints a
+   * backdrop-filtered region as a plain rectangle and does not clip it to the
+   * element's border radius, so the bar's rounded top-right corner had a
+   * square sheet of filtered backdrop sticking out past it -- visible as a
+   * hard-edged band the moment the page is zoomed. The blur was doing no work
+   * here in any case: the plate behind the bar is opaque, so there is nothing
+   * to see through it. Below this width the bar floats over scrolling content
+   * and keeps its glass.
+   */
   #page-overview .topbar,#page-repos .topbar,#page-work .topbar{
-    left:276px;right:23px;top:23px;border-radius:0 23px 0 0;
+    left:var(--shell-inset);right:23px;top:23px;border-radius:0 23px 0 0;
     background:transparent;border-bottom:1px solid var(--sb);
+    backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none;
     transition:left .34s cubic-bezier(.4,0,.2,1)}
   .nv-rail{transition:width .34s cubic-bezier(.4,0,.2,1),padding .34s ease}
   .nv-fab{left:auto}
@@ -1359,12 +1386,6 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   body[data-rail="collapsed"] .nv-rail-head,
   body[data-rail="collapsed"] .nv-rail-section{justify-content:center}
   body[data-rail="collapsed"] .nv-rail-collapse svg{transform:scaleX(-1)}
-  body[data-rail="collapsed"] #page-overview .container,
-  body[data-rail="collapsed"] #page-repos .container,
-  body[data-rail="collapsed"] #page-work .container{margin-left:100px}
-  body[data-rail="collapsed"] #page-overview .topbar,
-  body[data-rail="collapsed"] #page-repos .topbar,
-  body[data-rail="collapsed"] #page-work .topbar{left:100px}
 }
 .nv-rail-nav{list-style:none;display:grid;gap:4px;margin:0;padding:0;flex:1;align-content:start}
 /*

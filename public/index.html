@@ -35,6 +35,18 @@
   background reading as the old product however well the tokens matched.
 -->
 <div id="nebula" aria-hidden="true"></div>
+<!--
+  The application shell's plate. An element of its own, not a pseudo-element:
+  it used to be body::after, which the standalone status-bar backdrop also
+  claims, and an element has only one ::after. The two rules merged, the
+  status bar's height:env(safe-area-inset-top) survived the merge -- nothing in
+  the plate's own rule set a height -- and an explicit height beats the bottom
+  offset, so the plate computed to zero pixels tall. What reached the screen
+  was its two borders: a 2px strip across the top of the page whose radii CSS
+  clamps to nothing at that height, which is the hard square-ended band visible
+  above the top bar. The workspace ground was never drawn at all.
+-->
+<div id="shellPlate" aria-hidden="true"></div>
 
 <!--
   The mark, once, as a sprite.

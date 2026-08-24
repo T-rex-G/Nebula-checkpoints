@@ -407,3 +407,118 @@ test('the inventory artwork is not clipped by the edge of the screen', async ({ 
   const overflow = await page.evaluate(() => document.body.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
+
+/*
+ * The neural section, which is where two layout faults surfaced at once.
+ *
+ * On a phone, opening it pushed the layout viewport from 393 pixels out to
+ * 892 and zoomed the whole application down to fit -- because three
+ * long-labelled buttons in its header could not wrap and could not shrink, so
+ * their combined minimum width became the page's. Nothing about that is
+ * visible as an overflow: the document reports no horizontal scroll, because
+ * the viewport itself moved. The width of the viewport is the thing to watch.
+ *
+ * On a desktop its three columns were chosen by a media query, which asks how
+ * wide the window is. The pane is not the window -- inside the application
+ * plate it is a little over eight hundred pixels on a 1440px screen -- so a
+ * layout whose tracks add up to 946 overflowed its own container while the
+ * window stayed comfortably above the breakpoint.
+ */
+test.describe('the neural section', () => {
+  async function openNeural(page) {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/files');
+    await page.locator('#page-work.active').waitFor();
+    await page.evaluate(() => window.switchTab('neural'));
+    await expect(page.locator('#tab-neural.active')).toBeVisible();
+  }
+
+  test('does not widen the page it opens on', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/files');
+    await page.locator('#page-work.active').waitFor();
+
+    const before = await page.evaluate(() => window.innerWidth);
+    await page.evaluate(() => window.switchTab('neural'));
+    await expect(page.locator('#tab-neural.active')).toBeVisible();
+
+    await expect.poll(() => page.evaluate(() => window.innerWidth),
+      { message: 'opening the neural section must not move the viewport' }).toBe(before);
+    const overflow = await page.evaluate(() => document.body.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+
+    /*
+     * And the mechanism, because the symptom is not reliably reproducible.
+     *
+     * The fault was a child of the pane that could not shrink: a grid item's
+     * minimum width defaults to its content's minimum, so an item whose
+     * content will not fold becomes a floor the track cannot go below, and
+     * that floor propagates outward until the browser widens the layout
+     * viewport and zooms the page down to fit. Nothing reports it as an
+     * overflow, because the viewport is what moved.
+     *
+     * Whether it bites depends on what the section has loaded -- with an empty
+     * signal replay everything folds and the broken layout looks fine, which
+     * is why a check written against the symptom alone passed on the code that
+     * had the defect. What holds regardless is that no child of the pane
+     * carries that floor.
+     */
+    const floors = await page.evaluate(() => {
+      const shell = document.querySelector('.neural-shell');
+      return [...shell.children]
+        .map(node => ({ tag: node.tagName + '.' + String(node.className).split(' ')[0], min: getComputedStyle(node).minWidth }))
+        .filter(entry => entry.min === 'auto');
+    });
+    expect(floors, 'every child of the neural pane must be able to shrink').toEqual([]);
+  });
+
+  test('lays itself out inside its own pane, not the window', async ({ page }) => {
+    await openNeural(page);
+
+    /*
+     * Measured against the pane rather than the viewport, because the defect
+     * was a pane narrower than the window: everything fitted the screen and
+     * still overflowed the surface it was drawn on.
+     */
+    const escaping = await page.evaluate(() => {
+      const shell = document.querySelector('.neural-shell');
+      const bounds = shell.getBoundingClientRect();
+      const out = [];
+      for (const node of shell.children) {
+        const box = node.getBoundingClientRect();
+        if (box.width === 0) continue;
+        if (box.right > bounds.right + 1 || box.left < bounds.left - 1) {
+          out.push({ tag: node.tagName, over: Math.round(box.right - bounds.right) });
+        }
+      }
+      return out;
+    });
+    expect(escaping).toEqual([]);
+  });
+});
+
+/*
+ * A message must not land on the navigation. Anchored to the bottom of a
+ * phone, a toast sat squarely over the bar and covered every destination in it
+ * for as long as it was up.
+ */
+test('a message never covers the bottom navigation', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor();
+
+  const nav = page.locator('#bottomNav');
+  if (!(await nav.isVisible())) return;
+
+  await page.evaluate(() => window.toast('A message that has to stay out of the way', 'ok'));
+  const toast = page.locator('#toasts');
+  await expect(toast).toBeVisible();
+
+  const clash = await page.evaluate(() => {
+    const box = id => document.getElementById(id).getBoundingClientRect();
+    const message = box('toasts');
+    const bar = box('bottomNav');
+    return !(message.bottom <= bar.top || message.top >= bar.bottom);
+  });
+  expect(clash, 'the message overlaps the navigation').toBe(false);
+});

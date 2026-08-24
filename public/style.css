@@ -321,7 +321,15 @@ em{color:var(--teal);font-style:normal}
 .btn-ghost{background:transparent}
 .btn-ghost:hover{background:rgba(255,255,255,0.08)}
 .btn-block{width:100%;margin-top:14px}
-.btn.small{padding:6px 12px;font-size:.8rem;min-height:36px;white-space:nowrap}
+/*
+ * Small buttons keep their label on one line, and are allowed to shrink to fit
+ * the row they are in. nowrap alone made every one of them unshrinkable: three
+ * long-labelled small buttons sit in the neural header, and on a phone their
+ * combined min-content width forced an 850px line, which pushed the layout
+ * viewport out from 393px to 892px and zoomed the whole application down to
+ * fit. A label that cannot wrap still has to be able to give ground.
+ */
+.btn.small{padding:6px 12px;font-size:.8rem;min-height:36px;white-space:nowrap;min-width:0}
 .btn.danger{color:var(--red)}
 .icon-btn{padding:8px 12px;min-width:44px}
 input[type=text],input[type=password],input[type=search],input[type=url],select,textarea{
@@ -374,7 +382,12 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .trust-error-dialog details code{display:block;margin-top:7px}
 .trust-error-close{margin-left:auto;display:block}
 @media(max-width:1100px){.trust-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.trust-summary article:last-child{grid-column:1/-1}}
-@media(max-width:600px){.trust-summary{grid-template-columns:1fr;padding:7px}.trust-summary article:last-child{grid-column:auto}}
+/* Two across, not one. Five full-width cards ran to five hundred pixels --
+   seventy per cent of a phone -- before the tab's own content began, and this
+   is the context for that content rather than the content itself. */
+@media(max-width:600px){.trust-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:7px}
+  .trust-summary article{padding:9px 10px}
+  .trust-summary article:last-child{grid-column:1/-1}}
 [aria-disabled="true"]{cursor:not-allowed}
 @media(max-width:700px){.alpha-access{width:100%;padding:22px}.alpha-access h1{max-width:12ch}}
 @media(prefers-reduced-motion:reduce){#page-alpha-access.active{animation:none}}
@@ -714,6 +727,25 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
 .toast-stack{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));right:16px;z-index:300;
   display:flex;flex-direction:column;gap:10px;max-width:min(380px,88vw)}
+/*
+ * On a phone they come down from the top instead.
+ *
+ * Anchored to the bottom they landed on the navigation -- a 44px toast at 20px
+ * from the bottom sits squarely over a 66px bar -- so every message covered
+ * Files, Code, Push, History and More for as long as it was up. Lifting it
+ * clear would have put it over the floating action instead. The top of the
+ * screen is empty here, and a message that arrives where nothing else lives
+ * does not have to be dodged.
+ */
+@media (max-width:900px){
+  .toast-stack{top:calc(var(--tbh, 62px) + env(safe-area-inset-top) + 18px);bottom:auto;
+    left:16px;right:16px;max-width:none;align-items:center}
+  /* Opaque, because it now sits over content rather than over the page's own
+     ground. A blurred panel is only legible while what passes under it is
+     quiet, and a message that cannot be read is not a message. */
+  .toast{width:100%;max-width:420px;background:var(--shellSolid);
+    backdrop-filter:none;-webkit-backdrop-filter:none}
+}
 .toast{padding:13px 18px;border-radius:12px;font-size:.85rem;
   background:rgba(10,10,26,0.72);backdrop-filter:blur(18px);
   border:1px solid var(--glass-border);box-shadow:0 10px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.14);
@@ -1008,7 +1040,29 @@ body.read-only .btn-primary{opacity:.55}
 .neural-tab-dot{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 12px var(--teal);animation:neuralTabPulse 1.8s ease-in-out infinite}
 @keyframes neuralTabPulse{50%{opacity:.45;transform:scale(.72)}}
 [data-motion="off"] .neural-tab-dot{animation:none}
-.neural-shell{display:grid;gap:14px;min-width:0}
+/*
+ * The neural pane measures itself.
+ *
+ * Its columns were chosen by @media, which asks how wide the window is -- and
+ * the pane is not the window. Inside the application plate it is a little over
+ * eight hundred pixels wide on a 1440px screen, so the three-column layout,
+ * whose tracks add up to 946, overflowed its own container while the window
+ * was comfortably wide enough for the breakpoint not to fire. A container
+ * query asks the question that actually matters.
+ */
+.neural-shell{display:grid;gap:14px;min-width:0;container-type:inline-size;container-name:neural}
+/*
+ * And its children may shrink.
+ *
+ * A grid item's minimum width defaults to its content's minimum, so an item
+ * whose content will not fold -- here the signal-replay timeline, once it has
+ * events in it -- becomes a floor the track cannot go below. That floor
+ * propagated all the way out: on a phone the page could not be 393 pixels
+ * wide, so the browser made the layout viewport 892 and zoomed the whole
+ * application down to fit. Nothing reports that as an overflow, because the
+ * viewport is what moved.
+ */
+.neural-shell>*{min-width:0}
 .neural-head{padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:18px;overflow:visible}
 .neural-head h2{margin:5px 0 2px;font-size:1.18rem;letter-spacing:-.015em}
 .neural-head p{margin:0;color:var(--muted);font-size:.78rem;line-height:1.45}
@@ -1026,11 +1080,29 @@ body.read-only .btn-primary{opacity:.55}
 .neural-kpi[data-level="critical"] strong{color:#ff6d8d;text-shadow:0 0 18px rgba(244,63,110,.25)}
 .neural-kpi[data-level="warning"] strong{color:#ffcc71}
 .neural-kpi[data-level="good"] strong{color:var(--teal)}
-.neural-workspace{display:grid;grid-template-columns:212px minmax(460px,1fr) 250px;gap:12px;min-height:590px}
+.neural-workspace{display:grid;grid-template-columns:212px minmax(0,1fr) 250px;gap:12px;min-height:590px;min-width:0}
+/* Not enough room for the inspector beside the graph: it takes a row of its
+   own. Then not enough for the rail either: everything stacks. */
+@container neural (max-width:1000px){
+  .neural-workspace{grid-template-columns:190px minmax(0,1fr)}
+  .neural-inspector{grid-column:1/-1;min-height:auto;max-height:none}
+  .neural-inspector-empty{min-height:150px}
+  .neural-inspector-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@container neural (max-width:720px){
+  .neural-workspace{grid-template-columns:minmax(0,1fr)}
+  .neural-rail{grid-column:1/-1}
+  .neural-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 .neural-rail,.neural-inspector{padding:14px;min-width:0;overflow:auto}
 .neural-panel-title{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.11em;color:var(--muted);margin-bottom:10px}
 .neural-mode-list{display:grid;gap:6px}
-.neural-mode{appearance:none;border:1px solid transparent;background:transparent;color:var(--text2);border-radius:11px;display:flex;align-items:center;gap:10px;text-align:left;padding:9px;cursor:pointer;transition:.18s ease;min-height:54px}
+.neural-mode{appearance:none;border:1px solid transparent;background:transparent;color:var(--text2);border-radius:11px;display:flex;align-items:center;gap:10px;text-align:left;padding:9px;cursor:pointer;transition:.18s ease;min-height:54px;min-width:0}
+/* The description is the part that overruns a narrow rail, so it is the part
+   that gives way -- one line, trimmed, rather than spilling past the edge. */
+.neural-mode>div{min-width:0}
+.neural-mode b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.neural-mode small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
 .neural-mode>span{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:rgba(255,255,255,.05);font-size:.9rem;flex:0 0 auto}
 .neural-mode div{min-width:0}.neural-mode b{display:block;font-size:.77rem;color:var(--text)}.neural-mode small{display:block;color:var(--muted);font-size:.61rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .neural-mode:hover{background:rgba(255,255,255,.05);border-color:var(--glass-border)}
@@ -1092,10 +1164,19 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .neural-inspector-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 }
 @media(max-width:900px){
-  .neural-shell{padding-bottom:4px}.neural-head{align-items:flex-start;flex-direction:column;padding:15px}.neural-head-actions{width:100%;justify-content:stretch}.neural-head-actions .btn{flex:1}
+  .neural-shell{padding-bottom:4px}.neural-head{align-items:flex-start;flex-direction:column;padding:15px}
+  /* One per row. Three of these labels do not share a phone's width, and a
+     row that cannot fit them is a row that widens the page instead. */
+  .neural-head-actions{width:100%;display:grid;grid-template-columns:1fr;gap:8px}
+  .neural-head-actions .btn{width:100%;overflow:hidden;text-overflow:ellipsis}
   .neural-kpis{grid-template-columns:1fr 1fr}.neural-kpi{min-height:84px;padding:11px}.neural-kpi strong{font-size:1.15rem}
   .neural-workspace{display:flex;flex-direction:column;min-height:0}.neural-rail{order:1;overflow:visible}.neural-stage{order:2;min-height:520px}.neural-inspector{order:3;min-height:0}
-  .neural-mode-list{display:flex;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}.neural-mode{min-width:150px}.neural-mode-list::-webkit-scrollbar{display:none}
+  /* A horizontal strip with its scrollbar hidden, so it fades at the edge
+     that has more -- the same sign the tab strip gives, for the same reason. */
+  .neural-mode-list{display:flex;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;
+    -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 20px),transparent 100%);
+    mask-image:linear-gradient(90deg,#000 calc(100% - 20px),transparent 100%)}
+  .neural-mode{min-width:150px}.neural-mode-list::-webkit-scrollbar{display:none}
   .neural-filter-title,.neural-filter{display:none}.neural-rail-action{display:inline-flex!important;width:auto!important;margin:6px 4px 0 0!important}
   #neuralCanvas{min-height:520px}.neural-event-strip{grid-template-columns:repeat(3,minmax(0,1fr))}.neural-inspector-grid{grid-template-columns:1fr 1fr}
 }

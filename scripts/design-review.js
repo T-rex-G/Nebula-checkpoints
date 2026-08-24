@@ -178,8 +178,30 @@ async function main() {
        * shows whether it did.
        */
       if (mode.width >= 900) {
+        /*
+         * The workbench, which is only reachable with a repository open and is
+         * the screen that carries the most chrome. It was missing from this
+         * set for exactly as long as it was laid out underneath the sidebar.
+         */
+        await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Repositories' }).click();
+        await page.getByRole('main', { name: 'Your galaxies' }).waitFor({ state: 'visible' });
+        await page.locator('.repo-card').first().click();
+        await page.locator('#page-work.active').waitFor();
+        await page.waitForTimeout(1800);
+        await page.screenshot({ path: path.join(out, `work-${mode.name}.png`) });
+        process.stdout.write(`work-${mode.name}\n`);
+
         await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Overview' }).click();
         await page.getByRole('main', { name: 'Workspace overview' }).waitFor({ state: 'visible' });
+        await page.waitForTimeout(1200);
+
+        /* The foot of the screen, where content used to run out of the frame. */
+        await page.locator('#page-overview .container').evaluate(node => { node.scrollTop = node.scrollHeight; });
+        await page.waitForTimeout(700);
+        await page.screenshot({ path: path.join(out, `foot-${mode.name}.png`) });
+        process.stdout.write(`foot-${mode.name}\n`);
+        await page.locator('#page-overview .container').evaluate(node => { node.scrollTop = 0; });
+
         await page.getByRole('button', { name: 'Collapse the sidebar' }).click();
         await page.waitForTimeout(1400);
         await page.screenshot({ path: path.join(out, `collapsed-${mode.name}.png`) });

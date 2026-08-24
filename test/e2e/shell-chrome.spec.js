@@ -522,3 +522,50 @@ test('a message never covers the bottom navigation', async ({ page }) => {
   });
   expect(clash, 'the message overlaps the navigation').toBe(false);
 });
+
+/*
+ * Every destination the rail claims to offer, it reaches -- and the two tabs
+ * that are destinations rather than views of an open file are both there.
+ *
+ * Neural and Governance sit side by side in the workbench's tab strip as the
+ * only two named surfaces with their own identity and their own capability
+ * gate, and only Neural had been promoted to the rail. Governance was also the
+ * tenth tab, the one past the fold, so the surface hardest to reach in the
+ * whole application was the one with no entry of its own.
+ */
+test.describe('the rail', () => {
+  test.skip(({ viewport }) => !viewport || viewport.width < 1140, 'the rail exists above 1140px');
+
+  test('offers every destination, and each one arrives', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/files');
+    await page.locator('#page-work.active').waitFor();
+
+    const rail = page.getByRole('navigation', { name: 'Primary' });
+
+    /*
+     * The two tabs that are applications rather than views.
+     *
+     * Named here rather than derived, because the first attempt to derive them
+     * -- any tab carrying a capability gate -- swept in Push files, which is a
+     * gated view of the open repository and not a destination at all. What
+     * actually separates these two is that each is its own module with its own
+     * state and its own top-level heading inside the pane: the nervous system
+     * and the policy twin are applications embedded in the workbench, while
+     * commits, issues, releases and the rest are views over provider data.
+     * That is a product decision, so it is written down rather than guessed at.
+     */
+    const promoted = ['neural', 'governance'];
+    for (const name of promoted) {
+      const entry = rail.locator(`[data-rail="${name}"]`);
+      await expect(entry, `${name} is an application of its own and has no rail entry`).toHaveCount(1);
+    }
+
+    /* And pressing each entry lands on the thing it names. */
+    for (const name of promoted) {
+      await rail.locator(`[data-rail="${name}"]`).click();
+      await expect(page.locator(`#tab-${name}.active`)).toBeVisible();
+      await expect(rail.locator(`[data-rail="${name}"]`)).toHaveAttribute('aria-current', 'page');
+    }
+  });
+});

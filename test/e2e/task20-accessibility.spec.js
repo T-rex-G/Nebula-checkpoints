@@ -11,7 +11,15 @@ const ui = require('./semantic');
  * class that happens to be hidden.
  */
 async function openGovernance(page) {
-  const tab = page.getByRole('button', { name: 'Governance' });
+  /*
+   * Exact, because the destination is now offered in two places: the
+   * workbench's own tab, named just "Governance", and the sidebar entry, whose
+   * name carries its subtitle -- "Governance Policy digital twin". A loose
+   * match resolved to both the moment the sidebar gained the entry. Either
+   * arrives at the same pane; this asks for the one the workbench itself
+   * carries, which is the control this journey is about.
+   */
+  const tab = page.getByRole('button', { name: 'Governance', exact: true });
   if (await tab.isVisible()) {
     await tab.click();
     return;

@@ -3470,7 +3470,14 @@ function paintRail(name) {
   if (!rail) return;
   rail.hidden = !RAIL_SCREENS.has(name);
   const activeTab = ($('.tabpane.active') || {}).id || '';
-  const shown = name === 'work' && activeTab === 'tab-neural' ? 'neural' : name;
+  /*
+   * Two of the workbench's tabs are destinations in their own right rather
+   * than views of the file it has open, and the rail offers them as such -- so
+   * when one of them is what the reader is looking at, the rail marks that
+   * entry rather than the workbench it technically sits inside.
+   */
+  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance' };
+  const shown = name === 'work' && promoted[activeTab] ? promoted[activeTab] : name;
   $$('.nv-rail-item').forEach(item => {
     const current = item.dataset.rail === shown;
     if (current) item.setAttribute('aria-current', 'page');
@@ -3499,7 +3506,7 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   if (target === 'repos') return showPage('repos');
   if (!state.work) return toast('Open a repository first.', 'err');
   showPage('work');
-  if (target === 'neural') switchTab('neural');
+  if (target === 'neural' || target === 'governance') switchTab(target);
   else paintRail('work');
 }));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));

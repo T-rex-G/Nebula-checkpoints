@@ -3336,7 +3336,13 @@ const COMMANDS = [
   { label: 'Export recent activity', kind: 'action', feature: 'repository.read', run: () => exportActivityFlow() },
   { label: 'Toggle theme', kind: 'action', run: () => toggleTheme() },
   { label: 'Actions (CI)', kind: 'view', feature: 'workflows.read', allowExperimental: true, run: () => switchTab('actions') },
-  { label: 'Neural Command Center', kind: 'view', feature: 'access-surface', run: () => switchTab('neural') },
+  { label: 'Neural', kind: 'view', feature: 'access-surface', run: () => switchTab('neural') },
+  /*
+   * Governance had no palette entry at all, while every other destination in
+   * the workbench had one -- so the one surface that is also hardest to see in
+   * the tab strip was the one a reader could not jump to by name either.
+   */
+  { label: 'Governance', kind: 'view', feature: 'governance', allowExperimental: true, run: () => switchTab('governance') },
   { label: 'Manage branches', kind: 'action', feature: 'branches.write', run: () => openBranchManager() },
   { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', allowExperimental: true, run: () => toggleStar() },
   { label: 'Open the Time Machine', kind: 'action', feature: 'recovery', run: () => openTimeMachine() },

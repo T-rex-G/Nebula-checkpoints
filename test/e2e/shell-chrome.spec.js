@@ -613,3 +613,71 @@ test('the graph filter and the policy destination do not share a name', async ({
   const rail = page.getByRole('navigation', { name: 'Primary' }).locator('[data-rail="governance"]');
   if (await rail.isVisible().catch(() => false)) await expect(rail).toContainText(/governance/i);
 });
+
+/*
+ * A destination answers to one name, wherever a control points at it.
+ *
+ * The policy surface had three: "Governance" in the sidebar and on its tab,
+ * and "Policy Digital Twin" in the phone menu -- so someone who learned it on
+ * a desktop could not find it on a phone, and the other way round. Neural had
+ * the same split. Descriptive titles belong to the content: the pane still
+ * calls itself the Policy Digital Twin, which is what it is. The controls that
+ * lead there say where they lead.
+ *
+ * And every destination is reachable by name, which Governance was not: it was
+ * the one tab with no command-palette entry, so the surface hardest to see in
+ * the strip was also the one that could not be jumped to.
+ */
+test.describe('destination names', () => {
+  const DESTINATIONS = [
+    { tab: 'neural', name: 'Neural' },
+    { tab: 'governance', name: 'Governance' }
+  ];
+
+  test('every control that leads to a destination calls it the same thing', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/files');
+    await page.locator('#page-work.active').waitFor();
+
+    for (const { tab, name } of DESTINATIONS) {
+      const labels = await page.evaluate(selector => {
+        const clean = node => node
+          ? (node.textContent || '').replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim()
+          : null;
+        return {
+          tab: clean(document.querySelector(`[data-tab="${selector}"]`)),
+          /* The first span in a menu row can be a decorative glyph; the name
+             is the one that is not hidden from the accessibility tree. */
+          menu: clean(document.querySelector(`.sheet-item[data-act="${selector}"] span:not([aria-hidden])`)),
+          rail: clean(document.querySelector(`[data-rail="${selector}"] .nv-rail-t`))
+        };
+      }, tab);
+
+      for (const [where, label] of Object.entries(labels)) {
+        if (label === null) continue;
+        expect(label, `the ${where} calls this destination "${label}"`).toBe(name);
+      }
+    }
+  });
+
+  test('every destination can be reached by name from the palette', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/files');
+    await page.locator('#page-work.active').waitFor();
+
+    for (const { tab, name } of DESTINATIONS) {
+      await (await ui.action(page, 'Command palette')).click();
+      await expect(page.locator('#paletteScrim:not([hidden])')).toBeVisible();
+      await ui.palette(page).fill(name);
+      /*
+       * By its label, not its accessible name: each row appends a kind badge,
+       * so the option announces itself as "Neuralview" and an exact match on
+       * the destination's name finds nothing.
+       */
+      await page.locator('#paletteList .pal-item')
+        .filter({ has: page.getByText(name, { exact: true }) })
+        .first().click();
+      await expect(page.locator(`#tab-${tab}.active`)).toBeVisible();
+    }
+  });
+});

@@ -5,28 +5,22 @@ const { mockTask20Api, openRepository } = require('./task20-fixtures');
 const ui = require('./semantic');
 
 /*
- * The governance workspace is reached differently on each width: a tab bar on
- * desktop, the More sheet on mobile. Both name the same destination, so the
- * helper asks for whichever the viewport offers rather than branching on a
- * class that happens to be hidden.
+ * The governance workspace is reached differently on each width: the tab strip
+ * on a desktop, the More sheet on a phone. Both now call it the same thing,
+ * which is the point -- and which is why each has to be asked for by where it
+ * lives rather than by name alone. Three controls answer to "Governance": the
+ * tab, the menu row and the sidebar entry, whose name carries its subtitle.
+ * Asking the page at large resolves to more than one of them.
  */
 async function openGovernance(page) {
-  /*
-   * Exact, because the destination is now offered in two places: the
-   * workbench's own tab, named just "Governance", and the sidebar entry, whose
-   * name carries its subtitle -- "Governance Policy digital twin". A loose
-   * match resolved to both the moment the sidebar gained the entry. Either
-   * arrives at the same pane; this asks for the one the workbench itself
-   * carries, which is the control this journey is about.
-   */
-  const tab = page.getByRole('button', { name: 'Governance', exact: true });
+  const tab = page.locator('.tabs').getByRole('button', { name: 'Governance', exact: true });
   if (await tab.isVisible()) {
     await tab.click();
     return;
   }
   await page.getByRole('navigation', { name: 'Mobile repository navigation' })
     .getByRole('button', { name: 'More' }).click();
-  await page.getByRole('button', { name: 'Policy Digital Twin' }).click();
+  await page.locator('#sheet').getByRole('button', { name: 'Governance', exact: true }).click();
 }
 
 test.describe('Task 20 browser and accessibility staging', () => {
@@ -95,7 +89,14 @@ test.describe('Task 20 browser and accessibility staging', () => {
 
     await page.getByRole('navigation', { name: 'Mobile repository navigation' })
       .getByRole('button', { name: 'More' }).click();
-    const sheetEntry = page.getByRole('button', { name: 'Policy Digital Twin' });
+    /*
+     * The menu row calls the destination what the sidebar and the tab call it.
+     * It used to say "Policy Digital Twin", which is the pane's own heading --
+     * so the same screen had one name on a desktop and another on a phone, and
+     * a reader who learned one could not find the other. Scoped to the sheet,
+     * because the tab and the sidebar answer to this name too.
+     */
+    const sheetEntry = page.locator('#sheet').getByRole('button', { name: 'Governance', exact: true });
     await expect(sheetEntry).toBeVisible();
     await sheetEntry.click();
 

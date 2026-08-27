@@ -193,7 +193,15 @@ must(renderedSw.includes(stamps[0]), 'Service worker version must match the HTML
 const app = read('public/app.js');
 must(app.includes("name === 'neural'"), 'Neural tab activation hook missing');
 must(app.includes('window.NebulaNeural.deactivate'), 'Neural deactivation hook missing');
-must(app.includes("label: 'Neural Command Center'"), 'Command palette entry missing');
+/*
+ * Every destination in the workbench is reachable by name. Governance had no
+ * entry here at all while every other one did, which is how the surface that
+ * is hardest to see in the tab strip came to be the one that could not be
+ * jumped to either.
+ */
+for (const destination of ['Neural', 'Governance', 'Pull requests', 'Issues', 'Releases', 'Compare branches', 'Commits', 'Actions (CI)']) {
+  must(app.includes(`label: '${destination}'`), `Command palette entry missing for ${destination}`);
+}
 
 const server = read('server.js');
 must(server.includes("/api/security/sessions"), 'Session inventory endpoint missing');

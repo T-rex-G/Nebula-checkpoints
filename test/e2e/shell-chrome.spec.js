@@ -569,3 +569,47 @@ test.describe('the rail', () => {
     }
   });
 });
+
+/*
+ * One name, one thing.
+ *
+ * "Governance" had been the name of two different things at once: the
+ * destination where policy is authored, and a view filter inside the graph
+ * that hides every node type except the protected-asset-shaped ones. The
+ * filter reads no policy data at all -- its whole implementation is a set of
+ * node types -- so the shared name promised a relationship that does not
+ * exist, and a reader who found one while looking for the other had no way to
+ * tell which they had.
+ *
+ * The filter is named for what it does now. This guards the separation rather
+ * than the wording: whatever these two end up called, they must not be called
+ * the same thing.
+ */
+test('the graph filter and the policy destination do not share a name', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor();
+  await page.evaluate(() => window.switchTab('neural'));
+  await expect(page.locator('#tab-neural.active')).toBeVisible();
+
+  const names = await page.evaluate(() => {
+    const clean = node => (node.textContent || '').replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    return {
+      destination: clean(document.querySelector('[data-tab="governance"]')),
+      filter: clean(document.querySelector('[data-neural-mode="governance"] b'))
+    };
+  });
+
+  expect(names.destination.length).toBeGreaterThan(0);
+  expect(names.filter.length).toBeGreaterThan(0);
+  expect(names.filter,
+    'the graph filter and the policy destination must not answer to the same name').not.toBe(names.destination);
+
+  /*
+   * And the destination is the one that keeps the word, since it is the one a
+   * reader goes looking for. Where the sidebar is on screen it has to agree
+   * with the tab; below that width the sidebar is not drawn at all.
+   */
+  const rail = page.getByRole('navigation', { name: 'Primary' }).locator('[data-rail="governance"]');
+  if (await rail.isVisible().catch(() => false)) await expect(rail).toContainText(/governance/i);
+});

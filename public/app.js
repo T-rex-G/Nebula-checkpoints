@@ -584,7 +584,6 @@ function showPage(name) {
    */
   requestAnimationFrame(() => requestAnimationFrame(() => {
     paintFloatingAction(name);
-    paintTabOverflow();
   }));
 }
 function saveRoute() {
@@ -3231,40 +3230,24 @@ function ensureNeural() {
   _neuralLoad.then(nn => { if (nn && currentTab() === 'neural') nn.activate(); })
     .catch(e => toast(e.message, 'err'));
 }
-/*
- * Which way the tab strip has more to show, written onto the strip so its edge
- * fades can say so. A strip that hides content and gives no sign of it reads
- * as a strip that is missing a tab -- which is exactly how the Governance tab
- * came to be reported as absent.
- */
-function paintTabOverflow() {
-  for (const strip of $$('.tabs')) {
-    const slack = strip.scrollWidth - strip.clientWidth;
-    if (slack <= 1) { strip.dataset.overflow = 'none'; continue; }
-    const atStart = strip.scrollLeft <= 1;
-    const atEnd = strip.scrollLeft >= slack - 1;
-    strip.dataset.overflow = atStart ? 'end' : atEnd ? 'start' : 'both';
-  }
-}
-$$('.tabs').forEach(strip => strip.addEventListener('scroll', paintTabOverflow, { passive: true }));
-window.addEventListener('resize', paintTabOverflow);
-
 function switchTab(name) {
   const tab = $$('.tab').find(candidate => candidate.dataset.tab === name);
-  const tabCapability = tab && tab.dataset.feature;
+  /*
+   * A name that matches no tab leaves the workbench exactly as it was.
+   *
+   * Selection here is a toggle evaluated against every tab and every pane, so
+   * an unknown name did not select nothing -- it deselected everything, and
+   * the workbench kept its chrome around an empty hole. Deep links carry this
+   * name straight from the URL, so any typed or stale link could empty the
+   * screen; /files, the form this project's own tests use, did exactly that.
+   */
+  if (!tab) return;
+  const tabCapability = tab.dataset.feature;
   if (tabCapability && !runCapabilityAction(tabCapability, () => {}, {
     allowExperimental: tab.dataset.allowExperimental === 'true'
   })) return;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.tabpane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
-  /*
-   * The strip carries more destinations than it can show, so the one just
-   * chosen is brought into view. Reached from the palette or the rail, a tab
-   * past the fold used to be marked active somewhere off screen -- the reader
-   * saw the pane change and no tab move.
-   */
-  if (tab && tab.scrollIntoView) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  paintTabOverflow();
   /*
    * Repainted here rather than by the click handler, so a tab reached from the
    * command palette marks the rail exactly as a pointer click does.

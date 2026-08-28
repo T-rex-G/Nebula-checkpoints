@@ -332,21 +332,25 @@ test.describe('the inventory toolbar', () => {
 });
 
 /*
- * The workbench's tab strip carries more destinations than it can show.
+ * The workbench's tab strip shows every destination it carries.
  *
- * With the scrollbar hidden and no other sign, the tenth -- Governance -- was
- * simply absent from the screen, and a strip that hides content without
- * saying so is indistinguishable from a strip that is missing a tab. Two
- * things have to hold: the strip declares which way it has more, and choosing
- * a destination brings it into view rather than marking it active somewhere
- * off screen.
+ * It used to scroll. Ten destinations needed 944px in an 835px box, so the
+ * tenth -- Governance -- was drawn at x1400 against an edge at x1417: 17px of
+ * a 120px tab, underneath the 18px fade that was supposed to announce it. The
+ * fade worked and the outcome did not, which is the whole lesson: a strip that
+ * declares "there is more" still reads as a strip that ends, and a reader who
+ * never drags never learns the destination exists.
+ *
+ * So the strip wraps instead, and this asserts the outcome rather than the
+ * apparatus: every tab is fully inside the strip's box. A guard on the fade
+ * passed the entire time the tab was invisible.
  */
 test.describe('the workbench tab strip', () => {
   /* Below the breakpoint the bottom navigation carries these destinations and
      the strip is not on the screen at all. */
   test.skip(({ viewport }) => !viewport || viewport.width < 901, 'the strip exists above 900px');
 
-  test('says when it has more to show, and brings a chosen tab into view', async ({ page }) => {
+  test('shows every destination without scrolling', async ({ page }) => {
     await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
     await page.goto('/#/sandbox/demo@main/files');
     await page.locator('#page-work.active').waitFor();
@@ -354,31 +358,21 @@ test.describe('the workbench tab strip', () => {
     const strip = page.locator('.tabs').first();
     await expect(strip).toBeVisible();
 
-    const state = await strip.evaluate(node => ({
-      overflowing: node.scrollWidth > node.clientWidth + 1,
-      declared: node.dataset.overflow
-    }));
+    const clipped = await strip.evaluate(node => {
+      const box = node.getBoundingClientRect();
+      return [...node.querySelectorAll('.tab')]
+        .filter(tab => tab.offsetParent !== null)
+        .map(tab => {
+          const r = tab.getBoundingClientRect();
+          return { name: tab.textContent.trim(), over: Math.round(Math.max(box.left - r.left, r.right - box.right)) };
+        })
+        .filter(entry => entry.over > 1);
+    });
+    expect(clipped, 'every destination has to be fully on screen').toEqual([]);
 
-    /* Where it does not overflow there is nothing to declare, and a fade there
-       would only dim the ends of a strip that is entirely in view. */
-    if (!state.overflowing) {
-      expect(state.declared).toBe('none');
-      return;
-    }
-    expect(['start', 'end', 'both']).toContain(state.declared);
-
-    /* The furthest destination, reached the way the palette and the rail reach
-       it rather than by dragging the strip. */
-    const last = strip.locator('.tab').last();
-    const name = await last.getAttribute('data-tab');
-    await page.evaluate(tab => window.switchTab(tab), name);
-
-    await expect.poll(async () => strip.evaluate((node, tab) => {
-      const chosen = node.querySelector(`.tab[data-tab="${tab}"]`);
-      const stripBox = node.getBoundingClientRect();
-      const tabBox = chosen.getBoundingClientRect();
-      return Math.round(Math.min(tabBox.left - stripBox.left, stripBox.right - tabBox.right));
-    }, name), { message: 'the chosen tab must be brought into view' }).toBeGreaterThanOrEqual(-1);
+    /* And the box itself does not scroll: nothing is parked outside it. */
+    const scrolls = await strip.evaluate(node => node.scrollWidth - node.clientWidth);
+    expect(scrolls, 'a wrapped strip has nothing to scroll to').toBeLessThanOrEqual(1);
   });
 });
 
@@ -495,6 +489,54 @@ test.describe('the neural section', () => {
     });
     expect(escaping).toEqual([]);
   });
+});
+
+/*
+ * Arriving by link leaves the workbench with something in it.
+ *
+ * The route's fourth segment is a tab name, and it was handed to switchTab
+ * unchecked. switchTab marks the chosen tab by toggling `active` against every
+ * tab and every pane -- so a name that matches nothing does not select
+ * nothing, it *deselects everything*, and the workbench draws its chrome
+ * around an empty hole.
+ *
+ * The segment this suite has always used, /files, is one of those names: it is
+ * never a tab, so ten tests in this file have been entering a blanked
+ * workbench and asserting happily around the hole. Nothing here asserted that
+ * the workbench had any content, which is why the suite could not see it.
+ *
+ * Both halves are guarded: an unrecognised segment still lands somewhere, and
+ * whatever it lands on is exactly one tab and its one pane.
+ */
+test.describe('entering the workbench by link', () => {
+  /* 'nosuchtab' is the unknown-but-parseable case: the route's own segment
+     matcher is [a-z]+, so a hyphenated name never reaches the workbench at all
+     -- it fails to parse and the app goes home, which is right. */
+  for (const route of ['files', 'editor', 'commits', 'nosuchtab']) {
+    test(`leaves exactly one section showing for /${route}`, async ({ page }) => {
+      await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+      await page.goto(`/#/sandbox/demo@main/${route}`);
+      await page.locator('#page-work.active').waitFor();
+
+      await expect.poll(async () => page.evaluate(() => {
+        const shown = [...document.querySelectorAll('.tabpane')]
+          .filter(pane => getComputedStyle(pane).display !== 'none');
+        return {
+          tabs: document.querySelectorAll('.tab.active').length,
+          panes: shown.length,
+          height: shown.length === 1 ? Math.round(shown[0].getBoundingClientRect().height) : 0
+        };
+      }), { message: 'a link must land on one section, and that section must be drawn' })
+        .toEqual({ tabs: 1, panes: 1, height: expect.any(Number) });
+
+      const height = await page.evaluate(() => {
+        const pane = [...document.querySelectorAll('.tabpane')]
+          .find(node => getComputedStyle(node).display !== 'none');
+        return Math.round(pane.getBoundingClientRect().height);
+      });
+      expect(height, 'the section that is showing has to occupy real space').toBeGreaterThan(80);
+    });
+  }
 });
 
 /*

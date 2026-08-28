@@ -505,25 +505,20 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
 .main-pane{display:flex;flex-direction:column;min-height:0;min-width:0}
 /*
- * The strip scrolls, and now says so.
+ * The strip wraps, so nothing is parked off the edge.
  *
- * It carries ten destinations and fits about nine, with the scrollbar hidden
- * -- so the tenth, Governance, was simply absent from the screen with nothing
- * to suggest it existed. A strip that hides content and gives no sign of it is
- * indistinguishable from a strip that is missing a tab. The edge fades are the
- * sign: they are what a reader sees before they think to drag.
+ * It scrolled before, with edge fades to announce that there was more. The
+ * fades worked; the outcome did not. Ten destinations wanted 944px in an
+ * 835px box, which left the tenth -- Governance -- showing 17px of its 120
+ * underneath the 18px fade meant to advertise it. A strip that says "there is
+ * more" still reads as a strip that ends, and horizontal scrolling is the
+ * wrong instrument for primary navigation on a screen with a spare 600px of
+ * height below it.
+ *
+ * Wrapping spends that height instead: every destination on the screen, at
+ * rest, with nothing to discover by dragging.
  */
-.tabs{display:flex;gap:4px;padding:5px;margin-bottom:12px;border-radius:13px;width:max-content;max-width:100%;
-  overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth;
-  -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%);
-  mask-image:linear-gradient(90deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%)}
-/* Fully in view: nothing to fade, and a fade there would only dim the ends. */
-.tabs[data-overflow="none"]{-webkit-mask-image:none;mask-image:none}
-.tabs[data-overflow="end"]{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent 100%);
-  mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent 100%)}
-.tabs[data-overflow="start"]{-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 18px);
-  mask-image:linear-gradient(90deg,transparent 0,#000 18px)}
-@media (prefers-reduced-motion:reduce){.tabs{scroll-behavior:auto}}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;padding:5px;margin-bottom:12px;border-radius:13px;width:auto;max-width:100%}
 .tab{font:inherit;font-size:.83rem;font-weight:500;color:var(--text2);cursor:pointer;border:none;
   background:transparent;padding:8px 16px;border-radius:9px;transition:background .18s,color .18s;min-height:38px;white-space:nowrap}
 .tab:hover{color:var(--text)}

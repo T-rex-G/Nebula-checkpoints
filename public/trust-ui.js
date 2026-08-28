@@ -10,19 +10,25 @@
    * surface where everything else is stroked SVG at 1.7, and left their weight
    * and alignment to whichever font happened to answer.
    *
-   * They are drawn as one family now, and the family says something: a shield
-   * for what the provider vouched for, an exact box for what was computed, a
-   * wave for what was approximated, a clock for what has aged, a struck
-   * circle for what is not there. Descending confidence, left to right.
+   * They are drawn as one family now: five circles that differ only in what is
+   * inside them -- a check for what the provider vouched for, an equals for
+   * what was computed exactly, a wave for what was approximated, a clock for
+   * what has aged, a bar for what is not there. Descending confidence, and a
+   * reader compares the middles rather than five different outlines.
+   *
+   * Deliberately not a shield for Provider-verified, which is where this
+   * landed first: the rail already spends a shield on Governance, and one
+   * drawing meaning both "policy" and "attested evidence" is worse than no
+   * icon. A shield is protection; this is attestation.
    */
   const EVIDENCE_STATES = Object.freeze({
     'Provider-verified': Object.freeze({
       label: 'Provider-verified',
-      paths: Object.freeze(['M12 3.2l7 2.9v5.1c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6.1z', 'M9.3 12l1.9 2 3.5-3.7'])
+      paths: Object.freeze(['M12 4.2a7.8 7.8 0 1 1 0 15.6 7.8 7.8 0 0 1 0-15.6z', 'M8.7 12.1l2.2 2.3 4.4-4.7'])
     }),
     Deterministic: Object.freeze({
       label: 'Deterministic',
-      paths: Object.freeze(['M5 4.6h14v14.8H5z', 'M8.6 10.4h6.8M8.6 13.6h6.8'])
+      paths: Object.freeze(['M12 4.2a7.8 7.8 0 1 1 0 15.6 7.8 7.8 0 0 1 0-15.6z', 'M8.7 10.6h6.6M8.7 13.6h6.6'])
     }),
     Inferred: Object.freeze({
       label: 'Inferred',

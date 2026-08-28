@@ -100,7 +100,7 @@
   --muted:rgba(232,229,255,.58);
   --focus:var(--cyan);
   --accent:var(--violet); --accent2:#A78BFA; --teal:var(--cyan);
-  --green:var(--mint); --red:#F43F6E; --amber:var(--orange); --magenta:var(--mag);
+  --green:var(--mint); --red:#F43F6E; --redDeep:#B4184A; --amber:var(--orange); --magenta:var(--mag);
   --radius:14px;
   --glass-border:var(--cb);
   --glass-fill:var(--card2);
@@ -157,7 +157,7 @@
   --muted:rgba(22,18,52,.60);
   --focus:#4F1FC9;
   --accent:var(--violet); --accent2:#7C3AED; --teal:var(--cyan);
-  --green:var(--mint); --red:#C81E4C; --amber:var(--orange); --magenta:var(--mag);
+  --green:var(--mint); --red:#C81E4C; --redDeep:#96123A; --amber:var(--orange); --magenta:var(--mag);
   --glass-border:var(--cb);
   --glass-fill:var(--card2);
   --card-grad:var(--card);
@@ -1125,7 +1125,22 @@ body.read-only .btn-primary{opacity:.55}
 @keyframes neuralLive{70%{box-shadow:0 0 0 8px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
 .neural-proto-badge{color:var(--accent2);border:1px solid rgba(167,139,250,.36);background:rgba(167,139,250,.1);padding:3px 7px;border-radius:99px;letter-spacing:.08em}
 .neural-head-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-.neural-emergency-btn{background:linear-gradient(135deg,#F43F6E,#8B5CF6);box-shadow:0 5px 24px rgba(244,63,110,.24)}
+/*
+ * Built like btn-primary, on the danger palette.
+ *
+ * It was a gradient from rose to brand violet: the only one in the product
+ * crossing hues, where the primary button runs accent into a deeper accent and
+ * stays in its family. Half a containment control was painted the brand
+ * colour, which is the one thing it must not be mistaken for.
+ *
+ * The rose was also hard-coded to the dark-mode value, so in light mode this
+ * control -- alone on the screen -- painted itself out of the wrong palette.
+ * Both stops are tokens now and follow the theme.
+ */
+.neural-emergency-btn{background:linear-gradient(135deg,var(--red),var(--redDeep));
+  border-color:rgba(255,255,255,0.28);
+  box-shadow:0 4px 20px rgba(244,63,110,.34), inset 0 1px 0 rgba(255,255,255,0.28)}
+.neural-emergency-btn:hover{background:linear-gradient(135deg,var(--redDeep),var(--red))}
 .neural-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .neural-kpi{padding:14px 15px;min-height:98px;display:flex;flex-direction:column;justify-content:center}
 .neural-kpi-label{font-size:.66rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
@@ -1157,7 +1172,9 @@ body.read-only .btn-primary{opacity:.55}
 .neural-mode>div{min-width:0}
 .neural-mode b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .neural-mode small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
-.neural-mode>span{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:rgba(255,255,255,.05);font-size:.9rem;flex:0 0 auto}
+.neural-mode>span{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:rgba(255,255,255,.05);flex:0 0 auto}
+.nm-mark{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
 .neural-mode div{min-width:0}.neural-mode b{display:block;font-size:.77rem;color:var(--text)}.neural-mode small{display:block;color:var(--muted);font-size:.61rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .neural-mode:hover{background:rgba(255,255,255,.05);border-color:var(--glass-border)}
 .neural-mode.active{background:linear-gradient(135deg,rgba(139,92,246,.18),rgba(34,211,238,.08));border-color:rgba(167,139,250,.3);box-shadow:inset 0 0 24px rgba(139,92,246,.06)}

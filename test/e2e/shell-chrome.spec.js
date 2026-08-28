@@ -663,6 +663,106 @@ test('an empty repository is not asked to open a file that does not exist', asyn
 });
 
 /*
+ * Every icon slot in the workbench holds a drawn mark.
+ *
+ * The product draws stroked SVG on a 24 box everywhere it was designed, and
+ * typed Unicode everywhere it was not: a period for a file, a diamond for
+ * provider-verified evidence, a sparkle standing equally for an unopened file
+ * and an untagged release, and five geometric shapes for the neural modes.
+ * Typed glyphs take their weight, alignment and often their very presence from
+ * whichever font answers, which is why they never matched the icons beside
+ * them.
+ *
+ * Written as one guard over the slots rather than one guard per slot, because
+ * the failure was systemic: each was defensible alone and they were only wrong
+ * together.
+ */
+test('no icon slot falls back to a typed glyph', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.route('**/api/repo/sandbox/demo/tree*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify([
+      { name: 'src', path: 'src', type: 'dir' },
+      { name: 'README.md', path: 'README.md', type: 'file', size: 4821 }
+    ])
+  }));
+  await page.goto('/#/sandbox/demo@main/editor');
+  await page.locator('#page-work.active').waitFor();
+  await page.locator('#tree .tree-item').first().waitFor();
+  await page.locator('#trustSummary').waitFor();
+
+  const offenders = await page.evaluate(() => {
+    const slots = [
+      ['file tree', '#tree .tree-item .ti-icon'],
+      ['trust evidence', '.trust-evidence-icon'],
+      ['empty state', '#editorEmpty .empty-icon'],
+      ['neural mode', '.neural-mode > span']
+    ];
+    const bad = [];
+    for (const [where, selector] of slots) {
+      const found = [...document.querySelectorAll(selector)];
+      if (!found.length) { bad.push({ where, why: 'no slot found to inspect' }); continue; }
+      for (const slot of found) {
+        if (!slot.querySelector('svg')) bad.push({ where, why: 'slot holds no drawn mark' });
+        else if (slot.textContent.trim() !== '') {
+          bad.push({ where, why: `slot carries text: ${slot.textContent.trim()}` });
+        }
+      }
+    }
+    return bad;
+  });
+
+  expect(offenders, 'every icon slot must draw its mark').toEqual([]);
+});
+
+/*
+ * The containment control is painted from the theme it is shown in.
+ *
+ * Activate Emergency Shield ran a gradient from rose to brand violet -- the
+ * only gradient in the product that crosses hues, where the primary button
+ * runs accent into deeper accent and stays in its family. Half the most
+ * destructive control in the application was wearing the brand colour.
+ *
+ * Underneath that was something a screenshot would not show: the rose was the
+ * literal #F43F6E, which is the *dark* theme's red. In light mode this one
+ * control painted itself out of the wrong palette. So the assertion is on the
+ * mechanism that failed -- the control resolves its colour from the theme in
+ * force -- rather than on any particular colour being pretty.
+ */
+test('the emergency control takes its colour from the active theme', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/neural');
+  await page.locator('#page-work.active').waitFor();
+  const control = page.locator('#neuralEmergencyBtn');
+  await control.waitFor();
+
+  const read = async theme => page.evaluate(async wanted => {
+    document.documentElement.dataset.theme = wanted;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const node = document.getElementById('neuralEmergencyBtn');
+    return {
+      painted: getComputedStyle(node).backgroundImage,
+      red: getComputedStyle(document.documentElement).getPropertyValue('--red').trim()
+    };
+  }, theme);
+
+  const dark = await read('dark');
+  const light = await read('light');
+
+  expect(dark.red, 'the two themes must actually define different reds').not.toBe(light.red);
+  expect(dark.painted, 'the control has to be painted with a gradient').toContain('gradient');
+  expect(light.painted, 'switching theme has to repaint this control')
+    .not.toBe(dark.painted);
+
+  /* And nothing in it may be the brand violet, whichever theme is in force. */
+  for (const [name, reading] of [['dark', dark], ['light', light]]) {
+    expect(reading.painted, `${name}: a containment control must not wear the brand colour`)
+      .not.toMatch(/139,\s*92,\s*246|124,\s*58,\s*237|90,\s*72,\s*240/);
+  }
+});
+
+/*
  * A message must not land on the navigation. Anchored to the bottom of a
  * phone, a toast sat squarely over the bar and covered every destination in it
  * for as long as it was up.

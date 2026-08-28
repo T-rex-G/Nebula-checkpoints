@@ -375,7 +375,9 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .trust-detail h3,.trust-error-field h3{margin:0 0 5px;font-size:.7rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .trust-detail p{margin:0 0 7px;font-size:.78rem;line-height:1.35;overflow-wrap:anywhere}
 .trust-evidence{display:inline-flex;align-items:center;gap:5px;font-size:.68rem;color:var(--muted)}
-.trust-evidence-icon{font-size:.78rem;color:var(--accent2)}
+.trust-evidence-icon{display:inline-flex;color:var(--accent2)}
+.trust-evidence-mark{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
 .trust-evidence-stale,.trust-evidence-unavailable{color:var(--amber)}
 .trust-error-backdrop{position:fixed;inset:0;z-index:10020;display:grid;place-items:center;padding:18px;background:rgba(4,7,17,.74);backdrop-filter:blur(8px)}
 .trust-error-dialog{width:min(580px,100%);max-height:calc(100dvh - 36px);overflow:auto;padding:22px;border:1px solid var(--glass-border);border-radius:18px;background:var(--bg);box-shadow:0 26px 80px rgba(0,0,0,.45)}
@@ -504,8 +506,15 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
  */
 .tree-item:hover{background:var(--navHov);color:var(--text)}
 .tree-item.active{background:var(--navBg);border-color:var(--navB);color:var(--fg)}
-.tree-item .ti-icon{flex:0 0 auto;width:15px;text-align:center;color:var(--muted)}
+.tree-item .ti-icon{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:16px;height:16px;color:var(--muted)}
 .tree-item.dir .ti-icon{color:var(--accent2)}
+.ti-mark{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+/* One mark in two positions, so open and closed cannot drift apart. */
+.ti-mark-dir{width:13px;height:13px;transition:transform .16s var(--ease)}
+.tree-item.open .ti-mark-dir{transform:rotate(90deg)}
+@media (prefers-reduced-motion:reduce){.ti-mark-dir{transition:none}}
 .tree-indent{margin-left:15px;border-left:1px solid var(--glass-border);padding-left:6px}
 .tree-size{margin-left:auto;font-size:.68rem;color:var(--muted)}
 .ti-name{overflow:hidden;text-overflow:ellipsis}
@@ -541,7 +550,14 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
 /* editor */
 .editor-empty{margin:auto;text-align:center;padding:54px 34px;color:var(--text2);font-size:.92rem;line-height:1.7;max-width:440px}
-.empty-icon{font-size:1.8rem;color:var(--accent2);margin-bottom:12px;text-shadow:0 0 18px rgba(139,92,246,.7)}
+.empty-icon{display:flex;justify-content:center;color:var(--accent2);margin-bottom:14px}
+/*
+ * The glow moves from text-shadow to a drop-shadow filter, which is what
+ * follows the drawn edge rather than a glyph's box.
+ */
+.empty-mark{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:1.5;
+  stroke-linecap:round;stroke-linejoin:round;
+  filter:drop-shadow(0 0 10px rgba(139,92,246,.55))}
 .editor-shell{flex:1;display:flex;flex-direction:column;min-height:0}
 .editor-bar{position:sticky;top:calc(var(--tbh, 62px) + env(safe-area-inset-top) + 12px);z-index:20;
   background:rgba(13,12,34,0.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);

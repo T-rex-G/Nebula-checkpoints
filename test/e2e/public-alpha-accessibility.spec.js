@@ -180,9 +180,15 @@ test('dialogs contain focus, restore it, and trust states do not depend on color
   await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
 
+  /*
+   * The badge carries its meaning in the label; the mark beside it is drawn
+   * and aria-hidden. This asserted the mark was non-empty *text*, which was
+   * only true while it was a Unicode glyph -- so it is asserted as what it is
+   * now: a drawn mark that is actually present.
+   */
   for (const evidence of await page.locator('#trustSummary .trust-evidence').all()) {
     await expect(evidence).not.toHaveText('');
-    await expect(evidence.locator('.trust-evidence-icon')).not.toHaveText('');
+    await expect(evidence.locator('.trust-evidence-icon svg')).toHaveCount(1);
   }
 });
 

@@ -2,13 +2,61 @@
 'use strict';
 
 (function trustUiModule(global) {
+  /*
+   * The evidence marks, drawn rather than typed.
+   *
+   * These were geometric Unicode -- a diamond, a square, a triangle, a clock
+   * face and an em dash -- which put five unrelated typographic shapes on a
+   * surface where everything else is stroked SVG at 1.7, and left their weight
+   * and alignment to whichever font happened to answer.
+   *
+   * They are drawn as one family now, and the family says something: a shield
+   * for what the provider vouched for, an exact box for what was computed, a
+   * wave for what was approximated, a clock for what has aged, a struck
+   * circle for what is not there. Descending confidence, left to right.
+   */
   const EVIDENCE_STATES = Object.freeze({
-    'Provider-verified': Object.freeze({ icon: '◆', label: 'Provider-verified' }),
-    Deterministic: Object.freeze({ icon: '■', label: 'Deterministic' }),
-    Inferred: Object.freeze({ icon: '△', label: 'Inferred' }),
-    Stale: Object.freeze({ icon: '◷', label: 'Stale' }),
-    Unavailable: Object.freeze({ icon: '—', label: 'Unavailable' })
+    'Provider-verified': Object.freeze({
+      label: 'Provider-verified',
+      paths: Object.freeze(['M12 3.2l7 2.9v5.1c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6.1z', 'M9.3 12l1.9 2 3.5-3.7'])
+    }),
+    Deterministic: Object.freeze({
+      label: 'Deterministic',
+      paths: Object.freeze(['M5 4.6h14v14.8H5z', 'M8.6 10.4h6.8M8.6 13.6h6.8'])
+    }),
+    Inferred: Object.freeze({
+      label: 'Inferred',
+      paths: Object.freeze(['M12 4.2a7.8 7.8 0 1 1 0 15.6 7.8 7.8 0 0 1 0-15.6z', 'M8.6 13.1c1.1-1.9 2.2-1.9 3.4 0s2.3 1.9 3.4 0'])
+    }),
+    Stale: Object.freeze({
+      label: 'Stale',
+      paths: Object.freeze(['M12 4.2a7.8 7.8 0 1 1 0 15.6 7.8 7.8 0 0 1 0-15.6z', 'M12 7.6V12l3 1.8'])
+    }),
+    Unavailable: Object.freeze({
+      label: 'Unavailable',
+      paths: Object.freeze(['M12 4.2a7.8 7.8 0 1 1 0 15.6 7.8 7.8 0 0 1 0-15.6z', 'M8.4 12h7.2'])
+    })
   });
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  /*
+   * Built through the DOM rather than markup: this module is held to rendering
+   * every trust value through textContent, and reaching for innerHTML here
+   * would open the one door that rule exists to keep shut.
+   */
+  function drawEvidenceMark(paths) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', 'trust-evidence-mark');
+    for (const definition of paths) {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', definition);
+      svg.appendChild(path);
+    }
+    return svg;
+  }
   const SUMMARY_FIELDS = Object.freeze([
     Object.freeze({ key: 'connection', id: 'trustConnection', label: 'Connection freshness' }),
     Object.freeze({ key: 'pipeline', id: 'trustPipeline', label: 'Application and evidence health' }),
@@ -38,7 +86,7 @@
     const icon = document.createElement('span');
     icon.className = 'trust-evidence-icon';
     icon.setAttribute('aria-hidden', 'true');
-    icon.textContent = descriptor.icon;
+    icon.appendChild(drawEvidenceMark(descriptor.paths));
     const label = document.createElement('span');
     label.textContent = descriptor.label;
     badge.append(icon, label);

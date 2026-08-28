@@ -425,9 +425,11 @@
       <!-- EDITOR -->
       <div class="tabpane active" id="tab-editor">
         <div class="editor-empty card" id="editorEmpty">
-          <div class="empty-icon">✦</div>
-          <p>Pick a file from the constellation<span class="hide-sm"> on the left</span>,<br>
+          <div class="empty-icon"><svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5V8.5h5"/></svg></div>
+          <p class="editor-empty-pick">Pick a file from the constellation<span class="hide-sm"> on the left</span>,<br>
           <span class="show-sm">tap <b>Files</b> below, </span>or press <span class="kbd">Ctrl K</span> to jump anywhere.</p>
+          <p class="editor-empty-bare" hidden>This repository has no files yet.<br>
+          Add the first one with <b>+&nbsp;File</b><span class="show-sm"> in the Files drawer</span>, or push a folder from <b>Push files</b>.</p>
         </div>
         <div class="editor-shell card" id="editorShell" hidden>
           <div class="editor-bar">

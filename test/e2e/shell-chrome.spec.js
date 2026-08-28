@@ -592,6 +592,77 @@ test.describe('the workbench work surface', () => {
 });
 
 /*
+ * The file tree draws icons, not typography.
+ *
+ * A directory was a Unicode triangle and a file was U+00B7 -- a period -- set
+ * at 15px in the muted colour. Against a list of filenames that reads as
+ * nothing at all, and the tree is the workbench's primary navigation: it is
+ * the control a reader uses most and the one that said least.
+ *
+ * The rest of the product draws stroked SVG at 1.7, so this asserts the tree
+ * agrees with it: every row's icon slot holds a drawn mark and carries no text
+ * of its own.
+ */
+test('every row in the file tree is marked with a drawn icon', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.route('**/api/repo/sandbox/demo/tree*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify([
+      { name: 'src', path: 'src', type: 'dir' },
+      { name: 'README.md', path: 'README.md', type: 'file', size: 4821 }
+    ])
+  }));
+  await page.goto('/#/sandbox/demo@main/editor');
+  await page.locator('#page-work.active').waitFor();
+  await page.locator('#tree .tree-item').first().waitFor();
+
+  const rows = await page.evaluate(() => [...document.querySelectorAll('#tree .tree-item')]
+    .map(row => {
+      const slot = row.querySelector('.ti-icon');
+      return {
+        name: row.querySelector('.ti-name') ? row.querySelector('.ti-name').textContent : '',
+        hasSlot: !!slot,
+        drawn: !!(slot && slot.querySelector('svg')),
+        text: slot ? slot.textContent.trim() : ''
+      };
+    }));
+
+  expect(rows.length, 'the fixture has to produce rows to inspect').toBeGreaterThan(0);
+  expect(rows.filter(row => !row.drawn), 'every row needs a drawn mark').toEqual([]);
+  expect(rows.filter(row => row.text !== ''), 'no row may fall back to a text glyph').toEqual([]);
+});
+
+/*
+ * An empty repository is not told to pick a file.
+ *
+ * The editor's resting state says "Pick a file from the constellation on the
+ * left, or press Ctrl K to jump anywhere" -- correct when there are files, and
+ * an instruction that cannot be followed when there are none. The tree said
+ * "Empty repository" in the same breath, so the workbench contradicted itself
+ * on the first screen a new repository ever shows.
+ */
+test('an empty repository is not asked to open a file that does not exist', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/editor');
+  await page.locator('#page-work.active').waitFor();
+  /* The fixture's tree is empty, which is the case under test. */
+  await expect(page.locator('#tree')).toContainText('Empty repository');
+
+  /*
+   * Read as innerText, not textContent: both wordings live in the DOM and one
+   * is hidden, so textContent contains the sentence that is not on the screen
+   * and would report the contradiction as unfixed forever.
+   */
+  const empty = page.locator('#editorEmpty');
+  await expect(empty).toBeVisible();
+  await expect(empty, 'nothing may point at a file list that has no files')
+    .not.toContainText(/Pick a file|tap Files/i, { useInnerText: true });
+  await expect(empty, 'the reader needs the action that does apply')
+    .toContainText(/add the first one/i, { useInnerText: true });
+});
+
+/*
  * A message must not land on the navigation. Anchored to the bottom of a
  * phone, a toast sat squarely over the bar and covered every destination in it
  * for as long as it was up.

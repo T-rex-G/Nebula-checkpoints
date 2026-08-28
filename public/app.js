@@ -1279,7 +1279,7 @@ async function loadRepos(reset) {
     state.repos.push(...batch);
     batch.forEach(r => grid.appendChild(repoCard(r)));
     $('#moreReposBtn').hidden = batch.length < 30;
-    if (!state.repos.length) grid.innerHTML = '<div class="card editor-empty"><div class="empty-icon">✦</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>';
+    if (!state.repos.length) grid.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.repos}</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>`;
     renderGalaxyPulse(state.repos);
     renderWorkspacePulse();
   } catch (e) {
@@ -2382,6 +2382,54 @@ async function refreshRate() {
 }
 
 /* ---------------- tree ---------------- */
+/*
+ * Which of the editor's two resting states applies. Kept beside the tree load
+ * because the tree is the only thing that knows whether there is anything to
+ * pick.
+ */
+function markEmptyRepository(bare) {
+  const pick = $('.editor-empty-pick');
+  const empty = $('.editor-empty-bare');
+  if (!pick || !empty) return;
+  pick.hidden = bare;
+  empty.hidden = !bare;
+}
+
+/*
+ * The tree's marks, drawn rather than typed.
+ *
+ * A directory used to be U+25B8 and a file U+00B7 -- a period, set at 15px in
+ * the muted colour, against a column of filenames. It read as nothing, and
+ * this is the control the workbench is navigated with. These follow the same
+ * geometry as every other icon in the product: a 24 box, stroked, no fill.
+ *
+ * The directory chevron points right and is rotated by CSS when the row opens,
+ * so the open and closed states are one mark in two positions rather than two
+ * marks that have to be kept in agreement.
+ */
+/*
+ * The marks for a screen with nothing on it.
+ *
+ * Six empty states shared four Unicode glyphs between them -- a sparkle stood
+ * for an unopened file, an untagged release and a workflow that has never run,
+ * which tells a reader nothing about which screen they are on. Each one now
+ * draws the thing it is the absence of.
+ */
+const EMPTY_ICON = Object.freeze({
+  file: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5V8.5h5"/></svg>',
+  repos: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v16H6.5A1.5 1.5 0 0 1 5 18.5z"/><path d="M8.5 4v16"/></svg>',
+  pulls: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6.5" r="2.3"/><circle cx="7" cy="17.5" r="2.3"/><circle cx="17" cy="12" r="2.3"/><path d="M7 8.8v6.4M9.3 6.5H13a1.7 1.7 0 0 1 1.7 1.7v2.1"/></svg>',
+  issues: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.2"/></svg>',
+  releases: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3.5h8.5V12l-7.9 7.9a1.6 1.6 0 0 1-2.3 0l-5.2-5.2a1.6 1.6 0 0 1 0-2.3z"/><circle cx="15.6" cy="7.9" r="1.4"/></svg>',
+  actions: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M10.4 9.3l4.6 2.7-4.6 2.7z"/></svg>'
+});
+
+const TREE_ICON = Object.freeze({
+  dir: '<svg class="ti-mark ti-mark-dir" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>',
+  file: '<svg class="ti-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5V8.5h5"/></svg>',
+  hit: '<svg class="ti-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>'
+});
+
 async function loadTree(dirPath, host, isRoot) {
   if (isRoot) host.innerHTML = '<div class="skeleton" style="height:160px"></div>';
   try {
@@ -2391,7 +2439,7 @@ async function loadTree(dirPath, host, isRoot) {
       const row = document.createElement('div');
       row.className = 'tree-item' + (it.type === 'dir' ? ' dir' : '');
       row.style.animationDelay = Math.min(idx * 20, 240) + 'ms';
-      row.innerHTML = `<span class="ti-icon">${it.type === 'dir' ? '▸' : '·'}</span><span class="ti-name"></span>
+      row.innerHTML = `<span class="ti-icon">${it.type === 'dir' ? TREE_ICON.dir : TREE_ICON.file}</span><span class="ti-name"></span>
         ${it.type === 'file' ? `<span class="tree-size">${fmtSize(it.size)}</span>` : ''}`;
       row.querySelector('.ti-name').textContent = it.name;
       attachItemMenu(row, it);
@@ -2399,7 +2447,7 @@ async function loadTree(dirPath, host, isRoot) {
         let open = false, sub = null;
         row.addEventListener('click', async () => {
           open = !open;
-          row.querySelector('.ti-icon').textContent = open ? '▾' : '▸';
+          row.classList.toggle('open', open);
           if (open && !sub) {
             sub = document.createElement('div'); sub.className = 'tree-indent'; row.after(sub);
             await loadTree(it.path, sub, false);
@@ -2418,6 +2466,13 @@ async function loadTree(dirPath, host, isRoot) {
     if (isRoot) host.innerHTML = '';
     host.appendChild(frag);
     if (isRoot && !items.length) host.innerHTML = '<div class="tree-item">Empty repository</div>';
+    /*
+     * The editor's resting state follows the tree. It reads "Pick a file from
+     * the constellation on the left" -- true with files, and an instruction
+     * that cannot be carried out without them, printed alongside a tree
+     * already saying the repository is empty.
+     */
+    if (isRoot) markEmptyRepository(!items.length);
   } catch (e) { if (isRoot) host.innerHTML = `<div class="tree-item">⚠ ${esc(e.message)}</div>`; }
 }
 
@@ -2844,7 +2899,7 @@ $('#codeSearch').addEventListener('keydown', async e => {
     hits.forEach(h => {
       const row = document.createElement('div');
       row.className = 'tree-item';
-      row.innerHTML = `<span class="ti-icon">◎</span><span class="ti-name"></span>`;
+      row.innerHTML = `<span class="ti-icon">${TREE_ICON.hit}</span><span class="ti-name"></span>`;
       row.querySelector('.ti-name').textContent = h.path;
       row.addEventListener('click', () => { state.pendingFind = q; openFile(h.path); closeDrawer(); });
       host.appendChild(row);
@@ -3994,7 +4049,7 @@ async function loadPRs() {
     const prs = await apiCached(`/api/repo/${wPath()}/pulls?state=${state.prState}`);
     host.innerHTML = '';
     if (!prs.length) {
-      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">⇄</div><p>No ${state.prState === 'all' ? '' : state.prState + ' '}pull requests.</p></div>`;
+      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.pulls}</div><p>No ${state.prState === 'all' ? '' : state.prState + ' '}pull requests.</p></div>`;
       return;
     }
     prs.forEach((p, i) => {
@@ -4166,7 +4221,7 @@ async function loadIssues() {
     const issues = await apiCached(`/api/repo/${wPath()}/issues?state=${state.issueState}`);
     host.innerHTML = '';
     if (!issues.length) {
-      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">◉</div><p>No ${state.issueState} issues. Peace in the galaxy.</p></div>`;
+      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.issues}</div><p>No ${state.issueState} issues. Peace in the galaxy.</p></div>`;
       return;
     }
     issues.forEach((it, i) => {
@@ -4267,7 +4322,7 @@ async function loadReleases() {
     const rels = await apiCached(`/api/repo/${wPath()}/releases`);
     host.innerHTML = '';
     if (!rels.length) {
-      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">✦</div><p>No releases yet.<br>Tag your first launch with “New release”.</p></div>`;
+      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.releases}</div><p>No releases yet.<br>Tag your first launch with “New release”.</p></div>`;
       return;
     }
     rels.forEach((r, i) => {
@@ -4959,7 +5014,7 @@ async function loadActions() {
     const runs = await apiCached(`/api/repo/${wPath()}/actions`, 30000);
     host.innerHTML = '';
     if (!runs.length) {
-      host.innerHTML = '<div class="card editor-empty"><div class="empty-icon">✦</div><p>No workflow runs yet.<br>Add a workflow under <span class="mono">.github/workflows/</span> to light up CI.</p></div>';
+      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.actions}</div><p>No workflow runs yet.<br>Add a workflow under <span class="mono">.github/workflows/</span> to light up CI.</p></div>`;
       return;
     }
     runs.forEach((r, i) => {

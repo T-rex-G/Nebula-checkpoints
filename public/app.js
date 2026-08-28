@@ -1821,7 +1821,7 @@ function fillBranchSelect(sel, names, selected, withGlyph) {
   sel.innerHTML = '';
   names.forEach(b => {
     const o = document.createElement('option');
-    o.value = b; o.textContent = (withGlyph ? '⑂ ' : '') + b;
+    o.value = b; o.textContent = b;
     if (b === selected) o.selected = true;
     sel.appendChild(o);
   });
@@ -1875,7 +1875,7 @@ $('#newBranchBtn').addEventListener('click', async () => {
     state.work.branches.push({ name, sha: created.sha || '' });
     ['#branchSelect', '#cmpBase', '#cmpHead'].forEach(s => {
       const o = document.createElement('option');
-      o.value = name; o.textContent = (s === '#branchSelect' ? '⑂ ' : '') + name;
+      o.value = name; o.textContent = name;
       $(s).appendChild(o);
     });
     $('#branchSelect').value = name; state.work.branch = name;

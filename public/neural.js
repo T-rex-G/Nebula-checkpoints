@@ -5,7 +5,7 @@
 'use strict';
 (() => {
   const TYPE_STYLE = {
-    repo:          { color: '#9a8cff', glyph: '✦', radius: 22, label: 'Repository' },
+    repo:          { color: '#9a8cff', mark: 'star', radius: 22, label: 'Repository' },
     user:          { color: '#f3f5ff', glyph: 'U', radius: 13, label: 'Identity' },
     session:       { color: '#61d8ff', glyph: 'S', radius: 11, label: 'Session' },
     branch:        { color: '#63a8ff', glyph: 'B', radius: 12, label: 'Branch' },
@@ -18,13 +18,86 @@
     package:       { color: '#b795ff', glyph: 'D', radius: 10, label: 'Dependency' },
     vulnerability: { color: '#F43F6E', glyph: '!', radius: 13, label: 'Vulnerability' },
     protected:     { color: '#22D3EE', glyph: 'L', radius: 12, label: 'Protected asset' },
-    snapshot:      { color: '#5c9fff', glyph: '↺', radius: 13, label: 'Recovery snapshot' },
-    safety:        { color: '#ff6d8d', glyph: '◆', radius: 13, label: 'Safety control' },
+    snapshot:      { color: '#5c9fff', mark: 'restore', radius: 13, label: 'Recovery snapshot' },
+    safety:        { color: '#ff6d8d', mark: 'shield', radius: 13, label: 'Safety control' },
     external:      { color: '#ff7469', glyph: 'X', radius: 12, label: 'External destination' },
-    scan:          { color: '#50e6c2', glyph: '✓', radius: 12, label: 'Security scan' },
+    scan:          { color: '#50e6c2', mark: 'check', radius: 12, label: 'Security scan' },
     credential:    { color: '#ffd166', glyph: 'K', radius: 12, label: 'Deploy credential' },
     integration:   { color: '#ff8fab', glyph: 'H', radius: 12, label: 'Webhook integration' }
   };
+
+  /*
+   * Four node types are drawn rather than typed.
+   *
+   * Every other type is a single letter, set in Public Sans. These four were
+   * a sparkle, a restoring turn, a diamond and a check -- characters that
+   * Public Sans does not carry, so they fell through the stack to whatever
+   * font on the machine happened to have them. Two typefaces on one graph, at
+   * two optical weights, decided by the viewer's system.
+   *
+   * Drawn as paths they are the same on every machine, and they still read at
+   * these radii (9 to 22) where a detailed icon would not. The letters stay
+   * letters: at this size a legible initial beats a smudged picture.
+   */
+  /*
+   * The same four marks for the inspector, which is DOM rather than canvas.
+   * Node types that carry a letter keep it; the drawn ones get the drawing,
+   * so the panel and the graph agree about what a node looks like.
+   */
+  const INSPECTOR_MARK = Object.freeze({
+    star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="M12 3.4c.6 3.6 1.8 5.4 5.4 6.6-3.6 1.2-4.8 3-5.4 6.6-.6-3.6-1.8-5.4-5.4-6.6 3.6-1.2 4.8-3 5.4-6.6z"/></svg>',
+    restore: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 12a7.2 7.2 0 1 0 2.1-5.1"/><path d="M4.8 6.2v5.1h5.1"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l7 2.9v5.1c0 4.2-2.9 7.6-7 8.9-4.1-1.3-7-4.7-7-8.9V6.5z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.4 12.4l4.2 4.2 9-9.2"/></svg>'
+  });
+
+  function nodeBadge(node) {
+    if (node.mark && INSPECTOR_MARK[node.mark]) return INSPECTOR_MARK[node.mark];
+    return nEsc(node.glyph || '');
+  }
+
+  function drawNodeMark(ctx, mark, x, y, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.lineWidth = Math.max(1, size * 0.16);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = ctx.fillStyle;
+    const u = size / 2;
+    ctx.beginPath();
+    if (mark === 'star') {
+      /* The brand's four-point mark, filled so the hub reads as solid. */
+      ctx.moveTo(0, -u);
+      ctx.quadraticCurveTo(u * 0.2, -u * 0.2, u, 0);
+      ctx.quadraticCurveTo(u * 0.2, u * 0.2, 0, u);
+      ctx.quadraticCurveTo(-u * 0.2, u * 0.2, -u, 0);
+      ctx.quadraticCurveTo(-u * 0.2, -u * 0.2, 0, -u);
+      ctx.fill();
+    } else if (mark === 'restore') {
+      ctx.arc(0, 0, u * 0.78, Math.PI * 0.55, Math.PI * 2.15);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-u * 0.78, -u * 0.32);
+      ctx.lineTo(-u * 0.78, u * 0.2);
+      ctx.lineTo(-u * 0.24, u * 0.2);
+      ctx.stroke();
+    } else if (mark === 'shield') {
+      ctx.moveTo(0, -u);
+      ctx.lineTo(u * 0.82, -u * 0.55);
+      ctx.lineTo(u * 0.82, u * 0.12);
+      ctx.quadraticCurveTo(u * 0.82, u * 0.76, 0, u);
+      ctx.quadraticCurveTo(-u * 0.82, u * 0.76, -u * 0.82, u * 0.12);
+      ctx.lineTo(-u * 0.82, -u * 0.55);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (mark === 'check') {
+      ctx.moveTo(-u * 0.72, 0);
+      ctx.lineTo(-u * 0.16, u * 0.56);
+      ctx.lineTo(u * 0.76, -u * 0.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   const MODE_TYPES = {
     security: new Set(['repo', 'user', 'session', 'branch', 'commit', 'workflow', 'protected', 'package', 'vulnerability', 'safety', 'snapshot', 'external', 'credential', 'integration']),
@@ -785,7 +858,11 @@
     ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0; ctx.strokeStyle = selected ? '#fff' : hexAlpha(severityColor, .62); ctx.lineWidth = selected ? 1.8 : .75; ctx.stroke();
     ctx.fillStyle = node.type === 'repo' ? '#fff' : 'rgba(255,255,255,.9)';
-    ctx.font = `${Math.max(7, radius * .57)}px 'Public Sans Variable', system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(node.glyph, p.x, p.y + .3);
+    if (node.mark) drawNodeMark(ctx, node.mark, p.x, p.y, radius * 1.02);
+    else {
+      ctx.font = `${Math.max(7, radius * .57)}px 'Public Sans Variable', system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(node.glyph, p.x, p.y + .3);
+    }
     const shouldLabel = selected || hover || eventHot || node.type === 'repo' || node.match || (NVN.zoom > 1.18 && radius > 8);
     if (shouldLabel) drawNodeLabel(ctx, node, p, radius, dim);
     ctx.restore();
@@ -937,7 +1014,7 @@
     const desc = node.meta.description || inspectorDescription(node);
     host.innerHTML = `
       ${node.severity === 'critical' ? '<div class="neural-report-banner"><b>Immediate attention recommended</b><p>This node participates in a critical security or operational signal.</p></div>' : ''}
-      <div class="neural-inspector-head"><div class="neural-node-icon" style="color:${nEsc(node.color)}">${nEsc(node.glyph)}</div><div><h3>${nEsc(node.label)}</h3><p>${nEsc(st.label)}</p></div></div>
+      <div class="neural-inspector-head"><div class="neural-node-icon" style="color:${nEsc(node.color)}">${nodeBadge(node)}</div><div><h3>${nEsc(node.label)}</h3><p>${nEsc(st.label)}</p></div></div>
       <span class="neural-risk-pill ${nEsc(node.severity)}">${node.severity === 'critical' ? '● Critical signal' : node.severity === 'warning' ? '● Review recommended' : '● Normal signal'}</span>
       <p class="neural-inspector-copy">${nEsc(desc)}</p>
       <div class="neural-inspector-grid">${metaPairs.map(([k, v]) => `<div class="neural-inspector-stat"><span>${nEsc(k.replace(/([A-Z])/g, ' $1'))}</span><b>${nEsc(short(v, 34))}</b></div>`).join('')}</div>

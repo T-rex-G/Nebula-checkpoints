@@ -36,7 +36,8 @@
     "test:matrix": "node scripts/test-matrix.js --allow-missing-dependencies",
     "test:runtime:matrix": "node scripts/test-matrix.js --require-all",
     "test:public-alpha:matrix": "node scripts/test-matrix.js --require-all --require-subject --report staging/evidence/public-alpha-matrix.json",
-    "design:review": "node scripts/design-review.js"
+    "design:review": "node scripts/design-review.js",
+    "a11y:audit": "node scripts/accessibility-audit.js"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "5.3.0",

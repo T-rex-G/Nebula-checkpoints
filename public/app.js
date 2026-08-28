@@ -442,9 +442,52 @@ function openFloatingActions() {
   if (!fab || !menu) return;
   menu.hidden = false;
   fab.setAttribute('aria-expanded', 'true');
+  /* Whatever the page was doing, the control stays while its menu is open. */
+  setFloatingActionRetracted(false);
   const first = menu.querySelector('.nv-fab-item:not([hidden])');
   if (first) first.focus();
 }
+
+/*
+ * The floating action steps aside while the reader moves down the page.
+ *
+ * It is anchored above the bottom navigation, which on a narrow screen puts it
+ * over whatever sits in the lower right -- the intelligence-mode grid, among
+ * others. A floating control overlays content by definition, but standing on a
+ * destination while someone is trying to reach it is not the bargain: it holds
+ * the controls the top bar had no room for, and that does not require it to be
+ * in front of them at every moment.
+ *
+ * Down the page is reading, so it withdraws. Back up the page is looking for
+ * something, so it returns -- as it does near the top, and whenever its own
+ * menu is open, and whenever it takes focus. That last one matters most: a
+ * control that is focusable while invisible sends the keyboard somewhere the
+ * reader cannot see, so the CSS restores it on :focus-within rather than
+ * leaving that to a listener that might not run.
+ */
+let _fabScrollY = 0;
+
+function setFloatingActionRetracted(retracted) {
+  const dock = $('.nv-fab-dock');
+  if (dock) dock.dataset.retracted = retracted ? 'true' : 'false';
+}
+
+function paintFloatingActionRetraction() {
+  const dock = $('.nv-fab-dock');
+  const fab = $('#paletteFab');
+  if (!dock || !fab) return;
+  const y = Math.max(0, window.scrollY);
+  const open = fab.getAttribute('aria-expanded') === 'true';
+  /* A small threshold, so a rubber-band or a one-pixel jitter is not a gesture. */
+  const movedDown = y > _fabScrollY + 6;
+  const movedUp = y < _fabScrollY - 6;
+  if (open || y < 80) setFloatingActionRetracted(false);
+  else if (movedDown) setFloatingActionRetracted(true);
+  else if (movedUp) setFloatingActionRetracted(false);
+  _fabScrollY = y;
+}
+
+window.addEventListener('scroll', paintFloatingActionRetraction, { passive: true });
 
 function paintFloatingAction(name) {
   const fab = $('#paletteFab');

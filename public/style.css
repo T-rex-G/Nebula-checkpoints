@@ -1557,7 +1557,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   animation:fabMenuIn .2s var(--ease) both}
 .nv-fab-menu[hidden]{display:none}
 @keyframes fabMenuIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){ .nv-fab-menu{animation:none} }
+@media (prefers-reduced-motion:reduce){ .nv-fab-menu{animation:none} .nv-fab{transition:none} }
 .nv-fab-item{display:flex;align-items:center;gap:11px;width:100%;min-height:46px;
   font:inherit;font-size:.88rem;font-weight:500;text-align:left;color:var(--text);
   padding:10px 12px;border:0;border-radius:12px;background:transparent;cursor:pointer;
@@ -1570,7 +1570,17 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .nv-fab-slot{display:flex;flex-direction:column;gap:2px}
 .nv-fab-slot .capability-state{padding:0 12px 4px;font-size:.7rem}
 
-.nv-fab{position:relative;
+/*
+ * Retracted, it slides down behind the bottom navigation and stops taking
+ * pointer input. Focus overrides that in CSS rather than in a listener: a
+ * control that can be focused while invisible sends the keyboard somewhere
+ * the reader cannot see, and that must not depend on a script running.
+ */
+.nv-fab-dock[data-retracted="true"] .nv-fab{
+  transform:translateY(calc(var(--bnav-h) + 40px + env(safe-area-inset-bottom)));
+  opacity:0;pointer-events:none}
+.nv-fab-dock[data-retracted="true"]:focus-within .nv-fab{transform:none;opacity:1;pointer-events:auto}
+.nv-fab{transition:transform .26s cubic-bezier(.4,0,.2,1),opacity .18s ease;position:relative;
   width:56px;height:56px;padding:0;border-radius:18px;cursor:pointer;
   display:inline-flex;align-items:center;justify-content:center;
   color:var(--btnFg);border:1px solid var(--navB);

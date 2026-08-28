@@ -908,6 +908,94 @@ test('every neural mode is reachable without dragging', async ({ page }) => {
 });
 
 /*
+ * The floating action gets out of the way while you read, and comes back.
+ *
+ * It is anchored above the bottom navigation, and on a narrow screen that puts
+ * it over whatever the page has in its lower right -- the intelligence-mode
+ * grid, for one. A floating control does overlay content by definition, but
+ * sitting on a destination while the reader is trying to reach it is not the
+ * bargain: it exists to hold the controls the top bar had no room for, and
+ * that job does not require it to be in front of them at every moment.
+ *
+ * So it retracts while the reader is moving down the page and returns the
+ * moment they move back up, which is when someone is looking for a control
+ * rather than reading past one.
+ *
+ * Two things this must not become. It must never retract with its own menu
+ * open -- the control would leave while the reader was using it. And it must
+ * never be focusable while invisible, which is a keyboard trap in the precise
+ * sense that focus goes somewhere the reader cannot see; focus brings it back.
+ */
+test.describe('the floating action', () => {
+  test.skip(({ viewport }) => !viewport || viewport.width > 900, 'it exists below 901px');
+
+  const dockState = page => page.evaluate(() => {
+    const dock = document.querySelector('.nv-fab-dock');
+    const fab = document.querySelector('#paletteFab');
+    return {
+      retracted: dock.dataset.retracted === 'true',
+      onScreen: fab.getBoundingClientRect().bottom <= window.innerHeight + 1
+        && getComputedStyle(fab).opacity !== '0',
+      expanded: fab.getAttribute('aria-expanded')
+    };
+  });
+
+  test('retracts on the way down and returns on the way up', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/editor');
+    await page.reload();
+    await page.locator('#page-work.active').waitFor();
+    await page.evaluate(() => window.switchTab('neural'));
+    await page.waitForTimeout(900);
+    await expect(page.locator('#paletteFab')).toBeVisible();
+
+    expect((await dockState(page)).retracted, 'it starts in view').toBe(false);
+
+    await page.evaluate(() => window.scrollTo(0, 600));
+    await expect.poll(async () => (await dockState(page)).retracted,
+      { message: 'moving down the page must retract it' }).toBe(true);
+
+    await page.evaluate(() => window.scrollTo(0, 200));
+    await expect.poll(async () => (await dockState(page)).retracted,
+      { message: 'moving back up must return it' }).toBe(false);
+  });
+
+  test('never leaves while its own menu is open', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/editor');
+    await page.reload();
+    await page.locator('#page-work.active').waitFor();
+    await page.evaluate(() => window.switchTab('neural'));
+    await page.waitForTimeout(900);
+
+    await page.locator('#paletteFab').click();
+    await expect(page.locator('#fabMenu')).toBeVisible();
+
+    await page.evaluate(() => window.scrollTo(0, 700));
+    await page.waitForTimeout(400);
+    const state = await dockState(page);
+    expect(state.retracted, 'an open menu keeps its control on screen').toBe(false);
+    expect(state.expanded).toBe('true');
+  });
+
+  test('is never focusable while it is out of sight', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/editor');
+    await page.reload();
+    await page.locator('#page-work.active').waitFor();
+    await page.evaluate(() => window.switchTab('neural'));
+    await page.waitForTimeout(900);
+
+    await page.evaluate(() => window.scrollTo(0, 600));
+    await expect.poll(async () => (await dockState(page)).retracted).toBe(true);
+
+    await page.locator('#paletteFab').focus();
+    await expect.poll(async () => (await dockState(page)).onScreen,
+      { message: 'focus has to bring it back rather than land on something invisible' }).toBe(true);
+  });
+});
+
+/*
  * A message must not land on the navigation. Anchored to the bottom of a
  * phone, a toast sat squarely over the bar and covered every destination in it
  * for as long as it was up.

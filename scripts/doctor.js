@@ -213,7 +213,15 @@ function evaluate(env) {
       problems.push({ severity: 'error', kind: 'detail', name: 'NV_GOVERNANCE_AUDIT_SECRET', detail: 'NV_GOVERNANCE_AUDIT_SECRET must contain at least 32 bytes in production.' });
     }
     if (!isSet(env, 'NV_GIT_HOST_ALLOWLIST')) {
-      notes.push('NV_GIT_HOST_ALLOWLIST is empty. Production refuses to start unless a canonical hosted provider is configured.');
+      /*
+       * A note, not a problem. This is checked when a server URL is connected
+       * rather than at startup, and only for self-hosted Git servers -- an
+       * empty allowlist is the correct configuration for a deployment that
+       * uses the hosted providers. Reported as missing, it sent a reader
+       * hunting for a value they did not need, which is how a checker earns
+       * being ignored.
+       */
+      notes.push('NV_GIT_HOST_ALLOWLIST is empty. That is fine for hosted providers; a self-hosted Git server will be refused in production until its host is listed.');
     }
     if (profile === 'hosted-alpha'
       && String(env.NV_DATABASE_MIGRATION_MODE || 'apply').trim().toLowerCase() !== 'verify') {

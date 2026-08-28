@@ -1348,7 +1348,7 @@ function repoCard(r) {
     <p class="desc"></p>
     <div class="repo-meta">
       ${r.language ? `<span><span class="lang-dot"></span>${esc(r.language)}</span>` : ''}
-      <span>★ ${r.stars}</span><span>⑂ ${r.forks}</span><span>${timeAgo(r.pushed_at)}</span>
+      <span>${META_ICON.star} ${r.stars}</span><span>${META_ICON.fork} ${r.forks}</span><span>${timeAgo(r.pushed_at)}</span>
     </div>
     <span class="repo-open">Open workspace</span>`;
   el.querySelector('h3 .repo-name').textContent = r.full_name;
@@ -2467,6 +2467,22 @@ const EMPTY_ICON = Object.freeze({
   actions: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M10.4 9.3l4.6 2.7-4.6 2.7z"/></svg>'
 });
 
+/*
+ * Marks that sit beside a number or inside a small control.
+ *
+ * The last of the typed glyphs: a star, a fork, a speech bubble and a close
+ * cross, all standing where the rest of the product draws. The fork also
+ * appears in the branch <select>, and stays typed there -- a native option
+ * element holds text and nothing else, so that one is a real constraint rather
+ * than an oversight.
+ */
+const META_ICON = Object.freeze({
+  star: '<svg class="meta-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.6 5.2 5.8.9-4.2 4 1 5.7-5.2-2.7-5.2 2.7 1-5.7-4.2-4 5.8-.9z"/></svg>',
+  fork: '<svg class="meta-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6.2" r="2.2"/><circle cx="17" cy="6.2" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M7 8.4v1.2a3 3 0 0 0 3 3h4a3 3 0 0 0 3-3V8.4M12 12.6v3.2"/></svg>',
+  comments: '<svg class="meta-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 12.2a6.8 6.8 0 0 1-6.8 6.8H8.9L4.6 21.4v-4.5a6.8 6.8 0 0 1 4.3-11.7h4.7a6.8 6.8 0 0 1 6.8 6.8z"/></svg>',
+  close: '<svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+});
+
 const TREE_ICON = Object.freeze({
   dir: '<svg class="ti-mark ti-mark-dir" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>',
   file: '<svg class="ti-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5V8.5h5"/></svg>',
@@ -2938,7 +2954,7 @@ $('#codeSearch').addEventListener('keydown', async e => {
   host.innerHTML = '<div class="skeleton" style="height:120px"></div>';
   try {
     const hits = await api(`/api/repo/${wPath()}/search?q=${encodeURIComponent(q)}`);
-    host.innerHTML = hits.length ? '' : '<div class="tree-item">No matches — ↻ restores the tree</div>';
+    host.innerHTML = hits.length ? '' : '<div class="tree-item">No matches — use Refresh to restore the tree</div>';
     hits.forEach(h => {
       const row = document.createElement('div');
       row.className = 'tree-item';
@@ -3268,7 +3284,7 @@ function renderStagedPanel() {
     el.className = 'stage-item';
     el.innerHTML = `<span class="stage-op ${s.op === 'put' ? 'op-put' : 'op-del'}">${s.op === 'put' ? 'PUT' : 'DEL'}</span>
       <span class="stage-path mono"></span>
-      <button class="stage-x" aria-label="Unstage">✕</button>`;
+      <button class="stage-x" aria-label="Unstage">${META_ICON.close}</button>`;
     el.querySelector('.stage-path').textContent = s.path;
     el.querySelector('.stage-x').addEventListener('click', () => {
       state.staged.splice(i, 1); renderStagedCount(); renderStagedPanel();
@@ -4122,7 +4138,7 @@ async function openPR(num) {
       <div class="detail-head">
         <span class="state-pill ${st[1]}">${st[0]}</span>
         <span class="detail-title"></span>
-        <button class="btn btn-ghost small" id="prCloseDetail">✕</button>
+        <button class="btn btn-ghost small" id="prCloseDetail" aria-label="Close">${META_ICON.close}</button>
       </div>
       <div class="detail-meta">
         <span>#${p.number} by ${esc(p.user || '')}</span>
@@ -4279,7 +4295,7 @@ async function loadIssues() {
         <div class="li-meta">
           <span>#${it.number}</span><span></span>
           ${it.labels.map(l => { const color = safeHexColor(l.color); return `<span class="label-pill" style="border-color:#${color}88;color:#${color}">${esc(l.name)}</span>`; }).join('')}
-          <span>◧ ${it.comments}</span><span>${timeAgo(it.updated_at)}</span>
+          <span>${META_ICON.comments} ${it.comments}</span><span>${timeAgo(it.updated_at)}</span>
         </div>`;
       el.querySelector('.li-title').textContent = it.title;
       el.querySelector('.li-meta span:nth-child(2)').textContent = it.user || '';
@@ -4299,7 +4315,7 @@ async function openIssue(num) {
       <div class="detail-head">
         <span class="state-pill ${i.state === 'open' ? 'state-open' : 'state-closed'}">${i.state}</span>
         <span class="detail-title"></span>
-        <button class="btn btn-ghost small" id="issCloseDetail">✕</button>
+        <button class="btn btn-ghost small" id="issCloseDetail" aria-label="Close">${META_ICON.close}</button>
       </div>
       <div class="detail-meta"><span>#${i.number} by ${esc(i.user || '')}</span><span>${timeAgo(i.created_at)}</span></div>
       <div class="detail-body" id="issBody" hidden></div>

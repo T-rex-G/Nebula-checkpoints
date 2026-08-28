@@ -2,6 +2,77 @@
 
 ## Unreleased
 
+### Interface Correctness and Configuration Discoverability
+
+- Fixed a defect that emptied the workbench from a link. `switchTab` marks the
+  chosen tab by toggling `active` against every tab and pane, so a name matching
+  no tab did not select nothing, it deselected everything. Deep links carry that
+  name straight from the URL, and `/files` — the route form this project's own
+  browser tests used to enter the workbench — is one of those names, so ten
+  tests had been asserting around an empty screen. Both halves are guarded.
+- Replaced the workbench tab strip's horizontal scroll with a wrap. Ten
+  destinations wanted 944px in an 835px box, leaving Governance showing 17px of
+  its 120 underneath the 18px fade meant to advertise it; the earlier edge fade
+  worked as a mechanism and did not solve the problem. The guard now asserts the
+  outcome — every tab inside the strip — rather than the apparatus.
+- Put the trust summary behind a disclosure below 900px. Five fields of prose
+  drew 393px of an 820px screen and pushed the editor's empty state under the
+  bottom navigation. The rollup keeps every evidence state on screen, counted
+  and named for the weakest present; only the prose costs a tap.
+- Made an empty repository stop instructing the reader to pick a file from a
+  tree that has none.
+- Replaced typed Unicode glyphs with drawn marks across the file tree, the five
+  evidence states, six empty states, the five intelligence modes and the
+  governance state orbs. A file in the tree had been U+00B7 — a period — at 15px
+  in the muted colour. The evidence states became one family of circles rather
+  than five unrelated shapes, which also freed the shield for Governance alone.
+- Rebuilt the Emergency Shield control on the danger palette. It ran a gradient
+  from rose to brand violet, the only one in the product crossing hues, and its
+  rose was the literal dark-theme value, so in light mode this one control
+  painted from the wrong palette.
+
+### Accessibility Conformance
+
+- Added `scripts/accessibility-audit.js` (`npm run a11y:audit`), which walks
+  both themes, both viewports and all ten workbench destinations, keeps findings
+  at every impact, and checks pointer target size, focus visibility and reflow.
+  The regression suite checks seven points on the golden path at critical and
+  serious impact in one theme; Neural, Governance and every destination past
+  Editor had never been scanned.
+- Fixed what it found: the neural signal filters were 15px targets 14px apart,
+  too small for WCAG 2.5.8 and too close for its spacing exception; the replay
+  slider input was four pixels tall and eight hundred wide; `.check` boxes were
+  18px; and the intelligence-mode list was 774px of destinations inside a 270px
+  sideways scroller. Governance did not fit a 320px screen once it had to show
+  an error, because `.gov-shell` is a grid whose items keep `min-width:auto` and
+  the message carries an unbreakable URL.
+- The floating action retracts while the reader moves down the page and returns
+  on the way up, near the top, while its menu is open, and on focus. The focus
+  restore is in CSS on `:focus-within` rather than a listener, because a control
+  that can be focused while invisible is a keyboard trap.
+
+### Configuration Discoverability and Maintenance Mode
+
+- Added `src/config-registry.js` and `scripts/doctor.js` (`npm run doctor`).
+  Discovering what a deployment needed meant starting it and reading whichever
+  error came first; 112 environment variables across the server, the operator
+  scripts and the release-authorization gate were named in no single place. The
+  doctor calls the server's own configuration loaders rather than repeating
+  their rules, and never prints a value.
+- `test/config-registry.test.js` checks the registry against the source in both
+  directions and against `render.yaml`, so an entry cannot outlive the code that
+  read it and the blueprint cannot configure something nothing reads.
+- Implemented `NV_MAINTENANCE_MODE`. The blueprint had set it and a contract
+  test had asserted it since it was written, while no code read it — an operator
+  flipping it during an incident would have had a documented switch, a passing
+  test and a fully serving application. It closes the API with 503 and drains
+  readiness while keeping the health check green, because a host recycles an
+  instance that fails health.
+- Corrected `NV_GIT_HOST_ALLOWLIST` in the registry and the doctor. It is
+  checked when a server URL is connected, not at startup, and only for
+  self-hosted Git servers; reporting it as a missing production requirement sent
+  a reader hunting a value they did not need.
+
 ### Continuity State and Release-Identity Correctness
 
 - Added a static identifier-resolution gate (`eslint.config.js`, `no-undef` only)

@@ -557,6 +557,9 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 /* editor */
 .editor-empty{margin:auto;text-align:center;padding:54px 34px;color:var(--text2);font-size:.92rem;line-height:1.7;max-width:440px}
 .empty-icon{display:flex;justify-content:center;color:var(--accent2);margin-bottom:14px}
+/* Beside a count, sized to the text it sits with rather than to a button. */
+.meta-mark{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px}
 /*
  * The glow moves from text-shadow to a drop-shadow filter, which is what
  * follows the drawn edge rather than a glyph's box.
@@ -593,7 +596,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .dropzone.drag{border-color:var(--teal);background:rgba(34,211,238,0.06)}
 .dz-ring{width:58px;height:58px;margin:0 auto 14px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   border:1.5px solid rgba(139,92,246,0.5);box-shadow:0 0 26px rgba(139,92,246,0.35), inset 0 0 14px rgba(139,92,246,0.2)}
-.dz-arrow{font-size:1.5rem;color:var(--accent2)}
+.dz-arrow{width:22px;height:22px;fill:none;stroke:var(--accent2);stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round}
 .dz-title{font-size:.96rem;font-weight:500}
 .dz-browse{color:var(--teal);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .dz-sub{font-size:.8rem;color:var(--text2);margin-top:6px}
@@ -667,7 +671,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .compare-card{padding:18px;max-width:860px;width:100%}
 .compare-row{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
 .compare-row > div{flex:1;min-width:150px}
-.cmp-arrow{font-size:1.2rem;color:var(--accent2);padding-bottom:10px}
+.cmp-arrow{width:20px;height:20px;flex:0 0 auto;fill:none;stroke:var(--accent2);stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;margin-bottom:10px}
 .cmp-stats{display:flex;gap:14px;margin:16px 0 6px;font-size:.82rem;color:var(--text2);flex-wrap:wrap}
 .cmp-stats b{color:var(--text)}
 

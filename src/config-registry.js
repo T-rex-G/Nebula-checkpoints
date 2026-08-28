@@ -65,9 +65,9 @@ const ENTRIES = Object.freeze([
   { name: 'NV_MAINTENANCE_MODE', group: 'server', requirement: 'optional', fallback: 'off',
     format: "'1', 'true', 'on' or 'yes' to enable",
     summary: 'Closes the API with 503 and drains readiness while keeping the health check green, so the host does not recycle the instance during a maintenance window. Static assets and the application shell still load.' },
-  { name: 'NV_GIT_HOST_ALLOWLIST', group: 'server', requirement: 'production', fallback: "'' (empty)",
+  { name: 'NV_GIT_HOST_ALLOWLIST', group: 'server', requirement: 'optional', fallback: "'' (empty)",
     format: 'comma-separated hostnames',
-    summary: 'Git hosts this deployment may reach. Production refuses to start with an empty allowlist unless a canonical hosted provider is configured.' },
+    summary: 'Git hosts this deployment may reach. Checked when a server URL is connected, not at startup: in production a self-hosted Git server is refused unless its host is listed, while gitlab.com is allowed as a canonical hosted provider. Leaving it empty is fine for a deployment that only uses the hosted providers.' },
 
   /* ---------------- PostgreSQL ---------------- */
   { name: 'DATABASE_URL', group: 'database', requirement: 'production', fallback: "'' (in-memory only)",

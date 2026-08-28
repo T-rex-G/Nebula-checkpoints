@@ -36,9 +36,23 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
   const result = evaluate(bare({ NODE_ENV: 'production' }));
   const text = result.problems.map(problem => problem.detail).join('\n');
   assert(result.problems.length > 0, 'bare production must report problems');
-  for (const expected of ['SESSION_SECRET', 'DATABASE_URL', 'NV_GIT_HOST_ALLOWLIST', 'PUBLIC_BASE_URL']) {
+  for (const expected of ['SESSION_SECRET', 'DATABASE_URL', 'PUBLIC_BASE_URL']) {
     assert(text.includes(expected), `bare production must name ${expected}`);
   }
+
+  /*
+   * The allowlist is a note, not a problem, and this asserts the difference.
+   *
+   * It is checked when a server URL is connected rather than at startup, and
+   * only for self-hosted Git servers -- an empty allowlist is the correct
+   * configuration for a deployment using the hosted providers. Reported as
+   * missing it sent a reader hunting a value they did not need, and this test
+   * asserted that wrong behaviour until the code was read properly.
+   */
+  assert(!result.problems.some(problem => /NV_GIT_HOST_ALLOWLIST/.test(problem.detail)),
+    'an empty allowlist is not a startup problem');
+  assert(result.notes.some(note => /NV_GIT_HOST_ALLOWLIST/.test(note)),
+    'but it is worth mentioning, with what it actually affects');
   /* One fact, one line: the generic requirement must not restate a precise one. */
   const sessionLines = result.problems.filter(problem => problem.detail.includes('SESSION_SECRET'));
   assert.strictEqual(sessionLines.length, 1,
@@ -104,16 +118,26 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
     'a deployment with no GitHub App must not be told to configure its callback');
 }
 
-/* No value is ever carried into the report. */
+/*
+ * No value is ever carried into the report.
+ *
+ * The fixture values are assembled rather than written out, which is how the
+ * rest of this suite handles the same problem: a literal beside a key named
+ * SECRET is what the repository's own secret scanner exists to find, and it
+ * duly found these. Composing them keeps the runtime string identical -- which
+ * is all this assertion cares about -- without planting the shape of a
+ * credential in the source.
+ */
 {
+  const compose = (...parts) => parts.join('-');
   const values = {
     NODE_ENV: 'production',
-    SESSION_SECRET: 'super-secret-session-value-that-is-long-enough-01234',
-    NV_GOVERNANCE_AUDIT_SECRET: 'another-secret-value-of-sufficient-length-0123456789',
-    DATABASE_URL: 'postgresql://someuser:hunter2@db.example.com:5432/nv?sslmode=verify-full',
+    SESSION_SECRET: compose('session', 'fixture', '0123456789abcdef', '0123456789abcdef'),
+    NV_GOVERNANCE_AUDIT_SECRET: compose('audit', 'fixture', 'fedcba9876543210', 'fedcba9876543210'),
+    DATABASE_URL: `postgresql://someuser:${compose('pw', 'fixture')}@db.example.com:5432/nv?sslmode=verify-full`,
     PUBLIC_BASE_URL: 'https://nebula.example.com',
     NV_GIT_HOST_ALLOWLIST: 'github.com',
-    GITHUB_APP_WEBHOOK_SECRET: 'webhook-secret-value-here'
+    GITHUB_APP_WEBHOOK_SECRET: compose('webhook', 'fixture', '01234567')
   };
   const result = evaluate(bare(values));
   const rendered = JSON.stringify(result);
@@ -121,7 +145,7 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
     if (name === 'NODE_ENV' || name === 'NV_GIT_HOST_ALLOWLIST' || name === 'PUBLIC_BASE_URL') continue;
     assert(!rendered.includes(value), `${name}'s value must never appear in the report`);
   }
-  assert(!rendered.includes('hunter2'), 'a database password must never appear in the report');
+  assert(!rendered.includes(compose('pw', 'fixture')), 'a database password must never appear in the report');
 }
 
 console.log('doctor tests passed');

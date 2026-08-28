@@ -114,6 +114,14 @@ node scripts/alpha-load.js
 ## Before any deploy or migration
 
 - Confirm the exact clean source commit and Node 22 runtime.
+- Verify the target environment is completely configured before deploying, not
+  after. `npm run doctor` evaluates the environment against
+  `src/config-registry.js`, which names every variable this project reads, and
+  exits non-zero when something the selected profile requires is absent. It
+  calls the server's own configuration loaders rather than repeating their
+  rules, so a pass is the answer the process will give at startup. It reports
+  only whether a value is set, never the value, and is safe to run on the
+  server.
 - Create and verify a fresh encrypted backup.
 - Record migration compatibility and rollback decision.
 - Keep live mutations frozen until smoke and readiness pass.
@@ -123,5 +131,12 @@ set -euo pipefail
 git status --short
 git rev-parse HEAD
 node --version
+npm run doctor                 # exits non-zero if the profile is incomplete
+npm run doctor -- --group=ci   # only when dispatching live qualification
 sha256sum "$NV_BACKUP_FILE" "$NV_BACKUP_MANIFEST"
 ```
+
+`NV_MAINTENANCE_MODE=1` closes the API with `503` while keeping `/healthz`
+green and draining `/readyz`. Use it to hold traffic during a migration; unset
+it or set `0` to return to service. It is read at startup, so changing it on
+Render redeploys the service, which is what applies it.

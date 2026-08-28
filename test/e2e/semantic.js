@@ -171,6 +171,17 @@ function trust(target) {
  * where all five are drawn at once.
  */
 async function openTrustDetail(page) {
+  /*
+   * Wait for the summary to be on screen before asking about the rollup.
+   *
+   * #trustSummary starts hidden and renderSummary clears it, so "the rollup is
+   * not visible" means two different things depending on when you ask: above
+   * the breakpoint it will never exist, and below it, it may simply not have
+   * been drawn yet. Asking too early read the second as the first, returned
+   * without opening anything, and failed about one run in five. Once the
+   * summary is visible the answer is decided by the media query alone.
+   */
+  await page.locator('#trustSummary').waitFor({ state: 'visible' });
   const rollup = page.locator('#trustRollup');
   if (!(await rollup.isVisible().catch(() => false))) return;
   if ((await rollup.getAttribute('aria-expanded')) === 'true') return;

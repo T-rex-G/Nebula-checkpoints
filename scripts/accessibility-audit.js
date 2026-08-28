@@ -40,6 +40,29 @@ const WORKBENCH_TABS = Object.freeze([
   'releases', 'actions', 'compare', 'neural', 'governance'
 ]);
 
+/*
+ * Report the audit's own blindness.
+ *
+ * Masking the renderer is not enough on its own: if a future change to the
+ * mask, the loader or the mount conditions stops these from appearing, the
+ * scan would go back to inspecting a screen without its largest element and
+ * reporting it clean. Twice now a zero has meant "nothing looked", so the
+ * absence is recorded as a finding rather than left to be inferred.
+ */
+async function coverageFindings(page, where, expected) {
+  const present = await page.evaluate(tag => {
+    const host = document.querySelector(tag);
+    return { element: !!host, canvas: !!(host && host.querySelector('canvas')) };
+  }, expected.tag);
+  if (present.element && present.canvas) return [];
+  return [{
+    kind: 'coverage', where, impact: 'serious', id: 'visual-not-mounted',
+    help: `${expected.label} did not mount, so this screen was scanned without it`,
+    nodes: 0,
+    sample: `<${expected.tag}> element=${present.element} canvas=${present.canvas}`
+  }];
+}
+
 async function axeFindings(page, where) {
   const result = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   return result.violations.map(violation => ({
@@ -214,6 +237,7 @@ async function main() {
         await page.waitForTimeout(6000);
 
         const label = suffix => `${view.name}/${theme}/${suffix}`;
+        findings.push(...await coverageFindings(page, label('overview'), { tag: 'nebula-mark-3d', label: 'The dimensional brand mark' }));
         findings.push(...await axeFindings(page, label('overview')));
         findings.push(...await targetFindings(page, label('overview')));
         findings.push(...await focusFindings(page, label('overview')));
@@ -227,6 +251,7 @@ async function main() {
         await page.evaluate(() => window.showPage('repos'));
         await page.getByRole('main', { name: 'Your galaxies' }).waitFor({ state: 'visible' });
         await page.waitForTimeout(6000);
+        findings.push(...await coverageFindings(page, label('repositories'), { tag: 'nebula-galaxy', label: 'The galaxy' }));
         findings.push(...await axeFindings(page, label('repositories')));
         findings.push(...await targetFindings(page, label('repositories')));
 

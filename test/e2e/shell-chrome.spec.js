@@ -540,6 +540,58 @@ test.describe('entering the workbench by link', () => {
 });
 
 /*
+ * The work surface is on the screen when the workbench opens.
+ *
+ * The trust summary is five fields of prose, and on a phone it drew all five
+ * as full cards: 393px of an 820px screen, before anything the reader came to
+ * do. The editor pane below it kept a near-viewport minimum height, so its
+ * empty state -- centred in that pane by margin:auto -- was pushed past the
+ * fold and came to rest underneath the bottom navigation, clipped off the
+ * bottom of the screen.
+ *
+ * Collapsing the detail is not the same as hiding the signal: the rollup keeps
+ * every evidence state on the screen, and the prose is one tap away. What this
+ * asserts is the outcome that was actually broken -- that the active pane has
+ * real, unobstructed room above the navigation when the workbench opens.
+ */
+test.describe('the workbench work surface', () => {
+  test.skip(({ viewport }) => !viewport || viewport.width > 900, 'the fold is a phone problem');
+
+  test('is on the screen, above the navigation, when the workbench opens', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/editor');
+    await page.locator('#page-work.active').waitFor();
+    await page.locator('#trustSummary').waitFor();
+    await page.waitForTimeout(600);
+
+    const reading = await page.evaluate(() => {
+      const pane = [...document.querySelectorAll('.tabpane')]
+        .find(node => getComputedStyle(node).display !== 'none');
+      const nav = document.querySelector('#bottomNav');
+      const navTop = nav && getComputedStyle(nav).display !== 'none'
+        ? nav.getBoundingClientRect().top : window.innerHeight;
+      const card = document.querySelector('#editorEmpty');
+      const rect = card.getBoundingClientRect();
+      return {
+        paneTop: Math.round(pane.getBoundingClientRect().top),
+        cardTop: Math.round(rect.top),
+        cardBottom: Math.round(rect.bottom),
+        navTop: Math.round(navTop)
+      };
+    });
+
+    /* The pane has to begin above the halfway line: what sits over it is
+       context, and context must not own most of the first screen. */
+    expect(reading.paneTop, 'the work surface must start in the top half of the screen')
+      .toBeLessThan(410);
+    /* And the thing it draws has to be entirely clear of the navigation. */
+    expect(reading.cardBottom, 'the pane content must clear the bottom navigation')
+      .toBeLessThanOrEqual(reading.navTop);
+    expect(reading.cardTop, 'the pane content must not start off the top').toBeGreaterThan(0);
+  });
+});
+
+/*
  * A message must not land on the navigation. Anchored to the bottom of a
  * phone, a toast sat squarely over the bar and covered every destination in it
  * for as long as it was up.

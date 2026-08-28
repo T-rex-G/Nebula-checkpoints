@@ -61,11 +61,56 @@
       host.dataset.trustState = evidenceName(value.evidenceState);
       rendered.push(host);
     }
+    renderRollup(rendered);
     summary.hidden = false;
     const status = document.getElementById('a11yStatus');
     if (status) status.textContent = safeValue(model.announcement, 'Repository trust summary updated.');
     return rendered;
   }
+
+  /*
+   * The one-line standing of the five fields, for the phone layout where the
+   * detail is collapsed behind a disclosure.
+   *
+   * This counts states rather than summarising the prose: the prose is the
+   * part that moves out of view, and inventing a sentence to stand in for it
+   * would be asserting something the model never said. Counts are only what is
+   * already on the cards.
+   */
+  const ROLLUP_ORDER = Object.freeze(['Unavailable', 'Stale', 'Inferred', 'Deterministic', 'Provider-verified']);
+
+  function renderRollup(hosts) {
+    const states = document.getElementById('trustRollupStates');
+    if (!states) return;
+    const counts = new Map();
+    for (const host of hosts) {
+      const name = host.dataset.trustState;
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    const parts = ROLLUP_ORDER
+      .filter(name => counts.has(name))
+      .map(name => `${counts.get(name)} ${name.toLowerCase()}`);
+    states.textContent = parts.length ? parts.join(' · ') : 'Not measured';
+    /* Named for the weakest state present, which is the one worth a colour. */
+    const worst = ROLLUP_ORDER.find(name => counts.has(name)) || 'Unavailable';
+    const summary = document.getElementById('trustSummary');
+    if (summary) summary.dataset.trustWorst = worst;
+  }
+
+  function bindRollup() {
+    const button = document.getElementById('trustRollup');
+    const summary = document.getElementById('trustSummary');
+    if (!button || !summary) return;
+    button.addEventListener('click', () => {
+      const open = summary.dataset.open !== 'true';
+      summary.dataset.open = open ? 'true' : 'false';
+      button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindRollup, { once: true });
+  } else bindRollup();
 
   function addErrorField(parent, labelText, value) {
     const group = document.createElement('div');

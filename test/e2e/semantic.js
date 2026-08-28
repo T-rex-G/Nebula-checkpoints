@@ -158,6 +158,26 @@ function trust(target) {
   return target.getByRole('region', { name: 'Repository trust summary' });
 }
 
+/*
+ * On a phone the five fields sit behind a disclosure -- drawn open they took
+ * 393px of an 820px screen and pushed the work surface under the bottom
+ * navigation. The rollup keeps every evidence state on screen; it is the prose
+ * that costs a tap.
+ *
+ * So a lookup for one field opens the disclosure if it is closed. What these
+ * journeys are about is what the trust summary *says* -- that it is explicit
+ * and does not overclaim -- and that requirement is unchanged by the prose
+ * being one tap away. The rollup control does not exist above the breakpoint,
+ * where all five are drawn at once.
+ */
+async function openTrustDetail(page) {
+  const rollup = page.locator('#trustRollup');
+  if (!(await rollup.isVisible().catch(() => false))) return;
+  if ((await rollup.getAttribute('aria-expanded')) === 'true') return;
+  await rollup.click();
+  await page.locator('#trustDetail').waitFor({ state: 'visible' });
+}
+
 function trustArticle(target, name) {
   return target.getByRole('article', { name });
 }
@@ -214,5 +234,6 @@ module.exports = Object.freeze({
   secretField,
   status,
   trust,
-  trustArticle
+  trustArticle,
+  openTrustDetail
 });

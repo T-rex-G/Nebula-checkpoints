@@ -44,6 +44,7 @@ test('invited tester completes the GitHub sandbox golden path and cleanup', asyn
   await expect(work).toBeVisible();
   const trust = work.getByRole('region', { name: 'Repository trust summary' });
   await expect(trust).toBeVisible();
+  await ui.openTrustDetail(page);
   await expect(trust.getByRole('article', { name: 'Connection trust' })).toContainText('Provider-verified');
   await expect(trust.getByRole('article', { name: 'Pipeline trust' })).toContainText('Evidence chain verified');
   await expect(trust.getByRole('article', { name: 'Risk' })).toContainText('No issue');

@@ -364,10 +364,16 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .capability-experimental{color:#FCD34D}
 .capability-unavailable{color:var(--text2)}
 [hidden].trust-summary{display:none}
-.trust-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;padding:8px 10px;order:-1}
-.trust-summary article{min-width:0;padding:10px 12px;border:1px solid var(--glass-border);border-radius:12px;background:var(--glass-fill);box-shadow:0 8px 28px rgba(0,0,0,.1)}
-.trust-summary h3,.trust-error-field h3{margin:0 0 5px;font-size:.7rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
-.trust-summary p{margin:0 0 7px;font-size:.78rem;line-height:1.35;overflow-wrap:anywhere}
+.trust-summary{padding:8px 10px;order:-1}
+.trust-detail{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+/*
+ * Above the phone breakpoint every field is on the screen at once and there is
+ * nothing to disclose, so the control is not rendered at all.
+ */
+.trust-rollup{display:none}
+.trust-detail article{min-width:0;padding:10px 12px;border:1px solid var(--glass-border);border-radius:12px;background:var(--glass-fill);box-shadow:0 8px 28px rgba(0,0,0,.1)}
+.trust-detail h3,.trust-error-field h3{margin:0 0 5px;font-size:.7rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.trust-detail p{margin:0 0 7px;font-size:.78rem;line-height:1.35;overflow-wrap:anywhere}
 .trust-evidence{display:inline-flex;align-items:center;gap:5px;font-size:.68rem;color:var(--muted)}
 .trust-evidence-icon{font-size:.78rem;color:var(--accent2)}
 .trust-evidence-stale,.trust-evidence-unavailable{color:var(--amber)}
@@ -381,13 +387,14 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .trust-error-dialog details{margin:14px 0;color:var(--muted)}
 .trust-error-dialog details code{display:block;margin-top:7px}
 .trust-error-close{margin-left:auto;display:block}
-@media(max-width:1100px){.trust-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.trust-summary article:last-child{grid-column:1/-1}}
+@media(max-width:1100px){.trust-detail{grid-template-columns:repeat(2,minmax(0,1fr))}.trust-detail article:last-child{grid-column:1/-1}}
 /* Two across, not one. Five full-width cards ran to five hundred pixels --
    seventy per cent of a phone -- before the tab's own content began, and this
    is the context for that content rather than the content itself. */
-@media(max-width:600px){.trust-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:7px}
-  .trust-summary article{padding:9px 10px}
-  .trust-summary article:last-child{grid-column:1/-1}}
+@media(max-width:600px){.trust-summary{padding:7px}
+  .trust-detail{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .trust-detail article{padding:9px 10px}
+  .trust-detail article:last-child{grid-column:1/-1}}
 [aria-disabled="true"]{cursor:not-allowed}
 @media(max-width:700px){.alpha-access{width:100%;padding:22px}.alpha-access h1{max-width:12ch}}
 @media(prefers-reduced-motion:reduce){#page-alpha-access.active{animation:none}}
@@ -519,8 +526,14 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
  * rest, with nothing to discover by dragging.
  */
 .tabs{display:flex;flex-wrap:wrap;gap:4px;padding:5px;margin-bottom:12px;border-radius:13px;width:auto;max-width:100%}
+/*
+ * Sized so the ten fit on one row at a typical desktop width, with the wrap
+ * above as the safety net rather than the usual case: at 16px of side padding
+ * the row broke one tab short and left Governance alone on a second line,
+ * which reads as an afterthought rather than a peer.
+ */
 .tab{font:inherit;font-size:.83rem;font-weight:500;color:var(--text2);cursor:pointer;border:none;
-  background:transparent;padding:8px 16px;border-radius:9px;transition:background .18s,color .18s;min-height:38px;white-space:nowrap}
+  background:transparent;padding:8px 11px;border-radius:9px;transition:background .18s,color .18s;min-height:38px;white-space:nowrap}
 .tab:hover{color:var(--text)}
 .tab.active{background:rgba(139,92,246,0.2);color:var(--text)}
 .tabpane{display:none;flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain}
@@ -764,6 +777,36 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   .tabpane.active{min-height:calc(100dvh - var(--topbar-h) - var(--bnav-h) - 60px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
   .editor-shell{min-height:calc(100dvh - var(--topbar-h) - var(--bnav-h) - 64px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
   .editor-host .CodeMirror{height:calc(100dvh - var(--topbar-h) - var(--bnav-h) - 138px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
+
+  /*
+   * The trust summary becomes a disclosure.
+   *
+   * Five fields of prose drew 393px of an 820px screen -- most of the first
+   * screen spent on context, before anything the reader opened the workbench
+   * to do. The pane below kept a near-viewport minimum height, so its empty
+   * state was pushed under the bottom navigation and clipped away entirely.
+   *
+   * The rollup is not a way of hiding the trust state: every evidence state
+   * stays on the screen, counted, in the worst state's colour. It is the prose
+   * that moves one tap away.
+   */
+  .trust-rollup{display:flex;align-items:baseline;gap:9px;width:100%;
+    font:inherit;font-size:.78rem;color:var(--text2);cursor:pointer;text-align:left;
+    padding:10px 12px;border:1px solid var(--glass-border);border-radius:12px;
+    background:var(--glass-fill)}
+  .trust-rollup-title{flex:0 0 auto;font-weight:600;color:var(--text);white-space:nowrap}
+  /*
+   * The states wrap rather than truncate. Ellipsis put the weakest state first
+   * and cut the rest, so "2 provider-verified" -- the strongest thing the
+   * summary had to say -- was the half that disappeared. A second line costs
+   * eighteen pixels against the 393 this block used to occupy.
+   */
+  .trust-rollup-states{min-width:0;flex:1 1 auto}
+  .trust-rollup-chev{flex:0 0 auto;margin-left:auto;fill:none;stroke:currentColor;stroke-width:2;
+    stroke-linecap:round;stroke-linejoin:round;transition:transform .2s var(--ease)}
+  .trust-summary[data-open="true"] .trust-rollup-chev{transform:rotate(180deg)}
+  .trust-detail{display:none;margin-top:8px}
+  .trust-summary[data-open="true"] .trust-detail{display:grid}
 
   /* sidebar becomes drawer */
   .side{position:fixed;left:0;top:0;bottom:0;height:100dvh;width:min(84vw,340px);z-index:90;

@@ -84,7 +84,31 @@ assert(ui.includes('Object.freeze'));
 assert(app.includes('NebulaCapabilityUI.load'));
 assert(app.includes('NebulaCapabilityUI.apply'));
 assert(app.includes('function runCapabilityAction'));
-assert(app.includes("const tabCapability = tab && tab.dataset.feature"));
+/*
+ * switchTab has to gate on the chosen tab's own capability. This used to pin
+ * the exact source line, which broke the moment the function grew a guard for
+ * unknown tab names -- and a literal match cannot tell a refactor from a
+ * regression. Read the function and assert what it must do instead.
+ */
+const switchTabBody = (() => {
+  const start = app.indexOf('function switchTab(');
+  assert(start !== -1, 'switchTab must exist');
+  const open = app.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < app.length; i += 1) {
+    if (app[i] === '{') depth += 1;
+    else if (app[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return app.slice(start, i + 1);
+    }
+  }
+  throw new Error('switchTab body did not close');
+})();
+assert(/dataset\.feature/.test(switchTabBody), 'switchTab must read the tab capability');
+assert(switchTabBody.includes('runCapabilityAction'), 'switchTab must gate on that capability');
+assert(/if \(!tab\) return;/.test(switchTabBody),
+  'switchTab must leave the workbench alone when no tab matches: selection is a toggle ' +
+  'over every tab and pane, so an unknown name deselects all of them');
 assert(html.includes('/capability-ui.js?v=__NV_ASSET_VERSION__'));
 assert(sw.includes('/capability-ui.js?v='));
 assert(!html.includes('data-cap='), 'legacy capability markers must be replaced, not hidden');

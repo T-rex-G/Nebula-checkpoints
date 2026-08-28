@@ -395,11 +395,18 @@
 
     <section class="main-pane">
       <section class="trust-summary" id="trustSummary" aria-label="Repository trust summary" hidden>
-        <article id="trustConnection" aria-label="Connection trust"></article>
-        <article id="trustPipeline" aria-label="Pipeline trust"></article>
-        <article id="trustRisk" aria-label="Risk"></article>
-        <article id="trustAction" aria-label="Next action"></article>
-        <article id="trustEvidence" aria-label="Evidence"></article>
+        <button class="trust-rollup" id="trustRollup" type="button" aria-expanded="false" aria-controls="trustDetail">
+          <span class="trust-rollup-title">Repository trust</span>
+          <span class="trust-rollup-states" id="trustRollupStates"></span>
+          <svg class="trust-rollup-chev" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="trust-detail" id="trustDetail">
+          <article id="trustConnection" aria-label="Connection trust"></article>
+          <article id="trustPipeline" aria-label="Pipeline trust"></article>
+          <article id="trustRisk" aria-label="Risk"></article>
+          <article id="trustAction" aria-label="Next action"></article>
+          <article id="trustEvidence" aria-label="Evidence"></article>
+        </div>
       </section>
       <div class="sr-only" id="a11yStatus" role="status" aria-live="polite" aria-label="Workspace updates" aria-atomic="true"></div>
       <nav class="tabs glass" id="deskTabs" aria-label="Repository sections">
@@ -412,7 +419,7 @@
         <button class="tab" data-feature="workflows.read" data-allow-experimental="true" data-tab="actions">Actions</button>
         <button class="tab" data-feature="recovery" data-allow-experimental="true" data-tab="compare">Compare</button>
         <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
-        <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel"><span aria-hidden="true">◇</span> Governance</button>
+        <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel">Governance</button>
       </nav>
 
       <!-- EDITOR -->

@@ -31,6 +31,7 @@ test('loading state names checks in progress and preserves a next action', async
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', trust: 'pending' });
   await page.goto('/');
   await ui.button(await ui.enterRepositories(page), /^Open repository /).first().click();
+  await ui.openTrustDetail(page);
   await expect(ui.trustArticle(page, 'Connection trust')).toContainText('Checking provider');
   await expect(ui.trustArticle(page, 'Next action')).toContainText('Waiting for verified');
   await expect(claimedSuccess(page)).toHaveCount(0);
@@ -56,6 +57,7 @@ for (const [repositoryState, assertion, action] of [
     const trust = ui.trust(page);
     await expect(trust).toBeVisible();
     await expect(trust).toContainText(assertion);
+    await ui.openTrustDetail(page);
     await expect(ui.trustArticle(page, 'Next action')).toContainText(action);
     if (repositoryState !== 'current') await expect(trust).not.toContainText('verified success');
   });

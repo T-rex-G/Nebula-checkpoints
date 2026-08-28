@@ -763,6 +763,94 @@ test('the emergency control takes its colour from the active theme', async ({ pa
 });
 
 /*
+ * Controls are big enough to hit.
+ *
+ * WCAG 2.2 asks for 24 by 24 (2.5.8), and the neural pane missed it twice. The
+ * signal-filter checkboxes were 15 square with 14px between them, which is too
+ * small and too close for the spacing exception to rescue. The replay slider
+ * was worse and not really a WCAG question at all: the input was four pixels
+ * tall. Eight hundred and five wide, four tall. Dragging it was a matter of
+ * luck, and the same file already had the answer -- the Time Machine scrubber
+ * is a 34px control with an 8px track and a 26px thumb.
+ *
+ * Measured on the elements a pointer actually lands on, in the pane where they
+ * live, because that is where the sizes came out wrong.
+ */
+test('the neural pane\'s controls are large enough to hit', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/neural');
+  await page.locator('#page-work.active').waitFor();
+  await page.locator('#tab-neural.active').waitFor();
+  await page.waitForTimeout(700);
+
+  const undersized = await page.evaluate(() => {
+    const targets = [
+      ...document.querySelectorAll('#tab-neural input[data-neural-filter]'),
+      ...document.querySelectorAll('#neuralTimeline')
+    ];
+    return targets
+      .filter(node => node.offsetParent !== null)
+      .map(node => {
+        const box = node.getBoundingClientRect();
+        return {
+          what: node.id || node.getAttribute('data-neural-filter'),
+          width: Math.round(box.width),
+          height: Math.round(box.height)
+        };
+      })
+      .filter(entry => entry.width < 24 || entry.height < 24);
+  });
+
+  expect(undersized, 'every one of these must be at least 24 by 24').toEqual([]);
+});
+
+/*
+ * Governance fits a 320px screen, including when it has bad news.
+ *
+ * WCAG 1.4.10 asks that content work at 320 CSS px without scrolling in two
+ * directions. The governance pane did, until it had to show an error: the
+ * message carries the request that failed, a URL is one long unbreakable
+ * token, and .gov-shell is a grid whose items keep the default min-width:auto.
+ * That automatic minimum is the item's min-content width, so the URL set the
+ * width of the row -- 334px of content in a 264px box -- and the heading
+ * stretched to match. Forty-two pixels of the page hung off the side.
+ *
+ * The same shape as the neural pane's blowout: a propagating minimum nobody
+ * asked for, on a grid, discovered only at a width nobody had looked at.
+ *
+ * Resized rather than loaded at 320, because that is what zooming and rotating
+ * a device do -- and the fault only appeared on resize.
+ */
+test('the governance pane fits a 320px screen while reporting a failure', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/editor');
+  await page.reload();
+  await page.locator('#page-work.active').waitFor();
+  await page.evaluate(() => window.switchTab('governance'));
+  await page.waitForTimeout(800);
+
+  await page.setViewportSize({ width: 320, height: 560 });
+  await page.waitForTimeout(900);
+
+  const reading = await page.evaluate(() => {
+    const limit = document.documentElement.clientWidth;
+    const escaping = [];
+    for (const node of document.querySelectorAll('#tab-governance *')) {
+      const box = node.getBoundingClientRect();
+      if (!box.width || !box.height) continue;
+      if (box.right > limit + 2 && getComputedStyle(node).position !== 'fixed') {
+        escaping.push(`${node.tagName.toLowerCase()} ${Math.round(box.width)}px`);
+      }
+    }
+    return { limit, documentOverflow: document.body.scrollWidth - limit, escaping: escaping.slice(0, 4) };
+  });
+
+  expect(reading.limit).toBe(320);
+  expect(reading.escaping, 'nothing in the governance pane may hang off a 320px screen').toEqual([]);
+  expect(reading.documentOverflow, 'the page must not scroll sideways at 320px').toBeLessThanOrEqual(2);
+});
+
+/*
  * A message must not land on the navigation. Anchored to the bottom of a
  * phone, a toast sat squarely over the bar and covered every destination in it
  * for as long as it was up.

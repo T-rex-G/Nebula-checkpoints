@@ -118,9 +118,16 @@ async function focusFindings(page, where) {
 }
 
 /*
- * WCAG 1.4.4 asks for 200% text scaling without loss of content. Emulated by
- * halving the viewport, which is the same ratio from the layout's point of
- * view, and looking for anything driven off the side of the page.
+ * Two separate criteria, which the first version of this script conflated.
+ *
+ * 1.4.10 Reflow asks that content work at 320 CSS px wide. 1.4.4 Resize text
+ * asks that text scale to 200% without loss. Halving the viewport tested
+ * neither: on a 390px phone it produced 195px, narrower than any criterion
+ * requires, and duly reported a failure the standard does not ask about. The
+ * product was fine; the measurement was wrong.
+ *
+ * So reflow is measured at 320 and never narrower, and text scaling is
+ * measured by actually scaling the text with the viewport left alone.
  */
 async function reflowFindings(page, where) {
   const overflow = await page.evaluate(() => {
@@ -181,8 +188,13 @@ async function main() {
         findings.push(...await targetFindings(page, label('overview')));
         findings.push(...await focusFindings(page, label('overview')));
 
-        await page.getByRole('navigation', { name: 'Primary' })
-          .getByRole('button', { name: 'Repositories' }).click();
+        /*
+         * Moved by the application's own page switch rather than by clicking
+         * the rail: the rail does not exist below 900px, where the bottom
+         * navigation carries these destinations instead, so a rail click is a
+         * desktop-only path and this audit has to walk both.
+         */
+        await page.evaluate(() => window.showPage('repos'));
         await page.getByRole('main', { name: 'Your galaxies' }).waitFor({ state: 'visible' });
         await page.waitForTimeout(600);
         findings.push(...await axeFindings(page, label('repositories')));
@@ -222,11 +234,16 @@ async function main() {
           findings.push(...await targetFindings(page, label(`work/${tab}`)));
         }
 
-        /* Text at 200%, emulated by halving the space the layout is given. */
-        await page.setViewportSize({ width: Math.round(view.width / 2), height: Math.round(view.height / 2) });
-        await page.waitForTimeout(800);
-        findings.push(...await reflowFindings(page, label('work/editor @200%')));
+        /* 1.4.10: the narrowest width the standard actually asks for. */
+        await page.setViewportSize({ width: 320, height: 560 });
+        await page.waitForTimeout(900);
+        findings.push(...await reflowFindings(page, label('work/editor @320px')));
+
+        /* 1.4.4: text at 200%, viewport untouched. */
         await page.setViewportSize({ width: view.width, height: view.height });
+        await page.addStyleTag({ content: 'html{font-size:200%!important}' });
+        await page.waitForTimeout(900);
+        findings.push(...await reflowFindings(page, label('work/editor @200% text')));
 
         await context.close();
         process.stdout.write(`scanned ${view.name}/${theme}\n`);

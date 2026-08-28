@@ -95,4 +95,28 @@ const ghosts = ENTRIES.map(entry => entry.name).filter(name => !reads.has(name))
 assert.deepStrictEqual(ghosts, [],
   `these entries no longer match any read in the source: ${ghosts.join(', ')}`);
 
+/*
+ * The deployment blueprint counts as a reader too.
+ *
+ * render.yaml set NV_MAINTENANCE_MODE=0 from the day it was written, and a
+ * contract test asserted it was present -- while no application code read it.
+ * A blueprint that configures something the code ignores is worse than one
+ * that omits it: it tells an operator a control exists. Scanning only source
+ * could not see that, so the blueprint is checked against the registry too.
+ */
+const blueprintPath = path.join(root, 'render.yaml');
+if (fs.existsSync(blueprintPath)) {
+  const blueprint = fs.readFileSync(blueprintPath, 'utf8');
+  const declared = [...blueprint.matchAll(/^\s*-\s*key:\s*([A-Z][A-Z0-9_]*)\s*$/gm)].map(match => match[1]);
+  assert(declared.length > 5, 'the blueprint should declare environment variables');
+
+  const unregistered = declared.filter(name => !registered.has(name)).sort();
+  assert.deepStrictEqual(unregistered, [],
+    `render.yaml sets variables that are not in the registry: ${unregistered.join(', ')}`);
+
+  const inert = declared.filter(name => !reads.has(name)).sort();
+  assert.deepStrictEqual(inert, [],
+    `render.yaml sets variables no code reads, so they do nothing: ${inert.join(', ')}`);
+}
+
 console.log(`configuration registry tests passed (${ENTRIES.length} variables across ${Object.keys(GROUPS).length} groups)`);

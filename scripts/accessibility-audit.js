@@ -156,6 +156,33 @@ async function reflowFindings(page, where) {
  * is what the design-review rig does, because it runs without this fixture --
  * waits thirty seconds for a field that is present but hidden.
  */
+/*
+ * Let the WebGL pieces mount.
+ *
+ * nebula-visuals.js treats a software rasteriser as no renderer at all --
+ * deliberately, because these shader-heavy full-viewport pieces starve the
+ * interface on a CPU. Under SwiftShader that means the 3D mark and the galaxy
+ * never mount, so this audit was scanning two screens with their largest
+ * elements absent and reporting them clean.
+ *
+ * Masking the renderer string mounts them, at the cost of a slower run. A
+ * clean result for a canvas that was never on the page is not a result.
+ */
+async function presentAsHardwareRenderer(page) {
+  await page.addInitScript(() => {
+    for (const proto of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
+      if (!proto) continue;
+      const original = proto.prototype.getParameter;
+      proto.prototype.getParameter = function getParameter(name) {
+        const value = original.call(this, name);
+        return typeof value === 'string' && /swiftshader|llvmpipe/i.test(value)
+          ? 'Accessibility Audit Renderer'
+          : value;
+      };
+    }
+  });
+}
+
 async function openSignedIn(page) {
   await page.goto('/');
   await page.getByRole('main', { name: 'Workspace overview' }).waitFor({ state: 'visible', timeout: 25000 });
@@ -178,10 +205,13 @@ async function main() {
           serviceWorkers: 'block'
         });
         const page = await context.newPage();
+        await presentAsHardwareRenderer(page);
         await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
         await openSignedIn(page);
         await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
-        await page.waitForTimeout(900);
+        /* three.js is fetched on mount and drawn on a CPU here, so scanning
+           before it settles would inspect an empty host. */
+        await page.waitForTimeout(6000);
 
         const label = suffix => `${view.name}/${theme}/${suffix}`;
         findings.push(...await axeFindings(page, label('overview')));
@@ -196,7 +226,7 @@ async function main() {
          */
         await page.evaluate(() => window.showPage('repos'));
         await page.getByRole('main', { name: 'Your galaxies' }).waitFor({ state: 'visible' });
-        await page.waitForTimeout(600);
+        await page.waitForTimeout(6000);
         findings.push(...await axeFindings(page, label('repositories')));
         findings.push(...await targetFindings(page, label('repositories')));
 

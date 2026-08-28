@@ -348,7 +348,13 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .field-label:first-child{margin-top:0}
 .hint{font-size:.75rem;color:var(--muted);margin-top:12px;line-height:1.55}
 .check{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--text2);margin-top:14px;cursor:pointer;min-height:32px}
-.check input{width:18px;height:18px;min-height:0;accent-color:var(--accent);-webkit-appearance:checkbox;appearance:checkbox}
+/*
+ * 24 square, which is what WCAG 2.2 asks for (2.5.8). At 18 these cleared the
+ * spacing exception and so were never flagged -- but a control is not made
+ * easy to hit by the emptiness around it, and the exception is a concession
+ * rather than a target.
+ */
+.check input{width:24px;height:24px;min-height:0;flex:0 0 auto;accent-color:var(--accent);-webkit-appearance:checkbox;appearance:checkbox}
 /*
  * Out of the layout entirely.
  *
@@ -1263,12 +1269,21 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .neural-head-actions .btn{width:100%;overflow:hidden;text-overflow:ellipsis}
   .neural-kpis{grid-template-columns:1fr 1fr}.neural-kpi{min-height:84px;padding:11px}.neural-kpi strong{font-size:1.15rem}
   .neural-workspace{display:flex;flex-direction:column;min-height:0}.neural-rail{order:1;overflow:visible}.neural-stage{order:2;min-height:520px}.neural-inspector{order:3;min-height:0}
-  /* A horizontal strip with its scrollbar hidden, so it fades at the edge
-     that has more -- the same sign the tab strip gives, for the same reason. */
-  .neural-mode-list{display:flex;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;
-    -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 20px),transparent 100%);
-    mask-image:linear-gradient(90deg,#000 calc(100% - 20px),transparent 100%)}
-  .neural-mode{min-width:150px}.neural-mode-list::-webkit-scrollbar{display:none}
+  /*
+   * Two columns, not a sideways scroll.
+   *
+   * This was a horizontal strip with its scrollbar hidden and a fade at the
+   * edge: 774px of destinations inside a 270px scroller, so under two of the
+   * five modes were on the screen at once. The fade was the same sign the tab
+   * strip used to give, and it failed for the same reason -- it announces that
+   * there is more without making the more reachable, and a reader who never
+   * drags never learns the other three exist.
+   *
+   * Five modes over two columns is three rows and about 150px of rail, which
+   * is the honest price of having all of them visible.
+   */
+  .neural-mode-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .neural-mode{min-width:0}
   .neural-filter-title,.neural-filter{display:none}.neural-rail-action{display:inline-flex!important;width:auto!important;margin:6px 4px 0 0!important}
   #neuralCanvas{min-height:520px}.neural-event-strip{grid-template-columns:repeat(3,minmax(0,1fr))}.neural-inspector-grid{grid-template-columns:1fr 1fr}
 }
@@ -1288,8 +1303,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .neural-stage-tools{gap:8px}
   .neural-stage-tools .btn{min-width:42px;min-height:42px;padding:0;display:inline-flex;align-items:center;justify-content:center}
   .neural-head-actions .btn,.neural-rail-action{min-height:44px}
-  .neural-mode-list{scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
-  .neural-mode{scroll-snap-align:start;min-height:46px}
+  /* Nothing to snap to now that the list wraps. */
+  .neural-mode{min-height:46px}
   .neural-shell{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
 }
 @media(max-width:560px){

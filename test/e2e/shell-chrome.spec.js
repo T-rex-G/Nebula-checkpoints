@@ -776,34 +776,45 @@ test('the emergency control takes its colour from the active theme', async ({ pa
  * Measured on the elements a pointer actually lands on, in the pane where they
  * live, because that is where the sizes came out wrong.
  */
-test('the neural pane\'s controls are large enough to hit', async ({ page }) => {
+test('controls are large enough to hit', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
-  await page.goto('/#/sandbox/demo@main/neural');
+  await page.goto('/#/sandbox/demo@main/editor');
+  await page.reload();
   await page.locator('#page-work.active').waitFor();
-  await page.locator('#tab-neural.active').waitFor();
-  await page.waitForTimeout(700);
 
-  const undersized = await page.evaluate(() => {
-    const targets = [
-      ...document.querySelectorAll('#tab-neural input[data-neural-filter]'),
-      ...document.querySelectorAll('#neuralTimeline')
-    ];
-    return targets
-      .filter(node => node.offsetParent !== null)
-      .map(node => {
-        const box = node.getBoundingClientRect();
-        return {
-          what: node.id || node.getAttribute('data-neural-filter'),
-          width: Math.round(box.width),
-          height: Math.round(box.height)
-        };
-      })
-      .filter(entry => entry.width < 24 || entry.height < 24);
-  });
+  /*
+   * Visited pane by pane, because a control only has a size where it is drawn:
+   * an undersized checkbox on Push files measures zero from the neural pane
+   * and is filtered out as invisible, which is how the first version of this
+   * guard passed while #forceLfs was still 18 square.
+   */
+  const undersized = [];
+  for (const tab of ['neural', 'upload']) {
+    await page.evaluate(name => window.switchTab(name), tab);
+    await page.waitForTimeout(700);
+    undersized.push(...await page.evaluate(pane => {
+      const targets = [
+        ...document.querySelectorAll('#tab-neural input[data-neural-filter]'),
+        ...document.querySelectorAll('#neuralTimeline'),
+        ...document.querySelectorAll('.check input[type=checkbox]')
+      ];
+      return targets
+        .filter(node => node.offsetParent !== null)
+        .map(node => {
+          const box = node.getBoundingClientRect();
+          return {
+            pane,
+            what: node.id || node.getAttribute('data-neural-filter'),
+            width: Math.round(box.width),
+            height: Math.round(box.height)
+          };
+        })
+        .filter(entry => entry.width < 24 || entry.height < 24);
+    }, tab));
+  }
 
   expect(undersized, 'every one of these must be at least 24 by 24').toEqual([]);
 });
-
 /*
  * Governance fits a 320px screen, including when it has bad news.
  *
@@ -848,6 +859,52 @@ test('the governance pane fits a 320px screen while reporting a failure', async 
   expect(reading.limit).toBe(320);
   expect(reading.escaping, 'nothing in the governance pane may hang off a 320px screen').toEqual([]);
   expect(reading.documentOverflow, 'the page must not scroll sideways at 320px').toBeLessThanOrEqual(2);
+});
+
+/*
+ * Every intelligence mode is on the screen at once.
+ *
+ * Below 900px the mode list became a horizontal strip with its scrollbar
+ * hidden and a fade at the edge -- 774px of destinations inside a 270px
+ * scroller, about one and four fifths of them visible. That is the same
+ * arrangement, and the same argument, as the tab strip: a fade tells a reader
+ * there is more, and a reader who never drags still never learns the other
+ * three modes exist. Primary navigation does not go behind a sideways scroll.
+ *
+ * It wraps now, and this asserts the outcome rather than the apparatus: every
+ * mode inside its container, and nothing to scroll to.
+ */
+test('every neural mode is reachable without dragging', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/editor');
+  await page.reload();
+  await page.locator('#page-work.active').waitFor();
+  await page.evaluate(() => window.switchTab('neural'));
+  await page.waitForTimeout(800);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.waitForTimeout(900);
+
+  const reading = await page.evaluate(() => {
+    const list = document.querySelector('.neural-mode-list');
+    if (!list) return { missing: true };
+    const box = list.getBoundingClientRect();
+    const clipped = [...list.querySelectorAll('.neural-mode')]
+      .filter(node => node.offsetParent !== null)
+      .map(node => {
+        const rect = node.getBoundingClientRect();
+        return {
+          name: (node.textContent || '').trim().slice(0, 18),
+          over: Math.round(Math.max(box.left - rect.left, rect.right - box.right))
+        };
+      })
+      .filter(entry => entry.over > 1);
+    return { clipped, scrolls: list.scrollWidth - list.clientWidth, modes: list.querySelectorAll('.neural-mode').length };
+  });
+
+  expect(reading.missing, 'the mode list has to be present to inspect').toBeUndefined();
+  expect(reading.modes, 'all five modes should be rendered').toBeGreaterThanOrEqual(5);
+  expect(reading.clipped, 'every mode must be fully inside the list').toEqual([]);
+  expect(reading.scrolls, 'a wrapped list has nothing to scroll to').toBeLessThanOrEqual(1);
 });
 
 /*

@@ -181,6 +181,35 @@ assert.strictEqual(noRoute.decision.blockCode, 'POLICY_APPROVAL_REQUIRED');
 assert.strictEqual(noRoute.offer.available, false, 'a route whose own steps are refused must not be offered');
 assert.strictEqual(noRoute.offer.refusedStep, 'branch.create');
 
+/* A step that cannot be evaluated at all is reported as unevaluated, not as
+ * refused. Both mean no offer, but only one of them is a policy decision, and
+ * telling an operator their policy refused something it never saw would send
+ * them looking for a rule that does not exist. */
+const brokenSet = [{
+  policyId: '10000000-0000-4000-8000-000000000001',
+  policyKey: 'P',
+  versionId: '20000000-0000-4000-8000-000000000002',
+  versionNumber: 1, headRevision: 1,
+  document: APPROVAL_ON_MAIN, documentHash: policyDocumentHash(APPROVAL_ON_MAIN)
+}];
+const unevaluated = offerSafePassage({
+  descriptor: descriptorFor('file.write', { branch: 'main', path: PROTECTED_FILE }),
+  blockCode: 'POLICY_APPROVAL_REQUIRED',
+  content: CONTENT,
+  scope,
+  activePolicies: brokenSet,
+  activeExceptions: [],
+  evaluatedAt: EVALUATED_AT
+});
+assert.strictEqual(unevaluated.available, false);
+assert.strictEqual(unevaluated.evaluated, false, 'an unevaluatable step must not be reported as evaluated');
+assert.match(unevaluated.reason, /could not be evaluated/i);
+assert(!/refused at/i.test(unevaluated.reason), 'an unevaluatable step must not be described as refused by policy');
+
+/* A step the policy really did refuse says so. */
+assert.strictEqual(noRoute.offer.evaluated, true, 'a genuine policy refusal must be reported as evaluated');
+assert.match(noRoute.offer.reason, /refused at branch\.create/i);
+
 /* A mutation that was not refused at all has nothing to route. */
 const allowed = offerFor(APPROVAL_ON_MAIN, { branch: 'feature', path: PROTECTED_FILE });
 assert.strictEqual(allowed.decision.enforcementOutcome, 'allow');
@@ -195,5 +224,15 @@ const serialized = JSON.stringify(approval.offer);
 assert(!serialized.includes(CONTENT), 'the offer must not carry the content it describes');
 assert(!serialized.includes('name: release'), 'the offer must not carry any part of the content');
 assert(serialized.includes(CONTENT_HASH), 'the offer must carry the content hash');
+
+/* The branch it offers must be one this server would actually accept. Offering
+ * a name the branch-create route rejects would turn a helpful route into a
+ * second failure. */
+const { normalizeBranchName } = require('../src/intelligence');
+assert.strictEqual(normalizeBranchName(approval.offer.branch, 'branch'), approval.offer.branch);
+for (const awkward of ['main', 'release/1.0', 'feature/.hidden', 'a'.repeat(120)]) {
+  const branch = safePassage.branchFor(awkward.replace(/^feature\/\.hidden$/, 'main'), PROTECTED_FILE, CONTENT_HASH);
+  assert.strictEqual(normalizeBranchName(branch, 'branch'), branch, `offered branch ${branch} must be a valid ref`);
+}
 
 console.log('safe passage tests passed');

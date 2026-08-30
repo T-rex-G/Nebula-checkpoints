@@ -45,8 +45,8 @@ assert(roadmap.includes('Phase 1 Task 19 (signed evidence export format) must be
 
 const decisions = read('docs/architecture/ARCHITECTURE_DECISIONS.md');
 const adrNumbers = [...decisions.matchAll(/^## ADR-(\d{3}) —/gm)].map(match => Number(match[1]));
-assert.strictEqual(adrNumbers.length, 84);
-assert.deepStrictEqual(adrNumbers, Array.from({ length: 84 }, (_, index) => index + 1));
+assert.strictEqual(adrNumbers.length, 85);
+assert.deepStrictEqual(adrNumbers, Array.from({ length: 85 }, (_, index) => index + 1));
 assert(decisions.includes('## ADR-051 — Governance delivery uses an immutable outbox and failure-isolated worker'));
 assert(decisions.includes('## ADR-052 — Signed evidence envelopes are the stable boundary before external storage'));
 assert(decisions.includes('## ADR-053 — Staging readiness is an expiring evidence gate, not a release assertion'));

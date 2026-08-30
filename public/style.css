@@ -1418,6 +1418,12 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 @media(max-width:480px){.gov-summary-grid{grid-template-columns:1fr 1fr;gap:8px}.gov-metric{min-height:96px;padding:12px}.gov-metric strong{font-size:1.45rem}.gov-facts{grid-template-columns:1fr 1fr}.gov-empty,.gov-state{padding:24px 16px}.gov-badge{white-space:normal}}
 @media(prefers-reduced-motion:reduce){.gov-skeleton:after{animation:none!important}}
 
+.sp-lead{font-size:.9rem;line-height:1.62;margin-bottom:.7rem}
+.sp-route{list-style:none;margin:.9rem 0 .8rem;padding:0;display:grid;gap:6px}
+.sp-route li{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;padding:.5rem .7rem;
+  border:1px solid var(--line);border-radius:10px;background:var(--bg-2);font-size:.82rem}
+.sp-step{flex:0 0 auto;min-width:6.5rem;color:var(--muted);font-size:.72rem;letter-spacing:.04em;text-transform:uppercase}
+.sp-route li .mono{word-break:break-all}
 .gov-baseline-summary{margin:.85rem 0 .5rem;line-height:1.6}
 .gov-json-view{max-height:min(52vh,34rem);overflow:auto;white-space:pre-wrap;word-break:break-word;padding:.85rem;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);font-size:.78rem;line-height:1.55}
 

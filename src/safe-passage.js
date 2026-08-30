@@ -144,10 +144,14 @@ function firstRefusedStep({ descriptor, steps, scope, activePolicies, activeExce
       });
     } catch {
       /* A step this module cannot even pose as a question is a step it cannot
-       * stand behind. */
-      return step.action;
+       * stand behind. It is reported as unevaluated rather than as refused:
+       * a malformed policy set is an operational fault, and calling it a
+       * policy decision would put words in the policy's mouth. */
+      return { action: step.action, evaluated: false };
     }
-    if (decision.effectiveEffect !== 'allow' || decision.enforcementOutcome !== 'allow') return step.action;
+    if (decision.effectiveEffect !== 'allow' || decision.enforcementOutcome !== 'allow') {
+      return { action: step.action, evaluated: true };
+    }
   }
   return null;
 }
@@ -188,7 +192,7 @@ function offerSafePassage(input = {}) {
 
   const branch = branchFor(baseBranch, path, contentHash);
   const steps = stepsFor({ baseBranch, branch, path });
-  const refusedStep = firstRefusedStep({
+  const refusal = firstRefusedStep({
     descriptor,
     steps,
     scope: input.scope,
@@ -196,10 +200,12 @@ function offerSafePassage(input = {}) {
     activeExceptions: Array.isArray(input.activeExceptions) ? input.activeExceptions : [],
     evaluatedAt: input.evaluatedAt
   });
-  if (refusedStep) {
+  if (refusal) {
     return unavailable(
-      `The compliant route is itself refused at ${refusedStep}, so it is not offered.`,
-      { refusedStep }
+      refusal.evaluated
+        ? `The compliant route is itself refused at ${refusal.action}, so it is not offered.`
+        : `The compliant route could not be evaluated at ${refusal.action}, so it is not offered.`,
+      { refusedStep: refusal.action, evaluated: refusal.evaluated }
     );
   }
 

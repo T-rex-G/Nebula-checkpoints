@@ -66,6 +66,10 @@ the generated [project state](../current/PROJECT_STATE.md), the approved
   protection where a provider offers it, through CODEOWNERS, branch protection
   and rulesets, and stating clearly where provider-side enforcement is
   incomplete beside what the gateway enforces itself.
+- **Implemented** — Safe Passage: a change refused because it needs approval is
+  handed the route to approval — a branch of its own and a pull request into the
+  branch that refused it — offered only when the same policy permits every step
+  of that route, and never taken without an explicit act by the person refused.
 - **Committed roadmap** — Organization-wide governance inheritance, portfolio
   visibility, prioritization, and remediation tracking after repository-level
   trust behavior is proven.

@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### Safe Passage
+
+- A write refused because it needs approval now carries the route to approval
+  instead of ending at a dead end. The gateway is the only place still holding
+  the whole attempt when it refuses, so it is the only place that can hand back
+  a branch, a commit and a pull request into the branch that refused the change.
+  The cost of a refusal — reconstructing the compliant route by hand — is why
+  enforcement gets configured and never switched on.
+- A route is offered only after every step of it has been put to the same active
+  policy set that refused the original, and only when the policy allows all
+  three. Effective effect is checked alongside enforcement outcome, so a step is
+  permitted because policy permits it rather than because enforcement happens to
+  be off. A `deny` has no compliant route by definition and is never given one:
+  under a blanket deny the branch write is refused too, which the guard asserts.
+- Added `GovernanceStore.resolveActivePolicySetInScope`, a read-only resolver.
+  Asking the runtime evaluator whether a route is permitted would append a
+  decision to the hash-chained ledger for a mutation nobody performed, so the
+  policy set is read in a read-only transaction and judged by the pure
+  evaluator. The contract guard slices that method out of the source and asserts
+  it contains no insert, update, delete, advisory lock or decision identifier.
+- The offer commits to the exact bytes by hash and carries none of them:
+  content in an error response is content in a log. The branch is derived from
+  the base branch, the path and that hash, so the same change refused twice is
+  offered the same branch rather than scattering new ones.
+- Taking the route uses the ordinary governed endpoints — branch create, file
+  write, pull create — rather than a new privileged path, because the safest
+  version of "never a bypass" is not adding a door at all. It is offered, never
+  taken automatically, and the editor is left untouched afterwards: the change
+  is on another branch, and marking the file clean here would be a comfortable
+  lie.
+- A step that cannot be evaluated is reported as unevaluated rather than as
+  refused. Both mean no route, but only one is a policy decision, and telling an
+  operator their policy refused something it never saw sends them looking for a
+  rule that does not exist.
+
 ### Protected Paths
 
 - Fixed the coverage of path-scoped policy rules. A rule reaches only the paths

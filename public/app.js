@@ -147,6 +147,7 @@ async function api(path, opts = {}, allowCsrfRetry = true) {
     error.providerChanged = data.providerChanged || 'unknown';
     error.safeState = data.safeState || '';
     error.nextAction = data.nextAction || '';
+    error.safePassage = data.safePassage && typeof data.safePassage === 'object' ? data.safePassage : null;
     if (error.code === 'BRANCH_CHANGED' && state.work) {
       queueMicrotask(() => refreshRepoMetadata().catch(() => {}));
     }
@@ -290,6 +291,74 @@ function toast(msg, kind = '') {
 }
 function presentError(error) {
   return window.NebulaTrustUI.presentError(error || new Error('The request could not be completed.'));
+}
+
+/*
+ * Safe Passage.
+ *
+ * A write refused because it needs approval comes back with the route to
+ * approval attached: a branch derived from the change, and a pull request into
+ * the branch that refused it. The server has already checked that policy
+ * permits every step, so taking the route uses the ordinary governed endpoints
+ * -- there is no separate privileged path to take, which is the point.
+ *
+ * It is offered, never taken automatically, and the content sent is the same
+ * content that was refused.
+ */
+async function takeSafePassage(error, change) {
+  const offer = error && error.safePassage;
+  if (!offer || offer.available !== true || !change || typeof change.content !== 'string') return false;
+  if (!state.work) return false;
+
+  const accepted = await modal({
+    title: 'This change needs approval',
+    okText: 'Send for review',
+    bodyHTML: `<p class="sp-lead">Writing <b class="mono">${esc(offer.path)}</b> to
+        <b class="mono">${esc(offer.baseBranch)}</b> needs approval under the active policy, so it was not committed.</p>
+      <p class="sp-lead">Your change can go to a branch of its own and open a pull request for review instead. Nothing is
+        changed on <b class="mono">${esc(offer.baseBranch)}</b> until someone approves it.</p>
+      <ul class="sp-route">
+        <li><span class="sp-step">Branch</span><span class="mono">${esc(offer.branch)}</span></li>
+        <li><span class="sp-step">Commit</span><span class="mono">${esc(offer.path)}</span></li>
+        <li><span class="sp-step">Pull request</span><span class="mono">${esc(offer.branch)} \u2192 ${esc(offer.baseBranch)}</span></li>
+      </ul>
+      <p class="hint">The content sent is exactly what you tried to commit.</p>`
+  });
+  if (!accepted) return false;
+
+  const message = String(change.message || '').trim() || `Update ${offer.path}`;
+  try {
+    await api(`/api/repo/${wPath()}/branches`, {
+      method: 'POST', body: { name: offer.branch, from: offer.baseBranch }
+    });
+  } catch (branchError) {
+    /* The branch already existing is the expected shape of a second attempt at
+     * the same change, and is not a failure. */
+    if (branchError.status !== 422 && branchError.code !== 'BRANCH_EXISTS') {
+      presentError(branchError);
+      return true;
+    }
+  }
+  try {
+    const written = await api(`/api/repo/${wPath()}/file`, {
+      method: 'PUT',
+      body: { path: offer.path, content: change.content, message, branch: offer.branch, sha: change.sha }
+    });
+    const pull = await api(`/api/repo/${wPath()}/pulls`, {
+      method: 'POST',
+      body: {
+        title: message,
+        head: offer.branch,
+        base: offer.baseBranch,
+        body: `Opened by Safe Passage. Writing \`${offer.path}\` to \`${offer.baseBranch}\` requires approval under the active policy, so the change is proposed here for review instead.`
+      }
+    });
+    toast(pull && pull.number ? `Opened pull request #${pull.number} \u2726` : 'Sent for review \u2726', 'ok');
+    return { written, pull };
+  } catch (routeError) {
+    presentError(routeError);
+    return true;
+  }
 }
 
 /* ---------------- modal ---------------- */
@@ -3171,6 +3240,16 @@ $('#commitFileBtn').addEventListener('click', async () => {
     toast('Committed ✦', 'ok');
     refreshRate();
   } catch (e) {
+    /* A refusal that needs approval carries the route to approval. Taking it
+     * puts the change on a branch of its own, so the editor is left exactly as
+     * it is: this file on this branch still differs from what is committed
+     * here, and saying otherwise would be a comfortable lie. */
+    const routed = await takeSafePassage(e, {
+      content: state.cm.getValue(),
+      message: $('#cmMsg') ? $('#cmMsg').value : undefined,
+      sha: state.file.sha
+    });
+    if (routed) return;
     const queued = await queueCommit({
       kind: 'put', owner: state.work.owner, repo: state.work.repo, branch: state.work.branch,
       path: state.file.path, content: state.cm.getValue(),

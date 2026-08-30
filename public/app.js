@@ -2133,6 +2133,30 @@ async function createGovernanceDraft(policyId, seed) {
   toast('Draft created', 'ok');
   await loadGovernanceTwin(true);
 }
+/*
+ * What the generated policy says about itself, in prose. A baseline can run to
+ * hundreds of rules, and the sentence that matters most -- that it records
+ * rather than blocks until it is activated -- should not have to be found
+ * inside the JSON below it.
+ */
+function baselineSummary(baseline) {
+  const description = baseline && baseline.document && typeof baseline.document.description === 'string'
+    ? baseline.document.description.trim()
+    : '';
+  const mode = baseline && baseline.document && baseline.document.enforcement
+    ? String(baseline.document.enforcement.mode || '')
+    : '';
+  const ruleCount = baseline && baseline.document && Array.isArray(baseline.document.rules)
+    ? baseline.document.rules.length
+    : 0;
+  if (!description && !mode) return '';
+  const counts = [
+    ruleCount ? `${ruleCount} rule${ruleCount === 1 ? '' : 's'}` : 'no rules',
+    mode ? `${mode} mode` : ''
+  ].filter(Boolean).join(' \u00b7 ');
+  return `<p class="hint gov-baseline-summary"><strong>${esc(counts)}</strong>${description ? ` \u2014 ${esc(description)}` : ''}</p>`;
+}
+
 async function generateGovernanceBaseline() {
   const catalog = await api(`${governanceBasePath()}/templates`);
   const templates = Array.isArray(catalog.templates) ? catalog.templates : (Array.isArray(catalog.templates && catalog.templates.templates) ? catalog.templates.templates : []);
@@ -2153,6 +2177,7 @@ async function generateGovernanceBaseline() {
     bodyHTML: `<div class="gov-banner ${baseline && baseline.readiness && baseline.readiness.status === 'ready' ? 'ok' : 'warn'}"><strong>${baseline && baseline.readiness && baseline.readiness.status === 'ready' ? 'Repository facts complete' : 'Review incomplete repository facts'}</strong></div>
       <label class="field-label" for="govBaselineKey">Policy key</label><input id="govBaselineKey" type="text" value="${escAttr((baseline.templateId || 'baseline').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase())}" spellcheck="false">
       <label class="field-label" for="govBaselineName">Policy name</label><input id="govBaselineName" type="text" value="${escAttr(selectedTemplate.name || 'Repository baseline')}">
+      ${baselineSummary(baseline)}
       <pre class="mono gov-json-view">${esc(JSON.stringify(baseline, null, 2))}</pre>`
   });
   if (!accept) return;

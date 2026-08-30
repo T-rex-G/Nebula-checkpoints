@@ -9,9 +9,10 @@ const {
   policyDocumentHash,
   stableJson
 } = require('./governance-model');
+const { expandProtectedPaths } = require('./protected-paths');
 
 const TEMPLATE_CATALOG_ID = 'nebulaverse-policy-template-catalog';
-const TEMPLATE_CATALOG_VERSION = '1.0.0';
+const TEMPLATE_CATALOG_VERSION = '1.1.0';
 const MAX_FACTS_BYTES = 16 * 1024;
 const MAX_PROTECTED_BRANCHES = 50;
 const SAFE_BRANCH_RX = /^[A-Za-z0-9._\/-]{1,255}$/;
@@ -93,6 +94,38 @@ function normalizeRepositoryFacts(input, scope) {
   return deepFreeze(facts);
 }
 
+/*
+ * The paths whose contents decide what the repository is allowed to do to
+ * itself. Each one is here because changing it changes an enforcement decision
+ * somewhere else, not because it is merely important.
+ */
+const DEFAULT_PROTECTED_PATHS = Object.freeze([
+  Object.freeze({ pattern: '.github/workflows/**', effect: 'deny' }),
+  Object.freeze({ pattern: '.github/actions/**', effect: 'deny' }),
+  Object.freeze({ pattern: '.github/CODEOWNERS', effect: 'deny' }),
+  Object.freeze({ pattern: 'CODEOWNERS', effect: 'deny' }),
+  Object.freeze({ pattern: 'docs/CODEOWNERS', effect: 'deny' }),
+  Object.freeze({ pattern: '.github/dependabot.yml', effect: 'deny' }),
+  Object.freeze({ pattern: '.gitattributes', effect: 'deny' })
+]);
+
+function protectedPathsDescription(expansion) {
+  const patterns = expansion.coverage.map(entry => entry.pattern).join(', ');
+  const ancestors = [...new Set(expansion.coverage.flatMap(entry => entry.ancestorPaths))].sort();
+  const wholeGuards = [...new Set(expansion.coverage.flatMap(entry => entry.wholeActionGuards))].sort();
+  return [
+    `Protected sensitive paths: ${patterns}.`,
+    'Every action that can change a repository path is covered, including renames, batches, directory moves and restores from history.',
+    ancestors.length
+      ? `Moving ${ancestors.join(', ')} as a directory is covered too, because a protected file travels with the directory holding it.`
+      : '',
+    wholeGuards.length
+      ? `${wholeGuards.join(', ')} are covered as whole actions: they can change any path, so they cannot be narrowed to one.`
+      : '',
+    'Generated in observe mode: decisions are recorded and nothing is blocked until this policy is activated in warn or block mode.'
+  ].filter(Boolean).join(' ');
+}
+
 const DEFINITIONS = Object.freeze([
   Object.freeze({
     templateId: 'observe-baseline', version: '1.0.0',
@@ -124,6 +157,21 @@ const DEFINITIONS = Object.freeze([
         rules.push({ id: 'pull-merge-approval', action: 'pull.merge', effect: 'require-approval', description: 'Require approval evidence for pull-request merges.' });
       }
       return { schemaVersion: 1, description: 'Repository-specific protected-branch baseline.', enforcement: { mode: 'observe' }, rules };
+    }
+  }),
+  Object.freeze({
+    templateId: 'protected-paths', version: '1.0.0',
+    name: 'Protected sensitive paths',
+    description: 'Observe-only protection for the paths that decide what the repository can do to itself, covering every action that can change a path.',
+    approvalPolicy: Object.freeze({ requiredApprovals: 2, disallowAuthorApproval: true }),
+    buildDocument() {
+      const expansion = expandProtectedPaths(DEFAULT_PROTECTED_PATHS);
+      return {
+        schemaVersion: 1,
+        description: protectedPathsDescription(expansion),
+        enforcement: { mode: 'observe' },
+        rules: expansion.rules
+      };
     }
   }),
   Object.freeze({

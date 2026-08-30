@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 /*
  * Effective repository path sets for governed mutations.
  *
@@ -137,6 +139,206 @@ function pathFactsForAction(action, metadata = {}) {
   return { paths, pathCoverage: definition.coverage };
 }
 
+/* ------------------------------------------------------------------ *
+ * Protected path declarations
+ *
+ * A protected path is one pattern an operator names. Turning it into policy is
+ * where the mistakes live: it needs a rule for every action that can change a
+ * path, and it needs the subtree cases, because a file under .github/workflows
+ * travels with a move of .github. Hand-authoring that is how the original gap
+ * appeared — the reasonable thing to write is the file.write rule, and the
+ * reasonable thing to write is not enough.
+ *
+ * The expansion is deterministic, so the same declarations always produce the
+ * same policy version for a reviewer to read, and it reports what it could not
+ * narrow instead of leaving the operator to discover it.
+ * ------------------------------------------------------------------ */
+
+const MAX_DECLARATIONS = 32;
+const DECLARATION_EFFECTS = new Set(['deny', 'require-approval']);
+
+function declarationFail(message) {
+  throw new ProtectedPathError(message, 'PROTECTED_PATH_DECLARATION_INVALID', 400);
+}
+
+/* A pattern is a repository path that may use glob wildcards. It is normalised
+ * the same way a path is, so a rule and the mutation it judges are written in
+ * one shape. */
+function normalizeProtectedPattern(value) {
+  if (typeof value !== 'string') return '';
+  const candidate = value.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').replace(/\/{2,}/g, '/').trim();
+  if (!candidate || candidate.length > MAX_PATH_LENGTH) return '';
+  if (/[\0\r\n]/.test(candidate)) return '';
+  if (candidate.split('/').some(piece => !piece || piece === '.' || piece === '..')) return '';
+  return candidate;
+}
+
+function hasWildcard(segment) {
+  return segment.includes('*') || segment.includes('?');
+}
+
+/*
+ * A directory move or a prefix restore names a directory, not the files inside
+ * it, so a pattern can only be narrowed to those actions when every directory
+ * that could carry the pattern is knowable from the pattern itself. That holds
+ * for a literal path and for a literal prefix followed by `**`; a wildcard in
+ * the middle of a pattern leaves directories that match nothing in the pattern
+ * but still contain what it protects.
+ */
+function subtreeNarrowable(pattern) {
+  const segments = pattern.split('/');
+  const wildcardAt = segments.findIndex(hasWildcard);
+  if (wildcardAt === -1) return true;
+  return wildcardAt === segments.length - 1 && segments[wildcardAt] === '**' && wildcardAt > 0;
+}
+
+/* Every directory a move of which would carry the protected pattern with it. */
+function ancestorPathsFor(pattern) {
+  if (!subtreeNarrowable(pattern)) return [];
+  const segments = pattern.split('/');
+  const wildcardAt = segments.findIndex(hasWildcard);
+  /* A literal pattern names a leaf; its own last segment is not a directory
+   * above it. A `**` pattern's literal part is all directory. */
+  const directorySegments = wildcardAt === -1 ? segments.slice(0, -1) : segments.slice(0, wildcardAt);
+  const ancestors = [];
+  for (let index = 0; index < directorySegments.length; index += 1) {
+    ancestors.push(directorySegments.slice(0, index + 1).join('/'));
+  }
+  return ancestors;
+}
+
+function ruleIdFor(pattern, action) {
+  const digest = crypto.createHash('sha256').update(pattern, 'utf8').digest('hex').slice(0, 8);
+  return `protected-path-${digest}-${action}`;
+}
+
+/* A rule that gates a whole action is the same rule whichever protected path
+ * asked for it, so it is emitted once per effect rather than once per pattern. */
+function wholeActionRuleId(effect, action) {
+  return `protected-path-guard-${effect}-${action}`;
+}
+
+function readableList(values) {
+  if (values.length === 1) return values[0];
+  return `${values.slice(0, -1).join(', ')} and ${values[values.length - 1]}`;
+}
+
+function normalizeDeclarations(input) {
+  if (!Array.isArray(input) || input.length < 1) {
+    declarationFail('At least one protected path must be declared');
+  }
+  if (input.length > MAX_DECLARATIONS) {
+    declarationFail(`At most ${MAX_DECLARATIONS} protected paths can be declared in one policy`);
+  }
+  const seen = new Set();
+  return input.map(raw => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) declarationFail('Each protected path must be an object');
+    const pattern = normalizeProtectedPattern(raw.pattern);
+    if (!pattern) declarationFail(`Protected path pattern is invalid: ${String(raw.pattern || '').slice(0, 120) || '(empty)'}`);
+    if (seen.has(pattern)) declarationFail(`Protected path ${pattern} is declared more than once`);
+    seen.add(pattern);
+    const effect = String(raw.effect || 'deny').trim().toLowerCase();
+    if (!DECLARATION_EFFECTS.has(effect)) {
+      declarationFail(`Protected path ${pattern} must be declared deny or require-approval`);
+    }
+    return {
+      pattern,
+      effect,
+      guardWholeActions: raw.guardWholeActions !== false
+    };
+  });
+}
+
+/*
+ * Expand declarations into policy rules and a plain statement of what the
+ * expansion covers. Returns { rules, coverage }.
+ */
+function expandProtectedPaths(declarationsInput) {
+  const declarations = normalizeDeclarations(declarationsInput);
+  const rules = [];
+  const coverage = [];
+  const wholeActionRules = new Map();
+
+  for (const declaration of declarations) {
+    const { pattern, effect, guardWholeActions } = declaration;
+    const ancestorPaths = ancestorPathsFor(pattern);
+    const narrowable = subtreeNarrowable(pattern);
+    const narrowedActions = [];
+    const wholeActionGuards = [];
+    const limits = [];
+
+    const addRule = (action, conditions, description) => {
+      const rule = { id: ruleIdFor(pattern, action), action, effect, description };
+      rule.conditions = conditions;
+      rules.push(rule);
+    };
+    const addWholeActionRule = (action, description) => {
+      const id = wholeActionRuleId(effect, action);
+      if (wholeActionRules.has(id)) return;
+      const rule = { id, action, effect, description };
+      wholeActionRules.set(id, rule);
+      rules.push(rule);
+    };
+
+    for (const [action, definition] of Object.entries(ACTION_PATH_SEMANTICS)) {
+      if (definition.coverage === PATH_COVERAGE.EXACT) {
+        narrowedActions.push(action);
+        addRule(action, { path: [pattern] }, `${pattern} is a protected path`);
+        continue;
+      }
+      if (definition.coverage === PATH_COVERAGE.SUBTREE) {
+        if (narrowable) {
+          narrowedActions.push(action);
+          addRule(action, { path: [pattern, ...ancestorPaths] }, `${pattern} and the directories holding it are protected`);
+        } else if (guardWholeActions) {
+          wholeActionGuards.push(action);
+          addWholeActionRule(action, 'Gated as a whole action: a protected path here names no fixed directory');
+        } else {
+          narrowedActions.push(action);
+          addRule(action, { path: [pattern] }, `${pattern} is a protected path`);
+        }
+        continue;
+      }
+      if (guardWholeActions) {
+        wholeActionGuards.push(action);
+        addWholeActionRule(action, 'Gated as a whole action: it can change any path, including a protected one');
+      }
+    }
+
+    if (ancestorPaths.length) {
+      limits.push(
+        `Changing ${readableList(ancestorPaths)} as a directory is gated too, because ${pattern} travels with it.`
+      );
+    }
+    if (!narrowable) {
+      const note = guardWholeActions
+        ? `${pattern} names no fixed directory, so a directory move or a prefix restore cannot be narrowed to it; those actions are gated as a whole.`
+        : `${pattern} names no fixed directory, so a directory move or a prefix restore that carries it is not gated.`;
+      limits.push(note);
+    }
+    const unbounded = Object.keys(ACTION_PATH_SEMANTICS)
+      .filter(action => ACTION_PATH_SEMANTICS[action].coverage === PATH_COVERAGE.UNBOUNDED)
+      .sort();
+    limits.push(guardWholeActions
+      ? `${readableList(unbounded)} are gated as whole actions: they can change any path, so they cannot be narrowed to ${pattern}.`
+      : `${readableList(unbounded)} are not gated: they can change ${pattern} without a policy decision on this path.`);
+
+    coverage.push(Object.freeze({
+      pattern,
+      effect,
+      guardWholeActions,
+      narrowable,
+      ancestorPaths: Object.freeze(ancestorPaths),
+      narrowedActions: Object.freeze(narrowedActions.slice().sort()),
+      wholeActionGuards: Object.freeze(wholeActionGuards.slice().sort()),
+      limits: Object.freeze(limits)
+    }));
+  }
+
+  rules.sort((left, right) => left.id.localeCompare(right.id));
+  return Object.freeze({ rules: Object.freeze(rules), coverage: Object.freeze(coverage) });
+}
+
 module.exports = Object.freeze({
   ProtectedPathError,
   PATH_COVERAGE,
@@ -144,5 +346,8 @@ module.exports = Object.freeze({
   MAX_PATH_SET_ITEMS,
   MAX_PATH_SET_BYTES,
   normalizeRepositoryPath,
-  pathFactsForAction
+  pathFactsForAction,
+  MAX_DECLARATIONS,
+  normalizeProtectedPattern,
+  expandProtectedPaths
 });

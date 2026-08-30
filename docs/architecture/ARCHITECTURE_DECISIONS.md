@@ -760,3 +760,32 @@ the boundary and a green automated run still cannot hide a failed independent
 review. The cost is that the record no longer proves by construction which
 position the project is in; that now rests on the evidence run identifiers each
 gate carries.
+
+## ADR-084 — A governed mutation declares its whole path set, or declares that it cannot
+
+**Status:** Accepted
+
+**Decision:** Every mutation action that can change repository content reports
+the complete set of paths it touches, together with how completely that set is
+known at the moment the gateway decides: `exact` when it is all of them,
+`subtree` when only the root is knowable, and `unbounded` when the action can
+rewrite any path. A set that cannot be completed is never narrowed to the part
+that is understood — an unnormalisable path downgrades the whole set to
+`unbounded`, and a set too large for the metadata envelope is refused rather
+than trimmed.
+
+**Reason:** A policy rule reaches only the paths a mutation reports about
+itself. Before this, `file.write`, `file.delete` and `file.upload` reported a
+path and the remaining content actions did not, so a rule protecting a path
+stopped a direct write and permitted a rename, a directory move, a batch or a
+restore of the same file. Each of those recorded a truthful allow for a decision
+the rule was never given the chance to make, which is worse than an absent rule:
+the evidence chain reads as though the path were checked.
+
+**Consequence:** A path condition covers every route to the path it names, and
+an action that cannot be narrowed says so where an operator and a policy can
+both see it, instead of being silently exempt. The cost is that a change naming
+more path text than the governance envelope holds is refused and must be split,
+and that protecting one path gates the whole of `commit.revert`,
+`commit.restore` and `branch.reset` for that scope unless the operator
+explicitly declines and accepts the stated gap.

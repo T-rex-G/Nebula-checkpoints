@@ -1418,6 +1418,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 @media(max-width:480px){.gov-summary-grid{grid-template-columns:1fr 1fr;gap:8px}.gov-metric{min-height:96px;padding:12px}.gov-metric strong{font-size:1.45rem}.gov-facts{grid-template-columns:1fr 1fr}.gov-empty,.gov-state{padding:24px 16px}.gov-badge{white-space:normal}}
 @media(prefers-reduced-motion:reduce){.gov-skeleton:after{animation:none!important}}
 
+.gov-baseline-summary{margin:.85rem 0 .5rem;line-height:1.6}
 .gov-json-view{max-height:min(52vh,34rem);overflow:auto;white-space:pre-wrap;word-break:break-word;padding:.85rem;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);font-size:.78rem;line-height:1.55}
 
 /* v5.3.0-alpha.17 — public-alpha accessibility qualification */

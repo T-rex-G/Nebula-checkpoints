@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Protected Paths
+
+- Fixed the coverage of path-scoped policy rules. A rule reaches only the paths
+  a mutation reports about itself, and three actions reported one:
+  `file.rename` reported `from` and `to`, `directory.move` the same,
+  `commit.restore-paths` a prefix, and `file.batch` reported item counts and
+  hashes but no paths at all, though `normalizeFileBatch` had the whole list in
+  hand at that moment. A rule protecting `.github/workflows/**` therefore
+  stopped a write and a delete and let the same file be renamed away, moved
+  with its directory, or changed inside a batch — and the gateway then recorded
+  an allow, correctly, for a mutation the operator believed was blocked.
+- Added `src/protected-paths.js`. Every content-changing action now reports the
+  complete set of paths it touches together with how completely it knows them:
+  `exact` for a set that is all of them, `subtree` for a root whose members are
+  not knowable when the gateway decides, and `unbounded` for `commit.revert`,
+  `commit.restore` and `branch.reset`, which can rewrite anything and so
+  describe themselves as such rather than claiming a narrow set. A path that
+  cannot be normalised stops the set claiming to be exact instead of being
+  dropped from it, and a set too large for the governance envelope is refused
+  with `MUTATION_PATH_SET_TOO_LARGE` rather than trimmed to fit.
+- Added a `protected-paths` policy template, "Protected sensitive paths",
+  beside the existing baselines. One declared pattern expands deterministically
+  into a rule for every action that can change a path, including the
+  directories that hold it — a file under `.github/workflows` travels with a
+  move of `.github`, so protecting the file means covering its ancestors too.
+  The expansion reports what it could not narrow rather than leaving it to be
+  discovered, and the generated document states that it records and does not
+  block until the policy is activated in warn or block mode.
+- The generated-baseline dialog now shows the policy's own description as
+  prose above the JSON, with its rule count and enforcement mode. A baseline
+  can run to hundreds of rules, and the sentence that matters most should not
+  have to be found inside them.
+
 ### Interface Correctness and Configuration Discoverability
 
 - Fixed a defect that emptied the workbench from a link. `switchTab` marks the

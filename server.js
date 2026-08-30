@@ -118,6 +118,7 @@ const { projectGovernanceInterfaceAccess } = require('./src/governance-interface
 const { createMutationGateway } = require('./src/mutation-gateway');
 const { createGiteaFileMutationAdapter } = require('./src/provider-file-mutations');
 const { normalizeFileBatch, summarizeBatchItems } = require('./src/mutation-coverage');
+const { pathFactsForAction } = require('./src/protected-paths');
 const { createGovernanceRuntime } = require('./src/governance-enforcement');
 const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
@@ -1999,7 +2000,17 @@ const fail = (res, error) => {
   }));
 };
 
+/*
+ * Every content-changing action reports the complete set of repository paths it
+ * touches, so a path-scoped policy rule reaches a rename, a batch and a
+ * directory move the same way it reaches a single write. See src/protected-paths.js.
+ */
 function mutationMetadataFor(req, action) {
+  const base = baseMutationMetadataFor(req, action);
+  return { ...base, ...pathFactsForAction(action, base) };
+}
+
+function baseMutationMetadataFor(req, action) {
   const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
   const query = req.query || {};
   const params = req.params || {};

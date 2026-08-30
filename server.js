@@ -115,10 +115,11 @@ const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation'
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
-const { createMutationGateway } = require('./src/mutation-gateway');
+const { createMutationGateway, normalizeMutationDescriptor } = require('./src/mutation-gateway');
 const { createGiteaFileMutationAdapter } = require('./src/provider-file-mutations');
 const { normalizeFileBatch, summarizeBatchItems } = require('./src/mutation-coverage');
 const { pathFactsForAction } = require('./src/protected-paths');
+const { offerSafePassage } = require('./src/safe-passage');
 const { createGovernanceRuntime } = require('./src/governance-enforcement');
 const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
@@ -1995,9 +1996,11 @@ async function githubArchiveResponse(acct, owner, repo, ref) {
 }
 const fail = (res, error) => {
   const status = error && error.status >= 400 && error.status < 600 ? error.status : 500;
-  return res.status(status).json(publicErrorBody(error, {
-    correlationId: res.locals.correlationId
-  }));
+  const body = publicErrorBody(error, { correlationId: res.locals.correlationId });
+  /* A refusal that has a compliant route carries it alongside the refusal. The
+   * public error body itself is left exactly as it was. */
+  const passage = error && error.safePassage;
+  return res.status(status).json(passage ? { ...body, safePassage: passage } : body);
 };
 
 /*
@@ -2109,6 +2112,46 @@ function applyPolicyDecisionHeaders(res, decision) {
   }
 }
 
+/*
+ * When policy refuses a change because it needs approval, offer the route to
+ * approval rather than a dead end. The route is judged by the same active
+ * policy set that just refused the original, read without writing so that no
+ * decision is recorded for a mutation nobody performed.
+ *
+ * This runs on the way to a 403 that is already decided. It must never change
+ * that outcome, so every failure here simply means no offer.
+ */
+async function safePassageFor(req, action, descriptor, error) {
+  try {
+    if (!error || error.code !== 'POLICY_APPROVAL_REQUIRED' || !descriptor) return null;
+    if (action !== 'file.write') return null;
+    const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : null;
+    if (!body || typeof body.content !== 'string') return null;
+    if (!(await dbReady())) return null;
+    const normalized = normalizeMutationDescriptor(descriptor);
+    const resolved = await ensureGovernanceStore().resolveActivePolicySetInScope({
+      scope: normalized.authorization.scope,
+      action: normalized.action
+    });
+    const offer = offerSafePassage({
+      descriptor: normalized,
+      blockCode: error.code,
+      content: body.content,
+      scope: normalized.authorization.scope,
+      activePolicies: resolved.activePolicies,
+      activeExceptions: resolved.activeExceptions,
+      evaluatedAt: resolved.resolvedAt
+    });
+    return offer && offer.available ? offer : null;
+  } catch (offerError) {
+    console.error(JSON.stringify({
+      t: new Date().toISOString(), warn: 'safe passage offer could not be built',
+      action, code: cleanText(String(offerError && offerError.code || 'SAFE_PASSAGE_UNAVAILABLE'), 100)
+    }));
+    return null;
+  }
+}
+
 function mutationContext(action) {
   return async function enterMutationContext(req, res, next) {
     let descriptor;
@@ -2135,8 +2178,12 @@ function mutationContext(action) {
         res.removeListener('close', finish);
         reject(error);
       }
-    })).catch(error => {
-      if (!res.headersSent) return fail(res, error);
+    })).catch(async error => {
+      if (!res.headersSent) {
+        const passage = await safePassageFor(req, action, descriptor, error);
+        if (passage) error.safePassage = passage;
+        return fail(res, error);
+      }
       console.error(JSON.stringify({
         t: new Date().toISOString(), warn: 'mutation gateway context failed after headers',
         action, code: error && error.code || 'MUTATION_GATEWAY_FAILED'

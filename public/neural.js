@@ -1297,8 +1297,11 @@
   function togglePause() {
     NVN.paused = !NVN.paused;
     const b = document.getElementById('neuralPlayBtn'); if (b) b.innerHTML = NVN.paused
-      ? '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="currentColor" stroke="none"/></svg>'
-      : '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg>';
+      /* nt-filled: these two are solid shapes, and the tool stylesheet strokes
+       * every other icon. Rebuilding this markup without the class is how the
+       * play control would quietly become an outline after the first toggle. */
+      ? '<svg class="nt-filled" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="currentColor" stroke="none"/></svg>'
+      : '<svg class="nt-filled" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg>';
     setStream(NVN.paused ? 'PAUSED' : 'LIVE TOPOLOGY', !NVN.paused); updateVisibleCount();
   }
 

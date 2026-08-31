@@ -1228,7 +1228,21 @@ body.read-only .btn-primary{opacity:.55}
 [data-theme="light"] .neural-search-wrap{background:rgba(255,255,255,.65)}
 .neural-search-wrap svg{fill:none;stroke:var(--muted);stroke-width:1.8;flex:none}.neural-search-wrap input{border:0;background:transparent;min-height:0;height:34px;padding:0;box-shadow:none;font-size:.7rem}
 .neural-stage-tools{position:absolute;z-index:5;right:13px;bottom:46px;display:grid;gap:6px}
-.neural-tool{width:38px;height:38px;border:1px solid var(--glass-border);border-radius:11px;color:var(--text);background:rgba(8,8,24,.64);backdrop-filter:blur(14px);cursor:pointer;font-family:inherit;font-weight:600;font-size:.78rem;transition:.16s}
+.neural-tool{width:38px;height:38px;border:1px solid var(--glass-border);border-radius:11px;color:var(--text);background:rgba(8,8,24,.64);backdrop-filter:blur(14px);cursor:pointer;font-family:inherit;font-weight:600;font-size:.78rem;transition:.16s;
+  /* The icons sat on the text baseline, 1.5px above the centre of their own
+   * button, and the one text glyph among them centred differently again. */
+  display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1}
+/*
+ * Tool icons are stroked outlines.
+ *
+ * Without a rule here a bare <svg><path> falls back to the SVG default of a
+ * black fill and no stroke: invisible against the dark button, and a filled
+ * smudge instead of an outline against the light one. Two of these buttons were
+ * drawing nothing at all in dark mode for exactly that reason.
+ */
+.neural-tool > svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+/* The pause bars are a solid shape rather than an outline. */
+.neural-tool > svg.nt-filled{fill:currentColor;stroke:none}
 [data-theme="light"] .neural-tool{background:rgba(255,255,255,.72)}
 .neural-tool:hover{transform:translateY(-1px);background:rgba(139,92,246,.2);border-color:rgba(167,139,250,.45)}
 /*

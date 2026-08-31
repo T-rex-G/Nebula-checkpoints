@@ -31,6 +31,20 @@
   and the only reliable way to do it: the bottom navigation painted over the
   stage regardless of stacking order, and raising the stage to `z-index: 999`
   did not change which element won the hit test.
+- Fixed two of the graph's tool buttons drawing nothing in dark mode. Nothing
+  styled the icons inside `.neural-tool`, so a bare `<svg><path>` fell back to
+  the SVG default of a black fill and no stroke: invisible against the dark
+  button, and a filled smudge instead of an outline against the light one. It
+  read as a dark-mode bug because that is where it disappears, but both themes
+  were wrong. Tool icons are now stroked in the button's own colour, and the one
+  solid icon keeps its fill through a class the pause control also writes into
+  the markup it rebuilds.
+- Centred the tool icons. The buttons never centred their contents, so every
+  icon sat on the text baseline 1.5px above the middle of its own button and the
+  single text glyph among them centred differently again. All five now measure
+  zero offset in both themes.
+- Gave the enlarge control its own icon. It had been drawn as outward corner
+  brackets, which is what the fit control beside it already used.
 - Fixed the repository, snapshot, safety and scan nodes rendering the word
   "undefined" in the middle of the node. Those four were moved from a typed
   character to a drawn mark, and the node builder was left copying only the

@@ -1290,7 +1290,10 @@ body.read-only .btn-primary{opacity:.55}
 .neural-filter input[type="checkbox"]:focus:active{width:3.6em;height:2.4em}
 /* Live: the rim turns and the white shape narrows to a bar. */
 .neural-filter input[type="checkbox"]:checked{--hue:120}
-[data-theme="light"] .neural-filter input[type="checkbox"]:checked{--rimL:34%;--glowL:44%}
+/* 34% cleared the bar by 0.155 -- a margin too thin to defend, and the reason a
+ * mid-flight reading looked like a plausible resting value. 30% is the same
+ * green, read the same way, with room to spare. */
+[data-theme="light"] .neural-filter input[type="checkbox"]:checked{--rimL:30%;--glowL:40%}
 .neural-filter input[type="checkbox"]:checked::before{border-radius:.25em;width:.5em}
 /* The reference has no focus ring of its own, and removing the browser's
  * control removes the browser's. */

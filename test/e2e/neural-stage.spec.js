@@ -202,11 +202,33 @@ test('the signal filters read as one object carrying colour and state', async ({
   });
   for (const theme of ['dark', 'light']) {
     await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
-    /* The rim is a transitioned box-shadow, so it spends the next fifth of a
+    /*
+     * The rim is a transitioned box-shadow, so it spends the next fifth of a
      * second on its way to the new theme's colour. Reading it before it lands
      * measures the theme being left against the panel being arrived at, which
-     * is how this reported 1.83 for a rim that resolves to 3.15. */
-    await page.waitForTimeout(400);
+     * is how this reported 1.83 for a rim that resolves to 3.15.
+     *
+     * Sleeping for longer than the transition is not the fix, and was the
+     * defect CI caught: a fixed 400ms is 400ms of wall clock, not 400ms of
+     * transition, and on a loaded runner the transition starts late enough that
+     * the read still lands mid-flight -- 2.38, a value the rim only ever holds
+     * on its way somewhere else. Wait for the transition itself instead.
+     *
+     * Two frames first, so the theme change is committed to style and the
+     * transitions have actually been created; then until none of them is still
+     * running. Scoped to these inputs because the page carries animations that
+     * never stop, and waiting on those would wait forever.
+     */
+    await page.evaluate(() => new Promise(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+    await page.waitForFunction(() => {
+      const inputs = [...document.querySelectorAll('#neuralStage .neural-filter input')];
+      return document.getAnimations().every(animation => {
+        const target = animation.effect && animation.effect.target;
+        return animation.playState !== 'running' || !inputs.includes(target);
+      });
+    });
     const contrast = await measureContrast();
     expect(contrast.length).toBe(3);
     for (const entry of contrast) {

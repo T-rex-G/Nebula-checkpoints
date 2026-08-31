@@ -12,7 +12,7 @@ const {
 const { expandProtectedPaths } = require('./protected-paths');
 
 const TEMPLATE_CATALOG_ID = 'nebulaverse-policy-template-catalog';
-const TEMPLATE_CATALOG_VERSION = '1.1.0';
+const TEMPLATE_CATALOG_VERSION = '1.2.0';
 const MAX_FACTS_BYTES = 16 * 1024;
 const MAX_PROTECTED_BRANCHES = 50;
 const SAFE_BRANCH_RX = /^[A-Za-z0-9._\/-]{1,255}$/;
@@ -109,6 +109,14 @@ const DEFAULT_PROTECTED_PATHS = Object.freeze([
   Object.freeze({ pattern: '.gitattributes', effect: 'deny' })
 ]);
 
+function reviewDeclarations(defaultBranch) {
+  return DEFAULT_PROTECTED_PATHS.map(entry => ({
+    pattern: entry.pattern,
+    effect: 'require-approval',
+    branch: defaultBranch
+  }));
+}
+
 function protectedPathsDescription(expansion) {
   const patterns = expansion.coverage.map(entry => entry.pattern).join(', ');
   const ancestors = [...new Set(expansion.coverage.flatMap(entry => entry.ancestorPaths))].sort();
@@ -171,6 +179,50 @@ const DEFINITIONS = Object.freeze([
         description: protectedPathsDescription(expansion),
         enforcement: { mode: 'observe' },
         rules: expansion.rules
+      };
+    }
+  }),
+  Object.freeze({
+    templateId: 'protected-paths-review', version: '1.0.0',
+    name: 'Protected sensitive paths (review required)',
+    description: 'Observe-only review requirement for sensitive paths on the default branch, leaving the change a route to a pull request.',
+    approvalPolicy: Object.freeze({ requiredApprovals: 2, disallowAuthorApproval: true }),
+    buildDocument(facts) {
+      const defaultBranch = facts && facts.defaultBranch ? String(facts.defaultBranch) : '';
+      /*
+       * Merging has to be held as well. The point of this posture is that a
+       * change to a sensitive path reaches the default branch through review,
+       * and a pull request anyone can merge themselves is not review. Without
+       * this rule the route out of a refusal would walk straight around the
+       * refusal.
+       */
+      const mergeRule = {
+        id: 'pull-merge-approval',
+        action: 'pull.merge',
+        effect: 'require-approval',
+        description: 'Merging into a protected branch needs approval, so a pull request cannot approve itself.'
+      };
+      if (!defaultBranch) {
+        /*
+         * Without a resolved default branch the scope cannot be expressed. An
+         * unscoped requirement would hold the same paths on every branch, which
+         * reads like stronger protection and quietly removes the route to
+         * review, so the paths are left out and the baseline reports itself
+         * incomplete instead.
+         */
+        return {
+          schemaVersion: 1,
+          description: 'Sensitive-path review baseline. The default branch could not be resolved, so no path rules were generated; only merges are held for approval.',
+          enforcement: { mode: 'observe' },
+          rules: [mergeRule]
+        };
+      }
+      const expansion = expandProtectedPaths(reviewDeclarations(defaultBranch));
+      return {
+        schemaVersion: 1,
+        description: `${protectedPathsDescription(expansion)} Merging into ${defaultBranch} needs approval too, so the pull request this leaves open cannot approve itself.`,
+        enforcement: { mode: 'observe' },
+        rules: [...expansion.rules, mergeRule]
       };
     }
   }),
@@ -276,7 +328,7 @@ function generateRepositoryBaseline(input = {}) {
     scopeHash: sha256(scope)
   };
   const warnings = [];
-  if (definition.templateId === 'protected-default-branch' && !facts.defaultBranch) warnings.push('default-branch-unresolved');
+  if (['protected-default-branch', 'protected-paths-review'].includes(definition.templateId) && !facts.defaultBranch) warnings.push('default-branch-unresolved');
   if (!facts.branchesComplete) warnings.push('branch-facts-incomplete');
   if (facts.protectedBranchesTruncated) warnings.push('protected-branches-truncated');
   if (facts.archived) warnings.push('repository-archived');

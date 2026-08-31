@@ -86,7 +86,13 @@ const DENIED_EVERYWHERE = {
   }]
 };
 
+/* branch.reset and pull.merge carry a step-up requirement of their own, which
+ * is unrelated to policy but has to be satisfied before a descriptor exists at
+ * all. */
+const STEP_UP_ACTIONS = { 'branch.reset': 'branch.reset', 'pull.merge': 'pull.merge' };
+
 function descriptorFor(action, base) {
+  const stepUpAction = STEP_UP_ACTIONS[action];
   return normalizeMutationDescriptor({
     mutationId: '11111111-1111-4111-8111-111111111111',
     action,
@@ -98,6 +104,7 @@ function descriptorFor(action, base) {
     method: 'PUT',
     route: '/api/repo/Acme/Demo/file',
     metadata: { ...base, ...pathFactsForAction(action, base) },
+    security: stepUpAction ? { stepUpAction, assurance: 'credential', authorizedAt: Date.now() } : undefined,
     authorization
   });
 }
@@ -234,5 +241,125 @@ for (const awkward of ['main', 'release/1.0', 'feature/.hidden', 'a'.repeat(120)
   const branch = safePassage.branchFor(awkward.replace(/^feature\/\.hidden$/, 'main'), PROTECTED_FILE, CONTENT_HASH);
   assert.strictEqual(normalizeBranchName(branch, 'branch'), branch, `offered branch ${branch} must be a valid ref`);
 }
+
+/* ------------------------------------------------------------------ *
+ * The review posture, end to end
+ *
+ * A protected path declared deny has no compliant route and is never given
+ * one. A protected path declared for review is the case this feature exists
+ * for, and the template that produces it has to leave a route that policy
+ * really permits -- without leaving one that walks around the review it just
+ * asked for.
+ * ------------------------------------------------------------------ */
+
+const { getPolicyTemplate, listPolicyTemplates, generateRepositoryBaseline } = require('../src/governance-templates');
+
+assert(
+  listPolicyTemplates().some(entry => entry.templateId === 'protected-paths-review'),
+  'the review posture must be offered as its own baseline'
+);
+
+const reviewBaseline = generateRepositoryBaseline({
+  scope,
+  templateId: 'protected-paths-review',
+  facts: {
+    schemaVersion: 1,
+    defaultBranch: 'main',
+    protectedBranches: ['main'],
+    pullRequestsEnabled: true,
+    visibility: 'private',
+    archived: false,
+    branchesComplete: true,
+    protectedBranchesTruncated: false,
+    resolvedForScopeKey: scope.scopeKey
+  }
+});
+const reviewDocument = { ...reviewBaseline.document, enforcement: { mode: 'block' } };
+const reviewSet = [{
+  policyId: '10000000-0000-4000-8000-000000000003',
+  policyKey: 'protected-paths-review',
+  versionId: '20000000-0000-4000-8000-000000000004',
+  versionNumber: 1, headRevision: 1,
+  document: reviewDocument, documentHash: policyDocumentHash(reviewDocument)
+}];
+
+function reviewDecision(action, base) {
+  return evaluateActivePolicySet({
+    scope, descriptor: descriptorFor(action, base), activePolicies: reviewSet, activeExceptions: [], evaluatedAt: EVALUATED_AT
+  });
+}
+
+/* Outcome: writing a protected path on the default branch is held for review. */
+const heldForReview = reviewDecision('file.write', { branch: 'main', path: PROTECTED_FILE });
+assert.strictEqual(heldForReview.enforcementOutcome, 'block');
+assert.strictEqual(heldForReview.blockCode, 'POLICY_APPROVAL_REQUIRED');
+
+/* Outcome: and it is handed a route the same policy permits. */
+const reviewOffer = offerSafePassage({
+  descriptor: descriptorFor('file.write', { branch: 'main', path: PROTECTED_FILE }),
+  blockCode: heldForReview.blockCode,
+  content: CONTENT,
+  scope,
+  activePolicies: reviewSet,
+  activeExceptions: [],
+  evaluatedAt: EVALUATED_AT
+});
+assert.strictEqual(reviewOffer.available, true, `the review template must leave a usable route: ${reviewOffer.reason || ''}`);
+for (const step of reviewOffer.steps) {
+  assert.strictEqual(
+    reviewDecision(step.action, step.metadata).enforcementOutcome,
+    'allow',
+    `${step.action} must be permitted under the review template`
+  );
+}
+
+/* Outcome, and the one that decides whether this is a control or a formality:
+ * the route ends at a pull request, so merging that pull request must itself
+ * need approval. Without this, "needs approval" would mean "open a pull
+ * request and merge it yourself". */
+const selfMerge = reviewDecision('pull.merge', { pullNumber: 7, mergeMethod: 'merge' });
+assert.strictEqual(
+  selfMerge.enforcementOutcome,
+  'block',
+  'the review template must gate the merge, or the route it offers walks around the review'
+);
+assert.strictEqual(selfMerge.blockCode, 'POLICY_APPROVAL_REQUIRED');
+
+/* The other actions that could change a protected path on the default branch
+ * are held too, not just the plain write. */
+for (const [action, base] of [
+  ['file.rename', { branch: 'main', from: PROTECTED_FILE, to: 'moved.yml' }],
+  ['file.batch', { branch: 'main', itemCount: 1, paths: [PROTECTED_FILE] }],
+  ['directory.move', { branch: 'main', from: '.github', to: 'archived' }],
+  ['branch.reset', { branch: 'main', targetSha: 'a'.repeat(40) }]
+]) {
+  assert.strictEqual(
+    reviewDecision(action, base).enforcementOutcome,
+    'block',
+    `${action} on the default branch must be held for review`
+  );
+}
+
+/* Ordinary work away from the protected paths is untouched. */
+assert.strictEqual(reviewDecision('file.write', { branch: 'main', path: 'src/index.js' }).enforcementOutcome, 'allow');
+
+/* The deny template stays a deny: it offers nothing, which is the correct
+ * answer for a path that must not change at all. */
+const denyTemplate = getPolicyTemplate('protected-paths');
+const denyDocument = { ...denyTemplate.document, enforcement: { mode: 'block' } };
+const denySet = [{
+  policyId: '10000000-0000-4000-8000-000000000005',
+  policyKey: 'protected-paths',
+  versionId: '20000000-0000-4000-8000-000000000006',
+  versionNumber: 1, headRevision: 1,
+  document: denyDocument, documentHash: policyDocumentHash(denyDocument)
+}];
+const denyOffer = offerSafePassage({
+  descriptor: descriptorFor('file.write', { branch: 'main', path: PROTECTED_FILE }),
+  blockCode: 'POLICY_MUTATION_BLOCKED',
+  content: CONTENT,
+  scope, activePolicies: denySet, activeExceptions: [], evaluatedAt: EVALUATED_AT
+});
+assert.strictEqual(denyOffer.available, false);
 
 console.log('safe passage tests passed');

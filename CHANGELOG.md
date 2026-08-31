@@ -4,6 +4,23 @@
 
 ### Safe Passage
 
+- Added a `protected-paths-review` template, "Protected sensitive paths (review
+  required)", beside the deny posture. The same patterns, held for review on the
+  repository's default branch rather than refused everywhere, which is what
+  leaves a route to a pull request open. A protected-path declaration can now
+  name the branch it applies to, and the expansion states that scope as a limit:
+  the same change on another branch is not gated, and that is the point rather
+  than an oversight.
+- The review template also holds `pull.merge` for approval. Without it the route
+  out of a refusal would end at a pull request the same person could merge,
+  which would make "needs approval" mean "open a pull request and merge it
+  yourself". The guard asserts the merge is gated, and removing that rule fails
+  it.
+- Where the default branch cannot be resolved, the review template generates no
+  path rules and reports `default-branch-unresolved` rather than falling back to
+  an unscoped requirement. An unscoped requirement would read as stronger
+  protection while quietly removing the route to review.
+
 - A write refused because it needs approval now carries the route to approval
   instead of ending at a dead end. The gateway is the only place still holding
   the whole attempt when it refuses, so it is the only place that can hand back

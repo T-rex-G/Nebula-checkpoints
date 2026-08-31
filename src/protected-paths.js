@@ -207,15 +207,20 @@ function ancestorPathsFor(pattern) {
   return ancestors;
 }
 
-function ruleIdFor(pattern, action) {
-  const digest = crypto.createHash('sha256').update(pattern, 'utf8').digest('hex').slice(0, 8);
+function ruleIdFor(pattern, action, branch) {
+  const seed = branch ? `${pattern}\n${branch}` : pattern;
+  const digest = crypto.createHash('sha256').update(seed, 'utf8').digest('hex').slice(0, 8);
   return `protected-path-${digest}-${action}`;
 }
 
 /* A rule that gates a whole action is the same rule whichever protected path
- * asked for it, so it is emitted once per effect rather than once per pattern. */
-function wholeActionRuleId(effect, action) {
-  return `protected-path-guard-${effect}-${action}`;
+ * asked for it, so it is emitted once per effect and branch rather than once
+ * per pattern. A branch-scoped identifier is hashed because the readable form
+ * would outgrow the sixty-four characters a policy rule id allows. */
+function wholeActionRuleId(effect, action, branch) {
+  if (!branch) return `protected-path-guard-${effect}-${action}`;
+  const digest = crypto.createHash('sha256').update(`${effect}\n${branch}`, 'utf8').digest('hex').slice(0, 10);
+  return `protected-path-guard-${digest}-${action}`;
 }
 
 function readableList(values) {
@@ -241,9 +246,17 @@ function normalizeDeclarations(input) {
     if (!DECLARATION_EFFECTS.has(effect)) {
       declarationFail(`Protected path ${pattern} must be declared deny or require-approval`);
     }
+    /* A declaration may name the branch it applies to. Scoping a protected path
+     * to the branch that matters leaves ordinary work on other branches alone,
+     * which is what makes a review posture usable at all. */
+    const branch = raw.branch == null ? '' : String(raw.branch).trim();
+    if (branch && (branch.length > 255 || /[\0\r\n]/.test(branch))) {
+      declarationFail(`Protected path ${pattern} names an invalid branch`);
+    }
     return {
       pattern,
       effect,
+      branch,
       guardWholeActions: raw.guardWholeActions !== false
     };
   });
@@ -260,7 +273,8 @@ function expandProtectedPaths(declarationsInput) {
   const wholeActionRules = new Map();
 
   for (const declaration of declarations) {
-    const { pattern, effect, guardWholeActions } = declaration;
+    const { pattern, effect, branch, guardWholeActions } = declaration;
+    const branchCondition = branch ? { branch } : {};
     const ancestorPaths = ancestorPathsFor(pattern);
     const narrowable = subtreeNarrowable(pattern);
     const narrowedActions = [];
@@ -268,14 +282,15 @@ function expandProtectedPaths(declarationsInput) {
     const limits = [];
 
     const addRule = (action, conditions, description) => {
-      const rule = { id: ruleIdFor(pattern, action), action, effect, description };
-      rule.conditions = conditions;
+      const rule = { id: ruleIdFor(pattern, action, branch), action, effect, description };
+      rule.conditions = { ...conditions, ...branchCondition };
       rules.push(rule);
     };
     const addWholeActionRule = (action, description) => {
-      const id = wholeActionRuleId(effect, action);
+      const id = wholeActionRuleId(effect, action, branch);
       if (wholeActionRules.has(id)) return;
       const rule = { id, action, effect, description };
+      if (branch) rule.conditions = { ...branchCondition };
       wholeActionRules.set(id, rule);
       rules.push(rule);
     };
@@ -323,9 +338,14 @@ function expandProtectedPaths(declarationsInput) {
       ? `${readableList(unbounded)} are gated as whole actions: they can change any path, so they cannot be narrowed to ${pattern}.`
       : `${readableList(unbounded)} are not gated: they can change ${pattern} without a policy decision on this path.`);
 
+    if (branch) {
+      limits.push(`This applies to ${branch}. The same change on another branch is not gated, which is what leaves a route to review open.`);
+    }
+
     coverage.push(Object.freeze({
       pattern,
       effect,
+      branch,
       guardWholeActions,
       narrowable,
       ancestorPaths: Object.freeze(ancestorPaths),

@@ -74,7 +74,74 @@ test('the enlarged graph keeps the controls that decide what it shows', async ({
   expect(Math.round(restored.width)).toBe(Math.round(before.width));
 });
 
-test('every graph tool draws an icon that is visible against its own button', async ({ page }) => {
+test('the signal filters read as one object carrying colour and state', async ({ page }) => {
+  await openGraph(page);
+  await page.locator('#neuralExpandBtn').click();
+  await expect(page.locator('#neuralStage')).toHaveClass(/is-expanded/);
+  if (!(await page.locator('#neuralStage').evaluate(node => node.classList.contains('panel-open')))) {
+    await page.locator('#neuralPanelBtn').click();
+  }
+
+  const filter = page.locator('#neuralStage [data-neural-filter="warning"]');
+  await expect(filter).toBeVisible();
+
+  const read = () => filter.evaluate(node => {
+    const style = getComputedStyle(node);
+    const mark = getComputedStyle(node, '::before');
+    const rect = node.getBoundingClientRect();
+    return {
+      appearance: style.appearance,
+      background: style.backgroundImage + style.backgroundColor,
+      markWidth: parseFloat(mark.width),
+      markHeight: parseFloat(mark.height),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      checked: node.checked
+    };
+  });
+
+  const on = await read();
+  /* A native checkbox at this size is the blunt square this replaced. */
+  expect(on.appearance).toBe('none');
+  /* WCAG 2.5.8 still applies to the rebuilt control. */
+  expect(on.width).toBeGreaterThanOrEqual(24);
+  expect(on.height).toBeGreaterThanOrEqual(24);
+  expect(on.checked).toBe(true);
+
+  await filter.click();
+  /* The mark morphs over a fifth of a second; reading it in the same tick as
+   * the click measures the shape it is leaving, not the one it arrives at. */
+  await expect.poll(async () => (await read()).markWidth).toBeGreaterThan(on.markWidth);
+  const off = await read();
+  expect(off.checked).toBe(false);
+  expect(off.background).not.toBe(on.background);
+
+  /*
+   * State must not rest on colour alone, so the centre mark changes shape as
+   * well: a dot while the signal is live, a dash once it is muted.
+   */
+  expect(off.markWidth).toBeGreaterThan(on.markWidth);
+  expect(off.markHeight).toBeLessThan(on.markHeight);
+
+  /*
+   * Removing the browser's own control also removes its focus ring, so the
+   * replacement has to draw one. It has to be reached by keyboard to see it:
+   * :focus-visible deliberately does not match a programmatic focus, which is
+   * the whole point of that selector.
+   */
+  await page.locator('#neuralStage [data-neural-filter="critical"]').focus();
+  await page.keyboard.press('Tab');
+  const focused = await filter.evaluate(node => ({
+    isTarget: document.activeElement === node,
+    focusVisible: node.matches(':focus-visible'),
+    outline: getComputedStyle(node).outlineWidth
+  }));
+  expect(focused.isTarget).toBe(true);
+  expect(focused.focusVisible).toBe(true);
+  expect(parseFloat(focused.outline)).toBeGreaterThan(0);
+});
+
+test('every graph tool draws an icon that is visible against its own button' , async ({ page }) => {
   await openGraph(page);
   await page.locator('#neuralExpandBtn').click();
   await expect(page.locator('#neuralStage')).toHaveClass(/is-expanded/);

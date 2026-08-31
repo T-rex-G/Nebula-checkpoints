@@ -1209,9 +1209,55 @@ body.read-only .btn-primary{opacity:.55}
  * The box grows to 24 and the row is spaced to match. The label stays at its
  * size: this is about where a finger lands, not about making the text bigger.
  */
-.neural-filter{display:flex;align-items:center;gap:9px;color:var(--text2);font-size:.72rem;margin:2px;min-height:32px;cursor:pointer}
-.neural-filter input{width:24px;height:24px;min-height:0;flex:0 0 auto;accent-color:var(--accent);appearance:auto}
-.neural-swatch{width:7px;height:7px;border-radius:50%;box-shadow:0 0 8px currentColor}.neural-swatch.critical{color:#F43F6E;background:#F43F6E}.neural-swatch.warning{color:#F59E0B;background:#F59E0B}.neural-swatch.normal{color:#22D3EE;background:#22D3EE}
+.neural-filter{display:flex;align-items:center;gap:10px;color:var(--text2);font-size:.72rem;margin:2px;min-height:32px;cursor:pointer}
+/*
+ * The severity swatch and the checkbox were two objects saying related things:
+ * a 7px dot for which signal this is, and a stock checkbox for whether it is
+ * on. They are one object now -- an orb in the signal's own colour that lights
+ * when the filter is on -- so the colour and the state are read in one glance
+ * instead of two.
+ *
+ * The control is rebuilt rather than tinted: a native checkbox at 24px is a
+ * blunt square whatever accent-color you give it. State never rests on colour
+ * alone, so the centre mark changes shape as well as brightness -- a dash when
+ * the signal is muted, a dot when it is live.
+ */
+.neural-filter input[type="checkbox"]{
+  appearance:none;-webkit-appearance:none;margin:0;position:relative;
+  width:24px;height:24px;min-height:0;flex:0 0 auto;border-radius:50%;cursor:pointer;
+  --orbSpring:cubic-bezier(.5,.15,.25,1.6);
+  background:
+    radial-gradient(circle at 33% 27%,rgba(255,255,255,.4),rgba(255,255,255,0) 44%),
+    radial-gradient(circle at 50% 118%,var(--sevGlow),transparent 62%),
+    var(--orbOff);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.16),inset 0 -3px 6px rgba(0,0,0,.42),0 1px 2px rgba(0,0,0,.32);
+  transition:background .2s ease,box-shadow .2s ease,transform .24s var(--orbSpring)}
+.neural-filter input[data-neural-filter="critical"]{--sev:#F43F6E;--sevGlow:rgba(244,63,110,.5)}
+.neural-filter input[data-neural-filter="warning"]{--sev:#F59E0B;--sevGlow:rgba(245,158,11,.5)}
+.neural-filter input[data-neural-filter="normal"]{--sev:#22D3EE;--sevGlow:rgba(34,211,238,.5)}
+.neural-filter input[type="checkbox"]::before{
+  content:"";position:absolute;left:50%;top:50%;width:11px;height:2.5px;border-radius:2px;
+  background:rgba(255,255,255,.42);transform:translate(-50%,-50%);
+  transition:width .24s var(--orbSpring),height .24s var(--orbSpring),background .2s ease,box-shadow .2s ease}
+.neural-filter input[type="checkbox"]:checked{
+  background:
+    radial-gradient(circle at 33% 25%,rgba(255,255,255,.72),rgba(255,255,255,0) 42%),
+    radial-gradient(circle at 50% 116%,rgba(255,255,255,.22),transparent 58%),
+    var(--sev);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.5),inset 0 -3px 7px rgba(0,0,0,.26),
+    0 0 0 1px var(--sevGlow),0 2px 11px var(--sevGlow)}
+.neural-filter input[type="checkbox"]:checked::before{
+  width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 7px rgba(255,255,255,.8)}
+.neural-filter input[type="checkbox"]:hover{transform:scale(1.09)}
+.neural-filter input[type="checkbox"]:active{transform:scale(.93)}
+.neural-filter input[type="checkbox"]:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+.neural-filter:hover{color:var(--text)}
+:root{--orbOff:#171634}
+[data-theme="light"]{--orbOff:#DCDAEC}
+[data-theme="light"] .neural-filter input[type="checkbox"]{
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.9),inset 0 -3px 6px rgba(23,22,52,.16),0 1px 2px rgba(23,22,52,.14)}
+[data-theme="light"] .neural-filter input[type="checkbox"]::before{background:rgba(23,22,52,.34)}
+[data-theme="light"] .neural-filter input[type="checkbox"]:checked::before{background:#fff;box-shadow:0 0 6px rgba(255,255,255,.9)}
 .neural-rail-action{margin-top:6px!important;justify-content:flex-start;padding-left:11px;min-height:36px}
 .neural-stage{position:relative;min-height:590px;border-radius:18px;background:radial-gradient(circle at 50% 46%,rgba(104,87,255,.11),transparent 30%),radial-gradient(circle at 23% 70%,rgba(34,211,238,.07),transparent 24%),rgba(4,5,17,.34);isolation:isolate;overflow:hidden}
 [data-theme="light"] .neural-stage{background:radial-gradient(circle at 50% 46%,rgba(104,87,255,.12),transparent 32%),radial-gradient(circle at 23% 70%,rgba(31,180,162,.09),transparent 25%),rgba(238,240,251,.36)}

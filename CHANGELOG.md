@@ -31,6 +31,15 @@
   and the only reliable way to do it: the bottom navigation painted over the
   stage regardless of stacking order, and raising the stage to `z-index: 999`
   did not change which element won the hit test.
+- Rebuilt the signal filter controls. The severity swatch and the checkbox were
+  two objects saying related things — a 7px dot for which signal this is, and a
+  stock checkbox for whether it is on — so they are one object now: an orb in
+  the signal's own colour that lights when the filter is live. A native checkbox
+  at 24px is a blunt square whatever `accent-color` it is given, so the control
+  is rebuilt rather than tinted. State never rests on colour alone: the centre
+  mark changes shape as well as brightness, a dot while the signal is live and a
+  dash once it is muted. The 24px pointer target and the focus ring both
+  survive, which the accessibility audit and a browser guard now hold.
 - The enlarged graph keeps the controls that decide what it shows. The modes,
   filters and response controls live in a rail beside the stage, and enlarging
   covered it, so changing intelligence mode meant collapsing, changing and

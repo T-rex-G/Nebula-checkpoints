@@ -31,6 +31,18 @@
   and the only reliable way to do it: the bottom navigation painted over the
   stage regardless of stacking order, and raising the stage to `z-index: 999`
   did not change which element won the hit test.
+- The enlarged graph keeps the controls that decide what it shows. The modes,
+  filters and response controls live in a rail beside the stage, and enlarging
+  covered it, so changing intelligence mode meant collapsing, changing and
+  enlarging again — three steps to do the thing the enlarged view exists for.
+  The rail is now moved into the stage rather than copied into it: one set of
+  controls, one set of listeners, nothing to drift. A panel control shows and
+  hides it, open by default where there is room for both and closed on a phone
+  where there is not, and Escape backs out one step at a time.
+- Docked, the rail is a tall panel rather than the cramped strip it is above the
+  graph on a phone, so it stops dropping things there: the modes get one column
+  and their full labels back, and the signal filters appear, which a phone
+  otherwise never gets at all.
 - Fixed two of the graph's tool buttons drawing nothing in dark mode. Nothing
   styled the icons inside `.neural-tool`, so a bare `<svg><path>` fell back to
   the SVG default of a black fill and no stroke: invisible against the dark

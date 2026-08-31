@@ -599,7 +599,7 @@
           </section>
 
           <section class="neural-workspace">
-            <aside class="card neural-rail" aria-label="Graph modes and controls">
+            <aside class="card neural-rail" id="neuralRail" aria-label="Graph modes and controls">
               <div class="neural-panel-title">Intelligence mode</div>
               <div class="neural-mode-list" id="neuralModeList">
                 <button class="neural-mode active" data-neural-mode="security"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.8" y="10.4" width="14.4" height="9.6" rx="2.2"/><path d="M8.4 10.4V7.7a3.6 3.6 0 0 1 7.2 0v2.7"/></svg></span><div><b>Security</b><small>Sessions, threats, workflows</small></div></button>
@@ -631,6 +631,7 @@
                 </div>
               </div>
               <div class="neural-stage-tools">
+                <button class="neural-tool nt-expanded-only" id="neuralPanelBtn" type="button" aria-pressed="false" aria-controls="neuralRail" title="Modes and filters" aria-label="Modes and filters"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/></svg></button>
                 <button class="neural-tool" id="neuralExpandBtn" type="button" aria-pressed="false" title="Enlarge the graph" aria-label="Enlarge the graph"><svg class="nt-grow" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h5v5M20 4l-6 6M9 20H4v-5M4 20l6-6"/></svg><svg class="nt-shrink" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 9h-5V4M15 9l5-5M4 15h5v5M9 15l-5 5"/></svg></button>
                 <button class="neural-tool" id="neuralPlayBtn" title="Pause or resume animation" aria-label="Pause or resume animation"><svg class="nt-filled" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg></button>
                 <button class="neural-tool" id="neuralFitBtn" title="Fit graph" aria-label="Fit graph"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>

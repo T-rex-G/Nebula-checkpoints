@@ -999,12 +999,64 @@
     return document.body.classList.contains('neural-stage-expanded');
   }
 
+  /*
+   * The modes, filters and response controls live in a rail beside the stage.
+   * Enlarging the stage covers that rail, so changing intelligence mode would
+   * have meant collapsing, changing, and enlarging again -- three steps to do
+   * the thing the enlarged view exists for.
+   *
+   * The rail is moved into the stage rather than duplicated inside it. One set
+   * of controls keeps one set of listeners and one source of truth; a second
+   * copy would need its own wiring and would drift out of step with the first.
+   */
+  let _railHome = null;
+  function dockRail(intoStage) {
+    const rail = document.getElementById('neuralRail');
+    const stage = document.getElementById('neuralStage');
+    if (!rail || !stage) return;
+    if (intoStage) {
+      if (!_railHome) {
+        _railHome = document.createComment('neural-rail-home');
+        rail.parentNode.insertBefore(_railHome, rail);
+      }
+      stage.appendChild(rail);
+      rail.classList.add('is-docked');
+    } else if (_railHome && _railHome.parentNode) {
+      _railHome.parentNode.insertBefore(rail, _railHome);
+      rail.classList.remove('is-docked');
+    }
+  }
+
+  function panelOpen() {
+    const stage = document.getElementById('neuralStage');
+    return !!stage && stage.classList.contains('panel-open');
+  }
+
+  function setPanelOpen(open) {
+    const stage = document.getElementById('neuralStage');
+    const button = document.getElementById('neuralPanelBtn');
+    if (!stage) return;
+    stage.classList.toggle('panel-open', open);
+    if (button) {
+      button.setAttribute('aria-pressed', open ? 'true' : 'false');
+      const label = open ? 'Hide modes and filters' : 'Modes and filters';
+      button.setAttribute('aria-label', label);
+      button.setAttribute('title', label);
+    }
+    /* The graph loses or regains width beside the panel on a wide screen. */
+    requestAnimationFrame(() => requestAnimationFrame(() => fitGraph(true)));
+  }
+
   function setStageExpanded(expanded) {
     const stage = document.getElementById('neuralStage');
     const button = document.getElementById('neuralExpandBtn');
     if (!stage || stageExpanded() === expanded) return;
     document.body.classList.toggle('neural-stage-expanded', expanded);
     stage.classList.toggle('is-expanded', expanded);
+    dockRail(expanded);
+    /* Room decides the default: a wide screen can hold the panel and the graph
+     * at once, a phone cannot, and the point of enlarging there was the room. */
+    setPanelOpen(expanded && window.matchMedia('(min-width: 900px)').matches);
     if (button) {
       button.setAttribute('aria-pressed', expanded ? 'true' : 'false');
       const label = expanded ? 'Return the graph to the page' : 'Enlarge the graph';
@@ -1022,12 +1074,15 @@
     if (!button || button.dataset.wired === '1') return;
     button.dataset.wired = '1';
     button.addEventListener('click', () => setStageExpanded(!stageExpanded()));
+    document.getElementById('neuralPanelBtn')?.addEventListener('click', () => setPanelOpen(!panelOpen()));
     document.addEventListener('keydown', event => {
       if (event.key !== 'Escape' || !stageExpanded()) return;
       /* A modal opened over the expanded stage owns Escape first. */
       if (document.querySelector('.scrim:not([hidden])')) return;
       event.preventDefault();
-      setStageExpanded(false);
+      /* Escape backs out one step at a time: the panel, then the enlargement. */
+      if (panelOpen()) setPanelOpen(false);
+      else setStageExpanded(false);
     });
   }
 
@@ -1264,6 +1319,9 @@
       const b = e.target.closest('[data-neural-mode]'); if (!b) return;
       NVN.mode = b.dataset.neuralMode;
       document.querySelectorAll('[data-neural-mode]').forEach(x => x.classList.toggle('active', x === b));
+      /* On a narrow screen the panel covers most of the graph, so choosing a
+       * mode gets out of the way to show its result. */
+      if (panelOpen() && !window.matchMedia('(min-width: 900px)').matches) setPanelOpen(false);
       applyMode(); fitGraph(true);
     });
     document.querySelectorAll('[data-neural-filter]').forEach(cb => cb.addEventListener('change', () => { NVN.filters[cb.dataset.neuralFilter] = cb.checked; applyMode(); }));

@@ -1275,6 +1275,49 @@ body.neural-stage-expanded .side,
 body.neural-stage-expanded .side-scrim,
 body.neural-stage-expanded .nv-fab-dock{display:none!important}
 .neural-stage.is-expanded #neuralCanvas{min-height:0;height:100%}
+/*
+ * The controls follow the graph into the enlarged view.
+ *
+ * The rail is moved into the stage rather than copied, so it arrives with its
+ * own listeners intact and there is still only one set of controls to keep in
+ * step. It slides over the graph rather than displacing it, because the graph
+ * is what the enlarged view is for.
+ */
+.nt-expanded-only{display:none}
+.neural-stage.is-expanded .nt-expanded-only{display:inline-flex}
+.neural-stage.is-expanded{--nv-panel-w:min(272px,82vw)}
+.neural-rail.is-docked{position:absolute;z-index:6;left:0;top:0;bottom:0;width:var(--nv-panel-w);
+  margin:0;border-radius:0;border-top:0;border-bottom:0;border-left:0;
+  border-right:1px solid var(--glass-border);background:rgba(8,8,24,.86);backdrop-filter:blur(20px);
+  overflow-y:auto;overscroll-behavior:contain;
+  transform:translateX(-100%);opacity:0;pointer-events:none;transition:transform .22s var(--ease),opacity .22s var(--ease)}
+[data-theme="light"] .neural-rail.is-docked{background:rgba(250,250,255,.9)}
+.neural-stage.is-expanded.panel-open .neural-rail.is-docked{transform:none;opacity:1;pointer-events:auto}
+/*
+ * Docked, the rail is a tall panel rather than the cramped strip it is above
+ * the graph on a phone, so the things it drops there come back: one column of
+ * modes with their labels intact, and the signal filters, which a phone
+ * otherwise never gets at all.
+ */
+.neural-rail.is-docked .neural-mode-list{grid-template-columns:minmax(0,1fr)}
+.neural-rail.is-docked .neural-filter-title{display:block}
+.neural-rail.is-docked .neural-filter{display:flex}
+.neural-rail.is-docked .neural-rail-action{display:flex!important;width:100%!important;margin:6px 0 0!important}
+/*
+ * The stage's own furniture steps aside for the open panel, but only where
+ * there is somewhere to step. On a phone the panel covers most of the width, so
+ * shifting the legend right pushed it into the tool column; there it simply
+ * stays put and lets the panel cover it.
+ */
+@media(min-width:900px){
+  .neural-stage.is-expanded.panel-open .neural-stage-top{left:calc(var(--nv-panel-w) + 13px)}
+  .neural-stage.is-expanded.panel-open .neural-legend{left:calc(var(--nv-panel-w) + 13px)}
+}
+@media(max-width:899px){
+  /* A sliver of the legend read out from behind the panel. There is no strip of
+   * graph left to label anyway while the panel is open. */
+  .neural-stage.is-expanded.panel-open .neural-legend{display:none}
+}
 .neural-tool .nt-shrink{display:none}
 .neural-stage.is-expanded .neural-tool .nt-shrink{display:block}
 .neural-stage.is-expanded .neural-tool .nt-grow{display:none}

@@ -173,20 +173,25 @@ test('the signal filters read as one object carrying colour and state', async ({
       }
       return colour(getComputedStyle(document.body).backgroundColor)?.rgb || [0, 0, 0];
     };
-    return [...document.querySelectorAll('#neuralStage .neural-filter input')].map(input => {
-      const ring = colour(getComputedStyle(input).getPropertyValue('--sevRing'));
+    return [...document.querySelectorAll('#neuralStage .neural-filter input')].flatMap(input => {
+      const style = getComputedStyle(input);
       const ground = groundOf(input);
-      return {
-        signal: input.dataset.neuralFilter,
-        alpha: ring ? ring.alpha : null,
-        ratio: ring ? ratio(composite(ring, ground), ground) : 0
-      };
+      /* Both states: the ring marks the muted control, the fill marks the live
+       * one, and each is the boundary a viewer has to find. */
+      return [['muted ring', '--ctlRing'], ['live fill', '--ctlOn']].map(([part, token]) => {
+        const parsed = colour(style.getPropertyValue(token));
+        return {
+          signal: `${input.dataset.neuralFilter} ${part}`,
+          alpha: parsed ? parsed.alpha : null,
+          ratio: parsed ? ratio(composite(parsed, ground), ground) : 0
+        };
+      });
     });
   });
   for (const theme of ['dark', 'light']) {
     await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
     const contrast = await measureContrast();
-    expect(contrast.length).toBe(3);
+    expect(contrast.length).toBe(6);
     for (const entry of contrast) {
       expect(entry.ratio, `${theme}: ${entry.signal} ring is ${entry.ratio.toFixed(2)}:1 against its panel`)
         .toBeGreaterThanOrEqual(3);

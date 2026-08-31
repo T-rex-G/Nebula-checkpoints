@@ -31,6 +31,14 @@
   and the only reliable way to do it: the bottom navigation painted over the
   stage regardless of stacking order, and raising the stage to `z-index: 999`
   did not change which element won the hit test.
+- The signal filters are one control again, not three. Colouring each checkbox
+  by its severity made three rows read as three different kinds of control when
+  the only thing varying between them is on or off; the label and the key dot
+  beside it already say which signal a row is about. One design now — a hollow
+  ring when muted, a filled accent orb when live — and the severity dot is back
+  beside each label, keyed to the colour the graph draws that signal in. It was
+  removed in the first attempt at this, which was never something that had been
+  asked for.
 - Rebuilt the signal filter controls twice. The first attempt kept the sphere
   soft and low-contrast, which vanished at 24px and left the muted state as a
   muddy blob; rendering it beside the reference at matched size made that

@@ -193,7 +193,7 @@
     const st = TYPE_STYLE[type] || TYPE_STYLE.repo;
     const node = {
       id, type, label: String(label || id), meta, severity,
-      color: st.color, glyph: st.glyph, r: st.radius,
+      color: st.color, glyph: st.glyph, mark: st.mark, r: st.radius,
       x: 0, y: 0, vx: 0, vy: 0, fixed: type === 'repo',
       visible: true, match: false, activity: 0
     };
@@ -859,10 +859,13 @@
     ctx.shadowBlur = 0; ctx.strokeStyle = selected ? '#fff' : hexAlpha(severityColor, .62); ctx.lineWidth = selected ? 1.8 : .75; ctx.stroke();
     ctx.fillStyle = node.type === 'repo' ? '#fff' : 'rgba(255,255,255,.9)';
     if (node.mark) drawNodeMark(ctx, node.mark, p.x, p.y, radius * 1.02);
-    else {
+    else if (node.glyph) {
       ctx.font = `${Math.max(7, radius * .57)}px 'Public Sans Variable', system-ui, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(node.glyph, p.x, p.y + .3);
     }
+    /* A node with neither is drawn as the plain sphere it already is. Passing an
+     * absent glyph to fillText paints the word "undefined" inside the node,
+     * which is how this was found. */
     const shouldLabel = selected || hover || eventHot || node.type === 'repo' || node.match || (NVN.zoom > 1.18 && radius > 8);
     if (shouldLabel) drawNodeLabel(ctx, node, p, radius, dim);
     ctx.restore();
@@ -977,6 +980,55 @@
       if (d < r * r && d < bestD) { best = n; bestD = d; }
     }
     return best;
+  }
+
+  /*
+   * Enlarge the graph.
+   *
+   * The stage shares its row with a rail and an inspector, and on a phone it is
+   * a few hundred pixels tall, so a graph of any size is read through a
+   * letterbox. Expanding is done in CSS rather than through the Fullscreen API
+   * because element fullscreen does not exist on iOS Safari, and a control that
+   * works on three platforms out of four is worse than one that works
+   * everywhere.
+   *
+   * The stage is already watched by a ResizeObserver, so the canvas resizes
+   * itself; this only has to re-fit the graph into the space it just gained.
+   */
+  function stageExpanded() {
+    return document.body.classList.contains('neural-stage-expanded');
+  }
+
+  function setStageExpanded(expanded) {
+    const stage = document.getElementById('neuralStage');
+    const button = document.getElementById('neuralExpandBtn');
+    if (!stage || stageExpanded() === expanded) return;
+    document.body.classList.toggle('neural-stage-expanded', expanded);
+    stage.classList.toggle('is-expanded', expanded);
+    if (button) {
+      button.setAttribute('aria-pressed', expanded ? 'true' : 'false');
+      const label = expanded ? 'Return the graph to the page' : 'Enlarge the graph';
+      button.setAttribute('aria-label', label);
+      button.setAttribute('title', label);
+    }
+    /* The canvas is resized by the observer; the graph still has to be re-fitted
+     * into the space, and one frame later so the new size is measured. */
+    requestAnimationFrame(() => requestAnimationFrame(() => fitGraph(true)));
+    if (!expanded && button) button.focus();
+  }
+
+  function wireStageExpansion() {
+    const button = document.getElementById('neuralExpandBtn');
+    if (!button || button.dataset.wired === '1') return;
+    button.dataset.wired = '1';
+    button.addEventListener('click', () => setStageExpanded(!stageExpanded()));
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !stageExpanded()) return;
+      /* A modal opened over the expanded stage owns Escape first. */
+      if (document.querySelector('.scrim:not([hidden])')) return;
+      event.preventDefault();
+      setStageExpanded(false);
+    });
   }
 
   function fitGraph(animateFit = true) {
@@ -1222,6 +1274,7 @@
     document.getElementById('neuralLiveBtn')?.addEventListener('click', liveConnectionFlow);
     document.getElementById('neuralRefreshBtn')?.addEventListener('click', () => load(true));
     document.getElementById('neuralFitBtn')?.addEventListener('click', () => fitGraph(true));
+    wireStageExpansion();
     document.getElementById('neuralPlayBtn')?.addEventListener('click', togglePause);
     document.getElementById('neuralExplainBtn')?.addEventListener('click', explainFromSelected);
     document.getElementById('neuralDemoBtn')?.addEventListener('click', () => injectDemo(false));
@@ -1466,8 +1519,15 @@
       if (NVN.active && !NVN.paused && document.visibilityState === 'visible' && typeof currentTab === 'function' && currentTab() === 'neural') load(true);
     }, 120000);
   }
+  function collapseStageOnLeave() {
+    /* Leaving the destination while expanded would leave a fixed overlay and a
+     * locked page behind it. */
+    if (stageExpanded()) setStageExpanded(false);
+  }
+
   function deactivate() {
     NVN.active = false;
+    collapseStageOnLeave();
     stopLoop();
     clearInterval(NVN.refreshTimer);
     NVN.refreshTimer = 0;

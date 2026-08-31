@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Uploads and the Neural graph
+
+- Fixed a zip of more than a hundred files failing after all the work rather
+  than before it. The browser accepted up to 500 extracted files and queued them
+  as one batch; the server commits at most 100 operations at once, so every blob
+  uploaded first and the commit was refused at the end. The queue is now planned
+  before anything leaves the browser: a queue that fits is one commit and says
+  so, a queue that does not is offered as the several atomic commits it really
+  takes, and neither is started without the choice being made. A run that stops
+  part-way reports which parts landed, because those commits are on the branch
+  whatever happens next.
+- Added `public/upload-planning.js` with the browser's copy of the batch limit,
+  held equal to the server's `file.batch` contract by a test that also asserts
+  the server refuses one operation beyond it — a number that merely matches
+  another number is not a limit.
+- The zip error no longer calls 500 the batch limit; 500 is what can be
+  extracted at once.
+- Verified that zip and folder uploads keep their structure: nested paths are
+  normalised by the archive guard, backslashes from a Windows zip included, and
+  land at the same relative path under the destination folder.
+- Added an enlarge control to the Neural graph. The stage shares a row with a
+  rail and an inspector, and is a few hundred pixels tall on a phone, so a graph
+  of any size was read through a letterbox — 635×694 on a desktop and 370×426 on
+  a phone, now the whole viewport in both. Expansion is CSS rather than the
+  Fullscreen API because element fullscreen does not exist on iOS Safari. The
+  shell steps aside while expanded, which is both the focused mode this wants
+  and the only reliable way to do it: the bottom navigation painted over the
+  stage regardless of stacking order, and raising the stage to `z-index: 999`
+  did not change which element won the hit test.
+- Fixed the repository, snapshot, safety and scan nodes rendering the word
+  "undefined" in the middle of the node. Those four were moved from a typed
+  character to a drawn mark, and the node builder was left copying only the
+  character, so they reached the canvas with neither and `fillText(undefined)`
+  painted the word — on the repository itself, the largest node on screen. The
+  builder now carries the mark, an absent glyph is never drawn, and a guard
+  holds both halves.
+
 ### Safe Passage
 
 - Added a `protected-paths-review` template, "Protected sensitive paths (review

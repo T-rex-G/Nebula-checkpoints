@@ -3925,7 +3925,7 @@ async function handleZip(zipFile) {
       entries.push({ file: new File([data], name.split('/').pop() || 'file'), rel: name });
     }
     if (!entries.length) return toast('The zip appears to be empty', 'err');
-    if (entries.length > 500) return toast(`Zip has ${entries.length} files — the limit is 500 per batch`, 'err');
+    if (entries.length > 500) return toast(`Zip has ${entries.length} files — at most 500 can be extracted at once`, 'err');
     if (uploadModeV !== 'batch') {
       uploadModeV = 'batch';
       selectSegment('#uploadMode', b => b.dataset.v === 'batch');
@@ -5007,54 +5007,104 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString();
 }
 /* ---- batch commit: blobs first, then ONE atomic commit ---- */
+function batchPlan(count = batchQueue.length) {
+  return window.NebulaUploadPlanning.planBatchCommits(count);
+}
 function updateBatchBar() {
   const bar = $('#batchBar');
   bar.hidden = uploadModeV !== 'batch' || !batchQueue.length;
-  if (!bar.hidden) $('#batchInfo').textContent = `${batchQueue.length} file${batchQueue.length > 1 ? 's' : ''} ready — will land as one commit on ${state.work.branch}`;
+  if (bar.hidden) return;
+  const plan = batchPlan();
+  const files = `${plan.total} file${plan.total > 1 ? 's' : ''}`;
+  /* One commit is what the control promises; more than one is what the queue
+   * has outgrown, and saying so here is cheaper than saying it after the
+   * upload. */
+  $('#batchInfo').textContent = plan.atomic
+    ? `${files} ready — will land as one commit on ${state.work.branch}`
+    : `${files} ready — more than ${plan.limit} per commit, so this will land as ${plan.commits} commits on ${state.work.branch}`;
+  const button = $('#batchCommitBtn');
+  if (button) button.textContent = plan.atomic ? 'Commit all as one ✦' : `Commit in ${plan.commits} parts ✦`;
+}
+function uploadBlob(q) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/repo/${wPath()}/blob?path=${encodeURIComponent(q.targetPath)}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('x-nv', '1');
+    xhr.setRequestHeader('x-nv-csrf', csrfToken);
+    xhr.upload.onprogress = ev => { if (ev.lengthComputable) q.fill.style.width = Math.min(Math.round(ev.loaded / ev.total * 100), 90) + '%'; };
+    xhr.onload = () => {
+      try { const r = JSON.parse(xhr.responseText); r.ok ? resolve(r.sha) : reject(new Error(r.error || 'blob failed')); }
+      catch { reject(new Error('blob failed')); }
+    };
+    xhr.onerror = () => reject(new Error('network error'));
+    xhr.send(q.file);
+  });
 }
 $('#batchCommitBtn').addEventListener('click', async () => {
   if (!batchQueue.length) return;
+  const plan = batchPlan();
+  /*
+   * Plan before a single blob leaves the browser. A queue past the server's
+   * batch limit used to upload every blob and only then be refused by the
+   * commit, so the whole wait was spent earning an error.
+   */
+  if (!plan.atomic) {
+    const proceed = await modal({
+      title: 'More than one commit',
+      okText: `Commit in ${plan.commits} parts`,
+      bodyHTML: `<p class="sp-lead">A single commit carries at most <b>${plan.limit}</b> files, and this queue holds <b>${plan.total}</b>.</p>
+        <p class="sp-lead">It can go as <b>${plan.commits} commits</b> on <b class="mono">${esc(state.work.branch)}</b> instead — each one atomic, in queue order. Nothing is uploaded until you choose.</p>
+        <p class="hint">To keep it to one commit, cancel and push fewer files at a time.</p>`
+    });
+    if (!proceed) return;
+  }
   const btn = $('#batchCommitBtn');
   btn.disabled = true;
-  const message = $('#uploadMsg').value.trim() || `Sync ${batchQueue.length} files via ${NV_PRODUCT_NAME}`;
-  const ops = [];
+  const committed = [];
   try {
     await ensureCsrfToken();
-    for (const q of batchQueue) {
-      q.status.textContent = 'Uploading blob…';
-      const sha = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `/api/repo/${wPath()}/blob?path=${encodeURIComponent(q.targetPath)}`);
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.setRequestHeader('x-nv', '1');
-        xhr.setRequestHeader('x-nv-csrf', csrfToken);
-        xhr.upload.onprogress = ev => { if (ev.lengthComputable) q.fill.style.width = Math.min(Math.round(ev.loaded / ev.total * 100), 90) + '%'; };
-        xhr.onload = () => {
-          try { const r = JSON.parse(xhr.responseText); r.ok ? resolve(r.sha) : reject(new Error(r.error || 'blob failed')); }
-          catch { reject(new Error('blob failed')); }
-        };
-        xhr.onerror = () => reject(new Error('network error'));
-        xhr.send(q.file);
+    for (const [index, group] of plan.groups.entries()) {
+      const part = batchQueue.slice(group.start, group.end);
+      const partLabel = plan.atomic ? '' : ` (part ${index + 1} of ${plan.commits})`;
+      const message = ($('#uploadMsg').value.trim() || `Sync ${plan.total} files via ${NV_PRODUCT_NAME}`) + partLabel;
+      const ops = [];
+      for (const q of part) {
+        q.status.textContent = `Uploading blob…${partLabel}`;
+        ops.push({ op: 'put', path: q.targetPath, sha: await uploadBlob(q) });
+        q.status.textContent = 'Blob stored — waiting for the commit…';
+      }
+      const out = await api(`/api/repo/${wPath()}/batch`, {
+        method: 'POST', body: guardedWrite({ branch: state.work.branch, message, ops })
       });
-      ops.push({ op: 'put', path: q.targetPath, sha });
-      q.status.textContent = 'Blob stored — waiting for the commit…';
+      rememberHead(out.commit);
+      committed.push(out.commit);
+      part.forEach(q => {
+        q.item.classList.add('done'); q.fill.style.width = '100%';
+        q.status.textContent = `✦ Committed in ${String(out.commit).slice(0, 7)}${partLabel || ' (one atomic commit)'}`;
+      });
     }
-    const out = await api(`/api/repo/${wPath()}/batch`, {
-      method: 'POST', body: guardedWrite({ branch: state.work.branch, message, ops })
-    });
-    rememberHead(out.commit);
-    batchQueue.forEach(q => {
-      q.item.classList.add('done'); q.fill.style.width = '100%';
-      q.status.textContent = `✦ Committed in ${String(out.commit).slice(0, 7)} (one atomic commit)`;
-    });
-    toast(`✦ ${ops.length} files landed as one commit`, 'ok');
+    toast(plan.atomic
+      ? `✦ ${plan.total} files landed as one commit`
+      : `✦ ${plan.total} files landed as ${committed.length} commits`, 'ok');
     batchQueue.length = 0;
     updateBatchBar();
     state.fileIndex = null;
     loadTree('', $('#tree'), true);
     refreshRate();
   } catch (e) {
-    toast('Batch failed: ' + e.message, 'err');
+    /* Report what did land. A part that committed is on the branch whatever
+     * happens next, and leaving that unsaid would send someone looking for
+     * files that are already there. */
+    toast(committed.length
+      ? `Batch stopped after ${committed.length} of ${plan.commits} commits: ${e.message}`
+      : 'Batch failed: ' + e.message, 'err');
+    if (committed.length) {
+      batchQueue.splice(0, plan.groups[committed.length - 1].end);
+      updateBatchBar();
+      state.fileIndex = null;
+      loadTree('', $('#tree'), true);
+    }
   } finally { btn.disabled = false; }
 });
 

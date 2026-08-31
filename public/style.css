@@ -1231,6 +1231,42 @@ body.read-only .btn-primary{opacity:.55}
 .neural-tool{width:38px;height:38px;border:1px solid var(--glass-border);border-radius:11px;color:var(--text);background:rgba(8,8,24,.64);backdrop-filter:blur(14px);cursor:pointer;font-family:inherit;font-weight:600;font-size:.78rem;transition:.16s}
 [data-theme="light"] .neural-tool{background:rgba(255,255,255,.72)}
 .neural-tool:hover{transform:translateY(-1px);background:rgba(139,92,246,.2);border-color:rgba(167,139,250,.45)}
+/*
+ * The enlarged graph.
+ *
+ * Fixed to the viewport rather than fullscreen: element fullscreen does not
+ * exist on iOS Safari, and the graph is exactly the thing a phone most needs
+ * room for. It sits above the page chrome and below the modal scrim (100), so
+ * a dialog opened from the graph still lands on top of it.
+ */
+.neural-stage.is-expanded{position:fixed;inset:0;z-index:95;width:100vw;height:100dvh;
+  min-height:0;border-radius:0;box-shadow:none;
+  /* The stage's own ground is a 34% wash meant to sit on the page. Covering the
+   * viewport with it let the rail, the inspector and the navigation read
+   * straight through the graph, so the enlarged stage paints the page colour
+   * underneath its own gradients. */
+  background-color:var(--page)}
+body.neural-stage-expanded{overflow:hidden}
+/*
+ * The enlarged graph is a focused mode, so the shell steps out of it. This is
+ * also the reliable way to do it: the bottom navigation kept painting over the
+ * stage regardless of stacking order -- raising the stage to z-index 999 did
+ * not change which element won the hit test -- and an immersive graph has no
+ * use for the chrome anyway. Escape and the collapse control are the way out.
+ */
+body.neural-stage-expanded .topbar,
+body.neural-stage-expanded .bottomnav,
+body.neural-stage-expanded .nv-rail,
+body.neural-stage-expanded .side,
+body.neural-stage-expanded .side-scrim,
+body.neural-stage-expanded .nv-fab-dock{display:none!important}
+.neural-stage.is-expanded #neuralCanvas{min-height:0;height:100%}
+.neural-tool .nt-shrink{display:none}
+.neural-stage.is-expanded .neural-tool .nt-shrink{display:block}
+.neural-stage.is-expanded .neural-tool .nt-grow{display:none}
+/* Room recovered is room to label things: the legend is hidden on a small
+ * screen only because the letterboxed stage has no space for it. */
+.neural-stage.is-expanded .neural-legend{display:flex}
 .neural-legend{position:absolute;z-index:5;left:13px;bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:7px 9px;border:1px solid var(--glass-border);border-radius:10px;background:rgba(8,8,24,.55);backdrop-filter:blur(12px);font-size:.58rem;color:var(--muted)}
 [data-theme="light"] .neural-legend{background:rgba(255,255,255,.68)}
 .neural-legend span{display:flex;align-items:center;gap:5px}.neural-legend i{display:inline-block;width:7px;height:7px;border-radius:50%}.neural-legend .repo{background:#9a8cff;box-shadow:0 0 8px #9a8cff}.neural-legend .asset{background:#4ddbc7}.neural-legend .threat{background:#F43F6E}.neural-legend .recovery{background:#63a8ff}

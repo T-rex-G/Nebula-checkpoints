@@ -31,6 +31,20 @@
   and the only reliable way to do it: the bottom navigation painted over the
   stage regardless of stacking order, and raising the stage to `z-index: 999`
   did not change which element won the hit test.
+- Rebuilt the signal filter controls twice. The first attempt kept the sphere
+  soft and low-contrast, which vanished at 24px and left the muted state as a
+  muddy blob; rendering it beside the reference at matched size made that
+  obvious in a way looking at it alone had not. The shipped control is a hollow
+  ring in the signal's colour when muted and a filled, rim-lit orb when live —
+  a silhouette difference that survives the size the control is actually used
+  at.
+- Fixed the muted ring failing WCAG 1.4.11. The ring is the control's visible
+  boundary, so it owes 3:1 against its panel, and at the opacity it started on
+  it gave 2.65, 4.01 and 4.59 in the dark theme and 2.27, 1.58 and 1.45 in the
+  light one. The accessibility audit reported zero findings throughout: axe has
+  no way to know a CSS ring is what marks a control. Rings are full strength
+  now, with amber and cyan darkened for the light theme, and a browser test
+  measures the composited colour against the painted panel in both themes.
 - Rebuilt the signal filter controls. The severity swatch and the checkbox were
   two objects saying related things — a 7px dot for which signal this is, and a
   stock checkbox for whether it is on — so they are one object now: an orb in

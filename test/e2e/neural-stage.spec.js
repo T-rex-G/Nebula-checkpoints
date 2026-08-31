@@ -124,6 +124,77 @@ test('the signal filters read as one object carrying colour and state', async ({
   expect(off.markHeight).toBeLessThan(on.markHeight);
 
   /*
+   * The muted ring is the control's visible boundary, which WCAG 1.4.11 asks to
+   * clear 3:1 against what is behind it. axe cannot check this: nothing tells it
+   * a CSS ring is what marks the control, so it reported zero findings while all
+   * three rings sat between 1.45 and 2.65. Measured here instead, from what the
+   * browser actually painted.
+   */
+  /* Both themes, because the panel behind the ring changes with the theme and
+   * the first version of this check only ever looked at the one the browser
+   * happened to open in -- which was the theme that was already passing. */
+  const measureContrast = () => page.evaluate(() => {
+    const channel = value => {
+      const c = value / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    };
+    const luminance = ([r, g, b]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    const ratio = (a, b) => {
+      const [hi, lo] = luminance(a) > luminance(b) ? [luminance(a), luminance(b)] : [luminance(b), luminance(a)];
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    /*
+     * Colour and alpha both, because a ring at 62 per cent of a bright hue is
+     * not that bright hue. Reading the channels and discarding the alpha is how
+     * the first version of this check passed against the very value it was
+     * written to reject.
+     */
+    const colour = value => {
+      const text = String(value || '').trim();
+      if (text.startsWith('#')) {
+        const hex = text.length === 4
+          ? [1, 2, 3].map(i => parseInt(text[i] + text[i], 16))
+          : [1, 3, 5].map(i => parseInt(text.slice(i, i + 2), 16));
+        return { rgb: hex, alpha: 1 };
+      }
+      const parts = (text.match(/[\d.]+/g) || []).map(Number);
+      if (parts.length < 3) return null;
+      return { rgb: parts.slice(0, 3), alpha: parts.length > 3 ? parts[3] : 1 };
+    };
+    const composite = (fore, ground) => fore.rgb.map((c, i) => Math.round(c * fore.alpha + ground[i] * (1 - fore.alpha)));
+    /* The first ancestor that actually paints something opaque enough to be the
+     * ground the ring is read against. */
+    const groundOf = node => {
+      let el = node.parentElement;
+      while (el) {
+        const parsed = colour(getComputedStyle(el).backgroundColor);
+        if (parsed && parsed.alpha > 0.85) return parsed.rgb;
+        el = el.parentElement;
+      }
+      return colour(getComputedStyle(document.body).backgroundColor)?.rgb || [0, 0, 0];
+    };
+    return [...document.querySelectorAll('#neuralStage .neural-filter input')].map(input => {
+      const ring = colour(getComputedStyle(input).getPropertyValue('--sevRing'));
+      const ground = groundOf(input);
+      return {
+        signal: input.dataset.neuralFilter,
+        alpha: ring ? ring.alpha : null,
+        ratio: ring ? ratio(composite(ring, ground), ground) : 0
+      };
+    });
+  });
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    const contrast = await measureContrast();
+    expect(contrast.length).toBe(3);
+    for (const entry of contrast) {
+      expect(entry.ratio, `${theme}: ${entry.signal} ring is ${entry.ratio.toFixed(2)}:1 against its panel`)
+        .toBeGreaterThanOrEqual(3);
+    }
+  }
+  await page.evaluate(() => { delete document.documentElement.dataset.theme; });
+
+  /*
    * Removing the browser's own control also removes its focus ring, so the
    * replacement has to draw one. It has to be reached by keyboard to see it:
    * :focus-visible deliberately does not match a programmatic focus, which is

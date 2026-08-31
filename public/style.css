@@ -1226,38 +1226,51 @@ body.read-only .btn-primary{opacity:.55}
   appearance:none;-webkit-appearance:none;margin:0;position:relative;
   width:24px;height:24px;min-height:0;flex:0 0 auto;border-radius:50%;cursor:pointer;
   --orbSpring:cubic-bezier(.5,.15,.25,1.6);
-  background:
-    radial-gradient(circle at 33% 27%,rgba(255,255,255,.4),rgba(255,255,255,0) 44%),
-    radial-gradient(circle at 50% 118%,var(--sevGlow),transparent 62%),
-    var(--orbOff);
-  box-shadow:inset 0 1px 1px rgba(255,255,255,.16),inset 0 -3px 6px rgba(0,0,0,.42),0 1px 2px rgba(0,0,0,.32);
-  transition:background .2s ease,box-shadow .2s ease,transform .24s var(--orbSpring)}
-.neural-filter input[data-neural-filter="critical"]{--sev:#F43F6E;--sevGlow:rgba(244,63,110,.5)}
-.neural-filter input[data-neural-filter="warning"]{--sev:#F59E0B;--sevGlow:rgba(245,158,11,.5)}
-.neural-filter input[data-neural-filter="normal"]{--sev:#22D3EE;--sevGlow:rgba(34,211,238,.5)}
+  /* Muted: a hollow ring in the signal's colour. The silhouette does the work,
+   * so it still reads at 24px where a soft gradient simply disappears. */
+  background:radial-gradient(circle at 50% 30%,rgba(255,255,255,.07),transparent 62%),var(--orbInk);
+  box-shadow:inset 0 0 0 2px var(--sevRing),inset 0 2px 3px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.4);
+  transition:background .18s ease,box-shadow .18s ease,transform .22s var(--orbSpring)}
+/*
+ * The muted ring is the control's visible boundary, so WCAG 1.4.11 asks it to
+ * clear 3:1 against the panel behind it. At the 62 per cent it started on it
+ * did not -- 2.27, 1.58 and 1.45 in the light theme -- and axe cannot see that,
+ * because nothing tells it a CSS ring is what marks the control. Measured
+ * rather than eyeballed, and held by a test that measures it too.
+ *
+ * Full strength clears it comfortably in the dark theme. Amber and cyan are too
+ * light against a near-white panel at any opacity, so those two darken instead.
+ */
+.neural-filter input[data-neural-filter="critical"]{--sev:#F43F6E;--sevRing:#F43F6E;--sevGlow:rgba(244,63,110,.5)}
+.neural-filter input[data-neural-filter="warning"]{--sev:#F59E0B;--sevRing:#F59E0B;--sevGlow:rgba(245,158,11,.5)}
+.neural-filter input[data-neural-filter="normal"]{--sev:#22D3EE;--sevRing:#22D3EE;--sevGlow:rgba(34,211,238,.5)}
+[data-theme="light"] .neural-filter input[data-neural-filter="warning"]{--sevRing:#C98209}
+[data-theme="light"] .neural-filter input[data-neural-filter="normal"]{--sevRing:#1A9EB3}
+/* The centre mark keeps the signal's colour while muted, so the row still says
+ * which signal it is, and turns white once the filter is live. */
 .neural-filter input[type="checkbox"]::before{
-  content:"";position:absolute;left:50%;top:50%;width:11px;height:2.5px;border-radius:2px;
-  background:rgba(255,255,255,.42);transform:translate(-50%,-50%);
-  transition:width .24s var(--orbSpring),height .24s var(--orbSpring),background .2s ease,box-shadow .2s ease}
+  content:"";position:absolute;left:50%;top:50%;width:9px;height:2px;border-radius:2px;
+  background:var(--sevRing);transform:translate(-50%,-50%);
+  transition:width .22s var(--orbSpring),height .22s var(--orbSpring),background .18s ease,box-shadow .18s ease}
+/* Live: filled, rim-lit and glowing -- filled against hollow is a difference
+ * you cannot miss, which dimmer against brighter was not. */
 .neural-filter input[type="checkbox"]:checked{
   background:
-    radial-gradient(circle at 33% 25%,rgba(255,255,255,.72),rgba(255,255,255,0) 42%),
-    radial-gradient(circle at 50% 116%,rgba(255,255,255,.22),transparent 58%),
+    radial-gradient(circle at 46% 24%,rgba(255,255,255,.82),rgba(255,255,255,0) 38%),
+    radial-gradient(circle at 50% 104%,rgba(0,0,0,.3),transparent 56%),
     var(--sev);
-  box-shadow:inset 0 1px 1px rgba(255,255,255,.5),inset 0 -3px 7px rgba(0,0,0,.26),
-    0 0 0 1px var(--sevGlow),0 2px 11px var(--sevGlow)}
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.6),0 0 0 1px var(--sev),
+    0 0 11px var(--sevGlow),0 1px 3px rgba(0,0,0,.4)}
 .neural-filter input[type="checkbox"]:checked::before{
-  width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 7px rgba(255,255,255,.8)}
-.neural-filter input[type="checkbox"]:hover{transform:scale(1.09)}
-.neural-filter input[type="checkbox"]:active{transform:scale(.93)}
+  width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.45)}
+.neural-filter input[type="checkbox"]:hover{transform:scale(1.1)}
+.neural-filter input[type="checkbox"]:active{transform:scale(.92)}
 .neural-filter input[type="checkbox"]:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
 .neural-filter:hover{color:var(--text)}
-:root{--orbOff:#171634}
-[data-theme="light"]{--orbOff:#DCDAEC}
+:root{--orbInk:#0d0c22}
+[data-theme="light"]{--orbInk:#EDEBF6}
 [data-theme="light"] .neural-filter input[type="checkbox"]{
-  box-shadow:inset 0 1px 1px rgba(255,255,255,.9),inset 0 -3px 6px rgba(23,22,52,.16),0 1px 2px rgba(23,22,52,.14)}
-[data-theme="light"] .neural-filter input[type="checkbox"]::before{background:rgba(23,22,52,.34)}
-[data-theme="light"] .neural-filter input[type="checkbox"]:checked::before{background:#fff;box-shadow:0 0 6px rgba(255,255,255,.9)}
+  box-shadow:inset 0 0 0 2px var(--sevRing),inset 0 2px 3px rgba(23,22,52,.14),0 1px 2px rgba(23,22,52,.12)}
 .neural-rail-action{margin-top:6px!important;justify-content:flex-start;padding-left:11px;min-height:36px}
 .neural-stage{position:relative;min-height:590px;border-radius:18px;background:radial-gradient(circle at 50% 46%,rgba(104,87,255,.11),transparent 30%),radial-gradient(circle at 23% 70%,rgba(34,211,238,.07),transparent 24%),rgba(4,5,17,.34);isolation:isolate;overflow:hidden}
 [data-theme="light"] .neural-stage{background:radial-gradient(circle at 50% 46%,rgba(104,87,255,.12),transparent 32%),radial-gradient(circle at 23% 70%,rgba(31,180,162,.09),transparent 25%),rgba(238,240,251,.36)}

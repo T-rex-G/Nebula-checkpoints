@@ -1222,48 +1222,89 @@ body.read-only .btn-primary{opacity:.55}
  * alone, so the centre mark changes shape as well as brightness -- a dash when
  * the signal is muted, a dot when it is live.
  */
+/*
+ * The bubble control, built from the supplied reference rather than
+ * reinterpreted from it.
+ *
+ * Everything in the original is expressed in em, so the whole thing scales from
+ * one font-size: 8px gives the 3em body the 24px pointer target WCAG 2.5.8
+ * asks for, and every shadow, offset and inner shape scales with it.
+ *
+ * The body is transparent. The colour is entirely inset shadows forming a lit
+ * rim, which is what makes it read as glass rather than as a filled dot, and a
+ * white shape sits behind it -- a rounded square while muted, a narrow bar once
+ * live. State changes the hue and the shape together.
+ */
 .neural-filter input[type="checkbox"]{
-  appearance:none;-webkit-appearance:none;margin:0;position:relative;
-  width:24px;height:24px;min-height:0;flex:0 0 auto;border-radius:50%;cursor:pointer;
-  --ctlSpring:cubic-bezier(.5,.15,.25,1.6);
-  /*
-   * One control, two states. These are checkboxes: what varies between the rows
-   * is which signal they belong to, and the label and the key dot beside it
-   * already say that. Colouring the control itself per row made three rows look
-   * like three different kinds of control.
-   *
-   * Muted is a hollow ring, live is a filled orb. Silhouette rather than
-   * brightness, because brightness alone stops reading at 24px.
-   */
-  background:radial-gradient(circle at 50% 30%,rgba(255,255,255,.07),transparent 62%),var(--ctlInk);
-  box-shadow:inset 0 0 0 2px var(--ctlRing),inset 0 2px 3px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.4);
-  transition:background .18s ease,box-shadow .18s ease,transform .22s var(--ctlSpring)}
+  --hue:0;
+  /* The rim is the control's visible boundary, so it owes 3:1 against the panel
+   * (WCAG 1.4.11). The reference's values clear that against a dark panel and
+   * against a light one for red -- 3.69 and 5.00 -- but its green measures 1.83
+   * against this app's near-white light theme. That one lightness drops in the
+   * light theme and nothing else changes. */
+  --rimL:45%;
+  --glowL:60%;
+  --bubbleTiming:cubic-bezier(.5,.15,.25,1.75);
+  font-size:8px;width:3em;height:3em;min-height:0;flex:0 0 auto;margin:0;
+  display:block;position:relative;border-radius:50%;cursor:pointer;
+  appearance:none;-webkit-appearance:none;-webkit-tap-highlight-color:transparent;
+  transform-style:preserve-3d;z-index:0;
+  background-image:
+    radial-gradient(8% 8% at 22% 28%,hsl(0,0%,100%) 45%,hsla(0,0%,100%,0) 50%),
+    radial-gradient(8% 8% at 23% 27%,hsl(0,0%,100%) 45%,hsla(0,0%,100%,0) 50%),
+    radial-gradient(8% 8% at 24% 26%,hsl(0,0%,100%) 45%,hsla(0,0%,100%,0) 50%),
+    radial-gradient(8% 8% at 25% 25%,hsl(0,0%,100%) 45%,hsla(0,0%,100%,0) 50%),
+    radial-gradient(8% 8% at 26% 24%,hsl(0,0%,100%) 45%,hsla(0,0%,100%,0) 50%),
+    radial-gradient(8% 8% at 27% 23%,hsl(0,0%,100%) 45%,hsla(0,0%,100%,0) 50%),
+    radial-gradient(8% 8% at 28% 22%,hsl(0,0%,100%) 45%,hsla(0,0%,100%,0) 50%);
+  box-shadow:
+    0 -.06em .1em hsl(var(--hue),90%,100%) inset,
+    0 -.15em .4em hsl(var(--hue),90%,var(--rimL)) inset,
+    0 .05em .05em hsl(var(--hue),90%,var(--rimL)) inset,
+    .05em 0 .1em hsl(var(--hue),90%,100%) inset,
+    -.05em 0 .1em hsl(var(--hue),90%,100%) inset,
+    0 .1em .4em hsl(var(--hue),90%,var(--glowL)) inset;
+  transition-property:box-shadow,transform,width,height;
+  transition-duration:.2s;
+  transition-timing-function:ease-in-out,ease-in-out,var(--bubbleTiming),var(--bubbleTiming)}
+.neural-filter input[type="checkbox"]::before,
+.neural-filter input[type="checkbox"]::after{
+  content:"";display:block;position:absolute;transition-duration:.2s;transition-timing-function:var(--bubbleTiming)}
+/* The white shape inside the glass: a rounded square while muted. */
 .neural-filter input[type="checkbox"]::before{
-  content:"";position:absolute;left:50%;top:50%;width:9px;height:2px;border-radius:2px;
-  background:var(--ctlRing);transform:translate(-50%,-50%);
-  transition:width .22s var(--ctlSpring),height .22s var(--ctlSpring),background .18s ease,box-shadow .18s ease}
-.neural-filter input[type="checkbox"]:checked{
-  background:
-    radial-gradient(circle at 46% 24%,rgba(255,255,255,.82),rgba(255,255,255,0) 38%),
-    radial-gradient(circle at 50% 104%,rgba(0,0,0,.3),transparent 56%),
-    var(--ctlOn);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.6),0 0 0 1px var(--ctlOn),
-    0 0 11px var(--ctlGlow),0 1px 3px rgba(0,0,0,.4)}
-.neural-filter input[type="checkbox"]:checked::before{
-  width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.45)}
-.neural-filter input[type="checkbox"]:hover{transform:scale(1.1)}
-.neural-filter input[type="checkbox"]:active{transform:scale(.92)}
+  border-radius:.75em;box-shadow:0 0 0 .5em hsl(0,0%,100%) inset;
+  filter:drop-shadow(.6em .6em 4px hsla(0,0%,0%,.2));
+  top:50%;left:50%;width:1.5em;height:1.5em;transform:translate3d(-50%,-50%,-1px);z-index:-1}
+/* The cast shadow that lifts it off the panel. */
+.neural-filter input[type="checkbox"]::after{
+  border-radius:50%;
+  background:radial-gradient(100% 100% at center,hsla(0,0%,0%,0) 35%,hsla(0,0%,0%,.2) 48%,hsla(0,0%,0%,0) 50%);
+  filter:blur(4px);top:.6em;left:.6em;width:100%;height:100%;transform:translate3d(0,0,-1px);z-index:-2}
+.neural-filter input[type="checkbox"]:hover,
+.neural-filter input[type="checkbox"]:focus{transform:scale(1.1);outline:none}
+.neural-filter input[type="checkbox"]:hover::before,
+.neural-filter input[type="checkbox"]:focus::before{filter:drop-shadow(.75em .75em 4px hsla(0,0%,0%,.2))}
+.neural-filter input[type="checkbox"]:hover::after,
+.neural-filter input[type="checkbox"]:focus::after{transform:translate3d(.15em,.15em,-1px)}
+.neural-filter input[type="checkbox"]:hover:active,
+.neural-filter input[type="checkbox"]:focus:active{width:3.6em;height:2.4em}
+/* Live: the rim turns and the white shape narrows to a bar. */
+.neural-filter input[type="checkbox"]:checked{--hue:120}
+[data-theme="light"] .neural-filter input[type="checkbox"]:checked{--rimL:34%;--glowL:44%}
+.neural-filter input[type="checkbox"]:checked::before{border-radius:.25em;width:.5em}
+/* The reference has no focus ring of its own, and removing the browser's
+ * control removes the browser's. */
 .neural-filter input[type="checkbox"]:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
 .neural-filter:hover{color:var(--text)}
-/*
- * The ring is the control's visible boundary, so WCAG 1.4.11 asks it for 3:1
- * against the panel. Both of these are measured against both panels by a
- * browser test, because axe cannot tell that a CSS ring marks a control.
- */
-:root{--ctlInk:#0d0c22;--ctlRing:#6E6A9B;--ctlOn:var(--accent);--ctlGlow:rgba(139,92,246,.5)}
-[data-theme="light"]{--ctlInk:#EDEBF6;--ctlRing:#75729B;--ctlGlow:rgba(109,40,217,.45)}
-[data-theme="light"] .neural-filter input[type="checkbox"]{
-  box-shadow:inset 0 0 0 2px var(--ctlRing),inset 0 2px 3px rgba(23,22,52,.14),0 1px 2px rgba(23,22,52,.12)}
+@media(prefers-reduced-motion:reduce){
+  .neural-filter input[type="checkbox"],
+  .neural-filter input[type="checkbox"]::before,
+  .neural-filter input[type="checkbox"]::after{transition-duration:0s}
+  .neural-filter input[type="checkbox"]:hover,
+  .neural-filter input[type="checkbox"]:focus{transform:none}
+  .neural-filter input[type="checkbox"]:hover:active,
+  .neural-filter input[type="checkbox"]:focus:active{width:3em;height:3em}
+}
 /* Which signal the row is about, keyed to the colour the graph draws it in. */
 .neural-swatch{width:8px;height:8px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 8px currentColor}
 .neural-swatch.critical{color:#F43F6E;background:#F43F6E}

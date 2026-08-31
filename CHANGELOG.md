@@ -31,6 +31,17 @@
   and the only reliable way to do it: the bottom navigation painted over the
   stage regardless of stacking order, and raising the stage to `z-index: 999`
   did not change which element won the hit test.
+- The filter checkbox is now built from the supplied reference rather than
+  reinterpreted from it: a transparent glass body whose colour is entirely inset
+  shadow forming a lit rim, a white shape behind it that morphs from a rounded
+  square to a narrow bar, the sparkle highlight and the cast shadow. Everything
+  in the reference is expressed in em, so one font-size scales the whole control
+  to the 24px pointer target WCAG 2.5.8 asks for.
+- One deviation, stated rather than hidden: the reference's rim colours clear
+  3:1 against a dark panel and, for red, against a light one — 3.69 and 5.00 —
+  but its green measures 1.83 against this app's near-white light theme. That
+  single lightness drops from 45% to 34% in the light theme and nothing else
+  changes. Removing that one line fails the guard by name.
 - The signal filters are one control again, not three. Colouring each checkbox
   by its severity made three rows read as three different kinds of control when
   the only thing varying between them is on or off; the label and the key dot

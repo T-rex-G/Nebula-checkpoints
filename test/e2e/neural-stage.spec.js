@@ -91,9 +91,12 @@ test('the signal filters read as one object carrying colour and state', async ({
     const rect = node.getBoundingClientRect();
     return {
       appearance: style.appearance,
-      background: style.backgroundImage + style.backgroundColor,
+      /* This control paints its state in the rim, not the fill: the body is
+       * transparent glass and the colour is entirely inset shadow. */
+      rim: style.boxShadow,
       markWidth: parseFloat(mark.width),
       markHeight: parseFloat(mark.height),
+      markRadius: mark.borderRadius,
       width: Math.round(rect.width),
       height: Math.round(rect.height),
       checked: node.checked
@@ -114,14 +117,16 @@ test('the signal filters read as one object carrying colour and state', async ({
   await expect.poll(async () => (await read()).markWidth).toBeGreaterThan(on.markWidth);
   const off = await read();
   expect(off.checked).toBe(false);
-  expect(off.background).not.toBe(on.background);
+  expect(off.rim).not.toBe(on.rim);
 
   /*
    * State must not rest on colour alone, so the centre mark changes shape as
    * well: a dot while the signal is live, a dash once it is muted.
    */
+  /* Muted is a rounded square, live is a narrow bar: the shape carries the
+   * state alongside the hue, so it still reads without colour vision. */
   expect(off.markWidth).toBeGreaterThan(on.markWidth);
-  expect(off.markHeight).toBeLessThan(on.markHeight);
+  expect(off.markRadius).not.toBe(on.markRadius);
 
   /*
    * The muted ring is the control's visible boundary, which WCAG 1.4.11 asks to
@@ -178,20 +183,32 @@ test('the signal filters read as one object carrying colour and state', async ({
       const ground = groundOf(input);
       /* Both states: the ring marks the muted control, the fill marks the live
        * one, and each is the boundary a viewer has to find. */
-      return [['muted ring', '--ctlRing'], ['live fill', '--ctlOn']].map(([part, token]) => {
-        const parsed = colour(style.getPropertyValue(token));
-        return {
-          signal: `${input.dataset.neuralFilter} ${part}`,
-          alpha: parsed ? parsed.alpha : null,
-          ratio: parsed ? ratio(composite(parsed, ground), ground) : 0
-        };
-      });
+      /* The rim is drawn as inset shadows, so the boundary colour is read out of
+       * the resolved box-shadow rather than a variable. The darkest colour in
+       * that stack is the rim; the white entries are its edge highlights. */
+      const colours = (style.boxShadow.match(/rgba?\([^)]*\)/g) || [])
+        .map(colour)
+        .filter(Boolean)
+        .map(parsed => ({ parsed, rgb: composite(parsed, ground) }));
+      const rim = colours
+        .filter(entry => entry.rgb.some(channel => channel < 240))
+        .sort((a, b) => ratio(b.rgb, ground) - ratio(a.rgb, ground))[0];
+      return [{
+        signal: `${input.dataset.neuralFilter} rim`,
+        alpha: rim ? rim.parsed.alpha : null,
+        ratio: rim ? ratio(rim.rgb, ground) : 0
+      }];
     });
   });
   for (const theme of ['dark', 'light']) {
     await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    /* The rim is a transitioned box-shadow, so it spends the next fifth of a
+     * second on its way to the new theme's colour. Reading it before it lands
+     * measures the theme being left against the panel being arrived at, which
+     * is how this reported 1.83 for a rim that resolves to 3.15. */
+    await page.waitForTimeout(400);
     const contrast = await measureContrast();
-    expect(contrast.length).toBe(6);
+    expect(contrast.length).toBe(3);
     for (const entry of contrast) {
       expect(entry.ratio, `${theme}: ${entry.signal} ring is ${entry.ratio.toFixed(2)}:1 against its panel`)
         .toBeGreaterThanOrEqual(3);

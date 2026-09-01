@@ -30,6 +30,7 @@
     "package:release": "node scripts/package-release.js",
     "check:secrets": "node scripts/check-secrets.js",
     "test:release": "node test/package-release.test.js",
+  "test:migrations": "node test/migrations-postgres.test.js",
     "test:staging:gate": "node test/staging-validation.test.js && node test/staging-validation-contract.test.js && node test/staging-validation-cli.test.js && node test/test-matrix.test.js",
     "staging:plan": "node scripts/staging-gate.js plan staging/TASK_20_EVIDENCE_TEMPLATE.json",
     "staging:verify": "node scripts/staging-gate.js verify",

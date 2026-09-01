@@ -11,6 +11,22 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Every other gate reads the migrations as text, so PostgreSQL never got a
+    # say in whether this release's schema can exist. 015_alpha_privacy shipped
+    # in a green candidate while being impossible to apply. Version 17 matches
+    # the hosted database.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -25,6 +41,9 @@ jobs:
       - run: npm run check:syntax
       - run: npm run lint
       - run: npm test
+      - run: npm run test:migrations
+        env:
+          NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run check:secrets
       - run: npm run test:staging:gate

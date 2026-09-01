@@ -663,11 +663,29 @@ const unitGateChain = [
   pkg.scripts['posttest:unit'],
   pkg.scripts.posttest
 ].filter(Boolean).join(' && ');
-const ungatedPrograms = discoveredPrograms.filter(program => !unitGateChain.includes(`node ${program}`));
+/*
+ * A program may instead belong to a gate the unit suite cannot run, because it
+ * needs something the unit suite deliberately does without -- test:migrations
+ * wants a live PostgreSQL. Such a gate still has to be executed by the standard
+ * workflow, or the program is orphaned exactly as this check exists to prevent.
+ * So the escape hatch is paid for twice: the script must name the program, and
+ * CI must run the script.
+ */
+const externallyGatedScripts = ['test:migrations'];
+const workflow = read('.github/workflows/ci.yml');
+for (const script of externallyGatedScripts) {
+  assert(pkg.scripts[script], `externally gated script is missing: ${script}`);
+  assert(
+    workflow.includes(`npm run ${script}`),
+    `CI does not run the externally gated script: ${script}`
+  );
+}
+const gatedChain = [unitGateChain, ...externallyGatedScripts.map(script => pkg.scripts[script])].join(' && ');
+const ungatedPrograms = discoveredPrograms.filter(program => !gatedChain.includes(`node ${program}`));
 assert.deepStrictEqual(
   ungatedPrograms,
   [],
-  `unit gate does not execute discovered test programs: ${ungatedPrograms.join(', ')}`
+  `no gate executes discovered test programs: ${ungatedPrograms.join(', ')}`
 );
 
 console.log('package contract tests passed');

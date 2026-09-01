@@ -295,7 +295,16 @@ async function runHostedValidation(options = {}) {
     now: now()
   });
 
-  const expectedDeploymentSha256 = computeReleaseFingerprint(path.resolve(__dirname, '..'));
+  /*
+   * requireClean because this digest is compared against a live deployment. A
+   * git-ignored scratch directory in the tree changes it, and the gate then
+   * reports ALPHA17_HOSTED_DEPLOYMENT_MISMATCH against a deployment that is in
+   * fact the exact candidate. Refuse the run instead of failing the candidate.
+   */
+  const expectedDeploymentSha256 = computeReleaseFingerprint(
+    path.resolve(__dirname, '..'),
+    { requireClean: true }
+  );
   const deploymentSha256 = await readDeployedReleaseFingerprint(env.NV_ALPHA_BASE_URL);
   if (deploymentSha256 !== expectedDeploymentSha256) {
     fail('hosted deployment does not match the exact candidate release tree', 'ALPHA17_HOSTED_DEPLOYMENT_MISMATCH');

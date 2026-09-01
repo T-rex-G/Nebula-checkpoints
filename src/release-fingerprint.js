@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const DOMAIN = Buffer.from('nebulaverse-x.release-tree.v1\0', 'utf8');
 const MAX_FILES = 20_000;
@@ -139,7 +140,50 @@ function hashStableFile(hash, file, totalBytes) {
   }
 }
 
-function computeReleaseFingerprint(rootDirectory) {
+/*
+ * The release is defined by what git tracks -- scripts/package-release.js ships
+ * exactly `git ls-files --cached`. This walks the filesystem instead, so any
+ * ignored file that survives the forbidden-segment list lands in the digest.
+ *
+ * That is only ever wrong in one direction, and it is the direction that
+ * matters: an operator computing the expected digest inside a working tree
+ * gets a number no deployment can ever report, and reads it as a candidate
+ * mismatch. Scratch directories are the usual cause, and they are invisible
+ * precisely because git is already ignoring them.
+ *
+ * So callers that compare against a deployment ask for `requireClean` and are
+ * refused rather than misled. The runtime does not: a deployed tree has no
+ * ignored files, and a server must not fail to boot over a local-tooling
+ * concern. When git cannot answer, nothing is claimed either way.
+ */
+function ignoredPathsWithinRelease(root) {
+  const result = spawnSync(
+    'git',
+    ['-C', root, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z'],
+    { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }
+  );
+  if (result.error || result.status !== 0) return null;
+  return String(result.stdout || '')
+    .split('\0')
+    .filter(Boolean)
+    .filter(relative => shouldIncludeReleasePath(relative));
+}
+
+function assertCleanReleaseTree(rootDirectory) {
+  const root = fs.realpathSync(path.resolve(String(rootDirectory || '')));
+  const ignored = ignoredPathsWithinRelease(root);
+  if (ignored === null || ignored.length === 0) return;
+  const sample = ignored.slice(0, 5).join(', ');
+  const rest = ignored.length > 5 ? `, and ${ignored.length - 5} more` : '';
+  fail(
+    'release tree contains git-ignored files that would change the fingerprint: ' +
+    `${sample}${rest}. Compute the digest from a clean checkout ` +
+    '(git archive <commit> into an empty directory), not from a working tree.'
+  );
+}
+
+function computeReleaseFingerprint(rootDirectory, options = {}) {
+  if (options && options.requireClean) assertCleanReleaseTree(rootDirectory);
   const requestedRoot = path.resolve(String(rootDirectory || ''));
   let rootMetadata;
   try {
@@ -163,6 +207,7 @@ function computeReleaseFingerprint(rootDirectory) {
 }
 
 module.exports = Object.freeze({
+  assertCleanReleaseTree,
   computeReleaseFingerprint,
   shouldIncludeReleasePath,
   shouldTraverseReleaseDirectory

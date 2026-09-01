@@ -1,7 +1,7 @@
 'use strict';
 const { test, expect } = require('@playwright/test');
 const ui = require('./semantic');
-const { ASSET_VERSION } = require('../../src/version');
+const { assetStampFor } = require('../../src/asset-stamp');
 
 const scope = 'scopeAlice_0123456789abcdefXYZ';
 
@@ -41,7 +41,13 @@ test('PWA shell uses official release identity and installs a versioned shell ca
   await page.reload();
   await page.evaluate(() => navigator.serviceWorker.ready);
   const keys = await page.evaluate(() => caches.keys());
-  expect(keys).toContain(`nv-static-v${ASSET_VERSION}`);
+  /* Named by the release tree rather than the version string: two builds of
+     one version must not share a shell cache, or a returning browser keeps
+     older scripts behind newer markup. */
+  const { releaseTreeSha256 } = await page.evaluate(
+    () => fetch('/api/version').then(response => response.json())
+  );
+  expect(keys).toContain(`nv-static-v${assetStampFor(releaseTreeSha256)}`);
   expect(keys).not.toContain('nv-api-perm');
 });
 

@@ -97,10 +97,17 @@ const {
 } = require('./src/alpha-access');
 const { PRODUCT_NAME, APP_VERSION, ASSET_VERSION } = require('./src/version');
 const { computeReleaseFingerprint } = require('./src/release-fingerprint');
+const { assetStampFor } = require('./src/asset-stamp');
 const OFFLINE_CACHE_POLICY = require('./public/offline-cache-policy');
 // ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
 // An embedded build-time digest would be circular and could attest different bytes.
 const RELEASE_TREE_SHA256 = computeReleaseFingerprint(__dirname);
+/*
+ * Bound to the tree rather than the version, so every build invalidates the
+ * shell cache it replaces. A stamp that only names the version leaves a
+ * returning browser with new HTML and cache-first scripts from an older build.
+ */
+const ASSET_STAMP = assetStampFor(RELEASE_TREE_SHA256);
 const { createCorrelationId, publicErrorBody } = require('./src/public-errors');
 const { loadMigrations, runMigrations, verifyMigrations } = require('./src/migrations');
 const { scanUploadFile, scannerStatus } = require('./src/file-security');
@@ -663,7 +670,7 @@ function renderReleaseTemplate(template) {
   return template
     .replaceAll('__NV_PRODUCT_NAME__', PRODUCT_NAME)
     .replaceAll('__NV_VERSION__', APP_VERSION)
-    .replaceAll('__NV_ASSET_VERSION__', ASSET_VERSION);
+    .replaceAll('__NV_ASSET_VERSION__', ASSET_STAMP);
 }
 app.get(['/','/index.html'], (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');

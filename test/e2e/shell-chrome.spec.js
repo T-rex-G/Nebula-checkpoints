@@ -130,7 +130,11 @@ test.describe('desktop shell regions', () => {
       {
         name: 'workbench',
         open: async () => {
-          await rail.getByRole('button', { name: 'Classic workbench' }).click();
+          /* The rail no longer carries a workbench entry -- a repository is
+             reached through the inventory rather than as a destination of its
+             own. Neural is a view of the open repository, so it lands on this
+             same screen, which is what this test measures. */
+          await rail.getByRole('button', { name: 'Neural' }).click();
           await page.locator('#page-work.active').waitFor();
         },
         locator: page.locator('#page-work .workspace')

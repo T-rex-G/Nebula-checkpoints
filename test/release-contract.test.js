@@ -14,7 +14,9 @@ assert.strictEqual(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8'), '22.23.1\
 
 const { APP_VERSION, PRODUCT_NAME, ASSET_VERSION, deriveAssetVersion } = require('../src/version');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const { assetStampFor } = require('../src/asset-stamp');
 const expectedReleaseTreeSha256 = computeReleaseFingerprint(root);
+const servedStamp = assetStampFor(expectedReleaseTreeSha256);
 assert.strictEqual(APP_VERSION, pkg.version);
 assert.strictEqual(PRODUCT_NAME, 'Nebulaverse-X');
 
@@ -45,6 +47,25 @@ assert.strictEqual(
   distinctReleases.length,
   'each distinct release must produce a distinct asset stamp'
 );
+/*
+ * The version-only derivation separated releases but not builds, and an alpha
+ * ships many builds under one version. Two trees that differ at all must not
+ * share a shell cache: a returning browser takes navigations from the network
+ * and everything else cache-first, so a shared stamp hands it new markup and
+ * older scripts.
+ */
+const treeA = 'a'.repeat(64);
+const treeB = `${'a'.repeat(63)}b`;
+assert.notStrictEqual(
+  assetStampFor(treeA),
+  assetStampFor(treeB),
+  'two release trees must not share an asset stamp'
+);
+assert.strictEqual(assetStampFor(treeA), assetStampFor(treeA), 'the stamp must be stable for one tree');
+assert.match(assetStampFor(treeA), /^[0-9]+$/, 'the shell URL and cache-name contracts require a numeric stamp');
+assert.throws(() => assetStampFor(''), /release tree fingerprint/, 'a stamp must refuse to name nothing');
+assert.throws(() => assetStampFor('not-a-fingerprint'), /release tree fingerprint/);
+
 for (const version of distinctReleases) {
   assert.match(deriveAssetVersion(version), /^[0-9]+$/, `stamp for ${version} must be numeric`);
 }
@@ -124,12 +145,13 @@ async function wait() {
 
     const html = await fetch(`http://127.0.0.1:${port}/`).then(r => r.text());
     assert(!html.includes('__NV_'), 'release placeholders must be rendered');
-    assert(html.includes(`?v=${ASSET_VERSION}`), 'asset stamp must derive from package version');
+    assert(html.includes(`?v=${servedStamp}`), 'asset stamp must derive from the release tree');
+    assert(!html.includes(`?v=${ASSET_VERSION}`), 'a version-only stamp cannot separate two builds of one version');
     assert(html.includes(PRODUCT_NAME), 'official product name must be rendered');
 
     const sw = await fetch(`http://127.0.0.1:${port}/sw.js`).then(r => r.text());
     assert(!sw.includes('__NV_'), 'service worker placeholders must be rendered');
-    assert(sw.includes(`const VER = 'v${ASSET_VERSION}'`));
+    assert(sw.includes(`const VER = 'v${servedStamp}'`));
     assert(sw.includes('const STATIC = `nv-static-${VER}`')); 
     assert(sw.includes(`const RELEASE_VERSION = '${APP_VERSION}'`));
     console.log('release contract tests passed');

@@ -1,16 +1,15 @@
 'use strict';
 
 /*
- * The primary rail carries the five destinations the product is organised
- * around. It is drawn above 1140px and hidden below, and the comment above it
- * says the bottom navigation takes over -- but that bar lives inside the
- * repository workspace and carries workspace destinations: Files, Code, Push,
- * History, More. The two sets have nothing in common.
+ * The primary rail carries the destinations the product is organised around.
+ * It is drawn above 1140px and hidden below, and the comment above it says the
+ * bottom navigation takes over -- but that bar lives inside the repository
+ * workspace and carries workspace destinations: Files, Code, Push, History,
+ * More. The two sets have nothing in common.
  *
- * So on a phone, Neural, Governance and the classic workbench had no control
- * at all. Overview and Repositories survived only because the overview's own
- * top bar happens to carry them. Three of five destinations were unreachable,
- * and the rail's own test skips below 1140px, so nothing said so.
+ * So on a phone, Neural and Governance had no control at all. Overview and
+ * Repositories survived only because the overview's own top bar happens to
+ * carry them, and the rail's own test skips below 1140px, so nothing said so.
  *
  * Reachability is the claim, not the presence of a button: each destination
  * has to actually arrive.
@@ -22,7 +21,7 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 test.use({ serviceWorkers: 'block' });
 test.skip(({ viewport }) => !viewport || viewport.width >= 1140, 'the rail draws itself above 1140px');
 
-const DESTINATIONS = ['overview', 'repos', 'neural', 'governance', 'work'];
+const DESTINATIONS = ['overview', 'repos', 'neural', 'governance'];
 
 async function signedIn(page) {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });

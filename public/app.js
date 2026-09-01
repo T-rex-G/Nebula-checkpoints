@@ -3707,8 +3707,48 @@ function paintRail(name) {
  * of their own, so the rail offers them as destinations and refuses when there
  * is no repository to show, instead of opening an empty one.
  */
+/*
+ * Below the wide breakpoint the rail is a drawer rather than standing chrome,
+ * so something has to open it. Three top bars carry the control -- overview,
+ * inventory and workspace -- because each screen draws its own bar.
+ *
+ * Focus returns to whichever bar opened it: a reader dismissed back to the top
+ * of the document has lost their place.
+ */
+let navMenuOpener = null;
+function navMenuOpen() { return document.body.classList.contains('nav-open'); }
+function setNavMenu(open, opener) {
+  document.body.classList.toggle('nav-open', open);
+  const scrim = $('#navScrim');
+  if (scrim) scrim.hidden = !open;
+  $$('.nav-menu-btn').forEach(button => button.setAttribute('aria-expanded', String(open)));
+  if (open) {
+    navMenuOpener = opener || null;
+    const first = $('#navRail .nv-rail-item');
+    if (first) first.focus();
+    return;
+  }
+  const restore = navMenuOpener;
+  navMenuOpener = null;
+  if (restore && document.contains(restore)) restore.focus();
+}
+function closeNavMenu() { if (navMenuOpen()) setNavMenu(false); }
+$$('.nav-menu-btn').forEach(button => button.addEventListener('click', () => {
+  setNavMenu(!navMenuOpen(), button);
+}));
+$('#navScrim') && $('#navScrim').addEventListener('click', closeNavMenu);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && navMenuOpen()) { event.preventDefault(); closeNavMenu(); }
+});
+/* A drawer is a narrow-screen affordance; widening the window makes the rail
+   standing chrome again, and a scrim over it would be stranded. */
+window.addEventListener('resize', () => {
+  if (window.innerWidth >= 1140) closeNavMenu();
+});
+
 $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   const target = item.dataset.rail;
+  closeNavMenu();
   if (target === 'overview') return showOverview();
   if (target === 'repos') return showPage('repos');
   if (!state.work) return toast('Open a repository first.', 'err');

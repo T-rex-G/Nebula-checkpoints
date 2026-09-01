@@ -1826,6 +1826,33 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    ============================================================ */
 .nv-rail{display:none}
 /*
+ * The rail is drawn above 1140px and the comment above it said the bottom
+ * navigation took over below that. It does not: that bar lives inside the
+ * repository workspace and offers workspace destinations, so Neural,
+ * Governance and the classic workbench had no control at all on a phone.
+ *
+ * Below the breakpoint the rail becomes a drawer the top bar opens, following
+ * the file drawer this app already has rather than inventing a second idiom.
+ */
+.nav-menu-btn{display:none}
+@media (max-width:1139px){
+  .nav-menu-btn{display:inline-flex}
+  body.nav-open .nv-rail{
+    display:flex;flex-direction:column;gap:20px;
+    position:fixed;left:0;top:0;bottom:0;height:100dvh;
+    width:min(84vw,320px);z-index:95;overflow-y:auto;overscroll-behavior:contain;
+    padding:calc(16px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom));
+    background:var(--shellSolid);border-right:1px solid var(--sb);
+    animation:navDrawerIn .22s var(--ease) both}
+  @keyframes navDrawerIn{from{transform:translateX(-100%)}to{transform:none}}
+  /* The collapse control narrows a rail that is permanently on screen. A
+     drawer is dismissed instead, so it would do nothing here. */
+  body.nav-open .nv-rail-section{display:none}
+}
+@media (max-width:1139px) and (prefers-reduced-motion:reduce){
+  body.nav-open .nv-rail{animation:none}
+}
+/*
  * The shell.
  *
  * The reference does not run the application to the edges of the window: it

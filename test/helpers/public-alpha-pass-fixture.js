@@ -157,6 +157,31 @@ function createPassFixture() {
     privateKey
   ).toString('base64');
   const restoreRunnerRecord = hostedRestoreRunnerRecord();
+  const restoreRecordSha256 = crypto.createHash('sha256')
+    .update(stableJson(restoreRunnerRecord), 'utf8').digest('hex');
+  /*
+   * The operator witnesses which restore record belongs to this run. Note what
+   * it does not say: nothing here claims the restore passed. That claim is the
+   * runner's, and the operator's own record is still forbidden from carrying
+   * it -- the witness only makes the runner's claim attributable.
+   */
+  const restoreWitness = {
+    schemaVersion: '1.0.0',
+    artifactType: 'hosted-restore-witness',
+    subjectSha256: SUBJECT,
+    sourceCommit: SOURCE,
+    originId: 'workflow-2048-hosted',
+    restoreRecordSha256,
+    completedAt: COMPLETED_AT,
+    signature: { algorithm: 'ed25519', keyId: 'fixture-operator', value: '' }
+  };
+  const unsignedWitness = { ...restoreWitness };
+  delete unsignedWitness.signature;
+  restoreWitness.signature.value = crypto.sign(
+    null,
+    Buffer.from(stableJson(unsignedWitness), 'utf8'),
+    privateKey
+  ).toString('base64');
   const envelopes = {
     'automated-artifact': envelope('automated', 'workflow-2048-automated', automatedLabels),
     'hosted-artifact': envelope('hosted-live', 'workflow-2048-hosted', hostedLabels, {
@@ -172,7 +197,7 @@ function createPassFixture() {
       restoreRunnerAttestation: {
         schemaVersion: '1.0.0',
         completedAt: COMPLETED_AT,
-        recordSha256: crypto.createHash('sha256').update(stableJson(restoreRunnerRecord), 'utf8').digest('hex'),
+        recordSha256: restoreRecordSha256,
         record: restoreRunnerRecord
       },
       checks: {
@@ -246,7 +271,8 @@ function createPassFixture() {
       expectedDeploymentSha256: '5'.repeat(64),
       trustedOperatorKeys: {
         'fixture-operator': publicKey.export({ format: 'der', type: 'spki' }).toString('base64')
-      }
+      },
+      restoreWitness
     }
   };
 }

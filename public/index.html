@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>__NV_PRODUCT_NAME__ — Git, from orbit</title>
 <meta name="description" content="Enterprise-grade web Git client for GitHub. PRs, issues, releases, staged commits — and pushes of any size via automatic Git LFS.">
-<meta name="theme-color" content="#070712">
+<meta name="theme-color" content="#06030F">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d0b22">
-<meta name="theme-color" media="(prefers-color-scheme: light)" content="#eef0fb">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#06030F">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F5F3FB">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="__NV_PRODUCT_NAME__">
@@ -28,10 +28,53 @@
 </head>
 <body>
 
-<div id="nebula" aria-hidden="true">
-  <div class="orb orb-a"></div><div class="orb orb-b"></div><div class="orb orb-c"></div>
-  <div class="stars"></div><div class="grain"></div>
-</div>
+<!--
+  The ground. The reference draws exactly two violet blooms over the page
+  colour and nothing else: no drifting orbs, no star field, no grain. Those
+  belonged to the interface this one replaces, and they were what kept the
+  background reading as the old product however well the tokens matched.
+-->
+<div id="nebula" aria-hidden="true"></div>
+<!--
+  The application shell's plate. An element of its own, not a pseudo-element:
+  it used to be body::after, which the standalone status-bar backdrop also
+  claims, and an element has only one ::after. The two rules merged, the
+  status bar's height:env(safe-area-inset-top) survived the merge -- nothing in
+  the plate's own rule set a height -- and an explicit height beats the bottom
+  offset, so the plate computed to zero pixels tall. What reached the screen
+  was its two borders: a 2px strip across the top of the page whose radii CSS
+  clamps to nothing at that height, which is the hard square-ended band visible
+  above the top bar. The workspace ground was never drawn at all.
+-->
+<div id="shellPlate" aria-hidden="true"></div>
+
+<!--
+  The mark, once, as a sprite.
+
+  Its geometry is the design's own: the four plates are the same triangles the
+  dimensional mark folds in nebula-mark-3d.js, so the flat mark and the one
+  that turns in the trust panel are the same shape rather than two drawings
+  that resemble each other. Defined once and referenced, so the gradients
+  cannot collide between instances.
+-->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <linearGradient id="nvMarkLight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#C4B1FB"/><stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="nvMarkDeep" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8B5CF6"/><stop offset="100%" stop-color="#4C1D95"/>
+    </linearGradient>
+    <symbol id="nvMark" viewBox="28 11 228 218">
+      <path d="M79 25 L40 217 L106 116 Z" fill="url(#nvMarkDeep)"/>
+      <path d="M79 25 L106 116 L171 112 Z" fill="url(#nvMarkLight)"/>
+      <path d="M244 23 L178 124 L205 215 Z" fill="url(#nvMarkDeep)"/>
+      <path d="M178 124 L113 128 L205 215 Z" fill="url(#nvMarkLight)"/>
+    </symbol>
+  </defs>
+</svg>
+
+
 
 <!-- ======================= CONTROLLED ALPHA ACCESS ======================= -->
 <main class="page active" id="page-alpha-access" aria-labelledby="alphaAccessTitle">
@@ -64,33 +107,14 @@
         <span class="tt-knob"></span>
       </button>
     </div>
+    <!--
+      The mark at hero size. What stood here was an orbiting-comet emblem whose
+      gradient ran to teal -- the previous brand's colour, on the first screen
+      anyone sees. It is the same mark as the sidebar's and the same geometry
+      as the one that folds in the trust panel.
+    -->
     <div class="nv-logo nv-logo-lg" aria-hidden="true">
-      <svg width="96" height="96" viewBox="0 0 120 120">
-        <defs>
-          <linearGradient id="nvg" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#7c6cff"/><stop offset="1" stop-color="#38e0c8"/>
-          </linearGradient>
-          <radialGradient id="nvcore">
-            <stop offset="0" stop-color="#ffffff"/><stop offset="35%" stop-color="#b9b0ff"/><stop offset="100%" stop-color="#7c6cff" stop-opacity="0"/>
-          </radialGradient>
-          <radialGradient id="nvglowT"><stop offset="0" stop-color="#38e0c8"/><stop offset="100%" stop-color="#38e0c8" stop-opacity="0"/></radialGradient>
-          <radialGradient id="nvglowP"><stop offset="0" stop-color="#9486ff"/><stop offset="100%" stop-color="#9486ff" stop-opacity="0"/></radialGradient>
-        </defs>
-        <circle class="nvl-halo" cx="60" cy="60" r="24" fill="url(#nvcore)" opacity=".8"/>
-        <g class="nvl-spin s1"><circle cx="60" cy="60" r="47" fill="none" stroke="url(#nvg)" stroke-width="2" opacity=".9"/></g>
-        <g transform="rotate(-24 60 60)">
-          <ellipse cx="60" cy="60" rx="45" ry="17" fill="none" stroke="url(#nvg)" stroke-width="1.1" opacity=".32"/>
-          <circle r="8" fill="url(#nvglowT)" opacity=".85"><animateMotion dur="4.2s" repeatCount="indefinite" path="M15,60 a45,17 0 1,0 90,0 a45,17 0 1,0 -90,0"/></circle>
-          <circle r="3.6" fill="#38e0c8"><animateMotion dur="4.2s" repeatCount="indefinite" path="M15,60 a45,17 0 1,0 90,0 a45,17 0 1,0 -90,0"/></circle>
-        </g>
-        <g transform="rotate(32 60 60)">
-          <ellipse cx="60" cy="60" rx="45" ry="17" fill="none" stroke="url(#nvg)" stroke-width="1.1" opacity=".22"/>
-          <circle r="6.5" fill="url(#nvglowP)" opacity=".8"><animateMotion dur="6.8s" repeatCount="indefinite" path="M105,60 a45,17 0 1,1 -90,0 a45,17 0 1,1 90,0"/></circle>
-          <circle r="2.9" fill="#9486ff"><animateMotion dur="6.8s" repeatCount="indefinite" path="M105,60 a45,17 0 1,1 -90,0 a45,17 0 1,1 90,0"/></circle>
-        </g>
-        <circle r="1.6" fill="#ffffff" opacity=".9"><animateMotion dur="11s" repeatCount="indefinite" path="M13,60 a47,47 0 1,0 94,0 a47,47 0 1,0 -94,0"/></circle>
-        <circle class="nvl-core" cx="60" cy="60" r="8.5" fill="#ffffff"/>
-      </svg>
+      <svg class="nv-mark nv-mark-lg" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
     </div>
     <h1 class="brand-title" id="loginTitle">__NV_PRODUCT_NAME__</h1>
     <p class="brand-sub">GitHub · GitLab · Gitea, from your pocket — offline-ready, pushes of <em>any</em> size.</p>
@@ -123,21 +147,42 @@
 -->
 <nav class="nv-rail" id="navRail" aria-label="Primary" hidden>
   <div class="nv-rail-head">
-    <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
+    <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
     <span class="nv-rail-brand">__NV_PRODUCT_NAME__</span>
     <span class="nv-rail-sub">Trust operations</span>
   </div>
 
+  <!--
+    The section label and its collapse control, as the reference draws them.
+    Collapsing narrows the rail to its icons; the entries keep their names for
+    assistive technology, so the rail never becomes a row of unlabelled marks.
+  -->
+  <div class="nv-rail-section">
+    <span class="nv-rail-section-t">Workspace</span>
+    <button type="button" class="nv-rail-collapse" id="railCollapse"
+      aria-expanded="true" aria-controls="navRail" aria-label="Collapse the sidebar">
+      <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 7l-5 5 5 5"/><path d="M19 7l-5 5 5 5"/></svg>
+    </button>
+  </div>
+
   <ul class="nv-rail-nav">
     <li><button type="button" class="nv-rail-item" data-rail="overview">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg>
       <span class="nv-rail-t">Overview</span></button></li>
     <li><button type="button" class="nv-rail-item" data-rail="repos">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-28 12 12)"/></svg>
       <span class="nv-rail-t">Repositories</span>
       <span class="nv-rail-d">Connected systems</span></button></li>
     <li><button type="button" class="nv-rail-item" data-rail="neural">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22"/></svg>
       <span class="nv-rail-t">Neural</span>
       <span class="nv-rail-d">Signal topology</span></button></li>
+    <li><button type="button" class="nv-rail-item" data-feature="governance" data-allow-experimental="true" data-rail="governance">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg>
+      <span class="nv-rail-t">Governance</span>
+      <span class="nv-rail-d">Policy digital twin</span></button></li>
     <li><button type="button" class="nv-rail-item" data-rail="work">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.2A1.2 1.2 0 0 1 4.2 4H10a2 2 0 0 1 2 2v14a1.6 1.6 0 0 0-1.6-1.6H4.2A1.2 1.2 0 0 1 3 17.2z"/><path d="M21 5.2A1.2 1.2 0 0 0 19.8 4H14a2 2 0 0 0-2 2v14a1.6 1.6 0 0 1 1.6-1.6h6.2A1.2 1.2 0 0 0 21 17.2z"/></svg>
       <span class="nv-rail-t">Classic workbench</span>
       <span class="nv-rail-d">Full repository tools</span></button></li>
   </ul>
@@ -160,14 +205,21 @@
 <main class="page" id="page-overview" aria-label="Workspace overview">
   <header class="topbar glass">
     <button class="topbar-brand" id="ovHomeBtn" type="button" aria-label="Workspace overview">
-      <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </button>
     <nav class="ov-crumbs" aria-label="Location">
       <span>__NV_PRODUCT_NAME__</span><span aria-hidden="true">/</span><span aria-current="page">Overview</span>
     </nav>
+    <!--
+      The overview is where a signed-in session now starts, so it carries the
+      account controls the inventory carries. A home screen a reader cannot
+      sign out of is not a home screen.
+    -->
     <div class="topbar-actions">
       <button class="btn btn-ghost" id="ovGoRepos">Repositories</button>
+      <button class="btn btn-ghost icon-btn" id="settingsBtnOv" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <button class="avatar-btn" id="accountBtnOv" title="Accounts" aria-label="Accounts"><svg class="ico avatar-fallback" width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.7"/><path d="M4.8 19.5a7.2 7.2 0 0 1 14.4 0"/></svg><img class="avatar" id="meAvatarOv" alt="" hidden></button>
+      <button class="btn btn-ghost" id="logoutBtnOv">Sign out</button>
     </div>
   </header>
 
@@ -184,7 +236,13 @@
       </div>
       <aside class="ov-core" aria-labelledby="ovCoreTitle">
         <p class="ov-core-head"><span id="ovCoreTitle">Trust core</span><span class="ov-live">Live</span></p>
-        <div class="ov-core-art" aria-hidden="true"><span class="ov-core-glow"></span></div>
+        <!--
+          The dimensional mark mounts here when the device can draw it. The
+          glow behind it is not a placeholder to be replaced: it is what the
+          panel looks like without WebGL, and it stays so the panel is never
+          an empty frame.
+        -->
+        <div class="ov-core-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"></span></div>
         <p class="ov-core-line">Secure by default. Proven by design.</p>
       </aside>
     </section>
@@ -207,6 +265,31 @@
     <section class="gx-pulse" id="ovPulse" aria-label="Workspace pulse" hidden>
       <dl class="gx-pulse-grid" id="ovPulseGrid"></dl>
     </section>
+
+    <!--
+      The trust score and live-signal count the design calls for. Both are
+      computed in workspace-pulse.js from signals this session actually holds,
+      and both say "not measured" rather than showing a number when they have
+      no source. The score is never shown alone: the components that produced
+      it are on screen so a reader can argue with it.
+    -->
+    <section class="wp-grid" aria-labelledby="wpTitle">
+      <h2 class="sr-only" id="wpTitle">Workspace trust</h2>
+      <article class="card wp-card wp-card-trust" id="wpTrust" aria-labelledby="wpTrustTitle">
+        <h3 class="sr-only" id="wpTrustTitle">Trust score</h3>
+        <div class="wp-body"></div>
+      </article>
+      <div class="wp-column">
+        <article class="card wp-card" id="wpSignals" aria-labelledby="wpSignalsTitle">
+          <h3 class="sr-only" id="wpSignalsTitle">Live signals</h3>
+          <div class="wp-body"></div>
+        </article>
+        <article class="card wp-card wp-card-activity" id="wpActivity" aria-labelledby="wpActivityTitle">
+          <h3 class="sr-only" id="wpActivityTitle">Repository activity</h3>
+          <div class="wp-body"></div>
+        </article>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -214,7 +297,6 @@
 <main class="page" id="page-repos" aria-labelledby="reposTitle">
   <header class="topbar glass">
     <button class="topbar-brand" id="homeBtn" type="button" aria-label="Workspace overview">
-      <span class="nv-logo nv-logo-sm" aria-hidden="true"><span class="nvx-ring"></span><span class="nvx-comet"></span><span class="nvx-core"></span></span>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </button>
     <div class="topbar-actions">
@@ -232,6 +314,12 @@
   </header>
   <div class="container">
     <section class="gx-hero" aria-labelledby="gxHeroTitle">
+        <!--
+          The galaxy sits behind the hero copy, not beside it. It is decoration
+          and carries no meaning, so it is hidden from assistive technology and
+          takes no pointer events -- the text over it stays selectable.
+        -->
+        <div class="gx-hero-art" id="gxHeroArt" aria-hidden="true"></div>
         <p class="gx-eyebrow"><span>Connected systems</span><span aria-hidden="true">/</span><span>Galaxy inventory</span></p>
         <h2 class="gx-title" id="gxHeroTitle">Your galaxies,<br><em>one clear</em> next move.</h2>
         <p class="gx-lede">Browse provider-connected systems with conservative activity context, then hand off to the proven workbench when you&rsquo;re ready to act.</p>
@@ -282,7 +370,7 @@
       <button class="btn btn-ghost icon-btn hide-sm" id="settingsBtnWork" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button class="btn btn-ghost icon-btn hide-sm" id="paletteBtn" title="Command palette (Ctrl+K)" aria-label="Command palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg></button>
       <button class="btn btn-ghost icon-btn" id="syncBtn" title="Refresh repo" aria-label="Refresh repo"><svg class="ico" width="17" height="17" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1M20.5 3.5v4h-4"/></svg></button>
-      <span class="ro-chip" id="roChip" hidden>READ-ONLY</span><span class="ro-chip freeze" id="freezeChip" hidden>SYNC FROZEN</span><span class="shield-chip" id="branchShield" hidden title="This branch is protected"><svg class="ico" width="13" height="13" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg></span><select id="branchSelect" class="branch-select" title="Branch" aria-label="Repository branch"></select>
+      <span class="ro-chip" id="roChip" hidden>READ-ONLY</span><span class="ro-chip freeze" id="freezeChip" hidden>SYNC FROZEN</span><span class="shield-chip" id="branchShield" hidden title="This branch is protected"><svg class="ico" width="13" height="13" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg></span><span class="branch-pick"><svg class="branch-pick-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6.2" r="2.2"/><circle cx="17" cy="6.2" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M7 8.4v1.2a3 3 0 0 0 3 3h4a3 3 0 0 0 3-3V8.4M12 12.6v3.2"/></svg><select id="branchSelect" class="branch-select" title="Branch" aria-label="Repository branch"></select></span>
       <button class="btn btn-ghost icon-btn staged-btn" id="stagedBtn" title="Staged changes" aria-label="Staged changes">
         <svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5l8.5 4.7L12 12.9 3.5 8.2 12 3.5z"/><path d="M3.5 13l8.5 4.7L20.5 13"/><path d="M3.5 17.3L12 22l8.5-4.7"/></svg><span class="staged-count" id="stagedCount" hidden>0</span>
       </button>
@@ -307,11 +395,18 @@
 
     <section class="main-pane">
       <section class="trust-summary" id="trustSummary" aria-label="Repository trust summary" hidden>
-        <article id="trustConnection" aria-label="Connection trust"></article>
-        <article id="trustPipeline" aria-label="Pipeline trust"></article>
-        <article id="trustRisk" aria-label="Risk"></article>
-        <article id="trustAction" aria-label="Next action"></article>
-        <article id="trustEvidence" aria-label="Evidence"></article>
+        <button class="trust-rollup" id="trustRollup" type="button" aria-expanded="false" aria-controls="trustDetail">
+          <span class="trust-rollup-title">Repository trust</span>
+          <span class="trust-rollup-states" id="trustRollupStates"></span>
+          <svg class="trust-rollup-chev" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="trust-detail" id="trustDetail">
+          <article id="trustConnection" aria-label="Connection trust"></article>
+          <article id="trustPipeline" aria-label="Pipeline trust"></article>
+          <article id="trustRisk" aria-label="Risk"></article>
+          <article id="trustAction" aria-label="Next action"></article>
+          <article id="trustEvidence" aria-label="Evidence"></article>
+        </div>
       </section>
       <div class="sr-only" id="a11yStatus" role="status" aria-live="polite" aria-label="Workspace updates" aria-atomic="true"></div>
       <nav class="tabs glass" id="deskTabs" aria-label="Repository sections">
@@ -324,15 +419,17 @@
         <button class="tab" data-feature="workflows.read" data-allow-experimental="true" data-tab="actions">Actions</button>
         <button class="tab" data-feature="recovery" data-allow-experimental="true" data-tab="compare">Compare</button>
         <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
-        <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel"><span aria-hidden="true">◇</span> Governance</button>
+        <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel">Governance</button>
       </nav>
 
       <!-- EDITOR -->
       <div class="tabpane active" id="tab-editor">
         <div class="editor-empty card" id="editorEmpty">
-          <div class="empty-icon">✦</div>
-          <p>Pick a file from the constellation<span class="hide-sm"> on the left</span>,<br>
+          <div class="empty-icon"><svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5V8.5h5"/></svg></div>
+          <p class="editor-empty-pick">Pick a file from the constellation<span class="hide-sm"> on the left</span>,<br>
           <span class="show-sm">tap <b>Files</b> below, </span>or press <span class="kbd">Ctrl K</span> to jump anywhere.</p>
+          <p class="editor-empty-bare" hidden>This repository has no files yet.<br>
+          Add the first one with <b>+&nbsp;File</b><span class="show-sm"> in the Files drawer</span>, or push a folder from <b>Push files</b>.</p>
         </div>
         <div class="editor-shell card" id="editorShell" hidden>
           <div class="editor-bar">
@@ -376,7 +473,7 @@
       <div class="tabpane" id="tab-upload">
         <div class="card upload-card">
           <div class="dropzone" id="dropzone">
-            <div class="dz-ring"><span class="dz-arrow">↑</span></div>
+            <div class="dz-ring"><svg class="dz-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19.5V5.2M5.8 11.4L12 5.2l6.2 6.2"/></svg></div>
             <p class="dz-title">Drop files here, or <label class="dz-browse" for="filePicker">browse</label></p>
             <p class="dz-sub">Any size up to <b>2 GB</b> per file — routed automatically:</p>
             <p class="dz-sub">Smart sync: each file is <b>compared with the repo first</b> — unchanged files are skipped, changed ones are replaced, new ones are added.</p>
@@ -470,7 +567,7 @@
         <div class="card compare-card">
           <div class="compare-row">
             <div><label class="field-label" for="cmpBase">Base</label><select id="cmpBase" class="branch-select w100"></select></div>
-            <span class="cmp-arrow">←</span>
+            <svg class="cmp-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4.6M10.4 5.8L4.2 12l6.2 6.2"/></svg>
             <div><label class="field-label" for="cmpHead">Head</label><select id="cmpHead" class="branch-select w100"></select></div>
             <button class="btn btn-primary" id="cmpGo">Compare</button>
           </div>
@@ -502,20 +599,20 @@
           </section>
 
           <section class="neural-workspace">
-            <aside class="card neural-rail" aria-label="Graph modes and controls">
+            <aside class="card neural-rail" id="neuralRail" aria-label="Graph modes and controls">
               <div class="neural-panel-title">Intelligence mode</div>
               <div class="neural-mode-list" id="neuralModeList">
-                <button class="neural-mode active" data-neural-mode="security"><span>◈</span><div><b>Security</b><small>Sessions, threats, workflows</small></div></button>
-                <button class="neural-mode" data-feature="recovery" data-neural-mode="recovery"><span>↺</span><div><b>Recovery</b><small>Refs, tags and snapshots</small></div></button>
-                <button class="neural-mode" data-feature="dependency-audit" data-allow-experimental="true" data-neural-mode="dependencies"><span>⌬</span><div><b>Dependencies</b><small>Packages and CVEs</small></div></button>
-                <button class="neural-mode" data-feature="governance" data-allow-experimental="true" data-neural-mode="governance"><span>▣</span><div><b>Governance</b><small>Protected assets and policy</small></div></button>
-                <button class="neural-mode" data-neural-mode="activity"><span>⌁</span><div><b>Activity</b><small>Commits, PRs and CI</small></div></button>
+                <button class="neural-mode active" data-neural-mode="security"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.8" y="10.4" width="14.4" height="9.6" rx="2.2"/><path d="M8.4 10.4V7.7a3.6 3.6 0 0 1 7.2 0v2.7"/></svg></span><div><b>Security</b><small>Sessions, threats, workflows</small></div></button>
+                <button class="neural-mode" data-feature="recovery" data-neural-mode="recovery"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 12a7.4 7.4 0 1 0 2.2-5.3"/><path d="M4.6 5.9v5.2h5.2"/></svg></span><div><b>Recovery</b><small>Refs, tags and snapshots</small></div></button>
+                <button class="neural-mode" data-feature="dependency-audit" data-allow-experimental="true" data-neural-mode="dependencies"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l7.5 4.1v8.8L12 20.5l-7.5-4.1V7.6z"/><path d="M4.5 7.6l7.5 4.2 7.5-4.2M12 11.8v8.7"/></svg></span><div><b>Dependencies</b><small>Packages and CVEs</small></div></button>
+                <button class="neural-mode" data-feature="governance" data-allow-experimental="true" data-neural-mode="governance"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span><div><b>Policy surface</b><small>Protected assets and controls</small></div></button>
+                <button class="neural-mode" data-neural-mode="activity"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2.6M10.4 12h3.2M18.4 12H21"/><circle cx="8" cy="12" r="2.4"/><circle cx="16" cy="12" r="2.4"/></svg></span><div><b>Activity</b><small>Commits, PRs and CI</small></div></button>
               </div>
 
               <div class="neural-panel-title neural-filter-title">Signal filters</div>
-              <label class="neural-filter"><input type="checkbox" data-neural-filter="critical" checked><span class="neural-swatch critical"></span>Critical</label>
-              <label class="neural-filter"><input type="checkbox" data-neural-filter="warning" checked><span class="neural-swatch warning"></span>Warning</label>
-              <label class="neural-filter"><input type="checkbox" data-neural-filter="normal" checked><span class="neural-swatch normal"></span>Normal</label>
+              <label class="neural-filter"><input type="checkbox" data-neural-filter="critical" checked><span class="neural-swatch critical" aria-hidden="true"></span>Critical</label>
+              <label class="neural-filter"><input type="checkbox" data-neural-filter="warning" checked><span class="neural-swatch warning" aria-hidden="true"></span>Warning</label>
+              <label class="neural-filter"><input type="checkbox" data-neural-filter="normal" checked><span class="neural-swatch normal" aria-hidden="true"></span>Normal</label>
 
               <div class="neural-panel-title neural-filter-title">Response controls</div>
               <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralReadOnlyBtn">Enable read-only</button>
@@ -534,9 +631,11 @@
                 </div>
               </div>
               <div class="neural-stage-tools">
-                <button class="neural-tool" id="neuralPlayBtn" title="Pause or resume animation" aria-label="Pause or resume animation"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg></button>
+                <button class="neural-tool nt-expanded-only" id="neuralPanelBtn" type="button" aria-pressed="false" aria-controls="neuralRail" title="Modes and filters" aria-label="Modes and filters"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/></svg></button>
+                <button class="neural-tool" id="neuralExpandBtn" type="button" aria-pressed="false" title="Enlarge the graph" aria-label="Enlarge the graph"><svg class="nt-grow" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h5v5M20 4l-6 6M9 20H4v-5M4 20l6-6"/></svg><svg class="nt-shrink" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 9h-5V4M15 9l5-5M4 15h5v5M9 15l-5 5"/></svg></button>
+                <button class="neural-tool" id="neuralPlayBtn" title="Pause or resume animation" aria-label="Pause or resume animation"><svg class="nt-filled" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg></button>
                 <button class="neural-tool" id="neuralFitBtn" title="Fit graph" aria-label="Fit graph"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-                <button class="neural-tool" id="neuralExplainBtn" title="Explain a connection" aria-label="Explain a connection">⌁</button>
+                <button class="neural-tool" id="neuralExplainBtn" title="Explain a connection" aria-label="Explain a connection"><svg class="ico" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 3.5L5.5 13.4h5.2l-1.1 7.1 7.9-10.1h-5.3z"/></svg></button>
                 <button class="neural-tool" id="neuralDemoBtn" title="Inject a demonstration incident" aria-label="Inject a demonstration incident">✦</button>
               </div>
               <div class="neural-legend">
@@ -595,19 +694,37 @@
     <button data-nav="more"><svg width="21" height="21" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg><span>More</span></button>
   </nav>
 
-  <!--
-    One action, two placements. The top bar carries the palette on wide
-    screens; below the breakpoint that bar has no room, so the same action
-    floats instead. Exactly one is ever displayed, so a reader -- and anything
-    addressing the interface by name -- finds a single "Command palette".
-  -->
-  <button class="nv-fab show-sm" id="paletteFab" type="button" aria-label="Command palette"
-    title="Command palette (Ctrl+K)">
+</main>
+
+<!--
+  The screen's actions, where the top bar cannot carry them. Above the
+  breakpoint the bar offers them directly; below it there is no room, so they
+  travel with the screen as a menu behind one press. The entries are built
+  per screen rather than hidden and reshown, so the accessibility tree never
+  offers an action that belongs to a screen the reader is not on.
+
+  It is a disclosure of buttons, not role="menu". That role promises menu
+  keyboard semantics -- arrow keys, typeahead, wrapping -- which this does not
+  implement, and it forbids any child that is not a menu item, which put the
+  capability status notes in violation of it. A labelled group of buttons is
+  what this actually is: Tab walks it, Escape closes it, and every entry keeps
+  its own name.
+
+  It sits outside the screens, not inside one of them. It used to live at the
+  end of the workbench, so on every other screen it was a descendant of a
+  hidden page: present in the markup, painting nothing, and pressable by
+  nobody -- which is why the action that was supposed to change with the
+  screen only ever appeared on one.
+-->
+<div class="nv-fab-dock show-sm">
+  <div class="nv-fab-menu" id="fabMenu" role="group" hidden></div>
+  <button class="nv-fab" id="paletteFab" type="button" aria-expanded="false"
+    aria-controls="fabMenu" aria-label="Workspace actions" title="Workspace actions">
     <svg width="21" height="21" class="ico" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/>
+      <path d="M12 5v14M5 12h14"/>
     </svg>
   </button>
-</main>
+</div>
 
 <!-- mobile "More" sheet -->
 <div class="sheet-scrim" id="sheetScrim" hidden>
@@ -618,8 +735,8 @@
     <button class="sheet-item" data-feature="releases.read" data-allow-experimental="true" data-act="releases"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M3.5 12L12 3.5h6.2a2.3 2.3 0 0 1 2.3 2.3V12L12 20.5 3.5 12z"/><circle cx="16" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg><span>Releases</span></button>
     <button class="sheet-item" data-feature="workflows.read" data-allow-experimental="true" data-act="actions"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M10 8.6l5.6 3.4L10 15.4z"/></svg><span>Actions (CI)</span></button>
     <button class="sheet-item" data-feature="recovery" data-allow-experimental="true" data-act="compare"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M8 3.5v17M8 3.5L4.5 7M8 3.5L11.5 7M16 20.5v-17M16 20.5L12.5 17M16 20.5l3.5-3.5"/></svg><span>Compare branches</span></button>
-    <button class="sheet-item" data-feature="access-surface" data-act="neural"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="7" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="18" cy="18" r="1.7"/><circle cx="6" cy="18" r="1.7"/><path d="M7 8.3l3.2 2.3M14 10.2l3.4-2.8M14 13.5l2.7 3M9.9 13.6l-2.7 3"/></svg><span>Neural Command Center</span></button>
-    <button class="sheet-item" data-feature="governance" data-allow-experimental="true" data-act="governance"><span class="sheet-glyph" aria-hidden="true">◇</span><span>Policy Digital Twin</span></button>
+    <button class="sheet-item" data-feature="access-surface" data-act="neural"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="7" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="18" cy="18" r="1.7"/><circle cx="6" cy="18" r="1.7"/><path d="M7 8.3l3.2 2.3M14 10.2l3.4-2.8M14 13.5l2.7 3M9.9 13.6l-2.7 3"/></svg><span>Neural</span></button>
+    <button class="sheet-item" data-feature="governance" data-allow-experimental="true" data-act="governance"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg><span>Governance</span></button>
     <div class="sheet-div"></div>
     <button class="sheet-item" data-act="palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg><span>Command palette</span></button>
     <button class="sheet-item" data-feature="branches.write" data-act="branches"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg><span>Manage branches</span></button>
@@ -636,7 +753,7 @@
   <aside class="stage-panel glass" id="stagePanel">
     <div class="stage-head">
       <h3>Staged changes</h3>
-      <button class="btn btn-ghost icon-btn" id="stageClose" aria-label="Close">✕</button>
+      <button class="btn btn-ghost icon-btn" id="stageClose" aria-label="Close"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
     <div class="stage-list" id="stageList"></div>
     <div class="stage-foot">
@@ -726,10 +843,14 @@
 <script src="/vendor/marked/15.0.12/marked.min.js"></script>
 <script src="/vendor/dompurify/3.4.13/purify.min.js"></script>
 <script src="/archive-safety.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/upload-planning.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/export-safety.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/governance-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/alpha-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/repo-sigil.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/nebula-visuals.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/trust-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/app.js?v=__NV_ASSET_VERSION__"></script>
 </body>

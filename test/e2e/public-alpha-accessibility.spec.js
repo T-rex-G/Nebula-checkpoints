@@ -31,7 +31,7 @@ async function redeemInvitation(page) {
 
 /* Open the palette and run one entry by the name a reader reads. */
 async function runFromPalette(page, name) {
-  await ui.button(page, 'Command palette').click();
+  await (await ui.action(page, 'Command palette')).click();
   await ui.palette(page).fill(name);
   await ui.paletteOption(page, new RegExp(name, 'i')).first().click();
 }
@@ -48,10 +48,10 @@ test('required alpha screens have no critical or serious axe violations', async 
 
   await ui.secretField(page, 'GitHub Personal Access Token').fill('fixture-provider-credential');
   await ui.button(ui.screen(page, 'login'), 'Enter orbit').click();
-  await expect(ui.screen(page, 'repos')).toBeVisible();
+  await expect(await ui.enterRepositories(page)).toBeVisible();
   await expectNoHighImpactViolations(page, 'repository list');
 
-  await ui.button(ui.screen(page, 'repos'), /^Open repository /).first().click();
+  await ui.button(await ui.enterRepositories(page), /^Open repository /).first().click();
   await expect(ui.screen(page, 'work').getByRole('region', { name: 'Repository trust summary' })).toBeVisible();
   await expectNoHighImpactViolations(page, 'repository trust summary');
 
@@ -66,7 +66,7 @@ test('required alpha screens have no critical or serious axe violations', async 
   await expectNoHighImpactViolations(page, 'evidence detail');
   await ui.button(ui.dialog(page, 'Evidence package exported'), 'Done').click();
 
-  await ui.button(page, 'Command palette').focus();
+  await (await ui.action(page, 'Command palette')).focus();
   await page.evaluate(() => { void openSettings(); });
   await expect(page.locator('[data-alpha-privacy-action="disconnect"]')).toBeVisible();
   await expect(page.locator('[data-alpha-privacy-action="delete"]')).toBeVisible();
@@ -95,16 +95,16 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await page.keyboard.press('Tab');
   await expect(ui.button(ui.screen(page, 'login'), 'Enter orbit')).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(ui.screen(page, 'repos')).toBeVisible();
+  await expect(await ui.enterRepositories(page)).toBeVisible();
 
-  const repo = ui.button(ui.screen(page, 'repos'), /^Open repository /).first();
+  const repo = ui.button(await ui.enterRepositories(page), /^Open repository /).first();
   await repo.focus();
   await expect(repo).toHaveCSS('outline-style', 'solid');
   await page.keyboard.press('Enter');
   await expect(ui.screen(page, 'work')).toBeVisible();
   await page.waitForTimeout(350);
 
-  await ui.button(page, 'Command palette').focus();
+  await (await ui.action(page, 'Command palette')).focus();
   await page.keyboard.press('Enter');
   await ui.palette(page).fill('New file');
   /*
@@ -124,21 +124,39 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await expect(ui.status(page, 'Notifications')).toContainText('Created keyboard-proof.txt');
   await expect(ui.status(page, 'Notifications')).toHaveAttribute('aria-live', 'polite');
 
-  await ui.button(page, 'Command palette').focus();
+  await (await ui.action(page, 'Command palette')).focus();
   await page.keyboard.press('Enter');
   await page.locator('#paletteInput').fill('Settings');
   await page.keyboard.press('Enter');
-  const disconnect = page.locator('[data-alpha-privacy-action="disconnect"]');
-  await expect(disconnect).toBeVisible();
-  await disconnect.focus();
-  await page.keyboard.press('Enter');
-  await expect(ui.screen(page, 'login')).toBeVisible();
+  /*
+   * Wait for the dialog itself, then for focus to rest on the control, before
+   * pressing anything. Reaching straight for the button raced two things at
+   * once: the dialog still opening, and the dialog placing its own initial
+   * focus. About one run in four the keypress landed on nothing and the
+   * journey simply stopped, which read as a slow transition rather than as a
+   * key that never arrived.
+   */
+  await expect(ui.dialog(page, 'Settings')).toBeVisible();
+  const disconnect = await ui.focusAndConfirm(
+    expect,
+    page.locator('[data-alpha-privacy-action="disconnect"]')
+  );
+  await disconnect.press('Enter');
+  /*
+   * Disconnecting purges local state, which makes the access gate re-evaluate
+   * before the app settles on the login screen. That intermediate frame is the
+   * designed flow, not a fault, so this waits for the destination rather than
+   * for the first repaint after the keypress -- measured at about half a second
+   * in isolation, but the purge is I/O and the budget has to survive a loaded
+   * machine.
+   */
+  await expect(ui.screen(page, 'login')).toBeVisible({ timeout: 20000 });
   await expect(ui.status(page, 'Notifications')).toContainText('Disconnected from Nebulaverse-X');
 });
 
 test('dialogs contain focus, restore it, and trust states do not depend on color', async ({ page }) => {
   await openConnectedRepository(page, { mutation: 'blocked' });
-  const trigger = ui.button(page, 'Command palette');
+  const trigger = await ui.action(page, 'Command palette');
   await trigger.focus();
   await page.evaluate(() => { void openSettings(); });
   await page.locator('#modalOk').focus();
@@ -162,16 +180,29 @@ test('dialogs contain focus, restore it, and trust states do not depend on color
   await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
 
+  /*
+   * The badge carries its meaning in the label; the mark beside it is drawn
+   * and aria-hidden. This asserted the mark was non-empty *text*, which was
+   * only true while it was a Unicode glyph -- so it is asserted as what it is
+   * now: a drawn mark that is actually present.
+   */
   for (const evidence of await page.locator('#trustSummary .trust-evidence').all()) {
     await expect(evidence).not.toHaveText('');
-    await expect(evidence.locator('.trust-evidence-icon')).not.toHaveText('');
+    await expect(evidence.locator('.trust-evidence-icon svg')).toHaveCount(1);
   }
 });
 
 test('reduced motion, 320 CSS-pixel reflow, and mobile navigation remain usable', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await openConnectedRepository(page);
-  const motion = await page.locator('.orb-a').evaluate(element => ({
+  /*
+   * Asserted on the floating action, which is decoration-adjacent motion that
+   * exists on this screen. It used to be asserted on a drifting background orb
+   * -- that orb is gone with the rest of the previous interface's sky, and a
+   * test pinned to deleted decoration proves nothing about the rule, which is
+   * global and applies to whatever is actually on screen.
+   */
+  const motion = await page.locator('.nv-fab').evaluate(element => ({
     animationDuration: getComputedStyle(element).animationDuration,
     iterations: getComputedStyle(element).animationIterationCount,
     transitionDuration: getComputedStyle(element).transitionDuration

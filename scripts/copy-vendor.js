@@ -27,6 +27,17 @@ const files = [
   ['node_modules/codemirror/theme/monokai.css', 'codemirror/5.65.16/theme/monokai.min.css'],
   ['node_modules/codemirror/theme/nord.css', 'codemirror/5.65.16/theme/nord.min.css'],
   ['node_modules/marked/marked.min.js', 'marked/15.0.12/marked.min.js'],
+  /*
+   * three.js, for the galaxy and the dimensional mark.
+   *
+   * Both files, and both in the same directory: three.module.min.js imports
+   * './three.core.min.js' by relative specifier, so the pair only resolves
+   * when they are siblings. Copying one would leave a module that loads and
+   * then fails on its own import, which looks like a broken component rather
+   * than a missing file.
+   */
+  ['node_modules/three/build/three.module.min.js', 'three/0.185.1/three.module.min.js'],
+  ['node_modules/three/build/three.core.min.js', 'three/0.185.1/three.core.min.js'],
   ['node_modules/dompurify/dist/purify.min.js', 'dompurify/3.4.13/purify.min.js'],
   /*
    * Variable upright latin faces. One file per family covers every weight the

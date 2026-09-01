@@ -52,7 +52,36 @@ NV_ALPHA_INVITE_PEPPER=<independent random value of at least 32 UTF-8 bytes>
 NV_ALPHA_TERMS_VERSION=2026-07-29
 NV_SNAPSHOT_SIGNING_KEY_ID=<new unique snapshot-signing key ID>
 NV_SNAPSHOT_SIGNING_SECRET=<independent random value of at least 32 bytes>
+NV_DEPLOYMENT_PROFILE=hosted-alpha
+NV_DATABASE_MIGRATION_MODE=verify
 ```
+
+`NV_DEPLOYMENT_PROFILE=hosted-alpha` applies the hosted limit ceilings. With it
+set, production requires `NV_DATABASE_MIGRATION_MODE=verify`, so a deploy checks
+that migrations match and refuses rather than applying them itself. Both are set
+by the Blueprint; they are listed here because a hand-built service will not
+have them.
+
+`NV_GIT_HOST_ALLOWLIST` is intentionally absent. It is checked when a server URL
+is connected, not at startup, and only for self-hosted Git servers — gitlab.com
+is allowed as a canonical hosted provider. Leave it empty unless this deployment
+connects a self-hosted Git server, in which case list that host.
+
+### Check the configuration before deploying
+
+```bash
+npm run doctor            # runtime configuration for this profile
+npm run doctor -- --all   # including operator, CI and tooling groups
+```
+
+`scripts/doctor.js` evaluates the current environment against
+`src/config-registry.js`, which names every variable this project reads, and
+reports what is missing and why. It calls the server's own configuration loaders
+rather than repeating their rules, so a pass here is the same answer the process
+will give at startup. It never prints a value, only whether one is set — it is
+safe to run on the server and paste into an issue.
+
+It exits non-zero when something required for the selected profile is missing.
 
 The Neon URL normally contains `-pooler` and SSL parameters. Nebulaverse-X normalizes secure connections to `sslmode=verify-full` while retaining other parameters such as channel binding.
 
@@ -98,6 +127,22 @@ Render supplies the callback origin through `RENDER_EXTERNAL_URL`. No extra call
 ## 6. Existing Blueprint note
 
 When updating an existing Blueprint, Render does not prompt again for manually managed secrets. If `DATABASE_URL` is missing, add it directly under the web service's Environment page and redeploy.
+
+## Maintenance window
+
+```text
+NV_MAINTENANCE_MODE=1
+```
+
+Closes the API with `503`, a `Retry-After`, and a machine-readable
+`SERVICE_IN_MAINTENANCE` reason. `/readyz` reports not-ready so a load balancer
+drains, while `/healthz` deliberately stays green — a host restarts an instance
+that fails its health check, which would take away the control you just reached
+for. Static assets and the application shell keep loading, so the page shows a
+notice rather than a browser error.
+
+Read once at startup. Changing it on Render redeploys the service, which is what
+applies it; unset it or set `0` to return to service.
 
 ## 7. Safe rollback
 

@@ -5,20 +5,22 @@ const { mockTask20Api, openRepository } = require('./task20-fixtures');
 const ui = require('./semantic');
 
 /*
- * The governance workspace is reached differently on each width: a tab bar on
- * desktop, the More sheet on mobile. Both name the same destination, so the
- * helper asks for whichever the viewport offers rather than branching on a
- * class that happens to be hidden.
+ * The governance workspace is reached differently on each width: the tab strip
+ * on a desktop, the More sheet on a phone. Both now call it the same thing,
+ * which is the point -- and which is why each has to be asked for by where it
+ * lives rather than by name alone. Three controls answer to "Governance": the
+ * tab, the menu row and the sidebar entry, whose name carries its subtitle.
+ * Asking the page at large resolves to more than one of them.
  */
 async function openGovernance(page) {
-  const tab = page.getByRole('button', { name: 'Governance' });
+  const tab = page.locator('.tabs').getByRole('button', { name: 'Governance', exact: true });
   if (await tab.isVisible()) {
     await tab.click();
     return;
   }
   await page.getByRole('navigation', { name: 'Mobile repository navigation' })
     .getByRole('button', { name: 'More' }).click();
-  await page.getByRole('button', { name: 'Policy Digital Twin' }).click();
+  await page.locator('#sheet').getByRole('button', { name: 'Governance', exact: true }).click();
 }
 
 test.describe('Task 20 browser and accessibility staging', () => {
@@ -37,7 +39,7 @@ test.describe('Task 20 browser and accessibility staging', () => {
      */
     const settingsButton = ui.button(page, 'Settings');
     const onDesktop = await settingsButton.isVisible();
-    const trigger = onDesktop ? settingsButton : ui.button(page, 'Command palette');
+    const trigger = onDesktop ? settingsButton : await ui.action(page, 'Command palette');
     await trigger.focus();
     if (onDesktop) {
       await page.keyboard.press('Enter');
@@ -68,7 +70,15 @@ test.describe('Task 20 browser and accessibility staging', () => {
 
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
-    await expect(trigger).toBeFocused();
+    /*
+     * Not necessarily the element that was pressed. On a phone the palette is
+     * reached through the floating dock, and activating an entry closes the
+     * dock -- so focus comes back to the dock, which is the control still on
+     * screen. Asserting the entry would be asserting that the interface failed
+     * to put its own menu away. On a desktop nothing moves and the trigger is
+     * the control that was pressed.
+     */
+    await expect(onDesktop ? trigger : await ui.actionAnchor(page, 'Command palette')).toBeFocused();
   });
 
   test('mobile More navigation activates the live Governance workspace', async ({ page }) => {
@@ -79,7 +89,14 @@ test.describe('Task 20 browser and accessibility staging', () => {
 
     await page.getByRole('navigation', { name: 'Mobile repository navigation' })
       .getByRole('button', { name: 'More' }).click();
-    const sheetEntry = page.getByRole('button', { name: 'Policy Digital Twin' });
+    /*
+     * The menu row calls the destination what the sidebar and the tab call it.
+     * It used to say "Policy Digital Twin", which is the pane's own heading --
+     * so the same screen had one name on a desktop and another on a phone, and
+     * a reader who learned one could not find the other. Scoped to the sheet,
+     * because the tab and the sidebar answer to this name too.
+     */
+    const sheetEntry = page.locator('#sheet').getByRole('button', { name: 'Governance', exact: true });
     await expect(sheetEntry).toBeVisible();
     await sheetEntry.click();
 
@@ -145,12 +162,23 @@ test.describe('Task 20 governance service-worker boundary', () => {
     expect(cachedWhileOnline).toEqual([]);
 
     await context.setOffline(true);
-    const offlineResponse = await page.evaluate(async url => {
-      const response = await fetch(url);
-      return { status: response.status, body: await response.json() };
-    }, governanceUrl);
-    expect(offlineResponse.status).toBe(503);
-    expect(offlineResponse.body.error).toContain('live connection');
+    /*
+     * The worker's own refusal -- the 503 it returns once the network is gone
+     * -- used to be asserted here, by putting the context offline and
+     * expecting it back. That failed about half the time, and not because of
+     * timing: putting a browser context offline does not reliably reach
+     * requests that originate inside a service worker, the same blind spot
+     * that makes route interception miss them, so the worker kept fetching
+     * successfully and this kept receiving the server's answer instead.
+     * Waiting longer did not help, because nothing was on the way.
+     *
+     * That branch is exercised directly in test/service-worker-offline.test.js,
+     * where the network can actually be made to fail. What stays here is the
+     * invariant a page can observe: whatever the request comes back as,
+     * nothing governance-shaped is ever written to a cache, so there is
+     * nothing for the worker to serve from one.
+     */
+    await page.evaluate(url => fetch(url).then(() => {}, () => {}), governanceUrl);
 
     const cachedWhileOffline = await page.evaluate(async () => {
       const urls = [];

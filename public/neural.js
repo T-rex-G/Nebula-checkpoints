@@ -5,7 +5,7 @@
 'use strict';
 (() => {
   const TYPE_STYLE = {
-    repo:          { color: '#9a8cff', glyph: '✦', radius: 22, label: 'Repository' },
+    repo:          { color: '#9a8cff', mark: 'star', radius: 22, label: 'Repository' },
     user:          { color: '#f3f5ff', glyph: 'U', radius: 13, label: 'Identity' },
     session:       { color: '#61d8ff', glyph: 'S', radius: 11, label: 'Session' },
     branch:        { color: '#63a8ff', glyph: 'B', radius: 12, label: 'Branch' },
@@ -16,15 +16,88 @@
     release:       { color: '#49d9ad', glyph: 'R', radius: 11, label: 'Release' },
     workflow:      { color: '#55d7f4', glyph: 'W', radius: 11, label: 'Workflow' },
     package:       { color: '#b795ff', glyph: 'D', radius: 10, label: 'Dependency' },
-    vulnerability: { color: '#ff5470', glyph: '!', radius: 13, label: 'Vulnerability' },
-    protected:     { color: '#38e0c8', glyph: 'L', radius: 12, label: 'Protected asset' },
-    snapshot:      { color: '#5c9fff', glyph: '↺', radius: 13, label: 'Recovery snapshot' },
-    safety:        { color: '#ff6d8d', glyph: '◆', radius: 13, label: 'Safety control' },
+    vulnerability: { color: '#F43F6E', glyph: '!', radius: 13, label: 'Vulnerability' },
+    protected:     { color: '#22D3EE', glyph: 'L', radius: 12, label: 'Protected asset' },
+    snapshot:      { color: '#5c9fff', mark: 'restore', radius: 13, label: 'Recovery snapshot' },
+    safety:        { color: '#ff6d8d', mark: 'shield', radius: 13, label: 'Safety control' },
     external:      { color: '#ff7469', glyph: 'X', radius: 12, label: 'External destination' },
-    scan:          { color: '#50e6c2', glyph: '✓', radius: 12, label: 'Security scan' },
+    scan:          { color: '#50e6c2', mark: 'check', radius: 12, label: 'Security scan' },
     credential:    { color: '#ffd166', glyph: 'K', radius: 12, label: 'Deploy credential' },
     integration:   { color: '#ff8fab', glyph: 'H', radius: 12, label: 'Webhook integration' }
   };
+
+  /*
+   * Four node types are drawn rather than typed.
+   *
+   * Every other type is a single letter, set in Public Sans. These four were
+   * a sparkle, a restoring turn, a diamond and a check -- characters that
+   * Public Sans does not carry, so they fell through the stack to whatever
+   * font on the machine happened to have them. Two typefaces on one graph, at
+   * two optical weights, decided by the viewer's system.
+   *
+   * Drawn as paths they are the same on every machine, and they still read at
+   * these radii (9 to 22) where a detailed icon would not. The letters stay
+   * letters: at this size a legible initial beats a smudged picture.
+   */
+  /*
+   * The same four marks for the inspector, which is DOM rather than canvas.
+   * Node types that carry a letter keep it; the drawn ones get the drawing,
+   * so the panel and the graph agree about what a node looks like.
+   */
+  const INSPECTOR_MARK = Object.freeze({
+    star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="M12 3.4c.6 3.6 1.8 5.4 5.4 6.6-3.6 1.2-4.8 3-5.4 6.6-.6-3.6-1.8-5.4-5.4-6.6 3.6-1.2 4.8-3 5.4-6.6z"/></svg>',
+    restore: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 12a7.2 7.2 0 1 0 2.1-5.1"/><path d="M4.8 6.2v5.1h5.1"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l7 2.9v5.1c0 4.2-2.9 7.6-7 8.9-4.1-1.3-7-4.7-7-8.9V6.5z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.4 12.4l4.2 4.2 9-9.2"/></svg>'
+  });
+
+  function nodeBadge(node) {
+    if (node.mark && INSPECTOR_MARK[node.mark]) return INSPECTOR_MARK[node.mark];
+    return nEsc(node.glyph || '');
+  }
+
+  function drawNodeMark(ctx, mark, x, y, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.lineWidth = Math.max(1, size * 0.16);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = ctx.fillStyle;
+    const u = size / 2;
+    ctx.beginPath();
+    if (mark === 'star') {
+      /* The brand's four-point mark, filled so the hub reads as solid. */
+      ctx.moveTo(0, -u);
+      ctx.quadraticCurveTo(u * 0.2, -u * 0.2, u, 0);
+      ctx.quadraticCurveTo(u * 0.2, u * 0.2, 0, u);
+      ctx.quadraticCurveTo(-u * 0.2, u * 0.2, -u, 0);
+      ctx.quadraticCurveTo(-u * 0.2, -u * 0.2, 0, -u);
+      ctx.fill();
+    } else if (mark === 'restore') {
+      ctx.arc(0, 0, u * 0.78, Math.PI * 0.55, Math.PI * 2.15);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-u * 0.78, -u * 0.32);
+      ctx.lineTo(-u * 0.78, u * 0.2);
+      ctx.lineTo(-u * 0.24, u * 0.2);
+      ctx.stroke();
+    } else if (mark === 'shield') {
+      ctx.moveTo(0, -u);
+      ctx.lineTo(u * 0.82, -u * 0.55);
+      ctx.lineTo(u * 0.82, u * 0.12);
+      ctx.quadraticCurveTo(u * 0.82, u * 0.76, 0, u);
+      ctx.quadraticCurveTo(-u * 0.82, u * 0.76, -u * 0.82, u * 0.12);
+      ctx.lineTo(-u * 0.82, -u * 0.55);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (mark === 'check') {
+      ctx.moveTo(-u * 0.72, 0);
+      ctx.lineTo(-u * 0.16, u * 0.56);
+      ctx.lineTo(u * 0.76, -u * 0.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   const MODE_TYPES = {
     security: new Set(['repo', 'user', 'session', 'branch', 'commit', 'workflow', 'protected', 'package', 'vulnerability', 'safety', 'snapshot', 'external', 'credential', 'integration']),
@@ -120,7 +193,7 @@
     const st = TYPE_STYLE[type] || TYPE_STYLE.repo;
     const node = {
       id, type, label: String(label || id), meta, severity,
-      color: st.color, glyph: st.glyph, r: st.radius,
+      color: st.color, glyph: st.glyph, mark: st.mark, r: st.radius,
       x: 0, y: 0, vx: 0, vy: 0, fixed: type === 'repo',
       visible: true, match: false, activity: 0
     };
@@ -735,7 +808,7 @@
   }
 
   function drawEdge(ctx, edge, p1, p2, now, selected, dim) {
-    const sevColor = edge.severity === 'critical' ? '#ff5470' : edge.severity === 'warning' ? '#ffbd59' : '#7c8fbf';
+    const sevColor = edge.severity === 'critical' ? '#F43F6E' : edge.severity === 'warning' ? '#F59E0B' : '#7c8fbf';
     const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
     const dx = p2.x - p1.x, dy = p2.y - p1.y;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -767,7 +840,7 @@
     let radius = node.r * NVN.zoom;
     radius = clamp(radius, node.type === 'repo' ? 16 : 7, node.type === 'repo' ? 31 : 19);
     if (hover || selected || eventHot) radius *= 1.14;
-    const severityColor = node.severity === 'critical' ? '#ff5470' : node.severity === 'warning' ? '#ffbd59' : node.color;
+    const severityColor = node.severity === 'critical' ? '#F43F6E' : node.severity === 'warning' ? '#F59E0B' : node.color;
     ctx.save();
     ctx.globalAlpha = dim ? .14 : 1;
     const auraR = radius * (selected ? 3.0 : node.severity === 'critical' ? 2.5 : 2.0);
@@ -785,7 +858,14 @@
     ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0; ctx.strokeStyle = selected ? '#fff' : hexAlpha(severityColor, .62); ctx.lineWidth = selected ? 1.8 : .75; ctx.stroke();
     ctx.fillStyle = node.type === 'repo' ? '#fff' : 'rgba(255,255,255,.9)';
-    ctx.font = `${Math.max(7, radius * .57)}px 'Public Sans Variable', system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(node.glyph, p.x, p.y + .3);
+    if (node.mark) drawNodeMark(ctx, node.mark, p.x, p.y, radius * 1.02);
+    else if (node.glyph) {
+      ctx.font = `${Math.max(7, radius * .57)}px 'Public Sans Variable', system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(node.glyph, p.x, p.y + .3);
+    }
+    /* A node with neither is drawn as the plain sphere it already is. Passing an
+     * absent glyph to fillText paints the word "undefined" inside the node,
+     * which is how this was found. */
     const shouldLabel = selected || hover || eventHot || node.type === 'repo' || node.match || (NVN.zoom > 1.18 && radius > 8);
     if (shouldLabel) drawNodeLabel(ctx, node, p, radius, dim);
     ctx.restore();
@@ -902,6 +982,110 @@
     return best;
   }
 
+  /*
+   * Enlarge the graph.
+   *
+   * The stage shares its row with a rail and an inspector, and on a phone it is
+   * a few hundred pixels tall, so a graph of any size is read through a
+   * letterbox. Expanding is done in CSS rather than through the Fullscreen API
+   * because element fullscreen does not exist on iOS Safari, and a control that
+   * works on three platforms out of four is worse than one that works
+   * everywhere.
+   *
+   * The stage is already watched by a ResizeObserver, so the canvas resizes
+   * itself; this only has to re-fit the graph into the space it just gained.
+   */
+  function stageExpanded() {
+    return document.body.classList.contains('neural-stage-expanded');
+  }
+
+  /*
+   * The modes, filters and response controls live in a rail beside the stage.
+   * Enlarging the stage covers that rail, so changing intelligence mode would
+   * have meant collapsing, changing, and enlarging again -- three steps to do
+   * the thing the enlarged view exists for.
+   *
+   * The rail is moved into the stage rather than duplicated inside it. One set
+   * of controls keeps one set of listeners and one source of truth; a second
+   * copy would need its own wiring and would drift out of step with the first.
+   */
+  let _railHome = null;
+  function dockRail(intoStage) {
+    const rail = document.getElementById('neuralRail');
+    const stage = document.getElementById('neuralStage');
+    if (!rail || !stage) return;
+    if (intoStage) {
+      if (!_railHome) {
+        _railHome = document.createComment('neural-rail-home');
+        rail.parentNode.insertBefore(_railHome, rail);
+      }
+      stage.appendChild(rail);
+      rail.classList.add('is-docked');
+    } else if (_railHome && _railHome.parentNode) {
+      _railHome.parentNode.insertBefore(rail, _railHome);
+      rail.classList.remove('is-docked');
+    }
+  }
+
+  function panelOpen() {
+    const stage = document.getElementById('neuralStage');
+    return !!stage && stage.classList.contains('panel-open');
+  }
+
+  function setPanelOpen(open) {
+    const stage = document.getElementById('neuralStage');
+    const button = document.getElementById('neuralPanelBtn');
+    if (!stage) return;
+    stage.classList.toggle('panel-open', open);
+    if (button) {
+      button.setAttribute('aria-pressed', open ? 'true' : 'false');
+      const label = open ? 'Hide modes and filters' : 'Modes and filters';
+      button.setAttribute('aria-label', label);
+      button.setAttribute('title', label);
+    }
+    /* The graph loses or regains width beside the panel on a wide screen. */
+    requestAnimationFrame(() => requestAnimationFrame(() => fitGraph(true)));
+  }
+
+  function setStageExpanded(expanded) {
+    const stage = document.getElementById('neuralStage');
+    const button = document.getElementById('neuralExpandBtn');
+    if (!stage || stageExpanded() === expanded) return;
+    document.body.classList.toggle('neural-stage-expanded', expanded);
+    stage.classList.toggle('is-expanded', expanded);
+    dockRail(expanded);
+    /* Room decides the default: a wide screen can hold the panel and the graph
+     * at once, a phone cannot, and the point of enlarging there was the room. */
+    setPanelOpen(expanded && window.matchMedia('(min-width: 900px)').matches);
+    if (button) {
+      button.setAttribute('aria-pressed', expanded ? 'true' : 'false');
+      const label = expanded ? 'Return the graph to the page' : 'Enlarge the graph';
+      button.setAttribute('aria-label', label);
+      button.setAttribute('title', label);
+    }
+    /* The canvas is resized by the observer; the graph still has to be re-fitted
+     * into the space, and one frame later so the new size is measured. */
+    requestAnimationFrame(() => requestAnimationFrame(() => fitGraph(true)));
+    if (!expanded && button) button.focus();
+  }
+
+  function wireStageExpansion() {
+    const button = document.getElementById('neuralExpandBtn');
+    if (!button || button.dataset.wired === '1') return;
+    button.dataset.wired = '1';
+    button.addEventListener('click', () => setStageExpanded(!stageExpanded()));
+    document.getElementById('neuralPanelBtn')?.addEventListener('click', () => setPanelOpen(!panelOpen()));
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !stageExpanded()) return;
+      /* A modal opened over the expanded stage owns Escape first. */
+      if (document.querySelector('.scrim:not([hidden])')) return;
+      event.preventDefault();
+      /* Escape backs out one step at a time: the panel, then the enlargement. */
+      if (panelOpen()) setPanelOpen(false);
+      else setStageExpanded(false);
+    });
+  }
+
   function fitGraph(animateFit = true) {
     const nodes = visibleNodes(); if (!nodes.length) return;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -937,7 +1121,7 @@
     const desc = node.meta.description || inspectorDescription(node);
     host.innerHTML = `
       ${node.severity === 'critical' ? '<div class="neural-report-banner"><b>Immediate attention recommended</b><p>This node participates in a critical security or operational signal.</p></div>' : ''}
-      <div class="neural-inspector-head"><div class="neural-node-icon" style="color:${nEsc(node.color)}">${nEsc(node.glyph)}</div><div><h3>${nEsc(node.label)}</h3><p>${nEsc(st.label)}</p></div></div>
+      <div class="neural-inspector-head"><div class="neural-node-icon" style="color:${nEsc(node.color)}">${nodeBadge(node)}</div><div><h3>${nEsc(node.label)}</h3><p>${nEsc(st.label)}</p></div></div>
       <span class="neural-risk-pill ${nEsc(node.severity)}">${node.severity === 'critical' ? '● Critical signal' : node.severity === 'warning' ? '● Review recommended' : '● Normal signal'}</span>
       <p class="neural-inspector-copy">${nEsc(desc)}</p>
       <div class="neural-inspector-grid">${metaPairs.map(([k, v]) => `<div class="neural-inspector-stat"><span>${nEsc(k.replace(/([A-Z])/g, ' $1'))}</span><b>${nEsc(short(v, 34))}</b></div>`).join('')}</div>
@@ -1135,6 +1319,9 @@
       const b = e.target.closest('[data-neural-mode]'); if (!b) return;
       NVN.mode = b.dataset.neuralMode;
       document.querySelectorAll('[data-neural-mode]').forEach(x => x.classList.toggle('active', x === b));
+      /* On a narrow screen the panel covers most of the graph, so choosing a
+       * mode gets out of the way to show its result. */
+      if (panelOpen() && !window.matchMedia('(min-width: 900px)').matches) setPanelOpen(false);
       applyMode(); fitGraph(true);
     });
     document.querySelectorAll('[data-neural-filter]').forEach(cb => cb.addEventListener('change', () => { NVN.filters[cb.dataset.neuralFilter] = cb.checked; applyMode(); }));
@@ -1145,6 +1332,7 @@
     document.getElementById('neuralLiveBtn')?.addEventListener('click', liveConnectionFlow);
     document.getElementById('neuralRefreshBtn')?.addEventListener('click', () => load(true));
     document.getElementById('neuralFitBtn')?.addEventListener('click', () => fitGraph(true));
+    wireStageExpansion();
     document.getElementById('neuralPlayBtn')?.addEventListener('click', togglePause);
     document.getElementById('neuralExplainBtn')?.addEventListener('click', explainFromSelected);
     document.getElementById('neuralDemoBtn')?.addEventListener('click', () => injectDemo(false));
@@ -1167,8 +1355,11 @@
   function togglePause() {
     NVN.paused = !NVN.paused;
     const b = document.getElementById('neuralPlayBtn'); if (b) b.innerHTML = NVN.paused
-      ? '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="currentColor" stroke="none"/></svg>'
-      : '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg>';
+      /* nt-filled: these two are solid shapes, and the tool stylesheet strokes
+       * every other icon. Rebuilding this markup without the class is how the
+       * play control would quietly become an outline after the first toggle. */
+      ? '<svg class="nt-filled" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="currentColor" stroke="none"/></svg>'
+      : '<svg class="nt-filled" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg>';
     setStream(NVN.paused ? 'PAUSED' : 'LIVE TOPOLOGY', !NVN.paused); updateVisibleCount();
   }
 
@@ -1389,8 +1580,15 @@
       if (NVN.active && !NVN.paused && document.visibilityState === 'visible' && typeof currentTab === 'function' && currentTab() === 'neural') load(true);
     }, 120000);
   }
+  function collapseStageOnLeave() {
+    /* Leaving the destination while expanded would leave a fixed overlay and a
+     * locked page behind it. */
+    if (stageExpanded()) setStageExpanded(false);
+  }
+
   function deactivate() {
     NVN.active = false;
+    collapseStageOnLeave();
     stopLoop();
     clearInterval(NVN.refreshTimer);
     NVN.refreshTimer = 0;

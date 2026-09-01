@@ -2,6 +2,267 @@
 
 ## Unreleased
 
+### Uploads and the Neural graph
+
+- Fixed a zip of more than a hundred files failing after all the work rather
+  than before it. The browser accepted up to 500 extracted files and queued them
+  as one batch; the server commits at most 100 operations at once, so every blob
+  uploaded first and the commit was refused at the end. The queue is now planned
+  before anything leaves the browser: a queue that fits is one commit and says
+  so, a queue that does not is offered as the several atomic commits it really
+  takes, and neither is started without the choice being made. A run that stops
+  part-way reports which parts landed, because those commits are on the branch
+  whatever happens next.
+- Added `public/upload-planning.js` with the browser's copy of the batch limit,
+  held equal to the server's `file.batch` contract by a test that also asserts
+  the server refuses one operation beyond it — a number that merely matches
+  another number is not a limit.
+- The zip error no longer calls 500 the batch limit; 500 is what can be
+  extracted at once.
+- Verified that zip and folder uploads keep their structure: nested paths are
+  normalised by the archive guard, backslashes from a Windows zip included, and
+  land at the same relative path under the destination folder.
+- Added an enlarge control to the Neural graph. The stage shares a row with a
+  rail and an inspector, and is a few hundred pixels tall on a phone, so a graph
+  of any size was read through a letterbox — 635×694 on a desktop and 370×426 on
+  a phone, now the whole viewport in both. Expansion is CSS rather than the
+  Fullscreen API because element fullscreen does not exist on iOS Safari. The
+  shell steps aside while expanded, which is both the focused mode this wants
+  and the only reliable way to do it: the bottom navigation painted over the
+  stage regardless of stacking order, and raising the stage to `z-index: 999`
+  did not change which element won the hit test.
+- The filter checkbox is now built from the supplied reference rather than
+  reinterpreted from it: a transparent glass body whose colour is entirely inset
+  shadow forming a lit rim, a white shape behind it that morphs from a rounded
+  square to a narrow bar, the sparkle highlight and the cast shadow. Everything
+  in the reference is expressed in em, so one font-size scales the whole control
+  to the 24px pointer target WCAG 2.5.8 asks for.
+- One deviation, stated rather than hidden: the reference's rim colours clear
+  3:1 against a dark panel and, for red, against a light one — 3.69 and 5.00 —
+  but its green measures 1.83 against this app's near-white light theme. That
+  single lightness drops from 45% to 34% in the light theme and nothing else
+  changes. Removing that one line fails the guard by name.
+- The signal filters are one control again, not three. Colouring each checkbox
+  by its severity made three rows read as three different kinds of control when
+  the only thing varying between them is on or off; the label and the key dot
+  beside it already say which signal a row is about. One design now — a hollow
+  ring when muted, a filled accent orb when live — and the severity dot is back
+  beside each label, keyed to the colour the graph draws that signal in. It was
+  removed in the first attempt at this, which was never something that had been
+  asked for.
+- Rebuilt the signal filter controls twice. The first attempt kept the sphere
+  soft and low-contrast, which vanished at 24px and left the muted state as a
+  muddy blob; rendering it beside the reference at matched size made that
+  obvious in a way looking at it alone had not. The shipped control is a hollow
+  ring in the signal's colour when muted and a filled, rim-lit orb when live —
+  a silhouette difference that survives the size the control is actually used
+  at.
+- Fixed the muted ring failing WCAG 1.4.11. The ring is the control's visible
+  boundary, so it owes 3:1 against its panel, and at the opacity it started on
+  it gave 2.65, 4.01 and 4.59 in the dark theme and 2.27, 1.58 and 1.45 in the
+  light one. The accessibility audit reported zero findings throughout: axe has
+  no way to know a CSS ring is what marks a control. Rings are full strength
+  now, with amber and cyan darkened for the light theme, and a browser test
+  measures the composited colour against the painted panel in both themes.
+- Rebuilt the signal filter controls. The severity swatch and the checkbox were
+  two objects saying related things — a 7px dot for which signal this is, and a
+  stock checkbox for whether it is on — so they are one object now: an orb in
+  the signal's own colour that lights when the filter is live. A native checkbox
+  at 24px is a blunt square whatever `accent-color` it is given, so the control
+  is rebuilt rather than tinted. State never rests on colour alone: the centre
+  mark changes shape as well as brightness, a dot while the signal is live and a
+  dash once it is muted. The 24px pointer target and the focus ring both
+  survive, which the accessibility audit and a browser guard now hold.
+- The enlarged graph keeps the controls that decide what it shows. The modes,
+  filters and response controls live in a rail beside the stage, and enlarging
+  covered it, so changing intelligence mode meant collapsing, changing and
+  enlarging again — three steps to do the thing the enlarged view exists for.
+  The rail is now moved into the stage rather than copied into it: one set of
+  controls, one set of listeners, nothing to drift. A panel control shows and
+  hides it, open by default where there is room for both and closed on a phone
+  where there is not, and Escape backs out one step at a time.
+- Docked, the rail is a tall panel rather than the cramped strip it is above the
+  graph on a phone, so it stops dropping things there: the modes get one column
+  and their full labels back, and the signal filters appear, which a phone
+  otherwise never gets at all.
+- Fixed two of the graph's tool buttons drawing nothing in dark mode. Nothing
+  styled the icons inside `.neural-tool`, so a bare `<svg><path>` fell back to
+  the SVG default of a black fill and no stroke: invisible against the dark
+  button, and a filled smudge instead of an outline against the light one. It
+  read as a dark-mode bug because that is where it disappears, but both themes
+  were wrong. Tool icons are now stroked in the button's own colour, and the one
+  solid icon keeps its fill through a class the pause control also writes into
+  the markup it rebuilds.
+- Centred the tool icons. The buttons never centred their contents, so every
+  icon sat on the text baseline 1.5px above the middle of its own button and the
+  single text glyph among them centred differently again. All five now measure
+  zero offset in both themes.
+- Gave the enlarge control its own icon. It had been drawn as outward corner
+  brackets, which is what the fit control beside it already used.
+- Fixed the repository, snapshot, safety and scan nodes rendering the word
+  "undefined" in the middle of the node. Those four were moved from a typed
+  character to a drawn mark, and the node builder was left copying only the
+  character, so they reached the canvas with neither and `fillText(undefined)`
+  painted the word — on the repository itself, the largest node on screen. The
+  builder now carries the mark, an absent glyph is never drawn, and a guard
+  holds both halves.
+
+### Safe Passage
+
+- Added a `protected-paths-review` template, "Protected sensitive paths (review
+  required)", beside the deny posture. The same patterns, held for review on the
+  repository's default branch rather than refused everywhere, which is what
+  leaves a route to a pull request open. A protected-path declaration can now
+  name the branch it applies to, and the expansion states that scope as a limit:
+  the same change on another branch is not gated, and that is the point rather
+  than an oversight.
+- The review template also holds `pull.merge` for approval. Without it the route
+  out of a refusal would end at a pull request the same person could merge,
+  which would make "needs approval" mean "open a pull request and merge it
+  yourself". The guard asserts the merge is gated, and removing that rule fails
+  it.
+- Where the default branch cannot be resolved, the review template generates no
+  path rules and reports `default-branch-unresolved` rather than falling back to
+  an unscoped requirement. An unscoped requirement would read as stronger
+  protection while quietly removing the route to review.
+
+- A write refused because it needs approval now carries the route to approval
+  instead of ending at a dead end. The gateway is the only place still holding
+  the whole attempt when it refuses, so it is the only place that can hand back
+  a branch, a commit and a pull request into the branch that refused the change.
+  The cost of a refusal — reconstructing the compliant route by hand — is why
+  enforcement gets configured and never switched on.
+- A route is offered only after every step of it has been put to the same active
+  policy set that refused the original, and only when the policy allows all
+  three. Effective effect is checked alongside enforcement outcome, so a step is
+  permitted because policy permits it rather than because enforcement happens to
+  be off. A `deny` has no compliant route by definition and is never given one:
+  under a blanket deny the branch write is refused too, which the guard asserts.
+- Added `GovernanceStore.resolveActivePolicySetInScope`, a read-only resolver.
+  Asking the runtime evaluator whether a route is permitted would append a
+  decision to the hash-chained ledger for a mutation nobody performed, so the
+  policy set is read in a read-only transaction and judged by the pure
+  evaluator. The contract guard slices that method out of the source and asserts
+  it contains no insert, update, delete, advisory lock or decision identifier.
+- The offer commits to the exact bytes by hash and carries none of them:
+  content in an error response is content in a log. The branch is derived from
+  the base branch, the path and that hash, so the same change refused twice is
+  offered the same branch rather than scattering new ones.
+- Taking the route uses the ordinary governed endpoints — branch create, file
+  write, pull create — rather than a new privileged path, because the safest
+  version of "never a bypass" is not adding a door at all. It is offered, never
+  taken automatically, and the editor is left untouched afterwards: the change
+  is on another branch, and marking the file clean here would be a comfortable
+  lie.
+- A step that cannot be evaluated is reported as unevaluated rather than as
+  refused. Both mean no route, but only one is a policy decision, and telling an
+  operator their policy refused something it never saw sends them looking for a
+  rule that does not exist.
+
+### Protected Paths
+
+- Fixed the coverage of path-scoped policy rules. A rule reaches only the paths
+  a mutation reports about itself, and three actions reported one:
+  `file.rename` reported `from` and `to`, `directory.move` the same,
+  `commit.restore-paths` a prefix, and `file.batch` reported item counts and
+  hashes but no paths at all, though `normalizeFileBatch` had the whole list in
+  hand at that moment. A rule protecting `.github/workflows/**` therefore
+  stopped a write and a delete and let the same file be renamed away, moved
+  with its directory, or changed inside a batch — and the gateway then recorded
+  an allow, correctly, for a mutation the operator believed was blocked.
+- Added `src/protected-paths.js`. Every content-changing action now reports the
+  complete set of paths it touches together with how completely it knows them:
+  `exact` for a set that is all of them, `subtree` for a root whose members are
+  not knowable when the gateway decides, and `unbounded` for `commit.revert`,
+  `commit.restore` and `branch.reset`, which can rewrite anything and so
+  describe themselves as such rather than claiming a narrow set. A path that
+  cannot be normalised stops the set claiming to be exact instead of being
+  dropped from it, and a set too large for the governance envelope is refused
+  with `MUTATION_PATH_SET_TOO_LARGE` rather than trimmed to fit.
+- Added a `protected-paths` policy template, "Protected sensitive paths",
+  beside the existing baselines. One declared pattern expands deterministically
+  into a rule for every action that can change a path, including the
+  directories that hold it — a file under `.github/workflows` travels with a
+  move of `.github`, so protecting the file means covering its ancestors too.
+  The expansion reports what it could not narrow rather than leaving it to be
+  discovered, and the generated document states that it records and does not
+  block until the policy is activated in warn or block mode.
+- The generated-baseline dialog now shows the policy's own description as
+  prose above the JSON, with its rule count and enforcement mode. A baseline
+  can run to hundreds of rules, and the sentence that matters most should not
+  have to be found inside them.
+
+### Interface Correctness and Configuration Discoverability
+
+- Fixed a defect that emptied the workbench from a link. `switchTab` marks the
+  chosen tab by toggling `active` against every tab and pane, so a name matching
+  no tab did not select nothing, it deselected everything. Deep links carry that
+  name straight from the URL, and `/files` — the route form this project's own
+  browser tests used to enter the workbench — is one of those names, so ten
+  tests had been asserting around an empty screen. Both halves are guarded.
+- Replaced the workbench tab strip's horizontal scroll with a wrap. Ten
+  destinations wanted 944px in an 835px box, leaving Governance showing 17px of
+  its 120 underneath the 18px fade meant to advertise it; the earlier edge fade
+  worked as a mechanism and did not solve the problem. The guard now asserts the
+  outcome — every tab inside the strip — rather than the apparatus.
+- Put the trust summary behind a disclosure below 900px. Five fields of prose
+  drew 393px of an 820px screen and pushed the editor's empty state under the
+  bottom navigation. The rollup keeps every evidence state on screen, counted
+  and named for the weakest present; only the prose costs a tap.
+- Made an empty repository stop instructing the reader to pick a file from a
+  tree that has none.
+- Replaced typed Unicode glyphs with drawn marks across the file tree, the five
+  evidence states, six empty states, the five intelligence modes and the
+  governance state orbs. A file in the tree had been U+00B7 — a period — at 15px
+  in the muted colour. The evidence states became one family of circles rather
+  than five unrelated shapes, which also freed the shield for Governance alone.
+- Rebuilt the Emergency Shield control on the danger palette. It ran a gradient
+  from rose to brand violet, the only one in the product crossing hues, and its
+  rose was the literal dark-theme value, so in light mode this one control
+  painted from the wrong palette.
+
+### Accessibility Conformance
+
+- Added `scripts/accessibility-audit.js` (`npm run a11y:audit`), which walks
+  both themes, both viewports and all ten workbench destinations, keeps findings
+  at every impact, and checks pointer target size, focus visibility and reflow.
+  The regression suite checks seven points on the golden path at critical and
+  serious impact in one theme; Neural, Governance and every destination past
+  Editor had never been scanned.
+- Fixed what it found: the neural signal filters were 15px targets 14px apart,
+  too small for WCAG 2.5.8 and too close for its spacing exception; the replay
+  slider input was four pixels tall and eight hundred wide; `.check` boxes were
+  18px; and the intelligence-mode list was 774px of destinations inside a 270px
+  sideways scroller. Governance did not fit a 320px screen once it had to show
+  an error, because `.gov-shell` is a grid whose items keep `min-width:auto` and
+  the message carries an unbreakable URL.
+- The floating action retracts while the reader moves down the page and returns
+  on the way up, near the top, while its menu is open, and on focus. The focus
+  restore is in CSS on `:focus-within` rather than a listener, because a control
+  that can be focused while invisible is a keyboard trap.
+
+### Configuration Discoverability and Maintenance Mode
+
+- Added `src/config-registry.js` and `scripts/doctor.js` (`npm run doctor`).
+  Discovering what a deployment needed meant starting it and reading whichever
+  error came first; 112 environment variables across the server, the operator
+  scripts and the release-authorization gate were named in no single place. The
+  doctor calls the server's own configuration loaders rather than repeating
+  their rules, and never prints a value.
+- `test/config-registry.test.js` checks the registry against the source in both
+  directions and against `render.yaml`, so an entry cannot outlive the code that
+  read it and the blueprint cannot configure something nothing reads.
+- Implemented `NV_MAINTENANCE_MODE`. The blueprint had set it and a contract
+  test had asserted it since it was written, while no code read it — an operator
+  flipping it during an incident would have had a documented switch, a passing
+  test and a fully serving application. It closes the API with 503 and drains
+  readiness while keeping the health check green, because a host recycles an
+  instance that fails health.
+- Corrected `NV_GIT_HOST_ALLOWLIST` in the registry and the doctor. It is
+  checked when a server URL is connected, not at startup, and only for
+  self-hosted Git servers; reporting it as a missing production requirement sent
+  a reader hunting a value they did not need.
+
 ### Continuity State and Release-Identity Correctness
 
 - Added a static identifier-resolution gate (`eslint.config.js`, `no-undef` only)

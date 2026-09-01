@@ -760,3 +760,63 @@ the boundary and a green automated run still cannot hide a failed independent
 review. The cost is that the record no longer proves by construction which
 position the project is in; that now rests on the evidence run identifiers each
 gate carries.
+
+## ADR-084 — A governed mutation declares its whole path set, or declares that it cannot
+
+**Status:** Accepted
+
+**Decision:** Every mutation action that can change repository content reports
+the complete set of paths it touches, together with how completely that set is
+known at the moment the gateway decides: `exact` when it is all of them,
+`subtree` when only the root is knowable, and `unbounded` when the action can
+rewrite any path. A set that cannot be completed is never narrowed to the part
+that is understood — an unnormalisable path downgrades the whole set to
+`unbounded`, and a set too large for the metadata envelope is refused rather
+than trimmed.
+
+**Reason:** A policy rule reaches only the paths a mutation reports about
+itself. Before this, `file.write`, `file.delete` and `file.upload` reported a
+path and the remaining content actions did not, so a rule protecting a path
+stopped a direct write and permitted a rename, a directory move, a batch or a
+restore of the same file. Each of those recorded a truthful allow for a decision
+the rule was never given the chance to make, which is worse than an absent rule:
+the evidence chain reads as though the path were checked.
+
+**Consequence:** A path condition covers every route to the path it names, and
+an action that cannot be narrowed says so where an operator and a policy can
+both see it, instead of being silently exempt. The cost is that a change naming
+more path text than the governance envelope holds is refused and must be split,
+and that protecting one path gates the whole of `commit.revert`,
+`commit.restore` and `branch.reset` for that scope unless the operator
+explicitly declines and accepts the stated gap.
+
+## ADR-085 — A refusal that has a compliant route offers it, and the route is verified against the same policy
+
+**Status:** Accepted
+
+**Decision:** When the central mutation gateway refuses a change because the
+active policy requires approval, the refusal carries a compliant route: a
+derived branch, the same commit, and a pull request into the branch that
+refused it. The route is offered only after every step has been evaluated
+against the same active policy set that refused the original, using the pure
+evaluator over a read-only resolution of that set, and only when the policy
+allows every step. The offer commits to the refused content by hash and carries
+none of it. Taking the route is an explicit act by the caller, performed through
+the ordinary governed endpoints rather than a new privileged one.
+
+**Reason:** A policy that answers "this needs approval" and returns 403 has told
+the truth and discarded the work. The person then rebuilds the compliant route
+by hand, and that cost is why enforcement is configured and left in observe
+mode. The gateway is the only place still holding the whole attempt at the
+moment of refusal.
+
+**Consequence:** A refusal stops costing the work that provoked it, which is
+what makes turning enforcement on affordable. A deny is never routed around: it
+has no permitted route by construction, and this is verified rather than
+promised. The route cannot become a bypass because it is judged by the same
+policy and executed through the same governed endpoints. The costs are that
+only actions whose whole payload is in hand at refusal can be routed —
+`file.write` today, not a streamed upload or a native push — and that a refusal
+carrying a route performs one extra read-only resolution of the active policy
+set, which is why the resolver never writes and a failure to build an offer
+leaves the refusal exactly as it was.

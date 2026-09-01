@@ -115,9 +115,11 @@ const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation'
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
-const { createMutationGateway } = require('./src/mutation-gateway');
+const { createMutationGateway, normalizeMutationDescriptor } = require('./src/mutation-gateway');
 const { createGiteaFileMutationAdapter } = require('./src/provider-file-mutations');
 const { normalizeFileBatch, summarizeBatchItems } = require('./src/mutation-coverage');
+const { pathFactsForAction } = require('./src/protected-paths');
+const { offerSafePassage } = require('./src/safe-passage');
 const { createGovernanceRuntime } = require('./src/governance-enforcement');
 const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
@@ -480,12 +482,44 @@ app.use('/api', (req, res, next) => {
   }
   next();
 });
+/*
+ * Maintenance mode.
+ *
+ * render.yaml has carried NV_MAINTENANCE_MODE since the blueprint was written
+ * and a contract test asserted it was set, but nothing read it: turning it on
+ * did nothing whatsoever. An operator reaching for it during an incident would
+ * have had a documented switch, a passing test, and a fully serving
+ * application.
+ *
+ * What it must not do is take the health check down with it. The host restarts
+ * an instance that fails health, so a maintenance switch that answers 503 to
+ * everything removes the very thing the operator just reached for. Health stays
+ * green and discloses the state; readiness reports not-ready, which is the
+ * honest answer and the one load balancers act on.
+ *
+ * Read once at startup rather than per request: on the hosted platform an
+ * environment change redeploys the service, so there is no state to poll for,
+ * and a per-request read would invite the value to change midway through one.
+ */
+const MAINTENANCE_MODE = /^(1|true|on|yes)$/i.test(String(process.env.NV_MAINTENANCE_MODE || '').trim());
+
 app.get('/healthz', (req, res) => res.json({
   ok: true,
-  service: 'alive',
+  service: MAINTENANCE_MODE ? 'maintenance' : 'alive',
+  maintenance: MAINTENANCE_MODE,
   version: APP_VERSION
 }));
 app.get('/readyz', async (req, res) => {
+  /*
+   * Not ready, deliberately. Readiness is what a load balancer drains on, and
+   * during maintenance draining is exactly the intent -- unlike health, which
+   * has to stay green so the host does not recycle the instance out from under
+   * the operator.
+   */
+  if (MAINTENANCE_MODE) {
+    res.setHeader('Retry-After', '120');
+    return res.status(503).json({ ok: false, service: 'maintenance', maintenance: true });
+  }
   if (!DB_URL) {
     if (HOSTING_PROFILE === 'hosted-alpha') {
       return res.status(503).json({
@@ -548,6 +582,8 @@ const VENDOR_ALLOWLIST = new Set([
   'codemirror/5.65.16/theme/monokai.min.css',
   'codemirror/5.65.16/theme/nord.min.css',
   'marked/15.0.12/marked.min.js',
+  'three/0.185.1/three.module.min.js',
+  'three/0.185.1/three.core.min.js',
   'dompurify/3.4.13/purify.min.js',
   'fonts/archivo-variable-latin.woff2',
   'fonts/public-sans-variable-latin.woff2',
@@ -638,6 +674,23 @@ app.get('/sw.js', (req, res) => {
   res.setHeader('Service-Worker-Allowed', '/');
   res.type('application/javascript').send(renderReleaseTemplate(SW_TEMPLATE));
 });
+/*
+ * Placed after health and readiness and before everything else: those two have
+ * to answer during maintenance, and nothing else may. Static assets are served
+ * below this line so the shell can still render and show the notice rather
+ * than a bare browser error.
+ */
+app.use('/api', (req, res, next) => {
+  if (!MAINTENANCE_MODE) return next();
+  res.setHeader('Retry-After', '120');
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(503).json({
+    error: 'SERVICE_IN_MAINTENANCE',
+    message: 'Nebulaverse-X is in maintenance and is not accepting requests right now.',
+    nextAction: 'Retry once maintenance has finished. No data has been changed by this request.'
+  });
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
@@ -1943,12 +1996,24 @@ async function githubArchiveResponse(acct, owner, repo, ref) {
 }
 const fail = (res, error) => {
   const status = error && error.status >= 400 && error.status < 600 ? error.status : 500;
-  return res.status(status).json(publicErrorBody(error, {
-    correlationId: res.locals.correlationId
-  }));
+  const body = publicErrorBody(error, { correlationId: res.locals.correlationId });
+  /* A refusal that has a compliant route carries it alongside the refusal. The
+   * public error body itself is left exactly as it was. */
+  const passage = error && error.safePassage;
+  return res.status(status).json(passage ? { ...body, safePassage: passage } : body);
 };
 
+/*
+ * Every content-changing action reports the complete set of repository paths it
+ * touches, so a path-scoped policy rule reaches a rename, a batch and a
+ * directory move the same way it reaches a single write. See src/protected-paths.js.
+ */
 function mutationMetadataFor(req, action) {
+  const base = baseMutationMetadataFor(req, action);
+  return { ...base, ...pathFactsForAction(action, base) };
+}
+
+function baseMutationMetadataFor(req, action) {
   const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
   const query = req.query || {};
   const params = req.params || {};
@@ -2047,6 +2112,46 @@ function applyPolicyDecisionHeaders(res, decision) {
   }
 }
 
+/*
+ * When policy refuses a change because it needs approval, offer the route to
+ * approval rather than a dead end. The route is judged by the same active
+ * policy set that just refused the original, read without writing so that no
+ * decision is recorded for a mutation nobody performed.
+ *
+ * This runs on the way to a 403 that is already decided. It must never change
+ * that outcome, so every failure here simply means no offer.
+ */
+async function safePassageFor(req, action, descriptor, error) {
+  try {
+    if (!error || error.code !== 'POLICY_APPROVAL_REQUIRED' || !descriptor) return null;
+    if (action !== 'file.write') return null;
+    const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : null;
+    if (!body || typeof body.content !== 'string') return null;
+    if (!(await dbReady())) return null;
+    const normalized = normalizeMutationDescriptor(descriptor);
+    const resolved = await ensureGovernanceStore().resolveActivePolicySetInScope({
+      scope: normalized.authorization.scope,
+      action: normalized.action
+    });
+    const offer = offerSafePassage({
+      descriptor: normalized,
+      blockCode: error.code,
+      content: body.content,
+      scope: normalized.authorization.scope,
+      activePolicies: resolved.activePolicies,
+      activeExceptions: resolved.activeExceptions,
+      evaluatedAt: resolved.resolvedAt
+    });
+    return offer && offer.available ? offer : null;
+  } catch (offerError) {
+    console.error(JSON.stringify({
+      t: new Date().toISOString(), warn: 'safe passage offer could not be built',
+      action, code: cleanText(String(offerError && offerError.code || 'SAFE_PASSAGE_UNAVAILABLE'), 100)
+    }));
+    return null;
+  }
+}
+
 function mutationContext(action) {
   return async function enterMutationContext(req, res, next) {
     let descriptor;
@@ -2073,8 +2178,12 @@ function mutationContext(action) {
         res.removeListener('close', finish);
         reject(error);
       }
-    })).catch(error => {
-      if (!res.headersSent) return fail(res, error);
+    })).catch(async error => {
+      if (!res.headersSent) {
+        const passage = await safePassageFor(req, action, descriptor, error);
+        if (passage) error.safePassage = passage;
+        return fail(res, error);
+      }
       console.error(JSON.stringify({
         t: new Date().toISOString(), warn: 'mutation gateway context failed after headers',
         action, code: error && error.code || 'MUTATION_GATEWAY_FAILED'

@@ -199,6 +199,66 @@ rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
   delete envelopes['hosted-artifact'].restoreRunnerAttestation.recordSha256;
 });
 
+/*
+ * The restore witness.
+ *
+ * Everything above proves the restore record is internally consistent and
+ * cross-referenced. None of it proves the record came from a real restore: the
+ * runner signs with a key generated and destroyed inside its own job, so that
+ * HMAC is unverifiable here -- the fixture's is the literal string '7' sixty-four
+ * times, and every check above passes on it. The operator's witness is the only
+ * thing standing between "a restore happened" and "the evidence says so".
+ *
+ * Each case below is a way to defeat the witness. All of them must fail.
+ */
+function sha256Stable(value) {
+  const stable = input => {
+    if (Array.isArray(input)) return `[${input.map(stable).join(',')}]`;
+    if (input && typeof input === 'object') {
+      return `{${Object.keys(input).sort().map(key => `${JSON.stringify(key)}:${stable(input[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(input);
+  };
+  return require('crypto').createHash('sha256').update(stable(value), 'utf8').digest('hex');
+}
+{
+  const fixture = createPassFixture();
+  assert.throws(
+    () => verifyQualification(fixture.record, optionsFor(fixture, { restoreWitness: undefined })),
+    error => error && error.code === 'PUBLIC_ALPHA_OPTIONS_INVALID',
+    'a run with no operator witness must not qualify'
+  );
+}
+// A forged restore record: internally coherent, freshly hashed, never witnessed.
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+  const attestation = envelopes['hosted-artifact'].restoreRunnerAttestation;
+  attestation.record.check.restoreEvidenceSha256 = 'c'.repeat(64);
+  envelopes['hosted-artifact'].checks['isolated-database-restore'] = attestation.record.check;
+  attestation.recordSha256 = sha256Stable(attestation.record);
+});
+// A witness for a different restore record.
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', fixture => {
+  fixture.bindings.restoreWitness.restoreRecordSha256 = 'd'.repeat(64);
+});
+// A witness lifted from another run.
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', fixture => {
+  fixture.bindings.restoreWitness.originId = 'workflow-9999-hosted';
+});
+// A witness signed by a key the gate does not trust.
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', fixture => {
+  fixture.bindings.restoreWitness.signature.keyId = 'not-the-operator';
+});
+// A witness whose signature does not verify.
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', fixture => {
+  const forged = Buffer.from(fixture.bindings.restoreWitness.signature.value, 'base64');
+  forged[0] ^= 0xff;
+  fixture.bindings.restoreWitness.signature.value = forged.toString('base64');
+});
+// A witness signed before the restore it claims to have seen.
+rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', fixture => {
+  fixture.bindings.restoreWitness.completedAt = '2026-07-29T00:00:00.000Z';
+});
+
 {
   const fixture = createPassFixture();
   assert.throws(

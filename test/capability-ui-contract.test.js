@@ -52,8 +52,24 @@ function commandObjects(label) {
     .filter(Boolean);
 }
 
+/*
+ * The palette's own entries, told apart from anywhere else in the interface
+ * that offers the same action. Every palette command declares a kind; the
+ * floating action's entries do not. Without that distinction the arrival of a
+ * second placement for "New branch" read as a duplicate palette command, when
+ * what had actually happened is that the action is now reachable from two
+ * places -- which is fine, and is exactly what the check below insists on:
+ * wherever an action is offered, it is gated on the same capability.
+ */
 function commandObject(label) {
-  return uniqueMatch(commandObjects(label), `command ${label}`);
+  const palette = commandObjects(label).filter(entry => /\bkind:\s*'/.test(entry));
+  return uniqueMatch(palette, `palette command ${label}`);
+}
+
+function everyPlacement(label) {
+  const placements = commandObjects(label);
+  assert(placements.length >= 1, `${label} is offered nowhere`);
+  return placements;
 }
 
 assert.deepStrictEqual(commandObjects('Synthetic command that is absent'), []);
@@ -68,7 +84,31 @@ assert(ui.includes('Object.freeze'));
 assert(app.includes('NebulaCapabilityUI.load'));
 assert(app.includes('NebulaCapabilityUI.apply'));
 assert(app.includes('function runCapabilityAction'));
-assert(app.includes("const tabCapability = tab && tab.dataset.feature"));
+/*
+ * switchTab has to gate on the chosen tab's own capability. This used to pin
+ * the exact source line, which broke the moment the function grew a guard for
+ * unknown tab names -- and a literal match cannot tell a refactor from a
+ * regression. Read the function and assert what it must do instead.
+ */
+const switchTabBody = (() => {
+  const start = app.indexOf('function switchTab(');
+  assert(start !== -1, 'switchTab must exist');
+  const open = app.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < app.length; i += 1) {
+    if (app[i] === '{') depth += 1;
+    else if (app[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return app.slice(start, i + 1);
+    }
+  }
+  throw new Error('switchTab body did not close');
+})();
+assert(/dataset\.feature/.test(switchTabBody), 'switchTab must read the tab capability');
+assert(switchTabBody.includes('runCapabilityAction'), 'switchTab must gate on that capability');
+assert(/if \(!tab\) return;/.test(switchTabBody),
+  'switchTab must leave the workbench alone when no tab matches: selection is a toggle ' +
+  'over every tab and pane, so an unknown name deselects all of them');
 assert(html.includes('/capability-ui.js?v=__NV_ASSET_VERSION__'));
 assert(sw.includes('/capability-ui.js?v='));
 assert(!html.includes('data-cap='), 'legacy capability markers must be replaced, not hidden');
@@ -132,8 +172,14 @@ for (const [label, feature] of [
 ]) {
   const command = commandObject(label);
   assert(command, `command ${label} is missing`);
-  assert(command.includes(`feature: '${feature}'`),
-    `command ${label} must map to ${feature}`);
+  /*
+   * Every placement, not just the palette's. An action that is gated in the
+   * palette and ungated in the floating menu is an action with no gate.
+   */
+  for (const placement of everyPlacement(label)) {
+    assert(placement.includes(`feature: '${feature}'`),
+      `${label} must map to ${feature} wherever it is offered`);
+  }
 }
 for (const [label, feature] of [
   ['Pull requests', 'pulls.read'],

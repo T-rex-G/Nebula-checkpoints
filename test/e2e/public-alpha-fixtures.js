@@ -140,6 +140,17 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     }
     if (pathname === '/api/capabilities') return fulfill(capabilityProjection(scenario.provider));
     if (pathname === '/api/safety') return fulfill({ readOnly: false, freezeSync: false, protected: {} });
+    /*
+     * The overview asks for this once it is on screen, so every fixture that
+     * reaches the overview needs it. Without it the request fell through to
+     * the unmatched-route 404 and the workspace pulse reported the scanner as
+     * unknown -- a missing fixture reading as a product posture.
+     */
+    if (pathname === '/api/security/scanner-status') return fulfill({
+      builtin: { available: true, engine: 'bounded-signature-gate', rules: ['EICAR_TEST_FILE'] },
+      yara: { configured: false, required: false, binary: 'yara', rulesPath: '', timeoutSeconds: 5 },
+      note: 'Built-in bounded signatures are active.'
+    });
     if (pathname === '/api/github-app/status') return fulfill({ enabled: true, webhookConfigured: true, connections: [] });
     if (pathname === '/api/repos') {
       if (scenario.repositoryState === 'empty') return fulfill([]);
@@ -220,6 +231,8 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
 async function openConnectedRepository(page, scenario = {}) {
   const state = await mockPublicAlphaApi(page, { access: 'active', ...scenario });
   await page.goto('/');
+  /* A signed-in session lands on the overview; the inventory is one step in. */
+  await require('./semantic').enterRepositories(page);
   await page.locator('.repo-card').first().click();
   await page.locator('#page-work.active').waitFor();
   return state;
@@ -227,7 +240,7 @@ async function openConnectedRepository(page, scenario = {}) {
 
 async function startNewFileAction(page, path = 'alpha-proof.txt') {
   /* Reached by name, so it follows the control between the bar and the floating action. */
-  await ui.button(page, 'Command palette').click();
+  await (await ui.action(page, 'Command palette')).click();
   await page.locator('#paletteInput').fill('New file');
   await page.locator('.pal-item', { hasText: 'New file' }).first().click();
   await page.locator('#nfPath').fill(path);

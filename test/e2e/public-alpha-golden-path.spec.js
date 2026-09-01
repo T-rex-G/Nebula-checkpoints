@@ -34,7 +34,7 @@ test('invited tester completes the GitHub sandbox golden path and cleanup', asyn
   await ui.secretField(page, 'GitHub Personal Access Token').fill('fixture-provider-credential');
   await ui.button(login, 'Enter orbit').click();
 
-  const repos = ui.screen(page, 'repos');
+  const repos = await ui.enterRepositories(page);
   await expect(repos).toBeVisible();
   const repository = ui.button(repos, 'Open repository sandbox/demo');
   await expect(repository).toHaveCount(1);
@@ -44,12 +44,13 @@ test('invited tester completes the GitHub sandbox golden path and cleanup', asyn
   await expect(work).toBeVisible();
   const trust = work.getByRole('region', { name: 'Repository trust summary' });
   await expect(trust).toBeVisible();
+  await ui.openTrustDetail(page);
   await expect(trust.getByRole('article', { name: 'Connection trust' })).toContainText('Provider-verified');
   await expect(trust.getByRole('article', { name: 'Pipeline trust' })).toContainText('Evidence chain verified');
   await expect(trust.getByRole('article', { name: 'Risk' })).toContainText('No issue');
   await expect(trust.getByRole('article', { name: 'Evidence' })).toContainText('chained record');
 
-  await ui.button(page, 'Command palette').click();
+  await (await ui.action(page, 'Command palette')).click();
   await page.locator('#paletteInput').fill('Safeguards');
   await page.locator('.pal-item', { hasText: 'Safeguards' }).first().click();
   await expect(page.locator('#sgEvidence')).toBeVisible();
@@ -63,7 +64,7 @@ test('invited tester completes the GitHub sandbox golden path and cleanup', asyn
   expect(fixture.mutationRequests).toHaveLength(1);
   expect(fixture.mutationRequests[0].expectedHeadSha).toBe(HEAD_SHA);
 
-  await ui.button(page, 'Command palette').click();
+  await (await ui.action(page, 'Command palette')).click();
   await page.locator('#paletteInput').fill('Settings');
   await page.locator('.pal-item', { hasText: 'Settings' }).first().click();
   await page.locator('#modalBody [data-alpha-privacy-action="disconnect"]').click();

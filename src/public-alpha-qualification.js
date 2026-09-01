@@ -6,7 +6,8 @@ const {
   PROVIDER_CAPABILITY_REQUIREMENTS,
   artifactTypeForLabel,
   validateEvidenceEnvelope,
-  verifyHostedOperatorSignature
+  verifyHostedOperatorSignature,
+  verifyRestoreWitness
 } = require('./qualification-evidence');
 
 const QUALIFICATION_SCHEMA_VERSION = EVIDENCE_SCHEMA_VERSION;
@@ -279,14 +280,16 @@ function liveEvidenceBindings(options) {
     !/^[0-9a-f]{64}$/.test(String(options.expectedDeploymentSha256 || '')) ||
     /^0{64}$/.test(options.expectedDeploymentSha256) ||
     !isPlainObject(options.trustedOperatorKeys) ||
-    Object.keys(options.trustedOperatorKeys).length === 0
+    Object.keys(options.trustedOperatorKeys).length === 0 ||
+    !isPlainObject(options.restoreWitness)
   ) {
     fail('trusted live-evidence bindings are required', 'PUBLIC_ALPHA_OPTIONS_INVALID');
   }
   return Object.freeze({
     expectedAuthorizedTargets: expected,
     expectedDeploymentSha256: options.expectedDeploymentSha256,
-    trustedOperatorKeys: options.trustedOperatorKeys
+    trustedOperatorKeys: options.trustedOperatorKeys,
+    restoreWitness: options.restoreWitness
   });
 }
 
@@ -352,6 +355,12 @@ function verifyQualification(input, options = {}) {
       }
       try {
         verifyHostedOperatorSignature(verified, liveBindings.trustedOperatorKeys);
+        /*
+         * The restore runner's own signature is unverifiable outside its job,
+         * so without this the restore proof is whatever the evidence claims it
+         * is. The operator's witness is what makes it evidence.
+         */
+        verifyRestoreWitness(verified, liveBindings.restoreWitness, liveBindings.trustedOperatorKeys);
       } catch (error) {
         failArtifactVerification(artifact, error);
       }

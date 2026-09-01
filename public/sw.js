@@ -9,6 +9,8 @@ const PRECACHE = [
   '/', `/style.css?v=__NV_ASSET_VERSION__`, `/offline-cache-policy.js?v=__NV_ASSET_VERSION__`,
   `/archive-safety.js?v=__NV_ASSET_VERSION__`, `/export-safety.js?v=__NV_ASSET_VERSION__`,
   `/app.js?v=__NV_ASSET_VERSION__`, `/alpha-ui.js?v=__NV_ASSET_VERSION__`, `/capability-ui.js?v=__NV_ASSET_VERSION__`, `/trust-ui.js?v=__NV_ASSET_VERSION__`,
+  `/repo-sigil.js?v=__NV_ASSET_VERSION__`,
+  `/workspace-pulse.js?v=__NV_ASSET_VERSION__`, `/nebula-visuals.js?v=__NV_ASSET_VERSION__`,
   `/governance-ui.js?v=__NV_ASSET_VERSION__`, `/neural.js?v=__NV_ASSET_VERSION__`,
   '/manifest.webmanifest', '/assets/icon.svg', '/assets/icon-192.png'
 ];
@@ -17,6 +19,14 @@ const FONTS = [
   '/vendor/fonts/public-sans-variable-latin.woff2',
   '/vendor/fonts/jetbrains-mono-variable-latin.woff2'
 ];
+/*
+ * three.js and the artwork modules are deliberately absent from both lists.
+ * They are about 750KB, and warming them would spend that on every install --
+ * including installs by readers who never open a screen that draws them. The
+ * static branch of the fetch handler caches them on first use instead, so a
+ * reader who has seen the artwork keeps it offline and a reader who has not
+ * never pays for it.
+ */
 const VENDOR_WARM = [
   ...FONTS,
   '/vendor/codemirror/5.65.16/codemirror.min.js',

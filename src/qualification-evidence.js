@@ -390,32 +390,102 @@ function artifactTypeForLabel(label) {
   fail('qualification evidence label is invalid');
 }
 
-function verifyHostedOperatorSignature(input, trustedOperatorKeys) {
-  const artifact = validateEvidenceEnvelope(input);
-  if (artifact.artifactType !== 'hosted-live') fail('operator signature verification requires hosted evidence');
+/*
+ * Resolve a key id against the operator keyring and return it ready to verify.
+ *
+ * Shared by the two records an operator signs, so a keyring the one accepts
+ * cannot be a keyring the other rejects.
+ */
+function trustedOperatorKey(trustedOperatorKeys, keyId) {
   if (
     !isPlainObject(trustedOperatorKeys) ||
     Object.keys(trustedOperatorKeys).length === 0 ||
     Object.keys(trustedOperatorKeys).length > 16
   ) fail('trusted operator keyring is invalid');
-  const signedRecord = artifact.operatorAttestation.record;
-  const keyId = signedRecord.signature.keyId;
   if (!Object.hasOwn(trustedOperatorKeys, keyId)) fail('hosted operator signature key is not trusted');
   const encoded = String(trustedOperatorKeys[keyId] || '').trim();
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length > 4096) {
     fail('trusted operator public key is invalid');
   }
-  let publicKey;
   try {
-    publicKey = crypto.createPublicKey({
+    const publicKey = crypto.createPublicKey({
       key: Buffer.from(encoded, 'base64'),
       format: 'der',
       type: 'spki'
     });
     if (publicKey.asymmetricKeyType !== 'ed25519') throw new Error('wrong key type');
+    return publicKey;
   } catch {
-    fail('trusted operator public key is invalid');
+    return fail('trusted operator public key is invalid');
   }
+}
+
+/*
+ * The restore witness closes the one gap the rest of this file cannot.
+ *
+ * The restore runner signs its record with a key generated inside its own job
+ * and destroyed when the job ends, so nothing downstream can verify that HMAC
+ * -- it is an in-run integrity check, not a signature anyone else can check.
+ * Everything else about the restore proof is shape and cross-reference, which
+ * means whoever can produce the evidence can also produce a restore record the
+ * gate accepts, digests and all.
+ *
+ * The witness is the operator saying, with the key this gate already trusts,
+ * "this exact restore record is the one from that run". It deliberately does
+ * not attest that the restore passed -- that claim stays the runner's, which
+ * is why the operator's own record is still forbidden from carrying it.
+ */
+function verifyRestoreWitness(input, witness, trustedOperatorKeys) {
+  const artifact = validateEvidenceEnvelope(input);
+  if (artifact.artifactType !== 'hosted-live') fail('restore witness verification requires hosted evidence');
+  if (!isPlainObject(witness) || !hasExactKeys(witness, [
+    'artifactType', 'completedAt', 'originId', 'restoreRecordSha256',
+    'schemaVersion', 'signature', 'sourceCommit', 'subjectSha256'
+  ])) fail('hosted restore witness fields do not match the schema');
+  if (witness.schemaVersion !== '1.0.0' || witness.artifactType !== 'hosted-restore-witness') {
+    fail('hosted restore witness schema does not match');
+  }
+  if (
+    witness.subjectSha256 !== artifact.subjectSha256 ||
+    witness.sourceCommit !== artifact.sourceCommit ||
+    witness.originId !== artifact.originId
+  ) fail('hosted restore witness is not bound to this run');
+  if (witness.restoreRecordSha256 !== artifact.restoreRunnerAttestation.recordSha256) {
+    fail('hosted restore witness does not cover the restore record in evidence');
+  }
+  /*
+   * The operator can only witness a record that already exists, so a witness
+   * dated before the run it covers was signed against something else.
+   */
+  const witnessedAt = parseIsoTimestamp(witness.completedAt, 'hosted restore witness completion');
+  if (witnessedAt.getTime() < new Date(artifact.restoreRunnerAttestation.completedAt).getTime()) {
+    fail('hosted restore witness predates the restore it covers');
+  }
+  const signature = witness.signature;
+  if (
+    !isPlainObject(signature) ||
+    !hasExactKeys(signature, ['algorithm', 'keyId', 'value']) ||
+    signature.algorithm !== 'ed25519' ||
+    !/^[a-zA-Z0-9._-]{3,80}$/.test(String(signature.keyId || '')) ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(String(signature.value || ''))
+  ) fail('hosted restore witness signature is invalid');
+  const publicKey = trustedOperatorKey(trustedOperatorKeys, signature.keyId);
+  const unsigned = cloneJson(witness);
+  delete unsigned.signature;
+  if (!crypto.verify(
+    null,
+    Buffer.from(stableJson(unsigned), 'utf8'),
+    publicKey,
+    Buffer.from(signature.value, 'base64')
+  )) fail('hosted restore witness signature does not verify');
+  return true;
+}
+
+function verifyHostedOperatorSignature(input, trustedOperatorKeys) {
+  const artifact = validateEvidenceEnvelope(input);
+  if (artifact.artifactType !== 'hosted-live') fail('operator signature verification requires hosted evidence');
+  const signedRecord = artifact.operatorAttestation.record;
+  const publicKey = trustedOperatorKey(trustedOperatorKeys, signedRecord.signature.keyId);
   const unsigned = cloneJson(signedRecord);
   const signature = Buffer.from(unsigned.signature.value, 'base64');
   delete unsigned.signature;
@@ -430,5 +500,6 @@ module.exports = Object.freeze({
   PROVIDER_CAPABILITY_REQUIREMENTS,
   validateEvidenceEnvelope,
   verifyHostedOperatorSignature,
+  verifyRestoreWitness,
   artifactTypeForLabel
 });

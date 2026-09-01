@@ -29,6 +29,36 @@ Use sanitized outputs only. Never paste database URLs, cookies, invitation codes
   deletion is outside the qualification harness and requires separate explicit
   authorization.
 
+## After live qualification, before the go/no-go
+
+- Sign the restore witness. The restore runner signs its record with a key it
+  generates inside its own job and destroys when the job ends, so that
+  signature cannot be verified anywhere else. Without your witness, a restore
+  record with invented digests passes every other check the gate makes.
+
+  Download the hosted evidence artifact from the run, then:
+
+  ```
+  NV_ALPHA17_OPERATOR_KEY_ID=<your key id> \
+  NV_ALPHA17_OPERATOR_PRIVATE_KEY_BASE64=<your Ed25519 PKCS#8 DER, base64> \
+  node scripts/sign-restore-witness.js hosted.json > restore-witness.json
+  ```
+
+  The command prints what you are witnessing before it signs anything. Read the
+  run identity and confirm it against the workflow run you authorized. Your
+  signature says *this record came from that run*; it does not endorse the
+  restore's claims, which the gate checks separately. Signing a record from a
+  run you cannot identify defeats the control entirely.
+
+- Pass the witness to the gate as `NV_PUBLIC_ALPHA_RESTORE_WITNESS`. The gate
+  refuses to produce a verdict without it, by design: an unwitnessed restore
+  proof is not a weaker proof, it is an unverifiable one.
+
+- Keep the private key off the runner and out of the repository. It is the
+  operator key, not a CI secret; a copy inside CI would make the witness
+  forgeable by anyone who can run the workflow, which is the exact gap it
+  exists to close.
+
 ## Daily
 
 - Check Render service state, active deploy, cold starts, and recent restarts.
@@ -84,6 +114,14 @@ node scripts/alpha-load.js
 ## Before any deploy or migration
 
 - Confirm the exact clean source commit and Node 22 runtime.
+- Verify the target environment is completely configured before deploying, not
+  after. `npm run doctor` evaluates the environment against
+  `src/config-registry.js`, which names every variable this project reads, and
+  exits non-zero when something the selected profile requires is absent. It
+  calls the server's own configuration loaders rather than repeating their
+  rules, so a pass is the answer the process will give at startup. It reports
+  only whether a value is set, never the value, and is safe to run on the
+  server.
 - Create and verify a fresh encrypted backup.
 - Record migration compatibility and rollback decision.
 - Keep live mutations frozen until smoke and readiness pass.
@@ -93,5 +131,12 @@ set -euo pipefail
 git status --short
 git rev-parse HEAD
 node --version
+npm run doctor                 # exits non-zero if the profile is incomplete
+npm run doctor -- --group=ci   # only when dispatching live qualification
 sha256sum "$NV_BACKUP_FILE" "$NV_BACKUP_MANIFEST"
 ```
+
+`NV_MAINTENANCE_MODE=1` closes the API with `503` while keeping `/healthz`
+green and draining `/readyz`. Use it to hold traffic during a migration; unset
+it or set `0` to return to service. It is read at startup, so changing it on
+Render redeploys the service, which is what applies it.

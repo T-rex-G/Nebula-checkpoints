@@ -30,7 +30,8 @@ test('loading state names checks in progress and preserves a next action', async
   /* The trust endpoints are held open, so the loading state is asserted rather than raced. */
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', trust: 'pending' });
   await page.goto('/');
-  await ui.button(ui.screen(page, 'repos'), /^Open repository /).first().click();
+  await ui.button(await ui.enterRepositories(page), /^Open repository /).first().click();
+  await ui.openTrustDetail(page);
   await expect(ui.trustArticle(page, 'Connection trust')).toContainText('Checking provider');
   await expect(ui.trustArticle(page, 'Next action')).toContainText('Waiting for verified');
   await expect(claimedSuccess(page)).toHaveCount(0);
@@ -39,7 +40,7 @@ test('loading state names checks in progress and preserves a next action', async
 test('empty state names the status and preserves a next action', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'empty' });
   await page.goto('/');
-  const repos = ui.screen(page, 'repos');
+  const repos = await ui.enterRepositories(page);
   await expect(repos).toContainText('No repositories yet');
   await expect(repos).toContainText('Create one');
   await expect(claimedSuccess(page)).toHaveCount(0);
@@ -56,6 +57,7 @@ for (const [repositoryState, assertion, action] of [
     const trust = ui.trust(page);
     await expect(trust).toBeVisible();
     await expect(trust).toContainText(assertion);
+    await ui.openTrustDetail(page);
     await expect(ui.trustArticle(page, 'Next action')).toContainText(action);
     if (repositoryState !== 'current') await expect(trust).not.toContainText('verified success');
   });
@@ -64,7 +66,7 @@ for (const [repositoryState, assertion, action] of [
 test('recoverable repository error shows safe state and next action', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'error' });
   await page.goto('/');
-  await ui.button(ui.screen(page, 'repos'), /^Open repository /).first().click();
+  await ui.button(await ui.enterRepositories(page), /^Open repository /).first().click();
   await expect(page.locator('.trust-error-dialog')).toBeVisible();
   await expect(page.locator('.trust-error-dialog')).toContainText('Safe state now');
   await expect(page.locator('.trust-error-dialog')).toContainText('Retry opening');

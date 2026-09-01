@@ -24,7 +24,8 @@ const IGNORED_DIRECTORIES = new Set([
   '.cache',
   'node_modules',
   'playwright-report',
-  'test-results'
+  'test-results',
+  'visual-check'
 ]);
 function discoverMarkdown(directory, prefix = '') {
   const discovered = [];

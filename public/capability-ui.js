@@ -192,5 +192,14 @@
     return projection;
   }
 
-  global.NebulaCapabilityUI = Object.freeze({ load, decision, apply, explain });
+  /*
+   * The projection itself, for callers that need to report on the whole set
+   * rather than ask about one feature. Frozen on the way in, so a reader
+   * cannot become a writer.
+   */
+  function features() {
+    return projection.features || Object.freeze({});
+  }
+
+  global.NebulaCapabilityUI = Object.freeze({ load, decision, apply, explain, features });
 })(window);

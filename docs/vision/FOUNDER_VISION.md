@@ -57,9 +57,19 @@ the generated [project state](../current/PROJECT_STATE.md), the approved
   notifications, and signed evidence exports.
 - **Implemented** — Observe, warn, and block policy behavior with explicit
   failure policy and evidence-bound decisions.
-- **Committed roadmap** — Protected Files as an operator-friendly control that
-  maps sensitive paths to repository-native protection where possible and
-  states clearly when provider-side enforcement is incomplete.
+- **Implemented** — Protected Paths as an operator-friendly control. One
+  declared pattern covers every action that can change it — writes, deletes,
+  uploads, renames, batches, directory moves and restores from history — along
+  with the directories holding it, and the expansion states which actions it
+  could not narrow to that path rather than leaving the gap to be discovered.
+- **Committed roadmap** — Mapping those same paths to repository-native
+  protection where a provider offers it, through CODEOWNERS, branch protection
+  and rulesets, and stating clearly where provider-side enforcement is
+  incomplete beside what the gateway enforces itself.
+- **Implemented** — Safe Passage: a change refused because it needs approval is
+  handed the route to approval — a branch of its own and a pull request into the
+  branch that refused it — offered only when the same policy permits every step
+  of that route, and never taken without an explicit act by the person refused.
 - **Committed roadmap** — Organization-wide governance inheritance, portfolio
   visibility, prioritization, and remediation tracking after repository-level
   trust behavior is proven.

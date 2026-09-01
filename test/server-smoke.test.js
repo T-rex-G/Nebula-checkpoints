@@ -52,9 +52,12 @@ async function waitForServer() {
 
     const health = await request('/healthz');
     assert.strictEqual(health.status, 200);
+    /* maintenance is always reported, not only when it is on, so a monitor can
+       read one field rather than infer the state from its absence. */
     assert.deepStrictEqual(await health.json(), {
       ok: true,
       service: 'alive',
+      maintenance: false,
       version: '5.3.0-alpha.17.0'
     });
     assert.match(health.headers.get('strict-transport-security') || '', /max-age=/);

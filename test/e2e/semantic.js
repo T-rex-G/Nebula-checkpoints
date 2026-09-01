@@ -82,6 +82,45 @@ async function focusAndConfirm(expect, locator) {
   return locator;
 }
 
+/*
+ * Reach an action however the screen in front of you offers it.
+ *
+ * The same action lives in two places by design: the top bar carries it where
+ * there is room, and below the breakpoint it moves into the floating menu,
+ * which is closed until pressed. A journey that asked for the control by name
+ * therefore found it on a desktop and found nothing on a phone -- not because
+ * the action was missing, but because reaching it takes one press first. This
+ * opens the menu only when the named control is not already on screen, so the
+ * step still fails if the action is genuinely gone.
+ */
+/*
+ * The control that holds focus after an action has been activated and whatever
+ * it opened has closed.
+ *
+ * Where the action lives in the top bar, that is the action's own button.
+ * Where it lives in the floating dock, activating an entry closes the dock --
+ * so the entry is gone by the time focus comes back, and the control the
+ * reader returns to is the dock itself. A journey that asserted focus on the
+ * entry was asking about an element the interface had correctly removed.
+ */
+async function actionAnchor(page, name) {
+  const dock = page.getByRole('button', { name: /actions$/i });
+  if (await dock.isVisible().catch(() => false)) return dock;
+  return page.getByRole('button', { name, exact: true });
+}
+
+async function action(page, name) {
+  const direct = page.getByRole('button', { name, exact: true });
+  if (await direct.isVisible().catch(() => false)) return direct;
+
+  const dock = page.getByRole('button', { name: /actions$/i });
+  if (await dock.isVisible().catch(() => false)) {
+    if ((await dock.getAttribute('aria-expanded')) !== 'true') await dock.click();
+    return page.getByRole('group').getByRole('button', { name, exact: true });
+  }
+  return direct;
+}
+
 function alert(target) {
   return target.getByRole('alert');
 }
@@ -119,6 +158,37 @@ function trust(target) {
   return target.getByRole('region', { name: 'Repository trust summary' });
 }
 
+/*
+ * On a phone the five fields sit behind a disclosure -- drawn open they took
+ * 393px of an 820px screen and pushed the work surface under the bottom
+ * navigation. The rollup keeps every evidence state on screen; it is the prose
+ * that costs a tap.
+ *
+ * So a lookup for one field opens the disclosure if it is closed. What these
+ * journeys are about is what the trust summary *says* -- that it is explicit
+ * and does not overclaim -- and that requirement is unchanged by the prose
+ * being one tap away. The rollup control does not exist above the breakpoint,
+ * where all five are drawn at once.
+ */
+async function openTrustDetail(page) {
+  /*
+   * Wait for the summary to be on screen before asking about the rollup.
+   *
+   * #trustSummary starts hidden and renderSummary clears it, so "the rollup is
+   * not visible" means two different things depending on when you ask: above
+   * the breakpoint it will never exist, and below it, it may simply not have
+   * been drawn yet. Asking too early read the second as the first, returned
+   * without opening anything, and failed about one run in five. Once the
+   * summary is visible the answer is decided by the media query alone.
+   */
+  await page.locator('#trustSummary').waitFor({ state: 'visible' });
+  const rollup = page.locator('#trustRollup');
+  if (!(await rollup.isVisible().catch(() => false))) return;
+  if ((await rollup.getAttribute('aria-expanded')) === 'true') return;
+  await rollup.click();
+  await page.locator('#trustDetail').waitFor({ state: 'visible' });
+}
+
 function trustArticle(target, name) {
   return target.getByRole('article', { name });
 }
@@ -132,11 +202,38 @@ function status(target, name) {
   return name === undefined ? target.getByRole('status') : target.getByRole('status', { name });
 }
 
+/*
+ * An authenticated session opens on the overview, so a journey that begins at
+ * the repository inventory has to walk there the way a reader does. Asking for
+ * the destination and clicking the control that names it keeps the step
+ * truthful: if the overview ever stops offering a way through to repositories,
+ * this fails rather than quietly reaching past the interface.
+ */
+async function enterRepositories(page) {
+  const repos = screen(page, 'repos');
+  if (await repos.isVisible().catch(() => false)) return repos;
+  const through = page.getByRole('button', { name: 'Repositories', exact: true });
+  /*
+   * Activated from the keyboard rather than clicked. A pointer click sets the
+   * browser's last input modality to mouse, and :focus-visible then withholds
+   * the focus ring from whatever the test focuses next -- so a navigation step
+   * would silently disarm the focus assertions further down the journey.
+   */
+  await through.waitFor({ state: 'visible' });
+  await through.focus();
+  await page.keyboard.press('Enter');
+  await repos.waitFor({ state: 'visible' });
+  return repos;
+}
+
 module.exports = Object.freeze({
   PRODUCT_NAME,
   SCREENS,
+  action,
+  actionAnchor,
   alert,
   button,
+  enterRepositories,
   checkbox,
   dialog,
   field,
@@ -148,5 +245,6 @@ module.exports = Object.freeze({
   secretField,
   status,
   trust,
-  trustArticle
+  trustArticle,
+  openTrustDetail
 });

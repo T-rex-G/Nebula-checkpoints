@@ -22,8 +22,12 @@ jobs:
           POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
+        # -U postgres because pg_isready defaults to the OS user, which is root
+        # inside this container. Without it the probe asks for a role that does
+        # not exist, never reports healthy, and the job dies during service
+        # setup without running a step.
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5

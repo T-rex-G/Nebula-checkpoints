@@ -5389,6 +5389,18 @@ function startAuthorizedApp() {
   boot();
 }
 window.addEventListener('nebula:alpha-access-granted', startAuthorizedApp);
+/*
+ * The chrome belongs to the screens, and the gate replaces them. Assigning
+ * _page does not repaint it: showPage returns early when handed the screen
+ * that is already current, which the gate paths have just made true. So an
+ * expired session left the workbench's floating action over the gate's own
+ * Continue, offering an action against a workspace that was already gone.
+ */
+window.addEventListener('nebula:alpha-access-gated', () => {
+  paintRail('alpha-access');
+  paintFloatingAction('alpha-access');
+  closeNavMenu();
+});
 window.NebulaAlphaUI.boot().then(result => {
   if (result.allowed) startAuthorizedApp();
 }).catch(() => {

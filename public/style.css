@@ -1798,7 +1798,10 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   opacity:0;pointer-events:none}
 .nv-fab-dock[data-retracted="true"]:focus-within .nv-fab{transform:none;opacity:1;pointer-events:auto}
 .nv-fab{transition:transform .26s cubic-bezier(.4,0,.2,1),opacity .18s ease;position:relative;
-  width:56px;height:56px;padding:0;border-radius:18px;cursor:pointer;
+  /* 48 rather than 56: it shares the corner with the bottom navigation and
+     sat over the primary control on narrow screens. Still well clear of the
+     24px WCAG 2.5.8 target, and still the largest control on the screen. */
+  width:48px;height:48px;padding:0;border-radius:16px;cursor:pointer;
   display:inline-flex;align-items:center;justify-content:center;
   color:var(--btnFg);border:1px solid var(--navB);
   background:linear-gradient(140deg, var(--btnB), var(--btnA));

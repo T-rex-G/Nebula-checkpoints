@@ -83,7 +83,19 @@ safe to run on the server and paste into an issue.
 
 It exits non-zero when something required for the selected profile is missing.
 
-The Neon URL normally contains `-pooler` and SSL parameters. Nebulaverse-X normalizes secure connections to `sslmode=verify-full` while retaining other parameters such as channel binding.
+The Neon URL carries SSL parameters. Nebulaverse-X normalizes secure connections to `sslmode=verify-full` while retaining other parameters such as channel binding.
+
+Check whether pooling is actually enabled on the endpoint before using a pooled
+host. The Neon console offers the pooled string by default, and its host carries
+a `-pooler` suffix, but that host accepts no connections at all when the
+endpoint reports `pooler_enabled: false`. The failure is silent and misleading:
+the compute stays healthy and `/readyz` reports `"database":"unavailable"`, so
+the connection string is the last thing an operator suspects. Turn the console's
+pooling toggle off and use the direct host unless pooling is enabled and needed.
+
+Migrations want the direct host regardless. `runMigrations` takes a
+session-level `pg_advisory_lock`, and session-level locks do not survive
+transaction-mode pooling.
 
 Before opening the cohort, verify the deployed environment still reports
 invite access as active. Do not issue or accept tester invitations while

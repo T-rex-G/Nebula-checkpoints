@@ -23,7 +23,15 @@ const PROVIDER_PROBES = Object.freeze({
       proofPathPresent: true,
       blobIdentityMatched: true
     },
-    { key: 'rate-read', status: 'pass', statusClass: '2xx', limitPositive: true, remainingWithinLimit: true }
+    { key: 'rate-read', status: 'pass', statusClass: '2xx', limitPositive: true, remainingWithinLimit: true },
+    ...['pulls-read', 'issues-read', 'releases-read', 'workflows-read'].map(key => ({
+      key,
+      status: 'pass',
+      statusClass: '2xx',
+      listed: 1,
+      detailAgreed: true,
+      absentDiscriminated: true
+    }))
   ],
   gitlab: [],
   gitea: []

@@ -120,6 +120,30 @@ function createProviderFetchFixture(options = {}) {
       if (branchName === defaultBranch || !state.branches.delete(branchName)) return json({ message: 'not found' }, 404);
       return json(null, 204);
     }
+    /*
+     * One object in each collection, so the detail-agreement loop in the
+     * collection probes actually runs. An empty listing would satisfy that
+     * loop vacuously and the fixture would prove nothing about it.
+     */
+    const collections = {
+      pulls: { items: [{ number: 7, title: 'fixture' }], key: 'number' },
+      issues: { items: [{ number: 11, title: 'fixture' }], key: 'number' },
+      releases: { items: [{ id: 21, tag_name: 'fixture' }], key: 'id' },
+      'actions/runs': { items: [{ id: 31, name: 'fixture' }], key: 'id', envelope: 'workflow_runs' }
+    };
+    for (const [name, collection] of Object.entries(collections)) {
+      const listPath = `${base}/${name}`;
+      if (parsed.pathname === listPath && method === 'GET') {
+        return json(collection.envelope
+          ? { total_count: collection.items.length, [collection.envelope]: collection.items }
+          : collection.items);
+      }
+      if (parsed.pathname.startsWith(`${listPath}/`) && method === 'GET') {
+        const identifier = Number(parsed.pathname.slice(listPath.length + 1));
+        const item = collection.items.find(entry => entry[collection.key] === identifier);
+        return item ? json(item) : json({ message: 'not found' }, 404);
+      }
+    }
     const treePrefix = `${base}/git/trees/`;
     if (parsed.pathname.startsWith(treePrefix) && method === 'GET') {
       const branch = state.branches.get(decodeURIComponent(parsed.pathname.slice(treePrefix.length)));

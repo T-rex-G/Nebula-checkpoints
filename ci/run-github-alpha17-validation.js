@@ -160,6 +160,83 @@ function createGithubClient({ env, fetchImpl }) {
   }
 
   /*
+   * An identifier no object in a disposable qualification repository can hold.
+   * Numbering starts at one and climbs; a target seeded with fixtures for
+   * these probes is still nowhere near this.
+   */
+  const ABSENT_IDENTIFIER = 999999999;
+
+  /*
+   * The collection reads, which all have the same shape: a listing and a
+   * detail view over the same objects.
+   *
+   * The proof is that the pair is live, scoped to this repository, and
+   * discriminating. Every object the listing names has to be fetchable on its
+   * own and agree with the listing, and an identifier that cannot exist has to
+   * be refused rather than answered -- an endpoint that returns 200 for
+   * anything asked of it passes a reachability ping and fails that.
+   *
+   * `listed` records how many objects were actually verified, which on an
+   * unseeded target is zero. That is the honest number, and it is in the
+   * evidence rather than hidden behind a pass.
+   */
+  async function readCollection({ key, listPath, detailPath, identify, listOf }) {
+    const listing = await requestJson(fetchImpl, api(`repos/${repositoryPath}/${listPath}`), {
+      headers: headers('mutation'),
+      allowedStatuses: [200]
+    });
+    const items = (listOf ? listOf(listing.data) : listing.data) || [];
+    if (!Array.isArray(items)) {
+      return { key, status: 'fail', statusClass: listing.statusClass, listed: 0, detailAgreed: false, absentDiscriminated: false };
+    }
+
+    let detailAgreed = true;
+    for (const item of items) {
+      const identifier = identify(item);
+      if (!Number.isSafeInteger(identifier) || identifier <= 0) {
+        detailAgreed = false;
+        break;
+      }
+      const detail = await requestJson(fetchImpl, api(`repos/${repositoryPath}/${detailPath}/${identifier}`), {
+        headers: headers('mutation'),
+        allowedStatuses: [200, 404]
+      });
+      if (detail.status !== 200 || identify(detail.data) !== identifier) {
+        detailAgreed = false;
+        break;
+      }
+    }
+
+    const absent = await requestJson(fetchImpl, api(`repos/${repositoryPath}/${detailPath}/${ABSENT_IDENTIFIER}`), {
+      headers: headers('mutation'),
+      allowedStatuses: [200, 404]
+    });
+    const absentDiscriminated = absent.status === 404;
+
+    return {
+      key,
+      status: detailAgreed && absentDiscriminated ? 'pass' : 'fail',
+      statusClass: listing.statusClass,
+      listed: items.length,
+      detailAgreed,
+      absentDiscriminated
+    };
+  }
+
+  const COLLECTION_READS = Object.freeze([
+    { key: 'pulls-read', listPath: 'pulls?state=all', detailPath: 'pulls', identify: item => Number(item && item.number) },
+    { key: 'issues-read', listPath: 'issues?state=all', detailPath: 'issues', identify: item => Number(item && item.number) },
+    { key: 'releases-read', listPath: 'releases', detailPath: 'releases', identify: item => Number(item && item.id) },
+    {
+      key: 'workflows-read',
+      listPath: 'actions/runs',
+      detailPath: 'actions/runs',
+      identify: item => Number(item && item.id),
+      listOf: data => data && data.workflow_runs
+    }
+  ]);
+
+  /*
    * Cross-checks, not reachability pings.
    *
    * The tree probe requires the listing to name the file this run just wrote
@@ -198,12 +275,15 @@ function createGithubClient({ env, fetchImpl }) {
     };
     rateRead.status = rateRead.limitPositive && rateRead.remainingWithinLimit ? 'pass' : 'fail';
 
-    return [treeRead, rateRead];
+    const collections = [];
+    for (const collection of COLLECTION_READS) collections.push(await readCollection(collection));
+
+    return [treeRead, rateRead, ...collections];
   }
 
   return Object.freeze({
     getRepository, getBranch, createBranch, writeFile, readFile, deleteFile, deleteBranch,
-    readTree, readRateLimit, probeChecks
+    readTree, readRateLimit, readCollection, probeChecks
   });
 }
 

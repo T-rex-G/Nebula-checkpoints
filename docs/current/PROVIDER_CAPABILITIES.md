@@ -48,12 +48,13 @@ mutations remain blocked.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; provider rate-limit and tree reads; access-surface analysis; dependency audit; recovery; governance; upload security |
-| Experimental | file rename/batch; pull-request and issue read/write; workflow read/rerun; release read/write; bounded search; star read/write; native push (16 MB on Render Free); Git LFS; folder move; live events |
+| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; access-surface analysis; dependency audit; recovery; governance; upload security |
+| Experimental | file rename/batch; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; native push (16 MB on Render Free); Git LFS; folder move; live events |
 | Unavailable | repository create/delete; global search; notifications |
 
-Only repository read, branch read/write, bounded file read/write/delete, and the
-recursive tree and provider rate-limit reads use `Provider-verified` evidence. Access-surface, dependency-audit, recovery,
+Repository read, branch read/write, bounded file read/write/delete, the recursive
+tree and provider rate-limit reads, and the pull-request, issue, workflow and
+release list/detail reads use `Provider-verified` evidence. Access-surface, dependency-audit, recovery,
 governance, and upload-security decisions use `Deterministic` evidence. Other
 implemented workbench operations remain `Experimental` + `Inferred` until a
 live harness exercises their exact proof contract.

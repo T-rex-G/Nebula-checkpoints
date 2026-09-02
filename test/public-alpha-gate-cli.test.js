@@ -150,7 +150,7 @@ try {
   assert.strictEqual(qualification.sourceCommit, 'b'.repeat(40));
   assert(closeout.includes(`Subject SHA-256: \`${'a'.repeat(64)}\``));
   assert(closeout.includes(`Source commit: \`${'b'.repeat(40)}\``));
-  assert(closeout.includes('Provider evidence: 18/18 passed'));
+  assert(closeout.includes('Provider evidence: 22/22 passed'));
   assert(closeout.includes('Hosted evidence: 13/13 passed'));
   assert(closeout.includes('Manual evidence: 5/5 passed'));
   assert(closeout.includes('Cleanup: verified'));

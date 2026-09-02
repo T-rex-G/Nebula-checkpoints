@@ -16,6 +16,10 @@ const SAFE_SECRET_LIKE_FIELDS = Object.freeze([
 const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
   github: {
     'repository.read': ['repository-read'],
+    'pulls.read': ['pulls-read'],
+    'issues.read': ['issues-read'],
+    'releases.read': ['releases-read'],
+    'workflows.read': ['workflows-read'],
     'branches.read': ['default-branch-read'],
     'branches.write': ['disposable-branch-create', 'cleanup-absence'],
     'file.read': ['utf8-readback'],
@@ -74,6 +78,24 @@ const SHARED_CHECKS_BEFORE_PROBES = deepFreeze([
  * has to be true is that the ceiling is real and the remaining budget sits
  * under it; the account's actual quota is not the evidence's business.
  */
+
+/*
+ * The collection reads share one proof, because they share one shape: a list
+ * endpoint and a detail endpoint over the same objects.
+ *
+ * What is proven is that the pair is live, scoped to this repository, and
+ * discriminating -- every object the list names can be fetched on its own and
+ * agrees with the listing, and an identifier that does not exist is refused
+ * rather than answered. A disposable qualification repository usually holds
+ * none of these objects, and `listed` records how many were actually verified,
+ * so the evidence says how far it reaches. It does not claim that a populated
+ * listing renders correctly; it claims the path is qualified and refuses to
+ * invent what it did not see. Seeding the target strengthens the same proof
+ * without changing it.
+ */
+const COLLECTION_READ_KEYS = deepFreeze([
+  'pulls-read', 'issues-read', 'releases-read', 'workflows-read'
+]);
 const PROVIDER_PROBE_CHECKS = deepFreeze({
   github: [
     {
@@ -89,7 +111,17 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
     {
       key: 'rate-read',
       fields: { status: 'pass', statusClass: '2xx', limitPositive: true, remainingWithinLimit: true }
-    }
+    },
+    ...COLLECTION_READ_KEYS.map(key => ({
+      key,
+      fields: {
+        status: 'pass',
+        statusClass: '2xx',
+        listed: '$non-negative-integer',
+        detailAgreed: true,
+        absentDiscriminated: true
+      }
+    }))
   ],
   gitlab: [],
   gitea: []
@@ -287,6 +319,10 @@ function validateProviderEvidence(artifact) {
     for (const [field, rule] of Object.entries(contract.fields)) {
       if (rule === '$positive-integer') {
         if (!Number.isSafeInteger(check[field]) || check[field] <= 0) {
+          fail(`provider artifact check ${contract.key} contains invalid proof`);
+        }
+      } else if (rule === '$non-negative-integer') {
+        if (!Number.isSafeInteger(check[field]) || check[field] < 0) {
           fail(`provider artifact check ${contract.key} contains invalid proof`);
         }
       } else if (rule === '$sha256') {

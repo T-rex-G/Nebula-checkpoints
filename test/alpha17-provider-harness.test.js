@@ -18,7 +18,7 @@ const NOW = '2026-07-29T20:00:00.000Z';
  * empty case asserted rather than assumed.
  */
 const PROBE_KEYS = Object.freeze({
-  github: ['tree-read', 'rate-read'],
+  github: ['tree-read', 'rate-read', 'pulls-read', 'issues-read', 'releases-read', 'workflows-read'],
   gitlab: [],
   gitea: []
 });
@@ -179,9 +179,13 @@ async function runOne(provider, runner, options = {}) {
     'file.delete',
     'file.read',
     'file.write',
+    'issues.read',
+    'pulls.read',
     'rate.read',
+    'releases.read',
     'repository.read',
-    'tree.read'
+    'tree.read',
+    'workflows.read'
   ]);
 
   /*
@@ -200,6 +204,19 @@ async function runOne(provider, runner, options = {}) {
   assert(rateRead, 'the github artifact must carry a rate-read proof');
   assert.strictEqual(rateRead.limitPositive, true);
   assert.strictEqual(rateRead.remainingWithinLimit, true);
+
+  /*
+   * The fixture holds one object in each collection, so the detail-agreement
+   * loop actually runs. Against an empty listing it would hold vacuously and
+   * this would assert nothing about it.
+   */
+  for (const key of ['pulls-read', 'issues-read', 'releases-read', 'workflows-read']) {
+    const collection = githubResult.checks.find(check => check.key === key);
+    assert(collection, `the github artifact must carry a ${key} proof`);
+    assert.strictEqual(collection.listed, 1, `${key} must have verified the object it listed`);
+    assert.strictEqual(collection.detailAgreed, true);
+    assert.strictEqual(collection.absentDiscriminated, true);
+  }
   for (const result of [gitlabResult, giteaResult]) {
     assert.deepStrictEqual(result.capabilities, [
       'branches.read',
@@ -210,8 +227,8 @@ async function runOne(provider, runner, options = {}) {
     ]);
   }
   for (const unproven of [
-    'live-events', 'pulls.read', 'pulls.write', 'webhooks.read',
-    'webhooks.write', 'rate-limit', 'auth.app'
+    'live-events', 'pulls.write', 'issues.write', 'releases.write',
+    'workflows.rerun', 'webhooks.read', 'webhooks.write', 'auth.app'
   ]) {
     assert(!githubResult.capabilities.includes(unproven), `provider harness must not claim ${unproven}`);
   }
@@ -369,6 +386,57 @@ async function runOne(provider, runner, options = {}) {
     }),
     error => error && error.code === 'ALPHA17_PROVIDER_PROBE_FAILED'
   );
+
+  /*
+   * The collection proof has two arms, and each is falsified on its own.
+   *
+   * A detail view that answers with a different object than the one asked for
+   * still answers 200, and an endpoint that answers 200 to any identifier at
+   * all -- including one that cannot exist -- is not a lookup. Both pass a
+   * reachability ping; neither may pass this.
+   */
+  for (const [label, rewrite, expectedCode] of [
+    [
+      'a detail view that answers with a different object',
+      (pathname, body) => (/\/pulls\/7$/.test(pathname) ? { ...body, number: 4242 } : null),
+      'ALPHA17_PROVIDER_PROBE_FAILED'
+    ],
+    [
+      'a detail view that answers for an identifier that cannot exist',
+      pathname => (/\/issues\/999999999$/.test(pathname) ? { number: 999999999 } : null),
+      'ALPHA17_PROVIDER_PROBE_FAILED'
+    ]
+  ]) {
+    const collectionEnvironment = environment('github');
+    const collectionFixture = createProviderFetchFixture({
+      provider: 'github',
+      repository: collectionEnvironment.NV_ALPHA17_REPOSITORY,
+      defaultBranch: 'main',
+      runId: RUN_ID,
+      mutationCredential: collectionEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+      readOnlyCredential: collectionEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+    });
+    await assert.rejects(
+      () => runGithubValidation({
+        env: collectionEnvironment,
+        now: () => new Date(NOW),
+        fetchImpl: async (url, init = {}) => {
+          const response = await collectionFixture.fetch(url, init);
+          const pathname = new URL(url).pathname;
+          const original = response.status === 200 ? await response.clone().json() : null;
+          const replacement = rewrite(pathname, original);
+          if (!replacement) return response;
+          const body = JSON.stringify(replacement);
+          return new Response(body, {
+            status: 200,
+            headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) }
+          });
+        }
+      }),
+      error => error && error.code === expectedCode,
+      label
+    );
+  }
 
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {

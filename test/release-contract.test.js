@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { createHash } = require('crypto');
 
 const root = path.resolve(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -14,7 +15,7 @@ assert.strictEqual(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8'), '22.23.1\
 
 const { APP_VERSION, PRODUCT_NAME, ASSET_VERSION, deriveAssetVersion } = require('../src/version');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
-const { assetStampFor } = require('../src/asset-stamp');
+const { assetStampFor, TREE_PREFIX_LENGTH } = require('../src/asset-stamp');
 const expectedReleaseTreeSha256 = computeReleaseFingerprint(root);
 const servedStamp = assetStampFor(expectedReleaseTreeSha256);
 assert.strictEqual(APP_VERSION, pkg.version);
@@ -49,13 +50,24 @@ assert.strictEqual(
 );
 /*
  * The version-only derivation separated releases but not builds, and an alpha
- * ships many builds under one version. Two trees that differ at all must not
- * share a shell cache: a returning browser takes navigations from the network
- * and everything else cache-first, so a shared stamp hands it new markup and
- * older scripts.
+ * ships many builds under one version. Two trees must not share a shell cache:
+ * a returning browser takes navigations from the network and everything else
+ * cache-first, so a shared stamp hands it new markup and older scripts.
+ *
+ * What the stamp actually carries is a prefix of the tree fingerprint, not the
+ * whole of it, so the fixtures are real digests rather than a pair contrived
+ * to agree across that prefix -- which is what they were, and which asserted a
+ * separation the design does not offer and does not need. Changing one byte of
+ * the tree changes the whole digest, so the prefix moves with it.
  */
-const treeA = 'a'.repeat(64);
-const treeB = `${'a'.repeat(63)}b`;
+const digest = value => createHash('sha256').update(value).digest('hex');
+const treeA = digest('one release tree');
+const treeB = digest('a different release tree');
+assert.notStrictEqual(
+  treeA.slice(0, TREE_PREFIX_LENGTH),
+  treeB.slice(0, TREE_PREFIX_LENGTH),
+  'the fixtures must differ within the prefix the stamp is built from, or this proves nothing'
+);
 assert.notStrictEqual(
   assetStampFor(treeA),
   assetStampFor(treeB),
@@ -145,8 +157,18 @@ async function wait() {
 
     const html = await fetch(`http://127.0.0.1:${port}/`).then(r => r.text());
     assert(!html.includes('__NV_'), 'release placeholders must be rendered');
-    assert(html.includes(`?v=${servedStamp}`), 'asset stamp must derive from the release tree');
-    assert(!html.includes(`?v=${ASSET_VERSION}`), 'a version-only stamp cannot separate two builds of one version');
+    /*
+     * Read as a whole stamp rather than as a substring. The tree-derived stamp
+     * begins with the version-derived one -- it is the same encoding of the
+     * same version string with the tree appended -- so `includes` finds the
+     * version-only stamp inside every correct URL, and asserting its absence
+     * that way could never hold.
+     */
+    const servedStamps = new Set([...html.matchAll(/\?v=([0-9]+)/g)].map(match => match[1]));
+    assert.deepStrictEqual([...servedStamps], [servedStamp],
+      'every asset must carry the stamp derived from the release tree');
+    assert(!servedStamps.has(ASSET_VERSION),
+      'a version-only stamp cannot separate two builds of one version');
     assert(html.includes(PRODUCT_NAME), 'official product name must be rendered');
 
     const sw = await fetch(`http://127.0.0.1:${port}/sw.js`).then(r => r.text());

@@ -300,9 +300,14 @@ async function runHostedValidation(options = {}) {
    * git-ignored scratch directory in the tree changes it, and the gate then
    * reports ALPHA17_HOSTED_DEPLOYMENT_MISMATCH against a deployment that is in
    * fact the exact candidate. Refuse the run instead of failing the candidate.
+   *
+   * The root is named rather than assumed so that a caller can point this at
+   * the clean checkout it is validating. The release names it that way; the
+   * harness test extracts one, because a developer's working tree carries the
+   * very scratch files the check exists to refuse.
    */
   const expectedDeploymentSha256 = computeReleaseFingerprint(
-    path.resolve(__dirname, '..'),
+    options.releaseRoot || path.resolve(__dirname, '..'),
     { requireClean: true }
   );
   const deploymentSha256 = await readDeployedReleaseFingerprint(env.NV_ALPHA_BASE_URL);

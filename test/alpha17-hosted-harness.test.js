@@ -2,8 +2,11 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
+const fs = require('fs');
 const http = require('http');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const {
   runHostedValidation,
   validateOperationalRecord,
@@ -156,12 +159,37 @@ function startFixtureServer(initialReleaseTreeSha256) {
   });
 }
 
+/*
+ * A checkout of the committed tree, without the scratch files a working tree
+ * accumulates. `git archive` is how the runner's own error message tells an
+ * operator to obtain one.
+ */
+function cleanCheckout() {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nv-release-tree-'));
+  const archive = spawnSync('git', ['-C', path.resolve(__dirname, '..'), 'archive', 'HEAD'], {
+    encoding: 'buffer',
+    maxBuffer: 256 * 1024 * 1024
+  });
+  assert.strictEqual(archive.status, 0, 'a clean checkout is required to validate against');
+  const extract = spawnSync('tar', ['-x', '-C', directory], { input: archive.stdout });
+  assert.strictEqual(extract.status, 0, 'the clean checkout did not extract');
+  return directory;
+}
+
 (async () => {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const publicKeyBase64 = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
   const operationalRecord = signedOperationalRecord(privateKey);
   const restoreAttestation = runnerRestoreAttestation();
-  const expectedDeploymentSha256 = computeReleaseFingerprint(path.resolve(__dirname, '..'));
+  /*
+   * Validated against a clean checkout, as a release is. The runner refuses a
+   * working tree carrying git-ignored files, because their digest matches no
+   * deployment and reads as a candidate mismatch -- and a developer's tree
+   * carries exactly those, so pointing this at the repository would fail here
+   * for a reason that has nothing to do with the harness.
+   */
+  const releaseRoot = cleanCheckout();
+  const expectedDeploymentSha256 = computeReleaseFingerprint(releaseRoot, { requireClean: true });
   const fixture = await startFixtureServer(expectedDeploymentSha256);
   try {
     const env = {
@@ -220,6 +248,7 @@ function startFixtureServer(initialReleaseTreeSha256) {
     });
     const result = await runHostedValidation({
       env,
+      releaseRoot,
       operationalRecord,
       restoreAttestation,
       now: () => new Date(NOW)
@@ -273,7 +302,7 @@ function startFixtureServer(initialReleaseTreeSha256) {
 
     const requestCountBeforeMissingRestore = fixture.requestCount();
     await assert.rejects(
-      () => runHostedValidation({ env, operationalRecord, now: () => new Date(NOW) }),
+      () => runHostedValidation({ env, releaseRoot, operationalRecord, now: () => new Date(NOW) }),
       error => error && error.code === 'ALPHA17_RESTORE_ATTESTATION_MISSING'
     );
     assert.strictEqual(
@@ -287,6 +316,7 @@ function startFixtureServer(initialReleaseTreeSha256) {
     await assert.rejects(
       () => runHostedValidation({
         env: wrongOperatorKeyId,
+        releaseRoot,
         operationalRecord,
         restoreAttestation,
         now: () => new Date(NOW)
@@ -302,7 +332,9 @@ function startFixtureServer(initialReleaseTreeSha256) {
     const wrongTarget = { ...env, NV_ALPHA17_SIGNED_TARGET_SHA256: 'f'.repeat(64) };
     const requestCountBeforeMismatch = fixture.requestCount();
     await assert.rejects(
-      () => runHostedValidation({ env: wrongTarget, operationalRecord, restoreAttestation, now: () => new Date(NOW) }),
+      () => runHostedValidation({
+        env: wrongTarget, releaseRoot, operationalRecord, restoreAttestation, now: () => new Date(NOW)
+      }),
       error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
     );
     assert.strictEqual(fixture.requestCount(), requestCountBeforeMismatch, 'hosted target mismatch must fail before network access');
@@ -310,7 +342,9 @@ function startFixtureServer(initialReleaseTreeSha256) {
     fixture.setReleaseTreeSha256('e'.repeat(64));
     const requestCountBeforeDeploymentMismatch = fixture.requestCount();
     await assert.rejects(
-      () => runHostedValidation({ env, operationalRecord, restoreAttestation, now: () => new Date(NOW) }),
+      () => runHostedValidation({
+        env, releaseRoot, operationalRecord, restoreAttestation, now: () => new Date(NOW)
+      }),
       error => error && error.code === 'ALPHA17_HOSTED_DEPLOYMENT_MISMATCH'
     );
     assert.strictEqual(

@@ -617,9 +617,19 @@ assert(
  * So the rule is stated where it broke: a job that runs the matrix owes it the
  * database the matrix will look for.
  */
+/*
+ * Bound to the job, not to a step.
+ *
+ * Binding it to the matrix step alone was the first attempt, and it moved the
+ * failure rather than fixing it: the matrix passed, and the packaging step --
+ * which runs the same program again inside the extracted candidate, through a
+ * qualifier that builds the candidate environment from its own -- failed with
+ * exactly the same message one step later. Two steps need it, so the job owns
+ * it.
+ */
 assert(
-  /- run: npm run test:runtime:matrix\n\s+env:\n\s+NV_TEST_DATABASE_URL:/.test(automated),
-  'the job running the runtime matrix must bind a database for the migration program'
+  /^  automated:\n(?:.*\n)*?    env:\n      NV_TEST_DATABASE_URL:/m.test(workflow),
+  'the job running the runtime matrix must bind a database for every step that needs one'
 );
 assert(
   /services:\n\s+postgres:/.test(automated),

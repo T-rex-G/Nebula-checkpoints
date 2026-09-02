@@ -56,6 +56,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    # Bound to the job, not to one step.
+    #
+    # Two different steps need it and only one had it. The matrix runs the
+    # migration program directly; the packaging step runs it again inside the
+    # extracted candidate, through a qualifier that builds the candidate's
+    # environment from this step's own. Giving it to the matrix alone let the
+    # first pass and the second fail, which is exactly what happened.
+    env:
+      NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
     outputs:
       subject_sha256: ${{ steps.freeze.outputs.subject_sha256 }}
       source_commit: ${{ steps.freeze.outputs.source_commit }}
@@ -100,8 +109,6 @@ jobs:
             );
           '
       - run: npm run test:runtime:matrix
-        env:
-          NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - name: Build candidate twice and freeze bytes

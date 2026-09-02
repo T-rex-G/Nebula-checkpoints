@@ -47,7 +47,36 @@ function environment(provider) {
   return env;
 }
 
-async function runOne(provider, runner) {
+/*
+ * A provider that acknowledges a mutation and then serves reads that have not
+ * caught up yet. This is what the first live GitHub run hit: the delete
+ * answered 200 with a well-formed commit, and the reads taken immediately
+ * afterwards did not all agree with it.
+ *
+ * `lagReads` is how many GETs after the first DELETE are answered from the
+ * response the same URL gave earlier -- literally the stale answer, not an
+ * error. Infinity models a provider that never converges, which must still
+ * fail the gate.
+ */
+function laggingFetch(fetchImpl, lagReads) {
+  const lastResponse = new Map();
+  let deleteSeen = false;
+  let lagged = 0;
+  return async (url, init = {}) => {
+    const method = String((init && init.method) || 'GET').toUpperCase();
+    const key = String(url);
+    if (method === 'GET' && deleteSeen && lagged < lagReads && lastResponse.has(key)) {
+      lagged += 1;
+      return lastResponse.get(key).clone();
+    }
+    const response = await fetchImpl(url, init);
+    if (method === 'GET') lastResponse.set(key, response.clone());
+    if (method === 'DELETE') deleteSeen = true;
+    return response;
+  };
+}
+
+async function runOne(provider, runner, options = {}) {
   const env = environment(provider);
   const fixture = createProviderFetchFixture({
     provider,
@@ -59,7 +88,7 @@ async function runOne(provider, runner) {
   });
   const result = await runner({
     env,
-    fetchImpl: fixture.fetch,
+    fetchImpl: options.lagReads == null ? fixture.fetch : laggingFetch(fixture.fetch, options.lagReads),
     now: () => new Date(NOW)
   });
   assert.strictEqual(fixture.state.branches.size, 1, `${provider} must remove its disposable branch`);
@@ -236,6 +265,35 @@ async function runOne(provider, runner) {
       now: () => new Date(NOW)
     }),
     error => error && error.code === 'ALPHA17_DELETE_PROOF_FAILED'
+  );
+
+  /*
+   * A provider whose reads lag behind its own acknowledged mutations must
+   * still qualify. Before the observation converged, three stale GETs were
+   * enough to fail a run in which nothing was actually wrong -- which is
+   * exactly how the first live dispatch died.
+   */
+  const laggedResult = await runOne('github', runGithubValidation, { lagReads: 3 });
+  assert.strictEqual(laggedResult.status, 'pass', 'a provider whose reads lag must still qualify');
+  assert.strictEqual(laggedResult.cleanupVerified, true);
+  assert(laggedResult.checks.some(check =>
+    check.key === 'expected-head-delete' && check.status === 'pass' &&
+    check.headAdvanced === true && check.fileAbsent === true
+  ), 'the delete proof must hold once the provider catches up');
+
+  /*
+   * Converging is not the same as giving up on the binding. A provider that
+   * never catches up still fails, and now names the binding that never held.
+   */
+  await assert.rejects(
+    () => runOne('github', runGithubValidation, { lagReads: Infinity }),
+    error => Boolean(
+      error &&
+      error.code === 'ALPHA17_DELETE_PROOF_FAILED' &&
+      /unmet: /.test(error.message) &&
+      /fileAbsent|headIsTheDeleteCommit|headAdvanced/.test(error.message)
+    ),
+    'a provider that never converges must still fail, and say which binding never held'
   );
 
   console.log('alpha17 provider harness tests passed');

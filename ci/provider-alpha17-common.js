@@ -79,6 +79,46 @@ function assertDisposableTarget(target) {
   return Object.freeze({ runId, repository, branch, defaultBranch, prefix });
 }
 
+/*
+ * A provider acknowledges a mutation before every one of its read paths is
+ * guaranteed to show it. GitHub says so of the contents API in its own docs,
+ * and the first live run of this gate died on it: the delete returned 200 with
+ * a well-formed commit, cleanup then removed the branch cleanly, and the three
+ * bindings taken immediately afterwards did not all agree. Reproduced by hand
+ * against the same repository with seconds between calls, every binding held.
+ *
+ * So the observation converges instead of being taken once. The assertions are
+ * unchanged and just as strict -- the head must BE the delete commit, the file
+ * must BE gone -- but the provider is allowed a moment to answer consistently
+ * rather than being failed for answering slowly. If it never converges the
+ * gate still fails, and now says which binding never held.
+ *
+ * This is only ever used where a mutation MUST become visible. It is
+ * deliberately not used on the stale-head and permission-denial proofs: those
+ * assert that nothing changed, and a lagging read there returns the old state,
+ * which is the answer they expect. Polling for a change we require not to
+ * happen would be waiting to be lied to.
+ */
+const OBSERVATION_ATTEMPTS = 5;
+const OBSERVATION_BACKOFF_MS = 400;
+
+function pause(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+async function observe(read, satisfied, attempts = OBSERVATION_ATTEMPTS) {
+  let value = await read();
+  for (let attempt = 1; attempt < attempts && !satisfied(value); attempt += 1) {
+    await pause(OBSERVATION_BACKOFF_MS * attempt);
+    value = await read();
+  }
+  return value;
+}
+
+function unmetBindings(bindings) {
+  return Object.entries(bindings).filter(([, held]) => !held).map(([name]) => name);
+}
+
 function assertExpectedHead(before, current) {
   const expected = String(before || '').trim().toLowerCase();
   const observed = String(current || '').trim().toLowerCase();
@@ -294,10 +334,16 @@ async function runProviderQualification({ provider, client, env = process.env, n
       expectedHead: before.sha,
       credential: 'mutation'
     });
-    const afterWrite = await client.getBranch(target.branch, 'mutation');
+    const afterWrite = await observe(
+      () => client.getBranch(target.branch, 'mutation'),
+      head => Boolean(head) && head.sha === written.commitSha
+    );
     assertExpectedHead(written.commitSha, afterWrite.sha);
     checks.push({ key: 'expected-head-write', status: 'pass', statusClass: '2xx' });
-    const readback = await client.readFile(target.branch, proofPath, 'mutation');
+    const readback = await observe(
+      () => client.readFile(target.branch, proofPath, 'mutation'),
+      file => file !== null
+    );
     verifyUtf8Readback(proofBytes, readback.content);
     checks.push({
       key: 'utf8-readback',
@@ -440,26 +486,35 @@ async function runProviderQualification({ provider, client, env = process.env, n
       expectedHead: afterStaleDelete.sha,
       credential: 'mutation'
     });
-    const afterDelete = await client.getBranch(target.branch, 'mutation');
-    const absentAfterDelete = await client.readFile(target.branch, proofPath, 'mutation');
-    const deleteBoundToObservedHead = Boolean(
-      deleted &&
-      /^[0-9a-f]{40}$/.test(deleted.commitSha) &&
-      deleted.statusClass === '2xx' &&
-      afterDelete &&
-      deleted.commitSha === afterDelete.sha &&
-      afterDelete.sha !== afterStaleDelete.sha &&
-      absentAfterDelete === null
+    const afterDelete = await observe(
+      () => client.getBranch(target.branch, 'mutation'),
+      head => Boolean(deleted) && Boolean(head) && head.sha === deleted.commitSha
     );
+    const absentAfterDelete = await observe(
+      () => client.readFile(target.branch, proofPath, 'mutation'),
+      file => file === null
+    );
+    const deleteBindings = Object.freeze({
+      deleteCommitIsASha: Boolean(deleted) && /^[0-9a-f]{40}$/.test(deleted.commitSha),
+      deleteAnswered2xx: Boolean(deleted) && deleted.statusClass === '2xx',
+      headIsTheDeleteCommit: Boolean(deleted) && Boolean(afterDelete) && deleted.commitSha === afterDelete.sha,
+      headAdvanced: Boolean(afterDelete) && afterDelete.sha !== afterStaleDelete.sha,
+      fileAbsent: absentAfterDelete === null
+    });
+    const unmetDeleteBindings = unmetBindings(deleteBindings);
+    const deleteBoundToObservedHead = unmetDeleteBindings.length === 0;
     checks.push({
       key: 'expected-head-delete',
       status: deleteBoundToObservedHead ? 'pass' : 'fail',
       statusClass: deleted && deleted.statusClass,
-      headAdvanced: Boolean(afterDelete && afterDelete.sha !== afterStaleDelete.sha),
-      fileAbsent: absentAfterDelete === null
+      headAdvanced: deleteBindings.headAdvanced,
+      fileAbsent: deleteBindings.fileAbsent
     });
     if (!deleteBoundToObservedHead) {
-      fail('delete result is not bound to the observed post-delete head', 'ALPHA17_DELETE_PROOF_FAILED');
+      fail(
+        `delete result is not bound to the observed post-delete head (unmet: ${unmetDeleteBindings.join(', ')})`,
+        'ALPHA17_DELETE_PROOF_FAILED'
+      );
     }
   } catch (error) {
     operationError = error;
@@ -472,8 +527,26 @@ async function runProviderQualification({ provider, client, env = process.env, n
   }
 
   checks.push({ key: 'cleanup-absence', status: cleanupVerified ? 'pass' : 'fail' });
+  /*
+   * When the operation failed AND cleanup could not verify, the operation
+   * error is the one worth reading -- cleanup is usually failing for the same
+   * reason. Reporting only the cleanup failure buries the cause, which is how
+   * a provider whose reads never caught up came back as 'cleanup is
+   * incomplete' with nothing said about the delete proof underneath it.
+   *
+   * Neither fact is dropped: the cleanup outcome is already in the checks, and
+   * an unverified cleanup is named on the error as well, because a disposable
+   * branch possibly left behind in someone's repository is not a detail.
+   */
+  if (operationError) {
+    if (!cleanupVerified) {
+      operationError.message =
+        `${operationError.message}; cleanup did not verify, so the disposable branch may remain`;
+      operationError.cleanupVerified = false;
+    }
+    throw operationError;
+  }
   if (!cleanupVerified) fail('provider cleanup is incomplete', 'ALPHA17_CLEANUP_INCOMPLETE');
-  if (operationError) throw operationError;
 
   const completedAt = now().toISOString();
   const proof = providerClaims(provider, checks, completedAt);

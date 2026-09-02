@@ -73,6 +73,26 @@ function passingBrowserReport(count = 2) {
   };
 }
 
+/*
+ * What Playwright actually emits for a spec that declares a viewport it does
+ * not apply to: the spec is `ok`, the test carries the skipped status on both
+ * sides, and its single result is skipped. The real suite produces nineteen of
+ * these across its desktop and mobile projects.
+ */
+function withDeclaredSkip(report) {
+  report.suites[0].specs.push({
+    title: 'fixture browser test skipped by viewport',
+    ok: true,
+    tests: [{
+      expectedStatus: 'skipped',
+      status: 'skipped',
+      results: [{ status: 'skipped' }]
+    }]
+  });
+  report.stats.skipped += 1;
+  return report;
+}
+
 function writeFixture(root, options = {}) {
   const candidate = path.join(root, 'candidate-fixture');
   fs.mkdirSync(path.join(candidate, 'scripts'), { recursive: true });
@@ -398,12 +418,41 @@ try {
   const validBrowserReportPath = path.join(temporaryRoot, 'valid-browser-report.json');
   fs.writeFileSync(validBrowserReportPath, `${JSON.stringify(passingBrowserReport())}\n`);
   assert.doesNotThrow(() => validateBrowserReport(validBrowserReportPath, 2));
+
+  /*
+   * The shape the live run actually produced. Before the fix this threw three
+   * different ways at once, which is why the gate had never been passable.
+   */
+  const declaredSkipPath = path.join(temporaryRoot, 'declared-skip-browser-report.json');
+  fs.writeFileSync(declaredSkipPath, `${JSON.stringify(withDeclaredSkip(passingBrowserReport()))}\n`);
+  assert.doesNotThrow(
+    () => validateBrowserReport(declaredSkipPath, 2),
+    'a suite that declares a viewport skip must still be able to qualify'
+  );
+
   for (const [name, mutate] of [
     ['expected failure', report => { report.suites[0].specs[0].tests[0].expectedStatus = 'failed'; }],
     ['skipped result', report => { report.suites[0].specs[0].tests[0].results[0].status = 'skipped'; }],
     ['flaky run', report => { report.stats.flaky = 1; }],
-    ['skipped run', report => { report.stats.skipped = 1; }],
-    ['failed spec', report => { report.suites[0].specs[0].ok = false; }]
+    ['skip count that disagrees with the tree', report => { report.stats.skipped = 1; }],
+    ['failed spec', report => { report.suites[0].specs[0].ok = false; }],
+    /*
+     * A skip must never be a way past the floor. Two specs, one of them
+     * skipped, leaves one test actually executed against a minimum of two.
+     */
+    ['skips counted toward the minimum', report => {
+      withDeclaredSkip(report);
+      report.suites[0].specs[0].tests[0].status = 'skipped';
+      report.suites[0].specs[0].tests[0].expectedStatus = 'skipped';
+      report.suites[0].specs[0].tests[0].results[0].status = 'skipped';
+      report.stats.expected -= 1;
+      report.stats.skipped += 1;
+    }],
+    ['a failure hidden beside a skip', report => {
+      withDeclaredSkip(report);
+      report.suites[0].specs[0].tests[0].status = 'unexpected';
+      report.suites[0].specs[0].tests[0].results[0].status = 'failed';
+    }]
   ]) {
     const report = passingBrowserReport();
     mutate(report);

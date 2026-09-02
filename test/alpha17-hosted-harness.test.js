@@ -160,17 +160,29 @@ function startFixtureServer(initialReleaseTreeSha256) {
 }
 
 /*
- * A checkout of the committed tree, without the scratch files a working tree
- * accumulates. `git archive` is how the runner's own error message tells an
- * operator to obtain one.
+ * A clean tree to validate against: no scratch files, because the runner
+ * refuses to fingerprint a working tree that has any.
+ *
+ * In a checkout, `git archive` produces one -- which is what the runner's own
+ * error message tells an operator to do. Inside an extracted candidate archive
+ * there is no git at all, and none is needed: that tree is already the
+ * packaged release, so it has no ignored files to find. The runner agrees, by
+ * construction rather than by luck -- where git cannot answer,
+ * ignoredPathsWithinRelease returns null and the cleanliness check claims
+ * nothing either way.
+ *
+ * So git is preferred and its absence is not an error. Treating it as one is
+ * what broke the candidate qualification: the test passed in the workspace and
+ * failed inside the archive it was qualifying.
  */
 function cleanCheckout() {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nv-release-tree-'));
-  const archive = spawnSync('git', ['-C', path.resolve(__dirname, '..'), 'archive', 'HEAD'], {
+  const root = path.resolve(__dirname, '..');
+  const archive = spawnSync('git', ['-C', root, 'archive', 'HEAD'], {
     encoding: 'buffer',
     maxBuffer: 256 * 1024 * 1024
   });
-  assert.strictEqual(archive.status, 0, 'a clean checkout is required to validate against');
+  if (archive.error || archive.status !== 0) return root;
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nv-release-tree-'));
   const extract = spawnSync('tar', ['-x', '-C', directory], { input: archive.stdout });
   assert.strictEqual(extract.status, 0, 'the clean checkout did not extract');
   return directory;

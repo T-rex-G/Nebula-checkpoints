@@ -28,12 +28,37 @@ const COMMAND_TIMEOUTS_MS = Object.freeze({
   matrix: 10 * 60 * 1000,
   browser: 15 * 60 * 1000
 });
+/*
+ * NV_TEST_DATABASE_URL is here because the candidate's own suite includes a
+ * program that applies the migrations to a real server, and a migration proven
+ * in one gate and excused in another is not proven. Without it that program
+ * refuses and the candidate matrix reports a failure.
+ *
+ * It is the one entry that could name something outside the runner, so it is
+ * the one entry that is checked: only a loopback server is passed through. A
+ * variable of this name pointing at a real database stops the qualification
+ * rather than handing candidate code a live connection string.
+ */
 const SAFE_AMBIENT_ENV_KEYS = Object.freeze([
   'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TERM',
   'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT',
   'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
-  'PLAYWRIGHT_BROWSERS_PATH'
+  'PLAYWRIGHT_BROWSERS_PATH', 'NV_TEST_DATABASE_URL'
 ]);
+
+const LOOPBACK_HOSTS = Object.freeze(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+function assertLoopbackTestDatabase(value) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    fail('NV_TEST_DATABASE_URL is not a valid connection URL');
+  }
+  if (!LOOPBACK_HOSTS.includes(parsed.hostname)) {
+    fail('NV_TEST_DATABASE_URL must name a loopback test server, never a real database');
+  }
+}
 const AUTOMATED_CLAIM_REQUIREMENTS = Object.freeze({
   'node22-clean-install': Object.freeze({ direct: Object.freeze(['nodePinned', 'cleanInstall']) }),
   'node22-runtime-matrix': Object.freeze({
@@ -302,6 +327,7 @@ function buildQualificationEnvironment(baseEnv, workspace, subjectSha256) {
     if (key === 'PLAYWRIGHT_BROWSERS_PATH' && !path.isAbsolute(value)) {
       fail('PLAYWRIGHT_BROWSERS_PATH must use an absolute path');
     }
+    if (key === 'NV_TEST_DATABASE_URL') assertLoopbackTestDatabase(value);
     environment[key] = value;
   }
   if (!environment.PATH) environment.PATH = path.dirname(process.execPath);

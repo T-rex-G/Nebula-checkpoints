@@ -641,6 +641,40 @@ try {
     }
     assert.notStrictEqual(environment.NPM_CONFIG_USERCONFIG, '/hidden/.npmrc');
     assert(environment.HOME.startsWith(environmentRoot));
+
+    /*
+     * The candidate's suite applies the migrations to a real server, so a
+     * loopback test database is passed through -- otherwise that program
+     * refuses and the candidate matrix reports a failure it cannot fix.
+     *
+     * It is the only allowlisted variable that can name something outside the
+     * runner, so it is the only one whose value is checked. A variable of this
+     * name pointing at a real database must stop the qualification rather than
+     * hand candidate code a live connection string.
+     */
+    const withDatabase = buildQualificationEnvironment({
+      PATH: process.env.PATH,
+      NV_TEST_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/postgres'
+    }, environmentRoot, 'a'.repeat(64));
+    assert.strictEqual(
+      withDatabase.NV_TEST_DATABASE_URL,
+      'postgresql://postgres:postgres@localhost:5432/postgres',
+      'the candidate matrix needs the loopback database its migration program looks for'
+    );
+    for (const elsewhere of [
+      'postgresql://user:secret@db.example.com:5432/production',
+      'postgresql://user:secret@10.0.0.5:5432/postgres'
+    ]) {
+      assert.throws(
+        () => buildQualificationEnvironment(
+          { PATH: process.env.PATH, NV_TEST_DATABASE_URL: elsewhere },
+          environmentRoot,
+          'a'.repeat(64)
+        ),
+        /loopback test server/,
+        `a database at ${elsewhere} must never reach candidate code`
+      );
+    }
     const packageManagerEnvironment = buildPackageManagerEnvironment({
       HTTP_PROXY: 'http://127.0.0.1:3128/',
       HTTPS_PROXY: 'https://proxy.example.test',

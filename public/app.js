@@ -1186,6 +1186,15 @@ function runCapabilityAction(feature, action, options = {}) {
   action();
   return true;
 }
+/*
+ * The same answer for a control that is pressed directly rather than chosen
+ * from the palette. capability-ui stops the press -- it owns what is refused;
+ * the sentence is spoken here, because the toast is this module's.
+ */
+window.addEventListener('nebula:capability-refused', event => {
+  const refused = (event && event.detail) || {};
+  toast(window.NebulaCapabilityUI.explain(refused.feature), 'err');
+});
 async function boot() {
   loadSettings();
   githubAppCallbackNotice();

@@ -320,6 +320,18 @@ em{color:var(--teal);font-style:normal}
 .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .btn-ghost{background:transparent}
 .btn-ghost:hover{background:rgba(255,255,255,0.08)}
+/*
+ * A refused control is no longer :disabled -- it keeps its place in the tab
+ * order so that it can say why it is refused -- so the rules above stop
+ * reaching it. It still has to read as refused, and it must not answer a
+ * hover with the lift of a control that is about to do something.
+ */
+.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed;transform:none}
+.btn[aria-disabled="true"]:hover,.btn[aria-disabled="true"]:active{
+  transform:none;background:rgba(255,255,255,0.06)}
+.btn-ghost[aria-disabled="true"]:hover,.btn-ghost[aria-disabled="true"]:active{background:transparent}
+.btn-primary[aria-disabled="true"]:hover,.btn-primary[aria-disabled="true"]:active{
+  background:linear-gradient(135deg,var(--accent),#5a48f0)}
 .btn-block{width:100%;margin-top:14px}
 /*
  * Small buttons keep their label on one line, and are allowed to shrink to fit

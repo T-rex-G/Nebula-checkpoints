@@ -88,6 +88,69 @@
     return null;
   }
 
+  /*
+   * Which refused controls the browser is allowed to silence.
+   *
+   * Setting `disabled` on a refused button looks tidy and says nothing. The
+   * browser stops the press before any handler runs, so no code is left to
+   * explain the refusal, and the control leaves the tab order, which takes the
+   * accessible description of the reason with it. What the reader is left with
+   * is a dimmed control that does nothing, forever. The same action drawn as a
+   * palette entry has always explained itself, for no better reason than that
+   * a div has no `disabled` property to set.
+   *
+   * So a refused button stays a button -- focusable, pressable -- and the
+   * press is intercepted below and answered out loud.
+   *
+   * A text field is not the same case. Accepting typing it will discard is a
+   * worse answer than refusing the keystroke, so inputs, selects and textareas
+   * keep the native property.
+   */
+  function refusesOutLoud(element) {
+    const tag = String(element.tagName || '').toLowerCase();
+    return tag === 'button' || element.getAttribute('role') === 'button';
+  }
+
+  /*
+   * The refusal is stopped here, in the capture phase, before the control's
+   * own handlers -- so a refused action cannot run whatever a caller happened
+   * to bind to it, whichever way the control was pressed. Saying why belongs
+   * to whoever owns the interface's voice, so this announces and no more.
+   */
+  const ACTIVATION_KEYS = new Set(['Enter', ' ', 'Spacebar']);
+
+  function ancestorWith(node, read) {
+    for (let current = node; current; current = current.parentElement) {
+      const found = current.dataset ? read(current.dataset) : undefined;
+      if (found) return found;
+    }
+    return '';
+  }
+
+  function refuse(event) {
+    if (!ancestorWith(event.target, data => data.capabilityBlocked === 'true')) return;
+    if ((event.type === 'keydown' || event.type === 'keyup') && !ACTIVATION_KEYS.has(event.key)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    /*
+     * One announcement per press. A keyboard activation arrives as a keydown,
+     * a keyup and -- had the default not been prevented -- a click; the
+     * keydown is the one that carries the reader's intent.
+     */
+    if (event.type === 'keyup') return;
+    global.dispatchEvent(new CustomEvent('nebula:capability-refused', {
+      detail: decision(ancestorWith(event.target, data => data.feature))
+    }));
+  }
+
+  /*
+   * Guarded because the behaviour tests run this module against a document
+   * that models only the surface it uses. There is nothing to listen to there.
+   */
+  if (typeof document.addEventListener === 'function') {
+    for (const type of ['click', 'keydown', 'keyup']) document.addEventListener(type, refuse, true);
+  }
+
   const noteOwners = new Map();
   function apply(root = document) {
     const controls = [...root.querySelectorAll('[data-feature]')];
@@ -108,7 +171,8 @@
       ];
       for (const target of targets) {
         target.setAttribute('aria-disabled', blocked ? 'true' : 'false');
-        if ('disabled' in target) {
+        target.setAttribute('data-capability-blocked', blocked ? 'true' : 'false');
+        if ('disabled' in target && !(blocked && refusesOutLoud(target))) {
           if (blocked) {
             if (!target.disabled) target.dataset.capabilityDisabled = 'true';
             target.disabled = true;

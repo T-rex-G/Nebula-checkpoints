@@ -194,4 +194,75 @@ try {
   fs.rmSync(temporaryRoot, { recursive: true, force: true });
 }
 
+/*
+ * The readiness board.
+ *
+ * Every gate has to pass for one frozen candidate inside a fixed window, and
+ * verify is all-or-nothing about it: a record missing sixty entries reports
+ * the same way as one missing a single manual pass, and neither says how long
+ * the evidence already in hand has left. That is a scheduling question being
+ * answered by a pass/fail tool, so status answers it separately -- and must
+ * never be mistaken for the decision.
+ */
+{
+  const catalog = JSON.parse(execFileSync(process.execPath, [
+    'scripts/public-alpha-gate.js', 'plan'
+  ], { cwd: root, encoding: 'utf8' })).catalog;
+  const total = catalog.automated.length + catalog.hosted.length + catalog.manual.length +
+    Object.values(catalog.providers).reduce((sum, list) => sum + list.length, 0);
+
+  const board = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-alpha-gate-board-'));
+  const partialPath = path.join(board, 'partial-evidence.json');
+  const recent = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const stale = new Date(Date.now() - 96 * 60 * 60 * 1000).toISOString();
+  fs.writeFileSync(partialPath, JSON.stringify({
+    subjectSha256: 'a'.repeat(64),
+    sourceCommit: 'b'.repeat(40),
+    automated: {
+      [catalog.automated[0]]: { status: 'pass', cleanupVerified: true, completedAt: recent, artifact: 'x' },
+      [catalog.automated[1]]: { status: 'pass', cleanupVerified: true, completedAt: stale, artifact: 'x' }
+    },
+    manual: {
+      [catalog.manual[0]]: { status: 'pass', cleanupVerified: true, completedAt: recent, artifact: 'x' }
+    }
+  }));
+
+  const status = JSON.parse(execFileSync(process.execPath, [
+    'scripts/public-alpha-gate.js', 'status', partialPath
+  ], { cwd: root, encoding: 'utf8' }));
+
+  assert.strictEqual(status.totals.required, total,
+    'the board must count every entry the catalog requires');
+  assert.strictEqual(status.totals.present, 3);
+  assert.strictEqual(status.totals.outstanding, total - 3);
+  assert.strictEqual(status.evidenceWindowHours, 72);
+
+  /* Evidence past the window is called out rather than counted as progress. */
+  assert.strictEqual(status.expired.length, 1);
+  assert.strictEqual(status.expired[0].label, `automated.${catalog.automated[1]}`);
+
+  /*
+   * The deadline the campaign actually runs on: the oldest evidence still in
+   * hand, because it ages out first and takes the record with it.
+   */
+  assert(status.campaignDeadline, 'a record with live evidence must report a deadline');
+  assert(status.campaignDeadline.hoursRemaining > 70 && status.campaignDeadline.hoursRemaining <= 71,
+    `expected about 71 hours remaining, observed ${status.campaignDeadline.hoursRemaining}`);
+
+  assert(status.outstanding.includes(`manual.${catalog.manual[1]}`));
+  assert(status.note.includes('Readiness only'),
+    'the board must say it is not the decision');
+
+  /* An empty record is a legitimate starting state, not an error. */
+  const emptyPath = path.join(board, 'empty-evidence.json');
+  fs.writeFileSync(emptyPath, JSON.stringify({}));
+  const empty = JSON.parse(execFileSync(process.execPath, [
+    'scripts/public-alpha-gate.js', 'status', emptyPath
+  ], { cwd: root, encoding: 'utf8' }));
+  assert.strictEqual(empty.totals.present, 0);
+  assert.strictEqual(empty.campaignDeadline, null);
+  assert.strictEqual(empty.subjectSha256, null);
+  fs.rmSync(board, { recursive: true, force: true });
+}
+
 console.log('public alpha gate CLI tests passed');

@@ -11,6 +11,7 @@ const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
 const {
   QUALIFICATION_SCHEMA_VERSION,
+  MAX_EVIDENCE_AGE_MS,
   qualificationCatalog,
   validateQualificationRecord,
   verifyQualification
@@ -33,6 +34,11 @@ function parseArgs(argv) {
     if (!path.isAbsolute(values[1])) throw new TypeError('evidence must use an absolute path');
     return { command, evidence: path.normalize(values[1]) };
   }
+  if (command === 'status') {
+    if (values.length !== 2) throw new TypeError('status requires one evidence path');
+    if (!path.isAbsolute(values[1])) throw new TypeError('evidence must use an absolute path');
+    return { command, evidence: path.normalize(values[1]) };
+  }
   if (command === 'close') {
     if (values.length !== 4 || values[2] !== '--output-dir' || !values[3]) {
       throw new TypeError('close requires EVIDENCE --output-dir PATH');
@@ -46,7 +52,7 @@ function parseArgs(argv) {
       outputDir: path.normalize(values[3])
     };
   }
-  throw new TypeError('Command must be plan, verify, or close');
+  throw new TypeError('Command must be plan, status, verify, or close');
 }
 
 function readBoundedRegularFile(filePath, maximumBytes, label) {
@@ -338,10 +344,116 @@ function closeRecord(record, verification, outputDirectory) {
   });
 }
 
+/*
+ * A readiness view over a record that is not finished yet.
+ *
+ * Every gate has to pass for one frozen candidate, and every piece of evidence
+ * ages out after MAX_EVIDENCE_AGE_MS. Verification enforces both, but it is
+ * all-or-nothing: it raises on the first problem, so a record missing sixty of
+ * its sixty-odd entries reports the same way as one missing a single manual
+ * pass, and neither says how long the entries already collected have left.
+ *
+ * That is a scheduling problem being answered by a pass/fail tool. A campaign
+ * against this gate needs a board: what is in hand, what is outstanding, and
+ * when the oldest evidence in hand takes the whole attempt down with it.
+ *
+ * This deliberately re-decides nothing. It reads what a record claims and
+ * reports it against the catalog and the clock; whether the evidence is real
+ * is verification's business, and duplicating that judgement here would only
+ * create a second opinion to drift from the first.
+ */
+function statusOutput(record, now = new Date()) {
+  const catalog = qualificationCatalog(registry);
+  const groups = {
+    automated: catalog.automated.map(key => [`automated.${key}`, ['automated', key]]),
+    hosted: catalog.hosted.map(key => [`hosted.${key}`, ['hosted', key]]),
+    manual: catalog.manual.map(key => [`manual.${key}`, ['manual', key]]),
+    providers: Object.entries(catalog.providers).flatMap(([provider, capabilities]) =>
+      capabilities.map(capability => [
+        `providers.${provider}.${capability}`,
+        ['providers', provider, capability]
+      ]))
+  };
+
+  const entryAt = pathParts => pathParts.reduce(
+    (node, part) => (node && typeof node === 'object' ? node[part] : undefined),
+    record
+  );
+
+  const deadlines = [];
+  const summary = {};
+  const outstanding = [];
+  const expired = [];
+
+  for (const [group, labels] of Object.entries(groups)) {
+    let present = 0;
+    for (const [label, pathParts] of labels) {
+      const entry = entryAt(pathParts);
+      if (!entry || typeof entry !== 'object' || typeof entry.completedAt !== 'string') {
+        outstanding.push(label);
+        continue;
+      }
+      present += 1;
+      const completedAt = new Date(entry.completedAt);
+      if (Number.isNaN(completedAt.getTime())) {
+        expired.push({ label, reason: 'completedAt is not a timestamp' });
+        continue;
+      }
+      const expiresAt = new Date(completedAt.getTime() + MAX_EVIDENCE_AGE_MS);
+      if (expiresAt.getTime() <= now.getTime()) {
+        expired.push({ label, completedAt: entry.completedAt, expiresAt: expiresAt.toISOString() });
+        continue;
+      }
+      deadlines.push({ label, expiresAt });
+    }
+    summary[group] = { required: labels.length, present, outstanding: labels.length - present };
+  }
+
+  /*
+   * The number the campaign actually runs on: the oldest evidence in hand
+   * decides when the attempt has to be finished, because it ages out first and
+   * takes the record with it.
+   */
+  deadlines.sort((left, right) => left.expiresAt - right.expiresAt);
+  const earliest = deadlines[0] || null;
+
+  const required = Object.values(summary).reduce((total, group) => total + group.required, 0);
+  const present = Object.values(summary).reduce((total, group) => total + group.present, 0);
+
+  return Object.freeze({
+    schemaVersion: QUALIFICATION_SCHEMA_VERSION,
+    product: PRODUCT_NAME,
+    version: APP_VERSION,
+    generatedAt: now.toISOString(),
+    evidenceWindowHours: MAX_EVIDENCE_AGE_MS / (60 * 60 * 1000),
+    subjectSha256: typeof record.subjectSha256 === 'string' ? record.subjectSha256 : null,
+    sourceCommit: typeof record.sourceCommit === 'string' ? record.sourceCommit : null,
+    totals: { required, present, outstanding: required - present },
+    groups: summary,
+    campaignDeadline: earliest
+      ? {
+          expiresAt: earliest.expiresAt.toISOString(),
+          hoursRemaining: Math.round(
+            ((earliest.expiresAt.getTime() - now.getTime()) / (60 * 60 * 1000)) * 10
+          ) / 10,
+          setBy: earliest.label
+        }
+      : null,
+    expired,
+    outstanding,
+    /*
+     * Said out loud, because a green-looking board is the most dangerous thing
+     * this command could produce.
+     */
+    note: 'Readiness only. Run verify for the authoritative decision; this command checks nothing about whether the evidence is genuine.'
+  });
+}
+
 function run(argv = process.argv.slice(2), env = process.env) {
   const args = parseArgs(argv);
   if (args.command === 'plan') return planOutput();
   const record = readEvidence(args.evidence);
+  if (args.command === 'status') return statusOutput(record);
   const verification = verifyRecord(record, env);
   if (args.command === 'verify') return qualificationSummary(verification);
   return closeRecord(verification.normalized, verification, args.outputDir);

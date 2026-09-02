@@ -426,6 +426,12 @@ function verifyQualification(input, options = {}) {
 
 module.exports = Object.freeze({
   QUALIFICATION_SCHEMA_VERSION,
+  /*
+   * Exported so that a readiness view can show the same window verification
+   * enforces. A second copy of the number is a second number, and the one that
+   * drifts is always the one on the screen the operator is reading.
+   */
+  MAX_EVIDENCE_AGE_MS,
   qualificationCatalog,
   validateQualificationRecord,
   verifyQualification

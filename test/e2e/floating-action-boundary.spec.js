@@ -51,7 +51,11 @@ test('the floating action stays inside a comfortable target size', async ({ page
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/#/sandbox/demo@main/editor');
   await page.reload();
-  const box = await page.locator('#paletteFab').boundingBox();
+  /* It is hidden until a screen claims it, so wait for the claim rather than
+     measuring an element that is not on the screen yet. */
+  const fab = page.locator('#paletteFab');
+  await expect(fab).toBeVisible();
+  const box = await fab.boundingBox();
   /* WCAG 2.5.8 asks 24; a primary action wants more than the minimum, and it
    * shares the corner with the bottom navigation, so it should not dominate. */
   expect(box.width).toBeGreaterThanOrEqual(44);

@@ -718,7 +718,9 @@
 -->
 <div class="nv-fab-dock show-sm">
   <div class="nv-fab-menu" id="fabMenu" role="group" hidden></div>
-  <button class="nv-fab" id="paletteFab" type="button" aria-expanded="false"
+  <!-- hidden until a screen claims it: the gate is the first page painted,
+       and on a cold start script does not run for tens of seconds. -->
+  <button class="nv-fab" id="paletteFab" type="button" hidden aria-expanded="false"
     aria-controls="fabMenu" aria-label="Workspace actions" title="Workspace actions">
     <svg width="21" height="21" class="ico" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 5v14M5 12h14"/>

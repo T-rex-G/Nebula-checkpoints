@@ -652,6 +652,29 @@ assert(read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(
  * program can stop running in the standard workflow without any gate saying
  * so. Compare the real inventories rather than a source pattern.
  */
+/*
+ * The first page in the markup is the access gate, so whatever else is marked
+ * visible there is painted with it -- and on a cold start that is what a reader
+ * looks at for tens of seconds before any script runs. The floating action was
+ * painted over the gate's own Continue button for exactly that window.
+ *
+ * Asserted against the file rather than a rendered page: a browser test waits
+ * for the app to settle, and settling is precisely what hides this.
+ */
+const shell = read('public/index.html');
+const fabTag = shell.slice(shell.indexOf('id="paletteFab"'));
+assert(
+  /^[^>]*\shidden[\s>]/.test(fabTag.slice(0, fabTag.indexOf('>') + 1)) ||
+  /<button[^>]*\shidden[^>]*id="paletteFab"/.test(shell),
+  'the floating action must be hidden in the markup until a screen claims it'
+);
+const gate = shell.slice(shell.indexOf('id="page-alpha-access"'));
+assert(
+  shell.includes('class="page active" id="page-alpha-access"'),
+  'the access gate is expected to be the initially painted screen'
+);
+assert(gate.length > 0);
+
 const discoveredPrograms = fs.readdirSync(path.join(root, 'test'), { withFileTypes: true })
   .filter(entry => entry.isFile() && entry.name.endsWith('.test.js'))
   .map(entry => `test/${entry.name}`)

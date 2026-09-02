@@ -604,6 +604,28 @@ assert(
   'the checkout must not run the packaged-candidate matrix'
 );
 
+/*
+ * A program that needs a service must have that service wherever it is run.
+ *
+ * The migration test applies the migrations to a real PostgreSQL. It was wired
+ * into ci.yml, which provides one, and taught to the package contract as an
+ * externally gated program -- and then the runtime matrix, which is a third
+ * and independent discovery of every test program, ran it here without a
+ * database and reported it as a failure. The qualification could not start,
+ * and neither of the first two mechanisms had anything to say about it.
+ *
+ * So the rule is stated where it broke: a job that runs the matrix owes it the
+ * database the matrix will look for.
+ */
+assert(
+  /- run: npm run test:runtime:matrix\n\s+env:\n\s+NV_TEST_DATABASE_URL:/.test(automated),
+  'the job running the runtime matrix must bind a database for the migration program'
+);
+assert(
+  /services:\n\s+postgres:/.test(automated),
+  'the job running the runtime matrix must provide the PostgreSQL service it binds'
+);
+
 const authorization = job('authorize-live');
 assert(authorization.includes("github.event_name == 'workflow_dispatch'"));
 assert(authorization.includes('ci/verify-alpha17-authorization.js'));

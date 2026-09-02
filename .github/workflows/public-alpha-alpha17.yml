@@ -35,6 +35,27 @@ concurrency:
 jobs:
   automated:
     runs-on: ubuntu-24.04
+    # The runtime matrix runs every test program it discovers, and one of them
+    # applies the migrations to a real server. ci.yml gives that program a
+    # database; this job did not, so the matrix reported it as a failure and
+    # the qualification could never start. The service is the same one, because
+    # a migration proven in one gate and excused in another is not proven.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # -U postgres because pg_isready defaults to the OS user, which is root
+        # inside this container. Without it the probe asks for a role that does
+        # not exist, never reports healthy, and the job dies during service
+        # setup without running a step.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     outputs:
       subject_sha256: ${{ steps.freeze.outputs.subject_sha256 }}
       source_commit: ${{ steps.freeze.outputs.source_commit }}
@@ -79,6 +100,8 @@ jobs:
             );
           '
       - run: npm run test:runtime:matrix
+        env:
+          NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - name: Build candidate twice and freeze bytes

@@ -46,6 +46,8 @@ mutations remain blocked.
 
 ## GitHub — evidence-bounded alpha subset
 
+Counted from the capability registry: 17 Supported, 13 Experimental, 4 Unavailable.
+
 | Status | Capabilities |
 | --- | --- |
 | Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; access-surface analysis; dependency audit; recovery; governance; upload security |
@@ -61,6 +63,8 @@ live harness exercises their exact proof contract.
 
 ## GitLab — registry-qualified subset
 
+Counted from the capability registry: 6 Supported, 8 Experimental, 20 Unavailable.
+
 | Status | Capabilities |
 | --- | --- |
 | Supported | repository and branch reads; bounded file read/write/delete; upload security |
@@ -73,6 +77,8 @@ governance use `Deterministic` evidence; the latter three remain experimental.
 Tree, merge-request, and issue paths remain `Experimental` + `Inferred`.
 
 ## Gitea — registry-qualified subset
+
+Counted from the capability registry: 6 Supported, 4 Experimental, 24 Unavailable.
 
 | Status | Capabilities |
 | --- | --- |

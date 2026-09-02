@@ -110,8 +110,32 @@ const providerMappings = {
     ['Unavailable', 'repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis']
   ]
 };
+/*
+ * The prose above restates the registry, and restatement drifts. Promoting a
+ * capability touches the registry and this document separately, and nothing
+ * compared the two: a promotion recorded in one and forgotten in the other
+ * passed every gate. The counts are cheap to state, exact to check, and worth
+ * reading, so the document now carries them and they have to match.
+ */
+const registry = require('../config/public-alpha-capabilities.json');
+const providerKeys = {
+  'GitHub — evidence-bounded alpha subset': 'github',
+  'GitLab — registry-qualified subset': 'gitlab',
+  'Gitea — registry-qualified subset': 'gitea'
+};
+
 for (const [providerHeading, mappings] of Object.entries(providerMappings)) {
   const providerSection = section(capabilities, providerHeading);
+  const deployment = registry.providers[providerKeys[providerHeading]]['hosted-alpha'];
+  const tally = { Supported: 0, Experimental: 0, Unavailable: 0 };
+  for (const tuple of Object.values(deployment)) tally[tuple[0]] += 1;
+  assert(
+    providerSection.includes(
+      `Counted from the capability registry: ${tally.Supported} Supported, ` +
+      `${tally.Experimental} Experimental, ${tally.Unavailable} Unavailable.`
+    ),
+    `${providerHeading} does not state the registry's own capability counts`
+  );
   for (const [status, expectedCapabilities] of mappings) {
     assert(
       providerSection.includes(`| ${status} | ${expectedCapabilities} |`),

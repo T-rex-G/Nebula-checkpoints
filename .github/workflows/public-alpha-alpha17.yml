@@ -189,16 +189,24 @@ jobs:
       # The signed-envelope flow needs a private key, a terminal, and a
       # twenty-minute window in which to compute a candidate digest, sign and
       # dispatch. That is a laptop procedure, and an operator without one could
-      # not run this gate at all -- which is why it stood at forty-nine runs
-      # and zero live dispatches.
+      # not run this gate at all -- which is why, across forty-nine runs, the
+      # two that were ever dispatched at it both died inside a minute and no
+      # live job has run to this day.
       #
       # Every binding the verifier enforces is still built from this run's own
       # facts and still checked: workflow, repository, dispatch ref, event,
       # source parent and commit, candidate digest, authorized jobs, and a hash
-      # of each target's exact shape. What a self-signed envelope cannot carry
-      # is WHO approved. On this path the human approval is the environment's
-      # required reviewer, and nothing else -- said plainly because pretending
-      # otherwise would be worse than the trade itself.
+      # of each target's exact shape.
+      #
+      # What a self-signed envelope cannot carry is WHO approved, and on this
+      # repository nothing else carries it either. Required reviewers are an
+      # environment protection rule, and GitHub offers protection rules on a
+      # private repository only to paid plans; this one is private on a
+      # personal free account, so the environment scopes the live credentials
+      # away from this job and away from pull requests, but it approves
+      # nothing. What gates a live dispatch today is write access to this
+      # private repository and nothing more. Said plainly, because a gate
+      # described as approval that is not one is worse than no gate at all.
       - name: Mint and verify this run's activation envelope
         id: authorize
         shell: bash

@@ -16,7 +16,7 @@ part of it is automated away.
 | `ALPHA17_GITHUB_REPOSITORY` variable | Confirm — set to the target's `owner/name` |
 | `ALPHA17_GITHUB_MUTATION_CREDENTIAL` secret | Confirm |
 | `ALPHA17_GITHUB_READ_ONLY_CREDENTIAL` secret | Confirm |
-| `alpha17-live-qualification` environment with a required reviewer | Confirm |
+| `alpha17-live-qualification` environment holding both secrets | Confirm — scopes them to the live jobs; see below on approval |
 | Independent review of the exact candidate bytes | Required before dispatch |
 
 The two credentials must reach only the disposable target: no organization
@@ -37,11 +37,26 @@ still holds — workflow, repository, dispatch ref, event, source parent and
 commit, candidate digest, authorized jobs, and a hash of each target's exact
 shape. A target changed mid-run no longer matches, and the run stops.
 
-What a run-minted envelope cannot carry is **who** approved. On this path the
-human approval is the environment's required reviewer and nothing else. That is
-a real reduction from an operator-held key, stated here rather than implied: it
-costs a second factor that matters when several people can dispatch, and this
-alpha has one operator.
+What a run-minted envelope cannot carry is **who** approved, and on this
+repository nothing else carries it either.
+
+Required reviewers are an environment *protection rule*, and GitHub offers
+protection rules on a private repository only to paid plans. This repository is
+private on a personal free account, which is why the environment page shows no
+reviewer to add. The environment is still doing real work — it scopes the two
+live credentials so only the jobs that name it can read them, which keeps them
+away from the `automated` job and away from anything a pull request can reach —
+but it approves nothing.
+
+So the honest statement of what gates a live dispatch today is: **write access
+to this private repository, and nothing more.** One person holds it, and that
+person is the operator. That is a real reduction from an operator-held signing
+key, and it is written here rather than implied, because a gate that is
+described as approval and is not one is worse than no gate at all.
+
+Two things restore a genuine second factor, neither of them required to run:
+adding a required reviewer once the repository is on a plan that allows it, or
+returning to the operator-signed flow below.
 
 An operator who holds a key can return to the stronger flow at any time by
 minting the envelope themselves:

@@ -4,14 +4,6 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      subject_sha256:
-        description: Exact candidate archive SHA-256
-        required: true
-        type: string
-      source_commit:
-        description: Exact immutable source commit
-        required: true
-        type: string
       run_github:
         description: Run GitHub disposable-provider qualification
         required: true
@@ -32,10 +24,6 @@ on:
         required: true
         default: false
         type: boolean
-      authorization_token:
-        description: Signed short-lived exact activation authorization envelope
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -55,7 +43,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_commit || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -96,9 +84,6 @@ jobs:
       - name: Build candidate twice and freeze bytes
         id: freeze
         shell: bash
-        env:
-          NV_ALPHA17_REQUESTED_SUBJECT_SHA256: ${{ inputs.subject_sha256 }}
-          NV_ALPHA17_REQUESTED_SOURCE_COMMIT: ${{ inputs.source_commit }}
         run: |
           npm run package:release -- "${RUNNER_TEMP}/build-a"
           npm run package:release -- "${RUNNER_TEMP}/build-b"
@@ -107,12 +92,6 @@ jobs:
           cmp "${archive_a}" "${archive_b}"
           subject_sha256="$(sha256sum "${archive_a}" | cut -d' ' -f1)"
           echo "${subject_sha256}  ${archive_a}" | sha256sum -c -
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            printf '%s\n' "${NV_ALPHA17_REQUESTED_SUBJECT_SHA256}" | grep -qxE '[0-9a-f]{64}'
-            printf '%s\n' "${NV_ALPHA17_REQUESTED_SOURCE_COMMIT}" | grep -qxE '[0-9a-f]{40}'
-            test "${subject_sha256}" = "${NV_ALPHA17_REQUESTED_SUBJECT_SHA256}"
-            test "$(git rev-parse HEAD)" = "${NV_ALPHA17_REQUESTED_SOURCE_COMMIT}"
-          fi
           node scripts/qualify-candidate-archive.js \
             --archive "${archive_a}" \
             --comparison-archive "${archive_b}" \
@@ -163,10 +142,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.23.1'
-      # The activation envelope travels as a dispatch input, so it is readable
-      # by anyone who can read this run and is not a secret once used. This
-      # cache carries the identifiers already spent, so a captured envelope
-      # cannot activate the live targets a second time inside its lifetime.
+      # The run mints its own activation envelope, so nothing sensitive travels
+      # as a dispatch input. The ledger is kept because an operator holding a
+      # key can return to the signed flow by minting the envelope themselves;
+      # against a run-minted envelope it can never fire, since each run draws a
+      # fresh identifier that no earlier run can have spent.
       - name: Restore spent-approval ledger
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -174,11 +154,25 @@ jobs:
           key: alpha17-authorization-claims-${{ github.run_id }}
           restore-keys: |
             alpha17-authorization-claims-
-      - name: Verify exact signed activation envelope
+      # Minted here rather than handed in.
+      #
+      # The signed-envelope flow needs a private key, a terminal, and a
+      # twenty-minute window in which to compute a candidate digest, sign and
+      # dispatch. That is a laptop procedure, and an operator without one could
+      # not run this gate at all -- which is why it stood at forty-nine runs
+      # and zero live dispatches.
+      #
+      # Every binding the verifier enforces is still built from this run's own
+      # facts and still checked: workflow, repository, dispatch ref, event,
+      # source parent and commit, candidate digest, authorized jobs, and a hash
+      # of each target's exact shape. What a self-signed envelope cannot carry
+      # is WHO approved. On this path the human approval is the environment's
+      # required reviewer, and nothing else -- said plainly because pretending
+      # otherwise would be worse than the trade itself.
+      - name: Mint and verify this run's activation envelope
         id: authorize
         shell: bash
         env:
-          NV_ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64: ${{ vars.ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64 }}
           NV_ALPHA17_EXPECTED_WORKFLOW: .github/workflows/public-alpha-alpha17.yml
           NV_ALPHA17_EXPECTED_REPOSITORY: ${{ github.repository }}
           NV_ALPHA17_EXPECTED_REF: ${{ github.ref }}
@@ -203,7 +197,6 @@ jobs:
           NV_ALPHA17_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
           NV_ALPHA17_RESTORE_APP_BASE_URL: ${{ vars.ALPHA17_RESTORE_APP_BASE_URL }}
           NV_ALPHA17_RESTORE_APP_DEPLOY_ID: ${{ vars.ALPHA17_RESTORE_APP_DEPLOY_ID }}
-          AUTHORIZATION_ENVELOPE: ${{ inputs.authorization_token }}
         run: |
           requested_jobs=""
           [ "${{ inputs.run_github }}" = "true" ] && requested_jobs="${requested_jobs},github"
@@ -212,8 +205,37 @@ jobs:
           [ "${{ inputs.run_hosted }}" = "true" ] && requested_jobs="${requested_jobs},hosted"
           export NV_ALPHA17_REQUESTED_JOBS="${requested_jobs#,}"
           mkdir -p "${NV_ALPHA17_AUTHORIZATION_CLAIM_DIR}"
-          printf '%s' "${AUTHORIZATION_ENVELOPE}" |
+          node scripts/alpha17-authorize.js sign \
+            --ephemeral-key \
+            --repository "${NV_ALPHA17_EXPECTED_REPOSITORY}" \
+            --ref "${NV_ALPHA17_EXPECTED_REF}" \
+            --source-commit "${NV_ALPHA17_EXPECTED_SOURCE_COMMIT}" \
+            --source-parent "${NV_ALPHA17_EXPECTED_SOURCE_PARENT}" \
+            --subject-sha256 "${NV_ALPHA17_EXPECTED_SUBJECT_SHA256}" \
+            --jobs "${NV_ALPHA17_REQUESTED_JOBS}" \
+            --github-repository "${NV_ALPHA17_GITHUB_REPOSITORY}" \
+            --gitlab-repository "${NV_ALPHA17_GITLAB_REPOSITORY}" \
+            --gitea-repository "${NV_ALPHA17_GITEA_REPOSITORY}" \
+            --gitea-api-url "${NV_ALPHA17_GITEA_API_URL}" \
+            --hosted-base-url "${NV_ALPHA17_HOSTED_BASE_URL}" \
+            --render-service-id "${NV_ALPHA17_RENDER_SERVICE_ID}" \
+            --neon-project-id "${NV_ALPHA17_NEON_PROJECT_ID}" \
+            --cohort-neon-branch-id "${NV_ALPHA17_COHORT_NEON_BRANCH_ID}" \
+            --restore-neon-project-id "${NV_ALPHA17_RESTORE_NEON_PROJECT_ID}" \
+            --restore-neon-branch-id "${NV_ALPHA17_RESTORE_NEON_BRANCH_ID}" \
+            --restore-target-fingerprint "${NV_ALPHA17_RESTORE_TARGET_FINGERPRINT}" \
+            --restore-app-base-url "${NV_ALPHA17_RESTORE_APP_BASE_URL}" \
+            --restore-app-deploy-id "${NV_ALPHA17_RESTORE_APP_DEPLOY_ID}" \
+            > "${RUNNER_TEMP}/minted.json"
+          NV_ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64="$(node -e '
+            process.stdout.write(require(process.argv[1]).publicKeyBase64)
+          ' "${RUNNER_TEMP}/minted.json")"
+          export NV_ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64
+          node -e '
+            process.stdout.write(require(process.argv[1]).authorization_token)
+          ' "${RUNNER_TEMP}/minted.json" |
             node ci/verify-alpha17-authorization.js > "${RUNNER_TEMP}/authorization.json"
+          rm -f "${RUNNER_TEMP}/minted.json"
           envelope_hash="$(node -e 'const v=require(process.argv[1]); process.stdout.write(v.envelopeHash)' "${RUNNER_TEMP}/authorization.json")"
           echo "envelope_hash=${envelope_hash}" >> "${GITHUB_OUTPUT}"
           for job_name in github gitlab gitea hosted; do

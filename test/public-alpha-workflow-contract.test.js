@@ -535,8 +535,7 @@ for (const [action, commit] of Object.entries(actionPins)) {
   assert(workflow.includes(`uses: ${action}@${commit}`), `${action} must use its reviewed immutable commit`);
 }
 for (const input of [
-  'subject_sha256', 'source_commit', 'run_github', 'run_gitlab',
-  'run_gitea', 'run_hosted', 'authorization_token'
+  'run_github', 'run_gitlab', 'run_gitea', 'run_hosted'
 ]) {
   assert(new RegExp(`^      ${input}:`, 'm').test(workflow), `missing dispatch input ${input}`);
 }
@@ -609,6 +608,55 @@ const authorization = job('authorize-live');
 assert(authorization.includes("github.event_name == 'workflow_dispatch'"));
 assert(authorization.includes('ci/verify-alpha17-authorization.js'));
 assert(!authorization.includes('${{ secrets.'), 'authorization job must verify before secrets are read');
+
+/*
+ * The envelope is minted by the run and verified by the same verifier that
+ * always checked it. Two properties matter and neither is visible from the
+ * mint alone.
+ *
+ * The mint must be fed the run's own facts, not a dispatch input: an operator
+ * who could hand in the candidate digest or the source commit could authorize
+ * a run against bytes the automated job never built.
+ *
+ * And the verification must still happen. A mint whose output was trusted
+ * without being run back through the verifier would skip every binding --
+ * workflow, repository, ref, event, parents, digest, jobs and target hashes --
+ * and the gate would authorize whatever it was handed.
+ */
+assert(
+  /scripts\/alpha17-authorize\.js sign[\s\S]{0,200}--ephemeral-key/.test(authorization),
+  'the run must mint its own activation envelope with a key it generates'
+);
+/*
+ * Named by where it comes from, not by the word. The minted file carries an
+ * `authorization_token` key that the step reads back, so matching the bare
+ * word would fail on correct code; what must not appear is the envelope
+ * arriving from outside the run.
+ */
+assert(
+  !/inputs\.authorization_token|AUTHORIZATION_ENVELOPE/.test(authorization),
+  'the activation envelope must not arrive as a dispatch input'
+);
+for (const binding of [
+  'NV_ALPHA17_EXPECTED_SUBJECT_SHA256: ${{ needs.automated.outputs.subject_sha256 }}',
+  'NV_ALPHA17_EXPECTED_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}',
+  'NV_ALPHA17_EXPECTED_SOURCE_PARENT: ${{ needs.automated.outputs.source_parent }}'
+]) {
+  assert(
+    authorization.includes(binding),
+    `the minted envelope must bind the qualified candidate through ${binding.split(':')[0]}`
+  );
+}
+assert(
+  !/NV_ALPHA17_EXPECTED_(?:SUBJECT_SHA256|SOURCE_COMMIT|SOURCE_PARENT): \$\{\{ inputs\./.test(authorization),
+  'the minted envelope must never bind a candidate the dispatcher supplied'
+);
+const mintIndex = authorization.indexOf('--ephemeral-key');
+const verifyIndex = authorization.indexOf('ci/verify-alpha17-authorization.js');
+assert(
+  mintIndex >= 0 && mintIndex < verifyIndex,
+  'a minted envelope must still be put through the verifier'
+);
 for (const variable of [
   'ALPHA17_GITHUB_REPOSITORY', 'ALPHA17_GITLAB_REPOSITORY',
   'ALPHA17_GITEA_REPOSITORY', 'ALPHA17_GITEA_API_URL',

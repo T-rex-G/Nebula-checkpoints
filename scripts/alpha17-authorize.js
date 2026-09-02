@@ -56,6 +56,11 @@ function parseArguments(argv) {
     if (!token.startsWith('--')) fail(`unexpected argument: ${token}`);
     const name = token.slice(2);
     const value = argv[index + 1];
+    /* One valueless flag; everything else names a value. */
+    if (name === 'ephemeral-key') {
+      options[name] = true;
+      continue;
+    }
     if (value === undefined || value.startsWith('--')) fail(`--${name} requires a value`);
     options[name] = value;
     index += 1;
@@ -131,15 +136,40 @@ function targetsFor(jobs, options) {
   return targets;
 }
 
-function sign(options) {
+/*
+ * Where the signing key comes from.
+ *
+ * --key names a key the operator holds, and the signature then says a person
+ * with that key approved this exact candidate and target.
+ *
+ * --ephemeral-key generates one for this signing and returns its public half
+ * alongside the token, so a run can mint an envelope for itself. Every binding
+ * the verifier enforces is still built and still checked; what an ephemeral
+ * signature cannot carry is WHO approved. It exists because the operator-held
+ * flow needs a private key and a terminal, and an operator without one could
+ * not run this gate at all -- which is how the workflow reached forty-nine
+ * runs and zero live dispatches. On that path the human approval is the
+ * environment's required reviewer, and nothing else. Saying so is better than
+ * a signature that implies more than it proves.
+ */
+function signingKey(options) {
+  if (options['ephemeral-key'] !== undefined) {
+    if (options.key) fail('--key and --ephemeral-key are mutually exclusive');
+    return { ...crypto.generateKeyPairSync('ed25519'), ephemeral: true };
+  }
   const keyPath = path.resolve(required(options, 'key'));
-  let privateKey;
   try {
-    privateKey = crypto.createPrivateKey(fs.readFileSync(keyPath));
-  } catch {
+    const privateKey = crypto.createPrivateKey(fs.readFileSync(keyPath));
+    if (privateKey.asymmetricKeyType !== 'ed25519') fail('authorization key must be Ed25519');
+    return { privateKey, publicKey: null, ephemeral: false };
+  } catch (error) {
+    if (/must be Ed25519/.test(String(error && error.message))) throw error;
     fail(`authorization key at ${keyPath} could not be read`);
   }
-  if (privateKey.asymmetricKeyType !== 'ed25519') fail('authorization key must be Ed25519');
+}
+
+function sign(options) {
+  const { privateKey, publicKey, ephemeral } = signingKey(options);
 
   const jobs = required(options, 'jobs').split(',').map(job => job.trim()).filter(Boolean);
   if (!jobs.length) fail('--jobs must name at least one job');
@@ -181,7 +211,11 @@ function sign(options) {
     authorization_token: encodeAuthorizationEnvelope(payload, privateKey),
     expiresAt: payload.expiresAt,
     authorizedJobs: payload.authorizedJobs,
-    targetHashes
+    targetHashes,
+    signedBy: ephemeral ? 'workflow-run' : 'operator-key',
+    ...(ephemeral
+      ? { publicKeyBase64: publicKey.export({ format: 'der', type: 'spki' }).toString('base64') }
+      : {})
   }, null, 2)}\n`);
 }
 

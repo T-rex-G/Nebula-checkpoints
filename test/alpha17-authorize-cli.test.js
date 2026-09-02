@@ -155,5 +155,78 @@ cliFails(
   /must be Ed25519/
 );
 
+/*
+ * --ephemeral-key: the envelope a run mints for itself, so an operator without
+ * a terminal can still run the gate. It must produce something the real
+ * verifier accepts, and it must bind exactly what the operator-signed path
+ * binds -- otherwise the easier route would quietly be the weaker one in ways
+ * nobody stated.
+ */
+{
+  const runSigned = cli([
+    'sign',
+    '--ephemeral-key',
+    '--repository', REPOSITORY,
+    '--ref', REF,
+    '--source-commit', SOURCE_COMMIT,
+    '--source-parent', SOURCE_PARENT,
+    '--subject-sha256', SUBJECT,
+    '--jobs', 'github',
+    '--github-repository', TARGET_REPOSITORY
+  ]);
+  assert.strictEqual(runSigned.signedBy, 'workflow-run');
+  assert.match(runSigned.publicKeyBase64, /^[A-Za-z0-9+/]+={0,2}$/);
+  assert.strictEqual(minted.signedBy, 'operator-key');
+  assert.strictEqual(minted.publicKeyBase64, undefined,
+    'an operator-signed envelope must not publish a key the operator holds');
+
+  const accepted = verify(runSigned.authorization_token, {
+    publicKeyBase64: runSigned.publicKeyBase64
+  });
+  assert.strictEqual(accepted.ok, true);
+  assert.deepStrictEqual(accepted.authorizedJobs, ['github']);
+
+  /*
+   * The bindings are the whole point. A run-minted envelope that did not pin
+   * its target would let a variable changed mid-run redirect live credentials
+   * somewhere else.
+   */
+  assert.throws(
+    () => verify(runSigned.authorization_token, {
+      publicKeyBase64: runSigned.publicKeyBase64,
+      expectedTargets: {
+        github: { repository: 'T-rex-G/nvx-alpha17-somewhere-else', apiUrl: 'https://api.github.com' }
+      }
+    }),
+    error => error && error.code === 'ALPHA17_AUTHORIZATION_TARGET_MISMATCH'
+  );
+  assert.throws(
+    () => verify(runSigned.authorization_token, {
+      publicKeyBase64: runSigned.publicKeyBase64,
+      expectedSubjectHash: 'd'.repeat(64)
+    }),
+    error => error && /^ALPHA17_AUTHORIZATION_/.test(String(error.code || ''))
+  );
+
+  /* Each signing gets its own key; one run's envelope is not another's. */
+  assert.throws(
+    () => verify(runSigned.authorization_token, {
+      publicKeyBase64: keys.ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64
+    }),
+    error => error && error.code === 'ALPHA17_AUTHORIZATION_SIGNATURE_INVALID'
+  );
+
+  /* Naming a job without its target still refuses, ephemeral or not. */
+  cliFails([
+    'sign', '--ephemeral-key',
+    '--repository', REPOSITORY, '--ref', REF,
+    '--source-commit', SOURCE_COMMIT, '--source-parent', SOURCE_PARENT,
+    '--subject-sha256', SUBJECT, '--jobs', 'github'
+  ], /--github-repository is required/);
+
+  /* The two key sources are alternatives, not a pair. */
+  cliFails([...signArguments, '--ephemeral-key'], /mutually exclusive/);
+}
+
 fs.rmSync(workspace, { recursive: true, force: true });
 console.log('alpha17 authorization CLI tests passed');

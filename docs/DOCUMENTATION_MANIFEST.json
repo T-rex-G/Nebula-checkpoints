@@ -25,6 +25,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/architecture/ALPHA17_REVIEW_DISPOSITIONS.md",
+      "lifecycle": "architecture",
+      "authority": "accepted-architecture-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/architecture/ARCHITECTURE.md",
       "lifecycle": "architecture",
       "authority": "accepted-architecture-record",
@@ -33,13 +40,6 @@
     },
     {
       "path": "docs/architecture/ARCHITECTURE_DECISIONS.md",
-      "lifecycle": "architecture",
-      "authority": "accepted-architecture-record",
-      "releaseIncluded": true,
-      "immutableHistory": false
-    },
-    {
-      "path": "docs/architecture/ALPHA17_REVIEW_DISPOSITIONS.md",
       "lifecycle": "architecture",
       "authority": "accepted-architecture-record",
       "releaseIncluded": true,
@@ -310,6 +310,13 @@
       "authority": "immutable-checkpoint-record",
       "releaseIncluded": true,
       "immutableHistory": true
+    },
+    {
+      "path": "docs/operations/ALPHA17_LIVE_DISPATCH.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
     },
     {
       "path": "docs/operations/DEPLOY_RENDER_NEON.md",

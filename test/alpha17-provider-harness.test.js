@@ -87,6 +87,28 @@ function laggingFetch(fetchImpl, lagReads) {
   };
 }
 
+/*
+ * A provider whose tree listing has not caught up with the commit this run
+ * just made. This is what failed the first run ever to reach the probes: the
+ * proof file was written, and the tree came back without it.
+ *
+ * `lagTreeReads` is how many tree reads answer from before the write.
+ */
+function laggingTreeFetch(fetchImpl, lagTreeReads) {
+  let lagged = 0;
+  return async (url, init = {}) => {
+    const response = await fetchImpl(url, init);
+    if (!new URL(url).pathname.includes('/git/trees/') || lagged >= lagTreeReads) return response;
+    lagged += 1;
+    const listing = await response.json();
+    const body = JSON.stringify({ ...listing, tree: [] });
+    return new Response(body, {
+      status: 200,
+      headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) }
+    });
+  };
+}
+
 async function runOne(provider, runner, options = {}) {
   const env = environment(provider);
   const fixture = createProviderFetchFixture({
@@ -99,7 +121,9 @@ async function runOne(provider, runner, options = {}) {
   });
   const result = await runner({
     env,
-    fetchImpl: options.lagReads == null ? fixture.fetch : laggingFetch(fixture.fetch, options.lagReads),
+    fetchImpl: options.lagTreeReads != null
+      ? laggingTreeFetch(fixture.fetch, options.lagTreeReads)
+      : options.lagReads == null ? fixture.fetch : laggingFetch(fixture.fetch, options.lagReads),
     now: () => new Date(NOW)
   });
   assert.strictEqual(fixture.state.branches.size, 1, `${provider} must remove its disposable branch`);
@@ -437,6 +461,33 @@ async function runOne(provider, runner, options = {}) {
       label
     );
   }
+
+  /*
+   * A tree that has not caught up must not fail the run. Three stale tree
+   * reads were enough to fail run 56, in which nothing was wrong.
+   */
+  const laggedTreeResult = await runOne('github', runGithubValidation, { lagTreeReads: 3 });
+  assert.strictEqual(laggedTreeResult.status, 'pass', 'a provider whose tree lags must still qualify');
+  assert(laggedTreeResult.checks.some(check =>
+    check.key === 'tree-read' && check.status === 'pass' &&
+    check.proofPathPresent === true && check.blobIdentityMatched === true
+  ), 'the tree proof must hold once the provider catches up');
+
+  /*
+   * A tree that never catches up still fails, and now says which condition
+   * never held rather than only naming the probe.
+   */
+  await assert.rejects(
+    () => runOne('github', runGithubValidation, { lagTreeReads: Infinity }),
+    error => Boolean(
+      error &&
+      error.code === 'ALPHA17_PROVIDER_PROBE_FAILED' &&
+      /tree-read/.test(error.message) &&
+      /unmet: /.test(error.message) &&
+      /proofPathPresent/.test(error.message)
+    ),
+    'a tree that never converges must fail and name the unmet condition'
+  );
 
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {

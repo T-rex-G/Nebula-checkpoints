@@ -306,7 +306,20 @@ async function runProviderProbes({ provider, client, target, proofPath, readback
       fail('provider probes do not match the provider proof contract', 'ALPHA17_PROVIDER_PROBE_INVALID');
     }
     if (probe.status !== 'pass') {
-      fail(`provider probe ${probe.key} did not pass`, 'ALPHA17_PROVIDER_PROBE_FAILED');
+      /*
+       * Say which part of the probe did not hold. "tree-read did not pass"
+       * sent me back to the source to work out that it could mean a missing
+       * path, a truncated listing, or a blob identity mismatch; the run that
+       * emitted it had already thrown the answer away. Every boolean the probe
+       * carries is a named condition, so the false ones are the diagnosis.
+       */
+      const unmet = Object.entries(probe)
+        .filter(([, value]) => value === false)
+        .map(([name]) => name);
+      fail(
+        `provider probe ${probe.key} did not pass${unmet.length ? ` (unmet: ${unmet.join(', ')})` : ''}`,
+        'ALPHA17_PROVIDER_PROBE_FAILED'
+      );
     }
   });
   return probes;
@@ -623,6 +636,7 @@ module.exports = Object.freeze({
   verifyUtf8Readback,
   hashArtifact,
   requestJson,
+  observe,
   providerCapabilityRequirements,
   providerClaims,
   runProviderQualification

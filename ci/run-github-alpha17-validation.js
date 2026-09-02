@@ -3,6 +3,7 @@
 
 const {
   assertExpectedHead,
+  observe,
   requestJson,
   runProviderQualification
 } = require('./provider-alpha17-common');
@@ -249,7 +250,25 @@ function createGithubClient({ env, fetchImpl }) {
    * within it. The account's actual quota is not the evidence's business.
    */
   async function probeChecks({ branch, proofPath, proofFileSha }) {
-    const tree = await readTree(branch);
+    /*
+     * The tree is the one probe that reads something this run just wrote, so
+     * it is the one probe exposed to the provider answering before it has
+     * finished making the write visible. That is the same lag that failed the
+     * delete proof on the first live run, and it failed this probe on the
+     * first run that reached it: the tree came back without the proof path,
+     * because the commit carrying it was seconds old.
+     *
+     * Converged rather than loosened. The probe still demands the exact path
+     * and the exact blob identity; it just stops insisting the provider be
+     * caught up on the first ask. The collection probes below read fixtures
+     * that predate the run, so they have nothing to wait for.
+     */
+    const expectedSha = String(proofFileSha || '').toLowerCase();
+    const tree = await observe(
+      () => readTree(branch),
+      current => Boolean(current) && !current.truncated &&
+        current.entries.some(item => item.path === proofPath && item.sha === expectedSha)
+    );
     const entry = tree.entries.find(item => item.path === proofPath);
     const treeRead = {
       key: 'tree-read',
@@ -257,7 +276,7 @@ function createGithubClient({ env, fetchImpl }) {
       statusClass: tree.statusClass,
       entries: tree.entries.length,
       proofPathPresent: Boolean(entry) && !tree.truncated,
-      blobIdentityMatched: Boolean(entry) && entry.sha === String(proofFileSha || '').toLowerCase()
+      blobIdentityMatched: Boolean(entry) && entry.sha === expectedSha
     };
     treeRead.status = treeRead.proofPathPresent && treeRead.blobIdentityMatched ? 'pass' : 'fail';
 

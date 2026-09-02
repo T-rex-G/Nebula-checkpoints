@@ -6,6 +6,7 @@ const registry = require('../config/public-alpha-capabilities.json');
 const {
   EVIDENCE_SCHEMA_VERSION,
   PROVIDER_CAPABILITY_REQUIREMENTS,
+  providerProbeKeys,
   validateEvidenceEnvelope
 } = require('../src/qualification-evidence');
 const { verifyLiveTargetBinding } = require('./verify-alpha17-authorization');
@@ -283,6 +284,34 @@ async function cleanupDisposableBranch(client, target, paths) {
   return (await client.getBranch(target.branch, 'mutation')) === null;
 }
 
+/*
+ * The probes a provider contributes on top of the shared mutation sequence.
+ *
+ * A provider that proves nothing extra declares an empty probe list and needs
+ * no client support; a provider that does must implement probeChecks and
+ * return exactly the checks its contract names, in order, all passing.
+ */
+async function runProviderProbes({ provider, client, target, proofPath, readback }) {
+  const expected = providerProbeKeys(provider);
+  if (!expected.length) return [];
+  if (typeof client.probeChecks !== 'function') {
+    fail('provider client does not implement the probes its contract requires', 'ALPHA17_PROVIDER_INVALID');
+  }
+  const probes = await client.probeChecks({ branch: target.branch, proofPath, proofFileSha: readback.sha });
+  if (!Array.isArray(probes) || probes.length !== expected.length) {
+    fail('provider probes do not match the provider proof contract', 'ALPHA17_PROVIDER_PROBE_INVALID');
+  }
+  probes.forEach((probe, index) => {
+    if (!probe || probe.key !== expected[index]) {
+      fail('provider probes do not match the provider proof contract', 'ALPHA17_PROVIDER_PROBE_INVALID');
+    }
+    if (probe.status !== 'pass') {
+      fail(`provider probe ${probe.key} did not pass`, 'ALPHA17_PROVIDER_PROBE_FAILED');
+    }
+  });
+  return probes;
+}
+
 async function runProviderQualification({ provider, client, env = process.env, now = () => new Date() }) {
   if (!client) fail('provider client is required', 'ALPHA17_PROVIDER_INVALID');
   const subjectSha256 = requireSubjectHash(env);
@@ -352,6 +381,18 @@ async function runProviderQualification({ provider, client, env = process.env, n
       bytes: proofBytes.length,
       contentSha256: sha256(proofBytes)
     });
+
+    /*
+     * Whatever this provider proves beyond the shared sequence. Run here
+     * because the proof file is on the branch and nothing has been rolled back
+     * yet, and checked against the provider's own contract on the way out: a
+     * client that returns the wrong probes, in the wrong order, or a probe that
+     * did not pass, fails the run rather than producing an artifact that the
+     * evidence validator will reject later with less to say about why.
+     */
+    for (const probe of await runProviderProbes({ provider, client, target, proofPath, readback })) {
+      checks.push(probe);
+    }
 
     let staleRejected = false;
     const staleProofBytes = Buffer.from('Nebulaverse-X alpha.17 rejected stale-write proof\n', 'utf8');

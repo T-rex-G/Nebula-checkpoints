@@ -100,20 +100,31 @@ const githubWrite = resolveCapability(document, {
 assert.strictEqual(githubWrite.status, 'Supported');
 assert.strictEqual(githubWrite.evidenceState, 'Provider-verified');
 
-const githubRateContext = {
-  provider: 'github', authority: 'github.com', deployment: 'hosted-alpha', feature: 'rate.read'
+/*
+ * The experimental opt-in, shown on a capability that is still experimental.
+ * This was rate.read until the live harness began proving it; a capability
+ * that has been promoted cannot also stand for the unpromoted case.
+ */
+const githubPullsContext = {
+  provider: 'github', authority: 'github.com', deployment: 'hosted-alpha', feature: 'pulls.read'
 };
-const githubRate = resolveCapability(document, githubRateContext);
-assert.strictEqual(githubRate.status, 'Experimental');
-assert.strictEqual(githubRate.evidenceState, 'Inferred');
+const githubPulls = resolveCapability(document, githubPullsContext);
+assert.strictEqual(githubPulls.status, 'Experimental');
+assert.strictEqual(githubPulls.evidenceState, 'Inferred');
 assert.throws(
-  () => assertCapabilityAvailable(document, githubRateContext),
+  () => assertCapabilityAvailable(document, githubPullsContext),
   error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_EXPERIMENTAL'
 );
 assert.strictEqual(
-  assertCapabilityAvailable(document, { ...githubRateContext, allowExperimental: true }).status,
+  assertCapabilityAvailable(document, { ...githubPullsContext, allowExperimental: true }).status,
   'Experimental'
 );
+
+const githubRate = resolveCapability(document, {
+  provider: 'github', authority: 'github.com', deployment: 'hosted-alpha', feature: 'rate.read'
+});
+assert.strictEqual(githubRate.status, 'Supported');
+assert.strictEqual(githubRate.evidenceState, 'Provider-verified');
 for (const provider of ['gitlab', 'gitea']) {
   const rate = resolveCapability(document, {
     provider,

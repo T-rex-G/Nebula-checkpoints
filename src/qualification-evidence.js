@@ -20,7 +20,9 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
     'branches.write': ['disposable-branch-create', 'cleanup-absence'],
     'file.read': ['utf8-readback'],
     'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
-    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
+    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence'],
+    'tree.read': ['tree-read'],
+    'rate.read': ['rate-read']
   },
   gitlab: {
     'repository.read': ['repository-read'],
@@ -37,7 +39,21 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
     'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
   }
 });
-const PROVIDER_CHECK_CONTRACT = deepFreeze([
+/*
+ * The mutation sequence every provider runs, and the proofs it produces.
+ *
+ * It is split around an insertion point because the capability requirements
+ * are already per-provider and the checks had no way to be. A capability a
+ * provider proves and its neighbours do not -- GitHub's tree and rate reads --
+ * needs a proof of its own, and there was nowhere to put one: the contract was
+ * a single flat list validated against every artifact, so a GitHub-only check
+ * would have made GitLab and Gitea artifacts invalid for lacking it.
+ *
+ * The probes go after the readback, where the proof file is on the disposable
+ * branch and nothing has been rolled back, and before the stale-head sequence,
+ * which is where the branch starts being argued with.
+ */
+const SHARED_CHECKS_BEFORE_PROBES = deepFreeze([
   { key: 'repository-read', fields: { status: 'pass', statusClass: '2xx' } },
   { key: 'default-branch-read', fields: { status: 'pass', statusClass: '2xx' } },
   { key: 'disposable-branch-create', fields: { status: 'pass', statusClass: '2xx' } },
@@ -45,7 +61,41 @@ const PROVIDER_CHECK_CONTRACT = deepFreeze([
   {
     key: 'utf8-readback',
     fields: { status: 'pass', statusClass: '2xx', bytes: '$positive-integer', contentSha256: '$sha256' }
-  },
+  }
+]);
+
+/*
+ * Cross-checks rather than reachability pings. An endpoint that answers 200
+ * with a tree belonging to some other repository passes a ping; it fails a
+ * proof that the listing names the file this run just wrote and gives it the
+ * blob identity the contents API reported for it.
+ *
+ * The rate proof carries comparisons rather than the figures themselves. What
+ * has to be true is that the ceiling is real and the remaining budget sits
+ * under it; the account's actual quota is not the evidence's business.
+ */
+const PROVIDER_PROBE_CHECKS = deepFreeze({
+  github: [
+    {
+      key: 'tree-read',
+      fields: {
+        status: 'pass',
+        statusClass: '2xx',
+        entries: '$positive-integer',
+        proofPathPresent: true,
+        blobIdentityMatched: true
+      }
+    },
+    {
+      key: 'rate-read',
+      fields: { status: 'pass', statusClass: '2xx', limitPositive: true, remainingWithinLimit: true }
+    }
+  ],
+  gitlab: [],
+  gitea: []
+});
+
+const SHARED_CHECKS_AFTER_PROBES = deepFreeze([
   {
     key: 'stale-head',
     fields: {
@@ -64,6 +114,18 @@ const PROVIDER_CHECK_CONTRACT = deepFreeze([
   },
   { key: 'cleanup-absence', fields: { status: 'pass' } }
 ]);
+
+function providerProbeKeys(provider) {
+  const probes = PROVIDER_PROBE_CHECKS[provider];
+  if (!Array.isArray(probes)) fail('provider artifact context is invalid');
+  return probes.map(check => check.key);
+}
+
+function providerCheckContract(provider) {
+  const probes = PROVIDER_PROBE_CHECKS[provider];
+  if (!Array.isArray(probes)) fail('provider artifact context is invalid');
+  return [...SHARED_CHECKS_BEFORE_PROBES, ...probes, ...SHARED_CHECKS_AFTER_PROBES];
+}
 const RESTORE_RUNNER_CHECK_CONTRACT = deepFreeze({
   status: 'pass',
   latestMigration: '015_alpha_privacy',
@@ -210,12 +272,13 @@ function validateProviderEvidence(artifact) {
   if (startedAt.getTime() > new Date(artifact.completedAt).getTime()) {
     fail('provider artifact completed before it started');
   }
-  if (!Array.isArray(artifact.checks) || artifact.checks.length !== PROVIDER_CHECK_CONTRACT.length) {
+  const checkContract = providerCheckContract(artifact.provider);
+  if (!Array.isArray(artifact.checks) || artifact.checks.length !== checkContract.length) {
     fail('provider artifact checks are incomplete');
   }
-  for (let index = 0; index < PROVIDER_CHECK_CONTRACT.length; index += 1) {
+  for (let index = 0; index < checkContract.length; index += 1) {
     const check = artifact.checks[index];
-    const contract = PROVIDER_CHECK_CONTRACT[index];
+    const contract = checkContract[index];
     if (!isPlainObject(check) || check.key !== contract.key) fail('provider artifact check order is invalid');
     const expectedFields = ['key', ...Object.keys(contract.fields)].sort();
     if (JSON.stringify(Object.keys(check).sort()) !== JSON.stringify(expectedFields)) {
@@ -498,6 +561,8 @@ function verifyHostedOperatorSignature(input, trustedOperatorKeys) {
 module.exports = Object.freeze({
   EVIDENCE_SCHEMA_VERSION,
   PROVIDER_CAPABILITY_REQUIREMENTS,
+  providerCheckContract,
+  providerProbeKeys,
   validateEvidenceEnvelope,
   verifyHostedOperatorSignature,
   verifyRestoreWitness,

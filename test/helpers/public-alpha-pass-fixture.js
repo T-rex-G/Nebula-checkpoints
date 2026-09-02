@@ -8,13 +8,35 @@ const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
 const COMPLETED_AT = '2026-07-29T19:00:00.000Z';
 
-function providerChecks() {
+/*
+ * The probes a provider contributes beyond the shared mutation sequence, keyed
+ * by provider so this fixture stays in step with the per-provider contract
+ * rather than assuming every artifact carries the same list.
+ */
+const PROVIDER_PROBES = Object.freeze({
+  github: [
+    {
+      key: 'tree-read',
+      status: 'pass',
+      statusClass: '2xx',
+      entries: 3,
+      proofPathPresent: true,
+      blobIdentityMatched: true
+    },
+    { key: 'rate-read', status: 'pass', statusClass: '2xx', limitPositive: true, remainingWithinLimit: true }
+  ],
+  gitlab: [],
+  gitea: []
+});
+
+function providerChecks(provider) {
   return [
     { key: 'repository-read', status: 'pass', statusClass: '2xx' },
     { key: 'default-branch-read', status: 'pass', statusClass: '2xx' },
     { key: 'disposable-branch-create', status: 'pass', statusClass: '2xx' },
     { key: 'expected-head-write', status: 'pass', statusClass: '2xx' },
     { key: 'utf8-readback', status: 'pass', statusClass: '2xx', bytes: 52, contentSha256: 'c'.repeat(64) },
+    ...structuredClone(PROVIDER_PROBES[provider] || []),
     {
       key: 'stale-head',
       status: 'pass',
@@ -223,7 +245,7 @@ function createPassFixture() {
       authorizedTargetSha256: targetHashCharacters[index].repeat(64),
       targetHash: String(index + 6).repeat(64),
       capabilities: features,
-      checks: providerChecks(),
+      checks: providerChecks(provider),
       startedAt: '2026-07-29T18:55:00.000Z',
       nodeVersion: '22.23.1'
     });

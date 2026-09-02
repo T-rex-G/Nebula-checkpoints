@@ -12,6 +12,17 @@ const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
 const NOW = '2026-07-29T20:00:00.000Z';
 
+/*
+ * The extra checks each provider contributes, in contract order. GitLab and
+ * Gitea prove nothing beyond the shared sequence, and saying so here keeps the
+ * empty case asserted rather than assumed.
+ */
+const PROBE_KEYS = Object.freeze({
+  github: ['tree-read', 'rate-read'],
+  gitlab: [],
+  gitea: []
+});
+
 function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -125,12 +136,20 @@ async function runOne(provider, runner, options = {}) {
     assert(!serialized.includes('fixture-readonly-credential'));
     assert(!serialized.includes('fixture-owner'));
     assert(!serialized.includes(`nvx-alpha17-${RUN_ID}-proof`));
+    /*
+     * Every provider runs the same mutation sequence; a provider that proves
+     * capabilities beyond it inserts its own probes after the readback, where
+     * the proof file exists on the disposable branch and nothing has been
+     * rolled back yet. The order is part of the evidence contract, so it is
+     * asserted rather than sorted away.
+     */
     assert.deepStrictEqual(result.checks.map(check => check.key), [
       'repository-read',
       'default-branch-read',
       'disposable-branch-create',
       'expected-head-write',
       'utf8-readback',
+      ...PROBE_KEYS[result.provider],
       'stale-head',
       'permission-denial',
       'stale-head-delete',
@@ -160,8 +179,27 @@ async function runOne(provider, runner, options = {}) {
     'file.delete',
     'file.read',
     'file.write',
-    'repository.read'
+    'rate.read',
+    'repository.read',
+    'tree.read'
   ]);
+
+  /*
+   * The tree probe is a cross-check rather than a reachability ping: the
+   * listing has to name the file the write just created, and give it the same
+   * blob identity the contents API reported. An endpoint that answers 200 with
+   * somebody else's tree passes a reachability ping and fails this.
+   */
+  const treeRead = githubResult.checks.find(check => check.key === 'tree-read');
+  assert(treeRead, 'the github artifact must carry a tree-read proof');
+  assert.strictEqual(treeRead.proofPathPresent, true);
+  assert.strictEqual(treeRead.blobIdentityMatched, true);
+  assert(Number.isSafeInteger(treeRead.entries) && treeRead.entries > 0);
+
+  const rateRead = githubResult.checks.find(check => check.key === 'rate-read');
+  assert(rateRead, 'the github artifact must carry a rate-read proof');
+  assert.strictEqual(rateRead.limitPositive, true);
+  assert.strictEqual(rateRead.remainingWithinLimit, true);
   for (const result of [gitlabResult, giteaResult]) {
     assert.deepStrictEqual(result.capabilities, [
       'branches.read',
@@ -294,6 +332,42 @@ async function runOne(provider, runner, options = {}) {
       /fileAbsent|headIsTheDeleteCommit|headAdvanced/.test(error.message)
     ),
     'a provider that never converges must still fail, and say which binding never held'
+  );
+
+  /*
+   * The tree probe has to be a cross-check, not a reachability ping. A listing
+   * that answers 200 and names the right path but carries somebody else's blob
+   * identity is exactly the case a ping cannot tell from success, so the run
+   * has to refuse it.
+   */
+  const forgedTreeEnvironment = environment('github');
+  const forgedTreeFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: forgedTreeEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: forgedTreeEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: forgedTreeEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  await assert.rejects(
+    () => runGithubValidation({
+      env: forgedTreeEnvironment,
+      now: () => new Date(NOW),
+      fetchImpl: async (url, init = {}) => {
+        const response = await forgedTreeFixture.fetch(url, init);
+        if (!new URL(url).pathname.includes('/git/trees/')) return response;
+        const listing = await response.json();
+        const body = JSON.stringify({
+          ...listing,
+          tree: listing.tree.map(entry => ({ ...entry, sha: 'f'.repeat(40) }))
+        });
+        return new Response(body, {
+          status: 200,
+          headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) }
+        });
+      }
+    }),
+    error => error && error.code === 'ALPHA17_PROVIDER_PROBE_FAILED'
   );
 
   console.log('alpha17 provider harness tests passed');

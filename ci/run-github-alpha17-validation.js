@@ -121,7 +121,90 @@ function createGithubClient({ env, fetchImpl }) {
     });
   }
 
-  return Object.freeze({ getRepository, getBranch, createBranch, writeFile, readFile, deleteFile, deleteBranch });
+  /*
+   * The tree listing for a branch, recursive, so a file written anywhere under
+   * it is visible. Bounded by the shared response reader; the disposable
+   * qualification repository holds a handful of files, so the truncation flag
+   * is reported rather than paged through -- a truncated listing is not proof
+   * of anything and fails the probe.
+   */
+  async function readTree(branch, credential = 'mutation') {
+    const url = new URL(api(`repos/${repositoryPath}/git/trees/${encodeURIComponent(branch)}`));
+    url.searchParams.set('recursive', '1');
+    const response = await requestJson(fetchImpl, url.toString(), {
+      headers: headers(credential),
+      allowedStatuses: [200]
+    });
+    const tree = Array.isArray(response.data.tree) ? response.data.tree : [];
+    return Object.freeze({
+      statusClass: response.statusClass,
+      truncated: response.data.truncated === true,
+      entries: tree.map(entry => Object.freeze({
+        path: String(entry.path || ''),
+        sha: String(entry.sha || '').toLowerCase()
+      }))
+    });
+  }
+
+  async function readRateLimit(credential = 'mutation') {
+    const response = await requestJson(fetchImpl, api('rate_limit'), {
+      headers: headers(credential),
+      allowedStatuses: [200]
+    });
+    const core = response.data.resources && response.data.resources.core;
+    return Object.freeze({
+      statusClass: response.statusClass,
+      limit: Number(core && core.limit),
+      remaining: Number(core && core.remaining)
+    });
+  }
+
+  /*
+   * Cross-checks, not reachability pings.
+   *
+   * The tree probe requires the listing to name the file this run just wrote
+   * and to give it the blob identity the contents API already reported for it.
+   * An endpoint answering 200 with an unrelated tree satisfies a ping and
+   * fails this.
+   *
+   * The rate probe records comparisons rather than the figures: the ceiling
+   * has to be a real positive number and the remaining budget has to sit
+   * within it. The account's actual quota is not the evidence's business.
+   */
+  async function probeChecks({ branch, proofPath, proofFileSha }) {
+    const tree = await readTree(branch);
+    const entry = tree.entries.find(item => item.path === proofPath);
+    const treeRead = {
+      key: 'tree-read',
+      status: 'fail',
+      statusClass: tree.statusClass,
+      entries: tree.entries.length,
+      proofPathPresent: Boolean(entry) && !tree.truncated,
+      blobIdentityMatched: Boolean(entry) && entry.sha === String(proofFileSha || '').toLowerCase()
+    };
+    treeRead.status = treeRead.proofPathPresent && treeRead.blobIdentityMatched ? 'pass' : 'fail';
+
+    const rate = await readRateLimit();
+    const limitPositive = Number.isSafeInteger(rate.limit) && rate.limit > 0;
+    const rateRead = {
+      key: 'rate-read',
+      status: 'fail',
+      statusClass: rate.statusClass,
+      limitPositive,
+      remainingWithinLimit: limitPositive &&
+        Number.isSafeInteger(rate.remaining) &&
+        rate.remaining >= 0 &&
+        rate.remaining <= rate.limit
+    };
+    rateRead.status = rateRead.limitPositive && rateRead.remainingWithinLimit ? 'pass' : 'fail';
+
+    return [treeRead, rateRead];
+  }
+
+  return Object.freeze({
+    getRepository, getBranch, createBranch, writeFile, readFile, deleteFile, deleteBranch,
+    readTree, readRateLimit, probeChecks
+  });
 }
 
 async function runGithubValidation(options = {}) {

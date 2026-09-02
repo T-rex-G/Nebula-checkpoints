@@ -13,12 +13,12 @@
     "github": {
       "hosted-alpha": {
         "repository.read": ["Supported", "Provider-verified", "Qualified golden-path repository reads."],
-        "rate.read": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
+        "rate.read": ["Supported", "Provider-verified", "Qualified provider rate-limit read."],
         "repository.create": ["Unavailable", "Unavailable", "Repository creation is disabled for the controlled hosted cohort."],
         "repository.delete": ["Unavailable", "Unavailable", "Repository deletion is disabled for the controlled hosted cohort."],
         "branches.read": ["Supported", "Provider-verified", "Qualified branch inventory."],
         "branches.write": ["Supported", "Provider-verified", "Qualified controlled branch mutations."],
-        "tree.read": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
+        "tree.read": ["Supported", "Provider-verified", "Qualified recursive tree listing bound to the file it names."],
         "file.read": ["Supported", "Provider-verified", "Qualified bounded file reads."],
         "file.write": ["Supported", "Provider-verified", "Qualified expected-head file writes."],
         "file.delete": ["Supported", "Provider-verified", "Qualified expected-head file deletion."],

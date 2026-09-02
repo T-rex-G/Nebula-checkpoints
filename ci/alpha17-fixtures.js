@@ -94,6 +94,10 @@ function createProviderFetchFixture(options = {}) {
     const parsed = new URL(url);
     const method = String(init.method || 'GET').toUpperCase();
     const base = `/repos/${repository}`;
+    /* Account-wide rather than repository-scoped, so it is answered first. */
+    if (parsed.pathname === '/rate_limit' && method === 'GET') {
+      return json({ resources: { core: { limit: 5000, remaining: 4987 } } });
+    }
     if (!parsed.pathname.startsWith(base)) return json({ message: 'unknown repository' }, 404);
     if (method !== 'GET' && !canMutate(init)) return json({ message: 'forbidden' }, 403);
     if (parsed.pathname === base && method === 'GET') {
@@ -115,6 +119,20 @@ function createProviderFetchFixture(options = {}) {
       const branchName = decodeURIComponent(parsed.pathname.slice(deleteRefPrefix.length));
       if (branchName === defaultBranch || !state.branches.delete(branchName)) return json({ message: 'not found' }, 404);
       return json(null, 204);
+    }
+    const treePrefix = `${base}/git/trees/`;
+    if (parsed.pathname.startsWith(treePrefix) && method === 'GET') {
+      const branch = state.branches.get(decodeURIComponent(parsed.pathname.slice(treePrefix.length)));
+      if (!branch) return json({ message: 'not found' }, 404);
+      return json({
+        sha: branch.sha,
+        truncated: false,
+        tree: [...branch.files.entries()].map(([name, file]) => ({
+          path: name,
+          type: 'blob',
+          sha: file.sha
+        }))
+      });
     }
     const contentPrefix = `${base}/contents/`;
     if (parsed.pathname.startsWith(contentPrefix)) {

@@ -72,7 +72,23 @@ function createGitlabClient({ env, fetchImpl }) {
       },
       allowedStatuses: [201]
     });
-    return Object.freeze({ commitSha: String(response.data.commit_id || '').toLowerCase(), statusClass: response.statusClass });
+    /*
+     * GitLab's create-file response is documented as carrying exactly two
+     * fields, branch and file_path. It does not say which commit it made, so
+     * unlike GitHub there is nothing in the write to bind against.
+     *
+     * The file read does carry it: last_commit_id is the commit that last
+     * modified this file, from a different endpoint than the branch listing.
+     * Asking that endpoint what wrote the file, and requiring the branch head
+     * to agree, is the same cross-check GitHub gets from its write response --
+     * arguably a better one, since the two facts come from two endpoints
+     * rather than from the mutation reporting on itself.
+     */
+    const written = await readFile(input.branch, input.path, input.credential);
+    return Object.freeze({
+      commitSha: String((written && written.lastCommitId) || '').toLowerCase(),
+      statusClass: response.statusClass
+    });
   }
 
   async function readFile(branch, filePath, credential = 'mutation') {
@@ -86,6 +102,7 @@ function createGitlabClient({ env, fetchImpl }) {
     return Object.freeze({
       content: Buffer.from(String(response.data.content || ''), 'base64'),
       sha: String(response.data.blob_id || '').toLowerCase(),
+      lastCommitId: String(response.data.last_commit_id || '').toLowerCase(),
       statusClass: response.statusClass
     });
   }

@@ -217,14 +217,32 @@ function createProviderFetchFixture(options = {}) {
       if (method === 'GET') {
         const branch = state.branches.get(parsed.searchParams.get('ref'));
         const file = branch && branch.files.get(filePath);
-        return file ? json({ content: file.content.toString('base64'), blob_id: file.sha }) : json({ message: 'not found' }, 404);
+        return file
+          ? json({
+            content: file.content.toString('base64'),
+            blob_id: file.sha,
+            // GitLab's file read carries the ref's commit and the commit that
+            // last modified this file. The write response carries neither.
+            commit_id: branch.sha,
+            last_commit_id: branch.sha
+          })
+          : json({ message: 'not found' }, 404);
       }
       const body = bodyOf(init);
       const branch = state.branches.get(body.branch);
       if (!branch) return json({ message: 'not found' }, 404);
       if (method === 'POST') {
-        const changed = mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'));
-        return json({ file_path: filePath, branch: body.branch, commit_id: changed.sha }, 201);
+        mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'));
+        /*
+         * Exactly what GitLab documents for a created file, and nothing more:
+         * branch and file_path. It returns no commit id.
+         *
+         * This fixture used to invent one. The client read it, every test
+         * agreed, and the first live GitLab write failed on an empty commit
+         * sha. A fixture kinder than the provider manufactures confidence,
+         * which is worse than having no fixture at all.
+         */
+        return json({ file_path: filePath, branch: body.branch }, 201);
       }
       if (method === 'DELETE') {
         if (!branch.files.has(filePath) || body.last_commit_id !== branch.sha) return json({ message: 'conflict' }, 409);

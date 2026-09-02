@@ -3,6 +3,7 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const { createProviderFetchFixture } = require('../ci/alpha17-fixtures');
+const { requestJson } = require('../ci/provider-alpha17-common');
 const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
 const { runGitlabValidation } = require('../ci/run-gitlab-alpha17-validation');
 const { runGiteaValidation } = require('../ci/run-gitea-alpha17-validation');
@@ -530,6 +531,143 @@ async function runOne(provider, runner, options = {}) {
     'a refused branch delete must name the refusal, not just say cleanup is incomplete'
   );
   assert.strictEqual(branchDeleteSeen, true, 'the branch delete must actually have been attempted');
+
+  /*
+   * The refusals below are the ones the gate leans on and nothing had ever
+   * shown to fire. Each is written from the failure it is supposed to catch.
+   */
+
+  /*
+   * The read-only credential is supposed to be refused; permission-denial
+   * passes BECAUSE it fails to write. An operator who grants that token write
+   * access turns the proof into a formality -- the write succeeds, nothing
+   * refuses it, and a gate that only asked "did permission-denial pass?" would
+   * see a pass. This is the check that catches it, and it was the one I told
+   * the operator to rely on.
+   */
+  const overScopedEnvironment = environment('github');
+  const overScopedFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: overScopedEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: overScopedEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: overScopedEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  await assert.rejects(
+    () => runGithubValidation({
+      env: overScopedEnvironment,
+      now: () => new Date(NOW),
+      fetchImpl: async (url, init = {}) => {
+        const authorization = String((init.headers && init.headers.Authorization) || '');
+        const method = String(init.method || 'GET').toUpperCase();
+        if (method === 'PUT' && authorization.includes(overScopedEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL)) {
+          // The over-scoped token writes instead of being refused.
+          return overScopedFixture.fetch(url, {
+            ...init,
+            headers: { ...init.headers, Authorization: `Bearer ${overScopedEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL}` }
+          });
+        }
+        return overScopedFixture.fetch(url, init);
+      }
+    }),
+    error => Boolean(error && error.code === 'ALPHA17_PERMISSION_SCOPE_INVALID'),
+    'a read-only credential that can write must fail the run, not pass permission-denial'
+  );
+
+  /*
+   * A provider that acknowledges a write and then serves back different bytes.
+   * utf8-readback is the only thing standing between that and an artifact
+   * claiming file.read and file.write are proven.
+   */
+  const corruptingEnvironment = environment('github');
+  const corruptingFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: corruptingEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: corruptingEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: corruptingEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  await assert.rejects(
+    () => runGithubValidation({
+      env: corruptingEnvironment,
+      now: () => new Date(NOW),
+      fetchImpl: async (url, init = {}) => {
+        const response = await corruptingFixture.fetch(url, init);
+        const method = String(init.method || 'GET').toUpperCase();
+        if (method !== 'GET' || !new URL(url).pathname.includes('/contents/')) return response;
+        const payload = await response.json();
+        if (!payload || typeof payload.content !== 'string') {
+          return new Response(JSON.stringify(payload), { status: response.status, headers: { 'content-type': 'application/json' } });
+        }
+        const body = JSON.stringify({
+          ...payload,
+          content: Buffer.from('not the bytes that were written\n', 'utf8').toString('base64')
+        });
+        return new Response(body, {
+          status: response.status,
+          headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) }
+        });
+      }
+    }),
+    error => Boolean(error && error.code === 'ALPHA17_READBACK_MISMATCH'),
+    'a provider that serves back different bytes must fail the readback proof'
+  );
+
+  /*
+   * Transport refusals, exercised directly against requestJson because they
+   * guard every call rather than one step of the sequence.
+   */
+  const anyHeaders = { Accept: 'application/json' };
+  const neverCalled = async () => {
+    throw new Error('the transport must refuse this URL before any request is made');
+  };
+  for (const [label, url] of [
+    ['plain http', 'http://api.example.invalid/repos/x'],
+    ['credentials embedded in the URL', 'https://user:secret@api.example.invalid/repos/x']
+  ]) {
+    await assert.rejects(
+      () => requestJson(neverCalled, url, { headers: anyHeaders }),
+      error => Boolean(error && error.code === 'ALPHA17_PROVIDER_URL_INVALID'),
+      `${label} must be refused before the request is made`
+    );
+  }
+
+  await assert.rejects(
+    () => requestJson(
+      async () => new Response('{"ok":true}', {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'content-length': String(64 * 1024 * 1024) }
+      }),
+      'https://api.example.invalid/repos/x',
+      { headers: anyHeaders }
+    ),
+    error => Boolean(error && error.code === 'ALPHA17_PROVIDER_RESPONSE_INVALID'),
+    'a declared response size beyond the cap must be refused'
+  );
+
+  await assert.rejects(
+    () => requestJson(
+      async () => new Response('{ not json', { status: 200, headers: { 'content-type': 'application/json' } }),
+      'https://api.example.invalid/repos/x',
+      { headers: anyHeaders }
+    ),
+    error => Boolean(error && error.code === 'ALPHA17_PROVIDER_RESPONSE_INVALID'),
+    'malformed JSON must be refused rather than parsed into nothing'
+  );
+
+  for (const status of [500, 502, 404]) {
+    await assert.rejects(
+      () => requestJson(
+        async () => new Response('{}', { status, headers: { 'content-type': 'application/json' } }),
+        'https://api.example.invalid/repos/x',
+        { headers: anyHeaders }
+      ),
+      error => Boolean(error && error.code === 'ALPHA17_PROVIDER_REQUEST_FAILED'),
+      `an unexpected ${status} must fail the run rather than be read as an answer`
+    );
+  }
 
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {

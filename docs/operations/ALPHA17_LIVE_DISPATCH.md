@@ -12,7 +12,9 @@ part of it is automated away.
 | Requirement | State |
 | --- | --- |
 | Disposable target repository, `nvx-alpha17-` prefix | `T-rex-G/nvx-alpha17-github-qualification`, private, `main` at a real commit |
-| Actions, pulls, issues and releases reachable on that target | All four answer; all empty |
+| Actions, pulls, issues and releases reachable on that target | All four answer, and all four carry a permanent fixture — see below |
+| Mutation credential permissions | Metadata read, Contents read and write, Actions read, Issues read, Pull requests read |
+| Read-only credential permissions | Metadata read, Contents read. **No write of any kind** |
 | `ALPHA17_GITHUB_REPOSITORY` variable | Confirm — set to the target's `owner/name` |
 | `ALPHA17_GITHUB_MUTATION_CREDENTIAL` secret | Confirm |
 | `ALPHA17_GITHUB_READ_ONLY_CREDENTIAL` secret | Confirm |
@@ -23,6 +25,39 @@ The two credentials must reach only the disposable target: no organization
 scope, no production repository, disposable after the run. The read-only one
 exists to be refused — the `permission-denial` proof depends on it failing to
 write.
+
+Granting the read-only credential write access does not break the run in a way
+anyone would notice by reading a pass: the write it is supposed to be refused
+would succeed, and `permission-denial` would have proved nothing. The gate
+catches it — a read-only credential that mutates the branch fails the run with
+`ALPHA17_PERMISSION_SCOPE_INVALID` — and that refusal is covered by a test that
+was watched to fail before it was trusted. Keep the token read-only anyway; the
+guard is the backstop, not the plan.
+
+## The fixtures on the target, and why deleting them is not free
+
+The target carries four permanent objects, each labelled in its own body:
+
+| Fixture | Proves |
+| --- | --- |
+| Issue, open | `issues.read` detail agreement |
+| Pull request, open, from `nvx-alpha17-fixture-pull` | `pulls.read` detail agreement |
+| Release, published — not a draft, `GET /releases` does not list drafts | `releases.read` detail agreement |
+| One dispatched run of the fixture workflow | `workflows.read` detail agreement |
+
+Each collection probe lists, then fetches every listed object on its own, then
+asks for an identifier that cannot exist and requires a refusal. Against an
+empty target the middle step never runs: the probe passes on an empty listing
+having proved the endpoint answers and discriminates, which is *not* the
+capability being claimed. `listed` in the artifact is how you tell the two
+apart — run 58 recorded 1, 2, 1 and 1, not 0.
+
+So deleting a fixture does not fail anything. It quietly demotes a proof to
+reachability while the run still reports a pass. That is the failure mode this
+gate exists to prevent, so the fixtures are permanent, and the workflow one is
+`workflow_dispatch` only — on `push` it would fire on every proof branch the
+qualification creates and delete, and the target is meant to be inert between
+runs.
 
 ## The activation envelope
 
@@ -91,10 +126,12 @@ Sixteen checks on a disposable branch it creates and removes:
 - pull-request, issue, release and workflow-run list/detail agreement with
   absent-identifier discrimination
 
-The four collection probes will record `listed: 0` against the empty target.
-That is the honest number: the pair answered, agreed and discriminated, and no
-object was there to verify. Seeding the target with one open pull request, one
-issue and one release strengthens the same proof without changing it.
+The four collection probes record what they actually verified. Run 58 recorded
+`listed` of 1 for pull requests, 2 for issues (the fixture issue and the
+fixture pull request, because the issues endpoint returns both), 1 for releases
+and 1 for workflow runs, each with `detailAgreed` and `absentDiscriminated`
+true. A `listed: 0` in a future artifact means a fixture is gone and that
+probe has silently fallen back to proving reachability only.
 
 ## If it fails
 

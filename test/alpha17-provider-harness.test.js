@@ -184,7 +184,8 @@ async function runOne(provider, runner, options = {}) {
       check.fileVerificationStatus === 'verified' && check.fileVerificationReasonCode === null));
     assert(result.checks.some(check => check.key === 'permission-denial' && check.zeroCommit === true));
     assert(result.checks.some(check => check.key === 'stale-head-delete' && check.zeroCommit === true));
-    assert(result.checks.some(check => check.key === 'cleanup-absence' && check.status === 'pass'));
+    assert(result.checks.some(check =>
+      check.key === 'cleanup-absence' && check.status === 'pass' && check.reasonCode === null));
     assert.deepStrictEqual(
       Object.keys(result.claims).sort(),
       result.capabilities.map(capability => `providers.${result.provider}.${capability}`).sort()
@@ -488,6 +489,47 @@ async function runOne(provider, runner, options = {}) {
     ),
     'a tree that never converges must fail and name the unmet condition'
   );
+
+  /*
+   * Cleanup is the one failure that leaves something behind in someone else's
+   * repository, and it was the one that reported nothing about why. Run 57
+   * stranded a branch and said only "provider cleanup is incomplete"; the
+   * refusal underneath it had already been swallowed by a bare catch.
+   */
+  const refusedCleanupEnvironment = environment('github');
+  const refusedCleanupFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: refusedCleanupEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: refusedCleanupEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: refusedCleanupEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  let branchDeleteSeen = false;
+  await assert.rejects(
+    () => runGithubValidation({
+      env: refusedCleanupEnvironment,
+      now: () => new Date(NOW),
+      fetchImpl: async (url, init = {}) => {
+        const method = String((init && init.method) || 'GET').toUpperCase();
+        if (method === 'DELETE' && new URL(url).pathname.includes('/git/refs/heads/')) {
+          branchDeleteSeen = true;
+          return new Response(JSON.stringify({ message: 'refused' }), {
+            status: 403,
+            headers: { 'content-type': 'application/json' }
+          });
+        }
+        return refusedCleanupFixture.fetch(url, init);
+      }
+    }),
+    error => Boolean(
+      error &&
+      error.code === 'ALPHA17_CLEANUP_INCOMPLETE' &&
+      /ALPHA17_PERMISSION_DENIED/.test(error.message)
+    ),
+    'a refused branch delete must name the refusal, not just say cleanup is incomplete'
+  );
+  assert.strictEqual(branchDeleteSeen, true, 'the branch delete must actually have been attempted');
 
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {

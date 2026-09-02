@@ -56,7 +56,7 @@ function providerChecks(provider) {
     { key: 'permission-denial', status: 'pass', zeroCommit: true },
     { key: 'stale-head-delete', status: 'pass', zeroCommit: true, fileRetained: true },
     { key: 'expected-head-delete', status: 'pass', statusClass: '2xx', headAdvanced: true, fileAbsent: true },
-    { key: 'cleanup-absence', status: 'pass' }
+    { key: 'cleanup-absence', status: 'pass', reasonCode: null }
   ];
 }
 

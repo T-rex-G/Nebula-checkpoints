@@ -144,7 +144,13 @@ const SHARED_CHECKS_AFTER_PROBES = deepFreeze([
     key: 'expected-head-delete',
     fields: { status: 'pass', statusClass: '2xx', headAdvanced: true, fileAbsent: true }
   },
-  { key: 'cleanup-absence', fields: { status: 'pass' } }
+  /*
+   * reasonCode is null on a pass and carries the provider refusal code on a
+   * failure, the same shape stale-head already uses. A cleanup that fails is
+   * the one outcome that leaves a branch behind in the target repository, so
+   * the artifact records what refused rather than only that something did.
+   */
+  { key: 'cleanup-absence', fields: { status: 'pass', reasonCode: null } }
 ]);
 
 function providerProbeKeys(provider) {

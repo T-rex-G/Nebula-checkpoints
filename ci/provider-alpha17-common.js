@@ -281,7 +281,16 @@ async function cleanupDisposableBranch(client, target, paths) {
     });
   }
   await client.deleteBranch(target.branch, 'mutation');
-  return (await client.getBranch(target.branch, 'mutation')) === null;
+  /*
+   * Converged like every other post-mutation read. A branch that is gone can
+   * still be listed for a moment, and reporting a cleanup failure for that
+   * would strand nothing but would send someone looking for a branch that is
+   * not there.
+   */
+  return (await observe(
+    () => client.getBranch(target.branch, 'mutation'),
+    head => head === null
+  )) === null;
 }
 
 /*
@@ -361,6 +370,7 @@ async function runProviderQualification({ provider, client, env = process.env, n
   const permissionPath = `${target.prefix}-permission.txt`;
   const proofBytes = Buffer.from('Nebulaverse-X alpha.17 UTF-8 qualification proof\n', 'utf8');
   let cleanupVerified = false;
+  let cleanupError = null;
   let operationError = null;
 
   try {
@@ -575,12 +585,30 @@ async function runProviderQualification({ provider, client, env = process.env, n
   } finally {
     try {
       cleanupVerified = await cleanupDisposableBranch(client, target, [permissionPath, proofPath]);
-    } catch {
+    } catch (error) {
+      /*
+       * This catch used to be bare. Cleanup failing is the one outcome that
+       * leaves something behind in somebody else's repository, and it was the
+       * one outcome that threw away its own reason -- so the run reported
+       * "cleanup is incomplete" and nothing else, and a branch sat in the
+       * target with no record of what refused to remove it.
+       *
+       * The provider failure codes are already free of URLs, bodies and
+       * credentials, so carrying the reason out costs no secrecy.
+       */
       cleanupVerified = false;
+      cleanupError = error;
     }
   }
 
-  checks.push({ key: 'cleanup-absence', status: cleanupVerified ? 'pass' : 'fail' });
+  const cleanupReasonCode = cleanupError && /^[A-Z][A-Z0-9_]{2,79}$/.test(String(cleanupError.code || ''))
+    ? String(cleanupError.code)
+    : null;
+  checks.push({
+    key: 'cleanup-absence',
+    status: cleanupVerified ? 'pass' : 'fail',
+    reasonCode: cleanupReasonCode
+  });
   /*
    * When the operation failed AND cleanup could not verify, the operation
    * error is the one worth reading -- cleanup is usually failing for the same
@@ -600,7 +628,14 @@ async function runProviderQualification({ provider, client, env = process.env, n
     }
     throw operationError;
   }
-  if (!cleanupVerified) fail('provider cleanup is incomplete', 'ALPHA17_CLEANUP_INCOMPLETE');
+  if (!cleanupVerified) {
+    fail(
+      cleanupError
+        ? `provider cleanup is incomplete: ${cleanupError.message}${cleanupReasonCode ? ` (${cleanupReasonCode})` : ''}`
+        : 'provider cleanup is incomplete: the disposable branch was still present after it was deleted',
+      'ALPHA17_CLEANUP_INCOMPLETE'
+    );
+  }
 
   const completedAt = now().toISOString();
   const proof = providerClaims(provider, checks, completedAt);

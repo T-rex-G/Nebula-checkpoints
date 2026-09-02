@@ -84,6 +84,7 @@
     }
   ],
   "limitations": [
+    "A hosted deployment of the successor is live and serving at the public-alpha Render service with the invitation gate not enforcing, so the running service is reachable without an invitation. It exists for operator verification and carries no qualification evidence: it is not a hosted gate pass, does not change the NO-GO position, and its release tree is whatever was last pushed to the deployment branch rather than a frozen candidate",
     "No live PostgreSQL execution has qualified the successor",
     "No live Render or Neon execution has qualified the successor",
     "No live provider execution has qualified the successor",

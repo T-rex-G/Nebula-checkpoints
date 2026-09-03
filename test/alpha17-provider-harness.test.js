@@ -669,6 +669,45 @@ async function runOne(provider, runner, options = {}) {
     );
   }
 
+  /*
+   * GitLab answers a delete with 204 and no body. The client used to fall back
+   * to re-reading the branch head and returning it as "the commit the delete
+   * made", which made the caller's binding a comparison of the head with
+   * itself -- and let a head advanced by SOMEBODY ELSE'S commit pass as proof
+   * that this run's delete did it.
+   *
+   * Verified against the old client before this guard was written: with the
+   * tip commit carrying a different message, the old code passed and the
+   * current code refuses.
+   */
+  const foreignCommitEnvironment = environment('gitlab');
+  const foreignCommitFixture = createProviderFetchFixture({
+    provider: 'gitlab',
+    repository: foreignCommitEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: foreignCommitEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: foreignCommitEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  await assert.rejects(
+    () => runGitlabValidation({
+      env: foreignCommitEnvironment,
+      now: () => new Date(NOW),
+      fetchImpl: async (url, init = {}) => {
+        const response = await foreignCommitFixture.fetch(url, init);
+        if (!new URL(url).pathname.includes('/repository/commits/')) return response;
+        const commit = await response.json();
+        const body = JSON.stringify({ ...commit, message: 'chore: a commit this run did not make' });
+        return new Response(body, {
+          status: response.status,
+          headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) }
+        });
+      }
+    }),
+    error => Boolean(error && error.code === 'ALPHA17_DELETE_PROOF_FAILED'),
+    'a head advanced by a commit this run did not make must not pass as its delete'
+  );
+
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {
   console.error(error);

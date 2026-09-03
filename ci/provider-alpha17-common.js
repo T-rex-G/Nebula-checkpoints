@@ -672,6 +672,12 @@ module.exports = Object.freeze({
   hashArtifact,
   requestJson,
   observe,
+  /*
+   * Exported so a provider client raises the same shape as the shared
+   * sequence does, rather than each one inventing its own error type for the
+   * same class of refusal.
+   */
+  fail,
   providerCapabilityRequirements,
   providerClaims,
   runProviderQualification

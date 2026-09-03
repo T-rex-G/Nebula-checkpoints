@@ -3,9 +3,13 @@
 
 const {
   assertExpectedHead,
+  fail,
+  observe,
   requestJson,
   runProviderQualification
 } = require('./provider-alpha17-common');
+
+const DELETE_COMMIT_MESSAGE = 'test(alpha): remove qualification proof';
 
 function required(env, name) {
   const value = String(env[name] || '').trim();
@@ -107,6 +111,19 @@ function createGitlabClient({ env, fetchImpl }) {
     });
   }
 
+  async function readCommit(ref, credential = 'mutation') {
+    const response = await requestJson(fetchImpl, api(`projects/${project}/repository/commits/${encodeURIComponent(ref)}`), {
+      headers: headers(credential),
+      allowedStatuses: [200]
+    });
+    return Object.freeze({
+      id: String(response.data.id || '').toLowerCase(),
+      message: String(response.data.message || ''),
+      parentIds: (Array.isArray(response.data.parent_ids) ? response.data.parent_ids : [])
+        .map(value => String(value).toLowerCase())
+    });
+  }
+
   async function deleteFile(input) {
     const current = await getBranch(input.branch, input.credential);
     assertExpectedHead(input.expectedHead, current && current.sha);
@@ -120,10 +137,39 @@ function createGitlabClient({ env, fetchImpl }) {
       },
       allowedStatuses: [200, 204]
     });
-    const commitSha = response.data && response.data.commit_id
-      ? String(response.data.commit_id).toLowerCase()
-      : String((await getBranch(input.branch, input.credential)).sha).toLowerCase();
-    return Object.freeze({ commitSha, statusClass: response.statusClass });
+    if (response.data && response.data.commit_id) {
+      return Object.freeze({
+        commitSha: String(response.data.commit_id).toLowerCase(),
+        statusClass: response.statusClass
+      });
+    }
+    /*
+     * GitLab answers a delete with 204 and no body, so it never says which
+     * commit it made. This used to fall back to re-reading the branch head and
+     * returning that, which made the caller's "the head is the delete commit"
+     * check a comparison of the head with itself -- true no matter what the
+     * provider did, including nothing.
+     *
+     * The commits endpoint can answer it. The tip commit is fetched there and
+     * required to be a CHILD of the head this delete was made against, and to
+     * carry this run's delete message. A head that did not advance fails
+     * because the tip's parent is then the wrong commit; a head advanced by
+     * somebody else's commit fails on the message. Only then is that commit
+     * handed back as what the delete did, so the caller's binding is a claim
+     * about a verified commit rather than a tautology.
+     */
+    const expected = String(input.expectedHead || '').toLowerCase();
+    const tip = await observe(
+      () => readCommit(input.branch, input.credential),
+      commit => Boolean(commit) && commit.parentIds.includes(expected)
+    );
+    if (!tip || !tip.parentIds.includes(expected)) {
+      fail('provider delete commit is not a child of the head it was made against', 'ALPHA17_DELETE_PROOF_FAILED');
+    }
+    if (tip.message.trim() !== DELETE_COMMIT_MESSAGE) {
+      fail('provider tip commit is not the delete this run made', 'ALPHA17_DELETE_PROOF_FAILED');
+    }
+    return Object.freeze({ commitSha: tip.id, statusClass: response.statusClass });
   }
 
   async function deleteBranch(branch, credential = 'mutation') {

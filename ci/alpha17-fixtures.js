@@ -81,12 +81,20 @@ function createProviderFetchFixture(options = {}) {
     return null;
   }
 
-  function mutateFile(branchName, filePath, content, remove = false) {
+  function mutateFile(branchName, filePath, content, remove = false, message = '') {
     const branch = state.branches.get(branchName);
     if (!branch) return null;
     if (remove) branch.files.delete(filePath);
     else branch.files.set(filePath, { content, sha: fileSha(content) });
+    const parent = branch.sha;
     branch.sha = nextSha(`${branchName}:${filePath}:${remove ? 'delete' : 'write'}`);
+    /*
+     * Lineage, because a provider that reports no commit on a mutation can
+     * still be asked what the tip commit is and who its parent was. A fixture
+     * that only tracks the head cannot model that question, so a client
+     * relying on it cannot be tested.
+     */
+    branch.tip = { id: branch.sha, parentIds: [parent], message: String(message || '') };
     return branch;
   }
 
@@ -211,6 +219,24 @@ function createProviderFetchFixture(options = {}) {
         return json(null, 204);
       }
     }
+    /*
+     * GET /projects/:id/repository/commits/:ref, which accepts a branch name.
+     * This is how a caller learns what a delete actually committed, since the
+     * delete itself answers with nothing.
+     */
+    const commitPrefix = `${base}/repository/commits/`;
+    if (parsed.pathname.startsWith(commitPrefix) && method === 'GET') {
+      const ref = decodeURIComponent(parsed.pathname.slice(commitPrefix.length));
+      const branch = state.branches.get(ref)
+        || [...state.branches.values()].find(candidate => candidate.sha === ref);
+      if (!branch || !branch.tip) return json({ message: 'not found' }, 404);
+      return json({
+        id: branch.tip.id,
+        parent_ids: branch.tip.parentIds,
+        message: branch.tip.message,
+        title: String(branch.tip.message).split('\n')[0]
+      });
+    }
     const filePrefix = `${base}/repository/files/`;
     if (parsed.pathname.startsWith(filePrefix)) {
       const filePath = decodeURIComponent(parsed.pathname.slice(filePrefix.length));
@@ -232,7 +258,7 @@ function createProviderFetchFixture(options = {}) {
       const branch = state.branches.get(body.branch);
       if (!branch) return json({ message: 'not found' }, 404);
       if (method === 'POST') {
-        mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'));
+        mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'), false, body.commit_message);
         /*
          * Exactly what GitLab documents for a created file, and nothing more:
          * branch and file_path. It returns no commit id.
@@ -246,7 +272,8 @@ function createProviderFetchFixture(options = {}) {
       }
       if (method === 'DELETE') {
         if (!branch.files.has(filePath) || body.last_commit_id !== branch.sha) return json({ message: 'conflict' }, 409);
-        mutateFile(body.branch, filePath, Buffer.alloc(0), true);
+        mutateFile(body.branch, filePath, Buffer.alloc(0), true, body.commit_message);
+        // GitLab answers a delete with 204 and an empty body.
         return json(null, 204);
       }
     }

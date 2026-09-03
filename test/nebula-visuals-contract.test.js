@@ -134,3 +134,56 @@ for (const name of MODULES) {
 }
 
 console.log('nebula visuals contract tests passed');
+
+/*
+ * The interface's motion switch has to reach the artwork.
+ *
+ * Reported as pressing "stop animation" in settings and seeing nothing stop.
+ * applySettings publishes the switch as data-motion on the root element, three
+ * CSS rules honour it and the SVG logos pause -- but every canvas animator
+ * read only the operating system's prefers-reduced-motion query, so the
+ * backdrop and the mark, which are the largest moving things on the screen,
+ * carried on. The switch appeared to do nothing because the things it visibly
+ * governs were the things ignoring it.
+ *
+ * Asserted against the source rather than a browser because the failure is
+ * exactly that the animator never asks: a rendering test would need a GPU, and
+ * the absent read is the whole defect.
+ */
+for (const file of ['nebula-galaxy.js', 'nebula-mark-3d.js']) {
+  const source = fs.readFileSync(path.join(publicRoot, file), 'utf8');
+  /*
+   * Counted, not merely present. The first version of this guard matched
+   * "data-motion" anywhere in the file -- which the observer's own
+   * attributeFilter satisfies -- so deleting the read that decides whether to
+   * animate left it passing. The switch has to be consulted twice: once when
+   * the animator starts, and again when the attribute changes under it.
+   */
+  const reads = source.match(/dataset\.motion === 'off'|motionSuppressed\(\)/g) || [];
+  assert(
+    reads.length >= 2,
+    `${file} must consult the interface's own motion switch when it starts AND when the switch changes (found ${reads.length} reads)`
+  );
+  assert(
+    /MutationObserver/.test(source),
+    `${file} must notice the motion switch being thrown while it is on screen`
+  );
+}
+
+/*
+ * And the mark must not be drawn below the screen's own resolution. The cap
+ * was 1.6 for anything under 320px, so on a phone reporting devicePixelRatio 3
+ * the mark rendered at about half native and was stretched -- reported as
+ * looking low quality and not sharp.
+ */
+{
+  const source = fs.readFileSync(path.join(publicRoot, 'nebula-mark-3d.js'), 'utf8');
+  assert(
+    !/Math\.min\(w, h\) > 320 \? 2 : 1\.6/.test(source),
+    'the mark must not cap small renders below the display resolution'
+  );
+  assert(
+    /setPixelRatio/.test(source) && /budget/.test(source),
+    'the mark must choose its resolution from a pixel budget rather than a fixed cap'
+  );
+}

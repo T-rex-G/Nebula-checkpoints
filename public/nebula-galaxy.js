@@ -329,7 +329,28 @@ class NebulaGalaxy extends HTMLElement {
   start() {
     if (this._failed) return;
     if (this._raf || document.hidden) return;
-    this._reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    /*
+     * The interface's own motion switch as well as the operating system's.
+     * This read consulted only the OS query, so turning motion off in settings
+     * left the backdrop animating -- the largest moving thing on the screen.
+     * applySettings publishes the switch as data-motion on the root element.
+     */
+    this._reduced = document.documentElement.dataset.motion === 'off' ||
+      !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    /*
+     * Re-read while running, because the switch can be thrown with the
+     * backdrop on screen. The uniform is sampled every frame, so settling it
+     * is enough to stop the motion without tearing the loop down.
+     */
+    if (!this._motionObserver) {
+      this._motionObserver = new MutationObserver(() => {
+        this._reduced = document.documentElement.dataset.motion === 'off' ||
+          !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        if (this._reduced) { this.uniforms.uT.value = 8; this.render(); }
+        else { this._t0 = performance.now() - (this._elapsed || 0) * 1000; }
+      });
+      this._motionObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] });
+    }
     this._t0 = performance.now() - (this._elapsed || 0) * 1000;
     const loop = (now) => {
       this._raf = requestAnimationFrame(loop);

@@ -67,14 +67,37 @@ class GLHost extends HTMLElement {
      * scene is advanced to a settled pose once and held there, so the mark is
      * present and lit without anything moving.
      */
-    this._reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    /*
+     * Both sources, not just the operating system's. The interface has its own
+     * motion switch in settings, and applySettings publishes it as data-motion
+     * on the root element -- but this read only ever consulted the OS query, so
+     * turning the switch off in the app changed three CSS rules and left every
+     * canvas on the screen animating. Reported as pressing it and seeing
+     * nothing stop.
+     */
+    this._reduced = motionSuppressed();
+    /* The switch can be thrown while the mark is on screen. */
+    this._motionObserver = observeMotion(() => {
+      const suppressed = motionSuppressed();
+      if (suppressed === this._reduced) return;
+      this._reduced = suppressed;
+      if (suppressed) {
+        if (this._raf) cancelAnimationFrame(this._raf);
+        this._raf = 0;
+        this.tick(6.2, 0);
+        this.renderer.render(this.scene, this.camera);
+      } else {
+        this._last = performance.now() / 1000;
+        this._raf = requestAnimationFrame(this._loop);
+      }
+    });
     if (this._reduced) {
       this.tick(6.2, 0);
       this.renderer.render(this.scene, this.camera);
       return;
     }
 
-    const loop = () => {
+    const loop = this._loop = () => {
       this._raf = requestAnimationFrame(loop);
       const now = performance.now() / 1000;
       if (!this._visible || document.hidden) { this._last = now; return; }
@@ -104,12 +127,45 @@ class GLHost extends HTMLElement {
   _resize() {
     if (this._failed) return;
     const w = this.clientWidth || 320, h = this.clientHeight || 320;
-    const cap = this._dprCap || (Math.min(w, h) > 320 ? 2 : 1.6);
+    /*
+     * The cap used to be 1.6 for anything under 320px and 2 above it, which
+     * penalised exactly the elements that can afford full resolution. Cost
+     * scales with w * h * ratio squared, so a 120px mark at 3x is about 130k
+     * pixels -- nothing -- while a full-width backdrop at 3x is well over a
+     * million. On a phone reporting devicePixelRatio 3 the mark was drawn at
+     * 1.6, roughly half native, and then stretched: reported as looking low
+     * quality and not sharp.
+     *
+     * Budgeted instead of guessed: draw at the device's own ratio unless that
+     * would exceed the pixel budget, and never below 1.5.
+     */
+    const budget = 1_400_000;
+    const area = Math.max(w * h, 1);
+    const cap = this._dprCap || Math.max(1.5, Math.min(3, Math.sqrt(budget / area)));
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
     this.renderer.setSize(w, h, false);
     if (this.camera) { this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
     this.onResize && this.onResize(w, h);
   }
+}
+
+/*
+ * Motion is suppressed when EITHER the operating system asks for reduced
+ * motion or the interface's own switch is off. data-motion is published on the
+ * root element by applySettings.
+ */
+function motionSuppressed() {
+  if (document.documentElement.dataset.motion === 'off') return true;
+  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+function observeMotion(onChange) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] });
+  if (window.matchMedia) {
+    try { window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', onChange); } catch { /* older engines */ }
+  }
+  return observer;
 }
 
 /* ------------------------------------------------------------------ *

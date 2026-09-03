@@ -49,24 +49,27 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
     'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
   },
   /*
-   * Gitea has no entry, and that is the honest state rather than an omission.
+   * Gitea's entry is back, and with it the declaration-before-evidence order
+   * the contract structurally requires: it demands proof only of capabilities
+   * already declared Supported and Provider-verified, so the claim has to be
+   * standing before a run can establish it.
    *
-   * It declared five Provider-verified capabilities -- repository and branch
-   * reads, file read, write and delete -- and no live run has ever established
-   * any of them, because there is no reachable Gitea instance to run against.
-   * The registry cannot express "intended but unproven" for a capability the
-   * gate demands proof of: the contract requires every such capability to be
-   * declared Supported and Provider-verified, so the declaration necessarily
-   * precedes the evidence, and for Gitea the evidence never arrived.
+   * That order is why the claim was false for so long. It was declared, no run
+   * ever followed, and nothing forced the two to meet. What makes it honest
+   * this time is that the run happens in the same change -- a green leg keeps
+   * the entry, a red one takes it back out.
    *
-   * So both halves are withdrawn together, which is what the limitation this
-   * closes said the alternative to a live run was. The registry now describes
-   * those five the way it already described Gitea's tree read: implemented,
-   * but not exercised by the harness. The client and its runner stay exactly
-   * where they are -- stand an instance up, run the leg, and the contract
-   * entry comes back with evidence behind it.
+   * There is no probe list: Gitea proves the shared mutation sequence and
+   * nothing beyond it. Unlike GitHub and GitLab it needs no fixture objects on
+   * the target, because it makes no collection reads.
    */
-  gitea: {}
+  gitea: {
+    'repository.read': ['repository-read'],
+    'branches.read': ['default-branch-read'],
+    'file.read': ['utf8-readback'],
+    'file.write': ['expected-head-write', 'conditional-update', 'stale-head', 'permission-denial'],
+    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
+  }
 });
 /*
  * The mutation sequence every provider runs, and the proofs it produces.

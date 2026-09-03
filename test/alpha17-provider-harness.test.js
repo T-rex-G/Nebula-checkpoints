@@ -26,7 +26,7 @@ const NOW = '2026-07-29T20:00:00.000Z';
  * source; a second copy only ever agrees with it by accident.
  */
 const PROBE_KEYS = Object.freeze(Object.fromEntries(
-  ['github', 'gitlab'].map(provider => [provider, providerProbeKeys(provider)])
+  ['github', 'gitlab', 'gitea'].map(provider => [provider, providerProbeKeys(provider)])
 ));
 
 function stableJson(value) {
@@ -140,26 +140,9 @@ async function runOne(provider, runner, options = {}) {
 (async () => {
   const githubResult = await runOne('github', runGithubValidation);
   const gitlabResult = await runOne('gitlab', runGitlabValidation);
-  /*
-   * Gitea is exercised as a REFUSAL now, not a pass.
-   *
-   * Its five Provider-verified claims were withdrawn because no live run had
-   * ever established them and there is no instance to establish them on, so
-   * the contract asks nothing of it. A run in that state would produce an
-   * artifact with no claims, and the point of this assertion is that the
-   * runner says so plainly instead of letting the evidence validator reject it
-   * much later with "claims are missing or invalid".
-   *
-   * The client and the runner are untouched and still built here: stand an
-   * instance up, restore the contract entry, and this becomes a pass again.
-   */
-  await assert.rejects(
-    () => runOne('gitea', runGiteaValidation),
-    error => Boolean(error && error.code === 'ALPHA17_PROVIDER_NOT_CONTRACTED'),
-    'a provider the contract asks nothing of must refuse to qualify, and say why'
-  );
+  const giteaResult = await runOne('gitea', runGiteaValidation);
 
-  for (const result of [githubResult, gitlabResult]) {
+  for (const result of [githubResult, gitlabResult, giteaResult]) {
     assert.strictEqual(result.schemaVersion, '1.1.0');
     assert.strictEqual(result.artifactType, 'provider-live');
     assert.strictEqual(result.status, 'pass');
@@ -273,7 +256,7 @@ async function runOne(provider, runner, options = {}) {
    * the branch mutation its runs had always proved. A provider's capabilities
    * are what its contract says, so ask the contract.
    */
-  for (const result of [githubResult, gitlabResult]) {
+  for (const result of [githubResult, gitlabResult, giteaResult]) {
     assert.deepStrictEqual(
       result.capabilities,
       Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS[result.provider]).sort(),

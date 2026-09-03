@@ -55,13 +55,7 @@ assert.strictEqual(catalog.manual.length, 5);
 for (const [provider, deployment] of Object.entries(registry.providers)) {
   assert(deployment['hosted-alpha']);
   const expected = Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS[provider]).sort();
-  /*
-   * A provider the contract asks nothing of is absent from the catalog rather
-   * than present and empty: it owes no artifact, so listing it would demand
-   * one carrying no claims. Gitea is in that state -- its five claims were
-   * withdrawn because no live run had ever established them.
-   */
-  assert.deepStrictEqual(catalog.providers[provider], expected.length ? expected : undefined);
+  assert.deepStrictEqual(catalog.providers[provider], expected);
   const providerVerified = Object.entries(deployment['hosted-alpha'])
     .filter(([, tuple]) => tuple[1] === 'Provider-verified')
     .map(([capability]) => capability)
@@ -129,7 +123,7 @@ rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISSING', ({ record }) => {
 }
 rejects('PUBLIC_ALPHA_SECURITY_FINDINGS_OPEN', ({ record }) => { record.security.highUnresolved = 1; });
 rejects('PUBLIC_ALPHA_PROVIDER_EVIDENCE_MISSING', ({ record }) => {
-  delete record.providers.gitlab['file.write'];
+  delete record.providers.gitea['file.write'];
 });
 rejects('PUBLIC_ALPHA_EXPERIMENTAL_IN_GOLDEN_PATH', ({ record }) => {
   record.goldenPathCapabilities.push('github:workflows.rerun');

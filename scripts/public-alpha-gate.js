@@ -8,7 +8,23 @@ const registry = require('../config/public-alpha-capabilities.json');
 const { APP_VERSION, PRODUCT_NAME } = require('../src/version');
 const { loadMigrations } = require('../src/migrations');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
-const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
+const { validateEvidenceEnvelope, PROVIDER_CAPABILITY_REQUIREMENTS } = require('../src/qualification-evidence');
+
+/*
+ * The live targets a run has to bind, derived from the proof contract rather
+ * than listed. A provider the contract asks nothing of has no leg to run and
+ * therefore no signed target -- and a hardcoded list went stale the moment
+ * Gitea's claims were withdrawn, demanding a digest for a target that no
+ * longer exists.
+ */
+const LIVE_TARGETS = Object.freeze([
+  ...Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS)
+    .filter(provider => Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS[provider]).length > 0),
+  'hosted'
+]);
+const TARGET_VARIABLES = Object.freeze(Object.fromEntries(
+  LIVE_TARGETS.map(target => [target, `NV_PUBLIC_ALPHA_${target.toUpperCase()}_TARGET_SHA256`])
+));
 const {
   QUALIFICATION_SCHEMA_VERSION,
   MAX_EVIDENCE_AGE_MS,
@@ -106,14 +122,8 @@ function environmentBindings(env) {
   if (!/^[0-9a-f]{40}$/.test(sourceCommit) || /^0{40}$/.test(sourceCommit)) {
     throw new TypeError('NV_PUBLIC_ALPHA_SOURCE_COMMIT must bind the exact non-zero source commit');
   }
-  const targetVariables = Object.freeze({
-    github: 'NV_PUBLIC_ALPHA_GITHUB_TARGET_SHA256',
-    gitlab: 'NV_PUBLIC_ALPHA_GITLAB_TARGET_SHA256',
-    gitea: 'NV_PUBLIC_ALPHA_GITEA_TARGET_SHA256',
-    hosted: 'NV_PUBLIC_ALPHA_HOSTED_TARGET_SHA256'
-  });
   const expectedAuthorizedTargets = {};
-  for (const [target, variable] of Object.entries(targetVariables)) {
+  for (const [target, variable] of Object.entries(TARGET_VARIABLES)) {
     const value = String(env[variable] || '').trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(value) || /^0{64}$/.test(value)) {
       throw new TypeError(`${variable} must bind the exact signed target digest`);
@@ -223,12 +233,7 @@ function planOutput() {
     requirements: Object.freeze({
       subjectBinding: 'NV_PUBLIC_ALPHA_SUBJECT_SHA256',
       sourceBinding: 'NV_PUBLIC_ALPHA_SOURCE_COMMIT',
-      liveTargetBindings: [
-        'NV_PUBLIC_ALPHA_GITHUB_TARGET_SHA256',
-        'NV_PUBLIC_ALPHA_GITLAB_TARGET_SHA256',
-        'NV_PUBLIC_ALPHA_GITEA_TARGET_SHA256',
-        'NV_PUBLIC_ALPHA_HOSTED_TARGET_SHA256'
-      ],
+      liveTargetBindings: Object.values(TARGET_VARIABLES),
       operatorTrustBinding: ['NV_ALPHA17_OPERATOR_KEY_ID', 'NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64'],
       deploymentBinding: 'computed from the exact local release tree',
       evidenceMaxAgeHours: 72,

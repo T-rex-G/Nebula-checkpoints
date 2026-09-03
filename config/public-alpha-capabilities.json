@@ -372,8 +372,8 @@
       "hosted-alpha": {
         "repository.read": [
           "Supported",
-          "Provider-verified",
-          "Qualified Gitea repository reads."
+          "Inferred",
+          "Implemented and offered, but not exercised by the alpha.17 live-provider harness."
         ],
         "rate.read": [
           "Unavailable",
@@ -392,8 +392,8 @@
         ],
         "branches.read": [
           "Supported",
-          "Provider-verified",
-          "Qualified Gitea branch reads."
+          "Inferred",
+          "Implemented and offered, but not exercised by the alpha.17 live-provider harness."
         ],
         "branches.write": [
           "Unavailable",
@@ -407,18 +407,18 @@
         ],
         "file.read": [
           "Supported",
-          "Provider-verified",
-          "Qualified Base64 Contents API readback."
+          "Inferred",
+          "Implemented and offered, but not exercised by the alpha.17 live-provider harness."
         ],
         "file.write": [
           "Supported",
-          "Provider-verified",
-          "Qualified expected-head Contents API write."
+          "Inferred",
+          "Implemented and offered, but not exercised by the alpha.17 live-provider harness."
         ],
         "file.delete": [
           "Supported",
-          "Provider-verified",
-          "Qualified expected-head Contents API deletion."
+          "Inferred",
+          "Implemented and offered, but not exercised by the alpha.17 live-provider harness."
         ],
         "file.rename": [
           "Unavailable",

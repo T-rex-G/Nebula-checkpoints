@@ -171,15 +171,38 @@ function qualificationCatalog(registry) {
     if (!isPlainObject(deployment) || !isPlainObject(requirements)) {
       fail('capability deployment is missing', 'PUBLIC_ALPHA_REGISTRY_INVALID');
     }
-    providers[provider] = Object.keys(requirements).sort();
-    for (const feature of providers[provider]) {
+    const required = Object.keys(requirements).sort();
+    for (const feature of required) {
       const tuple = deployment[feature];
       if (!Array.isArray(tuple) || tuple[0] !== 'Supported' || tuple[1] !== 'Provider-verified') {
         fail('provider qualification contract conflicts with the capability registry', 'PUBLIC_ALPHA_REGISTRY_INVALID');
       }
     }
+    /*
+     * The other direction, which nothing checked here: a provider must not
+     * advertise Provider-verified capabilities the contract never asks for
+     * proof of. Without this, withdrawing a contract entry would silently
+     * leave the registry claiming the capability was verified.
+     */
+    const advertised = Object.entries(deployment)
+      .filter(([, tuple]) => Array.isArray(tuple) && tuple[1] === 'Provider-verified')
+      .map(([feature]) => feature)
+      .sort();
+    if (advertised.join(',') !== required.join(',')) {
+      fail('provider qualification contract conflicts with the capability registry', 'PUBLIC_ALPHA_REGISTRY_INVALID');
+    }
+    /*
+     * A provider the contract asks nothing of is not part of the
+     * qualification: it owes no artifact and no evidence entries. Gitea is in
+     * that state deliberately -- claims withdrawn for want of a live run --
+     * and listing it with an empty requirement set would demand an artifact
+     * carrying no claims, which the validator rejects.
+     */
+    if (required.length) providers[provider] = required;
   }
-  if (Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS).some(provider => !Object.hasOwn(providers, provider))) {
+  const contracted = Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS)
+    .filter(provider => Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS[provider]).length > 0);
+  if (contracted.some(provider => !Object.hasOwn(providers, provider))) {
     fail('provider qualification contract is missing from the capability registry', 'PUBLIC_ALPHA_REGISTRY_INVALID');
   }
   return deepFreeze({
@@ -272,7 +295,17 @@ function capabilityTuple(registry, qualifiedName) {
 
 function liveEvidenceBindings(options) {
   const expected = options.expectedAuthorizedTargets;
-  const expectedKeys = ['github', 'gitlab', 'gitea', 'hosted'];
+  /*
+   * Derived, because this was a fourth copy of the contract and it went stale
+   * the moment Gitea's claims were withdrawn: the list still demanded a signed
+   * Gitea target for a provider that no longer has a leg to run. A provider
+   * the contract asks nothing of has no live target to bind.
+   */
+  const expectedKeys = [
+    ...Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS)
+      .filter(provider => Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS[provider]).length > 0),
+    'hosted'
+  ];
   if (
     !isPlainObject(expected) ||
     JSON.stringify(Object.keys(expected).sort()) !== JSON.stringify([...expectedKeys].sort()) ||

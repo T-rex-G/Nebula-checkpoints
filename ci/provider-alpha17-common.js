@@ -176,6 +176,20 @@ function providerCapabilityRequirements(provider) {
   const deployment = registry.providers[provider] && registry.providers[provider]['hosted-alpha'];
   const requirements = PROVIDER_CAPABILITY_REQUIREMENTS[provider];
   if (!deployment || !requirements) fail('provider is not in the alpha.17 capability registry', 'ALPHA17_PROVIDER_INVALID');
+  /*
+   * A provider the contract asks nothing of cannot be qualified, and saying so
+   * here is the difference between a clear refusal and a confusing one. Gitea
+   * is in this state deliberately: its five claims were withdrawn because no
+   * live run had ever established them, so a run against it would produce an
+   * artifact with no claims at all, which the evidence validator rejects much
+   * further downstream as "claims are missing or invalid".
+   *
+   * Restore its contract entry when there is an instance to earn it against,
+   * and this stops firing.
+   */
+  if (Object.keys(requirements).length === 0) {
+    fail('provider declares no capabilities for the live proof contract to establish', 'ALPHA17_PROVIDER_NOT_CONTRACTED');
+  }
   for (const capability of Object.keys(requirements)) {
     if (
       !Array.isArray(deployment[capability]) ||

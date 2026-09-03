@@ -258,6 +258,13 @@ function createPassFixture() {
   const targetHashCharacters = ['9', 'a', 'b'];
   const expectedAuthorizedTargets = { hosted: '4'.repeat(64) };
   for (const [index, [provider, features]] of Object.entries(catalog.providers).entries()) {
+    /*
+     * A provider the contract asks nothing of contributes no artifact. Gitea
+     * is in that state: its claims were withdrawn for want of a live run, so
+     * building an envelope for it here would mean an artifact with no claims,
+     * which the validator rejects -- correctly.
+     */
+    if (!features.length) continue;
     const artifactId = `${provider}-artifact`;
     const labels = features.map(feature => `providers.${provider}.${feature}`);
     artifacts.push({
@@ -304,8 +311,7 @@ function createPassFixture() {
     goldenPathCapabilities: [
       'github:repository.read',
       'github:file.write',
-      'gitlab:file.write',
-      'gitea:file.write'
+      'gitlab:file.write'
     ],
     observedEnabledCapabilities: [],
     knownLimitations: ['Render Free wake delay.'],

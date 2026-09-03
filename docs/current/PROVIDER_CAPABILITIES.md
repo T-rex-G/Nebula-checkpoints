@@ -81,7 +81,7 @@ Merge-request and issue WRITES remain `Experimental` + `Inferred`.
 
 ## Gitea — registry-qualified subset
 
-Counted from the capability registry: 6 Supported, 4 Experimental, 24 Unavailable. Of those, 5 carry
+Counted from the capability registry: 6 Supported, 4 Experimental, 24 Unavailable. Of those, 0 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
@@ -90,8 +90,20 @@ Counted from the capability registry: 6 Supported, 4 Experimental, 24 Unavailabl
 | Experimental | tree read; dependency audit; read-only recovery comparison; governance views |
 | Unavailable | repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis |
 
-Only repository read, branch read, and bounded file read/write/delete use
-`Provider-verified` evidence. Upload security, dependency audit, recovery, and
+**No Gitea capability carries `Provider-verified` evidence.** No live run has
+ever executed against a Gitea instance, because there is no reachable one to
+run against. Repository read, branch read and bounded file read/write/delete
+are offered and implemented, and they carry `Inferred` evidence saying exactly
+that: implemented and offered, but not exercised by the alpha.17 live-provider
+harness. They claimed `Provider-verified` until that was withdrawn.
+
+`Supported` + `Inferred` is used only here, and deliberately. The false claim
+was on the evidence axis, so that is the axis corrected; demoting the status as
+well would have refused Gitea on the ten routes that gate on these five, as a
+side effect of correcting a claim rather than as a decision anyone took about
+the product. A reader comparing providers should read this section as: Gitea
+works as far as we know, and we have not proven it the way GitHub and GitLab
+are proven. Upload security, dependency audit, recovery, and
 governance use `Deterministic` evidence; the latter three remain experimental.
 Tree read remains `Experimental` + `Inferred`. Gitea batch mutation remains
 unavailable because only single-file Contents API write and delete received

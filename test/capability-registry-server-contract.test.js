@@ -241,7 +241,16 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       const projected = await projection.json();
       assert.strictEqual(projected.provider, 'gitea');
       assert.strictEqual(projected.authority, 'gitea.example');
+      /*
+       * Still offered, but no longer claiming a live run behind it. Gitea's
+       * five Provider-verified claims were withdrawn because no run has ever
+       * established them and there is no reachable instance to establish them
+       * on. The status is deliberately unchanged: the false claim was on the
+       * evidence axis, and demoting the status as well would have refused
+       * Gitea on ten routes as a side effect of correcting a claim.
+       */
       assert.strictEqual(projected.features['file.read'].status, 'Supported');
+      assert.strictEqual(projected.features['file.read'].evidenceState, 'Inferred');
       const githubProjection = await request('/api/capabilities?provider=github');
       assert.strictEqual(githubProjection.status, 200);
       const github = await githubProjection.json();

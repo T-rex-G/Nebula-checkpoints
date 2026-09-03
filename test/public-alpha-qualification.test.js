@@ -22,8 +22,15 @@ assert(catalog.hosted.includes('single-bounded-mutation'));
 assert(catalog.manual.includes('ios-voiceover'));
 assert(catalog.manual.includes('desktop-screen-reader'));
 assert(catalog.providers.github.includes('file.write'));
-assert(catalog.providers.gitea.includes('file.write'));
-assert(!catalog.providers.gitea.includes('workflows.read'));
+assert(catalog.providers.gitlab.includes('file.write'));
+assert(!catalog.providers.gitlab.includes('workflows.read'));
+/*
+ * Gitea is absent rather than empty. Its five Provider-verified claims were
+ * withdrawn because no live run had ever established them and there is no
+ * instance to establish them on, so the contract asks nothing of it and it
+ * owes no artifact.
+ */
+assert.strictEqual(catalog.providers.gitea, undefined);
 assert(Object.isFrozen(catalog));
 
 const fixture = createPassFixture();

@@ -48,13 +48,25 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
     'file.write': ['expected-head-write', 'conditional-update', 'stale-head', 'permission-denial'],
     'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
   },
-  gitea: {
-    'repository.read': ['repository-read'],
-    'branches.read': ['default-branch-read'],
-    'file.read': ['utf8-readback'],
-    'file.write': ['expected-head-write', 'conditional-update', 'stale-head', 'permission-denial'],
-    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
-  }
+  /*
+   * Gitea has no entry, and that is the honest state rather than an omission.
+   *
+   * It declared five Provider-verified capabilities -- repository and branch
+   * reads, file read, write and delete -- and no live run has ever established
+   * any of them, because there is no reachable Gitea instance to run against.
+   * The registry cannot express "intended but unproven" for a capability the
+   * gate demands proof of: the contract requires every such capability to be
+   * declared Supported and Provider-verified, so the declaration necessarily
+   * precedes the evidence, and for Gitea the evidence never arrived.
+   *
+   * So both halves are withdrawn together, which is what the limitation this
+   * closes said the alternative to a live run was. The registry now describes
+   * those five the way it already described Gitea's tree read: implemented,
+   * but not exercised by the harness. The client and its runner stay exactly
+   * where they are -- stand an instance up, run the leg, and the contract
+   * entry comes back with evidence behind it.
+   */
+  gitea: {}
 });
 /*
  * The mutation sequence every provider runs, and the proofs it produces.

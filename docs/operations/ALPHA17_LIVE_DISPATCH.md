@@ -1,13 +1,28 @@
 # Dispatching the alpha.17 live-provider qualification
 
-The live-provider gate has never been run. This is the procedure for the first
-dispatch, written after building the pieces that were missing.
+Two providers are qualified. Run 65 on 3 September 2026 passed both live legs
+on the same candidate: GitHub with seventeen checks and twelve capabilities,
+GitLab with fourteen checks and nine. Gitea has never been run and has no
+reachable instance.
 
 Everything here is operator work. The workflow runs candidate code in a job
 that holds live credentials, so the approval is a human act by design and no
 part of it is automated away.
 
+Each provider needs its own target, its own two credentials and its own
+fixtures. The sections below are per-provider for that reason: a GitLab target
+set up from the GitHub instructions will fail, and it will fail late.
+
 ## What the gate needs, and what already exists
+
+Shared by every provider:
+
+| Requirement | State |
+| --- | --- |
+| `alpha17-live-qualification` environment holding every live secret | Confirm — scopes them to the live jobs; see below on approval |
+| Independent review of the exact candidate bytes | Required before dispatch |
+
+### GitHub
 
 | Requirement | State |
 | --- | --- |
@@ -18,13 +33,48 @@ part of it is automated away.
 | `ALPHA17_GITHUB_REPOSITORY` variable | Confirm — set to the target's `owner/name` |
 | `ALPHA17_GITHUB_MUTATION_CREDENTIAL` secret | Confirm |
 | `ALPHA17_GITHUB_READ_ONLY_CREDENTIAL` secret | Confirm |
-| `alpha17-live-qualification` environment holding both secrets | Confirm — scopes them to the live jobs; see below on approval |
-| Independent review of the exact candidate bytes | Required before dispatch |
 
-The two credentials must reach only the disposable target: no organization
-scope, no production repository, disposable after the run. The read-only one
-exists to be refused — the `permission-denial` proof depends on it failing to
-write.
+The API URL is fixed in the workflow at `https://api.github.com` and is not an
+operator setting.
+
+### GitLab
+
+| Requirement | State |
+| --- | --- |
+| Disposable target project, `nvx-alpha17-` prefix | `T-rex-G/nvx-alpha17-gitlab-qualification`, private, `main` at a real commit |
+| Merge requests and issues reachable on that project | Both answer, and both carry a permanent fixture — see below |
+| Mutation credential scope | `api` |
+| Read-only credential scope | `read_api`. **No `api` scope of any kind** |
+| `ALPHA17_GITLAB_REPOSITORY` variable | Confirm — set to the project's `namespace/name`, not its numeric id |
+| `ALPHA17_GITLAB_MUTATION_CREDENTIAL` secret | Confirm |
+| `ALPHA17_GITLAB_READ_ONLY_CREDENTIAL` secret | Confirm |
+
+The API URL is fixed in the workflow at `https://gitlab.com/api/v4`. A
+self-managed instance would need that line changed, not a variable set.
+
+GitLab's token scopes are coarse where GitHub's are per-permission: `api` is
+read and write across the whole API surface, and there is no way to grant
+Contents-write without also granting issues, merge requests and everything
+else. That has two consequences worth knowing before you create the token.
+
+Extending the GitLab leg later — releases, pipelines, search — needs no new
+credential, because `api` already covers them. And the mutation token is
+broader than the GitHub one by construction: what confines it is the project it
+can reach, not the operations it can perform. Create it as a **project** access
+token on the disposable project, never a personal or group token.
+
+### Gitea
+
+Not run. `ALPHA17_GITEA_REPOSITORY` and `ALPHA17_GITEA_API_URL` exist in the
+workflow and there is no instance behind them. Its five `Provider-verified`
+registry claims have no run supporting them; see the limitations in
+`WORK_CONTINUITY.json`.
+
+### Both credentials, every provider
+
+They must reach only the disposable target: no organization or group scope, no
+production repository, disposable after the run. The read-only one exists to be
+refused — the `permission-denial` proof depends on it failing to write.
 
 Granting the read-only credential write access does not break the run in a way
 anyone would notice by reading a pass: the write it is supposed to be refused
@@ -34,9 +84,9 @@ catches it — a read-only credential that mutates the branch fails the run with
 was watched to fail before it was trusted. Keep the token read-only anyway; the
 guard is the backstop, not the plan.
 
-## The fixtures on the target, and why deleting them is not free
+## The fixtures on the targets, and why deleting them is not free
 
-The target carries four permanent objects, each labelled in its own body:
+GitHub's target carries four permanent objects, each labelled in its own body:
 
 | Fixture | Proves |
 | --- | --- |
@@ -45,12 +95,35 @@ The target carries four permanent objects, each labelled in its own body:
 | Release, published — not a draft, `GET /releases` does not list drafts | `releases.read` detail agreement |
 | One dispatched run of the fixture workflow | `workflows.read` detail agreement |
 
+GitLab's target carries two:
+
+| Fixture | Proves |
+| --- | --- |
+| Issue, open | `issues.read` detail agreement |
+| Merge request, open, from `nvx-alpha17-fixture-merge` into `main` | `pulls.read` detail agreement |
+
+The merge request needs a real difference between the two branches or GitLab
+will refuse to open it, so `nvx-alpha17-fixture-merge` carries one committed
+file that `main` does not. GitLab also requires a description on some project
+configurations and silently keeps the form open without one; give both objects
+a body saying what they are for.
+
+Two things GitLab does *not* have, and no fixture can supply: there is no
+release or workflow-run probe on its leg, because `releases.read` and
+`workflows.read` are `Unavailable` for GitLab in the registry. GitLab's
+pipelines are the analogue of GitHub Actions and nothing is wired to them.
+
+One asymmetry in the recorded numbers is worth expecting rather than
+investigating. GitHub's issues endpoint returns pull requests as issues, so its
+`issues-read` probe records `listed: 2` against one issue and one pull request.
+GitLab keeps them separate, so both of its probes record `listed: 1`.
+
 Each collection probe lists, then fetches every listed object on its own, then
 asks for an identifier that cannot exist and requires a refusal. Against an
 empty target the middle step never runs: the probe passes on an empty listing
 having proved the endpoint answers and discriminates, which is *not* the
 capability being claimed. `listed` in the artifact is how you tell the two
-apart — run 58 recorded 1, 2, 1 and 1, not 0.
+apart — run 65 recorded 1, 2, 1 and 1 for GitHub and 1 and 1 for GitLab, not 0.
 
 Deleting a fixture used to fail nothing: the probe listed zero objects, never
 ran the detail comparison, and passed having proved only that the endpoint
@@ -58,10 +131,12 @@ answers. That was written here as a hazard for a human to remember, which is
 the wrong place for it — a gate that can enforce a rule should not be asking
 someone to hold it in their head. An empty listing now fails the run outright.
 
-So the fixtures are permanent, and the workflow one is
+So the fixtures are permanent, and GitHub's workflow one is
 `workflow_dispatch` only — on `push` it would fire on every proof branch the
-qualification creates and delete, and the target is meant to be inert between
-runs.
+qualification creates and deletes, and the targets are meant to be inert
+between runs. GitLab has no equivalent fixture because it has no workflow
+probe, but the same rule applies to its project: if you add CI there, keep it
+off `push`.
 
 ## The activation envelope
 
@@ -113,33 +188,90 @@ spent.
 
 Actions → **Nebulaverse-X alpha.17 qualification** → Run workflow.
 
-Pick the branch you want qualified, set `run_github` true, leave the other three
-false, and run it. There are no other inputs. Approve the
-`alpha17-live-qualification` environment when it asks.
+Pick the branch you want qualified, set `run_github` and `run_gitlab` true,
+leave `run_gitea` and `run_hosted` false, and run it. There are no other
+inputs. Approve the `alpha17-live-qualification` environment when it asks.
+
+The two provider legs run in parallel against separate targets and produce
+separate evidence artifacts. They are independent: one can fail while the other
+passes, and run 64 did exactly that. Both artifacts bind to the same
+`subjectSha256` and `sourceCommit`, so a GO needs them from the same run.
 
 ## What the run proves
 
-Seventeen checks on a disposable branch it creates and removes:
+Every provider runs the same mutation sequence on a disposable branch it creates
+and removes, then whatever probes its own contract adds. GitHub records
+seventeen checks, GitLab fourteen.
+
+Shared by both:
 
 - repository and default-branch reads
 - disposable branch create, then absence after cleanup
-- expected-head write, UTF-8 readback, conditional update, stale-head refusal,
-  permission denial, stale-head delete refusal, expected-head delete
+- expected-head write and UTF-8 readback
+- conditional update, stale-head refusal, permission denial, stale-head delete
+  refusal, expected-head delete
 - recursive tree listing bound to the file the run wrote
+
+GitHub only:
+
 - provider rate-limit ceiling and remaining budget
-- pull-request, issue, release and workflow-run list/detail agreement with
+- release and workflow-run list/detail agreement
+
+Both, over their own objects:
+
+- pull-request (merge-request) and issue list/detail agreement with
   absent-identifier discrimination
 
-The four collection probes record what they actually verified. Run 58 recorded
-`listed` of 1 for pull requests, 2 for issues (the fixture issue and the
-fixture pull request, because the issues endpoint returns both), 1 for releases
-and 1 for workflow runs, each with `detailAgreed` and `absentDiscriminated`
-true. A `listed: 0` in a future artifact means a fixture is gone and that
-probe has silently fallen back to proving reachability only.
+### The concurrency proof, and why it is two checks
+
+`conditional-update` and `stale-head` are one proof in two halves, and reading
+either alone will mislead you. The run holds the concurrency token for the
+file it wrote — the blob sha on GitHub, the last-touching commit on GitLab —
+and sends the same token twice: once while it is current, which the provider
+must accept, and once after a write has landed under it, which the provider
+must refuse. The accepted half is the control. A refusal on its own proves only
+that the provider disliked something about the request.
+
+This is the third shape this proof has had, and the first two both passed
+while proving less than they claimed. It refused the write in the client
+before the provider was called. Then it sent a synthetic token, which GitHub
+refused and GitLab accepted — runs 63 and 64 died there, because GitLab's
+conflict check resolves the file's last commit at both refs and reads "no
+commit there" as no information rather than as a conflict, so a token from
+before the file existed is not stale to it. Do not simplify this back into one
+call.
+
+### Reading the collection probes
+
+Each records what it actually verified. Run 65 recorded, for GitHub, `listed`
+of 1 for pull requests, 2 for issues, 1 for releases and 1 for workflow runs;
+for GitLab, 1 for merge requests and 1 for issues. Every one carried
+`detailAgreed` and `absentDiscriminated` true.
+
+A `listed: 0` cannot reach an artifact any more — an empty listing fails the
+run outright — but a listing that dropped from 2 to 1 would still pass while
+proving less. The counts above are what to compare against.
 
 ## If it fails
 
-The artifact names the failing check and the run stops before publishing
-evidence. Nothing here is retried blind: a probe failure is a finding about
-the provider path, not a flake. The disposable branch is removed on the
-failure path as well, and `cleanup-absence` reports whether that succeeded.
+No artifact is published on a failure, so the job log is what you have. The
+failure line carries the error code, the unmet conditions by name, and — for
+the checks that build one — the check object as JSON on the next line. Runs 63
+and 64 both failed with only `stale-head attempt changed the branch or file`,
+which covered a provider that accepted the write, a read that lagged behind one
+that refused it, and a file whose identity moved. Two runs went by without
+telling those apart. If you get a failure that names no condition, that is a
+defect in the proof, not a hard diagnosis.
+
+Nothing here is retried blind: a probe failure is a finding about the provider
+path, not a flake. The method that has found every defect so far is to read the
+provider's published specification — and, where the docs are silent, its source
+— before changing client code. GitLab's docs do not say what a mismatched
+`last_commit_id` returns; its `Files::BaseService` does, and it was not what
+the client assumed.
+
+The disposable branch is removed on the failure path as well, and
+`cleanup-absence` reports whether that succeeded, with `reasonCode` naming what
+refused if it did not. A run that leaves a branch behind needs it deleted by
+hand before the next dispatch — `nvx-alpha17-33658675617-proof` from run 57 is
+still on the GitHub target and still needs removing.

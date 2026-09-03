@@ -46,7 +46,8 @@ mutations remain blocked.
 
 ## GitHub — evidence-bounded alpha subset
 
-Counted from the capability registry: 17 Supported, 13 Experimental, 4 Unavailable.
+Counted from the capability registry: 17 Supported, 13 Experimental, 4 Unavailable. Of those, 12 carry
+`Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
@@ -63,22 +64,25 @@ live harness exercises their exact proof contract.
 
 ## GitLab — registry-qualified subset
 
-Counted from the capability registry: 10 Supported, 5 Experimental, 19 Unavailable.
+Counted from the capability registry: 10 Supported, 5 Experimental, 19 Unavailable. Of those, 9 carry
+`Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository and branch reads; bounded file read/write/delete; upload security |
-| Experimental | tree read; merge-request and issue read/write; dependency audit; read-only recovery comparison; governance views |
-| Unavailable | repository create/delete; provider rate-limit read; branch write; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis |
+| Supported | repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; upload security |
+| Experimental | merge-request and issue writes; dependency audit; read-only recovery comparison; governance views |
+| Unavailable | repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis |
 
-Only repository read, branch read, and bounded file read/write/delete use
+Repository read, branch read/write, bounded file read/write/delete, the recursive
+tree read, and the merge-request and issue list/detail reads use
 `Provider-verified` evidence. Upload security, dependency audit, recovery, and
 governance use `Deterministic` evidence; the latter three remain experimental.
-Tree, merge-request, and issue paths remain `Experimental` + `Inferred`.
+Merge-request and issue WRITES remain `Experimental` + `Inferred`.
 
 ## Gitea — registry-qualified subset
 
-Counted from the capability registry: 6 Supported, 4 Experimental, 24 Unavailable.
+Counted from the capability registry: 6 Supported, 4 Experimental, 24 Unavailable. Of those, 5 carry
+`Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |

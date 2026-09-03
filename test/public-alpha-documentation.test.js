@@ -100,9 +100,9 @@ const providerMappings = {
     ['Unavailable', 'repository create/delete; global search; notifications']
   ],
   'GitLab — registry-qualified subset': [
-    ['Supported', 'repository and branch reads; bounded file read/write/delete; upload security'],
-    ['Experimental', 'tree read; merge-request and issue read/write; dependency audit; read-only recovery comparison; governance views'],
-    ['Unavailable', 'repository create/delete; provider rate-limit read; branch write; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis']
+    ['Supported', 'repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; upload security'],
+    ['Experimental', 'merge-request and issue writes; dependency audit; read-only recovery comparison; governance views'],
+    ['Unavailable', 'repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis']
   ],
   'Gitea — registry-qualified subset': [
     ['Supported', 'repository and branch reads; bounded file read/write/delete; upload security'],
@@ -135,6 +135,25 @@ for (const [providerHeading, mappings] of Object.entries(providerMappings)) {
       `${tally.Experimental} Experimental, ${tally.Unavailable} Unavailable.`
     ),
     `${providerHeading} does not state the registry's own capability counts`
+  );
+  /*
+   * The Provider-verified count, derived, because the status counts alone did
+   * not catch the drift they were written to catch. GitLab's three promoted
+   * reads and its branch write moved in the registry; the counts line updated
+   * with them, and the prose beneath it went on calling branch write
+   * Unavailable and the reads Experimental. The row mappings agreed -- with
+   * this test's own hardcoded copy of them, which is a second source of truth
+   * that agrees with the first by luck.
+   *
+   * How many capabilities a provider has actually PROVEN is the number a
+   * reader of this document most wants, and the number a stale promotion
+   * changes first. It is stated and checked.
+   */
+  const providerVerified = Object.values(deployment)
+    .filter(tuple => tuple[1] === 'Provider-verified').length;
+  assert(
+    providerSection.includes(`Of those, ${providerVerified} carry`),
+    `${providerHeading} does not state the registry's Provider-verified count`
   );
   for (const [status, expectedCapabilities] of mappings) {
     assert(

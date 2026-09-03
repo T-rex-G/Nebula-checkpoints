@@ -127,13 +127,24 @@ function createGitlabClient({ env, fetchImpl }) {
   async function deleteFile(input) {
     const current = await getBranch(input.branch, input.credential);
     assertExpectedHead(input.expectedHead, current && current.sha);
+    const existing = await readFile(input.branch, input.path, input.credential);
+    const lastCommitId = (existing && existing.lastCommitId) || input.expectedHead;
     const response = await requestJson(fetchImpl, api(`projects/${project}/repository/files/${encodeURIComponent(input.path)}`), {
       method: 'DELETE',
       headers: headers(input.credential),
       body: {
         branch: input.branch,
-        commit_message: 'test(alpha): remove qualification proof',
-        last_commit_id: input.expectedHead
+        commit_message: DELETE_COMMIT_MESSAGE,
+        /*
+         * GitLab defines last_commit_id as the last known commit of THIS FILE,
+         * not the branch head. The two coincide here -- this run's write is
+         * both -- so passing the head worked, and would keep working right up
+         * until a commit touched something else on the branch, at which point
+         * a correct delete would be refused as a conflict.
+         *
+         * The file says which commit last changed it, so ask it.
+         */
+        last_commit_id: lastCommitId
       },
       allowedStatuses: [200, 204]
     });

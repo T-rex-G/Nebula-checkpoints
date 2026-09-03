@@ -69,14 +69,21 @@ function createProviderFetchFixture(options = {}) {
     return false;
   }
 
-  function findSource(ref) {
+  /*
+   * `commitsAllowed` exists because providers do not all accept a commit
+   * wherever they accept a branch. Resolving both interchangeably made the
+   * fixture answer a question no real provider was asked.
+   */
+  function findSource(ref, { commitsAllowed = true } = {}) {
     if (state.branches.has(ref)) return state.branches.get(ref);
+    if (!commitsAllowed) return null;
     return [...state.branches.values()].find(branch => branch.sha === ref) || null;
   }
 
-  function createBranch(name, ref) {
-    const source = findSource(ref);
-    if (!source || state.branches.has(name)) return json({ message: 'conflict' }, 409);
+  function createBranch(name, ref, options = {}) {
+    if (state.branches.has(name)) return json({ message: 'conflict' }, 409);
+    const source = findSource(ref, options);
+    if (!source) return json({ message: 'not found' }, 404);
     state.branches.set(name, cloneBranch(source));
     return null;
   }
@@ -292,7 +299,16 @@ function createProviderFetchFixture(options = {}) {
     const branchBase = `${base}/branches`;
     if (parsed.pathname === branchBase && method === 'POST') {
       const body = bodyOf(init);
-      const conflict = createBranch(body.new_branch_name, body.old_branch_name);
+      /*
+       * Gitea's own option object separates these: old_branch_name is marked
+       * deprecated and names a BRANCH, while old_ref_name names a branch, tag
+       * or commit. A commit sha handed to old_branch_name is looked up as a
+       * branch name and is not found -- so the fixture must not resolve it,
+       * or a client using the wrong field passes here and fails live.
+       */
+      const conflict = body.old_ref_name
+        ? createBranch(body.new_branch_name, body.old_ref_name)
+        : createBranch(body.new_branch_name, body.old_branch_name, { commitsAllowed: false });
       return conflict || json({ name: body.new_branch_name, commit: { id: state.branches.get(body.new_branch_name).sha } }, 201);
     }
     const branchPrefix = `${branchBase}/`;

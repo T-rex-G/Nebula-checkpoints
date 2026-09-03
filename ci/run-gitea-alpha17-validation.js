@@ -54,7 +54,14 @@ function createGiteaClient({ env, fetchImpl }) {
     return requestJson(fetchImpl, api(`repos/${repositoryPath}/branches`), {
       method: 'POST',
       headers: headers(credential),
-      body: { old_branch_name: sha, new_branch_name: branch },
+      /*
+       * old_ref_name, not old_branch_name. Gitea marks old_branch_name
+       * deprecated and documents it as the name of a BRANCH; old_ref_name is
+       * the one that takes a branch, tag or commit. This passes a commit, so
+       * the deprecated field would have Gitea looking for a branch whose name
+       * is a forty-character sha, and not finding one.
+       */
+      body: { old_ref_name: sha, new_branch_name: branch },
       allowedStatuses: [201]
     });
   }

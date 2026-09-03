@@ -31,6 +31,9 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
   gitlab: {
     'repository.read': ['repository-read'],
     'branches.read': ['default-branch-read'],
+    'tree.read': ['tree-read'],
+    'pulls.read': ['pulls-read'],
+    'issues.read': ['issues-read'],
     /*
      * Every GitLab run has always created its disposable branch and removed it
      * again, and recorded both. The capability those two checks prove was
@@ -133,7 +136,28 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
       }
     }))
   ],
-  gitlab: [],
+  gitlab: [
+    {
+      key: 'tree-read',
+      fields: {
+        status: 'pass',
+        statusClass: '2xx',
+        entries: '$non-negative-integer',
+        proofPathPresent: true,
+        blobIdentityMatched: true
+      }
+    },
+    ...['pulls-read', 'issues-read'].map(key => ({
+      key,
+      fields: {
+        status: 'pass',
+        statusClass: '2xx',
+        listed: '$non-negative-integer',
+        detailAgreed: true,
+        absentDiscriminated: true
+      }
+    }))
+  ],
   gitea: []
 });
 

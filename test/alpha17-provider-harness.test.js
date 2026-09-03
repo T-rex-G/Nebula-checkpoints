@@ -3,7 +3,7 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const { createProviderFetchFixture } = require('../ci/alpha17-fixtures');
-const { PROVIDER_CAPABILITY_REQUIREMENTS } = require('../src/qualification-evidence');
+const { PROVIDER_CAPABILITY_REQUIREMENTS, providerProbeKeys } = require('../src/qualification-evidence');
 const { requestJson } = require('../ci/provider-alpha17-common');
 const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
 const { runGitlabValidation } = require('../ci/run-gitlab-alpha17-validation');
@@ -19,11 +19,15 @@ const NOW = '2026-07-29T20:00:00.000Z';
  * Gitea prove nothing beyond the shared sequence, and saying so here keeps the
  * empty case asserted rather than assumed.
  */
-const PROBE_KEYS = Object.freeze({
-  github: ['tree-read', 'rate-read', 'pulls-read', 'issues-read', 'releases-read', 'workflows-read'],
-  gitlab: [],
-  gitea: []
-});
+/*
+ * Derived, not restated. This was a hand-written map of probe keys per
+ * provider, correct until GitLab gained probes of its own -- the fourth
+ * hardcoded copy of something the contract already knows. The contract is the
+ * source; a second copy only ever agrees with it by accident.
+ */
+const PROBE_KEYS = Object.freeze(Object.fromEntries(
+  ['github', 'gitlab', 'gitea'].map(provider => [provider, providerProbeKeys(provider)])
+));
 
 function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;

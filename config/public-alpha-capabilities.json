@@ -227,9 +227,9 @@
           "Qualified controlled branch mutations."
         ],
         "tree.read": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Qualified recursive tree reads bound to the written file."
         ],
         "file.read": [
           "Supported",
@@ -257,9 +257,9 @@
           "Atomic batch is not qualified for GitLab."
         ],
         "pulls.read": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Qualified merge-request list and detail reads."
         ],
         "pulls.write": [
           "Experimental",
@@ -267,9 +267,9 @@
           "Implemented, but not exercised by the alpha.17 live-provider harness."
         ],
         "issues.read": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Qualified issue list and detail reads."
         ],
         "issues.write": [
           "Experimental",

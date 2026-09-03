@@ -75,6 +75,16 @@ function createProviderFetchFixture(options = {}) {
    * wherever they accept a branch. Resolving both interchangeably made the
    * fixture answer a question no real provider was asked.
    */
+  /*
+   * One merge request and one issue, so the collection probes list a real
+   * object, fetch it on its own and compare -- rather than passing on an empty
+   * listing, which proves only that the endpoint answered.
+   */
+  const giteaOrGitlabSeed = Object.freeze({
+    mergeRequests: [{ id: 155016530, iid: 1, title: 'fixture merge request', state: 'opened' }],
+    issues: [{ id: 41, iid: 1, title: 'fixture issue', state: 'opened' }]
+  });
+
   function findSource(ref, { commitsAllowed = true } = {}) {
     if (state.branches.has(ref)) return state.branches.get(ref);
     if (!commitsAllowed) return null;
@@ -243,6 +253,31 @@ function createProviderFetchFixture(options = {}) {
       if (method === 'DELETE') {
         if (branchName === defaultBranch || !state.branches.delete(branchName)) return json({ message: 'not found' }, 404);
         return json(null, 204);
+      }
+    }
+    /*
+     * GET /projects/:id/repository/tree -- an array whose `id` is the blob
+     * sha, paginated rather than flagged as truncated.
+     */
+    if (parsed.pathname === `${base}/repository/tree` && method === 'GET') {
+      const branch = state.branches.get(parsed.searchParams.get('ref'));
+      if (!branch) return json({ message: 'not found' }, 404);
+      return json([...branch.files.entries()].map(([path, file]) => ({
+        id: file.sha, name: path.split('/').pop(), type: 'blob', path, mode: '100644'
+      })));
+    }
+    /*
+     * Merge requests and issues. The detail path takes `iid`, the
+     * project-scoped internal id -- `id` is global to the instance and would
+     * not resolve here, which is exactly the mistake the client must not make.
+     */
+    for (const [segment, seeded] of [['merge_requests', giteaOrGitlabSeed.mergeRequests], ['issues', giteaOrGitlabSeed.issues]]) {
+      if (parsed.pathname === `${base}/${segment}` && method === 'GET') return json(seeded);
+      const detailPrefix = `${base}/${segment}/`;
+      if (parsed.pathname.startsWith(detailPrefix) && method === 'GET') {
+        const iid = Number(decodeURIComponent(parsed.pathname.slice(detailPrefix.length)));
+        const found = seeded.find(item => item.iid === iid);
+        return found ? json(found) : json({ message: '404 Not found' }, 404);
       }
     }
     /*

@@ -207,6 +207,112 @@ function createGitlabClient({ env, fetchImpl }) {
     return Object.freeze({ commitSha: tip.id, statusClass: response.statusClass });
   }
 
+  /*
+   * GitLab's tree is an array of entries whose `id` is the blob sha, and it
+   * PAGINATES rather than reporting truncation the way GitHub does. A hundred
+   * per page is far beyond anything a disposable target holds, and the proof
+   * still has to find its own file in what came back -- a short page that
+   * happened to omit it fails rather than passing quietly.
+   */
+  async function readTree(branch, credential = 'mutation') {
+    const url = new URL(api(`projects/${project}/repository/tree`));
+    url.searchParams.set('ref', branch);
+    url.searchParams.set('recursive', 'true');
+    url.searchParams.set('per_page', '100');
+    const response = await requestJson(fetchImpl, url.toString(), {
+      headers: headers(credential),
+      allowedStatuses: [200]
+    });
+    const entries = Array.isArray(response.data) ? response.data : [];
+    return Object.freeze({
+      statusClass: response.statusClass,
+      entries: entries.map(entry => Object.freeze({
+        path: String(entry.path || ''),
+        sha: String(entry.id || '').toLowerCase(),
+        type: String(entry.type || '')
+      }))
+    });
+  }
+
+  /*
+   * An internal id no object in a disposable project can hold. GitLab scopes
+   * merge requests and issues to the project by `iid`, a small sequential
+   * number, so this is unreachable by construction.
+   */
+  const ABSENT_IID = 999999999;
+
+  /*
+   * The collection reads. Same shape as GitHub's, and one difference that
+   * matters: the detail path takes `iid`, the project-scoped internal id, not
+   * `id`, which is global to the whole instance. Identifying by `id` would
+   * have produced a 404 on every detail fetch.
+   */
+  async function readCollection({ key, listPath, detailPath }) {
+    const listing = await requestJson(fetchImpl, api(`projects/${project}/${listPath}`), {
+      headers: headers('mutation'),
+      allowedStatuses: [200]
+    });
+    const items = Array.isArray(listing.data) ? listing.data : [];
+    let detailAgreed = true;
+    for (const item of items) {
+      const iid = Number(item && item.iid);
+      if (!Number.isSafeInteger(iid) || iid <= 0) {
+        detailAgreed = false;
+        break;
+      }
+      const detail = await requestJson(fetchImpl, api(`projects/${project}/${detailPath}/${iid}`), {
+        headers: headers('mutation'),
+        allowedStatuses: [200]
+      });
+      if (Number(detail.data && detail.data.iid) !== iid) {
+        detailAgreed = false;
+        break;
+      }
+    }
+    const absent = await requestJson(fetchImpl, api(`projects/${project}/${detailPath}/${ABSENT_IID}`), {
+      headers: headers('mutation'),
+      allowedStatuses: [200, 404]
+    });
+    const absentDiscriminated = absent.status === 404;
+    return {
+      key,
+      status: detailAgreed && absentDiscriminated ? 'pass' : 'fail',
+      statusClass: listing.statusClass,
+      listed: items.length,
+      detailAgreed,
+      absentDiscriminated
+    };
+  }
+
+  const COLLECTION_READS = Object.freeze([
+    { key: 'pulls-read', listPath: 'merge_requests?state=all', detailPath: 'merge_requests' },
+    { key: 'issues-read', listPath: 'issues?state=all', detailPath: 'issues' }
+  ]);
+
+  async function probeChecks({ branch, proofPath, proofFileSha }) {
+    const expectedSha = String(proofFileSha || '').toLowerCase();
+    /* Converged, for the same read-after-write reason the GitHub tree was. */
+    const tree = await observe(
+      () => readTree(branch),
+      current => Boolean(current) &&
+        current.entries.some(entry => entry.path === proofPath && entry.sha === expectedSha)
+    );
+    const entry = tree.entries.find(item => item.path === proofPath);
+    const treeRead = {
+      key: 'tree-read',
+      status: 'fail',
+      statusClass: tree.statusClass,
+      entries: tree.entries.length,
+      proofPathPresent: Boolean(entry),
+      blobIdentityMatched: Boolean(entry) && entry.sha === expectedSha
+    };
+    treeRead.status = treeRead.proofPathPresent && treeRead.blobIdentityMatched ? 'pass' : 'fail';
+
+    const collections = [];
+    for (const collection of COLLECTION_READS) collections.push(await readCollection(collection));
+    return [treeRead, ...collections];
+  }
+
   async function deleteBranch(branch, credential = 'mutation') {
     return requestJson(fetchImpl, api(`projects/${project}/repository/branches/${encodeURIComponent(branch)}`), {
       method: 'DELETE',
@@ -216,7 +322,8 @@ function createGitlabClient({ env, fetchImpl }) {
   }
 
   return Object.freeze({
-    getRepository, getBranch, createBranch, writeFile, staleConditionalUpdate, readFile, deleteFile, deleteBranch
+    getRepository, getBranch, createBranch, writeFile, staleConditionalUpdate,
+    readFile, deleteFile, deleteBranch, probeChecks
   });
 }
 

@@ -33,7 +33,24 @@ const PROVIDER_PROBES = Object.freeze({
       absentDiscriminated: true
     }))
   ],
-  gitlab: [],
+  gitlab: [
+    {
+      key: 'tree-read',
+      status: 'pass',
+      statusClass: '2xx',
+      entries: 3,
+      proofPathPresent: true,
+      blobIdentityMatched: true
+    },
+    ...['pulls-read', 'issues-read'].map(key => ({
+      key,
+      status: 'pass',
+      statusClass: '2xx',
+      listed: 1,
+      detailAgreed: true,
+      absentDiscriminated: true
+    }))
+  ],
   gitea: []
 });
 

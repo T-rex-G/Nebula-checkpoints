@@ -109,6 +109,19 @@
   --btn-a:var(--btnA); --btn-b:var(--btnB); --btn-glow:var(--btnGlow);
   --ease:cubic-bezier(0.16,1,0.3,1);
   --topbar-h:62px; --bnav-h:64px;
+  /*
+   * The floating action dock's own height, and the gap it keeps above the
+   * bottom navigation. Named because two rules need to agree about them: the
+   * dock positions itself from them, and every scrolling pane has to reserve
+   * enough room that its last line of content is not left underneath the dock
+   * once there is nowhere further to scroll.
+   *
+   * They were only ever in the dock's own rule, so the panes reserved room for
+   * the bottom navigation and not for the button floating above it. The
+   * governance pane's read-model hash -- the identity of the twin the entire
+   * page describes -- sat under the button with no gesture able to move it.
+   */
+  --fab-h:48px; --fab-gap:18px;
   --ed-font:0.84rem;
   --font-display:'Archivo Variable',ui-sans-serif,system-ui,sans-serif;
   --font-body:'Public Sans Variable',ui-sans-serif,system-ui,sans-serif;
@@ -313,7 +326,20 @@ em{color:var(--teal);font-style:normal}
   min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:4px}
 .btn:hover{background:rgba(255,255,255,0.11);transform:translateY(-1px)}
 .btn:active{transform:translateY(0) scale(.98)}
+/*
+ * The primary button paints an opaque gradient, so it inherits a
+ * backdrop-filter from .btn that nothing can ever be seen through. That is not
+ * merely wasted: a backdrop filter forces its own compositing layer, and on
+ * iOS WebKit that layer is painted as a hard-edged rectangle around the
+ * control -- so the button read as sitting on a visible box instead of
+ * carrying the soft shadow below, in both themes.
+ *
+ * The glass blur stays on .btn, where the background really is translucent.
+ * Here it is switched off and the elevation is left to the box-shadow, which
+ * is what was supposed to be doing the work.
+ */
 .btn-primary{background:linear-gradient(135deg,var(--accent),#5a48f0);border-color:rgba(255,255,255,0.28);
+  backdrop-filter:none;-webkit-backdrop-filter:none;
   box-shadow:0 4px 20px rgba(105,88,255,0.4), inset 0 1px 0 rgba(255,255,255,0.35);color:#fff}
 .btn-primary:hover{background:linear-gradient(135deg,var(--accent2),#6a58ff)}
 .btn-primary:disabled{opacity:.45;cursor:not-allowed;transform:none}
@@ -821,7 +847,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   .bottomnav{display:flex}
   .workspace{grid-template-columns:1fr;padding:10px;gap:0;
     height:auto;min-height:0;
-    padding-bottom:calc(var(--bnav-h) + 26px + env(safe-area-inset-bottom))}
+    padding-bottom:calc(var(--bnav-h) + var(--fab-gap) + var(--fab-h) + 20px + env(safe-area-inset-bottom))}
   .tabpane{overflow:visible}
   .tabpane.active{min-height:calc(100dvh - var(--topbar-h) - var(--bnav-h) - 60px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
   .editor-shell{min-height:calc(100dvh - var(--topbar-h) - var(--bnav-h) - 64px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
@@ -1775,7 +1801,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * viewport a second time and drifting out of step with it.
  */
 .nv-fab-dock{position:fixed;right:calc(16px + env(safe-area-inset-right));
-  bottom:calc(var(--bnav-h) + 18px + env(safe-area-inset-bottom));
+  bottom:calc(var(--bnav-h) + var(--fab-gap) + env(safe-area-inset-bottom));
   z-index:45;display:none;flex-direction:column;align-items:flex-end;gap:10px}
 @media (min-width:901px){ .nv-fab-dock{display:none !important} }
 @media (max-width:900px){ .nv-fab-dock{display:flex} }
@@ -1981,6 +2007,18 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .nv-fab-dock{left:auto}
 }
 .nv-rail-head{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center}
+/*
+ * The mark belongs to the whole two-line block, not to the first line of it.
+ * Left in automatic flow it took row 1 only, so align-items:center centred it
+ * against the wordmark alone and it sat 8.8px -- a third of its own height --
+ * above the centre of wordmark plus subtitle. It read as hanging off the top
+ * of the name rather than sitting beside it.
+ *
+ * Spanning both rows centres it against the block it labels. In the collapsed
+ * rail the two text spans are taken out of flow, so the second row collapses
+ * to nothing and this changes nothing there.
+ */
+.nv-rail-head .nv-mark{grid-row:1 / span 2;align-self:center}
 .nv-rail-brand{font-family:var(--font-display);font-size:.94rem;font-weight:700;color:var(--ttl);letter-spacing:-.012em}
 .nv-rail-sub{grid-column:2;font-family:var(--font-display);font-size:.58rem;font-weight:600;
   letter-spacing:.16em;text-transform:uppercase;color:var(--lab)}

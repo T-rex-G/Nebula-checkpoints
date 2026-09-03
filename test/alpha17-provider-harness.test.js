@@ -878,6 +878,40 @@ async function runOne(provider, runner, options = {}) {
     'a GitLab that ignores last_commit_id must fail the stale-write proof'
   );
 
+  /*
+   * The delete half, on its own. Files::DeleteService runs the same check as
+   * the update and raises FileChangedError with different wording, so a
+   * matcher written for the update message alone would read a real refusal as
+   * an unclassified 400. Stripping the token from DELETE only leaves the write
+   * proof intact, so a run that still passes could only be passing because the
+   * delete proof asks the provider for nothing.
+   */
+  const ignoringDeleteEnvironment = environment('gitlab');
+  const ignoringDeleteFixture = createProviderFetchFixture({
+    provider: 'gitlab',
+    repository: ignoringDeleteEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: ignoringDeleteEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: ignoringDeleteEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  await assert.rejects(
+    () => runGitlabValidation({
+      env: ignoringDeleteEnvironment,
+      now: () => new Date(NOW),
+      fetchImpl: async (url, init = {}) => {
+        if (String(init.method || 'GET').toUpperCase() !== 'DELETE') {
+          return ignoringDeleteFixture.fetch(url, init);
+        }
+        const body = JSON.parse(String(init.body || '{}'));
+        delete body.last_commit_id;
+        return ignoringDeleteFixture.fetch(url, { ...init, body: JSON.stringify(body) });
+      }
+    }),
+    error => Boolean(error && error.code === 'ALPHA17_DELETE_PROOF_FAILED'),
+    'a GitLab that ignores last_commit_id on delete must fail the stale-delete proof'
+  );
+
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {
   console.error(error);

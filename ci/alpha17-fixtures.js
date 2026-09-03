@@ -411,7 +411,24 @@ function createProviderFetchFixture(options = {}) {
         return json({ file_path: filePath, branch: body.branch }, 201);
       }
       if (method === 'DELETE') {
-        if (!branch.files.has(filePath) || body.last_commit_id !== branch.sha) return json({ message: 'conflict' }, 409);
+        if (!branch.files.has(filePath)) return json({ message: 'not found' }, 404);
+        /*
+         * Files::DeleteService runs the same file_has_changed? check as the
+         * update, and raises FileChangedError with its own wording. The
+         * fixture used to compare last_commit_id against the BRANCH HEAD and
+         * answer 409 -- wrong on the comparison, the status and the message,
+         * and it happened to pass only because this run's head and the file's
+         * last commit coincide.
+         */
+        if (body.last_commit_id) {
+          const onBranch = lastCommitForPath(body.branch, filePath);
+          const onRef = lastCommitForPath(body.last_commit_id, filePath);
+          if (onBranch && onRef && onBranch !== onRef) {
+            return json({
+              message: 'You are attempting to delete a file that has been previously updated'
+            }, 400);
+          }
+        }
         mutateFile(body.branch, filePath, Buffer.alloc(0), true, body.commit_message);
         // GitLab answers a delete with 204 and an empty body.
         return json(null, 204);

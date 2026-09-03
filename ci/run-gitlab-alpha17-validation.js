@@ -124,7 +124,21 @@ function createGitlabClient({ env, fetchImpl }) {
    */
   function isStaleConflict(status, data) {
     if (status !== 400) return false;
-    return /file that has changed since you started editing it/i.test(String(data && data.message || ''));
+    /*
+     * Two messages, because the update and the delete raise FileChangedError
+     * from different services with different wording:
+     *
+     *   Files::UpdateService  "You are attempting to update a file that has
+     *                          changed since you started editing it."
+     *   Files::DeleteService  "You are attempting to delete a file that has
+     *                          been previously updated."
+     *
+     * Both are matched exactly and nothing else is. A pattern loose enough to
+     * cover them by accident would also cover the traversal and empty-commit
+     * 400s, and those are not proof of anything.
+     */
+    return /attempting to (?:update a file that has changed since you started editing it|delete a file that has been previously updated)/i
+      .test(String(data && data.message || ''));
   }
 
   /*

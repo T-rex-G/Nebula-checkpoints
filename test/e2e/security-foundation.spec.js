@@ -1,5 +1,6 @@
 'use strict';
 const { test, expect } = require('@playwright/test');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -37,7 +38,7 @@ test('PAT sensitive mutation obtains a scoped grant and sends both CSRF and step
   });
 
   await page.goto('/');
-  await expect(page.locator('#page-repos')).toHaveClass(/active/);
+  await expect(await ui.enterRepositories(page)).toBeVisible();
 
   await page.evaluate(() => {
     window.__sensitiveResult = stepUpApi(
@@ -49,10 +50,18 @@ test('PAT sensitive mutation obtains a scoped grant and sends both CSRF and step
     );
   });
 
-  await expect(page.locator('#stepUpLogin')).toBeVisible();
-  await page.locator('#stepUpLogin').fill('alice');
-  await page.locator('#stepUpCredential').fill('provider-token-value');
-  await page.locator('#modalOk').click();
+  /*
+   * The step-up fields are reached by their labels. Both labels were present
+   * but unassociated, so neither field had an accessible name until this
+   * conversion required one -- in the flow that re-authenticates a sensitive
+   * mutation.
+   */
+  const stepUp = ui.dialog(page, 'Verify sensitive action');
+  const loginField = ui.field(stepUp, /Type the active account login/);
+  await expect(loginField).toBeVisible();
+  await loginField.fill('alice');
+  await ui.secretField(stepUp, /Re-enter the current provider token/).fill('provider-token-value');
+  await ui.button(stepUp, 'Authorize once').click();
   await expect.poll(() => page.evaluate(() => window.__sensitiveResult)).toEqual({ ok: true });
 
   expect(stepUpRequest.body).toEqual({

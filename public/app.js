@@ -147,11 +147,13 @@ async function api(path, opts = {}, allowCsrfRetry = true) {
     error.providerChanged = data.providerChanged || 'unknown';
     error.safeState = data.safeState || '';
     error.nextAction = data.nextAction || '';
+    error.safePassage = data.safePassage && typeof data.safePassage === 'object' ? data.safePassage : null;
     if (error.code === 'BRANCH_CHANGED' && state.work) {
       queueMicrotask(() => refreshRepoMetadata().catch(() => {}));
     }
     if (['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(error.code)) {
       await purgeLocalData(true);
+      broadcastIdentityBoundary();
       alphaBootStarted = false;
       window.NebulaAlphaUI.showExpired(error.code);
       _page = 'alpha-access';
@@ -178,9 +180,9 @@ async function requestStepUp(action, scope, label = 'sensitive action') {
     danger: true,
     okText: 'Authorize once',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(label)}</b> requires a short-lived, single-use authorization bound to this exact operation.</p>
-      <label class="field-label">Type the active account login <b class="mono">${esc(login)}</b></label>
+      <label class="field-label" for="stepUpLogin">Type the active account login <b class="mono">${esc(login)}</b></label>
       <input id="stepUpLogin" type="text" autocomplete="off" spellcheck="false">
-      ${tokenMethod ? `<label class="field-label">Re-enter the current provider token</label><input id="stepUpCredential" type="password" autocomplete="off" spellcheck="false">` : `<p class="hint">Your OAuth authorization will be revalidated with the provider. The grant expires in five minutes and can be used only once.</p>`}`
+      ${tokenMethod ? `<label class="field-label" for="stepUpCredential">Re-enter the current provider token</label><input id="stepUpCredential" type="password" autocomplete="off" spellcheck="false">` : `<p class="hint">Your OAuth authorization will be revalidated with the provider. The grant expires in five minutes and can be used only once.</p>`}`
   });
   if (!ok) return '';
   const loginInput = $('#stepUpLogin');
@@ -214,11 +216,76 @@ function safeHexColor(value, fallback = '8a8fa8') {
   const color = String(value || '').replace(/^#/, '');
   return /^[0-9a-f]{6}$/i.test(color) ? color : fallback;
 }
+const TOAST_TONE = { ok: 'Success', err: 'Error' };
+/*
+ * A segmented control is a set of choices, and which one is chosen was carried
+ * only by an .active class -- visible, but silent. Selection moves through
+ * here so the class and the announced state cannot drift apart at any of the
+ * places that repaint one.
+ */
+/*
+ * The pulse reports what this session actually loaded. Each measure names its
+ * own source, and a measure without one is not rendered: the design shows a
+ * trust score, and nothing in this product computes one yet, so that tile is
+ * absent rather than invented.
+ */
+function renderGalaxyPulse(repos) {
+  const section = $('#reposPulse');
+  const grid = $('#reposPulseGrid');
+  if (!section || !grid) return;
+  const list = Array.isArray(repos) ? repos : [];
+  const languages = new Set(list.map(r => r && r.language).filter(Boolean));
+  const measures = [
+    { label: 'Galaxies online', value: list.length, note: list.length === 1 ? 'connected system' : 'connected systems' },
+    { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
+    { label: 'Languages', value: languages.size, note: languages.size === 1 ? 'in use' : 'across the set' }
+  ].filter(measure => Number.isFinite(measure.value));
+  grid.innerHTML = '';
+  for (const measure of measures) {
+    const cell = document.createElement('div');
+    cell.className = 'gx-pulse-cell';
+    const dt = document.createElement('dt');
+    dt.textContent = measure.label;
+    const dd = document.createElement('dd');
+    const value = document.createElement('span');
+    value.className = 'gx-pulse-value';
+    value.textContent = String(measure.value);
+    const note = document.createElement('span');
+    note.className = 'gx-pulse-note';
+    note.textContent = measure.note;
+    dd.append(value, note);
+    cell.append(dt, dd);
+    grid.appendChild(cell);
+  }
+  section.hidden = measures.length === 0;
+}
+
+function selectSegment(groupSelector, isChosen) {
+  $$(`${groupSelector} .seg-btn`).forEach((button, index) => {
+    const chosen = !!isChosen(button, index);
+    button.classList.toggle('active', chosen);
+    button.setAttribute('aria-checked', String(chosen));
+  });
+}
+
 function toast(msg, kind = '') {
   if (kind === 'ok') hapt(10);
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
-  el.textContent = msg;
+  /*
+   * Outcome was carried by colour alone: a reader saw green or red, and anyone
+   * listening heard only the message. The tone is announced now, as text
+   * placed before it and hidden visually, so the same distinction reaches both
+   * without changing what the toast looks like.
+   */
+  const tone = TOAST_TONE[kind];
+  if (tone) {
+    const label = document.createElement('span');
+    label.className = 'sr-only';
+    label.textContent = `${tone}: `;
+    el.appendChild(label);
+  }
+  el.appendChild(document.createTextNode(msg));
   $('#toasts').appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .4s'; setTimeout(() => el.remove(), 400); }, 3600);
 }
@@ -226,10 +293,78 @@ function presentError(error) {
   return window.NebulaTrustUI.presentError(error || new Error('The request could not be completed.'));
 }
 
+/*
+ * Safe Passage.
+ *
+ * A write refused because it needs approval comes back with the route to
+ * approval attached: a branch derived from the change, and a pull request into
+ * the branch that refused it. The server has already checked that policy
+ * permits every step, so taking the route uses the ordinary governed endpoints
+ * -- there is no separate privileged path to take, which is the point.
+ *
+ * It is offered, never taken automatically, and the content sent is the same
+ * content that was refused.
+ */
+async function takeSafePassage(error, change) {
+  const offer = error && error.safePassage;
+  if (!offer || offer.available !== true || !change || typeof change.content !== 'string') return false;
+  if (!state.work) return false;
+
+  const accepted = await modal({
+    title: 'This change needs approval',
+    okText: 'Send for review',
+    bodyHTML: `<p class="sp-lead">Writing <b class="mono">${esc(offer.path)}</b> to
+        <b class="mono">${esc(offer.baseBranch)}</b> needs approval under the active policy, so it was not committed.</p>
+      <p class="sp-lead">Your change can go to a branch of its own and open a pull request for review instead. Nothing is
+        changed on <b class="mono">${esc(offer.baseBranch)}</b> until someone approves it.</p>
+      <ul class="sp-route">
+        <li><span class="sp-step">Branch</span><span class="mono">${esc(offer.branch)}</span></li>
+        <li><span class="sp-step">Commit</span><span class="mono">${esc(offer.path)}</span></li>
+        <li><span class="sp-step">Pull request</span><span class="mono">${esc(offer.branch)} \u2192 ${esc(offer.baseBranch)}</span></li>
+      </ul>
+      <p class="hint">The content sent is exactly what you tried to commit.</p>`
+  });
+  if (!accepted) return false;
+
+  const message = String(change.message || '').trim() || `Update ${offer.path}`;
+  try {
+    await api(`/api/repo/${wPath()}/branches`, {
+      method: 'POST', body: { name: offer.branch, from: offer.baseBranch }
+    });
+  } catch (branchError) {
+    /* The branch already existing is the expected shape of a second attempt at
+     * the same change, and is not a failure. */
+    if (branchError.status !== 422 && branchError.code !== 'BRANCH_EXISTS') {
+      presentError(branchError);
+      return true;
+    }
+  }
+  try {
+    const written = await api(`/api/repo/${wPath()}/file`, {
+      method: 'PUT',
+      body: { path: offer.path, content: change.content, message, branch: offer.branch, sha: change.sha }
+    });
+    const pull = await api(`/api/repo/${wPath()}/pulls`, {
+      method: 'POST',
+      body: {
+        title: message,
+        head: offer.branch,
+        base: offer.baseBranch,
+        body: `Opened by Safe Passage. Writing \`${offer.path}\` to \`${offer.baseBranch}\` requires approval under the active policy, so the change is proposed here for review instead.`
+      }
+    });
+    toast(pull && pull.number ? `Opened pull request #${pull.number} \u2726` : 'Sent for review \u2726', 'ok');
+    return { written, pull };
+  } catch (routeError) {
+    presentError(routeError);
+    return true;
+  }
+}
+
 /* ---------------- modal ---------------- */
 let modalResolve = null;
 let modalReturnFocus = null;
-function modal({ title, bodyHTML, okText = 'Confirm', danger = false }) {
+function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = null }) {
   return new Promise(resolve => {
     modalResolve = resolve;
     modalReturnFocus = document.activeElement;
@@ -239,6 +374,7 @@ function modal({ title, bodyHTML, okText = 'Confirm', danger = false }) {
     ok.textContent = okText;
     ok.classList.toggle('danger', danger);
     $('#scrim').hidden = false;
+    if (typeof onOpen === 'function') onOpen($('#modalBody'));
     const fi = $('#modalBody input:not([disabled]), #modalBody textarea:not([disabled]), #modalBody select:not([disabled])');
     const initialFocus = fi || $('#modalCancel');
     if (initialFocus) setTimeout(() => {
@@ -274,16 +410,293 @@ function measureTopbar() {
 }
 window.addEventListener('resize', measureTopbar);
 window.addEventListener('orientationchange', measureTopbar);
+/*
+ * The sidebar's collapsed state. Remembered per reader, because a rail width
+ * is a working preference rather than a per-visit decision, and restored
+ * before the first paint of any authenticated screen so it does not visibly
+ * snap narrower a moment after arriving.
+ */
+function setRailCollapsed(collapsed) {
+  document.body.dataset.rail = collapsed ? 'collapsed' : 'expanded';
+  const toggle = $('#railCollapse');
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute('aria-label', collapsed ? 'Expand the sidebar' : 'Collapse the sidebar');
+  }
+  /*
+   * Collapsed entries show only their mark, so the name has to survive
+   * somewhere a pointer can reach it as well as in the accessibility tree.
+   */
+  $$('.nv-rail-item').forEach(item => {
+    const name = (item.querySelector('.nv-rail-t') || {}).textContent || '';
+    if (collapsed) item.title = name.trim();
+    else item.removeAttribute('title');
+  });
+  try { localStorage.setItem('nv_rail_collapsed', collapsed ? '1' : '0'); } catch {}
+}
+
+$('#railCollapse') && $('#railCollapse').addEventListener('click', () => {
+  setRailCollapsed(document.body.dataset.rail !== 'collapsed');
+});
+
+(function restoreRailPreference() {
+  let collapsed = false;
+  try { collapsed = localStorage.getItem('nv_rail_collapsed') === '1'; } catch {}
+  setRailCollapsed(collapsed);
+})();
+
+/*
+ * The floating action is not one button that always opens the palette. Each
+ * screen has a different next thing a reader reaches for, and below the
+ * breakpoint the top bar has no room to offer it -- so the action carries
+ * whatever that screen's is, and says so in its own name.
+ */
+/*
+ * The floating action carries the controls this screen could not place.
+ *
+ * Not a written list. The top bar drops controls below the breakpoint for want
+ * of room -- they are marked as dropped in the markup -- and those are exactly
+ * the controls that then have nowhere to be. Reading them off the bar means
+ * the dock cannot fall out of step with it: a control that stops fitting turns
+ * up here without anyone remembering to add it, and one that finds a place of
+ * its own stops being offered here without anyone remembering to remove it.
+ *
+ * Which is why it is empty on the overview and the inventory. Those bars drop
+ * nothing a reader cannot otherwise reach, so there is nothing for a floating
+ * menu to solve, and a menu that repeats the screen behind it is worse than no
+ * menu at all. The workbench drops two, and gets a dock with two entries.
+ */
+const DOCK_LABELS = Object.freeze({ overview: 'Overview actions', repos: 'Repository actions', work: 'Workspace actions' });
+
+function accessibleName(control) {
+  return (control.getAttribute('aria-label') || control.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+function placedElsewhere(page, control, name) {
+  /*
+   * Same action, somewhere a thumb can already reach. The inventory's bar
+   * drops "Sign out" and the inventory's own body offers it as a full-width
+   * control, so it is placed -- just not in the bar.
+   */
+  return [...page.querySelectorAll('button, a[href]')].some(other => other !== control
+    && !control.contains(other)
+    && other.offsetParent !== null
+    && accessibleName(other) === name);
+}
+
+function floatingActionsFor(name) {
+  const page = $('#page-' + name);
+  if (!page) return null;
+  const bar = page.querySelector('.topbar');
+  if (!bar) return null;
+  const dropped = [...bar.querySelectorAll('button.hide-sm')]
+    .map(control => ({ control, label: accessibleName(control) }))
+    .filter(entry => entry.label && !placedElsewhere(page, entry.control, entry.label));
+  if (!dropped.length) return null;
+  return { label: DOCK_LABELS[name] || 'Actions', items: dropped };
+}
+
+function closeFloatingActions({ restoreFocus = true } = {}) {
+  const fab = $('#paletteFab');
+  const menu = $('#fabMenu');
+  if (!fab || !menu || menu.hidden) return;
+  menu.hidden = true;
+  fab.setAttribute('aria-expanded', 'false');
+  if (restoreFocus && fab.offsetParent !== null) fab.focus();
+}
+
+function openFloatingActions() {
+  const fab = $('#paletteFab');
+  const menu = $('#fabMenu');
+  if (!fab || !menu) return;
+  menu.hidden = false;
+  fab.setAttribute('aria-expanded', 'true');
+  /* Whatever the page was doing, the control stays while its menu is open. */
+  setFloatingActionRetracted(false);
+  const first = menu.querySelector('.nv-fab-item:not([hidden])');
+  if (first) first.focus();
+}
+
+/*
+ * The floating action steps aside while the reader moves down the page.
+ *
+ * It is anchored above the bottom navigation, which on a narrow screen puts it
+ * over whatever sits in the lower right -- the intelligence-mode grid, among
+ * others. A floating control overlays content by definition, but standing on a
+ * destination while someone is trying to reach it is not the bargain: it holds
+ * the controls the top bar had no room for, and that does not require it to be
+ * in front of them at every moment.
+ *
+ * Down the page is reading, so it withdraws. Back up the page is looking for
+ * something, so it returns -- as it does near the top, and whenever its own
+ * menu is open, and whenever it takes focus. That last one matters most: a
+ * control that is focusable while invisible sends the keyboard somewhere the
+ * reader cannot see, so the CSS restores it on :focus-within rather than
+ * leaving that to a listener that might not run.
+ */
+let _fabScrollY = 0;
+
+function setFloatingActionRetracted(retracted) {
+  const dock = $('.nv-fab-dock');
+  if (dock) dock.dataset.retracted = retracted ? 'true' : 'false';
+}
+
+function paintFloatingActionRetraction() {
+  const dock = $('.nv-fab-dock');
+  const fab = $('#paletteFab');
+  if (!dock || !fab) return;
+  const y = Math.max(0, window.scrollY);
+  const open = fab.getAttribute('aria-expanded') === 'true';
+  /* A small threshold, so a rubber-band or a one-pixel jitter is not a gesture. */
+  const movedDown = y > _fabScrollY + 6;
+  const movedUp = y < _fabScrollY - 6;
+  if (open || y < 80) setFloatingActionRetracted(false);
+  else if (movedDown) setFloatingActionRetracted(true);
+  else if (movedUp) setFloatingActionRetracted(false);
+  _fabScrollY = y;
+}
+
+window.addEventListener('scroll', paintFloatingActionRetraction, { passive: true });
+
+function paintFloatingAction(name) {
+  const fab = $('#paletteFab');
+  const menu = $('#fabMenu');
+  if (!fab || !menu) return;
+  closeFloatingActions({ restoreFocus: false });
+  menu.innerHTML = '';
+  const action = floatingActionsFor(name);
+  fab.hidden = !action;
+  if (!action) return;
+  fab.setAttribute('aria-label', action.label);
+  fab.title = action.label;
+  fab.setAttribute('aria-expanded', 'false');
+  menu.setAttribute('aria-label', action.label);
+
+  for (const item of action.items) {
+    const entry = document.createElement('button');
+    entry.type = 'button';
+    entry.className = 'nv-fab-item';
+    /*
+     * The gate travels with the control. An action that is refused in the bar
+     * and offered here would be an action with no gate at all.
+     */
+    if (item.control.dataset.feature) entry.dataset.feature = item.control.dataset.feature;
+    if (item.control.dataset.allowExperimental) entry.dataset.allowExperimental = item.control.dataset.allowExperimental;
+    const mark = item.control.querySelector('svg');
+    if (mark) {
+      const copy = mark.cloneNode(true);
+      copy.setAttribute('class', 'ico');
+      copy.removeAttribute('width');
+      copy.removeAttribute('height');
+      copy.setAttribute('aria-hidden', 'true');
+      entry.appendChild(copy);
+    }
+    const text = document.createElement('span');
+    text.textContent = item.label;
+    entry.appendChild(text);
+    const slot = document.createElement('div');
+    slot.className = 'nv-fab-slot';
+    slot.appendChild(entry);
+    entry.addEventListener('click', () => {
+      /*
+       * Focus returns to the dock before the action runs, not after. Anything
+       * the action opens records what was focused when it opened, and the
+       * entry that was pressed is removed with the menu -- so a dialog that
+       * restored focus faithfully was handing it to an element that no longer
+       * existed, and it landed on the body instead.
+       */
+      closeFloatingActions();
+      item.control.click();
+    });
+    menu.appendChild(slot);
+  }
+  fab.dataset.action = name;
+  /* Freshly built entries have to be re-read against the session's
+     capabilities, or a blocked action arrives looking available. */
+  if (window.NebulaCapabilityUI && window.NebulaCapabilityUI.apply) window.NebulaCapabilityUI.apply(menu);
+}
+
+$('#paletteFab') && $('#paletteFab').addEventListener('click', () => {
+  const menu = $('#fabMenu');
+  if (!menu) return;
+  if (menu.hidden) openFloatingActions();
+  else closeFloatingActions();
+});
+
+/*
+ * Escape closes it and hands focus back, and a press anywhere outside closes it
+ * without stealing focus from wherever the reader chose to go.
+ */
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  const menu = $('#fabMenu');
+  const fab = $('#paletteFab');
+  if (!menu || menu.hidden) return;
+  /*
+   * Only when the reader is actually in it, and never in the capture phase.
+   * Listening first and stopping the event meant that any dialog opened while
+   * these actions happened to be showing could no longer be dismissed with
+   * Escape: this closed the actions behind it and swallowed the key. Escape
+   * belongs to whatever holds focus.
+   */
+  const active = document.activeElement;
+  if (!menu.contains(active) && active !== fab) return;
+  closeFloatingActions();
+});
+document.addEventListener('pointerdown', event => {
+  const menu = $('#fabMenu');
+  const fab = $('#paletteFab');
+  if (!menu || menu.hidden) return;
+  if (menu.contains(event.target) || (fab && fab.contains(event.target))) return;
+  closeFloatingActions({ restoreFocus: false });
+});
+
+/* Which screen owns which piece of the design's artwork. */
+const NEBULA_VISUALS = Object.freeze({ overview: ['mark', '#ovCoreArt'], repos: ['galaxy', '#gxHeroArt'] });
+
 function showPage(name) {
   setTimeout(measureTopbar, 30);
   if (_page === name) return;
   _page = name;
+  paintRail(name);
+  /*
+   * Mounted here rather than by each caller. Six paths reach these screens,
+   * and a mount attached to one of them would leave the artwork missing from
+   * the other five -- the same defect the rail carried when its repaint lived
+   * in a click handler.
+   */
+  const visual = NEBULA_VISUALS[name];
+  if (visual) mountNebulaVisual(visual[0], visual[1]);
   withTransition(() => {
     $$('.page').forEach(p => p.classList.remove('active'));
-    $('#page-' + name).classList.add('active');
+    const shown = $('#page-' + name);
+    shown.classList.add('active');
+    /*
+     * Both, because which one is scrolling depends on the width. Inside the
+     * plate the content region is the scroller and the document does not move;
+     * below that breakpoint the document is the scroller. Resetting only the
+     * window left a desktop reader arriving on a new screen part way down it.
+     */
     window.scrollTo(0, 0);
+    const region = shown.querySelector('.container');
+    if (region) region.scrollTop = 0;
     if (name !== 'work') history.replaceState(null, '', location.pathname);
   });
+  /*
+   * After the swap has been laid out, not during it.
+   *
+   * The dock works out which of a screen's controls have nowhere to be by
+   * asking what is on screen, so it has to ask once the screen is. Asked
+   * before the swap it read the previous screen -- the inventory offered its
+   * own bar's "Sign out" because the copy in its body was not up yet, and the
+   * workbench offered nothing because the inventory's Settings was still
+   * standing in for its own. Asked inside the swap it read a document mid-
+   * mutation, with a view transition holding the old frame, and saw nothing at
+   * all. Two frames later both are settled.
+   */
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    paintFloatingAction(name);
+  }));
 }
 function saveRoute() {
   if (_page !== 'work' || !state.work || !state.work.repo) return;
@@ -343,12 +756,15 @@ function toggleTheme() {
   if (meta) meta.content = next === 'dark' ? '#070712' : '#e9ecf8';
   try { localStorage.setItem('nv_theme', next); } catch {}
   $$('.theme-toggle').forEach(t => t.setAttribute('aria-checked', String(next === 'dark')));
+  /* The artwork has its own palettes; it follows the toggle like everything else. */
+  if (window.NebulaVisuals) window.NebulaVisuals.repaint();
 }
 document.addEventListener('click', e => {
   const t = e.target.closest('.theme-toggle');
   if (t) toggleTheme();
 });
 $('#settingsBtnRepos').addEventListener('click', openSettings);
+$('#settingsBtnOv') && $('#settingsBtnOv').addEventListener('click', openSettings);
 $('#settingsBtnWork').addEventListener('click', openSettings);
 const ED_THEMES = [
   ['material-ocean', 'Material Ocean'], ['dracula', 'Dracula'], ['monokai', 'Monokai'],
@@ -466,6 +882,7 @@ document.addEventListener('click', async event => {
       if (!window.confirm('Disconnect this GitHub App installation from Nebulaverse-X? This does not uninstall it from GitHub.')) return;
       const result = await api('/api/github-app/disconnect', { method: 'POST', body: { installationId } });
       await purgeLocalData(!!result.empty);
+      broadcastIdentityBoundary();
       toast('GitHub App installation disconnected ✦', 'ok');
       if (result.empty) {
         state.me = null;
@@ -561,6 +978,7 @@ async function disconnectAlphaProviders(openGuidance) {
     return;
   }
   await purgeLocalData(true);
+  broadcastIdentityBoundary();
   ensureAlphaProviderGuidance();
   ensureLoginAlphaSessionControls();
   showPage('login');
@@ -598,6 +1016,7 @@ async function deleteAlphaData() {
     return;
   }
   await purgeLocalData(true);
+  broadcastIdentityBoundary();
   showPage('login');
   toast('Alpha data deletion completed ✦', 'ok');
 }
@@ -614,6 +1033,7 @@ document.addEventListener('click', async event => {
     if (action === 'end') {
       await api('/api/alpha/end', { method: 'POST', body: {} });
       await purgeLocalData(true);
+      broadcastIdentityBoundary();
       showPage('login');
       toast('Alpha session ended ✦', 'ok');
     }
@@ -713,7 +1133,7 @@ function ensureLoginAlphaSessionControls() {
 }
 $('#provSeg').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#provSeg .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#provSeg', x => x === b);
   loginProvider = b.dataset.v;
   $('#oauthBtn').hidden = loginProvider !== 'github' || !window._oauthOn;
   $('#baseUrlWrap').hidden = loginProvider === 'github';
@@ -738,7 +1158,7 @@ function applyCaps() {
   if (lfsLabel) lfsLabel.hidden = false;
   if (!caps.batch && typeof uploadModeV !== 'undefined' && uploadModeV === 'batch') {
     uploadModeV = 'single';
-    $$('#uploadMode .seg-btn').forEach(b2 => b2.classList.toggle('active', b2.dataset.v === 'single'));
+    selectSegment('#uploadMode', b2 => b2.dataset.v === 'single');
   }
   window.NebulaCapabilityUI.apply();
 }
@@ -749,6 +1169,7 @@ async function loadProviderCapabilities() {
   ) || (provider === 'github' ? 'github.com' : '');
   await window.NebulaCapabilityUI.load(provider, authority);
   window.NebulaCapabilityUI.apply();
+  applyGovernanceCapabilityBoundary($('#govRoot'));
 }
 function runCapabilityAction(feature, action, options = {}) {
   if (!feature) {
@@ -765,6 +1186,15 @@ function runCapabilityAction(feature, action, options = {}) {
   action();
   return true;
 }
+/*
+ * The same answer for a control that is pressed directly rather than chosen
+ * from the palette. capability-ui stops the press -- it owns what is refused;
+ * the sentence is spoken here, because the toast is this module's.
+ */
+window.addEventListener('nebula:capability-refused', event => {
+  const refused = (event && event.detail) || {};
+  toast(window.NebulaCapabilityUI.explain(refused.feature), 'err');
+});
 async function boot() {
   loadSettings();
   githubAppCallbackNotice();
@@ -779,7 +1209,7 @@ async function boot() {
   $('#findBtn').addEventListener('click', () => { if (state.file && !state.file.binary) openFindPanel(); });
   try {
     state.me = await api('/api/me');
-    try { localStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
+    try { sessionStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
     refreshSafety();
     state.caps = state.me.caps || null;
     await loadProviderCapabilities();
@@ -787,9 +1217,9 @@ async function boot() {
     setAvatar(state.me.avatar);
     flushQueue();
     loadRepos(true);
-    if (!(await restoreRoute())) showPage('repos');
+    if (!(await restoreRoute())) showOverview();
   } catch (e) {
-    const cached = (() => { try { return JSON.parse(localStorage.getItem('nv_me') || 'null'); } catch { return null; } })();
+    const cached = (() => { try { return JSON.parse(sessionStorage.getItem('nv_me') || 'null'); } catch { return null; } })();
     if (cached && isOfflineError(e)) {
       /* offline launch: proceed with the last-known identity and cached data */
       state.me = cached;
@@ -799,7 +1229,7 @@ async function boot() {
       setAvatar(cached.avatar);
       updateNetBar();
       loadRepos(true);
-      if (!(await restoreRoute())) showPage('repos');
+      if (!(await restoreRoute())) showOverview();
       toast('Offline mode — showing cached data ✦', 'ok');
     } else if (!['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(e.code)) {
       ensureAlphaProviderGuidance();
@@ -815,12 +1245,15 @@ $('#loginBackBtn').addEventListener('click', () => {
 $('#loginBtn').addEventListener('click', doLogin);
 $('#tokenInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 function setAvatar(url) {
-  const img = $('#meAvatar');
-  img.hidden = true;
-  if (!url) return;
-  img.onload = () => { img.hidden = false; };
-  img.onerror = () => { img.hidden = true; };
-  img.src = url;
+  /* Both home screens carry an account control, so both carry the avatar. */
+  for (const img of [$('#meAvatar'), $('#meAvatarOv')]) {
+    if (!img) continue;
+    img.hidden = true;
+    if (!url) continue;
+    img.onload = () => { img.hidden = false; };
+    img.onerror = () => { img.hidden = true; };
+    img.src = url;
+  }
 }
 async function doLogin() {
   const token = $('#tokenInput').value.trim();
@@ -837,15 +1270,16 @@ async function doLogin() {
       const me2 = await api('/api/me');
       state.me = { ...state.me, ...me2 };
       state.caps = me2.caps || null;
-      localStorage.setItem('nv_me', JSON.stringify(state.me));
+      sessionStorage.setItem('nv_me', JSON.stringify(state.me));
       await loadProviderCapabilities();
     } catch {}
+    broadcastIdentityBoundary();
     $('#loginBackBtn').hidden = true;
     applyCaps();
     $('#tokenInput').value = '';
     setAvatar(state.me.avatar);
     toast(`Welcome aboard, ${state.me.login} ✦`, 'ok');
-    showPage('repos'); loadRepos(true);
+    showOverview(); loadRepos(true);
   } catch (e) { err.hidden = true; presentError(e); }
   finally { $('#loginBtn').disabled = false; $('#loginBtn').textContent = 'Enter orbit'; }
 }
@@ -883,6 +1317,8 @@ async function purgeLocalData(full) {
       tx.onabort = r;
     });
   } catch {}
+  /* Remove the pre-alpha.17 shared cache during upgrades; current identity
+     fallback is tab-scoped in sessionStorage and was cleared above. */
   try { localStorage.removeItem('nv_me'); } catch {}
   state.file = null;
   if (state.cm) {
@@ -911,6 +1347,31 @@ async function purgeLocalData(full) {
   if (full) _cache.clear();
 }
 window.NebulaPwa = Object.freeze({ purgePrivateData: purgeLocalData, purgePrivateCaches, isOfflineRepoEnabled });
+const NV_IDENTITY_BOUNDARY_STORAGE_KEY = 'nv_identity_boundary_event';
+const identityBoundaryChannel = (() => {
+  try { return typeof BroadcastChannel === 'function' ? new BroadcastChannel('nv-identity-boundary-v1') : null; }
+  catch { return null; }
+})();
+let handlingRemoteIdentityBoundary = false;
+async function receiveIdentityBoundary() {
+  if (handlingRemoteIdentityBoundary) return;
+  handlingRemoteIdentityBoundary = true;
+  await purgeLocalData(true);
+  window.location.reload();
+}
+function broadcastIdentityBoundary() {
+  const marker = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  try { if (identityBoundaryChannel) identityBoundaryChannel.postMessage({ type: 'NV_IDENTITY_BOUNDARY', marker }); } catch {}
+  try { localStorage.setItem(NV_IDENTITY_BOUNDARY_STORAGE_KEY, marker); } catch {}
+}
+if (identityBoundaryChannel) {
+  identityBoundaryChannel.addEventListener('message', event => {
+    if (event.data && event.data.type === 'NV_IDENTITY_BOUNDARY') receiveIdentityBoundary().catch(() => {});
+  });
+}
+window.addEventListener('storage', event => {
+  if (event.key === NV_IDENTITY_BOUNDARY_STORAGE_KEY && event.newValue) receiveIdentityBoundary().catch(() => {});
+});
 async function doLogout() {
   let remoteError = null;
   try {
@@ -919,6 +1380,7 @@ async function doLogout() {
     remoteError = error;
   } finally {
     await purgeLocalData(true);
+    broadcastIdentityBoundary();
     state.me = null;
     showPage('login');
   }
@@ -926,6 +1388,7 @@ async function doLogout() {
 }
 $('#logoutBtn').addEventListener('click', doLogout);
 $('#logoutBtnM').addEventListener('click', doLogout);
+$('#logoutBtnOv') && $('#logoutBtnOv').addEventListener('click', doLogout);
 
 /* ================= REPOS ================= */
 async function loadRepos(reset) {
@@ -937,8 +1400,15 @@ async function loadRepos(reset) {
     state.repos.push(...batch);
     batch.forEach(r => grid.appendChild(repoCard(r)));
     $('#moreReposBtn').hidden = batch.length < 30;
-    if (!state.repos.length) grid.innerHTML = '<div class="card editor-empty"><div class="empty-icon">✦</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>';
-  } catch (e) { toast(e.message, 'err'); grid.innerHTML = ''; }
+    if (!state.repos.length) grid.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.repos}</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>`;
+    renderGalaxyPulse(state.repos);
+    renderWorkspacePulse();
+  } catch (e) {
+    toast(e.message, 'err');
+    grid.innerHTML = '';
+    renderGalaxyPulse([]);
+    renderWorkspacePulse([]);
+  }
 }
 const LOCK_SVG = '<svg class="lock-ico" width="13" height="13" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 function repoCard(r) {
@@ -948,14 +1418,29 @@ function repoCard(r) {
   el.setAttribute('role', 'button');
   el.setAttribute('aria-label', `Open repository ${r.full_name}`);
   el.innerHTML = `
-    <h3>${r.private ? LOCK_SVG : ''}<span></span></h3>
+    <div class="repo-head">
+      <span class="repo-sigil-slot"></span>
+      <h3>${r.private ? LOCK_SVG : ''}<span class="repo-name"></span>
+        <span class="repo-badge ${r.private ? 'repo-badge-private' : 'repo-badge-healthy'}">${r.private ? 'Private' : 'Public'}</span></h3>
+    </div>
     <p class="desc"></p>
     <div class="repo-meta">
       ${r.language ? `<span><span class="lang-dot"></span>${esc(r.language)}</span>` : ''}
-      <span>★ ${r.stars}</span><span>⑂ ${r.forks}</span><span>${timeAgo(r.pushed_at)}</span>
-    </div>`;
-  el.querySelector('h3 span:last-child').textContent = r.full_name;
+      <span>${META_ICON.star} ${r.stars}</span><span>${META_ICON.fork} ${r.forks}</span><span>${timeAgo(r.pushed_at)}</span>
+    </div>
+    <span class="repo-open">Open workspace</span>`;
+  el.querySelector('h3 .repo-name').textContent = r.full_name;
   el.querySelector('.desc').textContent = r.description || 'No description';
+  /*
+   * A mark derived from the repository's own name, so the inventory is
+   * something to recognise rather than only to read. Decoration beside the
+   * name and never instead of it: it is hidden from assistive technology, and
+   * a session that cannot draw it loses nothing but the picture.
+   */
+  if (window.NebulaRepoSigil) {
+    const sigil = window.NebulaRepoSigil.render(r.full_name);
+    if (sigil) el.querySelector('.repo-sigil-slot').appendChild(sigil);
+  }
   const open = () => openRepo(r.owner, r.name);
   el.addEventListener('click', open);
   el.addEventListener('keydown', event => {
@@ -1006,8 +1491,182 @@ $('#repoFilter').addEventListener('input', e => {
   const q = e.target.value.toLowerCase();
   $$('#repoGrid .repo-card').forEach(c => { c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none'; });
 });
-$('#homeBtn').addEventListener('click', () => showPage('repos'));
-$('#accountBtn').addEventListener('click', async () => {
+/*
+ * The brand mark leads to the overview, which is the design's authenticated
+ * home. Where a session lands after sign-in is left alone for now: that is a
+ * change to the qualified tester journey rather than a change of surface, and
+ * it belongs in its own change with its own evidence.
+ */
+$('#homeBtn').addEventListener('click', () => showOverview());
+$('#ovHomeBtn') && $('#ovHomeBtn').addEventListener('click', () => showOverview());
+$('#ovGoRepos') && $('#ovGoRepos').addEventListener('click', () => showPage('repos'));
+$('#ovOpenBrowser') && $('#ovOpenBrowser').addEventListener('click', () => showPage('repos'));
+
+function showOverview() {
+  const who = $('#ovWho');
+  if (who) who.textContent = (state.me && (state.me.name || state.me.login)) || 'tester';
+  renderWorkspacePulse();
+  loadScannerPosture();
+  showPage('overview');
+}
+
+/*
+ * The trust score and live-signal count.
+ *
+ * Every input is read from what this session already holds -- no measure
+ * triggers a request of its own, so opening the overview cannot spend a
+ * reader's rate limit to draw a number at them. Anything absent stays absent:
+ * the model reports it as unmeasured rather than scoring it zero.
+ */
+/*
+ * Upload-scanning posture, read once per session.
+ *
+ * A failure here is left as an absent reading rather than a false one: the
+ * endpoint is capability-gated, so a provider that does not offer it answers
+ * with a refusal, and reporting that as "not scanned" would accuse a
+ * deployment of something this client never established.
+ */
+let scannerPostureAsked = false;
+async function loadScannerPosture() {
+  /*
+   * Asked for once, and only once the overview is actually on screen. Reading
+   * it during boot spent a request on every sign-in, sign-out and reconnect
+   * cycle -- including the ones that never reach a screen that shows it.
+   */
+  if (scannerPostureAsked) return;
+  scannerPostureAsked = true;
+  try {
+    const status = await api('/api/security/scanner-status');
+    state.scanner = {
+      active: !!(status.builtin && status.builtin.available) || !!(status.yara && status.yara.configured),
+      rulesConfigured: !!(status.yara && status.yara.configured)
+    };
+  } catch {
+    state.scanner = null;
+  }
+  renderWorkspacePulse();
+}
+
+/*
+ * The design's WebGL pieces mount when their screen is shown, never at boot.
+ * They pull three.js behind them, so a session that never opens the screen
+ * never pays for the download -- and a device that cannot draw them, or a
+ * reader on a metered connection, never does either. The loader decides; this
+ * only says which host belongs to which screen.
+ */
+function mountNebulaVisual(kind, selector) {
+  const host = $(selector);
+  if (!host || !window.NebulaVisuals) return;
+  window.NebulaVisuals.mount(kind, host);
+}
+
+function renderWorkspacePulse(repos) {
+  if (!window.NebulaWorkspacePulse) return;
+  const capabilities = window.NebulaCapabilityUI;
+  /* The inventory's failure path reports an empty set without discarding what
+   * the session still holds, so the caller may override the list it reads. */
+  const list = Array.isArray(repos) ? repos : state.repos;
+  /*
+   * One model, two readings. The summary row and the cards below it used to be
+   * computed apart, which let the row say one thing and the card under it say
+   * another about the same session. They now share a single measurement.
+   */
+  const pulse = window.NebulaWorkspacePulse.model({
+    repos: list,
+    features: capabilities && capabilities.features ? capabilities.features() : null,
+    recoveryStatus: capabilities ? capabilities.decision('recovery').status : null,
+    scanner: state.scanner,
+    identity: state.me
+  });
+  renderOverviewPulse(list, pulse);
+  const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
+  if (roots.trust || roots.signals || roots.activity) window.NebulaWorkspacePulse.render(roots, pulse);
+}
+
+/*
+ * The summary row across the top of the overview. Every figure here is read
+ * off the same pulse model the cards below use, so the row can never disagree
+ * with the card that explains it -- and a measure without a source shows an em
+ * dash and the word "Not measured" rather than a plausible-looking zero.
+ */
+const PULSE_ICONS = Object.freeze({
+  repositories: 'M4 6.5A2.5 2.5 0 0 1 6.5 4H19v13H6.5A2.5 2.5 0 0 0 4 19.5z',
+  private: 'M6 10.5h12v9H6zM9 10.5V7.5a3 3 0 0 1 6 0v3',
+  trust: 'M12 3.2l7 3v5.3c0 4.2-2.9 7.6-7 9.3-4.1-1.7-7-5.1-7-9.3V6.2z',
+  signals: 'M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22',
+  attention: 'M12 4.4l8.4 15H3.6zM12 10.4v4M12 17.1h.01'
+});
+
+function pulseMeasures(list, pulse) {
+  const trust = pulse && pulse.trust;
+  const signals = pulse && pulse.signals;
+  /*
+   * "Needs attention" counts the components the model itself scored as warning
+   * or critical. Components it could not measure are not counted -- an unknown
+   * is not a problem, and reporting it as one would invent a fault.
+   */
+  const flagged = trust && Array.isArray(trust.components)
+    ? trust.components.filter(c => c.status === 'warning' || c.status === 'critical').length
+    : null;
+  return [
+    { icon: 'repositories', label: 'Repositories', value: list.length, note: 'connected' },
+    { icon: 'private', label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
+    {
+      icon: 'trust', label: 'Trust score',
+      value: trust && trust.score !== null && trust.score !== undefined ? trust.score : null,
+      note: trust && trust.score !== null && trust.score !== undefined
+        ? `${trust.measuredCount} of ${trust.componentCount} measured`
+        : 'Not measured'
+    },
+    {
+      icon: 'signals', label: 'Live signals',
+      value: signals && signals.measured ? signals.live : null,
+      note: signals && signals.measured ? `of ${signals.total} verified` : 'Not measured'
+    },
+    {
+      icon: 'attention', label: 'Needs attention',
+      value: flagged === null ? null : flagged,
+      note: flagged === null ? 'Not measured' : (flagged === 1 ? 'component flagged' : 'components flagged')
+    }
+  ];
+}
+
+function renderOverviewPulse(repos, pulse) {
+  const section = $('#ovPulse');
+  const grid = $('#ovPulseGrid');
+  if (!section || !grid) return;
+  const list = Array.isArray(repos) ? repos : [];
+  grid.innerHTML = '';
+  for (const measure of pulseMeasures(list, pulse)) {
+    const cell = document.createElement('div');
+    cell.className = 'gx-pulse-cell';
+    if (measure.value === null) cell.classList.add('is-unmeasured');
+    const dt = document.createElement('dt');
+    const mark = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    mark.setAttribute('class', 'gx-pulse-ico');
+    mark.setAttribute('viewBox', '0 0 24 24');
+    mark.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', PULSE_ICONS[measure.icon]);
+    mark.appendChild(path);
+    const name = document.createElement('span');
+    name.textContent = measure.label;
+    dt.append(mark, name);
+    const dd = document.createElement('dd');
+    const value = document.createElement('span');
+    value.className = 'gx-pulse-value';
+    value.textContent = measure.value === null ? '\u2014' : String(measure.value);
+    const note = document.createElement('span');
+    note.className = 'gx-pulse-note';
+    note.textContent = measure.note;
+    dd.append(value, note);
+    cell.append(dt, dd);
+    grid.appendChild(cell);
+  }
+  section.hidden = false;
+}
+/* Both home screens open the same account sheet. */
+async function openAccounts() {
   modal({ title: 'Accounts', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:60px"></div>' });
   try {
     const a = await api('/api/accounts');
@@ -1031,6 +1690,7 @@ $('#accountBtn').addEventListener('click', async () => {
       try {
         await purgeLocalData(false);
         const out = await api('/api/accounts/switch-idx', { method: 'POST', body: { idx: +b.dataset.switch } });
+        broadcastIdentityBoundary();
         closeModal(true);
         toast(`Switched to ${out.login} ✦`, 'ok');
         location.hash = '';
@@ -1042,9 +1702,10 @@ $('#accountBtn').addEventListener('click', async () => {
         await purgeLocalData(false);
         const out = await api('/api/accounts/remove', { method: 'POST', body: { idx: +b.dataset.remove } });
         await purgeLocalData(!!out.empty);
+        broadcastIdentityBoundary();
         closeModal(true);
         toast(`${out.removed} signed out ✦`, 'ok');
-        if (out.empty) { localStorage.removeItem('nv_me'); showPage('login'); return; }
+        if (out.empty) { sessionStorage.removeItem('nv_me'); showPage('login'); return; }
         location.hash = '';
         boot(); loadRepos(true);
       } catch (e) { toast(e.message, 'err'); }
@@ -1056,7 +1717,9 @@ $('#accountBtn').addEventListener('click', async () => {
     });
     $('#accOut').addEventListener('click', async () => { closeModal(true); doLogout(); });
   } catch (e) { if (!$('#scrim').hidden) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
-});
+}
+$('#accountBtn').addEventListener('click', openAccounts);
+$('#accountBtnOv') && $('#accountBtnOv').addEventListener('click', openAccounts);
 $('#notifBtn').addEventListener('click', async () => {
   modal({ title: 'Notifications', okText: 'Close', bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
   try {
@@ -1085,8 +1748,8 @@ $('#newRepoBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New repository',
     bodyHTML: `
-      <label class="field-label">Name</label><input id="nrName" type="text" placeholder="my-nebula" spellcheck="false">
-      <label class="field-label">Description</label><input id="nrDesc" type="text" placeholder="Optional">
+      <label class="field-label" for="nrName">Name</label><input id="nrName" type="text" placeholder="my-nebula" spellcheck="false">
+      <label class="field-label" for="nrDesc">Description</label><input id="nrDesc" type="text" placeholder="Optional">
       <label class="check"><input type="checkbox" id="nrPriv" checked> Private</label>`,
     okText: 'Create'
   });
@@ -1236,7 +1899,7 @@ function fillBranchSelect(sel, names, selected, withGlyph) {
   sel.innerHTML = '';
   names.forEach(b => {
     const o = document.createElement('option');
-    o.value = b; o.textContent = (withGlyph ? '⑂ ' : '') + b;
+    o.value = b; o.textContent = b;
     if (b === selected) o.selected = true;
     sel.appendChild(o);
   });
@@ -1278,7 +1941,7 @@ $('#branchSelect').addEventListener('change', e => {
 $('#newBranchBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New branch',
-    bodyHTML: `<label class="field-label">Branch name</label><input id="nbName" type="text" placeholder="feature/starlight" spellcheck="false">
+    bodyHTML: `<label class="field-label" for="nbName">Branch name</label><input id="nbName" type="text" placeholder="feature/starlight" spellcheck="false">
       <p class="hint">Created from <b>${esc(state.work.branch)}</b></p>`,
     okText: 'Create branch'
   });
@@ -1290,7 +1953,7 @@ $('#newBranchBtn').addEventListener('click', async () => {
     state.work.branches.push({ name, sha: created.sha || '' });
     ['#branchSelect', '#cmpBase', '#cmpHead'].forEach(s => {
       const o = document.createElement('option');
-      o.value = name; o.textContent = (s === '#branchSelect' ? '⑂ ' : '') + name;
+      o.value = name; o.textContent = name;
       $(s).appendChild(o);
     });
     $('#branchSelect').value = name; state.work.branch = name;
@@ -1309,6 +1972,49 @@ function downloadZip() {
 const wPath = () => `${state.work.owner}/${state.work.repo}`;
 
 let governanceExpiryTimer = null;
+const GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS = Object.freeze([
+  'refresh', 'select-policy', 'view-version', 'view-exception', 'verify-chain',
+  'load-more-decisions', 'delivery-refresh', 'download-export', 'verify-export'
+]);
+function applyGovernanceCapabilityBoundary(root) {
+  if (!root) return;
+  const banner = root.querySelector('[data-governance-experimental-banner]');
+  if (!window.NebulaCapabilityUI ||
+      window.NebulaCapabilityUI.decision('governance').status !== 'Experimental') {
+    if (banner) banner.remove();
+    root.querySelectorAll('[data-governance-experimental-disabled="true"]').forEach(button => {
+      button.disabled = button.dataset.governanceOriginalDisabled === 'true';
+      const originalTitle = button.dataset.governanceOriginalTitle || '';
+      if (originalTitle) button.title = originalTitle;
+      else button.removeAttribute('title');
+      delete button.dataset.governanceExperimentalDisabled;
+      delete button.dataset.governanceOriginalDisabled;
+      delete button.dataset.governanceOriginalTitle;
+    });
+    return;
+  }
+  const shell = root.querySelector('.gov-shell');
+  if (shell && !banner) {
+    const notice = document.createElement('div');
+    notice.className = 'gov-banner warn';
+    notice.setAttribute('role', 'status');
+    notice.dataset.governanceExperimentalBanner = 'true';
+    notice.textContent = 'Experimental provider governance is view-only; mutations remain unavailable.';
+    const hero = shell.querySelector('.gov-hero');
+    if (hero) hero.insertAdjacentElement('afterend', notice);
+    else shell.prepend(notice);
+  }
+  root.querySelectorAll('[data-gov-action]').forEach(button => {
+    if (GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS.includes(button.dataset.govAction)) return;
+    if (button.dataset.governanceExperimentalDisabled !== 'true') {
+      button.dataset.governanceOriginalDisabled = String(button.disabled);
+      button.dataset.governanceOriginalTitle = button.getAttribute('title') || '';
+    }
+    button.dataset.governanceExperimentalDisabled = 'true';
+    button.disabled = true;
+    button.title = 'Unavailable: experimental governance is view-only for this provider.';
+  });
+}
 function clearGovernanceState() {
   if (governanceExpiryTimer) clearTimeout(governanceExpiryTimer);
   governanceExpiryTimer = null;
@@ -1354,6 +2060,7 @@ function renderGovernanceInterface() {
     verification: state.governance.verification,
     delivery: state.governance.delivery
   });
+  applyGovernanceCapabilityBoundary(root);
 }
 async function loadGovernanceTwin(force = false) {
   if (!state.work || !state.work.owner || !state.work.repo || state.governance.loading) return;
@@ -1470,9 +2177,9 @@ function governanceReadJson(selector, label) {
 async function createGovernancePolicy() {
   const ok = await modal({
     title: 'Create governance policy', okText: 'Create policy',
-    bodyHTML: `<label class="field-label">Stable policy key</label><input id="govPolicyKey" type="text" placeholder="release-safety" spellcheck="false">
-      <label class="field-label">Name</label><input id="govPolicyName" type="text" placeholder="Release safety">
-      <label class="field-label">Description</label><textarea id="govPolicyDescription" rows="4" placeholder="What this policy protects"></textarea>
+    bodyHTML: `<label class="field-label" for="govPolicyKey">Stable policy key</label><input id="govPolicyKey" type="text" placeholder="release-safety" spellcheck="false">
+      <label class="field-label" for="govPolicyName">Name</label><input id="govPolicyName" type="text" placeholder="Release safety">
+      <label class="field-label" for="govPolicyDescription">Description</label><textarea id="govPolicyDescription" rows="4" placeholder="What this policy protects"></textarea>
       <p class="hint">Creating a policy does not create, submit or activate a version.</p>`
   });
   if (!ok) return;
@@ -1491,8 +2198,8 @@ async function createGovernanceDraft(policyId, seed) {
   let approvalPolicy = seed && seed.approvalPolicy ? seed.approvalPolicy : governanceDefaultApproval();
   const ok = await modal({
     title: 'Create policy draft', okText: 'Create draft',
-    bodyHTML: `<label class="field-label">Policy document (JSON)</label><textarea id="govDraftDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(document, null, 2))}</textarea>
-      <label class="field-label">Approval policy (JSON)</label><textarea id="govDraftApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>
+    bodyHTML: `<label class="field-label" for="govDraftDocument">Policy document (JSON)</label><textarea id="govDraftDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(document, null, 2))}</textarea>
+      <label class="field-label" for="govDraftApproval">Approval policy (JSON)</label><textarea id="govDraftApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>
       <p class="hint">The draft remains mutable until submission. Nothing is activated automatically.</p>`
   });
   if (!ok) return;
@@ -1504,6 +2211,30 @@ async function createGovernanceDraft(policyId, seed) {
   toast('Draft created', 'ok');
   await loadGovernanceTwin(true);
 }
+/*
+ * What the generated policy says about itself, in prose. A baseline can run to
+ * hundreds of rules, and the sentence that matters most -- that it records
+ * rather than blocks until it is activated -- should not have to be found
+ * inside the JSON below it.
+ */
+function baselineSummary(baseline) {
+  const description = baseline && baseline.document && typeof baseline.document.description === 'string'
+    ? baseline.document.description.trim()
+    : '';
+  const mode = baseline && baseline.document && baseline.document.enforcement
+    ? String(baseline.document.enforcement.mode || '')
+    : '';
+  const ruleCount = baseline && baseline.document && Array.isArray(baseline.document.rules)
+    ? baseline.document.rules.length
+    : 0;
+  if (!description && !mode) return '';
+  const counts = [
+    ruleCount ? `${ruleCount} rule${ruleCount === 1 ? '' : 's'}` : 'no rules',
+    mode ? `${mode} mode` : ''
+  ].filter(Boolean).join(' \u00b7 ');
+  return `<p class="hint gov-baseline-summary"><strong>${esc(counts)}</strong>${description ? ` \u2014 ${esc(description)}` : ''}</p>`;
+}
+
 async function generateGovernanceBaseline() {
   const catalog = await api(`${governanceBasePath()}/templates`);
   const templates = Array.isArray(catalog.templates) ? catalog.templates : (Array.isArray(catalog.templates && catalog.templates.templates) ? catalog.templates.templates : []);
@@ -1511,7 +2242,7 @@ async function generateGovernanceBaseline() {
   const options = templates.map(item => `<option value="${escAttr(item.templateId)}">${esc(item.name || item.templateId)}</option>`).join('');
   const ok = await modal({
     title: 'Generate repository baseline', okText: 'Generate',
-    bodyHTML: `<label class="field-label">Template</label><select id="govTemplateId">${options}</select>
+    bodyHTML: `<label class="field-label" for="govTemplateId">Template</label><select id="govTemplateId">${options}</select>
       <p class="hint">Generation is read-only. The result is not persisted or activated.</p>`
   });
   if (!ok) return;
@@ -1522,8 +2253,9 @@ async function generateGovernanceBaseline() {
   const accept = await modal({
     title: 'Baseline generated', okText: 'Create policy and draft',
     bodyHTML: `<div class="gov-banner ${baseline && baseline.readiness && baseline.readiness.status === 'ready' ? 'ok' : 'warn'}"><strong>${baseline && baseline.readiness && baseline.readiness.status === 'ready' ? 'Repository facts complete' : 'Review incomplete repository facts'}</strong></div>
-      <label class="field-label">Policy key</label><input id="govBaselineKey" type="text" value="${escAttr((baseline.templateId || 'baseline').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase())}" spellcheck="false">
-      <label class="field-label">Policy name</label><input id="govBaselineName" type="text" value="${escAttr(selectedTemplate.name || 'Repository baseline')}">
+      <label class="field-label" for="govBaselineKey">Policy key</label><input id="govBaselineKey" type="text" value="${escAttr((baseline.templateId || 'baseline').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase())}" spellcheck="false">
+      <label class="field-label" for="govBaselineName">Policy name</label><input id="govBaselineName" type="text" value="${escAttr(selectedTemplate.name || 'Repository baseline')}">
+      ${baselineSummary(baseline)}
       <pre class="mono gov-json-view">${esc(JSON.stringify(baseline, null, 2))}</pre>`
   });
   if (!accept) return;
@@ -1551,8 +2283,8 @@ async function editGovernanceDraft(policyId, draftId) {
   const approvalPolicy = { requiredApprovals: draft.requiredApprovals, disallowAuthorApproval: draft.disallowAuthorApproval };
   const ok = await modal({
     title: `Edit draft r${draft.revision}`, okText: 'Save draft',
-    bodyHTML: `<label class="field-label">Policy document (JSON)</label><textarea id="govEditDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(draft.document, null, 2))}</textarea>
-      <label class="field-label">Approval policy (JSON)</label><textarea id="govEditApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>`
+    bodyHTML: `<label class="field-label" for="govEditDocument">Policy document (JSON)</label><textarea id="govEditDocument" rows="14" class="mono" spellcheck="false">${esc(JSON.stringify(draft.document, null, 2))}</textarea>
+      <label class="field-label" for="govEditApproval">Approval policy (JSON)</label><textarea id="govEditApproval" rows="5" class="mono" spellcheck="false">${esc(JSON.stringify(approvalPolicy, null, 2))}</textarea>`
   });
   if (!ok) return;
   await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/drafts/${encodeURIComponent(draftId)}`, {
@@ -1585,7 +2317,7 @@ async function simulateGovernanceVersion(policyId, versionId) {
     : window.NebulaGovernanceUI.defaultSimulationRequest(state.work.default_branch || state.work.branch || 'main');
   const ok = await modal({
     title: 'Simulate policy version', okText: 'Run simulation',
-    bodyHTML: `<label class="field-label">Bounded scenario request (JSON)</label><textarea id="govSimulationRequest" rows="16" class="mono" spellcheck="false">${esc(JSON.stringify(previous, null, 2))}</textarea>
+    bodyHTML: `<label class="field-label" for="govSimulationRequest">Bounded scenario request (JSON)</label><textarea id="govSimulationRequest" rows="16" class="mono" spellcheck="false">${esc(JSON.stringify(previous, null, 2))}</textarea>
       <p class="hint">Simulation is read-only and must exercise every proposed rule before activation.</p>`
   });
   if (!ok) return null;
@@ -1607,7 +2339,7 @@ async function decideGovernanceReview(policyId, versionId, decision) {
   const ok = await modal({
     title: rejecting ? 'Reject policy version' : 'Approve policy version', danger: rejecting, okText: rejecting ? 'Reject' : 'Approve',
     bodyHTML: `<p>${rejecting ? 'Rejection is terminal for this review.' : 'Your approval becomes immutable governance evidence.'}</p>
-      <label class="field-label">Rationale${rejecting ? ' (required)' : ''}</label><textarea id="govReviewRationale" rows="5"></textarea>`
+      <label class="field-label" for="govReviewRationale">Rationale${rejecting ? ' (required)' : ''}</label><textarea id="govReviewRationale" rows="5"></textarea>`
   });
   if (!ok) return;
   await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/versions/${encodeURIComponent(versionId)}/decisions`, {
@@ -1627,7 +2359,7 @@ async function governanceActivateOrRollback(policyId, versionId, operation) {
   const ok = await modal({
     title: operation === 'rollback' ? 'Rollback active policy?' : 'Activate policy version?', danger: true,
     okText: operation === 'rollback' ? 'Rollback' : 'Activate',
-    bodyHTML: `<p>This changes the authoritative policy head after server-side evidence is recomputed.</p><label class="field-label">Reason</label><textarea id="govActivationReason" rows="5"></textarea>`
+    bodyHTML: `<p>This changes the authoritative policy head after server-side evidence is recomputed.</p><label class="field-label" for="govActivationReason">Reason</label><textarea id="govActivationReason" rows="5"></textarea>`
   });
   if (!ok) return;
   await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/versions/${encodeURIComponent(versionId)}/${operation}`, {
@@ -1644,12 +2376,12 @@ async function requestGovernanceException(policyId, versionId) {
   const local = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const ok = await modal({
     title: 'Request exception or waiver', okText: 'Submit request',
-    bodyHTML: `<label class="field-label">Kind</label><select id="govExceptionKind"><option value="exception">Exception (deny rules)</option><option value="waiver">Waiver (approval rules)</option></select>
-      <label class="field-label">Registered mutation action</label><input id="govExceptionAction" type="text" placeholder="file.write" spellcheck="false">
-      <label class="field-label">Rule IDs (comma separated)</label><input id="govExceptionRules" type="text" placeholder="protected-main-write" spellcheck="false">
-      <label class="field-label">Exact mutation target (JSON)</label><textarea id="govExceptionTarget" rows="6" class="mono" spellcheck="false">${esc(JSON.stringify({ branch: state.work.branch }, null, 2))}</textarea>
-      <label class="field-label">Expires</label><input id="govExceptionExpires" type="datetime-local" value="${escAttr(local)}">
-      <label class="field-label">Reason</label><textarea id="govExceptionReason" rows="5"></textarea>
+    bodyHTML: `<label class="field-label" for="govExceptionKind">Kind</label><select id="govExceptionKind"><option value="exception">Exception (deny rules)</option><option value="waiver">Waiver (approval rules)</option></select>
+      <label class="field-label" for="govExceptionAction">Registered mutation action</label><input id="govExceptionAction" type="text" placeholder="file.write" spellcheck="false">
+      <label class="field-label" for="govExceptionRules">Rule IDs (comma separated)</label><input id="govExceptionRules" type="text" placeholder="protected-main-write" spellcheck="false">
+      <label class="field-label" for="govExceptionTarget">Exact mutation target (JSON)</label><textarea id="govExceptionTarget" rows="6" class="mono" spellcheck="false">${esc(JSON.stringify({ branch: state.work.branch }, null, 2))}</textarea>
+      <label class="field-label" for="govExceptionExpires">Expires</label><input id="govExceptionExpires" type="datetime-local" value="${escAttr(local)}">
+      <label class="field-label" for="govExceptionReason">Reason</label><textarea id="govExceptionReason" rows="5"></textarea>
       <p class="hint">The request is bound to your verified human identity and this exact target.</p>`
   });
   if (!ok) return;
@@ -1669,8 +2401,8 @@ async function viewGovernanceException(exceptionId) {
 async function decideGovernanceException(exceptionId) {
   const ok = await modal({
     title: 'Decide exception request', okText: 'Record decision', danger: true,
-    bodyHTML: `<label class="field-label">Decision</label><select id="govExceptionDecision"><option value="approve">Approve</option><option value="reject">Reject</option></select>
-      <label class="field-label">Reason</label><textarea id="govExceptionDecisionReason" rows="5"></textarea>
+    bodyHTML: `<label class="field-label" for="govExceptionDecision">Decision</label><select id="govExceptionDecision"><option value="approve">Approve</option><option value="reject">Reject</option></select>
+      <label class="field-label" for="govExceptionDecisionReason">Reason</label><textarea id="govExceptionDecisionReason" rows="5"></textarea>
       <p class="hint">The requester cannot approve their own request.</p>`
   });
   if (!ok) return;
@@ -1682,7 +2414,7 @@ async function decideGovernanceException(exceptionId) {
   await loadGovernanceTwin(true);
 }
 async function revokeGovernanceException(exceptionId) {
-  const ok = await modal({ title: 'Revoke exception?', danger: true, okText: 'Revoke', bodyHTML: '<label class="field-label">Reason</label><textarea id="govExceptionRevokeReason" rows="5"></textarea>' });
+  const ok = await modal({ title: 'Revoke exception?', danger: true, okText: 'Revoke', bodyHTML: '<label class="field-label" for="govExceptionRevokeReason">Reason</label><textarea id="govExceptionRevokeReason" rows="5"></textarea>' });
   if (!ok) return;
   await api(`${governanceBasePath()}/exceptions/${encodeURIComponent(exceptionId)}/revoke`, {
     method: 'POST', headers: governanceHeaders('exception-revoke'), body: { reason: $('#govExceptionRevokeReason').value.trim() }
@@ -1695,7 +2427,7 @@ async function editGovernanceNotificationPreferences() {
   const current = state.governance.delivery.preferences || {};
   const enabled = current.enabled !== false;
   const types = Array.isArray(current.eventTypes) ? current.eventTypes.join('\n') : '';
-  const ok = await modal({ title: 'Notification preferences', okText: 'Save preferences', bodyHTML: `<label class="field-label"><input id="govNotificationEnabled" type="checkbox" ${enabled ? 'checked' : ''}> Enable notifications</label><label class="field-label">Event types, one per line</label><textarea id="govNotificationTypes" rows="10">${escapeHtml(types)}</textarea>` });
+  const ok = await modal({ title: 'Notification preferences', okText: 'Save preferences', bodyHTML: `<label class="field-label"><input id="govNotificationEnabled" type="checkbox" ${enabled ? 'checked' : ''}> Enable notifications</label><label class="field-label" for="govNotificationTypes">Event types, one per line</label><textarea id="govNotificationTypes" rows="10">${esc(types)}</textarea>` });
   if (!ok) return;
   const eventTypes = $('#govNotificationTypes').value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
   await api(`${governanceBasePath()}/notifications/preferences`, { method: 'PUT', headers: governanceHeaders('notification-preferences'), body: { enabled: $('#govNotificationEnabled').checked, eventTypes } });
@@ -1706,7 +2438,7 @@ async function markGovernanceNotificationsRead(throughSeq) {
   await loadGovernanceDelivery();
 }
 async function createGovernanceEvidenceExport() {
-  const ok = await modal({ title: 'Create signed evidence export', okText: 'Create export', bodyHTML: '<label class="field-label">Format</label><select id="govExportFormat"><option value="json">JSON</option><option value="csv">CSV</option></select><label class="field-label">Maximum events (1–1000)</label><input id="govExportLimit" type="number" min="1" max="1000" value="1000">' });
+  const ok = await modal({ title: 'Create signed evidence export', okText: 'Create export', bodyHTML: '<label class="field-label" for="govExportFormat">Format</label><select id="govExportFormat"><option value="json">JSON</option><option value="csv">CSV</option></select><label class="field-label" for="govExportLimit">Maximum events (1–1000)</label><input id="govExportLimit" type="number" min="1" max="1000" value="1000">' });
   if (!ok) return;
   await api(`${governanceBasePath()}/exports`, { method: 'POST', headers: governanceHeaders('audit-export'), body: { format: $('#govExportFormat').value, afterEventSeq: 0, limit: Number($('#govExportLimit').value) } });
   await loadGovernanceDelivery();
@@ -1721,7 +2453,7 @@ async function verifyGovernanceExport(exportId) {
   await showGovernanceJson('Evidence export verification', result.verification || result);
 }
 async function createGovernanceWebhook() {
-  const ok = await modal({ title: 'Add governance webhook', okText: 'Create webhook', bodyHTML: '<label class="field-label">Name</label><input id="govWebhookName" maxlength="120"><label class="field-label">HTTPS URL</label><input id="govWebhookUrl" type="url" placeholder="https://hooks.example.com/governance"><label class="field-label">Event types, one per line</label><textarea id="govWebhookTypes" rows="8">policy.activated\npolicy.decision.block</textarea>' });
+  const ok = await modal({ title: 'Add governance webhook', okText: 'Create webhook', bodyHTML: '<label class="field-label" for="govWebhookName">Name</label><input id="govWebhookName" maxlength="120"><label class="field-label" for="govWebhookUrl">HTTPS URL</label><input id="govWebhookUrl" type="url" placeholder="https://hooks.example.com/governance"><label class="field-label" for="govWebhookTypes">Event types, one per line</label><textarea id="govWebhookTypes" rows="8">policy.activated\npolicy.decision.block</textarea>' });
   if (!ok) return;
   const result = await api(`${governanceBasePath()}/webhooks`, { method: 'POST', headers: governanceHeaders('webhook-create'), body: { name: $('#govWebhookName').value.trim(), url: $('#govWebhookUrl').value.trim(), eventTypes: $('#govWebhookTypes').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean), enabled: true } });
   await showGovernanceJson('Webhook signing secret — save now', { signingSecret: result.signingSecret, warning: 'This secret is shown once and cannot be recovered.' });
@@ -1796,6 +2528,70 @@ async function refreshRate() {
 }
 
 /* ---------------- tree ---------------- */
+/*
+ * Which of the editor's two resting states applies. Kept beside the tree load
+ * because the tree is the only thing that knows whether there is anything to
+ * pick.
+ */
+function markEmptyRepository(bare) {
+  const pick = $('.editor-empty-pick');
+  const empty = $('.editor-empty-bare');
+  if (!pick || !empty) return;
+  pick.hidden = bare;
+  empty.hidden = !bare;
+}
+
+/*
+ * The tree's marks, drawn rather than typed.
+ *
+ * A directory used to be U+25B8 and a file U+00B7 -- a period, set at 15px in
+ * the muted colour, against a column of filenames. It read as nothing, and
+ * this is the control the workbench is navigated with. These follow the same
+ * geometry as every other icon in the product: a 24 box, stroked, no fill.
+ *
+ * The directory chevron points right and is rotated by CSS when the row opens,
+ * so the open and closed states are one mark in two positions rather than two
+ * marks that have to be kept in agreement.
+ */
+/*
+ * The marks for a screen with nothing on it.
+ *
+ * Six empty states shared four Unicode glyphs between them -- a sparkle stood
+ * for an unopened file, an untagged release and a workflow that has never run,
+ * which tells a reader nothing about which screen they are on. Each one now
+ * draws the thing it is the absence of.
+ */
+const EMPTY_ICON = Object.freeze({
+  file: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5V8.5h5"/></svg>',
+  repos: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v16H6.5A1.5 1.5 0 0 1 5 18.5z"/><path d="M8.5 4v16"/></svg>',
+  pulls: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6.5" r="2.3"/><circle cx="7" cy="17.5" r="2.3"/><circle cx="17" cy="12" r="2.3"/><path d="M7 8.8v6.4M9.3 6.5H13a1.7 1.7 0 0 1 1.7 1.7v2.1"/></svg>',
+  issues: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.2"/></svg>',
+  releases: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3.5h8.5V12l-7.9 7.9a1.6 1.6 0 0 1-2.3 0l-5.2-5.2a1.6 1.6 0 0 1 0-2.3z"/><circle cx="15.6" cy="7.9" r="1.4"/></svg>',
+  actions: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M10.4 9.3l4.6 2.7-4.6 2.7z"/></svg>'
+});
+
+/*
+ * Marks that sit beside a number or inside a small control.
+ *
+ * The last of the typed glyphs: a star, a fork, a speech bubble and a close
+ * cross, all standing where the rest of the product draws. The fork also
+ * appears in the branch <select>, and stays typed there -- a native option
+ * element holds text and nothing else, so that one is a real constraint rather
+ * than an oversight.
+ */
+const META_ICON = Object.freeze({
+  star: '<svg class="meta-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.6 5.2 5.8.9-4.2 4 1 5.7-5.2-2.7-5.2 2.7 1-5.7-4.2-4 5.8-.9z"/></svg>',
+  fork: '<svg class="meta-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6.2" r="2.2"/><circle cx="17" cy="6.2" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M7 8.4v1.2a3 3 0 0 0 3 3h4a3 3 0 0 0 3-3V8.4M12 12.6v3.2"/></svg>',
+  comments: '<svg class="meta-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 12.2a6.8 6.8 0 0 1-6.8 6.8H8.9L4.6 21.4v-4.5a6.8 6.8 0 0 1 4.3-11.7h4.7a6.8 6.8 0 0 1 6.8 6.8z"/></svg>',
+  close: '<svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+});
+
+const TREE_ICON = Object.freeze({
+  dir: '<svg class="ti-mark ti-mark-dir" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>',
+  file: '<svg class="ti-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5V8.5h5"/></svg>',
+  hit: '<svg class="ti-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>'
+});
+
 async function loadTree(dirPath, host, isRoot) {
   if (isRoot) host.innerHTML = '<div class="skeleton" style="height:160px"></div>';
   try {
@@ -1805,7 +2601,7 @@ async function loadTree(dirPath, host, isRoot) {
       const row = document.createElement('div');
       row.className = 'tree-item' + (it.type === 'dir' ? ' dir' : '');
       row.style.animationDelay = Math.min(idx * 20, 240) + 'ms';
-      row.innerHTML = `<span class="ti-icon">${it.type === 'dir' ? '▸' : '·'}</span><span class="ti-name"></span>
+      row.innerHTML = `<span class="ti-icon">${it.type === 'dir' ? TREE_ICON.dir : TREE_ICON.file}</span><span class="ti-name"></span>
         ${it.type === 'file' ? `<span class="tree-size">${fmtSize(it.size)}</span>` : ''}`;
       row.querySelector('.ti-name').textContent = it.name;
       attachItemMenu(row, it);
@@ -1813,7 +2609,7 @@ async function loadTree(dirPath, host, isRoot) {
         let open = false, sub = null;
         row.addEventListener('click', async () => {
           open = !open;
-          row.querySelector('.ti-icon').textContent = open ? '▾' : '▸';
+          row.classList.toggle('open', open);
           if (open && !sub) {
             sub = document.createElement('div'); sub.className = 'tree-indent'; row.after(sub);
             await loadTree(it.path, sub, false);
@@ -1832,6 +2628,13 @@ async function loadTree(dirPath, host, isRoot) {
     if (isRoot) host.innerHTML = '';
     host.appendChild(frag);
     if (isRoot && !items.length) host.innerHTML = '<div class="tree-item">Empty repository</div>';
+    /*
+     * The editor's resting state follows the tree. It reads "Pick a file from
+     * the constellation on the left" -- true with files, and an instruction
+     * that cannot be carried out without them, printed alongside a tree
+     * already saying the repository is empty.
+     */
+    if (isRoot) markEmptyRepository(!items.length);
   } catch (e) { if (isRoot) host.innerHTML = `<div class="tree-item">⚠ ${esc(e.message)}</div>`; }
 }
 
@@ -1855,12 +2658,13 @@ function openItemMenu(it) {
     title: it.name + (isDir ? '/' : ''), okText: 'Close',
     bodyHTML: `
       ${isDir ? '' : `<button class="btn btn-ghost btn-block" data-mi="open" style="margin-top:0">Open in editor</button>
-      <button class="btn btn-ghost btn-block" data-mi="rename">Rename / move</button>
+      <button class="btn btn-ghost btn-block" data-mi="rename" data-feature="file.rename" data-allow-experimental="true">Rename / move</button>
       <button class="btn btn-ghost btn-block" data-mi="download">Download</button>`}
-      ${isDir ? '<button class="btn btn-ghost btn-block" data-mi="movedir">Rename / move folder…</button>'
+      ${isDir ? '<button class="btn btn-ghost btn-block" data-mi="movedir" data-feature="folder.move" data-allow-experimental="true">Rename / move folder…</button>'
         : `<button class="btn btn-ghost btn-block" data-mi="protect">${isProtectedPath(it.path) ? 'Unprotect file' : 'Protect file'}</button>`}
       <button class="btn btn-ghost btn-block danger" data-mi="delete" ${isDir ? 'style="margin-top:0"' : ''}>${isDir ? 'Delete folder…' : 'Delete file…'}</button>`
   });
+  if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
   $('#modalBody').addEventListener('click', async e => {
     const b = e.target.closest('[data-mi]');
     if (!b) return;
@@ -1875,7 +2679,7 @@ function openItemMenu(it) {
     else if (act === 'rename') {
       const ok = await modal({
         title: 'Rename / move',
-        bodyHTML: `<label class="field-label">New path</label><input id="rnTo2" type="text" value="${esc(it.path)}" spellcheck="false">`,
+        bodyHTML: `<label class="field-label" for="rnTo2">New path</label><input id="rnTo2" type="text" value="${esc(it.path)}" spellcheck="false">`,
         okText: 'Rename ✦'
       });
       if (!ok) return;
@@ -2080,7 +2884,7 @@ async function recoveryFlow() {
     const confirm = await modal({
       title: 'Confirm branch reference recovery', okText: 'Restore refs', danger: true,
       bodyHTML: `<p class="hint">This force-updates or recreates <b>${actions.length}</b> branch reference(s). Commits created after the snapshot are not deleted, but these branches will no longer point to them.</p>
-        <label class="field-label">Type <span class="mono">RESTORE</span> to confirm</label>
+        <label class="field-label" for="recConfirm">Type <span class="mono">RESTORE</span> to confirm</label>
         <input id="recConfirm" type="text" autocomplete="off" spellcheck="false" placeholder="RESTORE">`
     });
     if (!confirm) return;
@@ -2128,27 +2932,6 @@ async function openSafeguards() {
   await refreshSafety();
   const sf = state.safety;
   const prot = protectedList();
-  setTimeout(() => {
-    if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
-    const bind = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
-    const ro = $('#sgReadOnly'), fz = $('#sgFreeze');
-    if (ro) ro.addEventListener('change', () => setSafety({ readOnly: ro.checked }));
-    if (fz) fz.addEventListener('change', () => setSafety({ freezeSync: fz.checked }));
-    bind('sgSnap', () => { closeModal(false); snapshotFlow(); });
-    bind('sgActivity', () => { closeModal(false); exportActivityFlow(); });
-    bind('sgRecover', () => { closeModal(false); recoveryFlow(); });
-    bind('sgScan', () => { closeModal(false); securityScanFlow(); });
-    bind('sgEvidence', () => { closeModal(false); exportEvidenceFlow(); });
-    bind('sgAddProtect', async () => {
-      const input = $('#sgProtectPattern'); const pattern = input && input.value.trim().replace(/^\/+/, '');
-      if (!pattern) return toast('Enter a file, folder or wildcard pattern', 'err');
-      if (await setSafety({ protect: { repo: safetyKey(), path: pattern, on: true } })) { toast(`${pattern} protected`, 'ok'); closeModal(false); openSafeguards(); }
-    });
-    $$('#modalBody [data-unprot]').forEach(b => b.addEventListener('click', async () => {
-      await setSafety({ protect: { repo: safetyKey(), path: b.dataset.unprot, on: false } });
-      b.closest('p').remove();
-    }));
-  }, 40);
   await modal({
     title: 'Safeguards', okText: 'Done',
     bodyHTML: `
@@ -2161,21 +2944,42 @@ async function openSafeguards() {
         <button class="btn btn-ghost small" id="sgSnap" data-feature="recovery">Emergency snapshot</button>
         <button class="btn btn-ghost small" id="sgRecover" data-feature="recovery">Disaster recovery…</button>
         <button class="btn btn-ghost small" id="sgActivity" data-feature="governance" data-allow-experimental="true">Export activity</button>
-        <button class="btn btn-ghost small" id="sgScan" data-feature="dependency-audit">Security scan</button>
+        <button class="btn btn-ghost small" id="sgScan" data-feature="dependency-audit" data-allow-experimental="true">Security scan</button>
         <button class="btn btn-ghost small" id="sgEvidence" data-feature="governance" data-allow-experimental="true">Export evidence</button>
       </div>
       <div class="set-label" style="margin-top:12px">Protected files, folders and patterns ${prot.length ? `(${prot.length})` : ''}</div>
       <div style="display:flex;gap:6px;margin:6px 0 10px"><input id="sgProtectPattern" type="text" placeholder="e.g. .github/workflows/**" autocomplete="off" spellcheck="false" style="flex:1"><button class="btn btn-ghost small" id="sgAddProtect">Protect</button></div>
       ${prot.length
         ? prot.map(p => `<p class="hint" style="margin:3px 0"><span class="mono">${esc(p)}</span> <button class="btn btn-ghost small" data-unprot="${esc(p)}">Unlock</button></p>`).join('')
-        : '<p class="hint">None yet — protect a file from the tree or add a folder/wildcard pattern above.</p>'}`
+        : '<p class="hint">None yet — protect a file from the tree or add a folder/wildcard pattern above.</p>'}`,
+    onOpen: () => {
+      if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
+      const bind = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
+      const ro = $('#sgReadOnly'), fz = $('#sgFreeze');
+      if (ro) ro.addEventListener('change', () => setSafety({ readOnly: ro.checked }));
+      if (fz) fz.addEventListener('change', () => setSafety({ freezeSync: fz.checked }));
+      bind('sgSnap', () => { closeModal(false); snapshotFlow(); });
+      bind('sgActivity', () => { closeModal(false); exportActivityFlow(); });
+      bind('sgRecover', () => { closeModal(false); recoveryFlow(); });
+      bind('sgScan', () => { closeModal(false); securityScanFlow(); });
+      bind('sgEvidence', () => { closeModal(false); exportEvidenceFlow(); });
+      bind('sgAddProtect', async () => {
+        const input = $('#sgProtectPattern'); const pattern = input && input.value.trim().replace(/^\/+/, '');
+        if (!pattern) return toast('Enter a file, folder or wildcard pattern', 'err');
+        if (await setSafety({ protect: { repo: safetyKey(), path: pattern, on: true } })) { toast(`${pattern} protected`, 'ok'); closeModal(false); openSafeguards(); }
+      });
+      $$('#modalBody [data-unprot]').forEach(b => b.addEventListener('click', async () => {
+        await setSafety({ protect: { repo: safetyKey(), path: b.dataset.unprot, on: false } });
+        b.closest('p').remove();
+      }));
+    }
   });
 }
 async function moveFolderFlow(dirPath) {
   const ok = await modal({
     title: 'Rename / move folder',
     bodyHTML: `<p class="hint">Every file under <b class="mono">${esc(dirPath)}/</b> moves in one atomic commit.</p>
-      <label class="set-label" style="margin-top:8px">New path</label>
+      <label class="set-label" for="mvDirTo" style="margin-top:8px">New path</label>
       <input id="mvDirTo" type="text" value="${esc(dirPath)}" autocomplete="off" spellcheck="false" style="width:100%">
       <p class="hint" style="margin-top:6px">Rename in place (<span class="mono">docs</span> → <span class="mono">guides</span>) or move deeper (<span class="mono">assets/logos</span>).</p>`,
     okText: 'Move ✦'
@@ -2204,7 +3008,7 @@ async function deleteFolderFlow(dirPath) {
   const ok = await modal({
     title: 'Delete folder',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6">This deletes <b>${victims.length} file${victims.length > 1 ? 's' : ''}</b> under <b class="mono">${esc(dirPath)}/</b> from <b>${esc(state.work.branch)}</b> in ${Math.ceil(victims.length / 100)} commit${victims.length > 100 ? 's' : ''}.</p>
-      <label class="field-label">Type <b class="mono">${esc(leaf)}</b> to confirm</label><input id="delFolderName" type="text" autocomplete="off" spellcheck="false">`,
+      <label class="field-label" for="delFolderName">Type <b class="mono">${esc(leaf)}</b> to confirm</label><input id="delFolderName" type="text" autocomplete="off" spellcheck="false">`,
     okText: 'Delete folder', danger: true
   });
   if (!ok) return;
@@ -2225,7 +3029,7 @@ async function deleteRepoFlow() {
   const ok = await modal({
     title: 'Delete repository',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(wPath())}</b> will be permanently deleted on GitHub — code, history, issues, releases. <b>This cannot be undone.</b></p>
-      <label class="field-label">Type <b class="mono">${esc(state.work.repo)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" spellcheck="false">`,
+      <label class="field-label" for="drName">Type <b class="mono">${esc(state.work.repo)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" spellcheck="false">`,
     okText: 'Delete forever', danger: true
   });
   if (!ok) return;
@@ -2253,11 +3057,11 @@ $('#codeSearch').addEventListener('keydown', async e => {
   host.innerHTML = '<div class="skeleton" style="height:120px"></div>';
   try {
     const hits = await api(`/api/repo/${wPath()}/search?q=${encodeURIComponent(q)}`);
-    host.innerHTML = hits.length ? '' : '<div class="tree-item">No matches — ↻ restores the tree</div>';
+    host.innerHTML = hits.length ? '' : '<div class="tree-item">No matches — use Refresh to restore the tree</div>';
     hits.forEach(h => {
       const row = document.createElement('div');
       row.className = 'tree-item';
-      row.innerHTML = `<span class="ti-icon">◎</span><span class="ti-name"></span>`;
+      row.innerHTML = `<span class="ti-icon">${TREE_ICON.hit}</span><span class="ti-name"></span>`;
       row.querySelector('.ti-name').textContent = h.path;
       row.addEventListener('click', () => { state.pendingFind = q; openFile(h.path); closeDrawer(); });
       host.appendChild(row);
@@ -2411,7 +3215,7 @@ $('#commitFileBtn').addEventListener('click', async () => {
   if (!state.file || state.file.binary) return;
   const ok = await modal({
     title: 'Commit changes',
-    bodyHTML: `<label class="field-label">Commit message</label>
+    bodyHTML: `<label class="field-label" for="cmMsg">Commit message</label>
       <input id="cmMsg" type="text" value="Update ${esc(state.file.path)}" spellcheck="false">
       <p class="hint">Committing directly to <b>${esc(state.work.branch)}</b></p>`,
     okText: 'Commit ✦'
@@ -2445,6 +3249,16 @@ $('#commitFileBtn').addEventListener('click', async () => {
     toast('Committed ✦', 'ok');
     refreshRate();
   } catch (e) {
+    /* A refusal that needs approval carries the route to approval. Taking it
+     * puts the change on a branch of its own, so the editor is left exactly as
+     * it is: this file on this branch still differs from what is committed
+     * here, and saying otherwise would be a comfortable lie. */
+    const routed = await takeSafePassage(e, {
+      content: state.cm.getValue(),
+      message: $('#cmMsg') ? $('#cmMsg').value : undefined,
+      sha: state.file.sha
+    });
+    if (routed) return;
     const queued = await queueCommit({
       kind: 'put', owner: state.work.owner, repo: state.work.repo, branch: state.work.branch,
       path: state.file.path, content: state.cm.getValue(),
@@ -2495,7 +3309,7 @@ $('#renameFileBtn').addEventListener('click', async () => {
   if (!state.file) return;
   const ok = await modal({
     title: 'Rename / move file',
-    bodyHTML: `<label class="field-label">New path</label>
+    bodyHTML: `<label class="field-label" for="rnTo">New path</label>
       <input id="rnTo" type="text" value="${esc(state.file.path)}" spellcheck="false">
       <p class="hint">Works for files of any size — the blob is re-linked, not re-uploaded.</p>`,
     okText: 'Rename ✦'
@@ -2583,7 +3397,7 @@ function renderStagedPanel() {
     el.className = 'stage-item';
     el.innerHTML = `<span class="stage-op ${s.op === 'put' ? 'op-put' : 'op-del'}">${s.op === 'put' ? 'PUT' : 'DEL'}</span>
       <span class="stage-path mono"></span>
-      <button class="stage-x" aria-label="Unstage">✕</button>`;
+      <button class="stage-x" aria-label="Unstage">${META_ICON.close}</button>`;
     el.querySelector('.stage-path').textContent = s.path;
     el.querySelector('.stage-x').addEventListener('click', () => {
       state.staged.splice(i, 1); renderStagedCount(); renderStagedPanel();
@@ -2645,12 +3459,27 @@ function ensureNeural() {
 }
 function switchTab(name) {
   const tab = $$('.tab').find(candidate => candidate.dataset.tab === name);
-  const tabCapability = tab && tab.dataset.feature;
+  /*
+   * A name that matches no tab leaves the workbench exactly as it was.
+   *
+   * Selection here is a toggle evaluated against every tab and every pane, so
+   * an unknown name did not select nothing -- it deselected everything, and
+   * the workbench kept its chrome around an empty hole. Deep links carry this
+   * name straight from the URL, so any typed or stale link could empty the
+   * screen; /files, the form this project's own tests use, did exactly that.
+   */
+  if (!tab) return;
+  const tabCapability = tab.dataset.feature;
   if (tabCapability && !runCapabilityAction(tabCapability, () => {}, {
     allowExperimental: tab.dataset.allowExperimental === 'true'
   })) return;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.tabpane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  /*
+   * Repainted here rather than by the click handler, so a tab reached from the
+   * command palette marks the rail exactly as a pointer click does.
+   */
+  paintRail('work');
   $$('#bottomNav button').forEach(b => b.classList.toggle('active', b.dataset.nav === name));
   if (name === 'commits' && !$('#commitList').children.length) loadCommits(true);
   if (name === 'pulls' && !$('#prList').children.length) loadPRs();
@@ -2703,12 +3532,12 @@ const COMMANDS = [
   { label: 'New file', kind: 'action', feature: 'file.write', run: () => $('#newFileBtn').click() },
   { label: 'New branch', kind: 'action', feature: 'branches.write', run: () => $('#newBranchBtn').click() },
   { label: 'Push files (upload)', kind: 'view', feature: 'native-push', allowExperimental: true, run: () => switchTab('upload') },
-  { label: 'Pull requests', kind: 'view', feature: 'pulls.read', run: () => switchTab('pulls') },
-  { label: 'Issues', kind: 'view', feature: 'issues.read', run: () => switchTab('issues') },
-  { label: 'Releases', kind: 'view', feature: 'releases.read', run: () => switchTab('releases') },
-  { label: 'Compare branches', kind: 'view', feature: 'recovery', run: () => switchTab('compare') },
+  { label: 'Pull requests', kind: 'view', feature: 'pulls.read', allowExperimental: true, run: () => switchTab('pulls') },
+  { label: 'Issues', kind: 'view', feature: 'issues.read', allowExperimental: true, run: () => switchTab('issues') },
+  { label: 'Releases', kind: 'view', feature: 'releases.read', allowExperimental: true, run: () => switchTab('releases') },
+  { label: 'Compare branches', kind: 'view', feature: 'recovery', allowExperimental: true, run: () => switchTab('compare') },
   { label: 'Commits', kind: 'view', feature: 'repository.read', run: () => switchTab('commits') },
-  { label: 'Staged changes', kind: 'view', feature: 'file.batch', run: () => openStagePanel() },
+  { label: 'Staged changes', kind: 'view', feature: 'file.batch', allowExperimental: true, run: () => openStagePanel() },
   { label: 'Download repo as zip', kind: 'action', feature: 'repository.read', run: () => downloadZip() },
   { label: 'Settings', kind: 'action', run: () => openSettings() },
   { label: 'Safeguards (read-only, protection, recovery)', kind: 'action', feature: 'recovery', run: () => openSafeguards() },
@@ -2716,16 +3545,33 @@ const COMMANDS = [
   { label: 'Security scan — vulnerable dependencies', kind: 'action', feature: 'dependency-audit', allowExperimental: true, run: () => securityScanFlow() },
   { label: 'Export recent activity', kind: 'action', feature: 'repository.read', run: () => exportActivityFlow() },
   { label: 'Toggle theme', kind: 'action', run: () => toggleTheme() },
-  { label: 'Actions (CI)', kind: 'view', feature: 'workflows.read', run: () => switchTab('actions') },
-  { label: 'Neural Command Center', kind: 'view', feature: 'access-surface', run: () => switchTab('neural') },
+  { label: 'Actions (CI)', kind: 'view', feature: 'workflows.read', allowExperimental: true, run: () => switchTab('actions') },
+  { label: 'Neural', kind: 'view', feature: 'access-surface', run: () => switchTab('neural') },
+  /*
+   * Governance had no palette entry at all, while every other destination in
+   * the workbench had one -- so the one surface that is also hardest to see in
+   * the tab strip was the one a reader could not jump to by name either.
+   */
+  { label: 'Governance', kind: 'view', feature: 'governance', allowExperimental: true, run: () => switchTab('governance') },
   { label: 'Manage branches', kind: 'action', feature: 'branches.write', run: () => openBranchManager() },
-  { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', run: () => toggleStar() },
+  { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', allowExperimental: true, run: () => toggleStar() },
   { label: 'Open the Time Machine', kind: 'action', feature: 'recovery', run: () => openTimeMachine() },
   { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', run: () => deleteRepoFlow() },
   { label: 'Back to repositories', kind: 'view', run: () => $('#backBtn').click() }
 ];
+/*
+ * Where focus goes when the palette closes.
+ *
+ * The palette takes focus into a layer it then hides, so every exit -- Escape,
+ * a click on the backdrop, or picking a row -- left focus on the document
+ * body. Picking a row was the worst of the three: the command that opens a
+ * dialog ran with nothing focused, so the dialog recorded nothing to return
+ * to, and closing it stranded a keyboard reader at the top of the page.
+ */
+let paletteReturnFocus = null;
 async function openPalette() {
   if (_page !== 'work') return;
+  paletteReturnFocus = document.activeElement;
   $('#paletteScrim').hidden = false;
   const inp = $('#paletteInput');
   inp.value = ''; renderPalette('');
@@ -2738,7 +3584,32 @@ async function openPalette() {
     } catch { state.fileIndex = []; }
   }
 }
-function closePalette() { $('#paletteScrim').hidden = true; }
+function closePalette() {
+  const scrim = $('#paletteScrim');
+  /*
+   * Pressing a row blurs the input before the handler runs -- the rows are
+   * options, not focusable elements -- so by the time this is reached focus is
+   * already on the body. Both that and focus still inside the layer mean the
+   * reader has nowhere to return to; anything else is a deliberate target and
+   * is left alone.
+   */
+  const active = document.activeElement;
+  const strayed = !active || active === document.body || scrim.contains(active);
+  scrim.hidden = true;
+  /*
+   * The input keeps combobox state, and hiding the scrim does not clear it, so
+   * a reader who closed the palette was still told it was expanded and still
+   * pointed at a row that is no longer shown.
+   */
+  const input = $('#paletteInput');
+  if (input) {
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  }
+  const restore = paletteReturnFocus;
+  paletteReturnFocus = null;
+  if (strayed && restore && restore.isConnected && typeof restore.focus === 'function') restore.focus();
+}
 $('#paletteBtn').addEventListener('click', openPalette);
 $('#paletteScrim').addEventListener('click', e => { if (e.target === $('#paletteScrim')) closePalette(); });
 function fuzzy(q, s) {
@@ -2757,10 +3628,33 @@ function renderPalette(q) {
   palItems = q ? [...files, ...cmds.slice(0, 6)] : [...recents.slice(0, 5), ...cmds, ...files.slice(0, 6)];
   palSel = 0;
   host.innerHTML = '';
-  if (!palItems.length) { host.innerHTML = '<div class="pal-item">No matches</div>'; return; }
+  /*
+   * The results are a listbox and each row an option, so the selection a
+   * reader sees highlighted is the one a screen reader announces. Before this
+   * the rows were plain divs: the arrow keys moved a class nobody could hear,
+   * and no automated rule could report it, because a div list is not incorrect
+   * markup -- it is merely silent.
+   */
+  const input = $('#paletteInput');
+  if (!palItems.length) {
+    host.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'pal-item';
+    empty.setAttribute('role', 'option');
+    empty.setAttribute('aria-selected', 'false');
+    empty.setAttribute('aria-disabled', 'true');
+    empty.textContent = 'No matches';
+    host.appendChild(empty);
+    input.setAttribute('aria-expanded', 'true');
+    input.removeAttribute('aria-activedescendant');
+    return;
+  }
   palItems.forEach((it, i) => {
     const el = document.createElement('div');
     el.className = 'pal-item' + (i === palSel ? ' sel' : '');
+    el.id = `pal-option-${i}`;
+    el.setAttribute('role', 'option');
+    el.setAttribute('aria-selected', i === palSel ? 'true' : 'false');
     el.innerHTML = `<span class="${it.kind === 'file' ? 'mono' : ''}"></span><span class="pal-kind">${it.kind}</span>`;
     el.querySelector('span').textContent = it.label;
     if (it.feature) el.dataset.feature = it.feature;
@@ -2768,6 +3662,8 @@ function renderPalette(q) {
     el.addEventListener('click', () => runPaletteItem(it));
     host.appendChild(el);
   });
+  input.setAttribute('aria-expanded', 'true');
+  input.setAttribute('aria-activedescendant', `pal-option-${palSel}`);
   window.NebulaCapabilityUI.apply(host);
 }
 function runPaletteItem(item) {
@@ -2776,6 +3672,99 @@ function runPaletteItem(item) {
     item.run();
   }, { allowExperimental: !!(item && item.allowExperimental) });
 }
+$('#reposRefreshBtn') && $('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
+
+/*
+ * The rail is chrome around the screens, so it follows them rather than each
+ * screen carrying a copy. It appears once a session is authenticated and marks
+ * the screen in view as current, which is what a reader navigating by landmark
+ * relies on to know where they are.
+ */
+const RAIL_SCREENS = new Set(['overview', 'repos', 'work']);
+function paintRail(name) {
+  const rail = $('#navRail');
+  if (!rail) return;
+  rail.hidden = !RAIL_SCREENS.has(name);
+  const activeTab = ($('.tabpane.active') || {}).id || '';
+  /*
+   * Two of the workbench's tabs are destinations in their own right rather
+   * than views of the file it has open, and the rail offers them as such -- so
+   * when one of them is what the reader is looking at, the rail marks that
+   * entry rather than the workbench it technically sits inside.
+   */
+  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance' };
+  const shown = name === 'work' && promoted[activeTab] ? promoted[activeTab] : name;
+  $$('.nv-rail-item').forEach(item => {
+    const current = item.dataset.rail === shown;
+    if (current) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  });
+  const user = $('#navUser');
+  const me = state.me;
+  if (user) {
+    const label = me && (me.name || me.login);
+    user.hidden = !label;
+    if (label) {
+      $('#navUserInitial').textContent = String(label).trim().charAt(0).toUpperCase();
+      $('#navUserName').textContent = label;
+      $('#navUserSub').textContent = (me && me.login) ? `@${me.login}` : '';
+    }
+  }
+}
+/*
+ * Neural and the workbench are views of an open repository rather than places
+ * of their own, so the rail offers them as destinations and refuses when there
+ * is no repository to show, instead of opening an empty one.
+ */
+/*
+ * Below the wide breakpoint the rail is a drawer rather than standing chrome,
+ * so something has to open it. Three top bars carry the control -- overview,
+ * inventory and workspace -- because each screen draws its own bar.
+ *
+ * Focus returns to whichever bar opened it: a reader dismissed back to the top
+ * of the document has lost their place.
+ */
+let navMenuOpener = null;
+function navMenuOpen() { return document.body.classList.contains('nav-open'); }
+function setNavMenu(open, opener) {
+  document.body.classList.toggle('nav-open', open);
+  const scrim = $('#navScrim');
+  if (scrim) scrim.hidden = !open;
+  $$('.nav-menu-btn').forEach(button => button.setAttribute('aria-expanded', String(open)));
+  if (open) {
+    navMenuOpener = opener || null;
+    const first = $('#navRail .nv-rail-item');
+    if (first) first.focus();
+    return;
+  }
+  const restore = navMenuOpener;
+  navMenuOpener = null;
+  if (restore && document.contains(restore)) restore.focus();
+}
+function closeNavMenu() { if (navMenuOpen()) setNavMenu(false); }
+$$('.nav-menu-btn').forEach(button => button.addEventListener('click', () => {
+  setNavMenu(!navMenuOpen(), button);
+}));
+$('#navScrim') && $('#navScrim').addEventListener('click', closeNavMenu);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && navMenuOpen()) { event.preventDefault(); closeNavMenu(); }
+});
+/* A drawer is a narrow-screen affordance; widening the window makes the rail
+   standing chrome again, and a scrim over it would be stranded. */
+window.addEventListener('resize', () => {
+  if (window.innerWidth >= 1140) closeNavMenu();
+});
+
+$$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
+  const target = item.dataset.rail;
+  closeNavMenu();
+  if (target === 'overview') return showOverview();
+  if (target === 'repos') return showPage('repos');
+  if (!state.work) return toast('Open a repository first.', 'err');
+  showPage('work');
+  if (target === 'neural' || target === 'governance') switchTab(target);
+  else paintRail('work');
+}));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {
   if (e.key === 'ArrowDown') { palSel = Math.min(palSel + 1, palItems.length - 1); paintSel(); e.preventDefault(); }
@@ -2784,9 +3773,15 @@ $('#paletteInput').addEventListener('keydown', e => {
   else if (e.key === 'Escape') closePalette();
 });
 function paintSel() {
-  $$('#paletteList .pal-item').forEach((el, i) => el.classList.toggle('sel', i === palSel));
+  $$('#paletteList .pal-item').forEach((el, i) => {
+    el.classList.toggle('sel', i === palSel);
+    el.setAttribute('aria-selected', i === palSel ? 'true' : 'false');
+  });
   const sel = $('#paletteList .pal-item.sel');
   if (sel) sel.scrollIntoView({ block: 'nearest' });
+  /* The input keeps focus, so the moved selection is announced through it. */
+  const input = $('#paletteInput');
+  if (sel && sel.id) input.setAttribute('aria-activedescendant', sel.id);
 }
 
 /* global shortcuts */
@@ -2842,7 +3837,7 @@ let uploadModeV = 'single';
 const batchQueue = []; // { file, targetPath, item }
 $('#uploadMode').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#uploadMode .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#uploadMode', x => x === b);
   uploadModeV = b.dataset.v;
 });
 $('#folderPickBtn').addEventListener('click', () => $('#folderPicker').click());
@@ -2979,10 +3974,10 @@ async function handleZip(zipFile) {
       entries.push({ file: new File([data], name.split('/').pop() || 'file'), rel: name });
     }
     if (!entries.length) return toast('The zip appears to be empty', 'err');
-    if (entries.length > 500) return toast(`Zip has ${entries.length} files — the limit is 500 per batch`, 'err');
+    if (entries.length > 500) return toast(`Zip has ${entries.length} files — at most 500 can be extracted at once`, 'err');
     if (uploadModeV !== 'batch') {
       uploadModeV = 'batch';
-      $$('#uploadMode .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.v === 'batch'));
+      selectSegment('#uploadMode', b => b.dataset.v === 'batch');
       toast('Batch mode enabled — everything will land as one commit', 'ok');
     }
     queueEntries(entries);
@@ -3254,7 +4249,7 @@ function renderDiffFiles(host, files) {
 /* ================= PULL REQUESTS ================= */
 $('#prState').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#prState .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#prState', x => x === b);
   state.prState = b.dataset.v;
   loadPRs();
 });
@@ -3266,7 +4261,7 @@ async function loadPRs() {
     const prs = await apiCached(`/api/repo/${wPath()}/pulls?state=${state.prState}`);
     host.innerHTML = '';
     if (!prs.length) {
-      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">⇄</div><p>No ${state.prState === 'all' ? '' : state.prState + ' '}pull requests.</p></div>`;
+      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.pulls}</div><p>No ${state.prState === 'all' ? '' : state.prState + ' '}pull requests.</p></div>`;
       return;
     }
     prs.forEach((p, i) => {
@@ -3296,7 +4291,7 @@ async function openPR(num) {
       <div class="detail-head">
         <span class="state-pill ${st[1]}">${st[0]}</span>
         <span class="detail-title"></span>
-        <button class="btn btn-ghost small" id="prCloseDetail">✕</button>
+        <button class="btn btn-ghost small" id="prCloseDetail" aria-label="Close">${META_ICON.close}</button>
       </div>
       <div class="detail-meta">
         <span>#${p.number} by ${esc(p.user || '')}</span>
@@ -3308,7 +4303,7 @@ async function openPR(num) {
       <div class="detail-actions" id="prActions"></div>
       <div id="prFiles" style="margin-top:14px"></div>
       <div id="prComments" style="margin-top:14px"></div>
-      <label class="field-label">Add a comment</label>
+      <label class="field-label" for="prNewComment">Add a comment</label>
       <textarea id="prNewComment" placeholder="Write a comment…"></textarea>
       <div class="detail-actions"><button class="btn btn-primary small" id="prCommentBtn">Comment ✦</button></div>`;
     box.querySelector('.detail-title').textContent = p.title;
@@ -3350,7 +4345,7 @@ async function openPR(num) {
         b.addEventListener('click', async () => {
           const ok = await modal({
             title: label,
-            bodyHTML: `<label class="field-label">Review comment ${ev === 'REQUEST_CHANGES' ? '(required)' : '(optional)'}</label>
+            bodyHTML: `<label class="field-label" for="rvBody">Review comment ${ev === 'REQUEST_CHANGES' ? '(required)' : '(optional)'}</label>
               <textarea id="rvBody" placeholder="Feedback for the author…"></textarea>`,
             okText: label
           });
@@ -3401,12 +4396,12 @@ $('#newPrBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New pull request',
     bodyHTML: `
-      <label class="field-label">Title</label><input id="prTitle" type="text" spellcheck="false">
-      <label class="field-label">Head (your changes)</label>
+      <label class="field-label" for="prTitle">Title</label><input id="prTitle" type="text" spellcheck="false">
+      <label class="field-label" for="prHead">Head (your changes)</label>
       <select id="prHead">${names.map(n => `<option ${n === state.work.branch ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
-      <label class="field-label">Base (merge into)</label>
+      <label class="field-label" for="prBase">Base (merge into)</label>
       <select id="prBase">${names.map(n => `<option ${n === state.work.default_branch ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
-      <label class="field-label">Description</label><textarea id="prDesc" placeholder="Optional"></textarea>
+      <label class="field-label" for="prDesc">Description</label><textarea id="prDesc" placeholder="Optional"></textarea>
       <label class="check"><input type="checkbox" id="prDraft"> Draft</label>`,
     okText: 'Open PR ✦'
   });
@@ -3426,7 +4421,7 @@ $('#newPrBtn').addEventListener('click', async () => {
 /* ================= ISSUES ================= */
 $('#issueState').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
-  $$('#issueState .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+  selectSegment('#issueState', x => x === b);
   state.issueState = b.dataset.v;
   loadIssues();
 });
@@ -3438,7 +4433,7 @@ async function loadIssues() {
     const issues = await apiCached(`/api/repo/${wPath()}/issues?state=${state.issueState}`);
     host.innerHTML = '';
     if (!issues.length) {
-      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">◉</div><p>No ${state.issueState} issues. Peace in the galaxy.</p></div>`;
+      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.issues}</div><p>No ${state.issueState} issues. Peace in the galaxy.</p></div>`;
       return;
     }
     issues.forEach((it, i) => {
@@ -3453,7 +4448,7 @@ async function loadIssues() {
         <div class="li-meta">
           <span>#${it.number}</span><span></span>
           ${it.labels.map(l => { const color = safeHexColor(l.color); return `<span class="label-pill" style="border-color:#${color}88;color:#${color}">${esc(l.name)}</span>`; }).join('')}
-          <span>◧ ${it.comments}</span><span>${timeAgo(it.updated_at)}</span>
+          <span>${META_ICON.comments} ${it.comments}</span><span>${timeAgo(it.updated_at)}</span>
         </div>`;
       el.querySelector('.li-title').textContent = it.title;
       el.querySelector('.li-meta span:nth-child(2)').textContent = it.user || '';
@@ -3473,12 +4468,12 @@ async function openIssue(num) {
       <div class="detail-head">
         <span class="state-pill ${i.state === 'open' ? 'state-open' : 'state-closed'}">${i.state}</span>
         <span class="detail-title"></span>
-        <button class="btn btn-ghost small" id="issCloseDetail">✕</button>
+        <button class="btn btn-ghost small" id="issCloseDetail" aria-label="Close">${META_ICON.close}</button>
       </div>
       <div class="detail-meta"><span>#${i.number} by ${esc(i.user || '')}</span><span>${timeAgo(i.created_at)}</span></div>
       <div class="detail-body" id="issBody" hidden></div>
       <div id="issComments"></div>
-      <label class="field-label">Add a comment</label>
+      <label class="field-label" for="issNewComment">Add a comment</label>
       <textarea id="issNewComment" placeholder="Write a comment…"></textarea>
       <div class="detail-actions">
         <button class="btn btn-primary small" id="issCommentBtn">Comment ✦</button>
@@ -3517,8 +4512,8 @@ async function openIssue(num) {
 $('#newIssueBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New issue',
-    bodyHTML: `<label class="field-label">Title</label><input id="niTitle" type="text" spellcheck="false">
-      <label class="field-label">Description</label><textarea id="niBody" placeholder="Optional"></textarea>`,
+    bodyHTML: `<label class="field-label" for="niTitle">Title</label><input id="niTitle" type="text" spellcheck="false">
+      <label class="field-label" for="niBody">Description</label><textarea id="niBody" placeholder="Optional"></textarea>`,
     okText: 'Open issue ✦'
   });
   if (!ok) return;
@@ -3539,7 +4534,7 @@ async function loadReleases() {
     const rels = await apiCached(`/api/repo/${wPath()}/releases`);
     host.innerHTML = '';
     if (!rels.length) {
-      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">✦</div><p>No releases yet.<br>Tag your first launch with “New release”.</p></div>`;
+      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.releases}</div><p>No releases yet.<br>Tag your first launch with “New release”.</p></div>`;
       return;
     }
     rels.forEach((r, i) => {
@@ -3565,9 +4560,9 @@ $('#newReleaseBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New release',
     bodyHTML: `
-      <label class="field-label">Tag</label><input id="relTag" type="text" placeholder="v1.0.0" spellcheck="false">
-      <label class="field-label">Title</label><input id="relName" type="text" placeholder="Defaults to tag" spellcheck="false">
-      <label class="field-label">Notes</label><textarea id="relBody" placeholder="What changed?"></textarea>
+      <label class="field-label" for="relTag">Tag</label><input id="relTag" type="text" placeholder="v1.0.0" spellcheck="false">
+      <label class="field-label" for="relName">Title</label><input id="relName" type="text" placeholder="Defaults to tag" spellcheck="false">
+      <label class="field-label" for="relBody">Notes</label><textarea id="relBody" placeholder="What changed?"></textarea>
       <label class="check"><input type="checkbox" id="relPre"> Pre-release</label>
       <p class="hint">Tag will be created from <b>${esc(state.work.branch)}</b> if it doesn't exist.</p>`,
     okText: 'Publish ✦'
@@ -3999,7 +4994,7 @@ async function timeMachine(kind, sha, msg) {
       const ok = await modal({
         title: 'Restore from this commit',
         bodyHTML: `<p style="font-size:.9rem;line-height:1.6">Bring back a file or a whole folder <b>as it was at</b> <b class="mono">${short}</b>, without touching anything else. Perfect for un-deleting.</p>
-          <label class="field-label">Path to restore <span class="muted">(e.g. <span class="mono">public</span> or <span class="mono">src/app.js</span>)</span></label>
+          <label class="field-label" for="tmPath">Path to restore <span class="muted">(e.g. <span class="mono">public</span> or <span class="mono">src/app.js</span>)</span></label>
           <input id="tmPath" type="text" spellcheck="false" autocomplete="off">`,
         okText: 'Restore path ✦'
       });
@@ -4014,7 +5009,7 @@ async function timeMachine(kind, sha, msg) {
       const ok = await modal({
         title: 'Hard reset — destructive',
         bodyHTML: `<p style="font-size:.9rem;line-height:1.6">Moves <b>${esc(br)}</b> back to <b class="mono">${short}</b> and <b style="color:var(--red)">erases every later commit from this branch</b> — they vanish from its history. Use Revert or Restore instead unless you truly need history rewritten.</p>
-          <label class="field-label">Type the branch name <b class="mono">${esc(br)}</b> to confirm</label>
+          <label class="field-label" for="tmReset">Type the branch name <b class="mono">${esc(br)}</b> to confirm</label>
           <input id="tmReset" type="text" spellcheck="false" autocomplete="off">`,
         okText: 'Hard reset', danger: true
       });
@@ -4061,54 +5056,104 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString();
 }
 /* ---- batch commit: blobs first, then ONE atomic commit ---- */
+function batchPlan(count = batchQueue.length) {
+  return window.NebulaUploadPlanning.planBatchCommits(count);
+}
 function updateBatchBar() {
   const bar = $('#batchBar');
   bar.hidden = uploadModeV !== 'batch' || !batchQueue.length;
-  if (!bar.hidden) $('#batchInfo').textContent = `${batchQueue.length} file${batchQueue.length > 1 ? 's' : ''} ready — will land as one commit on ${state.work.branch}`;
+  if (bar.hidden) return;
+  const plan = batchPlan();
+  const files = `${plan.total} file${plan.total > 1 ? 's' : ''}`;
+  /* One commit is what the control promises; more than one is what the queue
+   * has outgrown, and saying so here is cheaper than saying it after the
+   * upload. */
+  $('#batchInfo').textContent = plan.atomic
+    ? `${files} ready — will land as one commit on ${state.work.branch}`
+    : `${files} ready — more than ${plan.limit} per commit, so this will land as ${plan.commits} commits on ${state.work.branch}`;
+  const button = $('#batchCommitBtn');
+  if (button) button.textContent = plan.atomic ? 'Commit all as one ✦' : `Commit in ${plan.commits} parts ✦`;
+}
+function uploadBlob(q) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/repo/${wPath()}/blob?path=${encodeURIComponent(q.targetPath)}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('x-nv', '1');
+    xhr.setRequestHeader('x-nv-csrf', csrfToken);
+    xhr.upload.onprogress = ev => { if (ev.lengthComputable) q.fill.style.width = Math.min(Math.round(ev.loaded / ev.total * 100), 90) + '%'; };
+    xhr.onload = () => {
+      try { const r = JSON.parse(xhr.responseText); r.ok ? resolve(r.sha) : reject(new Error(r.error || 'blob failed')); }
+      catch { reject(new Error('blob failed')); }
+    };
+    xhr.onerror = () => reject(new Error('network error'));
+    xhr.send(q.file);
+  });
 }
 $('#batchCommitBtn').addEventListener('click', async () => {
   if (!batchQueue.length) return;
+  const plan = batchPlan();
+  /*
+   * Plan before a single blob leaves the browser. A queue past the server's
+   * batch limit used to upload every blob and only then be refused by the
+   * commit, so the whole wait was spent earning an error.
+   */
+  if (!plan.atomic) {
+    const proceed = await modal({
+      title: 'More than one commit',
+      okText: `Commit in ${plan.commits} parts`,
+      bodyHTML: `<p class="sp-lead">A single commit carries at most <b>${plan.limit}</b> files, and this queue holds <b>${plan.total}</b>.</p>
+        <p class="sp-lead">It can go as <b>${plan.commits} commits</b> on <b class="mono">${esc(state.work.branch)}</b> instead — each one atomic, in queue order. Nothing is uploaded until you choose.</p>
+        <p class="hint">To keep it to one commit, cancel and push fewer files at a time.</p>`
+    });
+    if (!proceed) return;
+  }
   const btn = $('#batchCommitBtn');
   btn.disabled = true;
-  const message = $('#uploadMsg').value.trim() || `Sync ${batchQueue.length} files via ${NV_PRODUCT_NAME}`;
-  const ops = [];
+  const committed = [];
   try {
     await ensureCsrfToken();
-    for (const q of batchQueue) {
-      q.status.textContent = 'Uploading blob…';
-      const sha = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `/api/repo/${wPath()}/blob?path=${encodeURIComponent(q.targetPath)}`);
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        xhr.setRequestHeader('x-nv', '1');
-        xhr.setRequestHeader('x-nv-csrf', csrfToken);
-        xhr.upload.onprogress = ev => { if (ev.lengthComputable) q.fill.style.width = Math.min(Math.round(ev.loaded / ev.total * 100), 90) + '%'; };
-        xhr.onload = () => {
-          try { const r = JSON.parse(xhr.responseText); r.ok ? resolve(r.sha) : reject(new Error(r.error || 'blob failed')); }
-          catch { reject(new Error('blob failed')); }
-        };
-        xhr.onerror = () => reject(new Error('network error'));
-        xhr.send(q.file);
+    for (const [index, group] of plan.groups.entries()) {
+      const part = batchQueue.slice(group.start, group.end);
+      const partLabel = plan.atomic ? '' : ` (part ${index + 1} of ${plan.commits})`;
+      const message = ($('#uploadMsg').value.trim() || `Sync ${plan.total} files via ${NV_PRODUCT_NAME}`) + partLabel;
+      const ops = [];
+      for (const q of part) {
+        q.status.textContent = `Uploading blob…${partLabel}`;
+        ops.push({ op: 'put', path: q.targetPath, sha: await uploadBlob(q) });
+        q.status.textContent = 'Blob stored — waiting for the commit…';
+      }
+      const out = await api(`/api/repo/${wPath()}/batch`, {
+        method: 'POST', body: guardedWrite({ branch: state.work.branch, message, ops })
       });
-      ops.push({ op: 'put', path: q.targetPath, sha });
-      q.status.textContent = 'Blob stored — waiting for the commit…';
+      rememberHead(out.commit);
+      committed.push(out.commit);
+      part.forEach(q => {
+        q.item.classList.add('done'); q.fill.style.width = '100%';
+        q.status.textContent = `✦ Committed in ${String(out.commit).slice(0, 7)}${partLabel || ' (one atomic commit)'}`;
+      });
     }
-    const out = await api(`/api/repo/${wPath()}/batch`, {
-      method: 'POST', body: guardedWrite({ branch: state.work.branch, message, ops })
-    });
-    rememberHead(out.commit);
-    batchQueue.forEach(q => {
-      q.item.classList.add('done'); q.fill.style.width = '100%';
-      q.status.textContent = `✦ Committed in ${String(out.commit).slice(0, 7)} (one atomic commit)`;
-    });
-    toast(`✦ ${ops.length} files landed as one commit`, 'ok');
+    toast(plan.atomic
+      ? `✦ ${plan.total} files landed as one commit`
+      : `✦ ${plan.total} files landed as ${committed.length} commits`, 'ok');
     batchQueue.length = 0;
     updateBatchBar();
     state.fileIndex = null;
     loadTree('', $('#tree'), true);
     refreshRate();
   } catch (e) {
-    toast('Batch failed: ' + e.message, 'err');
+    /* Report what did land. A part that committed is on the branch whatever
+     * happens next, and leaving that unsaid would send someone looking for
+     * files that are already there. */
+    toast(committed.length
+      ? `Batch stopped after ${committed.length} of ${plan.commits} commits: ${e.message}`
+      : 'Batch failed: ' + e.message, 'err');
+    if (committed.length) {
+      batchQueue.splice(0, plan.groups[committed.length - 1].end);
+      updateBatchBar();
+      state.fileIndex = null;
+      loadTree('', $('#tree'), true);
+    }
   } finally { btn.disabled = false; }
 });
 
@@ -4231,7 +5276,7 @@ async function loadActions() {
     const runs = await apiCached(`/api/repo/${wPath()}/actions`, 30000);
     host.innerHTML = '';
     if (!runs.length) {
-      host.innerHTML = '<div class="card editor-empty"><div class="empty-icon">✦</div><p>No workflow runs yet.<br>Add a workflow under <span class="mono">.github/workflows/</span> to light up CI.</p></div>';
+      host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.actions}</div><p>No workflow runs yet.<br>Add a workflow under <span class="mono">.github/workflows/</span> to light up CI.</p></div>`;
       return;
     }
     runs.forEach((r, i) => {
@@ -4353,6 +5398,18 @@ function startAuthorizedApp() {
   boot();
 }
 window.addEventListener('nebula:alpha-access-granted', startAuthorizedApp);
+/*
+ * The chrome belongs to the screens, and the gate replaces them. Assigning
+ * _page does not repaint it: showPage returns early when handed the screen
+ * that is already current, which the gate paths have just made true. So an
+ * expired session left the workbench's floating action over the gate's own
+ * Continue, offering an action against a workspace that was already gone.
+ */
+window.addEventListener('nebula:alpha-access-gated', () => {
+  paintRail('alpha-access');
+  paintFloatingAction('alpha-access');
+  closeNavMenu();
+});
 window.NebulaAlphaUI.boot().then(result => {
   if (result.allowed) startAuthorizedApp();
 }).catch(() => {

@@ -1,0 +1,637 @@
+{
+  "schemaVersion": 1,
+  "project": "Nebulaverse-X",
+  "historicalIntegrityBaseline": "config/historical-document-integrity.json",
+  "documents": [
+    {
+      "path": "CHANGELOG.md",
+      "lifecycle": "entrypoint",
+      "authority": "authored-changelog",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "README.md",
+      "lifecycle": "entrypoint",
+      "authority": "authored-navigation",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/README.md",
+      "lifecycle": "entrypoint",
+      "authority": "authored-navigation",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/architecture/ALPHA17_REVIEW_DISPOSITIONS.md",
+      "lifecycle": "architecture",
+      "authority": "accepted-architecture-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/architecture/ARCHITECTURE.md",
+      "lifecycle": "architecture",
+      "authority": "accepted-architecture-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/architecture/ARCHITECTURE_DECISIONS.md",
+      "lifecycle": "architecture",
+      "authority": "accepted-architecture-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/current/CONTINUATION_PROMPT.md",
+      "lifecycle": "current",
+      "authority": "generated-from-work-continuity",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/current/PROJECT_STATE.md",
+      "lifecycle": "current",
+      "authority": "generated-from-work-continuity",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/current/PROVIDER_CAPABILITIES.md",
+      "lifecycle": "current",
+      "authority": "authored-current-contract",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/current/ROADMAP.md",
+      "lifecycle": "current",
+      "authority": "authored-current-contract",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/history/phase-0/PHASE_0_COVERAGE.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/ROADMAP.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_11_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_12_13_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_14_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_15_16_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_17_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_18_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_19_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_1_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_20_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_21_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_2_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_3_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_4_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_5_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_6_7_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_8_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/reports/PHASE_1_TASK_9_10_REPORT.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_20_STAGING_VALIDATION_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_6_7_GOVERNANCE_API_DRAFT_WORKFLOW_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/phase-1/specifications/TASK_9_10_POLICY_SIMULATION_SPEC.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/public-alpha/approved-plans/2026-07-29-controlled-hosted-public-alpha-design.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/public-alpha/approved-plans/2026-07-29-public-alpha-03-privacy-credential-lifecycle.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/public-alpha/approved-plans/2026-07-29-public-alpha-master-sequence.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/history/upgrades/UPGRADE_FROM_V5_2_1.md",
+      "lifecycle": "historical",
+      "authority": "immutable-checkpoint-record",
+      "releaseIncluded": true,
+      "immutableHistory": true
+    },
+    {
+      "path": "docs/operations/ALPHA17_LIVE_DISPATCH.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/DEPLOY_RENDER_NEON.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/SECURITY_DEPLOYMENT.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/01-service-cold-start-outage.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/02-neon-outage-quota.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/03-provider-outage-rate-limit.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/04-credential-exposure.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/05-orphan-cleanup.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/06-failed-deploy-rollback.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/07-database-backup-restore.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/08-tester-revocation-deletion.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/09-capacity-saturation.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/10-alpha-shutdown.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/operations/runbooks/OPERATOR_CHECKLIST.md",
+      "lifecycle": "operational",
+      "authority": "authored-operator-guidance",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/qualification/PUBLIC_ALPHA_COHORT_CHECKLIST.md",
+      "lifecycle": "qualification",
+      "authority": "release-qualification-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/qualification/PUBLIC_ALPHA_KNOWN_LIMITATIONS.md",
+      "lifecycle": "qualification",
+      "authority": "release-qualification-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md",
+      "lifecycle": "qualification",
+      "authority": "release-qualification-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/reference/NEURAL_COMMAND_CENTER.md",
+      "lifecycle": "current",
+      "authority": "authored-feature-reference",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/release/EVIDENCE_INDEX.md",
+      "lifecycle": "qualification",
+      "authority": "release-qualification-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/release/PUBLIC_ALPHA.md",
+      "lifecycle": "qualification",
+      "authority": "release-qualification-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/release/QUALIFICATION_BASELINE.md",
+      "lifecycle": "qualification",
+      "authority": "release-qualification-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/release/RELEASE_SECURITY_GATES.md",
+      "lifecycle": "qualification",
+      "authority": "release-qualification-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-21-github-app-foundation.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-21-phase-0-stabilization.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-22-central-mutation-gateway.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-22-governance-persistence-foundation.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-22-provider-authorization-resolver.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-22-reviewer-assignment-approval-workflow.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-23-policy-digital-twin-interface.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-23-task-20-staging-validation.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-alpha17-qualification-evidence-integrity.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-08-09-documentation-truth-architecture.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-21-github-app-foundation-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-21-phase-0-stabilization-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-22-central-mutation-gateway-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-22-governance-persistence-foundation-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-22-provider-authorization-resolver-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-22-reviewer-assignment-approval-workflow-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-22-runtime-policy-enforcement-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-23-policy-digital-twin-interface-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-23-task-20-staging-validation-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-alpha17-qualification-evidence-integrity-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/specs/2026-08-09-documentation-truth-architecture-design.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/vision/FOUNDER_VISION.md",
+      "lifecycle": "vision",
+      "authority": "authored-product-intent",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/vision/PRODUCT_VISION.md",
+      "lifecycle": "vision",
+      "authority": "authored-product-intent",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/vision/UX_VISION.md",
+      "lifecycle": "vision",
+      "authority": "authored-product-intent",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    }
+  ]
+}

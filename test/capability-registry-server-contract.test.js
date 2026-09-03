@@ -7,18 +7,29 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { hashJson } = require('../src/intelligence');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
 const {
   createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash
 } = require('../src/security-foundation');
 
 const root = path.resolve(__dirname, '..');
+const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const fixture = path.join(__dirname, 'fixtures', 'capability-provider-fetch.js');
 const port = 31000 + Math.floor(Math.random() * 1000);
 const secret = 'capability-server-test-secret-0123456789abcdef-0123456789abcdef';
-const key = crypto.createHash('sha256').update(secret).digest();
+/* The server derives a purpose-specific key per construction; mirror those
+   derivations rather than the single raw secret they replaced. */
+const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
+const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);
+const stepUpSecret = deriveSecret(secret, KEY_PURPOSES.STEP_UP_GRANT);
 const fixtureLog = path.join(os.tmpdir(), `nv-capability-provider-${process.pid}-${port}.log`);
 const focus = process.argv[2] || 'all';
 const sessionNonce = 'a'.repeat(48);
+assert.match(
+  serverSource,
+  /if \(initial\.body\) await initial\.body\.cancel\(\);\s+const location/,
+  'GitHub archive redirects must release the authenticated response body before validation and codeload'
+);
 const account = {
   provider: 'gitea',
   authMethod: 'token',
@@ -26,12 +37,111 @@ const account = {
   token: 'fixture-provider-token',
   baseUrl: 'https://gitea.example'
 };
+
+function routeRegistration(method, routePath) {
+  const prefix = `app.${method}('${routePath}'`;
+  const line = serverSource.split('\n').find(candidate => candidate.startsWith(prefix));
+  assert(line, `missing route registration: ${method.toUpperCase()} ${routePath}`);
+  return line;
+}
+
+for (const [method, routePath, feature] of [
+  ['get', '/api/rate', 'rate.read'],
+  ['get', '/api/repo/:owner/:repo/tree', 'tree.read'],
+  ['get', '/api/repo/:owner/:repo/files', 'tree.read'],
+  ['post', '/api/repo/:owner/:repo/rename', 'file.rename'],
+  ['post', '/api/repo/:owner/:repo/batch', 'file.batch'],
+  ['get', '/api/repo/:owner/:repo/pulls', 'pulls.read'],
+  ['get', '/api/repo/:owner/:repo/pulls/:num', 'pulls.read'],
+  ['post', '/api/repo/:owner/:repo/pulls', 'pulls.write'],
+  ['put', '/api/repo/:owner/:repo/pulls/:num/merge', 'pulls.write'],
+  ['post', '/api/repo/:owner/:repo/pulls/:num/reviews', 'pulls.write'],
+  ['get', '/api/repo/:owner/:repo/issues', 'issues.read'],
+  ['get', '/api/repo/:owner/:repo/issues/:num', 'issues.read'],
+  ['post', '/api/repo/:owner/:repo/issues', 'issues.write'],
+  ['post', '/api/repo/:owner/:repo/issues/:num/comments', 'issues.write'],
+  ['patch', '/api/repo/:owner/:repo/issues/:num', 'issues.write'],
+  ['get', '/api/repo/:owner/:repo/star', 'stars.read'],
+  ['put', '/api/repo/:owner/:repo/star', 'stars.write'],
+  ['delete', '/api/repo/:owner/:repo/star', 'stars.write'],
+  ['get', '/api/repo/:owner/:repo/actions/:runId/jobs', 'workflows.read'],
+  ['post', '/api/repo/:owner/:repo/actions/:runId/rerun', 'workflows.rerun'],
+  ['get', '/api/repo/:owner/:repo/actions', 'workflows.read'],
+  ['get', '/api/repo/:owner/:repo/releases', 'releases.read'],
+  ['post', '/api/repo/:owner/:repo/releases', 'releases.write'],
+  ['post', '/api/repo/:owner/:repo/move-dir', 'folder.move'],
+  ['get', '/api/repo/:owner/:repo/audit-deps', 'dependency-audit']
+]) {
+  assert(
+    routeRegistration(method, routePath).includes(`capabilityAccess('${feature}', { allowExperimental: true })`),
+    `${method.toUpperCase()} ${routePath} must explicitly opt in to evidence-bounded ${feature}`
+  );
+}
+
+for (const [method, routePath] of [
+  ['get', '/api/repo/:owner/:repo/compare'],
+  ['get', '/api/repo/:owner/:repo/snapshot'],
+  ['get', '/api/repo/:owner/:repo/refs-snapshot'],
+  ['post', '/api/repo/:owner/:repo/snapshot-compare'],
+  ['post', '/api/repo/:owner/:repo/restore-preview'],
+  ['get', '/api/repo/:owner/:repo/signed-snapshots']
+]) {
+  assert(
+    routeRegistration(method, routePath).includes("capabilityAccess('recovery', { allowExperimental: true })"),
+    `${method.toUpperCase()} ${routePath} must opt in to read-only experimental recovery`
+  );
+}
+for (const [method, routePath] of [
+  ['post', '/api/repo/:owner/:repo/revert'],
+  ['post', '/api/repo/:owner/:repo/restore'],
+  ['post', '/api/repo/:owner/:repo/restore-paths'],
+  ['post', '/api/repo/:owner/:repo/reset'],
+  ['post', '/api/repo/:owner/:repo/signed-snapshot'],
+  ['post', '/api/repo/:owner/:repo/emergency-manifest'],
+  ['post', '/api/repo/:owner/:repo/restore-refs']
+]) {
+  assert(
+    !routeRegistration(method, routePath).includes('allowExperimental: true'),
+    `${method.toUpperCase()} ${routePath} must remain blocked for experimental recovery providers`
+  );
+}
+
+function governanceRegistrations(methods) {
+  const pattern = new RegExp(
+    `\\b(?:app|router)\\s*\\.\\s*(${methods})\\s*\\(\\s*(['"])` +
+      '(\\/api\\/repo\\/:owner\\/:repo\\/governance\\/[^\'"]+)\\2',
+    'g'
+  );
+  return [...serverSource.matchAll(pattern)];
+}
+
+const governanceReadRoutes = governanceRegistrations('get');
+assert(governanceReadRoutes.length >= 15, 'governance read-route inventory unexpectedly shrank');
+function registrationHeader(match) {
+  const remainder = serverSource.slice(match.index);
+  const handlerIndex = remainder.search(/(?:async\s*)?\(\s*req\s*,\s*res\s*\)\s*=>/);
+  assert(handlerIndex >= 0, `governance route ${match[1].toUpperCase()} ${match[3]} is missing its handler`);
+  return remainder.slice(0, handlerIndex);
+}
+
+const experimentalGovernanceAccess =
+  /capabilityAccess\(\s*'governance'\s*,\s*\{\s*allowExperimental:\s*true\s*\}\s*\)/;
+assert(
+  governanceReadRoutes.every(match => experimentalGovernanceAccess.test(registrationHeader(match))),
+  'every governance GET route must explicitly opt in to experimental provider views'
+);
+const governanceMutationRoutes = governanceRegistrations('post|put|patch|delete');
+assert(governanceMutationRoutes.length >= 15, 'governance mutation-route inventory unexpectedly shrank');
+assert(
+  governanceMutationRoutes.every(match => !experimentalGovernanceAccess.test(registrationHeader(match))),
+  'governance mutations must remain blocked for providers with view-only experimental coverage'
+);
 const activeIdentityKey = hashJson({
   provider: account.provider,
   baseUrl: account.baseUrl,
   login: account.login
 });
-const csrf = createCsrfToken(secret, {
+const csrf = createCsrfToken(csrfSecret, {
   sessionBinding: sessionNonce,
   identityKey: activeIdentityKey
 });
@@ -53,7 +163,7 @@ function sessionCookie(stepUp, selectedAccount = account) {
 
 function fixtureRequests() {
   if (!fs.existsSync(fixtureLog)) return [];
-  return fs.readFileSync(fixtureLog, 'utf8').trim().split('\n').filter(Boolean);
+  return fs.readFileSync(fixtureLog, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
 }
 
 function mutationOptions(method, cookie, body, extraHeaders = {}) {
@@ -135,8 +245,11 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       const githubProjection = await request('/api/capabilities?provider=github');
       assert.strictEqual(githubProjection.status, 200);
       const github = await githubProjection.json();
-      for (const feature of ['branches.write', 'file.rename', 'stars.read', 'stars.write']) {
-        assert.strictEqual(github.features[feature].status, 'Supported', `${feature} must remain supported for GitHub`);
+      assert.strictEqual(github.features['branches.write'].status, 'Supported');
+      assert.strictEqual(github.features['branches.write'].evidenceState, 'Provider-verified');
+      for (const feature of ['file.rename', 'stars.read', 'stars.write']) {
+        assert.strictEqual(github.features[feature].status, 'Experimental', `${feature} must remain evidence-bounded for GitHub`);
+        assert.strictEqual(github.features[feature].evidenceState, 'Inferred');
       }
 
       const routeCases = [
@@ -224,7 +337,7 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
         expiresAt: Date.now() + 300000,
         assurance: 'credential'
       };
-      const stepUpGrant = createStepUpGrant(secret, {
+      const stepUpGrant = createStepUpGrant(stepUpSecret, {
         sessionBinding: sessionNonce,
         identityKey: activeIdentityKey,
         action: resetOperation.action,
@@ -251,7 +364,7 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       assert.deepStrictEqual(activityBody.issues, []);
       assert.deepStrictEqual(activityBody.releases, []);
       assert.deepStrictEqual(
-        fixtureRequests().slice(before.length).map(line => new URL(line.slice(line.indexOf(' ') + 1)).pathname),
+        fixtureRequests().slice(before.length).map(entry => new URL(entry.url).pathname),
         ['/api/v1/repos/Acme/Demo/commits'],
         'activity must transport only provider-supported feature subsets'
       );
@@ -276,7 +389,7 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       assert.strictEqual(detail.files[0].filename, 'README.md');
 
       assert.deepStrictEqual(
-        fixtureRequests().slice(before.length).map(line => new URL(line.slice(line.indexOf(' ') + 1)).pathname),
+        fixtureRequests().slice(before.length).map(entry => new URL(entry.url).pathname),
         [
           '/api/v1/repos/Acme/Demo/commits',
           `/api/v1/repos/Acme/Demo/commits/${'1'.repeat(40)}`
@@ -296,9 +409,10 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       assert.strictEqual(raw.status, 409, rawText);
       assert.strictEqual(rawBody.code, 'PROVIDER_CAPABILITY_UNAVAILABLE');
       const rawTransport = fixtureRequests().slice(before.length);
-      assert.strictEqual(rawTransport.length, 1, `unexpected raw transports: ${rawTransport.join(', ')}`);
-      assert.match(rawTransport[0], /^GET https:\/\/gitea\.example\//);
-      assert(!rawTransport.some(line => line.includes('github.com')), 'Gitea credentials must never reach GitHub LFS');
+      assert.strictEqual(rawTransport.length, 1, `unexpected raw transports: ${JSON.stringify(rawTransport)}`);
+      assert.strictEqual(rawTransport[0].method, 'GET');
+      assert.match(rawTransport[0].url, /^https:\/\/gitea\.example\//);
+      assert(!rawTransport.some(entry => entry.url.includes('github.com')), 'Gitea credentials must never reach GitHub LFS');
 
       const githubAccount = {
         provider: 'github',
@@ -314,7 +428,38 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       assert.strictEqual(await githubRaw.text(), 'fixture bytes');
     }
 
-    const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+    if (focus === 'all' || focus === 'redirects') {
+      const before = fixtureRequests();
+      const githubAccount = {
+        provider: 'github',
+        authMethod: 'token',
+        login: 'fixture-user',
+        token: 'fixture-github-token',
+        baseUrl: ''
+      };
+      const archive = await request('/api/repo/Acme/Demo/zip?ref=main', {
+        headers: { cookie: sessionCookie(null, githubAccount) }
+      });
+      assert.strictEqual(archive.status, 200);
+      assert.strictEqual(await archive.text(), 'zip-fixture');
+      assert.deepStrictEqual(
+        fixtureRequests().slice(before.length),
+        [
+          {
+            method: 'GET',
+            url: 'https://api.github.com/repos/Acme/Demo/zipball/main',
+            hasAuthorization: true
+          },
+          {
+            method: 'GET',
+            url: 'https://codeload.github.com/Acme/Demo/legacy.zip/refs/heads/main',
+            hasAuthorization: false
+          }
+        ],
+        'archive download must use one validated credential-free codeload hop'
+      );
+    }
+
     assert(serverSource.includes("require('./src/capability-registry')"));
     assert(!/const CAPS\s*=/.test(serverSource), 'legacy CAPS table must not remain an independent truth source');
     console.log('capability registry server contract tests passed');

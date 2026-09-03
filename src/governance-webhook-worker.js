@@ -59,6 +59,7 @@ function sendPinnedHttpsWebhook(input = {}) {
   }
   const parsed = new URL(destination.url);
   const selected = destination.addresses[0];
+  const requestImpl = typeof input.requestImpl === 'function' ? input.requestImpl : https.request;
   const timeoutMs = Number.isInteger(input.timeoutMs) ? Math.min(Math.max(input.timeoutMs, 1000), 30_000) : DEFAULT_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -67,7 +68,7 @@ function sendPinnedHttpsWebhook(input = {}) {
       settled = true;
       callback(value);
     };
-    const request = https.request({
+    const request = requestImpl({
       protocol: 'https:',
       hostname: parsed.hostname,
       port: 443,

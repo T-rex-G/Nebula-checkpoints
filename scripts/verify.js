@@ -12,6 +12,9 @@ const renderReleaseTemplate = value => value
 const must = (cond, msg) => { if (!cond) throw new Error(msg); };
 
 const required = [
+  'config/historical-document-integrity.json',
+  'src/work-continuity.js', 'scripts/generate-continuity-docs.js', 'scripts/resume-work.js',
+  'test/continuity-generation.test.js',
   'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
   'db/migrations/014_alpha_access.sql', 'test/alpha-access.test.js',
   'test/alpha-access-persistence-contract.test.js', 'test/alpha-access-store.test.js',
@@ -31,38 +34,75 @@ const required = [
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
   'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js',
-  'docs/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
+  'docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
+  'src/secret-scanner.js', 'scripts/check-secrets.js',
+  'src/release-fingerprint.js', 'test/release-fingerprint.test.js',
+  'src/qualification-evidence.js', 'src/public-alpha-qualification.js',
+  'scripts/public-alpha-gate.js', 'scripts/qualify-candidate-archive.js',
+  'staging/PUBLIC_ALPHA_EVIDENCE_TEMPLATE.json',
+  'test/helpers/public-alpha-pass-fixture.js',
+  'test/public-alpha-qualification.test.js',
+  'test/public-alpha-qualification-contract.test.js',
+  'test/public-alpha-gate-cli.test.js',
+  'test/secret-scanner.test.js', 'test/qualify-candidate-archive.test.js',
+  'ci/provider-alpha17-common.js', 'ci/alpha17-fixtures.js',
+  'ci/run-github-alpha17-validation.js',
+  'ci/run-gitlab-alpha17-validation.js',
+  'ci/run-gitea-alpha17-validation.js',
+  'ci/run-hosted-alpha17-validation.js',
+  'ci/alpha17-json.js',
+  'ci/alpha17-restore-attestation.js',
+  'ci/run-alpha17-restore-validation.js',
+  'ci/verify-alpha17-authorization.js',
+  'test/alpha17-provider-harness.test.js',
+  'test/alpha17-hosted-harness.test.js',
+  'test/alpha17-restore-runner.test.js',
+  'test/public-alpha-workflow-contract.test.js',
+  '.github/workflows/public-alpha-alpha17.yml',
+  'docs/qualification/PUBLIC_ALPHA_KNOWN_LIMITATIONS.md',
+  'docs/qualification/PUBLIC_ALPHA_COHORT_CHECKLIST.md',
   'src/hosted-readiness.js', 'src/backup-format.js',
   'scripts/alpha-db.js', 'scripts/alpha-smoke.js', 'scripts/alpha-load.js',
   'test/hosted-readiness.test.js', 'test/hosted-readiness-server-contract.test.js',
   'test/backup-format.test.js', 'test/alpha-db-cli.test.js',
   'test/alpha-smoke.test.js', 'test/alpha-load.test.js',
   'test/render-public-alpha-contract.test.js', 'test/runbook-contract.test.js',
-  'docs/runbooks/01-service-cold-start-outage.md',
-  'docs/runbooks/02-neon-outage-quota.md',
-  'docs/runbooks/03-provider-outage-rate-limit.md',
-  'docs/runbooks/04-credential-exposure.md',
-  'docs/runbooks/05-orphan-cleanup.md',
-  'docs/runbooks/06-failed-deploy-rollback.md',
-  'docs/runbooks/07-database-backup-restore.md',
-  'docs/runbooks/08-tester-revocation-deletion.md',
-  'docs/runbooks/09-capacity-saturation.md',
-  'docs/runbooks/10-alpha-shutdown.md',
-  'docs/runbooks/OPERATOR_CHECKLIST.md',
-  'src/provider-file-mutations.js', 'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js', 'ROADMAP.md', 'PRODUCT_VISION.md', 'PROVIDER_CAPABILITIES.md', 'ARCHITECTURE.md', 'RELEASE_SECURITY_GATES.md', 'PUBLIC_ALPHA.md', 'UX_VISION.md', 'EVIDENCE_INDEX.md', 'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js', 'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
-  'server.js', 'package.json', 'package-lock.json', 'render.yaml', 'README.md', 'PROJECT_STATE.md', 'PHASE_1_ROADMAP.md', 'ARCHITECTURE_DECISIONS.md', 'CONTINUATION_PROMPT.md', 'PHASE_1_TASK_5_REPORT.md', 'PHASE_1_TASK_6_7_REPORT.md', 'PHASE_1_TASK_8_REPORT.md', 'TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md', 'PHASE_1_TASK_9_10_REPORT.md', 'TASK_9_10_POLICY_SIMULATION_SPEC.md', 'PHASE_1_TASK_11_REPORT.md', 'TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md', 'PHASE_1_TASK_12_13_REPORT.md', 'TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md', 'PHASE_1_TASK_14_REPORT.md', 'TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md', 'PHASE_1_TASK_15_16_REPORT.md', 'TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md', 'PHASE_1_TASK_17_REPORT.md', 'TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md', 'PHASE_1_TASK_18_REPORT.md', 'TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md', 'PHASE_1_TASK_19_REPORT.md', 'TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md', 'PHASE_1_TASK_20_REPORT.md', 'TASK_20_STAGING_VALIDATION_SPEC.md', 'PHASE_1_TASK_21_REPORT.md', 'docs/superpowers/specs/2026-07-22-provider-authorization-resolver-design.md', 'docs/superpowers/plans/2026-07-22-provider-authorization-resolver.md',
+  'docs/operations/runbooks/01-service-cold-start-outage.md',
+  'docs/operations/runbooks/02-neon-outage-quota.md',
+  'docs/operations/runbooks/03-provider-outage-rate-limit.md',
+  'docs/operations/runbooks/04-credential-exposure.md',
+  'docs/operations/runbooks/05-orphan-cleanup.md',
+  'docs/operations/runbooks/06-failed-deploy-rollback.md',
+  'docs/operations/runbooks/07-database-backup-restore.md',
+  'docs/operations/runbooks/08-tester-revocation-deletion.md',
+  'docs/operations/runbooks/09-capacity-saturation.md',
+  'docs/operations/runbooks/10-alpha-shutdown.md',
+  'docs/operations/runbooks/OPERATOR_CHECKLIST.md',
+  'src/provider-file-mutations.js', 'src/snapshot-signatures.js', 'test/snapshot-signatures.test.js', 'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js', 'docs/current/ROADMAP.md', 'docs/vision/PRODUCT_VISION.md', 'docs/current/PROVIDER_CAPABILITIES.md', 'docs/architecture/ARCHITECTURE.md', 'docs/release/RELEASE_SECURITY_GATES.md', 'docs/release/PUBLIC_ALPHA.md', 'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md', 'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js', 'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
+  'server.js', 'package.json', 'package-lock.json', 'render.yaml', 'README.md', 'docs/README.md', 'docs/DOCUMENTATION_MANIFEST.json', 'docs/current/PROJECT_STATE.md', 'docs/history/phase-1/ROADMAP.md', 'docs/architecture/ARCHITECTURE_DECISIONS.md', 'docs/current/CONTINUATION_PROMPT.md', 'docs/history/phase-1/reports/PHASE_1_TASK_5_REPORT.md', 'docs/history/phase-1/reports/PHASE_1_TASK_6_7_REPORT.md', 'docs/history/phase-1/reports/PHASE_1_TASK_8_REPORT.md', 'docs/history/phase-1/specifications/TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_9_10_REPORT.md', 'docs/history/phase-1/specifications/TASK_9_10_POLICY_SIMULATION_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_11_REPORT.md', 'docs/history/phase-1/specifications/TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_12_13_REPORT.md', 'docs/history/phase-1/specifications/TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_14_REPORT.md', 'docs/history/phase-1/specifications/TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_15_16_REPORT.md', 'docs/history/phase-1/specifications/TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_17_REPORT.md', 'docs/history/phase-1/specifications/TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_18_REPORT.md', 'docs/history/phase-1/specifications/TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_19_REPORT.md', 'docs/history/phase-1/specifications/TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_20_REPORT.md', 'docs/history/phase-1/specifications/TASK_20_STAGING_VALIDATION_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_21_REPORT.md', 'docs/superpowers/specs/2026-07-22-provider-authorization-resolver-design.md', 'docs/superpowers/plans/2026-07-22-provider-authorization-resolver.md',
   'public/index.html', 'public/governance-ui.js', 'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js', 'public/app.js', 'public/neural.js', 'public/style.css', 'public/sw.js',
   'src/intelligence.js', 'src/file-security.js', 'src/config.js', 'src/version.js', 'src/migrations.js', 'src/security-foundation.js', 'src/authorization-resolver.js', 'src/github-app.js', 'src/provider-credentials.js', 'src/governance-model.js', 'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js', 'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/staging-validation.js', 'src/test-matrix.js', 'db/migrations/001_sessions.sql', 'db/migrations/002_security.sql', 'db/migrations/003_intelligence.sql', 'db/migrations/004_recovery.sql', 'db/migrations/005_evidence.sql', 'db/migrations/006_github_app.sql', 'db/migrations/007_governance.sql', 'db/migrations/008_governance_drafts.sql', 'db/migrations/009_governance_reviews.sql', 'db/migrations/010_governance_activation_evidence.sql', 'db/migrations/011_governance_policy_decisions.sql', 'db/migrations/013_governance_notifications_exports.sql', 'db/migrations/012_governance_exceptions.sql', 'scripts/copy-vendor.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'staging/TASK_20_EVIDENCE_TEMPLATE.json', 'playwright.config.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'test/staging-validation.test.js', 'test/staging-validation-contract.test.js', 'test/staging-validation-cli.test.js', 'test/test-matrix.test.js', 'test/intelligence.test.js', 'test/config-startup.test.js', 'test/archive-safety.test.js', 'test/export-safety.test.js', 'test/file-security.test.js', 'test/hardening-contract.test.js', 'test/security-foundation.test.js', 'test/security-foundation-contract.test.js', 'test/security-foundation-server.test.js', 'test/authorization-resolver.test.js', 'test/authorization-resolver-server-contract.test.js', 'test/governance-model.test.js', 'test/governance-persistence-contract.test.js', 'test/governance-store.test.js', 'test/governance-review-model.test.js', 'test/governance-review-persistence-contract.test.js', 'test/governance-review-store.test.js', 'test/governance-review-api.test.js', 'test/governance-templates.test.js', 'test/governance-digital-twin.test.js', 'test/governance-digital-twin-store.test.js', 'test/governance-template-digital-twin-api.test.js', 'test/governance-template-digital-twin-server-contract.test.js', 'test/governance-interface-access.test.js', 'test/governance-interface-server-contract.test.js', 'test/governance-interface-renderer.test.js', 'test/governance-interface-client-contract.test.js', 'test/governance-interface-workflow-contract.test.js', 'test/governance-interface-ui-contract.test.js', 'test/mutation-coverage.test.js', 'test/mutation-coverage-server-contract.test.js', 'test/mutation-gateway-execution.test.js', 'test/server-smoke.test.js',
-  'public/vendor/codemirror/5.65.16/codemirror.min.js', 'public/vendor/marked/15.0.12/marked.min.js', 'public/vendor/dompurify/3.4.12/purify.min.js'
+  'public/vendor/codemirror/5.65.16/codemirror.min.js', 'public/vendor/marked/15.0.12/marked.min.js', 'public/vendor/dompurify/3.4.13/purify.min.js'
 ];
 for (const file of required) must(fs.existsSync(path.join(root, file)), `Missing ${file}`);
 
 for (const file of [
-  'server.js', 'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
+  'server.js', 'src/work-continuity.js', 'scripts/generate-continuity-docs.js',
+  'scripts/resume-work.js', 'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
   'src/alpha-privacy.js', 'src/alpha-privacy-store.js', 'src/provider-disconnect.js',
   'scripts/alpha-privacy.js', 'src/public-errors.js',
   'src/hosted-readiness.js', 'src/backup-format.js',
   'scripts/alpha-db.js', 'scripts/alpha-smoke.js', 'scripts/alpha-load.js',
+  'src/secret-scanner.js', 'scripts/check-secrets.js', 'src/snapshot-signatures.js',
+  'src/release-fingerprint.js',
+  'src/qualification-evidence.js', 'src/public-alpha-qualification.js',
+  'scripts/public-alpha-gate.js', 'scripts/qualify-candidate-archive.js',
+  'ci/provider-alpha17-common.js', 'ci/alpha17-fixtures.js',
+  'ci/run-github-alpha17-validation.js', 'ci/run-gitlab-alpha17-validation.js',
+  'ci/run-gitea-alpha17-validation.js', 'ci/run-hosted-alpha17-validation.js',
+  'ci/alpha17-json.js', 'ci/alpha17-restore-attestation.js',
+  'ci/run-alpha17-restore-validation.js',
+  'ci/verify-alpha17-authorization.js',
   'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js',
   'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
   'public/app.js', 'public/governance-ui.js', 'public/neural.js'
@@ -112,12 +152,33 @@ for (const program of accessPrograms) {
 for (const source of ['src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js']) {
   must(pkg.scripts?.['check:syntax']?.includes(`node --check ${source}`), `Syntax gate missing ${source}`);
 }
+const qualificationTests = [
+  'test/public-alpha-qualification.test.js',
+  'test/public-alpha-qualification-contract.test.js',
+  'test/public-alpha-gate-cli.test.js',
+  'test/alpha17-provider-harness.test.js',
+  'test/alpha17-hosted-harness.test.js',
+  'test/public-alpha-workflow-contract.test.js',
+  'test/alpha17-restore-runner.test.js'
+];
+let previousQualificationTest = -1;
+const qualificationUnitGate = `${pkg.scripts?.['test:unit'] || ''} ${pkg.scripts?.['posttest:unit'] || ''}`;
+for (const program of qualificationTests) {
+  const index = qualificationUnitGate.indexOf(`node ${program}`);
+  must(index > previousQualificationTest, `Unit gate missing or misorders ${program}`);
+  previousQualificationTest = index;
+}
+must(
+  pkg.scripts?.['test:public-alpha:matrix'] ===
+    'node scripts/test-matrix.js --require-all --require-subject --report staging/evidence/public-alpha-matrix.json',
+  'Subject-bound public-alpha matrix script is missing'
+);
 must(pkg.dependencies?.codemirror === '5.65.16', 'CodeMirror must be pinned and bundled');
 must(pkg.dependencies?.marked === '15.0.12', 'Marked must be pinned to the Node 18-compatible browser build');
-must(pkg.dependencies?.dompurify === '3.4.12', 'DOMPurify must be pinned to the audited browser build');
+must(pkg.dependencies?.dompurify === '3.4.13', 'DOMPurify must be pinned to the patched browser build');
 must(pkg.scripts?.postinstall === 'node scripts/copy-vendor.js', 'Vendor assets must be generated during deployment');
 must(html.includes('/vendor/marked/15.0.12/marked.min.js'), 'Pinned Marked browser asset is not loaded');
-must(html.includes('/vendor/dompurify/3.4.12/purify.min.js'), 'Pinned DOMPurify browser asset is not loaded');
+must(html.includes('/vendor/dompurify/3.4.13/purify.min.js'), 'Pinned DOMPurify browser asset is not loaded');
 /* version-agnostic: a stamp bump must never break the build contract */
 const at = name => html.indexOf(name);
 must(/\/archive-safety\.js\?v=\d+/.test(html), 'Secure archive validator is not loaded');
@@ -132,7 +193,15 @@ must(renderedSw.includes(stamps[0]), 'Service worker version must match the HTML
 const app = read('public/app.js');
 must(app.includes("name === 'neural'"), 'Neural tab activation hook missing');
 must(app.includes('window.NebulaNeural.deactivate'), 'Neural deactivation hook missing');
-must(app.includes("label: 'Neural Command Center'"), 'Command palette entry missing');
+/*
+ * Every destination in the workbench is reachable by name. Governance had no
+ * entry here at all while every other one did, which is how the surface that
+ * is hardest to see in the tab strip came to be the one that could not be
+ * jumped to either.
+ */
+for (const destination of ['Neural', 'Governance', 'Pull requests', 'Issues', 'Releases', 'Compare branches', 'Commits', 'Actions (CI)']) {
+  must(app.includes(`label: '${destination}'`), `Command palette entry missing for ${destination}`);
+}
 
 const server = read('server.js');
 must(server.includes("/api/security/sessions"), 'Session inventory endpoint missing');
@@ -173,7 +242,17 @@ must(offlinePolicy.includes("const CACHE_SCHEMA = 'v1'") && offlinePolicy.includ
 must(sw.includes("key === 'nv-api-perm'") && sw.includes("key === 'nv-api'"), 'Service worker upgrades must delete legacy shared API caches');
 must(server.includes('/hooks/github/:hookId') && server.includes('verifyGithubSignature'), 'Verified GitHub webhook intake is missing');
 must(server.includes("object-src 'none'") && server.includes("base-uri 'none'"), 'CSP active-content restrictions are incomplete');
-must(server.includes('VENDOR_ALLOWLIST') && server.includes('GFONTS_ALLOWLIST'), 'Vendor proxy allowlists are missing');
+must(server.includes('VENDOR_ALLOWLIST'), 'The vendor proxy allowlist is missing');
+/*
+ * Typefaces were proxied from Google through an allowlisted route, so every
+ * reader's address reached a third party, an offline session lost the faces,
+ * and the proxied bytes were absent from the archive whose fingerprint the
+ * hosted gate verifies. They are served from this origin now, so the stronger
+ * property is that no font proxy exists at all.
+ */
+must(!/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/.test(server), 'A stylesheet font proxy has returned');
+must(!/\/gstatic|fonts\.gstatic/.test(server), 'A font-file proxy has returned');
+must(server.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hosted interface faces are not served');
 must(server.includes("path.join(__dirname, 'public', 'vendor')") && server.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
 must(server.includes('allowWebhookRequest') && server.includes('Webhook delivery rate exceeded'), 'Webhook abuse limiter is missing');
 must(server.includes('/readyz'), 'Readiness endpoint is missing');
@@ -220,6 +299,15 @@ must(stagingValidation.includes('evidence requires at least one artifact file') 
 must(read('scripts/staging-gate.js').includes('NV_STAGING_SUBJECT_SHA256') && read('scripts/staging-gate.js').includes('versioned object envelope') && read('scripts/staging-gate.js').includes('artifact hash mismatch'), 'Task 20 staging CLI is not fail-closed');
 must(read('scripts/test-matrix.js').includes('--allow-missing-dependencies') && read('src/test-matrix.js').includes('runTestMatrix'), 'Task 20 independent test matrix is missing');
 const task20Browser = read('test/e2e/task20-accessibility.spec.js');
-for (const signal of ['Shift+Tab', 'toBeFocused', 'setOffline(true)', "unroute('**/api/**')", 'data-act="governance"']) must(task20Browser.includes(signal), `Task 20 browser behavior missing: ${signal}`);
+/*
+ * The governance workspace used to be reached by a data attribute, so this
+ * asked for that attribute by name. The spec reaches it by the name a reader
+ * reads instead, which is what has to keep being covered -- the destination and
+ * the keyboard and offline behaviour around it, not the selector that finds it.
+ */
+for (const signal of [
+  'Shift+Tab', 'toBeFocused', 'setOffline(true)', "unroute('**/api/**')",
+  "getByRole('region', { name: 'Governance' })", 'openGovernance'
+]) must(task20Browser.includes(signal), `Task 20 browser behavior missing: ${signal}`);
 
 console.log('Nebulaverse-X build verification passed.');

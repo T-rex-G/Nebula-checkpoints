@@ -53,7 +53,14 @@ assert(/const canRestore = [^;]+!protectedPatternsForReq\(req\)\.length[^;]+!saf
 assert(server.includes('/emergency-manifest'), 'Signed emergency manifest endpoint is missing');
 assert(server.includes('scanUploadFile') && server.includes('MALWARE_DETECTED'), 'Upload malware signature gate is not enforced');
 assert(server.includes('/api/security/scanner-status'), 'Scanner status endpoint is missing');
-assert(server.includes('readBoundedResponse') && server.includes('FONT_ASSET_RX'), 'Public font/vendor proxy responses must be path-restricted and size-bounded');
+/*
+ * FONT_ASSET_RX bounded the font-file proxy's path. That proxy is gone --
+ * typefaces are served from this origin -- so the surviving outbound path is
+ * the vendor CDN fallback, which must stay allowlisted and size-bounded.
+ */
+assert(server.includes('readBoundedResponse'), 'Outbound vendor responses must be size-bounded');
+assert(server.includes('VENDOR_ALLOWLIST.has(p)'), 'The vendor proxy must serve allowlisted paths only');
+assert(!server.includes('FONT_ASSET_RX'), 'The font-file proxy must stay removed');
 
 assert(/restore-paths[\s\S]+enforceProtectedPaths\(req, matches\.map\(item => item\.path\)\)/.test(server), 'Restore-paths must enforce policies against every restored child path');
 assert(/move-dir[\s\S]+enforceProtectedPaths\(req, affectedPaths\)/.test(server), 'Folder moves must enforce policies against source and destination child paths');

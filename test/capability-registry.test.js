@@ -89,6 +89,7 @@ assert.throws(
   'a verified fallback must be rejected before an unknown feature is resolved'
 );
 
+const registryDocument = require('../config/public-alpha-capabilities.json');
 const document = loadCapabilityDocument(path.join(__dirname, '..', 'config', 'public-alpha-capabilities.json'));
 assert.strictEqual(document.schemaVersion, '1.0.0');
 assert.deepStrictEqual(document.statuses, ['Supported', 'Experimental', 'Unavailable']);
@@ -100,7 +101,37 @@ const githubWrite = resolveCapability(document, {
 assert.strictEqual(githubWrite.status, 'Supported');
 assert.strictEqual(githubWrite.evidenceState, 'Provider-verified');
 
-const githubRate = assertCapabilityAvailable(document, {
+/*
+ * The experimental opt-in, shown on whichever capability is still
+ * experimental rather than on a named one.
+ *
+ * Naming one meant rewriting this test every time the live harness promoted
+ * it -- rate.read, then pulls.read -- and a promoted capability cannot stand
+ * for the unpromoted case. Reading the registry keeps the demonstration
+ * honest as the set shrinks, and says so when it finally empties.
+ */
+const experimentalFeature = Object.entries(registryDocument.providers.github['hosted-alpha'])
+  .find(([, tuple]) => tuple[0] === 'Experimental');
+assert(
+  experimentalFeature,
+  'no GitHub capability is experimental any more; this demonstration needs rewriting'
+);
+const githubExperimentalContext = {
+  provider: 'github', authority: 'github.com', deployment: 'hosted-alpha', feature: experimentalFeature[0]
+};
+const githubExperimental = resolveCapability(document, githubExperimentalContext);
+assert.strictEqual(githubExperimental.status, 'Experimental');
+assert.strictEqual(githubExperimental.evidenceState, 'Inferred');
+assert.throws(
+  () => assertCapabilityAvailable(document, githubExperimentalContext),
+  error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_EXPERIMENTAL'
+);
+assert.strictEqual(
+  assertCapabilityAvailable(document, { ...githubExperimentalContext, allowExperimental: true }).status,
+  'Experimental'
+);
+
+const githubRate = resolveCapability(document, {
   provider: 'github', authority: 'github.com', deployment: 'hosted-alpha', feature: 'rate.read'
 });
 assert.strictEqual(githubRate.status, 'Supported');

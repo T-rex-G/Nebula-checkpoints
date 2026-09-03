@@ -103,7 +103,7 @@
   }
   function renderError(message) {
     return `<section class="gov-shell gov-state" role="alert">
-      <div class="gov-state-orb danger" aria-hidden="true">!</div>
+      <div class="gov-state-orb danger" aria-hidden="true"><svg class="gov-orb-mark" viewBox="0 0 24 24"><path d="M12 4.2a7.8 7.8 0 1 1 0 15.6 7.8 7.8 0 0 1 0-15.6z"/><path d="M12 8.2v4.6"/><path d="M12 15.6v.2"/></svg></div>
       <h2>Governance evidence unavailable</h2>
       <p>${escapeHtml(message || 'The Policy Digital Twin could not be loaded.')}</p>
       <button type="button" class="btn btn-primary small" data-gov-action="refresh">Retry</button>
@@ -111,7 +111,7 @@
   }
   function renderEmpty(access) {
     return `<section class="card gov-empty">
-      <div class="gov-state-orb" aria-hidden="true">◇</div>
+      <div class="gov-state-orb" aria-hidden="true"><svg class="gov-orb-mark" viewBox="0 0 24 24"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M12 9v3.4"/><path d="M12 15.4v.2"/></svg></div>
       <h3>No governance policy yet</h3>
       <p>Create a policy from a repository baseline or start with an empty policy. Nothing is activated automatically.</p>
       ${access.capabilities.author ? `<div class="gov-actions">${actionButton('create-policy', 'Create policy', {}, 'primary')}${actionButton('generate-baseline', 'Generate baseline')}</div>` : '<p class="hint">Repository write access is required to create governance policy drafts.</p>'}

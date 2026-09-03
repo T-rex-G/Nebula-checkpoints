@@ -1,0 +1,595 @@
+name: Nebulaverse-X alpha.17 qualification
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_github:
+        description: Run GitHub disposable-provider qualification
+        required: true
+        default: false
+        type: boolean
+      run_gitlab:
+        description: Run GitLab disposable-provider qualification
+        required: true
+        default: false
+        type: boolean
+      run_gitea:
+        description: Run Gitea disposable-provider qualification
+        required: true
+        default: false
+        type: boolean
+      run_hosted:
+        description: Run hosted operational qualification
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpha17-qualification-${{ github.event_name == 'workflow_dispatch' && 'live-shared-targets' || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  automated:
+    runs-on: ubuntu-24.04
+    # The runtime matrix runs every test program it discovers, and one of them
+    # applies the migrations to a real server. ci.yml gives that program a
+    # database; this job did not, so the matrix reported it as a failure and
+    # the qualification could never start. The service is the same one, because
+    # a migration proven in one gate and excused in another is not proven.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # -U postgres because pg_isready defaults to the OS user, which is root
+        # inside this container. Without it the probe asks for a role that does
+        # not exist, never reports healthy, and the job dies during service
+        # setup without running a step.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    # Bound to the job, not to one step.
+    #
+    # Two different steps need it and only one had it. The matrix runs the
+    # migration program directly; the packaging step runs it again inside the
+    # extracted candidate, through a qualifier that builds the candidate's
+    # environment from this step's own. Giving it to the matrix alone let the
+    # first pass and the second fail, which is exactly what happened.
+    env:
+      NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    outputs:
+      subject_sha256: ${{ steps.freeze.outputs.subject_sha256 }}
+      source_commit: ${{ steps.freeze.outputs.source_commit }}
+      source_parent: ${{ steps.freeze.outputs.source_parent }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+      - name: Bind Playwright cache for extracted-candidate qualification
+        shell: bash
+        run: |
+          playwright_browsers="${RUNNER_TEMP}/ms-playwright"
+          mkdir -p "${playwright_browsers}"
+          printf 'PLAYWRIGHT_BROWSERS_PATH=%s\n' "${playwright_browsers}" >> "${GITHUB_ENV}"
+      - name: Verify full-history continuity precondition
+        run: node scripts/resume-work.js --require-clean --json > /dev/null
+      - run: npm ci
+      - run: npm run docs:check
+      - run: npm run check:syntax
+      - run: npm run lint
+      - run: npm run check:secrets
+      - run: npm audit --omit=dev --audit-level=high
+      - name: Classify development audit without raw advisory upload
+        shell: bash
+        run: |
+          npm audit --json > "${RUNNER_TEMP}/development-audit.raw.json" || true
+          node -e '
+            const fs = require("fs");
+            const raw = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/development-audit.raw.json", "utf8"));
+            const counts = raw.metadata && raw.metadata.vulnerabilities || {};
+            fs.mkdirSync(process.env.RUNNER_TEMP + "/automated-evidence", { recursive: true });
+            fs.writeFileSync(
+              process.env.RUNNER_TEMP + "/automated-evidence/development-audit.json",
+              JSON.stringify({ schemaVersion: "1.0.0", counts }, null, 2) + "\n",
+              { mode: 0o600 }
+            );
+          '
+      - run: npm run test:runtime:matrix
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Build candidate twice and freeze bytes
+        id: freeze
+        shell: bash
+        run: |
+          npm run package:release -- "${RUNNER_TEMP}/build-a"
+          npm run package:release -- "${RUNNER_TEMP}/build-b"
+          archive_a="${RUNNER_TEMP}/build-a/Nebulaverse-X-v5.3.0-alpha.17.0.zip"
+          archive_b="${RUNNER_TEMP}/build-b/Nebulaverse-X-v5.3.0-alpha.17.0.zip"
+          cmp "${archive_a}" "${archive_b}"
+          subject_sha256="$(sha256sum "${archive_a}" | cut -d' ' -f1)"
+          echo "${subject_sha256}  ${archive_a}" | sha256sum -c -
+          node scripts/qualify-candidate-archive.js \
+            --archive "${archive_a}" \
+            --comparison-archive "${archive_b}" \
+            --sha256 "${subject_sha256}" \
+            --extract-dir "${RUNNER_TEMP}/candidate-extracted" \
+            --report "${RUNNER_TEMP}/automated-evidence/public-alpha-matrix.json" \
+            --browser-report "${RUNNER_TEMP}/automated-evidence/playwright.json" \
+            --evidence "${RUNNER_TEMP}/automated-evidence/automated.json" \
+            --source-commit "$(git rev-parse HEAD)" \
+            --origin-id "workflow-${GITHUB_RUN_ID}-automated"
+          cp "${archive_a}" "${RUNNER_TEMP}/Nebulaverse-X-v5.3.0-alpha.17.0.zip"
+          printf '%s\n' "${subject_sha256}" > "${RUNNER_TEMP}/automated-evidence/subject.sha256"
+          echo "subject_sha256=${subject_sha256}" >> "${GITHUB_OUTPUT}"
+          echo "source_commit=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          echo "source_parent=$(git rev-parse HEAD^)" >> "${GITHUB_OUTPUT}"
+      - run: node scripts/check-secrets.js
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alpha17-automated-evidence
+          path: ${{ runner.temp }}/automated-evidence
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alpha17-candidate
+          path: ${{ runner.temp }}/Nebulaverse-X-v5.3.0-alpha.17.0.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  authorize-live:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.run_github || inputs.run_gitlab || inputs.run_gitea || inputs.run_hosted)
+    needs: [automated]
+    runs-on: ubuntu-24.04
+    outputs:
+      envelope_hash: ${{ steps.authorize.outputs.envelope_hash }}
+      github_target_sha256: ${{ steps.authorize.outputs.github_target_sha256 }}
+      gitlab_target_sha256: ${{ steps.authorize.outputs.gitlab_target_sha256 }}
+      gitea_target_sha256: ${{ steps.authorize.outputs.gitea_target_sha256 }}
+      hosted_target_sha256: ${{ steps.authorize.outputs.hosted_target_sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ needs.automated.outputs.source_commit }}
+          fetch-depth: 2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+      # The run mints its own activation envelope, so nothing sensitive travels
+      # as a dispatch input. The ledger is kept because an operator holding a
+      # key can return to the signed flow by minting the envelope themselves;
+      # against a run-minted envelope it can never fire, since each run draws a
+      # fresh identifier that no earlier run can have spent.
+      - name: Restore spent-approval ledger
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/authorization-claims
+          key: alpha17-authorization-claims-${{ github.run_id }}
+          restore-keys: |
+            alpha17-authorization-claims-
+      # Minted here rather than handed in.
+      #
+      # The signed-envelope flow needs a private key, a terminal, and a
+      # twenty-minute window in which to compute a candidate digest, sign and
+      # dispatch. That is a laptop procedure, and an operator without one could
+      # not run this gate at all -- which is why, across forty-nine runs, the
+      # two that were ever dispatched at it both died inside a minute and no
+      # live job has run to this day.
+      #
+      # Every binding the verifier enforces is still built from this run's own
+      # facts and still checked: workflow, repository, dispatch ref, event,
+      # source parent and commit, candidate digest, authorized jobs, and a hash
+      # of each target's exact shape.
+      #
+      # What a self-signed envelope cannot carry is WHO approved, and on this
+      # repository nothing else carries it either. Required reviewers are an
+      # environment protection rule, and GitHub offers protection rules on a
+      # private repository only to paid plans; this one is private on a
+      # personal free account, so the environment scopes the live credentials
+      # away from this job and away from pull requests, but it approves
+      # nothing. What gates a live dispatch today is write access to this
+      # private repository and nothing more. Said plainly, because a gate
+      # described as approval that is not one is worse than no gate at all.
+      - name: Mint and verify this run's activation envelope
+        id: authorize
+        shell: bash
+        env:
+          NV_ALPHA17_EXPECTED_WORKFLOW: .github/workflows/public-alpha-alpha17.yml
+          NV_ALPHA17_EXPECTED_REPOSITORY: ${{ github.repository }}
+          NV_ALPHA17_EXPECTED_REF: ${{ github.ref }}
+          NV_ALPHA17_EXPECTED_EVENT: ${{ github.event_name }}
+          NV_ALPHA17_AUTHORIZATION_CLAIM_DIR: ${{ runner.temp }}/authorization-claims
+          NV_ALPHA17_EXPECTED_SOURCE_PARENT: ${{ needs.automated.outputs.source_parent }}
+          NV_ALPHA17_EXPECTED_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}
+          NV_ALPHA17_EXPECTED_SUBJECT_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+          NV_ALPHA17_GITHUB_REPOSITORY: ${{ vars.ALPHA17_GITHUB_REPOSITORY }}
+          NV_ALPHA17_GITHUB_API_URL: https://api.github.com
+          NV_ALPHA17_GITLAB_REPOSITORY: ${{ vars.ALPHA17_GITLAB_REPOSITORY }}
+          NV_ALPHA17_GITLAB_API_URL: https://gitlab.com/api/v4
+          NV_ALPHA17_GITEA_REPOSITORY: ${{ vars.ALPHA17_GITEA_REPOSITORY }}
+          NV_ALPHA17_GITEA_API_URL: ${{ vars.ALPHA17_GITEA_API_URL }}
+          NV_ALPHA17_HOSTED_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
+          NV_ALPHA17_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
+          NV_ALPHA17_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_ALPHA17_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
+          NV_ALPHA17_RESTORE_NEON_PROJECT_ID: ${{ vars.ALPHA17_RESTORE_NEON_PROJECT_ID }}
+          NV_ALPHA17_RESTORE_NEON_BRANCH_ID: ${{ vars.ALPHA17_RESTORE_NEON_BRANCH_ID }}
+          NV_ALPHA17_RESTORE_TARGET_KIND: isolated-neon-branch
+          NV_ALPHA17_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
+          NV_ALPHA17_RESTORE_APP_BASE_URL: ${{ vars.ALPHA17_RESTORE_APP_BASE_URL }}
+          NV_ALPHA17_RESTORE_APP_DEPLOY_ID: ${{ vars.ALPHA17_RESTORE_APP_DEPLOY_ID }}
+        run: |
+          requested_jobs=""
+          [ "${{ inputs.run_github }}" = "true" ] && requested_jobs="${requested_jobs},github"
+          [ "${{ inputs.run_gitlab }}" = "true" ] && requested_jobs="${requested_jobs},gitlab"
+          [ "${{ inputs.run_gitea }}" = "true" ] && requested_jobs="${requested_jobs},gitea"
+          [ "${{ inputs.run_hosted }}" = "true" ] && requested_jobs="${requested_jobs},hosted"
+          export NV_ALPHA17_REQUESTED_JOBS="${requested_jobs#,}"
+          mkdir -p "${NV_ALPHA17_AUTHORIZATION_CLAIM_DIR}"
+          node scripts/alpha17-authorize.js sign \
+            --ephemeral-key \
+            --repository "${NV_ALPHA17_EXPECTED_REPOSITORY}" \
+            --ref "${NV_ALPHA17_EXPECTED_REF}" \
+            --source-commit "${NV_ALPHA17_EXPECTED_SOURCE_COMMIT}" \
+            --source-parent "${NV_ALPHA17_EXPECTED_SOURCE_PARENT}" \
+            --subject-sha256 "${NV_ALPHA17_EXPECTED_SUBJECT_SHA256}" \
+            --jobs "${NV_ALPHA17_REQUESTED_JOBS}" \
+            --github-repository "${NV_ALPHA17_GITHUB_REPOSITORY}" \
+            --gitlab-repository "${NV_ALPHA17_GITLAB_REPOSITORY}" \
+            --gitea-repository "${NV_ALPHA17_GITEA_REPOSITORY}" \
+            --gitea-api-url "${NV_ALPHA17_GITEA_API_URL}" \
+            --hosted-base-url "${NV_ALPHA17_HOSTED_BASE_URL}" \
+            --render-service-id "${NV_ALPHA17_RENDER_SERVICE_ID}" \
+            --neon-project-id "${NV_ALPHA17_NEON_PROJECT_ID}" \
+            --cohort-neon-branch-id "${NV_ALPHA17_COHORT_NEON_BRANCH_ID}" \
+            --restore-neon-project-id "${NV_ALPHA17_RESTORE_NEON_PROJECT_ID}" \
+            --restore-neon-branch-id "${NV_ALPHA17_RESTORE_NEON_BRANCH_ID}" \
+            --restore-target-fingerprint "${NV_ALPHA17_RESTORE_TARGET_FINGERPRINT}" \
+            --restore-app-base-url "${NV_ALPHA17_RESTORE_APP_BASE_URL}" \
+            --restore-app-deploy-id "${NV_ALPHA17_RESTORE_APP_DEPLOY_ID}" \
+            > "${RUNNER_TEMP}/minted.json"
+          NV_ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64="$(node -e '
+            process.stdout.write(require(process.argv[1]).publicKeyBase64)
+          ' "${RUNNER_TEMP}/minted.json")"
+          export NV_ALPHA17_AUTHORIZATION_PUBLIC_KEY_BASE64
+          node -e '
+            process.stdout.write(require(process.argv[1]).authorization_token)
+          ' "${RUNNER_TEMP}/minted.json" |
+            node ci/verify-alpha17-authorization.js > "${RUNNER_TEMP}/authorization.json"
+          rm -f "${RUNNER_TEMP}/minted.json"
+          envelope_hash="$(node -e 'const v=require(process.argv[1]); process.stdout.write(v.envelopeHash)' "${RUNNER_TEMP}/authorization.json")"
+          echo "envelope_hash=${envelope_hash}" >> "${GITHUB_OUTPUT}"
+          for job_name in github gitlab gitea hosted; do
+            target_hash="$(node -e 'const v=require(process.argv[1]); process.stdout.write(v.targetHashes[process.argv[2]] || "")' "${RUNNER_TEMP}/authorization.json" "${job_name}")"
+            echo "${job_name}_target_sha256=${target_hash}" >> "${GITHUB_OUTPUT}"
+          done
+      # Saved under a run-unique key so the ledger rolls forward; a fixed key
+      # could only ever be written once and would freeze at its first entry.
+      #
+      # Runs on failure too. The verifier records the spend before returning,
+      # but the step continues afterwards to extract the envelope and target
+      # hashes; a failure in that tail would otherwise discard a spend that had
+      # already happened. Persisting on a failed verification is harmless: the
+      # directory then holds only the claims that were restored into it, and
+      # the cache action does not save an empty directory.
+      - name: Persist spent-approval ledger
+        if: always()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/authorization-claims
+          key: alpha17-authorization-claims-${{ github.run_id }}
+
+  github-live:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_github
+    needs: [automated, authorize-live]
+    runs-on: ubuntu-24.04
+    environment: alpha17-live-qualification
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: alpha17-candidate
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+      - name: Verify candidate before extraction
+        shell: bash
+        env:
+          NV_ALPHA17_CANDIDATE_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+        run: |
+          archive="${RUNNER_TEMP}/candidate/Nebulaverse-X-v5.3.0-alpha.17.0.zip"
+          printf '%s\n' "${NV_ALPHA17_CANDIDATE_SHA256}" | grep -qxE '[0-9a-f]{64}'
+          printf '%s  %s\n' "${NV_ALPHA17_CANDIDATE_SHA256}" "${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/subject"
+          unzip -q "${archive}" -d "${RUNNER_TEMP}/subject"
+      - name: Verify signed live target
+        shell: bash
+        env:
+          NV_ALPHA17_TARGET_JOB: github
+          NV_ALPHA17_TARGET_REPOSITORY: ${{ vars.ALPHA17_GITHUB_REPOSITORY }}
+          NV_ALPHA17_TARGET_API_URL: https://api.github.com
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.github_target_sha256 }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          (cd "${subject_root}" && node ci/verify-alpha17-authorization.js target)
+      - name: Run GitHub disposable gate
+        shell: bash
+        env:
+          NV_PUBLIC_ALPHA_SUBJECT_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+          NV_PUBLIC_ALPHA_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}
+          NV_ALPHA17_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          NV_ALPHA17_REPOSITORY: ${{ vars.ALPHA17_GITHUB_REPOSITORY }}
+          NV_ALPHA17_BRANCH: nvx-alpha17-${{ github.run_id }}-proof
+          NV_ALPHA17_MUTATION_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_MUTATION_CREDENTIAL }}
+          NV_ALPHA17_READ_ONLY_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_READ_ONLY_CREDENTIAL }}
+          NV_ALPHA17_GITHUB_API_URL: https://api.github.com
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.github_target_sha256 }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          mkdir -p "${subject_root}/staging/evidence"
+          (cd "${subject_root}" && node ci/run-github-alpha17-validation.js > staging/evidence/github.json)
+          (cd "${subject_root}" && node scripts/check-secrets.js)
+          cp "${subject_root}/staging/evidence/github.json" "${RUNNER_TEMP}/github.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alpha17-github-evidence
+          path: ${{ runner.temp }}/github.json
+          if-no-files-found: error
+          retention-days: 14
+
+  gitlab-live:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_gitlab
+    needs: [automated, authorize-live]
+    runs-on: ubuntu-24.04
+    environment: alpha17-live-qualification
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: alpha17-candidate
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+      - name: Verify candidate before extraction
+        shell: bash
+        env:
+          NV_ALPHA17_CANDIDATE_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+        run: |
+          archive="${RUNNER_TEMP}/candidate/Nebulaverse-X-v5.3.0-alpha.17.0.zip"
+          printf '%s\n' "${NV_ALPHA17_CANDIDATE_SHA256}" | grep -qxE '[0-9a-f]{64}'
+          printf '%s  %s\n' "${NV_ALPHA17_CANDIDATE_SHA256}" "${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/subject"
+          unzip -q "${archive}" -d "${RUNNER_TEMP}/subject"
+      - name: Verify signed live target
+        shell: bash
+        env:
+          NV_ALPHA17_TARGET_JOB: gitlab
+          NV_ALPHA17_TARGET_REPOSITORY: ${{ vars.ALPHA17_GITLAB_REPOSITORY }}
+          NV_ALPHA17_TARGET_API_URL: https://gitlab.com/api/v4
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.gitlab_target_sha256 }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          (cd "${subject_root}" && node ci/verify-alpha17-authorization.js target)
+      - name: Run GitLab disposable gate
+        shell: bash
+        env:
+          NV_PUBLIC_ALPHA_SUBJECT_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+          NV_PUBLIC_ALPHA_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}
+          NV_ALPHA17_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          NV_ALPHA17_REPOSITORY: ${{ vars.ALPHA17_GITLAB_REPOSITORY }}
+          NV_ALPHA17_BRANCH: nvx-alpha17-${{ github.run_id }}-proof
+          NV_ALPHA17_MUTATION_CREDENTIAL: ${{ secrets.ALPHA17_GITLAB_MUTATION_CREDENTIAL }}
+          NV_ALPHA17_READ_ONLY_CREDENTIAL: ${{ secrets.ALPHA17_GITLAB_READ_ONLY_CREDENTIAL }}
+          NV_ALPHA17_GITLAB_API_URL: https://gitlab.com/api/v4
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.gitlab_target_sha256 }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          mkdir -p "${subject_root}/staging/evidence"
+          (cd "${subject_root}" && node ci/run-gitlab-alpha17-validation.js > staging/evidence/gitlab.json)
+          (cd "${subject_root}" && node scripts/check-secrets.js)
+          cp "${subject_root}/staging/evidence/gitlab.json" "${RUNNER_TEMP}/gitlab.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alpha17-gitlab-evidence
+          path: ${{ runner.temp }}/gitlab.json
+          if-no-files-found: error
+          retention-days: 14
+
+  gitea-live:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_gitea
+    needs: [automated, authorize-live]
+    runs-on: ubuntu-24.04
+    environment: alpha17-live-qualification
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: alpha17-candidate
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+      - name: Verify candidate before extraction
+        shell: bash
+        env:
+          NV_ALPHA17_CANDIDATE_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+        run: |
+          archive="${RUNNER_TEMP}/candidate/Nebulaverse-X-v5.3.0-alpha.17.0.zip"
+          printf '%s\n' "${NV_ALPHA17_CANDIDATE_SHA256}" | grep -qxE '[0-9a-f]{64}'
+          printf '%s  %s\n' "${NV_ALPHA17_CANDIDATE_SHA256}" "${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/subject"
+          unzip -q "${archive}" -d "${RUNNER_TEMP}/subject"
+      - name: Verify signed live target
+        shell: bash
+        env:
+          NV_ALPHA17_TARGET_JOB: gitea
+          NV_ALPHA17_TARGET_REPOSITORY: ${{ vars.ALPHA17_GITEA_REPOSITORY }}
+          NV_ALPHA17_TARGET_API_URL: ${{ vars.ALPHA17_GITEA_API_URL }}
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.gitea_target_sha256 }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          (cd "${subject_root}" && node ci/verify-alpha17-authorization.js target)
+      - name: Run Gitea disposable gate
+        shell: bash
+        env:
+          NV_PUBLIC_ALPHA_SUBJECT_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+          NV_PUBLIC_ALPHA_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}
+          NV_ALPHA17_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          NV_ALPHA17_REPOSITORY: ${{ vars.ALPHA17_GITEA_REPOSITORY }}
+          NV_ALPHA17_BRANCH: nvx-alpha17-${{ github.run_id }}-proof
+          NV_ALPHA17_MUTATION_CREDENTIAL: ${{ secrets.ALPHA17_GITEA_MUTATION_CREDENTIAL }}
+          NV_ALPHA17_READ_ONLY_CREDENTIAL: ${{ secrets.ALPHA17_GITEA_READ_ONLY_CREDENTIAL }}
+          NV_ALPHA17_GITEA_API_URL: ${{ vars.ALPHA17_GITEA_API_URL }}
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.gitea_target_sha256 }}
+        run: |
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          mkdir -p "${subject_root}/staging/evidence"
+          (cd "${subject_root}" && node ci/run-gitea-alpha17-validation.js > staging/evidence/gitea.json)
+          (cd "${subject_root}" && node scripts/check-secrets.js)
+          cp "${subject_root}/staging/evidence/gitea.json" "${RUNNER_TEMP}/gitea.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alpha17-gitea-evidence
+          path: ${{ runner.temp }}/gitea.json
+          if-no-files-found: error
+          retention-days: 14
+
+  hosted-live:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_hosted
+    needs: [automated, authorize-live]
+    runs-on: ubuntu-24.04
+    environment: alpha17-live-qualification
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: alpha17-candidate
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ needs.automated.outputs.source_commit }}
+          path: trusted-runner
+          fetch-depth: 1
+      - name: Verify candidate before extraction
+        shell: bash
+        env:
+          NV_ALPHA17_CANDIDATE_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+        run: |
+          archive="${RUNNER_TEMP}/candidate/Nebulaverse-X-v5.3.0-alpha.17.0.zip"
+          printf '%s\n' "${NV_ALPHA17_CANDIDATE_SHA256}" | grep -qxE '[0-9a-f]{64}'
+          printf '%s  %s\n' "${NV_ALPHA17_CANDIDATE_SHA256}" "${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/subject"
+          unzip -q "${archive}" -d "${RUNNER_TEMP}/subject"
+      - name: Verify signed live target
+        shell: bash
+        env:
+          NV_ALPHA17_TARGET_JOB: hosted
+          NV_ALPHA17_TARGET_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
+          NV_ALPHA17_TARGET_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
+          NV_ALPHA17_TARGET_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_ALPHA17_TARGET_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
+          NV_ALPHA17_TARGET_RESTORE_NEON_PROJECT_ID: ${{ vars.ALPHA17_RESTORE_NEON_PROJECT_ID }}
+          NV_ALPHA17_TARGET_RESTORE_NEON_BRANCH_ID: ${{ vars.ALPHA17_RESTORE_NEON_BRANCH_ID }}
+          NV_ALPHA17_TARGET_RESTORE_TARGET_KIND: isolated-neon-branch
+          NV_ALPHA17_TARGET_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
+          NV_ALPHA17_TARGET_RESTORE_APP_BASE_URL: ${{ vars.ALPHA17_RESTORE_APP_BASE_URL }}
+          NV_ALPHA17_TARGET_RESTORE_APP_DEPLOY_ID: ${{ vars.ALPHA17_RESTORE_APP_DEPLOY_ID }}
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.hosted_target_sha256 }}
+          NV_ALPHA17_EXPECTED_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}
+        run: |
+          trusted_root="${GITHUB_WORKSPACE}/trusted-runner"
+          printf '%s\n' "${NV_ALPHA17_EXPECTED_SOURCE_COMMIT}" | grep -qxE '[0-9a-f]{40}'
+          test "$(git -C "${trusted_root}" rev-parse HEAD)" = "${NV_ALPHA17_EXPECTED_SOURCE_COMMIT}"
+          (cd "${trusted_root}" && node ci/verify-alpha17-authorization.js target)
+      - name: Install hosted runner dependencies without lifecycle scripts
+        shell: bash
+        env:
+          NPM_CONFIG_USERCONFIG: /dev/null
+        run: |
+          trusted_root="${GITHUB_WORKSPACE}/trusted-runner"
+          (cd "${trusted_root}" && npm ci --ignore-scripts --no-audit --no-fund)
+          command -v pg_dump >/dev/null
+          command -v pg_restore >/dev/null
+      - name: Run authenticated restore and hosted gate from trusted runner
+        shell: bash
+        env:
+          NV_PUBLIC_ALPHA_SUBJECT_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+          NV_PUBLIC_ALPHA_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}
+          NV_ALPHA17_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          NV_ALPHA17_WORKFLOW_REPOSITORY: ${{ github.repository }}
+          NV_ALPHA17_WORKFLOW_PATH: .github/workflows/public-alpha-alpha17.yml
+          DATABASE_URL: ${{ secrets.ALPHA17_DATABASE_URL }}
+          NV_RESTORE_DATABASE_URL: ${{ secrets.ALPHA17_RESTORE_DATABASE_URL }}
+          NV_BACKUP_KEY_BASE64: ${{ secrets.ALPHA17_BACKUP_KEY_BASE64 }}
+          NEON_API_KEY: ${{ secrets.ALPHA17_NEON_API_KEY }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+          NV_COHORT_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
+          NV_ALPHA_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
+          NV_ALPHA17_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
+          NV_ALPHA17_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_ALPHA17_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
+          NV_ALPHA17_RESTORE_NEON_PROJECT_ID: ${{ vars.ALPHA17_RESTORE_NEON_PROJECT_ID }}
+          NV_ALPHA17_RESTORE_NEON_BRANCH_ID: ${{ vars.ALPHA17_RESTORE_NEON_BRANCH_ID }}
+          NV_RESTORE_NEON_PROJECT_ID: ${{ vars.ALPHA17_RESTORE_NEON_PROJECT_ID }}
+          NV_RESTORE_NEON_BRANCH_ID: ${{ vars.ALPHA17_RESTORE_NEON_BRANCH_ID }}
+          NV_ALPHA17_RESTORE_TARGET_KIND: isolated-neon-branch
+          NV_RESTORE_TARGET_KIND: isolated-neon-branch
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.hosted_target_sha256 }}
+          NV_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
+          NV_ALPHA17_RESTORE_APP_BASE_URL: ${{ vars.ALPHA17_RESTORE_APP_BASE_URL }}
+          NV_ALPHA17_RESTORE_APP_DEPLOY_ID: ${{ vars.ALPHA17_RESTORE_APP_DEPLOY_ID }}
+          NV_ALPHA_SESSION_COOKIES: ${{ secrets.ALPHA17_SESSION_COOKIES }}
+          NV_ALPHA_MUTATION_REQUEST: ${{ secrets.ALPHA17_MUTATION_REQUEST }}
+          NV_ALPHA_CLEANUP_REQUEST: ${{ secrets.ALPHA17_CLEANUP_REQUEST }}
+          NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64: ${{ vars.ALPHA17_OPERATOR_PUBLIC_KEY_BASE64 }}
+          NV_ALPHA17_OPERATOR_KEY_ID: ${{ vars.ALPHA17_OPERATOR_KEY_ID }}
+          OPERATIONAL_RECORD_BASE64: ${{ vars.ALPHA17_OPERATIONAL_RECORD_BASE64 }}
+        run: |
+          umask 077
+          trusted_root="${GITHUB_WORKSPACE}/trusted-runner"
+          subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          operational_record="${RUNNER_TEMP}/alpha17-operational.json"
+          restore_attestation="${RUNNER_TEMP}/alpha17-restore-attestation.json"
+          # The restore runner removes its own backup directory on success and on
+          # failure, but a cancelled job never reaches that code. This trap is the
+          # layer that survives cancellation, so it clears the decryptable backup
+          # material too.
+          trap 'unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64; rm -f -- "${operational_record}" "${restore_attestation}"; rm -rf -- "${RUNNER_TEMP}"/nvx-alpha17-restore-*' EXIT
+          printf '%s' "${OPERATIONAL_RECORD_BASE64}" | base64 -d > "${operational_record}"
+          export NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64
+          NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64="$(openssl rand -base64 32)"
+          export NV_ALPHA17_RESTORE_ATTESTATION_PATH="${restore_attestation}"
+          export NV_ALPHA17_OPERATIONAL_RECORD="${operational_record}"
+          export NV_ALPHA17_RESTORE_ATTESTATION="${restore_attestation}"
+          (cd "${trusted_root}" && node ci/run-alpha17-restore-validation.js)
+          test -s "${restore_attestation}"
+          (cd "${trusted_root}" && node ci/run-hosted-alpha17-validation.js > "${RUNNER_TEMP}/hosted.json")
+          unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64
+          (cd "${trusted_root}" && node scripts/check-secrets.js)
+          (cd "${subject_root}" && node scripts/check-secrets.js)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alpha17-hosted-evidence
+          path: ${{ runner.temp }}/hosted.json
+          if-no-files-found: error
+          retention-days: 14

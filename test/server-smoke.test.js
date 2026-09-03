@@ -6,13 +6,20 @@ const { spawn } = require('child_process');
 
 const port = 22000 + Math.floor(Math.random() * 5000);
 const root = path.resolve(__dirname, '..');
+const { ASSET_VERSION } = require('../src/version');
+const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const releaseTreeSha256 = computeReleaseFingerprint(root);
+const sessionSecret = ['smoke-test', '0123456789abcdef', '0123456789abcdef'].join('-');
+const snapKey = ['smoke-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
 const child = spawn(process.execPath, ['server.js'], {
   cwd: root,
   env: {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'production',
-    SESSION_SECRET: 'smoke-test-secret-0123456789abcdef-0123456789abcdef',
+    SESSION_SECRET: sessionSecret,
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'smoke-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: snapKey,
     DATABASE_URL: ''
   },
   stdio: ['ignore', 'pipe', 'pipe']
@@ -45,9 +52,12 @@ async function waitForServer() {
 
     const health = await request('/healthz');
     assert.strictEqual(health.status, 200);
+    /* maintenance is always reported, not only when it is on, so a monitor can
+       read one field rather than infer the state from its absence. */
     assert.deepStrictEqual(await health.json(), {
       ok: true,
       service: 'alive',
+      maintenance: false,
       version: '5.3.0-alpha.17.0'
     });
     assert.match(health.headers.get('strict-transport-security') || '', /max-age=/);
@@ -61,7 +71,11 @@ async function waitForServer() {
 
     const version = await request('/api/version');
     assert.strictEqual(version.status, 200);
-    assert.deepStrictEqual(await version.json(), { version: '5.3.0-alpha.17.0', product: 'Nebulaverse-X' });
+    assert.deepStrictEqual(await version.json(), {
+      version: '5.3.0-alpha.17.0',
+      product: 'Nebulaverse-X',
+      releaseTreeSha256
+    });
 
     const config = await request('/api/config');
     assert.strictEqual(config.status, 200);
@@ -75,11 +89,11 @@ async function waitForServer() {
     assert.strictEqual(shell.status, 200);
     assert.match(await shell.text(), /Neural/i);
 
-    const archiveValidator = await request('/archive-safety.js?v=530');
+    const archiveValidator = await request(`/archive-safety.js?v=${ASSET_VERSION}`);
     assert.strictEqual(archiveValidator.status, 200);
     assert.match(await archiveValidator.text(), /NebulaArchiveSafety/);
 
-    const exportSafety = await request('/export-safety.js?v=530');
+    const exportSafety = await request(`/export-safety.js?v=${ASSET_VERSION}`);
     assert.strictEqual(exportSafety.status, 200);
     assert.match(await exportSafety.text(), /NebulaExportSafety/);
 
@@ -120,8 +134,31 @@ async function waitForServer() {
     const unknownVendor = await request('/vendor/arbitrary/1.0.0/file.js');
     assert.strictEqual(unknownVendor.status, 404);
 
-    const unknownFont = await request('/gstatic/not/an-allowlisted-font.js');
-    assert.strictEqual(unknownFont.status, 404);
+    /*
+     * Typefaces are served from this origin. The former Google Fonts proxy
+     * routes are gone, so a request for one must not resolve at all, and the
+     * vendored faces must be reachable without leaving the origin.
+     */
+    for (const removed of [
+      '/gstatic/s/dmsans/v11/abcdef.woff2',
+      '/gfonts/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap'
+    ]) {
+      /*
+       * Unmatched paths fall through to the application shell, so the removal
+       * shows as the absence of font or stylesheet bytes rather than as a 404.
+       * The second path is the exact query the old allowlist accepted, so this
+       * fails if the proxy is ever restored.
+       */
+      const response = await request(removed);
+      const type = String(response.headers.get('content-type') || '');
+      assert(
+        !/font|css/i.test(type),
+        `${removed} must not resolve to font or stylesheet bytes, got ${type}`
+      );
+    }
+
+    const servedFont = await request('/vendor/fonts/public-sans-variable-latin.woff2');
+    assert.strictEqual(servedFont.status, 200, 'the interface must serve its own body face');
 
     console.log('server smoke tests passed');
   } finally {

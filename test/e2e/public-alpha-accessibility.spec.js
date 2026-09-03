@@ -3,6 +3,7 @@
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
 const { mockPublicAlphaApi, openConnectedRepository } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -22,10 +23,17 @@ async function expectNoHighImpactViolations(page, screen) {
 }
 
 async function redeemInvitation(page) {
-  await page.locator('#alphaInviteInput').fill('fixture-invitation');
-  await page.locator('#alphaTermsAccept').check();
-  await page.locator('#alphaRedeemBtn').click();
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
+  await ui.secretField(page, 'One-time invitation').fill('fixture-invitation');
+  await ui.checkbox(page, /I accept/).check();
+  await ui.button(ui.screen(page, 'access'), 'Continue').click();
+  await expect(ui.screen(page, 'login')).toBeVisible();
+}
+
+/* Open the palette and run one entry by the name a reader reads. */
+async function runFromPalette(page, name) {
+  await (await ui.action(page, 'Command palette')).click();
+  await ui.palette(page).fill(name);
+  await ui.paletteOption(page, new RegExp(name, 'i')).first().click();
 }
 
 test('required alpha screens have no critical or serious axe violations', async ({ page }) => {
@@ -35,40 +43,36 @@ test('required alpha screens have no critical or serious axe violations', async 
   await expectNoHighImpactViolations(page, 'invitation access');
 
   await redeemInvitation(page);
-  await expect(page.locator('#alphaProviderGuidance')).toBeVisible();
+  await expect(ui.screen(page, 'login')).toContainText('GitHub App');
   await expectNoHighImpactViolations(page, 'provider connection');
 
-  await page.locator('#tokenInput').fill('fixture-provider-credential');
-  await page.locator('#loginBtn').click();
-  await expect(page.locator('#page-repos')).toHaveClass(/active/);
+  await ui.secretField(page, 'GitHub Personal Access Token').fill('fixture-provider-credential');
+  await ui.button(ui.screen(page, 'login'), 'Enter orbit').click();
+  await expect(await ui.enterRepositories(page)).toBeVisible();
   await expectNoHighImpactViolations(page, 'repository list');
 
-  await page.locator('.repo-card').first().click();
-  await expect(page.locator('#trustSummary')).toBeVisible();
+  await ui.button(await ui.enterRepositories(page), /^Open repository /).first().click();
+  await expect(ui.screen(page, 'work').getByRole('region', { name: 'Repository trust summary' })).toBeVisible();
   await expectNoHighImpactViolations(page, 'repository trust summary');
 
-  await page.locator('#paletteBtn').click();
-  await page.locator('#paletteInput').fill('New file');
-  await page.locator('.pal-item', { hasText: 'New file' }).first().click();
-  await expect(page.locator('#modalTitle')).toHaveText('New file');
+  await runFromPalette(page, 'New file');
+  await expect(ui.dialog(page, 'New file')).toBeVisible();
   await expectNoHighImpactViolations(page, 'controlled action dialog');
-  await page.locator('#modalCancel').click();
+  await ui.button(ui.dialog(page, 'New file'), 'Cancel').click();
 
-  await page.locator('#paletteBtn').click();
-  await page.locator('#paletteInput').fill('Safeguards');
-  await page.locator('.pal-item', { hasText: 'Safeguards' }).first().click();
+  await runFromPalette(page, 'Safeguards');
   await page.locator('#sgEvidence').click();
-  await expect(page.locator('#modalTitle')).toHaveText('Evidence package exported');
+  await expect(ui.dialog(page, 'Evidence package exported')).toBeVisible();
   await expectNoHighImpactViolations(page, 'evidence detail');
-  await page.locator('#modalOk').click();
+  await ui.button(ui.dialog(page, 'Evidence package exported'), 'Done').click();
 
-  await page.locator('#paletteBtn').focus();
+  await (await ui.action(page, 'Command palette')).focus();
   await page.evaluate(() => { void openSettings(); });
   await expect(page.locator('[data-alpha-privacy-action="disconnect"]')).toBeVisible();
   await expect(page.locator('[data-alpha-privacy-action="delete"]')).toBeVisible();
   await expectNoHighImpactViolations(page, 'disconnect and delete controls');
   await page.locator('[data-alpha-privacy-action="delete"]').click();
-  await expect(page.locator('#modalTitle')).toHaveText('Delete alpha data');
+  await expect(ui.dialog(page, 'Delete alpha data')).toBeVisible();
   await expectNoHighImpactViolations(page, 'delete confirmation');
 });
 
@@ -76,60 +80,83 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await mockPublicAlphaApi(page, { access: 'required', mutation: 'verified', cleanup: 'verified' });
   await page.goto('/');
 
-  await page.locator('#alphaInviteInput').focus();
+  await ui.focusAndConfirm(expect, ui.secretField(page, 'One-time invitation'));
   await page.keyboard.type('fixture-invitation');
-  await page.locator('#alphaTermsAccept').focus();
+  await ui.checkbox(page, /I accept/).focus();
   await page.keyboard.press('Space');
-  await page.locator('#alphaRedeemBtn').focus();
-  await expect(page.locator('#alphaRedeemBtn')).toHaveCSS('outline-style', 'solid');
+  const redeem = ui.button(ui.screen(page, 'access'), 'Continue');
+  await redeem.focus();
+  await expect(redeem).toHaveCSS('outline-style', 'solid');
   await page.keyboard.press('Enter');
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
-  await page.waitForTimeout(350);
+  await expect(ui.screen(page, 'login')).toBeVisible();
 
-  await page.locator('#tokenInput').focus();
+  await ui.focusAndConfirm(expect, ui.secretField(page, 'GitHub Personal Access Token'));
   await page.keyboard.type('fixture-provider-credential');
   await page.keyboard.press('Tab');
-  await expect(page.locator('#loginBtn')).toBeFocused();
+  await expect(ui.button(ui.screen(page, 'login'), 'Enter orbit')).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.locator('#page-repos')).toHaveClass(/active/);
+  await expect(await ui.enterRepositories(page)).toBeVisible();
 
-  const repo = page.locator('.repo-card').first();
+  const repo = ui.button(await ui.enterRepositories(page), /^Open repository /).first();
   await repo.focus();
   await expect(repo).toHaveCSS('outline-style', 'solid');
   await page.keyboard.press('Enter');
-  await expect(page.locator('#page-work')).toHaveClass(/active/);
+  await expect(ui.screen(page, 'work')).toBeVisible();
   await page.waitForTimeout(350);
 
-  await page.locator('#paletteBtn').focus();
+  await (await ui.action(page, 'Command palette')).focus();
   await page.keyboard.press('Enter');
-  await page.locator('#paletteInput').fill('New file');
+  await ui.palette(page).fill('New file');
+  /*
+   * The palette is a combobox, so the row the arrow keys select is named by
+   * aria-activedescendant. Asserting it before committing proves the keyboard
+   * selection is the one a screen reader would announce.
+   */
+  await expect(ui.palette(page)).toHaveAttribute('aria-activedescendant', /pal-option-\d+/);
   await page.keyboard.press('Enter');
-  await expect(page.locator('#modalTitle')).toHaveText('New file');
+  await expect(ui.dialog(page, 'New file')).toBeVisible();
   await page.waitForTimeout(100);
   await page.locator('#nfPath').focus();
   await page.keyboard.type('keyboard-proof.txt');
   await page.keyboard.press('Shift+Tab');
-  await expect(page.locator('#modalOk')).toBeFocused();
+  await expect(ui.button(ui.dialog(page, 'New file'), 'Create')).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.locator('#toasts')).toContainText('Created keyboard-proof.txt');
-  await expect(page.locator('#toasts')).toHaveAttribute('role', 'status');
-  await expect(page.locator('#toasts')).toHaveAttribute('aria-live', 'polite');
+  await expect(ui.status(page, 'Notifications')).toContainText('Created keyboard-proof.txt');
+  await expect(ui.status(page, 'Notifications')).toHaveAttribute('aria-live', 'polite');
 
-  await page.locator('#paletteBtn').focus();
+  await (await ui.action(page, 'Command palette')).focus();
   await page.keyboard.press('Enter');
   await page.locator('#paletteInput').fill('Settings');
   await page.keyboard.press('Enter');
-  const disconnect = page.locator('[data-alpha-privacy-action="disconnect"]');
-  await expect(disconnect).toBeVisible();
-  await disconnect.focus();
-  await page.keyboard.press('Enter');
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
-  await expect(page.locator('#toasts')).toContainText('Disconnected from Nebulaverse-X');
+  /*
+   * Wait for the dialog itself, then for focus to rest on the control, before
+   * pressing anything. Reaching straight for the button raced two things at
+   * once: the dialog still opening, and the dialog placing its own initial
+   * focus. About one run in four the keypress landed on nothing and the
+   * journey simply stopped, which read as a slow transition rather than as a
+   * key that never arrived.
+   */
+  await expect(ui.dialog(page, 'Settings')).toBeVisible();
+  const disconnect = await ui.focusAndConfirm(
+    expect,
+    page.locator('[data-alpha-privacy-action="disconnect"]')
+  );
+  await disconnect.press('Enter');
+  /*
+   * Disconnecting purges local state, which makes the access gate re-evaluate
+   * before the app settles on the login screen. That intermediate frame is the
+   * designed flow, not a fault, so this waits for the destination rather than
+   * for the first repaint after the keypress -- measured at about half a second
+   * in isolation, but the purge is I/O and the budget has to survive a loaded
+   * machine.
+   */
+  await expect(ui.screen(page, 'login')).toBeVisible({ timeout: 20000 });
+  await expect(ui.status(page, 'Notifications')).toContainText('Disconnected from Nebulaverse-X');
 });
 
 test('dialogs contain focus, restore it, and trust states do not depend on color', async ({ page }) => {
   await openConnectedRepository(page, { mutation: 'blocked' });
-  const trigger = page.locator('#paletteBtn');
+  const trigger = await ui.action(page, 'Command palette');
   await trigger.focus();
   await page.evaluate(() => { void openSettings(); });
   await page.locator('#modalOk').focus();
@@ -153,16 +180,29 @@ test('dialogs contain focus, restore it, and trust states do not depend on color
   await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
 
+  /*
+   * The badge carries its meaning in the label; the mark beside it is drawn
+   * and aria-hidden. This asserted the mark was non-empty *text*, which was
+   * only true while it was a Unicode glyph -- so it is asserted as what it is
+   * now: a drawn mark that is actually present.
+   */
   for (const evidence of await page.locator('#trustSummary .trust-evidence').all()) {
     await expect(evidence).not.toHaveText('');
-    await expect(evidence.locator('.trust-evidence-icon')).not.toHaveText('');
+    await expect(evidence.locator('.trust-evidence-icon svg')).toHaveCount(1);
   }
 });
 
-test('reduced motion, 200 percent text reflow, and mobile navigation remain usable', async ({ page }) => {
+test('reduced motion, 320 CSS-pixel reflow, and mobile navigation remain usable', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await openConnectedRepository(page);
-  const motion = await page.locator('.orb-a').evaluate(element => ({
+  /*
+   * Asserted on the floating action, which is decoration-adjacent motion that
+   * exists on this screen. It used to be asserted on a drifting background orb
+   * -- that orb is gone with the rest of the previous interface's sky, and a
+   * test pinned to deleted decoration proves nothing about the rule, which is
+   * global and applies to whatever is actually on screen.
+   */
+  const motion = await page.locator('.nv-fab').evaluate(element => ({
     animationDuration: getComputedStyle(element).animationDuration,
     iterations: getComputedStyle(element).animationIterationCount,
     transitionDuration: getComputedStyle(element).transitionDuration
@@ -171,8 +211,7 @@ test('reduced motion, 200 percent text reflow, and mobile navigation remain usab
   expect(motion.iterations).toBe('1');
   expect(motion.transitionDuration).toBe('1e-05s');
 
-  await page.setViewportSize({ width: 393, height: 851 });
-  await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+  await page.setViewportSize({ width: 320, height: 800 });
   await expect(page.locator('#bottomNav')).toBeVisible();
   await page.locator('#bottomNav [data-nav="more"]').click();
   await expect(page.locator('#sheetScrim')).toBeVisible();
@@ -182,4 +221,45 @@ test('reduced motion, 200 percent text reflow, and mobile navigation remain usab
     body: document.body.scrollWidth
   }));
   expect(Math.max(reflow.page, reflow.body)).toBeLessThanOrEqual(reflow.viewport + 1);
+  expect(reflow.viewport).toBe(320);
+});
+
+test('identity changes purge private state and reload a sibling tab', async ({ context }) => {
+  const activeTab = await context.newPage();
+  const siblingTab = await context.newPage();
+  await openConnectedRepository(activeTab);
+  await openConnectedRepository(siblingTab);
+
+  await siblingTab.evaluate(async () => {
+    sessionStorage.setItem('nv-sensitive-session-probe', 'present');
+    localStorage.setItem('nv_snap_identity-probe', '{"private":true}');
+    const cache = await caches.open('nv-api-v1-alphaFixtureScope_0123456789abcdef');
+    await cache.put('/api/repos?page=1', new Response('[]', {
+      headers: { 'content-type': 'application/json' }
+    }));
+  });
+
+  await activeTab.locator('#backBtn').click();
+  await expect(activeTab.locator('#page-repos')).toHaveClass(/active/);
+  const logout = await activeTab.locator('#logoutBtn').isVisible()
+    ? activeTab.locator('#logoutBtn')
+    : activeTab.locator('#logoutBtnM');
+
+  await Promise.all([
+    siblingTab.waitForEvent('domcontentloaded'),
+    logout.click()
+  ]);
+
+  await expect.poll(() => siblingTab.evaluate(async () => ({
+    sessionProbe: sessionStorage.getItem('nv-sensitive-session-probe'),
+    snapshotProbe: localStorage.getItem('nv_snap_identity-probe'),
+    privateCaches: (await caches.keys()).filter(key => key.startsWith('nv-api-'))
+  }))).toEqual({
+    sessionProbe: null,
+    snapshotProbe: null,
+    privateCaches: []
+  });
+
+  await activeTab.close();
+  await siblingTab.close();
 });

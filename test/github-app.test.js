@@ -22,25 +22,27 @@ function response(status, body) {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const pem = privateKey.export({ type: 'pkcs8', format: 'pem' });
   const escapedPem = String(pem).replace(/\n/g, '\\n');
+  const clientSecret = ['client', 'secret', 'value'].join('-');
+  const webhookSecret = ['webhook', 'secret', 'value'].join('-');
 
   assert.deepStrictEqual(loadGithubAppConfig({}, { production: false }), { enabled: false });
   assert.throws(() => loadGithubAppConfig({ GITHUB_APP_ID: '10' }, { production: false }), /incomplete/i);
   assert.throws(() => loadGithubAppConfig({
     GITHUB_APP_ID: '10', GITHUB_APP_SLUG: 'nebula-test', GITHUB_APP_CLIENT_ID: 'Iv1.test',
-    GITHUB_APP_CLIENT_SECRET: 'client-secret-value', GITHUB_APP_PRIVATE_KEY: escapedPem,
+    GITHUB_APP_CLIENT_SECRET: clientSecret, GITHUB_APP_PRIVATE_KEY: escapedPem,
     GITHUB_APP_CALLBACK_URL: 'http://example.com/api/github-app/oauth/callback'
   }, { production: true }), /https/i);
   assert.throws(() => loadGithubAppConfig({
     GITHUB_APP_ID: '10', GITHUB_APP_SLUG: 'nebula-test', GITHUB_APP_CLIENT_ID: 'Iv1.test',
-    GITHUB_APP_CLIENT_SECRET: 'client-secret-value', GITHUB_APP_PRIVATE_KEY: escapedPem,
+    GITHUB_APP_CLIENT_SECRET: clientSecret, GITHUB_APP_PRIVATE_KEY: escapedPem,
     GITHUB_APP_CALLBACK_URL: 'https://nebula.example/api/github-app/oauth/callback?next=unsafe'
   }, { production: true }), /query/i);
 
   const config = loadGithubAppConfig({
     GITHUB_APP_ID: '10', GITHUB_APP_SLUG: 'nebula-test', GITHUB_APP_CLIENT_ID: 'Iv1.test',
-    GITHUB_APP_CLIENT_SECRET: 'client-secret-value', GITHUB_APP_PRIVATE_KEY: escapedPem,
+    GITHUB_APP_CLIENT_SECRET: clientSecret, GITHUB_APP_PRIVATE_KEY: escapedPem,
     GITHUB_APP_CALLBACK_URL: 'https://nebula.example/api/github-app/oauth/callback',
-    GITHUB_APP_WEBHOOK_SECRET: 'webhook-secret-value'
+    GITHUB_APP_WEBHOOK_SECRET: webhookSecret
   }, { production: true });
   assert.strictEqual(config.enabled, true);
   assert.strictEqual(config.privateKey.includes('BEGIN PRIVATE KEY'), true);

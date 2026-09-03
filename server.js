@@ -67,7 +67,8 @@ const CAPABILITY_DOCUMENT = loadCapabilityDocument(
 );
 const DEPLOYMENT_PROFILE = 'hosted-alpha';
 const {
-  stableJson, hashJson, hmacJson, evidenceRecordHash, verifyGithubSignature, normalizeGithubWebhook,
+  stableJson, hashJson, evidenceRecordHash,
+  verifyEvidenceRecord, evidenceKeyrings, verifyGithubSignature, normalizeGithubWebhook,
   riskForEvent, riskForAccessSurface, compareSnapshots, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
   cleanText, normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, normalizeProviderBranches
 } = require('./src/intelligence');
@@ -95,6 +96,18 @@ const {
   repositoryAllowed
 } = require('./src/alpha-access');
 const { PRODUCT_NAME, APP_VERSION, ASSET_VERSION } = require('./src/version');
+const { computeReleaseFingerprint } = require('./src/release-fingerprint');
+const { assetStampFor } = require('./src/asset-stamp');
+const OFFLINE_CACHE_POLICY = require('./public/offline-cache-policy');
+// ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
+// An embedded build-time digest would be circular and could attest different bytes.
+const RELEASE_TREE_SHA256 = computeReleaseFingerprint(__dirname);
+/*
+ * Bound to the tree rather than the version, so every build invalidates the
+ * shell cache it replaces. A stamp that only names the version leaves a
+ * returning browser with new HTML and cache-first scripts from an older build.
+ */
+const ASSET_STAMP = assetStampFor(RELEASE_TREE_SHA256);
 const { createCorrelationId, publicErrorBody } = require('./src/public-errors');
 const { loadMigrations, runMigrations, verifyMigrations } = require('./src/migrations');
 const { scanUploadFile, scannerStatus } = require('./src/file-security');
@@ -105,16 +118,23 @@ const {
 const {
   GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker
 } = require('./src/github-app');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation');
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
-const { createMutationGateway } = require('./src/mutation-gateway');
+const { createMutationGateway, normalizeMutationDescriptor } = require('./src/mutation-gateway');
 const { createGiteaFileMutationAdapter } = require('./src/provider-file-mutations');
 const { normalizeFileBatch, summarizeBatchItems } = require('./src/mutation-coverage');
+const { pathFactsForAction } = require('./src/protected-paths');
+const { offerSafePassage } = require('./src/safe-passage');
 const { createGovernanceRuntime } = require('./src/governance-enforcement');
 const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
+const {
+  createSnapshotSignatures,
+  loadSnapshotSigningConfig
+} = require('./src/snapshot-signatures');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -144,7 +164,47 @@ if (process.env.NODE_ENV === 'production' && Buffer.byteLength(SECRET, 'utf8') <
     'then set it in the Render dashboard under Environment.'
   );
 }
-const KEY = crypto.createHash('sha256').update(SECRET).digest();
+/*
+ * Every keyed construction below derives its own key from SECRET through a
+ * distinct HKDF purpose. See src/key-derivation.js for why the previous shared
+ * key was a hazard even though nothing was exploitable.
+ */
+const SESSION_CONTENT_KEY = deriveKey(SECRET, KEY_PURPOSES.SESSION_CONTENT);
+const OFFLINE_CACHE_SCOPE_KEY = deriveKey(SECRET, KEY_PURPOSES.OFFLINE_CACHE_SCOPE);
+const GITHUB_APP_STATE_REPLAY_KEY = deriveKey(SECRET, KEY_PURPOSES.GITHUB_APP_STATE_REPLAY);
+const CSRF_SECRET = deriveSecret(SECRET, KEY_PURPOSES.CSRF_TOKEN);
+const STEP_UP_SECRET = deriveSecret(SECRET, KEY_PURPOSES.STEP_UP_GRANT);
+const GITHUB_APP_STATE_SECRET = deriveSecret(SECRET, KEY_PURPOSES.GITHUB_APP_STATE);
+const EVIDENCE_LEDGER_SECRET = deriveSecret(SECRET, KEY_PURPOSES.EVIDENCE_LEDGER);
+/*
+ * Evidence verification holds two keyrings, assembled together in
+ * src/intelligence.js so their retired lists cannot drift apart.
+ *
+ * Rows written before key separation were hashed with the raw session secret,
+ * and rows written before a SESSION_SECRET rotation with a key derived from the
+ * previous secret. Accepting the raw secret unconditionally would undo half the
+ * point of separating the keys -- a leaked SESSION_SECRET could forge records
+ * that verify, permanently -- so production accepts it only on an explicit
+ * opt-in, the rule src/snapshot-signatures.js already applies to legacy
+ * snapshot keys. Development keeps the compatibility path.
+ *
+ * A deployment that declines the opt-in is not left guessing: the probe reports
+ * legacyKeyRequired, so the operator can tell an unmigrated chain from real
+ * tampering without having to accept the key to find out.
+ */
+const EVIDENCE_KEYRINGS = evidenceKeyrings(process.env, {
+  sessionSecret: SECRET,
+  ledgerSecret: EVIDENCE_LEDGER_SECRET
+});
+const EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED = EVIDENCE_KEYRINGS.legacyAccepted;
+const EVIDENCE_KEYRING = EVIDENCE_KEYRINGS.keyring;
+const EVIDENCE_LEGACY_PROBE = EVIDENCE_KEYRINGS.legacyProbe;
+const SNAPSHOT_SIGNATURES = createSnapshotSignatures(loadSnapshotSigningConfig(process.env, {
+  production: process.env.NODE_ENV === 'production',
+  // Production uses this only to reject active-key reuse. Legacy verification
+  // requires the explicit NV_SNAPSHOT_LEGACY_KEYS_JSON operator keyring.
+  sessionSecret: SECRET
+}));
 const GITHUB_APP_CONFIG = loadGithubAppConfig(process.env, { production: process.env.NODE_ENV === 'production' });
 const githubAppBroker = GITHUB_APP_CONFIG.enabled ? new GithubAppBroker(GITHUB_APP_CONFIG, {
   audit(event) {
@@ -366,6 +426,28 @@ app.use((req, res, next) => {
   ].join('; '));
   next();
 });
+/* Private offline reads are opt-in and bound to the authenticated session,
+   provider identity, and repository. All other API responses stay no-store. */
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const writeHead = res.writeHead;
+  res.writeHead = function writeOfflineCacheHeaders(...args) {
+    const responseStatus = Number(args[0] || res.statusCode);
+    const binding = responseStatus === 200 ? offlineCacheResponseBinding(req) : null;
+    if (binding) {
+      res.setHeader('X-NV-Offline-Scope', binding.scope);
+      res.setHeader('X-NV-Offline-Repo', binding.repoKey);
+      res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+      for (const name of ['Cookie', 'X-NV-Offline-Scope', 'X-NV-Offline-Repo']) res.vary(name);
+    } else {
+      res.removeHeader('X-NV-Offline-Scope');
+      res.removeHeader('X-NV-Offline-Repo');
+      res.setHeader('Cache-Control', 'no-store');
+    }
+    return writeHead.apply(this, args);
+  };
+  next();
+});
 /* Browser request boundary: unsafe API calls must be intentional and same-origin. */
 const SAFE_API_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 app.use('/api', (req, res, next) => {
@@ -407,12 +489,44 @@ app.use('/api', (req, res, next) => {
   }
   next();
 });
+/*
+ * Maintenance mode.
+ *
+ * render.yaml has carried NV_MAINTENANCE_MODE since the blueprint was written
+ * and a contract test asserted it was set, but nothing read it: turning it on
+ * did nothing whatsoever. An operator reaching for it during an incident would
+ * have had a documented switch, a passing test, and a fully serving
+ * application.
+ *
+ * What it must not do is take the health check down with it. The host restarts
+ * an instance that fails health, so a maintenance switch that answers 503 to
+ * everything removes the very thing the operator just reached for. Health stays
+ * green and discloses the state; readiness reports not-ready, which is the
+ * honest answer and the one load balancers act on.
+ *
+ * Read once at startup rather than per request: on the hosted platform an
+ * environment change redeploys the service, so there is no state to poll for,
+ * and a per-request read would invite the value to change midway through one.
+ */
+const MAINTENANCE_MODE = /^(1|true|on|yes)$/i.test(String(process.env.NV_MAINTENANCE_MODE || '').trim());
+
 app.get('/healthz', (req, res) => res.json({
   ok: true,
-  service: 'alive',
+  service: MAINTENANCE_MODE ? 'maintenance' : 'alive',
+  maintenance: MAINTENANCE_MODE,
   version: APP_VERSION
 }));
 app.get('/readyz', async (req, res) => {
+  /*
+   * Not ready, deliberately. Readiness is what a load balancer drains on, and
+   * during maintenance draining is exactly the intent -- unlike health, which
+   * has to stay green so the host does not recycle the instance out from under
+   * the operator.
+   */
+  if (MAINTENANCE_MODE) {
+    res.setHeader('Retry-After', '120');
+    return res.status(503).json({ ok: false, service: 'maintenance', maintenance: true });
+  }
   if (!DB_URL) {
     if (HOSTING_PROFILE === 'hosted-alpha') {
       return res.status(503).json({
@@ -475,11 +589,18 @@ const VENDOR_ALLOWLIST = new Set([
   'codemirror/5.65.16/theme/monokai.min.css',
   'codemirror/5.65.16/theme/nord.min.css',
   'marked/15.0.12/marked.min.js',
-  'dompurify/3.4.12/purify.min.js'
-]);
-const GFONTS_ALLOWLIST = new Set([
-  'family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap',
-  'family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&family=Source+Code+Pro:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap'
+  'three/0.185.1/three.module.min.js',
+  'three/0.185.1/three.core.min.js',
+  'dompurify/3.4.13/purify.min.js',
+  'fonts/archivo-variable-latin.woff2',
+  'fonts/public-sans-variable-latin.woff2',
+  'fonts/jetbrains-mono-variable-latin.woff2',
+  'fonts/fira-code-variable-latin.woff2',
+  'fonts/source-code-pro-variable-latin.woff2',
+  'fonts/ibm-plex-mono-400-latin.woff2',
+  'fonts/ibm-plex-mono-500-latin.woff2',
+  'fonts/dm-mono-400-latin.woff2',
+  'fonts/dm-mono-500-latin.woff2'
 ]);
 async function readBoundedResponse(response, maxBytes = 2 * MB) {
   const declared = Number(response.headers.get('content-length') || 0);
@@ -500,7 +621,7 @@ async function readBoundedResponse(response, maxBytes = 2 * MB) {
   }
   return Buffer.concat(chunks, total);
 }
-async function proxyAsset(res, upstream, rewriteGstatic) {
+async function proxyAsset(res, upstream) {
   const hit = VCACHE.get(upstream);
   if (hit) {
     res.setHeader('Content-Type', hit.type);
@@ -513,7 +634,6 @@ async function proxyAsset(res, upstream, rewriteGstatic) {
   if (!r.ok) return res.status(502).json({ error: `Vendor upstream ${r.status}` });
   let buf = await readBoundedResponse(r, 2 * MB);
   const type = r.headers.get('content-type') || 'application/octet-stream';
-  if (rewriteGstatic) buf = Buffer.from(buf.toString('utf8').split('https://fonts.gstatic.com').join('/gstatic'));
   if (buf.length <= 2 * MB) {
     vBytes += buf.length;
     VCACHE.set(upstream, { buf, type });
@@ -538,23 +658,8 @@ app.get('/vendor/*', async (req, res) => {
       return res.sendFile(localPath);
     }
     /* Exact allowlisted CDN fallback only; normal deployments bundle every vendor asset. */
-    await proxyAsset(res, 'https://cdnjs.cloudflare.com/ajax/libs/' + p, false);
+    await proxyAsset(res, 'https://cdnjs.cloudflare.com/ajax/libs/' + p);
   } catch (e) { res.status(502).json({ error: e.message }); }
-});
-app.get('/gfonts/css2', async (req, res) => {
-  try {
-    const qs = (req.url.split('?')[1] || '');
-    if (!GFONTS_ALLOWLIST.has(qs)) return res.status(404).end();
-    await proxyAsset(res, 'https://fonts.googleapis.com/css2?' + qs, true);
-  } catch (e) { res.status(502).json({ error: e.message }); }
-});
-const FONT_ASSET_RX = /^s\/[a-z0-9_-]+\/v\d+\/[A-Za-z0-9_-]+\.woff2$/i;
-app.get('/gstatic/*', async (req, res) => {
-  try {
-    const p = req.params[0] || '';
-    if (!SAFE_ASSET.test(p) || p.includes('..') || !FONT_ASSET_RX.test(p)) return res.status(404).end();
-    await proxyAsset(res, 'https://fonts.gstatic.com/' + p, false);
-  } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
 });
 /* GitHub sends the exact bytes used to calculate X-Hub-Signature-256. */
 app.post('/hooks/github/:hookId', express.raw({ type: 'application/json', limit: '2mb' }), receiveGithubWebhook);
@@ -565,7 +670,7 @@ function renderReleaseTemplate(template) {
   return template
     .replaceAll('__NV_PRODUCT_NAME__', PRODUCT_NAME)
     .replaceAll('__NV_VERSION__', APP_VERSION)
-    .replaceAll('__NV_ASSET_VERSION__', ASSET_VERSION);
+    .replaceAll('__NV_ASSET_VERSION__', ASSET_STAMP);
 }
 app.get(['/','/index.html'], (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
@@ -576,6 +681,23 @@ app.get('/sw.js', (req, res) => {
   res.setHeader('Service-Worker-Allowed', '/');
   res.type('application/javascript').send(renderReleaseTemplate(SW_TEMPLATE));
 });
+/*
+ * Placed after health and readiness and before everything else: those two have
+ * to answer during maintenance, and nothing else may. Static assets are served
+ * below this line so the shell can still render and show the notice rather
+ * than a bare browser error.
+ */
+app.use('/api', (req, res, next) => {
+  if (!MAINTENANCE_MODE) return next();
+  res.setHeader('Retry-After', '120');
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(503).json({
+    error: 'SERVICE_IN_MAINTENANCE',
+    message: 'Nebulaverse-X is in maintenance and is not accepting requests right now.',
+    nextAction: 'Retry once maintenance has finished. No data has been changed by this request.'
+  });
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
@@ -586,14 +708,14 @@ app.use(express.static(path.join(__dirname, 'public'), {
 /* ---------------- encrypted cookie session ---------------- */
 function seal(obj) {
   const iv = crypto.randomBytes(12);
-  const c = crypto.createCipheriv('aes-256-gcm', KEY, iv);
+  const c = crypto.createCipheriv('aes-256-gcm', SESSION_CONTENT_KEY, iv);
   const enc = Buffer.concat([c.update(JSON.stringify(obj), 'utf8'), c.final()]);
   return Buffer.concat([iv, c.getAuthTag(), enc]).toString('base64url');
 }
 function unseal(str) {
   try {
     const raw = Buffer.from(str, 'base64url');
-    const d = crypto.createDecipheriv('aes-256-gcm', KEY, raw.subarray(0, 12));
+    const d = crypto.createDecipheriv('aes-256-gcm', SESSION_CONTENT_KEY, raw.subarray(0, 12));
     d.setAuthTag(raw.subarray(12, 28));
     return JSON.parse(Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString('utf8'));
   } catch { return null; }
@@ -1022,9 +1144,10 @@ if (process.env.NODE_ENV === 'production' && process.env.NV_GOVERNANCE_AUDIT_SEC
     Buffer.byteLength(process.env.NV_GOVERNANCE_AUDIT_SECRET, 'utf8') < 32) {
   throw new Error('NV_GOVERNANCE_AUDIT_SECRET must contain at least 32 bytes in production when configured.');
 }
-const GOVERNANCE_AUDIT_SECRET = crypto.createHash('sha256')
-  .update(`governance-audit:${GOVERNANCE_AUDIT_SECRET_SOURCE}`)
-  .digest('hex');
+const GOVERNANCE_AUDIT_SECRET = deriveKey(
+  GOVERNANCE_AUDIT_SECRET_SOURCE,
+  KEY_PURPOSES.GOVERNANCE_AUDIT
+).toString('hex');
 let _governanceStore = null;
 let _governanceApiService = null;
 let governanceWebhookWorker = null;
@@ -1422,13 +1545,13 @@ function verifyRequestCsrf(req) {
   if (SAFE_API_METHODS.has(req.method)) return null;
   const token = String(req.headers['x-nv-csrf'] || '');
   if (!token) throw Object.assign(new Error('A fresh CSRF token is required'), { status: 403, code: 'CSRF_REQUIRED' });
-  return verifyCsrfToken(SECRET, token, requestSecurityContext(req));
+  return verifyCsrfToken(CSRF_SECRET, token, requestSecurityContext(req));
 }
 async function consumeStepUpAuthorization(req, res, operation) {
   const token = String(req.headers['x-nv-step-up'] || '');
   if (!token) throw Object.assign(new Error('This sensitive action requires step-up authorization'), { status: 403, code: 'STEP_UP_REQUIRED' });
   const context = requestSecurityContext(req);
-  const claims = verifyStepUpGrant(SECRET, token, { ...context, action: operation.action, scope: operation.scope });
+  const claims = verifyStepUpGrant(STEP_UP_SECRET, token, { ...context, action: operation.action, scope: operation.scope });
   const state = sessionSecurityState(req.session);
   req.stepUp = consumePendingStepUp(state, claims, operation, { replayStore: USED_STEP_UP_GRANTS });
   await setSession(req, res, req.session);
@@ -1439,10 +1562,33 @@ function offlineCacheScope(req) {
   const cookie = getCookie(req, 'nv_session') || '';
   const sessionBinding = sid || crypto.createHash('sha256').update(cookie).digest('hex');
   if (!sessionBinding || !req.gh) return '';
-  return crypto.createHmac('sha256', KEY)
+  return crypto.createHmac('sha256', OFFLINE_CACHE_SCOPE_KEY)
     .update(`${sessionBinding}|${identityKey(req.gh)}`)
     .digest('base64url')
     .slice(0, 32);
+}
+function offlineCacheResponseBinding(req) {
+  if (req.method !== 'GET' || !req.gh) return null;
+  let url;
+  try { url = new URL(req.originalUrl || req.url, 'https://nebulaverse.invalid'); }
+  catch { return null; }
+  const decision = OFFLINE_CACHE_POLICY.classifyApiRequest(url, req.method, {
+    get(name) { return String(req.headers[String(name).toLowerCase()] || ''); }
+  });
+  if (decision.mode !== 'private-cache') return null;
+  let expectedRepoKey = '';
+  if (/^\/api\/repos(?:\/|$)/.test(url.pathname)) {
+    expectedRepoKey = 'account';
+  } else {
+    const match = /^\/api\/repo\/([^/]+)\/([^/]+)(?:\/|$)/.exec(url.pathname);
+    if (!match) return null;
+    try {
+      expectedRepoKey = `${req.gh.provider || 'github'}:${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}`.toLowerCase();
+    } catch { return null; }
+  }
+  const expectedScope = offlineCacheScope(req);
+  if (!expectedScope || decision.scope !== expectedScope || decision.repoKey !== expectedRepoKey) return null;
+  return { scope: expectedScope, repoKey: expectedRepoKey };
 }
 function defaultSafety(value) {
   const sf = value && typeof value === 'object' ? value : {};
@@ -1486,7 +1632,7 @@ async function appendEvidence(repoK, kind, recordId, payload) {
     const prev = await client.query('SELECT record_hash FROM nv_evidence_chain WHERE repo_key=$1 ORDER BY seq DESC LIMIT 1', [repoK]);
     const previousHash = prev.rows[0] && prev.rows[0].record_hash || 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
     const payloadHash = hashJson(payload);
-    const recordHash = evidenceRecordHash(SECRET, previousHash, repoK, kind, recordId, payloadHash);
+    const recordHash = evidenceRecordHash(EVIDENCE_LEDGER_SECRET, previousHash, repoK, kind, recordId, payloadHash);
     const out = await client.query(
       `INSERT INTO nv_evidence_chain(repo_key,kind,record_id,previous_hash,record_hash,payload_hash)
        VALUES($1,$2,$3,$4,$5,$6) RETURNING seq,created_at`,
@@ -1511,18 +1657,32 @@ async function verifyEvidenceChain(repoK, limit = 1000) {
   ]);
   const total = count.rows[0] ? Number(count.rows[0].total || 0) : 0;
   let previousHash = 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
+  /* Records written before the hashing key was separated by purpose still
+     verify, under the retired key, and are counted so the export can say so. */
+  let legacyRecords = 0;
   for (const row of r.rows) {
-    const expected = evidenceRecordHash(SECRET, previousHash, repoK, row.kind, row.record_id, row.payload_hash);
-    if (row.previous_hash !== previousHash || row.record_hash !== expected) {
+    const check = verifyEvidenceRecord(
+      EVIDENCE_KEYRING, row.record_hash, previousHash, repoK, row.kind, row.record_id, row.payload_hash
+    );
+    if (check.legacy) legacyRecords += 1;
+    if (row.previous_hash !== previousHash || !check.valid) {
+      /* Distinguish an unmigrated pre-separation chain from real tampering. */
+      const legacyKeyRequired = !EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED &&
+        row.previous_hash === previousHash &&
+        verifyEvidenceRecord(
+          EVIDENCE_LEGACY_PROBE, row.record_hash, previousHash, repoK,
+          row.kind, row.record_id, row.payload_hash
+        ).valid;
       return {
         available: true, valid: false, complete: r.rows.length === total,
-        checked: r.rows.indexOf(row) + 1, total, failedAt: row.seq,
+        checked: r.rows.indexOf(row) + 1, total, failedAt: row.seq, legacyRecords,
+        legacyKeyRequired,
         records: r.rows
       };
     }
     previousHash = row.record_hash;
   }
-  return { available: true, valid: true, complete: r.rows.length === total, checked: r.rows.length, total, head: previousHash, records: r.rows };
+  return { available: true, valid: true, complete: r.rows.length === total, checked: r.rows.length, total, head: previousHash, legacyRecords, legacyKeyRequired: false, records: r.rows };
 }
 function liveStreamKey(provider, owner, repo, identity) {
   return scopedEvidenceKey(provider, owner, repo, identity);
@@ -1777,7 +1937,7 @@ async function gh(acct, apiPath, opts = {}) {
       ...(opts.headers || {})
     },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
-    redirect: opts.redirect || (provider === 'gitea' ? 'error' : 'follow')
+    redirect: opts.redirect === 'manual' ? 'manual' : 'error'
   }, opts.timeoutMs || (opts.raw ? UPLOAD_TIMEOUT_MS : 20000));
   if (opts.raw) return r;
   if (cached && r.status === 304) return JSON.parse(cached.body);
@@ -1798,14 +1958,69 @@ async function gh(acct, apiPath, opts = {}) {
   }
   return data;
 }
+
+async function githubArchiveResponse(acct, owner, repo, ref) {
+  if ((acct.provider || 'github') !== 'github') {
+    throw Object.assign(new Error('GitHub archive transport requires a GitHub account'), { status: 400 });
+  }
+  const initial = await gh(acct, `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/zipball/${encodeURIComponent(ref)}`, {
+    raw: true,
+    redirect: 'manual'
+  });
+  if (![301, 302, 303, 307, 308].includes(initial.status)) return initial;
+  if (initial.body) await initial.body.cancel();
+  const location = initial.headers.get('location');
+  let target;
+  try { target = new URL(String(location || '')); }
+  catch { throw Object.assign(new Error('GitHub archive redirect is invalid'), { status: 502 }); }
+  const segments = target.pathname.split('/').filter(Boolean);
+  let redirectedOwner = '';
+  let redirectedRepo = '';
+  try {
+    redirectedOwner = decodeURIComponent(segments[0] || '');
+    redirectedRepo = decodeURIComponent(segments[1] || '');
+  } catch {
+    throw Object.assign(new Error('GitHub archive redirect is invalid'), { status: 502 });
+  }
+  if (
+    target.origin !== 'https://codeload.github.com' ||
+    target.username ||
+    target.password ||
+    target.hash ||
+    segments[2] !== 'legacy.zip' ||
+    redirectedOwner.toLowerCase() !== String(owner).toLowerCase() ||
+    redirectedRepo.toLowerCase() !== String(repo).toLowerCase()
+  ) {
+    throw Object.assign(new Error('GitHub archive redirect target is not trusted'), { status: 502 });
+  }
+  return fetchT(target, {
+    headers: {
+      Accept: 'application/zip',
+      'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}`
+    },
+    redirect: 'error'
+  }, UPLOAD_TIMEOUT_MS);
+}
 const fail = (res, error) => {
   const status = error && error.status >= 400 && error.status < 600 ? error.status : 500;
-  return res.status(status).json(publicErrorBody(error, {
-    correlationId: res.locals.correlationId
-  }));
+  const body = publicErrorBody(error, { correlationId: res.locals.correlationId });
+  /* A refusal that has a compliant route carries it alongside the refusal. The
+   * public error body itself is left exactly as it was. */
+  const passage = error && error.safePassage;
+  return res.status(status).json(passage ? { ...body, safePassage: passage } : body);
 };
 
+/*
+ * Every content-changing action reports the complete set of repository paths it
+ * touches, so a path-scoped policy rule reaches a rename, a batch and a
+ * directory move the same way it reaches a single write. See src/protected-paths.js.
+ */
 function mutationMetadataFor(req, action) {
+  const base = baseMutationMetadataFor(req, action);
+  return { ...base, ...pathFactsForAction(action, base) };
+}
+
+function baseMutationMetadataFor(req, action) {
   const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
   const query = req.query || {};
   const params = req.params || {};
@@ -1904,6 +2119,46 @@ function applyPolicyDecisionHeaders(res, decision) {
   }
 }
 
+/*
+ * When policy refuses a change because it needs approval, offer the route to
+ * approval rather than a dead end. The route is judged by the same active
+ * policy set that just refused the original, read without writing so that no
+ * decision is recorded for a mutation nobody performed.
+ *
+ * This runs on the way to a 403 that is already decided. It must never change
+ * that outcome, so every failure here simply means no offer.
+ */
+async function safePassageFor(req, action, descriptor, error) {
+  try {
+    if (!error || error.code !== 'POLICY_APPROVAL_REQUIRED' || !descriptor) return null;
+    if (action !== 'file.write') return null;
+    const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : null;
+    if (!body || typeof body.content !== 'string') return null;
+    if (!(await dbReady())) return null;
+    const normalized = normalizeMutationDescriptor(descriptor);
+    const resolved = await ensureGovernanceStore().resolveActivePolicySetInScope({
+      scope: normalized.authorization.scope,
+      action: normalized.action
+    });
+    const offer = offerSafePassage({
+      descriptor: normalized,
+      blockCode: error.code,
+      content: body.content,
+      scope: normalized.authorization.scope,
+      activePolicies: resolved.activePolicies,
+      activeExceptions: resolved.activeExceptions,
+      evaluatedAt: resolved.resolvedAt
+    });
+    return offer && offer.available ? offer : null;
+  } catch (offerError) {
+    console.error(JSON.stringify({
+      t: new Date().toISOString(), warn: 'safe passage offer could not be built',
+      action, code: cleanText(String(offerError && offerError.code || 'SAFE_PASSAGE_UNAVAILABLE'), 100)
+    }));
+    return null;
+  }
+}
+
 function mutationContext(action) {
   return async function enterMutationContext(req, res, next) {
     let descriptor;
@@ -1930,8 +2185,12 @@ function mutationContext(action) {
         res.removeListener('close', finish);
         reject(error);
       }
-    })).catch(error => {
-      if (!res.headersSent) return fail(res, error);
+    })).catch(async error => {
+      if (!res.headersSent) {
+        const passage = await safePassageFor(req, action, descriptor, error);
+        if (passage) error.safePassage = passage;
+        return fail(res, error);
+      }
       console.error(JSON.stringify({
         t: new Date().toISOString(), warn: 'mutation gateway context failed after headers',
         action, code: error && error.code || 'MUTATION_GATEWAY_FAILED'
@@ -2870,7 +3129,7 @@ function pruneUsedGithubAppStates(now = Date.now()) {
   }
 }
 function githubAppStateReplayKey(slot, nonce, identity) {
-  return crypto.createHmac('sha256', KEY)
+  return crypto.createHmac('sha256', GITHUB_APP_STATE_REPLAY_KEY)
     .update(`${String(slot)}|${String(nonce)}|${String(identity)}`)
     .digest('base64url');
 }
@@ -2981,7 +3240,7 @@ app.post('/api/github-app/connect', requireGithubAppFeature, auth, async (req, r
     const context = requestSecurityContext(req);
     const nonce = crypto.randomBytes(18).toString('base64url');
     const now = Date.now();
-    const state = createGithubAppState(SECRET, { ...context, purpose: 'user-auth' }, {
+    const state = createGithubAppState(GITHUB_APP_STATE_SECRET, { ...context, purpose: 'user-auth' }, {
       now, ttlMs: GITHUB_APP_FLOW_TTL_MS, nonce
     });
     githubAppPending(req.session).userAuth = {
@@ -3004,7 +3263,7 @@ app.get('/api/github-app/oauth/callback', requireGithubAppFeature, async (req, r
   res.setHeader('Cache-Control', 'no-store');
   try {
     const context = await githubAppCallbackContext(req, res);
-    const claims = verifyGithubAppState(SECRET, req.query && req.query.state, { ...context, purpose: 'user-auth' });
+    const claims = verifyGithubAppState(GITHUB_APP_STATE_SECRET, req.query && req.query.state, { ...context, purpose: 'user-auth' });
     const pending = consumeGithubAppPending(req.session, 'userAuth', claims.nonce, context.identityKey);
     await setSession(req, res, req.session);
     const exchange = await githubAppBroker.exchangeUserCode(req.query && req.query.code);
@@ -3015,7 +3274,7 @@ app.get('/api/github-app/oauth/callback', requireGithubAppFeature, async (req, r
     const nonce = crypto.randomBytes(18).toString('base64url');
     const now = Date.now();
     const tokenLifetime = exchange.expiresIn > 0 ? Math.min(GITHUB_APP_FLOW_TTL_MS, exchange.expiresIn * 1000) : GITHUB_APP_FLOW_TTL_MS;
-    const state = createGithubAppState(SECRET, { ...context, purpose: 'installation-claim' }, {
+    const state = createGithubAppState(GITHUB_APP_STATE_SECRET, { ...context, purpose: 'installation-claim' }, {
       now, ttlMs: tokenLifetime, nonce
     });
     githubAppPending(req.session).installation = {
@@ -3039,7 +3298,7 @@ app.get('/api/github-app/setup', requireGithubAppFeature, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
     const context = await githubAppCallbackContext(req, res);
-    const claims = verifyGithubAppState(SECRET, req.query && req.query.state, { ...context, purpose: 'installation-claim' });
+    const claims = verifyGithubAppState(GITHUB_APP_STATE_SECRET, req.query && req.query.state, { ...context, purpose: 'installation-claim' });
     const pending = consumeGithubAppPending(req.session, 'installation', claims.nonce, context.identityKey);
     await setSession(req, res, req.session);
     const installationId = Number(req.query && req.query.installation_id);
@@ -3212,7 +3471,7 @@ app.get('/api/security/scanner-status', auth, capabilityAccess('upload-security'
 app.get('/api/security/csrf', accountAuth, (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const now = Date.now();
-  const token = createCsrfToken(SECRET, requestSecurityContext(req), { now, ttlMs: CSRF_TTL_MS });
+  const token = createCsrfToken(CSRF_SECRET, requestSecurityContext(req), { now, ttlMs: CSRF_TTL_MS });
   res.json({ token, expiresAt: new Date(now + CSRF_TTL_MS).toISOString() });
 });
 app.post('/api/security/step-up', providerSessionAccess, alphaStepUpRepositoryAccess, auth, async (req, res) => {
@@ -3258,7 +3517,7 @@ app.post('/api/security/step-up', providerSessionAccess, alphaStepUpRepositoryAc
     const now = Date.now();
     const expiresAt = now + STEP_UP_TTL_MS;
     const jti = crypto.randomUUID();
-    const grant = createStepUpGrant(SECRET, {
+    const grant = createStepUpGrant(STEP_UP_SECRET, {
       ...requestSecurityContext(req), action: operation.action, scope: operation.scope, assurance
     }, { now, ttlMs: STEP_UP_TTL_MS, jti });
     sessionSecurityState(req.session).stepUp = {
@@ -3281,7 +3540,8 @@ app.get('/api/oauth/callback', async (req, res) => {
     const tr = await fetchT('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ client_id: OAUTH_ID, client_secret: OAUTH_SECRET, code: req.query.code })
+      body: JSON.stringify({ client_id: OAUTH_ID, client_secret: OAUTH_SECRET, code: req.query.code }),
+      redirect: 'error'
     });
     const td = await tr.json();
     if (!td.access_token) return res.status(400).send('OAuth exchange failed.');
@@ -3415,7 +3675,7 @@ app.get('/api/me', accountAuth, async (req, res) => {
     res.json({ ...out, provider, authMethod: req.gh.authMethod || 'token', caps: providerCapabilities(req.gh), offlineCacheScope: offlineCacheScope(req) });
   } catch (e) { fail(res, e); }
 });
-app.get('/api/rate', auth, capabilityAccess('rate.read'), async (req, res) => {
+app.get('/api/rate', auth, capabilityAccess('rate.read', { allowExperimental: true }), async (req, res) => {
   try {
     const r = await gh(req.gh, '/rate_limit');
     res.json({ remaining: r.resources.core.remaining, limit: r.resources.core.limit, reset: r.resources.core.reset });
@@ -3472,14 +3732,14 @@ async function governanceRepositoryFacts(req) {
 }
 
 /* ================= GOVERNANCE API (Phase 1 Tasks 6-8) ================= */
-app.get('/api/repo/:owner/:repo/governance/templates', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/templates', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const templates = await req.governance.service.listPolicyTemplates({ scope: req.governance.scope, authorization: req.governance.authorization });
     res.json({ templates });
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/templates/:templateId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/templates/:templateId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const template = await req.governance.service.getPolicyTemplate({ scope: req.governance.scope, authorization: req.governance.authorization, templateId: req.params.templateId });
     res.json({ template });
@@ -3499,7 +3759,7 @@ app.post('/api/repo/:owner/:repo/governance/baselines/generate', providerSession
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/digital-twin', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/digital-twin', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const digitalTwin = await req.governance.service.getPolicyDigitalTwin({
       scope: req.governance.scope,
@@ -3512,7 +3772,7 @@ app.get('/api/repo/:owner/:repo/governance/digital-twin', providerSessionAccess,
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/notifications/preferences', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/notifications/preferences', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const preferences = await req.governance.service.getNotificationPreferences({ scope: req.governance.scope, authorization: req.governance.authorization });
     res.json({ preferences });
@@ -3529,7 +3789,7 @@ app.put('/api/repo/:owner/:repo/governance/notifications/preferences', providerS
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/notifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/notifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const notifications = await req.governance.service.listNotifications({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -3549,7 +3809,7 @@ app.post('/api/repo/:owner/:repo/governance/notifications/read', providerSession
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/webhooks', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/webhooks', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('administrator'), async (req, res) => {
   try {
     const webhooks = await req.governance.service.listWebhooks({ scope: req.governance.scope, authorization: req.governance.authorization });
     res.json({ webhooks });
@@ -3596,7 +3856,7 @@ app.delete('/api/repo/:owner/:repo/governance/webhooks/:webhookId', providerSess
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('administrator'), async (req, res) => {
   try {
     const deliveries = await req.governance.service.listWebhookDeliveries({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -3606,7 +3866,7 @@ app.get('/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries', prov
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exports', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exports', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const exports = await req.governance.service.listEvidenceExports({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -3625,7 +3885,7 @@ app.post('/api/repo/:owner/:repo/governance/exports', providerSessionAccess, alp
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exports/:exportId/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exports/:exportId/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const verification = await req.governance.service.verifyEvidenceExport({
       scope: req.governance.scope, authorization: req.governance.authorization, exportId: req.params.exportId
@@ -3634,7 +3894,7 @@ app.get('/api/repo/:owner/:repo/governance/exports/:exportId/verify', providerSe
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exports/:exportId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exports/:exportId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const evidenceExport = await req.governance.service.getEvidenceExport({
       scope: req.governance.scope, authorization: req.governance.authorization, exportId: req.params.exportId
@@ -3644,7 +3904,7 @@ app.get('/api/repo/:owner/:repo/governance/exports/:exportId', providerSessionAc
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const policies = await req.governance.service.listPolicies({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -3653,7 +3913,7 @@ app.get('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, alp
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/decisions/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/decisions/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const verification = await req.governance.service.verifyPolicyDecisionChain({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -3662,7 +3922,7 @@ app.get('/api/repo/:owner/:repo/governance/decisions/verify', providerSessionAcc
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/decisions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/decisions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const result = await req.governance.service.listPolicyDecisions({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit, afterSeq: req.query.afterSeq
@@ -3681,7 +3941,7 @@ app.post('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, al
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const policy = await req.governance.service.getPolicy({
       scope: req.governance.scope, authorization: req.governance.authorization, policyId: req.params.policyId
@@ -3711,7 +3971,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/drafts', provider
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('author'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('author'), async (req, res) => {
   try {
     const draft = await req.governance.service.getDraft({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -3753,7 +4013,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/s
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const versions = await req.governance.service.listVersions({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -3763,7 +4023,7 @@ app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions', provide
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const version = await req.governance.service.getVersion({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -3784,7 +4044,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const review = await req.governance.service.getReviewState({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -3816,7 +4076,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const exceptions = await req.governance.service.listExceptions({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -3837,7 +4097,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exceptions/:exceptionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exceptions/:exceptionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const exception = await req.governance.service.getException({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -3869,7 +4129,7 @@ app.post('/api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke', pro
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/activations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/activations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const activations = await req.governance.service.listActivationHistory({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -3989,7 +4249,9 @@ app.delete('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAcces
 app.get('/api/repo/:owner/:repo/zip', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
   try {
     const ref = req.query.ref || '';
-    const r = await gh(req.gh, `${R(req)}/zipball/${encodeURIComponent(ref)}`, { raw: true });
+    const r = (req.gh.provider || 'github') === 'github'
+      ? await githubArchiveResponse(req.gh, req.params.owner, req.params.repo, ref)
+      : await gh(req.gh, `${R(req)}/zipball/${encodeURIComponent(ref)}`, { raw: true });
     if (!r.ok) return res.status(r.status).json({ error: 'Could not download archive' });
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition',
@@ -4020,7 +4282,7 @@ app.delete('/api/repo/:owner/:repo/branches/:name', providerSessionAccess, alpha
   } catch (e) { fail(res, e); }
 });
 /* compare two refs */
-app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const { base, head } = req.query;
     const c = await gh(req.gh,
@@ -4034,7 +4296,7 @@ app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepository
 });
 
 /* ================= TREE / FILES ================= */
-app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     if (req.gh.provider === 'gitlab') {
       const qp = new URLSearchParams({ ref: req.query.ref, path: req.query.path || '', per_page: '100' });
@@ -4052,7 +4314,7 @@ app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAcc
   } catch (e) { fail(res, e); }
 });
 /* flat recursive file list (for command-palette fuzzy finder) */
-app.get('/api/repo/:owner/:repo/files', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/files', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const ref = req.query.ref;
     const br = await gh(req.gh, `${R(req)}/branches/${encodeURIComponent(ref)}`);
@@ -4142,6 +4404,15 @@ app.get('/api/repo/:owner/:repo/raw', providerSessionAccess, alphaRepositoryAcce
     res.end();
   } catch (e) { fail(res, e); }
 });
+function requireHttpsLfsActionUrl(raw, action) {
+  let target;
+  try { target = new URL(String(raw || '')); }
+  catch { throw Object.assign(new Error(`LFS ${action} URL is invalid`), { status: 502 }); }
+  if (target.protocol !== 'https:' || target.username || target.password) {
+    throw Object.assign(new Error(`LFS ${action} URL must use HTTPS without embedded credentials`), { status: 502 });
+  }
+  return target;
+}
 async function lfsDownloadStream(sess, owner, repo, oid, size) {
   assertProviderBoundLfs(sess);
   const basic = Buffer.from(`${sess.login}:${sess.token}`).toString('base64');
@@ -4151,14 +4422,16 @@ async function lfsDownloadStream(sess, owner, repo, oid, size) {
       Accept: 'application/vnd.git-lfs+json', 'Content-Type': 'application/vnd.git-lfs+json',
       Authorization: `Basic ${basic}`, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}`
     },
-    body: JSON.stringify({ operation: 'download', transfers: ['basic'], objects: [{ oid, size }] })
+    body: JSON.stringify({ operation: 'download', transfers: ['basic'], objects: [{ oid, size }] }),
+    redirect: 'error'
   });
   if (!batchRes.ok) throw Object.assign(new Error('LFS download negotiation failed'), { status: 502 });
   const batch = await batchRes.json();
   const obj = batch.objects && batch.objects[0];
   const act = obj && obj.actions && obj.actions.download;
   if (!act) throw Object.assign(new Error('LFS object not found in storage'), { status: 404 });
-  const dl = await fetchT(act.href, { headers: act.header || {}, redirect: 'error' }, UPLOAD_TIMEOUT_MS);
+  const downloadUrl = requireHttpsLfsActionUrl(act.href, 'download');
+  const dl = await fetchT(downloadUrl, { headers: act.header || {}, redirect: 'error' }, UPLOAD_TIMEOUT_MS);
   if (!dl.ok) throw Object.assign(new Error(`LFS storage fetch failed (${dl.status})`), { status: 502 });
   return dl.body;
 }
@@ -4251,7 +4524,7 @@ app.delete('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepository
   } catch (e) { fail(res, e); }
 });
 /* rename/move (any size — reuses blob sha, no re-upload) */
-app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.rename'), auth, mutationContext('file.rename'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.rename', { allowExperimental: true }), auth, mutationContext('file.rename'), async (req, res) => {
   try {
     let { from, to, branch, message, expectedHeadSha } = req.body || {};
     if (!from || !to || !branch) return res.status(400).json({ error: 'from, to, branch required' });
@@ -4271,7 +4544,7 @@ app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepository
   } catch (e) { fail(res, e); }
 });
 /* batch: commit many staged operations atomically */
-app.post('/api/repo/:owner/:repo/batch', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.batch'), auth, mutationContext('file.batch'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/batch', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.batch', { allowExperimental: true }), auth, mutationContext('file.batch'), async (req, res) => {
   try {
     let { branch, message, ops, expectedHeadSha } = req.body || {};
     if (!branch || !Array.isArray(ops) || !ops.length) return res.status(400).json({ error: 'branch and ops required' });
@@ -4436,7 +4709,7 @@ app.post('/api/repo/:owner/:repo/restore-paths', providerSessionAccess, alphaRep
   } catch (e) { fail(res, e); }
 });
 /* Snapshot: the full file listing of the repo as it existed at a commit */
-app.get('/api/repo/:owner/:repo/snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
   try {
     let sha = req.query.sha;
     if (!sha) return res.status(400).json({ error: 'sha required' });
@@ -4471,7 +4744,7 @@ app.post('/api/repo/:owner/:repo/reset', providerSessionAccess, alphaRepositoryA
 });
 
 /* ================= SEARCH ================= */
-app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('search'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('search', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const q = req.query.q || '';
     const out = await gh(req.gh,
@@ -4513,7 +4786,7 @@ async function enforceProtectedPullMerge(req, number) {
 /* ================= PULL REQUESTS ================= */
 const glState = q => q === 'open' ? 'opened' : q;
 const glDiffCounts = d => { let a = 0, r = 0; for (const l of String(d || '').split('\n')) { if (l.startsWith('+') && !l.startsWith('+++')) a++; else if (l.startsWith('-') && !l.startsWith('---')) r++; } return [a, r]; };
-app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
     if (req.gh.provider === 'gitlab') {
@@ -4534,7 +4807,7 @@ app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAc
     })));
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     if (req.gh.provider === 'gitlab') {
       const m = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/changes`);
@@ -4564,7 +4837,7 @@ app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaReposit
     });
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.create'), async (req, res) => {
   try {
     const { title, head, base, body, draft } = req.body || {};
     if (!title || !head || !base) return res.status(400).json({ error: 'title, head, base required' });
@@ -4580,7 +4853,7 @@ app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryA
     res.json({ ok: true, number: p.number });
   } catch (e) { fail(res, e); }
 });
-app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.merge'), async (req, res) => {
+app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.merge'), async (req, res) => {
   try {
     const method = ['merge', 'squash', 'rebase'].includes(req.body && req.body.method) ? req.body.method : 'merge';
     await enforceProtectedPullMerge(req, req.params.num);
@@ -4598,7 +4871,7 @@ app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaR
 });
 
 /* ================= ISSUES ================= */
-app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
     if (req.gh.provider === 'gitlab') {
@@ -4620,7 +4893,7 @@ app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryA
     })));
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     if (req.gh.provider === 'gitlab') {
       const [it, notes] = await Promise.all([
@@ -4646,7 +4919,7 @@ app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaReposi
     });
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write', { allowExperimental: true }), auth, mutationContext('issue.create'), async (req, res) => {
   try {
     const { title, body } = req.body || {};
     if (!title) return res.status(400).json({ error: 'title required' });
@@ -4658,7 +4931,7 @@ app.post('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepository
     res.json({ ok: true, number: i.number });
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.comment'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write', { allowExperimental: true }), auth, mutationContext('issue.comment'), async (req, res) => {
   try {
     const { body } = req.body || {};
     if (!body) return res.status(400).json({ error: 'body required' });
@@ -4670,7 +4943,7 @@ app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, a
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
-app.patch('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.update'), async (req, res) => {
+app.patch('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write', { allowExperimental: true }), auth, mutationContext('issue.update'), async (req, res) => {
   try {
     const state = req.body && req.body.state === 'closed' ? 'closed' : 'open';
     if (req.gh.provider === 'gitlab') {
@@ -4700,26 +4973,26 @@ app.get('/api/notifications', providerSessionAccess, capabilityAccess('notificat
     })));
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.read', { allowExperimental: true }), auth, async (req, res) => {
   if (req.gh.authMethod === 'github-app') return res.json({ starred: false, unsupported: true });
   try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`); res.json({ starred: true }); }
   catch (e) { if (e.status === 404) return res.json({ starred: false }); fail(res, e); }
 });
-app.put('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write'), auth, mutationContext('repository.star'), async (req, res) => {
+app.put('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write', { allowExperimental: true }), auth, mutationContext('repository.star'), async (req, res) => {
   if (req.gh.authMethod === 'github-app') return res.status(403).json({
     error: 'GitHub App installations cannot manage user stars', code: 'GITHUB_APP_CAPABILITY_UNAVAILABLE'
   });
   try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`, { method: 'PUT' }); res.json({ ok: true, starred: true }); }
   catch (e) { fail(res, e); }
 });
-app.delete('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write'), auth, mutationContext('repository.unstar'), async (req, res) => {
+app.delete('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write', { allowExperimental: true }), auth, mutationContext('repository.unstar'), async (req, res) => {
   if (req.gh.authMethod === 'github-app') return res.status(403).json({
     error: 'GitHub App installations cannot manage user stars', code: 'GITHUB_APP_CAPABILITY_UNAVAILABLE'
   });
   try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`, { method: 'DELETE' }); res.json({ ok: true, starred: false }); }
   catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.review'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.review'), async (req, res) => {
   try {
     const event = ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'].includes(req.body && req.body.event) ? req.body.event : 'COMMENT';
     await gh(req.gh, `${R(req)}/pulls/${req.params.num}/reviews`, {
@@ -4728,7 +5001,7 @@ app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alp
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const out = await gh(req.gh, `${R(req)}/actions/runs/${req.params.runId}/jobs?per_page=20`);
     res.json((out.jobs || []).map(jb => ({
@@ -4737,7 +5010,7 @@ app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alp
     })));
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.rerun'), auth, mutationContext('workflow.rerun'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.rerun', { allowExperimental: true }), auth, mutationContext('workflow.rerun'), async (req, res) => {
   try {
     await gh(req.gh, `${R(req)}/actions/runs/${req.params.runId}/rerun`, { method: 'POST' });
     res.json({ ok: true });
@@ -4752,7 +5025,7 @@ app.get('/api/search', providerSessionAccess, capabilityAccess('global-search'),
 });
 
 /* ================= ACTIONS (CI) ================= */
-app.get('/api/repo/:owner/:repo/actions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/actions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const branch = req.query.branch ? `&branch=${encodeURIComponent(req.query.branch)}` : '';
     const out = await gh(req.gh, `${R(req)}/actions/runs?per_page=25${branch}`);
@@ -4766,7 +5039,7 @@ app.get('/api/repo/:owner/:repo/actions', providerSessionAccess, alphaRepository
 });
 
 /* ================= RELEASES ================= */
-app.get('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const rel = await gh(req.gh, `${R(req)}/releases?per_page=20`);
     res.json(rel.map(r => ({
@@ -4776,7 +5049,7 @@ app.get('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositor
     })));
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.write'), auth, mutationContext('release.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.write', { allowExperimental: true }), auth, mutationContext('release.create'), async (req, res) => {
   try {
     const { tag, name, body, target, prerelease } = req.body || {};
     if (!tag) return res.status(400).json({ error: 'tag required' });
@@ -5080,7 +5353,8 @@ async function uploadViaLFS(sess, owner, repo, branch, p, tmp, oid, size, messag
       Accept: 'application/vnd.git-lfs+json', 'Content-Type': 'application/vnd.git-lfs+json',
       Authorization: `Basic ${basic}`, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}`
     },
-    body: JSON.stringify({ operation: 'upload', transfers: ['basic'], ref: { name: `refs/heads/${branch}` }, objects: [{ oid, size }] })
+    body: JSON.stringify({ operation: 'upload', transfers: ['basic'], ref: { name: `refs/heads/${branch}` }, objects: [{ oid, size }] }),
+    redirect: 'error'
   });
   if (!batchRes.ok) {
     const t = await batchRes.text();
@@ -5091,8 +5365,9 @@ async function uploadViaLFS(sess, owner, repo, branch, p, tmp, oid, size, messag
   if (obj && obj.error) throw Object.assign(new Error(`LFS: ${obj.error.message}`), { status: 502 });
   const uploadAction = obj && obj.actions && obj.actions.upload;
   if (uploadAction) {
+    const uploadUrl = requireHttpsLfsActionUrl(uploadAction.href, 'upload');
     mutationGateway.assertProviderMutation({ provider: sess.provider || 'github', baseUrl: sess.baseUrl, method: 'PUT', owner, repo, transport: 'git-lfs.upload' });
-    const up = await fetchT(uploadAction.href, {
+    const up = await fetchT(uploadUrl, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(size), ...(uploadAction.header || {}) },
       body: fs.createReadStream(tmp), duplex: 'half', redirect: 'error'
@@ -5103,16 +5378,17 @@ async function uploadViaLFS(sess, owner, repo, branch, p, tmp, oid, size, messag
     }
     const verify = obj.actions.verify;
     if (verify) {
+      const verifyUrl = requireHttpsLfsActionUrl(verify.href, 'verification');
       const verifyHeaders = {
         Accept: 'application/vnd.git-lfs+json',
         'Content-Type': 'application/vnd.git-lfs+json',
         ...(verify.header || {})
       };
-      try {
-        if (new URL(verify.href).hostname === 'github.com' && !verifyHeaders.Authorization) verifyHeaders.Authorization = `Basic ${basic}`;
-      } catch { throw Object.assign(new Error('LFS verification URL is invalid'), { status: 502 }); }
+      if (verifyUrl.hostname === 'github.com' && !verifyHeaders.Authorization) {
+        verifyHeaders.Authorization = `Basic ${basic}`;
+      }
       mutationGateway.assertProviderMutation({ provider: sess.provider || 'github', baseUrl: sess.baseUrl, method: 'POST', owner, repo, transport: 'git-lfs.verify' });
-      const verified = await fetchT(verify.href, {
+      const verified = await fetchT(verifyUrl, {
         method: 'POST', headers: verifyHeaders, body: JSON.stringify({ oid, size }), redirect: 'error'
       });
       if (!verified.ok) {
@@ -5225,7 +5501,7 @@ async function commitTree(token, owner, repo, branch, message, treeEntries, expe
   return commit.sha;
 }
 
-app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('folder.move'), auth, mutationContext('directory.move'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('folder.move', { allowExperimental: true }), auth, mutationContext('directory.move'), async (req, res) => {
   try {
     if (req.gh.provider === 'gitlab') return res.status(501).json({ error: 'Folder move is GitHub/Gitea-only for now' });
     const { owner, repo } = req.params;
@@ -5431,7 +5707,7 @@ async function captureRefsSnapshot(req, includeManifest) {
   };
 }
 
-app.get('/api/repo/:owner/:repo/refs-snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/refs-snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
   try { res.json(await captureRefsSnapshot(req, req.query.manifest === '1')); }
   catch (e) { fail(res, e); }
 });
@@ -5462,7 +5738,7 @@ async function snapshotComparisonForRequest(req, snapshot) {
   return { baseline, current, comparison: compareSnapshots(baseline, current) };
 }
 
-app.post('/api/repo/:owner/:repo/snapshot-compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
+app.post('/api/repo/:owner/:repo/snapshot-compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const result = await snapshotComparisonForRequest(req, req.body && req.body.snapshot);
     res.json({
@@ -5474,7 +5750,7 @@ app.post('/api/repo/:owner/:repo/snapshot-compare', providerSessionAccess, alpha
   } catch (e) { fail(res, e); }
 });
 
-app.post('/api/repo/:owner/:repo/restore-preview', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
+app.post('/api/repo/:owner/:repo/restore-preview', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const result = await snapshotComparisonForRequest(req, req.body && req.body.snapshot);
     const currentByName = new Map((result.current.refs || []).map(ref => [ref.name, ref]));
@@ -5518,7 +5794,7 @@ app.post('/api/repo/:owner/:repo/signed-snapshot', providerSessionAccess, alphaR
     const includeManifest = !(req.body && req.body.manifest === false);
     const snapshot = await captureRefsSnapshot(req, includeManifest);
     const snapshotId = crypto.randomUUID();
-    const signature = hmacJson(SECRET, { snapshotId, snapshot });
+    const signature = SNAPSHOT_SIGNATURES.sign(snapshotId, snapshot);
     const provider = req.gh.provider || 'github';
     const identity = identityKey(req.gh);
     await pool().query(
@@ -5535,7 +5811,13 @@ app.post('/api/repo/:owner/:repo/signed-snapshot', providerSessionAccess, alphaR
       [provider, req.params.owner, req.params.repo, identity, SNAPSHOT_RETENTION_COUNT]
     );
     const evidence = await appendEvidence(scopedEvidenceKey(provider, req.params.owner, req.params.repo, identity), 'recovery-snapshot', snapshotId, { snapshot, signature });
-    res.status(201).json({ snapshotId, signature, evidence, snapshot });
+    res.status(201).json({
+      snapshotId,
+      signature,
+      signatureKeyId: SNAPSHOT_SIGNATURES.activeKeyId,
+      evidence,
+      snapshot
+    });
   } catch (e) { fail(res, e); }
 });
 
@@ -5575,7 +5857,13 @@ app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alp
         sessionRevocationAvailable: !!inventory.available
       }
     };
-    const signature = hmacJson(SECRET, { snapshotId: manifestId, snapshot: manifest });
+    const signature = SNAPSHOT_SIGNATURES.sign(manifestId, manifest);
+    const signatureVerification = SNAPSHOT_SIGNATURES.verify(signature, manifestId, manifest);
+    if (!signatureVerification.valid) {
+      const error = new Error('Emergency manifest signature verification failed');
+      error.code = 'SNAPSHOT_SIGNATURE_VERIFICATION_FAILED';
+      throw error;
+    }
     let persisted = false;
     let evidence = null;
     if (await dbReady()) {
@@ -5597,11 +5885,19 @@ app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alp
       evidence = await appendEvidence(scopedEvidenceKey(provider, req.params.owner, req.params.repo, identity), 'emergency-manifest', manifestId, { manifest, signature });
       persisted = true;
     }
-    res.status(201).json({ manifestId, signature, signatureValid: true, persisted, evidence, manifest });
+    res.status(201).json({
+      manifestId,
+      signature,
+      signatureKeyId: signatureVerification.keyId,
+      signatureValid: signatureVerification.valid,
+      persisted,
+      evidence,
+      manifest
+    });
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
   try {
     if (!(await dbReady())) return res.json({ available: false, snapshots: [] });
     const r = await pool().query(
@@ -5610,13 +5906,18 @@ app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaR
        ORDER BY created_at DESC LIMIT 25`,
       [req.gh.provider || 'github', req.params.owner, req.params.repo, identityKey(req.gh)]
     );
-    res.json({ available: true, snapshots: r.rows.map(x => ({
-      snapshotId: x.snapshot_id,
-      signature: x.signature,
-      signatureValid: hmacJson(SECRET, { snapshotId: x.snapshot_id, snapshot: x.snapshot }) === x.signature,
-      createdAt: x.created_at,
-      snapshot: x.snapshot
-    })) });
+    res.json({ available: true, snapshots: r.rows.map(x => {
+      const verification = SNAPSHOT_SIGNATURES.verify(x.signature, x.snapshot_id, x.snapshot);
+      return {
+        snapshotId: x.snapshot_id,
+        signature: x.signature,
+        signatureValid: verification.valid,
+        signatureKeyId: verification.keyId,
+        signatureLegacy: verification.legacy,
+        createdAt: x.created_at,
+        snapshot: x.snapshot
+      };
+    }) });
   } catch (e) { fail(res, e); }
 });
 
@@ -5851,7 +6152,7 @@ app.get('/api/repo/:owner/:repo/access-surface', providerSessionAccess, alphaRep
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const branch = req.query.ref || '';
     const found = [], sources = [];
@@ -5951,7 +6252,7 @@ function guessMime(p) {
 
 
 /* ================= LIVE INTELLIGENCE + EVIDENCE (v5.2) ================= */
-app.get('/api/repo/:owner/:repo/live-events/status', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/live-events/status', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, async (req, res) => {
   try {
     if ((req.gh.provider || 'github') !== 'github') return res.json({ available: false, connected: false, reason: 'GitHub-only in v5.2' });
     if (!(await dbReady())) return res.json({ available: false, connected: false, reason: 'Connect the existing Neon DATABASE_URL to persist verified events' });
@@ -5976,7 +6277,7 @@ async function removeOrphanedProviderHook(acct, req, providerHookId) {
   }
 }
 
-app.post('/api/repo/:owner/:repo/live-events/connect', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, mutationContext('webhook.connect'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/live-events/connect', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, mutationContext('webhook.connect'), async (req, res) => {
   try {
     if ((req.gh.provider || 'github') !== 'github') return res.status(501).json({ error: 'Verified live events are GitHub-only in v5.2' });
     if (!(await dbReady())) return res.status(503).json({ error: 'Live events require the existing Neon DATABASE_URL' });
@@ -6067,7 +6368,7 @@ app.post('/api/repo/:owner/:repo/live-events/connect', providerSessionAccess, al
   } catch (e) { fail(res, e); }
 });
 
-app.delete('/api/repo/:owner/:repo/live-events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, mutationContext('webhook.disconnect'), async (req, res) => {
+app.delete('/api/repo/:owner/:repo/live-events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, mutationContext('webhook.disconnect'), async (req, res) => {
   try {
     if (!(await dbReady())) return res.status(503).json({ error: 'Live event storage is unavailable' });
     const key = identityKey(req.gh);
@@ -6219,7 +6520,7 @@ app.get('/api/repo/:owner/:repo/intelligence/events', providerSessionAccess, alp
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/live-events/stream', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/live-events/stream', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, async (req, res) => {
   const key = liveStreamKey(req.gh.provider || 'github', req.params.owner, req.params.repo, identityKey(req.gh));
   const scopedClients = LIVE_CLIENTS.get(key);
   if (!canAcceptLiveClient(liveClientCount(), scopedClients ? scopedClients.size : 0, MAX_LIVE_CLIENTS_TOTAL, MAX_LIVE_CLIENTS_PER_KEY)) {
@@ -6304,10 +6605,15 @@ app.get('/api/repo/:owner/:repo/evidence', providerSessionAccess, alphaRepositor
       repository: `${req.params.owner}/${req.params.repo}`, chain: chainSummary,
       records: evidenceRecords,
       events: events.rows,
-      snapshots: snapshots.rows.map(row => ({
-        ...row,
-        signature_valid: hmacJson(SECRET, { snapshotId: row.snapshot_id, snapshot: row.snapshot }) === row.signature
-      }))
+      snapshots: snapshots.rows.map(row => {
+        const verification = SNAPSHOT_SIGNATURES.verify(row.signature, row.snapshot_id, row.snapshot);
+        return {
+          ...row,
+          signature_valid: verification.valid,
+          signature_key_id: verification.keyId,
+          signature_legacy: verification.legacy
+        };
+      })
     });
   } catch (e) { fail(res, e); }
 });
@@ -6386,7 +6692,11 @@ app.post('/api/security/revoke-others', auth, async (req, res) => {
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/version', (req, res) => res.json({ version: APP_VERSION, product: PRODUCT_NAME }));
+app.get('/api/version', (req, res) => res.json({
+  version: APP_VERSION,
+  product: PRODUCT_NAME,
+  releaseTreeSha256: RELEASE_TREE_SHA256
+}));
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
   res.setHeader('Cache-Control', 'no-cache');

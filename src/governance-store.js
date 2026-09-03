@@ -1654,6 +1654,89 @@ class GovernanceStore {
     });
   }
 
+  /*
+   * The active policy set for a scope, read and nothing else.
+   *
+   * Safe Passage has to ask the policy whether a compliant route is permitted
+   * before offering it. Asking through the runtime evaluator would append a
+   * decision to the hash chain for a mutation nobody performed, so the set is
+   * read here and judged by the pure evaluator instead. Nothing is written and
+   * no decision identifier is minted: this answers a question, it does not
+   * record one.
+   */
+  async resolveActivePolicySetInScope(input = {}) {
+    const scope = normalizePolicyScope(input.scope);
+    const action = String(input.action || '').trim();
+    if (!action) throw new GovernanceError('An action is required to resolve the active policy set', 'POLICY_DESCRIPTOR_INVALID', 500);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const active = await client.query(
+        `SELECT p.policy_id,p.policy_key,h.active_version_id,h.revision,
+                v.version_number,v.document,v.document_hash
+         FROM nv_governance_policies p
+         JOIN nv_governance_policy_heads h ON h.policy_id=p.policy_id
+         JOIN nv_governance_policy_versions v ON v.version_id=h.active_version_id AND v.policy_id=p.policy_id
+         WHERE p.scope_key=$1 AND p.archived_at IS NULL AND h.active_version_id IS NOT NULL
+         ORDER BY p.policy_key ASC,p.policy_id ASC
+         LIMIT 101`,
+        [scope.scopeKey]
+      );
+      if (active.rows.length > 100) {
+        throw new GovernanceError(
+          'Repository active-policy limit is exceeded',
+          'GOVERNANCE_ACTIVE_POLICY_LIMIT_EXCEEDED',
+          503,
+          { maximum: 100 }
+        );
+      }
+      const activePolicies = active.rows.map(row => ({
+        policyId: row.policy_id,
+        policyKey: row.policy_key,
+        versionId: row.active_version_id,
+        versionNumber: Number(row.version_number),
+        headRevision: Number(row.revision),
+        document: row.document,
+        documentHash: row.document_hash
+      }));
+      const resolvedAt = this.now().toISOString();
+      const exceptionRows = activePolicies.length ? await client.query(
+        `SELECT r.exception_id,r.policy_id,r.version_id,r.document_hash,r.kind,r.action,r.rule_ids,r.target,r.target_hash,
+                r.requested_by_identity_key,r.expires_at,e.created_at AS approved_at,e.actor_identity_key AS approved_by_identity_key,e.actor_login AS approved_by_login
+         FROM nv_governance_exception_requests r
+         JOIN nv_governance_policy_heads h ON h.policy_id=r.policy_id AND h.active_version_id=r.version_id AND h.revision=r.head_revision
+         JOIN nv_governance_exception_events e ON e.exception_id=r.exception_id AND e.event_type='approve'
+         LEFT JOIN nv_governance_exception_events revoked ON revoked.exception_id=r.exception_id AND revoked.event_type='revoke' AND revoked.created_at <= $4
+         WHERE r.scope_key=$1 AND r.action=$2 AND r.version_id = ANY($3::uuid[])
+           AND r.expires_at > $4 AND e.created_at <= $4 AND revoked.event_id IS NULL
+         ORDER BY r.policy_id ASC,r.exception_id ASC
+         LIMIT 101`,
+        [scope.scopeKey, action, activePolicies.map(item => item.versionId), resolvedAt]
+      ) : { rows: [] };
+      if (exceptionRows.rows.length > 100) {
+        throw new GovernanceError(
+          'Repository active-exception limit is exceeded for this mutation action',
+          'GOVERNANCE_ACTIVE_EXCEPTION_LIMIT_EXCEEDED',
+          503,
+          { maximum: 100, action }
+        );
+      }
+      const activeExceptions = exceptionRows.rows.map(row => ({
+        exceptionId: row.exception_id, policyId: row.policy_id, versionId: row.version_id,
+        documentHash: row.document_hash, kind: row.kind, action: row.action, ruleIds: row.rule_ids,
+        subjectIdentityKey: row.requested_by_identity_key, target: row.target, targetHash: row.target_hash,
+        expiresAt: row.expires_at, approvedAt: row.approved_at,
+        approvedByIdentityKey: row.approved_by_identity_key, approvedByLogin: row.approved_by_login
+      }));
+      return { activePolicies, activeExceptions, resolvedAt };
+    } catch (error) {
+      throw translateDatabaseError(error);
+    } finally {
+      await client.query('ROLLBACK').catch(() => {});
+      client.release();
+    }
+  }
+
   async listPolicyDecisionsInScope(input = {}) {
     const scope = normalizePolicyScope(input.scope);
     const limit = boundedDecisionLimit(input.limit, 100, 5000);

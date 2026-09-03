@@ -199,12 +199,15 @@ function normalizeFileBatch(input) {
   }));
   const itemIds = evidenceItems.map(item => hash(item));
   const batchHash = hash({ action: 'file.batch', items: evidenceItems });
+  /* The paths a batch touches travel with the batch: a path-scoped policy rule
+   * can only reach the paths the mutation reports. */
+  const batchPaths = [...new Set(items.map(item => item.path))].sort();
   return deepFreeze({
     items,
     itemIds,
     batchHash,
     payloadBytes,
-    summary: { itemCount: items.length, itemIds, batchHash, payloadBytes }
+    summary: { itemCount: items.length, itemIds, batchHash, payloadBytes, paths: batchPaths }
   });
 }
 

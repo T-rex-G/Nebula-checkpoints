@@ -2,6 +2,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { HEAD_SHA, mockPublicAlphaApi, startNewFileAction } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -16,35 +17,40 @@ test('invited tester completes the GitHub sandbox golden path and cleanup', asyn
   });
 
   await page.goto('/');
-  await expect(page.locator('#page-alpha-access')).toHaveClass(/active/);
-  await expect(page.locator('#alphaAccessTitle')).toBeVisible();
-  await expect(page.locator('.alpha-access-rule')).toContainText('no real secrets');
-  await expect(page.locator('.alpha-access-rule')).toContainText('production deployments');
-  await page.locator('#alphaInviteInput').fill('fixture-invitation');
-  await page.locator('#alphaTermsAccept').check();
-  await page.locator('#alphaRedeemBtn').click();
+  const access = ui.screen(page, 'access');
+  await expect(access).toBeVisible();
+  await expect(ui.heading(access, ui.SCREENS.access)).toBeVisible();
+  await expect(access).toContainText('no real secrets');
+  await expect(access).toContainText('production deployments');
+  await ui.secretField(page, 'One-time invitation').fill('fixture-invitation');
+  await ui.checkbox(page, /I accept/).check();
+  await ui.button(access, 'Continue').click();
 
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
-  const guidance = page.locator('#alphaProviderGuidance');
-  await expect(guidance).toContainText('GitHub App');
-  await expect(guidance).toContainText('selected repositories');
-  await expect(guidance).toContainText('sandbox');
-  await page.locator('#tokenInput').fill('fixture-provider-credential');
-  await page.locator('#loginBtn').click();
+  const login = ui.screen(page, 'login');
+  await expect(login).toBeVisible();
+  await expect(login).toContainText('GitHub App');
+  await expect(login).toContainText('selected repositories');
+  await expect(login).toContainText('sandbox');
+  await ui.secretField(page, 'GitHub Personal Access Token').fill('fixture-provider-credential');
+  await ui.button(login, 'Enter orbit').click();
 
-  await expect(page.locator('#page-repos')).toHaveClass(/active/);
-  await expect(page.locator('.repo-card')).toHaveCount(1);
-  await expect(page.locator('.repo-card')).toContainText('sandbox/demo');
-  await page.locator('.repo-card').click();
+  const repos = await ui.enterRepositories(page);
+  await expect(repos).toBeVisible();
+  const repository = ui.button(repos, 'Open repository sandbox/demo');
+  await expect(repository).toHaveCount(1);
+  await repository.click();
 
-  await expect(page.locator('#page-work')).toHaveClass(/active/);
-  await expect(page.locator('#trustSummary')).toBeVisible();
-  await expect(page.locator('#trustConnection')).toContainText('Provider-verified');
-  await expect(page.locator('#trustPipeline')).toContainText('Evidence chain verified');
-  await expect(page.locator('#trustRisk')).toContainText('No issue');
-  await expect(page.locator('#trustEvidence')).toContainText('chained record');
+  const work = ui.screen(page, 'work');
+  await expect(work).toBeVisible();
+  const trust = work.getByRole('region', { name: 'Repository trust summary' });
+  await expect(trust).toBeVisible();
+  await ui.openTrustDetail(page);
+  await expect(trust.getByRole('article', { name: 'Connection trust' })).toContainText('Provider-verified');
+  await expect(trust.getByRole('article', { name: 'Pipeline trust' })).toContainText('Evidence chain verified');
+  await expect(trust.getByRole('article', { name: 'Risk' })).toContainText('No issue');
+  await expect(trust.getByRole('article', { name: 'Evidence' })).toContainText('chained record');
 
-  await page.locator('#paletteBtn').click();
+  await (await ui.action(page, 'Command palette')).click();
   await page.locator('#paletteInput').fill('Safeguards');
   await page.locator('.pal-item', { hasText: 'Safeguards' }).first().click();
   await expect(page.locator('#sgEvidence')).toBeVisible();
@@ -54,18 +60,18 @@ test('invited tester completes the GitHub sandbox golden path and cleanup', asyn
   await page.locator('#modalOk').click();
 
   await startNewFileAction(page, 'alpha-proof.txt');
-  await expect(page.locator('#toasts')).toContainText('Created alpha-proof.txt');
+  await expect(ui.status(page, 'Notifications')).toContainText('Created alpha-proof.txt');
   expect(fixture.mutationRequests).toHaveLength(1);
   expect(fixture.mutationRequests[0].expectedHeadSha).toBe(HEAD_SHA);
 
-  await page.locator('#paletteBtn').click();
+  await (await ui.action(page, 'Command palette')).click();
   await page.locator('#paletteInput').fill('Settings');
   await page.locator('.pal-item', { hasText: 'Settings' }).first().click();
   await page.locator('#modalBody [data-alpha-privacy-action="disconnect"]').click();
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
+  await expect(ui.screen(page, 'login')).toBeVisible();
   await expect.poll(() => fixture.disconnected).toBe(true);
 
   await page.locator('.login-card [data-alpha-privacy-action="end"]').click();
   await expect.poll(() => fixture.alphaEnded).toBe(true);
-  await expect(page.locator('#page-login')).toHaveClass(/active/);
+  await expect(ui.screen(page, 'login')).toBeVisible();
 });

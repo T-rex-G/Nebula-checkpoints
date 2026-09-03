@@ -42,6 +42,14 @@
     if (terms) terms.checked = false;
     const invite = byId('alphaInviteInput');
     if (invite) invite.focus();
+    /*
+     * Announced for the same reason the granted side is: the gate takes the
+     * screen, and the chrome belonging to whatever it replaced has to go with
+     * it. Said here rather than by each caller, because every path that raises
+     * the gate owes the same cleanup -- an expired session left the workbench's
+     * floating action sitting over this page's own Continue.
+     */
+    global.dispatchEvent(new CustomEvent('nebula:alpha-access-gated'));
   }
 
   async function jsonRequest(path, options = {}) {

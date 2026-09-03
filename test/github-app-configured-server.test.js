@@ -6,11 +6,16 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { createGithubAppState } = require('../src/github-app');
 const { hashJson } = require('../src/intelligence');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
 
 const root = path.resolve(__dirname, '..');
 const port = 30100 + Math.floor(Math.random() * 500);
 const sessionSecret = 'github-app-configured-test-secret-0123456789abcdef-0123456789abcdef';
-const sessionKey = crypto.createHash('sha256').update(sessionSecret).digest();
+const snapKey = 'github-app-configured-snapshot-secret-fedcba9876543210-fedcba9876543210';
+/* The server derives a purpose-specific key per construction; mirror those
+   derivations rather than the single raw digest they replaced. */
+const sessionKey = deriveKey(sessionSecret, KEY_PURPOSES.SESSION_CONTENT);
+const githubAppStateSecret = deriveSecret(sessionSecret, KEY_PURPOSES.GITHUB_APP_STATE);
 
 function seal(value) {
   const iv = crypto.randomBytes(12);
@@ -35,6 +40,8 @@ const child = spawn(process.execPath, ['server.js'], {
     PORT: String(port),
     NODE_ENV: 'production',
     SESSION_SECRET: sessionSecret,
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'github-app-configured-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: snapKey,
     DATABASE_URL: '',
     GITHUB_APP_ID: '4242',
     GITHUB_APP_SLUG: 'nebula-configured-test',
@@ -84,7 +91,7 @@ async function waitForServer() {
     const replayIdentity = hashJson({ provider: 'github', baseUrl: '', login: 'alice' });
     const replayNonce = 'setup-replay-nonce';
     const replaySessionNonce = 'a'.repeat(48);
-    const replayState = createGithubAppState(sessionSecret, {
+    const replayState = createGithubAppState(githubAppStateSecret, {
       purpose: 'installation-claim', sessionBinding: replaySessionNonce, identityKey: replayIdentity
     }, { nonce: replayNonce, ttlMs: 600000 });
     const replayCookie = `nv_session=${seal({

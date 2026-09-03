@@ -546,10 +546,10 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
   IF EXISTS (
-    SELECT 1 FROM nv_alpha_audit_purge_authorizations authorization
-     WHERE authorization.tester_id=NEW.tester_id
-       AND authorization.record_kind=NEW.record_kind
-       AND authorization.record_hash=NEW.record_hash
+    SELECT 1 FROM nv_alpha_audit_purge_authorizations purge_auth
+     WHERE purge_auth.tester_id=NEW.tester_id
+       AND purge_auth.record_kind=NEW.record_kind
+       AND purge_auth.record_hash=NEW.record_hash
   ) THEN
     RAISE EXCEPTION 'Alpha audit purge authorization must be transaction-local';
   END IF;
@@ -571,21 +571,21 @@ AS $$
 BEGIN
   IF TG_OP='DELETE' AND EXISTS (
     SELECT 1
-      FROM nv_alpha_audit_purge_authorizations authorization
+      FROM nv_alpha_audit_purge_authorizations purge_auth
       JOIN nv_alpha_deletion_requests request
-        ON request.tester_id=authorization.tester_id
+        ON request.tester_id=purge_auth.tester_id
        AND request.status='requested'
       JOIN nv_alpha_retained_integrity retained
-        ON retained.tester_id_hash=authorization.tester_id_hash
-       AND retained.record_kind=authorization.record_kind
-       AND retained.record_hash=authorization.record_hash
-       AND retained.previous_hash=authorization.previous_hash
-       AND retained.payload_hash=authorization.payload_hash
-     WHERE authorization.record_kind='governance-audit'
-       AND authorization.identity_key=OLD.actor_identity_key
-       AND authorization.record_hash=OLD.record_hash
-       AND authorization.previous_hash=OLD.previous_hash
-       AND authorization.payload_hash=OLD.details_hash
+        ON retained.tester_id_hash=purge_auth.tester_id_hash
+       AND retained.record_kind=purge_auth.record_kind
+       AND retained.record_hash=purge_auth.record_hash
+       AND retained.previous_hash=purge_auth.previous_hash
+       AND retained.payload_hash=purge_auth.payload_hash
+     WHERE purge_auth.record_kind='governance-audit'
+       AND purge_auth.identity_key=OLD.actor_identity_key
+       AND purge_auth.record_hash=OLD.record_hash
+       AND purge_auth.previous_hash=OLD.previous_hash
+       AND purge_auth.payload_hash=OLD.details_hash
   ) THEN
     RETURN OLD;
   END IF;
@@ -600,21 +600,21 @@ AS $$
 BEGIN
   IF TG_OP='DELETE' AND EXISTS (
     SELECT 1
-      FROM nv_alpha_audit_purge_authorizations authorization
+      FROM nv_alpha_audit_purge_authorizations purge_auth
       JOIN nv_alpha_deletion_requests request
-        ON request.tester_id=authorization.tester_id
+        ON request.tester_id=purge_auth.tester_id
        AND request.status='requested'
       JOIN nv_alpha_retained_integrity retained
-        ON retained.tester_id_hash=authorization.tester_id_hash
-       AND retained.record_kind=authorization.record_kind
-       AND retained.record_hash=authorization.record_hash
-       AND retained.previous_hash=authorization.previous_hash
-       AND retained.payload_hash=authorization.payload_hash
-     WHERE authorization.record_kind='governance-decision'
-       AND authorization.identity_key=OLD.actor_identity_key
-       AND authorization.record_hash=OLD.record_hash
-       AND authorization.previous_hash=OLD.previous_hash
-       AND authorization.payload_hash=OLD.decision_hash
+        ON retained.tester_id_hash=purge_auth.tester_id_hash
+       AND retained.record_kind=purge_auth.record_kind
+       AND retained.record_hash=purge_auth.record_hash
+       AND retained.previous_hash=purge_auth.previous_hash
+       AND retained.payload_hash=purge_auth.payload_hash
+     WHERE purge_auth.record_kind='governance-decision'
+       AND purge_auth.identity_key=OLD.actor_identity_key
+       AND purge_auth.record_hash=OLD.record_hash
+       AND purge_auth.previous_hash=OLD.previous_hash
+       AND purge_auth.payload_hash=OLD.decision_hash
   ) THEN
     RETURN OLD;
   END IF;

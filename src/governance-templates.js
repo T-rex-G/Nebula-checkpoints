@@ -9,9 +9,10 @@ const {
   policyDocumentHash,
   stableJson
 } = require('./governance-model');
+const { expandProtectedPaths } = require('./protected-paths');
 
 const TEMPLATE_CATALOG_ID = 'nebulaverse-policy-template-catalog';
-const TEMPLATE_CATALOG_VERSION = '1.0.0';
+const TEMPLATE_CATALOG_VERSION = '1.2.0';
 const MAX_FACTS_BYTES = 16 * 1024;
 const MAX_PROTECTED_BRANCHES = 50;
 const SAFE_BRANCH_RX = /^[A-Za-z0-9._\/-]{1,255}$/;
@@ -93,6 +94,46 @@ function normalizeRepositoryFacts(input, scope) {
   return deepFreeze(facts);
 }
 
+/*
+ * The paths whose contents decide what the repository is allowed to do to
+ * itself. Each one is here because changing it changes an enforcement decision
+ * somewhere else, not because it is merely important.
+ */
+const DEFAULT_PROTECTED_PATHS = Object.freeze([
+  Object.freeze({ pattern: '.github/workflows/**', effect: 'deny' }),
+  Object.freeze({ pattern: '.github/actions/**', effect: 'deny' }),
+  Object.freeze({ pattern: '.github/CODEOWNERS', effect: 'deny' }),
+  Object.freeze({ pattern: 'CODEOWNERS', effect: 'deny' }),
+  Object.freeze({ pattern: 'docs/CODEOWNERS', effect: 'deny' }),
+  Object.freeze({ pattern: '.github/dependabot.yml', effect: 'deny' }),
+  Object.freeze({ pattern: '.gitattributes', effect: 'deny' })
+]);
+
+function reviewDeclarations(defaultBranch) {
+  return DEFAULT_PROTECTED_PATHS.map(entry => ({
+    pattern: entry.pattern,
+    effect: 'require-approval',
+    branch: defaultBranch
+  }));
+}
+
+function protectedPathsDescription(expansion) {
+  const patterns = expansion.coverage.map(entry => entry.pattern).join(', ');
+  const ancestors = [...new Set(expansion.coverage.flatMap(entry => entry.ancestorPaths))].sort();
+  const wholeGuards = [...new Set(expansion.coverage.flatMap(entry => entry.wholeActionGuards))].sort();
+  return [
+    `Protected sensitive paths: ${patterns}.`,
+    'Every action that can change a repository path is covered, including renames, batches, directory moves and restores from history.',
+    ancestors.length
+      ? `Moving ${ancestors.join(', ')} as a directory is covered too, because a protected file travels with the directory holding it.`
+      : '',
+    wholeGuards.length
+      ? `${wholeGuards.join(', ')} are covered as whole actions: they can change any path, so they cannot be narrowed to one.`
+      : '',
+    'Generated in observe mode: decisions are recorded and nothing is blocked until this policy is activated in warn or block mode.'
+  ].filter(Boolean).join(' ');
+}
+
 const DEFINITIONS = Object.freeze([
   Object.freeze({
     templateId: 'observe-baseline', version: '1.0.0',
@@ -124,6 +165,65 @@ const DEFINITIONS = Object.freeze([
         rules.push({ id: 'pull-merge-approval', action: 'pull.merge', effect: 'require-approval', description: 'Require approval evidence for pull-request merges.' });
       }
       return { schemaVersion: 1, description: 'Repository-specific protected-branch baseline.', enforcement: { mode: 'observe' }, rules };
+    }
+  }),
+  Object.freeze({
+    templateId: 'protected-paths', version: '1.0.0',
+    name: 'Protected sensitive paths',
+    description: 'Observe-only protection for the paths that decide what the repository can do to itself, covering every action that can change a path.',
+    approvalPolicy: Object.freeze({ requiredApprovals: 2, disallowAuthorApproval: true }),
+    buildDocument() {
+      const expansion = expandProtectedPaths(DEFAULT_PROTECTED_PATHS);
+      return {
+        schemaVersion: 1,
+        description: protectedPathsDescription(expansion),
+        enforcement: { mode: 'observe' },
+        rules: expansion.rules
+      };
+    }
+  }),
+  Object.freeze({
+    templateId: 'protected-paths-review', version: '1.0.0',
+    name: 'Protected sensitive paths (review required)',
+    description: 'Observe-only review requirement for sensitive paths on the default branch, leaving the change a route to a pull request.',
+    approvalPolicy: Object.freeze({ requiredApprovals: 2, disallowAuthorApproval: true }),
+    buildDocument(facts) {
+      const defaultBranch = facts && facts.defaultBranch ? String(facts.defaultBranch) : '';
+      /*
+       * Merging has to be held as well. The point of this posture is that a
+       * change to a sensitive path reaches the default branch through review,
+       * and a pull request anyone can merge themselves is not review. Without
+       * this rule the route out of a refusal would walk straight around the
+       * refusal.
+       */
+      const mergeRule = {
+        id: 'pull-merge-approval',
+        action: 'pull.merge',
+        effect: 'require-approval',
+        description: 'Merging into a protected branch needs approval, so a pull request cannot approve itself.'
+      };
+      if (!defaultBranch) {
+        /*
+         * Without a resolved default branch the scope cannot be expressed. An
+         * unscoped requirement would hold the same paths on every branch, which
+         * reads like stronger protection and quietly removes the route to
+         * review, so the paths are left out and the baseline reports itself
+         * incomplete instead.
+         */
+        return {
+          schemaVersion: 1,
+          description: 'Sensitive-path review baseline. The default branch could not be resolved, so no path rules were generated; only merges are held for approval.',
+          enforcement: { mode: 'observe' },
+          rules: [mergeRule]
+        };
+      }
+      const expansion = expandProtectedPaths(reviewDeclarations(defaultBranch));
+      return {
+        schemaVersion: 1,
+        description: `${protectedPathsDescription(expansion)} Merging into ${defaultBranch} needs approval too, so the pull request this leaves open cannot approve itself.`,
+        enforcement: { mode: 'observe' },
+        rules: [...expansion.rules, mergeRule]
+      };
     }
   }),
   Object.freeze({
@@ -228,7 +328,7 @@ function generateRepositoryBaseline(input = {}) {
     scopeHash: sha256(scope)
   };
   const warnings = [];
-  if (definition.templateId === 'protected-default-branch' && !facts.defaultBranch) warnings.push('default-branch-unresolved');
+  if (['protected-default-branch', 'protected-paths-review'].includes(definition.templateId) && !facts.defaultBranch) warnings.push('default-branch-unresolved');
   if (!facts.branchesComplete) warnings.push('branch-facts-incomplete');
   if (facts.protectedBranchesTruncated) warnings.push('protected-branches-truncated');
   if (facts.archived) warnings.push('repository-archived');

@@ -171,6 +171,17 @@ function assertActivationInput(input) {
   return deepFreeze({ expectedRevision, reason, simulationHash, simulationRequest: simulation.request });
 }
 
+function assertRequiredIdempotencyKey(value) {
+  const key = String(value == null ? '' : value).trim();
+  if (!key) {
+    fail('Activation and rollback require an Idempotency-Key', 'GOVERNANCE_IDEMPOTENCY_KEY_REQUIRED', 400);
+  }
+  if (key.length < 8 || key.length > 200 || /[\u0000-\u001f\u007f]/.test(key)) {
+    fail('Idempotency-Key must contain 8 to 200 printable characters', 'GOVERNANCE_IDEMPOTENCY_KEY_INVALID', 400);
+  }
+  return key;
+}
+
 function exceptionAuthorizationEvidence(authorization) {
   return deepFreeze({
     accessLevel: authorization.repositoryAccess.level,
@@ -664,6 +675,7 @@ function createGovernanceApiService(options = {}) {
     async activateVersion(input = {}) {
       const context = authorize(input, 'activator');
       const body = assertActivationInput(input.input);
+      const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey);
       const policy = await store.getPolicyStateInScope({ policyId: input.policyId, scope: context.scope });
       const proposedVersion = await store.getVersionInScope({ policyId: input.policyId, versionId: input.versionId, scope: context.scope });
       const baselineVersion = policy.activeVersionId
@@ -688,13 +700,14 @@ function createGovernanceApiService(options = {}) {
         reason: body.reason,
         expectedSimulationHash: body.simulationHash,
         simulationEvidence,
-        idempotencyKey: input.idempotencyKey
+        idempotencyKey
       });
     },
 
     async rollbackVersion(input = {}) {
       const context = authorize(input, 'activator');
       const body = assertActivationInput(input.input);
+      const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey);
       const policy = await store.getPolicyStateInScope({ policyId: input.policyId, scope: context.scope });
       const proposedVersion = await store.getVersionInScope({ policyId: input.policyId, versionId: input.versionId, scope: context.scope });
       const baselineVersion = policy.activeVersionId
@@ -719,7 +732,7 @@ function createGovernanceApiService(options = {}) {
         reason: body.reason,
         expectedSimulationHash: body.simulationHash,
         simulationEvidence,
-        idempotencyKey: input.idempotencyKey
+        idempotencyKey
       });
     },
 

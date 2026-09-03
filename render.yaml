@@ -9,6 +9,10 @@ services:
     envVars:
       - key: SESSION_SECRET
         generateValue: true
+      - key: NV_SNAPSHOT_SIGNING_KEY_ID
+        value: alpha17-snapshot-2026-08
+      - key: NV_SNAPSHOT_SIGNING_SECRET
+        generateValue: true
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL

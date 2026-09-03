@@ -242,6 +242,21 @@ class FakeDatabase {
       return { rows: [], rowCount: 1 };
     }
 
+    if (
+      normalized.startsWith('SELECT invite_id, redeemed_at')
+      && normalized.includes('FROM nv_alpha_invites')
+    ) {
+      const row = this.state.invites.get(params[0]);
+      return { rows: row ? [cloneState(row)] : [], rowCount: row ? 1 : 0 };
+    }
+
+    if (normalized.startsWith('UPDATE nv_alpha_invites SET revoked_at')) {
+      const invite = this.state.invites.get(params[0]);
+      if (!invite) return { rows: [], rowCount: 0 };
+      invite.revoked_at = params[1];
+      return { rows: [], rowCount: 1 };
+    }
+
     if (normalized.startsWith('UPDATE nv_alpha_invites SET redeemed_at')) {
       const invite = this.state.invites.get(params[0]);
       if (
@@ -1297,7 +1312,72 @@ async function main() {
   );
   assert.strictEqual(purgeLocks.params[0], 2, 'lock purge must use the configured bound');
 
-  console.log('alpha access store tests passed');
+  /*
+ * An exposed invitation that nobody has redeemed has no tester behind it, so
+ * revoking the tester cannot reach it. Until the code itself can be revoked, a
+ * leaked invitation stays redeemable for its whole lifetime and the operator's
+ * only options are to wait it out or purge the cohort.
+ *
+ * Redemption already refuses a revoked invite, so this closes the gap by giving
+ * the operator a way to set that flag rather than by changing redemption.
+ */
+const inviteRevocationFixture = createFixture();
+const exposedInvite = await issue(inviteRevocationFixture.store);
+const exposedRevocation = await inviteRevocationFixture.store.revokeInvite(exposedInvite.inviteId);
+assert.deepStrictEqual(exposedRevocation, { inviteId: exposedInvite.inviteId, state: 'revoked', revoked: true });
+
+/* The point of the whole exercise: the leaked code no longer works. */
+assert.deepStrictEqual(
+  await rejectionShape(() => redeem(inviteRevocationFixture.store, exposedInvite)),
+  { message: GENERIC_REDEMPTION_ERROR, code: 'ALPHA_INVITE_REJECTED', status: 403 },
+  'a revoked invitation must no longer be redeemable'
+);
+
+/* Repeating the command during an incident must be safe and truthful. */
+assert.deepStrictEqual(
+  await inviteRevocationFixture.store.revokeInvite(exposedInvite.inviteId),
+  { inviteId: exposedInvite.inviteId, state: 'already-revoked', revoked: false }
+);
+
+/*
+ * A redeemed invitation is a tester's, and revoking the code would not end the
+ * session it produced. Say so rather than reporting a revocation that leaves
+ * the tester active.
+ */
+const redeemedInviteFixture = createFixture();
+const redeemedInvite = await issue(redeemedInviteFixture.store);
+await redeem(redeemedInviteFixture.store, redeemedInvite);
+assert.deepStrictEqual(
+  await redeemedInviteFixture.store.revokeInvite(redeemedInvite.inviteId),
+  { inviteId: redeemedInvite.inviteId, state: 'redeemed', revoked: false },
+  'a redeemed invitation must direct the operator to tester revocation'
+);
+
+/* An unknown id is reported, not silently treated as success. */
+assert.deepStrictEqual(
+  await inviteRevocationFixture.store.revokeInvite('a'.repeat(24)),
+  { inviteId: 'a'.repeat(24), state: 'unknown', revoked: false }
+);
+
+/* Purged cohort metadata is immutable; the database trigger would refuse. */
+const purgedInviteFixture = createFixture();
+const purgedInvite = await issue(purgedInviteFixture.store);
+purgedInviteFixture.fake.state.invites.get(purgedInvite.inviteId).metadata_purged_at =
+  new Date().toISOString();
+assert.deepStrictEqual(
+  await purgedInviteFixture.store.revokeInvite(purgedInvite.inviteId),
+  { inviteId: purgedInvite.inviteId, state: 'purged', revoked: false }
+);
+
+for (const bad of ['', 'SHORT', 'x'.repeat(41), 'Uppercase0123456789012', null, 42, {}]) {
+  await assert.rejects(
+    () => inviteRevocationFixture.store.revokeInvite(bad),
+    /invitation id/,
+    `invite id ${JSON.stringify(bad)} must be rejected before any query runs`
+  );
+}
+
+console.log('alpha access store tests passed');
 }
 
 main().catch(error => {

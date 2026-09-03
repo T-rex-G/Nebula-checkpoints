@@ -240,7 +240,7 @@ function createGithubClient({ env, fetchImpl }) {
 
     return {
       key,
-      status: detailAgreed && absentDiscriminated ? 'pass' : 'fail',
+      status: items.length > 0 && detailAgreed && absentDiscriminated ? 'pass' : 'fail',
       statusClass: listing.statusClass,
       listed: items.length,
       detailAgreed,

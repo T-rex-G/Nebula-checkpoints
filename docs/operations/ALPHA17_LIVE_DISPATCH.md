@@ -52,9 +52,13 @@ having proved the endpoint answers and discriminates, which is *not* the
 capability being claimed. `listed` in the artifact is how you tell the two
 apart — run 58 recorded 1, 2, 1 and 1, not 0.
 
-So deleting a fixture does not fail anything. It quietly demotes a proof to
-reachability while the run still reports a pass. That is the failure mode this
-gate exists to prevent, so the fixtures are permanent, and the workflow one is
+Deleting a fixture used to fail nothing: the probe listed zero objects, never
+ran the detail comparison, and passed having proved only that the endpoint
+answers. That was written here as a hazard for a human to remember, which is
+the wrong place for it — a gate that can enforce a rule should not be asking
+someone to hold it in their head. An empty listing now fails the run outright.
+
+So the fixtures are permanent, and the workflow one is
 `workflow_dispatch` only — on `push` it would fire on every proof branch the
 qualification creates and delete, and the target is meant to be inert between
 runs.

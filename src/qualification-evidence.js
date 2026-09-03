@@ -130,7 +130,18 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
       fields: {
         status: 'pass',
         statusClass: '2xx',
-        listed: '$non-negative-integer',
+        /*
+         * Positive, not merely non-negative. A collection probe against a
+         * target with nothing in it lists zero objects, never runs the detail
+         * comparison, and passes -- having proved the endpoint answers and
+         * discriminates, which is not the capability being claimed.
+         *
+         * That was written into the dispatch procedure as a hazard for a
+         * human to remember: delete a fixture and the proof quietly weakens
+         * while the run stays green. A hazard a gate can enforce should not
+         * be a note. An empty listing now fails.
+         */
+        listed: '$positive-integer',
         detailAgreed: true,
         absentDiscriminated: true
       }
@@ -152,7 +163,18 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
       fields: {
         status: 'pass',
         statusClass: '2xx',
-        listed: '$non-negative-integer',
+        /*
+         * Positive, not merely non-negative. A collection probe against a
+         * target with nothing in it lists zero objects, never runs the detail
+         * comparison, and passes -- having proved the endpoint answers and
+         * discriminates, which is not the capability being claimed.
+         *
+         * That was written into the dispatch procedure as a hazard for a
+         * human to remember: delete a fixture and the proof quietly weakens
+         * while the run stays green. A hazard a gate can enforce should not
+         * be a note. An empty listing now fails.
+         */
+        listed: '$positive-integer',
         detailAgreed: true,
         absentDiscriminated: true
       }

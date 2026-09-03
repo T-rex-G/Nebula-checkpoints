@@ -32,19 +32,6 @@ function stableJson(value) {
   return JSON.stringify(value);
 }
 
-/*
- * A git blob sha, which is what GitHub and Gitea use as the concurrency token
- * on a conditional update. Computed rather than borrowed so the stale token is
- * well-formed -- a malformed one would be refused for the wrong reason and the
- * proof would pass without the provider ever comparing anything.
- */
-function gitBlobSha(content) {
-  const bytes = Buffer.isBuffer(content) ? content : Buffer.from(String(content), 'utf8');
-  return crypto.createHash('sha1')
-    .update(Buffer.concat([Buffer.from(`blob ${bytes.length}\u0000`, 'utf8'), bytes]))
-    .digest('hex');
-}
-
 function sha256(value) {
   const input = Buffer.isBuffer(value) ? value : Buffer.from(String(value), 'utf8');
   return crypto.createHash('sha256').update(input).digest('hex');
@@ -272,6 +259,19 @@ async function requestJson(fetchImpl, url, options = {}) {
   const data = await readBoundedJson(response);
   if (!allowed.has(response.status)) {
     if ([401, 403].includes(response.status)) fail('provider denied the mutation credential', 'ALPHA17_PERMISSION_DENIED');
+    /*
+     * Not every provider spends a status code on a concurrency conflict.
+     * GitLab answers one with 400 -- the same 400 it uses for a traversal in
+     * the path and for a commit that would change nothing -- so the status
+     * alone cannot say which happened, and reading any 400 as a refused stale
+     * write would let two unrelated mistakes pass as proof.
+     *
+     * A caller that knows its provider's conflict when it sees it says so
+     * here. Nothing else may widen the mapping below.
+     */
+    if (typeof options.conflict === 'function' && options.conflict(response.status, data)) {
+      fail('provider rejected a stale mutation', 'ALPHA17_STALE_HEAD');
+    }
     if ([409, 412, 422].includes(response.status)) fail('provider rejected a stale mutation', 'ALPHA17_STALE_HEAD');
     fail(`provider request failed with ${statusClass(response.status)}`, 'ALPHA17_PROVIDER_REQUEST_FAILED');
   }
@@ -430,38 +430,89 @@ async function runProviderQualification({ provider, client, env = process.env, n
       checks.push(probe);
     }
 
-    let staleRejected = false;
-    const staleProofBytes = Buffer.from('Nebulaverse-X alpha.17 rejected stale-write proof\n', 'utf8');
     /*
-     * This proof used to call writeFile with a stale head, and writeFile
-     * asserts the expected head locally before it calls anything. So the
-     * client refused, the provider was never asked, and a check named
-     * "stale-head" recorded that OUR precondition works -- while reading as
-     * though the provider enforces optimistic concurrency.
+     * Optimistic concurrency, proved by making the provider answer the same
+     * token twice.
      *
-     * It goes to the provider now. Every one of the three has the mechanism
-     * natively -- GitHub and Gitea key an update on the file's blob sha,
-     * GitLab on the commit that last touched it -- and all three answer a
-     * mismatch with 409, which is already read as a stale mutation. The client
-     * sends a well-formed token belonging to something else and requires the
-     * refusal to come back.
+     * The first version of this proof called writeFile with a stale head, and
+     * writeFile asserts the expected head locally before it calls anything --
+     * so the client refused, the provider was never asked, and a check named
+     * "stale-head" recorded that OUR precondition works.
      *
-     * A provider that ACCEPTS the write fails this proof rather than passing
-     * it: staleRejected stays false and the zero-commit assertion below then
-     * finds a branch that moved.
+     * The second version went to the provider with a synthetic token: a real
+     * blob sha of other bytes for GitHub and Gitea, and for GitLab the branch
+     * head from before the file existed. GitHub refused it. GitLab did not,
+     * and runs 63 and 64 died there. Its check is not "is this the file's
+     * current commit" but Files::BaseService#file_has_changed?, which resolves
+     * the file's last commit at BOTH refs and compares them -- and a ref where
+     * the path does not exist yields no commit, which it reads as no
+     * information rather than as a conflict. A token from before the file
+     * existed is not stale to GitLab. It is silent.
+     *
+     * So this asks for the real race instead of a manufactured one. The token
+     * this run is holding for the proof file -- blob sha for GitHub and Gitea,
+     * last-touching commit for GitLab -- is sent twice with different content:
+     *
+     *   1. while it is still current, and the provider must ACCEPT it;
+     *   2. after a write has landed under it, and the provider must REFUSE it.
+     *
+     * One token, one endpoint, two outcomes, and nothing between them but
+     * somebody else's commit. A provider with no concurrency control cannot
+     * produce that difference, and neither can a client faking one: the
+     * accepted call is the control, so a refusal cannot be blamed on a
+     * malformed token.
      */
-    if (typeof client.staleConditionalUpdate !== 'function') {
+    if (typeof client.conditionalUpdate !== 'function') {
       fail('provider client cannot make a conditional update the provider itself refuses', 'ALPHA17_PROVIDER_INVALID');
     }
+    /*
+     * The token as held before anything superseded it. Every later assertion
+     * is about this exact pair.
+     */
+    const heldFileSha = readback.sha;
+    const heldCommitId = readback.lastCommitId || afterWrite.sha;
+    const supersedeBytes = Buffer.from('Nebulaverse-X alpha.17 superseding write\n', 'utf8');
+    const staleProofBytes = Buffer.from('Nebulaverse-X alpha.17 rejected stale-write proof\n', 'utf8');
+
+    /*
+     * Step 1. Distinct content on every conditional write, because GitLab
+     * refuses a commit that would change nothing with the same 400 it uses for
+     * a conflict. Identical bytes would be refused for the wrong reason and
+     * counted as proof of the right one.
+     */
+    await client.conditionalUpdate({
+      branch: target.branch,
+      path: proofPath,
+      content: supersedeBytes,
+      fileSha: heldFileSha,
+      commitId: heldCommitId,
+      credential: 'mutation'
+    });
+    const afterSupersede = await observe(
+      () => client.getBranch(target.branch, 'mutation'),
+      head => Boolean(head) && head.sha !== afterWrite.sha
+    );
+    const superseded = await observe(
+      () => client.readFile(target.branch, proofPath, 'mutation'),
+      file => file !== null && file.sha !== heldFileSha
+    );
+    verifyUtf8Readback(supersedeBytes, superseded.content);
+    checks.push({
+      key: 'conditional-update',
+      status: 'pass',
+      statusClass: superseded.statusClass,
+      contentSha256: sha256(supersedeBytes)
+    });
+
+    /* Step 2. The same token, now behind by exactly one commit. */
+    let staleRejected = false;
     try {
-      await client.staleConditionalUpdate({
+      await client.conditionalUpdate({
         branch: target.branch,
         path: proofPath,
         content: staleProofBytes,
-        /* A real git blob sha, of other bytes: never the file's current blob. */
-        staleFileSha: gitBlobSha(staleProofBytes),
-        /* A real commit, but not the one that last touched the file. */
-        staleCommitId: before.sha,
+        fileSha: heldFileSha,
+        commitId: heldCommitId,
         credential: 'mutation'
       });
     } catch (error) {
@@ -485,8 +536,8 @@ async function runProviderQualification({ provider, client, env = process.env, n
           detail: 'the post-rejection file is absent'
         };
       } else {
-        verifyUtf8Readback(proofBytes, afterStaleFile.content);
-        staleFileUnchanged = afterStaleFile.sha === readback.sha;
+        verifyUtf8Readback(supersedeBytes, afterStaleFile.content);
+        staleFileUnchanged = afterStaleFile.sha === superseded.sha;
         staleFileVerification = staleFileUnchanged
           ? { status: 'verified', reasonCode: null, detail: 'content bytes and provider file identity match' }
           : {
@@ -503,16 +554,16 @@ async function runProviderQualification({ provider, client, env = process.env, n
           ? reasonCode
           : 'ALPHA17_PROVIDER_REQUEST_FAILED',
         detail: reasonCode === 'ALPHA17_READBACK_MISMATCH'
-          ? 'the post-rejection content differs from the expected proof bytes'
+          ? 'the post-rejection content differs from the expected superseding bytes'
           : 'the post-rejection file read failed before comparison'
       };
     }
-    const staleZeroCommit = Boolean(
-      staleRejected &&
-      afterStale &&
-      afterStale.sha === afterWrite.sha &&
-      staleFileUnchanged
-    );
+    const staleConditions = Object.freeze({
+      refused: staleRejected,
+      headUnmoved: Boolean(afterStale) && afterStale.sha === afterSupersede.sha,
+      fileUnchanged: staleFileUnchanged
+    });
+    const staleZeroCommit = Object.values(staleConditions).every(Boolean);
     const staleHeadCheck = {
       key: 'stale-head',
       status: staleZeroCommit ? 'pass' : 'fail',
@@ -523,9 +574,19 @@ async function runProviderQualification({ provider, client, env = process.env, n
     };
     checks.push(staleHeadCheck);
     if (!staleZeroCommit) {
-      const error = new Error('stale-head attempt changed the branch or file');
+      /*
+       * Which of the three did not hold. Runs 63 and 64 both failed here and
+       * said only "changed the branch or file", so two runs went by without
+       * distinguishing a provider that accepted the write from a read that
+       * lagged behind one that refused it.
+       */
+      const unmet = Object.entries(staleConditions).filter(([, value]) => !value).map(([name]) => name);
+      const error = new Error(
+        `stale-head attempt was not refused cleanly (unmet: ${unmet.join(', ')}; `
+        + `file ${staleFileVerification.status})`
+      );
       error.code = 'ALPHA17_STALE_HEAD_PROOF_FAILED';
-      error.check = deepFreeze({ ...staleHeadCheck });
+      error.check = deepFreeze({ ...staleHeadCheck, conditions: { ...staleConditions } });
       throw error;
     }
 
@@ -548,13 +609,25 @@ async function runProviderQualification({ provider, client, env = process.env, n
     if (!permissionZeroCommit) fail('read-only credential changed the branch', 'ALPHA17_PERMISSION_SCOPE_INVALID');
 
     const currentFile = await client.readFile(target.branch, proofPath, 'mutation');
+    /*
+     * The delete half of the same proof, and it had the same defect: it passed
+     * `before.sha` as the expected head, and deleteFile asserts the expected
+     * head locally before it calls anything. The client refused, the provider
+     * was never asked, and the check recorded our own precondition.
+     *
+     * It carries the CURRENT head now, so the local assertion passes and the
+     * request goes out -- with the file token this run has been holding since
+     * before the superseding write, which the provider must refuse for the
+     * same reason it refused the stale update.
+     */
     let staleDeleteRejected = false;
     try {
       await client.deleteFile({
         branch: target.branch,
         path: proofPath,
-        fileSha: currentFile.sha,
-        expectedHead: before.sha,
+        fileSha: heldFileSha,
+        commitId: heldCommitId,
+        expectedHead: afterPermission.sha,
         credential: 'mutation'
       });
     } catch (error) {
@@ -570,14 +643,23 @@ async function runProviderQualification({ provider, client, env = process.env, n
       retainedAfterStaleDelete &&
       retainedAfterStaleDelete.sha === currentFile.sha
     );
-    checks.push({
+    const staleDeleteCheck = {
       key: 'stale-head-delete',
       status: staleDeleteZeroCommit ? 'pass' : 'fail',
       zeroCommit: staleDeleteZeroCommit,
       fileRetained: Boolean(retainedAfterStaleDelete)
-    });
+    };
+    checks.push(staleDeleteCheck);
     if (!staleDeleteZeroCommit) {
-      fail('stale-head delete changed the branch or file', 'ALPHA17_DELETE_PROOF_FAILED');
+      const unmet = Object.entries({
+        refused: staleDeleteRejected,
+        headUnmoved: Boolean(afterStaleDelete) && afterStaleDelete.sha === afterPermission.sha,
+        fileRetained: Boolean(retainedAfterStaleDelete) && retainedAfterStaleDelete.sha === currentFile.sha
+      }).filter(([, value]) => !value).map(([name]) => name);
+      const error = new Error(`stale-head delete was not refused cleanly (unmet: ${unmet.join(', ')})`);
+      error.code = 'ALPHA17_DELETE_PROOF_FAILED';
+      error.check = deepFreeze({ ...staleDeleteCheck });
+      throw error;
     }
 
     const deleted = await client.deleteFile({

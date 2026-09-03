@@ -701,11 +701,13 @@ The residual authority is explicit and credentials have no production reach.
 
 The provider evidence catalog contains only registry capabilities marked both
 `Supported` and `Provider-verified` that the disposable harness proves. Each
-provider envelope has an exact capability/claim set and ten ordered checks for
-repository/default-branch reads, disposable branch creation, expected-head
-write, UTF-8 hash readback, stale-write zero-commit, permission denial,
-stale-delete file retention, head-bound valid deletion/file absence, and final
-cleanup.
+provider envelope has an exact capability/claim set and eleven ordered checks
+for repository/default-branch reads, disposable branch creation, expected-head
+write, UTF-8 hash readback, an accepted conditional update, stale-write
+zero-commit, permission denial, stale-delete file retention, head-bound valid
+deletion/file absence, and final cleanup. The conditional update and the
+stale-write refusal carry the SAME concurrency token: accepted while current,
+refused once a write has landed under it.
 
 **Consequence:** A broad `Supported` UI claim cannot inherit provider evidence
 from a narrower mutation test, and an HTTP success without state-change and

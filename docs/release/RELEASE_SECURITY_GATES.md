@@ -93,6 +93,10 @@ A pass is public-alpha accessibility qualification, not legal certification.
 - Disposable mutations must prove stale-head write and delete rejection with
   zero commits, exact readback, insufficient-permission denial, a valid delete
   result bound to the observed advanced head, file absence, and verified cleanup.
+  The stale-write refusal must come from the provider, not from a client-side
+  precondition, and is paired with the same concurrency token being ACCEPTED
+  while it is still current -- a refusal with no accepted counterpart proves
+  only that the provider disliked the request.
 - A target or selected-job mismatch must fail before any live request or
   credential-bearing step.
 - `Experimental` paths remain isolated and limitation-labelled.

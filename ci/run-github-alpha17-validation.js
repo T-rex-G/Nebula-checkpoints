@@ -90,15 +90,20 @@ function createGithubClient({ env, fetchImpl }) {
    * stale writer makes. A 2xx here means GitHub accepted a write it should
    * have rejected, and the caller treats that as the proof failing.
    */
-  async function staleConditionalUpdate(input) {
+  /*
+   * The blob sha of the file being replaced is this provider's concurrency
+   * token. The caller sends the same one twice: current, which must be
+   * accepted, and then superseded, which must be refused with 409.
+   */
+  async function conditionalUpdate(input) {
     return requestJson(fetchImpl, api(`repos/${repositoryPath}/contents/${encodeURIComponent(input.path)}`), {
       method: 'PUT',
       headers: headers(input.credential),
       body: {
         branch: input.branch,
-        message: 'test(alpha): rejected stale-write proof',
+        message: 'test(alpha): conditional write proof',
         content: Buffer.from(input.content).toString('base64'),
-        sha: input.staleFileSha
+        sha: input.fileSha
       },
       allowedStatuses: [200, 201]
     });
@@ -325,7 +330,7 @@ function createGithubClient({ env, fetchImpl }) {
   }
 
   return Object.freeze({
-    getRepository, getBranch, createBranch, writeFile, staleConditionalUpdate, readFile, deleteFile, deleteBranch,
+    getRepository, getBranch, createBranch, writeFile, conditionalUpdate, readFile, deleteFile, deleteBranch,
     readTree, readRateLimit, readCollection, probeChecks
   });
 }
@@ -346,6 +351,12 @@ if (require.main === module) {
     result => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`),
     error => {
       process.stderr.write(`${error.code ? `${error.code}: ` : ''}${error.message}\n`);
+      /*
+       * The failing check, when the failure carried one. Runs 63 and 64 both
+       * died on a proof that had recorded exactly which condition broke and
+       * printed none of it, so the log said only that something changed.
+       */
+      if (error.check) process.stderr.write(`${JSON.stringify(error.check)}\n`);
       process.exitCode = 1;
     }
   );

@@ -119,12 +119,12 @@ false, and run it. There are no other inputs. Approve the
 
 ## What the run proves
 
-Sixteen checks on a disposable branch it creates and removes:
+Seventeen checks on a disposable branch it creates and removes:
 
 - repository and default-branch reads
 - disposable branch create, then absence after cleanup
-- expected-head write, UTF-8 readback, stale-head refusal, permission denial,
-  stale-head delete refusal, expected-head delete
+- expected-head write, UTF-8 readback, conditional update, stale-head refusal,
+  permission denial, stale-head delete refusal, expected-head delete
 - recursive tree listing bound to the file the run wrote
 - provider rate-limit ceiling and remaining budget
 - pull-request, issue, release and workflow-run list/detail agreement with

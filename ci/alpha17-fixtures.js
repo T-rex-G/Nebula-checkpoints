@@ -40,7 +40,15 @@ function createProviderFetchFixture(options = {}) {
     counter: 1,
     defaultBranch,
     requests: [],
-    branches: new Map([[defaultBranch, { sha: initialSha, files: new Map() }]])
+    branches: new Map([[defaultBranch, { sha: initialSha, files: new Map() }]]),
+    /*
+     * A commit log, keyed by sha, recording which path each commit touched.
+     * The fixture used to keep only a head and a single tip, which cannot
+     * answer "what commit last touched this path, as of that ref" -- and that
+     * is the exact question GitLab's conflict check asks. See gitlabFetch's
+     * PUT handler.
+     */
+    commits: new Map()
   };
 
   function nextSha(material) {
@@ -119,7 +127,26 @@ function createProviderFetchFixture(options = {}) {
      * relying on it cannot be tested.
      */
     branch.tip = { id: branch.sha, parentIds: [parent], message: String(message || '') };
+    state.commits.set(branch.sha, { id: branch.sha, parentIds: [parent], path: filePath });
     return branch;
+  }
+
+  /*
+   * `git log -1 <ref> -- <path>`, which is what GitLab resolves on both sides
+   * of its conflict check. Returns null when no commit in the ref's history
+   * touched the path -- meaning the file did not exist there.
+   */
+  function lastCommitForPath(ref, filePath) {
+    const branch = state.branches.get(ref);
+    let sha = branch ? branch.sha : String(ref || '');
+    const seen = new Set();
+    while (sha && state.commits.has(sha) && !seen.has(sha)) {
+      seen.add(sha);
+      const commit = state.commits.get(sha);
+      if (commit.path === filePath) return commit.id;
+      sha = commit.parentIds[0];
+    }
+    return null;
   }
 
   async function githubFetch(url, init) {
@@ -320,17 +347,54 @@ function createProviderFetchFixture(options = {}) {
       if (!branch) return json({ message: 'not found' }, 404);
       if (method === 'PUT') {
         /*
-         * GitLab's conditional update. last_commit_id is the commit the writer
-         * believes last touched THIS FILE; a mismatch is a 409. Without this
-         * the fixture had no update path at all, so a stale write got a 404
-         * and the proof could not tell a refusal from a missing route.
+         * GitLab's conditional update, transcribed from Files::BaseService.
+         *
+         *   def file_has_changed?(path, commit_id)
+         *     return false unless commit_id
+         *     last_commit_from_branch = get_last_commit_for_path(ref: @start_branch, path: path)
+         *     return false unless last_commit_from_branch
+         *     last_commit_from_commit_id = get_last_commit_for_path(ref: commit_id, path: path)
+         *     return false unless last_commit_from_commit_id
+         *     last_commit_from_branch.sha != last_commit_from_commit_id.sha
+         *   end
+         *
+         * It does not ask "is this the file's current commit". It asks whether
+         * the file's last commit DIFFERS between the branch and the ref the
+         * writer named. A ref where the path does not exist yields no commit,
+         * and no commit is read as no information -- so the write is allowed.
+         *
+         * The fixture used to compare last_commit_id against the file's
+         * current lastCommitId and answer 409, which refuses strictly more
+         * than GitLab does. Under that fixture a token naming a commit from
+         * before the file existed looked like a conflict; against gitlab.com
+         * the same token was accepted and the write landed. Runs 63 and 64
+         * died on the difference.
          */
         const existing = branch.files.get(filePath);
         if (!existing) return json({ message: 'not found' }, 404);
-        if (body.last_commit_id && body.last_commit_id !== existing.lastCommitId) {
-          return json({ message: 'conflict' }, 409);
+        const content = Buffer.from(String(body.content || ''), 'base64');
+        if (body.last_commit_id) {
+          const onBranch = lastCommitForPath(body.branch, filePath);
+          const onRef = lastCommitForPath(body.last_commit_id, filePath);
+          if (onBranch && onRef && onBranch !== onRef) {
+            /*
+             * 400, not 409, and the message is the only thing distinguishing
+             * this from the other reasons GitLab rejects a commit.
+             */
+            return json({
+              message: 'You are attempting to update a file that has changed since you started editing it'
+            }, 400);
+          }
         }
-        mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'), false, body.commit_message);
+        /*
+         * GitLab refuses a commit that changes nothing, with the same 400 and
+         * a different message. A proof that sent identical bytes would be
+         * refused for the wrong reason and could not tell the two apart.
+         */
+        if (existing.content.equals(content)) {
+          return json({ message: 'A commit with the same content already exists' }, 400);
+        }
+        mutateFile(body.branch, filePath, content, false, body.commit_message);
         return json({ file_path: filePath, branch: body.branch }, 200);
       }
       if (method === 'POST') {

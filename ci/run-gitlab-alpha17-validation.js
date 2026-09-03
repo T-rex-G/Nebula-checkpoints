@@ -112,26 +112,45 @@ function createGitlabClient({ env, fetchImpl }) {
   }
 
   /*
-   * GitLab's own optimistic concurrency: an update carries last_commit_id, the
-   * commit the writer believes last touched the file, and a mismatch is
-   * refused with 409.
+   * GitLab spends no status code on a concurrency conflict. Files::BaseService
+   * raises FileChangedError and the API renders 400 -- the same 400 it returns
+   * for a path containing /../ and for a commit whose content is unchanged.
+   * The message is the only thing that separates them, so this matches on it,
+   * narrowly.
    *
-   * The caller hands it a real commit that is not the file's last one -- the
-   * branch head from before this run wrote the file. That is precisely what a
-   * writer working from a stale view would send.
+   * Matching a vendor's prose is brittle by nature. It is the right brittle:
+   * if GitLab rewords this, the proof fails loudly on a 400 it will not claim
+   * to understand, rather than passing on a 400 that meant something else.
    */
-  async function staleConditionalUpdate(input) {
+  function isStaleConflict(status, data) {
+    if (status !== 400) return false;
+    return /file that has changed since you started editing it/i.test(String(data && data.message || ''));
+  }
+
+  /*
+   * GitLab's optimistic concurrency: an update carries last_commit_id, the
+   * commit the writer believes last touched THIS FILE.
+   *
+   * The caller sends the same token twice -- once while it is current, which
+   * must be accepted, and once after a write has landed under it, which must
+   * be refused. Passing a commit from before the file existed does NOT work
+   * here and is what failed runs 63 and 64: file_has_changed? resolves the
+   * path's last commit at both refs, and a ref where the path is absent yields
+   * no commit, which it treats as no information rather than as a conflict.
+   */
+  async function conditionalUpdate(input) {
     return requestJson(fetchImpl, api(`projects/${project}/repository/files/${encodeURIComponent(input.path)}`), {
       method: 'PUT',
       headers: headers(input.credential),
       body: {
         branch: input.branch,
-        commit_message: 'test(alpha): rejected stale-write proof',
+        commit_message: 'test(alpha): conditional write proof',
         content: Buffer.from(input.content).toString('base64'),
         encoding: 'base64',
-        last_commit_id: input.staleCommitId
+        last_commit_id: input.commitId
       },
-      allowedStatuses: [200, 201]
+      allowedStatuses: [200, 201],
+      conflict: isStaleConflict
     });
   }
 
@@ -152,7 +171,12 @@ function createGitlabClient({ env, fetchImpl }) {
     const current = await getBranch(input.branch, input.credential);
     assertExpectedHead(input.expectedHead, current && current.sha);
     const existing = await readFile(input.branch, input.path, input.credential);
-    const lastCommitId = (existing && existing.lastCommitId) || input.expectedHead;
+    /*
+     * An explicit token when the caller is holding one -- the stale-delete
+     * proof sends a commit it knows has been superseded, and it must reach
+     * GitLab rather than being replaced here by the current one.
+     */
+    const lastCommitId = input.commitId || (existing && existing.lastCommitId) || input.expectedHead;
     const response = await requestJson(fetchImpl, api(`projects/${project}/repository/files/${encodeURIComponent(input.path)}`), {
       method: 'DELETE',
       headers: headers(input.credential),
@@ -170,7 +194,8 @@ function createGitlabClient({ env, fetchImpl }) {
          */
         last_commit_id: lastCommitId
       },
-      allowedStatuses: [200, 204]
+      allowedStatuses: [200, 204],
+      conflict: isStaleConflict
     });
     if (response.data && response.data.commit_id) {
       return Object.freeze({
@@ -322,7 +347,7 @@ function createGitlabClient({ env, fetchImpl }) {
   }
 
   return Object.freeze({
-    getRepository, getBranch, createBranch, writeFile, staleConditionalUpdate,
+    getRepository, getBranch, createBranch, writeFile, conditionalUpdate,
     readFile, deleteFile, deleteBranch, probeChecks
   });
 }
@@ -343,6 +368,12 @@ if (require.main === module) {
     result => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`),
     error => {
       process.stderr.write(`${error.code ? `${error.code}: ` : ''}${error.message}\n`);
+      /*
+       * The failing check, when the failure carried one. Runs 63 and 64 both
+       * died on a proof that had recorded exactly which condition broke and
+       * printed none of it, so the log said only that something changed.
+       */
+      if (error.check) process.stderr.write(`${JSON.stringify(error.check)}\n`);
       process.exitCode = 1;
     }
   );

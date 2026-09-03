@@ -62,6 +62,7 @@ function providerChecks(provider) {
     { key: 'expected-head-write', status: 'pass', statusClass: '2xx' },
     { key: 'utf8-readback', status: 'pass', statusClass: '2xx', bytes: 52, contentSha256: 'c'.repeat(64) },
     ...structuredClone(PROVIDER_PROBES[provider] || []),
+    { key: 'conditional-update', status: 'pass', statusClass: '2xx', contentSha256: 'e'.repeat(64) },
     {
       key: 'stale-head',
       status: 'pass',

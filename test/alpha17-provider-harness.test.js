@@ -180,6 +180,7 @@ async function runOne(provider, runner, options = {}) {
       'expected-head-write',
       'utf8-readback',
       ...PROBE_KEYS[result.provider],
+      'conditional-update',
       'stale-head',
       'permission-denial',
       'stale-head-delete',
@@ -278,22 +279,31 @@ async function runOne(provider, runner, options = {}) {
     mutationCredential: missingReadbackEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
     readOnlyCredential: missingReadbackEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
   });
-  let proofReadCount = 0;
+  /*
+   * The read this replaces is the one taken after the refused conditional
+   * update, so it is identified by what precedes it rather than by an index.
+   * It used to be the second read of the proof file; the superseding write
+   * added one before it, and an ordinal would have silently started standing
+   * for a different read while the assertion still passed.
+   */
+  let refusalSeen = false;
   await assert.rejects(
     () => runGithubValidation({
       env: missingReadbackEnvironment,
       now: () => new Date(NOW),
       fetchImpl: async (url, init = {}) => {
-        const isProofRead = String(init.method || 'GET').toUpperCase() === 'GET' &&
-          new URL(url).pathname.includes('/contents/nvx-alpha17-run-2048-proof.txt');
-        if (isProofRead && ++proofReadCount === 2) {
+        const method = String(init.method || 'GET').toUpperCase();
+        const isProofPath = new URL(url).pathname.includes('/contents/nvx-alpha17-run-2048-proof.txt');
+        if (refusalSeen && method === 'GET' && isProofPath) {
           const body = JSON.stringify({ message: 'not found' });
           return new Response(body, {
             status: 404,
             headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) }
           });
         }
-        return missingReadbackFixture.fetch(url, init);
+        const response = await missingReadbackFixture.fetch(url, init);
+        if (isProofPath && method === 'PUT' && response.status === 409) refusalSeen = true;
+        return response;
       }
     }),
     error => error &&
@@ -753,15 +763,119 @@ async function runOne(provider, runner, options = {}) {
          * an unrelated reason and proves nothing about this.
          */
         if (!body.sha) return permissiveFixture.fetch(url, init);
-        const accepted = JSON.stringify({ content: { sha: 'c'.repeat(40) }, commit: { sha: 'd'.repeat(40) } });
-        return new Response(accepted, {
-          status: 200,
-          headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(accepted)) }
+        /*
+         * A provider with no optimistic concurrency does not accept the write
+         * and discard it -- it accepts the write and PERFORMS it, whatever
+         * token you sent. So the token is replaced with the file's current one
+         * and the write is let through, which is the same thing as never
+         * having compared it. Both conditional updates then land, and the
+         * proof has to notice that the second one moved the branch.
+         */
+        const read = new URL(url);
+        read.searchParams.set('ref', body.branch);
+        const current = await (await permissiveFixture.fetch(read.toString(), {})).json();
+        return permissiveFixture.fetch(url, {
+          ...init,
+          body: JSON.stringify({ ...body, sha: current.sha })
         });
       }
     }),
     error => Boolean(error && error.code === 'ALPHA17_STALE_HEAD_PROOF_FAILED'),
     'a provider that accepts a stale conditional update must fail the stale-write proof'
+  );
+
+
+  /*
+   * What runs 63 and 64 actually died of, kept as a fact rather than a memory.
+   *
+   * The stale token used to be a commit from before the proof file existed --
+   * real, on the branch, and not the file's last commit. Against the old
+   * fixture that was a 409 and every test agreed. Against gitlab.com the write
+   * was ACCEPTED, twice, because Files::BaseService#file_has_changed? resolves
+   * the path's last commit at both refs and reads "no commit there" as no
+   * information rather than as a conflict.
+   *
+   * The fixture answers the way GitLab does now. This asserts the accepting
+   * half directly: if someone makes the fixture stricter than the provider
+   * again, this fails here instead of on a live run.
+   */
+  const semanticsFixture = createProviderFetchFixture({
+    provider: 'gitlab',
+    repository: 'fixture-owner/nvx-alpha17-semantics',
+    defaultBranch: 'main',
+    mutationCredential: 'm',
+    readOnlyCredential: 'r'
+  });
+  const semanticsBase = 'https://gitlab.fixture.invalid/api/v4/projects/fixture-owner%2Fnvx-alpha17-semantics/repository';
+  const semanticsHeaders = { 'private-token': 'm' };
+  const gitlabCall = (path, method, body) => semanticsFixture.fetch(`${semanticsBase}${path}`, {
+    method,
+    headers: semanticsHeaders,
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const encode = text => Buffer.from(text, 'utf8').toString('base64');
+
+  await gitlabCall('/branches', 'POST', { branch: 'work', ref: 'main' });
+  const headBeforeFile = (await (await gitlabCall('/branches/work', 'GET')).json()).commit.id;
+  await gitlabCall('/files/proof.txt', 'POST', {
+    branch: 'work', encoding: 'base64', commit_message: 'create', content: encode('one\n')
+  });
+  const createdFile = await (await gitlabCall('/files/proof.txt?ref=work', 'GET')).json();
+
+  await gitlabCall('/branches', 'POST', { branch: 'predating', ref: 'work' });
+  const predating = await gitlabCall('/files/proof.txt', 'PUT', {
+    branch: 'predating', encoding: 'base64', commit_message: 'stale', content: encode('other\n'),
+    last_commit_id: headBeforeFile
+  });
+  assert.strictEqual(
+    predating.status,
+    200,
+    'GitLab accepts a last_commit_id from before the file existed -- a fixture that refuses it hides the defect that failed runs 63 and 64'
+  );
+
+  /* The same token, current and then superseded: accepted, then refused. */
+  const held = createdFile.last_commit_id;
+  const whileCurrent = await gitlabCall('/files/proof.txt', 'PUT', {
+    branch: 'work', encoding: 'base64', commit_message: 'supersede', content: encode('two\n'), last_commit_id: held
+  });
+  assert.strictEqual(whileCurrent.status, 200, 'a current last_commit_id must be accepted');
+  const onceStale = await gitlabCall('/files/proof.txt', 'PUT', {
+    branch: 'work', encoding: 'base64', commit_message: 'stale', content: encode('three\n'), last_commit_id: held
+  });
+  assert.strictEqual(onceStale.status, 400, 'GitLab refuses a superseded last_commit_id with 400, not 409');
+  assert.match(
+    String((await onceStale.json()).message),
+    /file that has changed since you started editing it/,
+    'the refusal must carry the message that separates a conflict from GitLab\'s other 400s'
+  );
+
+  /*
+   * And the proof is not vacuous: a GitLab that ignores last_commit_id fails
+   * it. Measured -- without this the run below completes and claims the
+   * capability.
+   */
+  const ignoringEnvironment = environment('gitlab');
+  const ignoringFixture = createProviderFetchFixture({
+    provider: 'gitlab',
+    repository: ignoringEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: ignoringEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: ignoringEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  await assert.rejects(
+    () => runGitlabValidation({
+      env: ignoringEnvironment,
+      now: () => new Date(NOW),
+      fetchImpl: async (url, init = {}) => {
+        if (String(init.method || 'GET').toUpperCase() !== 'PUT') return ignoringFixture.fetch(url, init);
+        const body = JSON.parse(String(init.body || '{}'));
+        delete body.last_commit_id;
+        return ignoringFixture.fetch(url, { ...init, body: JSON.stringify(body) });
+      }
+    }),
+    error => Boolean(error && error.code === 'ALPHA17_STALE_HEAD_PROOF_FAILED'),
+    'a GitLab that ignores last_commit_id must fail the stale-write proof'
   );
 
   console.log('alpha17 provider harness tests passed');

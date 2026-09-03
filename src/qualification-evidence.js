@@ -23,7 +23,7 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
     'branches.read': ['default-branch-read'],
     'branches.write': ['disposable-branch-create', 'cleanup-absence'],
     'file.read': ['utf8-readback'],
-    'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
+    'file.write': ['expected-head-write', 'conditional-update', 'stale-head', 'permission-denial'],
     'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence'],
     'tree.read': ['tree-read'],
     'rate.read': ['rate-read']
@@ -45,14 +45,14 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
      */
     'branches.write': ['disposable-branch-create', 'cleanup-absence'],
     'file.read': ['utf8-readback'],
-    'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
+    'file.write': ['expected-head-write', 'conditional-update', 'stale-head', 'permission-denial'],
     'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
   },
   gitea: {
     'repository.read': ['repository-read'],
     'branches.read': ['default-branch-read'],
     'file.read': ['utf8-readback'],
-    'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
+    'file.write': ['expected-head-write', 'conditional-update', 'stale-head', 'permission-denial'],
     'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
   }
 });
@@ -184,6 +184,17 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
 });
 
 const SHARED_CHECKS_AFTER_PROBES = deepFreeze([
+  /*
+   * The control for the stale-head proof below. The provider is handed this
+   * run's concurrency token while it is still current and must ACCEPT the
+   * write; the next check hands it the same token after this write has landed
+   * under it and requires a refusal. Without the accepted half, a refusal
+   * proves only that the provider dislikes something about the request.
+   */
+  {
+    key: 'conditional-update',
+    fields: { status: 'pass', statusClass: '2xx', contentSha256: '$sha256' }
+  },
   {
     key: 'stale-head',
     fields: {

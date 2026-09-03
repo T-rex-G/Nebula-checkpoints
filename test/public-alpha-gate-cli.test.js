@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const { PROVIDER_CAPABILITY_REQUIREMENTS } = require('../src/qualification-evidence');
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
@@ -150,7 +151,18 @@ try {
   assert.strictEqual(qualification.sourceCommit, 'b'.repeat(40));
   assert(closeout.includes(`Subject SHA-256: \`${'a'.repeat(64)}\``));
   assert(closeout.includes(`Source commit: \`${'b'.repeat(40)}\``));
-  assert(closeout.includes('Provider evidence: 22/22 passed'));
+  /*
+   * Derived, not restated. This was the number 22, and promoting a capability
+   * that the runs already proved made it wrong -- which is the same drift the
+   * documentation counts were taught to catch. A total copied into a test is
+   * a second source of truth that only ever agrees by accident.
+   */
+  const providerCapabilityTotal = Object.values(PROVIDER_CAPABILITY_REQUIREMENTS)
+    .reduce((sum, capabilities) => sum + Object.keys(capabilities).length, 0);
+  assert(
+    closeout.includes(`Provider evidence: ${providerCapabilityTotal}/${providerCapabilityTotal} passed`),
+    `closeout must report ${providerCapabilityTotal} provider capabilities, one per contract entry`
+  );
   assert(closeout.includes('Hosted evidence: 13/13 passed'));
   assert(closeout.includes('Manual evidence: 5/5 passed'));
   assert(closeout.includes('Cleanup: verified'));

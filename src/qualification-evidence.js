@@ -31,6 +31,16 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
   gitlab: {
     'repository.read': ['repository-read'],
     'branches.read': ['default-branch-read'],
+    /*
+     * Every GitLab run has always created its disposable branch and removed it
+     * again, and recorded both. The capability those two checks prove was
+     * declared Unavailable with the reason "Branch mutation is not qualified
+     * for GitLab", so the run proved it twice and claimed it never.
+     *
+     * Claiming it costs no new call and no new setup. It is the same pair
+     * GitHub claims for the same capability.
+     */
+    'branches.write': ['disposable-branch-create', 'cleanup-absence'],
     'file.read': ['utf8-readback'],
     'file.write': ['expected-head-write', 'stale-head', 'permission-denial'],
     'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']

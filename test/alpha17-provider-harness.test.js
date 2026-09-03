@@ -3,6 +3,7 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const { createProviderFetchFixture } = require('../ci/alpha17-fixtures');
+const { PROVIDER_CAPABILITY_REQUIREMENTS } = require('../src/qualification-evidence');
 const { requestJson } = require('../ci/provider-alpha17-common');
 const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
 const { runGitlabValidation } = require('../ci/run-gitlab-alpha17-validation');
@@ -243,14 +244,19 @@ async function runOne(provider, runner, options = {}) {
     assert.strictEqual(collection.detailAgreed, true);
     assert.strictEqual(collection.absentDiscriminated, true);
   }
-  for (const result of [gitlabResult, giteaResult]) {
-    assert.deepStrictEqual(result.capabilities, [
-      'branches.read',
-      'file.delete',
-      'file.read',
-      'file.write',
-      'repository.read'
-    ]);
+  /*
+   * Derived per provider rather than one list shared between two of them.
+   * GitLab and Gitea happened to claim the same five, so a single hardcoded
+   * list looked right -- and stopped being right the moment GitLab claimed
+   * the branch mutation its runs had always proved. A provider's capabilities
+   * are what its contract says, so ask the contract.
+   */
+  for (const result of [githubResult, gitlabResult, giteaResult]) {
+    assert.deepStrictEqual(
+      result.capabilities,
+      Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS[result.provider]).sort(),
+      `${result.provider} must claim exactly the capabilities its contract requires`
+    );
   }
   for (const unproven of [
     'live-events', 'pulls.write', 'issues.write', 'releases.write',

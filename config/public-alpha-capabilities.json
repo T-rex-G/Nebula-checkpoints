@@ -1,8 +1,18 @@
 {
   "schemaVersion": "1.0.0",
   "release": "5.3.0-alpha.17.0",
-  "statuses": ["Supported", "Experimental", "Unavailable"],
-  "evidenceStates": ["Provider-verified", "Deterministic", "Inferred", "Stale", "Unavailable"],
+  "statuses": [
+    "Supported",
+    "Experimental",
+    "Unavailable"
+  ],
+  "evidenceStates": [
+    "Provider-verified",
+    "Deterministic",
+    "Inferred",
+    "Stale",
+    "Unavailable"
+  ],
   "defaults": {
     "status": "Unavailable",
     "evidenceState": "Unavailable",
@@ -12,116 +22,524 @@
   "providers": {
     "github": {
       "hosted-alpha": {
-        "repository.read": ["Supported", "Provider-verified", "Qualified golden-path repository reads."],
-        "rate.read": ["Supported", "Provider-verified", "Qualified provider rate-limit read."],
-        "repository.create": ["Unavailable", "Unavailable", "Repository creation is disabled for the controlled hosted cohort."],
-        "repository.delete": ["Unavailable", "Unavailable", "Repository deletion is disabled for the controlled hosted cohort."],
-        "branches.read": ["Supported", "Provider-verified", "Qualified branch inventory."],
-        "branches.write": ["Supported", "Provider-verified", "Qualified controlled branch mutations."],
-        "tree.read": ["Supported", "Provider-verified", "Qualified recursive tree listing bound to the file it names."],
-        "file.read": ["Supported", "Provider-verified", "Qualified bounded file reads."],
-        "file.write": ["Supported", "Provider-verified", "Qualified expected-head file writes."],
-        "file.delete": ["Supported", "Provider-verified", "Qualified expected-head file deletion."],
-        "file.rename": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "file.batch": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "pulls.read": ["Supported", "Provider-verified", "Qualified pull-request list and detail reads, including absent-resource discrimination."],
-        "pulls.write": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "issues.read": ["Supported", "Provider-verified", "Qualified issue list and detail reads, including absent-resource discrimination."],
-        "issues.write": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "workflows.read": ["Supported", "Provider-verified", "Qualified workflow-run list and detail reads, including absent-resource discrimination."],
-        "workflows.rerun": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "releases.read": ["Supported", "Provider-verified", "Qualified release list and detail reads, including absent-resource discrimination."],
-        "releases.write": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "search": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "global-search": ["Unavailable", "Unavailable", "Global search cannot satisfy exact invitation repository allowlists."],
-        "notifications": ["Unavailable", "Unavailable", "Global notifications cannot satisfy exact invitation repository allowlists."],
-        "stars.read": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "stars.write": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "native-push": ["Experimental", "Inferred", "Implemented with a 16 MB Render Free bound, but not exercised by the alpha.17 live-provider harness."],
-        "lfs": ["Experimental", "Inferred", "Implemented, but outside the alpha.17 live-provider harness and golden path."],
-        "folder.move": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "live-events": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "access-surface": ["Supported", "Deterministic", "Derived from live provider access evidence."],
-        "dependency-audit": ["Supported", "Deterministic", "OSV unavailability is reported as incomplete, never clean."],
-        "recovery": ["Supported", "Deterministic", "Snapshot compare and restore preview are supported."],
-        "governance": ["Supported", "Deterministic", "Policy lifecycle is available when Neon is healthy."],
-        "upload-security": ["Supported", "Deterministic", "Built-in bounded signature gate is active; YARA is not implied."]
+        "repository.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified golden-path repository reads."
+        ],
+        "rate.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified provider rate-limit read."
+        ],
+        "repository.create": [
+          "Unavailable",
+          "Unavailable",
+          "Repository creation is disabled for the controlled hosted cohort."
+        ],
+        "repository.delete": [
+          "Unavailable",
+          "Unavailable",
+          "Repository deletion is disabled for the controlled hosted cohort."
+        ],
+        "branches.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified branch inventory."
+        ],
+        "branches.write": [
+          "Supported",
+          "Provider-verified",
+          "Qualified controlled branch mutations."
+        ],
+        "tree.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified recursive tree listing bound to the file it names."
+        ],
+        "file.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified bounded file reads."
+        ],
+        "file.write": [
+          "Supported",
+          "Provider-verified",
+          "Qualified expected-head file writes."
+        ],
+        "file.delete": [
+          "Supported",
+          "Provider-verified",
+          "Qualified expected-head file deletion."
+        ],
+        "file.rename": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "file.batch": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "pulls.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified pull-request list and detail reads, including absent-resource discrimination."
+        ],
+        "pulls.write": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "issues.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified issue list and detail reads, including absent-resource discrimination."
+        ],
+        "issues.write": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "workflows.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified workflow-run list and detail reads, including absent-resource discrimination."
+        ],
+        "workflows.rerun": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "releases.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified release list and detail reads, including absent-resource discrimination."
+        ],
+        "releases.write": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "search": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "global-search": [
+          "Unavailable",
+          "Unavailable",
+          "Global search cannot satisfy exact invitation repository allowlists."
+        ],
+        "notifications": [
+          "Unavailable",
+          "Unavailable",
+          "Global notifications cannot satisfy exact invitation repository allowlists."
+        ],
+        "stars.read": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "stars.write": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "native-push": [
+          "Experimental",
+          "Inferred",
+          "Implemented with a 16 MB Render Free bound, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "lfs": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but outside the alpha.17 live-provider harness and golden path."
+        ],
+        "folder.move": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "live-events": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "access-surface": [
+          "Supported",
+          "Deterministic",
+          "Derived from live provider access evidence."
+        ],
+        "dependency-audit": [
+          "Supported",
+          "Deterministic",
+          "OSV unavailability is reported as incomplete, never clean."
+        ],
+        "recovery": [
+          "Supported",
+          "Deterministic",
+          "Snapshot compare and restore preview are supported."
+        ],
+        "governance": [
+          "Supported",
+          "Deterministic",
+          "Policy lifecycle is available when Neon is healthy."
+        ],
+        "upload-security": [
+          "Supported",
+          "Deterministic",
+          "Built-in bounded signature gate is active; YARA is not implied."
+        ]
       }
     },
     "gitlab": {
       "hosted-alpha": {
-        "repository.read": ["Supported", "Provider-verified", "Qualified GitLab repository reads."],
-        "rate.read": ["Unavailable", "Unavailable", "Rate-limit reads are qualified only for GitHub in the hosted alpha."],
-        "repository.create": ["Unavailable", "Unavailable", "Repository creation is disabled for the controlled hosted cohort."],
-        "repository.delete": ["Unavailable", "Unavailable", "Repository deletion is disabled for the controlled hosted cohort."],
-        "branches.read": ["Supported", "Provider-verified", "Qualified GitLab branch reads."],
-        "branches.write": ["Unavailable", "Unavailable", "Branch mutation is not qualified for GitLab."],
-        "tree.read": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "file.read": ["Supported", "Provider-verified", "Qualified GitLab file reads."],
-        "file.write": ["Supported", "Provider-verified", "Qualified bounded GitLab file writes."],
-        "file.delete": ["Supported", "Provider-verified", "Qualified bounded GitLab file deletion."],
-        "file.rename": ["Unavailable", "Unavailable", "File rename is not qualified for GitLab."],
-        "file.batch": ["Unavailable", "Unavailable", "Atomic batch is not qualified for GitLab."],
-        "pulls.read": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "pulls.write": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "issues.read": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "issues.write": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "workflows.read": ["Unavailable", "Unavailable", "GitLab pipeline UI is not qualified."],
-        "workflows.rerun": ["Unavailable", "Unavailable", "GitLab pipeline rerun is not qualified."],
-        "releases.read": ["Unavailable", "Unavailable", "GitLab releases are not qualified."],
-        "releases.write": ["Unavailable", "Unavailable", "GitLab release mutation is not qualified."],
-        "search": ["Unavailable", "Unavailable", "Cross-repository search is not qualified."],
-        "global-search": ["Unavailable", "Unavailable", "Global search cannot satisfy exact invitation repository allowlists."],
-        "notifications": ["Unavailable", "Unavailable", "Notifications are not qualified."],
-        "stars.read": ["Unavailable", "Unavailable", "Repository stars are not qualified for GitLab."],
-        "stars.write": ["Unavailable", "Unavailable", "Repository star mutations are not qualified for GitLab."],
-        "native-push": ["Unavailable", "Unavailable", "Native push is not qualified."],
-        "lfs": ["Unavailable", "Unavailable", "LFS is not qualified."],
-        "folder.move": ["Unavailable", "Unavailable", "Folder move is not qualified."],
-        "live-events": ["Unavailable", "Unavailable", "Verified live events are GitHub-only in this cohort."],
-        "access-surface": ["Unavailable", "Unavailable", "Access-surface analysis is not qualified."],
-        "dependency-audit": ["Experimental", "Deterministic", "Manifest analysis is safe but provider completeness is narrower."],
-        "recovery": ["Experimental", "Deterministic", "Read-only snapshot comparison only."],
-        "governance": ["Experimental", "Deterministic", "Policy views are available; provider mutation coverage is narrower."],
-        "upload-security": ["Supported", "Deterministic", "Built-in upload signature gate runs before supported writes."]
+        "repository.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified GitLab repository reads."
+        ],
+        "rate.read": [
+          "Unavailable",
+          "Unavailable",
+          "Rate-limit reads are qualified only for GitHub in the hosted alpha."
+        ],
+        "repository.create": [
+          "Unavailable",
+          "Unavailable",
+          "Repository creation is disabled for the controlled hosted cohort."
+        ],
+        "repository.delete": [
+          "Unavailable",
+          "Unavailable",
+          "Repository deletion is disabled for the controlled hosted cohort."
+        ],
+        "branches.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified GitLab branch reads."
+        ],
+        "branches.write": [
+          "Supported",
+          "Provider-verified",
+          "Qualified controlled branch mutations."
+        ],
+        "tree.read": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "file.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified GitLab file reads."
+        ],
+        "file.write": [
+          "Supported",
+          "Provider-verified",
+          "Qualified bounded GitLab file writes."
+        ],
+        "file.delete": [
+          "Supported",
+          "Provider-verified",
+          "Qualified bounded GitLab file deletion."
+        ],
+        "file.rename": [
+          "Unavailable",
+          "Unavailable",
+          "File rename is not qualified for GitLab."
+        ],
+        "file.batch": [
+          "Unavailable",
+          "Unavailable",
+          "Atomic batch is not qualified for GitLab."
+        ],
+        "pulls.read": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "pulls.write": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "issues.read": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "issues.write": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "workflows.read": [
+          "Unavailable",
+          "Unavailable",
+          "GitLab pipeline UI is not qualified."
+        ],
+        "workflows.rerun": [
+          "Unavailable",
+          "Unavailable",
+          "GitLab pipeline rerun is not qualified."
+        ],
+        "releases.read": [
+          "Unavailable",
+          "Unavailable",
+          "GitLab releases are not qualified."
+        ],
+        "releases.write": [
+          "Unavailable",
+          "Unavailable",
+          "GitLab release mutation is not qualified."
+        ],
+        "search": [
+          "Unavailable",
+          "Unavailable",
+          "Cross-repository search is not qualified."
+        ],
+        "global-search": [
+          "Unavailable",
+          "Unavailable",
+          "Global search cannot satisfy exact invitation repository allowlists."
+        ],
+        "notifications": [
+          "Unavailable",
+          "Unavailable",
+          "Notifications are not qualified."
+        ],
+        "stars.read": [
+          "Unavailable",
+          "Unavailable",
+          "Repository stars are not qualified for GitLab."
+        ],
+        "stars.write": [
+          "Unavailable",
+          "Unavailable",
+          "Repository star mutations are not qualified for GitLab."
+        ],
+        "native-push": [
+          "Unavailable",
+          "Unavailable",
+          "Native push is not qualified."
+        ],
+        "lfs": [
+          "Unavailable",
+          "Unavailable",
+          "LFS is not qualified."
+        ],
+        "folder.move": [
+          "Unavailable",
+          "Unavailable",
+          "Folder move is not qualified."
+        ],
+        "live-events": [
+          "Unavailable",
+          "Unavailable",
+          "Verified live events are GitHub-only in this cohort."
+        ],
+        "access-surface": [
+          "Unavailable",
+          "Unavailable",
+          "Access-surface analysis is not qualified."
+        ],
+        "dependency-audit": [
+          "Experimental",
+          "Deterministic",
+          "Manifest analysis is safe but provider completeness is narrower."
+        ],
+        "recovery": [
+          "Experimental",
+          "Deterministic",
+          "Read-only snapshot comparison only."
+        ],
+        "governance": [
+          "Experimental",
+          "Deterministic",
+          "Policy views are available; provider mutation coverage is narrower."
+        ],
+        "upload-security": [
+          "Supported",
+          "Deterministic",
+          "Built-in upload signature gate runs before supported writes."
+        ]
       }
     },
     "gitea": {
       "hosted-alpha": {
-        "repository.read": ["Supported", "Provider-verified", "Qualified Gitea repository reads."],
-        "rate.read": ["Unavailable", "Unavailable", "Rate-limit reads are qualified only for GitHub in the hosted alpha."],
-        "repository.create": ["Unavailable", "Unavailable", "Repository creation is disabled for the controlled hosted cohort."],
-        "repository.delete": ["Unavailable", "Unavailable", "Repository deletion is disabled for the controlled hosted cohort."],
-        "branches.read": ["Supported", "Provider-verified", "Qualified Gitea branch reads."],
-        "branches.write": ["Unavailable", "Unavailable", "Branch mutation is not qualified for Gitea."],
-        "tree.read": ["Experimental", "Inferred", "Implemented, but not exercised by the alpha.17 live-provider harness."],
-        "file.read": ["Supported", "Provider-verified", "Qualified Base64 Contents API readback."],
-        "file.write": ["Supported", "Provider-verified", "Qualified expected-head Contents API write."],
-        "file.delete": ["Supported", "Provider-verified", "Qualified expected-head Contents API deletion."],
-        "file.rename": ["Unavailable", "Unavailable", "File rename is not qualified for Gitea."],
-        "file.batch": ["Unavailable", "Unavailable", "Gitea batch mutation is unavailable; only single-file Contents API write and delete are provider-qualified."],
-        "pulls.read": ["Unavailable", "Unavailable", "Pull requests are not qualified."],
-        "pulls.write": ["Unavailable", "Unavailable", "Pull-request mutation is not qualified."],
-        "issues.read": ["Unavailable", "Unavailable", "Issues are not qualified."],
-        "issues.write": ["Unavailable", "Unavailable", "Issue mutation is not qualified."],
-        "workflows.read": ["Unavailable", "Unavailable", "Actions are not qualified."],
-        "workflows.rerun": ["Unavailable", "Unavailable", "Actions rerun is not qualified."],
-        "releases.read": ["Unavailable", "Unavailable", "Releases are not qualified."],
-        "releases.write": ["Unavailable", "Unavailable", "Release mutation is not qualified."],
-        "search": ["Unavailable", "Unavailable", "Search is not qualified."],
-        "global-search": ["Unavailable", "Unavailable", "Global search cannot satisfy exact invitation repository allowlists."],
-        "notifications": ["Unavailable", "Unavailable", "Notifications are not qualified."],
-        "stars.read": ["Unavailable", "Unavailable", "Repository stars are not qualified for Gitea."],
-        "stars.write": ["Unavailable", "Unavailable", "Repository star mutations are not qualified for Gitea."],
-        "native-push": ["Unavailable", "Unavailable", "Native push is not qualified."],
-        "lfs": ["Unavailable", "Unavailable", "LFS is not qualified."],
-        "folder.move": ["Unavailable", "Unavailable", "Folder move is not qualified."],
-        "live-events": ["Unavailable", "Unavailable", "Verified live events are GitHub-only in this cohort."],
-        "access-surface": ["Unavailable", "Unavailable", "Access-surface analysis is not qualified."],
-        "dependency-audit": ["Experimental", "Deterministic", "Manifest analysis is safe but provider completeness is narrower."],
-        "recovery": ["Experimental", "Deterministic", "Read-only snapshot comparison only."],
-        "governance": ["Experimental", "Deterministic", "Policy views are available; provider mutation coverage is narrower."],
-        "upload-security": ["Supported", "Deterministic", "Built-in upload signature gate runs before supported writes."]
+        "repository.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified Gitea repository reads."
+        ],
+        "rate.read": [
+          "Unavailable",
+          "Unavailable",
+          "Rate-limit reads are qualified only for GitHub in the hosted alpha."
+        ],
+        "repository.create": [
+          "Unavailable",
+          "Unavailable",
+          "Repository creation is disabled for the controlled hosted cohort."
+        ],
+        "repository.delete": [
+          "Unavailable",
+          "Unavailable",
+          "Repository deletion is disabled for the controlled hosted cohort."
+        ],
+        "branches.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified Gitea branch reads."
+        ],
+        "branches.write": [
+          "Unavailable",
+          "Unavailable",
+          "Branch mutation is not qualified for Gitea."
+        ],
+        "tree.read": [
+          "Experimental",
+          "Inferred",
+          "Implemented, but not exercised by the alpha.17 live-provider harness."
+        ],
+        "file.read": [
+          "Supported",
+          "Provider-verified",
+          "Qualified Base64 Contents API readback."
+        ],
+        "file.write": [
+          "Supported",
+          "Provider-verified",
+          "Qualified expected-head Contents API write."
+        ],
+        "file.delete": [
+          "Supported",
+          "Provider-verified",
+          "Qualified expected-head Contents API deletion."
+        ],
+        "file.rename": [
+          "Unavailable",
+          "Unavailable",
+          "File rename is not qualified for Gitea."
+        ],
+        "file.batch": [
+          "Unavailable",
+          "Unavailable",
+          "Gitea batch mutation is unavailable; only single-file Contents API write and delete are provider-qualified."
+        ],
+        "pulls.read": [
+          "Unavailable",
+          "Unavailable",
+          "Pull requests are not qualified."
+        ],
+        "pulls.write": [
+          "Unavailable",
+          "Unavailable",
+          "Pull-request mutation is not qualified."
+        ],
+        "issues.read": [
+          "Unavailable",
+          "Unavailable",
+          "Issues are not qualified."
+        ],
+        "issues.write": [
+          "Unavailable",
+          "Unavailable",
+          "Issue mutation is not qualified."
+        ],
+        "workflows.read": [
+          "Unavailable",
+          "Unavailable",
+          "Actions are not qualified."
+        ],
+        "workflows.rerun": [
+          "Unavailable",
+          "Unavailable",
+          "Actions rerun is not qualified."
+        ],
+        "releases.read": [
+          "Unavailable",
+          "Unavailable",
+          "Releases are not qualified."
+        ],
+        "releases.write": [
+          "Unavailable",
+          "Unavailable",
+          "Release mutation is not qualified."
+        ],
+        "search": [
+          "Unavailable",
+          "Unavailable",
+          "Search is not qualified."
+        ],
+        "global-search": [
+          "Unavailable",
+          "Unavailable",
+          "Global search cannot satisfy exact invitation repository allowlists."
+        ],
+        "notifications": [
+          "Unavailable",
+          "Unavailable",
+          "Notifications are not qualified."
+        ],
+        "stars.read": [
+          "Unavailable",
+          "Unavailable",
+          "Repository stars are not qualified for Gitea."
+        ],
+        "stars.write": [
+          "Unavailable",
+          "Unavailable",
+          "Repository star mutations are not qualified for Gitea."
+        ],
+        "native-push": [
+          "Unavailable",
+          "Unavailable",
+          "Native push is not qualified."
+        ],
+        "lfs": [
+          "Unavailable",
+          "Unavailable",
+          "LFS is not qualified."
+        ],
+        "folder.move": [
+          "Unavailable",
+          "Unavailable",
+          "Folder move is not qualified."
+        ],
+        "live-events": [
+          "Unavailable",
+          "Unavailable",
+          "Verified live events are GitHub-only in this cohort."
+        ],
+        "access-surface": [
+          "Unavailable",
+          "Unavailable",
+          "Access-surface analysis is not qualified."
+        ],
+        "dependency-audit": [
+          "Experimental",
+          "Deterministic",
+          "Manifest analysis is safe but provider completeness is narrower."
+        ],
+        "recovery": [
+          "Experimental",
+          "Deterministic",
+          "Read-only snapshot comparison only."
+        ],
+        "governance": [
+          "Experimental",
+          "Deterministic",
+          "Policy views are available; provider mutation coverage is narrower."
+        ],
+        "upload-security": [
+          "Supported",
+          "Deterministic",
+          "Built-in upload signature gate runs before supported writes."
+        ]
       }
     }
   }

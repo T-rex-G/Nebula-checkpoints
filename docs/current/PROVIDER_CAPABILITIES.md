@@ -63,7 +63,7 @@ live harness exercises their exact proof contract.
 
 ## GitLab — registry-qualified subset
 
-Counted from the capability registry: 6 Supported, 8 Experimental, 20 Unavailable.
+Counted from the capability registry: 7 Supported, 8 Experimental, 19 Unavailable.
 
 | Status | Capabilities |
 | --- | --- |

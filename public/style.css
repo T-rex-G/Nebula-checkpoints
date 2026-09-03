@@ -338,9 +338,28 @@ em{color:var(--teal);font-style:normal}
  * Here it is switched off and the elevation is left to the box-shadow, which
  * is what was supposed to be doing the work.
  */
+/*
+ * Reported twice as the button having "visible box edges, not a clean shadow",
+ * and the first fix was aimed at the wrong thing. It removed an inherited
+ * backdrop-filter -- a real oddity, blurring through an opaque gradient -- on
+ * the theory that the compositing layer was painting a hard-edged rectangle.
+ * It changed nothing, because there was never a hard edge to remove: scanning
+ * the pixels to the right of the button, the largest step between neighbours
+ * is 2 of 765, in every variant tried. No seam, no layer artifact.
+ *
+ * The shadow WAS the box. 20px of blur at 0.4 alpha, with no spread, throws a
+ * wide soft rectangle far past the button's own shape, and on a pale lavender
+ * page that region reads as a slab rather than as lift. Established by
+ * removing the shadow and watching the box go with it.
+ *
+ * So it is elevation now instead of a glow: a tight contact shadow and a
+ * softer ambient one, both pulled in by a negative spread so they hug the
+ * shape, and in the palette's deep violet rather than a bright accent halo.
+ */
 .btn-primary{background:linear-gradient(135deg,var(--accent),#5a48f0);border-color:rgba(255,255,255,0.28);
   backdrop-filter:none;-webkit-backdrop-filter:none;
-  box-shadow:0 4px 20px rgba(105,88,255,0.4), inset 0 1px 0 rgba(255,255,255,0.35);color:#fff}
+  box-shadow:0 2px 6px -1px rgba(76,29,149,.28), 0 6px 16px -6px rgba(76,29,149,.32),
+    inset 0 1px 0 rgba(255,255,255,0.35);color:#fff}
 .btn-primary:hover{background:linear-gradient(135deg,var(--accent2),#6a58ff)}
 .btn-primary:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
@@ -1198,7 +1217,9 @@ body.read-only .btn-primary{opacity:.55}
  */
 .neural-emergency-btn{background:linear-gradient(135deg,var(--red),var(--redDeep));
   border-color:rgba(255,255,255,0.28);
-  box-shadow:0 4px 20px rgba(244,63,110,.34), inset 0 1px 0 rgba(255,255,255,0.28)}
+  /* Same wide glow as the primary button had, and the same correction. */
+  box-shadow:0 2px 6px -1px rgba(159,18,57,.30), 0 6px 16px -6px rgba(159,18,57,.34),
+    inset 0 1px 0 rgba(255,255,255,0.28)}
 .neural-emergency-btn:hover{background:linear-gradient(135deg,var(--redDeep),var(--red))}
 .neural-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .neural-kpi{padding:14px 15px;min-height:98px;display:flex;flex-direction:column;justify-content:center}

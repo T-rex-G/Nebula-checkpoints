@@ -120,6 +120,7 @@ try {
     NV_PUBLIC_ALPHA_SOURCE_COMMIT: 'b'.repeat(40),
     NV_PUBLIC_ALPHA_GITHUB_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.github,
     NV_PUBLIC_ALPHA_GITLAB_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.gitlab,
+    NV_PUBLIC_ALPHA_GITEA_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.gitea,
     NV_PUBLIC_ALPHA_HOSTED_TARGET_SHA256: fixture.bindings.expectedAuthorizedTargets.hosted,
     NV_ALPHA17_OPERATOR_KEY_ID: 'fixture-operator',
     NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64: fixture.bindings.trustedOperatorKeys['fixture-operator']

@@ -124,3 +124,36 @@ test('the end of the governance pane is not stuck under the dock', async ({ page
     'scrolled fully down, this content is behind the bottom dock and no gesture can reveal it'
   ).toEqual([]);
 });
+
+/*
+ * The pane's existing width guard resizes to 320px while the pane is showing
+ * its evidence FAILURE -- one short card. The populated page is a different
+ * layout with different content: policy cards, four-column fact grids, hash
+ * strings with no break opportunities, and button rows three wide. None of it
+ * had ever been measured at any width, and this run added padding to it.
+ *
+ * Resized rather than loaded at 320, because that is what rotating a device
+ * does, and the pane's earlier blowout only appeared on resize.
+ */
+test('the populated governance pane fits a 320px screen', async ({ page }) => {
+  await openGovernance(page);
+  await page.setViewportSize({ width: 320, height: 560 });
+  await page.waitForTimeout(900);
+
+  const reading = await page.evaluate(() => {
+    const limit = document.documentElement.clientWidth;
+    const escaping = [];
+    for (const node of document.querySelectorAll('#tab-governance *')) {
+      const box = node.getBoundingClientRect();
+      if (!box.width || !box.height) continue;
+      if (box.right > limit + 2 && getComputedStyle(node).position !== 'fixed') {
+        escaping.push(`${node.tagName.toLowerCase()}.${String(node.className).slice(0, 24)} ${Math.round(box.width)}px`);
+      }
+    }
+    return { limit, documentOverflow: document.body.scrollWidth - limit, escaping: escaping.slice(0, 5) };
+  });
+
+  expect(reading.limit).toBe(320);
+  expect(reading.escaping, 'nothing in the populated governance pane may hang off a 320px screen').toEqual([]);
+  expect(reading.documentOverflow, 'the page must not scroll sideways at 320px').toBeLessThanOrEqual(2);
+});

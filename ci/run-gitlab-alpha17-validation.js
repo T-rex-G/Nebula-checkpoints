@@ -111,6 +111,30 @@ function createGitlabClient({ env, fetchImpl }) {
     });
   }
 
+  /*
+   * GitLab's own optimistic concurrency: an update carries last_commit_id, the
+   * commit the writer believes last touched the file, and a mismatch is
+   * refused with 409.
+   *
+   * The caller hands it a real commit that is not the file's last one -- the
+   * branch head from before this run wrote the file. That is precisely what a
+   * writer working from a stale view would send.
+   */
+  async function staleConditionalUpdate(input) {
+    return requestJson(fetchImpl, api(`projects/${project}/repository/files/${encodeURIComponent(input.path)}`), {
+      method: 'PUT',
+      headers: headers(input.credential),
+      body: {
+        branch: input.branch,
+        commit_message: 'test(alpha): rejected stale-write proof',
+        content: Buffer.from(input.content).toString('base64'),
+        encoding: 'base64',
+        last_commit_id: input.staleCommitId
+      },
+      allowedStatuses: [200, 201]
+    });
+  }
+
   async function readCommit(ref, credential = 'mutation') {
     const response = await requestJson(fetchImpl, api(`projects/${project}/repository/commits/${encodeURIComponent(ref)}`), {
       headers: headers(credential),
@@ -191,7 +215,9 @@ function createGitlabClient({ env, fetchImpl }) {
     });
   }
 
-  return Object.freeze({ getRepository, getBranch, createBranch, writeFile, readFile, deleteFile, deleteBranch });
+  return Object.freeze({
+    getRepository, getBranch, createBranch, writeFile, staleConditionalUpdate, readFile, deleteFile, deleteBranch
+  });
 }
 
 async function runGitlabValidation(options = {}) {

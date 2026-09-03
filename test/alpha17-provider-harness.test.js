@@ -714,6 +714,52 @@ async function runOne(provider, runner, options = {}) {
     'a head advanced by a commit this run did not make must not pass as its delete'
   );
 
+  /*
+   * The stale-write proof used to be satisfied by this client's own
+   * precondition: writeFile asserted the expected head locally and threw
+   * before the provider was ever called, so a provider with NO optimistic
+   * concurrency at all passed the check named after it.
+   *
+   * Measured before this guard was written: the old sequence passes against
+   * the provider below, which accepts every conditional update it is given.
+   * The current one refuses.
+   */
+  const permissiveEnvironment = environment('github');
+  const permissiveFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: permissiveEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: permissiveEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: permissiveEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  await assert.rejects(
+    () => runGithubValidation({
+      env: permissiveEnvironment,
+      now: () => new Date(NOW),
+      fetchImpl: async (url, init = {}) => {
+        const method = String(init.method || 'GET').toUpperCase();
+        if (method !== 'PUT' || !new URL(url).pathname.includes('/contents/')) {
+          return permissiveFixture.fetch(url, init);
+        }
+        const body = JSON.parse(String(init.body || '{}'));
+        /*
+         * Only the CONDITIONAL update is made permissive. The first write
+         * carries no sha and has to go through, or the run fails earlier for
+         * an unrelated reason and proves nothing about this.
+         */
+        if (!body.sha) return permissiveFixture.fetch(url, init);
+        const accepted = JSON.stringify({ content: { sha: 'c'.repeat(40) }, commit: { sha: 'd'.repeat(40) } });
+        return new Response(accepted, {
+          status: 200,
+          headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(accepted)) }
+        });
+      }
+    }),
+    error => Boolean(error && error.code === 'ALPHA17_STALE_HEAD_PROOF_FAILED'),
+    'a provider that accepts a stale conditional update must fail the stale-write proof'
+  );
+
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {
   console.error(error);

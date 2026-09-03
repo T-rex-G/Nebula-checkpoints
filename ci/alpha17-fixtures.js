@@ -19,7 +19,8 @@ function cloneBranch(branch) {
     sha: branch.sha,
     files: new Map([...branch.files.entries()].map(([name, file]) => [name, {
       content: Buffer.from(file.content),
-      sha: file.sha
+      sha: file.sha,
+      lastCommitId: file.lastCommitId
     }]))
   };
 }
@@ -95,6 +96,12 @@ function createProviderFetchFixture(options = {}) {
     else branch.files.set(filePath, { content, sha: fileSha(content) });
     const parent = branch.sha;
     branch.sha = nextSha(`${branchName}:${filePath}:${remove ? 'delete' : 'write'}`);
+    /*
+     * Which commit last touched this file, as distinct from the branch head.
+     * They diverge as soon as anything else is committed, and GitLab keys its
+     * conditional update on the file's, not the branch's.
+     */
+    if (!remove) branch.files.get(filePath).lastCommitId = branch.sha;
     /*
      * Lineage, because a provider that reports no commit on a mutation can
      * still be asked what the tip commit is and who its parent was. A fixture
@@ -185,6 +192,18 @@ function createProviderFetchFixture(options = {}) {
       const branch = state.branches.get(body.branch);
       if (!branch) return json({ message: 'not found' }, 404);
       if (method === 'PUT') {
+        /*
+         * GitHub keys an update on the blob sha of the file being replaced:
+         * omit it over an existing file and the write is refused, send one
+         * that does not match and it is refused. The fixture enforced this on
+         * DELETE and not on PUT, so a client sending a stale token was told
+         * the write succeeded -- and a proof that the provider refuses stale
+         * writes could not be written against it at all.
+         */
+        const existing = branch.files.get(filePath);
+        if (existing && !body.sha) return json({ message: "sha wasn't supplied" }, 422);
+        if (existing && body.sha !== existing.sha) return json({ message: 'conflict' }, 409);
+        if (!existing && body.sha) return json({ message: 'conflict' }, 409);
         const changed = mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'));
         const file = changed.files.get(filePath);
         return json({ content: { sha: file.sha }, commit: { sha: changed.sha } }, 201);
@@ -257,13 +276,28 @@ function createProviderFetchFixture(options = {}) {
             // GitLab's file read carries the ref's commit and the commit that
             // last modified this file. The write response carries neither.
             commit_id: branch.sha,
-            last_commit_id: branch.sha
+            last_commit_id: file.lastCommitId
           })
           : json({ message: 'not found' }, 404);
       }
       const body = bodyOf(init);
       const branch = state.branches.get(body.branch);
       if (!branch) return json({ message: 'not found' }, 404);
+      if (method === 'PUT') {
+        /*
+         * GitLab's conditional update. last_commit_id is the commit the writer
+         * believes last touched THIS FILE; a mismatch is a 409. Without this
+         * the fixture had no update path at all, so a stale write got a 404
+         * and the proof could not tell a refusal from a missing route.
+         */
+        const existing = branch.files.get(filePath);
+        if (!existing) return json({ message: 'not found' }, 404);
+        if (body.last_commit_id && body.last_commit_id !== existing.lastCommitId) {
+          return json({ message: 'conflict' }, 409);
+        }
+        mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'), false, body.commit_message);
+        return json({ file_path: filePath, branch: body.branch }, 200);
+      }
       if (method === 'POST') {
         mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'), false, body.commit_message);
         /*
@@ -334,6 +368,14 @@ function createProviderFetchFixture(options = {}) {
       const body = bodyOf(init);
       const branch = state.branches.get(body.branch);
       if (!branch) return json({ message: 'not found' }, 404);
+      if (method === 'PUT') {
+        /* Gitea keys an update on the blob sha, the same way GitHub does. */
+        const existing = branch.files.get(filePath);
+        if (!existing) return json({ message: 'not found' }, 404);
+        if (body.sha !== existing.sha) return json({ message: 'conflict' }, 409);
+        const changed = mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'));
+        return json({ content: changed.files.get(filePath), commit: { sha: changed.sha } }, 200);
+      }
       if (method === 'POST') {
         const changed = mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'));
         return json({ content: changed.files.get(filePath), commit: { sha: changed.sha } }, 201);

@@ -80,6 +80,30 @@ function createGithubClient({ env, fetchImpl }) {
     });
   }
 
+  /*
+   * GitHub's own optimistic concurrency: an update carries the blob sha of the
+   * file it believes it is replacing, and a mismatch is refused with 409.
+   *
+   * This exists so the stale-write proof is the PROVIDER refusing rather than
+   * this client refusing on its own behalf. The caller hands it a well-formed
+   * blob sha that belongs to different content, which is exactly the mistake a
+   * stale writer makes. A 2xx here means GitHub accepted a write it should
+   * have rejected, and the caller treats that as the proof failing.
+   */
+  async function staleConditionalUpdate(input) {
+    return requestJson(fetchImpl, api(`repos/${repositoryPath}/contents/${encodeURIComponent(input.path)}`), {
+      method: 'PUT',
+      headers: headers(input.credential),
+      body: {
+        branch: input.branch,
+        message: 'test(alpha): rejected stale-write proof',
+        content: Buffer.from(input.content).toString('base64'),
+        sha: input.staleFileSha
+      },
+      allowedStatuses: [200, 201]
+    });
+  }
+
   async function readFile(branch, filePath, credential = 'mutation') {
     const url = new URL(api(`repos/${repositoryPath}/contents/${encodeURIComponent(filePath)}`));
     url.searchParams.set('ref', branch);
@@ -301,7 +325,7 @@ function createGithubClient({ env, fetchImpl }) {
   }
 
   return Object.freeze({
-    getRepository, getBranch, createBranch, writeFile, readFile, deleteFile, deleteBranch,
+    getRepository, getBranch, createBranch, writeFile, staleConditionalUpdate, readFile, deleteFile, deleteBranch,
     readTree, readRateLimit, readCollection, probeChecks
   });
 }

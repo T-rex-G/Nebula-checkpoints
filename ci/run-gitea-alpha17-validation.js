@@ -85,6 +85,26 @@ function createGiteaClient({ env, fetchImpl }) {
     });
   }
 
+  /*
+   * Gitea's own optimistic concurrency, the same shape as GitHub's: an update
+   * carries the blob sha of the file it believes it is replacing, and a
+   * mismatch is refused. The caller supplies a well-formed sha belonging to
+   * other content.
+   */
+  async function staleConditionalUpdate(input) {
+    return requestJson(fetchImpl, api(`repos/${repositoryPath}/contents/${encodeURIComponent(input.path)}`), {
+      method: 'PUT',
+      headers: headers(input.credential),
+      body: {
+        branch: input.branch,
+        message: 'test(alpha): rejected stale-write proof',
+        content: Buffer.from(input.content).toString('base64'),
+        sha: input.staleFileSha
+      },
+      allowedStatuses: [200, 201]
+    });
+  }
+
   async function readFile(branch, filePath, credential = 'mutation') {
     const url = new URL(api(`repos/${repositoryPath}/contents/${encodeURIComponent(filePath)}`));
     url.searchParams.set('ref', branch);
@@ -127,7 +147,7 @@ function createGiteaClient({ env, fetchImpl }) {
     });
   }
 
-  return Object.freeze({ getRepository, getBranch, createBranch, writeFile, readFile, deleteFile, deleteBranch });
+  return Object.freeze({ getRepository, getBranch, createBranch, writeFile, staleConditionalUpdate, readFile, deleteFile, deleteBranch });
 }
 
 async function runGiteaValidation(options = {}) {

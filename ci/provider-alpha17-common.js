@@ -32,6 +32,19 @@ function stableJson(value) {
   return JSON.stringify(value);
 }
 
+/*
+ * A git blob sha, which is what GitHub and Gitea use as the concurrency token
+ * on a conditional update. Computed rather than borrowed so the stale token is
+ * well-formed -- a malformed one would be refused for the wrong reason and the
+ * proof would pass without the provider ever comparing anything.
+ */
+function gitBlobSha(content) {
+  const bytes = Buffer.isBuffer(content) ? content : Buffer.from(String(content), 'utf8');
+  return crypto.createHash('sha1')
+    .update(Buffer.concat([Buffer.from(`blob ${bytes.length}\u0000`, 'utf8'), bytes]))
+    .digest('hex');
+}
+
 function sha256(value) {
   const input = Buffer.isBuffer(value) ? value : Buffer.from(String(value), 'utf8');
   return crypto.createHash('sha256').update(input).digest('hex');
@@ -419,12 +432,36 @@ async function runProviderQualification({ provider, client, env = process.env, n
 
     let staleRejected = false;
     const staleProofBytes = Buffer.from('Nebulaverse-X alpha.17 rejected stale-write proof\n', 'utf8');
+    /*
+     * This proof used to call writeFile with a stale head, and writeFile
+     * asserts the expected head locally before it calls anything. So the
+     * client refused, the provider was never asked, and a check named
+     * "stale-head" recorded that OUR precondition works -- while reading as
+     * though the provider enforces optimistic concurrency.
+     *
+     * It goes to the provider now. Every one of the three has the mechanism
+     * natively -- GitHub and Gitea key an update on the file's blob sha,
+     * GitLab on the commit that last touched it -- and all three answer a
+     * mismatch with 409, which is already read as a stale mutation. The client
+     * sends a well-formed token belonging to something else and requires the
+     * refusal to come back.
+     *
+     * A provider that ACCEPTS the write fails this proof rather than passing
+     * it: staleRejected stays false and the zero-commit assertion below then
+     * finds a branch that moved.
+     */
+    if (typeof client.staleConditionalUpdate !== 'function') {
+      fail('provider client cannot make a conditional update the provider itself refuses', 'ALPHA17_PROVIDER_INVALID');
+    }
     try {
-      await client.writeFile({
+      await client.staleConditionalUpdate({
         branch: target.branch,
         path: proofPath,
         content: staleProofBytes,
-        expectedHead: before.sha,
+        /* A real git blob sha, of other bytes: never the file's current blob. */
+        staleFileSha: gitBlobSha(staleProofBytes),
+        /* A real commit, but not the one that last touched the file. */
+        staleCommitId: before.sha,
         credential: 'mutation'
       });
     } catch (error) {

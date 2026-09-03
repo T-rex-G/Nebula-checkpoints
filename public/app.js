@@ -4092,7 +4092,14 @@ async function uploadOne(file, rel) {
     else { verdictEl.textContent = 'new'; verdictEl.classList.add('v-new'); }
   } catch {}
   if (uploadModeV === 'batch') {
-    const needsIndividual = force || file.size > 40 * 1048576;
+    /*
+     * Only real size sends a file down the individual path. Force LFS used to
+     * do it too, which meant turning LFS on quietly disabled batching for the
+     * whole queue -- a two-kilobyte file took the individual route alongside
+     * everything else, and a zip of four hundred became four hundred separate
+     * commits racing each other instead of four.
+     */
+    const needsIndividual = file.size > 40 * 1048576;
     if (!needsIndividual) {
       status.textContent = 'Queued for the batch commit.';
       batchQueue.push({ file, targetPath, item, fill, status });
@@ -4138,7 +4145,22 @@ async function uploadOne(file, rel) {
     }
   };
   xhr.onerror = () => { item.classList.add('error'); status.textContent = '✗ Network error during upload'; addRetry(item, file); };
-  xhr.send(file);
+  /*
+   * Awaited, because it was not.
+   *
+   * uploadOne is an async function and the queue awaits it, but the function
+   * used to end at xhr.send() -- so the await resolved when the request was
+   * SENT, not when it completed. The loop looked sequential and was not: every
+   * file in the queue went out before the first reply came back, each carrying
+   * the expectedHeadSha read before any of them landed. One commit moved the
+   * head and the provider refused all the others as stale, which is why a zip
+   * landed one file and offered a Retry on the rest.
+   *
+   * Settling on loadend rather than load so a network failure releases the
+   * queue too; both paths have already reported themselves to the caller
+   * through the item's own status line.
+   */
+  await new Promise(resolve => { xhr.addEventListener('loadend', resolve, { once: true }); xhr.send(file); });
 }
 
 /* ================= COMMITS ================= */

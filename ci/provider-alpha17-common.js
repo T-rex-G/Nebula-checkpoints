@@ -333,7 +333,7 @@ async function runProviderProbes({ provider, client, target, proofPath, readback
   if (typeof client.probeChecks !== 'function') {
     fail('provider client does not implement the probes its contract requires', 'ALPHA17_PROVIDER_INVALID');
   }
-  const probes = await client.probeChecks({ branch: target.branch, proofPath, proofFileSha: readback.sha });
+  const probes = await client.probeChecks({ branch: target.branch, prefix: target.prefix, proofPath, proofFileSha: readback.sha });
   if (!Array.isArray(probes) || probes.length !== expected.length) {
     fail('provider probes do not match the provider proof contract', 'ALPHA17_PROVIDER_PROBE_INVALID');
   }
@@ -489,6 +489,21 @@ async function runProviderQualification({ provider, client, env = process.env, n
     const staleProofBytes = Buffer.from('Nebulaverse-X alpha.17 rejected stale-write proof\n', 'utf8');
 
     /*
+     * The head as it stands going into the superseding write, read rather than
+     * remembered.
+     *
+     * It used to be afterWrite.sha, which was the same value only because
+     * nothing between the write and here ever moved the branch. GitHub's push
+     * probes do move it, and with the old baseline the observer below would
+     * have returned satisfied on the probe's commit -- before the superseding
+     * write had landed -- and the stale-head proof would then have compared
+     * two different heads and reported the branch as moved. The bug would have
+     * been in the baseline, and the failure would have been reported against
+     * the provider.
+     */
+    const beforeSupersede = await client.getBranch(target.branch, 'mutation');
+
+    /*
      * Step 1. Distinct content on every conditional write, because GitLab
      * refuses a commit that would change nothing with the same 400 it uses for
      * a conflict. Identical bytes would be refused for the wrong reason and
@@ -504,7 +519,7 @@ async function runProviderQualification({ provider, client, env = process.env, n
     });
     const afterSupersede = await observe(
       () => client.getBranch(target.branch, 'mutation'),
-      head => Boolean(head) && head.sha !== afterWrite.sha
+      head => Boolean(head) && head.sha !== beforeSupersede.sha
     );
     const superseded = await observe(
       () => client.readFile(target.branch, proofPath, 'mutation'),

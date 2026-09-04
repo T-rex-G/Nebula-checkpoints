@@ -208,10 +208,12 @@ async function runOne(provider, runner, options = {}) {
   assert.deepStrictEqual(githubResult.capabilities, [
     'branches.read',
     'branches.write',
+    'file.batch',
     'file.delete',
     'file.read',
     'file.write',
     'issues.read',
+    'native-push',
     'pulls.read',
     'rate.read',
     'releases.read',
@@ -219,6 +221,27 @@ async function runOne(provider, runner, options = {}) {
     'tree.read',
     'workflows.read'
   ]);
+
+  /*
+   * The push chain. blob-create is a cross-check on identity: the provider is
+   * handed bytes and its answer has to be the hash git itself would give them,
+   * computed in the runner. batch-commit spends that identity in a tree and
+   * requires three things a pair of ordinary writes could not produce -- a
+   * commit descending from the head that was read, both paths present at the
+   * new head with the bytes and identities they were given, and a refusal when
+   * the ref is moved back to the parent without force.
+   */
+  const blobCreate = githubResult.checks.find(check => check.key === 'blob-create');
+  assert(blobCreate, 'the github artifact must carry a blob-create proof');
+  assert.strictEqual(blobCreate.gitObjectIdentityMatched, true);
+  assert.strictEqual(blobCreate.blobReadBack, true);
+
+  const batchCommit = githubResult.checks.find(check => check.key === 'batch-commit');
+  assert(batchCommit, 'the github artifact must carry a batch-commit proof');
+  assert.strictEqual(batchCommit.paths, 2);
+  assert.strictEqual(batchCommit.parentIsObservedHead, true);
+  assert.strictEqual(batchCommit.pathsLanded, true);
+  assert.strictEqual(batchCommit.nonFastForwardRefused, true);
 
   /*
    * The tree probe is a cross-check rather than a reachability ping: the
@@ -510,6 +533,140 @@ async function runOne(provider, runner, options = {}) {
     ),
     'a tree that never converges must fail and name the unmet condition'
   );
+
+  /*
+   * The push chain, falsified one condition at a time.
+   *
+   * These two probes are the first in the harness whose fixture I wrote in the
+   * same change as the check, which is exactly the arrangement that has
+   * manufactured confidence three times in this release. So each condition is
+   * broken deliberately here, against a fixture that is otherwise correct, and
+   * the run has to fail naming that condition and no other.
+   *
+   * A perturbation that leaves the run green means the condition is decorative.
+   */
+  for (const [label, perturb, unmet] of [
+    [
+      'a provider that answers with an object identity that is not the bytes it was given',
+      (pathname, method, body) => (pathname.endsWith('/git/blobs') && method === 'POST'
+        ? { status: 201, json: { ...body, sha: 'a'.repeat(40) } }
+        : null),
+      'gitObjectIdentityMatched'
+    ],
+    [
+      'a provider that returns different bytes than the object it stored',
+      (pathname, method, body) => (/\/git\/blobs\/[0-9a-f]{40}$/.test(pathname) && method === 'GET'
+        ? { status: 200, json: { ...body, content: Buffer.from('other bytes\n', 'utf8').toString('base64') } }
+        : null),
+      'blobReadBack'
+    ],
+    [
+      'a provider that commits onto a parent other than the head that was read',
+      (pathname, method, body) => (/\/git\/commits\/[0-9a-f]{40}$/.test(pathname) && method === 'GET'
+        ? { status: 200, json: { ...body, parents: [{ sha: 'b'.repeat(40) }, { sha: 'c'.repeat(40) }] } }
+        : null),
+      'parentIsObservedHead'
+    ],
+    [
+      'a provider that lands one path of the batch and not the other',
+      (pathname, method) => (/-batch-inline\.txt$/.test(decodeURIComponent(pathname)) && method === 'GET'
+        ? { status: 404, json: { message: 'not found' } }
+        : null),
+      'pathsLanded'
+    ],
+    [
+      'a provider that rewinds a branch on a ref move sent without force',
+      (pathname, method) => (/\/git\/refs\/heads\//.test(pathname) && method === 'PATCH'
+        ? { status: 200, json: { ref: 'refs/heads/x', object: { sha: 'd'.repeat(40) } } }
+        : null),
+      'nonFastForwardRefused'
+    ]
+  ]) {
+    const pushEnvironment = environment('github');
+    const pushFixture = createProviderFetchFixture({
+      provider: 'github',
+      repository: pushEnvironment.NV_ALPHA17_REPOSITORY,
+      defaultBranch: 'main',
+      runId: RUN_ID,
+      mutationCredential: pushEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+      readOnlyCredential: pushEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+    });
+    /*
+     * The rewind perturbation has to leave the publishing ref move alone, or
+     * the batch never lands and the run fails for the wrong reason. Only the
+     * second PATCH -- the rewind -- is answered falsely.
+     */
+    let refMoves = 0;
+    await assert.rejects(
+      () => runGithubValidation({
+        env: pushEnvironment,
+        now: () => new Date(NOW),
+        fetchImpl: async (url, init = {}) => {
+          const response = await pushFixture.fetch(url, init);
+          const pathname = new URL(url).pathname;
+          const method = String((init && init.method) || 'GET').toUpperCase();
+          if (/\/git\/refs\/heads\//.test(pathname) && method === 'PATCH') {
+            refMoves += 1;
+            if (refMoves < 2) return response;
+          }
+          const original = response.status < 300 ? await response.clone().json() : null;
+          const replacement = perturb(pathname, method, original);
+          if (!replacement) return response;
+          const body = JSON.stringify(replacement.json);
+          return new Response(body, {
+            status: replacement.status,
+            headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) }
+          });
+        }
+      }),
+      error => Boolean(
+        error &&
+        error.code === 'ALPHA17_PROVIDER_PROBE_FAILED' &&
+        new RegExp(unmet).test(error.message)
+      ),
+      label
+    );
+  }
+
+  /*
+   * A tree entry may not name an object the provider has never been given.
+   * Without this the blob proof buys nothing: a client could commit any sha it
+   * liked and the batch would still land.
+   */
+  const inventedEnvironment = environment('github');
+  const inventedFixture = createProviderFetchFixture({
+    provider: 'github',
+    repository: inventedEnvironment.NV_ALPHA17_REPOSITORY,
+    defaultBranch: 'main',
+    runId: RUN_ID,
+    mutationCredential: inventedEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
+    readOnlyCredential: inventedEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
+  });
+  let treeRefusedInvented = false;
+  await assert.rejects(
+    () => runGithubValidation({
+      env: inventedEnvironment,
+      now: () => new Date(NOW),
+      fetchImpl: async (url, init = {}) => {
+        const pathname = new URL(url).pathname;
+        const method = String((init && init.method) || 'GET').toUpperCase();
+        if (pathname.endsWith('/git/trees') && method === 'POST') {
+          const body = JSON.parse(String(init.body));
+          const forged = {
+            ...body,
+            tree: body.tree.map(entry => (entry.sha ? { ...entry, sha: 'e'.repeat(40) } : entry))
+          };
+          const response = await inventedFixture.fetch(url, { ...init, body: JSON.stringify(forged) });
+          if (response.status === 422) treeRefusedInvented = true;
+          return response;
+        }
+        return inventedFixture.fetch(url, init);
+      }
+    }),
+    () => true,
+    'a tree naming an object the provider never stored must not be accepted'
+  );
+  assert(treeRefusedInvented, 'the provider must refuse a tree entry naming an unknown object');
 
   /*
    * Cleanup is the one failure that leaves something behind in someone else's

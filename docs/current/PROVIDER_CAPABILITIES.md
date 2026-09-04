@@ -46,18 +46,24 @@ mutations remain blocked.
 
 ## GitHub — evidence-bounded alpha subset
 
-Counted from the capability registry: 17 Supported, 13 Experimental, 4 Unavailable. Of those, 12 carry
+Counted from the capability registry: 19 Supported, 11 Experimental, 4 Unavailable. Of those, 14 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; access-surface analysis; dependency audit; recovery; governance; upload security |
-| Experimental | file rename/batch; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; native push (16 MB on Render Free); Git LFS; folder move; live events |
+| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; single-commit batch; native push; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; access-surface analysis; dependency audit; recovery; governance; upload security |
+| Experimental | file rename; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; Git LFS; folder move; live events |
 | Unavailable | repository create/delete; global search; notifications |
 
 Repository read, branch read/write, bounded file read/write/delete, the recursive
-tree and provider rate-limit reads, and the pull-request, issue, workflow and
-release list/detail reads use `Provider-verified` evidence. Access-surface, dependency-audit, recovery,
+tree and provider rate-limit reads, the pull-request, issue, workflow and
+release list/detail reads, and the two push capabilities -- Git Data object
+upload and single-commit batch -- use `Provider-verified` evidence. The push
+pair is proven as one chain: the identity the provider returns for uploaded
+bytes must be the hash git itself gives them, and that identity is then spent
+in a tree whose commit descends from the head the run read, lands both of its
+paths, and refuses a ref move back to its parent. The hosted size ceiling on
+native push is a deployment bound, not a capability limit. Access-surface, dependency-audit, recovery,
 governance, and upload-security decisions use `Deterministic` evidence. Other
 implemented workbench operations remain `Experimental` + `Inferred` until a
 live harness exercises their exact proof contract.

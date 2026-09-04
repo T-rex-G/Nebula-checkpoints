@@ -561,7 +561,16 @@ for (const command of [
   'node scripts/resume-work.js --require-clean --json',
   'npm run check:syntax',
   'npm run check:secrets',
-  'npm audit --omit=dev --audit-level=high',
+  /*
+   * The production gate runs through a script rather than `npm audit
+   * --audit-level=high` directly. npm's exit code cannot tell "a high
+   * advisory exists" apart from "I could not reach the registry", and CI
+   * failed on the second while reporting the first. The script keeps the
+   * high/critical threshold and adds the outcome npm has no way to express:
+   * an audit that could not be obtained fails the build as unavailable
+   * rather than passing as clean.
+   */
+  'node scripts/audit-production.js',
   'npm audit --json',
   'npm run test:runtime:matrix',
   'npm run test:e2e'

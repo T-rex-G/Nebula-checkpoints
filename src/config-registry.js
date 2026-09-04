@@ -238,6 +238,18 @@ const ENTRIES = Object.freeze([
     format: 'integer', summary: 'Read operations per simulated tester.' },
   { name: 'NV_ALPHA_MUTATIONS', group: 'operator', requirement: 'optional', fallback: null,
     format: 'integer', summary: 'Mutating operations in the load plan.' },
+  /*
+   * The production dependency gate's retry budget. It retries because the step
+   * failed on runs where the dependencies had not changed: npm exhausted its
+   * attempts against the bulk advisory endpoint, fell back to the retiring
+   * quick endpoint, and that answered 400. Retrying is the mitigation; the
+   * gate still fails when no audit can be obtained, because an unknown is not
+   * a clean tree.
+   */
+  { name: 'NV_AUDIT_ATTEMPTS', group: 'operator', requirement: 'optional', fallback: '3',
+    format: 'integer', summary: 'How many times the production dependency audit is attempted before the build fails as unavailable.' },
+  { name: 'NV_AUDIT_BACKOFF_MS', group: 'operator', requirement: 'optional', fallback: '5000',
+    format: 'integer milliseconds', summary: 'Base backoff between production dependency audit attempts; it grows with each attempt.' },
   { name: 'NV_STAGING_SUBJECT_SHA256', group: 'operator', requirement: 'optional', fallback: null,
     format: 'hex sha256',
     summary: 'The artifact the staging gate is being run against, so evidence cannot be attributed to a different build.' },

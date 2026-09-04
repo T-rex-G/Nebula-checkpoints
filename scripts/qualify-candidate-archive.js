@@ -933,12 +933,10 @@ function qualifyCandidateArchive(options) {
   const secretFindings = runSecretScan(candidateRoot);
   if (secretFindings.length) fail('trusted candidate secret gate found potential embedded material');
   /*
-   * Through the gate script rather than the bare command, for the same reason
-   * CI moved: `npm audit --audit-level=high` cannot distinguish a high
-   * advisory from a registry it could not reach, and candidate qualification
-   * would have recorded an outage as a failed security gate. The script runs
-   * inside the candidate -- it is a releasable path, so the archive carries
-   * it -- and keeps the threshold while separating the two.
+   * Both audits go through the trusted gate script. A bare `npm audit` cannot
+   * distinguish a high advisory from a registry it could not reach, so an
+   * outage would otherwise be recorded as a failed security finding. The
+   * development mode returns only sanitized counts for qualification evidence.
    */
   runCommand(process.execPath, ['scripts/audit-production.js'], {
     cwd: candidateRoot,
@@ -946,7 +944,11 @@ function qualifyCandidateArchive(options) {
     label: 'candidate production audit',
     timeoutMs: COMMAND_TIMEOUTS_MS.gate
   });
-  const developmentAudit = validateDevelopmentAudit(runCommand('npm', ['audit', '--json'], {
+  const developmentAudit = validateDevelopmentAudit(runCommand(process.execPath, [
+    'scripts/audit-production.js',
+    '--include-dev',
+    '--json'
+  ], {
     cwd: candidateRoot,
     env: packageManagerEnvironment,
     allowedStatuses: [0, 1],

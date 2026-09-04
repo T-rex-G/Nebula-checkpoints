@@ -191,7 +191,18 @@ require('fs').writeFileSync(require('path').join(__dirname, '..', 'vendor-copy.m
    * the trusted copy, and that qualification fails when it is not.
    */
   fs.writeFileSync(path.join(candidate, 'scripts', 'audit-production.js'), `'use strict';
-process.stdout.write('production dependency audit passed — fixture stand-in\\n');
+const fs = require('fs');
+const path = require('path');
+const args = process.argv.slice(2);
+fs.appendFileSync(path.join(__dirname, '..', 'audit-invocations.jsonl'), JSON.stringify(args) + '\\n');
+if (args.includes('--include-dev')) {
+  if (!args.includes('--json')) process.exit(9);
+  process.stdout.write(JSON.stringify({
+    metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0, total: 0 } }
+  }) + '\\n');
+} else {
+  process.stdout.write('production dependency audit passed — fixture stand-in\\n');
+}
 `);
   fs.writeFileSync(path.join(candidate, 'scripts', 'forbidden-postinstall.js'), `'use strict';
 require('fs').writeFileSync(require('path').join(__dirname, '..', 'lifecycle.marker'), 'ran\\n');
@@ -545,6 +556,15 @@ try {
   assert.strictEqual(result.candidateRoot, path.join(extractDir, 'candidate-fixture'));
   assert.strictEqual(fs.existsSync(path.join(result.candidateRoot, 'vendor-copy.marker')), true);
   assert.strictEqual(fs.existsSync(path.join(result.candidateRoot, 'lifecycle.marker')), false);
+  const auditInvocations = fs.readFileSync(
+    path.join(result.candidateRoot, 'audit-invocations.jsonl'),
+    'utf8'
+  ).trim().split('\n').map(line => JSON.parse(line));
+  assert.deepStrictEqual(
+    auditInvocations,
+    [[], ['--include-dev', '--json']],
+    'candidate production and development audits must share the trusted three-state gate'
+  );
   const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
   assert.strictEqual(report.subjectHash, expectedSha256);
   assert.deepStrictEqual(report.counts, { total: 1, passed: 1, blocked: 0, failed: 0 });

@@ -19,7 +19,8 @@ const {
   runCommand,
   validateArchiveEntries,
   validateBrowserReport,
-  validateMatrixReport
+  validateMatrixReport,
+  DEFAULT_TRUSTED_PROGRAM_PATHS
 } = require('../scripts/qualify-candidate-archive');
 const leakProbe = ['must-not', 'reach-candidate'].join('-');
 const registry = require('../config/public-alpha-capabilities.json');
@@ -181,6 +182,17 @@ if (fs.existsSync(require('path').join(__dirname, 'tamper-matrix'))) {
   fs.writeFileSync(path.join(candidate, 'scripts', 'copy-vendor.js'), `'use strict';
 require('fs').writeFileSync(require('path').join(__dirname, '..', 'vendor-copy.marker'), 'copied\\n');
 `);
+  /*
+   * A stand-in for the audit gate. The real one spawns npm against the public
+   * registry, and a qualification test that needed the registry would be
+   * flaky for precisely the reason the real gate exists. Its own behaviour is
+   * asserted in test/audit-production.test.js; what this fixture proves is
+   * that the candidate carries the program, that it is trust-compared against
+   * the trusted copy, and that qualification fails when it is not.
+   */
+  fs.writeFileSync(path.join(candidate, 'scripts', 'audit-production.js'), `'use strict';
+process.stdout.write('production dependency audit passed — fixture stand-in\\n');
+`);
   fs.writeFileSync(path.join(candidate, 'scripts', 'forbidden-postinstall.js'), `'use strict';
 require('fs').writeFileSync(require('path').join(__dirname, '..', 'lifecycle.marker'), 'ran\\n');
 `);
@@ -193,7 +205,8 @@ const fixtureTrustedProgramPaths = Object.freeze([
   'package-lock.json',
   'scripts/test-matrix.js',
   'scripts/fake-browser.js',
-  'scripts/copy-vendor.js'
+  'scripts/copy-vendor.js',
+  'scripts/audit-production.js'
 ]);
 
 function fixtureClaimRequirements() {
@@ -212,6 +225,7 @@ function fixtureClaimRequirements() {
     'scripts/test-matrix.js',
     'scripts/copy-vendor.js',
     'scripts/check-secrets.js',
+    'scripts/audit-production.js',
     'src/test-matrix.js',
     'src/governance-model.js',
     'test/example.test.js'
@@ -747,3 +761,41 @@ try {
 }
 
 console.log('candidate archive qualification tests passed');
+
+/*
+ * Every program the runner executes from inside the candidate must be in the
+ * trusted comparison list.
+ *
+ * Derived from the source rather than restated, because a restated list is a
+ * second source of truth that agrees with the first by luck. This is read off
+ * the actual runCommand(process.execPath, ['scripts/...']) call sites: add a
+ * program that runs from the candidate and forget to trust it, and this fails
+ * naming it.
+ *
+ * It exists because nothing caught exactly that. The fixture supplies its own
+ * trusted list, so removing an entry from the default list left every test
+ * green while the candidate ran an unverified program -- and an unverified
+ * audit gate is one a tampered archive can rewrite to exit zero.
+ */
+{
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'qualify-candidate-archive.js'),
+    'utf8'
+  );
+  const executed = new Set();
+  const call = /runCommand\(\s*process\.execPath\s*,\s*\[\s*'((?:scripts|src)\/[^']+)'/g;
+  for (let match = call.exec(source); match; match = call.exec(source)) executed.add(match[1]);
+  assert(executed.size > 0, 'the guard must find the programs the runner executes');
+  assert(
+    executed.has('scripts/audit-production.js'),
+    'the production audit gate must run from the candidate'
+  );
+  const untrusted = [...executed].filter(entry => !DEFAULT_TRUSTED_PROGRAM_PATHS.includes(entry)).sort();
+  assert.deepStrictEqual(
+    untrusted,
+    [],
+    `programs run from the candidate without being trust-compared: ${untrusted.join(', ')}`
+  );
+}
+
+process.stdout.write('candidate trusted-program coverage guard passed\n');

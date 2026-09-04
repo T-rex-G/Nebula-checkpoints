@@ -48,7 +48,7 @@ jobs:
       - run: npm run test:migrations
         env:
           NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
-      - run: npm audit --omit=dev --audit-level=high
+      - run: node scripts/audit-production.js
       - run: npm run check:secrets
       - run: npm run test:staging:gate
       - run: npm run test:release

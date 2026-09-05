@@ -569,12 +569,16 @@ for (const command of [
    * high/critical threshold and adds the outcome npm has no way to express:
    * an audit that could not be obtained fails the build as unavailable
    * rather than passing as clean.
-   */
+  */
   'node scripts/audit-production.js',
-  'npm audit --json',
+  'node scripts/audit-production.js --include-dev --json',
   'npm run test:runtime:matrix',
   'npm run test:e2e'
 ]) assert(automated.includes(command), `automated job omits ${command}`);
+assert(
+  !automated.includes('npm audit --json >'),
+  'development audit must not bypass the bounded three-state gate'
+);
 const qualificationDocsCheck = automated.indexOf('npm run docs:check');
 const qualificationPackage = automated.indexOf('npm run package:release');
 assert(

@@ -96,7 +96,7 @@ jobs:
       - name: Classify development audit without raw advisory upload
         shell: bash
         run: |
-          npm audit --json > "${RUNNER_TEMP}/development-audit.raw.json" || true
+          node scripts/audit-production.js --include-dev --json > "${RUNNER_TEMP}/development-audit.raw.json"
           node -e '
             const fs = require("fs");
             const raw = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/development-audit.raw.json", "utf8"));

@@ -99,6 +99,32 @@ module.exports = async function testWorkspaceStore(connectionString) {
     assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_connections')).rows[0].n, 2);
     await store.disconnectConnection({ token, connectionId: connection.id });
     assert.strictEqual((await store.readContext(token)).connection, null);
+
+    /*
+     * disconnectConnection clears the session pointer itself, so the assertion
+     * above passes whether or not the context query excludes revoked rows. That
+     * clause is only load-bearing when a connection is revoked by some other
+     * path and the pointer survives -- what any later admin revoke, expiry
+     * sweep, or Change B adoption would look like. Revoke it underneath the
+     * session and require the context to refuse.
+     *
+     * The refusal is stronger than dropping the connection back to null: a
+     * session still pointing at a revoked connection resolves to no context at
+     * all, so every protected route answers WORKSPACE_SESSION_REQUIRED rather
+     * than silently continuing as an owner session with no Git account.
+     */
+    const rebound = await store.bindConnection({ token, identity: human(99), legacyIdentityKey: legacyKey });
+    await store.selectConnection({ token, workspaceId: workspace, connectionId: rebound.id });
+    assert.strictEqual((await store.readContext(token)).connection.id, rebound.id);
+    await pool.query('UPDATE nv_workspace_connections SET revoked_at=now() WHERE connection_id=$1', [rebound.id]);
+    assert.strictEqual((await pool.query('SELECT connection_id FROM nv_workspace_sessions WHERE session_hash=$1',
+      [digest(token)])).rows[0].connection_id, rebound.id, 'the pointer must survive, or this proves nothing');
+    assert.strictEqual(await store.readContext(token), null,
+      'a session pointing at a revoked connection must not resolve');
+    await assert.rejects(() => store.selectConnection({ token, workspaceId: workspace, connectionId: rebound.id }),
+      { code: 'WORKSPACE_SESSION_REQUIRED' });
+    await pool.query('UPDATE nv_workspace_sessions SET connection_id=NULL WHERE session_hash=$1', [digest(token)]);
+    assert.strictEqual((await store.readContext(token)).connection, null, 'clearing the pointer restores the session');
     assert.strictEqual((await pool.query('SELECT revoked_at FROM nv_workspace_connections WHERE connection_id=$1', [otherConnection])).rows[0].revoked_at, null);
     await assert.rejects(() => store.selectConnection({ token, workspaceId: workspace, connectionId: connection.id }), { code: 'WORKSPACE_CONNECTION_REJECTED' });
 

@@ -219,7 +219,7 @@ function planOutput() {
       Object.freeze({ key: 'secret-scan', command: 'npm run check:secrets' }),
       Object.freeze({ key: 'unit-integration', command: 'npm test' }),
       Object.freeze({ key: 'browser', command: 'npm run test:e2e' }),
-      Object.freeze({ key: 'production-audit', command: 'npm audit --omit=dev --audit-level=high' }),
+      Object.freeze({ key: 'production-audit', command: 'node scripts/audit-production.js' }),
       Object.freeze({ key: 'runtime-matrix', command: 'npm run test:public-alpha:matrix' }),
       Object.freeze({
         key: 'verify-qualification',

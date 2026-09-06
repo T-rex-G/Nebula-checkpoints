@@ -483,17 +483,37 @@ function regularRelativeFiles(root, relativeDirectory) {
   return output.sort();
 }
 
+/*
+ * The qualification programs compared byte-for-byte between the trusted tree
+ * and the candidate. Hoisted out of the function so a guard can read it: the
+ * list was previously inline, and the test supplies its own list, so nothing
+ * checked that a program the runner EXECUTES from the candidate was actually
+ * in it. Adding the audit gate without noticing that would have left it
+ * running unverified from an archive that could have rewritten it.
+ */
+const DEFAULT_TRUSTED_PROGRAM_PATHS = Object.freeze([
+  'package.json',
+  'package-lock.json',
+  'playwright.config.js',
+  'scripts/test-matrix.js',
+  'scripts/copy-vendor.js',
+  'scripts/check-secrets.js',
+  /*
+   * The production audit gate runs from the candidate, so it has to be
+   * compared against the trusted copy like every other qualification program.
+   * Without this a tampered archive could ship an audit gate that exits zero
+   * unconditionally and qualify itself clean -- the gate would still run, and
+   * would still prove nothing.
+   */
+  'scripts/audit-production.js',
+  'src/test-matrix.js',
+  'src/governance-model.js'
+]);
+
 function assertTrustedQualificationPrograms(candidateRoot, trustedRoot, explicitPaths) {
   const trusted = path.resolve(trustedRoot || path.join(__dirname, '..'));
   const paths = explicitPaths || [
-    'package.json',
-    'package-lock.json',
-    'playwright.config.js',
-    'scripts/test-matrix.js',
-    'scripts/copy-vendor.js',
-    'scripts/check-secrets.js',
-    'src/test-matrix.js',
-    'src/governance-model.js',
+    ...DEFAULT_TRUSTED_PROGRAM_PATHS,
     ...regularRelativeFiles(trusted, 'test')
   ];
   if (!Array.isArray(paths) || paths.length === 0 || new Set(paths).size !== paths.length) {
@@ -912,13 +932,23 @@ function qualifyCandidateArchive(options) {
   }
   const secretFindings = runSecretScan(candidateRoot);
   if (secretFindings.length) fail('trusted candidate secret gate found potential embedded material');
-  runCommand('npm', ['audit', '--omit=dev', '--audit-level=high'], {
+  /*
+   * Both audits go through the trusted gate script. A bare `npm audit` cannot
+   * distinguish a high advisory from a registry it could not reach, so an
+   * outage would otherwise be recorded as a failed security finding. The
+   * development mode returns only sanitized counts for qualification evidence.
+   */
+  runCommand(process.execPath, ['scripts/audit-production.js'], {
     cwd: candidateRoot,
     env: packageManagerEnvironment,
     label: 'candidate production audit',
     timeoutMs: COMMAND_TIMEOUTS_MS.gate
   });
-  const developmentAudit = validateDevelopmentAudit(runCommand('npm', ['audit', '--json'], {
+  const developmentAudit = validateDevelopmentAudit(runCommand(process.execPath, [
+    'scripts/audit-production.js',
+    '--include-dev',
+    '--json'
+  ], {
     cwd: candidateRoot,
     env: packageManagerEnvironment,
     allowedStatuses: [0, 1],
@@ -1039,6 +1069,7 @@ if (require.main === module) main();
 module.exports = Object.freeze({
   parseArgs,
   assertPinnedNodeVersion,
+  DEFAULT_TRUSTED_PROGRAM_PATHS,
   MINIMUM_MATRIX_TESTS,
   MINIMUM_BROWSER_TESTS,
   COMMAND_TIMEOUTS_MS,

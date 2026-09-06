@@ -92,11 +92,11 @@ jobs:
       - run: npm run check:syntax
       - run: npm run lint
       - run: npm run check:secrets
-      - run: npm audit --omit=dev --audit-level=high
+      - run: node scripts/audit-production.js
       - name: Classify development audit without raw advisory upload
         shell: bash
         run: |
-          npm audit --json > "${RUNNER_TEMP}/development-audit.raw.json" || true
+          node scripts/audit-production.js --include-dev --json > "${RUNNER_TEMP}/development-audit.raw.json"
           node -e '
             const fs = require("fs");
             const raw = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/development-audit.raw.json", "utf8"));

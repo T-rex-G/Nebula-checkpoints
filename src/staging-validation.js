@@ -24,7 +24,7 @@ const VALID_TIERS = new Set(['source', 'runtime', 'browser', 'neon', 'provider',
 const CHECKS = deepFreeze([
   { id: 'source.full-suite', tier: 'source', required: true, destructive: false, title: 'Complete source and contract suite', command: 'node scripts/test-matrix.js --allow-missing-dependencies --require-subject --report staging/evidence/source-full-suite.json' },
   { id: 'runtime.npm-ci', tier: 'runtime', required: true, destructive: false, title: 'Clean dependency installation', command: 'npm ci' },
-  { id: 'runtime.audit', tier: 'runtime', required: true, destructive: false, title: 'Production dependency audit', command: 'npm audit --omit=dev --audit-level=high' },
+  { id: 'runtime.audit', tier: 'runtime', required: true, destructive: false, title: 'Production dependency audit', command: 'node scripts/audit-production.js' },
   { id: 'runtime.express-suite', tier: 'runtime', required: true, destructive: false, title: 'Express startup and integration suite', command: 'node scripts/test-matrix.js --require-all --require-subject --report staging/evidence/runtime-full-suite.json' },
   { id: 'runtime.package-release', tier: 'runtime', required: true, destructive: false, title: 'Archiver release packaging suite', command: 'npm run test:release && npm run package:release -- dist' },
   { id: 'browser.desktop', tier: 'browser', required: true, destructive: false, title: 'Desktop browser workflows', command: 'npx playwright test test/e2e/pwa.spec.js test/e2e/security-foundation.spec.js --project=desktop' },

@@ -1,12 +1,25 @@
 #!/usr/bin/env node
 'use strict';
 
+const crypto = require('crypto');
 const {
   assertExpectedHead,
   observe,
   requestJson,
   runProviderQualification
 } = require('./provider-alpha17-common');
+
+/*
+ * The identity git itself gives a blob: sha1 over the header "blob <length>\0"
+ * and then the bytes. Computed here rather than asked for, because the whole
+ * point of the blob proof is to compare what the provider says the object is
+ * against what the object actually is.
+ */
+function gitBlobSha1(bytes) {
+  return crypto.createHash('sha1')
+    .update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`, 'utf8'), bytes]))
+    .digest('hex');
+}
 
 function required(env, name) {
   const value = String(env[name] || '').trim();
@@ -176,6 +189,91 @@ function createGithubClient({ env, fetchImpl }) {
     });
   }
 
+  /*
+   * The Git Data API, which is the transport underneath both push capabilities:
+   * an object store (blobs), a directory snapshot over it (trees), a commit
+   * naming one tree and its parents, and a ref move that publishes the result.
+   * commitTree in the server walks exactly this sequence.
+   */
+  async function createBlob(bytes, credential = 'mutation') {
+    const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/blobs`), {
+      method: 'POST',
+      headers: headers(credential),
+      body: { content: Buffer.from(bytes).toString('base64'), encoding: 'base64' },
+      allowedStatuses: [201]
+    });
+    return Object.freeze({
+      sha: String(response.data.sha || '').toLowerCase(),
+      statusClass: response.statusClass
+    });
+  }
+
+  async function readBlob(sha, credential = 'mutation') {
+    const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/blobs/${encodeURIComponent(sha)}`), {
+      headers: headers(credential),
+      allowedStatuses: [200]
+    });
+    return Object.freeze({
+      content: Buffer.from(String(response.data.content || '').replace(/\s+/g, ''), 'base64'),
+      statusClass: response.statusClass
+    });
+  }
+
+  async function readCommit(sha, credential = 'mutation') {
+    const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/commits/${encodeURIComponent(sha)}`), {
+      headers: headers(credential),
+      allowedStatuses: [200]
+    });
+    return Object.freeze({
+      sha: String(response.data.sha || '').toLowerCase(),
+      treeSha: String(response.data.tree && response.data.tree.sha || '').toLowerCase(),
+      parents: (Array.isArray(response.data.parents) ? response.data.parents : [])
+        .map(parent => String(parent && parent.sha || '').toLowerCase())
+    });
+  }
+
+  async function createTree({ baseTree, entries }, credential = 'mutation') {
+    const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/trees`), {
+      method: 'POST',
+      headers: headers(credential),
+      body: { base_tree: baseTree, tree: entries },
+      allowedStatuses: [201]
+    });
+    return Object.freeze({
+      sha: String(response.data.sha || '').toLowerCase(),
+      statusClass: response.statusClass
+    });
+  }
+
+  async function createCommit({ message, tree, parents }, credential = 'mutation') {
+    const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/commits`), {
+      method: 'POST',
+      headers: headers(credential),
+      body: { message, tree, parents },
+      allowedStatuses: [201]
+    });
+    return Object.freeze({
+      sha: String(response.data.sha || '').toLowerCase(),
+      statusClass: response.statusClass
+    });
+  }
+
+  /*
+   * force is sent explicitly rather than left to the provider's default,
+   * because the refusal it produces is the thing being proved. `allowedStatuses`
+   * carries 422 so a refused move is an answer this returns rather than a
+   * transport failure it throws.
+   */
+  async function updateRef({ branch, sha, force = false }, credential = 'mutation') {
+    const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/refs/heads/${encodeURIComponent(branch)}`), {
+      method: 'PATCH',
+      headers: headers(credential),
+      body: { sha, force },
+      allowedStatuses: [200, 409, 422]
+    });
+    return Object.freeze({ status: response.status, statusClass: response.statusClass });
+  }
+
   async function readRateLimit(credential = 'mutation') {
     const response = await requestJson(fetchImpl, api('rate_limit'), {
       headers: headers(credential),
@@ -278,7 +376,7 @@ function createGithubClient({ env, fetchImpl }) {
    * has to be a real positive number and the remaining budget has to sit
    * within it. The account's actual quota is not the evidence's business.
    */
-  async function probeChecks({ branch, proofPath, proofFileSha }) {
+  async function probeChecks({ branch, prefix, proofPath, proofFileSha }) {
     /*
      * The tree is the one probe that reads something this run just wrote, so
      * it is the one probe exposed to the provider answering before it has
@@ -326,12 +424,152 @@ function createGithubClient({ env, fetchImpl }) {
     const collections = [];
     for (const collection of COLLECTION_READS) collections.push(await readCollection(collection));
 
-    return [treeRead, rateRead, ...collections];
+    return [treeRead, rateRead, ...collections, ...(await pushChecks({ branch, prefix }))];
+  }
+
+  /*
+   * The push chain. These two probes are one sequence deliberately: the blob
+   * the first one creates is the blob the second one commits, so the join
+   * between "the provider stored my bytes" and "those bytes are now a file on
+   * a branch" is proved rather than assumed.
+   *
+   * This is the only probe that moves the branch head. Everything after it in
+   * the shared sequence reads the head it observes rather than one it
+   * remembers from earlier, so the move costs nothing downstream.
+   */
+  async function pushChecks({ branch, prefix }) {
+    const blobBytes = Buffer.from('Nebulaverse-X alpha.17 native push object\n', 'utf8');
+    const inlineBytes = Buffer.from('Nebulaverse-X alpha.17 batch inline entry\n', 'utf8');
+    const blobPath = `${prefix}-push-object.txt`;
+    const inlinePath = `${prefix}-batch-inline.txt`;
+
+    /*
+     * The provider is handed bytes and asked what object they are. The answer
+     * has to be the answer git would give, computed here from the same bytes.
+     * A provider returning any well-formed sha passes a reachability check and
+     * fails this one.
+     */
+    const blob = await createBlob(blobBytes);
+    const expectedBlobSha = gitBlobSha1(blobBytes);
+    const gitObjectIdentityMatched = blob.sha === expectedBlobSha;
+    let blobReadBack = false;
+    if (gitObjectIdentityMatched) {
+      const stored = await readBlob(blob.sha);
+      blobReadBack = stored.content.equals(blobBytes);
+    }
+    const blobCreate = {
+      key: 'blob-create',
+      status: gitObjectIdentityMatched && blobReadBack ? 'pass' : 'fail',
+      statusClass: blob.statusClass,
+      gitObjectIdentityMatched,
+      blobReadBack
+    };
+
+    /*
+     * Stop here if the object identity is not sound.
+     *
+     * Committing a tree that names an unverified sha would put the failure on
+     * the tree endpoint -- which refuses an object it has never stored -- and
+     * the run would report a transport error from the batch instead of the
+     * identity mismatch that actually caused it. The first broken condition
+     * should be the one named.
+     */
+    if (blobCreate.status !== 'pass') {
+      return [blobCreate, {
+        key: 'batch-commit',
+        status: 'fail',
+        statusClass: blob.statusClass,
+        paths: 2,
+        parentIsObservedHead: false,
+        pathsLanded: false,
+        nonFastForwardRefused: false
+      }];
+    }
+
+    /*
+     * One tree, two paths, one commit, one ref move -- the batch route's whole
+     * sequence. One path arrives as inline content and the other as the blob
+     * identity just earned, because the route accepts both and only the second
+     * proves the two APIs agree about what an object is.
+     */
+    const observedHead = await getBranch(branch, 'mutation');
+    const headCommit = await readCommit(observedHead.sha);
+    const tree = await createTree({
+      baseTree: headCommit.treeSha,
+      entries: [
+        { path: inlinePath, mode: '100644', type: 'blob', content: inlineBytes.toString('utf8') },
+        { path: blobPath, mode: '100644', type: 'blob', sha: blob.sha }
+      ]
+    });
+    const commit = await createCommit({
+      message: 'test(alpha): batch commit proof',
+      tree: tree.sha,
+      parents: [observedHead.sha]
+    });
+    const published = await updateRef({ branch, sha: commit.sha, force: false });
+
+    const batchHead = published.status === 200
+      ? await observe(() => getBranch(branch, 'mutation'), head => Boolean(head) && head.sha === commit.sha)
+      : null;
+    const committed = published.status === 200 ? await readCommit(commit.sha) : null;
+    const parentIsObservedHead = Boolean(committed) &&
+      committed.parents.length === 1 &&
+      committed.parents[0] === observedHead.sha &&
+      Boolean(batchHead) && batchHead.sha === commit.sha;
+
+    /*
+     * Atomic in fact: both paths readable at the new head, with the bytes they
+     * were given, and the blob-referenced one carrying the identity the blob
+     * API reported. One landing without the other is a pair of writes, not a
+     * batch.
+     */
+    let pathsLanded = false;
+    if (parentIsObservedHead) {
+      const inlineFile = await observe(
+        () => readFile(branch, inlinePath, 'mutation'),
+        file => file !== null
+      );
+      const blobFile = await observe(
+        () => readFile(branch, blobPath, 'mutation'),
+        file => file !== null
+      );
+      pathsLanded = Boolean(inlineFile) && Boolean(blobFile) &&
+        inlineFile.content.equals(inlineBytes) &&
+        blobFile.content.equals(blobBytes) &&
+        blobFile.sha === blob.sha;
+    }
+
+    /*
+     * The refusal commitTree translates into "the branch changed". Moving the
+     * ref back to the commit it just descended from is a non-fast-forward, and
+     * a provider enforcing ref safety refuses it rather than rewinding the
+     * branch. Nothing is destroyed if it is refused, which is the outcome
+     * required; a provider that accepted it would have rewound the branch, and
+     * the check would say so instead of pretending otherwise.
+     */
+    const rewind = parentIsObservedHead
+      ? await updateRef({ branch, sha: observedHead.sha, force: false })
+      : null;
+    const nonFastForwardRefused = Boolean(rewind) && rewind.status !== 200;
+
+    const batchCommit = {
+      key: 'batch-commit',
+      status: 'fail',
+      statusClass: tree.statusClass,
+      paths: 2,
+      parentIsObservedHead,
+      pathsLanded,
+      nonFastForwardRefused
+    };
+    batchCommit.status = parentIsObservedHead && pathsLanded && nonFastForwardRefused ? 'pass' : 'fail';
+
+    return [blobCreate, batchCommit];
   }
 
   return Object.freeze({
     getRepository, getBranch, createBranch, writeFile, conditionalUpdate, readFile, deleteFile, deleteBranch,
-    readTree, readRateLimit, readCollection, probeChecks
+    readTree, readRateLimit, readCollection, createBlob, readBlob, readCommit, createTree, createCommit,
+    updateRef, probeChecks
   });
 }
 

@@ -78,9 +78,9 @@
           "Implemented, but not exercised by the alpha.17 live-provider harness."
         ],
         "file.batch": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Qualified single-commit batch: one tree carrying several paths, committed against the observed head, with a non-fast-forward ref move refused."
         ],
         "pulls.read": [
           "Supported",
@@ -148,9 +148,9 @@
           "Implemented, but not exercised by the alpha.17 live-provider harness."
         ],
         "native-push": [
-          "Experimental",
-          "Inferred",
-          "Implemented with a 16 MB Render Free bound, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Qualified Git Data object upload: the identity the provider returns is the git object hash of the bytes sent, and the object reads back unchanged. The hosted size ceiling is a deployment bound, not a capability limit."
         ],
         "lfs": [
           "Experimental",

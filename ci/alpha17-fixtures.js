@@ -14,6 +14,14 @@ function json(value, status = 200) {
   });
 }
 
+function snapshotFiles(files) {
+  return new Map([...files.entries()].map(([name, file]) => [name, {
+    content: Buffer.from(file.content),
+    sha: file.sha,
+    lastCommitId: file.lastCommitId
+  }]));
+}
+
 function cloneBranch(branch) {
   return {
     sha: branch.sha,
@@ -48,7 +56,14 @@ function createProviderFetchFixture(options = {}) {
      * is the exact question GitLab's conflict check asks. See gitlabFetch's
      * PUT handler.
      */
-    commits: new Map()
+    commits: new Map(),
+    /*
+     * The Git Data object stores. A branch head alone cannot answer what tree
+     * a commit names or what bytes an object holds, and the push proofs ask
+     * both.
+     */
+    blobs: new Map(),
+    trees: new Map()
   };
 
   function nextSha(material) {
@@ -56,8 +71,22 @@ function createProviderFetchFixture(options = {}) {
     return crypto.createHash('sha1').update(`${provider}:${state.counter}:${material}`).digest('hex');
   }
 
+  /*
+   * The identity git gives a blob, not a bare sha1 of the bytes.
+   *
+   * This used to be sha1(content), which no provider reports. It went
+   * unnoticed for as long as nothing compared the value against anything
+   * computed independently -- the harness only ever compared the fixture to
+   * itself. The blob proof does compare: it hashes the bytes the way git does
+   * and requires the provider's answer to match. A fixture that answered a
+   * bare sha1 would have failed a client that is correct, which is the
+   * kinder-fixture mistake pointing the other way.
+   */
   function fileSha(content) {
-    return crypto.createHash('sha1').update(content).digest('hex');
+    const bytes = Buffer.from(content);
+    return crypto.createHash('sha1')
+      .update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`, 'utf8'), bytes]))
+      .digest('hex');
   }
 
   function credential(headers) {
@@ -127,8 +156,38 @@ function createProviderFetchFixture(options = {}) {
      * relying on it cannot be tested.
      */
     branch.tip = { id: branch.sha, parentIds: [parent], message: String(message || '') };
-    state.commits.set(branch.sha, { id: branch.sha, parentIds: [parent], path: filePath });
+    state.commits.set(branch.sha, {
+      id: branch.sha,
+      parentIds: [parent],
+      path: filePath,
+      /*
+       * Every commit names a tree, and the tree is a snapshot rather than a
+       * reference to the live branch: a commit's tree does not change when a
+       * later commit lands, and a fixture that shared one map would say it
+       * did.
+       */
+      treeSha: nextSha(`${branchName}:tree`),
+      files: snapshotFiles(branch.files)
+    });
+    state.trees.set(state.commits.get(branch.sha).treeSha, snapshotFiles(branch.files));
     return branch;
+  }
+
+  /*
+   * Whether `candidate` has `ancestor` in its first-parent history, which is
+   * the question a fast-forward-only ref move asks.
+   */
+  function descendsFrom(candidate, ancestor) {
+    let sha = String(candidate || '');
+    const seen = new Set();
+    while (sha && !seen.has(sha)) {
+      if (sha === ancestor) return true;
+      seen.add(sha);
+      const commit = state.commits.get(sha);
+      if (!commit) return false;
+      sha = commit.parentIds[0];
+    }
+    return false;
   }
 
   /*
@@ -178,6 +237,105 @@ function createProviderFetchFixture(options = {}) {
       const branchName = decodeURIComponent(parsed.pathname.slice(deleteRefPrefix.length));
       if (branchName === defaultBranch || !state.branches.delete(branchName)) return json({ message: 'not found' }, 404);
       return json(null, 204);
+    }
+    /*
+     * The Git Data API: an object store, trees over it, commits naming a tree,
+     * and a ref move that publishes one. Transcribed rather than approximated,
+     * because the push proofs cross-check the provider's answers against
+     * values computed independently -- object identity against git's own hash,
+     * a commit's parent against the head that was read before it, a ref rewind
+     * against a refusal. A fixture that answered any of those loosely would
+     * pass a client that a real provider would reject.
+     */
+    if (parsed.pathname === `${base}/git/blobs` && method === 'POST') {
+      const body = bodyOf(init);
+      const bytes = Buffer.from(String(body.content || ''), body.encoding === 'utf-8' ? 'utf8' : 'base64');
+      const sha = fileSha(bytes);
+      state.blobs.set(sha, bytes);
+      return json({ sha, url: `${base}/git/blobs/${sha}` }, 201);
+    }
+    const blobPrefix = `${base}/git/blobs/`;
+    if (parsed.pathname.startsWith(blobPrefix) && method === 'GET') {
+      const sha = decodeURIComponent(parsed.pathname.slice(blobPrefix.length));
+      const bytes = state.blobs.get(sha);
+      if (!bytes) return json({ message: 'not found' }, 404);
+      return json({ sha, encoding: 'base64', content: bytes.toString('base64'), size: bytes.length });
+    }
+    const commitPrefix = `${base}/git/commits/`;
+    if (parsed.pathname.startsWith(commitPrefix) && method === 'GET') {
+      const sha = decodeURIComponent(parsed.pathname.slice(commitPrefix.length));
+      const commit = state.commits.get(sha);
+      if (!commit) return json({ message: 'not found' }, 404);
+      return json({
+        sha: commit.id,
+        tree: { sha: commit.treeSha },
+        parents: commit.parentIds.filter(Boolean).map(id => ({ sha: id }))
+      });
+    }
+    if (parsed.pathname === `${base}/git/commits` && method === 'POST') {
+      const body = bodyOf(init);
+      const files = state.trees.get(String(body.tree || ''));
+      if (!files) return json({ message: 'not found' }, 422);
+      const parentIds = (Array.isArray(body.parents) ? body.parents : []).map(String);
+      const sha = nextSha(`commit:${body.tree}`);
+      state.commits.set(sha, {
+        id: sha,
+        parentIds,
+        path: null,
+        treeSha: String(body.tree),
+        files: snapshotFiles(files)
+      });
+      return json({ sha, tree: { sha: String(body.tree) }, parents: parentIds.map(id => ({ sha: id })) }, 201);
+    }
+    if (parsed.pathname === `${base}/git/trees` && method === 'POST') {
+      const body = bodyOf(init);
+      const baseFiles = state.trees.get(String(body.base_tree || ''));
+      if (body.base_tree && !baseFiles) return json({ message: 'not found' }, 422);
+      const files = snapshotFiles(baseFiles || new Map());
+      for (const entry of Array.isArray(body.tree) ? body.tree : []) {
+        const entryPath = String(entry && entry.path || '');
+        if (!entryPath) return json({ message: 'invalid tree entry' }, 422);
+        if (entry.sha === null) { files.delete(entryPath); continue; }
+        /*
+         * A tree entry names its content either inline or by an object already
+         * in the store. An entry naming an object the store has never seen is
+         * refused -- accepting it would let a client invent identities and the
+         * blob proof would stop meaning anything.
+         */
+        if (entry.sha != null) {
+          const bytes = state.blobs.get(String(entry.sha));
+          if (!bytes) return json({ message: 'tree entry references an unknown object' }, 422);
+          files.set(entryPath, { content: Buffer.from(bytes), sha: String(entry.sha) });
+          continue;
+        }
+        const bytes = Buffer.from(String(entry.content ?? ''), 'utf8');
+        files.set(entryPath, { content: bytes, sha: fileSha(bytes) });
+      }
+      const sha = nextSha(`tree:${files.size}`);
+      state.trees.set(sha, files);
+      return json({ sha, tree: [...files.entries()].map(([name, file]) => ({ path: name, sha: file.sha })) }, 201);
+    }
+    const patchRefPrefix = `${base}/git/refs/heads/`;
+    if (parsed.pathname.startsWith(patchRefPrefix) && method === 'PATCH') {
+      const branchName = decodeURIComponent(parsed.pathname.slice(patchRefPrefix.length));
+      const branch = state.branches.get(branchName);
+      if (!branch) return json({ message: 'not found' }, 404);
+      const body = bodyOf(init);
+      const targetSha = String(body.sha || '');
+      const commit = state.commits.get(targetSha);
+      if (!commit) return json({ message: 'not found' }, 422);
+      /*
+       * force:false means fast-forward only. GitHub refuses anything else with
+       * 422, and that refusal is what commitTree reads as "the branch changed"
+       * -- so the fixture has to produce it, or the batch proof's rewind check
+       * would pass against a fixture that had simply rewound the branch.
+       */
+      if (body.force !== true && !descendsFrom(targetSha, branch.sha)) {
+        return json({ message: 'Update is not a fast forward' }, 422);
+      }
+      branch.sha = targetSha;
+      branch.files = snapshotFiles(commit.files);
+      return json({ ref: `refs/heads/${branchName}`, object: { sha: targetSha } });
     }
     /*
      * One object in each collection, so the detail-agreement loop in the

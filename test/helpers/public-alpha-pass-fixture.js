@@ -31,7 +31,17 @@ const PROVIDER_PROBES = Object.freeze({
       listed: 1,
       detailAgreed: true,
       absentDiscriminated: true
-    }))
+    })),
+    { key: 'blob-create', status: 'pass', statusClass: '2xx', gitObjectIdentityMatched: true, blobReadBack: true },
+    {
+      key: 'batch-commit',
+      status: 'pass',
+      statusClass: '2xx',
+      paths: 2,
+      parentIsObservedHead: true,
+      pathsLanded: true,
+      nonFastForwardRefused: true
+    }
   ],
   gitlab: [
     {

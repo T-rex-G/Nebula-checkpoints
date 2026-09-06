@@ -26,7 +26,20 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
     'file.write': ['expected-head-write', 'conditional-update', 'stale-head', 'permission-denial'],
     'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence'],
     'tree.read': ['tree-read'],
-    'rate.read': ['rate-read']
+    'rate.read': ['rate-read'],
+    /*
+     * The two push capabilities, which the registry has been calling
+     * Experimental with the reason "implemented, but not exercised by the
+     * alpha.17 live-provider harness". That reason was accurate, and the only
+     * way out of it is to exercise them.
+     *
+     * They are one chain, not two: native-push hands the provider bytes and
+     * gets an object identity back, and file.batch spends that identity in a
+     * tree. Proving them separately would leave the join -- the part the
+     * upload page actually walks -- unproven.
+     */
+    'native-push': ['blob-create'],
+    'file.batch': ['batch-commit']
   },
   gitlab: {
     'repository.read': ['repository-read'],
@@ -160,7 +173,54 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
         detailAgreed: true,
         absentDiscriminated: true
       }
-    }))
+    })),
+    /*
+     * The push chain, proved as a chain.
+     *
+     * blob-create hands the provider bytes over the Git Data API and requires
+     * the identity it hands back to be the git object hash of those exact
+     * bytes, computed here. That is a cross-check rather than a ping: a
+     * provider that answered 201 with any well-formed sha would pass a
+     * reachability test and fail this one. It then reads the object back and
+     * requires the bytes to return unchanged.
+     *
+     * batch-commit spends that identity. It builds one tree carrying two
+     * paths -- one by inline content, one by the blob sha the previous probe
+     * earned -- commits it against the head it observed, and moves the ref.
+     * The conditions are what makes it a batch rather than two writes:
+     *
+     *   parentIsObservedHead   the commit descends from the head this run
+     *                          read, so nothing was rebased underneath it;
+     *   pathsLanded            both paths are readable at the new head with
+     *                          the bytes and identities they were given, so
+     *                          the commit is atomic in fact and not just in
+     *                          shape;
+     *   nonFastForwardRefused  replaying the ref move back to the parent with
+     *                          force:false is refused by the provider. That
+     *                          is the exact refusal commitTree translates
+     *                          into "the branch changed", and it has never
+     *                          been observed from the provider until now.
+     */
+    {
+      key: 'blob-create',
+      fields: {
+        status: 'pass',
+        statusClass: '2xx',
+        gitObjectIdentityMatched: true,
+        blobReadBack: true
+      }
+    },
+    {
+      key: 'batch-commit',
+      fields: {
+        status: 'pass',
+        statusClass: '2xx',
+        paths: '$positive-integer',
+        parentIsObservedHead: true,
+        pathsLanded: true,
+        nonFastForwardRefused: true
+      }
+    }
   ],
   gitlab: [
     {

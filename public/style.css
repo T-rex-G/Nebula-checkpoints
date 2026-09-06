@@ -1012,8 +1012,27 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .avatar-btn{background:none;border:none;padding:0;cursor:pointer;border-radius:50%;line-height:0}
 .avatar-btn:active{transform:scale(.94)}
 .batch-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;
+  flex-wrap:wrap;
   padding:11px 14px;border:1px solid rgba(34,211,238,.4);border-radius:12px;
   background:rgba(34,211,238,.06);font-size:.82rem;color:var(--text2)}
+/*
+ * Which of the two children gives way when the row runs out of width.
+ *
+ * A flex item's default `min-width: auto` normally stops it shrinking below
+ * its own content, but `.btn.small` sets `min-width: 0` -- so the commit
+ * button was free to shrink under its label, and `white-space: nowrap` meant
+ * the label could not reflow into the smaller box. It overflowed instead:
+ * measured at 10px past the pill on a 390px phone and 20px at 320px, clipped
+ * at both ends, which is what the report showed.
+ *
+ * The sentence beside it is ordinary wrapping text and can absorb the squeeze;
+ * the button cannot. So the text takes the remaining space and the button
+ * keeps its intrinsic width. `flex-wrap` above is the floor: where even that
+ * leaves too little room, the button drops onto its own line rather than
+ * spilling out of the bar.
+ */
+.batch-bar>#batchInfo{flex:1 1 140px;min-width:0}
+.batch-bar>#batchCommitBtn{flex:0 0 auto}
 .diff-patch mark{background:rgba(245,158,11,.28);color:inherit;border-radius:3px;padding:0 1px}
 .diff-patch .add mark{background:rgba(52,211,153,.3)}
 .diff-patch .del mark{background:rgba(244,63,110,.3)}

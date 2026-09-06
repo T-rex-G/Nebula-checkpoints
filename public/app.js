@@ -3978,7 +3978,7 @@ async function handleZip(zipFile) {
     if (uploadModeV !== 'batch') {
       uploadModeV = 'batch';
       selectSegment('#uploadMode', b => b.dataset.v === 'batch');
-      toast('Batch mode enabled — everything will land as one commit', 'ok');
+      toast('Batch mode selected — preparing the upload plan…');
     }
     queueEntries(entries);
   } catch (e) { toast('Extraction failed: ' + e.message, 'err'); }
@@ -4008,6 +4008,23 @@ async function queueEntries(entries, retrying = false) {
   // Resolve destinations once, after the user's wrapper-folder choice. Retries
   // reuse these settings even if the form has since changed.
   entries = entries.map(en => ({ ...en, upload: en.upload || uploadSettings(en.file, en.rel) }));
+  const forcedBatch = entries.filter(en => en.upload.force && en.upload.mode === 'batch');
+  if (forcedBatch.length) {
+    const count = forcedBatch.length;
+    const approved = await modal({
+      title: 'Force LFS uses separate commits',
+      okText: 'Upload with LFS',
+      bodyHTML: `<p class="sp-lead">Force Git LFS cannot currently use the ordinary batch-commit route.</p>
+        <p class="sp-lead">This selection will upload one file at a time using Git LFS, creating up to <b>${count} separate commit${count === 1 ? '' : 's'}</b>. These files will not be added to an ordinary batch.</p>
+        <p class="hint">Existing queued batches are unchanged. Cancel to adjust your choices; no files from this selection have been sent.</p>`
+    });
+    if (!approved) return;
+    // The approval applies to this selection, not to other queued files or
+    // future selections. Retries keep the explicitly approved mode.
+    entries = entries.map(en => en.upload.force && en.upload.mode === 'batch'
+      ? { ...en, upload: Object.freeze({ ...en.upload, mode: 'single' }) }
+      : en);
+  }
   _dirIndex.clear();
   const failed = [];
   const counts = { uploaded: 0, queued: 0, skipped: 0 };
@@ -4116,6 +4133,9 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
     if (file.size > state.runtime.uploadMaxMb * 1048576) {
       return fail(`${file.name}: exceeds the ${state.runtime.uploadMaxMb} MB per-file limit`);
     }
+    if (mode === 'batch' && force) {
+      return fail('Select the files again and confirm separate LFS commits before uploading.');
+    }
 
     /* --- smart sync precheck --- */
     try {
@@ -4124,7 +4144,8 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
       const dirMap = await getDirIndex(fullDir);
       checkContext();
       const existingSha = dirMap.get(baseName);
-      if (existingSha && file.size <= 32 * 1048576) {
+      // Equal raw Git bytes do not satisfy a request to convert the file to LFS.
+      if (!force && existingSha && file.size <= 32 * 1048576) {
         const localSha = await gitBlobSha(file);
         if (localSha === existingSha) {
           item.classList.add('done');
@@ -4141,11 +4162,9 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
     checkContext();
     if (mode === 'batch') {
       /*
-       * Only real size sends a file down the individual path. Force LFS used to
-       * do it too, which meant turning LFS on quietly disabled batching for the
-       * whole queue -- a two-kilobyte file took the individual route alongside
-       * everything else, and a zip of four hundred became four hundred separate
-       * commits racing each other instead of four.
+       * This is the ordinary raw-blob batch route. Forced LFS selections need
+       * explicit approval before using individual commits and cannot enter it.
+       * Oversized ordinary files still use the existing smart upload router.
        */
       const needsIndividual = file.size > 40 * 1048576;
       if (!needsIndividual) {

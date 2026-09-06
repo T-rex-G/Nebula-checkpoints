@@ -85,6 +85,9 @@ const {
 } = require('./src/hosted-readiness');
 const { AlphaAccessStore } = require('./src/alpha-access-store');
 const { AlphaPrivacyStore } = require('./src/alpha-privacy-store');
+const { loadWorkspaceConfig, verifiedHumanIdentity, workspaceError } = require('./src/workspace-identity');
+const { WorkspaceStore } = require('./src/workspace-store');
+const { createWorkspaceRouter } = require('./src/workspace-api');
 const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback } = require('./src/alpha-privacy');
 const {
   disconnectProviderAccount,
@@ -757,6 +760,23 @@ const ALPHA_CONFIG = loadAlphaAccessConfig(process.env, {
   production: process.env.NODE_ENV === 'production',
   databaseUrl: DB_URL
 });
+const WORKSPACE_CONFIG = loadWorkspaceConfig(process.env, { databaseUrl: DB_URL });
+const workspaceStore = WORKSPACE_CONFIG.enabled ? new WorkspaceStore({
+  pool: { connect: () => pool().connect(), query: (...args) => pool().query(...args) },
+  config: WORKSPACE_CONFIG
+}) : null;
+// A narrow, independently authenticated metadata surface. This cookie does NOT
+// bypass alphaAccessBoundary or change any existing repository/session route.
+app.use('/api/workspace', createWorkspaceRouter({
+  enabled: WORKSPACE_CONFIG.enabled, store: workspaceStore,
+  seal, unseal, getCookie, csrfSecret: CSRF_SECRET,
+  production: process.env.NODE_ENV === 'production',
+  publicOrigin: (() => {
+    const base = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL;
+    return WORKSPACE_CONFIG.enabled && base ? new URL(base).origin : '';
+  })(),
+  verifyAccount: verifyWorkspaceAccount
+}));
 const ALPHA_COOKIE = 'nv_alpha_access';
 const ALPHA_SESSION_ID = Symbol('alpha session id');
 const HOSTED_SESSION_BASE = Symbol('hosted provider session base');
@@ -2743,12 +2763,32 @@ async function glLastCommit(acct, id, branch) {
 async function providerIdentity(acct) {
   if ((acct.provider || 'github') === 'gitlab') {
     const user = await glFetch(acct, '/user');
-    return { login: user.username, name: user.name, avatar_url: user.avatar_url, id: user.id };
+    return { login: user.username, name: user.name, avatar_url: user.avatar_url, id: user.id, bot: user.bot };
   }
   if (acct && acct.authMethod === 'github-app') {
     return { login: acct.login, name: acct.login, avatar_url: acct.avatar, id: acct.installationAccountId };
   }
   return gh(acct, '/user');
+}
+async function verifyWorkspaceAccount(input) {
+  const provider = input.provider || 'github';
+  if (!['github', 'gitlab', 'gitea'].includes(provider)
+    || typeof input.token !== 'string' || !input.token.trim() || input.token.length > 4096
+    || (input.baseUrl !== undefined && typeof input.baseUrl !== 'string')
+    || (provider === 'github' && input.baseUrl)) throw workspaceError('WORKSPACE_INPUT_INVALID', 400);
+  const baseUrl = provider === 'github' ? '' : input.baseUrl || (provider === 'gitlab' ? 'https://gitlab.com' : '');
+  try {
+    const safeBase = baseUrl ? await assertPublicBase(baseUrl) : '';
+    if (provider === 'gitea' && !safeBase) throw workspaceError('WORKSPACE_INPUT_INVALID', 400);
+    const user = await providerIdentity({ provider, baseUrl: safeBase, token: input.token.trim() });
+    const account = { provider, baseUrl: safeBase, providerAccountId: user.id,
+      login: user.login, type: user.type, bot: user.bot, authMethod: 'token' };
+    return { identity: verifiedHumanIdentity(account),
+      legacyIdentityKey: ALPHA_CONFIG.enabled ? stableProviderIdentityKey(account) : identityKey(account) };
+  } catch (error) {
+    if (String(error.code || '').startsWith('WORKSPACE_')) throw error;
+    throw workspaceError('WORKSPACE_PROVIDER_VERIFICATION_FAILED', error.status === 401 ? 401 : 502);
+  }
 }
 async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
   const accounts = (Array.isArray(accountOrAccounts) ? accountOrAccounts : [accountOrAccounts])

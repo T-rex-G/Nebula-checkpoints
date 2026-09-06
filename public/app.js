@@ -3978,19 +3978,19 @@ async function handleZip(zipFile) {
     if (uploadModeV !== 'batch') {
       uploadModeV = 'batch';
       selectSegment('#uploadMode', b => b.dataset.v === 'batch');
-      toast('Batch mode enabled — everything will land as one commit', 'ok');
+      toast('Batch mode selected — preparing the upload plan…');
     }
     queueEntries(entries);
   } catch (e) { toast('Extraction failed: ' + e.message, 'err'); }
 }
 $('#zipUploadBtn').addEventListener('click', () => $('#zipPicker').click());
 $('#zipPicker').addEventListener('change', e => { if (e.target.files[0]) handleZip(e.target.files[0]); e.target.value = ''; });
-async function queueEntries(entries) {
+async function queueEntries(entries, retrying = false) {
   entries = entries.filter(en => !/(^|\/)(__MACOSX\/|\.DS_Store$|Thumbs\.db$)/.test(en.rel));
   if (!entries.length) return;
   /* if everything sits inside one wrapper folder, offer to strip it (recommended) */
   const tops = new Set(entries.map(en => en.rel.split('/')[0]));
-  if (tops.size === 1 && entries.some(en => en.rel.includes('/'))) {
+  if (!retrying && tops.size === 1 && entries.some(en => en.rel.includes('/'))) {
     const top = [...tops][0];
     const ok = await modal({
       title: 'Wrapper folder detected',
@@ -4005,10 +4005,35 @@ async function queueEntries(entries) {
         .filter(en => en.rel);
     }
   }
+  // Resolve destinations once, after the user's wrapper-folder choice. Retries
+  // reuse these settings even if the form has since changed.
+  entries = entries.map(en => ({ ...en, upload: en.upload || uploadSettings(en.file, en.rel) }));
+  const forcedBatch = entries.filter(en => en.upload.force && en.upload.mode === 'batch');
+  if (forcedBatch.length) {
+    const count = forcedBatch.length;
+    const approved = await modal({
+      title: 'Force LFS uses separate commits',
+      okText: 'Upload with LFS',
+      bodyHTML: `<p class="sp-lead">Force Git LFS cannot currently use the ordinary batch-commit route.</p>
+        <p class="sp-lead">This selection will upload one file at a time using Git LFS, creating up to <b>${count} separate commit${count === 1 ? '' : 's'}</b>. These files will not be added to an ordinary batch.</p>
+        <p class="hint">Existing queued batches are unchanged. Cancel to adjust your choices; no files from this selection have been sent.</p>`
+    });
+    if (!approved) return;
+    // The approval applies to this selection, not to other queued files or
+    // future selections. Retries keep the explicitly approved mode.
+    entries = entries.map(en => en.upload.force && en.upload.mode === 'batch'
+      ? { ...en, upload: Object.freeze({ ...en.upload, mode: 'single' }) }
+      : en);
+  }
   _dirIndex.clear();
   const failed = [];
+  const counts = { uploaded: 0, queued: 0, skipped: 0 };
   for (const en of entries) {
-    try { await uploadOne(en.file, en.rel); }
+    try {
+      const result = await uploadOne(en.file, en.rel, en.upload);
+      if (result.status === 'failed') failed.push({ en, msg: result.message, item: result.item });
+      else counts[result.status] += 1;
+    }
     catch (err) { failed.push({ en, msg: (err && err.message) || 'failed' }); }
   }
   updateBatchBar();
@@ -4020,13 +4045,19 @@ async function queueEntries(entries) {
         `<p class="hint" style="margin:3px 0"><span class="mono">${esc(f.en.rel)}</span> — ${esc(f.msg)}</p>`).join('')}
         ${failed.length > 30 ? `<p class="hint">…and ${failed.length - 30} more</p>` : ''}</div>`
     });
-    if (retry) return queueEntries(failed.map(f => f.en));
+    if (retry) {
+      failed.forEach(f => { if (f.item) f.item.remove(); });
+      return queueEntries(failed.map(f => f.en), true);
+    }
   } else if (entries.length > 1) {
-    toast(`${entries.length} files uploaded ✦`, 'ok');
+    const labels = { uploaded: 'uploaded', queued: 'queued — commit pending', skipped: 'unchanged — skipped' };
+    const summary = Object.entries(counts).filter(([, count]) => count)
+      .map(([outcome, count]) => `${count} file${count === 1 ? '' : 's'} ${labels[outcome]}`).join('; ');
+    toast(summary, counts.queued ? '' : 'ok');
   }
 }
 async function getDirIndex(dir) {
-  const key = `${state.work.branch}:${dir}`;
+  const key = `${state.me && state.me.offlineCacheScope}:${wPath()}:${state.work.branch}:${dir}`;
   if (_dirIndex.has(key)) return _dirIndex.get(key);
   const p = (async () => {
     const map = new Map();
@@ -4047,13 +4078,28 @@ async function gitBlobSha(file) {
   const d = await crypto.subtle.digest('SHA-1', full);
   return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
-async function uploadOne(file, rel) {
-  const w = state.work;
+function uploadSettings(file, rel) {
   const dir = $('#uploadDir').value.trim().replace(/^\/+|\/+$/g, '');
   const targetPath = (dir ? dir + '/' : '') + (rel || file.name);
-  const message = $('#uploadMsg').value.trim() || `Sync ${targetPath} via ${NV_PRODUCT_NAME}`;
-  const force = $('#forceLfs').checked;
-  if (file.size > state.runtime.uploadMaxMb * 1048576) return toast(`${file.name}: exceeds the ${state.runtime.uploadMaxMb} MB per-file limit`, 'err');
+  return Object.freeze({
+    owner: state.work.owner, repo: state.work.repo, branch: state.work.branch,
+    provider: state.me && state.me.provider,
+    account: state.me && state.me.offlineCacheScope,
+    login: state.me && state.me.login,
+    targetPath,
+    message: $('#uploadMsg').value.trim() || `Sync ${targetPath} via ${NV_PRODUCT_NAME}`,
+    force: $('#forceLfs').checked, mode: uploadModeV
+  });
+}
+function uploadContextMatches(settings) {
+  return state.work && state.me
+    && settings.owner === state.work.owner && settings.repo === state.work.repo
+    && settings.branch === state.work.branch && settings.provider === state.me.provider
+    && settings.account === state.me.offlineCacheScope && settings.login === state.me.login;
+}
+async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
+  const { targetPath, message, force, mode } = settings;
+  const w = settings;
 
   const item = document.createElement('div');
   item.className = 'uq-item';
@@ -4070,75 +4116,127 @@ async function uploadOne(file, rel) {
   const fill = item.querySelector('.uq-fill');
   const status = item.querySelector('.uq-status');
   const verdictEl = item.querySelector('.uq-verdict');
+  const fail = message => {
+    item.classList.add('error');
+    status.textContent = '✗ ' + message;
+    addRetry(item, file, rel, settings);
+    return { status: 'failed', message, item };
+  };
+  const checkContext = () => {
+    if (!uploadContextMatches(settings)) {
+      throw new Error(`Return to the original account and ${w.owner}/${w.repo} on ${w.branch} before retrying this upload.`);
+    }
+  };
 
-  /* --- smart sync precheck --- */
   try {
-    const fullDir = targetPath.includes('/') ? targetPath.slice(0, targetPath.lastIndexOf('/')) : '';
-    const baseName = targetPath.split('/').pop();
-    const dirMap = await getDirIndex(fullDir);
-    const existingSha = dirMap.get(baseName);
-    if (existingSha && file.size <= 32 * 1048576) {
-      const localSha = await gitBlobSha(file);
-      if (localSha === existingSha) {
-        item.classList.add('done');
-        fill.style.width = '100%';
-        verdictEl.hidden = false; verdictEl.textContent = 'unchanged'; verdictEl.classList.add('v-skip');
-        status.textContent = '✓ Identical to the repo version — skipped, nothing to commit.';
-        return;
+    checkContext();
+    if (file.size > state.runtime.uploadMaxMb * 1048576) {
+      return fail(`${file.name}: exceeds the ${state.runtime.uploadMaxMb} MB per-file limit`);
+    }
+    if (mode === 'batch' && force) {
+      return fail('Select the files again and confirm separate LFS commits before uploading.');
+    }
+
+    /* --- smart sync precheck --- */
+    try {
+      const fullDir = targetPath.includes('/') ? targetPath.slice(0, targetPath.lastIndexOf('/')) : '';
+      const baseName = targetPath.split('/').pop();
+      const dirMap = await getDirIndex(fullDir);
+      checkContext();
+      const existingSha = dirMap.get(baseName);
+      // Equal raw Git bytes do not satisfy a request to convert the file to LFS.
+      if (!force && existingSha && file.size <= 32 * 1048576) {
+        const localSha = await gitBlobSha(file);
+        if (localSha === existingSha) {
+          item.classList.add('done');
+          fill.style.width = '100%';
+          verdictEl.hidden = false; verdictEl.textContent = 'unchanged'; verdictEl.classList.add('v-skip');
+          status.textContent = '✓ Identical to the repo version — skipped, nothing to commit.';
+          return { status: 'skipped', item };
+        }
       }
+      verdictEl.hidden = false;
+      if (existingSha) { verdictEl.textContent = 'update'; verdictEl.classList.add('v-update'); }
+      else { verdictEl.textContent = 'new'; verdictEl.classList.add('v-new'); }
+    } catch {}
+    checkContext();
+    if (mode === 'batch') {
+      /*
+       * This is the ordinary raw-blob batch route. Forced LFS selections need
+       * explicit approval before using individual commits and cannot enter it.
+       * Oversized ordinary files still use the existing smart upload router.
+       */
+      const needsIndividual = file.size > 40 * 1048576;
+      if (!needsIndividual) {
+        status.textContent = 'Queued for the batch commit.';
+        batchQueue.push({ file, targetPath, item, fill, status });
+        return { status: 'queued', item };
+      }
+      status.textContent = 'Big file — pushing individually via the smart router (GitHub cannot batch blobs this large)…';
     }
-    verdictEl.hidden = false;
-    if (existingSha) { verdictEl.textContent = 'update'; verdictEl.classList.add('v-update'); }
-    else { verdictEl.textContent = 'new'; verdictEl.classList.add('v-new'); }
-  } catch {}
-  if (uploadModeV === 'batch') {
-    const needsIndividual = force || file.size > 40 * 1048576;
-    if (!needsIndividual) {
-      status.textContent = 'Queued for the batch commit.';
-      batchQueue.push({ file, targetPath, item, fill, status });
-      return;
-    }
-    status.textContent = 'Big file — pushing individually via the smart router (GitHub cannot batch blobs this large)…';
+    if (mode !== 'batch') status.textContent = 'Launching…';
+
+
+    await ensureCsrfToken();
+    checkContext();
+    const xhr = new XMLHttpRequest();
+    let outcome;
+    const qs = new URLSearchParams({ path: targetPath, branch: w.branch, message, lfs: force ? 'force' : 'auto' });
+    const expectedHeadSha = currentHeadSha(w.branch);
+    if (expectedHeadSha) qs.set('expectedHeadSha', expectedHeadSha);
+    xhr.open('POST', `/api/repo/${w.owner}/${w.repo}/upload?${qs}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('x-nv', '1');
+    xhr.setRequestHeader('x-nv-csrf', csrfToken);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        const pct = Math.round(e.loaded / e.total * 100);
+        fill.style.width = Math.min(pct, 92) + '%';
+        status.textContent = pct < 100 ? `Transmitting… ${pct}%` : 'Relay received — pushing to GitHub…';
+      }
+    };
+    xhr.onload = () => {
+      let res = {};
+      try { res = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300 && res && res.ok) {
+        fill.style.width = '100%'; item.classList.add('done');
+        const strat = { 'contents-api': 'Git Data API', 'git-data-api': 'Git Data API', 'git-push': 'native git push ⟴', 'git-data-blob': 'Git Data API', 'lfs': 'Git LFS' }[res.strategy] || res.strategy;
+        status.textContent = `✦ Landed on ${w.branch} via ${strat} — commit ${String(res.commit || '').slice(0, 7)}`;
+        outcome = { status: 'uploaded', item };
+        toast(`${file.name} pushed ✦`, 'ok');
+        if (uploadContextMatches(settings)) {
+          rememberHead(res.commit, w.branch);
+          state.fileIndex = null;
+          loadTree('', $('#tree'), true);
+          refreshRate();
+        }
+      } else {
+        outcome = fail((res && res.error) || `Upload failed (${xhr.status})`);
+      }
+    };
+    xhr.onerror = () => { outcome = fail('Network error during upload'); };
+    xhr.onabort = () => { outcome = fail('Upload cancelled'); };
+    xhr.ontimeout = () => { outcome = fail('Upload timed out'); };
+    /*
+     * Awaited, because it was not.
+     *
+     * uploadOne is an async function and the queue awaits it, but the function
+     * used to end at xhr.send() -- so the await resolved when the request was
+     * SENT, not when it completed. The loop looked sequential and was not: every
+     * file in the queue went out before the first reply came back, each carrying
+     * the expectedHeadSha read before any of them landed. One commit moved the
+     * head and the provider refused all the others as stale, which is why a zip
+     * landed one file and offered a Retry on the rest.
+     *
+     * Settling on loadend rather than load so a network failure releases the
+     * queue too. Return the actual outcome as well as updating the card so the
+     * queue cannot count failed or cancelled transfers as successful uploads.
+     */
+    await new Promise(resolve => { xhr.addEventListener('loadend', resolve, { once: true }); xhr.send(file); });
+    return outcome || fail('Upload ended without a confirmed result');
+  } catch (error) {
+    return fail((error && error.message) || 'Upload failed');
   }
-  if (uploadModeV !== 'batch') status.textContent = 'Launching…';
-
-
-  await ensureCsrfToken();
-  const xhr = new XMLHttpRequest();
-  const qs = new URLSearchParams({ path: targetPath, branch: w.branch, message, lfs: force ? 'force' : 'auto' });
-  const expectedHeadSha = currentHeadSha(w.branch);
-  if (expectedHeadSha) qs.set('expectedHeadSha', expectedHeadSha);
-  xhr.open('POST', `/api/repo/${w.owner}/${w.repo}/upload?${qs}`);
-  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-  xhr.setRequestHeader('x-nv', '1');
-  xhr.setRequestHeader('x-nv-csrf', csrfToken);
-  xhr.upload.onprogress = e => {
-    if (e.lengthComputable) {
-      const pct = Math.round(e.loaded / e.total * 100);
-      fill.style.width = Math.min(pct, 92) + '%';
-      status.textContent = pct < 100 ? `Transmitting… ${pct}%` : 'Relay received — pushing to GitHub…';
-    }
-  };
-  xhr.onload = () => {
-    let res = {};
-    try { res = JSON.parse(xhr.responseText); } catch {}
-    if (xhr.status >= 200 && xhr.status < 300 && res.ok) {
-      fill.style.width = '100%'; item.classList.add('done');
-      const strat = { 'contents-api': 'Git Data API', 'git-data-api': 'Git Data API', 'git-push': 'native git push ⟴', 'git-data-blob': 'Git Data API', 'lfs': 'Git LFS' }[res.strategy] || res.strategy;
-      status.textContent = `✦ Landed on ${w.branch} via ${strat} — commit ${String(res.commit || '').slice(0, 7)}`;
-      rememberHead(res.commit, w.branch);
-      toast(`${file.name} pushed ✦`, 'ok');
-      state.fileIndex = null;
-      loadTree('', $('#tree'), true);
-      refreshRate();
-    } else {
-      item.classList.add('error');
-      status.textContent = '✗ ' + (res.error || `Upload failed (${xhr.status})`);
-      addRetry(item, file);
-    }
-  };
-  xhr.onerror = () => { item.classList.add('error'); status.textContent = '✗ Network error during upload'; addRetry(item, file); };
-  xhr.send(file);
 }
 
 /* ================= COMMITS ================= */
@@ -5381,12 +5479,18 @@ async function openBranchManager() {
 }
 
 /* ---- upload retry ---- */
-function addRetry(item, file) {
+function addRetry(item, file, rel, settings) {
   const b = document.createElement('button');
   b.className = 'btn btn-ghost small';
   b.textContent = 'Retry';
   b.style.marginTop = '8px';
-  b.addEventListener('click', () => { item.remove(); uploadOne(file); });
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    item.remove();
+    _dirIndex.clear();
+    await uploadOne(file, rel, settings);
+    updateBatchBar();
+  });
   item.appendChild(b);
 }
 

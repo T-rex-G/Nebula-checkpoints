@@ -1906,6 +1906,31 @@ async function accountAuth(req, res, next) {
 
 /* ---------------- GitHub helper ---------------- */
 const _etags = new Map(); // key → { etag, body } (LRU-ish, capped)
+/*
+ * A code for a provider's own refusal, so its explanation survives.
+ *
+ * publicErrorBody only passes an error's message through when the error
+ * carries a recognised code; anything else becomes "Operation could not be
+ * completed". Neither provider helper attached one, so every refusal GitHub or
+ * GitLab explained -- a workflow file rejected for want of scope, a conflict,
+ * a rate limit -- reached the operator as that one sentence, and the reason
+ * they had actually been given was thrown away at the last step.
+ *
+ * The redaction in publicErrorBody is unchanged and still runs: a message that
+ * looks like it carries a credential is still suppressed. This only stops a
+ * message being discarded merely for having no code.
+ */
+function providerFailureCode(status) {
+  const value = Number(status);
+  if (value === 401 || value === 403) return 'PROVIDER_FORBIDDEN';
+  if (value === 404) return 'PROVIDER_NOT_FOUND';
+  if (value === 409) return 'PROVIDER_CONFLICT';
+  if (value === 422) return 'PROVIDER_REJECTED';
+  if (value === 429) return 'PROVIDER_RATE_LIMITED';
+  if (value >= 500) return 'PROVIDER_UNAVAILABLE';
+  return 'PROVIDER_REQUEST_FAILED';
+}
+
 async function gh(acct, apiPath, opts = {}) {
   if (typeof acct === 'string') acct = { provider: 'github', token: acct };
   const provider = acct.provider || 'github';
@@ -1950,6 +1975,7 @@ async function gh(acct, apiPath, opts = {}) {
     }
     const err = new Error((data && data.message) || `GitHub error ${r.status}`);
     err.status = r.status; err.body = data;
+    err.code = providerFailureCode(r.status);
     throw err;
   }
   if (ck && r.headers.get('etag')) {
@@ -2705,7 +2731,7 @@ async function glFetch(acct, apiPath, opts = {}) {
   try { data = text ? JSON.parse(text) : null; } catch { data = null; }
   if (!r.ok) {
     const err = new Error((data && (data.message || data.error)) || `GitLab error ${r.status}`);
-    err.status = r.status; throw err;
+    err.status = r.status; err.code = providerFailureCode(r.status); throw err;
   }
   return data;
 }

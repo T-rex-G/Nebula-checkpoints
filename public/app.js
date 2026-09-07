@@ -18,7 +18,15 @@ const state = {
   prState: 'open', issueState: 'open',
   settings: { fontSize: 14, wrap: true, motion: true, editorTheme: 'material-ocean', editorFont: 'DM Mono' },
   governance: { digitalTwin: null, access: null, loading: false, error: '', simulation: null, verification: null, scopeKey: '', decisionPages: [], delivery: { notifications: { events: [] }, preferences: {}, exports: [], webhooks: [], error: '' } },
-  runtime: { uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, githubApp: { enabled: false, webhookConfigured: false } }
+  /*
+   * Limits start unknown, not at the self-hosted maxima. These three used to
+   * hold 2048/64/64 -- the ceilings of a self-hosted deployment -- so until
+   * /api/config answered, and forever if it never did, a hosted alpha enforcing
+   * 25/16/16 told its reader the per-file limit was 2048 MB and labelled a
+   * 30 MB file as a Git Data API push the server would refuse. A number nobody
+   * sent us is not a smaller number; it is no number.
+   */
+  runtime: { uploadMaxMb: null, gitDataMaxMb: null, nativePushMaxMb: null, githubApp: { enabled: false, webhookConfigured: false } }
 };
 
 function branchRecord(branch = state.work && state.work.branch) {
@@ -1195,16 +1203,40 @@ window.addEventListener('nebula:capability-refused', event => {
   const refused = (event && event.detail) || {};
   toast(window.NebulaCapabilityUI.explain(refused.feature), 'err');
 });
+/*
+ * Unknown means no number, not a small one. Requiring a positive value here
+ * also swallowed a deliberate ceiling of zero -- which the server can never
+ * send, since its own floor is 1, but which is a legitimate way to say "refuse
+ * everything" and is fail-closed either way. A guard that re-fetches on zero
+ * turns that refusal into an upload.
+ */
+function runtimeLimitsKnown() {
+  return ['uploadMaxMb', 'gitDataMaxMb', 'nativePushMaxMb']
+    .every(key => Number.isFinite(state.runtime[key]));
+}
+async function loadRuntimeConfig(attempt = 0) {
+  try {
+    const c = await api('/api/config');
+    window._oauthOn = !!c.oauth;
+    state.runtime = { ...state.runtime, ...c };
+    $('#oauthBtn').hidden = !c.oauth || loginProvider !== 'github';
+  } catch {
+    /* One retry: a free instance's first request can arrive while it wakes. */
+    if (attempt === 0) return loadRuntimeConfig(1);
+  }
+}
 async function boot() {
   loadSettings();
   githubAppCallbackNotice();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   updateNetBar();
-  api('/api/config').then(c => {
-    window._oauthOn = !!c.oauth;
-    state.runtime = { ...state.runtime, ...c };
-    $('#oauthBtn').hidden = !c.oauth || loginProvider !== 'github';
-  }).catch(() => {});
+  /*
+   * Awaited, and retried once. It was fire-and-forget with a swallowed
+   * rejection, so a cold start -- which is the ordinary first request to a free
+   * instance -- left every size decision running on the defaults above for the
+   * rest of the session, with nothing said.
+   */
+  await loadRuntimeConfig();
   $('#oauthBtn').addEventListener('click', () => { location.href = '/api/oauth/login'; });
   $('#findBtn').addEventListener('click', () => { if (state.file && !state.file.binary) openFindPanel(); });
   try {
@@ -3828,7 +3860,10 @@ dz.addEventListener('drop', async e => {
 });
 $('#filePicker').addEventListener('change', e => { queueFiles(e.target.files); e.target.value = ''; });
 function strategyFor(size, force) {
-  if (force || size > state.runtime.nativePushMaxMb * 1048576) return 'Git LFS ✦';
+  if (force) return 'Git LFS ✦';
+  /* Naming a route before the ceilings are known would name the wrong one. */
+  if (!Number.isFinite(state.runtime.nativePushMaxMb)) return 'checking limits…';
+  if (size > state.runtime.nativePushMaxMb * 1048576) return 'Git LFS ✦';
   if (size > 40 * 1048576) return 'native git push';
   return 'Git Data API';
 }
@@ -4130,6 +4165,17 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
 
   try {
     checkContext();
+    /*
+     * Refused rather than guessed. Sending a file against an assumed ceiling
+     * spends the whole transfer before the server refuses it, and names a limit
+     * that is not the one being enforced.
+     */
+    if (!runtimeLimitsKnown()) {
+      await loadRuntimeConfig();
+      if (!runtimeLimitsKnown()) {
+        return fail(`${file.name}: upload limits are unavailable, so the size cannot be checked. Retry once the service responds.`);
+      }
+    }
     if (file.size > state.runtime.uploadMaxMb * 1048576) {
       return fail(`${file.name}: exceeds the ${state.runtime.uploadMaxMb} MB per-file limit`);
     }

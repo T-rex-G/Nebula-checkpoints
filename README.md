@@ -450,6 +450,15 @@ Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses fo
 | `NODE_ENV=production` | Required in production | Secure cookie/HSTS behavior |
 | `DATABASE_URL` | Required for verified live intelligence | Existing Neon sessions, policies, events, snapshots, evidence |
 | `PUBLIC_BASE_URL` | Optional on Render | Canonical HTTPS webhook callback on other/custom hosts |
+> **On a hosted profile these twelve are capped, and the cap is also the default.**
+> `NV_DEPLOYMENT_PROFILE=hosted-alpha` loads its own ceilings, and a value above
+> one of them is refused at startup — the process exits rather than clamping, so
+> the setting is never quietly ignored. Every default in the table below is a
+> self-hosted default; eleven of the twelve are above the hosted ceiling and
+> would stop the service from starting if set explicitly there. The hosted
+> ceilings are listed in `docs/operations/DEPLOY_RENDER_NEON.md` and enforced by
+> `src/hosted-readiness.js`; on that profile a limit can only be lowered.
+
 | `NV_EVENT_RETENTION_DAYS` | Optional | Event retention, 7–730 days; default 90 |
 | `NV_SESSION_RETENTION_DAYS` | Optional | Inactive session retention, 7–365 days; default 35 |
 | `NV_LIVE_CLIENTS_PER_REPO` | Optional | Concurrent SSE clients per identity/repository, 1–20; default 5 |

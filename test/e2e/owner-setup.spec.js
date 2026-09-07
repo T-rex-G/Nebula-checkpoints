@@ -24,7 +24,7 @@ test.use({ serviceWorkers: 'block' });
 async function openLoginScreen(page) {
   await page.goto('/');
   await ui.enterRepositories(page);
-  await page.evaluate(() => showPage('login'));
+  await page.evaluate(() => { if (window.showPage) window.showPage('login'); });
   await page.locator('#page-login.active').waitFor();
 }
 

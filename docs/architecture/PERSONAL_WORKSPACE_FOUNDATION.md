@@ -194,6 +194,26 @@ refusal unexplained.
 Connection binding and selection likewise have routes but no controls yet;
 Change B is where connections are adopted operationally.
 
+### Running the gates this work is checked by
+
+The card's first push failed CI on `npm run lint` -- a `no-undef` in an
+end-to-end callback -- after its tests had been run and passed. `npm test` is
+one of eleven commands the verify job runs, and working from a remembered list
+is how ten of them get skipped.
+
+`npm run ci:local` runs that job's steps in order, parsed out of
+`.github/workflows/ci.yml` rather than restated, so a gate added to the
+workflow is picked up without editing anything. Two steps are skipped with
+printed reasons: `npm ci`, and the Playwright browser install this environment
+already provides. `test/ci-local.test.js` holds it honest -- it counts the
+workflow's `run:` steps independently of the parser, requires every skip to
+carry a reason, and names the eleven gates that must still be reached. A runner
+that quietly missed one would report a pass for a check that never ran, which
+is the same mistake it exists to prevent wearing a green tick.
+
+The migration gate needs `NV_TEST_DATABASE_URL`; the runner refuses rather than
+reporting a pass for a database it never consulted.
+
 ## Recovery and rollback
 
 First try a new provider token for the same verified user ID; a rename does not

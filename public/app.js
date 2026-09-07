@@ -18,7 +18,7 @@ const state = {
   prState: 'open', issueState: 'open',
   settings: { fontSize: 14, wrap: true, motion: true, editorTheme: 'material-ocean', editorFont: 'DM Mono' },
   governance: { digitalTwin: null, access: null, loading: false, error: '', simulation: null, verification: null, scopeKey: '', decisionPages: [], delivery: { notifications: { events: [] }, preferences: {}, exports: [], webhooks: [], error: '' } },
-  runtime: { uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, githubApp: { enabled: false, webhookConfigured: false } }
+  runtime: { uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, contentsMaxMb: 40, githubApp: { enabled: false, webhookConfigured: false } }
 };
 
 function branchRecord(branch = state.work && state.work.branch) {
@@ -1154,13 +1154,23 @@ const PROV_ICON = {
 };
 function applyCaps() {
   const caps = state.caps || { prs: 1, issues: 1, releases: 1, actions: 1, lfs: 1, tm: 1, batch: 1, search: 1, notif: 1, compare: 1 };
-  const lfsLabel = $('#forceLfs') && $('#forceLfs').closest('label');
-  if (lfsLabel) lfsLabel.hidden = false;
   if (!caps.batch && typeof uploadModeV !== 'undefined' && uploadModeV === 'batch') {
     uploadModeV = 'single';
     selectSegment('#uploadMode', b2 => b2.dataset.v === 'single');
   }
   window.NebulaCapabilityUI.apply();
+  /*
+   * Read after apply(), because apply() is what decides whether Git LFS is
+   * reachable here. A blocked choice that stays selected is a choice the
+   * upload cannot honour, so it returns to Automatic.
+   */
+  const lfsChoice = $('#uploadTransport .seg-btn[data-v="lfs"]');
+  if (lfsChoice && lfsChoice.dataset.capabilityBlocked === 'true'
+    && typeof uploadTransportV !== 'undefined' && uploadTransportV === 'lfs') {
+    uploadTransportV = 'auto';
+    selectSegment('#uploadTransport', b3 => b3.dataset.v === 'auto');
+  }
+  refreshQueuedStrategies();
 }
 async function loadProviderCapabilities() {
   const provider = state.me && state.me.provider || 'github';
@@ -1203,6 +1213,7 @@ async function boot() {
   api('/api/config').then(c => {
     window._oauthOn = !!c.oauth;
     state.runtime = { ...state.runtime, ...c };
+    refreshQueuedStrategies();
     $('#oauthBtn').hidden = !c.oauth || loginProvider !== 'github';
   }).catch(() => {});
   $('#oauthBtn').addEventListener('click', () => { location.href = '/api/oauth/login'; });
@@ -3827,13 +3838,52 @@ dz.addEventListener('drop', async e => {
   } else queueFiles(e.dataTransfer.files);
 });
 $('#filePicker').addEventListener('change', e => { queueFiles(e.target.files); e.target.value = ''; });
-function strategyFor(size, force) {
-  if (force || size > state.runtime.nativePushMaxMb * 1048576) return 'Git LFS ✦';
-  if (size > 40 * 1048576) return 'native git push';
-  return 'Git Data API';
+/*
+ * The label on a queued file is the server's own decision, not a second copy of
+ * it. Both call planUploadTransport, so what the reader is shown before the
+ * upload and what actually carries it cannot disagree.
+ */
+function transportPlanFor(size, transport) {
+  return NebulaUploadPlanning.planUploadTransport({
+    size,
+    requested: transport,
+    lfsAvailable: (state.me && state.me.provider ? state.me.provider : 'github') === 'github',
+    gitPushMaxBytes: state.runtime.nativePushMaxMb * 1048576,
+    gitDataMaxBytes: state.runtime.contentsMaxMb * 1048576
+  });
+}
+/*
+ * Each queued file keeps the choice it was queued with, so this re-reads that
+ * choice rather than the control's current position: changing the control must
+ * not rewrite the label of a file already on its way.
+ */
+function refreshQueuedStrategies() {
+  for (const el of $$('#uploadQueue .uq-strategy')) {
+    const size = Number(el.dataset.size);
+    if (!Number.isFinite(size)) continue;
+    el.textContent = strategyFor(size, el.dataset.transport || 'auto');
+  }
+}
+const ROUTE_LABEL = { 'git-data': 'Git Data API', 'git-push': 'native git push', lfs: 'Git LFS ✦' };
+function strategyFor(size, transport) {
+  let plan;
+  try { plan = transportPlanFor(size, transport); }
+  catch { return 'checking limits…'; }
+  if (plan.refusal) return 'too large for this deployment';
+  const label = ROUTE_LABEL[plan.route] || plan.route;
+  /* A swap the reader did not ask for is said on the file, not discovered
+   * afterwards in the landed line. */
+  return plan.fallback ? `${label} — ${plan.fallback.to === 'lfs' ? 'Git' : 'Git LFS'} cannot carry this` : label;
 }
 const _dirIndex = new Map();
 let uploadModeV = 'single';
+let uploadTransportV = 'auto';
+$('#uploadTransport').addEventListener('click', e => {
+  const b = e.target.closest('.seg-btn');
+  if (!b || b.dataset.capabilityBlocked === 'true') return;
+  selectSegment('#uploadTransport', x => x === b);
+  uploadTransportV = NebulaUploadPlanning.normalizeTransportChoice(b.dataset.v);
+});
 const batchQueue = []; // { file, targetPath, item }
 $('#uploadMode').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn'); if (!b) return;
@@ -4008,20 +4058,20 @@ async function queueEntries(entries, retrying = false) {
   // Resolve destinations once, after the user's wrapper-folder choice. Retries
   // reuse these settings even if the form has since changed.
   entries = entries.map(en => ({ ...en, upload: en.upload || uploadSettings(en.file, en.rel) }));
-  const forcedBatch = entries.filter(en => en.upload.force && en.upload.mode === 'batch');
+  const forcedBatch = entries.filter(en => en.upload.transport === 'lfs' && en.upload.mode === 'batch');
   if (forcedBatch.length) {
     const count = forcedBatch.length;
     const approved = await modal({
-      title: 'Force LFS uses separate commits',
+      title: 'Git LFS uses separate commits',
       okText: 'Upload with LFS',
-      bodyHTML: `<p class="sp-lead">Force Git LFS cannot currently use the ordinary batch-commit route.</p>
+      bodyHTML: `<p class="sp-lead">Choosing Git LFS cannot currently use the ordinary batch-commit route.</p>
         <p class="sp-lead">This selection will upload one file at a time using Git LFS, creating up to <b>${count} separate commit${count === 1 ? '' : 's'}</b>. These files will not be added to an ordinary batch.</p>
         <p class="hint">Existing queued batches are unchanged. Cancel to adjust your choices; no files from this selection have been sent.</p>`
     });
     if (!approved) return;
     // The approval applies to this selection, not to other queued files or
     // future selections. Retries keep the explicitly approved mode.
-    entries = entries.map(en => en.upload.force && en.upload.mode === 'batch'
+    entries = entries.map(en => en.upload.transport === 'lfs' && en.upload.mode === 'batch'
       ? { ...en, upload: Object.freeze({ ...en.upload, mode: 'single' }) }
       : en);
   }
@@ -4088,7 +4138,7 @@ function uploadSettings(file, rel) {
     login: state.me && state.me.login,
     targetPath,
     message: $('#uploadMsg').value.trim() || `Sync ${targetPath} via ${NV_PRODUCT_NAME}`,
-    force: $('#forceLfs').checked, mode: uploadModeV
+    transport: uploadTransportV, mode: uploadModeV
   });
 }
 function uploadContextMatches(settings) {
@@ -4098,7 +4148,7 @@ function uploadContextMatches(settings) {
     && settings.account === state.me.offlineCacheScope && settings.login === state.me.login;
 }
 async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
-  const { targetPath, message, force, mode } = settings;
+  const { targetPath, message, transport, mode } = settings;
   const w = settings;
 
   const item = document.createElement('div');
@@ -4107,7 +4157,7 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
     <div class="uq-top">
       <span class="uq-name"></span><span class="uq-size">${fmtSize(file.size)}</span>
       <span class="uq-verdict" hidden></span>
-      <span class="uq-strategy">${strategyFor(file.size, force)}</span>
+      <span class="uq-strategy" data-size="${file.size}" data-transport="${transport}">${strategyFor(file.size, transport)}</span>
     </div>
     <div class="uq-bar"><div class="uq-fill"></div></div>
     <div class="uq-status">Comparing with repo…</div>`;
@@ -4133,7 +4183,7 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
     if (file.size > state.runtime.uploadMaxMb * 1048576) {
       return fail(`${file.name}: exceeds the ${state.runtime.uploadMaxMb} MB per-file limit`);
     }
-    if (mode === 'batch' && force) {
+    if (mode === 'batch' && transport === 'lfs') {
       return fail('Select the files again and confirm separate LFS commits before uploading.');
     }
 
@@ -4145,7 +4195,7 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
       checkContext();
       const existingSha = dirMap.get(baseName);
       // Equal raw Git bytes do not satisfy a request to convert the file to LFS.
-      if (!force && existingSha && file.size <= 32 * 1048576) {
+      if (transport !== 'lfs' && existingSha && file.size <= 32 * 1048576) {
         const localSha = await gitBlobSha(file);
         if (localSha === existingSha) {
           item.classList.add('done');
@@ -4162,11 +4212,17 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
     checkContext();
     if (mode === 'batch') {
       /*
-       * This is the ordinary raw-blob batch route. Forced LFS selections need
-       * explicit approval before using individual commits and cannot enter it.
+       * This is the ordinary raw-blob batch route. An explicit Git LFS choice
+       * needs approval before using individual commits and cannot enter it.
        * Oversized ordinary files still use the existing smart upload router.
+       *
+       * "Oversized" is the boundary the server publishes, read through the same
+       * plan the upload itself is routed by. It used to be a 40 written here,
+       * which is the server's number only for as long as nobody moves it.
        */
-      const needsIndividual = file.size > 40 * 1048576;
+      let needsIndividual = true;
+      try { needsIndividual = transportPlanFor(file.size, transport).route !== 'git-data'; }
+      catch { /* Limits not known yet: let the server's own router decide. */ }
       if (!needsIndividual) {
         status.textContent = 'Queued for the batch commit.';
         batchQueue.push({ file, targetPath, item, fill, status });
@@ -4181,7 +4237,7 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
     checkContext();
     const xhr = new XMLHttpRequest();
     let outcome;
-    const qs = new URLSearchParams({ path: targetPath, branch: w.branch, message, lfs: force ? 'force' : 'auto' });
+    const qs = new URLSearchParams({ path: targetPath, branch: w.branch, message, lfs: transport });
     const expectedHeadSha = currentHeadSha(w.branch);
     if (expectedHeadSha) qs.set('expectedHeadSha', expectedHeadSha);
     xhr.open('POST', `/api/repo/${w.owner}/${w.repo}/upload?${qs}`);
@@ -4201,7 +4257,15 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
       if (xhr.status >= 200 && xhr.status < 300 && res && res.ok) {
         fill.style.width = '100%'; item.classList.add('done');
         const strat = { 'contents-api': 'Git Data API', 'git-data-api': 'Git Data API', 'git-push': 'native git push ⟴', 'git-data-blob': 'Git Data API', 'lfs': 'Git LFS' }[res.strategy] || res.strategy;
-        status.textContent = `✦ Landed on ${w.branch} via ${strat} — commit ${String(res.commit || '').slice(0, 7)}`;
+        /*
+         * A transport the reader did not choose is named on the file that got
+         * it. Landing "via Git LFS" after asking for Git, with no reason given,
+         * is how the old force-only behaviour felt from the outside.
+         */
+        const swap = res.transport && res.transport.fallback;
+        const because = swap ? ` — asked for ${swap.from === 'git' ? 'Git' : 'Git LFS'}, but ${swap.reason}` : '';
+        status.textContent = `✦ Landed on ${w.branch} via ${strat}${because} — commit ${String(res.commit || '').slice(0, 7)}`;
+        if (swap) item.classList.add('fell-back');
         outcome = { status: 'uploaded', item };
         toast(`${file.name} pushed ✦`, 'ok');
         if (uploadContextMatches(settings)) {

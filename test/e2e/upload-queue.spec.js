@@ -115,6 +115,11 @@ const { createHash } = require('crypto');
 const CONTENT = 'upload regression fixture\n';
 const GOOD = { ok: true, commit: 'b'.repeat(40), strategy: 'git-data-api' };
 
+/* The transport choice is a segmented control, so choosing is clicking. */
+async function chooseTransport(page, value) {
+  await page.locator(`#uploadTransport [data-v="${value}"]`).click();
+}
+
 async function openUploads(page) {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/');
@@ -165,7 +170,7 @@ test('individual Retry preserves folder, message, LFS choice and commit mode', a
   await openUploads(page);
   await page.locator('#uploadDir').fill('original');
   await page.locator('#uploadMsg').fill('Original upload');
-  await page.locator('#forceLfs').check();
+  await chooseTransport(page, 'lfs');
   const requests = [];
   await page.route('**/api/repo/sandbox/demo/upload?**', route => {
     requests.push(Object.fromEntries(new URL(route.request().url()).searchParams));
@@ -180,12 +185,12 @@ test('individual Retry preserves folder, message, LFS choice and commit mode', a
   if (await page.locator('#scrim').isVisible()) await page.locator('#modalCancel').click();
   await page.locator('#uploadDir').fill('different');
   await page.locator('#uploadMsg').fill('Different message');
-  await page.locator('#forceLfs').uncheck();
+  await chooseTransport(page, 'auto');
   await page.locator('#uploadMode [data-v="batch"]').click();
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2]).toMatchObject({
-    path: 'original/alpha/nested/one.txt', branch: 'main', message: 'Original upload', lfs: 'force'
+    path: 'original/alpha/nested/one.txt', branch: 'main', message: 'Original upload', lfs: 'lfs'
   });
   expect(requests[2].expectedHeadSha).toBe('b'.repeat(40));
   await expect(page.locator('#uploadQueue .uq-item.done')).toHaveCount(2);
@@ -313,6 +318,66 @@ test('an account change during preparation prevents an upload under the new acco
   expect(writes).toEqual([]);
 });
 
+/*
+ * The choice the reader makes is the choice that travels, and a transport they
+ * did not choose is named on the file that got it.
+ *
+ * Before this the wire carried auto|force: LFS could be insisted on and
+ * ordinary Git could not, because the size rule settled that on the server. A
+ * large file went to LFS whatever was asked for, and said nothing about why.
+ */
+test('each transport choice travels as itself', async ({ page }) => {
+  await openUploads(page);
+  const sent = [];
+  await page.route('**/api/repo/sandbox/demo/upload?**', route => {
+    sent.push(new URL(route.request().url()).searchParams.get('lfs'));
+    return route.fulfill({ json: GOOD });
+  });
+
+  await chooseTransport(page, 'git');
+  await selectFiles(page, ['one.txt']);
+  await expect(page.locator('#uploadQueue .done')).toHaveCount(1);
+
+  await chooseTransport(page, 'auto');
+  await selectFiles(page, ['two.txt']);
+  await expect(page.locator('#uploadQueue .done')).toHaveCount(2);
+
+  expect(sent).toEqual(['git', 'auto']);
+});
+
+test('a transport the reader did not choose is named on the file that got it', async ({ page }) => {
+  await openUploads(page);
+  await page.route('**/api/repo/sandbox/demo/upload?**', route => route.fulfill({
+    json: {
+      ...GOOD,
+      strategy: 'lfs',
+      transport: {
+        requested: 'git',
+        fallback: { from: 'git', to: 'lfs', reason: 'the file is over the 64 MB native Git push ceiling on this deployment' }
+      }
+    }
+  }));
+  await chooseTransport(page, 'git');
+  await selectFiles(page, ['one.txt']);
+  await expect(page.locator('#uploadQueue .done')).toHaveCount(1);
+  const status = page.locator('#uploadQueue .uq-status').first();
+  await expect(status).toContainText('via Git LFS');
+  await expect(status).toContainText('asked for Git');
+  await expect(status).toContainText('over the 64 MB native Git push ceiling');
+});
+
+test('an ordinary landing says nothing about a swap that did not happen', async ({ page }) => {
+  await openUploads(page);
+  await page.route('**/api/repo/sandbox/demo/upload?**', route => route.fulfill({
+    json: { ...GOOD, transport: { requested: 'git', fallback: null } }
+  }));
+  await chooseTransport(page, 'git');
+  await selectFiles(page, ['one.txt']);
+  await expect(page.locator('#uploadQueue .done')).toHaveCount(1);
+  await expect(page.locator('#uploadQueue .uq-status').first()).not.toContainText('asked for');
+  await expect(page.locator('#uploadQueue .uq-item.fell-back')).toHaveCount(0);
+});
+
 test('forced LFS in batch mode asks before sending and cancellation leaves the queue empty', async ({ page }) => {
   await openUploads(page);
   const writes = [];
@@ -321,9 +386,9 @@ test('forced LFS in batch mode asks before sending and cancellation leaves the q
     return route.fulfill({ json: GOOD });
   });
   await page.locator('#uploadMode [data-v="batch"]').click();
-  await page.locator('#forceLfs').check();
+  await chooseTransport(page, 'lfs');
   await selectFiles(page);
-  await expect(page.locator('#modalTitle')).toHaveText('Force LFS uses separate commits');
+  await expect(page.locator('#modalTitle')).toHaveText('Git LFS uses separate commits');
   await expect(page.locator('#modalBody')).toContainText('up to 2 separate commits');
   expect(writes).toEqual([]);
   await expect(page.locator('#uploadQueue .uq-item')).toHaveCount(0);
@@ -344,15 +409,15 @@ test('approved forced LFS uses the captured settings and advances the head betwe
   await page.locator('#uploadDir').fill('original');
   await page.locator('#uploadMsg').fill('Forced LFS selection');
   await page.locator('#uploadMode [data-v="batch"]').click();
-  await page.locator('#forceLfs').check();
+  await chooseTransport(page, 'lfs');
   await selectFiles(page);
-  await expect(page.locator('#modalTitle')).toHaveText('Force LFS uses separate commits');
+  await expect(page.locator('#modalTitle')).toHaveText('Git LFS uses separate commits');
   await page.locator('#uploadDir').evaluate(el => { el.value = 'different'; });
-  await page.locator('#forceLfs').evaluate(el => { el.checked = false; });
+  await page.locator('#uploadTransport [data-v="auto"]').dispatchEvent('click');
   await page.locator('#modalOk').click();
   await expect(page.locator('#uploadQueue .done')).toHaveCount(2);
   expect(requests.map(r => r.path)).toEqual(['original/one.txt', 'original/two.txt']);
-  expect(requests.map(r => r.lfs)).toEqual(['force', 'force']);
+  expect(requests.map(r => r.lfs)).toEqual(['lfs', 'lfs']);
   expect(requests.map(r => r.message)).toEqual(['Forced LFS selection', 'Forced LFS selection']);
   expect(requests.map(r => r.expectedHeadSha)).toEqual(['a'.repeat(40), '1'.repeat(40)]);
   await expect(page.locator('#uploadQueue .uq-status')).toContainText(['via Git LFS', 'via Git LFS']);
@@ -370,10 +435,10 @@ test('forced LFS does not skip an identical ordinary Git blob', async ({ page })
     requests.push(new URL(route.request().url()).searchParams.get('lfs'));
     return route.fulfill({ json: { ...GOOD, strategy: 'lfs' } });
   });
-  await page.locator('#forceLfs').check();
+  await chooseTransport(page, 'lfs');
   await selectFiles(page, ['one.txt']);
   await expect(page.locator('#uploadQueue .done')).toHaveCount(1);
-  expect(requests).toEqual(['force']);
+  expect(requests).toEqual(['lfs']);
   await expect(page.locator('#uploadQueue .v-skip')).toHaveCount(0);
   await expect(page.locator('#uploadQueue .uq-status')).toContainText('via Git LFS');
 });
@@ -398,13 +463,13 @@ test('approving a forced LFS selection leaves an existing ordinary batch unchang
     batches.push(route.request().postDataJSON());
     return route.fulfill({ json: GOOD });
   });
-  await page.locator('#forceLfs').check();
+  await chooseTransport(page, 'lfs');
   await selectFiles(page, ['forced.txt']);
-  await expect(page.locator('#modalTitle')).toHaveText('Force LFS uses separate commits');
+  await expect(page.locator('#modalTitle')).toHaveText('Git LFS uses separate commits');
   await page.locator('#modalOk').click();
   await expect(page.locator('#uploadQueue .done')).toHaveCount(1);
   await expect(page.locator('#batchInfo')).toContainText('2 files ready');
-  expect(forced).toEqual(['force']);
+  expect(forced).toEqual(['lfs']);
   expect(blobs).toEqual([]);
   await page.locator('#batchCommitBtn').click();
   await expect(page.locator('#uploadQueue .done')).toHaveCount(3);
@@ -424,14 +489,14 @@ test('a failed approved LFS upload retries without another mode conversion or pr
       : { json: { ...GOOD, strategy: 'lfs' } });
   });
   await page.locator('#uploadMode [data-v="batch"]').click();
-  await page.locator('#forceLfs').check();
+  await chooseTransport(page, 'lfs');
   await selectFiles(page, ['one.txt']);
-  await expect(page.locator('#modalTitle')).toHaveText('Force LFS uses separate commits');
+  await expect(page.locator('#modalTitle')).toHaveText('Git LFS uses separate commits');
   await page.locator('#modalOk').click();
   await expect(page.locator('#modalTitle')).toHaveText("1 of 1 didn't upload");
   await page.locator('#modalOk').click();
   await expect(page.locator('#uploadQueue .done')).toHaveCount(1);
-  expect(requests.map(r => r.lfs)).toEqual(['force', 'force']);
+  expect(requests.map(r => r.lfs)).toEqual(['lfs', 'lfs']);
   expect(requests.map(r => r.path)).toEqual(['one.txt', 'one.txt']);
   await expect(page.locator('#scrim')).toBeHidden();
   await expect(page.locator('#batchBar')).toBeHidden();
@@ -455,23 +520,23 @@ test('ZIP extraction also requires approval before forced LFS uses separate comm
     requests.push(Object.fromEntries(new URL(route.request().url()).searchParams));
     return route.fulfill({ json: { ...GOOD, strategy: 'lfs' } });
   });
-  await page.locator('#forceLfs').check();
+  await chooseTransport(page, 'lfs');
   await page.locator('#filePicker').setInputFiles({ name: 'files.zip', mimeType: 'application/zip', buffer });
   await expect(page.locator('#modalTitle')).toHaveText('Zip archive');
   await page.locator('#modalOk').click();
-  await expect(page.locator('#modalTitle')).toHaveText('Force LFS uses separate commits');
+  await expect(page.locator('#modalTitle')).toHaveText('Git LFS uses separate commits');
   expect(requests).toEqual([]);
   await page.locator('#modalOk').click();
   await expect(page.locator('#uploadQueue .done')).toHaveCount(2);
   expect(requests.map(r => r.path)).toEqual(['alpha/one.txt', 'beta/two.txt']);
-  expect(requests.map(r => r.lfs)).toEqual(['force', 'force']);
+  expect(requests.map(r => r.lfs)).toEqual(['lfs', 'lfs']);
   await expect(page.locator('#batchBar')).toBeHidden();
 });
 
 test('an unapproved forced-batch entry is refused before any raw blob is queued', async ({ page }) => {
   await openUploads(page);
   await page.locator('#uploadMode [data-v="batch"]').click();
-  await page.locator('#forceLfs').check();
+  await chooseTransport(page, 'lfs');
   // Exercise the per-file boundary too: a future caller must not bypass consent.
   const outcome = await page.evaluate(async () => {
     const result = await window.uploadOne(new File(['fixture'], 'one.txt'), 'one.txt');

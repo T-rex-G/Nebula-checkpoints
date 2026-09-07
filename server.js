@@ -99,6 +99,7 @@ const { PRODUCT_NAME, APP_VERSION, ASSET_VERSION } = require('./src/version');
 const { computeReleaseFingerprint } = require('./src/release-fingerprint');
 const { assetStampFor } = require('./src/asset-stamp');
 const OFFLINE_CACHE_POLICY = require('./public/offline-cache-policy');
+const { normalizeTransportChoice, planUploadTransport } = require('./public/upload-planning');
 // ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
 // An embedded build-time digest would be circular and could attest different bytes.
 const RELEASE_TREE_SHA256 = computeReleaseFingerprint(__dirname);
@@ -3237,7 +3238,11 @@ app.get('/api/config', (req, res) => res.json({
   githubApp: { enabled: !!GITHUB_APP_CONFIG.enabled, webhookConfigured: !!GITHUB_APP_CONFIG.webhookConfigured },
   uploadMaxMb: UPLOAD_MAX_MB,
   gitDataMaxMb: GIT_DATA_MAX_MB,
-  nativePushMaxMb: NATIVE_PUSH_MAX_MB
+  nativePushMaxMb: NATIVE_PUSH_MAX_MB,
+  /* The boundary above which an upload leaves the blob API for a native push.
+   * Published because the browser labels queued files against it; a copy
+   * written into the browser would be a second source of truth. */
+  contentsMaxMb: CONTENTS_MAX / MB
 }));
 app.get('/api/capabilities', (req, res) => {
   const provider = ['github', 'gitlab', 'gitea'].includes(req.query.provider)
@@ -5292,7 +5297,13 @@ app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepository
   const { owner, repo } = req.params;
   let p = req.query.path, branch = req.query.branch;
   const message = req.query.message || `Upload ${p} via ${PRODUCT_NAME}`;
-  const lfsMode = req.query.lfs || 'auto';
+  /*
+   * auto | git | lfs. It was auto|force, which offered one direction only: a
+   * reader could insist on Git LFS and could never insist on ordinary Git,
+   * because the size rule settled that. An 80 MB video that pushes perfectly
+   * well through Git had no way to be pushed that way.
+   */
+  const transportChoice = normalizeTransportChoice(req.query.lfs);
   const expectedHeadSha = String(req.query.expectedHeadSha || '');
   if (!p || !branch) return res.status(400).json({ error: 'path and branch required' });
   try { p = requireRepoPath(p); branch = requireBranchName(branch); }
@@ -5306,11 +5317,26 @@ app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepository
     const size = await receiveRawFile(req, tmp, UPLOAD_MAX, hash);
     const oid = hash.digest('hex');
     const securityScan = await scanUploadOrThrow(req, tmp, p, size);
+    /*
+     * One decision, made once, for every provider: what the reader asked for,
+     * what this deployment can carry, and -- when those differ -- which
+     * transport is used instead and why. The browser labels a queued file with
+     * this same function, so what is shown and what happens cannot drift.
+     */
+    const plan = planUploadTransport({
+      size,
+      requested: transportChoice,
+      lfsAvailable: (req.gh.provider || 'github') === 'github',
+      gitPushMaxBytes: GIT_PUSH_MAX,
+      gitDataMaxBytes: CONTENTS_MAX
+    });
+    if (plan.refusal) throw Object.assign(new Error(plan.refusal.message), { status: plan.refusal.status });
+    /* Reported on every upload, so a transport swap is never silent. */
+    const transport = { requested: plan.requested, fallback: plan.fallback };
     if (req.gh.provider === 'gitlab') {
-      if (size > GIT_PUSH_MAX) { const e2 = new Error(`Files over ${NATIVE_PUSH_MAX_MB} MB require Git LFS on this deployment, which is GitHub-only for now`); e2.status = 413; throw e2; }
-      if (size > CONTENTS_MAX) {
+      if (plan.route === 'git-push') {
         const result2 = await uploadViaGitPush(req.gh, owner, repo, branch, p, tmp, message, expectedHeadSha);
-        res.json({ ok: true, size, commit: result2.commit, strategy: 'git-push', securityScan });
+        res.json({ ok: true, size, commit: result2.commit, strategy: 'git-push', transport, securityScan });
         return;
       }
       const b64gl = (await fsp.readFile(tmp)).toString('base64');
@@ -5327,14 +5353,12 @@ app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepository
         }
       });
       const lastGl = await glLastCommit(req.gh, idGl, branch);
-      res.json({ ok: true, size, commit: lastGl || 'committed', strategy: 'gitlab-files', securityScan });
+      res.json({ ok: true, size, commit: lastGl || 'committed', strategy: 'gitlab-files', transport, securityScan });
       return;
     }
-    if (req.gh.provider === 'gitea' && size > GIT_PUSH_MAX) { const eg = new Error(`Files over ${NATIVE_PUSH_MAX_MB} MB require Git LFS on this deployment, which is GitHub-only for now`); eg.status = 413; throw eg; }
-    const useLfs = (lfsMode === 'force' || size > GIT_PUSH_MAX) && (req.gh.provider || 'github') === 'github';
     let result;
-    if (useLfs) { enforceProtectedPaths(req, [p, '.gitattributes']); result = await uploadViaLFS(req.gh, owner, repo, branch, p, tmp, oid, size, message, expectedHeadSha); result.strategy = 'lfs'; }
-    else if (size > CONTENTS_MAX) {
+    if (plan.route === 'lfs') { enforceProtectedPaths(req, [p, '.gitattributes']); result = await uploadViaLFS(req.gh, owner, repo, branch, p, tmp, oid, size, message, expectedHeadSha); result.strategy = 'lfs'; }
+    else if (plan.route === 'git-push') {
       try {
         result = await uploadViaGitPush(req.gh, owner, repo, branch, p, tmp, message, expectedHeadSha);
         result.strategy = 'git-push';
@@ -5349,12 +5373,18 @@ app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepository
             enforceProtectedPaths(req, [p, '.gitattributes']);
             result = await uploadViaLFS(req.gh, owner, repo, branch, p, tmp, oid, size, message, expectedHeadSha);
             result.strategy = 'lfs (auto-fallback)';
+            /* The plan said Git and the provider disagreed at run time. That is
+             * still a swap, so it is still reported. */
+            transport.fallback = transport.fallback || Object.freeze({
+              from: 'git', to: 'lfs',
+              reason: 'the provider refused the object as too large for an ordinary Git push'
+            });
           } else throw e;
         }
       }
     }
     else { result = await uploadViaBlob(req.gh, owner, repo, branch, p, tmp, message, expectedHeadSha); result.strategy = 'git-data-api'; }
-    res.json({ ok: true, size, ...result, securityScan });
+    res.json({ ok: true, size, ...result, transport, securityScan });
   } catch (e) { fail(res, e); }
   finally { release(); fsp.unlink(tmp).catch(() => {}); }
 });

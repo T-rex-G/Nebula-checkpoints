@@ -17,7 +17,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { loadHostedAlphaLimits } = require('../src/hosted-readiness');
+const { loadHostedAlphaLimits, hostedAlphaLimitBounds } = require('../src/hosted-readiness');
 const { ENTRIES } = require('../src/config-registry');
 
 const root = path.join(__dirname, '..');
@@ -28,47 +28,48 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
  * accepts rather than by re-reading its table. A copy of the numbers here would
  * be the same second source of truth that caused this.
  */
-const ceilings = loadHostedAlphaLimits({});
-const KEYS = Object.freeze({
-  eventRetentionDays: 'NV_EVENT_RETENTION_DAYS',
-  sessionRetentionDays: 'NV_SESSION_RETENTION_DAYS',
-  liveClientsPerRepo: 'NV_LIVE_CLIENTS_PER_REPO',
-  liveClientsTotal: 'NV_LIVE_CLIENTS_TOTAL',
-  snapshotRetentionCount: 'NV_SNAPSHOT_RETENTION_COUNT',
-  snapshotManifestMax: 'NV_SNAPSHOT_MANIFEST_MAX',
-  gitDataMaxMb: 'NV_GIT_DATA_MAX_MB',
-  nativePushMaxMb: 'NV_NATIVE_PUSH_MAX_MB',
-  uploadMaxMb: 'NV_UPLOAD_MAX_MB',
-  uploadConcurrency: 'NV_UPLOAD_CONCURRENCY',
-  uploadTimeoutMinutes: 'NV_UPLOAD_TIMEOUT_MINUTES',
-  staleUploadHours: 'NV_STALE_UPLOAD_HOURS'
-});
-
-/* The property list is derived too, so a limit added later cannot slip past. */
-assert.deepStrictEqual(Object.keys(ceilings).sort(), Object.keys(KEYS).sort(),
-  'a hosted limit exists that this guard does not know the environment name of');
+const bounds = hostedAlphaLimitBounds();
+const defaults = loadHostedAlphaLimits({});
 
 /*
- * The ceiling is the default, which is the whole trap: a limit can be lowered
- * and never raised. If that ever stops being true the warning below is wrong
- * and must be rewritten, so it fails here rather than misleading a reader.
+ * Nothing is enumerated here. A limit added to the table is covered the moment
+ * it exists, which is the only way this stays true without being maintained.
  */
-for (const [property, key] of Object.entries(KEYS)) {
-  const ceiling = ceilings[property];
-  assert(Number.isSafeInteger(ceiling) && ceiling >= 1, `${key} has no usable ceiling`);
-  assert.throws(() => loadHostedAlphaLimits({ [key]: String(ceiling + 1) }),
-    error => error instanceof RangeError && error.message.includes(key),
-    `${key} must refuse a value above its ceiling, naming itself`);
-  assert.doesNotThrow(() => loadHostedAlphaLimits({ [key]: String(ceiling) }),
-    `${key} must accept its own ceiling`);
-  assert.throws(() => loadHostedAlphaLimits({ [key]: '0' }), RangeError, `${key} must refuse zero`);
-}
+assert(bounds.length >= 12, `expected the hosted profile to bound many limits, found ${bounds.length}`);
+assert.deepStrictEqual(bounds.map(b => b.property).sort(), Object.keys(defaults).sort(),
+  'the exported bounds and the loaded limits disagree about which limits exist');
 
 /*
- * Every documented default is checked against the ceiling that would actually
- * be enforced. This is the assertion that would have caught the defect: eleven
- * of the twelve documented defaults are refused by the hosted profile, and the
- * README must warn about that rather than presenting them as safe values.
+ * The contract each limit keeps. The default must be reachable and the maximum
+ * must be higher than it, or the limit cannot be raised -- which is the defect
+ * this file exists for. Above the maximum the profile refuses and names itself,
+ * so the reason reaches the deploy log instead of a bare stack trace.
+ */
+let raisable = 0;
+for (const { property, key, fallback, maximum } of bounds) {
+  assert.strictEqual(defaults[property], fallback, `${key} does not default to its declared fallback`);
+  assert(Number.isSafeInteger(maximum) && maximum >= fallback,
+    `${key} has a maximum below its own default`);
+  if (maximum > fallback) raisable += 1;
+
+  assert.doesNotThrow(() => loadHostedAlphaLimits({ [key]: String(maximum) }),
+    `${key} must accept its own maximum`);
+  assert.strictEqual(loadHostedAlphaLimits({ [key]: String(maximum) })[property], maximum,
+    `${key} must honour a raised value rather than clamping it back`);
+  assert.throws(() => loadHostedAlphaLimits({ [key]: String(maximum + 1) }),
+    error => error instanceof RangeError && error.message.includes(key),
+    `${key} must refuse a value above its maximum, naming itself`);
+  assert.throws(() => loadHostedAlphaLimits({ [key]: '0' }), RangeError, `${key} must refuse zero`);
+  assert.throws(() => loadHostedAlphaLimits({ [key]: '1.5' }), TypeError, `${key} must refuse a fraction`);
+}
+assert.strictEqual(raisable, bounds.length,
+  'every hosted limit must be raisable; one whose maximum equals its default can only be lowered');
+
+/*
+ * The assertion that makes the documentation safe to follow: every value the
+ * README prints for these limits must be one the hosted profile accepts. It
+ * printed "default 2,048" for an upload ceiling that refused anything over 25,
+ * and the reader who followed it took the service down on the next deploy.
  */
 const readme = read('README.md');
 const documented = new Map();
@@ -76,17 +77,16 @@ for (const match of readme.matchAll(/^\| `(NV_[A-Z_]+)` \| Optional \| ([^|]+)\|
   const stated = /default ([\d,]+)/.exec(match[2]);
   if (stated) documented.set(match[1], Number(stated[1].replace(/,/g, '')));
 }
-const names = new Set(Object.values(KEYS));
+const names = new Set(bounds.map(b => b.key));
 const covered = [...documented.keys()].filter(key => names.has(key));
 assert.strictEqual(covered.length, names.size,
   `README documents ${covered.length} of the ${names.size} bounded limits; every one needs a row`);
 
-const aboveCeiling = [];
-for (const [property, key] of Object.entries(KEYS)) {
-  if (documented.get(key) > ceilings[property]) aboveCeiling.push(key);
+for (const { key } of bounds) {
+  const value = documented.get(key);
+  assert.doesNotThrow(() => loadHostedAlphaLimits({ [key]: String(value) }),
+    `the README prints ${key} default ${value}, which the hosted profile refuses`);
 }
-assert(aboveCeiling.length > 0,
-  'no documented default exceeds a hosted ceiling any more -- rewrite the README warning, it is now false');
 
 /*
  * The warning has to be adjacent to the table it qualifies. A true sentence
@@ -96,11 +96,12 @@ assert(aboveCeiling.length > 0,
 const tableStart = readme.indexOf('| `NV_EVENT_RETENTION_DAYS` |');
 assert(tableStart > 0, 'the bounded-limit table has moved');
 const preamble = readme.slice(Math.max(0, tableStart - 1200), tableStart);
-for (const required of [/hosted profile/i, /refused at startup|refused at start/i, /self-hosted default/i]) {
+for (const required of [/hosted profile/i, /refused at startup/i, /maximum/i, /default/i]) {
   assert(required.test(preamble),
     `the limits table needs a warning matching ${required} immediately above it`);
 }
-assert(/only be lowered/i.test(preamble), 'the warning must say the direction the cap allows');
+assert(!/only be lowered/i.test(preamble),
+  'the warning still says a hosted limit can only be lowered; it can be raised to the maximum now');
 
 /*
  * And the registry may not tell an operator the variable is ignored. It is
@@ -118,12 +119,11 @@ assert(/refus|caps? it lower|startup/i.test(upload.summary),
  * value it prints must be one the hosted profile accepts.
  */
 const runbook = read('docs/operations/DEPLOY_RENDER_NEON.md');
-for (const [property, key] of Object.entries(KEYS)) {
+for (const { key } of bounds) {
   const stated = new RegExp(`^${key}=(\\d+)$`, 'm').exec(runbook);
   if (!stated) continue;
-  const value = Number(stated[1]);
-  assert.doesNotThrow(() => loadHostedAlphaLimits({ [key]: String(value) }),
-    `the runbook tells an operator to set ${key}=${value}, which the hosted profile refuses`);
+  assert.doesNotThrow(() => loadHostedAlphaLimits({ [key]: stated[1] }),
+    `the runbook tells an operator to set ${key}=${stated[1]}, which the hosted profile refuses`);
 }
 
-console.log(`hosted limit documentation tests passed (${names.size} limits, ${aboveCeiling.length} documented defaults above their ceiling)`);
+console.log(`hosted limit documentation tests passed (${bounds.length} limits, all raisable, every documented value accepted)`);

@@ -161,13 +161,38 @@ The setup credential's shape is checked in the browser before it is sent. The
 server counts five invalid attempts and then locks setup for fifteen minutes;
 spending one of those on a typo is a real cost.
 
-Two limits are worth stating plainly. The card sits on the login screen, which
-is behind the invitation gate, so an owner on an `invite` deployment still
-redeems an invitation before reaching it -- moving the entry point in front of
-that gate is a deliberate decision about the deployment's front door, not part
-of this slice. And connection binding and selection have routes but no controls
-yet; a claimed owner has a workspace and a verified login identity, and Change B
-is where connections are adopted operationally.
+### Reaching it past the invitation gate
+
+`alpha-ui.js` raises the invitation gate over every screen whenever the mode is
+not `off` and no cohort session exists, so on an `invite` deployment an owner
+never reaches the login page. The card is therefore hosted on whichever screen
+is showing -- one element moved between the two, not a second copy to drift.
+
+This widens no authorization. `/api/workspace` mounts ahead of
+`app.use('/api', alphaAccessBoundary)`, so these routes were always outside the
+invitation boundary; only the client was failing to offer the entry point that
+the server already accepted.
+
+The card carries its own provider, server URL and token fields. Reading the
+login page's inputs was tried first and is wrong twice over: the gate covers
+that page, so the card would read fields its own reader cannot see, and owner
+sign-in is a different authentication path from the cohort login beside it --
+sharing one token box would make the credential in use depend on which button
+was pressed.
+
+What owner sign-in does **not** grant is stated on the card itself. Repository
+routes resolve their authority from `req.alpha`, the cohort session, at
+thirty-six call sites -- twenty of which read `testerId` for session ownership,
+privacy purge, webhook and evidence identity, and one of which enforces the
+invitation's repository allowlist. A workspace session is not that object and
+must not be made to impersonate one. So an owner who signs in has a workspace
+and a verified login identity, and the repository app is unchanged for them
+until Change B introduces the compatibility adapter that lets those call sites
+resolve either authority. The screen says so rather than leaving the next
+refusal unexplained.
+
+Connection binding and selection likewise have routes but no controls yet;
+Change B is where connections are adopted operationally.
 
 ## Recovery and rollback
 

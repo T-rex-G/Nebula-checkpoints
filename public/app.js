@@ -1152,7 +1152,6 @@ $('#provSeg').addEventListener('click', e => {
     gitea: 'Create one at <span class="mono">your Gitea → Settings → Applications → Generate token</span>. Enter your server URL above.'
   }[loginProvider] + ' Sealed in an encrypted httpOnly cookie — never stored in the browser, never logged.';
   ensureAlphaProviderGuidance();
-  renderWorkspaceCard();
 });
 
 /* ---------------- owner workspace ---------------- */
@@ -1164,10 +1163,42 @@ $('#provSeg').addEventListener('click', e => {
  */
 function workspaceInputs() {
   return {
-    provider: loginProvider,
-    baseUrl: ($('#baseUrl') ? $('#baseUrl').value : ''),
-    token: $('#tokenInput').value
+    provider: $('#workspaceProvider').value,
+    baseUrl: $('#workspaceBaseUrl').value,
+    token: $('#workspaceToken').value
   };
+}
+const WORKSPACE_TOKEN_LABEL = {
+  github: 'GitHub Personal Access Token',
+  gitlab: 'GitLab Personal Access Token (api scope)',
+  gitea: 'Gitea Access Token'
+};
+$('#workspaceProvider').addEventListener('change', () => {
+  const provider = $('#workspaceProvider').value;
+  /*
+   * Gitea has no hosted default, so its server URL is required rather than
+   * optional -- the server refuses a gitea request that resolves to no base.
+   */
+  $('#workspaceBaseUrlWrap').hidden = provider === 'github';
+  $('#workspaceBaseUrl').placeholder = provider === 'gitea'
+    ? 'https://gitea.example.com' : 'https://gitlab.com (default)';
+  $('#workspaceTokenLabel').textContent = WORKSPACE_TOKEN_LABEL[provider];
+});
+/*
+ * The invitation gate takes the whole screen, so an owner on an invite
+ * deployment never reaches the login page the card normally lives on. The card
+ * is hosted on whichever screen is showing rather than duplicated onto both:
+ * one element, one set of handlers, no second copy to drift.
+ *
+ * The workspace routes were always outside the invitation boundary on the
+ * server -- they mount ahead of it -- so hosting the card here widens no
+ * authorization. It only lets an owner reach an entry point that was already
+ * open to them.
+ */
+function workspaceCardHost() {
+  const gate = $('#page-alpha-access');
+  if (gate && gate.classList.contains('active')) return gate;
+  return document.querySelector('#page-login .login-wrap');
 }
 function renderWorkspaceCard() {
   const card = $('#workspaceCard');
@@ -1175,14 +1206,33 @@ function renderWorkspaceCard() {
   const ws = window.NebulaWorkspaceUI.current();
   card.hidden = ws.available !== true;
   if (card.hidden) return;
+  const host = workspaceCardHost();
+  const onGate = host === $('#page-alpha-access');
+  if (host && card.parentElement !== host) host.appendChild(card);
+  card.classList.toggle('workspace-card-gate', onGate);
+  $('#workspaceCardNote').textContent = onGate
+    ? 'Own this deployment? Sign in as the owner. No invitation is needed for this.'
+    : 'Sign in as the owner of this deployment using the provider and token above.';
   $('#workspaceSignedIn').hidden = !ws.authenticated;
   $('#workspaceSignedOut').hidden = ws.authenticated;
   $('#workspaceCardNote').hidden = ws.authenticated;
+  $('#workspaceCredentials').hidden = ws.authenticated;
   if (ws.authenticated && ws.context) {
     const connection = ws.context.connection;
     $('#workspaceIdentity').textContent = connection
       ? `Signed in as workspace owner, using ${connection.login} on ${connection.provider}.`
       : 'Signed in as workspace owner. No Git connection is selected yet.';
+    /*
+     * Stated only where it is the reader's immediate problem. On the gate they
+     * have just signed in and are looking at a screen that still asks for an
+     * invitation, and the honest answer is that repository routes have not
+     * adopted workspace authority yet.
+     */
+    const note = $('#workspaceScopeNote');
+    note.hidden = !onGate;
+    note.textContent = onGate
+      ? 'Ownership is established and your workspace exists. Repository access still resolves through the invitation, so it is unchanged by this sign-in.'
+      : '';
   }
 }
 function showWorkspaceError(error) {
@@ -1206,8 +1256,9 @@ async function workspaceAttempt(button, working, run) {
   button.textContent = working;
   try {
     await run();
-    /* The token was only ever a function argument; clear the field it came from. */
+    /* Both were only ever function arguments; clear the fields they came from. */
     $('#workspaceSetupSecret').value = '';
+    $('#workspaceToken').value = '';
     renderWorkspaceCard();
   } catch (error) {
     showWorkspaceError(error);
@@ -5608,6 +5659,12 @@ window.addEventListener('nebula:alpha-access-gated', () => {
   paintRail('alpha-access');
   paintFloatingAction('alpha-access');
   closeNavMenu();
+  /*
+   * The gate is where an owner on an invite deployment actually lands, so the
+   * card has to be offered here too -- otherwise the only route to owner setup
+   * is a screen the gate never lets them see.
+   */
+  initWorkspaceCard();
 });
 window.NebulaAlphaUI.boot().then(result => {
   if (result.allowed) startAuthorizedApp();

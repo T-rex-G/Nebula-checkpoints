@@ -138,15 +138,42 @@
     </div>
     <!--
       Owner workspace. Hidden until the server says the foundation is enabled,
-      so a deployment without it looks exactly as it did before. The provider,
-      server URL and token above are the same three answers this needs, so it
-      reads them rather than asking twice on one screen.
+      so a deployment without it looks exactly as it did before.
+
+      Self-contained on purpose. The card is hosted on the invitation gate as
+      well as here, and the gate covers this screen entirely -- a card that read
+      the login page's provider and token fields would be reading inputs its own
+      reader cannot see. It is also a different authentication path from the
+      cohort login beside it, and sharing one token box between the two would
+      make which credential is being used depend on which button is pressed.
     -->
     <section class="card login-card workspace-card" id="workspaceCard" hidden aria-labelledby="workspaceCardTitle">
       <h2 class="workspace-card-title" id="workspaceCardTitle">Owner workspace</h2>
-      <p class="workspace-card-note" id="workspaceCardNote">Sign in as the owner of this deployment using the provider and token above.</p>
+      <p class="workspace-card-note" id="workspaceCardNote">Sign in as the owner of this deployment.</p>
+      <div class="workspace-credentials" id="workspaceCredentials">
+        <label class="field-label" for="workspaceProvider">Provider</label>
+        <select id="workspaceProvider">
+          <option value="github" selected>GitHub</option>
+          <option value="gitlab">GitLab</option>
+          <option value="gitea">Gitea</option>
+        </select>
+        <div id="workspaceBaseUrlWrap" hidden>
+          <label class="field-label" for="workspaceBaseUrl">Server URL</label>
+          <input id="workspaceBaseUrl" type="url" placeholder="https://gitlab.com (default)" autocomplete="off" spellcheck="false">
+        </div>
+        <label class="field-label" for="workspaceToken" id="workspaceTokenLabel">GitHub Personal Access Token</label>
+        <input id="workspaceToken" type="password" autocomplete="off" spellcheck="false">
+      </div>
       <div class="workspace-signed-in" id="workspaceSignedIn" hidden>
         <p class="workspace-identity" id="workspaceIdentity"></p>
+        <!--
+          What owning a workspace does and does not yet buy. Repository routes
+          still resolve their authority from the cohort session, so an owner on
+          an invitation deployment is not admitted to them by this sign-in.
+          Saying so here is cheaper than letting the next screen refuse without
+          explanation.
+        -->
+        <p class="workspace-scope-note" id="workspaceScopeNote" hidden></p>
         <button class="btn btn-ghost btn-block" id="workspaceSignOutBtn">Sign out of the workspace</button>
       </div>
       <div class="workspace-signed-out" id="workspaceSignedOut">

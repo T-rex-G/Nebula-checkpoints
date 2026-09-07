@@ -107,7 +107,7 @@ test('claiming ownership reports the owner session it actually established', asy
   });
   await openLoginScreen(page);
 
-  await page.locator('#tokenInput').fill('ghp_example_token');
+  await page.locator('#workspaceToken').fill('ghp_example_token');
   await page.locator('#workspaceClaimToggle').click();
   await page.locator('#workspaceSetupSecret').fill('a'.repeat(43));
   await page.locator('#workspaceClaimBtn').click();
@@ -133,7 +133,7 @@ test('a refused claim explains itself and does not present an owner session', as
   });
   await openLoginScreen(page);
 
-  await page.locator('#tokenInput').fill('ghp_example_token');
+  await page.locator('#workspaceToken').fill('ghp_example_token');
   await page.locator('#workspaceClaimToggle').click();
   await page.locator('#workspaceSetupSecret').fill('b'.repeat(43));
   await page.locator('#workspaceClaimBtn').click();
@@ -152,4 +152,82 @@ test('a refused claim explains itself and does not present an owner session', as
   /* The button must return to service rather than staying in its working state. */
   await expect(page.locator('#workspaceClaimBtn')).toBeEnabled();
   await expect(page.locator('#workspaceClaimBtn')).toHaveText('Claim ownership');
+});
+
+/*
+ * The gate. An owner on an `invite` deployment never reaches the login screen:
+ * alpha-ui's boot() raises the invitation gate over everything whenever the
+ * mode is not `off` and no cohort session exists. Without an entry point here,
+ * owner setup is unreachable on exactly the deployment it was built for.
+ *
+ * The server side needs nothing: /api/workspace mounts ahead of
+ * app.use('/api', alphaAccessBoundary), so these routes were always outside
+ * the invitation boundary. This is the client catching up to that.
+ */
+async function openInvitationGate(page) {
+  await page.goto('/');
+  await page.locator('#page-alpha-access.active').waitFor();
+}
+
+test('the gate offers owner setup without an invitation', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'required' });
+  await mockWorkspaceApi(page, { '/session': SESSION_OUT });
+  await openInvitationGate(page);
+
+  const card = page.locator('#workspaceCard');
+  await expect(card).toBeVisible();
+  /* Hosted on the gate itself, not left behind on a screen the gate covers. */
+  await expect(page.locator('#page-alpha-access #workspaceCard')).toBeVisible();
+  await expect(card).toContainText('No invitation is needed');
+
+  /* The invitation route is untouched and still the primary path. */
+  await expect(page.locator('#alphaInviteInput')).toBeVisible();
+  await expect(page.locator('#alphaRedeemBtn')).toBeVisible();
+});
+
+test('the gate is unchanged when the foundation is switched off', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'required' });
+  /* Unmocked: the real server has no DATABASE_URL, so the router answers 404. */
+  await openInvitationGate(page);
+
+  await expect(page.locator('#workspaceCard')).toBeHidden();
+  await expect(page.locator('#alphaInviteInput')).toBeVisible();
+  const probed = await page.evaluate(() => window.NebulaWorkspaceUI.current());
+  expect(probed.available).toBe(false);
+});
+
+test('an owner who signs in at the gate is told what it does not grant', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'required' });
+  await mockWorkspaceApi(page, {
+    '/session': SESSION_OUT,
+    '/sign-in': {
+      status: 200,
+      json: {
+        authenticated: true, csrfToken: 'test-csrf-2',
+        context: {
+          principalId: 'p1', workspaceId: 'w1', role: 'owner',
+          connection: { id: 'c1', provider: 'github', instance: 'https://github.com', providerUserId: '42', login: 'owner-login' }
+        }
+      }
+    }
+  });
+  await openInvitationGate(page);
+
+  await page.locator('#workspaceToken').fill('ghp_example_token');
+  await page.locator('#workspaceSignInBtn').click();
+
+  await expect(page.locator('#workspaceIdentity')).toContainText('owner-login');
+  /*
+   * The claim that would be false is the tempting one: that signing in as the
+   * owner admits them to the repository app. It does not -- repository routes
+   * still resolve authority from the cohort session -- and the screen has to
+   * say so rather than leave the next refusal unexplained.
+   */
+  const note = page.locator('#workspaceScopeNote');
+  await expect(note).toBeVisible();
+  await expect(note).toContainText('Repository access still resolves through the invitation');
+
+  /* And it must not have let itself past the gate. */
+  await expect(page.locator('#page-alpha-access.active')).toBeVisible();
+  await expect(page.locator('#alphaInviteInput')).toBeVisible();
 });

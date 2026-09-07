@@ -294,6 +294,18 @@ em{color:var(--teal);font-style:normal}
 .login-error{margin-top:12px;padding:10px 14px;border-radius:10px;font-size:.85rem;
   color:var(--red);background:rgba(244,63,110,0.08);border:1px solid rgba(244,63,110,0.28)}
 
+/*
+ * Owner workspace card. A grid rather than a block: its children carry no
+ * margins of their own, which is the same density defect the governance
+ * delivery cards had -- heading against sentence against button, all at 0px.
+ */
+.workspace-card{display:grid;gap:12px;margin-top:16px}
+.workspace-card-title{font-size:.95rem;font-weight:600;margin:0}
+.workspace-card-note{font-size:.8rem;color:var(--muted);margin:0;line-height:1.55}
+.workspace-signed-in,.workspace-signed-out,#workspaceClaimFields{display:grid;gap:10px}
+.workspace-identity{font-size:.85rem;color:var(--text2);margin:0;line-height:1.55}
+.workspace-claim-toggle{font-size:.8rem}
+
 /* ---------------- topbar ---------------- */
 .topbar{position:fixed;top:calc(6px + env(safe-area-inset-top));left:12px;right:12px;margin:0;z-index:50;background:var(--shell);
   display:flex;align-items:center;justify-content:space-between;gap:8px;

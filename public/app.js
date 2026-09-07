@@ -660,6 +660,12 @@ function showPage(name) {
   _page = name;
   paintRail(name);
   /*
+   * Probed on arrival rather than at startup: the answer decides whether a
+   * card on this screen exists at all, and asking earlier would spend a
+   * request on every load of a deployment that never shows it.
+   */
+  if (name === 'login') initWorkspaceCard();
+  /*
    * Mounted here rather than by each caller. Six paths reach these screens,
    * and a mount attached to one of them would leave the artwork missing from
    * the other five -- the same defect the rail carried when its repaint lived
@@ -1146,7 +1152,96 @@ $('#provSeg').addEventListener('click', e => {
     gitea: 'Create one at <span class="mono">your Gitea → Settings → Applications → Generate token</span>. Enter your server URL above.'
   }[loginProvider] + ' Sealed in an encrypted httpOnly cookie — never stored in the browser, never logged.';
   ensureAlphaProviderGuidance();
+  renderWorkspaceCard();
 });
+
+/* ---------------- owner workspace ---------------- */
+/*
+ * The card is the only way in to the personal-workspace foundation. It stays
+ * hidden unless the server reports the foundation enabled, so a deployment
+ * with it switched off -- which is every deployment today -- shows exactly the
+ * login screen it showed before.
+ */
+function workspaceInputs() {
+  return {
+    provider: loginProvider,
+    baseUrl: ($('#baseUrl') ? $('#baseUrl').value : ''),
+    token: $('#tokenInput').value
+  };
+}
+function renderWorkspaceCard() {
+  const card = $('#workspaceCard');
+  if (!card || !window.NebulaWorkspaceUI) return;
+  const ws = window.NebulaWorkspaceUI.current();
+  card.hidden = ws.available !== true;
+  if (card.hidden) return;
+  $('#workspaceSignedIn').hidden = !ws.authenticated;
+  $('#workspaceSignedOut').hidden = ws.authenticated;
+  $('#workspaceCardNote').hidden = ws.authenticated;
+  if (ws.authenticated && ws.context) {
+    const connection = ws.context.connection;
+    $('#workspaceIdentity').textContent = connection
+      ? `Signed in as workspace owner, using ${connection.login} on ${connection.provider}.`
+      : 'Signed in as workspace owner. No Git connection is selected yet.';
+  }
+}
+function showWorkspaceError(error) {
+  const box = $('#workspaceError');
+  if (!box) return;
+  /*
+   * The module already turns a code into a sentence. Anything without one is
+   * a transport fault, and is reported as such rather than as a refusal --
+   * the two mean very different things to whoever is reading the screen.
+   */
+  box.textContent = error && error.code
+    ? window.NebulaWorkspaceUI.explain(error.code)
+    : 'The workspace service could not be reached. Nothing was changed.';
+  box.hidden = false;
+}
+async function workspaceAttempt(button, working, run) {
+  const box = $('#workspaceError');
+  if (box) box.hidden = true;
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = working;
+  try {
+    await run();
+    /* The token was only ever a function argument; clear the field it came from. */
+    $('#workspaceSetupSecret').value = '';
+    renderWorkspaceCard();
+  } catch (error) {
+    showWorkspaceError(error);
+    renderWorkspaceCard();
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+async function initWorkspaceCard() {
+  if (!window.NebulaWorkspaceUI) return;
+  await window.NebulaWorkspaceUI.probe();
+  renderWorkspaceCard();
+}
+$('#workspaceClaimToggle').addEventListener('click', () => {
+  const fields = $('#workspaceClaimFields');
+  const open = fields.hidden;
+  fields.hidden = !open;
+  $('#workspaceClaimToggle').setAttribute('aria-expanded', String(open));
+  if (open) $('#workspaceSetupSecret').focus();
+});
+$('#workspaceSignInBtn').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceSignInBtn'), 'Signing in…',
+  () => window.NebulaWorkspaceUI.signIn(workspaceInputs())
+));
+$('#workspaceClaimBtn').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceClaimBtn'), 'Claiming…',
+  () => window.NebulaWorkspaceUI.claim({ ...workspaceInputs(), setupSecret: $('#workspaceSetupSecret').value })
+));
+$('#workspaceSignOutBtn').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceSignOutBtn'), 'Signing out…',
+  () => window.NebulaWorkspaceUI.signOut()
+));
+
 const PROV_ICON = {
   github: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>',
   gitlab: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>',

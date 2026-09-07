@@ -132,6 +132,43 @@ claim transaction; provider verification uses the existing bounded timeout.
 Two concurrent claims cannot overwrite the owner, and a failure rolls back the
 principal, login identity, workspace, claim and session together.
 
+## The owner entry point
+
+`public/workspace-ui.js` is the browser transport for the routes above, and the
+owner card on the login screen is the only way a person reaches them.
+
+It is deliberately not `app.js`'s `api()`. That client carries the alpha
+session's CSRF token; this router issues its own, bound to the challenge cookie
+before an owner exists and to the workspace session afterwards. Sending one
+where the other is expected fails closed -- correct, but unexplainable to
+whoever is reading the screen. Keeping the transports apart is what makes the
+boundary above real in the client rather than only on the server.
+
+Three behaviours are load-bearing and each is guarded:
+
+- **A 404 means switched off; a transport failure does not.** An unreachable
+  server resolves to unknown, never to disabled. Reporting "off" on a dropped
+  request would silently hide the card from an owner whose deployment has the
+  foundation enabled.
+- **The card is hidden unless the server says the foundation is on.** Every
+  deployment currently runs with `NV_WORKSPACE_FOUNDATION_ENABLED` unset, so the
+  login screen is unchanged from before this card existed.
+- **An expired challenge is recovered once.** The challenge lives five minutes
+  and a person reading setup instructions will routinely take longer, so a stale
+  one is the expected case: re-probe and replay a single time, then report.
+
+The setup credential's shape is checked in the browser before it is sent. The
+server counts five invalid attempts and then locks setup for fifteen minutes;
+spending one of those on a typo is a real cost.
+
+Two limits are worth stating plainly. The card sits on the login screen, which
+is behind the invitation gate, so an owner on an `invite` deployment still
+redeems an invitation before reaching it -- moving the entry point in front of
+that gate is a deliberate decision about the deployment's front door, not part
+of this slice. And connection binding and selection have routes but no controls
+yet; a claimed owner has a workspace and a verified login identity, and Change B
+is where connections are adopted operationally.
+
 ## Recovery and rollback
 
 First try a new provider token for the same verified user ID; a rename does not
@@ -182,7 +219,7 @@ Render deployment. The PostgreSQL gate must pass before this foundation is calle
 verified. Production smoke and owner UI usability are not claimed by these tests.
 
 Next: Change B consumes the verified context through an explicit session and
-cleanup compatibility adapter, adds owner setup/sign-in UI, and implements the
+cleanup compatibility adapter, builds on the owner setup/sign-in UI above, and implements the
 eligible GitHub create → open → ordinary verified commit workflow. It must keep
 provider permissions, mutation authorization, safety and experimental maturity
 honest. Other capabilities and the BYO-AI Companion follow in separate slices.

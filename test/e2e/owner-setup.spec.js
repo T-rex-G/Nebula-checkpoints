@@ -38,7 +38,8 @@ async function mockWorkspaceApi(page, handlers) {
     const key = url.pathname.replace('/api/workspace', '') || '/session';
     const reply = handlers[key];
     if (!reply) return route.fulfill({ status: 404, json: { code: 'WORKSPACE_ROUTE_NOT_FOUND' } });
-    const resolved = typeof reply === 'function' ? reply(route.request()) : reply;
+    const resolved = typeof reply === 'function' ? await reply(route.request()) : reply;
+    if (resolved.abort) return route.abort('failed');
     return route.fulfill({ status: resolved.status, json: resolved.json });
   });
 }
@@ -153,6 +154,53 @@ test('a refused claim explains itself and does not present an owner session', as
   await expect(page.locator('#workspaceClaimBtn')).toBeEnabled();
   await expect(page.locator('#workspaceClaimBtn')).toHaveText('Claim ownership');
 });
+
+for (const sessionReachable of [true, false]) {
+  test(`a lost setup reply keeps recovery visible when the session check ${sessionReachable ? 'succeeds' : 'fails'}`, async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'required' });
+    let committed = false;
+    let writes = 0;
+    await mockWorkspaceApi(page, {
+      '/session': () => {
+        if (!committed) return SESSION_OUT;
+        if (!sessionReachable) return { abort: true };
+        return { status: 200, json: {
+          authenticated: true, csrfToken: 'test-recovered-csrf',
+          context: { principalId: 'p1', workspaceId: 'w1', role: 'owner', connection: null }
+        } };
+      },
+      '/setup': () => {
+        writes += 1;
+        committed = true;
+        return { abort: true };
+      }
+    });
+    await openInvitationGate(page);
+    await page.locator('#workspaceToken').fill('ghp_example_token');
+    await page.locator('#workspaceClaimToggle').click();
+    await page.locator('#workspaceSetupSecret').fill('a'.repeat(43));
+    await page.locator('#workspaceClaimBtn').click();
+
+    const error = page.locator('#workspaceError');
+    await expect(error).toBeVisible();
+    await expect(error).toContainText('may have completed');
+    await expect(error).toContainText('signing in with the same provider account');
+    await expect(error).not.toContainText('Nothing was changed');
+    await expect(page.locator('#workspaceToken')).toHaveValue('');
+    await expect(page.locator('#workspaceSetupSecret')).toHaveValue('');
+    if (sessionReachable) {
+      await expect(page.locator('#workspaceSignedIn')).toBeVisible();
+      await expect(page.locator('#workspaceIdentity')).toContainText('Signed in as workspace owner');
+    } else {
+      await expect(page.locator('#workspaceSignedIn')).toBeHidden();
+      await expect(page.locator('#workspaceSignedOut')).toBeHidden();
+      await expect(page.locator('#workspaceCardNote')).toContainText('session status is unavailable');
+    }
+    expect(writes).toBe(1);
+    await expect(page.locator('#page-alpha-access.active')).toBeVisible();
+    await expect(page.locator('#alphaInviteInput')).toBeVisible();
+  });
+}
 
 /*
  * The gate. An owner on an `invite` deployment never reaches the login screen:

@@ -22,6 +22,7 @@
    */
   let state = { available: null, authenticated: false, context: null };
   let csrfToken = '';
+  let outcomeUnknown = false;
 
   const REASONS = {
     WORKSPACE_FOUNDATION_DISABLED: 'Owner workspaces are switched off for this deployment.',
@@ -38,7 +39,11 @@
     WORKSPACE_ORIGIN_REQUIRED: 'This request did not come from the application.',
     WORKSPACE_INPUT_INVALID: 'Something in that form was not accepted. Check the fields and try again.',
     WORKSPACE_ROUTE_NOT_FOUND: 'That workspace route does not exist.',
-    WORKSPACE_UNAVAILABLE: 'The workspace service could not complete the request. Nothing was changed.',
+    WORKSPACE_UNAVAILABLE: 'The workspace service is unavailable. Reload to check your session before trying again.',
+    WORKSPACE_OUTCOME_UNKNOWN: 'The request could not be confirmed and may have completed. Reload to check your session before trying again.',
+    WORKSPACE_SETUP_OUTCOME_UNKNOWN: 'Setup could not be confirmed and may have completed. If no owner session is shown, try signing in with the same provider account before claiming again.',
+    WORKSPACE_SIGN_IN_OUTCOME_UNKNOWN: 'Sign-in could not be confirmed and may have completed. Check the owner session shown here, or reload if its status is unavailable.',
+    WORKSPACE_SIGN_OUT_OUTCOME_UNKNOWN: 'Sign-out could not be confirmed and may have completed. Check your session before leaving this device; reload if its status is unavailable.',
     CSRF_REQUIRED: 'The page went stale. Reload and try again.',
     CSRF_INVALID: 'The page went stale. Reload and try again.',
     CSRF_EXPIRED: 'The page went stale. Reload and try again.'
@@ -59,7 +64,8 @@
     return Object.freeze({
       available: state.available,
       authenticated: state.authenticated,
-      context: state.context
+      context: state.context,
+      outcomeUnknown
     });
   }
 
@@ -73,6 +79,12 @@
     return snapshot();
   }
 
+  function isSession(payload) {
+    return payload && typeof payload.authenticated === 'boolean'
+      && typeof payload.csrfToken === 'string' && payload.csrfToken.length > 0
+      && (!payload.authenticated || (payload.context && typeof payload.context === 'object'));
+  }
+
   async function send(path, method, body) {
     const headers = { 'x-nv': '1' };
     if (body) headers['Content-Type'] = 'application/json';
@@ -84,7 +96,7 @@
       headers,
       body: body ? JSON.stringify(body) : undefined
     });
-    const payload = await response.json().catch(() => ({}));
+    const payload = await response.json();
     return { response, payload };
   }
 
@@ -94,6 +106,7 @@
    */
   async function probe() {
     let result;
+    csrfToken = '';
     try {
       result = await send('/session', 'GET');
     } catch {
@@ -106,11 +119,25 @@
       state = { available: false, authenticated: false, context: null };
       return snapshot();
     }
-    if (!result.response.ok) {
+    if (!result.response.ok || !isSession(result.payload)) {
       state = { available: null, authenticated: false, context: null };
       return snapshot();
     }
     return adopt(result.payload);
+  }
+
+  async function reconcileUnknown(path) {
+    outcomeUnknown = true;
+    /* A GET can recover the browser's current session even when the preceding
+     * POST committed but its reply was lost. It cannot prove an unreceived
+     * setup cookie means no owner was created, so never replay that POST. */
+    await probe();
+    const code = {
+      '/setup': 'WORKSPACE_SETUP_OUTCOME_UNKNOWN',
+      '/sign-in': 'WORKSPACE_SIGN_IN_OUTCOME_UNKNOWN',
+      '/sign-out': 'WORKSPACE_SIGN_OUT_OUTCOME_UNKNOWN'
+    }[path];
+    throw workspaceError(code || 'WORKSPACE_OUTCOME_UNKNOWN');
   }
 
   /*
@@ -122,14 +149,28 @@
   async function write(path, body, retry = true) {
     if (!csrfToken) await probe();
     if (state.available === false) throw workspaceError('WORKSPACE_FOUNDATION_DISABLED', 404);
-    const { response, payload } = await send(path, 'POST', body);
-    if (response.ok) return payload;
+    if (state.available !== true || !csrfToken) throw workspaceError('WORKSPACE_UNAVAILABLE');
+    let result;
+    try {
+      result = await send(path, 'POST', body);
+    } catch {
+      return reconcileUnknown(path);
+    }
+    const { response, payload } = result;
+    if (response.ok) {
+      const valid = path === '/sign-out' ? payload?.ok === true
+        : isSession(payload) && payload.authenticated;
+      if (!valid) return reconcileUnknown(path);
+      outcomeUnknown = false;
+      return payload;
+    }
     const code = String(payload && payload.code || '');
-    if (retry && CSRF_CODES.includes(code)) {
+    if (retry && response.status === 403 && CSRF_CODES.includes(code)) {
       csrfToken = '';
       await probe();
       return write(path, body, false);
     }
+    if (!Object.hasOwn(REASONS, code) || code === 'WORKSPACE_UNAVAILABLE') return reconcileUnknown(path);
     throw workspaceError(code || 'WORKSPACE_UNAVAILABLE', response.status);
   }
 
@@ -178,6 +219,7 @@
   /* Test seam only: the browser never needs to rewind module state. */
   function reset() {
     csrfToken = '';
+    outcomeUnknown = false;
     state = { available: null, authenticated: false, context: null };
   }
 

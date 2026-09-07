@@ -1210,19 +1210,21 @@ function renderWorkspaceCard() {
   const card = $('#workspaceCard');
   if (!card || !window.NebulaWorkspaceUI) return;
   const ws = window.NebulaWorkspaceUI.current();
-  card.hidden = ws.available !== true;
+  card.hidden = ws.available !== true && !ws.outcomeUnknown;
   if (card.hidden) return;
   const host = workspaceCardHost();
   const onGate = host === $('#page-alpha-access');
   if (host && card.parentElement !== host) host.appendChild(card);
   card.classList.toggle('workspace-card-gate', onGate);
-  $('#workspaceCardNote').textContent = onGate
+  const sessionUnavailable = ws.available !== true;
+  $('#workspaceCardNote').textContent = sessionUnavailable
+    ? 'Owner session status is unavailable. Reload to check again.' : onGate
     ? 'Own this deployment? Sign in as the owner. No invitation is needed for this.'
     : 'Sign in as the owner of this deployment using the provider and token above.';
   $('#workspaceSignedIn').hidden = !ws.authenticated;
-  $('#workspaceSignedOut').hidden = ws.authenticated;
+  $('#workspaceSignedOut').hidden = ws.authenticated || sessionUnavailable;
   $('#workspaceCardNote').hidden = ws.authenticated;
-  $('#workspaceCredentials').hidden = ws.authenticated;
+  $('#workspaceCredentials').hidden = ws.authenticated || sessionUnavailable;
   if (ws.authenticated && ws.context) {
     const connection = ws.context.connection;
     $('#workspaceIdentity').textContent = connection
@@ -1251,7 +1253,7 @@ function showWorkspaceError(error) {
    */
   box.textContent = error && error.code
     ? window.NebulaWorkspaceUI.explain(error.code)
-    : 'The workspace service could not be reached. Nothing was changed.';
+    : window.NebulaWorkspaceUI.explain('WORKSPACE_OUTCOME_UNKNOWN');
   box.hidden = false;
 }
 async function workspaceAttempt(button, working, run) {
@@ -1267,6 +1269,10 @@ async function workspaceAttempt(button, working, run) {
     $('#workspaceToken').value = '';
     renderWorkspaceCard();
   } catch (error) {
+    if (window.NebulaWorkspaceUI.current().outcomeUnknown) {
+      $('#workspaceSetupSecret').value = '';
+      $('#workspaceToken').value = '';
+    }
     showWorkspaceError(error);
     renderWorkspaceCard();
   } finally {

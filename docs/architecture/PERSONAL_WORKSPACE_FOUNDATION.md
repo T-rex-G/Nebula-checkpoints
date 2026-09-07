@@ -1,8 +1,10 @@
 # Personal workspace foundation — Change A
 
-Status: opt-in backend foundation. This change does not activate a new owner UI,
-enable repository creation, change any capability status, or change a live
-deployment. It is the first implementation slice of the BYO-AI workspace plan.
+Status: opt-in identity and ownership foundation with owner setup, sign-in and
+sign-out UI on the login screen and invitation gate. Repository operations still
+use the existing cohort authority; Change B connects them to owner workspaces.
+This is the first implementation slice of the BYO-AI workspace plan. The feature
+defaults off and requires explicit deployment configuration.
 
 ## Contract
 
@@ -62,8 +64,7 @@ cohort boundary.
 | Tester revocation/deletion and cleanup | Continue using existing ownership tables; new tables have no cascade from them |
 | New workspace logout/disconnect | Affect only that principal's foundation records, not a cohort session or provider account |
 
-This is intentionally an API foundation, not a claim that owner repository work
-is already unlocked. Before Change B lets workspace sessions consume legacy
+The API and owner entry UI establish ownership. Before Change B lets workspace sessions consume legacy
 resources, its compatibility adapter must account for every active owner and
 cohort binding during cleanup and revocation. A matching legacy hash alone is
 not permission to consume retained data or reuse another session's credential.
@@ -74,7 +75,7 @@ Disabled by default. No Render blueprint or live environment is changed.
 
 | Setting | Meaning |
 | --- | --- |
-| `NV_WORKSPACE_FOUNDATION_ENABLED=1` | Enables only the foundation API; requires `DATABASE_URL` |
+| `NV_WORKSPACE_FOUNDATION_ENABLED=1` | Enables the foundation API and its owner entry card; requires `DATABASE_URL` |
 | `NV_WORKSPACE_SETUP_SHA256` | Lowercase SHA-256 digest of a separately generated random setup credential |
 | `NV_WORKSPACE_SETUP_EXPIRES_AT` | Absolute UTC ISO timestamp, paired with the digest; no restart-relative deadline |
 
@@ -90,6 +91,15 @@ isolated PostgreSQL database, back up before any live migration, apply migration
 016 deliberately, and retain production verify mode. Run `npm run doctor` against
 the intended environment. Turning on this feature is a separate operator action,
 not a consequence of opening or merging this PR.
+
+Before applying 016, identify the database actually connected to the target
+service using its configured database hostname and database name. A matching
+Neon project name is insufficient. Verify the existing 001–015 migration ledger
+and checksums using the runbook before upgrading; do not apply 016 alone to a
+legacy database with no ledger. In strict verify mode the schema upgrade is
+required before this code deploys, even with the workspace feature switched off.
+If the service automatically deploys `main`, coordinate that sequence before
+merging. See [the deployment runbook](../operations/DEPLOY_RENDER_NEON.md).
 
 After successful setup, remove both setup settings. Sign-in only needs the
 durable binding and verified provider identity. A changed verifier, restart,
@@ -134,8 +144,8 @@ principal, login identity, workspace, claim and session together.
 
 ## The owner entry point
 
-`public/workspace-ui.js` is the browser transport for the routes above, and the
-owner card on the login screen is the only way a person reaches them.
+`public/workspace-ui.js` is the browser transport for the routes above. The owner
+card is available on both the login screen and the invitation gate.
 
 It is deliberately not `app.js`'s `api()`. That client carries the alpha
 session's CSRF token; this router issues its own, bound to the challenge cookie
@@ -144,18 +154,27 @@ where the other is expected fails closed -- correct, but unexplainable to
 whoever is reading the screen. Keeping the transports apart is what makes the
 boundary above real in the client rather than only on the server.
 
-Three behaviours are load-bearing and each is guarded:
+The entry point preserves these behaviours:
 
 - **A 404 means switched off; a transport failure does not.** An unreachable
   server resolves to unknown, never to disabled. Reporting "off" on a dropped
   request would silently hide the card from an owner whose deployment has the
   foundation enabled.
-- **The card is hidden unless the server says the foundation is on.** Every
-  deployment currently runs with `NV_WORKSPACE_FOUNDATION_ENABLED` unset, so the
-  login screen is unchanged from before this card existed.
+- **The card is offered after the server confirms the foundation is on.** With
+  `NV_WORKSPACE_FOUNDATION_ENABLED` unset, the login screen and invitation gate
+  keep the card hidden. After an uncertain write, its recovery explanation stays
+  visible even if the subsequent session check cannot reach the server.
 - **An expired challenge is recovered once.** The challenge lives five minutes
   and a person reading setup instructions will routinely take longer, so a stale
   one is the expected case: re-probe and replay a single time, then report.
+- **An interrupted write is never automatically replayed.** Setup, sign-in and
+  sign-out may commit before a reply is lost. The client makes one credential-free
+  session read and shows only the session it can confirm. If that read also
+  fails, it hides the stale session and credential controls while preserving the
+  recovery message. Invalid success bodies and generic server failures follow
+  the same path. Provider and setup credential fields are cleared after an
+  uncertain write. A lost setup cookie is recovered by signing in with the same
+  provider account; an anonymous session read does not prove setup never happened.
 
 The setup credential's shape is checked in the browser before it is sent. The
 server counts five invalid attempts and then locks setup for fifteen minutes;
@@ -253,6 +272,11 @@ evidence cannot qualify the new schema. Historical records remain unchanged.
   isolation, non-human rejection, configuration and credential expiry.
 - `workspace-api.test.js`: real HTTP router with fake persistence/provider seams;
   CSRF, origin, role injection, cookies, isolated cohort routing and DB failure.
+- `workspace-ui.test.js`: setup/sign-in/sign-out transport, bounded CSRF recovery,
+  lost replies before and after commit, lost cookies, malformed replies, service
+  failures, session reconciliation without write replay and credential isolation.
+- `test/e2e/owner-setup.spec.js`: owner entry, invitation-gate isolation and visible
+  recovery after a lost setup reply, including an unavailable session check.
 - `workspace-store-postgres.js`, invoked by `npm run test:migrations`: real
   PostgreSQL claim race, interrupted setup, session rotation, fresh store/restart
   context, connection isolation, revocation and legacy-table cleanup isolation.

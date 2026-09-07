@@ -23,7 +23,10 @@ function load(responder) {
     return {
       ok: reply.status >= 200 && reply.status < 300,
       status: reply.status,
-      json: async () => reply.payload || {}
+      json: async () => {
+        if (reply.invalidJson) throw new SyntaxError('Response body was interrupted');
+        return reply.payload || {};
+      }
     };
   };
   vm.runInNewContext(source, sandbox, { filename: 'workspace-ui.js' });
@@ -185,6 +188,74 @@ const claimedReply = {
   assert.strictEqual(result.available, true, 'signing out does not disable the foundation');
   const out = calls.find(c => c.url.endsWith('/sign-out'));
   assert.deepStrictEqual(out.body, {}, 'sign-out sends no fields; the router refuses any it did not name');
+}
+
+/* A lost reply cannot establish whether a write committed. Reconcile with a
+ * credential-free session read, never by automatically repeating the write. */
+for (const operation of ['setup', 'sign-in', 'sign-out']) {
+  for (const failure of ['before-commit', 'after-commit', 'lost-cookie', 'invalid-json', 'invalid-payload', 'unavailable', 'offline']) {
+    let authenticated = operation === 'sign-out';
+    let committed = false;
+    let interrupted = false;
+    const { ui, calls } = load(async (n, call) => {
+      if (call.options.method === 'GET') {
+        if (interrupted && failure === 'offline') throw new TypeError('Offline');
+        return authenticated ? { status: 200, payload: claimedReply.payload } : sessionReply();
+      }
+      interrupted = true;
+      if (failure !== 'before-commit') {
+        committed = true;
+        authenticated = operation !== 'sign-out' && failure !== 'lost-cookie';
+      }
+      if (failure === 'invalid-json') return { status: 200, invalidJson: true };
+      if (failure === 'invalid-payload') return { status: 200, payload: {} };
+      if (failure === 'unavailable') return { status: 503, payload: { code: 'WORKSPACE_UNAVAILABLE' } };
+      throw new TypeError('Response lost');
+    });
+    await ui.probe();
+    const act = operation === 'setup' ? () => ui.claim({ token: 'ghp_example', setupSecret: SECRET })
+      : operation === 'sign-in' ? () => ui.signIn({ token: 'ghp_example' }) : () => ui.signOut();
+    await assert.rejects(act, error => {
+      assert.match(error.code, /OUTCOME_UNKNOWN$/, `${operation}/${failure}: report an uncertain outcome`);
+      assert.match(error.message, /may have completed/i);
+      assert.doesNotMatch(error.message, /nothing was changed/i);
+      if (operation === 'setup') assert.match(error.message, /signing in with the same provider account/i);
+      return true;
+    });
+    assert.strictEqual(committed, failure !== 'before-commit');
+    assert.strictEqual(calls.filter(c => c.options.method === 'POST').length, 1, 'never replay an ambiguous write');
+    assert.strictEqual(calls.length, 3, 'one initial probe, one write, one recovery probe');
+    const recovery = calls[2];
+    assert.strictEqual(recovery.url, '/api/workspace/session');
+    assert.strictEqual(recovery.options.method, 'GET');
+    assert.strictEqual(recovery.body, null, 'recovery never resends credentials');
+    assert.strictEqual(recovery.options.headers['x-nv-csrf'], undefined);
+    assert.strictEqual(ui.current().authenticated, failure === 'offline' ? false : authenticated);
+    assert.strictEqual(ui.current().available, failure === 'offline' ? null : true);
+    assert.strictEqual(ui.current().outcomeUnknown, true, 'the card must retain the recovery explanation');
+  }
+}
+
+/* Unknown preflight state cannot authorize sending a credential-bearing write. */
+{
+  const { ui, calls } = load(async () => { throw new TypeError('Offline'); });
+  await assert.rejects(() => ui.signIn({ token: 'ghp_example' }), { code: 'WORKSPACE_UNAVAILABLE' });
+  assert.strictEqual(calls.filter(c => c.options.method === 'POST').length, 0);
+}
+
+/* A later deliberate sign-in can recover setup whose cookie was lost. */
+{
+  const { ui, calls } = load(async (n, call) => {
+    if (call.url.endsWith('/session')) return sessionReply();
+    if (call.url.endsWith('/setup')) throw new TypeError('Setup cookie lost');
+    return { status: 200, payload: claimedReply.payload };
+  });
+  await assert.rejects(() => ui.claim({ token: 'ghp_example', setupSecret: SECRET }));
+  const recovered = await ui.signIn({ token: 'ghp_example' });
+  assert.strictEqual(recovered.authenticated, true);
+  assert.strictEqual(recovered.outcomeUnknown, false);
+  assert.strictEqual(calls.filter(c => c.url.endsWith('/setup')).length, 1);
+  assert.strictEqual(calls.filter(c => c.url.endsWith('/sign-in')).length, 1);
 }
 
 /*

@@ -1168,10 +1168,16 @@ function workspaceInputs() {
     token: $('#workspaceToken').value
   };
 }
+/*
+ * Prefixed, and not decoratively. The cohort login on this same screen labels
+ * its own field "GitHub Personal Access Token"; two controls sharing one
+ * accessible name is ambiguous to a screen reader and to anything that selects
+ * by name. Twenty end-to-end cases resolved to both at once before this.
+ */
 const WORKSPACE_TOKEN_LABEL = {
-  github: 'GitHub Personal Access Token',
-  gitlab: 'GitLab Personal Access Token (api scope)',
-  gitea: 'Gitea Access Token'
+  github: 'Owner GitHub Personal Access Token',
+  gitlab: 'Owner GitLab Personal Access Token (api scope)',
+  gitea: 'Owner Gitea Access Token'
 };
 $('#workspaceProvider').addEventListener('change', () => {
   const provider = $('#workspaceProvider').value;

@@ -151,17 +151,17 @@
       <h2 class="workspace-card-title" id="workspaceCardTitle">Owner workspace</h2>
       <p class="workspace-card-note" id="workspaceCardNote">Sign in as the owner of this deployment.</p>
       <div class="workspace-credentials" id="workspaceCredentials">
-        <label class="field-label" for="workspaceProvider">Provider</label>
+        <label class="field-label" for="workspaceProvider">Owner provider</label>
         <select id="workspaceProvider">
           <option value="github" selected>GitHub</option>
           <option value="gitlab">GitLab</option>
           <option value="gitea">Gitea</option>
         </select>
         <div id="workspaceBaseUrlWrap" hidden>
-          <label class="field-label" for="workspaceBaseUrl">Server URL</label>
+          <label class="field-label" for="workspaceBaseUrl">Owner server URL</label>
           <input id="workspaceBaseUrl" type="url" placeholder="https://gitlab.com (default)" autocomplete="off" spellcheck="false">
         </div>
-        <label class="field-label" for="workspaceToken" id="workspaceTokenLabel">GitHub Personal Access Token</label>
+        <label class="field-label" for="workspaceToken" id="workspaceTokenLabel">Owner GitHub Personal Access Token</label>
         <input id="workspaceToken" type="password" autocomplete="off" spellcheck="false">
       </div>
       <div class="workspace-signed-in" id="workspaceSignedIn" hidden>

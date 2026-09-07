@@ -48,8 +48,15 @@ function secretField(target, name) {
    * role. Its label still can, and `getByLabel` resolves through the same
    * accessible-name computation -- an input that loses its label is
    * unreachable here exactly as it is for a screen reader.
+   *
+   * Exact, because getByLabel matches by substring by default and that is
+   * looser than the thing it claims to model. A reader hearing "Owner GitHub
+   * Personal Access Token" is not hearing "GitHub Personal Access Token"; when
+   * the owner card added the first, twenty cases across six unrelated files
+   * began resolving to both fields at once and reported a strict-mode
+   * violation rather than anything about themselves.
    */
-  return target.getByLabel(name);
+  return target.getByLabel(name, { exact: true });
 }
 
 function button(target, name) {

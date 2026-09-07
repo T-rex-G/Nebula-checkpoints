@@ -1,5 +1,9 @@
 # Personal workspace foundation — Change A
 
+This document describes the Change A boundary. [Change B1](CHANGE_B_CONNECTIONS.md)
+extends it with session-scoped encrypted Git connections and a separate read-only
+GitHub repository list; the legacy repository workbench still awaits Change B2.
+
 Status: opt-in identity and ownership foundation with owner setup, sign-in and
 sign-out UI on the login screen and invitation gate. Repository operations still
 use the existing cohort authority; Change B connects them to owner workspaces.

@@ -282,6 +282,52 @@ for (const operation of ['setup', 'sign-in', 'sign-out']) {
     false, 'no header may carry the token');
 }
 
+/* Connection management uses the same isolated transport, never a token URL. */
+{
+  let selected = false;
+  const connection = { id: 'c1', provider: 'github', instance: 'https://github.com', providerUserId: '99', login: 'git-account' };
+  const { ui, calls } = load(async (n, call) => {
+    if (call.url.endsWith('/session')) return { status: 200, payload: claimedReply.payload };
+    if (call.url.endsWith('/connections/connect')) return { status: 201, payload: { id: 'c1' } };
+    if (call.url.endsWith('/connections/select')) {
+      selected = true;
+      return { status: 200, payload: { context: { ...claimedReply.payload.context, connection } } };
+    }
+    if (call.url.endsWith('/connections/disconnect')) return { status: 200, payload: { ok: true } };
+    if (call.url.endsWith('/connections')) return { status: 200, payload: { connections: [{ ...connection, selected, credentialStored: true }] } };
+    return { status: 200, payload: { repositories: [{ fullName: 'git-account/private', private: true }], hasMore: false } };
+  });
+  await ui.probe();
+  await ui.connect({ provider: 'github', token: 'synthetic-connection-token', baseUrl: '' });
+  assert.strictEqual(ui.current().context.connection, null, 'connecting never silently switches execution accounts');
+  const result = await ui.selectConnection('c1');
+  assert.strictEqual(result.context.principalId, 'p1');
+  assert.strictEqual(result.context.connection.providerUserId, '99');
+  assert.strictEqual((await ui.listConnections())[0].selected, true);
+  assert.strictEqual((await ui.repositories()).repositories[0].fullName, 'git-account/private');
+  await ui.disconnect('c1');
+  assert.strictEqual(ui.current().context.connection, null);
+  assert.strictEqual(ui.current().authenticated, true, 'disconnect is not owner sign-out');
+  assert.deepStrictEqual(calls.find(c => c.url.endsWith('/connections/select')).body, { workspaceId: 'w1', connectionId: 'c1' });
+  assert(calls.filter(c => c.options.method === 'GET').every(c => c.body === null));
+  assert(!calls.some(c => c.url.includes('synthetic-connection-token')));
+}
+
+/* A connection may be stored before its reply is lost. Discover it by reading
+ * the list; never replay a credential-bearing connect automatically. */
+{
+  let connected = false;
+  const { ui, calls } = load(async (n, call) => {
+    if (call.url.endsWith('/session')) return { status: 200, payload: claimedReply.payload };
+    if (call.url.endsWith('/connections/connect')) { connected = true; throw new TypeError('Lost connection reply'); }
+    return { status: 200, payload: { connections: connected ? [{ id: 'c1', credentialStored: true }] : [] } };
+  });
+  await ui.probe();
+  await assert.rejects(() => ui.connect({ token: 'synthetic-connection-token' }), { code: 'WORKSPACE_OUTCOME_UNKNOWN' });
+  assert.strictEqual(calls.filter(c => c.options.method === 'POST').length, 1);
+  assert.strictEqual((await ui.listConnections())[0].credentialStored, true);
+}
+
 /* Every code the router can return is explainable. */
 {
   const { ui } = load(async () => sessionReply());

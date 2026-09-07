@@ -314,6 +314,12 @@ em{color:var(--teal);font-style:normal}
 .workspace-credentials .field-label{margin-top:0}
 .workspace-identity{font-size:.85rem;color:var(--text2);margin:0;line-height:1.55}
 .workspace-claim-toggle{font-size:.8rem}
+.workspace-git-panel{min-width:0;border-top:1px solid var(--border);padding-top:12px}
+.workspace-git-panel>summary{cursor:pointer;font-weight:600}
+.workspace-git-panel[open]>:not(summary){margin-top:10px}
+.workspace-git-list{display:grid;gap:10px;min-width:0;max-height:280px;overflow:auto}
+.workspace-git-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
+.workspace-git-row>span{flex:1 1 100%;overflow-wrap:anywhere;font-size:.8rem}
 
 /* ---------------- topbar ---------------- */
 .topbar{position:fixed;top:calc(6px + env(safe-area-inset-top));left:12px;right:12px;margin:0;z-index:50;background:var(--shell);

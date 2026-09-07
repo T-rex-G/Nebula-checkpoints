@@ -54,6 +54,15 @@ assert.strictEqual(verifyQualification(current.record, {
   ...options, ...current.bindings, expectedLatestMigration: '016_personal_workspaces',
   verifyArtifact: artifact => structuredClone(current.envelopes[artifact.id])
 }).ok, true);
+const connectionsCandidate = createPassFixture({ latestMigration: '017_workspace_credentials' });
+assert.strictEqual(verifyQualification(connectionsCandidate.record, {
+  ...options, ...connectionsCandidate.bindings, expectedLatestMigration: '017_workspace_credentials',
+  verifyArtifact: artifact => structuredClone(connectionsCandidate.envelopes[artifact.id])
+}).ok, true);
+assert.throws(() => verifyQualification(current.record, {
+  ...options, ...current.bindings, expectedLatestMigration: '017_workspace_credentials',
+  verifyArtifact: artifact => structuredClone(current.envelopes[artifact.id])
+}), error => error.code === 'PUBLIC_ALPHA_MIGRATION_MISMATCH');
 
 assert.throws(
   () => verifyQualification(fixture.record, { ...options, verifyArtifact: () => true }),

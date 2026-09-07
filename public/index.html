@@ -174,6 +174,26 @@
           explanation.
         -->
         <p class="workspace-scope-note" id="workspaceScopeNote" hidden></p>
+        <details id="workspaceGitPanel" class="workspace-git-panel">
+          <summary>Git connections</summary>
+          <p class="hint">Connect a Git account for this owner session. Tokens are encrypted on the server and usable only during this session. Sign-out or disconnect removes them; expired sessions are cleaned periodically. Connecting an account does not make it the workspace owner.</p>
+          <label class="field-label" for="workspaceGitProvider">Git connection provider</label>
+          <select id="workspaceGitProvider">
+            <option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="gitea">Gitea</option>
+          </select>
+          <div id="workspaceGitBaseWrap" hidden>
+            <label class="field-label" for="workspaceGitBase">Git connection server URL</label>
+            <input id="workspaceGitBase" type="url" autocomplete="off" spellcheck="false">
+          </div>
+          <label class="field-label" for="workspaceGitToken">Git connection token</label>
+          <input id="workspaceGitToken" type="password" autocomplete="off" spellcheck="false">
+          <button class="btn btn-primary btn-block" id="workspaceGitConnect">Connect or refresh this account</button>
+          <button class="btn btn-ghost btn-block" id="workspaceGitRefresh">Refresh connections</button>
+          <div id="workspaceGitConnections" class="workspace-git-list" aria-live="polite"></div>
+          <button class="btn btn-ghost btn-block" id="workspaceGitRepos">List selected account’s GitHub repositories</button>
+          <p class="hint">Read-only owner listing. Creating, opening in the workbench and committing through the owner connection follow in the next Change B slice.</p>
+          <div id="workspaceGitRepositories" class="workspace-git-list" aria-live="polite"></div>
+        </details>
         <button class="btn btn-ghost btn-block" id="workspaceSignOutBtn">Sign out of the workspace</button>
       </div>
       <div class="workspace-signed-out" id="workspaceSignedOut">

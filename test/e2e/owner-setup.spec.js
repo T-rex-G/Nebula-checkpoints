@@ -273,9 +273,55 @@ test('an owner who signs in at the gate is told what it does not grant', async (
    */
   const note = page.locator('#workspaceScopeNote');
   await expect(note).toBeVisible();
-  await expect(note).toContainText('Repository access still resolves through the invitation');
+  await expect(note).toContainText('repository workbench still resolves through the invitation');
 
   /* And it must not have let itself past the gate. */
   await expect(page.locator('#page-alpha-access.active')).toBeVisible();
   await expect(page.locator('#alphaInviteInput')).toBeVisible();
+});
+
+test('an owner connects, selects, lists and disconnects a Git account without a tester invitation', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'required' });
+  let bound = false, selected = false, reads = 0;
+  const connection = { id: 'c1', provider: 'github', instance: 'https://github.com', providerUserId: '99', login: 'execution-account' };
+  const context = () => ({ principalId: 'p1', workspaceId: 'w1', role: 'owner', connection: selected ? connection : null });
+  await mockWorkspaceApi(page, {
+    '/session': { status: 200, json: { authenticated: true, csrfToken: 'test-csrf', context: context() } },
+    '/connections': () => ({ status: 200, json: { connections: bound ? [{ ...connection, credentialStored: true, selected }] : [] } }),
+    '/connections/connect': request => {
+      expect(request.method()).toBe('POST');
+      expect(request.postDataJSON()).toEqual({ provider: 'github', token: 'synthetic-connection-token' });
+      bound = true; return { status: 201, json: { id: 'c1' } };
+    },
+    '/connections/select': request => {
+      expect(request.postDataJSON()).toEqual({ workspaceId: 'w1', connectionId: 'c1' });
+      selected = true; return { status: 200, json: { context: context() } };
+    },
+    '/connections/disconnect': () => { bound = false; selected = false; return { status: 200, json: { ok: true } }; },
+    '/repositories': request => {
+      expect(request.method()).toBe('GET'); expect(selected).toBe(true); reads++;
+      return { status: 200, json: { repositories: [{ fullName: 'execution-account/private-repo', private: true }], hasMore: false } };
+    }
+  });
+  await openInvitationGate(page);
+  await expect(page.locator('#workspaceSignedIn')).toBeVisible();
+  await page.locator('#workspaceGitPanel summary').click();
+  await expect(page.locator('#workspaceGitConnections')).toContainText('No Git accounts');
+  await page.getByLabel('Git connection token', { exact: true }).fill('synthetic-connection-token');
+  await page.getByRole('button', { name: 'Connect or refresh this account', exact: true }).click();
+  await expect(page.locator('#workspaceGitToken')).toHaveValue('');
+  await expect(page.locator('#workspaceGitConnections')).toContainText('token stored for this session');
+  await page.getByRole('button', { name: 'Select execution-account on https://github.com', exact: true }).click();
+  await expect(page.locator('#workspaceIdentity')).toContainText('execution-account');
+  expect(await page.evaluate(() => window.NebulaWorkspaceUI.current().context.principalId)).toBe('p1');
+  await page.locator('#workspaceGitRepos').click();
+  await expect(page.locator('#workspaceGitRepositories')).toContainText('execution-account/private-repo');
+  await expect(page.locator('#page-alpha-access.active')).toBeVisible();
+  await expect(page.locator('#alphaInviteInput')).toBeVisible();
+  expect(reads).toBe(1);
+  await page.getByRole('button', { name: 'Disconnect execution-account on https://github.com', exact: true }).click();
+  await expect(page.locator('#workspaceGitConnections')).toContainText('No Git accounts');
+  await expect(page.locator('#workspaceGitRepositories')).toBeEmpty();
+  await expect(page.locator('#workspaceIdentity')).toContainText('No Git connection is selected');
+  expect(await page.evaluate(() => window.NebulaWorkspaceUI.current().authenticated)).toBe(true);
 });

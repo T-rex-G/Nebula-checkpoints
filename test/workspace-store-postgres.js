@@ -12,12 +12,27 @@ module.exports = async function testWorkspaceStore(connectionString) {
   const pool = new Pool({ connectionString, max: 3 });
   const secret = crypto.randomBytes(32).toString('base64url');
   const config = { setupDigest: digest(secret), setupExpiresAt: Date.now() + 3600000 };
-  const store = new WorkspaceStore({ pool, config });
+  const credentialKey = crypto.randomBytes(32);
+  const codec = {
+    seal(value) {
+      const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', credentialKey, iv);
+      const data = Buffer.concat([c.update(JSON.stringify(value)), c.final()]);
+      return Buffer.concat([iv, c.getAuthTag(), data]).toString('base64url');
+    },
+    unseal(value) {
+      try {
+        const raw = Buffer.from(value, 'base64url'), d = crypto.createDecipheriv('aes-256-gcm', credentialKey, raw.subarray(0, 12));
+        d.setAuthTag(raw.subarray(12, 28));
+        return JSON.parse(Buffer.concat([d.update(raw.subarray(28)), d.final()]));
+      } catch { return null; }
+    }
+  };
+  const store = new WorkspaceStore({ pool, config, ...codec });
   const human = id => verifiedHumanIdentity({ provider: 'github', providerAccountId: id, login: `user-${id}` });
   const verifyIdentity = async () => human(42);
   try {
     await withBackupSchema(connectionString, {}, async version => {
-      assert.strictEqual(version, '016_personal_workspaces');
+      assert.strictEqual(version, '017_workspace_credentials');
     }, { connectDatabaseImpl: async () => {
       const client = new Client({ connectionString }); await client.connect(); return client;
     } });
@@ -92,13 +107,55 @@ module.exports = async function testWorkspaceStore(connectionString) {
     await assert.rejects(() => pool.query('UPDATE nv_workspace_sessions SET connection_id=$1 WHERE session_hash=$2', [otherConnection, digest(token)]),
       error => error.code === '23503', 'database must reject cross-principal selections too');
 
+    await assert.rejects(() => store.executionAccount(token), { code: 'WORKSPACE_CREDENTIAL_REQUIRED' });
+    const credential = { provider: 'github', providerAccountId: 99, login: 'user-99', authMethod: 'token', token: 'synthetic-workspace-credential-a' };
+    const connected = await store.bindConnection({ token, identity: human(99), legacyIdentityKey: legacyKey, credential });
+    assert.strictEqual(connected.id, connection.id, 'reconnection retains the stable connection ID');
+    assert.strictEqual((await store.listConnections(token)).length, 1, 'other principal connections are never listed');
+    assert.strictEqual((await store.listConnections(token))[0].credentialStored, true);
+    assert.strictEqual((await store.executionAccount(token)).token, credential.token);
+    assert.strictEqual((await new WorkspaceStore({ pool, config, ...codec }).executionAccount(token)).token, credential.token,
+      'encrypted credentials survive a process restart within the session lifetime');
+    const ciphertext = (await pool.query('SELECT sealed_credential FROM nv_workspace_credentials WHERE session_hash=$1', [digest(token)])).rows[0].sealed_credential;
+    assert(!ciphertext.includes(credential.token), 'the database does not hold plaintext provider credentials');
+    const secondSession = await store.signIn({ identity: renamed });
+    await store.selectConnection({ token: secondSession.token, workspaceId: workspace, connectionId: connection.id });
+    await assert.rejects(() => store.executionAccount(secondSession.token), { code: 'WORKSPACE_CREDENTIAL_REQUIRED' },
+      'a second session cannot borrow the first session credential');
+    await store.bindConnection({ token: secondSession.token, identity: human(99), legacyIdentityKey: legacyKey,
+      credential: { ...credential, token: 'synthetic-workspace-credential-b' } });
+    assert.strictEqual((await store.executionAccount(token)).token, credential.token);
+    await pool.query('UPDATE nv_workspace_credentials SET sealed_credential=$1 WHERE session_hash=$2', [ciphertext, digest(secondSession.token)]);
+    await assert.rejects(() => store.executionAccount(secondSession.token), { code: 'WORKSPACE_CREDENTIAL_REQUIRED' },
+      'copying a sealed credential to another session fails envelope binding');
+    await assert.rejects(() => pool.query(`INSERT INTO nv_workspace_credentials
+      (session_hash, connection_id, workspace_id, principal_id, sealed_credential) VALUES($1,$2,$3,$4,$5)`,
+    [digest(token), otherConnection, otherWorkspace, other, ciphertext]), error => error.code === '23503');
+    await assert.rejects(() => store.bindConnection({ token, identity: human(99), legacyIdentityKey: legacyKey,
+      credential: { ...credential, providerAccountId: 100 } }), { code: 'WORKSPACE_CONNECTION_REJECTED' });
+    assert.strictEqual((await store.executionAccount(token)).token, credential.token, 'failed reconnect preserves the original credential');
+
     // Legacy cleanup tables do not own or cascade into foundation metadata.
     await pool.query('INSERT INTO nv_sessions(sid, data, identity_keys) VALUES($1,$2,$3)', ['legacy-workspace-test', 'legacy-sealed-data', [legacyKey]]);
     await pool.query('DELETE FROM nv_sessions WHERE identity_keys @> $1::text[]', [[legacyKey]]);
     assert.strictEqual((await store.readContext(token)).principalId, owner);
+    assert.strictEqual((await store.executionAccount(token)).token, credential.token, 'legacy cleanup cannot remove owner credentials');
     assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_connections')).rows[0].n, 2);
     await store.disconnectConnection({ token, connectionId: connection.id });
     assert.strictEqual((await store.readContext(token)).connection, null);
+    assert.strictEqual((await store.readContext(secondSession.token)).connection, null);
+    assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_credentials')).rows[0].n, 0,
+      'disconnect removes credentials from every workspace session for this connection');
+    await store.signOut(secondSession.token);
+
+    const rotating = await store.signIn({ identity: renamed });
+    await store.bindConnection({ token: rotating.token, identity: human(99), legacyIdentityKey: legacyKey, credential });
+    const rotated = await store.signIn({ identity: renamed, previousToken: rotating.token });
+    assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_credentials')).rows[0].n, 0,
+      'session rotation cascades to credentials, but not durable account bindings');
+    await store.bindConnection({ token: rotated.token, identity: human(99), legacyIdentityKey: legacyKey, credential });
+    await store.signOut(rotated.token);
+    assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_credentials')).rows[0].n, 0, 'sign-out removes session credentials');
 
     /*
      * disconnectConnection clears the session pointer itself, so the assertion
@@ -113,7 +170,7 @@ module.exports = async function testWorkspaceStore(connectionString) {
      * all, so every protected route answers WORKSPACE_SESSION_REQUIRED rather
      * than silently continuing as an owner session with no Git account.
      */
-    const rebound = await store.bindConnection({ token, identity: human(99), legacyIdentityKey: legacyKey });
+    const rebound = await store.bindConnection({ token, identity: human(99), legacyIdentityKey: legacyKey, credential });
     await store.selectConnection({ token, workspaceId: workspace, connectionId: rebound.id });
     assert.strictEqual((await store.readContext(token)).connection.id, rebound.id);
     await pool.query('UPDATE nv_workspace_connections SET revoked_at=now() WHERE connection_id=$1', [rebound.id]);
@@ -128,13 +185,26 @@ module.exports = async function testWorkspaceStore(connectionString) {
     assert.strictEqual((await pool.query('SELECT revoked_at FROM nv_workspace_connections WHERE connection_id=$1', [otherConnection])).rows[0].revoked_at, null);
     await assert.rejects(() => store.selectConnection({ token, workspaceId: workspace, connectionId: connection.id }), { code: 'WORKSPACE_CONNECTION_REJECTED' });
 
+    await store.bindConnection({ token, identity: human(99), legacyIdentityKey: legacyKey });
+    await store.selectConnection({ token, workspaceId: workspace, connectionId: rebound.id });
+    await assert.rejects(() => store.executionAccount(token), { code: 'WORKSPACE_CREDENTIAL_REQUIRED' },
+      'metadata-only reactivation must not resurrect a credential left behind by out-of-band revocation');
+    assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_credentials')).rows[0].n, 0);
+
     await pool.query('UPDATE nv_principals SET revoked_at=now() WHERE principal_id=$1', [owner]);
     assert.strictEqual(await store.readContext(token), null, 'revocation must be resolved on the next request');
     await assert.rejects(() => store.signIn({ identity: renamed }), { code: 'WORKSPACE_SIGN_IN_REJECTED' });
     await assert.rejects(() => restarted.claim({ secret, verifyIdentity }), { code: 'WORKSPACE_SETUP_REJECTED' }, 'losing the owner must not reopen setup');
     await pool.query('UPDATE nv_principals SET revoked_at=NULL WHERE principal_id=$1', [owner]);
+    await store.bindConnection({ token, identity: human(99), legacyIdentityKey: legacyKey, credential });
+    await store.selectConnection({ token, workspaceId: workspace, connectionId: connection.id });
     await pool.query("UPDATE nv_workspace_sessions SET expires_at=now()-interval '1 second' WHERE session_hash=$1", [digest(token)]);
     assert.strictEqual(await store.readContext(token), null);
+    await assert.rejects(() => store.executionAccount(token), { code: 'WORKSPACE_SESSION_REQUIRED' });
+    assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_credentials')).rows[0].n, 1,
+      'expiry prevents credential use even before physical cleanup runs');
+    await pool.query('DELETE FROM nv_workspace_sessions WHERE expires_at <= now()');
+    assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_credentials')).rows[0].n, 0);
     await store.signOut(token);
     assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_sessions')).rows[0].n, 0);
     console.log('workspace PostgreSQL tests passed (claim race, rollback, restart, isolation, revocation, legacy cleanup)');

@@ -1,12 +1,13 @@
 # Personal workspace foundation — Change A
 
-This document describes the Change A boundary. [Change B1](CHANGE_B_CONNECTIONS.md)
+This document describes the Change A boundary. [Change B](CHANGE_B_CONNECTIONS.md)
 extends it with session-scoped encrypted Git connections and a separate read-only
-GitHub repository list; the legacy repository workbench still awaits Change B2.
+GitHub repository list. B2 adds explicit owner entry into the existing workbench
+for experimental creation, browsing and ordinary verified text commits.
 
 Status: opt-in identity and ownership foundation with owner setup, sign-in and
-sign-out UI on the login screen and invitation gate. Repository operations still
-use the existing cohort authority; Change B connects them to owner workspaces.
+sign-out UI on the login screen and invitation gate. Legacy repository routes
+retain cohort authority; B2 uses separately authenticated owner workbench routes.
 This is the first implementation slice of the BYO-AI workspace plan. The feature
 defaults off and requires explicit deployment configuration.
 

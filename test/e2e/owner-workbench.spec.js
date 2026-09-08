@@ -89,6 +89,7 @@ test('an uncertain owner commit is never put in the offline replay queue', async
   await page.locator('#commitFileBtn').click();
   await page.locator('#modalOk').click();
   await expect(page.locator('#trustErrorBackdrop')).toContainText(/may have completed/i);
+  await expect(page.locator('#trustErrorTitle')).toHaveText('The action could not be confirmed');
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   const queued = await page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => { const r = indexedDB.open('nebulaverse', 1); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });

@@ -167,11 +167,8 @@
       <div class="workspace-signed-in" id="workspaceSignedIn" hidden>
         <p class="workspace-identity" id="workspaceIdentity"></p>
         <!--
-          What owning a workspace does and does not yet buy. Repository routes
-          still resolve their authority from the cohort session, so an owner on
-          an invitation deployment is not admitted to them by this sign-in.
-          Saying so here is cheaper than letting the next screen refuse without
-          explanation.
+          Owner sign-in does not admit a visitor to cohort routes. The explicit
+          owner workbench entry below uses its own authenticated transport.
         -->
         <p class="workspace-scope-note" id="workspaceScopeNote" hidden></p>
         <details id="workspaceGitPanel" class="workspace-git-panel">

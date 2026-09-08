@@ -62,6 +62,8 @@ async function fixture(page, { uncertain = false } = {}) {
   await page.locator('#modalOk').click();
   await page.getByRole('button', { name: 'Open repository owner/demo', exact: true }).click();
   await expect(page.locator('#page-work.active')).toBeVisible();
+  const files = page.locator('#bottomNav').getByRole('button', { name: 'Files', exact: true });
+  if (await files.isVisible()) await files.click();
   await page.locator('#tree').getByText('README.md', { exact: true }).click();
   await expect(page.locator('.CodeMirror')).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.querySelector('.CodeMirror').CodeMirror.getValue())).toBe(text);

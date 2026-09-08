@@ -826,6 +826,7 @@ module.exports = Object.freeze({
    * same class of refusal.
    */
   fail,
+  statusClass,
   providerCapabilityRequirements,
   providerClaims,
   runProviderQualification

@@ -46,7 +46,7 @@ mutations remain blocked.
 
 ## GitHub — evidence-bounded alpha subset
 
-Counted from the capability registry: 19 Supported, 11 Experimental, 4 Unavailable. Of those, 14 carry
+Counted from the capability registry: 20 Supported, 10 Experimental, 4 Unavailable. Of those, 15 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |

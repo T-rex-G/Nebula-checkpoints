@@ -160,6 +160,14 @@ module.exports = async function testWorkspaceStore(connectionString) {
       VALUES($1,$2,'owner-isolation-test',ARRAY['github:github.com:owner/demo'],'2026-08-01',now())`, [testerId, inviteId]);
     const privacy = new AlphaPrivacyStore({ pool });
     await privacy.bindProviderIdentity({ testerId, identityKey: legacyKey, provider: 'github', authority: 'github.com' });
+    // A real deletion needs an exact cleanup manifest even for this synthetic
+    // session, whose absence can be proved without contacting a provider.
+    const sessionKeyHash = digest('workspace-isolation-test-session');
+    await privacy.claimProviderSessionOwnership({ testerId, identityKey: legacyKey, provider: 'github', sessionKeyHash });
+    const cleanup = await privacy.createCleanupTask({ testerId, identityKey: legacyKey, provider: 'github',
+      resourceType: 'provider-session', resourceKeyHash: sessionKeyHash, reasonCode: 'PROVIDER_ABSENCE_UNCONFIRMED' });
+    assert.strictEqual((await pool.query('SELECT 1 FROM nv_sessions WHERE session_key_hash=$1', [sessionKeyHash])).rowCount, 0);
+    await privacy.completeCleanupTask({ testerId, cleanupId: cleanup.cleanupId });
     await privacy.createDeletionRequest({ testerId });
     const purged = await privacy.purgeTester({ testerId });
     assert.strictEqual(purged.status, 'complete', 'exercise the actual cohort purge transaction');

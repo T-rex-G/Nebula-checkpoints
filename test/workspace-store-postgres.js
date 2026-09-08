@@ -7,6 +7,9 @@ const { Pool, Client } = require('pg');
 const { withBackupSchema } = require('../scripts/alpha-db');
 const { WorkspaceStore } = require('../src/workspace-store');
 const { digest, verifiedHumanIdentity } = require('../src/workspace-identity');
+const { workspaceExecutionAuthority } = require('../src/workspace-authority');
+const { createWorkspaceSafetyStore } = require('../src/workspace-safety');
+const { AlphaPrivacyStore } = require('../src/alpha-privacy-store');
 
 module.exports = async function testWorkspaceStore(connectionString) {
   const pool = new Pool({ connectionString, max: 3 });
@@ -135,6 +138,35 @@ module.exports = async function testWorkspaceStore(connectionString) {
       credential: { ...credential, providerAccountId: 100 } }), { code: 'WORKSPACE_CONNECTION_REJECTED' });
     assert.strictEqual((await store.executionAccount(token)).token, credential.token, 'failed reconnect preserves the original credential');
 
+    const execution = await store.executionContext(token);
+    assert.strictEqual(execution.context.connection.id, connection.id);
+    assert.strictEqual(execution.account.providerAccountId, 99, 'context and credential resolve together');
+    const ownerExecutionKey = workspaceExecutionAuthority(execution.context).identityKey;
+    assert.notStrictEqual(ownerExecutionKey, legacyKey);
+    const safety = createWorkspaceSafetyStore(pool);
+    await safety.update(ownerExecutionKey, { readOnly: true });
+    await Promise.all([
+      safety.update(ownerExecutionKey, { protect: { repo: 'Owner/Demo', path: 'README.md' } }),
+      safety.update(ownerExecutionKey, { protect: { repo: 'owner/demo', path: '.github/**' } })
+    ]);
+    assert.deepStrictEqual((await safety.load(ownerExecutionKey)).protected['owner/demo'], ['.github/**', 'README.md'],
+      'concurrent safeguard changes are serialized without losing either pattern');
+    await assert.rejects(() => safety.update(ownerExecutionKey, { protect: { repo: 'owner/demo', path: '../escape' } }), { code: 'WORKSPACE_INPUT_INVALID' });
+    await safety.update(legacyKey, { freezeSync: true });
+    const testerId = crypto.randomUUID(), inviteId = crypto.randomBytes(16).toString('hex');
+    await pool.query(`INSERT INTO nv_alpha_invites(invite_id,secret_digest,tester_label,repository_scopes,terms_version,expires_at)
+      VALUES($1,$2,'owner-isolation-test',ARRAY['github:github.com:owner/demo'],'2026-08-01',now()+interval '1 day')`, [inviteId, digest(inviteId)]);
+    await pool.query(`INSERT INTO nv_alpha_testers(tester_id,invite_id,tester_label,repository_scopes,terms_version,terms_accepted_at)
+      VALUES($1,$2,'owner-isolation-test',ARRAY['github:github.com:owner/demo'],'2026-08-01',now())`, [testerId, inviteId]);
+    const privacy = new AlphaPrivacyStore({ pool });
+    await privacy.bindProviderIdentity({ testerId, identityKey: legacyKey, provider: 'github', authority: 'github.com' });
+    await privacy.createDeletionRequest({ testerId });
+    const purged = await privacy.purgeTester({ testerId });
+    assert.strictEqual(purged.status, 'complete', 'exercise the actual cohort purge transaction');
+    assert.strictEqual((await pool.query('SELECT 1 FROM nv_security_state WHERE identity_key=$1', [legacyKey])).rowCount, 0);
+    assert.strictEqual((await safety.load(ownerExecutionKey)).readOnly, true, 'tester purge preserves owner safeguards');
+    assert.strictEqual((await store.executionContext(token)).account.token, credential.token, 'tester purge preserves owner credentials');
+
     // Legacy cleanup tables do not own or cascade into foundation metadata.
     await pool.query('INSERT INTO nv_sessions(sid, data, identity_keys) VALUES($1,$2,$3)', ['legacy-workspace-test', 'legacy-sealed-data', [legacyKey]]);
     await pool.query('DELETE FROM nv_sessions WHERE identity_keys @> $1::text[]', [[legacyKey]]);
@@ -142,6 +174,7 @@ module.exports = async function testWorkspaceStore(connectionString) {
     assert.strictEqual((await store.executionAccount(token)).token, credential.token, 'legacy cleanup cannot remove owner credentials');
     assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_connections')).rows[0].n, 2);
     await store.disconnectConnection({ token, connectionId: connection.id });
+    assert.strictEqual((await safety.load(ownerExecutionKey)).readOnly, true, 'disconnect retains durable owner safeguards');
     assert.strictEqual((await store.readContext(token)).connection, null);
     assert.strictEqual((await store.readContext(secondSession.token)).connection, null);
     assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_workspace_credentials')).rows[0].n, 0,

@@ -273,7 +273,7 @@ test('an owner who signs in at the gate is told what it does not grant', async (
    */
   const note = page.locator('#workspaceScopeNote');
   await expect(note).toBeVisible();
-  await expect(note).toContainText('repository workbench still resolves through the invitation');
+  await expect(note).toContainText('open the owner workbench');
 
   /* And it must not have let itself past the gate. */
   await expect(page.locator('#page-alpha-access.active')).toBeVisible();

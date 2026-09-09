@@ -9,6 +9,7 @@ const PRECACHE = [
   '/', `/style.css?v=__NV_ASSET_VERSION__`, `/offline-cache-policy.js?v=__NV_ASSET_VERSION__`,
   `/archive-safety.js?v=__NV_ASSET_VERSION__`, `/export-safety.js?v=__NV_ASSET_VERSION__`,
   `/app.js?v=__NV_ASSET_VERSION__`, `/alpha-ui.js?v=__NV_ASSET_VERSION__`, `/capability-ui.js?v=__NV_ASSET_VERSION__`, `/trust-ui.js?v=__NV_ASSET_VERSION__`,
+  `/workspace-ui.js?v=__NV_ASSET_VERSION__`,
   `/repo-sigil.js?v=__NV_ASSET_VERSION__`,
   `/workspace-pulse.js?v=__NV_ASSET_VERSION__`, `/nebula-visuals.js?v=__NV_ASSET_VERSION__`,
   `/governance-ui.js?v=__NV_ASSET_VERSION__`, `/neural.js?v=__NV_ASSET_VERSION__`,

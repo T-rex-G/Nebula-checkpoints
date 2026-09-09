@@ -53,6 +53,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/architecture/PERSONAL_WORKSPACE_FOUNDATION.md",
+      "lifecycle": "architecture",
+      "authority": "accepted-architecture-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/current/PROJECT_STATE.md",
       "lifecycle": "current",
       "authority": "generated-from-work-continuity",

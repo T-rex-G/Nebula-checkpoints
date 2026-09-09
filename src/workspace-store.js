@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { digest, workspaceError, verifySetupSecret } = require('./workspace-identity');
+const { sealWorkspaceCredential, openWorkspaceCredential } = require('./workspace-credentials');
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const TOKEN_RX = /^[A-Za-z0-9_-]{43}$/;
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -29,7 +30,9 @@ function projectContext(row) {
 }
 
 class WorkspaceStore {
-  constructor({ pool, config }) { this.pool = pool; this.config = config; }
+  constructor({ pool, config, seal, unseal }) {
+    this.pool = pool; this.config = config; this.seal = seal; this.unseal = unseal;
+  }
 
   async transaction(run) {
     const client = await this.pool.connect();
@@ -117,16 +120,49 @@ class WorkspaceStore {
     });
   }
 
-  async bindConnection({ token, identity, legacyIdentityKey }) {
+  async listConnections(token) {
+    return this.transaction(async client => {
+      const context = await this.requireContext(token, client);
+      const result = await client.query(`SELECT c.connection_id, c.provider, c.instance, c.provider_user_id, c.login,
+        EXISTS(SELECT 1 FROM nv_workspace_credentials k WHERE k.session_hash=$3 AND k.connection_id=c.connection_id
+          AND k.workspace_id=c.workspace_id AND k.principal_id=c.principal_id) AS credential_ready
+        FROM nv_workspace_connections c WHERE c.workspace_id=$1 AND c.principal_id=$2 AND c.revoked_at IS NULL
+        ORDER BY c.verified_at DESC, c.connection_id LIMIT 20`, [context.workspaceId, context.principalId, digest(token)]);
+      return result.rows.map(row => ({ id: row.connection_id, provider: row.provider, instance: row.instance,
+        providerUserId: row.provider_user_id, login: row.login, credentialStored: row.credential_ready,
+        selected: context.connection?.id === row.connection_id }));
+    });
+  }
+
+  async executionAccount(token) {
+    return this.transaction(async client => {
+      const context = await this.requireContext(token, client);
+      if (!context.connection) throw workspaceError('WORKSPACE_CONNECTION_REQUIRED', 409);
+      const result = await client.query(`SELECT sealed_credential FROM nv_workspace_credentials
+        WHERE session_hash=$1 AND connection_id=$2 AND workspace_id=$3 AND principal_id=$4`,
+      [digest(token), context.connection.id, context.workspaceId, context.principalId]);
+      if (!result.rows.length) throw workspaceError('WORKSPACE_CREDENTIAL_REQUIRED', 401);
+      return openWorkspaceCredential(result.rows[0].sealed_credential,
+        { ...context, sessionHash: digest(token) }, this.unseal);
+    });
+  }
+
+  async bindConnection({ token, identity, legacyIdentityKey, credential }) {
     if (!/^[0-9a-f]{64}$/.test(String(legacyIdentityKey || ''))) throw workspaceError('WORKSPACE_CONNECTION_REJECTED');
     return this.transaction(async client => {
       const context = await this.requireContext(token, client);
-      const existing = await client.query(`SELECT connection_id FROM nv_workspace_connections
-        WHERE workspace_id=$1 AND principal_id=$2 AND provider=$3 AND instance=$4 AND provider_user_id=$5`,
+      const existing = await client.query(`SELECT connection_id, revoked_at FROM nv_workspace_connections
+        WHERE workspace_id=$1 AND principal_id=$2 AND provider=$3 AND instance=$4 AND provider_user_id=$5 FOR UPDATE`,
       [context.workspaceId, context.principalId, identity.provider, identity.instance, identity.providerUserId]);
       if (!existing.rows.length) {
         const count = await client.query('SELECT count(*)::int AS n FROM nv_workspace_connections WHERE workspace_id=$1 AND principal_id=$2', [context.workspaceId, context.principalId]);
         if (count.rows[0].n >= 20) throw workspaceError('WORKSPACE_CONNECTION_LIMIT', 429);
+      }
+      if (existing.rows[0]?.revoked_at) {
+        // Out-of-band revocation may leave credential rows behind. Reactivation
+        // must never resurrect those tokens, even for a metadata-only bind.
+        await client.query('DELETE FROM nv_workspace_credentials WHERE connection_id=$1 AND workspace_id=$2 AND principal_id=$3',
+          [existing.rows[0].connection_id, context.workspaceId, context.principalId]);
       }
       const result = await client.query(`INSERT INTO nv_workspace_connections
         (connection_id, workspace_id, principal_id, provider, instance, provider_user_id, login, legacy_identity_key)
@@ -135,7 +171,20 @@ class WorkspaceStore {
         DO UPDATE SET login=EXCLUDED.login, legacy_identity_key=EXCLUDED.legacy_identity_key, verified_at=now(), revoked_at=NULL
         RETURNING connection_id`, [crypto.randomUUID(), context.workspaceId, context.principalId, identity.provider,
         identity.instance, identity.providerUserId, identity.login, legacyIdentityKey]);
-      return { id: result.rows[0].connection_id };
+      const id = result.rows[0].connection_id;
+      if (credential) {
+        const sealed = sealWorkspaceCredential(credential, {
+          ...context, sessionHash: digest(token), connection: { ...identity, id }
+        }, this.seal);
+        // Binding and credential replacement are one transaction. A failed seal
+        // or insert cannot leave behind a partially reconnected account.
+        await client.query(`INSERT INTO nv_workspace_credentials
+          (session_hash, connection_id, workspace_id, principal_id, sealed_credential) VALUES($1,$2,$3,$4,$5)
+          ON CONFLICT (session_hash, connection_id) DO UPDATE
+          SET sealed_credential=EXCLUDED.sealed_credential, updated_at=now()`,
+        [digest(token), id, context.workspaceId, context.principalId, sealed]);
+      }
+      return { id };
     });
   }
 
@@ -161,6 +210,8 @@ class WorkspaceStore {
         WHERE connection_id=$1 AND workspace_id=$2 AND principal_id=$3 RETURNING connection_id`,
       [connectionId, context.workspaceId, context.principalId]);
       if (!result.rows.length) throw workspaceError('WORKSPACE_CONNECTION_REJECTED');
+      await client.query('DELETE FROM nv_workspace_credentials WHERE connection_id=$1 AND workspace_id=$2 AND principal_id=$3',
+        [connectionId, context.workspaceId, context.principalId]);
       await client.query('UPDATE nv_workspace_sessions SET connection_id=NULL WHERE connection_id=$1 AND workspace_id=$2 AND principal_id=$3',
         [connectionId, context.workspaceId, context.principalId]);
     });

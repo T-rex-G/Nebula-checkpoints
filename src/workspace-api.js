@@ -11,7 +11,7 @@ const CHALLENGE_COOKIE = 'nv_workspace_challenge';
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const NONCE_RX = /^[A-Za-z0-9_-]{43}$/;
 
-function createWorkspaceRouter({ enabled, store, verifyAccount, seal, unseal, getCookie,
+function createWorkspaceRouter({ enabled, store, verifyAccount, connectAccount, listRepositories, seal, unseal, getCookie,
   csrfSecret, production = false, publicOrigin = '' }) {
   const router = express.Router();
   const attempts = new Map();
@@ -117,6 +117,23 @@ function createWorkspaceRouter({ enabled, store, verifyAccount, seal, unseal, ge
     const verified = await verifyAccount(req.body);
     return res.status(201).json(await store.bindConnection({ token: req.workspaceToken, ...verified }));
   }));
+  router.post('/connections/connect', wrap(async (req, res) => {
+    fields(req, ['token', 'provider', 'baseUrl']);
+    if (typeof connectAccount !== 'function') throw workspaceError('WORKSPACE_UNAVAILABLE', 503);
+    const verified = await connectAccount(req.body);
+    return res.status(201).json(await store.bindConnection({ token: req.workspaceToken, ...verified }));
+  }));
+  router.get('/connections', wrap(async (req, res) => {
+    if (!req.workspaceContext) throw workspaceError('WORKSPACE_SESSION_REQUIRED', 401);
+    return res.json({ connections: await store.listConnections(req.workspaceToken) });
+  }));
+  router.get('/repositories', wrap(async (req, res) => {
+    if (!req.workspaceContext) throw workspaceError('WORKSPACE_SESSION_REQUIRED', 401);
+    if (Object.keys(req.query).length) throw workspaceError('WORKSPACE_INPUT_INVALID', 400);
+    const account = await store.executionAccount(req.workspaceToken);
+    if (typeof listRepositories !== 'function') throw workspaceError('WORKSPACE_REPOSITORIES_UNAVAILABLE', 503);
+    return res.json(await listRepositories(account));
+  }));
   router.post('/connections/select', wrap(async (req, res) => {
     fields(req, ['workspaceId', 'connectionId']);
     const context = await store.selectConnection({ token: req.workspaceToken, workspaceId: req.body.workspaceId, connectionId: req.body.connectionId });
@@ -133,7 +150,7 @@ function createWorkspaceRouter({ enabled, store, verifyAccount, seal, unseal, ge
     const known = /^(?:WORKSPACE_[A-Z_]+|CSRF_(?:INVALID|EXPIRED|REQUIRED))$/.test(error.code || '');
     return res.status(known ? error.status || 403 : 503).json({
       code: known ? error.code : 'WORKSPACE_UNAVAILABLE',
-      error: 'Workspace request could not be completed. No repository operation was requested.'
+      error: 'Workspace request could not be completed. No repository write was requested.'
     });
   });
   return router;

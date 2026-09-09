@@ -36,6 +36,10 @@
     WORKSPACE_SESSION_LIMIT: 'Too many active workspace sessions. Sign out somewhere else first.',
     WORKSPACE_CONNECTION_LIMIT: 'This workspace already holds the maximum number of Git connections.',
     WORKSPACE_CONNECTION_REJECTED: 'That Git connection is not available to this workspace.',
+    WORKSPACE_CONNECTION_REQUIRED: 'Select a Git connection first.',
+    WORKSPACE_CREDENTIAL_REQUIRED: 'Reconnect this Git account with a valid token for this workspace session.',
+    WORKSPACE_PROVIDER_UNSUPPORTED: 'Owner repository listing currently supports GitHub. This connection can still be managed here.',
+    WORKSPACE_REPOSITORIES_UNAVAILABLE: 'Repositories could not be listed. Check the provider permissions and try again.',
     WORKSPACE_ORIGIN_REQUIRED: 'This request did not come from the application.',
     WORKSPACE_INPUT_INVALID: 'Something in that form was not accepted. Check the fields and try again.',
     WORKSPACE_ROUTE_NOT_FOUND: 'That workspace route does not exist.',
@@ -158,8 +162,10 @@
     }
     const { response, payload } = result;
     if (response.ok) {
-      const valid = path === '/sign-out' ? payload?.ok === true
-        : isSession(payload) && payload.authenticated;
+      const valid = ['/sign-out', '/connections/disconnect'].includes(path) ? payload?.ok === true
+        : path === '/connections/connect' ? typeof payload?.id === 'string' && payload.id.length > 0
+          : path === '/connections/select' ? payload?.context?.role === 'owner'
+            : isSession(payload) && payload.authenticated;
       if (!valid) return reconcileUnknown(path);
       outcomeUnknown = false;
       return payload;
@@ -212,6 +218,47 @@
     return snapshot();
   }
 
+  async function read(path) {
+    let result;
+    try { result = await send(path, 'GET'); }
+    catch { throw workspaceError('WORKSPACE_UNAVAILABLE'); }
+    if (!result.response.ok) {
+      const code = result.payload?.code || 'WORKSPACE_UNAVAILABLE';
+      if (code === 'WORKSPACE_SESSION_REQUIRED') await probe();
+      throw workspaceError(code, result.response.status);
+    }
+    return result.payload;
+  }
+
+  async function listConnections() {
+    const payload = await read('/connections');
+    if (!Array.isArray(payload?.connections)) throw workspaceError('WORKSPACE_UNAVAILABLE');
+    return payload.connections;
+  }
+
+  async function connect(input) {
+    return write('/connections/connect', credentials(input));
+  }
+
+  async function selectConnection(connectionId) {
+    const context = state.context;
+    if (!state.authenticated || !context) throw workspaceError('WORKSPACE_SESSION_REQUIRED', 401);
+    const payload = await write('/connections/select', { workspaceId: context.workspaceId, connectionId });
+    return adopt({ authenticated: true, context: payload.context });
+  }
+
+  async function disconnect(connectionId) {
+    await write('/connections/disconnect', { connectionId });
+    if (state.context?.connection?.id === connectionId) state.context = { ...state.context, connection: null };
+    return snapshot();
+  }
+
+  async function repositories() {
+    const payload = await read('/repositories');
+    if (!Array.isArray(payload?.repositories)) throw workspaceError('WORKSPACE_REPOSITORIES_UNAVAILABLE');
+    return payload;
+  }
+
   function current() {
     return snapshot();
   }
@@ -224,6 +271,7 @@
   }
 
   global.NebulaWorkspaceUI = Object.freeze({
-    probe, claim, signIn, signOut, current, explain, reset, SECRET_RX
+    probe, claim, signIn, signOut, current, explain, reset, SECRET_RX,
+    listConnections, connect, selectConnection, disconnect, repositories
   });
 })(window);

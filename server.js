@@ -763,9 +763,9 @@ const ALPHA_CONFIG = loadAlphaAccessConfig(process.env, {
 const WORKSPACE_CONFIG = loadWorkspaceConfig(process.env, { databaseUrl: DB_URL });
 const workspaceStore = WORKSPACE_CONFIG.enabled ? new WorkspaceStore({
   pool: { connect: () => pool().connect(), query: (...args) => pool().query(...args) },
-  config: WORKSPACE_CONFIG
+  config: WORKSPACE_CONFIG, seal, unseal
 }) : null;
-// A narrow, independently authenticated metadata surface. This cookie does NOT
+// A narrow, independently authenticated workspace surface. This cookie does NOT
 // bypass alphaAccessBoundary or change any existing repository/session route.
 app.use('/api/workspace', createWorkspaceRouter({
   enabled: WORKSPACE_CONFIG.enabled, store: workspaceStore,
@@ -775,7 +775,9 @@ app.use('/api/workspace', createWorkspaceRouter({
     const base = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL;
     return WORKSPACE_CONFIG.enabled && base ? new URL(base).origin : '';
   })(),
-  verifyAccount: verifyWorkspaceAccount
+  verifyAccount: verifyWorkspaceAccount,
+  connectAccount: connectWorkspaceAccount,
+  listRepositories: listWorkspaceRepositories
 }));
 const ALPHA_COOKIE = 'nv_alpha_access';
 const ALPHA_SESSION_ID = Symbol('alpha session id');
@@ -1083,6 +1085,7 @@ async function cleanupDatabase() {
   await Promise.all([
     pool().query(`DELETE FROM nv_intelligence_events WHERE created_at < now() - ($1::int * interval '1 day')`, [EVENT_RETENTION_DAYS]),
     pool().query(`DELETE FROM nv_sessions WHERE updated < now() - ($1::int * interval '1 day')`, [SESSION_RETENTION_DAYS]),
+    pool().query('DELETE FROM nv_workspace_sessions WHERE expires_at <= now()'),
     pool().query(`DELETE FROM nv_governance_idempotency WHERE created_at < now() - interval '24 hours'`)
   ]).catch(error => console.error('Database retention cleanup failed:', error.message));
 }
@@ -2788,6 +2791,32 @@ async function verifyWorkspaceAccount(input) {
   } catch (error) {
     if (String(error.code || '').startsWith('WORKSPACE_')) throw error;
     throw workspaceError('WORKSPACE_PROVIDER_VERIFICATION_FAILED', error.status === 401 ? 401 : 502);
+  }
+}
+async function connectWorkspaceAccount(input) {
+  const verified = await verifyWorkspaceAccount(input);
+  const { identity } = verified;
+  return { ...verified, credential: {
+    provider: identity.provider, baseUrl: identity.provider === 'github' ? '' : identity.instance,
+    providerAccountId: Number(identity.providerUserId), login: identity.login,
+    authMethod: 'token', token: input.token.trim()
+  } };
+}
+async function listWorkspaceRepositories(account) {
+  // B1 is read-only GitHub access. No legacy account/resource adoption, no
+  // tester allowlist impersonation and no provider writes on this surface.
+  if (account.provider !== 'github') throw workspaceError('WORKSPACE_PROVIDER_UNSUPPORTED', 409);
+  try {
+    assertProviderCapability(account, 'repository.read');
+    const rows = await gh(account, '/user/repos?sort=pushed&per_page=100&page=1&affiliation=owner,collaborator,organization_member');
+    if (!Array.isArray(rows)) throw new Error('Invalid repository list');
+    return { repositories: rows.slice(0, 100).map(row => ({
+      name: String(row.name || ''), fullName: String(row.full_name || ''),
+      private: row.private === true, defaultBranch: String(row.default_branch || '')
+    })), hasMore: rows.length >= 100 };
+  } catch (error) {
+    throw workspaceError(error.status === 401 ? 'WORKSPACE_CREDENTIAL_REQUIRED'
+      : 'WORKSPACE_REPOSITORIES_UNAVAILABLE', error.status === 401 ? 401 : 502);
   }
 }
 async function disconnectAlphaProviderAccount(req, accountOrAccounts) {

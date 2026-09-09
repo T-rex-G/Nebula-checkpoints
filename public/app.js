@@ -1247,7 +1247,7 @@ function renderWorkspaceCard() {
     const note = $('#workspaceScopeNote');
     note.hidden = !onGate;
     note.textContent = onGate
-      ? 'Ownership is established and your workspace exists. Repository access still resolves through the invitation, so it is unchanged by this sign-in.'
+      ? 'The repository workbench still resolves through the invitation. Owner Git connections and read-only GitHub listing are available below.'
       : '';
   }
 }
@@ -1264,7 +1264,16 @@ function showWorkspaceError(error) {
     : window.NebulaWorkspaceUI.explain('WORKSPACE_OUTCOME_UNKNOWN');
   box.hidden = false;
 }
+let workspaceAttemptBusy = false;
 async function workspaceAttempt(button, working, run) {
+  if (workspaceAttemptBusy) return;
+  workspaceAttemptBusy = true;
+  const enabledButtons = [...document.querySelectorAll('#workspaceCard button')].filter(item => !item.disabled);
+  enabledButtons.forEach(item => { item.disabled = true; });
+  $('#workspaceCard').setAttribute('aria-busy', 'true');
+  $('#workspaceGitConnections').replaceChildren();
+  $('#workspaceGitRepositories').replaceChildren();
+  if (['workspaceSignInBtn', 'workspaceClaimBtn', 'workspaceSignOutBtn'].includes(button.id)) $('#workspaceGitPanel').open = false;
   const box = $('#workspaceError');
   if (box) box.hidden = true;
   const label = button.textContent;
@@ -1284,6 +1293,10 @@ async function workspaceAttempt(button, working, run) {
     showWorkspaceError(error);
     renderWorkspaceCard();
   } finally {
+    $('#workspaceGitToken').value = '';
+    $('#workspaceCard').setAttribute('aria-busy', 'false');
+    workspaceAttemptBusy = false;
+    enabledButtons.forEach(item => { if (item.isConnected) item.disabled = false; });
     button.disabled = false;
     button.textContent = label;
   }
@@ -1312,6 +1325,73 @@ $('#workspaceSignOutBtn').addEventListener('click', () => workspaceAttempt(
   $('#workspaceSignOutBtn'), 'Signing out…',
   () => window.NebulaWorkspaceUI.signOut()
 ));
+
+async function refreshWorkspaceConnections() {
+  const rows = await window.NebulaWorkspaceUI.listConnections();
+  const list = $('#workspaceGitConnections');
+  list.replaceChildren();
+  if (!rows.length) list.textContent = 'No Git accounts connected yet.';
+  for (const connection of rows) {
+    const row = document.createElement('div'); row.className = 'workspace-git-row';
+    const label = document.createElement('span');
+    label.textContent = `${connection.login} · ${connection.provider} · ${connection.instance} · ${connection.credentialStored ? 'token stored for this session' : 'reconnect for this session'}`;
+    const select = document.createElement('button'); select.className = 'btn btn-ghost small';
+    select.textContent = connection.selected ? 'Selected' : 'Select'; select.disabled = connection.selected;
+    select.setAttribute('aria-label', `${connection.selected ? 'Selected' : 'Select'} ${connection.login} on ${connection.instance}`);
+    select.addEventListener('click', () => workspaceAttempt(select, 'Selecting…', async () => {
+      await window.NebulaWorkspaceUI.selectConnection(connection.id);
+      await refreshWorkspaceConnections();
+    }));
+    const disconnect = document.createElement('button'); disconnect.className = 'btn btn-ghost small';
+    disconnect.textContent = 'Disconnect';
+    disconnect.setAttribute('aria-label', `Disconnect ${connection.login} on ${connection.instance}`);
+    disconnect.addEventListener('click', () => workspaceAttempt(disconnect, 'Disconnecting…', async () => {
+      await window.NebulaWorkspaceUI.disconnect(connection.id);
+      await refreshWorkspaceConnections();
+    }));
+    row.append(label, select, disconnect); list.appendChild(row);
+  }
+}
+$('#workspaceGitProvider').addEventListener('change', () => {
+  $('#workspaceGitBaseWrap').hidden = $('#workspaceGitProvider').value === 'github';
+  $('#workspaceGitBase').placeholder = $('#workspaceGitProvider').value === 'gitea'
+    ? 'https://gitea.example.com' : 'https://gitlab.com (default)';
+});
+$('#workspaceGitConnect').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceGitConnect'), 'Connecting…', async () => {
+    await window.NebulaWorkspaceUI.connect({ provider: $('#workspaceGitProvider').value,
+      baseUrl: $('#workspaceGitBase').value, token: $('#workspaceGitToken').value });
+    await refreshWorkspaceConnections();
+  }
+));
+$('#workspaceGitRefresh').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceGitRefresh'), 'Refreshing…', refreshWorkspaceConnections
+));
+$('#workspaceGitRepos').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceGitRepos'), 'Listing…', async () => {
+    const result = await window.NebulaWorkspaceUI.repositories();
+    const list = $('#workspaceGitRepositories');
+    list.replaceChildren();
+    if (!result.repositories.length) list.textContent = 'No repositories are visible to this credential.';
+    for (const repo of result.repositories) {
+      const row = document.createElement('div'); row.className = 'workspace-git-row';
+      const name = document.createElement('span');
+      name.textContent = `${repo.fullName} · ${repo.private ? 'private' : 'public'}`;
+      row.appendChild(name); list.appendChild(row);
+    }
+    if (result.hasMore) {
+      const note = document.createElement('p'); note.className = 'hint';
+      note.textContent = 'Showing the first 100 repositories. More may be available on GitHub.';
+      list.appendChild(note);
+    }
+    await refreshWorkspaceConnections();
+  }
+));
+$('#workspaceGitPanel').addEventListener('toggle', () => {
+  if ($('#workspaceGitPanel').open && window.NebulaWorkspaceUI.current().authenticated) {
+    workspaceAttempt($('#workspaceGitRefresh'), 'Refreshing…', refreshWorkspaceConnections);
+  }
+});
 
 const PROV_ICON = {
   github: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>',

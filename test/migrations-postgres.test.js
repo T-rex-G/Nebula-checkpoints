@@ -94,6 +94,37 @@ async function main() {
 
     const reverified = await withClient(scratchUrl, client => verifyMigrations(client, { directory: DIRECTORY }));
     assert.strictEqual(reverified.ok, true, 'the database stops verifying after a second migration run');
+    await withClient(scratchUrl, async client => {
+      const retired = await client.query(`SELECT tablename FROM pg_tables
+        WHERE schemaname='public' AND tablename IN (
+          'nv_principals', 'nv_login_identities', 'nv_workspaces',
+          'nv_workspace_bootstrap', 'nv_workspace_connections',
+          'nv_workspace_sessions', 'nv_workspace_credentials')`);
+      assert.deepStrictEqual(retired.rows, [], 'retired tables must be absent after migration');
+
+      /* Reconstruct the historical schema only inside a rolled-back test
+       * transaction. An upgrade must refuse unreviewed data, then succeed
+       * after that data is explicitly cleared, preserving ordinary sessions. */
+      await client.query('BEGIN');
+      try {
+        for (const id of ['016_personal_workspaces', '017_workspace_credentials']) {
+          await client.query(expected.find(migration => migration.id === id).sql);
+        }
+        const principalId = crypto.randomUUID();
+        await client.query('INSERT INTO nv_principals(principal_id) VALUES($1)', [principalId]);
+        const ordinaryBefore = (await client.query('SELECT count(*)::int AS n FROM nv_sessions')).rows[0].n;
+        const retirement = expected.find(migration => migration.id === '018_remove_retired_identity_tables');
+        await client.query('SAVEPOINT reject_populated');
+        await assert.rejects(() => client.query(retirement.sql), /contain data; complete the scoped data cleanup/);
+        await client.query('ROLLBACK TO SAVEPOINT reject_populated');
+        assert.strictEqual((await client.query('SELECT count(*)::int AS n FROM nv_principals')).rows[0].n, 1);
+        await client.query('DELETE FROM nv_principals WHERE principal_id=$1', [principalId]);
+        await client.query(retirement.sql);
+        assert.strictEqual((await client.query('SELECT count(*)::int AS n FROM nv_sessions')).rows[0].n, ordinaryBefore);
+      } finally {
+        await client.query('ROLLBACK');
+      }
+    });
     await verifyAlphaPrivacyPurge(scratchUrl);
   } finally {
     await withClient(ADMIN_URL, client => client.query(`DROP DATABASE IF EXISTS ${scratch} WITH (FORCE)`));

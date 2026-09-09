@@ -586,7 +586,12 @@ assert(
   'qualification must check generated documentation before package creation'
 );
 const playwrightCacheBinding = automated.indexOf('PLAYWRIGHT_BROWSERS_PATH=%s');
-const playwrightInstall = automated.indexOf('npx playwright install --with-deps chromium');
+const playwrightInstall = automated.indexOf('bash ci/install-browser.sh');
+const browserInstaller = fs.readFileSync(path.join(__dirname, '..', 'ci', 'install-browser.sh'), 'utf8');
+assert(browserInstaller.includes('npx playwright install --with-deps chromium'),
+  'browser provisioning must install the pinned browser and its system dependencies');
+assert(!browserInstaller.includes('PLAYWRIGHT_BROWSERS_PATH='),
+  'browser provisioning must inherit the cache shared with extracted-candidate qualification');
 /* The message below claims both matrices, so bound the last invocation. */
 const checkoutBrowserMatrix = automated.lastIndexOf('npm run test:e2e');
 const extractedCandidateQualifier = automated.indexOf('node scripts/qualify-candidate-archive.js');

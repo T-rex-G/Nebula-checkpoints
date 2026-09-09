@@ -109,7 +109,7 @@ jobs:
             );
           '
       - run: npm run test:runtime:matrix
-      - run: npx playwright install --with-deps chromium
+      - run: bash ci/install-browser.sh
       - run: npm run test:e2e
       - name: Build candidate twice and freeze bytes
         id: freeze

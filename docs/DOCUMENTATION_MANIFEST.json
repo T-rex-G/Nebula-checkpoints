@@ -53,20 +53,6 @@
       "immutableHistory": false
     },
     {
-      "path": "docs/architecture/PERSONAL_WORKSPACE_FOUNDATION.md",
-      "lifecycle": "architecture",
-      "authority": "accepted-architecture-record",
-      "releaseIncluded": true,
-      "immutableHistory": false
-    },
-    {
-      "path": "docs/architecture/CHANGE_B_CONNECTIONS.md",
-      "lifecycle": "architecture",
-      "authority": "implementation-slice-contract",
-      "releaseIncluded": true,
-      "immutableHistory": false
-    },
-    {
       "path": "docs/current/PROJECT_STATE.md",
       "lifecycle": "current",
       "authority": "generated-from-work-continuity",

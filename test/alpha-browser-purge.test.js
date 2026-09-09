@@ -128,7 +128,6 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
   };
   const sandbox = {
     state,
-    identityEpoch: 0,
     clearCsrfToken: () => operations.push(['csrf']),
     clearGovernanceState: () => operations.push(['governance']),
     purgePrivateCaches: async () => operations.push(['cache']),

@@ -30,11 +30,10 @@
 
 const { ENTRIES, GROUPS } = require('../src/config-registry');
 const config = require('../src/config');
-const { loadWorkspaceConfig } = require('../src/workspace-identity');
 
 const RUNTIME_GROUPS = Object.freeze([
   'server', 'database', 'oauth', 'github-app',
-  'alpha-access', 'workspace', 'limits', 'governance', 'snapshots', 'scanning'
+  'alpha-access', 'limits', 'governance', 'snapshots', 'scanning'
 ]);
 
 function parseArguments(argv) {
@@ -195,7 +194,6 @@ function evaluate(env) {
   check('Governance failure mode', 'governance', () => config.normalizeGovernanceRuntimeFailureMode(env.NV_GOVERNANCE_RUNTIME_FAILURE_MODE));
   check('GitHub App', 'github-app', () => config.loadGithubAppConfig(env, { production }));
   check('Alpha access', 'alpha-access', () => config.loadAlphaAccessConfig(env, { databaseUrl: env.DATABASE_URL || '' }));
-  check('Workspace foundation', 'workspace', () => loadWorkspaceConfig(env, { databaseUrl: env.DATABASE_URL || '' }));
 
   /*
    * Production rules that live in server.js rather than in a loader. These are

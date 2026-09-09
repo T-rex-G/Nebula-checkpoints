@@ -85,12 +85,6 @@ const {
 } = require('./src/hosted-readiness');
 const { AlphaAccessStore } = require('./src/alpha-access-store');
 const { AlphaPrivacyStore } = require('./src/alpha-privacy-store');
-const { loadWorkspaceConfig, verifiedHumanIdentity, workspaceError } = require('./src/workspace-identity');
-const { WorkspaceStore } = require('./src/workspace-store');
-const { createWorkspaceRouter } = require('./src/workspace-api');
-const { createWorkspaceWorkbenchRouter } = require('./src/workspace-workbench');
-const { createWorkspaceSafetyStore } = require('./src/workspace-safety');
-const { createWorkspaceMutationRunner } = require('./src/workspace-mutation');
 const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback } = require('./src/alpha-privacy');
 const {
   disconnectProviderAccount,
@@ -390,6 +384,21 @@ function startTempMaintenance() {
 }
 
 app.disable('x-powered-by');
+/* Retire old owner cookies without adopting them into provider authentication. */
+app.use((req, res, next) => {
+  const cookies = String(req.headers.cookie || '').split(';').map(item => item.trim());
+  for (const [name, scope] of [
+    ['nv_workspace_session', '/api/workspace'],
+    ['nv_workspace_challenge', '/api/workspace'],
+    ['nv_workspace_oauth', '/api/workspace'],
+    ['nv_workspace_oauth_intent', '/']
+  ]) {
+    if (cookies.some(item => item.startsWith(`${name}=`))) {
+      res.clearCookie(name, { path: scope, httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+    }
+  }
+  next();
+});
 /* one safe request identity shared by logs and tester-facing errors */
 app.use((req, res, next) => {
   const supplied = String(req.headers['x-nebulaverse-correlation-id'] || '');
@@ -764,52 +773,6 @@ const ALPHA_CONFIG = loadAlphaAccessConfig(process.env, {
   production: process.env.NODE_ENV === 'production',
   databaseUrl: DB_URL
 });
-const WORKSPACE_CONFIG = loadWorkspaceConfig(process.env, { databaseUrl: DB_URL });
-const workspaceStore = WORKSPACE_CONFIG.enabled ? new WorkspaceStore({
-  pool: { connect: () => pool().connect(), query: (...args) => pool().query(...args) },
-  config: WORKSPACE_CONFIG, seal, unseal
-}) : null;
-// A narrow, independently authenticated workspace surface. This cookie does NOT
-// bypass alphaAccessBoundary or change any existing repository/session route.
-app.use('/api/workspace', createWorkspaceRouter({
-  enabled: WORKSPACE_CONFIG.enabled, store: workspaceStore,
-  seal, unseal, getCookie, csrfSecret: CSRF_SECRET,
-  production: process.env.NODE_ENV === 'production',
-  publicOrigin: (() => {
-    const base = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL;
-    return WORKSPACE_CONFIG.enabled && base ? new URL(base).origin : '';
-  })(),
-  /* The client secret stays here; the router only needs somewhere to send the
-   * reader. Scope matches the cohort flow, because a connected owner account
-   * does the same kind of repository work. */
-  oauth: {
-    /*
-     * A getter, not a value. This router is mounted well above where OAUTH_ID
-     * and OAUTH_SECRET are declared, and reading a const before its declaration
-     * is a ReferenceError that kills the process at startup -- not a warning.
-     */
-    get enabled() { return !!(OAUTH_ID && OAUTH_SECRET); },
-    authorizeUrl: state =>
-      `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(OAUTH_ID)}&scope=repo&state=${encodeURIComponent(state)}`
-  },
-  verifyAccount: verifyWorkspaceAccount,
-  connectAccount: connectWorkspaceAccount,
-  listRepositories: listWorkspaceRepositories,
-  workbench: createWorkspaceWorkbenchRouter({
-    store: workspaceStore, request: gh, commitTree,
-    fileEntryAtHead: async (account, owner, repo, head, path) => {
-      const parent = await gh(account, `/repos/${owner}/${repo}/git/commits/${head}`);
-      return gitTreeEntryByPath(account, owner, repo, parent.tree.sha, path, new Map());
-    },
-    assertCapability: assertProviderCapability,
-    projectCapabilities: account => projectCapabilities(CAPABILITY_DOCUMENT, providerCapabilityContext(account)),
-    loadSafety: key => createWorkspaceSafetyStore(pool()).load(key),
-    updateSafety: (key, body) => createWorkspaceSafetyStore(pool()).update(key, body),
-    guardSafety, runMutation: createWorkspaceMutationRunner({ gateway: mutationGateway, request: gh, descriptorFor: mutationDescriptorFor }),
-    requireRepoPath: normalizeRepoPath, requireBranchName: normalizeBranchName,
-    normalizeBranches: normalizeProviderBranches, failure: (res, error) => fail(res, error)
-  })
-}));
 const ALPHA_COOKIE = 'nv_alpha_access';
 const ALPHA_SESSION_ID = Symbol('alpha session id');
 const HOSTED_SESSION_BASE = Symbol('hosted provider session base');
@@ -1116,7 +1079,6 @@ async function cleanupDatabase() {
   await Promise.all([
     pool().query(`DELETE FROM nv_intelligence_events WHERE created_at < now() - ($1::int * interval '1 day')`, [EVENT_RETENTION_DAYS]),
     pool().query(`DELETE FROM nv_sessions WHERE updated < now() - ($1::int * interval '1 day')`, [SESSION_RETENTION_DAYS]),
-    pool().query('DELETE FROM nv_workspace_sessions WHERE expires_at <= now()'),
     pool().query(`DELETE FROM nv_governance_idempotency WHERE created_at < now() - interval '24 hours'`)
   ]).catch(error => console.error('Database retention cleanup failed:', error.message));
 }
@@ -2797,58 +2759,12 @@ async function glLastCommit(acct, id, branch) {
 async function providerIdentity(acct) {
   if ((acct.provider || 'github') === 'gitlab') {
     const user = await glFetch(acct, '/user');
-    return { login: user.username, name: user.name, avatar_url: user.avatar_url, id: user.id, bot: user.bot };
+    return { login: user.username, name: user.name, avatar_url: user.avatar_url, id: user.id };
   }
   if (acct && acct.authMethod === 'github-app') {
     return { login: acct.login, name: acct.login, avatar_url: acct.avatar, id: acct.installationAccountId };
   }
   return gh(acct, '/user');
-}
-async function verifyWorkspaceAccount(input) {
-  const provider = input.provider || 'github';
-  if (!['github', 'gitlab', 'gitea'].includes(provider)
-    || typeof input.token !== 'string' || !input.token.trim() || input.token.length > 4096
-    || (input.baseUrl !== undefined && typeof input.baseUrl !== 'string')
-    || (provider === 'github' && input.baseUrl)) throw workspaceError('WORKSPACE_INPUT_INVALID', 400);
-  const baseUrl = provider === 'github' ? '' : input.baseUrl || (provider === 'gitlab' ? 'https://gitlab.com' : '');
-  try {
-    const safeBase = baseUrl ? await assertPublicBase(baseUrl) : '';
-    if (provider === 'gitea' && !safeBase) throw workspaceError('WORKSPACE_INPUT_INVALID', 400);
-    const user = await providerIdentity({ provider, baseUrl: safeBase, token: input.token.trim() });
-    const account = { provider, baseUrl: safeBase, providerAccountId: user.id,
-      login: user.login, type: user.type, bot: user.bot, authMethod: 'token' };
-    return { identity: verifiedHumanIdentity(account),
-      legacyIdentityKey: ALPHA_CONFIG.enabled ? stableProviderIdentityKey(account) : identityKey(account) };
-  } catch (error) {
-    if (String(error.code || '').startsWith('WORKSPACE_')) throw error;
-    throw workspaceError('WORKSPACE_PROVIDER_VERIFICATION_FAILED', error.status === 401 ? 401 : 502);
-  }
-}
-async function connectWorkspaceAccount(input) {
-  const verified = await verifyWorkspaceAccount(input);
-  const { identity } = verified;
-  return { ...verified, credential: {
-    provider: identity.provider, baseUrl: identity.provider === 'github' ? '' : identity.instance,
-    providerAccountId: Number(identity.providerUserId), login: identity.login,
-    authMethod: 'token', token: input.token.trim()
-  } };
-}
-async function listWorkspaceRepositories(account) {
-  // B1 is read-only GitHub access. No legacy account/resource adoption, no
-  // tester allowlist impersonation and no provider writes on this surface.
-  if (account.provider !== 'github') throw workspaceError('WORKSPACE_PROVIDER_UNSUPPORTED', 409);
-  try {
-    assertProviderCapability(account, 'repository.read');
-    const rows = await gh(account, '/user/repos?sort=pushed&per_page=100&page=1&affiliation=owner,collaborator,organization_member');
-    if (!Array.isArray(rows)) throw new Error('Invalid repository list');
-    return { repositories: rows.slice(0, 100).map(row => ({
-      name: String(row.name || ''), fullName: String(row.full_name || ''),
-      private: row.private === true, defaultBranch: String(row.default_branch || '')
-    })), hasMore: rows.length >= 100 };
-  } catch (error) {
-    throw workspaceError(error.status === 401 ? 'WORKSPACE_CREDENTIAL_REQUIRED'
-      : 'WORKSPACE_REPOSITORIES_UNAVAILABLE', error.status === 401 ? 401 : 502);
-  }
 }
 async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
   const accounts = (Array.isArray(accountOrAccounts) ? accountOrAccounts : [accountOrAccounts])
@@ -3665,20 +3581,8 @@ app.get('/api/oauth/login', (req, res) => {
 });
 app.get('/api/oauth/callback', async (req, res) => {
   try {
-    /*
-     * Which flow this is has to be settled BEFORE the state check, not after.
-     * One registered callback serves the cohort login and the owner workspace,
-     * and they carry different state cookies -- the workspace leg never sets
-     * nv_oauth, so checking only that one refused every workspace return with
-     * "state mismatch" and the branch below was unreachable.
-     */
-    const wsIntent = unseal(getCookie(req, 'nv_workspace_oauth_intent'));
-    const workspaceFlow = wsIntent?.kind === 'workspace-oauth-intent/v1'
-      && Number.isFinite(wsIntent.expiresAt) && wsIntent.expiresAt > Date.now()
-      && typeof wsIntent.state === 'string' && wsIntent.state.length > 0
-      && req.query.state === wsIntent.state;
-    const cohortFlow = !!getCookie(req, 'nv_oauth') && req.query.state === getCookie(req, 'nv_oauth');
-    if (!req.query.code || !(workspaceFlow || cohortFlow))
+    const state = getCookie(req, 'nv_oauth');
+    if (!req.query.code || !state || req.query.state !== state)
       return res.status(400).send('OAuth state mismatch — please retry from the login page.');
     const tr = await fetchT('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -3689,29 +3593,6 @@ app.get('/api/oauth/callback', async (req, res) => {
     const td = await tr.json();
     if (!td.access_token) return res.status(400).send('OAuth exchange failed.');
     const user = await gh(td.access_token, '/user');
-    /*
-     * One registered callback serves both flows, so the intent decides which.
-     * It is sealed, not a query flag: a cohort login must never be turned into
-     * a workspace verification by editing a URL.
-     *
-     * This leg deliberately does NOT call addAccount. A cohort session does not
-     * grant workspace ownership -- that is the contract -- so the owner surface
-     * is handed a verified identity and nothing else, and this returns before
-     * any cohort session could be created.
-     */
-    if (workspaceFlow) {
-      const identity = verifiedHumanIdentity({
-        provider: 'github', providerAccountId: user.id, login: user.login,
-        type: user.type, bot: user.bot, authMethod: 'oauth'
-      });
-      const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-      res.append('Set-Cookie', `nv_workspace_oauth_intent=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
-      res.append('Set-Cookie', `nv_workspace_oauth=${seal({
-        kind: 'workspace-oauth-verified/v1', token: td.access_token, identity,
-        expiresAt: Date.now() + 10 * 60 * 1000
-      })}; Path=/api/workspace; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
-      return res.redirect('/?workspace=verified');
-    }
     await addAccount(req, res, td.access_token, user, 'github', '', { authMethod: 'oauth' });
     res.redirect('/');
   } catch (e) { res.status(500).send('OAuth error: ' + e.message); }

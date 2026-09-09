@@ -248,7 +248,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         return fulfill({ webhooks: [] });
       }
     }
-    if (pathname === '/api/config') return fulfill({ oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, githubApp: { enabled: true, webhookConfigured: true } });
+    if (pathname === '/api/config') return fulfill({ oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, contentsMaxMb: 40, githubApp: { enabled: true, webhookConfigured: true } });
     if (pathname === '/api/security/csrf') return fulfill({ token: 'fixture-csrf-value', expiresAt: new Date(Date.now() + 600000).toISOString() });
     if (pathname === '/api/login' && method === 'POST') {
       state.providerConnected = true;

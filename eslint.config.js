@@ -52,6 +52,7 @@ const APP_SHELL_GLOBALS = Object.freeze({
   setSafety: 'readonly',
   state: 'readonly',
   stepUpApi: 'readonly',
+  strategyFor: 'readonly',
   switchTab: 'readonly',
   toast: 'readonly'
 });

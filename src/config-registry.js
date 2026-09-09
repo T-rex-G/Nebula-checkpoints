@@ -131,7 +131,7 @@ const ENTRIES = Object.freeze([
   /* ---------------- Bounded runtime limits ---------------- */
   { name: 'NV_UPLOAD_MAX_MB', group: 'limits', requirement: 'optional', fallback: '2048',
     format: 'integer, clamped 25-2048',
-    summary: 'Largest single upload. Ignored when a hosted profile sets its own ceiling.' },
+    summary: 'Largest single upload. A hosted profile caps it lower and refuses a larger value at startup.' },
   { name: 'NV_UPLOAD_CONCURRENCY', group: 'limits', requirement: 'optional', fallback: '1',
     format: 'integer, clamped from 1',
     summary: 'How many uploads may run at once.' },
@@ -329,6 +329,9 @@ const ENTRIES = Object.freeze([
     format: 'deploy id', summary: 'Exact deployment of that application.' },
   { name: 'NV_ALPHA17_GITHUB_API_URL', group: 'ci', requirement: 'group', fallback: null,
     format: 'absolute URL', summary: 'GitHub API endpoint for the live provider run.' },
+  { name: 'NV_ALPHA17_GITHUB_LFS_URL', group: 'ci', requirement: 'optional', fallback: 'https://github.com',
+    format: 'absolute URL',
+    summary: 'Git LFS host for the live provider run. Separate from the API endpoint because the LFS store lives on the web host.' },
   { name: 'NV_ALPHA17_GITLAB_API_URL', group: 'ci', requirement: 'group', fallback: null,
     format: 'absolute URL', summary: 'GitLab API endpoint for the live provider run.' },
   { name: 'NV_ALPHA17_NEON_PROJECT_ID', group: 'ci', requirement: 'group', fallback: null,

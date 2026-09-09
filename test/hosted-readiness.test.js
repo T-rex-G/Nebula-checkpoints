@@ -25,9 +25,23 @@ const expectedLimits = {
 assert.deepStrictEqual(loadHostedAlphaLimits({}), expectedLimits);
 assert(Object.isFrozen(loadHostedAlphaLimits({})));
 assert.strictEqual(loadHostedAlphaLimits({ NV_EVENT_RETENTION_DAYS: '14' }).eventRetentionDays, 14);
+/*
+ * Raising past the hosted default is the case this used to forbid. The default
+ * and the maximum were one number, so 31 threw "between 1 and 30" -- and an
+ * operator who set a larger value from the documented range took the service
+ * down at the next deploy. The default is still 30; the bound is the same one
+ * the self-hosted path clamps to.
+ */
+assert.strictEqual(loadHostedAlphaLimits({ NV_EVENT_RETENTION_DAYS: '31' }).eventRetentionDays, 31);
+assert.strictEqual(loadHostedAlphaLimits({ NV_EVENT_RETENTION_DAYS: '730' }).eventRetentionDays, 730);
 assert.throws(
-  () => loadHostedAlphaLimits({ NV_EVENT_RETENTION_DAYS: '31' }),
-  /between 1 and 30/
+  () => loadHostedAlphaLimits({ NV_EVENT_RETENTION_DAYS: '731' }),
+  /between 1 and 730/
+);
+assert.strictEqual(loadHostedAlphaLimits({ NV_UPLOAD_MAX_MB: '100' }).uploadMaxMb, 100);
+assert.throws(
+  () => loadHostedAlphaLimits({ NV_UPLOAD_MAX_MB: '2049' }),
+  /between 1 and 2048/
 );
 assert.throws(
   () => loadHostedAlphaLimits({ NV_UPLOAD_MAX_MB: '25.5' }),

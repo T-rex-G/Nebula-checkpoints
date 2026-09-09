@@ -452,6 +452,17 @@ Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses fo
 | `NODE_ENV=production` | Required in production | Secure cookie/HSTS behavior |
 | `DATABASE_URL` | Required for verified live intelligence | Existing Neon sessions, policies, events, snapshots, evidence |
 | `PUBLIC_BASE_URL` | Optional on Render | Canonical HTTPS webhook callback on other/custom hosts |
+> **On a hosted profile these twelve start lower, and the maximum is enforced at startup.**
+> `NV_DEPLOYMENT_PROFILE=hosted-alpha` applies its own, more conservative
+> *defaults* — 25 MB for uploads rather than 2,048, 16 MB for Git Data and
+> native push rather than 64 — sized for a small instance. The **maximum** each
+> one accepts is the same as below, so any of them can be raised up to the
+> bound the code can honour. A value above that bound is refused at startup:
+> the process exits naming the variable rather than clamping, so the setting is
+> never quietly ignored. Raising a memory-bound limit on a small instance is the
+> operator's call; the ceilings in `src/hosted-readiness.js` are what the code
+> can honour, not what a 512 MB container will survive.
+
 | `NV_EVENT_RETENTION_DAYS` | Optional | Event retention, 7–730 days; default 90 |
 | `NV_SESSION_RETENTION_DAYS` | Optional | Inactive session retention, 7–365 days; default 35 |
 | `NV_LIVE_CLIENTS_PER_REPO` | Optional | Concurrent SSE clients per identity/repository, 1–20; default 5 |

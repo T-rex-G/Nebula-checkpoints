@@ -39,7 +39,13 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
      * upload page actually walks -- unproven.
      */
     'native-push': ['blob-create'],
-    'file.batch': ['batch-commit']
+    'file.batch': ['batch-commit'],
+    /*
+     * LFS is its own chain and not part of the push one. It reaches a
+     * different host, authenticates differently, and stores bytes outside the
+     * git tree entirely -- so a passing blob proof says nothing about it.
+     */
+    lfs: ['lfs-object-upload']
   },
   gitlab: {
     'repository.read': ['repository-read'],
@@ -219,6 +225,41 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
         parentIsObservedHead: true,
         pathsLanded: true,
         nonFastForwardRefused: true
+      }
+    },
+    /*
+     * The LFS store, proved without touching the tree.
+     *
+     *   oidEchoed             the provider answered about the object that was
+     *                         asked about, at the size it was told;
+     *   uploadOffered         it had never seen the object -- true only for a
+     *                         synthetic payload, which is why the probe makes
+     *                         a random one rather than reusing a fixture;
+     *   objectStored          the bytes were accepted by the storage endpoint;
+     *   deduplicatedOnRepeat  asked again for the same oid it offers no
+     *                         upload, which is the provider stating it holds
+     *                         the object. This is the branch of uploadViaLFS
+     *                         that has never been observed and the behaviour
+     *                         the upload page relies on to avoid resending;
+     *   pointerCommitted      false, measured by comparing the branch head
+     *                         before and after. The store is what is under
+     *                         test; a committed pointer would leave the branch
+     *                         carrying state this proof does not need.
+     *
+     * `verified` is absent when the provider offers no verify action, which
+     * the protocol permits. It is recorded when offered so a run cannot skip
+     * it silently.
+     */
+    {
+      key: 'lfs-object-upload',
+      fields: {
+        status: 'pass',
+        statusClass: '2xx',
+        oidEchoed: true,
+        uploadOffered: true,
+        objectStored: true,
+        deduplicatedOnRepeat: true,
+        pointerCommitted: false
       }
     }
   ],

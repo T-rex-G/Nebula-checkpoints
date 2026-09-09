@@ -48,6 +48,8 @@ function createProviderFetchFixture(options = {}) {
     counter: 1,
     defaultBranch,
     requests: [],
+    /* oid -> size, for objects the LFS store has actually been handed. */
+    lfsObjects: new Map(),
     branches: new Map([[defaultBranch, { sha: initialSha, files: new Map() }]]),
     /*
      * A commit log, keyed by sha, recording which path each commit touched.
@@ -105,6 +107,23 @@ function createProviderFetchFixture(options = {}) {
     if (value === mutationCredential) return true;
     if (value === readOnlyCredential) return false;
     return false;
+  }
+
+  /*
+   * Git LFS authenticates with Basic, not Bearer, and the product signs it as
+   * `login:token`. Checked here rather than by widening canMutate, because a
+   * Bearer check that also accepted Basic would stop noticing if the product
+   * started sending the wrong scheme to the wrong endpoint.
+   */
+  function canMutateLfs(init) {
+    const header = new Headers(init.headers || {}).get('authorization') || '';
+    const match = /^Basic (.+)$/.exec(header);
+    if (!match) return false;
+    let decoded = '';
+    try { decoded = Buffer.from(match[1], 'base64').toString('utf8'); } catch { return false; }
+    const separator = decoded.indexOf(':');
+    if (separator < 1) return false;
+    return decoded.slice(separator + 1) === mutationCredential;
   }
 
   /*
@@ -212,9 +231,64 @@ function createProviderFetchFixture(options = {}) {
     const parsed = new URL(url);
     const method = String(init.method || 'GET').toUpperCase();
     const base = `/repos/${repository}`;
+    /* Hrefs must lead back to the fixture, whichever origin the caller used. */
+    const lfsStorageOrigin = parsed.origin;
     /* Account-wide rather than repository-scoped, so it is answered first. */
     if (parsed.pathname === '/rate_limit' && method === 'GET') {
       return json({ resources: { core: { limit: 5000, remaining: 4987 } } });
+    }
+    /* Also account-wide: the LFS probe signs Basic auth with the actor's login. */
+    if (parsed.pathname === '/user' && method === 'GET') {
+      return json({ login: 'alpha17-fixture-actor' });
+    }
+    /*
+     * The LFS store. Modelled, not stubbed: the batch endpoint offers an upload
+     * action only for an object it does not hold, which is the behaviour the
+     * probe's deduplication proof turns on. A fixture that always offered one
+     * would let a provider that never stored the bytes pass.
+     */
+    if (parsed.pathname === `/${repository}.git/info/lfs/objects/batch` && method === 'POST') {
+      if (!canMutateLfs(init)) return json({ message: 'forbidden' }, 403);
+      const body = bodyOf(init);
+      if (String(body.operation || '') !== 'upload') return json({ message: 'unsupported operation' }, 422);
+      const objects = (Array.isArray(body.objects) ? body.objects : []).map(requested => {
+        const oid = String(requested.oid || '');
+        const size = Number(requested.size);
+        if (!/^[0-9a-f]{64}$/.test(oid) || !Number.isSafeInteger(size) || size < 0) {
+          return { oid, size, error: { code: 422, message: 'invalid object' } };
+        }
+        if (state.lfsObjects.has(oid)) return { oid, size };
+        return {
+          oid,
+          size,
+          actions: {
+            upload: { href: `${lfsStorageOrigin}/lfs-storage/${oid}`, header: { 'x-nv-fixture': 'upload' } },
+            verify: { href: `${lfsStorageOrigin}/${repository}.git/info/lfs/objects/verify` }
+          }
+        };
+      });
+      return json({ transfer: 'basic', objects });
+    }
+    const lfsStoragePrefix = '/lfs-storage/';
+    if (parsed.pathname.startsWith(lfsStoragePrefix) && method === 'PUT') {
+      const oid = parsed.pathname.slice(lfsStoragePrefix.length);
+      const body = init.body;
+      const bytes = Buffer.isBuffer(body) ? body : Buffer.from(String(body || ''), 'utf8');
+      /*
+       * The oid is the sha256 of the bytes, so the fixture recomputes it rather
+       * than trusting the path. A store that accepted any bytes under any name
+       * would make the second batch response meaningless.
+       */
+      const actual = crypto.createHash('sha256').update(bytes).digest('hex');
+      if (actual !== oid) return json({ message: 'object identity mismatch' }, 422);
+      state.lfsObjects.set(oid, bytes.length);
+      return json({}, 200);
+    }
+    if (parsed.pathname === `/${repository}.git/info/lfs/objects/verify` && method === 'POST') {
+      const body = bodyOf(init);
+      const oid = String(body.oid || '');
+      if (!state.lfsObjects.has(oid)) return json({ message: 'object not found' }, 404);
+      return json({ oid, size: state.lfsObjects.get(oid) });
     }
     if (!parsed.pathname.startsWith(base)) return json({ message: 'unknown repository' }, 404);
     if (method !== 'GET' && !canMutate(init)) return json({ message: 'forbidden' }, 403);

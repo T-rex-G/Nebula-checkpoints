@@ -4,8 +4,10 @@
 const crypto = require('crypto');
 const {
   assertExpectedHead,
+  fail,
   observe,
   requestJson,
+  statusClass,
   runProviderQualification
 } = require('./provider-alpha17-common');
 
@@ -424,7 +426,7 @@ function createGithubClient({ env, fetchImpl }) {
     const collections = [];
     for (const collection of COLLECTION_READS) collections.push(await readCollection(collection));
 
-    return [treeRead, rateRead, ...collections, ...(await pushChecks({ branch, prefix }))];
+    return [treeRead, rateRead, ...collections, ...(await pushChecks({ branch, prefix })), ...(await lfsChecks({ branch, prefix }))];
   }
 
   /*
@@ -437,6 +439,202 @@ function createGithubClient({ env, fetchImpl }) {
    * the shared sequence reads the head it observes rather than one it
    * remembers from earlier, so the move costs nothing downstream.
    */
+  /*
+   * Git LFS speaks to a different host from the REST API -- github.com rather
+   * than api.github.com -- and authenticates with Basic rather than Bearer.
+   * These mirror uploadViaLFS in server.js request for request, because a
+   * probe that reached the provider by some other route would prove the
+   * provider works and leave the product's own path unproven. The guard in
+   * test/lfs-probe-contract.test.js holds the two together.
+   */
+  const lfsBase = new URL(String(env.NV_ALPHA17_GITHUB_LFS_URL || 'https://github.com'));
+  const lfsBatchUrl = () => new URL(`${repository}.git/info/lfs/objects/batch`,
+    `${lfsBase.toString().replace(/\/$/, '')}/`).toString();
+
+  function lfsHeaders(login, credential = 'mutation') {
+    const token = credential === 'readOnly' ? readOnlyCredential : mutationCredential;
+    return {
+      Accept: 'application/vnd.git-lfs+json',
+      'Content-Type': 'application/vnd.git-lfs+json',
+      Authorization: `Basic ${Buffer.from(`${login}:${token}`).toString('base64')}`,
+      'User-Agent': 'Nebulaverse-X-alpha17-qualification'
+    };
+  }
+
+  /*
+   * The product signs LFS Basic auth with the session's login, so the probe
+   * asks the provider who the credential belongs to rather than assuming the
+   * repository owner is the actor.
+   */
+  async function readViewerLogin(credential = 'mutation') {
+    const response = await requestJson(fetchImpl, api('user'), {
+      headers: headers(credential),
+      allowedStatuses: [200]
+    });
+    return String(response.data.login || '');
+  }
+
+  /* Written out rather than parameterised, so the body is visibly the one
+   * uploadViaLFS sends and the contract guard can hold them together. */
+  async function lfsBatch({ login, branch, objects }) {
+    return requestJson(fetchImpl, lfsBatchUrl(), {
+      method: 'POST',
+      headers: lfsHeaders(login),
+      body: { operation: 'upload', transfers: ['basic'], ref: { name: `refs/heads/${branch}` }, objects },
+      allowedStatuses: [200]
+    });
+  }
+
+  /*
+   * The object bytes do not go through requestJson: the upload href is a
+   * storage endpoint that answers with an empty body, and the response is not
+   * JSON. Sent raw, with the headers the batch response handed back, exactly
+   * as the product sends them.
+   */
+  async function lfsPutObject(action, bytes) {
+    const parsed = new URL(String(action.href || ''));
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+      fail('LFS upload href must be HTTPS without embedded credentials', 'ALPHA17_PROVIDER_URL_INVALID');
+    }
+    const response = await fetchImpl(parsed, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(bytes.length),
+        ...(action.header || {})
+      },
+      body: bytes,
+      redirect: 'error'
+    });
+    return Object.freeze({ status: response.status, statusClass: statusClass(response.status) });
+  }
+
+  /*
+   * Git LFS, proved without committing anything.
+   *
+   * The registry has called this Experimental with the reason "implemented,
+   * but outside the alpha.17 live-provider harness and golden path", and the
+   * only way out of that is to walk it against the real provider.
+   *
+   * The object is synthetic and random, so its oid cannot already exist in the
+   * store -- which is what makes the first batch response meaningful. A fixed
+   * payload would be present from the previous run and the probe would report
+   * a successful upload it never performed.
+   *
+   * No pointer file and no .gitattributes are written. The LFS store and the
+   * git tree are separate, and the thing under test is the store; committing a
+   * pointer would leave the branch carrying a file whose bytes live somewhere
+   * this run then has to clean up. The head is read before and after and
+   * required to be identical, so "no pointer committed" is a measured fact
+   * rather than an intention.
+   *
+   * The proof that the provider really took the bytes is the second batch
+   * call. An LFS server omits the upload action for an object it already
+   * holds, so asking again for the same oid and being offered nothing is the
+   * provider stating it has them. That is also the branch of uploadViaLFS that
+   * has never been observed -- `if (uploadAction)` falling through -- and it
+   * is the deduplication the upload page depends on to avoid resending.
+   */
+  async function lfsChecks({ branch, prefix }) {
+    const headBefore = await getBranch(branch, 'mutation');
+    const objectBytes = Buffer.concat([
+      Buffer.from(`Nebulaverse-X alpha.17 lfs object ${prefix}\n`, 'utf8'),
+      crypto.randomBytes(64)
+    ]);
+    const oid = crypto.createHash('sha256').update(objectBytes).digest('hex');
+    const size = objectBytes.length;
+
+    const login = await readViewerLogin('mutation');
+    const first = await lfsBatch({ login, branch, objects: [{ oid, size }] });
+    const firstObject = (first.data.objects || [])[0] || {};
+    const uploadAction = firstObject.actions && firstObject.actions.upload;
+    const oidEchoed = String(firstObject.oid || '') === oid && Number(firstObject.size) === size;
+    const uploadOffered = Boolean(uploadAction && uploadAction.href);
+
+    /*
+     * Short-circuit for the same reason the blob proof does: pressing on with
+     * no upload action would fail inside the PUT and report a transport error
+     * instead of naming the condition that was actually not met.
+     */
+    if (!oidEchoed || !uploadOffered) {
+      return [{
+        key: 'lfs-object-upload',
+        status: 'fail',
+        statusClass: first.statusClass,
+        oidEchoed,
+        uploadOffered,
+        objectStored: false,
+        deduplicatedOnRepeat: false,
+        pointerCommitted: false
+      }];
+    }
+
+    const put = await lfsPutObject(uploadAction, objectBytes);
+    const objectStored = put.statusClass === '2xx';
+
+    /*
+     * The verify action is optional in the protocol, and whether GitHub offers
+     * it is not something this run may assume before it has ever run. So it is
+     * called when present -- the product does -- but it carries no field of its
+     * own in the artifact: the proof shape admits no optional fields, and a
+     * field declared true would fail against a provider that never offers the
+     * action, while a field declared false would forbid the provider that does.
+     *
+     * A verify that is offered and refuses fails the check through `status`.
+     * Nothing is lost by leaving it out of the shape, because the stronger
+     * statement is the one below: asked again for the object, the provider
+     * withholds the upload action, which is it saying it holds the bytes.
+     */
+    let verifyRefused = false;
+    const verifyAction = firstObject.actions && firstObject.actions.verify;
+    if (objectStored && verifyAction && verifyAction.href) {
+      const verifyHeaders = { ...lfsHeaders(login), ...(verifyAction.header || {}) };
+      /*
+       * A refusal here is data, not a transport fault. Demanding 200 made a
+       * store that had silently dropped the object fail the run with
+       * "provider request failed" from the verify call, which is a true
+       * sentence about the wrong step -- the condition that was actually not
+       * met is the deduplication below, and it should be the one named.
+       */
+      const verifyResponse = await requestJson(fetchImpl, String(verifyAction.href), {
+        method: 'POST',
+        headers: verifyHeaders,
+        body: { oid, size },
+        allowedStatuses: [200, 404, 409, 422]
+      });
+      verifyRefused = verifyResponse.statusClass !== '2xx';
+    }
+
+    /*
+     * Asked again, unchanged. The provider is now expected to answer with the
+     * object and no upload action.
+     */
+    let deduplicatedOnRepeat = false;
+    if (objectStored) {
+      const second = await lfsBatch({ login, branch, objects: [{ oid, size }] });
+      const secondObject = (second.data.objects || [])[0] || {};
+      const repeatUpload = secondObject.actions && secondObject.actions.upload;
+      deduplicatedOnRepeat = String(secondObject.oid || '') === oid
+        && !secondObject.error
+        && !repeatUpload;
+    }
+
+    const headAfter = await getBranch(branch, 'mutation');
+    const pointerCommitted = !headBefore || !headAfter || headBefore.sha !== headAfter.sha;
+
+    return [{
+      key: 'lfs-object-upload',
+      status: oidEchoed && uploadOffered && objectStored && deduplicatedOnRepeat
+        && !pointerCommitted && !verifyRefused ? 'pass' : 'fail',
+      statusClass: put.statusClass,
+      oidEchoed,
+      uploadOffered,
+      objectStored,
+      deduplicatedOnRepeat,
+      pointerCommitted
+    }];
+  }
+
   async function pushChecks({ branch, prefix }) {
     const blobBytes = Buffer.from('Nebulaverse-X alpha.17 native push object\n', 'utf8');
     const inlineBytes = Buffer.from('Nebulaverse-X alpha.17 batch inline entry\n', 'utf8');

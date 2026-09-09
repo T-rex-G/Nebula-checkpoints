@@ -41,6 +41,16 @@ const PROVIDER_PROBES = Object.freeze({
       parentIsObservedHead: true,
       pathsLanded: true,
       nonFastForwardRefused: true
+    },
+    {
+      key: 'lfs-object-upload',
+      status: 'pass',
+      statusClass: '2xx',
+      oidEchoed: true,
+      uploadOffered: true,
+      objectStored: true,
+      deduplicatedOnRepeat: true,
+      pointerCommitted: false
     }
   ],
   gitlab: [

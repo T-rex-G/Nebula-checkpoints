@@ -6,7 +6,7 @@ const path = require('path');
 const { loadMigrations, runMigrations, verifyMigrations } = require('../src/migrations');
 
 const projectMigrations = loadMigrations(path.join(__dirname, '..', 'db', 'migrations'));
-assert.strictEqual(projectMigrations.at(-1).id, '017_workspace_credentials');
+assert.strictEqual(projectMigrations.at(-1).id, '018_remove_retired_identity_tables');
 assert.strictEqual(new Set(projectMigrations.map(item => item.id)).size, projectMigrations.length);
 
 

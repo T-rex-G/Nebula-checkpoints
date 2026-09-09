@@ -273,7 +273,12 @@ em{color:var(--teal);font-style:normal}
 /* ---------------- login ---------------- */
 .alpha-access{width:min(620px,calc(100% - 32px));margin:0 auto;padding:clamp(24px,5vw,42px);text-align:left}
 #page-alpha-access{align-items:center;justify-content:center;padding:max(28px,env(safe-area-inset-top)) 16px max(28px,env(safe-area-inset-bottom))}
-#page-alpha-access.active{display:flex}
+/*
+ * A column because the owner card is hosted here when the workspace foundation
+ * is enabled. With the gate's single card it renders identically to the row it
+ * replaces; with two it stacks instead of setting them side by side.
+ */
+#page-alpha-access.active{display:flex;flex-direction:column;gap:16px}
 .alpha-access .eyebrow{margin:0 0 10px;color:var(--teal);font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
 .alpha-access h1{margin:0;font-size:clamp(1.75rem,6vw,2.55rem);line-height:1.08;letter-spacing:-.025em}
 .alpha-access-rule{margin:16px 0;color:var(--text2);line-height:1.65}
@@ -293,6 +298,22 @@ em{color:var(--teal);font-style:normal}
 .login-card{width:min(430px,100%);padding:26px;text-align:left}
 .login-error{margin-top:12px;padding:10px 14px;border-radius:10px;font-size:.85rem;
   color:var(--red);background:rgba(244,63,110,0.08);border:1px solid rgba(244,63,110,0.28)}
+
+/*
+ * Owner workspace card. A grid rather than a block: its children carry no
+ * margins of their own, which is the same density defect the governance
+ * delivery cards had -- heading against sentence against button, all at 0px.
+ */
+.workspace-card{display:grid;gap:12px;margin-top:16px}
+/* Hosted on the gate it is a peer of the invitation card, not a footnote to it. */
+.workspace-card-gate{margin-top:0;width:min(620px,calc(100% - 32px));padding:clamp(20px,4vw,30px)}
+.workspace-scope-note{font-size:.78rem;color:var(--muted);margin:0;line-height:1.55}
+.workspace-card-title{font-size:.95rem;font-weight:600;margin:0}
+.workspace-card-note{font-size:.8rem;color:var(--muted);margin:0;line-height:1.55}
+.workspace-signed-in,.workspace-signed-out,#workspaceClaimFields,.workspace-credentials{display:grid;gap:10px}
+.workspace-credentials .field-label{margin-top:0}
+.workspace-identity{font-size:.85rem;color:var(--text2);margin:0;line-height:1.55}
+.workspace-claim-toggle{font-size:.8rem}
 
 /* ---------------- topbar ---------------- */
 .topbar{position:fixed;top:calc(6px + env(safe-area-inset-top));left:12px;right:12px;margin:0;z-index:50;background:var(--shell);

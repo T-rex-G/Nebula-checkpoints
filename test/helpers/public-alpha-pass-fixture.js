@@ -163,7 +163,7 @@ function hostedOperationalRecord() {
   };
 }
 
-function hostedRestoreRunnerRecord() {
+function hostedRestoreRunnerRecord(latestMigration) {
   return {
     schemaVersion: '1.0.0',
     artifactType: 'hosted-restore-runner',
@@ -174,7 +174,7 @@ function hostedRestoreRunnerRecord() {
     cleanupVerified: true,
     check: {
       status: 'pass',
-      latestMigration: '015_alpha_privacy',
+      latestMigration,
       backupManifestSha256: '1'.repeat(64),
       backupCiphertextSha256: '2'.repeat(64),
       restoreTargetFingerprint: '3'.repeat(64),
@@ -204,7 +204,7 @@ function hostedRestoreRunnerRecord() {
   };
 }
 
-function createPassFixture() {
+function createPassFixture({ latestMigration = '015_alpha_privacy' } = {}) {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
   const catalog = qualificationCatalog(registry);
   const automatedLabels = catalog.automated.map(key => `automated.${key}`);
@@ -224,7 +224,7 @@ function createPassFixture() {
     Buffer.from(stableJson(unsignedOperatorRecord), 'utf8'),
     privateKey
   ).toString('base64');
-  const restoreRunnerRecord = hostedRestoreRunnerRecord();
+  const restoreRunnerRecord = hostedRestoreRunnerRecord(latestMigration);
   const restoreRecordSha256 = crypto.createHash('sha256')
     .update(stableJson(restoreRunnerRecord), 'utf8').digest('hex');
   /*
@@ -308,7 +308,7 @@ function createPassFixture() {
     subjectSha256: SUBJECT,
     sourceCommit: SOURCE,
     nodeVersion: '22.23.1',
-    latestMigration: '015_alpha_privacy',
+    latestMigration,
     generatedAt: COMPLETED_AT,
     automated: Object.fromEntries(
       catalog.automated.map(key => [key, evidenceEntry('automated-artifact')])

@@ -12,7 +12,7 @@ const {
   decryptBackupFile,
   validateBackupManifest
 } = require('../src/backup-format');
-const { runMigrations, verifyMigrations } = require('../src/migrations');
+const { ADVISORY_LOCK_ID, runMigrations, verifyMigrations } = require('../src/migrations');
 
 const COMMANDS = Object.freeze({
   backup: Object.freeze({ '--output-dir': 'outputDir' }),
@@ -540,22 +540,20 @@ async function backupCommand(args, env, now = new Date()) {
   const backupPath = path.join(outputDir, `nvx-alpha17-${stamp}.dump.nvxenc`);
   const manifestPath = path.join(outputDir, `nvx-alpha17-${stamp}.nvxbackup.json`);
   try {
-    await spawnChecked('pg_dump', [
-      '--format=custom',
-      '--no-owner',
-      '--no-privileges',
-      '--file', plaintextPath
-    ], databaseEnvironment(databaseUrl, env));
-    await fsp.chmod(plaintextPath, 0o600);
-    const manifest = await encryptBackupFile({
-      inputPath: plaintextPath,
-      outputPath: backupPath,
-      key,
-      metadata: {
-        format: 'postgres-custom',
-        schemaVersion: '015_alpha_privacy',
-        createdAt: now.toISOString()
-      }
+    const manifest = await withBackupSchema(databaseUrl, env, async schemaVersion => {
+      await spawnChecked('pg_dump', [
+        '--format=custom',
+        '--no-owner',
+        '--no-privileges',
+        '--file', plaintextPath
+      ], databaseEnvironment(databaseUrl, env));
+      await fsp.chmod(plaintextPath, 0o600);
+      return encryptBackupFile({
+        inputPath: plaintextPath,
+        outputPath: backupPath,
+        key,
+        metadata: { format: 'postgres-custom', schemaVersion, createdAt: now.toISOString() }
+      });
     });
     await writeJsonExclusive(manifestPath, {
       ...manifest,
@@ -601,6 +599,23 @@ async function connectDatabase(databaseUrl, options = {}, env = process.env) {
   const client = new Client({ ...options, connectionString: databaseConnectionString(databaseUrl, env) });
   await client.connect();
   return client;
+}
+
+// Hold the same lock as the migration runner until the dump is complete. The
+// manifest describes the source DB (including a pre-upgrade 015 backup), not
+// whichever migration happens to be bundled with this CLI.
+async function withBackupSchema(databaseUrl, env, operation, dependencies = {}) {
+  const client = await (dependencies.connectDatabaseImpl || connectDatabase)(databaseUrl, DATABASE_VERIFICATION_OPTIONS, env);
+  try {
+    await client.query('SELECT pg_advisory_lock($1)', [ADVISORY_LOCK_ID]);
+    const result = await client.query('SELECT migration_id FROM nv_schema_migrations ORDER BY migration_id DESC LIMIT 1');
+    const version = result.rows[0]?.migration_id;
+    if (!/^\d{3}_[a-z0-9_-]+$/.test(String(version || ''))) throw new Error('Backup requires a versioned database');
+    return await operation(version);
+  } finally {
+    await client.query('SELECT pg_advisory_unlock($1)', [ADVISORY_LOCK_ID]).catch(() => {});
+    await client.end().catch(() => {});
+  }
 }
 
 async function migrateCommand(args, env, dependencies = {}) {
@@ -757,6 +772,7 @@ module.exports = {
   databaseConnectionString,
   redactErrorMessage,
   restoreTargetFingerprint,
+  withBackupSchema,
   migrateCommand,
   restoreCommand,
   main

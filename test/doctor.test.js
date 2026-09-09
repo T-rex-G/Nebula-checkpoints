@@ -22,6 +22,14 @@ const { evaluate } = require('../scripts/doctor');
 const SECRET = 'x'.repeat(64);
 const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
 
+{
+  const result = evaluate(bare({ NV_WORKSPACE_FOUNDATION_ENABLED: '1' }));
+  assert(result.problems.some(problem => problem.detail.includes('Workspace foundation requires DATABASE_URL')));
+  const malformed = evaluate(bare({ NV_WORKSPACE_SETUP_SHA256: 'sensitive-verifier-placeholder' }));
+  assert(malformed.problems.some(problem => problem.detail.includes('configured together')));
+  assert(!JSON.stringify(malformed).includes('sensitive-verifier-placeholder'), 'workspace diagnostics must not echo configuration values');
+}
+
 /* A local development environment with nothing set is a working one. */
 {
   const result = evaluate(bare({}));

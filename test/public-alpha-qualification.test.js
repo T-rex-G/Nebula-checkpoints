@@ -45,6 +45,25 @@ assert.strictEqual(result.decision, 'go');
 assert.match(result.recordHash, /^[0-9a-f]{64}$/);
 assert(Object.isFrozen(result));
 
+// New candidates cannot borrow a passing restore from the previous schema.
+assert.throws(() => verifyQualification({ ...fixture.record, latestMigration: '016_personal_workspaces' }, {
+  ...options, expectedLatestMigration: '016_personal_workspaces'
+}), error => error.code === 'PUBLIC_ALPHA_MIGRATION_MISMATCH');
+const current = createPassFixture({ latestMigration: '016_personal_workspaces' });
+assert.strictEqual(verifyQualification(current.record, {
+  ...options, ...current.bindings, expectedLatestMigration: '016_personal_workspaces',
+  verifyArtifact: artifact => structuredClone(current.envelopes[artifact.id])
+}).ok, true);
+const connectionsCandidate = createPassFixture({ latestMigration: '017_workspace_credentials' });
+assert.strictEqual(verifyQualification(connectionsCandidate.record, {
+  ...options, ...connectionsCandidate.bindings, expectedLatestMigration: '017_workspace_credentials',
+  verifyArtifact: artifact => structuredClone(connectionsCandidate.envelopes[artifact.id])
+}).ok, true);
+assert.throws(() => verifyQualification(current.record, {
+  ...options, ...current.bindings, expectedLatestMigration: '017_workspace_credentials',
+  verifyArtifact: artifact => structuredClone(current.envelopes[artifact.id])
+}), error => error.code === 'PUBLIC_ALPHA_MIGRATION_MISMATCH');
+
 assert.throws(
   () => verifyQualification(fixture.record, { ...options, verifyArtifact: () => true }),
   error => error && error.code === 'PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH',

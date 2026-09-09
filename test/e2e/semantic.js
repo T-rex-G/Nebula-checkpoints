@@ -48,8 +48,15 @@ function secretField(target, name) {
    * role. Its label still can, and `getByLabel` resolves through the same
    * accessible-name computation -- an input that loses its label is
    * unreachable here exactly as it is for a screen reader.
+   *
+   * Exact, because getByLabel matches by substring by default and that is
+   * looser than the thing it claims to model. A reader hearing "Owner GitHub
+   * Personal Access Token" is not hearing "GitHub Personal Access Token"; when
+   * the owner card added the first, twenty cases across six unrelated files
+   * began resolving to both fields at once and reported a strict-mode
+   * violation rather than anything about themselves.
    */
-  return target.getByLabel(name);
+  return target.getByLabel(name, { exact: true });
 }
 
 function button(target, name) {
@@ -103,17 +110,28 @@ async function focusAndConfirm(expect, locator) {
  * reader returns to is the dock itself. A journey that asserted focus on the
  * entry was asking about an element the interface had correctly removed.
  */
-async function actionAnchor(page, name) {
+async function actionEntryPoints(page, name) {
+  const direct = page.getByRole('button', { name, exact: true });
   const dock = page.getByRole('button', { name: /actions$/i });
+  /* showPage activates the screen before painting the dock two frames later.
+   * An immediate isVisible() check during that gap mistakes "not ready yet"
+   * for "desktop layout" and returns an action that stays hidden on mobile.
+   * Wait for either accessible entry point before deciding how to reach it.
+   * A genuinely absent action still times out; no retry or sleep masks it. */
+  await direct.or(dock).first().waitFor({ state: 'visible' });
+  return { direct, dock };
+}
+
+async function actionAnchor(page, name) {
+  const { direct, dock } = await actionEntryPoints(page, name);
   if (await dock.isVisible().catch(() => false)) return dock;
-  return page.getByRole('button', { name, exact: true });
+  return direct;
 }
 
 async function action(page, name) {
-  const direct = page.getByRole('button', { name, exact: true });
+  const { direct, dock } = await actionEntryPoints(page, name);
   if (await direct.isVisible().catch(() => false)) return direct;
 
-  const dock = page.getByRole('button', { name: /actions$/i });
   if (await dock.isVisible().catch(() => false)) {
     if ((await dock.getAttribute('aria-expanded')) !== 'true') await dock.click();
     return page.getByRole('group').getByRole('button', { name, exact: true });

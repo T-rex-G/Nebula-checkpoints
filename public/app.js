@@ -7,6 +7,9 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const isMobile = () => window.matchMedia('(max-width:900px)').matches;
 const NV_ASSET_VERSION = document.documentElement.dataset.nvAssetVersion || '';
 const NV_PRODUCT_NAME = 'Nebulaverse-X';
+let ownerWorkbench = null;
+let identityEpoch = 0;
+let ownerRequests = 0;
 
 const state = {
   me: null,
@@ -124,8 +127,26 @@ async function ensureCsrfToken() {
   return refreshCsrfToken();
 }
 async function api(path, opts = {}, allowCsrfRetry = true) {
+  const epoch = identityEpoch;
   const method = String(opts.method || 'GET').toUpperCase();
   const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+  if (ownerWorkbench) {
+    const binding = ownerWorkbench;
+    if (unsafe) _cache.clear();
+    ownerRequests++;
+    try {
+      const result = await window.NebulaWorkspaceUI.workbench(path, opts, binding);
+      if (epoch !== identityEpoch || binding !== ownerWorkbench) throw new Error('Workspace changed; reopen the workbench.');
+      return result;
+    } catch (error) {
+      if (['WORKSPACE_EXECUTION_CHANGED', 'WORKSPACE_SESSION_REQUIRED', 'WORKSPACE_CREDENTIAL_REQUIRED', 'WORKSPACE_CONNECTION_REQUIRED'].includes(error.code)) {
+        identityEpoch++;
+        await purgeLocalData(true);
+        location.reload();
+      }
+      throw error;
+    } finally { ownerRequests--; }
+  }
   const needsCsrf = unsafe && path !== '/api/login';
   if (unsafe) _cache.clear();
   if (needsCsrf) await ensureCsrfToken();
@@ -143,6 +164,7 @@ async function api(path, opts = {}, allowCsrfRetry = true) {
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
   const data = await r.json().catch(() => ({}));
+  if (epoch !== identityEpoch) throw new Error('Account changed; reopen the workbench.');
   if (!r.ok) {
     if (allowCsrfRetry && needsCsrf && ['CSRF_REQUIRED', 'CSRF_INVALID', 'CSRF_EXPIRED'].includes(data.code)) {
       clearCsrfToken();
@@ -668,6 +690,12 @@ function showPage(name) {
   _page = name;
   paintRail(name);
   /*
+   * Probed on arrival rather than at startup: the answer decides whether a
+   * card on this screen exists at all, and asking earlier would spend a
+   * request on every load of a deployment that never shows it.
+   */
+  if (name === 'login') initWorkspaceCard();
+  /*
    * Mounted here rather than by each caller. Six paths reach these screens,
    * and a mount attached to one of them would leave the artwork missing from
    * the other five -- the same defect the rail carried when its repaint lived
@@ -707,6 +735,7 @@ function showPage(name) {
   }));
 }
 function saveRoute() {
+  if (ownerWorkbench) return;
   if (_page !== 'work' || !state.work || !state.work.repo) return;
   const h = `#/${encodeURIComponent(state.work.owner)}/${encodeURIComponent(state.work.repo)}` +
     `@${encodeURIComponent(state.work.branch)}/${currentTab()}` +
@@ -1155,6 +1184,288 @@ $('#provSeg').addEventListener('click', e => {
   }[loginProvider] + ' Sealed in an encrypted httpOnly cookie — never stored in the browser, never logged.';
   ensureAlphaProviderGuidance();
 });
+
+/* ---------------- owner workspace ---------------- */
+/*
+ * The card is the only way in to the personal-workspace foundation. It stays
+ * hidden unless the server reports the foundation enabled, so a deployment
+ * with it switched off -- which is every deployment today -- shows exactly the
+ * login screen it showed before.
+ */
+function workspaceInputs() {
+  return {
+    provider: $('#workspaceProvider').value,
+    baseUrl: $('#workspaceBaseUrl').value,
+    token: $('#workspaceToken').value
+  };
+}
+/*
+ * Prefixed, and not decoratively. The cohort login on this same screen labels
+ * its own field "GitHub Personal Access Token"; two controls sharing one
+ * accessible name is ambiguous to a screen reader and to anything that selects
+ * by name. Twenty end-to-end cases resolved to both at once before this.
+ */
+const WORKSPACE_TOKEN_LABEL = {
+  github: 'Owner GitHub Personal Access Token',
+  gitlab: 'Owner GitLab Personal Access Token (api scope)',
+  gitea: 'Owner Gitea Access Token'
+};
+$('#workspaceProvider').addEventListener('change', () => {
+  const provider = $('#workspaceProvider').value;
+  /*
+   * Gitea has no hosted default, so its server URL is required rather than
+   * optional -- the server refuses a gitea request that resolves to no base.
+   */
+  $('#workspaceBaseUrlWrap').hidden = provider === 'github';
+  $('#workspaceBaseUrl').placeholder = provider === 'gitea'
+    ? 'https://gitea.example.com' : 'https://gitlab.com (default)';
+  $('#workspaceTokenLabel').textContent = WORKSPACE_TOKEN_LABEL[provider];
+});
+/*
+ * The invitation gate takes the whole screen, so an owner on an invite
+ * deployment never reaches the login page the card normally lives on. The card
+ * is hosted on whichever screen is showing rather than duplicated onto both:
+ * one element, one set of handlers, no second copy to drift.
+ *
+ * The workspace routes were always outside the invitation boundary on the
+ * server -- they mount ahead of it -- so hosting the card here widens no
+ * authorization. It only lets an owner reach an entry point that was already
+ * open to them.
+ */
+function workspaceCardHost() {
+  const gate = $('#page-alpha-access');
+  if (gate && gate.classList.contains('active')) return gate;
+  return document.querySelector('#page-login .login-wrap');
+}
+function renderWorkspaceCard() {
+  const card = $('#workspaceCard');
+  if (!card || !window.NebulaWorkspaceUI) return;
+  const ws = window.NebulaWorkspaceUI.current();
+  card.hidden = ws.available !== true && !ws.outcomeUnknown;
+  if (card.hidden) return;
+  const host = workspaceCardHost();
+  const onGate = host === $('#page-alpha-access');
+  if (host && card.parentElement !== host) host.appendChild(card);
+  card.classList.toggle('workspace-card-gate', onGate);
+  const sessionUnavailable = ws.available !== true;
+  $('#workspaceCardNote').textContent = sessionUnavailable
+    ? 'Owner session status is unavailable. Reload to check again.' : onGate
+    ? 'Own this deployment? Sign in as the owner. No invitation is needed for this.'
+    : 'Sign in as the owner of this deployment using the provider and token above.';
+  $('#workspaceSignedIn').hidden = !ws.authenticated;
+  $('#workspaceSignedOut').hidden = ws.authenticated || sessionUnavailable;
+  $('#workspaceCardNote').hidden = ws.authenticated;
+  $('#workspaceCredentials').hidden = ws.authenticated || sessionUnavailable;
+  if (ws.authenticated && ws.context) {
+    const connection = ws.context.connection;
+    $('#workspaceIdentity').textContent = connection
+      ? `Signed in as workspace owner, using ${connection.login} on ${connection.provider}.`
+      : 'Signed in as workspace owner. No Git connection is selected yet.';
+    /*
+     * Stated only where it is the reader's immediate problem. On the gate they
+     * have just signed in and are looking at a screen that still asks for an
+     * invitation, and the honest answer is that repository routes have not
+     * adopted workspace authority yet.
+     */
+    const note = $('#workspaceScopeNote');
+    note.hidden = !onGate;
+    note.textContent = onGate
+      ? 'Select a GitHub connection below, then open the owner workbench. Repository creation is experimental; browsing and ordinary text commits are connected.'
+      : '';
+  }
+}
+function showWorkspaceError(error) {
+  const box = $('#workspaceError');
+  if (!box) return;
+  /*
+   * The module already turns a code into a sentence. Anything without one is
+   * a transport fault, and is reported as such rather than as a refusal --
+   * the two mean very different things to whoever is reading the screen.
+   */
+  box.textContent = error && error.code
+    ? window.NebulaWorkspaceUI.explain(error.code)
+    : window.NebulaWorkspaceUI.explain('WORKSPACE_OUTCOME_UNKNOWN');
+  box.hidden = false;
+}
+let workspaceAttemptBusy = false;
+async function workspaceAttempt(button, working, run) {
+  if (workspaceAttemptBusy) return;
+  workspaceAttemptBusy = true;
+  const enabledButtons = [...document.querySelectorAll('#workspaceCard button')].filter(item => !item.disabled);
+  enabledButtons.forEach(item => { item.disabled = true; });
+  $('#workspaceCard').setAttribute('aria-busy', 'true');
+  $('#workspaceGitConnections').replaceChildren();
+  $('#workspaceGitRepositories').replaceChildren();
+  if (['workspaceSignInBtn', 'workspaceClaimBtn', 'workspaceSignOutBtn'].includes(button.id)) $('#workspaceGitPanel').open = false;
+  const box = $('#workspaceError');
+  if (box) box.hidden = true;
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = working;
+  try {
+    await run();
+    /* Both were only ever function arguments; clear the fields they came from. */
+    $('#workspaceSetupSecret').value = '';
+    $('#workspaceToken').value = '';
+    renderWorkspaceCard();
+  } catch (error) {
+    if (window.NebulaWorkspaceUI.current().outcomeUnknown) {
+      $('#workspaceSetupSecret').value = '';
+      $('#workspaceToken').value = '';
+    }
+    showWorkspaceError(error);
+    renderWorkspaceCard();
+  } finally {
+    $('#workspaceGitToken').value = '';
+    $('#workspaceCard').setAttribute('aria-busy', 'false');
+    workspaceAttemptBusy = false;
+    enabledButtons.forEach(item => { if (item.isConnected) item.disabled = false; });
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+async function initWorkspaceCard() {
+  if (!window.NebulaWorkspaceUI) return;
+  await window.NebulaWorkspaceUI.probe();
+  renderWorkspaceCard();
+}
+$('#workspaceClaimToggle').addEventListener('click', () => {
+  const fields = $('#workspaceClaimFields');
+  const open = fields.hidden;
+  fields.hidden = !open;
+  $('#workspaceClaimToggle').setAttribute('aria-expanded', String(open));
+  if (open) $('#workspaceSetupSecret').focus();
+});
+$('#workspaceSignInBtn').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceSignInBtn'), 'Signing in…',
+  () => window.NebulaWorkspaceUI.signIn(workspaceInputs())
+));
+$('#workspaceClaimBtn').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceClaimBtn'), 'Claiming…',
+  () => window.NebulaWorkspaceUI.claim({ ...workspaceInputs(), setupSecret: $('#workspaceSetupSecret').value })
+));
+$('#workspaceSignOutBtn').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceSignOutBtn'), 'Signing out…',
+  () => window.NebulaWorkspaceUI.signOut()
+));
+
+async function refreshWorkspaceConnections() {
+  const rows = await window.NebulaWorkspaceUI.listConnections();
+  const list = $('#workspaceGitConnections');
+  list.replaceChildren();
+  if (!rows.length) list.textContent = 'No Git accounts connected yet.';
+  for (const connection of rows) {
+    const row = document.createElement('div'); row.className = 'workspace-git-row';
+    const label = document.createElement('span');
+    label.textContent = `${connection.login} · ${connection.provider} · ${connection.instance} · ${connection.credentialStored ? 'token stored for this session' : 'reconnect for this session'}`;
+    const select = document.createElement('button'); select.className = 'btn btn-ghost small';
+    select.textContent = connection.selected ? 'Selected' : 'Select'; select.disabled = connection.selected;
+    select.setAttribute('aria-label', `${connection.selected ? 'Selected' : 'Select'} ${connection.login} on ${connection.instance}`);
+    select.addEventListener('click', () => workspaceAttempt(select, 'Selecting…', async () => {
+      await window.NebulaWorkspaceUI.selectConnection(connection.id);
+      await refreshWorkspaceConnections();
+    }));
+    const disconnect = document.createElement('button'); disconnect.className = 'btn btn-ghost small';
+    disconnect.textContent = 'Disconnect';
+    disconnect.setAttribute('aria-label', `Disconnect ${connection.login} on ${connection.instance}`);
+    disconnect.addEventListener('click', () => workspaceAttempt(disconnect, 'Disconnecting…', async () => {
+      await window.NebulaWorkspaceUI.disconnect(connection.id);
+      await refreshWorkspaceConnections();
+    }));
+    row.append(label, select, disconnect); list.appendChild(row);
+  }
+}
+$('#workspaceGitProvider').addEventListener('change', () => {
+  $('#workspaceGitBaseWrap').hidden = $('#workspaceGitProvider').value === 'github';
+  $('#workspaceGitBase').placeholder = $('#workspaceGitProvider').value === 'gitea'
+    ? 'https://gitea.example.com' : 'https://gitlab.com (default)';
+});
+$('#workspaceGitConnect').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceGitConnect'), 'Connecting…', async () => {
+    await window.NebulaWorkspaceUI.connect({ provider: $('#workspaceGitProvider').value,
+      baseUrl: $('#workspaceGitBase').value, token: $('#workspaceGitToken').value });
+    await refreshWorkspaceConnections();
+  }
+));
+$('#workspaceGitRefresh').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceGitRefresh'), 'Refreshing…', refreshWorkspaceConnections
+));
+$('#workspaceGitRepos').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceGitRepos'), 'Listing…', async () => {
+    const result = await window.NebulaWorkspaceUI.repositories();
+    const list = $('#workspaceGitRepositories');
+    list.replaceChildren();
+    if (!result.repositories.length) list.textContent = 'No repositories are visible to this credential.';
+    for (const repo of result.repositories) {
+      const row = document.createElement('div'); row.className = 'workspace-git-row';
+      const name = document.createElement('span');
+      name.textContent = `${repo.fullName} · ${repo.private ? 'private' : 'public'}`;
+      row.appendChild(name); list.appendChild(row);
+    }
+    if (result.hasMore) {
+      const note = document.createElement('p'); note.className = 'hint';
+      note.textContent = 'Showing the first 100 repositories. More may be available on GitHub.';
+      list.appendChild(note);
+    }
+    await refreshWorkspaceConnections();
+  }
+));
+$('#workspaceGitPanel').addEventListener('toggle', () => {
+  if ($('#workspaceGitPanel').open && window.NebulaWorkspaceUI.current().authenticated) {
+    workspaceAttempt($('#workspaceGitRefresh'), 'Refreshing…', refreshWorkspaceConnections);
+  }
+});
+
+async function leaveOwnerWorkbench() {
+  if (ownerRequests) { toast('Wait for the current owner request to finish before changing connections.', 'err'); return; }
+  if ((state.file?.dirty || state.staged.length) && !confirm('Discard unsaved changes and return to owner connections?')) return;
+  identityEpoch++;
+  await purgeLocalData(true);
+  history.replaceState(null, '', location.pathname);
+  location.reload();
+}
+
+$('#workspaceEnterBtn').addEventListener('click', () => workspaceAttempt(
+  $('#workspaceEnterBtn'), 'Opening…', async () => {
+    const session = await window.NebulaWorkspaceUI.probe();
+    const context = session.context;
+    if (!session.authenticated || context?.role !== 'owner' || !context.connection) {
+      throw Object.assign(new Error('Select a Git connection first.'), { code: 'WORKSPACE_CONNECTION_REQUIRED' });
+    }
+    const binding = Object.freeze({ principalId: context.principalId, workspaceId: context.workspaceId, connectionId: context.connection.id });
+    const me = await window.NebulaWorkspaceUI.workbench('/api/me', {}, binding);
+    if (me.authorityKind !== 'workspace' || me.principalId !== binding.principalId
+      || me.workspaceId !== binding.workspaceId || me.connectionId !== binding.connectionId) {
+      throw Object.assign(new Error('Workspace changed.'), { code: 'WORKSPACE_EXECUTION_CHANGED' });
+    }
+    const safety = await window.NebulaWorkspaceUI.workbench('/api/safety', {}, binding);
+    identityEpoch++;
+    await purgeLocalData(true);
+    ownerWorkbench = binding;
+    state.me = me;
+    state.caps = me.caps;
+    state.safety = safety;
+    loadSettings();
+    $('#newRepoBtn').dataset.allowExperimental = 'true';
+    await loadProviderCapabilities();
+    applyCaps();
+    applySafetyUI();
+    setAvatar('');
+    for (const header of $$('.topbar')) {
+      if (header.querySelector('[data-owner-connections]')) continue;
+      const button = document.createElement('button'); button.className = 'btn btn-ghost small';
+      button.dataset.ownerConnections = 'true'; button.textContent = 'Owner';
+      button.setAttribute('aria-label', 'Owner connections');
+      button.title = `Using ${me.login} on GitHub. Return to owner connections.`;
+      button.addEventListener('click', leaveOwnerWorkbench);
+      header.querySelector('.topbar-actions').prepend(button);
+    }
+    history.replaceState(null, '', location.pathname);
+    showPage('repos');
+    await loadRepos(true);
+  }
+));
+
 const PROV_ICON = {
   github: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>',
   gitlab: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>',
@@ -1185,7 +1496,8 @@ async function loadProviderCapabilities() {
   const authority = state.me && (
     state.me.authority || state.me.host || state.me.baseUrl
   ) || (provider === 'github' ? 'github.com' : '');
-  await window.NebulaCapabilityUI.load(provider, authority);
+  await window.NebulaCapabilityUI.load(provider, authority, ownerWorkbench
+    ? { request: () => api('/api/capabilities') } : {});
   window.NebulaCapabilityUI.apply();
   applyGovernanceCapabilityBoundary($('#govRoot'));
 }
@@ -1332,6 +1644,7 @@ async function purgePrivateCaches() {
   } catch {}
 }
 async function purgeLocalData(full) {
+  identityEpoch++;
   clearCsrfToken();
   clearGovernanceState();
   await purgePrivateCaches();
@@ -1373,6 +1686,7 @@ async function purgeLocalData(full) {
   state.repos = [];
   state.me = null;
   state.caps = null;
+  state.safety = null;
   state.fileIndex = null;
   for (const selector of [
     '#repoGrid', '#tree', '#prList', '#issueList', '#releaseList', '#commitList',
@@ -1710,6 +2024,7 @@ function renderOverviewPulse(repos, pulse) {
 }
 /* Both home screens open the same account sheet. */
 async function openAccounts() {
+  if (ownerWorkbench) return leaveOwnerWorkbench();
   modal({ title: 'Accounts', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:60px"></div>' });
   try {
     const a = await api('/api/accounts');
@@ -2007,6 +2322,7 @@ $('#newBranchBtn').addEventListener('click', async () => {
 $('#refreshTreeBtn').addEventListener('click', () => { state.fileIndex = null; loadTree('', $('#tree'), true); });
 $('#zipBtn').addEventListener('click', downloadZip);
 function downloadZip() {
+  if (ownerWorkbench) { toast('Repository downloads are not connected to the owner workbench yet.', 'err'); return; }
   const a = document.createElement('a');
   a.href = `/api/repo/${wPath()}/zip?ref=${encodeURIComponent(state.work.branch)}`;
   a.download = ''; document.body.appendChild(a); a.click(); a.remove();
@@ -2715,6 +3031,7 @@ function openItemMenu(it) {
     closeModal(false);
     if (act === 'open') openFile(it.path);
     else if (act === 'download') {
+      if (ownerWorkbench) { toast('File downloads are not connected to the owner workbench yet.', 'err'); return; }
       const a = document.createElement('a');
       a.href = `/api/repo/${wPath()}/raw?ref=${encodeURIComponent(state.work.branch)}&path=${encodeURIComponent(it.path)}`;
       a.download = it.name; document.body.appendChild(a); a.click(); a.remove();
@@ -2757,7 +3074,7 @@ function openItemMenu(it) {
 }
 /* ================= SAFEGUARDS ================= */
 function safetyKey() { return (state.work && state.work.owner) ? `${state.work.owner}/${state.work.repo}` : ''; }
-function protectedList() { return ((state.safety && state.safety.protected) || {})[safetyKey()] || []; }
+function protectedList() { return ((state.safety && state.safety.protected) || {})[ownerWorkbench ? safetyKey().toLowerCase() : safetyKey()] || []; }
 function protectedPatternMatch(pattern, value) {
   const p = String(pattern || '').replace(/\\/g, '/').replace(/^\/+/, '');
   const v = String(value || '').replace(/\\/g, '/').replace(/^\/+/, '');
@@ -2775,7 +3092,7 @@ function isProtectedPath(p) { return protectedList().some(pattern => protectedPa
 function isExactProtectedPath(p) { return protectedList().includes(String(p).replace(/^\/+/, '')); }
 async function refreshSafety() {
   try { state.safety = await api('/api/safety'); }
-  catch { state.safety = state.safety || { readOnly: false, freezeSync: false, protected: {} }; }
+  catch { state.safety = state.safety || { readOnly: !!ownerWorkbench, freezeSync: false, protected: {} }; }
   applySafetyUI();
 }
 async function setSafety(patch) {
@@ -3156,6 +3473,7 @@ async function openFile(p) {
 
   const ext = extOf(p);
   if (IMG_EXT.includes(ext) || VID_EXT.includes(ext) || ext === 'pdf') {
+    if (ownerWorkbench) { closeFile(); toast('Binary preview is not connected to the owner workbench yet.', 'err'); return; }
     state.file = { path: p, sha: null, binary: true };
     $('#editorHost').style.display = 'none';
     $('#commitFileBtn').disabled = true; $('#stageFileBtn').disabled = true;
@@ -3175,6 +3493,9 @@ async function openFile(p) {
   cm.setValue('Loading…');
   try {
     const f = await api(`/api/repo/${wPath()}/file?ref=${encodeURIComponent(w.branch)}&path=${encodeURIComponent(p)}`);
+    if (ownerWorkbench && (f.lfs || f.tooLarge || f.binary)) {
+      closeFile(); toast('Owner editing supports ordinary text files up to 1 MiB. This file is not editable here.', 'err'); return;
+    }
     if (f.lfs) {
       state.file = { path: p, sha: f.sha, binary: true };
       $('#editorHost').style.display = 'none';
@@ -4180,6 +4501,7 @@ function uploadContextMatches(settings) {
     && settings.account === state.me.offlineCacheScope && settings.login === state.me.login;
 }
 async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
+  if (ownerWorkbench) throw new Error('Uploads are not connected to the owner workbench yet.');
   const { targetPath, message, transport, mode } = settings;
   const w = settings;
 
@@ -4849,6 +5171,7 @@ function isOfflineError(e) {
   return !navigator.onLine || /failed to fetch|networkerror|load failed|offline/i.test((e && e.message) || '');
 }
 async function queueCommit(op, e) {
+  if (ownerWorkbench) return false;
   if (!isOfflineError(e)) return false;
   await qAdd(op);
   toast('No connection — commit saved to the offline queue ✦', 'ok');
@@ -4856,6 +5179,7 @@ async function queueCommit(op, e) {
 }
 let _flushing = false;
 async function flushQueue(manual) {
+  if (ownerWorkbench) return;
   if (!manual && state.safety && state.safety.freezeSync) return;
   if (_flushing || !navigator.onLine) return;
   const items = (await qAll().catch(() => [])).filter(x => !x.err);
@@ -5280,6 +5604,7 @@ function updateBatchBar() {
   if (button) button.textContent = plan.atomic ? 'Commit all as one ✦' : `Commit in ${plan.commits} parts ✦`;
 }
 function uploadBlob(q) {
+  if (ownerWorkbench) return Promise.reject(new Error('Uploads are not connected to the owner workbench yet.'));
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/api/repo/${wPath()}/blob?path=${encodeURIComponent(q.targetPath)}`);
@@ -5374,6 +5699,7 @@ let _draftTimer = null;
 const draftKey = p => `nv_draft:${wPath()}@${state.work.branch}:${p}`;
 function saveDraft() {
   clearTimeout(_draftTimer);
+  if (ownerWorkbench) return;
   _draftTimer = setTimeout(() => {
     if (!state.file || state.file.binary) return;
     try {
@@ -5386,6 +5712,7 @@ function saveDraft() {
 function clearDraft(p) { try { localStorage.removeItem(draftKey(p)); } catch {} }
 function removeDraftBar() { const b = $('#draftBar'); if (b) b.remove(); }
 function offerDraft(p, loadedText) {
+  if (ownerWorkbench) return;
   let d = null;
   try { d = JSON.parse(localStorage.getItem(draftKey(p)) || 'null'); } catch {}
   if (!d || d.content === loadedText) { if (d) clearDraft(p); return; }
@@ -5408,9 +5735,11 @@ function offerDraft(p, loadedText) {
 
 /* ---- recent files ---- */
 function getRecents() {
+  if (ownerWorkbench) return [];
   try { return JSON.parse(localStorage.getItem(`nv_recent:${wPath()}`) || '[]'); } catch { return []; }
 }
 function rememberRecent(p) {
+  if (ownerWorkbench) return;
   try {
     const list = getRecents().filter(x => x !== p);
     list.unshift(p);
@@ -5620,6 +5949,12 @@ window.addEventListener('nebula:alpha-access-gated', () => {
   paintRail('alpha-access');
   paintFloatingAction('alpha-access');
   closeNavMenu();
+  /*
+   * The gate is where an owner on an invite deployment actually lands, so the
+   * card has to be offered here too -- otherwise the only route to owner setup
+   * is a screen the gate never lets them see.
+   */
+  initWorkspaceCard();
 });
 window.NebulaAlphaUI.boot().then(result => {
   if (result.allowed) startAuthorizedApp();

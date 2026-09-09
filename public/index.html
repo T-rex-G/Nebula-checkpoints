@@ -136,6 +136,76 @@
       <p class="hint" id="loginHint">Create one at <span class="mono">github.com → Settings → Developer settings → Tokens (classic)</span> with the <span class="mono">repo</span> scope. Sealed in an encrypted httpOnly cookie — never stored in the browser, never logged.</p>
       <div class="login-error" id="loginError" role="alert" hidden></div>
     </div>
+    <!--
+      Owner workspace. Hidden until the server says the foundation is enabled,
+      so a deployment without it looks exactly as it did before.
+
+      Self-contained on purpose. The card is hosted on the invitation gate as
+      well as here, and the gate covers this screen entirely -- a card that read
+      the login page's provider and token fields would be reading inputs its own
+      reader cannot see. It is also a different authentication path from the
+      cohort login beside it, and sharing one token box between the two would
+      make which credential is being used depend on which button is pressed.
+    -->
+    <section class="card login-card workspace-card" id="workspaceCard" hidden aria-labelledby="workspaceCardTitle">
+      <h2 class="workspace-card-title" id="workspaceCardTitle">Owner workspace</h2>
+      <p class="workspace-card-note" id="workspaceCardNote">Sign in as the owner of this deployment.</p>
+      <div class="workspace-credentials" id="workspaceCredentials">
+        <label class="field-label" for="workspaceProvider">Owner provider</label>
+        <select id="workspaceProvider">
+          <option value="github" selected>GitHub</option>
+          <option value="gitlab">GitLab</option>
+          <option value="gitea">Gitea</option>
+        </select>
+        <div id="workspaceBaseUrlWrap" hidden>
+          <label class="field-label" for="workspaceBaseUrl">Owner server URL</label>
+          <input id="workspaceBaseUrl" type="url" placeholder="https://gitlab.com (default)" autocomplete="off" spellcheck="false">
+        </div>
+        <label class="field-label" for="workspaceToken" id="workspaceTokenLabel">Owner GitHub Personal Access Token</label>
+        <input id="workspaceToken" type="password" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="workspace-signed-in" id="workspaceSignedIn" hidden>
+        <p class="workspace-identity" id="workspaceIdentity"></p>
+        <!--
+          Owner sign-in does not admit a visitor to cohort routes. The explicit
+          owner workbench entry below uses its own authenticated transport.
+        -->
+        <p class="workspace-scope-note" id="workspaceScopeNote" hidden></p>
+        <details id="workspaceGitPanel" class="workspace-git-panel">
+          <summary>Git connections</summary>
+          <p class="hint">Connect a Git account for this owner session. Tokens are encrypted on the server and usable only during this session. Sign-out or disconnect removes them; expired sessions are cleaned periodically. Connecting an account does not make it the workspace owner.</p>
+          <label class="field-label" for="workspaceGitProvider">Git connection provider</label>
+          <select id="workspaceGitProvider">
+            <option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="gitea">Gitea</option>
+          </select>
+          <div id="workspaceGitBaseWrap" hidden>
+            <label class="field-label" for="workspaceGitBase">Git connection server URL</label>
+            <input id="workspaceGitBase" type="url" autocomplete="off" spellcheck="false">
+          </div>
+          <label class="field-label" for="workspaceGitToken">Git connection token</label>
+          <input id="workspaceGitToken" type="password" autocomplete="off" spellcheck="false">
+          <button class="btn btn-primary btn-block" id="workspaceGitConnect">Connect or refresh this account</button>
+          <button class="btn btn-ghost btn-block" id="workspaceGitRefresh">Refresh connections</button>
+          <div id="workspaceGitConnections" class="workspace-git-list" aria-live="polite"></div>
+          <button class="btn btn-ghost btn-block" id="workspaceGitRepos">List selected account’s GitHub repositories</button>
+          <button class="btn btn-primary btn-block" id="workspaceEnterBtn">Open owner workbench</button>
+          <p class="hint">Use the selected GitHub connection to browse repositories and commit text files. Repository creation is experimental. Other owner features are still unavailable.</p>
+          <div id="workspaceGitRepositories" class="workspace-git-list" aria-live="polite"></div>
+        </details>
+        <button class="btn btn-ghost btn-block" id="workspaceSignOutBtn">Sign out of the workspace</button>
+      </div>
+      <div class="workspace-signed-out" id="workspaceSignedOut">
+        <button class="btn btn-primary btn-block" id="workspaceSignInBtn">Sign in as owner</button>
+        <button class="btn btn-ghost btn-block workspace-claim-toggle" id="workspaceClaimToggle" aria-expanded="false" aria-controls="workspaceClaimFields">First time here? Claim ownership</button>
+        <div id="workspaceClaimFields" hidden>
+          <label class="field-label" for="workspaceSetupSecret">One-time setup credential</label>
+          <input id="workspaceSetupSecret" type="password" autocomplete="off" spellcheck="false">
+          <p class="hint">Set by whoever configured this deployment. It is used once to create the owner, then never again.</p>
+          <button class="btn btn-primary btn-block" id="workspaceClaimBtn">Claim ownership</button>
+        </div>
+      </div>
+      <div class="login-error" id="workspaceError" role="alert" hidden></div>
+    </section>
   </div>
 </main>
 
@@ -856,6 +926,7 @@
 <script src="/governance-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/alpha-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/workspace-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/repo-sigil.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/nebula-visuals.js?v=__NV_ASSET_VERSION__"></script>

@@ -1248,6 +1248,13 @@ function renderWorkspaceCard() {
   if (host && card.parentElement !== host) host.appendChild(card);
   card.classList.toggle('workspace-card-gate', onGate);
   const sessionUnavailable = ws.available !== true;
+  /*
+   * Declared here, above every reader. These were computed further down and
+   * read by the note above it, which is a temporal dead zone -- a ReferenceError
+   * thrown on every render, so the card never updated at all.
+   */
+  const oauthPending = !!(ws.oauthVerified && !ws.authenticated);
+  const oauthOffered = ws.oauthAvailable && !ws.authenticated && !sessionUnavailable && !oauthPending;
   $('#workspaceCardNote').textContent = sessionUnavailable
     ? 'Owner session status is unavailable. Reload to check again.' : oauthPending
     ? 'GitHub has confirmed who you are. Ownership still needs the setup credential.'
@@ -1265,8 +1272,6 @@ function renderWorkspaceCard() {
   const divider = $('#workspaceTokenDivider'), signInBtn = $('#workspaceSignInBtn');
   /* Verified by OAuth: the token fields are not what proves identity now, so
    * they and their divider go away rather than sitting there unexplained. */
-  const oauthPending = !!(ws.oauthVerified && !ws.authenticated);
-  const oauthOffered = ws.oauthAvailable && !ws.authenticated && !sessionUnavailable && !oauthPending;
   if (oauthBtn) oauthBtn.hidden = !oauthOffered;
   if (divider) divider.hidden = !oauthOffered;
   if (oauthNote) {

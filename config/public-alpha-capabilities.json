@@ -153,9 +153,9 @@
           "Qualified Git Data object upload: the identity the provider returns is the git object hash of the bytes sent, and the object reads back unchanged. The hosted size ceiling is a deployment bound, not a capability limit."
         ],
         "lfs": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but outside the alpha.17 live-provider harness and golden path."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: a synthetic object is uploaded to the LFS store and the provider withholds the upload action when asked again, without committing a pointer."
         ],
         "folder.move": [
           "Experimental",

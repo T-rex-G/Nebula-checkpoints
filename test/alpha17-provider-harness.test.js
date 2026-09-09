@@ -48,6 +48,7 @@ function environment(provider) {
     NV_ALPHA17_MUTATION_CREDENTIAL: 'fixture-mutation-credential',
     NV_ALPHA17_READ_ONLY_CREDENTIAL: 'fixture-readonly-credential',
     NV_ALPHA17_GITHUB_API_URL: 'https://github.fixture.invalid',
+    NV_ALPHA17_GITHUB_LFS_URL: 'https://github-lfs.fixture.invalid',
     NV_ALPHA17_GITLAB_API_URL: 'https://gitlab.fixture.invalid/api/v4',
     NV_ALPHA17_GITEA_API_URL: 'https://gitea.fixture.invalid/api/v1'
   };
@@ -213,6 +214,7 @@ async function runOne(provider, runner, options = {}) {
     'file.read',
     'file.write',
     'issues.read',
+    'lfs',
     'native-push',
     'pulls.read',
     'rate.read',

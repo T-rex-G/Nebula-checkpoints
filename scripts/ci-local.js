@@ -29,7 +29,7 @@ const WORKFLOW = path.join(ROOT, '.github', 'workflows', 'ci.yml');
  */
 const SKIPPED = [
   { match: /^npm ci$/, why: 'dependencies are already installed in the working tree' },
-  { match: /^npx playwright install/, why: 'browsers are provisioned by the environment' }
+  { match: /^(?:npx playwright install|bash ci\/install-browser\.sh$)/, why: 'browsers are provisioned by the environment' }
 ];
 
 function readRunSteps(source) {

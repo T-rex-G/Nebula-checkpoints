@@ -21,9 +21,8 @@ test.use({ serviceWorkers: 'block' });
  * than replacing it -- so a name that collides only while hidden still collides
  * for anything selecting by name.
  *
- * The card is hidden unless the workspace foundation is enabled, so its fields
- * are drawn deliberately for this check. Asserting only the default state would
- * pass over exactly the markup that caused the collision.
+ * The retired owner card is no longer part of this surface. Keep the general
+ * accessibility guarantee for the ordinary provider sign-in and workbench.
  */
 async function duplicateNames(page) {
   return page.evaluate(() => {
@@ -64,19 +63,10 @@ async function duplicateNames(page) {
 
 test('no two form controls share an accessible name', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
-  await page.route('**/api/workspace/**', route => route.fulfill({
-    status: 200, json: { authenticated: false, csrfToken: 'test-csrf' }
-  }));
   await page.goto('/');
   await page.locator('#page-alpha-access.active, #page-login.active, #page-repos.active').first().waitFor();
 
-  /* Draw the owner card's fields, which are the ones that collided. */
-  await page.evaluate(() => {
-    const card = document.getElementById('workspaceCard');
-    if (card) card.hidden = false;
-    const fields = document.getElementById('workspaceClaimFields');
-    if (fields) fields.hidden = false;
-  });
+  await expect(page.locator('#workspaceCard')).toHaveCount(0);
 
   const duplicates = await duplicateNames(page);
   expect(duplicates, `controls sharing an accessible name:\n  ${duplicates.join('\n  ')}`).toEqual([]);

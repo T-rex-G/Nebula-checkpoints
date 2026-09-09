@@ -199,8 +199,7 @@
     dialog.setAttribute('aria-labelledby', 'trustErrorTitle');
     const title = document.createElement('h2');
     title.id = 'trustErrorTitle';
-    title.textContent = error.code === 'WORKSPACE_WRITE_UNCERTAIN'
-      ? 'The action could not be confirmed' : 'The action was not completed';
+    title.textContent = 'The action was not completed';
     dialog.appendChild(title);
     addErrorField(dialog, 'What happened', safeValue(error.message, 'The request could not be completed.'));
     addErrorField(dialog, 'Provider/repository changed', providerChangeText(error.providerChanged));

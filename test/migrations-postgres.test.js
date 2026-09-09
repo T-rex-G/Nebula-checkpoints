@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { Client } = require('pg');
 const { loadMigrations, runMigrations, verifyMigrations } = require('../src/migrations');
+const { verifyAlphaPrivacyPurge } = require('./alpha-privacy-purge-postgres');
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();
@@ -93,7 +94,7 @@ async function main() {
 
     const reverified = await withClient(scratchUrl, client => verifyMigrations(client, { directory: DIRECTORY }));
     assert.strictEqual(reverified.ok, true, 'the database stops verifying after a second migration run');
-    await require('./workspace-store-postgres')(scratchUrl);
+    await verifyAlphaPrivacyPurge(scratchUrl);
   } finally {
     await withClient(ADMIN_URL, client => client.query(`DROP DATABASE IF EXISTS ${scratch} WITH (FORCE)`));
   }

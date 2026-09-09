@@ -20,7 +20,12 @@ const child = spawn(process.execPath, ['server.js'], {
     SESSION_SECRET: sessionSecret,
     NV_SNAPSHOT_SIGNING_KEY_ID: 'smoke-snapshot-key',
     NV_SNAPSHOT_SIGNING_SECRET: snapKey,
-    DATABASE_URL: ''
+    DATABASE_URL: '',
+    /* Leftover owner settings must neither enable the retired API nor prevent
+       ordinary startup. A live owner foundation would require PostgreSQL. */
+    NV_WORKSPACE_FOUNDATION_ENABLED: '1',
+    NV_WORKSPACE_SETUP_SHA256: 'retired-setting',
+    NV_WORKSPACE_SETUP_EXPIRES_AT: 'retired-setting'
   },
   stdio: ['ignore', 'pipe', 'pipe']
 });
@@ -87,9 +92,28 @@ async function waitForServer() {
 
     const shell = await request('/');
     assert.strictEqual(shell.status, 200);
-    assert.match(await shell.text(), /Neural/i);
+    const html = await shell.text();
+    assert.match(html, /Neural/i);
+    assert(!html.includes('workspaceCard'), 'retired owner entry must not be rendered');
+    assert(!html.includes('/workspace-ui.js'), 'retired owner transport must not be loaded');
+    for (const pathname of ['/api/workspace/session', '/api/workspace/repositories', '/api/workspace/oauth/start']) {
+      const retired = await request(pathname, { headers: {
+        cookie: 'nv_workspace_session=obsolete; nv_workspace_oauth_intent=obsolete'
+      } });
+      assert.strictEqual(retired.status, 404, `${pathname} must remain unavailable even with old owner cookies/settings`);
+      const expired = retired.headers.getSetCookie();
+      assert(expired.some(value => value.startsWith('nv_workspace_session=;') && value.includes('Path=/api/workspace')));
+      assert(expired.some(value => value.startsWith('nv_workspace_oauth_intent=;') && value.includes('Path=/;')));
+      assert(expired.every(value => /Expires=Thu, 01 Jan 1970/.test(value)));
+    }
 
     const archiveValidator = await request(`/archive-safety.js?v=${ASSET_VERSION}`);
+    const missingOAuthState = await request('/api/oauth/callback?code=not-exchanged');
+    assert.strictEqual(missingOAuthState.status, 400, 'an OAuth callback without a state cookie must fail before exchange');
+    const retiredOAuthState = await request('/api/oauth/callback?code=not-exchanged&state=obsolete', {
+      headers: { cookie: 'nv_workspace_oauth_intent=obsolete' }
+    });
+    assert.strictEqual(retiredOAuthState.status, 400, 'an old owner flow must not authorize ordinary OAuth');
     assert.strictEqual(archiveValidator.status, 200);
     assert.match(await archiveValidator.text(), /NebulaArchiveSafety/);
 

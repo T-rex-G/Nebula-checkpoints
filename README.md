@@ -84,8 +84,6 @@ pre-deploy sequence in the
 - [Project state](docs/current/PROJECT_STATE.md), [roadmap](docs/current/ROADMAP.md), and [provider capabilities](docs/current/PROVIDER_CAPABILITIES.md)
 - [Founder vision](docs/vision/FOUNDER_VISION.md), [product vision](docs/vision/PRODUCT_VISION.md), and [UX vision](docs/vision/UX_VISION.md)
 - [Architecture](docs/architecture/ARCHITECTURE.md) and [architecture decisions](docs/architecture/ARCHITECTURE_DECISIONS.md)
-- [Personal workspace foundation](docs/architecture/PERSONAL_WORKSPACE_FOUNDATION.md) — opt-in owner identity and entry UI
-- [Change B: owner Git connections and workbench](docs/architecture/CHANGE_B_CONNECTIONS.md) — encrypted session credentials, separate owner safeguards, experimental repository creation and ordinary verified text commits; live validation and coordinated rollout remain outstanding
 - [Public-alpha guide](docs/release/PUBLIC_ALPHA.md), [release gates](docs/release/RELEASE_SECURITY_GATES.md), and [evidence index](docs/release/EVIDENCE_INDEX.md)
 - [Render/Neon deployment](docs/operations/DEPLOY_RENDER_NEON.md) and [security deployment](docs/operations/SECURITY_DEPLOYMENT.md)
 

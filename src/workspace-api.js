@@ -11,7 +11,7 @@ const CHALLENGE_COOKIE = 'nv_workspace_challenge';
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const NONCE_RX = /^[A-Za-z0-9_-]{43}$/;
 
-function createWorkspaceRouter({ enabled, store, verifyAccount, connectAccount, listRepositories, seal, unseal, getCookie,
+function createWorkspaceRouter({ enabled, store, verifyAccount, connectAccount, listRepositories, workbench, seal, unseal, getCookie,
   csrfSecret, production = false, publicOrigin = '' }) {
   const router = express.Router();
   const attempts = new Map();
@@ -81,6 +81,7 @@ function createWorkspaceRouter({ enabled, store, verifyAccount, connectAccount, 
       const context = req.workspaceContext ? securityContext(req.workspaceToken, req.workspaceContext) : challengeContext(req);
       if (!context) throw workspaceError('CSRF_REQUIRED');
       verifyCsrfToken(csrfSecret, req.headers['x-nv-csrf'], context);
+      req.workspaceCsrfVerified = true;
       if (entry) {
         // IP keyed, not cookie keyed: changing an anonymous cookie is not a reset.
         const key = req.ip, now = Date.now();
@@ -144,6 +145,7 @@ function createWorkspaceRouter({ enabled, store, verifyAccount, connectAccount, 
     await store.disconnectConnection({ token: req.workspaceToken, connectionId: req.body.connectionId });
     return res.json({ ok: true });
   }));
+  if (workbench) router.use('/workbench', workbench);
   router.use((req, res) => res.status(404).json({ code: 'WORKSPACE_ROUTE_NOT_FOUND' }));
   router.use((error, req, res, next) => {
     if (res.headersSent) return next(error);

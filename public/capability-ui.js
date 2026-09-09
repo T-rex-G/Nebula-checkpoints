@@ -219,20 +219,20 @@
     return controls.map(element => decision(element.dataset.feature));
   }
 
-  async function load(provider, authority) {
+  async function load(provider, authority, options = {}) {
     const normalizedProvider = ['github', 'gitlab', 'gitea'].includes(String(provider || '').toLowerCase())
       ? String(provider).toLowerCase()
       : 'github';
     const normalizedAuthority = String(authority || (normalizedProvider === 'github' ? 'github.com' : '')).toLowerCase();
     const query = new URLSearchParams({ provider: normalizedProvider, authority: normalizedAuthority });
     try {
-      const response = await fetch(`/api/capabilities?${query}`, {
+      const response = options.request ? null : await fetch(`/api/capabilities?${query}`, {
         credentials: 'same-origin',
         cache: 'no-store',
         headers: { 'x-nv': '1' }
       });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok || !body || body.provider !== normalizedProvider || !body.features) {
+      const body = options.request ? await options.request() : await response.json().catch(() => ({}));
+      if ((response && !response.ok) || !body || body.provider !== normalizedProvider || !body.features) {
         throw new Error('Capability projection is unavailable');
       }
       const features = Object.fromEntries(Object.entries(body.features).map(([feature, value]) => [

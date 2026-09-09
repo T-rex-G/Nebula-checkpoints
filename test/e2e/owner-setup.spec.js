@@ -267,13 +267,12 @@ test('an owner who signs in at the gate is told what it does not grant', async (
   await expect(page.locator('#workspaceIdentity')).toContainText('owner-login');
   /*
    * The claim that would be false is the tempting one: that signing in as the
-   * owner admits them to the repository app. It does not -- repository routes
-   * still resolve authority from the cohort session -- and the screen has to
-   * say so rather than leave the next refusal unexplained.
+   * owner automatically enters the repository app. It does not: a selected
+   * credential and explicit owner workbench entry are still required.
    */
   const note = page.locator('#workspaceScopeNote');
   await expect(note).toBeVisible();
-  await expect(note).toContainText('repository workbench still resolves through the invitation');
+  await expect(note).toContainText('open the owner workbench');
 
   /* And it must not have let itself past the gate. */
   await expect(page.locator('#page-alpha-access.active')).toBeVisible();

@@ -23,6 +23,7 @@
   let state = { available: null, authenticated: false, context: null };
   let csrfToken = '';
   let outcomeUnknown = false;
+  let workbenchWriteUnknown = false;
 
   const REASONS = {
     WORKSPACE_FOUNDATION_DISABLED: 'Owner workspaces are switched off for this deployment.',
@@ -37,6 +38,8 @@
     WORKSPACE_CONNECTION_LIMIT: 'This workspace already holds the maximum number of Git connections.',
     WORKSPACE_CONNECTION_REJECTED: 'That Git connection is not available to this workspace.',
     WORKSPACE_CONNECTION_REQUIRED: 'Select a Git connection first.',
+    WORKSPACE_EXECUTION_CHANGED: 'The selected workspace or Git connection changed. Return to owner connections and reopen the workbench.',
+    WORKSPACE_WRITE_UNCERTAIN: 'The write may have completed. Inspect the repository and its latest commit on GitHub before reloading and deliberately trying another write. Nothing will be automatically replayed.',
     WORKSPACE_CREDENTIAL_REQUIRED: 'Reconnect this Git account with a valid token for this workspace session.',
     WORKSPACE_PROVIDER_UNSUPPORTED: 'Owner repository listing currently supports GitHub. This connection can still be managed here.',
     WORKSPACE_REPOSITORIES_UNAVAILABLE: 'Repositories could not be listed. Check the provider permissions and try again.',
@@ -61,6 +64,11 @@
     const error = new Error(explain(code));
     error.code = code;
     error.status = status || 0;
+    if (code === 'WORKSPACE_WRITE_UNCERTAIN') {
+      error.providerChanged = 'unknown';
+      error.safeState = 'No automatic retry was requested.';
+      error.nextAction = REASONS.WORKSPACE_WRITE_UNCERTAIN;
+    }
     return error;
   }
 
@@ -259,6 +267,51 @@
     return payload;
   }
 
+  async function workbench(path, options, binding, retry = true) {
+    const method = String(options.method || 'GET').toUpperCase();
+    const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+    if (!/^\/api\/[a-z]/.test(path) || path.includes('..') || path.includes('\\')) throw workspaceError('WORKSPACE_INPUT_INVALID', 400);
+    if (unsafe && workbenchWriteUnknown) throw workspaceError('WORKSPACE_WRITE_UNCERTAIN');
+    const context = state.context;
+    if (!state.authenticated || context?.role !== 'owner') throw workspaceError('WORKSPACE_SESSION_REQUIRED', 401);
+    if (!binding || context.principalId !== binding.principalId || context.workspaceId !== binding.workspaceId
+      || context.connection?.id !== binding.connectionId) throw workspaceError('WORKSPACE_EXECUTION_CHANGED', 409);
+    let response, payload;
+    try {
+      response = await global.fetch(BASE + '/workbench' + path.slice(4), {
+        method, credentials: 'same-origin', cache: 'no-store', signal: options.signal,
+        headers: { 'x-nv': '1', 'x-nv-workspace': binding.workspaceId, 'x-nv-connection': binding.connectionId,
+          ...(unsafe ? { 'x-nv-csrf': csrfToken, 'Content-Type': 'application/json' } : {}) },
+        body: options.body ? JSON.stringify(options.body) : undefined
+      });
+      payload = await response.json();
+    } catch {
+      if (unsafe) workbenchWriteUnknown = true;
+      throw workspaceError(unsafe ? 'WORKSPACE_WRITE_UNCERTAIN' : 'WORKSPACE_UNAVAILABLE');
+    }
+    if (!response.ok) {
+      const code = payload?.code || 'WORKSPACE_UNAVAILABLE';
+      if (unsafe && retry && response.status === 403 && CSRF_CODES.includes(code)) {
+        await probe();
+        return workbench(path, options, binding, false);
+      }
+      if (unsafe && (code === 'WORKSPACE_WRITE_UNCERTAIN' || response.status >= 500)) workbenchWriteUnknown = true;
+      const error = workspaceError(workbenchWriteUnknown && unsafe ? 'WORKSPACE_WRITE_UNCERTAIN' : code, response.status);
+      if (!REASONS[code] && typeof payload?.error === 'string') error.message = payload.error;
+      error.nextAction = payload?.nextAction || error.nextAction;
+      error.providerChanged = payload?.providerChanged || error.providerChanged;
+      throw error;
+    }
+    const validWrite = path === '/api/safety' ? typeof payload?.readOnly === 'boolean'
+      : payload?.verified === true && (path === '/api/repos' ? typeof payload.full_name === 'string'
+        : payload.ok === true && /^[a-f0-9]{40}$/i.test(payload.commit || ''));
+    if (!payload || (unsafe && !validWrite)) {
+      if (unsafe) workbenchWriteUnknown = true;
+      throw workspaceError(unsafe ? 'WORKSPACE_WRITE_UNCERTAIN' : 'WORKSPACE_UNAVAILABLE');
+    }
+    return payload;
+  }
+
   function current() {
     return snapshot();
   }
@@ -267,11 +320,12 @@
   function reset() {
     csrfToken = '';
     outcomeUnknown = false;
+    workbenchWriteUnknown = false;
     state = { available: null, authenticated: false, context: null };
   }
 
   global.NebulaWorkspaceUI = Object.freeze({
     probe, claim, signIn, signOut, current, explain, reset, SECRET_RX,
-    listConnections, connect, selectConnection, disconnect, repositories
+    listConnections, connect, selectConnection, disconnect, repositories, workbench
   });
 })(window);

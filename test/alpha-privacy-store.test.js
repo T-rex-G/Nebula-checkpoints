@@ -436,22 +436,22 @@ class FakeClient {
       return { rows: [], rowCount: before - this.pool.state.providerSessions.length };
     }
     if (/DELETE FROM nv_webhooks WHERE identity_key=ANY/.test(text)) {
-      return this.deleteIdentityRows('webhooks', params[1]);
+      return this.deleteIdentityRows('webhooks', params[0]);
     }
     if (/DELETE FROM nv_intelligence_events WHERE identity_key=ANY/.test(text)) {
-      return this.deleteIdentityRows('events', params[1]);
+      return this.deleteIdentityRows('events', params[0]);
     }
     if (/DELETE FROM nv_recovery_snapshots WHERE identity_key=ANY/.test(text)) {
-      return this.deleteIdentityRows('snapshots', params[1]);
+      return this.deleteIdentityRows('snapshots', params[0]);
     }
     if (/DELETE FROM nv_github_app_installations WHERE identity_key=ANY/.test(text)) {
-      return this.deleteIdentityRows('installations', params[1]);
+      return this.deleteIdentityRows('installations', params[0]);
     }
     if (/DELETE FROM nv_security_state WHERE identity_key=ANY/.test(text)) {
-      return this.deleteIdentityRows('security', params[1]);
+      return this.deleteIdentityRows('security', params[0]);
     }
     if (/DELETE FROM nv_github_app_audit WHERE identity_key=ANY/.test(text)) {
-      return this.deleteIdentityRows('githubAudit', params[1]);
+      return this.deleteIdentityRows('githubAudit', params[0]);
     }
     if (/DELETE FROM nv_alpha_feedback WHERE tester_id=\$1/.test(text)) {
       const before = this.pool.state.feedback.length;

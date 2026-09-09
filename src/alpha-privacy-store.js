@@ -2240,12 +2240,12 @@ class AlphaPrivacyStore {
              recorded_at,retained_at
            )
            SELECT $1,'governance-audit',record_hash,previous_hash,details_hash,
-                  created_at,$3
+                  created_at,$3::timestamptz
              FROM nv_governance_audit
             WHERE actor_identity_key=ANY($2::text[])
            UNION ALL
            SELECT $1,'governance-decision',record_hash,previous_hash,decision_hash,
-                  created_at,$3
+                  created_at,$3::timestamptz
              FROM nv_governance_policy_decisions
             WHERE actor_identity_key=ANY($2::text[])
            ON CONFLICT DO NOTHING`,
@@ -2256,13 +2256,13 @@ class AlphaPrivacyStore {
              tester_id,tester_id_hash,identity_key,record_kind,record_hash,
              previous_hash,payload_hash,created_at
            )
-           SELECT $1,$2,actor_identity_key,'governance-audit',record_hash,
-                  previous_hash,details_hash,$4
+           SELECT $1::uuid,$2,actor_identity_key,'governance-audit',record_hash,
+                  previous_hash,details_hash,$4::timestamptz
              FROM nv_governance_audit
             WHERE actor_identity_key=ANY($3::text[])
            UNION ALL
-           SELECT $1,$2,actor_identity_key,'governance-decision',record_hash,
-                  previous_hash,decision_hash,$4
+           SELECT $1::uuid,$2,actor_identity_key,'governance-decision',record_hash,
+                  previous_hash,decision_hash,$4::timestamptz
              FROM nv_governance_policy_decisions
             WHERE actor_identity_key=ANY($3::text[])`,
           [testerId, testerIdHash, exclusiveIdentityKeys, now]
@@ -2306,28 +2306,28 @@ class AlphaPrivacyStore {
           [testerId, exclusiveIdentityKeys]
         );
         const webhooks = await client.query(
-          `DELETE FROM nv_webhooks WHERE identity_key=ANY($2::text[])`,
-          [testerId, exclusiveIdentityKeys]
+          `DELETE FROM nv_webhooks WHERE identity_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
         );
         const events = await client.query(
-          `DELETE FROM nv_intelligence_events WHERE identity_key=ANY($2::text[])`,
-          [testerId, exclusiveIdentityKeys]
+          `DELETE FROM nv_intelligence_events WHERE identity_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
         );
         const snapshots = await client.query(
-          `DELETE FROM nv_recovery_snapshots WHERE identity_key=ANY($2::text[])`,
-          [testerId, exclusiveIdentityKeys]
+          `DELETE FROM nv_recovery_snapshots WHERE identity_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
         );
         await client.query(
-          `DELETE FROM nv_github_app_installations WHERE identity_key=ANY($2::text[])`,
-          [testerId, exclusiveIdentityKeys]
+          `DELETE FROM nv_github_app_installations WHERE identity_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
         );
         await client.query(
-          `DELETE FROM nv_security_state WHERE identity_key=ANY($2::text[])`,
-          [testerId, exclusiveIdentityKeys]
+          `DELETE FROM nv_security_state WHERE identity_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
         );
         await client.query(
-          `DELETE FROM nv_github_app_audit WHERE identity_key=ANY($2::text[])`,
-          [testerId, exclusiveIdentityKeys]
+          `DELETE FROM nv_github_app_audit WHERE identity_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
         );
         const feedback = await client.query(
           `DELETE FROM nv_alpha_feedback WHERE tester_id=$1`,

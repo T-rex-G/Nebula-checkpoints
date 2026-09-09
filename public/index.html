@@ -167,11 +167,8 @@
       <div class="workspace-signed-in" id="workspaceSignedIn" hidden>
         <p class="workspace-identity" id="workspaceIdentity"></p>
         <!--
-          What owning a workspace does and does not yet buy. Repository routes
-          still resolve their authority from the cohort session, so an owner on
-          an invitation deployment is not admitted to them by this sign-in.
-          Saying so here is cheaper than letting the next screen refuse without
-          explanation.
+          Owner sign-in does not admit a visitor to cohort routes. The explicit
+          owner workbench entry below uses its own authenticated transport.
         -->
         <p class="workspace-scope-note" id="workspaceScopeNote" hidden></p>
         <details id="workspaceGitPanel" class="workspace-git-panel">
@@ -191,7 +188,8 @@
           <button class="btn btn-ghost btn-block" id="workspaceGitRefresh">Refresh connections</button>
           <div id="workspaceGitConnections" class="workspace-git-list" aria-live="polite"></div>
           <button class="btn btn-ghost btn-block" id="workspaceGitRepos">List selected account’s GitHub repositories</button>
-          <p class="hint">Read-only owner listing. Creating, opening in the workbench and committing through the owner connection follow in the next Change B slice.</p>
+          <button class="btn btn-primary btn-block" id="workspaceEnterBtn">Open owner workbench</button>
+          <p class="hint">Use the selected GitHub connection to browse repositories and commit text files. Repository creation is experimental. Other owner features are still unavailable.</p>
           <div id="workspaceGitRepositories" class="workspace-git-list" aria-live="polite"></div>
         </details>
         <button class="btn btn-ghost btn-block" id="workspaceSignOutBtn">Sign out of the workspace</button>

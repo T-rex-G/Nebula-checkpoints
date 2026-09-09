@@ -1,10 +1,11 @@
-# Change B1 — owner Git connections and read-only repository listing
+# Change B — owner Git connections and workbench
 
-Status: first Change B implementation slice, stacked on Change A. The owner can
+Status: B1 plus the B2 owner workbench slice, stacked on Change A. The owner can
 connect, list, explicitly select and disconnect Git accounts from the owner card,
 then list repositories visible to the selected GitHub credential without a tester
-invitation. This does not yet enable repository creation, the repository workbench
-or commits through owner authority. Those remain Change B2.
+invitation. B2 adds an explicit entry into the existing workbench for GitHub
+repository creation, browsing and ordinary verified text commits. Live owner
+validation and coordinated database/deployment rollout are still outstanding.
 
 ## Identity and access
 
@@ -23,7 +24,9 @@ fields leave the server; no raw provider response or token reaches the browser.
 
 The first repository adapter supports GitHub. GitLab/Gitea accounts can be bound,
 selected and disconnected but their owner repository listing is not implemented.
-The provider's own permissions still apply. No capability is promoted by this PR.
+The provider's own permissions still apply. Global cohort capability statuses
+are unchanged. The owner projection alone exposes repository creation as
+Experimental with deterministic evidence; this is not a claim of live validation.
 
 ## Credential lifecycle
 
@@ -83,22 +86,72 @@ expired sessions are still pruned by database maintenance. Rolling application
 code back to 015/016 will reject unknown later migrations in strict verify mode.
 Use a reviewed forward fix or backup/restore plan rather than dropping tables.
 
-## Verification and next slice
+## B2 execution and cleanup boundary
+
+The existing workbench uses `/api/workspace/workbench/*` only after a verified
+owner `/me` response. Its memory-only entry mode selects a transport; the server
+resolves the owner session, selected connection and encrypted credential again
+for every request. `X-NV-Workspace` and `X-NV-Connection` pin requests to the
+connection that was opened. A selection change in another tab is rejected, never
+silently redirected. The owner cookie stays scoped to `/api/workspace`, with its
+own CSRF token. No fake tester, legacy session or invitation bypass is created.
+
+The server verifies the connected GitHub user's immutable ID and current login.
+The owner resource key hashes the versioned principal/workspace/connection tuple;
+it never adopts legacy login hashes. Safeguards and gateway actor records use
+this key. Repository governance remains repository-scoped and still applies.
+Safeguard reads fail closed; updates use a database transaction and an advisory
+lock. Disconnect removes credentials but preserves durable safeguards. Tester
+purge uses its legacy bindings and cannot acquire owner execution keys.
+
+Owner creation defaults to private and initializes a branch. It passes through
+the central mutation gateway and is successful only after repository readback.
+File writes require a 40-character expected branch head, a regular file target,
+and UTF-8 text up to 1 MiB. Fresh provider write permission, owner safeguards and
+repository policy are checked before provider writes. The existing commit-tree
+helper preserves file mode and uses a non-forced ref update; a final ref read
+must confirm the returned commit. A concurrent change refuses or produces an
+uncertain result; it never forces a branch back to an old head.
+
+Once a provider write is dispatched, an interrupted or unverified result is
+uncertain. The browser never queues or automatically replays it and stops further
+writes until deliberate recovery. Inspect GitHub's repository and latest commit
+before reloading and trying again. A confirmed CSRF refusal permits one bounded
+retry because the handler has not run. Disconnect/sign-out block subsequent
+requests; they cannot cancel a provider operation already in flight.
+
+The owner workbench connects only repository list/create/open, tree reads, text
+reads/writes and safeguards. Other capability controls remain unavailable.
+Binary/LFS previews, raw/archive downloads, uploads, batch edits and offline
+write replay are not connected. Owner repository content and drafts are not
+stored in the legacy offline cache, recent-file list or draft storage. Returning
+to owner connections clears private browser state and reloads the entry screen.
+This is a deliberate authority boundary; it is not a role toggle granting access.
+
+## Verification and rollout
 
 - Credential unit tests use authenticated encryption and reject copied/tampered
   ciphertext, cross-session/workspace/account bindings and invalid credentials.
 - HTTP tests verify anonymous rejection, isolated session/CSRF handling, no token
-  disclosure, no repository-write route, and unchanged legacy invitation checks.
+  disclosure and unchanged legacy invitation checks. B2 HTTP tests cover the
+  owner create/open/commit route, real mutation gateway and policy evaluator,
+  fresh authorization, stale pins/heads, denied writes and uncertain outcomes.
 - PostgreSQL tests cover restart, cross-session isolation, failed reconnect
   rollback, database constraints, rotation/sign-out/disconnect and legacy cleanup.
+  B2 runs the actual tester purge and proves owner safeguards and credentials
+  survive; concurrent safeguard updates must preserve both changes.
 - Browser tests exercise connect → select → list → disconnect from the invitation
-  gate in both viewports without changing the owner principal.
+  gate in both viewports without changing the owner principal. B2 browser cases
+  cover create/open/text commit and a lost reply without offline replay.
 
 Tests use synthetic provider seams; they do not claim a live GitHub owner flow or
 a Render deployment. CI must confirm actual PostgreSQL and browser behavior.
 
-Next, B2 introduces the explicit owner/cohort authorization and resource-cleanup
-compatibility adapter for repository create → open → ordinary verified commit.
-It must retain provider permissions, mutation authorization and safety controls.
+Before merging, refresh CI against each retargeted PR, review the limits/LFS
+branches, and coordinate 016+017 with the actual Render database. No new Neon
+project is required. Do not delete a stacked base branch while another PR still
+targets it, or a branch with unreviewed unique commits. The next product step is
+live owner validation of this narrow workflow, then one evidence-backed feature
+at a time; experimental does not automatically become supported.
 Do not populate `req.alpha` with a fake tester, widen workspace-cookie paths
 without a cookie/CSRF migration plan, or treat legacy identity hashes as ownership.

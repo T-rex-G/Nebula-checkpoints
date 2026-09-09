@@ -135,6 +135,10 @@ class WorkspaceStore {
   }
 
   async executionAccount(token) {
+    return (await this.executionContext(token)).account;
+  }
+
+  async executionContext(token) {
     return this.transaction(async client => {
       const context = await this.requireContext(token, client);
       if (!context.connection) throw workspaceError('WORKSPACE_CONNECTION_REQUIRED', 409);
@@ -142,8 +146,9 @@ class WorkspaceStore {
         WHERE session_hash=$1 AND connection_id=$2 AND workspace_id=$3 AND principal_id=$4`,
       [digest(token), context.connection.id, context.workspaceId, context.principalId]);
       if (!result.rows.length) throw workspaceError('WORKSPACE_CREDENTIAL_REQUIRED', 401);
-      return openWorkspaceCredential(result.rows[0].sealed_credential,
+      const account = openWorkspaceCredential(result.rows[0].sealed_credential,
         { ...context, sessionHash: digest(token) }, this.unseal);
+      return { context, account };
     });
   }
 

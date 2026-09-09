@@ -88,6 +88,9 @@ const { AlphaPrivacyStore } = require('./src/alpha-privacy-store');
 const { loadWorkspaceConfig, verifiedHumanIdentity, workspaceError } = require('./src/workspace-identity');
 const { WorkspaceStore } = require('./src/workspace-store');
 const { createWorkspaceRouter } = require('./src/workspace-api');
+const { createWorkspaceWorkbenchRouter } = require('./src/workspace-workbench');
+const { createWorkspaceSafetyStore } = require('./src/workspace-safety');
+const { createWorkspaceMutationRunner } = require('./src/workspace-mutation');
 const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback } = require('./src/alpha-privacy');
 const {
   disconnectProviderAccount,
@@ -777,7 +780,21 @@ app.use('/api/workspace', createWorkspaceRouter({
   })(),
   verifyAccount: verifyWorkspaceAccount,
   connectAccount: connectWorkspaceAccount,
-  listRepositories: listWorkspaceRepositories
+  listRepositories: listWorkspaceRepositories,
+  workbench: createWorkspaceWorkbenchRouter({
+    store: workspaceStore, request: gh, commitTree,
+    fileEntryAtHead: async (account, owner, repo, head, path) => {
+      const parent = await gh(account, `/repos/${owner}/${repo}/git/commits/${head}`);
+      return gitTreeEntryByPath(account, owner, repo, parent.tree.sha, path, new Map());
+    },
+    assertCapability: assertProviderCapability,
+    projectCapabilities: account => projectCapabilities(CAPABILITY_DOCUMENT, providerCapabilityContext(account)),
+    loadSafety: key => createWorkspaceSafetyStore(pool()).load(key),
+    updateSafety: (key, body) => createWorkspaceSafetyStore(pool()).update(key, body),
+    guardSafety, runMutation: createWorkspaceMutationRunner({ gateway: mutationGateway, request: gh, descriptorFor: mutationDescriptorFor }),
+    requireRepoPath: normalizeRepoPath, requireBranchName: normalizeBranchName,
+    normalizeBranches: normalizeProviderBranches, failure: (res, error) => fail(res, error)
+  })
 }));
 const ALPHA_COOKIE = 'nv_alpha_access';
 const ALPHA_SESSION_ID = Symbol('alpha session id');

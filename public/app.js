@@ -1254,8 +1254,22 @@ function renderWorkspaceCard() {
     : 'Sign in as the owner of this deployment using the provider and token above.';
   $('#workspaceSignedIn').hidden = !ws.authenticated;
   $('#workspaceSignedOut').hidden = ws.authenticated || sessionUnavailable;
+  /*
+   * OAuth is offered only where the deployment actually has it, and the
+   * verified line only exists between the redirect and the claim -- naming who
+   * came back, so the reader is not asked to trust an unlabelled session.
+   */
+  const oauthBtn = $('#workspaceOauthBtn'), oauthNote = $('#workspaceOauthVerified');
+  if (oauthBtn) oauthBtn.hidden = !ws.oauthAvailable || ws.authenticated || sessionUnavailable;
+  if (oauthNote) {
+    const who = ws.oauthVerified && ws.oauthVerified.login;
+    oauthNote.hidden = !who || ws.authenticated;
+    if (who) oauthNote.textContent = `Verified as ${who}. Enter the setup credential below to claim, or sign in.`;
+  }
+  /* Verified by OAuth: the token fields are not what proves identity now. */
+  const oauthPending = !!(ws.oauthVerified && !ws.authenticated);
   $('#workspaceCardNote').hidden = ws.authenticated;
-  $('#workspaceCredentials').hidden = ws.authenticated || sessionUnavailable;
+  $('#workspaceCredentials').hidden = ws.authenticated || sessionUnavailable || oauthPending;
   if (ws.authenticated && ws.context) {
     const connection = ws.context.connection;
     $('#workspaceIdentity').textContent = connection
@@ -1336,14 +1350,22 @@ $('#workspaceClaimToggle').addEventListener('click', () => {
   $('#workspaceClaimToggle').setAttribute('aria-expanded', String(open));
   if (open) $('#workspaceSetupSecret').focus();
 });
+/* One button per intent, two ways to have proved identity. A pending OAuth
+ * verification is used when there is one; otherwise the token fields are. */
+const workspaceOauthPending = () => !!window.NebulaWorkspaceUI.current().oauthVerified;
 $('#workspaceSignInBtn').addEventListener('click', () => workspaceAttempt(
   $('#workspaceSignInBtn'), 'Signing in…',
-  () => window.NebulaWorkspaceUI.signIn(workspaceInputs())
+  () => workspaceOauthPending()
+    ? window.NebulaWorkspaceUI.oauthSignIn()
+    : window.NebulaWorkspaceUI.signIn(workspaceInputs())
 ));
 $('#workspaceClaimBtn').addEventListener('click', () => workspaceAttempt(
   $('#workspaceClaimBtn'), 'Claiming…',
-  () => window.NebulaWorkspaceUI.claim({ ...workspaceInputs(), setupSecret: $('#workspaceSetupSecret').value })
+  () => workspaceOauthPending()
+    ? window.NebulaWorkspaceUI.oauthClaim({ setupSecret: $('#workspaceSetupSecret').value })
+    : window.NebulaWorkspaceUI.claim({ ...workspaceInputs(), setupSecret: $('#workspaceSetupSecret').value })
 ));
+$('#workspaceOauthBtn').addEventListener('click', () => window.NebulaWorkspaceUI.oauthStart());
 $('#workspaceSignOutBtn').addEventListener('click', () => workspaceAttempt(
   $('#workspaceSignOutBtn'), 'Signing out…',
   () => window.NebulaWorkspaceUI.signOut()

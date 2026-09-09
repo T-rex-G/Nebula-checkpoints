@@ -779,6 +779,19 @@ app.use('/api/workspace', createWorkspaceRouter({
     const base = process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL;
     return WORKSPACE_CONFIG.enabled && base ? new URL(base).origin : '';
   })(),
+  /* The client secret stays here; the router only needs somewhere to send the
+   * reader. Scope matches the cohort flow, because a connected owner account
+   * does the same kind of repository work. */
+  oauth: {
+    /*
+     * A getter, not a value. This router is mounted well above where OAUTH_ID
+     * and OAUTH_SECRET are declared, and reading a const before its declaration
+     * is a ReferenceError that kills the process at startup -- not a warning.
+     */
+    get enabled() { return !!(OAUTH_ID && OAUTH_SECRET); },
+    authorizeUrl: state =>
+      `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(OAUTH_ID)}&scope=repo&state=${encodeURIComponent(state)}`
+  },
   verifyAccount: verifyWorkspaceAccount,
   connectAccount: connectWorkspaceAccount,
   listRepositories: listWorkspaceRepositories,
@@ -3663,6 +3676,32 @@ app.get('/api/oauth/callback', async (req, res) => {
     const td = await tr.json();
     if (!td.access_token) return res.status(400).send('OAuth exchange failed.');
     const user = await gh(td.access_token, '/user');
+    /*
+     * One registered callback serves both flows, so the intent decides which.
+     * It is sealed, not a query flag: a cohort login must never be turned into
+     * a workspace verification by editing a URL.
+     *
+     * This leg deliberately does NOT call addAccount. A cohort session does not
+     * grant workspace ownership -- that is the contract -- so the owner surface
+     * is handed a verified identity and nothing else, and this returns before
+     * any cohort session could be created.
+     */
+    const intent = unseal(getCookie(req, 'nv_workspace_oauth_intent'));
+    if (intent?.kind === 'workspace-oauth-intent/v1' && Number.isFinite(intent.expiresAt)
+      && intent.expiresAt > Date.now() && typeof intent.state === 'string'
+      && intent.state.length > 0 && req.query.state === intent.state) {
+      const identity = verifiedHumanIdentity({
+        provider: 'github', providerAccountId: user.id, login: user.login,
+        type: user.type, bot: user.bot, authMethod: 'oauth'
+      });
+      const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+      res.append('Set-Cookie', `nv_workspace_oauth_intent=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+      res.append('Set-Cookie', `nv_workspace_oauth=${seal({
+        kind: 'workspace-oauth-verified/v1', token: td.access_token, identity,
+        expiresAt: Date.now() + 10 * 60 * 1000
+      })}; Path=/api/workspace; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
+      return res.redirect('/?workspace=verified');
+    }
     await addAccount(req, res, td.access_token, user, 'github', '', { authMethod: 'oauth' });
     res.redirect('/');
   } catch (e) { res.status(500).send('OAuth error: ' + e.message); }

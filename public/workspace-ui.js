@@ -20,7 +20,7 @@
    * switched off. The difference matters -- an unprobed state must never be
    * drawn as "off", or a slow first request looks like a disabled feature.
    */
-  let state = { available: null, authenticated: false, context: null };
+  let state = { available: null, authenticated: false, context: null, oauthAvailable: false, oauthVerified: null };
   let csrfToken = '';
   let outcomeUnknown = false;
   let workbenchWriteUnknown = false;
@@ -32,6 +32,8 @@
     WORKSPACE_SIGN_OUT_REQUIRED: 'A different person is signed in. Sign out first.',
     WORKSPACE_HUMAN_IDENTITY_REQUIRED: 'Workspace ownership needs a personal account. App installations and bot accounts cannot own a workspace.',
     WORKSPACE_PROVIDER_VERIFICATION_FAILED: 'The provider would not confirm this token. Check the token and try again.',
+    WORKSPACE_OAUTH_UNAVAILABLE: 'Continuing with GitHub is not configured for this deployment. Use an access token instead.',
+    WORKSPACE_OAUTH_VERIFICATION_REQUIRED: 'That GitHub verification has expired or was not completed. Continue with GitHub again.',
     WORKSPACE_AUTH_RATE_LIMIT: 'Too many attempts. Wait a minute before trying again.',
     WORKSPACE_SESSION_REQUIRED: 'The workspace session has ended. Sign in again.',
     WORKSPACE_SESSION_LIMIT: 'Too many active workspace sessions. Sign out somewhere else first.',
@@ -77,6 +79,8 @@
       available: state.available,
       authenticated: state.authenticated,
       context: state.context,
+      oauthAvailable: state.oauthAvailable,
+      oauthVerified: state.oauthVerified,
       outcomeUnknown
     });
   }
@@ -85,7 +89,11 @@
     state = {
       available: true,
       authenticated: Boolean(payload && payload.authenticated),
-      context: (payload && payload.context) || null
+      context: (payload && payload.context) || null,
+      oauthAvailable: Boolean(payload && payload.oauthAvailable),
+      /* Present only between the redirect and the claim, and only ever a
+       * login -- the token itself stays sealed in an HttpOnly cookie. */
+      oauthVerified: (payload && payload.oauthVerified) || null
     };
     if (payload && typeof payload.csrfToken === 'string') csrfToken = payload.csrfToken;
     return snapshot();
@@ -219,6 +227,25 @@
     return adopt(await write('/sign-in', credentials(input)));
   }
 
+  /*
+   * The OAuth pair. Identity was proved on the redirect leg, so neither of
+   * these carries a token -- only the setup credential, which OAuth does not
+   * replace because it is what grants ownership rather than proving identity.
+   */
+  function oauthStart() { location.href = '/api/workspace/oauth/start'; }
+
+  async function oauthClaim(input) {
+    const secret = String(input && input.setupSecret || '').trim();
+    /* Same local check as the token path, for the same reason: a typo must not
+     * spend one of the five attempts that lock setup for fifteen minutes. */
+    if (!SECRET_RX.test(secret)) throw workspaceError('WORKSPACE_INPUT_INVALID', 400);
+    return adopt(await write('/oauth/claim', { setupSecret: secret }));
+  }
+
+  async function oauthSignIn() {
+    return adopt(await write('/oauth/sign-in', {}));
+  }
+
   async function signOut() {
     await write('/sign-out', {});
     csrfToken = '';
@@ -325,7 +352,7 @@
   }
 
   global.NebulaWorkspaceUI = Object.freeze({
-    probe, claim, signIn, signOut, current, explain, reset, SECRET_RX,
+    probe, claim, signIn, signOut, oauthStart, oauthClaim, oauthSignIn, current, explain, reset, SECRET_RX,
     listConnections, connect, selectConnection, disconnect, repositories, workbench
   });
 })(window);

@@ -183,4 +183,35 @@ assert(html.includes('id="workspaceSetupSecret"'),
 assert(html.includes('id="workspaceSignInBtn"') && html.includes('id="workspaceClaimBtn"'),
   'the token path must remain alongside OAuth, not be replaced by it');
 
+/* ---- 8. the token OAuth issued is used, not discarded ---- */
+
+/*
+ * Verifying with OAuth and then asking for a pasted token is the friction the
+ * feature exists to remove. The first version did exactly that: it read the
+ * identity out of the verification and dropped the access token beside it, so
+ * a reader who signed in with GitHub still met an empty "Git connection token"
+ * field and a workbench that refused to open.
+ */
+const adopt = api.slice(api.indexOf('const adoptOauthConnection'), api.indexOf("router.post('/oauth/claim'"));
+assert(adopt.length > 0, 'the connection adoption must be locatable');
+assert(/connectAccount\(\{ token: verified\.token/.test(adopt),
+  'the OAuth access token must be used to bind the connection, not discarded');
+assert(/store\.bindConnection\(/.test(adopt) && /store\.selectConnection\(/.test(adopt),
+  'the connection must be bound AND selected, or the workbench still refuses to open');
+assert(/catch \{ return result; \}/.test(adopt),
+  'adoption is best effort: a failure here must not undo a claim that already succeeded');
+
+/* Per request, never module state: two claims in flight must not read each
+ * other's verification. */
+assert(/adoptOauthConnection = async \(result, verified\)/.test(adopt),
+  'the verification must travel as an argument, not as shared state across requests');
+assert(!/let verifiedOauthValue/.test(api),
+  'no cross-request shared verification');
+
+for (const route of ["router.post('/oauth/claim'", "router.post('/oauth/sign-in'"]) {
+  const body = api.slice(api.indexOf(route), api.indexOf(route) + 900);
+  assert(/adoptOauthConnection\(result, verified\)/.test(body),
+    `${route} must adopt the verified connection so the workbench is usable`);
+}
+
 console.log('workspace oauth claim: ok');

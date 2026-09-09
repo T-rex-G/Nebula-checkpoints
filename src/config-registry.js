@@ -131,7 +131,7 @@ const ENTRIES = Object.freeze([
   /* ---------------- Bounded runtime limits ---------------- */
   { name: 'NV_UPLOAD_MAX_MB', group: 'limits', requirement: 'optional', fallback: '2048',
     format: 'integer, clamped 25-2048',
-    summary: 'Largest single upload. Ignored when a hosted profile sets its own ceiling.' },
+    summary: 'Largest single upload. A hosted profile caps it lower and refuses a larger value at startup.' },
   { name: 'NV_UPLOAD_CONCURRENCY', group: 'limits', requirement: 'optional', fallback: '1',
     format: 'integer, clamped from 1',
     summary: 'How many uploads may run at once.' },

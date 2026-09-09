@@ -475,12 +475,12 @@
           <div class="dropzone" id="dropzone">
             <div class="dz-ring"><svg class="dz-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19.5V5.2M5.8 11.4L12 5.2l6.2 6.2"/></svg></div>
             <p class="dz-title">Drop files here, or <label class="dz-browse" for="filePicker">browse</label></p>
-            <p class="dz-sub">Any size up to <b>2 GB</b> per file — routed automatically:</p>
+            <p class="dz-sub">Per-file limits are set by this deployment. Each queued file shows its upload route.</p>
             <p class="dz-sub">Smart sync: each file is <b>compared with the repo first</b> — unchanged files are skipped, changed ones are replaced, new ones are added.</p>
             <div data-feature="lfs" data-allow-experimental="true" class="strategy-row">
-              <span class="strategy"><b>≤ 40 MB</b><i>Git Data API</i></span>
-              <span class="strategy"><b>40–64 MB</b><i>Native Git push</i></span>
-              <span class="strategy glow"><b>&gt; 64 MB</b><i>Git LFS ✦</i></span>
+              <span class="strategy"><b>Standard files</b><i>Git Data API</i></span>
+              <span class="strategy"><b>Larger Git files</b><i>Native Git push</i></span>
+              <span class="strategy glow"><b>LFS files</b><i>Git LFS ✦</i></span>
             </div>
             <input type="file" id="filePicker" multiple hidden>
           </div>

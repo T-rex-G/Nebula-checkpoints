@@ -97,6 +97,24 @@ assert(!/req\.query\.setupSecret|setupSecret=/.test(api + server),
 
 const callback = server.slice(server.indexOf("app.get('/api/oauth/callback'"), server.indexOf("app.get('/api/alpha/privacy'"));
 assert(callback.length > 0, 'the OAuth callback must be locatable');
+/*
+ * Reachability, which the first version of this guard never checked.
+ *
+ * The callback opens with a state check. Both flows pass through it, and they
+ * carry different state cookies -- so a check written against the cohort
+ * cookie alone refuses every workspace return before the branch below is ever
+ * consulted. The feature shipped unreachable and the guard was satisfied,
+ * because it only asked what came before addAccount, not what came before the
+ * refusal.
+ */
+const stateRefusal = callback.indexOf('OAuth state mismatch');
+assert(stateRefusal > 0, 'the state refusal must be locatable');
+const beforeRefusal = callback.slice(0, stateRefusal);
+assert(beforeRefusal.includes("unseal(getCookie(req, 'nv_workspace_oauth_intent'))"),
+  'the workspace flow must be recognised BEFORE the state refusal, or every workspace return is refused and the branch below is dead code');
+assert(/workspaceFlow \|\| cohortFlow|cohortFlow \|\| workspaceFlow/.test(beforeRefusal),
+  'the state check must accept either flow, not only the cohort one');
+
 assert(callback.includes("unseal(getCookie(req, 'nv_workspace_oauth_intent'))"),
   'the intent must be unsealed from a cookie; reading it from the query would let anyone turn a cohort login into a workspace verification by editing a URL');
 assert(!/req\.query\.(flow|intent|workspace)\b/.test(callback),

@@ -720,6 +720,9 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
    so this is not an error colour -- it marks a swap worth reading about. */
 .uq-item.fell-back .uq-fill{background:var(--amber)}
 .uq-item.fell-back .uq-status{color:var(--amber)}
+/* Separates the two ways into the owner card. Quiet: it is a label for
+   the alternative below it, not a heading competing with the button. */
+.workspace-or{margin:14px 0 8px;text-align:center;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
 
 /* commits */
 .commit-list{display:flex;flex-direction:column;gap:10px;max-width:860px}

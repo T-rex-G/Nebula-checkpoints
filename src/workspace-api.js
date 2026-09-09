@@ -137,6 +137,25 @@ function createWorkspaceRouter({ enabled, store, verifyAccount, connectAccount, 
       OAUTH_TTL_MS / 1000, '/');
     return res.redirect(oauth.authorizeUrl(state));
   }));
+  /*
+   * The token GitHub just issued is a working credential for the very account
+   * it verified. Discarding it and then asking for a pasted one is precisely
+   * the friction OAuth exists to remove, so the connection is bound and
+   * selected from the same verification and the workbench opens ready.
+   *
+   * Best effort by design: a failure here must not undo a claim or a sign-in
+   * that already succeeded. The account can still be connected by hand.
+   */
+  const adoptOauthConnection = async (result, verified) => {
+    if (typeof connectAccount !== 'function' || !result?.token || !result.context || !verified) return result;
+    try {
+      const bound = await connectAccount({ token: verified.token, provider: verified.identity.provider, baseUrl: '' });
+      const { id } = await store.bindConnection({ token: result.token, ...bound });
+      await store.selectConnection({ token: result.token, workspaceId: result.context.workspaceId, connectionId: id });
+      return { ...result, context: await store.readContext(result.token) };
+    } catch { return result; }
+  };
+
   router.post('/oauth/claim', wrap(async (req, res) => {
     fields(req, ['setupSecret']);
     if (req.workspaceContext) throw workspaceError('WORKSPACE_SETUP_REJECTED');
@@ -145,16 +164,18 @@ function createWorkspaceRouter({ enabled, store, verifyAccount, connectAccount, 
     // The same single-claim path as the token route: same lock, same attempt
     // counter, same one-time credential. OAuth replaced only the proof of who.
     const result = await store.claim({ secret: req.body.setupSecret, verifyIdentity: async () => verified.identity });
+    const adopted = await adoptOauthConnection(result, verified);
     redirectCookie(res, OAUTH_VERIFIED_COOKIE, '', 0, '/api/workspace');
-    return replySession(res, result, 201);
+    return replySession(res, adopted, 201);
   }));
   router.post('/oauth/sign-in', wrap(async (req, res) => {
     fields(req, []);
     const verified = verifiedOauth(req);
     if (!verified) throw workspaceError('WORKSPACE_OAUTH_VERIFICATION_REQUIRED', 401);
     const result = await store.signIn({ identity: verified.identity, previousToken: req.workspaceToken });
+    const adopted = await adoptOauthConnection(result, verified);
     redirectCookie(res, OAUTH_VERIFIED_COOKIE, '', 0, '/api/workspace');
-    return replySession(res, result);
+    return replySession(res, adopted);
   }));
   router.post('/setup', wrap(async (req, res) => {
     fields(req, ['token', 'provider', 'baseUrl', 'setupSecret']);

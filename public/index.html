@@ -150,6 +150,15 @@
     <section class="card login-card workspace-card" id="workspaceCard" hidden aria-labelledby="workspaceCardTitle">
       <h2 class="workspace-card-title" id="workspaceCardTitle">Owner workspace</h2>
       <p class="workspace-card-note" id="workspaceCardNote">Sign in as the owner of this deployment.</p>
+      <!--
+        Offered first and on its own, because it is the path that asks for
+        nothing to be typed. The token fields below are the alternative to it,
+        so they follow the divider rather than standing above the button and
+        reading as a prerequisite.
+      -->
+      <button class="btn btn-primary btn-block" id="workspaceOauthBtn" hidden>Continue with GitHub</button>
+      <p class="hint" id="workspaceOauthVerified" hidden></p>
+      <p class="workspace-or" id="workspaceTokenDivider" hidden>or use an access token</p>
       <div class="workspace-credentials" id="workspaceCredentials">
         <label class="field-label" for="workspaceProvider">Owner provider</label>
         <select id="workspaceProvider">
@@ -195,11 +204,7 @@
         <button class="btn btn-ghost btn-block" id="workspaceSignOutBtn">Sign out of the workspace</button>
       </div>
       <div class="workspace-signed-out" id="workspaceSignedOut">
-        <!-- Offered first: it is the path that asks the reader for nothing to
-             type. Hidden when this deployment has no OAuth configured. -->
-        <button class="btn btn-primary btn-block" id="workspaceOauthBtn" hidden>Continue with GitHub</button>
-        <p class="hint" id="workspaceOauthVerified" hidden></p>
-        <button class="btn btn-primary btn-block" id="workspaceSignInBtn">Sign in as owner</button>
+        <button class="btn btn-ghost btn-block" id="workspaceSignInBtn">Sign in as owner</button>
         <button class="btn btn-ghost btn-block workspace-claim-toggle" id="workspaceClaimToggle" aria-expanded="false" aria-controls="workspaceClaimFields">First time here? Claim ownership</button>
         <div id="workspaceClaimFields" hidden>
           <label class="field-label" for="workspaceSetupSecret">One-time setup credential</label>

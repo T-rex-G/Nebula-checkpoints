@@ -1248,10 +1248,19 @@ function renderWorkspaceCard() {
   if (host && card.parentElement !== host) host.appendChild(card);
   card.classList.toggle('workspace-card-gate', onGate);
   const sessionUnavailable = ws.available !== true;
+  /*
+   * Declared here, above every reader. These were computed further down and
+   * read by the note above it, which is a temporal dead zone -- a ReferenceError
+   * thrown on every render, so the card never updated at all.
+   */
+  const oauthPending = !!(ws.oauthVerified && !ws.authenticated);
+  const oauthOffered = ws.oauthAvailable && !ws.authenticated && !sessionUnavailable && !oauthPending;
   $('#workspaceCardNote').textContent = sessionUnavailable
-    ? 'Owner session status is unavailable. Reload to check again.' : onGate
+    ? 'Owner session status is unavailable. Reload to check again.' : oauthPending
+    ? 'GitHub has confirmed who you are. Ownership still needs the setup credential.'
+    : onGate
     ? 'Own this deployment? Sign in as the owner. No invitation is needed for this.'
-    : 'Sign in as the owner of this deployment using the provider and token above.';
+    : 'Sign in as the owner of this deployment.';
   $('#workspaceSignedIn').hidden = !ws.authenticated;
   $('#workspaceSignedOut').hidden = ws.authenticated || sessionUnavailable;
   /*
@@ -1260,14 +1269,25 @@ function renderWorkspaceCard() {
    * came back, so the reader is not asked to trust an unlabelled session.
    */
   const oauthBtn = $('#workspaceOauthBtn'), oauthNote = $('#workspaceOauthVerified');
-  if (oauthBtn) oauthBtn.hidden = !ws.oauthAvailable || ws.authenticated || sessionUnavailable;
+  const divider = $('#workspaceTokenDivider'), signInBtn = $('#workspaceSignInBtn');
+  /* Verified by OAuth: the token fields are not what proves identity now, so
+   * they and their divider go away rather than sitting there unexplained. */
+  if (oauthBtn) oauthBtn.hidden = !oauthOffered;
+  if (divider) divider.hidden = !oauthOffered;
   if (oauthNote) {
     const who = ws.oauthVerified && ws.oauthVerified.login;
     oauthNote.hidden = !who || ws.authenticated;
-    if (who) oauthNote.textContent = `Verified as ${who}. Enter the setup credential below to claim, or sign in.`;
+    if (who) oauthNote.textContent = `Verified as ${who}. Sign in below, or claim ownership with the setup credential.`;
   }
-  /* Verified by OAuth: the token fields are not what proves identity now. */
-  const oauthPending = !!(ws.oauthVerified && !ws.authenticated);
+  /*
+   * One primary action at a time. While OAuth is on offer it is the primary
+   * one and signing in with a token is the alternative; once a verification is
+   * in hand, signing in becomes the thing to do.
+   */
+  if (signInBtn) {
+    signInBtn.classList.toggle('btn-primary', oauthPending || !ws.oauthAvailable);
+    signInBtn.classList.toggle('btn-ghost', !(oauthPending || !ws.oauthAvailable));
+  }
   $('#workspaceCardNote').hidden = ws.authenticated;
   $('#workspaceCredentials').hidden = ws.authenticated || sessionUnavailable || oauthPending;
   if (ws.authenticated && ws.context) {

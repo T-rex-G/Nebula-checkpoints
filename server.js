@@ -3665,7 +3665,20 @@ app.get('/api/oauth/login', (req, res) => {
 });
 app.get('/api/oauth/callback', async (req, res) => {
   try {
-    if (!req.query.code || req.query.state !== getCookie(req, 'nv_oauth'))
+    /*
+     * Which flow this is has to be settled BEFORE the state check, not after.
+     * One registered callback serves the cohort login and the owner workspace,
+     * and they carry different state cookies -- the workspace leg never sets
+     * nv_oauth, so checking only that one refused every workspace return with
+     * "state mismatch" and the branch below was unreachable.
+     */
+    const wsIntent = unseal(getCookie(req, 'nv_workspace_oauth_intent'));
+    const workspaceFlow = wsIntent?.kind === 'workspace-oauth-intent/v1'
+      && Number.isFinite(wsIntent.expiresAt) && wsIntent.expiresAt > Date.now()
+      && typeof wsIntent.state === 'string' && wsIntent.state.length > 0
+      && req.query.state === wsIntent.state;
+    const cohortFlow = !!getCookie(req, 'nv_oauth') && req.query.state === getCookie(req, 'nv_oauth');
+    if (!req.query.code || !(workspaceFlow || cohortFlow))
       return res.status(400).send('OAuth state mismatch — please retry from the login page.');
     const tr = await fetchT('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -3686,10 +3699,7 @@ app.get('/api/oauth/callback', async (req, res) => {
      * is handed a verified identity and nothing else, and this returns before
      * any cohort session could be created.
      */
-    const intent = unseal(getCookie(req, 'nv_workspace_oauth_intent'));
-    if (intent?.kind === 'workspace-oauth-intent/v1' && Number.isFinite(intent.expiresAt)
-      && intent.expiresAt > Date.now() && typeof intent.state === 'string'
-      && intent.state.length > 0 && req.query.state === intent.state) {
+    if (workspaceFlow) {
       const identity = verifiedHumanIdentity({
         provider: 'github', providerAccountId: user.id, login: user.login,
         type: user.type, bot: user.bot, authMethod: 'oauth'

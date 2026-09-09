@@ -716,6 +716,10 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .uq-item.done .uq-fill{background:var(--green)}
 .uq-item.error .uq-fill{background:var(--red)}
 .uq-item.error .uq-status{color:var(--red)}
+/* Landed, but not by the transport that was asked for. The upload succeeded,
+   so this is not an error colour -- it marks a swap worth reading about. */
+.uq-item.fell-back .uq-fill{background:var(--amber)}
+.uq-item.fell-back .uq-status{color:var(--amber)}
 
 /* commits */
 .commit-list{display:flex;flex-direction:column;gap:10px;max-width:860px}

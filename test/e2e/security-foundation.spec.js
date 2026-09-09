@@ -13,7 +13,7 @@ test('PAT sensitive mutation obtains a scoped grant and sends both CSRF and step
     const request = route.request();
     const url = new URL(request.url());
     if (url.pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'off', authenticated: true, access: 'active' } });
-    if (url.pathname === '/api/config') return route.fulfill({ json: { oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64 } });
+    if (url.pathname === '/api/config') return route.fulfill({ json: { oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, contentsMaxMb: 40 } });
     if (url.pathname === '/api/me') return route.fulfill({ json: {
       login: 'alice', name: 'Alice', avatar: '', provider: 'github', authMethod: 'token',
       caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true },

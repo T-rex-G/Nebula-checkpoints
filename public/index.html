@@ -570,7 +570,13 @@
             <input id="uploadDir" type="text" placeholder="repository root" spellcheck="false">
             <label class="field-label" for="uploadMsg">Commit message</label>
             <input id="uploadMsg" type="text" placeholder="Add files via __NV_PRODUCT_NAME__" spellcheck="false">
-            <label class="check"><input type="checkbox" id="forceLfs"> Force Git LFS for all files</label>
+            <span class="field-label" id="uploadTransportLabel" style="margin-top:12px">File transport</span>
+            <div class="seg" id="uploadTransport" role="radiogroup" aria-labelledby="uploadTransportLabel">
+              <button class="seg-btn active" data-v="auto" role="radio" aria-checked="true">Automatic</button>
+              <button class="seg-btn" data-v="git" role="radio" aria-checked="false">Git</button>
+              <button class="seg-btn" data-v="lfs" role="radio" aria-checked="false" data-feature="lfs" data-allow-experimental="true">Git LFS</button>
+            </div>
+            <p class="hint" id="uploadTransportHint">Automatic chooses by size. Git and Git LFS are honoured whenever this deployment can carry the file that way; if one cannot, the other is used and the swap is named on the file.</p>
           </div>
           <div class="batch-bar" id="batchBar" hidden>
             <span id="batchInfo"></span>

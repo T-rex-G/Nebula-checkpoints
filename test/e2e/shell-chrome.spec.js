@@ -790,7 +790,7 @@ test('controls are large enough to hit', async ({ page }) => {
    * Visited pane by pane, because a control only has a size where it is drawn:
    * an undersized checkbox on Push files measures zero from the neural pane
    * and is filtered out as invisible, which is how the first version of this
-   * guard passed while #forceLfs was still 18 square.
+   * guard passed while the upload page's own checkbox was still 18 square.
    */
   const undersized = [];
   for (const tab of ['neural', 'upload']) {

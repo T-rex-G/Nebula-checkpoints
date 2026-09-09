@@ -1,18 +1,38 @@
 'use strict';
 
+/*
+ * property, environment key, hosted default, absolute maximum.
+ *
+ * The default and the maximum used to be one number, so a hosted deployment
+ * could only ever lower a limit. Raising one -- the ordinary reason to touch
+ * these at all -- killed the process at boot, and it did so on the next deploy
+ * rather than when the value was set, so five consecutive deploys of unrelated
+ * commits died on a setting nobody had touched that day.
+ *
+ * The maximum is now the same absolute bound the self-hosted path already
+ * clamps to, because that is where the real constraint lives: 95 MB for a Git
+ * Data blob against GitHub's 100 MB object ceiling, 2,048 MB for a streamed
+ * upload, and so on. The hosted default stays conservative. An operator can
+ * raise a limit to the bound the code can actually honour, and is refused
+ * above it -- rather than being refused above a default they never chose.
+ *
+ * The minimum stays 1 for every entry. Raising it to the self-hosted minimum
+ * would refuse settings that are legal today, which is a different change and
+ * not one anybody asked for.
+ */
 const HOSTED_ALPHA_LIMITS = Object.freeze([
-  ['eventRetentionDays', 'NV_EVENT_RETENTION_DAYS', 30],
-  ['sessionRetentionDays', 'NV_SESSION_RETENTION_DAYS', 7],
-  ['liveClientsPerRepo', 'NV_LIVE_CLIENTS_PER_REPO', 2],
-  ['liveClientsTotal', 'NV_LIVE_CLIENTS_TOTAL', 10],
-  ['snapshotRetentionCount', 'NV_SNAPSHOT_RETENTION_COUNT', 10],
-  ['snapshotManifestMax', 'NV_SNAPSHOT_MANIFEST_MAX', 5000],
-  ['gitDataMaxMb', 'NV_GIT_DATA_MAX_MB', 16],
-  ['nativePushMaxMb', 'NV_NATIVE_PUSH_MAX_MB', 16],
-  ['uploadMaxMb', 'NV_UPLOAD_MAX_MB', 25],
-  ['uploadConcurrency', 'NV_UPLOAD_CONCURRENCY', 1],
-  ['uploadTimeoutMinutes', 'NV_UPLOAD_TIMEOUT_MINUTES', 10],
-  ['staleUploadHours', 'NV_STALE_UPLOAD_HOURS', 2]
+  ['eventRetentionDays', 'NV_EVENT_RETENTION_DAYS', 30, 730],
+  ['sessionRetentionDays', 'NV_SESSION_RETENTION_DAYS', 7, 365],
+  ['liveClientsPerRepo', 'NV_LIVE_CLIENTS_PER_REPO', 2, 20],
+  ['liveClientsTotal', 'NV_LIVE_CLIENTS_TOTAL', 10, 500],
+  ['snapshotRetentionCount', 'NV_SNAPSHOT_RETENTION_COUNT', 10, 200],
+  ['snapshotManifestMax', 'NV_SNAPSHOT_MANIFEST_MAX', 5000, 50000],
+  ['gitDataMaxMb', 'NV_GIT_DATA_MAX_MB', 16, 95],
+  ['nativePushMaxMb', 'NV_NATIVE_PUSH_MAX_MB', 16, 95],
+  ['uploadMaxMb', 'NV_UPLOAD_MAX_MB', 25, 2048],
+  ['uploadConcurrency', 'NV_UPLOAD_CONCURRENCY', 1, 4],
+  ['uploadTimeoutMinutes', 'NV_UPLOAD_TIMEOUT_MINUTES', 10, 60],
+  ['staleUploadHours', 'NV_STALE_UPLOAD_HOURS', 2, 72]
 ]);
 
 function boundedInteger(env, key, fallback, minimum, maximum) {
@@ -27,10 +47,20 @@ function boundedInteger(env, key, fallback, minimum, maximum) {
 
 function loadHostedAlphaLimits(env = process.env) {
   const limits = {};
-  for (const [property, key, maximum] of HOSTED_ALPHA_LIMITS) {
-    limits[property] = boundedInteger(env, key, maximum, 1, maximum);
+  for (const [property, key, fallback, maximum] of HOSTED_ALPHA_LIMITS) {
+    limits[property] = boundedInteger(env, key, fallback, 1, maximum);
   }
   return Object.freeze(limits);
+}
+
+/*
+ * The bounds themselves, so documentation and its guard can be derived from
+ * this table rather than restating it. Returned as plain data because a caller
+ * that had to parse the source would be the second source of truth again.
+ */
+function hostedAlphaLimitBounds() {
+  return Object.freeze(HOSTED_ALPHA_LIMITS.map(([property, key, fallback, maximum]) =>
+    Object.freeze({ property, key, fallback, minimum: 1, maximum })));
 }
 
 function databaseReadiness(input = {}) {
@@ -72,6 +102,7 @@ function hostedConfigProjection(input = {}) {
 module.exports = {
   boundedInteger,
   loadHostedAlphaLimits,
+  hostedAlphaLimitBounds,
   databaseReadiness,
   hostedConfigProjection
 };

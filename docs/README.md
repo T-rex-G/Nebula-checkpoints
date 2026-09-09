@@ -24,7 +24,6 @@ Vision describes intent; it never proves delivery or qualification.
 
 - [Architecture](architecture/ARCHITECTURE.md)
 - [Architecture decisions](architecture/ARCHITECTURE_DECISIONS.md)
-- [Personal workspace foundation](architecture/PERSONAL_WORKSPACE_FOUNDATION.md) — scope, API, setup, recovery, and legacy compatibility
 - [Public-alpha contract](release/PUBLIC_ALPHA.md)
 - [Release security gates](release/RELEASE_SECURITY_GATES.md)
 - [Recorded qualification baseline](release/QUALIFICATION_BASELINE.md)

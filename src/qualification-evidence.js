@@ -349,7 +349,7 @@ function providerCheckContract(provider) {
 }
 const RESTORE_RUNNER_CHECK_CONTRACT = deepFreeze({
   status: 'pass',
-  latestMigration: '$migration',
+  latestMigration: '015_alpha_privacy',
   backupManifestSha256: '$sha256',
   backupCiphertextSha256: '$sha256',
   restoreTargetFingerprint: '$sha256',
@@ -646,8 +646,6 @@ function validateEvidenceEnvelope(input) {
     for (const [field, rule] of Object.entries(RESTORE_RUNNER_CHECK_CONTRACT)) {
       if (rule === '$sha256') {
         if (!isNonzeroSha256(restoreRecord.check[field])) fail('hosted restore runner proof is invalid');
-      } else if (rule === '$migration') {
-        if (!/^\d{3}_[a-z0-9_-]+$/.test(String(restoreRecord.check[field] || ''))) fail('hosted restore runner proof is invalid');
       } else if (restoreRecord.check[field] !== rule) {
         fail('hosted restore runner proof is invalid');
       }

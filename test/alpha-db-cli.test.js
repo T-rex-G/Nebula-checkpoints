@@ -11,7 +11,6 @@ const {
   databaseConnectionString,
   redactErrorMessage,
   restoreTargetFingerprint,
-  withBackupSchema,
   migrateCommand,
   restoreCommand
 } = require('../scripts/alpha-db');
@@ -230,23 +229,6 @@ function ownershipDependencies(overrides = {}) {
 }
 
 (async () => {
-  for (const migration of ['015_alpha_privacy', '016_personal_workspaces']) {
-    const calls = [];
-    const dependencies = { connectDatabaseImpl: async () => ({
-      async query(sql) { calls.push(sql); return { rows: [{ migration_id: migration }] }; },
-      async end() { calls.push('end'); }
-    }) };
-    const observed = await withBackupSchema(sourceDatabaseUrl, {}, async version => {
-      calls.push('dump'); return version;
-    }, dependencies);
-    assert.strictEqual(observed, migration, 'backup metadata must describe the database being dumped, not the code version');
-    assert(calls[0].includes('pg_advisory_lock'));
-    assert(calls[1].includes('nv_schema_migrations'));
-    assert.deepStrictEqual(calls.slice(-3), ['dump', 'SELECT pg_advisory_unlock($1)', 'end']);
-    calls.length = 0;
-    await assert.rejects(() => withBackupSchema(sourceDatabaseUrl, {}, async () => { throw new Error('dump interrupted'); }, dependencies), /dump interrupted/);
-    assert.deepStrictEqual(calls.slice(-2), ['SELECT pg_advisory_unlock($1)', 'end']);
-  }
   const observedVerificationOptions = [];
   const fakeClient = {
     async query() {

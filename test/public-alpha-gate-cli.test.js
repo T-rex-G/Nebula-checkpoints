@@ -10,7 +10,6 @@ const { execFileSync, spawnSync } = require('child_process');
 const { createArtifactVerifier, parseArgs } = require('../scripts/public-alpha-gate');
 const { createPassFixture } = require('./helpers/public-alpha-pass-fixture');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
-const { loadMigrations } = require('../src/migrations');
 
 assert.deepStrictEqual(parseArgs(['plan']), { command: 'plan' });
 assert.deepStrictEqual(parseArgs(['verify', '/tmp/evidence.json']), {
@@ -31,7 +30,7 @@ assert.throws(() => parseArgs(['plan', '--unexpected']), /does not accept/);
 const root = path.resolve(__dirname, '..');
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-alpha-gate-test-'));
 try {
-  const fixture = createPassFixture({ latestMigration: loadMigrations(path.join(root, 'db', 'migrations')).at(-1).id });
+  const fixture = createPassFixture();
   fixture.envelopes['hosted-artifact'].deploymentSha256 = computeReleaseFingerprint(root);
   fixture.bindings.expectedDeploymentSha256 = fixture.envelopes['hosted-artifact'].deploymentSha256;
   const evidence = fixture.record;

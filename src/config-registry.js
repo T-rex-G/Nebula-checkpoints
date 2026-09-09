@@ -33,7 +33,6 @@ const GROUPS = Object.freeze({
   oauth: 'GitHub OAuth (personal access)',
   'github-app': 'GitHub App installation',
   'alpha-access': 'Invite-only alpha access',
-  workspace: 'Personal workspace foundation',
   limits: 'Bounded runtime limits',
   governance: 'Governance runtime',
   snapshots: 'Snapshot signing',
@@ -44,15 +43,6 @@ const GROUPS = Object.freeze({
 });
 
 const ENTRIES = Object.freeze([
-  { name: 'NV_WORKSPACE_FOUNDATION_ENABLED', group: 'workspace', requirement: 'optional', fallback: "'0'",
-    format: "'0' or '1'",
-    summary: 'Enables only the personal-workspace identity API. Requires PostgreSQL; does not enable owner repository operations or bypass cohort policy.' },
-  { name: 'NV_WORKSPACE_SETUP_SHA256', group: 'workspace', requirement: 'optional', fallback: "'' (setup closed)",
-    format: '64 lowercase hexadecimal characters, SHA-256 of a random one-time setup credential',
-    summary: 'One-time setup verifier, paired with an absolute expiry. Remove after claiming; never reopens a claimed deployment.' },
-  { name: 'NV_WORKSPACE_SETUP_EXPIRES_AT', group: 'workspace', requirement: 'optional', fallback: "'' (setup closed)",
-    format: 'absolute UTC ISO timestamp ending in Z',
-    summary: 'Deadline for the one-time setup credential. Does not slide on restart and does not affect subsequent owner sign-in.' },
   /* ---------------- Process and session ---------------- */
   { name: 'PORT', group: 'server', requirement: 'optional', fallback: '10000',
     format: 'TCP port number',

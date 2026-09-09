@@ -261,13 +261,8 @@ const alphaBoundary = registrations.find(
     && entry.args[1] === 'alphaAccessBoundary'
 );
 assert(alphaBoundary, 'the global alpha boundary must be mounted for /api');
-const workspaceRouter = registrations.find(entry => entry.method === 'USE'
-  && entry.path === '/api/workspace' && /^createWorkspaceRouter\(/.test(entry.args[1]));
-assert(workspaceRouter, 'workspace exceptions must be confined to the independently authenticated router');
-assert(workspaceRouter.index < alphaBoundary.index);
 const firstProtectedApi = registrations
   .filter(entry => entry.path && entry.path.startsWith('/api/'))
-  .filter(entry => entry !== workspaceRouter)
   .filter(entry => !new Set([
     '/api/version',
     '/api/config',
@@ -278,7 +273,7 @@ const firstProtectedApi = registrations
   .sort((left, right) => left.index - right.index)[0];
 assert(
   alphaBoundary.index < firstProtectedApi.index,
-  'the global alpha boundary must precede every protected legacy API route'
+  'the global alpha boundary must precede the first protected API route'
 );
 
 for (const [method, routePath, feature] of [

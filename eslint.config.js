@@ -27,7 +27,6 @@ const PUBLISHED_MODULE_GLOBALS = Object.freeze({
   NebulaNeural: 'readonly',
   NebulaOfflineCachePolicy: 'readonly',
   NebulaTrustUI: 'readonly',
-  NebulaWorkspaceUI: 'readonly',
   NebulaPwa: 'writable',
   _oauthOn: 'writable'
 });

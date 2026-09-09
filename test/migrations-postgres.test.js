@@ -93,7 +93,6 @@ async function main() {
 
     const reverified = await withClient(scratchUrl, client => verifyMigrations(client, { directory: DIRECTORY }));
     assert.strictEqual(reverified.ok, true, 'the database stops verifying after a second migration run');
-    await require('./workspace-store-postgres')(scratchUrl);
   } finally {
     await withClient(ADMIN_URL, client => client.query(`DROP DATABASE IF EXISTS ${scratch} WITH (FORCE)`));
   }

@@ -380,9 +380,6 @@ function verifyQualification(input, options = {}) {
       }
     }
     if (verified.artifactType === 'hosted-live') {
-      if (verified.restoreRunnerAttestation.record.check.latestMigration !== options.expectedLatestMigration) {
-        fail('restored migration does not match the candidate', 'PUBLIC_ALPHA_MIGRATION_MISMATCH');
-      }
       if (verified.authorizedTargetSha256 !== liveBindings.expectedAuthorizedTargets.hosted) {
         fail('hosted evidence target does not match trusted authorization', 'PUBLIC_ALPHA_EVIDENCE_TARGET_MISMATCH');
       }

@@ -195,6 +195,10 @@
         <button class="btn btn-ghost btn-block" id="workspaceSignOutBtn">Sign out of the workspace</button>
       </div>
       <div class="workspace-signed-out" id="workspaceSignedOut">
+        <!-- Offered first: it is the path that asks the reader for nothing to
+             type. Hidden when this deployment has no OAuth configured. -->
+        <button class="btn btn-primary btn-block" id="workspaceOauthBtn" hidden>Continue with GitHub</button>
+        <p class="hint" id="workspaceOauthVerified" hidden></p>
         <button class="btn btn-primary btn-block" id="workspaceSignInBtn">Sign in as owner</button>
         <button class="btn btn-ghost btn-block workspace-claim-toggle" id="workspaceClaimToggle" aria-expanded="false" aria-controls="workspaceClaimFields">First time here? Claim ownership</button>
         <div id="workspaceClaimFields" hidden>

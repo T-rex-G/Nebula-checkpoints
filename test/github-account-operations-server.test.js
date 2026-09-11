@@ -62,11 +62,27 @@ async function check(route, options, expected) {
 }
 async function main() {
   try {
+    /*
+     * Two failures, two messages, both carrying what the server said -- the
+     * convention the other server tests already follow.
+     *
+     * Collapsed into one throw of `logs` alone, a child that dies before it
+     * prints anything reports a bare Error with no text at all: the exact
+     * shape this failed as, twice in CI, with nothing to diagnose from.
+     */
     const deadline = Date.now() + 10000;
-    while (true) {
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) {
+        throw new Error(`Server exited early with code ${child.exitCode}\n${logs || '(no output)'}`);
+      }
       try { if ((await request('/healthz')).ok) break; } catch {}
-      if (child.exitCode !== null || Date.now() > deadline) throw new Error(logs);
       await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    if (child.exitCode !== null) {
+      throw new Error(`Server exited early with code ${child.exitCode}\n${logs || '(no output)'}`);
+    }
+    if (!(await request('/healthz').then(response => response.ok, () => false))) {
+      throw new Error(`Server did not become ready on port ${port}\n${logs || '(no output)'}`);
     }
     await check('/api/account/capabilities', {}, 401);
     const ordinaryOAuth = await request('/api/oauth/login', { redirect: 'manual' });

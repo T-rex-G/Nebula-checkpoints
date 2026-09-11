@@ -26,7 +26,9 @@ assert(server.includes('/installation/repositories?'), 'GitHub App repository li
 assert(server.includes('GITHUB_APP_CAPABILITY_UNAVAILABLE'), 'unsupported user-scoped operations must fail explicitly for GitHub App accounts');
 assert(server.includes('providerCapabilities'), 'account capabilities must distinguish installation-scoped credentials from user credentials');
 assert.match(server, /authMethod === 'github-app'[\s\S]{0,500}notif:\s*false/);
-assert(server.includes('GitHub App installations do not provide user notification access'), 'user-scoped notifications must fail without calling GitHub');
+assert(server.includes("app.get('/api/notifications', providerSessionAccess, capabilityAccess('notifications', { allowExperimental: true }), auth"), 'notification connection support must be checked before credential resolution');
+const { connectionRestriction } = require('../src/github-account-operations');
+assert.strictEqual(connectionRestriction({ authMethod: 'github-app' }, 'notifications').code, 'GITHUB_NOTIFICATIONS_CONNECTION_UNSUPPORTED');
 assert(server.includes('GitHub App installations cannot manage user stars'), 'user-scoped starring must fail without calling GitHub');
 assert(server.includes('githubAppBroker.invalidate'), 'disconnect or provider rejection must invalidate broker state');
 assert(server.includes('nv_github_app_installations'), 'server must persist non-secret installation metadata when Neon is available');

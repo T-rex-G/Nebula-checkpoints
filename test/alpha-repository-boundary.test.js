@@ -215,6 +215,7 @@ function alphaState(letter) {
 function activeSession(letter) {
   const scopes = {
     A: ['github:github.com/acme/demo'],
+    G: ['github:github.com/fixture-user/cohort-new'],
     E: ['gitlab:gitlab.com/acme/demo'],
     F: ['gitea:gitea.example/acme/demo'],
     P: ['gitea:gitea.example/acme/demo'],
@@ -546,7 +547,7 @@ global.fetch = async function providerFetch(url, options = {}) {
     ]);
   }
   if (/api\.github\.com\/user$/.test(href)) {
-    return jsonResponse({ login: 'fixture-user', name: 'Fixture', avatar_url: '' });
+    return jsonResponse({ id: 7, login: 'fixture-user', name: 'Fixture', avatar_url: '' });
   }
   if (/api\.github\.com\/user\/repos\?/.test(href)) {
     return jsonResponse([
@@ -564,6 +565,16 @@ global.fetch = async function providerFetch(url, options = {}) {
         private: true,
         default_branch: 'main'
       }
+    ]);
+  }
+  if ((href === 'https://api.github.com/user/repos' && options.method === 'POST')
+    || href === 'https://api.github.com/repos/fixture-user/cohort-new') {
+    return jsonResponse({ id: 12, full_name: 'fixture-user/cohort-new', default_branch: 'main' });
+  }
+  if (/api\.github\.com\/repos\/acme\/demo\/notifications\?/.test(href)) {
+    return jsonResponse([
+      { id: 'allowed', repository: { full_name: 'Acme/Demo' }, subject: { title: 'Allowed update', type: 'Issue' } },
+      { id: 'outside', repository: { full_name: 'Acme/Production' }, subject: { title: 'Private production incident', type: 'Issue' } }
     ]);
   }
   if (/api\.github\.com\/notifications\?/.test(href)) {
@@ -1229,76 +1240,68 @@ ${logs}`
       'repository-scoped search must remain available after the repository boundary'
     );
 
-    const transportBeforeDisabled = transportEvents();
-    const writesBeforeDisabled = events('session.write');
-    const create = await request('/api/repos', postJson({
-      name: 'new-repository'
-    }, {
-      cookie: combinedCookie('A', 'provider-app'),
-      'x-nv-csrf': csrfFor(accounts.githubApp)
+    const transportBeforeRefusal = transportEvents();
+    const writesBeforeRefusal = events('session.write');
+    const create = await request('/api/repos', postJson({ name: 'new-repository' }, {
+      cookie: combinedCookie('A', 'provider-app'), 'x-nv-csrf': csrfFor(accounts.githubApp)
     }));
     assert.strictEqual(create.status, 409);
-    assert.strictEqual((await json(create)).code, 'PROVIDER_CAPABILITY_UNAVAILABLE');
-
+    assert.strictEqual((await json(create)).code, 'GITHUB_APP_CAPABILITY_UNAVAILABLE');
+    const outsideCreation = await request('/api/repos', postJson({ name: 'not-in-invitation' }, {
+      cookie: combinedCookie('A', 'provider-github'), 'x-nv-csrf': csrfFor(accounts.github)
+    }));
+    assert.strictEqual(outsideCreation.status, 403);
+    assert.strictEqual((await json(outsideCreation)).code, 'ALPHA_REPOSITORY_NOT_ALLOWED');
     const remove = await request('/api/repo/acme/demo', {
-      method: 'DELETE',
-      headers: {
+      method: 'DELETE', headers: {
         cookie: combinedCookie('A', 'provider-app-delete'),
-        'x-nv': '1',
-        'x-nv-csrf': csrfFor(accounts.githubApp),
-        'x-nv-step-up': appDeleteGrant
+        'x-nv': '1', 'x-nv-csrf': csrfFor(accounts.githubApp), 'x-nv-step-up': appDeleteGrant
       }
     });
-    assert.strictEqual(remove.status, 409);
-    assert.strictEqual((await json(remove)).code, 'PROVIDER_CAPABILITY_UNAVAILABLE');
-
-    const globalSearch = await request('/api/search?q=secret', {
-      headers: { cookie: combinedCookie('A', 'provider-app') }
-    });
-    assert.strictEqual(globalSearch.status, 409);
-    assert.strictEqual((await json(globalSearch)).code, 'PROVIDER_CAPABILITY_UNAVAILABLE');
-    assert.deepStrictEqual(
-      transportEvents(),
-      transportBeforeDisabled,
-      'repository create/delete and global search must perform zero broker or provider calls'
-    );
-
-    const appNotificationTransport = transportEvents();
+    assert.strictEqual(remove.status, 400);
+    assert.strictEqual((await json(remove)).code, 'REPOSITORY_DELETE_CONFIRMATION_REQUIRED');
     const appNotifications = await request('/api/notifications', {
       headers: { cookie: combinedCookie('A', 'provider-app') }
     });
     assert.strictEqual(appNotifications.status, 409);
-    assert.deepStrictEqual(await json(appNotifications), {
-      error: 'Global notifications cannot satisfy exact invitation repository allowlists.',
-      code: 'PROVIDER_CAPABILITY_UNAVAILABLE',
-      feature: 'notifications'
-    }, 'GitHub App notification denial must contain only safe capability metadata');
-    assert.deepStrictEqual(
-      transportEvents(),
-      appNotificationTransport,
-      'GitHub App notifications must be denied before broker or provider transport'
-    );
+    assert.strictEqual((await json(appNotifications)).code, 'GITHUB_NOTIFICATIONS_CONNECTION_UNSUPPORTED');
+    assert.deepStrictEqual(transportEvents(), transportBeforeRefusal,
+      'unsupported connections, missing confirmation and unapproved creation must precede provider transport');
+    assert.deepStrictEqual(events('session.write'), writesBeforeRefusal,
+      'early refusals must not consume step-up state or rewrite the session');
 
-    const patNotificationTransport = transportEvents();
+    const searchBefore = events('provider.fetch').length;
+    const globalSearch = await request('/api/search?q=secret', {
+      headers: { cookie: combinedCookie('A', 'provider-github') }
+    });
+    assert.strictEqual(globalSearch.status, 200);
+    assert.deepStrictEqual(await json(globalSearch), [{ repo: 'Acme/Demo', path: 'README.md' }]);
+    const searchRequest = events('provider.fetch').slice(searchBefore).find(event => event.url.includes('/search/code?'));
+    assert.strictEqual(new URL(searchRequest.url).searchParams.get('q'), 'secret repo:acme/demo');
+    const beforeEscape = transportEvents();
+    const escapedSearch = await request('/api/search?q=secret%20repo%3Aacme%2Fproduction', {
+      headers: { cookie: combinedCookie('A', 'provider-github') }
+    });
+    assert.strictEqual(escapedSearch.status, 400);
+    assert.deepStrictEqual(transportEvents(), beforeEscape);
+
+    const inboxBefore = events('provider.fetch').length;
     const patNotifications = await request('/api/notifications', {
       headers: { cookie: combinedCookie('A', 'provider-github') }
     });
-    assert.strictEqual(patNotifications.status, 409);
-    assert.deepStrictEqual(await json(patNotifications), {
-      error: 'Global notifications cannot satisfy exact invitation repository allowlists.',
-      code: 'PROVIDER_CAPABILITY_UNAVAILABLE',
-      feature: 'notifications'
-    }, 'PAT notification denial must not expose repository, subject, URL, array, or provider details');
-    assert.deepStrictEqual(
-      transportEvents(),
-      patNotificationTransport,
-      'PAT notifications must be denied before credential resolution or provider transport'
-    );
-    assert.deepStrictEqual(
-      events('session.write'),
-      writesBeforeDisabled,
-      'pre-transport capability denials must not consume step-up state or rewrite the session'
-    );
+    assert.strictEqual(patNotifications.status, 200);
+    const inbox = await json(patNotifications);
+    assert.strictEqual(inbox.length, 1);
+    assert.strictEqual(inbox[0].repo, 'Acme/Demo');
+    assert(!JSON.stringify(inbox).includes('Private production incident'));
+    assert.deepStrictEqual(events('provider.fetch').slice(inboxBefore).map(event => event.url),
+      ['https://api.github.com/repos/acme/demo/notifications?per_page=30']);
+
+    const approvedCreation = await request('/api/repos', postJson({ name: 'cohort-new' }, {
+      cookie: combinedCookie('G', 'provider-github'), 'x-nv-csrf': csrfFor(accounts.github)
+    }));
+    assert.strictEqual(approvedCreation.status, 201, JSON.stringify(await json(approvedCreation.clone())));
+    assert.strictEqual((await json(approvedCreation)).verified, true);
 
     const stepUpCsrf = csrfFor(accounts.github);
     const disallowedStepUpBaseline = {

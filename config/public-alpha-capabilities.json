@@ -33,14 +33,14 @@
           "Qualified provider rate-limit read."
         ],
         "repository.create": [
-          "Unavailable",
-          "Unavailable",
-          "Repository creation is disabled for the controlled hosted cohort."
+          "Experimental",
+          "Deterministic",
+          "Personal repository creation with identity checks and provider readback; existing invitation scopes still apply."
         ],
         "repository.delete": [
-          "Unavailable",
-          "Unavailable",
-          "Repository deletion is disabled for the controlled hosted cohort."
+          "Experimental",
+          "Deterministic",
+          "Repository deletion with exact confirmation, fresh step-up and provider administrator permission."
         ],
         "branches.read": [
           "Supported",
@@ -128,14 +128,14 @@
           "Implemented, but not exercised by the alpha.17 live-provider harness."
         ],
         "global-search": [
-          "Unavailable",
-          "Unavailable",
-          "Global search cannot satisfy exact invitation repository allowlists."
+          "Experimental",
+          "Deterministic",
+          "GitHub code search respects connection access and server-enforced invitation repository scopes."
         ],
         "notifications": [
-          "Unavailable",
-          "Unavailable",
-          "Global notifications cannot satisfy exact invitation repository allowlists."
+          "Experimental",
+          "Deterministic",
+          "GitHub notifications respect invitation repository scopes and supported connection types."
         ],
         "stars.read": [
           "Experimental",

@@ -230,6 +230,15 @@ em{color:var(--teal);font-style:normal}
  * magenta that made light mode read as a different product.
  */
 #nebula{position:fixed;inset:0;z-index:-2;overflow:hidden;background:var(--bloom),var(--page);}
+/* A separate light-mode layer preserves the existing dark ground and shell.
+   It is painted after the plate, but behind every control and content card. */
+#lightWaves{display:none;position:fixed;inset:0;width:100%;height:100%;z-index:-1;
+  pointer-events:none;contain:strict;opacity:.8}
+[data-theme="light"] #lightWaves{display:block}
+@media(min-width:1140px){
+  body:has(#page-overview.active, #page-repos.active, #page-work.active) #lightWaves{
+    inset:23px;width:calc(100% - 46px);height:calc(100% - 46px);border-radius:23px}
+}
 /*
  * The orbs, star field and grain that used to live here are gone. The
  * reference's ground is the bloom over the page colour, full stop; anything

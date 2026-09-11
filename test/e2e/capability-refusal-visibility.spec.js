@@ -19,10 +19,9 @@
  * out why. Reported from the hosted alpha as "the + button to create a repo
  * not working".
  *
- * The refusal itself is correct and deliberate: repository.create is
- * Unavailable for every deployment this release ships -- "Repository creation
- * is disabled for the controlled hosted cohort". Being silent about it is the
- * defect.
+ * A personal repository cannot be created through an installation connection.
+ * The unavailable-connection fixture preserves this refusal coverage while
+ * ordinary personal accounts can now use experimental creation.
  */
 
 const { test, expect } = require('@playwright/test');
@@ -32,7 +31,7 @@ const ui = require('./semantic');
 test.use({ serviceWorkers: 'block' });
 
 async function repositoriesScreen(page) {
-  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', authMethod: 'github-app' });
   await page.goto('/');
   return ui.enterRepositories(page);
 }
@@ -74,7 +73,7 @@ test('a refused primary action says why when it is pressed', async ({ page }) =>
   await expect(
     ui.status(page, 'Notifications'),
     'the press was swallowed with no reason given'
-  ).toContainText(/controlled hosted cohort/i);
+  ).toContainText(/personal GitHub connection/i);
 
   /* Voicing the refusal is not permission to perform it. */
   await expect(ui.dialog(page, /New repository/i)).toHaveCount(0);
@@ -91,7 +90,7 @@ test('a refused primary action can be reached and refused from the keyboard', as
   await expect(create).toBeFocused();
 
   await page.keyboard.press('Enter');
-  await expect(ui.status(page, 'Notifications')).toContainText(/controlled hosted cohort/i);
+  await expect(ui.status(page, 'Notifications')).toContainText(/personal GitHub connection/i);
   await expect(ui.dialog(page, /New repository/i)).toHaveCount(0);
 });
 

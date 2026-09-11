@@ -96,8 +96,8 @@ for (const provider of ['GitHub', 'GitLab', 'Gitea']) assert(capabilities.includ
 const providerMappings = {
   'GitHub — evidence-bounded alpha subset': [
     ['Supported', 'repository reads; branch reads and controlled writes; bounded file read/write/delete; single-commit batch; native push; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; access-surface analysis; dependency audit; recovery; governance; upload security'],
-    ['Experimental', 'file rename; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; Git LFS; folder move; live events'],
-    ['Unavailable', 'repository create/delete; global search; notifications']
+    ['Experimental', 'repository create/delete; global search; notifications; file rename; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; Git LFS; folder move; live events'],
+    ['Unavailable', 'none at the provider level; connection permissions and invitation scopes still apply']
   ],
   'GitLab — registry-qualified subset': [
     ['Supported', 'repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; upload security'],

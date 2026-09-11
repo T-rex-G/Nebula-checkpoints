@@ -1195,7 +1195,7 @@ async function loadProviderCapabilities() {
   const authority = state.me && (
     state.me.authority || state.me.host || state.me.baseUrl
   ) || (provider === 'github' ? 'github.com' : '');
-  await window.NebulaCapabilityUI.load(provider, authority);
+  await window.NebulaCapabilityUI.load(provider, authority, { connected: !!state.me });
   window.NebulaCapabilityUI.apply();
   applyGovernanceCapabilityBoundary($('#govRoot'));
 }
@@ -1737,6 +1737,8 @@ async function openAccounts() {
       </div>`).join('') + `
       <div class="detail-actions" style="margin-top:14px">
         <button class="btn btn-ghost small" id="accAdd">Add account</button>
+        ${a.accounts[a.active] && a.accounts[a.active].authMethod === 'oauth' && window._oauthOn
+          ? '<a class="btn btn-ghost small" href="/api/oauth/login?permission=repository-delete">Allow repository deletion on GitHub</a>' : ''}
         <button class="btn btn-ghost small danger" id="accOut">Sign out (all)</button>
       </div>`;
     $$('#modalBody [data-switch]').forEach(b => b.addEventListener('click', async () => {
@@ -1798,6 +1800,7 @@ $('#backBtn').addEventListener('click', () => {
   showPage('repos');
 });
 $('#newRepoBtn').addEventListener('click', async () => {
+  const accountScope = state.me && state.me.offlineCacheScope;
   const ok = await modal({
     title: 'New repository',
     bodyHTML: `
@@ -1809,10 +1812,13 @@ $('#newRepoBtn').addEventListener('click', async () => {
   if (!ok) return;
   const name = $('#nrName').value.trim();
   if (!name) return;
+  if (!state.me || state.me.offlineCacheScope !== accountScope) return toast('Account changed — reopen repository creation.', 'err');
   try {
     const r = await api('/api/repos', { method: 'POST', body: { name, description: $('#nrDesc').value, isPrivate: $('#nrPriv').checked } });
-    toast(`Created ${r.full_name} ✦`, 'ok');
-    loadRepos(true);
+    toast(`Created and verified ${r.full_name} ✦`, 'ok');
+    if (!state.me || state.me.offlineCacheScope !== accountScope) return;
+    const [owner, repository] = r.full_name.split('/');
+    await openRepo(owner, repository);
   } catch (e) { presentError(e); }
 });
 
@@ -3079,24 +3085,29 @@ async function deleteFolderFlow(dirPath) {
   } catch (e) { toast(e.message, 'err'); }
 }
 async function deleteRepoFlow() {
+  const accountScope = state.me && state.me.offlineCacheScope;
+  const owner = state.work.owner;
+  const repo = state.work.repo;
+  const fullName = `${owner}/${repo}`;
   const ok = await modal({
     title: 'Delete repository',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(wPath())}</b> will be permanently deleted on GitHub — code, history, issues, releases. <b>This cannot be undone.</b></p>
-      <label class="field-label" for="drName">Type <b class="mono">${esc(state.work.repo)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" spellcheck="false">`,
+      <label class="field-label" for="drName">Type <b class="mono">${esc(fullName)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" spellcheck="false">`,
     okText: 'Delete forever', danger: true
   });
   if (!ok) return;
-  if (($('#drName') ? $('#drName').value : '').trim() !== state.work.repo) return toast('Name mismatch — aborted', 'err');
+  if (($('#drName') ? $('#drName').value : '').trim() !== fullName) return toast('Name mismatch — aborted', 'err');
+  if (wPath() !== fullName || !state.me || state.me.offlineCacheScope !== accountScope) return toast('Account or repository changed — reopen deletion confirmation.', 'err');
   try {
     const deleted = await stepUpApi('repository.delete', {
-      owner: state.work.owner, repo: state.work.repo
-    }, `/api/repo/${wPath()}`, { method: 'DELETE' }, `Delete repository ${wPath()}`);
+      owner, repo
+    }, `/api/repo/${fullName}`, { method: 'DELETE', body: { confirmation: fullName } }, `Delete repository ${fullName}`);
     if (!deleted) return;
     toast('Repository deleted', 'ok');
     showPage('repos'); loadRepos(true);
   } catch (e) {
     if (e.message && /403|admin|delete_repo|forbidden/i.test(e.message) && !e.nextAction)
-      e.nextAction = 'Regenerate the provider token with repository deletion permission, then retry.';
+      e.nextAction = 'For OAuth, use Accounts → Allow repository deletion on GitHub. For a personal token, reconnect with repository deletion permission.';
     presentError(e);
   }
 }
@@ -3609,7 +3620,7 @@ const COMMANDS = [
   { label: 'Manage branches', kind: 'action', feature: 'branches.write', run: () => openBranchManager() },
   { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', allowExperimental: true, run: () => toggleStar() },
   { label: 'Open the Time Machine', kind: 'action', feature: 'recovery', run: () => openTimeMachine() },
-  { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', run: () => deleteRepoFlow() },
+  { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', allowExperimental: true, run: () => deleteRepoFlow() },
   { label: 'Back to repositories', kind: 'view', run: () => $('#backBtn').click() }
 ];
 /*

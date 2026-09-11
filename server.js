@@ -62,6 +62,11 @@ const {
   CapabilityError, loadCapabilityDocument, projectCapabilities,
   resolveCapability, assertCapabilityAvailable, legacyCapsFor
 } = require('./src/capability-registry');
+const {
+  githubTokenKind, validateRepositoryCreation, githubRepositoryScopes, validateCodeQuery, scopedCodeQuery,
+  createVerifiedRepository, searchAccessibleCode, listAccessibleNotifications,
+  verifyRepositoryDeletion
+} = require('./src/github-account-operations');
 const CAPABILITY_DOCUMENT = loadCapabilityDocument(
   path.join(__dirname, 'config', 'public-alpha-capabilities.json')
 );
@@ -2598,6 +2603,38 @@ function alphaRepositoryListAccess(req, res, next) {
   }
 }
 
+function repositoryCreationAccess(req, res, next) {
+  try {
+    validateRepositoryCreation(req.body);
+    // Pre-authorized exact names work even before the repository exists.
+    // Existing invitations never acquire a broader grant as a side effect.
+    if (ALPHA_CONFIG.enabled) assertAlphaRepositoryAllowed(req.alpha, req.gh, req.gh.login, req.body.name);
+    next();
+  } catch (error) { fail(res, error); }
+}
+
+function repositoryDeletionConfirmation(req, res, next) {
+  const expected = `${req.params.owner}/${req.params.repo}`;
+  if (!req.body || req.body.confirmation !== expected) {
+    return fail(res, Object.assign(new Error('Type the full owner/repository name to confirm deletion.'), {
+      status: 400, code: 'REPOSITORY_DELETE_CONFIRMATION_REQUIRED', providerChanged: false
+    }));
+  }
+  next();
+}
+
+function githubSearchAccess(req, res, next) {
+  try {
+    validateCodeQuery(req.query.q);
+    if (ALPHA_CONFIG.enabled) {
+      for (const repository of githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes)) {
+        scopedCodeQuery(req.query.q, repository);
+      }
+    }
+    next();
+  } catch (error) { fail(res, error); }
+}
+
 function alphaStepUpRepositoryAccess(req, res, next) {
   try {
     const body = req.body || {};
@@ -2672,13 +2709,15 @@ function providerCapabilities(account) {
   const context = {
     provider: String(account && account.provider || 'github'),
     authority: providerAuthority(account),
-    deployment: DEPLOYMENT_PROFILE
+    deployment: DEPLOYMENT_PROFILE,
+    authMethod: account && account.authMethod,
+    tokenKind: githubTokenKind(account || {})
   };
   const legacy = legacyCapsFor(CAPABILITY_DOCUMENT, context);
   if (context.provider === 'github' && account && account.authMethod === 'github-app') {
     return { ...legacy, notif: false };
   }
-  return legacy;
+  return { ...legacy, notif: resolveCapability(CAPABILITY_DOCUMENT, { ...context, feature: 'notifications' }).status !== 'Unavailable' };
 }
 
 function capabilityAccess(feature, options = {}) {
@@ -2701,6 +2740,8 @@ function providerCapabilityContext(account, feature, options = {}) {
     authority: providerAuthority(account),
     deployment: DEPLOYMENT_PROFILE,
     feature,
+    authMethod: account && account.authMethod,
+    tokenKind: githubTokenKind(account || {}),
     allowExperimental: options.allowExperimental === true
   };
 }
@@ -3269,6 +3310,11 @@ app.get('/api/capabilities', (req, res) => {
     provider, authority, deployment: DEPLOYMENT_PROFILE
   }));
 });
+app.get('/api/account/capabilities', providerSessionAccess, (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Vary', 'Cookie');
+  res.json(projectCapabilities(CAPABILITY_DOCUMENT, providerCapabilityContext(req.gh)));
+});
 app.post('/api/github-app/connect', requireGithubAppFeature, auth, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
@@ -3577,7 +3623,8 @@ app.get('/api/oauth/login', (req, res) => {
   if (!OAUTH_ID) return res.status(404).json({ error: 'OAuth not configured' });
   const stateVal = crypto.randomBytes(16).toString('hex');
   res.setHeader('Set-Cookie', `nv_oauth=${stateVal}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
-  res.redirect(`https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(OAUTH_ID)}&scope=repo&state=${stateVal}`);
+  const scope = req.query.permission === 'repository-delete' ? 'repo delete_repo' : 'repo';
+  res.redirect(`https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(OAUTH_ID)}&scope=${encodeURIComponent(scope)}&state=${stateVal}`);
 });
 app.get('/api/oauth/callback', async (req, res) => {
   try {
@@ -4243,21 +4290,10 @@ app.get('/api/repos', providerSessionAccess, alphaRepositoryListAccess, capabili
     })));
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.create'), auth, mutationContext('repository.create'), async (req, res) => {
+app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.create', { allowExperimental: true }), repositoryCreationAccess, auth, mutationContext('repository.create'), async (req, res) => {
   try {
-    if (req.gh.authMethod === 'github-app') {
-      return res.status(403).json({
-        error: 'GitHub App installations cannot create user or organization repositories through this account mode',
-        code: 'GITHUB_APP_CAPABILITY_UNAVAILABLE'
-      });
-    }
-    const { name, description, isPrivate, autoInit } = req.body || {};
-    if (!name) return res.status(400).json({ error: 'Name required' });
-    const r = await gh(req.gh, '/user/repos', {
-      method: 'POST',
-      body: { name, description: description || '', private: isPrivate !== false, auto_init: autoInit !== false }
-    });
-    res.json({ full_name: r.full_name, default_branch: r.default_branch });
+    const result = await createVerifiedRepository((route, options) => gh(req.gh, route, options), req.gh, req.body);
+    res.status(201).json(result);
   } catch (e) { fail(res, e); }
 });
 app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
@@ -4286,11 +4322,18 @@ app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, 
   } catch (e) { fail(res, e); }
 });
 /* delete repository (requires PAT with delete_repo scope or OAuth) */
-app.delete('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.delete'), auth, mutationContext('repository.delete'), async (req, res) => {
+app.delete('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.delete', { allowExperimental: true }), repositoryDeletionConfirmation, auth, mutationContext('repository.delete'), async (req, res) => {
   try {
+    await verifyRepositoryDeletion((route, options) => gh(req.gh, route, options), `${req.params.owner}/${req.params.repo}`, req.gh);
     await gh(req.gh, R(req), { method: 'DELETE' });
     res.json({ ok: true });
-  } catch (e) { fail(res, e); }
+  } catch (e) {
+    if (e.status === 403 && e.code === 'PROVIDER_FORBIDDEN') {
+      e.nextAction = 'For OAuth, use Accounts → Allow repository deletion on GitHub. Otherwise check repository administrator access and deletion permission on the connected credential.';
+      e.providerChanged = false;
+    }
+    fail(res, e);
+  }
 });
 /* download repo as zip */
 app.get('/api/repo/:owner/:repo/zip', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
@@ -5003,21 +5046,11 @@ app.patch('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepo
 });
 
 /* ================= NOTIFICATIONS / STAR / REVIEWS / GLOBAL SEARCH ================= */
-app.get('/api/notifications', providerSessionAccess, capabilityAccess('notifications'), auth, async (req, res) => {
+app.get('/api/notifications', providerSessionAccess, capabilityAccess('notifications', { allowExperimental: true }), auth, async (req, res) => {
   try {
-    if (req.gh.authMethod === 'github-app') {
-      return res.status(403).json({
-        error: 'GitHub App installations do not provide user notification access',
-        code: 'GITHUB_APP_CAPABILITY_UNAVAILABLE'
-      });
-    }
-    const list = await gh(req.gh, '/notifications?per_page=30');
-    res.json(list.map(n => ({
-      id: n.id, reason: n.reason, unread: n.unread, updated_at: n.updated_at,
-      title: n.subject && n.subject.title, type: n.subject && n.subject.type,
-      repo: n.repository && n.repository.full_name,
-      web: n.repository && n.repository.html_url
-    })));
+    const repositories = ALPHA_CONFIG.enabled ? githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes) : null;
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json(await listAccessibleNotifications(route => gh(req.gh, route), repositories));
   } catch (e) { fail(res, e); }
 });
 app.get('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.read', { allowExperimental: true }), auth, async (req, res) => {
@@ -5063,11 +5096,11 @@ app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, a
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
-app.get('/api/search', providerSessionAccess, capabilityAccess('global-search'), auth, async (req, res) => {
+app.get('/api/search', providerSessionAccess, capabilityAccess('global-search', { allowExperimental: true }), githubSearchAccess, auth, async (req, res) => {
   try {
-    const q = (req.query.q || '').slice(0, 200);
-    const out = await gh(req.gh, `/search/code?q=${encodeURIComponent(`${q} user:${req.gh.login}`)}&per_page=25`);
-    res.json((out.items || []).map(i => ({ repo: i.repository && i.repository.full_name, path: i.path })));
+    const repositories = ALPHA_CONFIG.enabled ? githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes) : null;
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.json(await searchAccessibleCode(route => gh(req.gh, route), req.query.q, repositories));
   } catch (e) { fail(res, e); }
 });
 

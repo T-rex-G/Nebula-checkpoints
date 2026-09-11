@@ -246,6 +246,62 @@ check('without inert the close is immediate rather than quietly unreachable', ()
   assert.strictEqual(clock.scheduled.filter(entry => entry.live).length, 0);
 });
 
+/* ---------------- not while a layer is leaving ---------------- */
+
+/*
+ * A View Transition snapshots the whole document. Every rail destination and
+ * every sheet entry dismisses its overlay and changes the page in the same
+ * tick, so a transition started there captures a drawer frozen mid-slide and
+ * cross-fades it over the drawer's own still-running animation. That is the
+ * glitch picking a destination from the open rail produced, and it is only
+ * visible in a real browser -- which is why the condition is asserted here,
+ * where it can be driven.
+ */
+check('an exit in flight is reported, so the page transition can stand down', () => {
+  const { api, layer } = harness();
+  assert.strictEqual(api.anyOverlayClosing(), false, 'nothing is closing yet');
+  api.closeOverlay(layer);
+  assert.strictEqual(api.anyOverlayClosing(), true,
+    'a layer is animating out and nothing says so, so a whole-document transition will be laid over it');
+  layer.fire('animationend', { target: layer });
+  assert.strictEqual(api.anyOverlayClosing(), false, 'the exit finished and the flag is stuck on');
+});
+
+check('the timer path clears the in-flight flag too', () => {
+  const { api, layer, clock } = harness();
+  api.closeOverlay(layer);
+  clock.runAll();
+  assert.strictEqual(api.anyOverlayClosing(), false,
+    'an exit that ended on the timer leaves the flag set, so page transitions stay disabled for the rest of the session');
+});
+
+check('reopening clears the in-flight flag', () => {
+  const { api, layer } = harness();
+  api.closeOverlay(layer);
+  api.openOverlay(layer);
+  assert.strictEqual(api.anyOverlayClosing(), false, 'a cancelled exit still counts as in flight');
+});
+
+check('two layers closing are both tracked', () => {
+  const { api, layer } = harness();
+  const second = makeLayer();
+  api.closeOverlay(layer);
+  api.closeOverlay(second);
+  layer.fire('animationend', { target: layer });
+  assert.strictEqual(api.anyOverlayClosing(), true,
+    'one of two exits finished and the flag already cleared, so the other is still moving when a transition starts');
+  second.fire('animationend', { target: second });
+  assert.strictEqual(api.anyOverlayClosing(), false);
+});
+
+check('the page transition actually consults it', () => {
+  const source = appSource.slice(appSource.indexOf('function withTransition'));
+  const body = source.slice(0, source.indexOf('\n}'));
+  assert.ok(/anyOverlayClosing\(\)/.test(body),
+    'withTransition does not ask whether a layer is leaving, so it will cross-fade a snapshot over one that is');
+  assert.ok(/startViewTransition/.test(body), 'withTransition no longer starts a transition at all');
+});
+
 /* ---------------- what counts as open ---------------- */
 
 check('a layer part-way through its exit does not count as open', () => {
@@ -361,6 +417,44 @@ check('the stylesheet actually carries overlay exits', () => {
         'and the script measures it and waits for it');
     });
   });
+});
+
+/* ---------------- chrome that had to be seen to be wrong ---------------- */
+
+check('a destructive confirm is filled, not red lettering on a violet fill', () => {
+  const ok = htmlSource.match(/<button[^>]*id="modalOk"[^>]*>/);
+  assert.ok(ok, '#modalOk is gone');
+  assert.ok(/btn-primary/.test(ok[0]),
+    'the confirm is no longer the primary button; this check is about that pairing');
+  /*
+   * `.danger` sets only a colour, which is right on a ghost button and wrong
+   * on a filled one. Without a rule for the pair, every dangerous dialog drew
+   * red text on the violet fill.
+   */
+  assert.ok(/\.btn-primary\.danger\s*\{[^}]*background\s*:/.test(cssSource),
+    'nothing gives the primary button a danger fill, so a destructive confirm is red text on violet');
+  const rule = cssSource.match(/\.btn-primary\.danger\s*\{([^}]*)\}/)[1];
+  assert.ok(/color\s*:\s*#fff|color\s*:\s*white/i.test(rule),
+    'the danger fill does not set its own text colour, so it inherits the red and disappears into the fill');
+});
+
+check('sign out keeps its name after losing its label', () => {
+  /*
+   * Two of the three lost their visible text to give a phone's top bar its
+   * width back. A control identified only by a mark still has to be reachable
+   * by name, and the browser suite finds this one by its accessible name.
+   */
+  const marks = [...htmlSource.matchAll(/<button[^>]*class="[^"]*btn-signout[^"]*"[^>]*>/g)];
+  assert.ok(marks.length >= 2, `expected at least two icon sign-out controls, found ${marks.length}`);
+  marks.forEach(match => {
+    assert.ok(/aria-label="Sign out"/.test(match[0]),
+      `a sign-out mark has no accessible name: ${match[0].slice(0, 90)}`);
+    assert.ok(/title="Sign out"/.test(match[0]),
+      'a sign-out mark has no tooltip, so a pointer gets no name at all');
+  });
+  const worded = htmlSource.match(/<button[^>]*id="logoutBtnM"[^>]*>([^<]*)</);
+  assert.ok(worded && /Sign out/.test(worded[1]),
+    'the menu entry lost its visible text too; a list of worded entries should not make a reader decode an arrow');
 });
 
 check('a layer on its way out stops taking presses', () => {

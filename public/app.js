@@ -190,7 +190,7 @@ async function requestStepUp(action, scope, label = 'sensitive action') {
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(label)}</b> requires a short-lived, single-use authorization bound to this exact operation.</p>
       <label class="field-label" for="stepUpLogin">Type the active account login <b class="mono">${esc(login)}</b></label>
       <input id="stepUpLogin" type="text" autocomplete="off" spellcheck="false">
-      ${tokenMethod ? `<label class="field-label" for="stepUpCredential">Re-enter the current provider token</label><input id="stepUpCredential" type="password" autocomplete="off" spellcheck="false">` : `<p class="hint">Your OAuth authorization will be revalidated with the provider. The grant expires in five minutes and can be used only once.</p>`}`
+      ${tokenMethod ? `<label class="field-label" for="stepUpCredential">Re-enter the current provider token</label><input id="stepUpCredential" type="password" autocomplete="off" spellcheck="false">` : `<p class="hint">Allowing this on GitHub decides whether the account <em>may</em> do it at all, once. This is the separate question of whether to do it <em>now</em>: the authorization is checked against the provider again, lasts five minutes, and works a single time.</p>`}`
   });
   if (!ok) return '';
   const loginInput = $('#stepUpLogin');
@@ -377,7 +377,7 @@ async function takeSafePassage(error, change) {
  * entirely in what happens when the animation never ends, and that case cannot
  * be reached from the page.
  */
-const { overlayOpen, openOverlay, closeOverlay } = NebulaOverlayMotion.createOverlayMotion();
+const { overlayOpen, openOverlay, closeOverlay, anyOverlayClosing } = NebulaOverlayMotion.createOverlayMotion();
 
 /* ---------------- modal ---------------- */
 let modalResolve = null;
@@ -397,7 +397,7 @@ function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = n
     const initialFocus = fi || $('#modalCancel');
     if (initialFocus) setTimeout(() => {
       const scrim = $('#scrim');
-      if (overlayOpen(scrim) && !scrim.contains(document.activeElement)) initialFocus.focus();
+      if (overlayOpen(scrim) && !scrim.contains(document.activeElement)) initialFocus.focus({ preventScroll: true });
     }, 60);
   });
 }
@@ -414,8 +414,25 @@ $('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) close
 
 /* ---------------- pages ---------------- */
 let _page = 'alpha-access';
+/*
+ * A page change, cross-faded -- except while a layer is still leaving.
+ *
+ * Every destination in the rail and every entry in the bottom sheet dismisses
+ * its own overlay and then changes the page, in that order, in one tick. A
+ * View Transition snapshots the whole document, so starting one a frame after
+ * a drawer began sliding out freezes the drawer half-way and cross-fades that
+ * still frame over the drawer's own animation, which is still running
+ * underneath. Two animations of the same pixels, disagreeing: the result reads
+ * as a glitch, and it is the reason picking a destination from the open rail
+ * looked broken.
+ *
+ * The dismissal is the motion the reader is already watching, so it wins. The
+ * page still changes at the same moment; it just changes underneath a moving
+ * overlay instead of behind a snapshot of one.
+ */
 function withTransition(fn) {
   if (document.startViewTransition && state.settings.motion &&
+      !anyOverlayClosing() &&
       !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     document.startViewTransition(fn);
   } else fn();
@@ -3639,7 +3656,7 @@ async function openPalette() {
   openOverlay($('#paletteScrim'));
   const inp = $('#paletteInput');
   inp.value = ''; renderPalette('');
-  setTimeout(() => inp.focus(), 50);
+  setTimeout(() => inp.focus({ preventScroll: true }), 50);
   if (!state.fileIndex) {
     try {
       const out = await api(`/api/repo/${wPath()}/files?ref=${encodeURIComponent(state.work.branch)}`);
@@ -3809,7 +3826,12 @@ function setNavMenu(open, opener) {
   if (open) {
     navMenuOpener = opener || null;
     const first = $('#navRail .nv-rail-item');
-    if (first) first.focus();
+    /*
+     * Without preventScroll the browser scrolls the freshly focused item into
+     * view, and it does that while the drawer is still sliding in -- a jump
+     * laid over the slide, which is what made opening the rail look unsteady.
+     */
+    if (first) first.focus({ preventScroll: true });
     return;
   }
   const restore = navMenuOpener;

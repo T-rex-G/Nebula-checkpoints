@@ -397,7 +397,35 @@ em{color:var(--teal);font-style:normal}
  */
 .btn.small{padding:6px 12px;font-size:.8rem;min-height:36px;white-space:nowrap;min-width:0}
 .btn.danger{color:var(--red)}
+/*
+ * A destructive confirm is a filled button, not a filled button with red text
+ * written on it. `.danger` only ever set a colour, which is right on a ghost
+ * button and wrong on the primary one: the confirm in every dangerous dialog
+ * came out as red lettering on the violet fill -- low contrast, and it reads
+ * as a rendering fault rather than a warning. Filling it red says the same
+ * thing the colour was trying to say, and says it legibly.
+ */
+.btn-primary.danger{
+  background:linear-gradient(135deg,var(--red),var(--redDeep));
+  border-color:rgba(255,255,255,0.28);
+  color:#fff;
+  box-shadow:0 16px 36px rgba(244,63,110,.28)}
+.btn-primary.danger:hover{background:linear-gradient(135deg,#ff5b83,var(--red))}
 .icon-btn{padding:8px 12px;min-width:44px}
+/*
+ * Sign out is the one destructive control that lives in the standing chrome,
+ * and as a worded button it took more of a phone's top bar than its importance
+ * earns -- on the overview it sat beside four other controls and squeezed the
+ * repository name. As a mark it keeps the tap target and gives the width back.
+ *
+ * The word survives where it matters: aria-label and title both still say
+ * "Sign out", so the accessible name is unchanged and a pointer still gets the
+ * tooltip. The one in the mobile menu keeps its visible text -- a list of
+ * worded entries is not the place to make a reader decode an arrow.
+ */
+.btn-signout{color:var(--red);padding:8px;min-width:40px}
+.btn-signout:hover{background:rgba(244,63,110,0.12);color:var(--red)}
+.btn-signout .ico{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 input[type=text],input[type=password],input[type=search],input[type=url],select,textarea{
   font:inherit;font-size:.9rem;color:var(--text);width:100%;
   background:rgba(255,255,255,0.07);border:1px solid var(--glass-border);

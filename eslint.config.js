@@ -26,6 +26,7 @@ const PUBLISHED_MODULE_GLOBALS = Object.freeze({
   NebulaGovernanceUI: 'readonly',
   NebulaNeural: 'readonly',
   NebulaOfflineCachePolicy: 'readonly',
+  NebulaOverlayMotion: 'readonly',
   NebulaTrustUI: 'readonly',
   NebulaUploadPlanning: 'readonly',
   NebulaPwa: 'writable',
@@ -70,6 +71,7 @@ const DUAL_TARGET_MODULES = Object.freeze([
   'public/export-safety.js',
   'public/governance-ui.js',
   'public/offline-cache-policy.js',
+  'public/overlay-motion.js',
   'public/repo-sigil.js',
   'public/upload-planning.js',
   'public/workspace-pulse.js'

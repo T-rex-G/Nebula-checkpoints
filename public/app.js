@@ -369,6 +369,16 @@ async function takeSafePassage(error, change) {
   }
 }
 
+/* ---------------- overlay motion ---------------- */
+/*
+ * Every overlay here opened with an animation and closed with none, a cut. The
+ * rules that fixed that live in overlay-motion.js, next to a test that can
+ * drive the timer fallback without a browser: the safety of a deferred hide is
+ * entirely in what happens when the animation never ends, and that case cannot
+ * be reached from the page.
+ */
+const { overlayOpen, openOverlay, closeOverlay } = NebulaOverlayMotion.createOverlayMotion();
+
 /* ---------------- modal ---------------- */
 let modalResolve = null;
 let modalReturnFocus = null;
@@ -381,18 +391,18 @@ function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = n
     const ok = $('#modalOk');
     ok.textContent = okText;
     ok.classList.toggle('danger', danger);
-    $('#scrim').hidden = false;
+    openOverlay($('#scrim'));
     if (typeof onOpen === 'function') onOpen($('#modalBody'));
     const fi = $('#modalBody input:not([disabled]), #modalBody textarea:not([disabled]), #modalBody select:not([disabled])');
     const initialFocus = fi || $('#modalCancel');
     if (initialFocus) setTimeout(() => {
       const scrim = $('#scrim');
-      if (!scrim.hidden && !scrim.contains(document.activeElement)) initialFocus.focus();
+      if (overlayOpen(scrim) && !scrim.contains(document.activeElement)) initialFocus.focus();
     }, 60);
   });
 }
 function closeModal(v) {
-  $('#scrim').hidden = true;
+  closeOverlay($('#scrim'));
   if (modalResolve) { modalResolve(v); modalResolve = null; }
   const restore = modalReturnFocus;
   modalReturnFocus = null;
@@ -1506,7 +1516,7 @@ async function globalCodeSearch(query) {
   modal({ title: `Code search — “${q}”`, okText: 'Close', bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
   try {
     const hits = await api(`/api/search?q=${encodeURIComponent(q)}`);
-    if ($('#scrim').hidden) return;
+    if (!overlayOpen($('#scrim'))) return;
     $('#modalBody').innerHTML = hits.length ? '' : '<p class="hint">No matches in your repositories.</p>';
     hits.forEach(hh => {
       const el = document.createElement('div');
@@ -1523,7 +1533,7 @@ async function globalCodeSearch(query) {
       $('#modalBody').appendChild(el);
     });
   } catch (error) {
-    if (!$('#scrim').hidden) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(error.message)}</p>`;
+    if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(error.message)}</p>`;
   }
 }
 $('#repoFilter').addEventListener('keydown', e => {
@@ -1713,7 +1723,7 @@ async function openAccounts() {
   modal({ title: 'Accounts', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:60px"></div>' });
   try {
     const a = await api('/api/accounts');
-    if ($('#scrim').hidden) return;
+    if (!overlayOpen($('#scrim'))) return;
     $('#modalBody').innerHTML = a.accounts.map((ac, i) => `
       <div class="acct-row ${i === a.active ? 'active' : ''}">
         <img class="avatar" src="${escAttr(ac.avatar || '')}" alt="">
@@ -1759,7 +1769,7 @@ async function openAccounts() {
       showPage('login');
     });
     $('#accOut').addEventListener('click', async () => { closeModal(true); doLogout(); });
-  } catch (e) { if (!$('#scrim').hidden) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
+  } catch (e) { if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
 }
 $('#accountBtn').addEventListener('click', openAccounts);
 $('#accountBtnOv') && $('#accountBtnOv').addEventListener('click', openAccounts);
@@ -1767,7 +1777,7 @@ $('#notifBtn').addEventListener('click', async () => {
   modal({ title: 'Notifications', okText: 'Close', bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
   try {
     const list = await api('/api/notifications');
-    if ($('#scrim').hidden) return;
+    if (!overlayOpen($('#scrim'))) return;
     $('#modalBody').innerHTML = list.length ? '' : '<p class="hint">Inbox zero. ✦</p>';
     list.forEach(n => {
       const el = document.createElement('div');
@@ -1780,7 +1790,7 @@ $('#notifBtn').addEventListener('click', async () => {
       if (n.web) el.addEventListener('click', () => window.open(n.web, '_blank', 'noopener'));
       $('#modalBody').appendChild(el);
     });
-  } catch (e) { if (!$('#scrim').hidden) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
+  } catch (e) { if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
 });
 $('#backBtn').addEventListener('click', () => {
   if (state.staged.length && !confirm('You have staged changes that will be lost. Leave anyway?')) return;
@@ -3379,13 +3389,13 @@ $('#fileHistoryBtn').addEventListener('click', async () => {
     bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
   try {
     const commits = await api(`/api/repo/${wPath()}/commits?ref=${encodeURIComponent(state.work.branch)}&path=${encodeURIComponent(p)}`);
-    if ($('#scrim').hidden) return;
+    if (!overlayOpen($('#scrim'))) return;
     $('#modalBody').innerHTML = commits.length ? commits.map(c => `
       <div class="comment">
         <div class="comment-head"><span class="mono commit-sha">${c.sha.slice(0, 7)}</span><span>${esc(c.author)}</span><span>${timeAgo(c.date)}</span></div>
         <div class="comment-body">${esc(c.message.split('\n')[0])}</div>
       </div>`).join('') : '<p class="hint">No history found for this path.</p>';
-  } catch (e) { if (!$('#scrim').hidden) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
+  } catch (e) { if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
 });
 
 $('#newFileBtn').addEventListener('click', async () => {
@@ -3448,8 +3458,8 @@ function renderStagedPanel() {
     host.appendChild(el);
   });
 }
-function openStagePanel() { renderStagedPanel(); $('#stageScrim').hidden = false; }
-function closeStagePanel() { $('#stageScrim').hidden = true; }
+function openStagePanel() { renderStagedPanel(); openOverlay($('#stageScrim')); }
+function closeStagePanel() { closeOverlay($('#stageScrim')); }
 $('#stagedBtn').addEventListener('click', openStagePanel);
 $('#stageClose').addEventListener('click', closeStagePanel);
 $('#stageScrim').addEventListener('click', e => { if (e.target === $('#stageScrim')) closeStagePanel(); });
@@ -3545,12 +3555,12 @@ $('#bottomNav').addEventListener('click', e => {
   if (nav === 'more') return openSheet();
   switchTab(nav);
 });
-function openDrawer() { $('#side').classList.add('open'); $('#sideScrim').hidden = false; }
-function closeDrawer() { if (isMobile()) { $('#side').classList.remove('open'); $('#sideScrim').hidden = true; } }
+function openDrawer() { $('#side').classList.add('open'); openOverlay($('#sideScrim')); }
+function closeDrawer() { if (isMobile()) { $('#side').classList.remove('open'); closeOverlay($('#sideScrim')); } }
 $('#sideScrim').addEventListener('click', closeDrawer);
 
-function openSheet() { $('#sheetScrim').hidden = false; }
-function closeSheet() { $('#sheetScrim').hidden = true; }
+function openSheet() { openOverlay($('#sheetScrim')); }
+function closeSheet() { closeOverlay($('#sheetScrim')); }
 $('#sheetScrim').addEventListener('click', e => { if (e.target === $('#sheetScrim')) closeSheet(); });
 $('#sheet').addEventListener('click', e => {
   const item = e.target.closest('.sheet-item');
@@ -3615,7 +3625,7 @@ let paletteReturnFocus = null;
 async function openPalette() {
   if (_page !== 'work') return;
   paletteReturnFocus = document.activeElement;
-  $('#paletteScrim').hidden = false;
+  openOverlay($('#paletteScrim'));
   const inp = $('#paletteInput');
   inp.value = ''; renderPalette('');
   setTimeout(() => inp.focus(), 50);
@@ -3623,7 +3633,7 @@ async function openPalette() {
     try {
       const out = await api(`/api/repo/${wPath()}/files?ref=${encodeURIComponent(state.work.branch)}`);
       state.fileIndex = out.files;
-      if (!$('#paletteScrim').hidden) renderPalette(inp.value);
+      if (overlayOpen($('#paletteScrim'))) renderPalette(inp.value);
     } catch { state.fileIndex = []; }
   }
 }
@@ -3638,7 +3648,7 @@ function closePalette() {
    */
   const active = document.activeElement;
   const strayed = !active || active === document.body || scrim.contains(active);
-  scrim.hidden = true;
+  closeOverlay(scrim);
   /*
    * The input keeps combobox state, and hiding the scrim does not clear it, so
    * a reader who closed the palette was still told it was expanded and still
@@ -3770,9 +3780,20 @@ function paintRail(name) {
 let navMenuOpener = null;
 function navMenuOpen() { return document.body.classList.contains('nav-open'); }
 function setNavMenu(open, opener) {
-  document.body.classList.toggle('nav-open', open);
   const scrim = $('#navScrim');
-  if (scrim) scrim.hidden = !open;
+  const was = navMenuOpen();
+  document.body.classList.toggle('nav-open', open);
+  /*
+   * `nav-open` is what makes the rail a drawer at all, so dropping it on close
+   * would delete the very thing that is meant to slide away. `nav-closing`
+   * carries the same layout for as long as the exit lasts, and is lifted by
+   * the same settled callback that hides the scrim -- the timer path included,
+   * so a window resized mid-dismissal cannot leave the rail stuck as a drawer.
+   * It is only put on when there was something open to dismiss.
+   */
+  document.body.classList.toggle('nav-closing', !open && was);
+  if (open) openOverlay(scrim);
+  else closeOverlay(scrim, () => document.body.classList.remove('nav-closing'));
   $$('.nav-menu-btn').forEach(button => button.setAttribute('aria-expanded', String(open)));
   if (open) {
     navMenuOpener = opener || null;
@@ -3829,7 +3850,7 @@ function paintSel() {
 
 /* global shortcuts */
 document.addEventListener('keydown', e => {
-  if (!$('#scrim').hidden && e.key === 'Tab') {
+  if (overlayOpen($('#scrim')) && e.key === 'Tab') {
     const focusable = $$('#modal button:not([disabled]), #modal input:not([disabled]), #modal textarea:not([disabled]), #modal select:not([disabled]), #modal [tabindex]:not([tabindex="-1"])')
       .filter(element => !element.hidden && element.offsetParent !== null);
     if (focusable.length) {
@@ -3847,10 +3868,10 @@ document.addEventListener('keydown', e => {
     if (!$('#stageFileBtn').disabled) $('#stageFileBtn').click();
   }
   if (e.key === 'Escape') {
-    if (!$('#paletteScrim').hidden) closePalette();
-    else if (!$('#stageScrim').hidden) closeStagePanel();
-    else if (!$('#sheetScrim').hidden) closeSheet();
-    else if (!$('#scrim').hidden) closeModal(false);
+    if (overlayOpen($('#paletteScrim'))) closePalette();
+    else if (overlayOpen($('#stageScrim'))) closeStagePanel();
+    else if (overlayOpen($('#sheetScrim'))) closeSheet();
+    else if (overlayOpen($('#scrim'))) closeModal(false);
     else closeDrawer();
   }
 });
@@ -5365,7 +5386,7 @@ $('#batchCommitBtn').addEventListener('click', async () => {
 window.addEventListener('beforeunload', e => {
   if ((state.file && state.file.dirty) || state.staged.length) { e.preventDefault(); e.returnValue = ''; }
 });
-window.addEventListener('resize', () => { if (!isMobile()) { $('#side').classList.remove('open'); $('#sideScrim').hidden = true; } });
+window.addEventListener('resize', () => { if (!isMobile()) { $('#side').classList.remove('open'); closeOverlay($('#sideScrim')); } });
 
 /* ================= v3 MODULES ================= */
 
@@ -5553,7 +5574,7 @@ async function openBranchManager() {
   try {
     const info = await api(`/api/repo/${wPath()}`);
     state.work.branches = info.branches;
-    if ($('#scrim').hidden) return;
+    if (!overlayOpen($('#scrim'))) return;
     const host = $('#modalBody');
     host.innerHTML = '';
     info.branches.forEach(b => {
@@ -5582,7 +5603,7 @@ async function openBranchManager() {
       });
       host.appendChild(row);
     });
-  } catch (e) { if (!$('#scrim').hidden) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
+  } catch (e) { if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
 }
 
 /* ---- upload retry ---- */

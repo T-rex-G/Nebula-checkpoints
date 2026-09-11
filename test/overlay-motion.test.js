@@ -29,6 +29,7 @@ const motion = require('../public/overlay-motion');
 const appSource = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
 const cssSource = fs.readFileSync(path.join(root, 'public/style.css'), 'utf8');
 const htmlSource = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 
 let failures = 0;
 function check(label, fn) {
@@ -388,7 +389,10 @@ function eachSelector(rule) {
     .map(one => ({ selector: one, body: rule.body, at: rule.at }));
 }
 
-const exits = rules.filter(rule => rule.selector.includes('[data-closing]') && /animation\s*:/.test(rule.body))
+/* A rule that switches an animation off is not an exit; without this the
+   motion-off and reduced-motion rules are read as exits and then checked
+   for being outweighed by themselves. */
+const exits = rules.filter(rule => rule.selector.includes('[data-closing]') && /animation\s*:/.test(rule.body) && !/animation\s*:\s*none/.test(rule.body))
   .flatMap(eachSelector);
 const stills = rules.filter(rule => /animation\s*:\s*none/.test(rule.body)).flatMap(eachSelector);
 
@@ -417,6 +421,115 @@ check('the stylesheet actually carries overlay exits', () => {
         'and the script measures it and waits for it');
     });
   });
+});
+
+/* ---------------- every layer, none forgotten ---------------- */
+
+/*
+ * Six scrims plus the floating action menu. The menu is the one that was
+ * missed: it is not a scrim, so a check that enumerates scrims does not see
+ * it, and it opened on an animation and closed with `hidden = true` -- exactly
+ * the cut the other six were fixed for. Named here so the set is seven.
+ */
+check('the floating action menu leaves the way it arrived', () => {
+  const close = appSource.slice(appSource.indexOf('function closeFloatingActions'));
+  const body = close.slice(0, close.indexOf('\n}'));
+  assert.ok(/closeOverlay\(menu\)/.test(body),
+    'the floating action menu is still cut away instead of animated out');
+  assert.ok(!/menu\.hidden\s*=\s*true/.test(body),
+    'the floating action menu still hides itself directly, which skips the exit');
+  const open = appSource.slice(appSource.indexOf('function openFloatingActions'));
+  const openBody = open.slice(0, open.indexOf('\n}'));
+  assert.ok(/openOverlay\(menu\)/.test(openBody),
+    'the floating action menu is shown without cancelling a pending close');
+  assert.ok(/preventScroll/.test(openBody),
+    'the first entry is focused without preventScroll, so the browser scrolls it into view mid-animation');
+  /*
+   * An unanchored search finds the motion-off rule, whose body is
+   * `animation:none` -- which would report an exit while there is none. The
+   * rule that matters is one that actually names an animation to run.
+   */
+  const fabExit = [...cssSource.matchAll(/([^{}]*\.nv-fab-menu\[data-closing\][^{}]*)\{([^}]*)\}/g)]
+    .some(rule => /animation\s*:/.test(rule[2]) && !/animation\s*:\s*none/.test(rule[2]));
+  assert.ok(fabExit,
+    'there is no exit animation for the floating action menu, so its close is instant');
+});
+
+check('every focus taken on an opening layer declines the scroll', () => {
+  /*
+   * Focusing an element inside a layer that is still moving makes the browser
+   * scroll it into view, and the jump lands on top of the animation. Four
+   * layers take focus as they open.
+   */
+  const focuses = appSource.match(/\.focus\(\{ preventScroll: true \}\)/g) || [];
+  assert.ok(focuses.length >= 4,
+    `only ${focuses.length} focus calls decline the scroll; the rail, the modal, the palette and the floating menu all take focus while still animating`);
+});
+
+/* ---------------- a sign-in that did not finish ---------------- */
+
+check('a failed OAuth exchange returns to the application', () => {
+  const route = serverSource.slice(serverSource.indexOf("app.get('/api/oauth/callback'"));
+  const body = route.slice(0, route.indexOf('\napp.get('));
+  /*
+   * Every failure used to end on a bare page with no navigation: the only way
+   * back was to retype the address. A reader on a phone should never be asked
+   * to do that.
+   */
+  assert.ok(!/res\.status\(\d+\)\.send\(/.test(body),
+    'a failed sign-in still ends on a bare page the reader has to escape by editing the address bar');
+  assert.ok(/res\.redirect\(`\/\?oauth=/.test(body),
+    'a failed sign-in does not return to the application with a reason');
+  assert.ok(/Max-Age=0/.test(body),
+    'the state cookie is not cleared on failure, so a retry replays a code the provider has already spent');
+});
+
+check('the token response is parsed defensively', () => {
+  const route = serverSource.slice(serverSource.indexOf("app.get('/api/oauth/callback'"));
+  const body = route.slice(0, route.indexOf('\napp.get('));
+  /*
+   * The provider answers with an HTML page when it refuses the request itself
+   * rather than the exchange. Handing that straight to a JSON parser throws
+   * "Unexpected token '<'", and that message reached the reader verbatim.
+   */
+  assert.ok(!/await tr\.json\(\)/.test(body),
+    'the token response is parsed as JSON unguarded, so an HTML error page throws a parser message at the reader');
+  assert.ok(/tr\.text\(\)/.test(body) && /JSON\.parse/.test(body),
+    'the response is not read as text and parsed under a guard');
+  assert.ok(/td\.error/.test(body),
+    "the provider's own refusal is discarded, so an expired code reports nothing useful");
+});
+
+check('the reader is told which failure it was', () => {
+  assert.ok(/function oauthCallbackNotice/.test(appSource), 'nothing reads the failure back out of the address bar');
+  assert.ok(/bad_verification_code/.test(appSource),
+    'a spent or expired sign-in link has no plain-language explanation');
+  assert.ok(/history\.replaceState/.test(appSource.slice(appSource.indexOf('function oauthCallbackNotice'))),
+    'the parameter is left in the address bar, so refreshing repeats the message about an attempt that is over');
+});
+
+/* ---------------- two grounds on one screen ---------------- */
+
+check('the moving ground yields where the galaxy is drawn', () => {
+  assert.ok(/#page-repos\.active\)?[^{]*#lightWaves\{[^}]*display:none/.test(cssSource),
+    'the waves still run underneath the galaxy on the repositories screen, where two full-bleed animations compete');
+  /*
+   * display:none, not opacity: light-waves.js holds when it has no box to
+   * measure, so removing it from the layout also ends its render loop.
+   */
+  const rule = cssSource.match(/body:has\(#page-repos\.active\) #lightWaves\{([^}]*)\}/);
+  assert.ok(rule && /display:none/.test(rule[1]),
+    'the waves are hidden by painting rather than by layout, so the loop keeps running behind the galaxy');
+});
+
+check('creating a repository is offered exactly once at every width', () => {
+  const bar = htmlSource.match(/<button[^>]*id="newRepoBtn"[^>]*>/)[0];
+  const row = htmlSource.match(/<button[^>]*id="newRepoBtnRepos"[^>]*>/);
+  assert.ok(row, 'the repositories screen has no create control, so a phone loses the action with the bar');
+  assert.ok(/hide-sm/.test(bar), 'the top bar still carries it on a narrow screen, where there is no room');
+  assert.ok(/show-sm/.test(row[0]), 'the in-page control shows at every width, so wide screens offer it twice');
+  assert.ok(/createRepositoryFlow/.test(appSource),
+    'the two controls do not share one handler, so their behaviour can drift apart');
 });
 
 /* ---------------- typed on a phone ---------------- */

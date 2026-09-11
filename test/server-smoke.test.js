@@ -108,12 +108,28 @@ async function waitForServer() {
     }
 
     const archiveValidator = await request(`/archive-safety.js?v=${ASSET_VERSION}`);
-    const missingOAuthState = await request('/api/oauth/callback?code=not-exchanged');
-    assert.strictEqual(missingOAuthState.status, 400, 'an OAuth callback without a state cookie must fail before exchange');
-    const retiredOAuthState = await request('/api/oauth/callback?code=not-exchanged&state=obsolete', {
-      headers: { cookie: 'nv_workspace_oauth_intent=obsolete' }
-    });
-    assert.strictEqual(retiredOAuthState.status, 400, 'an old owner flow must not authorize ordinary OAuth');
+    /*
+     * A refused callback returns to the application carrying the reason rather
+     * than ending on a bare page the reader can only leave by retyping the
+     * address. What is asserted is the refusal, not the status code: that the
+     * response is a redirect back into the app, that it names the reason, that
+     * it never reaches the sign-in, and that it clears the state cookie so a
+     * retry starts a fresh exchange instead of replaying a spent code.
+     */
+    const refusedOAuth = async (query, headers) => {
+      const response = await request(`/api/oauth/callback?${query}`, { redirect: 'manual', headers });
+      assert.ok(response.status >= 300 && response.status < 400,
+        `a refused OAuth callback must not be served as a page (got ${response.status})`);
+      const location = response.headers.get('location') || '';
+      assert.match(location, /^\/\?oauth=/, 'a refused OAuth callback must return to the application with a reason');
+      assert.doesNotMatch(location, /access_token|code=/, 'a refused OAuth callback must not carry credentials back');
+      assert.ok(response.headers.getSetCookie().some(value => /^nv_oauth=;/.test(value) && /Max-Age=0/.test(value)),
+        'a refused OAuth callback must clear the state cookie so a retry is a fresh exchange');
+      return location;
+    };
+    assert.strictEqual(await refusedOAuth('code=not-exchanged'), '/?oauth=state_mismatch',
+      'an OAuth callback without a state cookie must fail before exchange');
+    await refusedOAuth('code=not-exchanged&state=obsolete', { cookie: 'nv_workspace_oauth_intent=obsolete' });
     assert.strictEqual(archiveValidator.status, 200);
     assert.match(await archiveValidator.text(), /NebulaArchiveSafety/);
 

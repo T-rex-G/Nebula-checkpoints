@@ -63,6 +63,16 @@
     const unschedule = settings.clearTimeout ||
       (typeof clearTimeout === 'function' ? clearTimeout : null);
     const pending = new WeakMap();
+    /*
+     * A second view of the same set, countable. A WeakMap can answer "is this
+     * layer closing?" but not "is anything closing?", and the caller that needs
+     * the second question is the page transition: a document-wide View
+     * Transition snapshots every pixel, so starting one while a layer is
+     * sliding out captures it mid-flight and cross-fades the frozen frame over
+     * the real animation. Entries are added and removed together with the
+     * WeakMap's, on every path including the timer.
+     */
+    const closing = new Set();
 
     /* Measured after `data-closing` is on the element, so it reads the exit
        the stylesheet chose for this particular layer -- not a number here. */
@@ -79,6 +89,7 @@
     function cancelOverlayExit(el) {
       if (!el) return;
       const exit = pending.get(el);
+      closing.delete(el);
       if (exit) {
         if (unschedule) unschedule(exit.timer);
         if (typeof el.removeEventListener === 'function') {
@@ -139,9 +150,16 @@
       if (typeof el.addEventListener === 'function') el.addEventListener('animationend', onEnd);
       const timer = schedule(settle, wait + SETTLE_MARGIN_MS);
       pending.set(el, { timer: timer, onEnd: onEnd });
+      closing.add(el);
     }
 
-    return { overlayOpen, openOverlay, closeOverlay, cancelOverlayExit, exitDurationMs };
+    /*
+     * True while any layer is still animating out. Read by the page transition,
+     * which must not lay a whole-document cross-fade over a moving overlay.
+     */
+    function anyOverlayClosing() { return closing.size > 0; }
+
+    return { overlayOpen, openOverlay, closeOverlay, cancelOverlayExit, exitDurationMs, anyOverlayClosing };
   }
 
   return { createOverlayMotion, longestTimeMs, SETTLE_MARGIN_MS };

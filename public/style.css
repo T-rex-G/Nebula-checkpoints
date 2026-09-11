@@ -769,7 +769,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 /* mobile drawer + sheet + panels */
 .side-scrim,.sheet-scrim,.stage-scrim,.palette-scrim{position:fixed;inset:0;z-index:80;
   background:rgba(5,5,15,0.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-  animation:fadeIn .2s ease both}
+  animation:fadeIn .2s var(--ease) both}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 /*
  * The sheet scrolls. It carries fourteen entries and had no height limit and
@@ -835,9 +835,81 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
 /* modal / toasts */
 .scrim{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:18px;
-  background:rgba(5,5,15,0.4);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:fadeIn .2s ease both}
+  background:rgba(5,5,15,0.4);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:fadeIn .2s var(--ease) both}
 .modal{width:min(480px,100%);max-height:86dvh;overflow-y:auto;padding:22px;animation:modalIn .26s var(--ease) both}
 @keyframes modalIn{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:none}}
+
+/*
+ * Overlay exits.
+ *
+ * Each layer leaves the way it arrived, reversed: the scrim fades, the panel
+ * retraces the move it came in on. Exits are shorter than entries, because a
+ * dismissal the reader has already decided on should not be made to wait --
+ * and no panel's exit outlasts the scrim it sits on, since the scrim is the
+ * element whose duration the script waits out.
+ *
+ * A layer on its way out stops taking pointers. It is still painted, so a
+ * second press would land on something that is already gone, and would restart
+ * a dismissal that is already running.
+ */
+[data-closing]{pointer-events:none}
+@keyframes scrimOut{to{opacity:0}}
+@keyframes modalOut{to{opacity:0;transform:scale(.97) translateY(6px)}}
+@keyframes sheetOut{to{opacity:0;transform:translateY(24px)}}
+@keyframes slideROut{to{opacity:0;transform:translateX(40px)}}
+.scrim[data-closing]{animation:scrimOut .2s ease both}
+[data-closing] .modal{animation:modalOut .2s var(--ease) both}
+.palette-scrim[data-closing]{animation:scrimOut .18s ease both}
+[data-closing] .palette{animation:modalOut .18s var(--ease) both}
+.sheet-scrim[data-closing]{animation:scrimOut .22s ease both}
+[data-closing] .sheet{animation:sheetOut .22s var(--ease) both}
+.stage-scrim[data-closing]{animation:scrimOut .22s ease both}
+[data-closing] .stage-panel{animation:slideROut .22s var(--ease) both}
+/* The file drawer slides on a transform transition of its own at .28s, so its
+   scrim has to outlast it -- clearing sooner leaves the page behind bare while
+   the drawer is still visibly moving across it. */
+.side-scrim[data-closing]{animation:scrimOut .28s ease both}
+
+/*
+ * Motion off has meant the nebula and three small loops, and never the
+ * overlays: a reader who turned animation off still got every dialog, drawer
+ * and sheet sliding and fading at them. It reaches the layers now.
+ *
+ * This is also what makes the close synchronous, because the script reads the
+ * duration back out of the computed style rather than restating it: no exit
+ * here means nothing to wait for there.
+ *
+ * Each selector here is written to outweigh the exit above it rather than to
+ * merely tie with it and win on source order, so an exit rule made more
+ * specific later cannot quietly start running again with motion switched off.
+ * A test does that arithmetic, because losing a specificity contest is silent:
+ * nothing warns, the animation simply keeps playing.
+ */
+[data-motion="off"] .scrim,
+[data-motion="off"] .side-scrim,
+[data-motion="off"] .sheet-scrim,
+[data-motion="off"] .stage-scrim,
+[data-motion="off"] .palette-scrim,
+[data-motion="off"] .scrim .modal,
+[data-motion="off"] .sheet-scrim .sheet,
+[data-motion="off"] .stage-scrim .stage-panel,
+[data-motion="off"] .palette-scrim .palette,
+[data-motion="off"] body.nav-open .nv-rail,
+[data-motion="off"] body.nav-closing .nv-rail{animation:none}
+@media (prefers-reduced-motion:reduce){
+  /* Same rules, same weight. `:root` stands in for the motion attribute so
+     these still outweigh the exits; without it they would lose and a reader
+     who asked the system for less motion would keep getting all of it. */
+  :root .scrim,
+  :root .side-scrim,
+  :root .sheet-scrim,
+  :root .stage-scrim,
+  :root .palette-scrim,
+  :root .scrim .modal,
+  :root .sheet-scrim .sheet,
+  :root .stage-scrim .stage-panel,
+  :root .palette-scrim .palette{animation:none}
+}
 .modal h3{font-size:1.05rem;font-weight:600;margin-bottom:14px}
 .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
 .toast-stack{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));right:16px;z-index:300;
@@ -1968,7 +2040,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .nav-menu-btn{display:none}
 @media (max-width:1139px){
   .nav-menu-btn{display:inline-flex}
-  body.nav-open .nv-rail{
+  body.nav-open .nv-rail,
+  body.nav-closing .nv-rail{
     display:flex;flex-direction:column;gap:20px;
     position:fixed;left:0;top:0;bottom:0;height:100dvh;
     width:min(84vw,320px);z-index:95;overflow-y:auto;overscroll-behavior:contain;
@@ -1976,12 +2049,16 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     background:var(--shellSolid);border-right:1px solid var(--sb);
     animation:navDrawerIn .22s var(--ease) both}
   @keyframes navDrawerIn{from{transform:translateX(-100%)}to{transform:none}}
+  body.nav-closing .nv-rail{animation:navDrawerOut .22s var(--ease) both}
+  @keyframes navDrawerOut{to{transform:translateX(-100%)}}
   /* The collapse control narrows a rail that is permanently on screen. A
      drawer is dismissed instead, so it would do nothing here. */
-  body.nav-open .nv-rail-section{display:none}
+  body.nav-open .nv-rail-section,
+  body.nav-closing .nv-rail-section{display:none}
 }
 @media (max-width:1139px) and (prefers-reduced-motion:reduce){
-  body.nav-open .nv-rail{animation:none}
+  body.nav-open .nv-rail,
+  body.nav-closing .nv-rail{animation:none}
 }
 /*
  * The shell.

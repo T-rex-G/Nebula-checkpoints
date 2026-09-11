@@ -49,8 +49,12 @@ cannot conceal a failed gate, failed cleanup, or known critical/high defect.
 - Only one upload may run at a time.
 - At most 10 live clients and two clients per repository are allowed; hosted
   qualification may lower these limits.
-- Repository creation/deletion, global search, and unconstrained global
-  notifications are unavailable.
+- GitHub creation/deletion, global search, and notifications are experimental
+  with deterministic coverage. Existing invitation repository scopes remain
+  mandatory. Creation is personal-namespace only; deletion requires fresh
+  authorization and provider administrator/deletion permissions. Notifications
+  require a compatible personal connection and return up to 30 recent threads;
+  code search returns up to 25 matches. Other-provider availability is unchanged.
 
 Any critical/high defect, capability-label mismatch, unsafe or unverified
 mutation, credential/session exposure, cleanup failure, restore failure, or

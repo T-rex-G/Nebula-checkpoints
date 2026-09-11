@@ -111,7 +111,7 @@ assert.strictEqual(githubWrite.evidenceState, 'Provider-verified');
  * honest as the set shrinks, and says so when it finally empties.
  */
 const experimentalFeature = Object.entries(registryDocument.providers.github['hosted-alpha'])
-  .find(([, tuple]) => tuple[0] === 'Experimental');
+  .find(([, tuple]) => tuple[0] === 'Experimental' && tuple[1] === 'Inferred');
 assert(
   experimentalFeature,
   'no GitHub capability is experimental any more; this demonstration needs rewriting'

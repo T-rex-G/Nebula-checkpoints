@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const ui = require('./semantic');
 
 const capabilityDocument = require('../../config/public-alpha-capabilities.json');
+const { projectCapabilities } = require('../../src/capability-registry');
 
 const { buildPolicyDigitalTwinReadModel } = require('../../src/governance-digital-twin');
 const { projectGovernanceInterfaceAccess } = require('../../src/governance-interface');
@@ -98,6 +99,7 @@ const VALID = Object.freeze({
   access: new Set(['required', 'active', 'expired', 'revoked']),
   ready: new Set(['waking', 'ready', 'database-unavailable']),
   provider: new Set(['github', 'gitlab', 'gitea']),
+  authMethod: new Set(['token', 'oauth', 'github-app']),
   repositoryState: new Set(['empty', 'current', 'stale', 'partial', 'degraded', 'error']),
   mutation: new Set(['verified', 'blocked', 'failed-unchanged', 'unknown']),
   cleanup: new Set(['verified', 'pending']),
@@ -122,6 +124,8 @@ function normalizedScenario(input = {}) {
     access: input.access || 'active',
     ready: input.ready || 'ready',
     provider: input.provider || 'github',
+    authMethod: input.authMethod || 'token',
+    login: input.login || 'alpha-tester',
     repositoryState: input.repositoryState || 'current',
     mutation: input.mutation || 'verified',
     cleanup: input.cleanup || 'verified',
@@ -142,22 +146,13 @@ function sanitized(payload) {
   return payload;
 }
 
-function capabilityProjection(provider) {
-  const tuples = capabilityDocument.providers[provider]['hosted-alpha'];
-  return sanitized({
+function capabilityProjection(provider, authMethod = 'token') {
+  return sanitized(projectCapabilities(capabilityDocument, {
     provider,
     authority: provider === 'github' ? 'github.com' : `${provider}.example.test`,
     deployment: 'hosted-alpha',
-    features: Object.fromEntries(Object.entries(tuples).map(([feature, tuple]) => [feature, {
-      feature,
-      provider,
-      authority: provider === 'github' ? 'github.com' : `${provider}.example.test`,
-      deployment: 'hosted-alpha',
-      status: tuple[0],
-      evidenceState: tuple[1],
-      reason: tuple[2]
-    }]))
-  });
+    authMethod
+  }));
 }
 
 function publicError(code, message, overrides = {}) {
@@ -260,12 +255,12 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         nextAction: 'Review provider permissions, then connect the sandbox account.'
       }), 401);
       return fulfill({
-        login: 'alpha-tester', name: 'Alpha Tester', avatar: '', provider: scenario.provider,
-        authMethod: 'token', offlineCacheScope: SCOPE,
+        login: scenario.login || 'alpha-tester', name: 'Alpha Tester', avatar: '', provider: scenario.provider,
+        authMethod: scenario.authMethod || 'token', offlineCacheScope: SCOPE,
         caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true }
       });
     }
-    if (pathname === '/api/capabilities') return fulfill(capabilityProjection(scenario.provider));
+    if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') return fulfill(capabilityProjection(scenario.provider, scenario.authMethod));
     if (pathname === '/api/safety') return fulfill({ readOnly: false, freezeSync: false, protected: {} });
     /*
      * The overview asks for this once it is on screen, so every fixture that
@@ -280,9 +275,12 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     });
     if (pathname === '/api/github-app/status') return fulfill({ enabled: true, webhookConfigured: true, connections: [] });
     if (pathname === '/api/repos') {
+      if (method === 'POST') return fulfill({ id: 12, full_name: 'sandbox/demo', default_branch: 'main', verified: true }, 201);
       if (scenario.repositoryState === 'empty') return fulfill([]);
       return fulfill([{ full_name: 'sandbox/demo', name: 'demo', owner: 'sandbox', private: true, description: 'Disposable alpha sandbox', language: 'JavaScript', stars: 0, forks: 0, pushed_at: new Date().toISOString() }]);
     }
+    if (pathname === '/api/search') return fulfill([{ repo: 'sandbox/demo', path: 'README.md' }]);
+    if (pathname === '/api/notifications') return fulfill([{ id: 'n1', repo: 'sandbox/demo', title: 'Review requested', type: 'PullRequest', reason: 'mention', unread: true }]);
     if (pathname === '/api/repo/sandbox/demo' && method === 'GET') {
       if (scenario.repositoryState === 'error') return fulfill(publicError('REPOSITORY_TEMPORARILY_UNAVAILABLE', 'The sandbox repository could not be opened.', {
         nextAction: 'Retry opening the allowlisted sandbox repository.'

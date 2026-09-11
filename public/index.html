@@ -299,8 +299,8 @@
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </button>
     <div class="topbar-actions">
-      <button class="btn btn-ghost" id="newRepoBtn" data-feature="repository.create" aria-label="Create repository"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm"> New repo</span></button>
-      <button class="btn btn-ghost icon-btn" data-feature="notifications" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg></button>
+      <button class="btn btn-ghost" id="newRepoBtn" data-feature="repository.create" data-allow-experimental="true" aria-label="Create repository"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm"> New repo</span></button>
+      <button class="btn btn-ghost icon-btn" data-feature="notifications" data-allow-experimental="true" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg></button>
       <button class="btn btn-ghost icon-btn" id="settingsBtnRepos" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button class="theme-toggle" id="themeBtn" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
         <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
@@ -347,7 +347,7 @@
           <option value="full_name">Name</option>
         </select>
         <input id="repoFilter" class="search-input" type="search" placeholder="Filter repositories…" aria-label="Filter repositories">
-        <button class="btn btn-ghost small" id="repoGlobalSearchBtn" data-feature="global-search">Search code</button>
+        <button class="btn btn-ghost small" id="repoGlobalSearchBtn" data-feature="global-search" data-allow-experimental="true">Search code</button>
       </div>
     </div>
     <div class="repo-grid" id="repoGrid"></div>
@@ -750,7 +750,7 @@
     <button class="sheet-item" data-feature="branches.write" data-act="branches"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg><span>Manage branches</span></button>
     <button class="sheet-item" data-feature="repository.read" data-act="zip"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5v11M6.5 9l5.5 5.5L17.5 9M4 20.5h16"/></svg><span>Download repo (.zip)</span></button>
     <button class="sheet-item" data-act="theme"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg><span>Toggle theme</span></button>
-    <button class="sheet-item danger" data-feature="repository.delete" data-act="delrepo"><svg class="ico" width="19" height="19" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg><span>Delete repository…</span></button>
+    <button class="sheet-item danger" data-feature="repository.delete" data-allow-experimental="true" data-act="delrepo"><svg class="ico" width="19" height="19" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg><span>Delete repository…</span></button>
     <button class="sheet-item" data-feature="recovery" data-act="safeguards"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/><path d="M9.5 12l1.8 1.8 3.4-3.6"/></svg><span>Safeguards</span></button>
     <button class="sheet-item" data-act="settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span>Settings</span></button>
   </div>

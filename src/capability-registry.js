@@ -1,5 +1,6 @@
 'use strict';
 const fs = require('fs');
+const { connectionRestriction } = require('./github-account-operations');
 
 class CapabilityError extends Error {
   constructor(message, code, status = 409) {
@@ -76,9 +77,14 @@ function resolveCapability(document, context) {
   const tuple = document.providers?.[provider]?.[deployment]?.[feature];
   const fallback = document.defaults;
   const [status, evidenceState, reason] = tuple || [fallback.status, fallback.evidenceState, fallback.reason];
+  const restriction = provider === 'github' && status !== 'Unavailable'
+    ? connectionRestriction(context, feature) : null;
   return deepFreeze({
     feature, provider, authority: String(context.authority || ''),
-    deployment, status, evidenceState, reason, limits: Object.freeze({ ...(fallback.limits || {}) })
+    deployment, status: restriction ? 'Unavailable' : status, evidenceState,
+    reason: restriction ? restriction.reason : reason,
+    ...(restriction ? { availabilityCode: restriction.code, implementationStatus: status } : {}),
+    limits: Object.freeze({ ...(fallback.limits || {}) })
   });
 }
 
@@ -95,7 +101,7 @@ function projectCapabilities(document, context) {
 function assertCapabilityAvailable(document, context) {
   const resolved = resolveCapability(document, context);
   if (resolved.status === 'Unavailable') {
-    throw new CapabilityError(resolved.reason, 'PROVIDER_CAPABILITY_UNAVAILABLE');
+    throw new CapabilityError(resolved.reason, resolved.availabilityCode || 'PROVIDER_CAPABILITY_UNAVAILABLE');
   }
   if (resolved.status === 'Experimental' && context.allowExperimental !== true) {
     throw new CapabilityError(resolved.reason, 'PROVIDER_CAPABILITY_EXPERIMENTAL');

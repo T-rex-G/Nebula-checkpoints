@@ -5,6 +5,7 @@
   const VALID_STATUS = new Set(['Supported', 'Experimental', 'Unavailable']);
   const FALLBACK_REASON = 'Capability status could not be loaded. Retry after the service is ready.';
   let noteSequence = 0;
+  let loadSequence = 0;
   let projection = Object.freeze({
     provider: 'github',
     authority: 'github.com',
@@ -219,14 +220,16 @@
     return controls.map(element => decision(element.dataset.feature));
   }
 
-  async function load(provider, authority) {
+  async function load(provider, authority, options = {}) {
+    const sequence = ++loadSequence;
     const normalizedProvider = ['github', 'gitlab', 'gitea'].includes(String(provider || '').toLowerCase())
       ? String(provider).toLowerCase()
       : 'github';
     const normalizedAuthority = String(authority || (normalizedProvider === 'github' ? 'github.com' : '')).toLowerCase();
     const query = new URLSearchParams({ provider: normalizedProvider, authority: normalizedAuthority });
     try {
-      const response = await fetch(`/api/capabilities?${query}`, {
+      const endpoint = options.connected ? '/api/account/capabilities' : '/api/capabilities';
+      const response = await fetch(`${endpoint}?${query}`, {
         credentials: 'same-origin',
         cache: 'no-store',
         headers: { 'x-nv': '1' }
@@ -239,6 +242,7 @@
         feature,
         freezeDecision({ ...value, feature })
       ]));
+      if (sequence !== loadSequence) return projection;
       projection = Object.freeze({
         provider: normalizedProvider,
         authority: String(body.authority || normalizedAuthority),
@@ -246,6 +250,7 @@
         features: Object.freeze(features)
       });
     } catch {
+      if (sequence !== loadSequence) return projection;
       projection = Object.freeze({
         provider: normalizedProvider,
         authority: normalizedAuthority,

@@ -3,6 +3,10 @@
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 
+// Pixel subtraction measures only the shadow when the decorative background
+// stays at the same phase in both captures. Keep the shadow bound unchanged.
+test.use({ contextOptions: { reducedMotion: 'reduce' } });
+
 /*
  * The primary button was reported twice as having "visible box edges, not a
  * clean shadow", and the first fix missed because it was aimed at a hard edge
@@ -43,6 +47,9 @@ async function shadowReach(page, theme) {
   const button = page.locator('#reposRefreshBtn');
   await button.waitFor({ state: 'visible' });
   await page.waitForTimeout(900);
+  if (theme === 'light') {
+    await expect(page.locator('#lightWaves')).toHaveAttribute('data-wave-state', 'still');
+  }
 
   const box = await button.boundingBox();
   const ratio = await page.evaluate(() => window.devicePixelRatio || 1);

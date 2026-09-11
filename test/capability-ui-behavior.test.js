@@ -153,6 +153,18 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
     'unknown features must fail closed'
   );
 
+  // An older account response must never overwrite the latest projection.
+  const pending = [];
+  sandbox.fetch = (url, options) => new Promise(resolve => pending.push({ url, options, resolve }));
+  const firstAccount = window.NebulaCapabilityUI.load('gitlab', 'gitlab.com', { connected: true });
+  const secondAccount = window.NebulaCapabilityUI.load('gitlab', 'gitlab.com', { connected: true });
+  assert(pending.every(call => call.url.startsWith('/api/account/capabilities?')));
+  assert(pending.every(call => call.options.cache === 'no-store' && call.options.credentials === 'same-origin'));
+  pending[1].resolve({ ok: true, json: async () => body });
+  await secondAccount;
+  pending[0].resolve({ ok: false, json: async () => ({}) });
+  await firstAccount;
+  assert.strictEqual(window.NebulaCapabilityUI.decision('file.read').status, 'Supported');
   console.log('capability UI behavior tests passed');
 })().catch(error => {
   console.error(error.stack || error);

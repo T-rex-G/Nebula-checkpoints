@@ -46,14 +46,42 @@ mutations remain blocked.
 
 ## GitHub — evidence-bounded alpha subset
 
-Counted from the capability registry: 20 Supported, 10 Experimental, 4 Unavailable. Of those, 15 carry
+Counted from the capability registry: 20 Supported, 14 Experimental, 0 Unavailable. Of those, 15 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
 | Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; single-commit batch; native push; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; access-surface analysis; dependency audit; recovery; governance; upload security |
-| Experimental | file rename; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; Git LFS; folder move; live events |
-| Unavailable | repository create/delete; global search; notifications |
+| Experimental | repository create/delete; global search; notifications; file rename; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; Git LFS; folder move; live events |
+| Unavailable | none at the provider level; connection permissions and invitation scopes still apply |
+
+Repository creation/deletion, global search, and notifications are usable
+experimental operations with deterministic coverage, not new live-provider
+qualification claims. Creation verifies the personal account identity and reads
+the resulting repository back by name and ID. An existing restricted invitation
+must already authorize the exact new repository name; creation never expands
+its scope. With invitations off, the normal connected account can create in its
+personal namespace. Organization creation is not included in this flow.
+
+Deletion requires the full `owner/repository` confirmation, fresh step-up,
+administrator access, and provider permission. OAuth/classic connections need
+`delete_repo`; ordinary OAuth sign-in still requests only `repo`, so deletion
+needs a suitably authorized connection. OAuth users can explicitly choose
+**Accounts → Allow repository deletion on GitHub** to request `delete_repo`;
+the app never adds it to ordinary sign-in automatically. Existing safeguards
+and governance apply.
+An installation connection additionally needs Administration write permission
+and a fresh administrator permission check for the human who connected it.
+
+Restricted invitations search and fetch notifications through their exact
+GitHub repositories, with results checked again before returning them. Search
+returns up to 25 matches; notifications return up to 30 recent threads. With
+invitations off, search uses GitHub's accessible code index (public and permitted
+private repositories), and notifications use the connected user's inbox.
+Installation connections cannot create personal repositories. GitHub
+installation and fine-grained-token connections cannot read notifications.
+`/api/account/capabilities` privately projects these connection restrictions;
+the public `/api/capabilities` remains a provider-level description.
 
 Repository read, branch read/write, bounded file read/write/delete, the recursive
 tree and provider rate-limit reads, the pull-request, issue, workflow and

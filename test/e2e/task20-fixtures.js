@@ -59,7 +59,11 @@ async function mockTask20Api(page, state = {}) {
 
     if (pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'off', authenticated: true, access: 'active' } });
     if (pathname === '/api/config') return route.fulfill({ json: { oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, contentsMaxMb: 40 } });
-    if (pathname === '/api/capabilities') return route.fulfill({ json: capabilities() });
+    // Signed-in sessions request the account projection; both describe this
+    // fixture's ordinary GitHub token. Keep unrelated API routes fail-closed.
+    if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') {
+      return route.fulfill({ json: capabilities() });
+    }
     if (pathname === '/api/me') return route.fulfill({ json: {
       login: 'alice', name: 'Alice', avatar: '', provider: 'github', authMethod: 'token',
       caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true },

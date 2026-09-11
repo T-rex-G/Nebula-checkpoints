@@ -197,17 +197,19 @@ function validateSemanticRepositorySurfaces(source) {
     ]],
     ['POST', '/api/repos', [
       'providerSessionAccess',
-      "capabilityAccess('repository.create')",
+      "capabilityAccess('repository.create', { allowExperimental: true })",
+      'repositoryCreationAccess',
       'auth'
     ]],
     ['GET', '/api/search', [
       'providerSessionAccess',
-      "capabilityAccess('global-search')",
+      "capabilityAccess('global-search', { allowExperimental: true })",
+      'githubSearchAccess',
       'auth'
     ]],
     ['GET', '/api/notifications', [
       'providerSessionAccess',
-      "capabilityAccess('notifications')",
+      "capabilityAccess('notifications', { allowExperimental: true })",
       'auth'
     ]],
     ['POST', '/api/security/step-up', [
@@ -303,8 +305,8 @@ for (const provider of ['github', 'gitlab', 'gitea']) {
   for (const feature of ['repository.create', 'repository.delete', 'global-search', 'notifications']) {
     assert.deepStrictEqual(
       features[feature].slice(0, 2),
-      ['Unavailable', 'Unavailable'],
-      `${provider} ${feature} must be explicitly unavailable without false provider parity`
+      provider === 'github' ? ['Experimental', 'Deterministic'] : ['Unavailable', 'Unavailable'],
+      `${provider} ${feature} must preserve its evidenced capability level without false provider parity`
     );
   }
 }

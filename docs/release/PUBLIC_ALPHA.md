@@ -41,10 +41,15 @@ golden path. Root-host-only GitLab and Gitea installations are eligible for the
 cohort; installations whose provider base URL contains a path prefix remain
 unavailable. GitLab and Gitea expose only their registry-qualified subsets.
 
-Global notifications are unavailable because they cannot be constrained to an
-invitation's exact repository allowlist. Repository creation and deletion are
-unavailable, and global search is unavailable. These operations fail before
-provider credentials or provider transport are used.
+GitHub repository creation/deletion, global search, and notifications are
+available as experimental operations through compatible personal connections.
+Existing invitations retain their exact repository scopes, including any
+pre-authorized new repository name. Search and notifications enforce those
+scopes on the server. Deletion also requires full-name confirmation, fresh
+step-up, administrator access and provider deletion permission. Installation
+connections cannot create personal repositories; installation and fine-grained
+connections cannot read GitHub notifications. These restrictions are explained
+by the account capability projection. No additional live qualification is claimed.
 
 Do not use production repositories, irreplaceable source or data, active
 deployment credentials, real secrets, regulated/personal data, or any repository

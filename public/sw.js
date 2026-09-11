@@ -11,6 +11,7 @@ const PRECACHE = [
   `/app.js?v=__NV_ASSET_VERSION__`, `/alpha-ui.js?v=__NV_ASSET_VERSION__`, `/capability-ui.js?v=__NV_ASSET_VERSION__`, `/trust-ui.js?v=__NV_ASSET_VERSION__`,
   `/repo-sigil.js?v=__NV_ASSET_VERSION__`,
   `/workspace-pulse.js?v=__NV_ASSET_VERSION__`, `/nebula-visuals.js?v=__NV_ASSET_VERSION__`,
+  `/light-waves.js?v=__NV_ASSET_VERSION__`,
   `/governance-ui.js?v=__NV_ASSET_VERSION__`, `/neural.js?v=__NV_ASSET_VERSION__`,
   '/manifest.webmanifest', '/assets/icon.svg', '/assets/icon-192.png'
 ];

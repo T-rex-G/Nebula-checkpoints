@@ -59,9 +59,13 @@ resolution or transport. The cohort accepts root-host-only GitLab and Gitea
 installations; path-rooted provider installations remain unavailable even
 though the broader product retains that capability.
 
-Global notifications, repository creation and deletion, and global search are
-unavailable because they cannot be bounded to the invitation repository
-allowlist. Cohort administration remains a local-only invite CLI. Plaintext
+GitHub repository creation/deletion, code search, and notifications are usable
+experimental operations through ordinary connected accounts. Exact invitation
+scopes still bound creation targets, deletion targets, search, and notifications.
+Creation verifies the provider identity and repository readback; deletion keeps
+fresh step-up, full-name confirmation, and provider administrator checks.
+Connection-specific restrictions are privately projected to the interface.
+Cohort administration remains a local-only invite CLI. Plaintext
 invitation secrets are displayed once at issue time; PostgreSQL retains only a
 keyed digest, never the plaintext code. The branch implements these controls,
 but Plan 2 final branch review is pending and this architecture description is

@@ -419,6 +419,73 @@ check('the stylesheet actually carries overlay exits', () => {
   });
 });
 
+/* ---------------- typed on a phone ---------------- */
+
+check('every exact-match confirmation declines the phone keyboard', () => {
+  /*
+   * The server compares these character for character. iOS turns autocorrect
+   * and smart punctuation on by default and neither is disabled by
+   * spellcheck="false" -- a login with hyphens comes back with en-dashes in
+   * their place, indistinguishable at a glance and guaranteed to fail. Any
+   * input the user must retype exactly has to decline those features.
+   */
+  const ids = ['stepUpLogin', 'alphaDeleteConfirm', 'recConfirm'];
+  ids.forEach(id => {
+    const tag = appSource.match(new RegExp(`<input id="${id}"[^>]*>`));
+    assert.ok(tag, `${id} is gone`);
+    for (const attribute of ['autocorrect="off"', 'autocapitalize="off"', 'spellcheck="false"']) {
+      assert.ok(tag[0].includes(attribute),
+        `${id} does not set ${attribute}, so a phone keyboard can silently rewrite what is typed into it`);
+    }
+  });
+});
+
+check('a mismatch is named before a request is spent on it', () => {
+  const fn = appSource.slice(appSource.indexOf('async function requestStepUp'));
+  const body = fn.slice(0, fn.indexOf('\nasync function stepUpApi'));
+  assert.ok(/confirm !== login/.test(body),
+    'the typed value is never compared here, so a mismatch costs a round trip and comes back as a dialog that cannot say what was wrong');
+  assert.ok(/return ''/.test(body.slice(body.indexOf('confirm !== login'))),
+    'a mismatch does not stop the flow, so it is sent anyway');
+});
+
+/* ---------------- a way out of the sheet ---------------- */
+
+check('the bottom sheet offers a control that closes it', () => {
+  /*
+   * Dismissal was a swipe, the scrim, or Escape, and the sheet showed none of
+   * them. A tall menu on a phone leaves the scrim a thin strip, so a reader
+   * who does not know the gesture has nothing to press.
+   */
+  assert.ok(/id="sheetClose"/.test(htmlSource), 'the sheet has no close control');
+  const tag = htmlSource.match(/<button[^>]*id="sheetClose"[^>]*>/)[0];
+  assert.ok(/aria-label="[^"]+"/.test(tag), 'the sheet close control has no accessible name');
+  assert.ok(/\$\('#sheetClose'\)[^\n]*addEventListener\('click', closeSheet\)/.test(appSource),
+    'the sheet close control is not wired to closeSheet');
+  const head = cssSource.match(/\.sheet-head\{([^}]*)\}/);
+  assert.ok(head && /position:sticky/.test(head[1]),
+    'the sheet header is not sticky, so the way out scrolls off the top of a long menu');
+});
+
+/* ---------------- state chips on a narrow bar ---------------- */
+
+check('the state chips keep their names after losing their words', () => {
+  ['roChip', 'freezeChip'].forEach(id => {
+    const tag = htmlSource.match(new RegExp(`<span[^>]*id="${id}"[^>]*>`));
+    assert.ok(tag, `${id} is gone`);
+    assert.ok(/title="[^"]+"/.test(tag[0]), `${id} has no tooltip, so a pointer gets no name`);
+  });
+  /*
+   * Visually hidden, not display:none. The word is what a screen reader reads;
+   * removing it from the box would take the meaning with the width.
+   */
+  const rule = cssSource.match(/\.ro-chip \.ro-word\{([^}]*)\}/);
+  assert.ok(rule, 'nothing hides the chip words on a narrow bar');
+  assert.ok(!/display\s*:\s*none/.test(rule[1]),
+    'the chip word is display:none, which takes it out of the accessibility tree along with the layout');
+  assert.ok(/clip/.test(rule[1]), 'the chip word is not visually hidden in a way that keeps it readable');
+});
+
 /* ---------------- chrome that had to be seen to be wrong ---------------- */
 
 check('a destructive confirm is filled, not red lettering on a violet fill', () => {

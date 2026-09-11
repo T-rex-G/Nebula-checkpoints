@@ -189,7 +189,7 @@ async function requestStepUp(action, scope, label = 'sensitive action') {
     okText: 'Authorize once',
     bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(label)}</b> requires a short-lived, single-use authorization bound to this exact operation.</p>
       <label class="field-label" for="stepUpLogin">Type the active account login <b class="mono">${esc(login)}</b></label>
-      <input id="stepUpLogin" type="text" autocomplete="off" spellcheck="false">
+      <input id="stepUpLogin" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" inputmode="text">
       ${tokenMethod ? `<label class="field-label" for="stepUpCredential">Re-enter the current provider token</label><input id="stepUpCredential" type="password" autocomplete="off" spellcheck="false">` : `<p class="hint">Allowing this on GitHub decides whether the account <em>may</em> do it at all, once. This is the separate question of whether to do it <em>now</em>: the authorization is checked against the provider again, lasts five minutes, and works a single time.</p>`}`
   });
   if (!ok) return '';
@@ -199,6 +199,23 @@ async function requestStepUp(action, scope, label = 'sensitive action') {
   const credential = credentialInput ? credentialInput.value.trim() : '';
   if (loginInput) loginInput.value = '';
   if (credentialInput) credentialInput.value = '';
+  /*
+   * The server compares this character for character, and rejects a mismatch
+   * with a dialog that cannot say what arrived -- it must not echo back what
+   * was typed. So the comparison happens here too, where the two strings are
+   * both in hand and the difference can be named.
+   *
+   * A phone keyboard is the reason this matters. iOS autocorrect and smart
+   * punctuation are on by default and are *not* turned off by spellcheck;
+   * a login with hyphens in it comes back with en-dashes where the hyphens
+   * were, looking identical at a glance and failing an exact match. The
+   * inputs now decline those keyboard features outright, and this catches
+   * anything that still slips through without spending a request on it.
+   */
+  if (confirm !== login) {
+    toast(`That does not match ${login} exactly — check for autocorrect changing the dashes or the capitals.`, 'err');
+    return '';
+  }
   const result = await api('/api/security/step-up', {
     method: 'POST', body: { action, scope, confirm, ...(tokenMethod ? { credential } : {}) }
   });
@@ -1034,7 +1051,7 @@ async function deleteAlphaData() {
     okText: 'Delete alpha data',
     danger: true,
     bodyHTML: `<p class="hint">This fails closed until provider cleanup is verified. Type <span class="mono">DELETE ALPHA DATA</span> to continue.</p>
-      <input id="alphaDeleteConfirm" type="text" autocomplete="off" spellcheck="false" aria-label="Deletion confirmation">`
+      <input id="alphaDeleteConfirm" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" inputmode="text" aria-label="Deletion confirmation">`
   });
   if (!accepted) return;
   const confirmation = String($('#alphaDeleteConfirm') && $('#alphaDeleteConfirm').value || '');
@@ -2961,7 +2978,7 @@ async function recoveryFlow() {
       title: 'Confirm branch reference recovery', okText: 'Restore refs', danger: true,
       bodyHTML: `<p class="hint">This force-updates or recreates <b>${actions.length}</b> branch reference(s). Commits created after the snapshot are not deleted, but these branches will no longer point to them.</p>
         <label class="field-label" for="recConfirm">Type <span class="mono">RESTORE</span> to confirm</label>
-        <input id="recConfirm" type="text" autocomplete="off" spellcheck="false" placeholder="RESTORE">`
+        <input id="recConfirm" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" inputmode="text" placeholder="RESTORE">`
     });
     if (!confirm) return;
     const confirmation = $('#recConfirm');
@@ -3590,6 +3607,7 @@ $('#sideScrim').addEventListener('click', closeDrawer);
 function openSheet() { openOverlay($('#sheetScrim')); }
 function closeSheet() { closeOverlay($('#sheetScrim')); }
 $('#sheetScrim').addEventListener('click', e => { if (e.target === $('#sheetScrim')) closeSheet(); });
+$('#sheetClose') && $('#sheetClose').addEventListener('click', closeSheet);
 $('#sheet').addEventListener('click', e => {
   const item = e.target.closest('.sheet-item');
   if (!item) return;

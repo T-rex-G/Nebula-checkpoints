@@ -48,7 +48,14 @@ async function shadowReach(page, theme) {
   await button.waitFor({ state: 'visible' });
   await page.waitForTimeout(900);
   if (theme === 'light') {
-    await expect(page.locator('#lightWaves')).toHaveAttribute('data-wave-state', 'still');
+    /*
+     * What this needs is a ground that is not moving, so the two screenshots
+     * differ only by the shadow. Held still satisfies that; so does absent,
+     * and on this screen the ground now stands aside for the galaxy rather
+     * than running underneath it. Asserting "not running" keeps the guarantee
+     * the measurement depends on without also pinning which of the two it is.
+     */
+    await expect(page.locator('#lightWaves')).not.toHaveAttribute('data-wave-state', 'running');
   }
 
   const box = await button.boundingBox();

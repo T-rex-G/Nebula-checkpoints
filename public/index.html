@@ -300,7 +300,7 @@
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </button>
     <div class="topbar-actions">
-      <button class="btn btn-ghost" id="newRepoBtn" data-feature="repository.create" data-allow-experimental="true" aria-label="Create repository"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm"> New repo</span></button>
+      <button class="btn btn-ghost hide-sm" id="newRepoBtn" data-feature="repository.create" data-allow-experimental="true" aria-label="Create repository"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm"> New repo</span></button>
       <button class="btn btn-ghost icon-btn" data-feature="notifications" data-allow-experimental="true" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg></button>
       <button class="btn btn-ghost icon-btn" id="settingsBtnRepos" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button class="theme-toggle" id="themeBtn" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
@@ -349,6 +349,13 @@
         </select>
         <input id="repoFilter" class="search-input" type="search" placeholder="Filter repositories…" aria-label="Filter repositories">
         <button class="btn btn-ghost small" id="repoGlobalSearchBtn" data-feature="global-search" data-allow-experimental="true">Search code</button>
+        <!--
+          The same action as the top bar's, placed where the work is. It shows
+          only on a narrow screen, where the bar has no room for it; above the
+          breakpoint the bar keeps it and this one stands down, so the action
+          is offered exactly once at every width.
+        -->
+        <button class="btn btn-ghost small show-sm" id="newRepoBtnRepos" data-feature="repository.create" data-allow-experimental="true" aria-label="Create repository"><svg width="15" height="15" class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Create repository</span></button>
       </div>
     </div>
     <div class="repo-grid" id="repoGrid"></div>

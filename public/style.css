@@ -235,6 +235,21 @@ em{color:var(--teal);font-style:normal}
 #lightWaves{display:none;position:fixed;inset:0;width:100%;height:100%;z-index:-1;
   pointer-events:none;contain:strict;opacity:.8}
 [data-theme="light"] #lightWaves{display:block}
+/*
+ * The moving ground yields to a screen that draws its own artwork.
+ *
+ * The repositories screen mounts the galaxy, which is full-bleed and moving
+ * already. Running the waves underneath put two independent animations at two
+ * unrelated speeds on one screen, and they read as interference rather than as
+ * depth -- the galaxy is the subject there, and the ground was arguing with it.
+ * Every other screen keeps the waves.
+ *
+ * display:none, not opacity or a paint trick: light-waves.js measures its own
+ * box and holds when there is nothing to measure, so removing it from the
+ * layout ends the render loop as well as the picture, without the module
+ * needing to know that screens exist.
+ */
+[data-theme="light"] body:has(#page-repos.active) #lightWaves{display:none}
 @media(min-width:1140px){
   body:has(#page-overview.active, #page-repos.active, #page-work.active) #lightWaves{
     inset:23px;width:calc(100% - 46px);height:calc(100% - 46px);border-radius:23px}
@@ -554,6 +569,22 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   body #page-repos .page-head-tools .search-input{grid-column:1 / -1;grid-row:1;max-width:none;width:100%}
   body #page-repos .page-head-tools .branch-select{grid-column:1;grid-row:2;max-width:none;width:100%}
   body #page-repos .page-head-tools .btn{grid-column:2;grid-row:2;align-self:stretch}
+  /*
+   * The create control joins this toolbar on a phone, where the top bar has no
+   * room for it -- and a fourth control does not fit the two-cell grid above.
+   * That grid places by rule rather than by order, so an unplaced control
+   * lands in a cell that is already taken and the two draw on top of each
+   * other: both visible, only the upper one pressable.
+   *
+   * Rather than hand-place a third row, the toolbar flows when the extra
+   * control is present. Four items of their own widths wrap on their own, and
+   * nothing has to be repositioned when a fifth arrives.
+   */
+  body #page-repos .page-head-tools:has(#newRepoBtnRepos){
+    display:flex;flex-wrap:wrap;justify-content:flex-start}
+  body #page-repos .page-head-tools:has(#newRepoBtnRepos) .search-input{flex:1 0 100%;max-width:none}
+  body #page-repos .page-head-tools:has(#newRepoBtnRepos) .branch-select{flex:1 1 auto;max-width:none}
+  body #page-repos .page-head-tools:has(#newRepoBtnRepos) .btn{flex:0 0 auto}
   /*
    * The toolbar sticks under the bar. An inventory is a list you scroll and
    * then want to narrow, and the control for narrowing it was at the top of
@@ -2067,9 +2098,24 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   min-width:210px;max-width:min(280px, calc(100vw - 32px));padding:8px;
   border-radius:18px;border:1px solid var(--glass-border);background:var(--card2);
   box-shadow:var(--cardShadow);
-  animation:fabMenuIn .2s var(--ease) both}
+  animation:fabMenuIn .24s var(--ease-settle) both}
 .nv-fab-menu[hidden]{display:none}
-@keyframes fabMenuIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes fabMenuIn{from{opacity:0;transform:translateY(10px) scale(.96)}55%{opacity:1}to{opacity:1;transform:none}}
+/* It leaves the way it arrived, and stops taking presses while it does. */
+@keyframes fabMenuOut{to{opacity:0;transform:translateY(8px) scale(.97)}}
+.nv-fab-menu[data-closing]{animation:fabMenuOut .18s ease both}
+/*
+ * Motion off reaches this layer like the other six, and the exit is what the
+ * script measures -- with no animation the close is synchronous. The prefixes
+ * exist to outweigh the [data-closing] rule above, which is more specific than
+ * a bare class and would otherwise keep running with motion switched off.
+ */
+[data-motion="off"] .nv-fab-menu,
+[data-motion="off"] .nv-fab-menu[data-closing]{animation:none}
+@media (prefers-reduced-motion:reduce){
+  :root .nv-fab-menu,
+  :root .nv-fab-menu[data-closing]{animation:none}
+}
 @media (prefers-reduced-motion:reduce){ .nv-fab-menu{animation:none} .nv-fab{transition:none} }
 .nv-fab-item{display:flex;align-items:center;gap:11px;width:100%;min-height:46px;
   font:inherit;font-size:.88rem;font-weight:500;text-align:left;color:var(--text);

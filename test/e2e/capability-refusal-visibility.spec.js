@@ -48,6 +48,16 @@ async function repositoriesScreen(page) {
  * length of it, and that has nothing to do with what is being asserted.
  */
 async function pressWithPointer(page, locator) {
+  /*
+   * Brought into view before its coordinates are read. The poll below asks
+   * whether a pointer at the control's own centre lands on it, which is only
+   * a question about layering if the control is on screen at all -- a control
+   * further down the page answers "no" for the ordinary reason that nothing is
+   * there, and the press being tested is one a reader makes after scrolling to
+   * it. locator.click() is still avoided: it treats aria-disabled as disabled
+   * and would wait forever for a control that is meant to stay pressable.
+   */
+  await locator.scrollIntoViewIfNeeded();
   await expect
     .poll(() => locator.evaluate(element => {
       const box = element.getBoundingClientRect();

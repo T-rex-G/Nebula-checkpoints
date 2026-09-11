@@ -551,8 +551,10 @@ function floatingActionsFor(name) {
 function closeFloatingActions({ restoreFocus = true } = {}) {
   const fab = $('#paletteFab');
   const menu = $('#fabMenu');
-  if (!fab || !menu || menu.hidden) return;
-  menu.hidden = true;
+  if (!fab || !menu || !overlayOpen(menu)) return;
+  /* The seventh layer, and the last one still cut away: it arrived on an
+     animation and left without one, like the other six used to. */
+  closeOverlay(menu);
   fab.setAttribute('aria-expanded', 'false');
   if (restoreFocus && fab.offsetParent !== null) fab.focus();
 }
@@ -561,12 +563,14 @@ function openFloatingActions() {
   const fab = $('#paletteFab');
   const menu = $('#fabMenu');
   if (!fab || !menu) return;
-  menu.hidden = false;
+  openOverlay(menu);
   fab.setAttribute('aria-expanded', 'true');
   /* Whatever the page was doing, the control stays while its menu is open. */
   setFloatingActionRetracted(false);
   const first = menu.querySelector('.nv-fab-item:not([hidden])');
-  if (first) first.focus();
+  /* Focused while the menu is still rising; without this the browser scrolls
+     it into view mid-animation and the rise reads as a stutter. */
+  if (first) first.focus({ preventScroll: true });
 }
 
 /*
@@ -823,6 +827,32 @@ const ED_THEMES = [
   ['nord', 'Nord'], ['ayu-mirage', 'Ayu Mirage'], ['base16-light', 'Base16 Light'], ['eclipse', 'Eclipse (light)']
 ];
 const ED_FONTS = ['DM Mono', 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'IBM Plex Mono'];
+
+/*
+ * A sign-in that did not complete comes back here rather than stopping on a
+ * bare page, and says which of the several reasons it was. The provider's own
+ * words are used where it gave any -- bad_verification_code is a spent or
+ * expired code, which is what a reloaded callback produces -- and the
+ * parameter is dropped from the address bar so a refresh does not repeat the
+ * message about an attempt that is over.
+ */
+const OAUTH_FAILURES = Object.freeze({
+  state_mismatch: 'that sign-in did not match this browser session. Start it again from this page.',
+  provider_unreadable: 'GitHub did not answer in a form we could read. It may be rate-limiting; try again shortly.',
+  bad_verification_code: 'that sign-in link had already been used. Start a fresh one.',
+  exchange_failed: 'GitHub declined the sign-in.',
+  unexpected: 'something failed part-way through.'
+});
+function oauthCallbackNotice() {
+  const params = new URLSearchParams(location.search);
+  const reason = params.get('oauth');
+  if (!reason) return;
+  params.delete('oauth');
+  const query = params.toString();
+  history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
+  const detail = OAUTH_FAILURES[reason] || `it failed (${reason.replace(/_/g, ' ')}).`;
+  toast(`Could not finish signing in with GitHub — ${detail}`, 'err');
+}
 
 function githubAppCallbackNotice() {
   const params = new URLSearchParams(location.search);
@@ -1283,6 +1313,7 @@ async function loadRuntimeConfig(attempt = 0) {
 async function boot() {
   loadSettings();
   githubAppCallbackNotice();
+  oauthCallbackNotice();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   updateNetBar();
   /*
@@ -1570,6 +1601,10 @@ async function globalCodeSearch(query) {
     if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(error.message)}</p>`;
   }
 }
+[$('#newRepoBtn'), $('#newRepoBtnRepos')]
+  .filter(Boolean)
+  .forEach(control => control.addEventListener('click', createRepositoryFlow));
+
 $('#repoFilter').addEventListener('keydown', e => {
   if (e.key === 'Enter') globalCodeSearch(e.target.value);
 });
@@ -1833,7 +1868,13 @@ $('#backBtn').addEventListener('click', () => {
   state.staged = []; renderStagedCount();
   showPage('repos');
 });
-$('#newRepoBtn').addEventListener('click', async () => {
+/*
+ * One handler, two controls. The top bar carries this above the breakpoint and
+ * the repositories filter row carries it below, because the bar had no room
+ * for it on a phone -- but they are the same action, so they share the same
+ * function rather than growing a second copy that can drift from it.
+ */
+async function createRepositoryFlow() {
   const accountScope = state.me && state.me.offlineCacheScope;
   const ok = await modal({
     title: 'New repository',
@@ -1854,7 +1895,7 @@ $('#newRepoBtn').addEventListener('click', async () => {
     const [owner, repository] = r.full_name.split('/');
     await openRepo(owner, repository);
   } catch (e) { presentError(e); }
-});
+}
 
 /* ================= WORKSPACE ================= */
 function trustFailureText(result, label) {

@@ -3627,22 +3627,48 @@ app.get('/api/oauth/login', (req, res) => {
   res.redirect(`https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(OAUTH_ID)}&scope=${encodeURIComponent(scope)}&state=${stateVal}`);
 });
 app.get('/api/oauth/callback', async (req, res) => {
+  /*
+   * Every failure here used to end on a bare page: a sentence of unstyled text
+   * on white, no navigation, nothing to press. The only way back into the
+   * application was to edit the address bar by hand, which is not a recovery
+   * a reader on a phone should be asked to perform.
+   *
+   * So a failed sign-in returns to the application and says what happened. The
+   * state cookie is cleared on the way out, because a second attempt must start
+   * a fresh exchange: an authorization code is single-use, and retrying with a
+   * spent one is itself one of the failures being reported.
+   */
+  const abandon = reason => {
+    res.append('Set-Cookie', `nv_oauth=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
+    return res.redirect(`/?oauth=${encodeURIComponent(String(reason || 'failed').slice(0, 64))}`);
+  };
   try {
     const state = getCookie(req, 'nv_oauth');
-    if (!req.query.code || !state || req.query.state !== state)
-      return res.status(400).send('OAuth state mismatch — please retry from the login page.');
+    if (!req.query.code || !state || req.query.state !== state) return abandon('state_mismatch');
     const tr = await fetchT('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ client_id: OAUTH_ID, client_secret: OAUTH_SECRET, code: req.query.code }),
       redirect: 'error'
     });
-    const td = await tr.json();
-    if (!td.access_token) return res.status(400).send('OAuth exchange failed.');
+    /*
+     * Read the body once, as text, and parse it here. The provider answers this
+     * endpoint with an HTML page when it refuses the request outright rather
+     * than the exchange -- a rate limit, an unrecognised client, an outage --
+     * and handing that to a JSON parser throws "Unexpected token '<'", which
+     * then surfaced as the literal text of the failure page.
+     */
+    const raw = await tr.text();
+    let td;
+    try { td = JSON.parse(raw); }
+    catch { return abandon('provider_unreadable'); }
+    /* The provider names its own refusal; an expired or already-spent code
+       arrives here as bad_verification_code rather than as a bare failure. */
+    if (!td.access_token) return abandon(td.error || 'exchange_failed');
     const user = await gh(td.access_token, '/user');
     await addAccount(req, res, td.access_token, user, 'github', '', { authMethod: 'oauth' });
     res.redirect('/');
-  } catch (e) { res.status(500).send('OAuth error: ' + e.message); }
+  } catch (e) { return abandon('unexpected'); }
 });
 app.get('/api/alpha/privacy', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');

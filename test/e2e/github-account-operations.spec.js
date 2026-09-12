@@ -38,7 +38,13 @@ test('personal accounts can read notifications and filter the inventory in place
   const repos = await ui.enterRepositories(page);
   await ui.button(repos, 'Notifications').click();
   await expect(ui.dialog(page, 'Notifications')).toContainText('Review requested');
-  await ui.button(ui.dialog(page, 'Notifications'), 'Close').click();
+  /*
+   * Exact, because the dialog carries two closing controls now: the footer
+   * button named "Close" and the header control named "Close dialog". A
+   * substring match on "Close" reaches both, which is the locator noticing a
+   * real ambiguity rather than a test being fussy.
+   */
+  await ui.dialog(page, 'Notifications').getByRole('button', { name: 'Close', exact: true }).click();
   await expect(repos.getByRole('button', { name: /search code/i })).toHaveCount(0);
   const filter = repos.getByRole('searchbox', { name: 'Filter repositories' });
   await filter.fill('readme');

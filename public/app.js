@@ -460,6 +460,9 @@ function closeModal(v) {
 }
 $('#modalOk').addEventListener('click', () => closeModal(true));
 $('#modalCancel').addEventListener('click', () => closeModal(false));
+/* The header control resolves the same way the footer's Cancel does: a dialog
+   dismissed from the corner has not been confirmed. */
+$('#modalClose') && $('#modalClose').addEventListener('click', () => closeModal(false));
 $('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) closeModal(false); });
 
 /* ---------------- pages ---------------- */

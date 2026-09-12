@@ -356,6 +356,34 @@ check('app.js reaches the overlay rules through the shared module', () => {
     'overlay-motion.js is not precached; offline, app.js would fail to parse and the whole app would be dead');
 });
 
+/* ---------------- the stylesheet has to resolve ---------------- */
+
+/*
+ * An undefined custom property with no fallback does not fail loudly: the whole
+ * declaration becomes invalid at computed-value time, so a border quietly falls
+ * back to currentColor and paints in the text colour, and a colour falls back
+ * to whatever it inherits. Six declarations were shipping that way -- a warning
+ * with no warning colour, governance borders drawn in the text colour, a panel
+ * with no background -- and nothing anywhere reported it.
+ *
+ * A property that is written from JavaScript is legitimately absent from the
+ * stylesheet, which is exactly what the fallback in var(--x, y) is for. So the
+ * rule is not "every property must be defined": it is "every reference must
+ * either resolve or carry a fallback".
+ */
+check('every custom property either resolves or carries a fallback', () => {
+  const defined = new Set([...cssSource.matchAll(/(--[\w-]+)\s*:/g)].map(match => match[1]));
+  const orphans = new Map();
+  for (const match of cssSource.matchAll(/var\(\s*(--[\w-]+)\s*(?!,)\)/g)) {
+    const name = match[1];
+    if (defined.has(name)) continue;
+    if (!orphans.has(name)) orphans.set(name, cssSource.slice(0, match.index).split('\n').length);
+  }
+  assert.strictEqual(orphans.size, 0,
+    `these are referenced with no definition and no fallback, so their declarations are dropped: ${
+      [...orphans].map(([name, line]) => `${name} (line ${line})`).join(', ')}`);
+});
+
 /* ---------------- the cascade ---------------- */
 
 const stripped = cssSource.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -413,6 +441,180 @@ function eachSelector(rule) {
 const exits = rules.filter(rule => rule.selector.includes('[data-closing]') && /animation\s*:/.test(rule.body) && !/animation\s*:\s*none/.test(rule.body))
   .flatMap(eachSelector);
 const stills = rules.filter(rule => /animation\s*:\s*none/.test(rule.body)).flatMap(eachSelector);
+
+/* ---------------- the create mark, the way out, and depth ---------------- */
+
+/*
+ * The ring has to be closed.
+ *
+ * It was an open arc, which left a stroke running off the planet with nothing
+ * terminating it -- at 17px that reads as a letter Q or a magnifier, and the
+ * plus floated unattached in the corner. A closed ellipse is the shape a
+ * reader already knows. This checks the element type rather than the path
+ * data, because "closed" is a property of the geometry, not of a `d` string.
+ */
+check('the create mark draws a closed ring, not an open arc', () => {
+  const button = htmlSource.match(/<button[^>]*data-feature="repository\.create"[\s\S]*?<\/button>/);
+  assert.ok(button, 'the create control is gone');
+  const ring = button[0].match(/<(\w+)[^>]*class="nv-planet-ring"[^>]*\/?>/);
+  assert.ok(ring, 'the ring is gone from the mark');
+  assert.ok(['ellipse', 'circle'].includes(ring[1]),
+    `the ring is a <${ring[1]}>, which can be an open stroke; a closed ellipse or circle cannot be`);
+  assert.ok(!/<path[^>]*class="nv-planet-ring"/.test(button[0]),
+    'the ring is drawn as a path again, which is how the trailing arc got in');
+  /*
+   * The tilt has to live in the cascade. As a transform attribute it loses to
+   * the hover rule's own transform, and the ring snaps flat the moment a
+   * pointer touches the button.
+   */
+  assert.ok(!/class="nv-planet-ring"[^>]*transform=/.test(button[0]),
+    'the ring carries a transform attribute, which the hover rule overrides rather than composes with');
+  const rest = rules.filter(rule => eachSelector(rule).some(one => one.selector.trim() === '.nv-planet-ring'));
+  assert.ok(rest.some(rule => /transform\s*:\s*rotate/.test(rule.body)),
+    'nothing in the cascade tilts the ring, so the planet reads flat');
+});
+
+/*
+ * A dialog needs a visible way out. Escape and a backdrop press both work and
+ * neither is discoverable; on a phone the backdrop is a guess and Escape needs
+ * a keyboard. Settings is the case that made this obvious -- a panel of
+ * switches whose only labelled exit said "Done" at the bottom of a scroll.
+ */
+check('every dialog offers a close control where a reader looks for one', () => {
+  const close = htmlSource.match(/<button[^>]*id="modalClose"[^>]*>/);
+  assert.ok(close, 'the dialog has no close control');
+  /*
+   * "Close dialog", not "Close". An informational dialog's footer button is
+   * already named Close, and two controls sharing one accessible name in one
+   * dialog is ambiguous to a screen reader, not merely to a test locator.
+   */
+  assert.ok(/aria-label="Close dialog"/.test(close[0]),
+    'the close control has no accessible name, or one that collides with a footer button named Close');
+  assert.ok(/title="Close dialog"/.test(close[0]), 'the close control has no tooltip, so a pointer gets no name');
+  /* Wired to the same answer Cancel gives: a dialog dismissed from the corner
+     has not been confirmed. */
+  assert.ok(/#modalClose'\)[\s\S]{0,120}closeModal\(false\)/.test(appSource),
+    'the close control is not wired, or does not resolve the dialog as dismissed');
+  /* And it has to sit beside the title rather than below it. */
+  assert.ok(/<div class="modal-head">[\s\S]{0,400}id="modalClose"/.test(htmlSource),
+    'the close control is outside the dialog header, so it stacks under the title');
+  const head = rules.find(rule => eachSelector(rule).some(one => one.selector.trim() === '.modal-head'));
+  assert.ok(head && /display\s*:\s*flex/.test(head.body),
+    'the dialog header does not lay out as a row, so the control falls below the name');
+  /* 44px of reachable target, however the visible mark is sized. */
+  const mark = rules.filter(rule => /\.modal-close/.test(rule.selector)).map(rule => rule.body).join(';');
+  const reach = [...mark.matchAll(/(?:width|height)\s*:\s*(\d+)px/g)].map(match => Number(match[1]));
+  assert.ok(reach.some(value => value >= 44),
+    `the close control's largest box is ${Math.max(0, ...reach)}px; a touch target needs 44`);
+});
+
+/*
+ * Depth, as material rather than as z-index.
+ *
+ * Every glass surface in the product used one blur, so a dialog floating над a
+ * card was cut from identical stock and nothing about it read as nearer. Real
+ * frosted glass blurs more the further it floats from what is behind it, so
+ * the three levels have to be strictly increasing -- read out of the cascade,
+ * not asserted as numbers here.
+ */
+check('a raised surface is made of different glass than the one it covers', () => {
+  const blurOf = selector => {
+    const own = rules.filter(rule => eachSelector(rule).some(one => one.selector.trim() === selector
+      || one.selector.trim().endsWith(' ' + selector)));
+    for (const rule of own) {
+      const direct = rule.body.match(/backdrop-filter\s*:\s*blur\(\s*([\d.]+)px/);
+      if (direct) return Number(direct[1]);
+      const token = rule.body.match(/backdrop-filter\s*:\s*blur\(\s*var\(\s*(--[\w-]+)/);
+      if (token) {
+        const value = cssSource.match(new RegExp(`${token[1]}\\s*:\\s*([\\d.]+)px`));
+        if (value) return Number(value[1]);
+      }
+    }
+    return null;
+  };
+  const card = blurOf('.card');
+  const raised = blurOf('.sheet');
+  const top = blurOf('.modal');
+  [['.card', card], ['.sheet', raised], ['.modal', top]].forEach(([name, value]) => {
+    assert.ok(typeof value === 'number', `${name} has no resolvable backdrop blur`);
+  });
+  assert.ok(raised > card,
+    `a raised surface blurs ${raised}px and a resting card ${card}px; the same or less makes them one sheet`);
+  assert.ok(top > raised,
+    `a dialog blurs ${top}px and a raised surface ${raised}px; a dialog has to read as the nearest thing on screen`);
+});
+
+/* ---------------- travelling down the page on a phone ---------------- */
+
+/*
+ * The reveals are driven by the scroll position itself. Three things have to
+ * hold or the feature is worse than not having it: it must be gated on support
+ * so an unsupporting browser is not left running the animation on the clock
+ * (which would land every section at its `from` keyframe and hide the page);
+ * it must be gated on reduced motion; and the progress bar must name the
+ * scroller that actually scrolls.
+ */
+check('the phone reveals are driven by scroll, and degrade to nothing', () => {
+  const stripped2 = cssSource.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.ok(/animation-timeline\s*:\s*view\(\)/.test(stripped2),
+    'nothing is driven by a view timeline, so the reveals are not tied to the scroll');
+  /* Every scroll-driven declaration sits inside an @supports for the feature. */
+  const supportsBlocks = [...stripped2.matchAll(/@supports\s*\(animation-timeline:\s*(view|scroll)\(\)\)/g)];
+  assert.ok(supportsBlocks.length >= 2,
+    'the scroll-driven rules are not gated on @supports, so an unsupporting browser runs them on the clock');
+  /*
+   * A declaration ends in `;` or `}`. The text inside `@supports
+   * (animation-timeline: view())` ends in `)`, and counting it as a
+   * declaration is how the first version of this check reported two
+   * ungated uses that did not exist -- it was reading its own gates.
+   */
+  const DECLARED = /animation-timeline\s*:\s*(?:view|scroll)\([^()]*\)\s*[;}]/g;
+  const guarded = stripped2.split(/@supports\s*\(animation-timeline/).slice(1).join('');
+  const timelineUses = (stripped2.match(DECLARED) || []).length;
+  const guardedUses = (guarded.match(DECLARED) || []).length;
+  assert.ok(timelineUses >= 3,
+    `only ${timelineUses} scroll-driven declaration(s) found; this check has nothing to prove`);
+  assert.strictEqual(guardedUses, timelineUses,
+    `${timelineUses - guardedUses} animation-timeline declaration(s) sit outside an @supports gate`);
+  /*
+   * Checked per block, not across the file. The first version asked whether a
+   * reduced-motion gate existed anywhere after the first @supports -- so
+   * stripping the gate off one of the two blocks left the other one to satisfy
+   * it, and the perturbation walked through. Every block that declares a
+   * timeline has to carry its own gate.
+   */
+  const blockAt = index => {
+    const open = stripped2.indexOf('{', index);
+    let depth = 0;
+    for (let i = open; i < stripped2.length; i += 1) {
+      if (stripped2[i] === '{') depth += 1;
+      else if (stripped2[i] === '}' && (depth -= 1) === 0) return stripped2.slice(open + 1, i);
+    }
+    return '';
+  };
+  const gates = [...stripped2.matchAll(/@supports\s*\(animation-timeline:\s*(?:view|scroll)\(\)\)/g)];
+  assert.ok(gates.length >= 2, `only ${gates.length} support gate(s) found`);
+  gates.forEach(gate => {
+    const body = blockAt(gate.index);
+    const declared = (body.match(DECLARED) || []).length;
+    if (!declared) return;
+    assert.ok(/prefers-reduced-motion:\s*no-preference/.test(body),
+      `a @supports block declaring ${declared} scroll-driven animation(s) carries no reduced-motion gate`);
+  });
+  /*
+   * scroll(root), measured rather than assumed: at phone width the document is
+   * the scroller and the overview container is not, so scroll(nearest) bound
+   * to no timeline at all and the bar sat at zero from top to bottom.
+   */
+  assert.ok(/animation-timeline\s*:\s*scroll\(root/.test(stripped2),
+    'the page progress reads a scroller other than the root, which is not what scrolls on a phone');
+  assert.ok(!/animation-timeline\s*:\s*scroll\(nearest/.test(stripped2),
+    'a scroll timeline still says nearest, which resolves to no scroller here');
+  /* Hidden until the feature is confirmed, so it never shows as a dead line. */
+  const bar = rules.find(rule => eachSelector(rule).some(one => one.selector.trim() === '.ov-scroll-progress'));
+  assert.ok(bar && /display\s*:\s*none/.test(bar.body),
+    'the progress bar is visible by default, so a browser without scroll timelines shows an empty rule');
+});
 
 check('the stylesheet actually carries overlay exits', () => {
   assert.ok(exits.length >= 8,

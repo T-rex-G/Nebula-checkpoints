@@ -119,9 +119,8 @@ for (const feature of features) {
   assert(knownFeatures.has(feature), `unknown capability marker: ${feature}`);
 }
 for (const [id, feature] of Object.entries({
-  newRepoBtn: 'repository.create',
+  newRepoBtnRepos: 'repository.create',
   notifBtn: 'notifications',
-  repoGlobalSearchBtn: 'global-search',
   codeSearch: 'search',
   newFileBtn: 'file.write',
   newBranchBtn: 'branches.write',

@@ -428,6 +428,59 @@ em{color:var(--teal);font-style:normal}
 .btn-primary.danger:hover{background:linear-gradient(135deg,#ff5b83,var(--red))}
 .icon-btn{padding:8px 12px;min-width:44px}
 /*
+ * Creating a repository, as its own action rather than another ghost button.
+ *
+ * It is the only action this inventory offers, so it reads as one: an accented
+ * outline and a mark of its own, sitting apart from the sort and filter
+ * controls it shares a row with. The planet is the product's own vocabulary --
+ * the inventory calls repositories galaxies and systems -- and the plus is
+ * attached to it rather than replacing it, so the control says "add one of
+ * these" instead of the generic "add".
+ *
+ * The ring turns on hover and the body lifts, which is the whole animation: a
+ * control that answers a pointer feels direct, and one that performs does not.
+ */
+/*
+ * The unread marker on the bell.
+ *
+ * It reports a count this session actually loaded and is absent otherwise --
+ * a dot that is always there says nothing, and a number invented to look
+ * populated is worse than no number. Under ten it is the figure; above, 9+,
+ * because the exact count of a backlog is not what the reader needs from a
+ * mark this size.
+ *
+ * Sized to read at a glance without becoming a badge: it sits on the bell's
+ * corner, carries the page colour as its rim so it reads as raised off the
+ * icon rather than painted onto it, and keeps its own contrast in both themes.
+ */
+.nv-unread{position:absolute;top:2px;right:2px;min-width:15px;height:15px;padding:0 3px;
+  display:inline-grid;place-items:center;border-radius:99px;
+  font-size:.58rem;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;
+  color:#fff;background:var(--red);border:2px solid var(--topbarBg,var(--shellSolid));
+  pointer-events:none}
+.nv-unread:empty{min-width:9px;height:9px;padding:0;top:5px;right:5px}
+#notifBtn{position:relative}
+
+.nv-create-repo{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;
+  color:var(--accent2);background:var(--createBg,rgba(139,92,246,0.10));
+  border:1px solid var(--createB,rgba(139,92,246,0.34));
+  box-shadow:0 1px 0 rgba(255,255,255,0.05) inset}
+.nv-create-repo:hover{background:var(--createBgH,rgba(139,92,246,0.17));
+  border-color:var(--createBH,rgba(139,92,246,0.5));transform:translateY(-1px)}
+.nv-create-repo:active{transform:translateY(0) scale(.985)}
+.nv-planet{width:17px;height:17px;flex:none;fill:none;stroke:currentColor;
+  stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;overflow:visible}
+.nv-planet-body{opacity:.95}
+.nv-planet-ring{opacity:.75;transform-box:fill-box;transform-origin:center;
+  transition:transform .35s var(--ease),opacity .2s}
+.nv-planet-plus{stroke-width:2.1}
+.nv-create-repo:hover .nv-planet-ring{transform:rotate(-12deg);opacity:1}
+[data-motion="off"] .nv-planet-ring{transition:none}
+@media (prefers-reduced-motion:reduce){.nv-planet-ring{transition:none}}
+[data-theme="light"]{
+  --createBg:rgba(109,40,217,0.07); --createB:rgba(109,40,217,0.26);
+  --createBgH:rgba(109,40,217,0.12); --createBH:rgba(109,40,217,0.4)}
+/*
  * Sign out is the one destructive control that lives in the standing chrome,
  * and as a worded button it took more of a phone's top bar than its importance
  * earns -- on the overview it sat beside four other controls and squeezed the
@@ -569,22 +622,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   body #page-repos .page-head-tools .search-input{grid-column:1 / -1;grid-row:1;max-width:none;width:100%}
   body #page-repos .page-head-tools .branch-select{grid-column:1;grid-row:2;max-width:none;width:100%}
   body #page-repos .page-head-tools .btn{grid-column:2;grid-row:2;align-self:stretch}
-  /*
-   * The create control joins this toolbar on a phone, where the top bar has no
-   * room for it -- and a fourth control does not fit the two-cell grid above.
-   * That grid places by rule rather than by order, so an unplaced control
-   * lands in a cell that is already taken and the two draw on top of each
-   * other: both visible, only the upper one pressable.
-   *
-   * Rather than hand-place a third row, the toolbar flows when the extra
-   * control is present. Four items of their own widths wrap on their own, and
-   * nothing has to be repositioned when a fifth arrives.
-   */
-  body #page-repos .page-head-tools:has(#newRepoBtnRepos){
-    display:flex;flex-wrap:wrap;justify-content:flex-start}
-  body #page-repos .page-head-tools:has(#newRepoBtnRepos) .search-input{flex:1 0 100%;max-width:none}
-  body #page-repos .page-head-tools:has(#newRepoBtnRepos) .branch-select{flex:1 1 auto;max-width:none}
-  body #page-repos .page-head-tools:has(#newRepoBtnRepos) .btn{flex:0 0 auto}
+
   /*
    * The toolbar sticks under the bar. An inventory is a list you scroll and
    * then want to narrow, and the control for narrowing it was at the top of
@@ -887,7 +925,20 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .sheet-item,.sheet-div{flex:none}
 .sheet-item{display:flex;width:100%;font:inherit;font-size:.92rem;font-weight:500;color:var(--text);
   background:transparent;border:none;border-radius:12px;padding:13px 14px;cursor:pointer;min-height:48px;align-items:center}
-.sheet-item:active{background:rgba(255,255,255,0.08)}
+.sheet-item{transition:background .13s ease,color .13s ease,transform .13s var(--ease)}
+.sheet-item:hover{background:rgba(255,255,255,0.07)}
+.sheet-item:active{background:rgba(255,255,255,0.12);transform:scale(.988)}
+/*
+ * One focus treatment for every menu row, drawn inside the row so it never
+ * changes the row's size -- an outline that adds width makes the list shift
+ * the moment a keyboard reaches it.
+ */
+.sheet-item:focus-visible,.pal-item:focus-visible,.nv-fab-item:focus-visible{
+  outline:none;box-shadow:inset 0 0 0 2px var(--accent2)}
+[data-theme="light"] .sheet-item:hover{background:rgba(20,14,50,0.05)}
+[data-theme="light"] .sheet-item:active{background:rgba(20,14,50,0.09)}
+[data-motion="off"] .sheet-item{transition:none}
+@media (prefers-reduced-motion:reduce){.sheet-item{transition:none}}
 .sheet-div{height:1px;background:var(--glass-border);margin:6px 4px}
 
 .stage-panel{position:absolute;top:0;right:0;bottom:0;width:min(420px,94vw);
@@ -912,7 +963,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 /* command palette */
 .palette-scrim{display:flex;align-items:flex-start;justify-content:center;
   padding:12vh 16px 16px}
-.palette{width:min(560px,100%);border-radius:16px;padding:10px;animation:modalIn .26s var(--ease-settle) both}
+.palette{width:min(560px,100%);border-radius:16px;padding:10px;
+  transform-origin:var(--nv-origin,50% 50%);animation:modalIn .26s var(--ease-settle) both}
 .palette input{border:none;background:transparent;font-size:1rem;min-height:48px;backdrop-filter:none}
 .palette input:focus{box-shadow:none}
 .palette-list{max-height:46vh;overflow-y:auto;border-top:1px solid var(--glass-border);margin-top:6px;padding-top:6px}
@@ -925,7 +977,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 /* modal / toasts */
 .scrim{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:18px;
   background:rgba(5,5,15,0.4);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:fadeIn .2s var(--ease) both}
-.modal{width:min(480px,100%);max-height:86dvh;overflow-y:auto;padding:22px;animation:modalIn .3s var(--ease-settle) both}
+.modal{width:min(480px,100%);max-height:86dvh;overflow-y:auto;padding:22px;
+  transform-origin:var(--nv-origin,50% 50%);animation:modalIn .3s var(--ease-settle) both}
 /*
  * The layers arrive as surfaces, not as pictures fading up.
  *
@@ -962,9 +1015,9 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 @keyframes sheetOut{to{opacity:0;transform:translateY(24px)}}
 @keyframes slideROut{to{opacity:0;transform:translateX(40px)}}
 .scrim[data-closing]{animation:scrimOut .2s ease both}
-[data-closing] .modal{animation:modalOut .2s var(--ease) both}
+[data-closing] .modal{transform-origin:var(--nv-origin,50% 50%);animation:modalOut .2s var(--ease) both}
 .palette-scrim[data-closing]{animation:scrimOut .18s ease both}
-[data-closing] .palette{animation:modalOut .18s var(--ease) both}
+[data-closing] .palette{transform-origin:var(--nv-origin,50% 50%);animation:modalOut .18s var(--ease) both}
 .sheet-scrim[data-closing]{animation:scrimOut .22s ease both}
 [data-closing] .sheet{animation:sheetOut .22s var(--ease) both}
 .stage-scrim[data-closing]{animation:scrimOut .22s ease both}
@@ -2031,26 +2084,68 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .ov-crumbs span[aria-hidden]{opacity:.4}
 @media (min-width:901px){ .ov-crumbs{display:flex} }
 
+/* ---- the hero: a statement beside a stage -------------------------------
+ * Two halves. The copy carries the greeting and the one move this screen is
+ * for; the core panel gives the mark its own framed ground and says what the
+ * session is connected to. Collapsing the two into a single card cost the
+ * headline its scale and the mark its room, so they stay separate objects and
+ * only stack when the screen is too narrow to hold both.
+ * ---------------------------------------------------------------------- */
 .ov-hero{display:grid;gap:26px;grid-template-columns:1fr;padding:34px 0 8px;align-items:center}
 @media (min-width:1020px){ .ov-hero{grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:44px} }
 .ov-hero-copy{max-width:640px}
+.ov-hero-hint{color:var(--muted);font-size:.74rem}
+.ov-hero-hint kbd{font-family:var(--font-mono);font-size:.68rem;padding:2px 5px;margin-left:3px;
+  border:1px solid var(--glass-border);border-radius:5px;background:rgba(255,255,255,.05)}
+[data-theme="light"] .ov-hero-hint kbd{background:rgba(20,14,50,.04)}
+@media (max-width:560px){ .ov-hero-hint{display:none} }
 
-.ov-core{position:relative;border:1px solid var(--glass-border);border-radius:20px;padding:20px;
-  background:var(--card-grad);box-shadow:var(--card-shadow);backdrop-filter:blur(26px) saturate(1.5);overflow:hidden}
+.ov-core{position:relative;isolation:isolate;border:1px solid var(--glass-border);border-radius:20px;padding:20px;
+  background:var(--card-grad);box-shadow:var(--card-shadow);
+  backdrop-filter:blur(26px) saturate(1.5);-webkit-backdrop-filter:blur(26px) saturate(1.5);overflow:hidden}
+/*
+ * The pointer light is two custom properties and one radial gradient. It moves
+ * a background position, not a layer, so there is nothing to composite and
+ * nothing to lay out; with no pointer, or with motion off, it simply never
+ * updates and the panel is the same panel.
+ */
+.ov-core::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;
+  background:radial-gradient(260px circle at var(--nv-px,70%) var(--nv-py,0%),
+    rgba(255,255,255,.09), transparent 64%);
+  opacity:0;transition:opacity .35s var(--ease)}
+@media (hover:hover) and (pointer:fine){.ov-core:hover::after{opacity:1}}
+[data-theme="light"] .ov-core::after{
+  background:radial-gradient(260px circle at var(--nv-px,70%) var(--nv-py,0%),
+    rgba(109,40,217,.09), transparent 64%)}
+@media (prefers-reduced-motion:reduce){.ov-core::after{transition:none}}
+[data-motion="off"] .ov-core::after{transition:none}
+
 .ov-core-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
   font-family:var(--font-display);font-size:.64rem;font-weight:600;letter-spacing:.14em;
   text-transform:uppercase;color:var(--muted)}
+.ov-core-state{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.ov-core-dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.5;flex:none}
+.ov-core-scope{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ov-live{display:inline-flex;align-items:center;gap:6px;color:var(--teal);letter-spacing:.1em}
 .ov-live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
   box-shadow:0 0 0 0 currentColor;animation:ov-pulse 2.4s var(--ease) infinite}
 @keyframes ov-pulse{0%{box-shadow:0 0 0 0 rgba(34,211,238,.5)}70%{box-shadow:0 0 0 9px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
-.ov-core-art{position:relative;height:186px;margin:16px 0 14px;border-radius:14px;overflow:hidden;
+/* No identity, no claim: the dot stops pulsing and drops to the muted ink,
+   because a live signal is the one thing this rail must not fake. */
+.ov-live.is-idle{color:var(--muted)}
+.ov-live.is-idle::before{animation:none;box-shadow:none}
+/* The mark's stage: its own framed ground, tall enough to hold the whole mark
+   rather than a crop of it. */
+.ov-core-art{position:relative;height:clamp(186px,22vw,224px);margin:16px 0 14px;
+  border-radius:14px;overflow:hidden;
   background:radial-gradient(ellipse 62% 66% at 50% 50%, rgba(124,58,237,.34), rgba(76,29,149,.13) 55%, transparent 78%)}
 .ov-core-glow{position:absolute;inset:0;
   background:conic-gradient(from 210deg at 50% 50%, rgba(139,92,246,.55), rgba(217,70,239,.32), rgba(34,211,238,.30), rgba(139,92,246,.55));
   filter:blur(26px);opacity:.75;animation:ov-spin 26s linear infinite}
 @keyframes ov-spin{to{transform:rotate(1turn)}}
-.ov-core-line{font-family:var(--font-display);font-size:.9rem;font-weight:600;color:var(--text);letter-spacing:-.008em}
+[data-motion="off"] .ov-core-glow{animation:none}
+
+.ov-core-line{font-family:var(--font-display);font-size:.9rem;font-weight:600;color:var(--text);letter-spacing:-.008em;margin:0}
 
 .ov-path{margin:34px 0 4px}
 .ov-path-lede{color:var(--text2);font-size:.88rem;margin:-6px 0 16px}
@@ -2098,7 +2193,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   min-width:210px;max-width:min(280px, calc(100vw - 32px));padding:8px;
   border-radius:18px;border:1px solid var(--glass-border);background:var(--card2);
   box-shadow:var(--cardShadow);
-  animation:fabMenuIn .24s var(--ease-settle) both}
+  transform-origin:var(--nv-origin,50% 100%);animation:fabMenuIn .24s var(--ease-settle) both}
 .nv-fab-menu[hidden]{display:none}
 @keyframes fabMenuIn{from{opacity:0;transform:translateY(10px) scale(.96)}55%{opacity:1}to{opacity:1;transform:none}}
 /* It leaves the way it arrived, and stops taking presses while it does. */
@@ -2473,15 +2568,72 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * the caption below it is where it looks.
  */
 .wp-area{display:block;width:100%;height:104px;margin:12px 0 4px;pointer-events:none;color:var(--wp-muted)}
+/* preserveAspectRatio is none on the plot, so a circle drawn in user units
+   comes out as an ellipse. This one is sized in screen pixels instead. */
+.wp-area-head{r:3.5px;transform-box:fill-box;transform-origin:center}
 .wp-card-activity{position:relative;overflow:hidden;min-height:210px}
 .wp-card-activity>.wp-body{position:relative;z-index:1}
-.wp-hero-figure{margin:2px 0 0;font-family:var(--font-body);font-size:56px;line-height:1.02;font-weight:600;color:var(--fg);letter-spacing:-.02em}
-.wp-hero-figure.wp-hero-empty{font-size:22px;font-weight:500;color:var(--fg2);letter-spacing:0}
+/* ---- radial readings ----------------------------------------------------
+ * One arc, one number in the middle of it. The arc is a single stroked circle
+ * whose dash length is the reading, so the browser animates one presentation
+ * attribute and has nothing to lay out or composite. The dial opens at the
+ * bottom because a closed ring reads as a loading spinner and an open one
+ * reads as an instrument.
+ * ------------------------------------------------------------------------ */
+.wp-dial{display:flex;align-items:center;gap:clamp(14px,3vw,26px);margin-top:14px;flex-wrap:wrap}
+.wp-dial-read{flex:1 1 12rem;min-width:0}
+.wp-gauge{position:relative;flex:none;width:128px;height:128px}
+.wp-gauge-art{display:block;width:100%;height:100%;overflow:visible}
+.wp-gauge-track{stroke:var(--wp-track);stroke-width:9;fill:none}
+.wp-gauge-arc{stroke:var(--wp-muted);stroke-width:9;fill:none;
+  /* From empty to the reading on first paint, so the figure and its arc arrive
+     together rather than the number appearing over a finished shape. */
+  animation:wp-sweep .85s var(--ease) both}
+.wp-gauge[data-status="good"] .wp-gauge-arc{stroke:var(--wp-good)}
+.wp-gauge[data-status="warning"] .wp-gauge-arc{stroke:var(--wp-warning)}
+.wp-gauge[data-status="critical"] .wp-gauge-arc{stroke:var(--wp-critical)}
+/* 245 is the dial's full sweep: 2πr at r=52, three quarters round. */
+@keyframes wp-sweep{from{stroke-dashoffset:245}to{stroke-dashoffset:0}}
+
+.wp-gauge-core{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:1px;pointer-events:none;text-align:center}
+.wp-gauge-figure{margin:0;font-family:var(--font-body);font-size:38px;line-height:1;
+  font-weight:600;color:var(--fg);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.wp-gauge-figure.wp-gauge-empty{font-size:26px;color:var(--fg3)}
+.wp-gauge-unit,.wp-gauge-caption{margin:0;font-size:10.5px;color:var(--fg3);letter-spacing:.04em}
+
+/* The per-signal dial. Same instrument, read at a glance rather than studied,
+   so the stroke thins with the radius instead of scaling with it. */
+.wp-gauge-sm{width:52px;height:52px}
+.wp-gauge-sm .wp-gauge-track,.wp-gauge-sm .wp-gauge-arc{stroke-width:13}
+.wp-gauge-sm .wp-gauge-figure{font-size:16px;letter-spacing:-.01em}
+.wp-gauge-sm .wp-gauge-figure.wp-gauge-empty{font-size:14px}
+
+/* Part-to-whole on one circle. Each state is an arc offset by the shares before
+   it, so the reader sees the split of a single total rather than three lengths
+   to add up by eye. */
+.wp-ring{position:relative;width:128px;height:128px;margin:14px auto 0}
+.wp-donut{display:block;width:100%;height:100%;overflow:visible}
+.wp-donut-track{stroke:var(--wp-track);stroke-width:11;fill:none}
+.wp-donut-arc{stroke-width:11;fill:none;transition:stroke-dasharray .5s var(--ease)}
+.wp-donut-arc[data-status="good"]{stroke:var(--wp-good)}
+.wp-donut-arc[data-status="warning"]{stroke:var(--wp-warning)}
+.wp-donut-arc[data-status="critical"]{stroke:var(--wp-critical)}
+.wp-donut-arc[data-status="muted"],
+.wp-donut-arc[data-status="unknown"]{stroke:var(--wp-muted)}
+.wp-ring-core{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;pointer-events:none;text-align:center}
+.wp-ring-figure{margin:0;font-family:var(--font-body);font-size:34px;line-height:1;
+  font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums}
+.wp-ring-unit{font-size:10.5px;color:var(--fg3);letter-spacing:.04em}
+
 .wp-hero-note,.wp-stat-note{margin:6px 0 0;font-size:12.5px;color:var(--fg2);line-height:1.5}
-.wp-components{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:13px}
+.wp-components{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:14px}
+.wp-component{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:14px}
+.wp-component-text{min-width:0}
 .wp-component-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .wp-component-label{font-size:13px;font-weight:500;color:var(--fg)}
-.wp-component-detail{margin:5px 0 0;font-size:12px;color:var(--fg2);line-height:1.45}
+.wp-component-detail{margin:4px 0 0;font-size:12px;color:var(--fg2);line-height:1.45}
 
 /* Meter: severity in the fill, a lighter step of the same ramp in the track,
    so the state reads across the whole bar and not only where the fill ends. */
@@ -2501,13 +2653,9 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 .wp-stat-value{margin:2px 0 0;font-family:var(--font-body);font-size:34px;line-height:1.05;font-weight:600;color:var(--fg)}
 .wp-stat-value.wp-stat-empty{font-size:19px;font-weight:500;color:var(--fg2)}
-/* The same weight as the component meters below it. At 14px of saturated fill
-   the breakdown read as a chart borrowed from somewhere else; the reading is
-   unchanged, the bar just stops shouting over the figure above it. */
-.wp-segments{display:block;width:100%;height:8px;margin-top:12px}
-.wp-fill-good{fill:var(--wp-good);background:var(--wp-good)}
-.wp-fill-warning{fill:var(--wp-warning);background:var(--wp-warning)}
-.wp-fill-muted{fill:var(--wp-muted);background:var(--wp-muted)}
+.wp-fill-good{fill:var(--wp-good);background:var(--wp-good);stroke:var(--wp-good)}
+.wp-fill-warning{fill:var(--wp-warning);background:var(--wp-warning);stroke:var(--wp-warning)}
+.wp-fill-muted{fill:var(--wp-muted);background:var(--wp-muted);stroke:var(--wp-muted)}
 .wp-legend{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px 16px}
 .wp-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg2)}
 .wp-swatch{width:9px;height:9px;border-radius:3px;flex:none}
@@ -2540,12 +2688,20 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 @media (max-width:900px){
   .wp-grid{grid-template-columns:1fr}
-  .wp-hero-figure{font-size:46px}
+  .wp-gauge-figure{font-size:34px}
   .wp-bar-row{grid-template-columns:76px minmax(0,1fr) 26px}
 }
 @media (prefers-reduced-motion:reduce){
-  .wp-meter-fill,.wp-bar-fill{transition:none}
+  .wp-meter-fill,.wp-bar-fill,.wp-donut-arc{transition:none}
+  .wp-gauge-arc{animation:none}
 }
+/* The in-application motion setting has to reach these too. A reader who turned
+   motion off in Settings was still shown the arc sweeping in, because only the
+   operating system's preference was ever consulted here. */
+[data-motion="off"] .wp-meter-fill,
+[data-motion="off"] .wp-bar-fill,
+[data-motion="off"] .wp-donut-arc{transition:none}
+[data-motion="off"] .wp-gauge-arc{animation:none}
 
 /* ================= DESIGN ARTWORK ================= */
 /*

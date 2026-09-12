@@ -276,6 +276,107 @@
    * step of the same ramp, so the state reads across the whole bar rather than
    * only where the fill stops.
    */
+  /*
+   * A radial gauge, drawn as one arc.
+   *
+   * A flat bar answers "how far along" and nothing else: at a glance every bar
+   * on the page is the same object at a different length, and a score that is
+   * the page's headline figure read as a loading indicator. An arc gives the
+   * figure a shape of its own -- the number sits in the middle of its own
+   * measurement rather than above a line about it.
+   *
+   * One path, animated by stroke-dashoffset. That is a single presentation
+   * attribute on a single element, so the browser has nothing to lay out and
+   * nothing to composite; there is no library here and none is needed.
+   */
+  const GAUGE_R = 52;
+  const GAUGE_C = 2 * Math.PI * GAUGE_R;
+  /* Three-quarters of the circle, opened at the bottom, so the gap reads as a
+     deliberate dial rather than as a ring that failed to close. */
+  const GAUGE_SWEEP = 0.75;
+
+  function gauge(ratio, status, options) {
+    const settings = options || {};
+    const measured = typeof ratio === 'number' && isFinite(ratio);
+    const value = measured ? Math.max(0, Math.min(1, ratio)) : 0;
+    const box = element('div', settings.compact ? 'wp-gauge wp-gauge-sm' : 'wp-gauge');
+    box.dataset.status = measured ? status : 'unknown';
+
+    const art = svg('svg', {
+      class: 'wp-gauge-art', viewBox: '0 0 128 128', 'aria-hidden': 'true', focusable: 'false'
+    });
+    const geometry = {
+      cx: 64, cy: 64, r: GAUGE_R, fill: 'none', 'stroke-linecap': 'round',
+      transform: 'rotate(135 64 64)'
+    };
+    art.appendChild(svg('circle', Object.assign({ class: 'wp-gauge-track' }, geometry, {
+      'stroke-dasharray': `${GAUGE_C * GAUGE_SWEEP} ${GAUGE_C}`
+    })));
+    /*
+     * An unmeasured gauge draws its track and no arc at all. Drawing a
+     * zero-length arc would be a reading of zero, and "not measured" is not
+     * zero -- that distinction is the whole reason this model reports absence.
+     */
+    if (measured) {
+      art.appendChild(svg('circle', Object.assign({ class: 'wp-gauge-arc' }, geometry, {
+        'stroke-dasharray': `${GAUGE_C * GAUGE_SWEEP * value} ${GAUGE_C}`
+      })));
+    }
+    box.appendChild(art);
+
+    const core = element('div', 'wp-gauge-core');
+    const figure = element('p', 'wp-gauge-figure', settings.figure === undefined
+      ? (measured ? String(Math.round(value * 100)) : '\u2014')
+      : String(settings.figure));
+    figure.classList.toggle('wp-gauge-empty', !measured);
+    core.appendChild(figure);
+    if (settings.unit) core.appendChild(element('span', 'wp-gauge-unit', settings.unit));
+    if (settings.caption) core.appendChild(element('p', 'wp-gauge-caption', settings.caption));
+    box.appendChild(core);
+    return box;
+  }
+
+  /*
+   * Part-to-whole as a ring rather than a bar. Each state is an arc on the same
+   * circle, offset by what came before it, so the reader sees the shares of one
+   * total instead of three lengths that have to be added up by eye.
+   */
+  function donut(parts, total) {
+    const whole = total || 1;
+    const art = svg('svg', {
+      class: 'wp-donut', viewBox: '0 0 128 128', role: 'img',
+      'aria-label': parts.map(part => `${part.count} ${part.label}`).join(', ')
+    });
+    art.appendChild(svg('circle', {
+      class: 'wp-donut-track', cx: 64, cy: 64, r: GAUGE_R, fill: 'none'
+    }));
+    let consumed = 0;
+    for (const part of parts) {
+      if (!part.count) continue;
+      const share = part.count / whole;
+      /*
+       * The state travels as a data attribute, not as the shared wp-fill-*
+       * class the legend swatches use. That class sets `fill`, and a class
+       * rule outranks a presentation attribute, so fill="none" lost and every
+       * arc painted itself as a filled disc -- the ring came out solid.
+       */
+      const arc = svg('circle', {
+        class: 'wp-donut-arc', 'data-status': part.status,
+        cx: 64, cy: 64, r: GAUGE_R, fill: 'none',
+        'stroke-linecap': 'butt',
+        /* A gap of two units keeps adjacent arcs from blending into one mark,
+           and is clamped so a one-capability share is not erased by it. */
+        'stroke-dasharray': `${Math.max(0, GAUGE_C * share - 2)} ${GAUGE_C}`,
+        'stroke-dashoffset': -GAUGE_C * consumed,
+        transform: 'rotate(-90 64 64)'
+      });
+      arc.appendChild(svg('title', {})).textContent = `${part.label}: ${part.count} of ${total}`;
+      art.appendChild(arc);
+      consumed += share;
+    }
+    return art;
+  }
+
   function meter(ratio, status) {
     const track = element('span', 'wp-meter');
     track.dataset.status = status;
@@ -317,13 +418,6 @@
     host.textContent = '';
     const head = element('div', 'wp-hero');
     /*
-     * One hero figure per view, in the body sans. When nothing has been
-     * measured it says so in words rather than showing a zero, which would
-     * read as a catastrophic result rather than an absent one.
-     */
-    const figure = element('p', 'wp-hero-figure', trust.score === null ? 'Not measured' : String(trust.score));
-    figure.classList.toggle('wp-hero-empty', trust.score === null);
-    /*
      * The label row the design uses everywhere: a mono caption on the left and
      * the live reading on the right. The dot pulses only while there is a
      * reading to pulse about -- animating an unmeasured state would suggest
@@ -338,19 +432,41 @@
       live.append(dot, element('span', null, STATUS_WORD[trust.status]));
       row.appendChild(live);
     }
-    head.append(row, figure);
-    head.appendChild(element('p', 'wp-hero-note', trust.score === null
+    head.appendChild(row);
+    /*
+     * The score is the page's headline reading, so it is drawn as its own
+     * measurement rather than set above a line about it. Out of 100 by
+     * definition, which is what makes an arc the honest shape for it.
+     */
+    const dial = element('div', 'wp-dial');
+    dial.append(gauge(trust.score === null ? null : trust.score / 100, trust.status, {
+      figure: trust.score === null ? '\u2014' : trust.score,
+      caption: trust.score === null ? 'not measured' : 'out of 100'
+    }));
+    const readout = element('div', 'wp-dial-read');
+    readout.appendChild(element('p', 'wp-hero-note', trust.score === null
       ? 'No signal has loaded yet.'
       : `From ${trust.measuredCount} of ${trust.componentCount} signals measured in this session.`));
+    dial.appendChild(readout);
+    head.appendChild(dial);
     host.appendChild(head);
 
+    /*
+     * Five signals, five dials. Stacked full-width bars turned the card into a
+     * column of coloured lines: at a glance they were one repeated object and
+     * the reader had to read every label to find which line was the bad one. A
+     * small dial per signal carries its own reading and its own colour in one
+     * mark, and puts the percentage where the eye already is.
+     */
     const list = element('ul', 'wp-components');
     for (const component of trust.components) {
       const item = element('li', 'wp-component');
+      item.appendChild(gauge(component.ratio, component.status, { compact: true }));
+      const text = element('div', 'wp-component-text');
       const top = element('div', 'wp-component-head');
       top.append(element('span', 'wp-component-label', component.label), statusMark(component.status));
-      const reading = element('p', 'wp-component-detail', component.detail);
-      item.append(top, meter(component.ratio, component.status), reading);
+      text.append(top, element('p', 'wp-component-detail', component.detail));
+      item.appendChild(text);
       list.appendChild(item);
     }
     host.appendChild(list);
@@ -372,38 +488,33 @@
   function renderSignals(host, signals) {
     host.textContent = '';
     const head = element('div', 'wp-stat');
-    const value = element('p', 'wp-stat-value', signals.measured ? String(signals.live) : 'Not measured');
+    head.appendChild(element('span', 'wp-label', 'LIVE SIGNALS'));
     /*
-     * An absent reading is set in prose rather than at figure size. Left at the
-     * value's own scale it shouts louder than the measurement it is standing in
-     * for, which reads as an alarm rather than as "nothing has loaded".
+     * The count moves into the middle of the ring that measures it, so the
+     * figure is not printed twice on one card. An absent reading has no ring to
+     * sit in and is set in prose rather than at figure size: left at the
+     * value's own scale it shouts louder than the measurement it stands in for,
+     * which reads as an alarm rather than as "nothing has loaded".
      */
-    value.classList.toggle('wp-stat-empty', !signals.measured);
-    head.append(element('span', 'wp-label', 'LIVE SIGNALS'), value);
-    head.appendChild(element('p', 'wp-stat-note', signals.measured
-      ? `verified of ${signals.total} capabilities this provider projects`
-      : 'The capability projection has not loaded.'));
-    host.appendChild(head);
-    if (!signals.measured) return;
-
-    const total = signals.total || 1;
-    const chart = svg('svg', {
-      class: 'wp-segments', viewBox: '0 0 300 8', preserveAspectRatio: 'none',
-      role: 'img', 'aria-label': signals.breakdown.map(part => `${part.count} ${part.label}`).join(', ')
-    });
-    let offset = 0;
-    for (const part of signals.breakdown) {
-      if (!part.count) continue;
-      const width = (part.count / total) * 300;
-      const bar = svg('rect', {
-        x: offset, y: 0, width: Math.max(0, width - 3), height: 8, rx: 4,
-        class: `wp-segment wp-fill-${part.status}`
-      });
-      bar.appendChild(svg('title', {})).textContent = `${part.label}: ${part.count} of ${signals.total}`;
-      chart.appendChild(bar);
-      offset += width;
+    if (!signals.measured) {
+      const value = element('p', 'wp-stat-value wp-stat-empty', 'Not measured');
+      head.append(value, element('p', 'wp-stat-note', 'The capability projection has not loaded.'));
+      host.appendChild(head);
+      return;
     }
-    host.appendChild(chart);
+    head.appendChild(element('p', 'wp-stat-note',
+      `verified of ${signals.total} capabilities this provider projects`));
+    host.appendChild(head);
+
+    const ring = element('div', 'wp-ring');
+    ring.appendChild(donut(signals.breakdown, signals.total));
+    const core = element('div', 'wp-ring-core');
+    core.append(
+      element('p', 'wp-ring-figure', String(signals.live)),
+      element('span', 'wp-ring-unit', `of ${signals.total}`)
+    );
+    ring.appendChild(core);
+    host.appendChild(ring);
 
     const legend = element('ul', 'wp-legend');
     for (const part of signals.breakdown) {
@@ -447,9 +558,16 @@
      * vertical line at the border of the card. The data was right; there was
      * nowhere for it to be drawn.
      */
-    const padX = 4;
-    const padTop = 14;
-    const padBottom = 9;
+    /*
+     * The horizontal inset was four units of a 380-unit box, which the card
+     * stretches to its own width: the last point landed about five pixels from
+     * the frame, so a series that ends on its only non-zero reading drew what
+     * looked like a stray line down the card's border. There is room for the
+     * endpoint to be a point now.
+     */
+    const padX = 16;
+    const padTop = 16;
+    const padBottom = 11;
     const plotW = width - padX * 2;
     const plotH = height - padTop - padBottom;
     const id = `wp-area-${areaSequence += 1}`;
@@ -490,6 +608,22 @@
       'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
       'vector-effect': 'non-scaling-stroke'
     }));
+    /*
+     * The latest reading gets a mark of its own. A workspace with one
+     * repository produces a series that is zero until its final value, and a
+     * bare polyline renders that as a cliff with nothing at the top of it --
+     * the shape a reader takes for a rendering fault rather than for one push.
+     * The circle is drawn in screen units so the chart's horizontal stretch
+     * cannot flatten it into an ellipse.
+     */
+    const last = points[points.length - 1];
+    if (last) {
+      const [lastX, lastY] = last.split(',');
+      chart.appendChild(svg('circle', {
+        class: 'wp-area-head', cx: lastX, cy: lastY, r: 3.5,
+        fill: '#22D3EE', 'vector-effect': 'non-scaling-stroke'
+      }));
+    }
     return chart;
   }
 

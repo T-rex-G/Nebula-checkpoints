@@ -2113,24 +2113,22 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     rgba(109,40,217,.10), transparent 62%)}
 
 /*
- * The artwork is masked, not just clipped.
+ * The mark is shown whole.
  *
- * A circle with overflow:hidden inside a panel with overflow:hidden gives the
- * mark two hard edges, and the panel's edge cuts a straight line across a
- * shape that is not straight anywhere else -- it reads as a photograph cropped
- * by accident rather than as a layer of the surface. The mask takes the alpha
- * to nothing before the panel boundary reaches it, so there is no longer an
- * edge there to cut. A browser without mask-image falls back to the circle,
- * which is what this looked like before.
+ * Bleeding it off the panel meant the panel's own overflow cut a straight line
+ * across a shape that is not straight anywhere else, and fading that cut out
+ * only traded a hard crop for a soft one -- either way the reader sees part of
+ * a mark. It sits inside the surface now, sized to the panel's height and held
+ * clear of both edges, so the whole animation is on screen and nothing clips
+ * it. The veil only has to keep the copy legible where the two overlap.
  */
-.ov-console-art{position:absolute;z-index:0;inset:auto -4% -28% auto;
-  width:min(420px,62%);aspect-ratio:1;border-radius:50%;overflow:hidden;pointer-events:none;
-  -webkit-mask-image:radial-gradient(closest-side,#000 46%,rgba(0,0,0,.6) 70%,transparent 97%);
-  mask-image:radial-gradient(closest-side,#000 46%,rgba(0,0,0,.6) 70%,transparent 97%)}
+.ov-console-art{position:absolute;z-index:0;pointer-events:none;
+  right:clamp(12px,3%,34px);top:50%;transform:translateY(-50%);
+  width:min(296px,34%);aspect-ratio:1;border-radius:50%}
 .ov-console-veil{position:absolute;inset:0;z-index:1;pointer-events:none;
-  background:linear-gradient(100deg,var(--shellSolid) 16%,rgba(0,0,0,0) 68%)}
+  background:linear-gradient(100deg,var(--shellSolid) 14%,rgba(0,0,0,0) 56%)}
 [data-theme="light"] .ov-console-veil{
-  background:linear-gradient(100deg,#fff 16%,rgba(255,255,255,.62) 46%,rgba(255,255,255,0) 74%)}
+  background:linear-gradient(100deg,#fff 14%,rgba(255,255,255,.5) 40%,rgba(255,255,255,0) 62%)}
 .ov-console-body{position:relative;z-index:2;max-width:min(38rem,100%)}
 
 .ov-console-rail{display:flex;align-items:center;gap:9px;margin:0 0 14px;
@@ -2150,11 +2148,19 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 /* Below the breakpoint the artwork moves behind the copy rather than beside
    it, and the veil turns vertical so the text keeps its ground. */
+/*
+ * On a phone the copy needs the full width, so the mark moves above it rather
+ * than beside it and the veil turns vertical. It still sits inside the panel:
+ * a phone is where a cropped mark is most obvious, not least.
+ */
 @media (max-width:760px){
-  .ov-console-art{inset:-18% -28% auto auto;width:min(320px,86%)}
-  .ov-console-veil{background:linear-gradient(168deg,rgba(0,0,0,0) 0%,var(--shellSolid) 46%)}
+  .ov-console{padding-top:clamp(96px,30vw,140px)}
+  .ov-console-art{right:auto;left:50%;top:clamp(14px,4vw,20px);
+    transform:translateX(-50%);width:min(132px,34vw)}
+  .ov-console-veil{background:linear-gradient(180deg,rgba(0,0,0,0) 0%,var(--shellSolid) 38%)}
   [data-theme="light"] .ov-console-veil{
-    background:linear-gradient(168deg,rgba(255,255,255,.35) 0%,#fff 46%)}
+    background:linear-gradient(180deg,rgba(255,255,255,.3) 0%,#fff 38%)}
+  .ov-console-body{max-width:100%}
   .ov-console-hint{display:none}
 }
 @media (prefers-reduced-motion:reduce){.ov-console::after{transition:none}}
@@ -2596,15 +2602,72 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * the caption below it is where it looks.
  */
 .wp-area{display:block;width:100%;height:104px;margin:12px 0 4px;pointer-events:none;color:var(--wp-muted)}
+/* preserveAspectRatio is none on the plot, so a circle drawn in user units
+   comes out as an ellipse. This one is sized in screen pixels instead. */
+.wp-area-head{r:3.5px;transform-box:fill-box;transform-origin:center}
 .wp-card-activity{position:relative;overflow:hidden;min-height:210px}
 .wp-card-activity>.wp-body{position:relative;z-index:1}
-.wp-hero-figure{margin:2px 0 0;font-family:var(--font-body);font-size:56px;line-height:1.02;font-weight:600;color:var(--fg);letter-spacing:-.02em}
-.wp-hero-figure.wp-hero-empty{font-size:22px;font-weight:500;color:var(--fg2);letter-spacing:0}
+/* ---- radial readings ----------------------------------------------------
+ * One arc, one number in the middle of it. The arc is a single stroked circle
+ * whose dash length is the reading, so the browser animates one presentation
+ * attribute and has nothing to lay out or composite. The dial opens at the
+ * bottom because a closed ring reads as a loading spinner and an open one
+ * reads as an instrument.
+ * ------------------------------------------------------------------------ */
+.wp-dial{display:flex;align-items:center;gap:clamp(14px,3vw,26px);margin-top:14px;flex-wrap:wrap}
+.wp-dial-read{flex:1 1 12rem;min-width:0}
+.wp-gauge{position:relative;flex:none;width:128px;height:128px}
+.wp-gauge-art{display:block;width:100%;height:100%;overflow:visible}
+.wp-gauge-track{stroke:var(--wp-track);stroke-width:9;fill:none}
+.wp-gauge-arc{stroke:var(--wp-muted);stroke-width:9;fill:none;
+  /* From empty to the reading on first paint, so the figure and its arc arrive
+     together rather than the number appearing over a finished shape. */
+  animation:wp-sweep .85s var(--ease) both}
+.wp-gauge[data-status="good"] .wp-gauge-arc{stroke:var(--wp-good)}
+.wp-gauge[data-status="warning"] .wp-gauge-arc{stroke:var(--wp-warning)}
+.wp-gauge[data-status="critical"] .wp-gauge-arc{stroke:var(--wp-critical)}
+/* 245 is the dial's full sweep: 2πr at r=52, three quarters round. */
+@keyframes wp-sweep{from{stroke-dashoffset:245}to{stroke-dashoffset:0}}
+
+.wp-gauge-core{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:1px;pointer-events:none;text-align:center}
+.wp-gauge-figure{margin:0;font-family:var(--font-body);font-size:38px;line-height:1;
+  font-weight:600;color:var(--fg);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.wp-gauge-figure.wp-gauge-empty{font-size:26px;color:var(--fg3)}
+.wp-gauge-unit,.wp-gauge-caption{margin:0;font-size:10.5px;color:var(--fg3);letter-spacing:.04em}
+
+/* The per-signal dial. Same instrument, read at a glance rather than studied,
+   so the stroke thins with the radius instead of scaling with it. */
+.wp-gauge-sm{width:52px;height:52px}
+.wp-gauge-sm .wp-gauge-track,.wp-gauge-sm .wp-gauge-arc{stroke-width:13}
+.wp-gauge-sm .wp-gauge-figure{font-size:16px;letter-spacing:-.01em}
+.wp-gauge-sm .wp-gauge-figure.wp-gauge-empty{font-size:14px}
+
+/* Part-to-whole on one circle. Each state is an arc offset by the shares before
+   it, so the reader sees the split of a single total rather than three lengths
+   to add up by eye. */
+.wp-ring{position:relative;width:128px;height:128px;margin:14px auto 0}
+.wp-donut{display:block;width:100%;height:100%;overflow:visible}
+.wp-donut-track{stroke:var(--wp-track);stroke-width:11;fill:none}
+.wp-donut-arc{stroke-width:11;fill:none;transition:stroke-dasharray .5s var(--ease)}
+.wp-donut-arc[data-status="good"]{stroke:var(--wp-good)}
+.wp-donut-arc[data-status="warning"]{stroke:var(--wp-warning)}
+.wp-donut-arc[data-status="critical"]{stroke:var(--wp-critical)}
+.wp-donut-arc[data-status="muted"],
+.wp-donut-arc[data-status="unknown"]{stroke:var(--wp-muted)}
+.wp-ring-core{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;pointer-events:none;text-align:center}
+.wp-ring-figure{margin:0;font-family:var(--font-body);font-size:34px;line-height:1;
+  font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums}
+.wp-ring-unit{font-size:10.5px;color:var(--fg3);letter-spacing:.04em}
+
 .wp-hero-note,.wp-stat-note{margin:6px 0 0;font-size:12.5px;color:var(--fg2);line-height:1.5}
-.wp-components{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:13px}
+.wp-components{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:14px}
+.wp-component{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:14px}
+.wp-component-text{min-width:0}
 .wp-component-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .wp-component-label{font-size:13px;font-weight:500;color:var(--fg)}
-.wp-component-detail{margin:5px 0 0;font-size:12px;color:var(--fg2);line-height:1.45}
+.wp-component-detail{margin:4px 0 0;font-size:12px;color:var(--fg2);line-height:1.45}
 
 /* Meter: severity in the fill, a lighter step of the same ramp in the track,
    so the state reads across the whole bar and not only where the fill ends. */
@@ -2624,13 +2687,9 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 .wp-stat-value{margin:2px 0 0;font-family:var(--font-body);font-size:34px;line-height:1.05;font-weight:600;color:var(--fg)}
 .wp-stat-value.wp-stat-empty{font-size:19px;font-weight:500;color:var(--fg2)}
-/* The same weight as the component meters below it. At 14px of saturated fill
-   the breakdown read as a chart borrowed from somewhere else; the reading is
-   unchanged, the bar just stops shouting over the figure above it. */
-.wp-segments{display:block;width:100%;height:8px;margin-top:12px}
-.wp-fill-good{fill:var(--wp-good);background:var(--wp-good)}
-.wp-fill-warning{fill:var(--wp-warning);background:var(--wp-warning)}
-.wp-fill-muted{fill:var(--wp-muted);background:var(--wp-muted)}
+.wp-fill-good{fill:var(--wp-good);background:var(--wp-good);stroke:var(--wp-good)}
+.wp-fill-warning{fill:var(--wp-warning);background:var(--wp-warning);stroke:var(--wp-warning)}
+.wp-fill-muted{fill:var(--wp-muted);background:var(--wp-muted);stroke:var(--wp-muted)}
 .wp-legend{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px 16px}
 .wp-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg2)}
 .wp-swatch{width:9px;height:9px;border-radius:3px;flex:none}
@@ -2663,12 +2722,20 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 @media (max-width:900px){
   .wp-grid{grid-template-columns:1fr}
-  .wp-hero-figure{font-size:46px}
+  .wp-gauge-figure{font-size:34px}
   .wp-bar-row{grid-template-columns:76px minmax(0,1fr) 26px}
 }
 @media (prefers-reduced-motion:reduce){
-  .wp-meter-fill,.wp-bar-fill{transition:none}
+  .wp-meter-fill,.wp-bar-fill,.wp-donut-arc{transition:none}
+  .wp-gauge-arc{animation:none}
 }
+/* The in-application motion setting has to reach these too. A reader who turned
+   motion off in Settings was still shown the arc sweeping in, because only the
+   operating system's preference was ever consulted here. */
+[data-motion="off"] .wp-meter-fill,
+[data-motion="off"] .wp-bar-fill,
+[data-motion="off"] .wp-donut-arc{transition:none}
+[data-motion="off"] .wp-gauge-arc{animation:none}
 
 /* ================= DESIGN ARTWORK ================= */
 /*

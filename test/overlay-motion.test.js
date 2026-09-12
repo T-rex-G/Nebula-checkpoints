@@ -943,6 +943,100 @@ check('the overview keeps a ground under the artwork it may not be able to draw'
     `the console points at #${labelled} for its name, and nothing carries that id`);
 });
 
+/*
+ * The mark had two crops in two revisions: a hard one from the panel's own
+ * overflow, then a soft one from a mask drawn to hide it. Both showed the
+ * reader part of a logo. This reads the geometry rather than the technique, so
+ * a third way of cutting it fails here too.
+ */
+check('the overview artwork is shown whole, not cropped by its panel', () => {
+  const art = rules.filter(rule => rule.selector.split(',')
+    .some(one => one.trim().endsWith('.ov-console-art')));
+  assert.ok(art.length, '.ov-console-art has no rule at all');
+  const combined = art.map(rule => rule.body).join(';');
+  assert.ok(!/mask-image/.test(combined),
+    'the mark is masked, which fades a crop rather than removing one');
+  /*
+   * A negative inset is the mark hanging off the surface, and the surface
+   * clips. Positive offsets on both axes are what "inside the panel" means.
+   */
+  const negatives = combined.match(/(?:inset|top|right|bottom|left)\s*:\s*[^;}]*-\d/g) || [];
+  const bleeding = negatives.filter(one => !/translate|transform/.test(one));
+  assert.ok(!bleeding.length,
+    `the mark is positioned outside the panel and will be clipped: ${bleeding.join(' | ')}`);
+  assert.ok(/overflow\s*:\s*hidden/.test(
+    rules.filter(rule => rule.selector.split(',').some(one => one.trim() === '.ov-console'))
+      .map(rule => rule.body).join(';')),
+    'the console no longer clips, so this check has nothing to protect against');
+});
+
+/*
+ * Every reading on the overview is an arc. An arc is stroked; a filled circle
+ * is a disc. The state classes the legend swatches share also set `fill`, and a
+ * class rule outranks a presentation attribute -- which is exactly how the
+ * capability ring shipped as a solid yellow blob with fill="none" in its
+ * markup. So the rule that matters is: nothing that draws an arc may take its
+ * colour from a selector that sets fill.
+ */
+check('a reading is drawn as an arc, not filled in by a legend colour', () => {
+  const filling = new Set();
+  rules.forEach(rule => {
+    if (!/(?:^|[;{\s])fill\s*:\s*(?!none)[^;}]+/.test(rule.body)) return;
+    eachSelector(rule).forEach(one => filling.add(subject(one.selector)));
+  });
+  ['.wp-gauge-arc', '.wp-gauge-track', '.wp-donut-arc', '.wp-donut-track'].forEach(name => {
+    const own = rules.filter(rule => eachSelector(rule).some(one => subject(one.selector) === name));
+    assert.ok(own.length, `${name} has no rule, so nothing draws it`);
+    const body = own.map(rule => rule.body).join(';');
+    assert.ok(/fill\s*:\s*none/.test(body),
+      `${name} never sets fill:none, so a class that sets fill will paint it as a disc`);
+    assert.ok(/stroke(-width)?\s*:/.test(body), `${name} is not stroked, so there is no arc to see`);
+  });
+  /*
+   * The collision itself: an element may not carry both an arc class and a
+   * fill-setting class. Read off the source that builds the ring rather than
+   * off a list kept in step by hand.
+   */
+  const pulseSource = fs.readFileSync(path.join(root, 'public/workspace-pulse.js'), 'utf8');
+  const classed = [...pulseSource.matchAll(/class:\s*[`'"]([^`'"]*(?:gauge-arc|donut-arc)[^`'"]*)[`'"]/g)]
+    .map(match => match[1]);
+  assert.ok(classed.length, 'nothing builds an arc any more');
+  /*
+   * Matched by prefix, not by name. The first version of this compared whole
+   * class names and a template interpolation walked straight through it:
+   * `wp-fill-${status}` is not the string `wp-fill-good`, so the check passed
+   * on the very rewrite it was written to catch. What survives interpolation is
+   * the literal text before the `${`, and that is enough to recognise the
+   * family a class belongs to.
+   */
+  const fillFamilies = [...filling].map(name => name.replace(/^\./, ''));
+  classed.forEach(list => {
+    list.split(/\s+/).filter(Boolean).forEach(token => {
+      const literal = token.split('${')[0];
+      if (!literal) return;
+      const clash = fillFamilies.find(name => name === literal || name.startsWith(literal));
+      assert.ok(!clash,
+        `an arc carries "${token}", and .${clash} sets fill -- the arc will paint as a disc`);
+    });
+  });
+});
+
+/*
+ * A gauge with nothing to report draws its track and no arc. Drawing a
+ * zero-length arc would be a reading of zero, and this model exists to tell
+ * "not measured" apart from "measured and failing".
+ */
+check('an unmeasured reading draws no arc at all', () => {
+  const pulseSource = fs.readFileSync(path.join(root, 'public/workspace-pulse.js'), 'utf8');
+  const at = pulseSource.indexOf('function gauge(');
+  assert.ok(at >= 0, 'the gauge primitive is gone');
+  const body = pulseSource.slice(at, pulseSource.indexOf('\n  }\n', at));
+  assert.ok(/if \(measured\)[\s\S]{0,220}wp-gauge-arc/.test(body),
+    'the arc is drawn whether or not there is a reading behind it');
+  assert.ok(/\\u2014|\u2014/.test(body),
+    'an unmeasured gauge prints something other than a dash where its figure goes');
+});
+
 check('the live rail reports a session rather than asserting one', () => {
   const make = liftFunction('paintConsoleScope', ['$', 'state']);
   const scope = fakeElement({ width: 10, height: 10, left: 0, top: 0 });

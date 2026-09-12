@@ -78,12 +78,54 @@ test('the overview never invents a figure it could not measure', async ({ page }
    * signal it could not read -- "not measured" and "measured and failing" are
    * different claims, and only one of them is an accusation.
    */
-  const figure = trust.locator('.wp-hero-figure');
+  const figure = trust.locator('.wp-dial .wp-gauge-figure').first();
   const shown = (await figure.textContent()).trim();
-  expect(shown === 'Not measured' || /^\d{1,3}$/.test(shown)).toBeTruthy();
-  if (shown !== 'Not measured') {
+  /*
+   * The score is drawn inside its own dial now. An unmeasured score shows an em
+   * dash rather than a zero, and the arc that would carry a reading is not
+   * drawn at all -- a zero-length arc is a reading of zero, and "not measured"
+   * is not zero.
+   */
+  expect(shown === '\u2014' || /^\d{1,3}$/.test(shown)).toBeTruthy();
+  const arcs = await trust.locator('.wp-dial .wp-gauge-arc').count();
+  if (shown === '\u2014') {
+    expect(arcs).toBe(0);
+  } else {
     expect(Number(shown)).toBeGreaterThan(0);
     expect(Number(shown)).toBeLessThanOrEqual(100);
+    expect(arcs).toBe(1);
+  }
+});
+
+/*
+ * Every reading on this page is an arc now, and an arc is stroked, not filled.
+ * The state classes the legend swatches use also set `fill`, and a class rule
+ * outranks a presentation attribute -- so reusing them on the ring turned each
+ * arc into a filled disc and the donut rendered solid. This reads the computed
+ * fill rather than the markup, because the markup said fill="none" the whole
+ * time it was wrong.
+ */
+test('every reading is drawn as a stroked arc, never a filled disc', async ({ page }) => {
+  await signIn(page);
+  /*
+   * The cards paint from a model that is assembled after the inventory and the
+   * scanner posture land, so counting straight after sign-in counts nothing and
+   * the check passes an empty page as clean. Wait for the reading to exist
+   * before asserting anything about how it is drawn.
+   */
+  await expect(page.getByRole('article', { name: 'Trust score' })).toBeVisible();
+  const arcs = page.locator('.wp-gauge-arc, .wp-gauge-track, .wp-donut-arc, .wp-donut-track');
+  await expect(arcs.first()).toBeAttached();
+  const count = await arcs.count();
+  expect(count).toBeGreaterThan(3);
+  for (let index = 0; index < count; index += 1) {
+    const painted = await arcs.nth(index).evaluate(node => {
+      const style = getComputedStyle(node);
+      return { fill: style.fill, stroke: style.stroke, width: parseFloat(style.strokeWidth) };
+    });
+    expect(painted.fill).toMatch(/^(none|rgba\(0, 0, 0, 0\))$/);
+    expect(painted.stroke).not.toBe('none');
+    expect(painted.width).toBeGreaterThan(0);
   }
 });
 

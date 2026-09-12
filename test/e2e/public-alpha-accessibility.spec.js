@@ -118,6 +118,15 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await page.waitForTimeout(100);
   await page.locator('#nfPath').focus();
   await page.keyboard.type('keyboard-proof.txt');
+  /*
+   * The dialog now opens with a close control before its first field, so
+   * shift-tabbing back from that field reaches the control rather than wrapping
+   * straight to the confirm. Both steps are asserted: the first proves the new
+   * control is in the tab order and inside the dialog, the second proves the
+   * trap still wraps rather than letting focus escape to the page behind.
+   */
+  await page.keyboard.press('Shift+Tab');
+  await expect(ui.dialog(page, 'New file').getByRole('button', { name: 'Close dialog' })).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   await expect(ui.button(ui.dialog(page, 'New file'), 'Create')).toBeFocused();
   await page.keyboard.press('Enter');

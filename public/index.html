@@ -223,6 +223,9 @@
   </header>
 
   <div class="container">
+    <!-- Scroll progress for the phone. Decorative: it reports where the reader
+         already knows they are, so it carries no name and no role. -->
+    <div class="ov-scroll-progress" aria-hidden="true"></div>
     <!--
       The hero is a statement and a stage, not one card.
       ---------------------------------------------------------------------
@@ -382,7 +385,7 @@
           renamed, and the filter beside it filters -- it no longer escalates
           into a cross-repository search on Enter.
         -->
-        <button class="btn nv-create-repo" id="newRepoBtnRepos" data-feature="repository.create" data-allow-experimental="true" aria-label="Create repository"><svg class="nv-planet" viewBox="0 0 24 24" aria-hidden="true"><circle class="nv-planet-body" cx="10.5" cy="10.5" r="5.6"/><path class="nv-planet-ring" d="M3.6 14.6c-1.9.9-3 1.9-2.8 2.7.3 1.4 4.3 1.6 8.9.5 4.6-1.1 8.1-3.1 7.8-4.5-.1-.6-.9-1-2.1-1.2"/><path class="nv-planet-plus" d="M18.6 16.1v5.2M16 18.7h5.2"/></svg><span>Create repository</span></button>
+        <button class="btn nv-create-repo" id="newRepoBtnRepos" data-feature="repository.create" data-allow-experimental="true" aria-label="Create repository"><svg class="nv-planet" viewBox="0 0 24 24" aria-hidden="true"><ellipse class="nv-planet-ring" cx="9.6" cy="9.6" rx="8.5" ry="3.05"/><circle class="nv-planet-body" cx="9.6" cy="9.6" r="4.9"/><path class="nv-planet-plus" d="M18.7 15.8v5.4M16 18.5h5.4"/></svg><span>Create repository</span></button>
       </div>
     </div>
     <div class="repo-grid" id="repoGrid"></div>
@@ -836,7 +839,17 @@
 </template>
 <div class="scrim" id="scrim" hidden>
   <div class="card modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <h3 id="modalTitle"></h3>
+    <!--
+      A dialog needs a way out that is visible without reading. Settings is the
+      clearest case: it is a panel of switches, not a question, so its footer
+      says "Done" and there was nothing at the top-right where every reader
+      looks first. Escape and the backdrop always closed it; neither is
+      discoverable, and neither is reachable with a thumb on a phone.
+    -->
+    <div class="modal-head">
+      <h3 id="modalTitle"></h3>
+      <button type="button" class="btn btn-ghost icon-btn modal-close" id="modalClose" title="Close dialog" aria-label="Close dialog"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
     <div id="modalBody"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="modalCancel">Cancel</button>

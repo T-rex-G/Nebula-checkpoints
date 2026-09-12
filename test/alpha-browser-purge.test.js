@@ -30,6 +30,8 @@ assert(block.includes('state.file = null'));
 assert(block.includes('state.work = null'));
 assert(block.includes('state.repos = []'));
 assert(block.includes('state.me = null'));
+assert(block.includes('paintUnread([])'),
+  'the purge must clear the notification unread marker at the account boundary');
 assert(block.includes('clearCsrfToken'));
 assert(block.includes("postMessage({ type: 'NV_PURGE_PRIVATE_DATA' })"));
 assert(app.includes('/api/alpha/providers/disconnect-all'));
@@ -144,6 +146,15 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
       }
     }),
     _cache: { clear: () => operations.push(['memory-cache']) },
+    /*
+     * The unread marker is neither a value nor a child list, so the sweep
+     * below cannot reach it: hiding it is what clearing it means, and the
+     * painter that owns that decision is the only thing that can do it. It is
+     * stubbed here like the other peer functions the purge calls out to, and
+     * the call is recorded so the assertion can prove the marker was cleared
+     * rather than merely that the purge did not throw.
+     */
+    paintUnread: list => operations.push(['unread', Array.isArray(list) ? list.length : null]),
     $: selector => buffers.get(selector) || null,
     Object,
     queueMicrotask
@@ -166,6 +177,8 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     assert.strictEqual(buffer.textContent, '', `${selector} must not retain visible private data`);
     assert.strictEqual(buffer.value, '', `${selector} must not retain an identity-bound input value`);
   }
+  assert.deepStrictEqual(operations.find(([kind]) => kind === 'unread'), ['unread', 0],
+    'the purge must clear the notification unread marker, or one session\'s count stays lit over the next');
 }
 
 (async () => {

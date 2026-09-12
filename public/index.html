@@ -224,45 +224,49 @@
 
   <div class="container">
     <!--
-      The overview's console.
-      
-      What stood here was a marketing hero: an eyebrow, a three-line headline,
-      a paragraph of positioning and a call to action, with the artwork boxed
-      off to one side as an illustration. That shape belongs on a page that has
-      to persuade someone to sign in. This page is what they see *after* they
-      did, and it should report rather than pitch.
-      
-      So it is one surface instead of two columns. The artwork is a layer of
-      the surface rather than a picture beside it, the greeting is a line
-      rather than a headline, and the state of the workspace -- live, which
-      provider, which identity -- is the largest thing on it after the name.
-      The action sits in the flow of that sentence instead of below a pitch.
+      The hero is a statement and a stage, not one card.
+      ---------------------------------------------------------------------
+      A greeting, the move the reader is here to make, and the mark given room
+      of its own. Folding all of that into a single small panel shrank the
+      headline to a label and the mark to a decoration in a corner; the reader
+      arrived at a box rather than at a workspace. The two halves sit side by
+      side on a wide screen and stack on a narrow one, and the mark keeps its
+      own framed ground either way.
     -->
-    <section class="ov-console" id="ovConsole" aria-labelledby="ovConsoleTitle">
-      <!--
-        The dimensional mark mounts here when the device can draw it. The glow
-        behind it is not a placeholder to be replaced: it is what the surface
-        looks like without WebGL, and it stays so the panel is never an empty
-        frame.
-      -->
-      <div class="ov-console-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"></span></div>
-      <div class="ov-console-veil" aria-hidden="true"></div>
-      <div class="ov-console-body">
-        <p class="ov-console-rail">
-          <span class="ov-live" id="ovConsoleLive">Live</span>
-          <span class="ov-console-dot" aria-hidden="true"></span>
-          <span class="ov-console-scope" id="ovConsoleScope">Trust operations</span>
-        </p>
-        <h2 class="ov-console-title" id="ovConsoleTitle">
-          <span class="ov-console-hi">Good to see you,</span>
-          <em id="ovWho">tester</em>
-        </h2>
-        <p class="ov-console-lede" id="ovTitle">Every change is previewed and proved before it reaches a provider.</p>
-        <div class="ov-console-actions">
+    <section class="ov-hero">
+      <div class="ov-hero-copy">
+        <p class="gx-eyebrow"><span>Trust operations</span><span aria-hidden="true">/</span><span>Authenticated workspace</span></p>
+        <h2 class="gx-title" id="ovTitle">Good to see you,<br><em id="ovWho">tester</em>.<br>Make <em>one</em> safe move.</h2>
+        <p class="gx-lede">Connect a repository, understand its current health, and prove the next change
+          before it reaches a provider.</p>
+        <div class="gx-hero-actions">
           <button class="btn btn-primary" id="ovOpenBrowser">Open repository browser</button>
-          <span class="ov-console-hint">or press <kbd>Ctrl</kbd><kbd>K</kbd></span>
+          <span class="ov-hero-hint">or press <kbd>Ctrl</kbd><kbd>K</kbd></span>
         </div>
       </div>
+      <aside class="ov-core" id="ovCore" aria-labelledby="ovCoreTitle">
+        <!--
+          The rail reads the authority this session is actually talking to --
+          the same one the capability set was loaded against -- so the panel
+          cannot claim a connection it does not have.
+        -->
+        <p class="ov-core-head">
+          <span id="ovCoreTitle">Trust core</span>
+          <span class="ov-core-state">
+            <span class="ov-live" id="ovCoreLive">Live</span>
+            <span class="ov-core-dot" aria-hidden="true"></span>
+            <span class="ov-core-scope" id="ovCoreScope">github.com</span>
+          </span>
+        </p>
+        <!--
+          The dimensional mark mounts here when the device can draw it. The
+          glow behind it is not a placeholder to be replaced: it is what the
+          panel looks like without WebGL, and it stays so the panel is never
+          an empty frame.
+        -->
+        <div class="ov-core-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"></span></div>
+        <p class="ov-core-line">Secure by default. Proven by design.</p>
+      </aside>
     </section>
 
     <section class="ov-path" aria-labelledby="ovPathTitle">

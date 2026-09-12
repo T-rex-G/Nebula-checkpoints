@@ -934,13 +934,21 @@ check('the overview keeps a ground under the artwork it may not be able to draw'
   ['ovOpenBrowser', 'ovWho'].forEach(id => {
     assert.ok(new RegExp(`id="${id}"`).test(htmlSource), `#${id} was lost in the rebuild`);
   });
-  const section = htmlSource.match(/<section[^>]*class="ov-console"[^>]*>/);
-  assert.ok(section, 'the overview console surface is gone');
-  assert.ok(/aria-labelledby="([^"]+)"/.test(section[0]),
-    'the console is a landmark with no name');
-  const labelled = section[0].match(/aria-labelledby="([^"]+)"/)[1];
+  const panel = htmlSource.match(/<aside[^>]*class="ov-core"[^>]*>/);
+  assert.ok(panel, 'the trust core panel is gone');
+  assert.ok(/aria-labelledby="([^"]+)"/.test(panel[0]),
+    'the core panel is a landmark with no name');
+  const labelled = panel[0].match(/aria-labelledby="([^"]+)"/)[1];
   assert.ok(new RegExp(`id="${labelled}"`).test(htmlSource),
-    `the console points at #${labelled} for its name, and nothing carries that id`);
+    `the core panel points at #${labelled} for its name, and nothing carries that id`);
+  /*
+   * The headline is the screen's own voice and the reason the copy needs room
+   * beside the stage. Folding it down to a label is how the last revision lost
+   * the page: a display title that no longer scales is a card, not a hero.
+   */
+  const title = cssSource.match(/\.gx-title\{([^}]*)\}/);
+  assert.ok(title && /font-size\s*:\s*clamp\(/.test(title[1]),
+    'the hero headline no longer scales with the viewport, so it reads as a label');
 });
 
 /*
@@ -951,23 +959,34 @@ check('the overview keeps a ground under the artwork it may not be able to draw'
  */
 check('the overview artwork is shown whole, not cropped by its panel', () => {
   const art = rules.filter(rule => rule.selector.split(',')
-    .some(one => one.trim().endsWith('.ov-console-art')));
-  assert.ok(art.length, '.ov-console-art has no rule at all');
+    .some(one => one.trim().endsWith('.ov-core-art')));
+  assert.ok(art.length, '.ov-core-art has no rule at all');
   const combined = art.map(rule => rule.body).join(';');
   assert.ok(!/mask-image/.test(combined),
     'the mark is masked, which fades a crop rather than removing one');
   /*
-   * A negative inset is the mark hanging off the surface, and the surface
-   * clips. Positive offsets on both axes are what "inside the panel" means.
+   * A negative inset is the mark hanging off its ground, and the ground clips.
+   * Two revisions cut the mark this way -- once with the panel's own overflow
+   * and once with a mask drawn to hide that -- so the check is on the geometry
+   * rather than on either technique.
    */
   const negatives = combined.match(/(?:inset|top|right|bottom|left)\s*:\s*[^;}]*-\d/g) || [];
   const bleeding = negatives.filter(one => !/translate|transform/.test(one));
   assert.ok(!bleeding.length,
-    `the mark is positioned outside the panel and will be clipped: ${bleeding.join(' | ')}`);
-  assert.ok(/overflow\s*:\s*hidden/.test(
-    rules.filter(rule => rule.selector.split(',').some(one => one.trim() === '.ov-console'))
-      .map(rule => rule.body).join(';')),
-    'the console no longer clips, so this check has nothing to protect against');
+    `the mark is positioned outside its stage and will be clipped: ${bleeding.join(' | ')}`);
+  /*
+   * The stage has to be a stage: a box with height of its own, so the mark has
+   * somewhere to be drawn at full size rather than being squeezed behind copy.
+   */
+  assert.ok(/height\s*:/.test(combined),
+    'the artwork ground has no height, so the mark has no room to be drawn in');
+  assert.ok(/overflow\s*:\s*hidden/.test(combined),
+    'the stage no longer clips, so this check has nothing to protect against');
+  /* The 3D mount fills that stage exactly -- not a corner of it. */
+  const mount = rules.filter(rule => /nebula-mark-3d/.test(rule.selector))
+    .map(rule => rule.body).join(';');
+  assert.ok(/inset\s*:\s*0/.test(mount),
+    'the dimensional mark does not fill its stage, so it draws into part of the frame');
 });
 
 /*
@@ -1038,11 +1057,11 @@ check('an unmeasured reading draws no arc at all', () => {
 });
 
 check('the live rail reports a session rather than asserting one', () => {
-  const make = liftFunction('paintConsoleScope', ['$', 'state']);
+  const make = liftFunction('paintCoreState', ['$', 'state']);
   const scope = fakeElement({ width: 10, height: 10, left: 0, top: 0 });
   const live = fakeElement({ width: 10, height: 10, left: 0, top: 0 });
   live.classList = { toggle(name, on) { live.idle = on; } };
-  const lookup = selector => (selector === '#ovConsoleScope' ? scope : selector === '#ovConsoleLive' ? live : null);
+  const lookup = selector => (selector === '#ovCoreScope' ? scope : selector === '#ovCoreLive' ? live : null);
 
   make(lookup, { me: { provider: 'github', host: 'github.com' } })();
   const connected = scope.textContent;
@@ -1065,7 +1084,7 @@ check('the live rail reports a session rather than asserting one', () => {
 });
 
 check('the pointer light costs nothing on a device that has no pointer', () => {
-  const wiring = appSource.slice(appSource.indexOf('function wireConsolePointer'));
+  const wiring = appSource.slice(appSource.indexOf('function wireCorePointer'));
   const body = wiring.slice(0, wiring.indexOf('\n}\n'));
   assert.ok(/\(hover:hover\)/.test(body) && /\(pointer:fine\)/.test(body),
     'the pointer light is wired up without asking whether the device has a pointer');
@@ -1079,7 +1098,7 @@ check('the pointer light costs nothing on a device that has no pointer', () => {
    */
   assert.ok(!/\.style\.transform|classList\.(add|remove)/.test(body),
     'the pointer light moves an element rather than a background position');
-  const lit = rules.find(rule => rule.selector.includes('.ov-console::after'));
+  const lit = rules.find(rule => rule.selector.includes('.ov-core::after'));
   assert.ok(lit && /--nv-px/.test(lit.body),
     'nothing in the cascade reads the pointer position the shell writes');
 });

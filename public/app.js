@@ -1638,14 +1638,14 @@ $('#ovOpenBrowser') && $('#ovOpenBrowser').addEventListener('click', () => showP
 function showOverview() {
   const who = $('#ovWho');
   if (who) who.textContent = (state.me && (state.me.name || state.me.login)) || 'tester';
-  paintConsoleScope();
+  paintCoreState();
   renderWorkspacePulse();
   loadScannerPosture();
   showPage('overview');
 }
 
 /*
- * The console rail says where this session actually is.
+ * The core panel's rail says where this session actually is.
  *
  * It reads the same authority `loadProviderCapabilities` resolves, so the rail
  * and the capability set can never name two different hosts. A session with no
@@ -1653,9 +1653,9 @@ function showOverview() {
  * live dot is what claims a connection, and a claim without a source is the
  * one thing this surface must not make.
  */
-function paintConsoleScope() {
-  const scope = $('#ovConsoleScope');
-  const live = $('#ovConsoleLive');
+function paintCoreState() {
+  const scope = $('#ovCoreScope');
+  const live = $('#ovCoreLive');
   if (!scope) return;
   const authority = state.me && (state.me.authority || state.me.host || state.me.baseUrl)
     || (state.me && state.me.provider === 'github' ? 'github.com' : '');
@@ -1668,7 +1668,7 @@ function paintConsoleScope() {
 }
 
 /*
- * The pointer light on the console surface.
+ * The pointer light on the core panel.
  *
  * Two custom properties and one radial gradient: the browser repaints a
  * background, there is no layer to composite and nothing to lay out. The
@@ -1677,8 +1677,8 @@ function paintConsoleScope() {
  * being written -- the surface keeps whatever it last had, which is the same
  * surface it has at rest.
  */
-function wireConsolePointer() {
-  const panel = $('#ovConsole');
+function wireCorePointer() {
+  const panel = $('#ovCore');
   if (!panel || !window.matchMedia || !window.matchMedia('(hover:hover) and (pointer:fine)').matches) return;
   panel.addEventListener('pointermove', event => {
     if (!state.settings.motion || event.pointerType === 'touch') return;
@@ -1688,7 +1688,7 @@ function wireConsolePointer() {
     panel.style.setProperty('--nv-py', `${((event.clientY - box.top) / box.height) * 100}%`);
   }, { passive: true });
 }
-wireConsolePointer();
+wireCorePointer();
 
 /*
  * The trust score and live-signal count.

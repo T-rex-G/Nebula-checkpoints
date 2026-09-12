@@ -2084,88 +2084,48 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .ov-crumbs span[aria-hidden]{opacity:.4}
 @media (min-width:901px){ .ov-crumbs{display:flex} }
 
+/* ---- the hero: a statement beside a stage -------------------------------
+ * Two halves. The copy carries the greeting and the one move this screen is
+ * for; the core panel gives the mark its own framed ground and says what the
+ * session is connected to. Collapsing the two into a single card cost the
+ * headline its scale and the mark its room, so they stay separate objects and
+ * only stack when the screen is too narrow to hold both.
+ * ---------------------------------------------------------------------- */
+.ov-hero{display:grid;gap:26px;grid-template-columns:1fr;padding:34px 0 8px;align-items:center}
+@media (min-width:1020px){ .ov-hero{grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:44px} }
+.ov-hero-copy{max-width:640px}
+.ov-hero-hint{color:var(--muted);font-size:.74rem}
+.ov-hero-hint kbd{font-family:var(--font-mono);font-size:.68rem;padding:2px 5px;margin-left:3px;
+  border:1px solid var(--glass-border);border-radius:5px;background:rgba(255,255,255,.05)}
+[data-theme="light"] .ov-hero-hint kbd{background:rgba(20,14,50,.04)}
+@media (max-width:560px){ .ov-hero-hint{display:none} }
+
+.ov-core{position:relative;isolation:isolate;border:1px solid var(--glass-border);border-radius:20px;padding:20px;
+  background:var(--card-grad);box-shadow:var(--card-shadow);
+  backdrop-filter:blur(26px) saturate(1.5);-webkit-backdrop-filter:blur(26px) saturate(1.5);overflow:hidden}
 /*
- * The overview console.
- *
- * One surface, not a hero and an illustration. The artwork is a layer inside
- * it, under a veil that keeps text legible over a moving ground; the copy sits
- * on top at a size that reports rather than announces. Nothing here scales
- * with the viewport the way a landing headline does -- an application's own
- * screen should look the same weight on every device.
- *
  * The pointer light is two custom properties and one radial gradient. It moves
  * a background position, not a layer, so there is nothing to composite and
  * nothing to lay out; with no pointer, or with motion off, it simply never
- * updates and the surface is the same surface.
+ * updates and the panel is the same panel.
  */
-.ov-console{position:relative;isolation:isolate;overflow:hidden;
-  margin:22px 0 8px;padding:clamp(22px,4vw,34px);
-  border:1px solid var(--glass-border);border-radius:22px;
-  background:var(--card-grad);box-shadow:var(--card-shadow);
-  backdrop-filter:blur(26px) saturate(1.5);-webkit-backdrop-filter:blur(26px) saturate(1.5)}
-.ov-console::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;
-  background:radial-gradient(320px circle at var(--nv-px,80%) var(--nv-py,0%),
-    rgba(255,255,255,.10), transparent 62%);
+.ov-core::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;
+  background:radial-gradient(260px circle at var(--nv-px,70%) var(--nv-py,0%),
+    rgba(255,255,255,.09), transparent 64%);
   opacity:0;transition:opacity .35s var(--ease)}
-@media (hover:hover) and (pointer:fine){.ov-console:hover::after{opacity:1}}
-[data-theme="light"] .ov-console::after{
-  background:radial-gradient(320px circle at var(--nv-px,80%) var(--nv-py,0%),
-    rgba(109,40,217,.10), transparent 62%)}
+@media (hover:hover) and (pointer:fine){.ov-core:hover::after{opacity:1}}
+[data-theme="light"] .ov-core::after{
+  background:radial-gradient(260px circle at var(--nv-px,70%) var(--nv-py,0%),
+    rgba(109,40,217,.09), transparent 64%)}
+@media (prefers-reduced-motion:reduce){.ov-core::after{transition:none}}
+[data-motion="off"] .ov-core::after{transition:none}
 
-/*
- * The mark is shown whole.
- *
- * Bleeding it off the panel meant the panel's own overflow cut a straight line
- * across a shape that is not straight anywhere else, and fading that cut out
- * only traded a hard crop for a soft one -- either way the reader sees part of
- * a mark. It sits inside the surface now, sized to the panel's height and held
- * clear of both edges, so the whole animation is on screen and nothing clips
- * it. The veil only has to keep the copy legible where the two overlap.
- */
-.ov-console-art{position:absolute;z-index:0;pointer-events:none;
-  right:clamp(12px,3%,34px);top:50%;transform:translateY(-50%);
-  width:min(296px,34%);aspect-ratio:1;border-radius:50%}
-.ov-console-veil{position:absolute;inset:0;z-index:1;pointer-events:none;
-  background:linear-gradient(100deg,var(--shellSolid) 14%,rgba(0,0,0,0) 56%)}
-[data-theme="light"] .ov-console-veil{
-  background:linear-gradient(100deg,#fff 14%,rgba(255,255,255,.5) 40%,rgba(255,255,255,0) 62%)}
-.ov-console-body{position:relative;z-index:2;max-width:min(38rem,100%)}
-
-.ov-console-rail{display:flex;align-items:center;gap:9px;margin:0 0 14px;
-  font-family:var(--font-display);font-size:.62rem;font-weight:600;letter-spacing:.14em;
+.ov-core-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  font-family:var(--font-display);font-size:.64rem;font-weight:600;letter-spacing:.14em;
   text-transform:uppercase;color:var(--muted)}
-.ov-console-dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.5}
-.ov-console-title{font-family:var(--font-display);font-weight:600;letter-spacing:-.02em;
-  font-size:clamp(1.3rem,2.4vw,1.7rem);line-height:1.24;margin:0 0 8px}
-.ov-console-hi{color:var(--text2);font-weight:500}
-.ov-console-title em{font-style:normal;color:var(--accent2)}
-.ov-console-lede{color:var(--text2);font-size:.88rem;line-height:1.55;margin:0 0 20px;max-width:34rem}
-.ov-console-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.ov-console-hint{color:var(--muted);font-size:.74rem}
-.ov-console-hint kbd{font-family:var(--font-mono);font-size:.68rem;padding:2px 5px;margin-left:3px;
-  border:1px solid var(--glass-border);border-radius:5px;background:rgba(255,255,255,.05)}
-[data-theme="light"] .ov-console-hint kbd{background:rgba(20,14,50,.04)}
-
-/* Below the breakpoint the artwork moves behind the copy rather than beside
-   it, and the veil turns vertical so the text keeps its ground. */
-/*
- * On a phone the copy needs the full width, so the mark moves above it rather
- * than beside it and the veil turns vertical. It still sits inside the panel:
- * a phone is where a cropped mark is most obvious, not least.
- */
-@media (max-width:760px){
-  .ov-console{padding-top:clamp(96px,30vw,140px)}
-  .ov-console-art{right:auto;left:50%;top:clamp(14px,4vw,20px);
-    transform:translateX(-50%);width:min(132px,34vw)}
-  .ov-console-veil{background:linear-gradient(180deg,rgba(0,0,0,0) 0%,var(--shellSolid) 38%)}
-  [data-theme="light"] .ov-console-veil{
-    background:linear-gradient(180deg,rgba(255,255,255,.3) 0%,#fff 38%)}
-  .ov-console-body{max-width:100%}
-  .ov-console-hint{display:none}
-}
-@media (prefers-reduced-motion:reduce){.ov-console::after{transition:none}}
-[data-motion="off"] .ov-console::after{transition:none}
-
+.ov-core-state{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.ov-core-dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.5;flex:none}
+.ov-core-scope{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ov-live{display:inline-flex;align-items:center;gap:6px;color:var(--teal);letter-spacing:.1em}
 .ov-live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
   box-shadow:0 0 0 0 currentColor;animation:ov-pulse 2.4s var(--ease) infinite}
@@ -2174,12 +2134,18 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    because a live signal is the one thing this rail must not fake. */
 .ov-live.is-idle{color:var(--muted)}
 .ov-live.is-idle::before{animation:none;box-shadow:none}
-.ov-core-art,.ov-console-art{background:radial-gradient(ellipse 62% 66% at 50% 50%, rgba(124,58,237,.34), rgba(76,29,149,.13) 55%, transparent 78%)}
+/* The mark's stage: its own framed ground, tall enough to hold the whole mark
+   rather than a crop of it. */
+.ov-core-art{position:relative;height:clamp(186px,22vw,224px);margin:16px 0 14px;
+  border-radius:14px;overflow:hidden;
+  background:radial-gradient(ellipse 62% 66% at 50% 50%, rgba(124,58,237,.34), rgba(76,29,149,.13) 55%, transparent 78%)}
 .ov-core-glow{position:absolute;inset:0;
   background:conic-gradient(from 210deg at 50% 50%, rgba(139,92,246,.55), rgba(217,70,239,.32), rgba(34,211,238,.30), rgba(139,92,246,.55));
   filter:blur(26px);opacity:.75;animation:ov-spin 26s linear infinite}
 @keyframes ov-spin{to{transform:rotate(1turn)}}
 [data-motion="off"] .ov-core-glow{animation:none}
+
+.ov-core-line{font-family:var(--font-display);font-size:.9rem;font-weight:600;color:var(--text);letter-spacing:-.008em;margin:0}
 
 .ov-path{margin:34px 0 4px}
 .ov-path-lede{color:var(--text2);font-size:.88rem;margin:-6px 0 16px}

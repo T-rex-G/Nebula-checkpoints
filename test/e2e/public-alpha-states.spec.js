@@ -93,12 +93,18 @@ for (const [mutation, expectedText, verified] of [
   });
 }
 
+/*
+ * Read on the create control, which is the repositories screen's only action
+ * since code search was removed from it. The reason is asserted by length
+ * rather than by wording so the check stays about the gate being explained,
+ * not about the sentence the registry happens to carry today.
+ */
 test('unavailable provider capability is disabled before interaction with a safe reason', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', provider: 'gitlab' });
   await page.goto('/');
-  await expect(page.locator('#repoGlobalSearchBtn')).toBeDisabled();
-  await expect(page.locator('#repoGlobalSearchBtn')).toHaveAttribute('data-capability-reason', /.{12,}/);
-  await expect(page.locator('#repoGlobalSearchBtn + .capability-state')).toContainText('Unavailable');
+  await expect(page.locator('#newRepoBtnRepos')).toBeDisabled();
+  await expect(page.locator('#newRepoBtnRepos')).toHaveAttribute('data-capability-reason', /.{12,}/);
+  await expect(page.locator('#newRepoBtnRepos + .capability-state')).toContainText('Unavailable');
 });
 
 for (const [access, message] of [

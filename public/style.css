@@ -428,6 +428,59 @@ em{color:var(--teal);font-style:normal}
 .btn-primary.danger:hover{background:linear-gradient(135deg,#ff5b83,var(--red))}
 .icon-btn{padding:8px 12px;min-width:44px}
 /*
+ * Creating a repository, as its own action rather than another ghost button.
+ *
+ * It is the only action this inventory offers, so it reads as one: an accented
+ * outline and a mark of its own, sitting apart from the sort and filter
+ * controls it shares a row with. The planet is the product's own vocabulary --
+ * the inventory calls repositories galaxies and systems -- and the plus is
+ * attached to it rather than replacing it, so the control says "add one of
+ * these" instead of the generic "add".
+ *
+ * The ring turns on hover and the body lifts, which is the whole animation: a
+ * control that answers a pointer feels direct, and one that performs does not.
+ */
+/*
+ * The unread marker on the bell.
+ *
+ * It reports a count this session actually loaded and is absent otherwise --
+ * a dot that is always there says nothing, and a number invented to look
+ * populated is worse than no number. Under ten it is the figure; above, 9+,
+ * because the exact count of a backlog is not what the reader needs from a
+ * mark this size.
+ *
+ * Sized to read at a glance without becoming a badge: it sits on the bell's
+ * corner, carries the page colour as its rim so it reads as raised off the
+ * icon rather than painted onto it, and keeps its own contrast in both themes.
+ */
+.nv-unread{position:absolute;top:2px;right:2px;min-width:15px;height:15px;padding:0 3px;
+  display:inline-grid;place-items:center;border-radius:99px;
+  font-size:.58rem;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;
+  color:#fff;background:var(--red);border:2px solid var(--topbarBg,var(--shellSolid));
+  pointer-events:none}
+.nv-unread:empty{min-width:9px;height:9px;padding:0;top:5px;right:5px}
+#notifBtn{position:relative}
+
+.nv-create-repo{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;
+  color:var(--accent2);background:var(--createBg,rgba(139,92,246,0.10));
+  border:1px solid var(--createB,rgba(139,92,246,0.34));
+  box-shadow:0 1px 0 rgba(255,255,255,0.05) inset}
+.nv-create-repo:hover{background:var(--createBgH,rgba(139,92,246,0.17));
+  border-color:var(--createBH,rgba(139,92,246,0.5));transform:translateY(-1px)}
+.nv-create-repo:active{transform:translateY(0) scale(.985)}
+.nv-planet{width:17px;height:17px;flex:none;fill:none;stroke:currentColor;
+  stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;overflow:visible}
+.nv-planet-body{opacity:.95}
+.nv-planet-ring{opacity:.75;transform-box:fill-box;transform-origin:center;
+  transition:transform .35s var(--ease),opacity .2s}
+.nv-planet-plus{stroke-width:2.1}
+.nv-create-repo:hover .nv-planet-ring{transform:rotate(-12deg);opacity:1}
+[data-motion="off"] .nv-planet-ring{transition:none}
+@media (prefers-reduced-motion:reduce){.nv-planet-ring{transition:none}}
+[data-theme="light"]{
+  --createBg:rgba(109,40,217,0.07); --createB:rgba(109,40,217,0.26);
+  --createBgH:rgba(109,40,217,0.12); --createBH:rgba(109,40,217,0.4)}
+/*
  * Sign out is the one destructive control that lives in the standing chrome,
  * and as a worded button it took more of a phone's top bar than its importance
  * earns -- on the overview it sat beside four other controls and squeezed the
@@ -569,22 +622,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   body #page-repos .page-head-tools .search-input{grid-column:1 / -1;grid-row:1;max-width:none;width:100%}
   body #page-repos .page-head-tools .branch-select{grid-column:1;grid-row:2;max-width:none;width:100%}
   body #page-repos .page-head-tools .btn{grid-column:2;grid-row:2;align-self:stretch}
-  /*
-   * The create control joins this toolbar on a phone, where the top bar has no
-   * room for it -- and a fourth control does not fit the two-cell grid above.
-   * That grid places by rule rather than by order, so an unplaced control
-   * lands in a cell that is already taken and the two draw on top of each
-   * other: both visible, only the upper one pressable.
-   *
-   * Rather than hand-place a third row, the toolbar flows when the extra
-   * control is present. Four items of their own widths wrap on their own, and
-   * nothing has to be repositioned when a fifth arrives.
-   */
-  body #page-repos .page-head-tools:has(#newRepoBtnRepos){
-    display:flex;flex-wrap:wrap;justify-content:flex-start}
-  body #page-repos .page-head-tools:has(#newRepoBtnRepos) .search-input{flex:1 0 100%;max-width:none}
-  body #page-repos .page-head-tools:has(#newRepoBtnRepos) .branch-select{flex:1 1 auto;max-width:none}
-  body #page-repos .page-head-tools:has(#newRepoBtnRepos) .btn{flex:0 0 auto}
+
   /*
    * The toolbar sticks under the bar. An inventory is a list you scroll and
    * then want to narrow, and the control for narrowing it was at the top of
@@ -887,7 +925,20 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .sheet-item,.sheet-div{flex:none}
 .sheet-item{display:flex;width:100%;font:inherit;font-size:.92rem;font-weight:500;color:var(--text);
   background:transparent;border:none;border-radius:12px;padding:13px 14px;cursor:pointer;min-height:48px;align-items:center}
-.sheet-item:active{background:rgba(255,255,255,0.08)}
+.sheet-item{transition:background .13s ease,color .13s ease,transform .13s var(--ease)}
+.sheet-item:hover{background:rgba(255,255,255,0.07)}
+.sheet-item:active{background:rgba(255,255,255,0.12);transform:scale(.988)}
+/*
+ * One focus treatment for every menu row, drawn inside the row so it never
+ * changes the row's size -- an outline that adds width makes the list shift
+ * the moment a keyboard reaches it.
+ */
+.sheet-item:focus-visible,.pal-item:focus-visible,.nv-fab-item:focus-visible{
+  outline:none;box-shadow:inset 0 0 0 2px var(--accent2)}
+[data-theme="light"] .sheet-item:hover{background:rgba(20,14,50,0.05)}
+[data-theme="light"] .sheet-item:active{background:rgba(20,14,50,0.09)}
+[data-motion="off"] .sheet-item{transition:none}
+@media (prefers-reduced-motion:reduce){.sheet-item{transition:none}}
 .sheet-div{height:1px;background:var(--glass-border);margin:6px 4px}
 
 .stage-panel{position:absolute;top:0;right:0;bottom:0;width:min(420px,94vw);
@@ -912,7 +963,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 /* command palette */
 .palette-scrim{display:flex;align-items:flex-start;justify-content:center;
   padding:12vh 16px 16px}
-.palette{width:min(560px,100%);border-radius:16px;padding:10px;animation:modalIn .26s var(--ease-settle) both}
+.palette{width:min(560px,100%);border-radius:16px;padding:10px;
+  transform-origin:var(--nv-origin,50% 50%);animation:modalIn .26s var(--ease-settle) both}
 .palette input{border:none;background:transparent;font-size:1rem;min-height:48px;backdrop-filter:none}
 .palette input:focus{box-shadow:none}
 .palette-list{max-height:46vh;overflow-y:auto;border-top:1px solid var(--glass-border);margin-top:6px;padding-top:6px}
@@ -925,7 +977,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 /* modal / toasts */
 .scrim{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:18px;
   background:rgba(5,5,15,0.4);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:fadeIn .2s var(--ease) both}
-.modal{width:min(480px,100%);max-height:86dvh;overflow-y:auto;padding:22px;animation:modalIn .3s var(--ease-settle) both}
+.modal{width:min(480px,100%);max-height:86dvh;overflow-y:auto;padding:22px;
+  transform-origin:var(--nv-origin,50% 50%);animation:modalIn .3s var(--ease-settle) both}
 /*
  * The layers arrive as surfaces, not as pictures fading up.
  *
@@ -962,9 +1015,9 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 @keyframes sheetOut{to{opacity:0;transform:translateY(24px)}}
 @keyframes slideROut{to{opacity:0;transform:translateX(40px)}}
 .scrim[data-closing]{animation:scrimOut .2s ease both}
-[data-closing] .modal{animation:modalOut .2s var(--ease) both}
+[data-closing] .modal{transform-origin:var(--nv-origin,50% 50%);animation:modalOut .2s var(--ease) both}
 .palette-scrim[data-closing]{animation:scrimOut .18s ease both}
-[data-closing] .palette{animation:modalOut .18s var(--ease) both}
+[data-closing] .palette{transform-origin:var(--nv-origin,50% 50%);animation:modalOut .18s var(--ease) both}
 .sheet-scrim[data-closing]{animation:scrimOut .22s ease both}
 [data-closing] .sheet{animation:sheetOut .22s var(--ease) both}
 .stage-scrim[data-closing]{animation:scrimOut .22s ease both}
@@ -2031,26 +2084,96 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .ov-crumbs span[aria-hidden]{opacity:.4}
 @media (min-width:901px){ .ov-crumbs{display:flex} }
 
-.ov-hero{display:grid;gap:26px;grid-template-columns:1fr;padding:34px 0 8px;align-items:center}
-@media (min-width:1020px){ .ov-hero{grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:44px} }
-.ov-hero-copy{max-width:640px}
+/*
+ * The overview console.
+ *
+ * One surface, not a hero and an illustration. The artwork is a layer inside
+ * it, under a veil that keeps text legible over a moving ground; the copy sits
+ * on top at a size that reports rather than announces. Nothing here scales
+ * with the viewport the way a landing headline does -- an application's own
+ * screen should look the same weight on every device.
+ *
+ * The pointer light is two custom properties and one radial gradient. It moves
+ * a background position, not a layer, so there is nothing to composite and
+ * nothing to lay out; with no pointer, or with motion off, it simply never
+ * updates and the surface is the same surface.
+ */
+.ov-console{position:relative;isolation:isolate;overflow:hidden;
+  margin:22px 0 8px;padding:clamp(22px,4vw,34px);
+  border:1px solid var(--glass-border);border-radius:22px;
+  background:var(--card-grad);box-shadow:var(--card-shadow);
+  backdrop-filter:blur(26px) saturate(1.5);-webkit-backdrop-filter:blur(26px) saturate(1.5)}
+.ov-console::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;
+  background:radial-gradient(320px circle at var(--nv-px,80%) var(--nv-py,0%),
+    rgba(255,255,255,.10), transparent 62%);
+  opacity:0;transition:opacity .35s var(--ease)}
+@media (hover:hover) and (pointer:fine){.ov-console:hover::after{opacity:1}}
+[data-theme="light"] .ov-console::after{
+  background:radial-gradient(320px circle at var(--nv-px,80%) var(--nv-py,0%),
+    rgba(109,40,217,.10), transparent 62%)}
 
-.ov-core{position:relative;border:1px solid var(--glass-border);border-radius:20px;padding:20px;
-  background:var(--card-grad);box-shadow:var(--card-shadow);backdrop-filter:blur(26px) saturate(1.5);overflow:hidden}
-.ov-core-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
-  font-family:var(--font-display);font-size:.64rem;font-weight:600;letter-spacing:.14em;
+/*
+ * The artwork is masked, not just clipped.
+ *
+ * A circle with overflow:hidden inside a panel with overflow:hidden gives the
+ * mark two hard edges, and the panel's edge cuts a straight line across a
+ * shape that is not straight anywhere else -- it reads as a photograph cropped
+ * by accident rather than as a layer of the surface. The mask takes the alpha
+ * to nothing before the panel boundary reaches it, so there is no longer an
+ * edge there to cut. A browser without mask-image falls back to the circle,
+ * which is what this looked like before.
+ */
+.ov-console-art{position:absolute;z-index:0;inset:auto -4% -28% auto;
+  width:min(420px,62%);aspect-ratio:1;border-radius:50%;overflow:hidden;pointer-events:none;
+  -webkit-mask-image:radial-gradient(closest-side,#000 46%,rgba(0,0,0,.6) 70%,transparent 97%);
+  mask-image:radial-gradient(closest-side,#000 46%,rgba(0,0,0,.6) 70%,transparent 97%)}
+.ov-console-veil{position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(100deg,var(--shellSolid) 16%,rgba(0,0,0,0) 68%)}
+[data-theme="light"] .ov-console-veil{
+  background:linear-gradient(100deg,#fff 16%,rgba(255,255,255,.62) 46%,rgba(255,255,255,0) 74%)}
+.ov-console-body{position:relative;z-index:2;max-width:min(38rem,100%)}
+
+.ov-console-rail{display:flex;align-items:center;gap:9px;margin:0 0 14px;
+  font-family:var(--font-display);font-size:.62rem;font-weight:600;letter-spacing:.14em;
   text-transform:uppercase;color:var(--muted)}
+.ov-console-dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.5}
+.ov-console-title{font-family:var(--font-display);font-weight:600;letter-spacing:-.02em;
+  font-size:clamp(1.3rem,2.4vw,1.7rem);line-height:1.24;margin:0 0 8px}
+.ov-console-hi{color:var(--text2);font-weight:500}
+.ov-console-title em{font-style:normal;color:var(--accent2)}
+.ov-console-lede{color:var(--text2);font-size:.88rem;line-height:1.55;margin:0 0 20px;max-width:34rem}
+.ov-console-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.ov-console-hint{color:var(--muted);font-size:.74rem}
+.ov-console-hint kbd{font-family:var(--font-mono);font-size:.68rem;padding:2px 5px;margin-left:3px;
+  border:1px solid var(--glass-border);border-radius:5px;background:rgba(255,255,255,.05)}
+[data-theme="light"] .ov-console-hint kbd{background:rgba(20,14,50,.04)}
+
+/* Below the breakpoint the artwork moves behind the copy rather than beside
+   it, and the veil turns vertical so the text keeps its ground. */
+@media (max-width:760px){
+  .ov-console-art{inset:-18% -28% auto auto;width:min(320px,86%)}
+  .ov-console-veil{background:linear-gradient(168deg,rgba(0,0,0,0) 0%,var(--shellSolid) 46%)}
+  [data-theme="light"] .ov-console-veil{
+    background:linear-gradient(168deg,rgba(255,255,255,.35) 0%,#fff 46%)}
+  .ov-console-hint{display:none}
+}
+@media (prefers-reduced-motion:reduce){.ov-console::after{transition:none}}
+[data-motion="off"] .ov-console::after{transition:none}
+
 .ov-live{display:inline-flex;align-items:center;gap:6px;color:var(--teal);letter-spacing:.1em}
 .ov-live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
   box-shadow:0 0 0 0 currentColor;animation:ov-pulse 2.4s var(--ease) infinite}
 @keyframes ov-pulse{0%{box-shadow:0 0 0 0 rgba(34,211,238,.5)}70%{box-shadow:0 0 0 9px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
-.ov-core-art{position:relative;height:186px;margin:16px 0 14px;border-radius:14px;overflow:hidden;
-  background:radial-gradient(ellipse 62% 66% at 50% 50%, rgba(124,58,237,.34), rgba(76,29,149,.13) 55%, transparent 78%)}
+/* No identity, no claim: the dot stops pulsing and drops to the muted ink,
+   because a live signal is the one thing this rail must not fake. */
+.ov-live.is-idle{color:var(--muted)}
+.ov-live.is-idle::before{animation:none;box-shadow:none}
+.ov-core-art,.ov-console-art{background:radial-gradient(ellipse 62% 66% at 50% 50%, rgba(124,58,237,.34), rgba(76,29,149,.13) 55%, transparent 78%)}
 .ov-core-glow{position:absolute;inset:0;
   background:conic-gradient(from 210deg at 50% 50%, rgba(139,92,246,.55), rgba(217,70,239,.32), rgba(34,211,238,.30), rgba(139,92,246,.55));
   filter:blur(26px);opacity:.75;animation:ov-spin 26s linear infinite}
 @keyframes ov-spin{to{transform:rotate(1turn)}}
-.ov-core-line{font-family:var(--font-display);font-size:.9rem;font-weight:600;color:var(--text);letter-spacing:-.008em}
+[data-motion="off"] .ov-core-glow{animation:none}
 
 .ov-path{margin:34px 0 4px}
 .ov-path-lede{color:var(--text2);font-size:.88rem;margin:-6px 0 16px}
@@ -2098,7 +2221,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   min-width:210px;max-width:min(280px, calc(100vw - 32px));padding:8px;
   border-radius:18px;border:1px solid var(--glass-border);background:var(--card2);
   box-shadow:var(--cardShadow);
-  animation:fabMenuIn .24s var(--ease-settle) both}
+  transform-origin:var(--nv-origin,50% 100%);animation:fabMenuIn .24s var(--ease-settle) both}
 .nv-fab-menu[hidden]{display:none}
 @keyframes fabMenuIn{from{opacity:0;transform:translateY(10px) scale(.96)}55%{opacity:1}to{opacity:1;transform:none}}
 /* It leaves the way it arrived, and stops taking presses while it does. */

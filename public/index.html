@@ -223,27 +223,46 @@
   </header>
 
   <div class="container">
-    <section class="ov-hero">
-      <div class="ov-hero-copy">
-        <p class="gx-eyebrow"><span>Trust operations</span><span aria-hidden="true">/</span><span>Authenticated workspace</span></p>
-        <h2 class="gx-title" id="ovTitle">Good to see you,<br><em id="ovWho">tester</em>.<br>Make <em>one</em> safe move.</h2>
-        <p class="gx-lede">Connect a repository, understand its current health, and prove the next change
-          before it reaches a provider.</p>
-        <div class="gx-hero-actions">
+    <!--
+      The overview's console.
+      
+      What stood here was a marketing hero: an eyebrow, a three-line headline,
+      a paragraph of positioning and a call to action, with the artwork boxed
+      off to one side as an illustration. That shape belongs on a page that has
+      to persuade someone to sign in. This page is what they see *after* they
+      did, and it should report rather than pitch.
+      
+      So it is one surface instead of two columns. The artwork is a layer of
+      the surface rather than a picture beside it, the greeting is a line
+      rather than a headline, and the state of the workspace -- live, which
+      provider, which identity -- is the largest thing on it after the name.
+      The action sits in the flow of that sentence instead of below a pitch.
+    -->
+    <section class="ov-console" id="ovConsole" aria-labelledby="ovConsoleTitle">
+      <!--
+        The dimensional mark mounts here when the device can draw it. The glow
+        behind it is not a placeholder to be replaced: it is what the surface
+        looks like without WebGL, and it stays so the panel is never an empty
+        frame.
+      -->
+      <div class="ov-console-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"></span></div>
+      <div class="ov-console-veil" aria-hidden="true"></div>
+      <div class="ov-console-body">
+        <p class="ov-console-rail">
+          <span class="ov-live" id="ovConsoleLive">Live</span>
+          <span class="ov-console-dot" aria-hidden="true"></span>
+          <span class="ov-console-scope" id="ovConsoleScope">Trust operations</span>
+        </p>
+        <h2 class="ov-console-title" id="ovConsoleTitle">
+          <span class="ov-console-hi">Good to see you,</span>
+          <em id="ovWho">tester</em>
+        </h2>
+        <p class="ov-console-lede" id="ovTitle">Every change is previewed and proved before it reaches a provider.</p>
+        <div class="ov-console-actions">
           <button class="btn btn-primary" id="ovOpenBrowser">Open repository browser</button>
+          <span class="ov-console-hint">or press <kbd>Ctrl</kbd><kbd>K</kbd></span>
         </div>
       </div>
-      <aside class="ov-core" aria-labelledby="ovCoreTitle">
-        <p class="ov-core-head"><span id="ovCoreTitle">Trust core</span><span class="ov-live">Live</span></p>
-        <!--
-          The dimensional mark mounts here when the device can draw it. The
-          glow behind it is not a placeholder to be replaced: it is what the
-          panel looks like without WebGL, and it stays so the panel is never
-          an empty frame.
-        -->
-        <div class="ov-core-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"></span></div>
-        <p class="ov-core-line">Secure by default. Proven by design.</p>
-      </aside>
     </section>
 
     <section class="ov-path" aria-labelledby="ovPathTitle">
@@ -300,8 +319,7 @@
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </button>
     <div class="topbar-actions">
-      <button class="btn btn-ghost hide-sm" id="newRepoBtn" data-feature="repository.create" data-allow-experimental="true" aria-label="Create repository"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm"> New repo</span></button>
-      <button class="btn btn-ghost icon-btn" data-feature="notifications" data-allow-experimental="true" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg></button>
+      <button class="btn btn-ghost icon-btn" data-feature="notifications" data-allow-experimental="true" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg><span class="nv-unread" id="notifUnread" hidden></span></button>
       <button class="btn btn-ghost icon-btn" id="settingsBtnRepos" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button class="theme-toggle" id="themeBtn" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
         <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
@@ -348,14 +366,19 @@
           <option value="full_name">Name</option>
         </select>
         <input id="repoFilter" class="search-input" type="search" placeholder="Filter repositories…" aria-label="Filter repositories">
-        <button class="btn btn-ghost small" id="repoGlobalSearchBtn" data-feature="global-search" data-allow-experimental="true">Search code</button>
         <!--
-          The same action as the top bar's, placed where the work is. It shows
-          only on a narrow screen, where the bar has no room for it; above the
-          breakpoint the bar keeps it and this one stands down, so the action
-          is offered exactly once at every width.
+          Creating a repository is what this screen is for: it lists the ones
+          that exist, so the way to add one belongs beside the list rather
+          than in the standing chrome. It is the only action here, at every
+          width, and the top bar no longer carries a second copy.
+
+          Code search used to sit here and does not belong to an inventory:
+          searching inside a repository is the workbench's job, reached from
+          the workbench's own search field. The control is gone rather than
+          renamed, and the filter beside it filters -- it no longer escalates
+          into a cross-repository search on Enter.
         -->
-        <button class="btn btn-ghost small show-sm" id="newRepoBtnRepos" data-feature="repository.create" data-allow-experimental="true" aria-label="Create repository"><svg width="15" height="15" class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Create repository</span></button>
+        <button class="btn nv-create-repo" id="newRepoBtnRepos" data-feature="repository.create" data-allow-experimental="true" aria-label="Create repository"><svg class="nv-planet" viewBox="0 0 24 24" aria-hidden="true"><circle class="nv-planet-body" cx="10.5" cy="10.5" r="5.6"/><path class="nv-planet-ring" d="M3.6 14.6c-1.9.9-3 1.9-2.8 2.7.3 1.4 4.3 1.6 8.9.5 4.6-1.1 8.1-3.1 7.8-4.5-.1-.6-.9-1-2.1-1.2"/><path class="nv-planet-plus" d="M18.6 16.1v5.2M16 18.7h5.2"/></svg><span>Create repository</span></button>
       </div>
     </div>
     <div class="repo-grid" id="repoGrid"></div>
@@ -786,7 +809,7 @@
 
 <!-- command palette -->
 <div class="palette-scrim" id="paletteScrim" hidden>
-  <div class="palette glass">
+  <div class="palette glass" id="palette">
     <input id="paletteInput" type="text" placeholder="Jump to file or run a command…" autocomplete="off" spellcheck="false"
       aria-label="Jump to file or run a command" role="combobox" aria-expanded="false"
       aria-controls="paletteList" aria-autocomplete="list">

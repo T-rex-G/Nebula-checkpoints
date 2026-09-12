@@ -383,6 +383,24 @@ function subject(selector) {
   return compound.replace(/\[[^\]]*\]/g, '') || compound;
 }
 
+/*
+ * The body of one @keyframes block, matched by counting braces rather than by
+ * a lazy regex: the blocks are written one per line and a regex that stops at
+ * the first line-leading brace swallows the three that follow it, which is how
+ * a backdrop that only fades was read as a panel that moves.
+ */
+function keyframeBody(name) {
+  const head = stripped.search(new RegExp(`@keyframes\\s+${name}\\s*\\{`));
+  if (head < 0) return '';
+  const open = stripped.indexOf('{', head);
+  let depth = 0;
+  for (let i = open; i < stripped.length; i++) {
+    if (stripped[i] === '{') depth++;
+    else if (stripped[i] === '}' && --depth === 0) return stripped.slice(open + 1, i);
+  }
+  return '';
+}
+
 /* Split selector lists so each selector is judged on its own weight. */
 function eachSelector(rule) {
   return rule.selector.split(',').map(one => one.trim()).filter(Boolean)
@@ -522,16 +540,6 @@ check('the moving ground yields where the galaxy is drawn', () => {
     'the waves are hidden by painting rather than by layout, so the loop keeps running behind the galaxy');
 });
 
-check('creating a repository is offered exactly once at every width', () => {
-  const bar = htmlSource.match(/<button[^>]*id="newRepoBtn"[^>]*>/)[0];
-  const row = htmlSource.match(/<button[^>]*id="newRepoBtnRepos"[^>]*>/);
-  assert.ok(row, 'the repositories screen has no create control, so a phone loses the action with the bar');
-  assert.ok(/hide-sm/.test(bar), 'the top bar still carries it on a narrow screen, where there is no room');
-  assert.ok(/show-sm/.test(row[0]), 'the in-page control shows at every width, so wide screens offer it twice');
-  assert.ok(/createRepositoryFlow/.test(appSource),
-    'the two controls do not share one handler, so their behaviour can drift apart');
-});
-
 /* ---------------- typed on a phone ---------------- */
 
 check('every exact-match confirmation declines the phone keyboard', () => {
@@ -642,6 +650,346 @@ check('a layer on its way out stops taking presses', () => {
   assert.ok(inert,
     'a dismissing overlay is still clickable, so a second press restarts a dismissal already under way');
 });
+
+/* ---------------- lifting a function out of the shell ---------------- */
+
+/*
+ * public/app.js is a classic script, not a module: there is nothing to
+ * require. These checks want behaviour rather than the shape of the text, so
+ * the named function is cut out of the source and compiled on its own with
+ * whatever it closes over passed in. A rewrite that keeps the words and loses
+ * the behaviour fails here; one that changes the words and keeps the behaviour
+ * passes. That is the whole point of doing it this way instead of matching a
+ * regex against the body.
+ */
+function liftFunction(name, params) {
+  const opener = `function ${name}(`;
+  const at = appSource.indexOf(opener);
+  assert.ok(at >= 0, `${name} is gone from app.js`);
+  let depth = 0;
+  let started = false;
+  let end = at;
+  for (let i = at; i < appSource.length; i++) {
+    const ch = appSource[i];
+    if (ch === '{') { depth++; started = true; }
+    else if (ch === '}') {
+      depth--;
+      if (started && depth === 0) { end = i + 1; break; }
+    }
+  }
+  assert.ok(end > at, `could not find the end of ${name}`);
+  const body = appSource.slice(at, end);
+  return new Function(...params, `${body}\nreturn ${name};`);
+}
+
+function fakeElement(rect) {
+  const style = {};
+  return {
+    isConnected: true,
+    hidden: false,
+    textContent: '',
+    style: {
+      setProperty: (k, v) => { style[k] = v; },
+      removeProperty: k => { delete style[k]; },
+      read: k => style[k]
+    },
+    attributes: {},
+    setAttribute(k, v) { this.attributes[k] = v; },
+    getBoundingClientRect: () => rect
+  };
+}
+
+/* ---------------- the control that was removed, not renamed ---------------- */
+
+/*
+ * Derived from the feature markers rather than from the words on the buttons.
+ * A control renamed to "Create repository" while still wired to the search
+ * capability would read correctly and behave as the old one; this fails it.
+ */
+check('the repositories screen offers no cross-repository search, under any name', () => {
+  const screen = htmlSource.match(/<main[^>]*id="page-repos"[\s\S]*?<\/main>/);
+  assert.ok(screen, 'the repositories screen is gone');
+  const markers = [...screen[0].matchAll(/data-feature="([^"]+)"/g)].map(m => m[1]);
+  assert.ok(!markers.includes('global-search'),
+    'a control on the repositories screen still declares the global-search capability');
+  assert.ok(!/search code/i.test(screen[0]),
+    'the words "search code" are still on the repositories screen');
+  /*
+   * The handler is the other half. A hidden binding that still reaches the
+   * endpoint is the control surviving without its label, which is exactly what
+   * "removed, not renamed" is supposed to rule out.
+   */
+  assert.ok(!/globalCodeSearch/.test(appSource),
+    'app.js still carries a cross-repository search path, so the control was hidden rather than removed');
+});
+
+check('creating a repository is offered on the screen that lists them, once', () => {
+  const creators = [...htmlSource.matchAll(/<button[^>]*data-feature="repository\.create"[^>]*>/g)];
+  assert.strictEqual(creators.length, 1,
+    `repository.create is declared on ${creators.length} controls; two copies of one action is what the top bar had`);
+  const screen = htmlSource.match(/<main[^>]*id="page-repos"[\s\S]*?<\/main>/)[0];
+  assert.ok(screen.includes(creators[0][0]),
+    'the create control is not on the repositories screen');
+  const id = creators[0][0].match(/id="([^"]+)"/);
+  assert.ok(id, 'the create control has no id, so nothing can bind to it');
+  /*
+   * Mechanism, not markup: the button has to run the create flow. Without this
+   * the check passes on a button that looks right and does nothing.
+   */
+  const bound = new RegExp(`#${id[1]}'\\)[\\s\\S]{0,120}addEventListener\\('click',\\s*createRepositoryFlow`);
+  assert.ok(bound.test(appSource),
+    `#${id[1]} is not bound to the create flow`);
+  assert.ok(/aria-label="[^"]+"/.test(creators[0][0]) || />\s*<svg/.test(creators[0][0]),
+    'the create control carries a mark with no accessible name');
+});
+
+check('the create mark is drawn, not a letter standing in for one', () => {
+  const button = htmlSource.match(/<button[^>]*data-feature="repository\.create"[\s\S]*?<\/button>/);
+  assert.ok(button, 'the create control is gone');
+  assert.ok(/<svg[\s\S]*?<\/svg>/.test(button[0]),
+    'the create control has no inline mark');
+  /* A plus alone is any create button anywhere. The planet is what makes it
+     this product's create button, so both strokes have to be present. */
+  assert.ok(/nv-planet-body/.test(button[0]) && /nv-planet-plus/.test(button[0]),
+    'the mark is missing either its body or its plus, so it is not the planet+ mark');
+  assert.ok(/aria-hidden="true"/.test(button[0].match(/<svg[^>]*>/)[0]),
+    'the decorative mark is exposed to a screen reader beside the name it duplicates');
+});
+
+/* ---------------- an unread count with a source ---------------- */
+
+check('the unread marker counts what the session was actually told', () => {
+  const make = liftFunction('paintUnread', ['$']);
+  const marker = fakeElement({ width: 10, height: 10, left: 0, top: 0 });
+  const bell = fakeElement({ width: 30, height: 30, left: 0, top: 0 });
+  const paint = make(selector => (selector === '#notifUnread' ? marker : selector === '#notifBtn' ? bell : null));
+
+  const entries = n => Array.from({ length: n }, () => ({ unread: true }));
+
+  paint([]);
+  assert.strictEqual(marker.hidden, true, 'the marker shows with nothing unread');
+
+  paint(entries(1).concat([{ unread: false }, { unread: false }]));
+  assert.strictEqual(marker.hidden, false, 'one unread entry lights nothing');
+  assert.strictEqual(marker.textContent, '', 'a single unread draws a number where a dot is enough');
+  assert.ok(/1 unread/.test(bell.attributes['aria-label']),
+    `the bell does not say the count out loud: ${bell.attributes['aria-label']}`);
+
+  paint(entries(4));
+  assert.strictEqual(marker.textContent, '4', 'four unread entries do not read as 4');
+
+  paint(entries(40));
+  assert.strictEqual(marker.textContent, '9+',
+    'a large count is printed in full, which is the oversized badge this was meant to avoid');
+
+  /*
+   * The falsifying case. A marker that is painted from a constant passes every
+   * check above that only looks at a fixed list; feeding it two different real
+   * lists is what separates a reading from a decoration.
+   */
+  paint(entries(2));
+  const two = marker.textContent;
+  paint(entries(7));
+  assert.notStrictEqual(two, marker.textContent,
+    'the marker prints the same thing for two different lists, so it is not reading the list');
+
+  paint(null);
+  assert.strictEqual(marker.hidden, true, 'an absent list is treated as unread mail');
+});
+
+check('the unread marker is asked for from the notifications the server holds', () => {
+  assert.ok(/paintUnread\(await api\('\/api\/notifications'\)\)/.test(appSource),
+    'nothing paints the marker from the notifications endpoint, so it can only be showing a guess');
+  const refresh = appSource.slice(appSource.indexOf('async function refreshUnread'));
+  assert.ok(/decision\('notifications'\)/.test(refresh.slice(0, 600)),
+    'the refresh asks without checking the capability first, so a refused deployment is polled to be told no');
+});
+
+/*
+ * The first version of this only painted at boot, so a reader who signed in
+ * during the session never saw the marker light and a reader who signed out
+ * kept the previous session's count over a bell they could no longer open.
+ * Both directions are read off the function bodies that own them.
+ */
+check('the marker follows the session in both directions', () => {
+  const bodyOf = name => {
+    const at = appSource.indexOf(`function ${name}`);
+    assert.ok(at >= 0, `${name} is gone`);
+    return appSource.slice(at, appSource.indexOf('\n}\n', at));
+  };
+  assert.ok(/refreshUnread\(\)/.test(bodyOf('doLogin')),
+    'signing in does not ask for the unread count, so the marker stays dark until the next page load');
+  assert.ok(/paintUnread\(\[\]\)/.test(bodyOf('purgeLocalData')),
+    'the identity teardown does not clear the marker, so one session\'s count survives into the next');
+  /*
+   * The teardown sweeps a list of elements by clearing values and children.
+   * The marker is neither, so a rewrite that adds it to that list instead of
+   * calling the painter would leave it visible and empty.
+   */
+  const refresh = bodyOf('refreshUnread');
+  assert.ok(/if \(!state\.me\)[^\n]*paintUnread/.test(refresh),
+    'refreshUnread returns early on a session with no identity without clearing what the last one lit');
+});
+
+check('a marker with no number is a dot, not an empty box', () => {
+  const empty = cssSource.match(/\.nv-unread:empty\{([^}]*)\}/);
+  assert.ok(empty, 'nothing shrinks the marker when it carries no count');
+  assert.ok(/width\s*:/.test(empty[1]) && /height\s*:/.test(empty[1]),
+    'the countless marker keeps the width of a counted one, so an empty badge sits on the bell');
+});
+
+/* ---------------- menus that grow from where they were opened ---------------- */
+
+check('a panel grows from the control that opened it', () => {
+  const anchor = liftFunction('anchorOverlayOrigin', [])();
+  const panel = fakeElement({ width: 400, height: 300, left: 100, top: 100 });
+
+  /* Opened from the top-left corner of the panel. */
+  anchor(panel, fakeElement({ width: 20, height: 20, left: 100, top: 100 }));
+  const near = panel.style.read('--nv-origin');
+  assert.ok(near, 'no origin was written at all');
+
+  /* Opened from the far corner. Same panel, different opener: if the origin is
+     a constant dressed up as a computation, these two agree. */
+  anchor(panel, fakeElement({ width: 20, height: 20, left: 480, top: 380 }));
+  const far = panel.style.read('--nv-origin');
+  assert.notStrictEqual(near, far,
+    'two openers at opposite corners produce the same origin, so the panel is not anchored to anything');
+
+  /* Off-screen openers must not swing the panel in from outside itself. */
+  anchor(panel, fakeElement({ width: 20, height: 20, left: -4000, top: -4000 }));
+  const [ox, oy] = panel.style.read('--nv-origin').split(/\s+/).map(parseFloat);
+  assert.ok(ox >= -35 && ox <= 135 && oy >= -35 && oy <= 135,
+    `a distant opener put the origin at ${ox}% ${oy}%, which throws the panel in from off-screen`);
+
+  /* No opener, no claim: the panel falls back to its own default rather than
+     keeping the origin of whatever opened it last. */
+  anchor(panel, null);
+  assert.strictEqual(panel.style.read('--nv-origin'), undefined,
+    'an unanchored panel keeps the previous origin, so it grows from the last control instead of itself');
+});
+
+check('the cascade actually reads the origin the shell writes', () => {
+  const consumers = rules.filter(rule => /transform-origin\s*:\s*var\(--nv-origin/.test(rule.body));
+  assert.ok(consumers.length >= 3,
+    `only ${consumers.length} rules read --nv-origin; the modal, the palette and the action menu all animate`);
+  /*
+   * A fallback is not optional. The property is only set when there is an
+   * opener to anchor to, so a rule without one animates from the box corner
+   * the first time a layer opens by keyboard.
+   */
+  consumers.forEach(rule => {
+    assert.ok(/var\(--nv-origin\s*,/.test(rule.body),
+      `${rule.selector} reads --nv-origin with no fallback, so an unanchored open grows from the corner`);
+  });
+  /*
+   * transform-origin is what scale and rotation turn about; a translation
+   * renders identically whatever the origin is. So the exits this applies to
+   * are the ones that scale, read out of the keyframes each exit actually
+   * runs rather than from a list of selectors kept in step by hand. A backdrop
+   * that only fades and a sheet that only slides up from the bottom edge both
+   * fall out on their own, which is right: neither has a point to grow from.
+   */
+  const transforming = exits.filter(rule => {
+    const named = rule.body.match(/animation\s*:\s*([\w-]+)/);
+    return !!named && /\bscale\(|\brotate\(/.test(keyframeBody(named[1]));
+  });
+  assert.ok(transforming.length >= 3,
+    `only ${transforming.length} overlay exits scale their panel; this check has nothing left to prove`);
+  const anchored = new Set(consumers.flatMap(eachSelector).map(one => subject(one.selector)));
+  new Set(transforming.map(rule => subject(rule.selector))).forEach(name => {
+    assert.ok(anchored.has(name),
+      `${name} scales on the way out from a different origin than it grew from`);
+  });
+});
+
+/* ---------------- the overview surface ---------------- */
+
+/*
+ * Derived from app.js, not restated here. The visuals registry names the
+ * element each artwork mounts into; if the hero is rebuilt and a mount point
+ * is dropped, the registry silently points at nothing and the panel is an
+ * empty frame on every device that can draw.
+ */
+check('every artwork the shell mounts still has somewhere to mount', () => {
+  const registry = appSource.match(/const NEBULA_VISUALS = Object\.freeze\(\{([\s\S]*?)\}\);/);
+  assert.ok(registry, 'the visuals registry is gone');
+  const mounts = [...registry[1].matchAll(/'#([\w-]+)'/g)].map(m => m[1]);
+  assert.ok(mounts.length >= 2, `the registry names ${mounts.length} mount points`);
+  mounts.forEach(id => {
+    assert.ok(new RegExp(`id="${id}"`).test(htmlSource),
+      `#${id} is named as an artwork mount but is not in the document`);
+  });
+});
+
+check('the overview keeps a ground under the artwork it may not be able to draw', () => {
+  const art = htmlSource.match(/<div[^>]*id="ovCoreArt"[\s\S]*?<\/div>/);
+  assert.ok(art, 'the overview artwork mount is gone');
+  assert.ok(/ov-core-glow/.test(art[0]),
+    'the mount has no still ground inside it, so a device that refuses WebGL gets an empty frame');
+  assert.ok(/aria-hidden="true"/.test(art[0]),
+    'decorative artwork is exposed to a screen reader');
+  /* The primary action and the identity are what the surface is for. Both
+     survived the rebuild or the rebuild took the page's purpose with it. */
+  ['ovOpenBrowser', 'ovWho'].forEach(id => {
+    assert.ok(new RegExp(`id="${id}"`).test(htmlSource), `#${id} was lost in the rebuild`);
+  });
+  const section = htmlSource.match(/<section[^>]*class="ov-console"[^>]*>/);
+  assert.ok(section, 'the overview console surface is gone');
+  assert.ok(/aria-labelledby="([^"]+)"/.test(section[0]),
+    'the console is a landmark with no name');
+  const labelled = section[0].match(/aria-labelledby="([^"]+)"/)[1];
+  assert.ok(new RegExp(`id="${labelled}"`).test(htmlSource),
+    `the console points at #${labelled} for its name, and nothing carries that id`);
+});
+
+check('the live rail reports a session rather than asserting one', () => {
+  const make = liftFunction('paintConsoleScope', ['$', 'state']);
+  const scope = fakeElement({ width: 10, height: 10, left: 0, top: 0 });
+  const live = fakeElement({ width: 10, height: 10, left: 0, top: 0 });
+  live.classList = { toggle(name, on) { live.idle = on; } };
+  const lookup = selector => (selector === '#ovConsoleScope' ? scope : selector === '#ovConsoleLive' ? live : null);
+
+  make(lookup, { me: { provider: 'github', host: 'github.com' } })();
+  const connected = scope.textContent;
+  assert.ok(/github\.com/.test(connected), `a connected session does not name its host: ${connected}`);
+  assert.strictEqual(live.idle, false, 'a connected session is not shown as live');
+
+  make(lookup, { me: null })();
+  assert.notStrictEqual(scope.textContent, connected,
+    'the rail says the same thing signed in and signed out, so it is a label rather than a reading');
+  assert.ok(!/github\.com/.test(scope.textContent),
+    `a session with no identity still names a provider: ${scope.textContent}`);
+  assert.strictEqual(live.idle, true,
+    'a session with no identity is still shown as live, which is the one claim this rail must not fake');
+
+  /* A self-hosted authority is what the capability set was loaded against, so
+     the rail has to follow it rather than printing the provider's public host. */
+  make(lookup, { me: { provider: 'gitea', authority: 'git.example.org' } })();
+  assert.strictEqual(scope.textContent, 'git.example.org',
+    'the rail ignores the authority the session is actually talking to');
+});
+
+check('the pointer light costs nothing on a device that has no pointer', () => {
+  const wiring = appSource.slice(appSource.indexOf('function wireConsolePointer'));
+  const body = wiring.slice(0, wiring.indexOf('\n}\n'));
+  assert.ok(/\(hover:hover\)/.test(body) && /\(pointer:fine\)/.test(body),
+    'the pointer light is wired up without asking whether the device has a pointer');
+  assert.ok(/passive:\s*true/.test(body),
+    'the pointer listener is not passive, so it can hold up a scroll');
+  assert.ok(/state\.settings\.motion/.test(body),
+    'the pointer light ignores the motion setting');
+  /*
+   * Two custom properties and a gradient. If it ever moves a layer instead,
+   * every frame of a pointer move becomes a composite on a full-width panel.
+   */
+  assert.ok(!/\.style\.transform|classList\.(add|remove)/.test(body),
+    'the pointer light moves an element rather than a background position');
+  const lit = rules.find(rule => rule.selector.includes('.ov-console::after'));
+  assert.ok(lit && /--nv-px/.test(lit.body),
+    'nothing in the cascade reads the pointer position the shell writes');
+});
+
 
 console.log(failures ? `\n${failures} failed` : '\nall passed');
 process.exit(failures ? 1 : 0);

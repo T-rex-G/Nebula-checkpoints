@@ -396,6 +396,36 @@ async function takeSafePassage(error, change) {
  */
 const { overlayOpen, openOverlay, closeOverlay, anyOverlayClosing } = NebulaOverlayMotion.createOverlayMotion();
 
+/*
+ * Where a layer grows from.
+ *
+ * A panel that scales up from its own centre appears; a panel that scales up
+ * from the control that summoned it arrives, and the reader's eye is already
+ * there. It is the difference between a dialog and a menu, and it costs one
+ * transform-origin.
+ *
+ * The origin is the opener's centre expressed in the panel's own box, so it
+ * stays correct wherever the panel lands -- centred on a wide screen, full
+ * width on a narrow one. When the opener is off-screen, unknown, or the panel
+ * is the whole screen, it falls back to the centre, which is the right answer
+ * for a dialog that nothing in particular opened.
+ */
+function anchorOverlayOrigin(panel, opener) {
+  if (!panel) return;
+  panel.style.removeProperty('--nv-origin');
+  if (!opener || typeof opener.getBoundingClientRect !== 'function' || !opener.isConnected) return;
+  const from = opener.getBoundingClientRect();
+  if (!from.width && !from.height) return;
+  const box = panel.getBoundingClientRect();
+  if (!box.width || !box.height) return;
+  /* Clamped: an origin far outside the panel swings it in from off-screen,
+     which reads as a lurch rather than as growth. */
+  const clamp = (value, span) => Math.max(-0.35, Math.min(1.35, value / span));
+  const x = clamp(from.left + from.width / 2 - box.left, box.width);
+  const y = clamp(from.top + from.height / 2 - box.top, box.height);
+  panel.style.setProperty('--nv-origin', `${(x * 100).toFixed(1)}% ${(y * 100).toFixed(1)}%`);
+}
+
 /* ---------------- modal ---------------- */
 let modalResolve = null;
 let modalReturnFocus = null;
@@ -409,6 +439,9 @@ function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = n
     ok.textContent = okText;
     ok.classList.toggle('danger', danger);
     openOverlay($('#scrim'));
+    /* Before the entrance is painted, so the first frame already grows from
+       the right place rather than correcting on the second. */
+    anchorOverlayOrigin($('#modal'), modalReturnFocus);
     if (typeof onOpen === 'function') onOpen($('#modalBody'));
     const fi = $('#modalBody input:not([disabled]), #modalBody textarea:not([disabled]), #modalBody select:not([disabled])');
     const initialFocus = fi || $('#modalCancel');
@@ -564,6 +597,7 @@ function openFloatingActions() {
   const menu = $('#fabMenu');
   if (!fab || !menu) return;
   openOverlay(menu);
+  anchorOverlayOrigin(menu, fab);
   fab.setAttribute('aria-expanded', 'true');
   /* Whatever the page was doing, the control stays while its menu is open. */
   setFloatingActionRetracted(false);
@@ -1334,6 +1368,9 @@ async function boot() {
     applyCaps();
     setAvatar(state.me.avatar);
     flushQueue();
+    /* After capabilities, so a deployment that refuses notifications is not
+       asked; not awaited, so the marker never delays the first screen. */
+    refreshUnread();
     loadRepos(true);
     if (!(await restoreRoute())) showOverview();
   } catch (e) {
@@ -1397,7 +1434,7 @@ async function doLogin() {
     $('#tokenInput').value = '';
     setAvatar(state.me.avatar);
     toast(`Welcome aboard, ${state.me.login} ✦`, 'ok');
-    showOverview(); loadRepos(true);
+    showOverview(); loadRepos(true); refreshUnread();
   } catch (e) { err.hidden = true; presentError(e); }
   finally { $('#loginBtn').disabled = false; $('#loginBtn').textContent = 'Enter orbit'; }
 }
@@ -1449,6 +1486,9 @@ async function purgeLocalData(full) {
   state.me = null;
   state.caps = null;
   state.fileIndex = null;
+  /* The marker is not a value or a child list, so the sweep below cannot
+     reach it: hiding it is what clearing it means. */
+  paintUnread([]);
   for (const selector of [
     '#repoGrid', '#tree', '#prList', '#issueList', '#releaseList', '#commitList',
     '#cmpResult', '#uploadQueue', '#actionsList', '#stageList', '#paletteList',
@@ -1570,45 +1610,16 @@ function repoCard(r) {
 }
 $('#moreReposBtn').addEventListener('click', () => { state.repoPage++; loadRepos(false); });
 $('#repoSort').addEventListener('change', e => { state.repoSort = e.target.value; loadRepos(true); });
-async function globalCodeSearch(query) {
-  const q = String(query || '').trim();
-  if (!q) return;
-  const capability = window.NebulaCapabilityUI.decision('global-search');
-  if (capability.status === 'Unavailable') {
-    toast(window.NebulaCapabilityUI.explain('global-search'), 'err');
-    return;
-  }
-  modal({ title: `Code search — “${q}”`, okText: 'Close', bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
-  try {
-    const hits = await api(`/api/search?q=${encodeURIComponent(q)}`);
-    if (!overlayOpen($('#scrim'))) return;
-    $('#modalBody').innerHTML = hits.length ? '' : '<p class="hint">No matches in your repositories.</p>';
-    hits.forEach(hh => {
-      const el = document.createElement('div');
-      el.className = 'br-row'; el.style.cursor = 'pointer';
-      el.innerHTML = `<span class="mono"></span><span class="br-tag">${esc(hh.repo)}</span>`;
-      el.querySelector('.mono').textContent = hh.path;
-      el.addEventListener('click', async () => {
-        closeModal(true);
-        const [ow, rp] = hh.repo.split('/');
-        await openRepo(ow, rp);
-        state.pendingFind = q;
-        openFile(hh.path);
-      });
-      $('#modalBody').appendChild(el);
-    });
-  } catch (error) {
-    if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(error.message)}</p>`;
-  }
-}
-[$('#newRepoBtn'), $('#newRepoBtnRepos')]
-  .filter(Boolean)
-  .forEach(control => control.addEventListener('click', createRepositoryFlow));
+/* One control, on the screen the action belongs to. */
+$('#newRepoBtnRepos') && $('#newRepoBtnRepos').addEventListener('click', createRepositoryFlow);
 
-$('#repoFilter').addEventListener('keydown', e => {
-  if (e.key === 'Enter') globalCodeSearch(e.target.value);
-});
-$('#repoGlobalSearchBtn').addEventListener('click', () => globalCodeSearch($('#repoFilter').value));
+/*
+ * The filter box filters. Enter used to escalate it into a cross-repository
+ * code search, which was only discoverable because the Search code button sat
+ * beside it; with that control gone the binding was a labelled control doing
+ * something its label did not say. The inventory filters, and searching inside
+ * a repository stays the workbench's job.
+ */
 $('#repoFilter').addEventListener('input', e => {
   const q = e.target.value.toLowerCase();
   $$('#repoGrid .repo-card').forEach(c => { c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none'; });
@@ -1627,10 +1638,57 @@ $('#ovOpenBrowser') && $('#ovOpenBrowser').addEventListener('click', () => showP
 function showOverview() {
   const who = $('#ovWho');
   if (who) who.textContent = (state.me && (state.me.name || state.me.login)) || 'tester';
+  paintConsoleScope();
   renderWorkspacePulse();
   loadScannerPosture();
   showPage('overview');
 }
+
+/*
+ * The console rail says where this session actually is.
+ *
+ * It reads the same authority `loadProviderCapabilities` resolves, so the rail
+ * and the capability set can never name two different hosts. A session with no
+ * identity says so rather than showing a provider it is not talking to: the
+ * live dot is what claims a connection, and a claim without a source is the
+ * one thing this surface must not make.
+ */
+function paintConsoleScope() {
+  const scope = $('#ovConsoleScope');
+  const live = $('#ovConsoleLive');
+  if (!scope) return;
+  const authority = state.me && (state.me.authority || state.me.host || state.me.baseUrl)
+    || (state.me && state.me.provider === 'github' ? 'github.com' : '');
+  scope.textContent = authority || (state.me ? 'Connected' : 'Not connected');
+  if (live) {
+    const connected = !!state.me;
+    live.textContent = connected ? 'Live' : 'Offline';
+    live.classList.toggle('is-idle', !connected);
+  }
+}
+
+/*
+ * The pointer light on the console surface.
+ *
+ * Two custom properties and one radial gradient: the browser repaints a
+ * background, there is no layer to composite and nothing to lay out. The
+ * listener is passive and only runs while a fine pointer is over the panel, so
+ * a phone never pays for it, and with motion off the properties simply stop
+ * being written -- the surface keeps whatever it last had, which is the same
+ * surface it has at rest.
+ */
+function wireConsolePointer() {
+  const panel = $('#ovConsole');
+  if (!panel || !window.matchMedia || !window.matchMedia('(hover:hover) and (pointer:fine)').matches) return;
+  panel.addEventListener('pointermove', event => {
+    if (!state.settings.motion || event.pointerType === 'touch') return;
+    const box = panel.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    panel.style.setProperty('--nv-px', `${((event.clientX - box.left) / box.width) * 100}%`);
+    panel.style.setProperty('--nv-py', `${((event.clientY - box.top) / box.height) * 100}%`);
+  }, { passive: true });
+}
+wireConsolePointer();
 
 /*
  * The trust score and live-signal count.
@@ -1844,10 +1902,47 @@ async function openAccounts() {
 }
 $('#accountBtn').addEventListener('click', openAccounts);
 $('#accountBtnOv') && $('#accountBtnOv').addEventListener('click', openAccounts);
+/*
+ * The unread marker reports what this session loaded, and nothing when it has
+ * loaded nothing. The count comes from the same list the dialog renders --
+ * there is no separate unread endpoint to consult, so asking for one would be
+ * inventing a second source that could disagree with what the reader then
+ * sees. A refusal leaves the marker exactly as it was rather than clearing it,
+ * because "we could not ask" is not "there is nothing".
+ */
+function paintUnread(list) {
+  const marker = $('#notifUnread');
+  if (!marker) return;
+  const unread = Array.isArray(list) ? list.filter(entry => entry && entry.unread).length : 0;
+  marker.hidden = unread === 0;
+  marker.textContent = unread > 9 ? '9+' : (unread > 1 ? String(unread) : '');
+  const bell = $('#notifBtn');
+  if (bell) {
+    bell.setAttribute('aria-label', unread
+      ? `Notifications, ${unread} unread`
+      : 'Notifications');
+  }
+}
+async function refreshUnread() {
+  /* Both directions through one door. Returning early on a session with no
+     identity left whatever the last session lit still lit, so a reader who
+     signed out kept someone else's count over a bell they could not open. */
+  if (!state.me) { paintUnread([]); return; }
+  const capabilities = window.NebulaCapabilityUI;
+  if (capabilities && capabilities.decision) {
+    const decision = capabilities.decision('notifications');
+    /* Asking through a capability the deployment has refused would spend a
+       request to be told no, and would light nothing either way. */
+    if (decision && decision.blocked) return;
+  }
+  try { paintUnread(await api('/api/notifications')); } catch { /* left as it was */ }
+}
+
 $('#notifBtn').addEventListener('click', async () => {
   modal({ title: 'Notifications', okText: 'Close', bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
   try {
     const list = await api('/api/notifications');
+    paintUnread(list);
     if (!overlayOpen($('#scrim'))) return;
     $('#modalBody').innerHTML = list.length ? '' : '<p class="hint">Inbox zero. ✦</p>';
     list.forEach(n => {
@@ -3713,6 +3808,7 @@ async function openPalette() {
   if (_page !== 'work') return;
   paletteReturnFocus = document.activeElement;
   openOverlay($('#paletteScrim'));
+  anchorOverlayOrigin($('#palette'), paletteReturnFocus);
   const inp = $('#paletteInput');
   inp.value = ''; renderPalette('');
   setTimeout(() => inp.focus({ preventScroll: true }), 50);

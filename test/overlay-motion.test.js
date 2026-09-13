@@ -1641,6 +1641,39 @@ check('the motion itself is in the cascade, gated both ways', () => {
   assert.ok(off.length, 'the interface own motion switch does not stand the scene back down');
 });
 
+check('the landing page wears the product mark rather than one drawn in place', () => {
+  /*
+   * Twice now a screen has ended up with artwork invented for it instead of
+   * the product's own: a cropped hero, and then a ringed planet ellipse drawn
+   * straight into the landing nav and footer. The first screen a visitor sees
+   * is the last place to introduce a second brand.
+   *
+   * So this reads the mechanism: the mark is referenced from the shared
+   * symbol, and the elements that carry it draw no shapes of their own. A
+   * replacement glyph under any class name fails here.
+   */
+  const symbol = htmlSource.match(/<symbol id="nvMark"[\s\S]*?<\/symbol>/);
+  assert.ok(symbol, 'the shared mark symbol is gone');
+
+  /*
+   * The brand elements themselves, not the chrome around them: the theme
+   * control in the same header draws a sun and a moon, and those are icons
+   * doing a job rather than a second logo.
+   */
+  const nav = htmlSource.match(/<span class="lp-brand">[\s\S]*?<\/span>\s*<\/span>/);
+  const foot = htmlSource.match(/<span class="lp-foot-brand">[\s\S]*?<\/span>/);
+  assert.ok(nav && foot, 'the landing brand is gone');
+
+  [['nav', nav[0]], ['footer', foot[0]]].forEach(([where, block]) => {
+    assert.ok(/<use href="#nvMark"\s*\/?>/.test(block),
+      `the landing ${where} does not use the product mark`);
+    /* And nothing in it paints a mark of its own. */
+    const drawn = block.match(/<(path|circle|ellipse|rect|polygon|polyline)\b/g) || [];
+    assert.deepStrictEqual(drawn, [],
+      `the landing ${where} draws its own artwork (${drawn.join(', ')}) beside the product mark`);
+  });
+});
+
 /* ---------------- the theme, before the gate ---------------- */
 
 /*

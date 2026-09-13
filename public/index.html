@@ -135,10 +135,12 @@
 
     <header class="lp-nav">
       <span class="lp-brand">
-        <svg class="lp-mark" viewBox="0 0 24 24" aria-hidden="true">
-          <ellipse class="lp-mark-ring" cx="12" cy="12" rx="10.4" ry="3.7"/>
-          <circle class="lp-mark-body" cx="12" cy="12" r="5.6"/>
-        </svg>
+        <!--
+          The product's own mark, from the same symbol the rail and the login
+          screen use. A ringed planet drawn in place here was a second brand:
+          the first screen a visitor ever sees is the last place to invent one.
+        -->
+        <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
         <span class="lp-word">__NV_PRODUCT_NAME__</span>
       </span>
       <span class="lp-nav-end">
@@ -297,10 +299,7 @@
 
       <footer class="lp-foot">
         <span class="lp-foot-brand">
-          <svg class="lp-mark" viewBox="0 0 24 24" aria-hidden="true">
-            <ellipse class="lp-mark-ring" cx="12" cy="12" rx="10.4" ry="3.7"/>
-            <circle class="lp-mark-body" cx="12" cy="12" r="5.6"/>
-          </svg>
+          <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
           __NV_PRODUCT_NAME__
         </span>
         <span class="lp-foot-meta">

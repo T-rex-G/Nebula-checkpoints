@@ -435,8 +435,9 @@ em{color:var(--teal);font-style:normal}
   padding-top:max(clamp(16px,3vw,26px),env(safe-area-inset-top))}
 .lp-brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display);
   font-weight:700;letter-spacing:-.015em;color:var(--text);font-size:1rem}
-.lp-mark{width:24px;height:24px;fill:none;stroke:var(--accent2);stroke-width:1.6}
-.lp-mark-ring{transform-box:fill-box;transform-origin:center;transform:rotate(-22deg);opacity:.75}
+/* The mark keeps its own proportions; only its size is the landing's business. */
+.lp-brand .nv-mark{width:26px;height:26px;flex:0 0 26px}
+.lp-foot-brand .nv-mark{width:20px;height:20px;flex:0 0 20px}
 .lp-nav-end{display:inline-flex;align-items:center;gap:10px}
 .lp-state{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);
   font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;color:var(--text2);

@@ -41,7 +41,10 @@
     const terms = byId('alphaTermsAccept');
     if (terms) terms.checked = false;
     const invite = byId('alphaInviteInput');
-    if (invite) invite.focus();
+    /* preventScroll: the gate now sits on the landing page, and focusing an
+       input scrolls it into view -- which threw the reader 323px past the
+       headline before they had read a word of it. */
+    if (invite) invite.focus({ preventScroll: true });
     /*
      * Announced for the same reason the granted side is: the gate takes the
      * screen, and the chrome belonging to whatever it replaced has to go with
@@ -118,7 +121,7 @@
       global.dispatchEvent(new CustomEvent('nebula:alpha-access-granted'));
     } catch {
       showAccessError(GENERIC_INVITE_ERROR);
-      if (invite) invite.focus();
+      if (invite) invite.focus({ preventScroll: true });
     } finally {
       if (button) button.disabled = false;
     }

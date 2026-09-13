@@ -23,6 +23,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const root = path.join(__dirname, '..');
 const motion = require('../public/overlay-motion');
@@ -614,6 +615,184 @@ check('the phone reveals are driven by scroll, and degrade to nothing', () => {
   const bar = rules.find(rule => eachSelector(rule).some(one => one.selector.trim() === '.ov-scroll-progress'));
   assert.ok(bar && /display\s*:\s*none/.test(bar.body),
     'the progress bar is visible by default, so a browser without scroll timelines shows an empty rule');
+});
+
+/* ---------------- the landing stage ---------------- */
+
+/*
+ * The scene is allowed to fail. A landing page whose first paint depends on a
+ * 550KB decode is a landing page that is blank on a slow connection, on a
+ * build without the codec, and for a reader who asked for less motion. The
+ * poster is a real frame of the same scene, so every one of those cases is the
+ * picture holding still rather than an empty black stage.
+ */
+check('the landing scene degrades to a still rather than to nothing', () => {
+  const tag = htmlSource.match(/<video[^>]*id="lpVideo"[^>]*>/);
+  assert.ok(tag, 'the landing video is gone');
+  ['muted', 'loop', 'playsinline'].forEach(attribute => {
+    assert.ok(new RegExp(`\\b${attribute}\\b`).test(tag[0]),
+      `the landing video is missing ${attribute}; without it autoplay is refused or iOS takes the page fullscreen`);
+  });
+  assert.ok(/poster="[^"]+"/.test(tag[0]),
+    'the video has no poster, so a refused decode leaves an empty stage');
+  const poster = tag[0].match(/poster="([^"]+)"/)[1];
+  assert.ok(fs.existsSync(path.join(root, 'public', poster.replace(/^\//, ''))),
+    `the poster ${poster} is not in the build`);
+
+  /* Both encodes shipped, and the smaller one offered first. */
+  const block = htmlSource.match(/<video[^>]*id="lpVideo"[\s\S]*?<\/video>/)[0];
+  const sources = [...block.matchAll(/<source[^>]*src="([^"]+)"[^>]*type="([^"]+)"/g)];
+  assert.strictEqual(sources.length, 2,
+    'the scene offers one encode; a browser that refuses it gets only the poster');
+  assert.ok(/webm/.test(sources[0][2]),
+    'the larger encode is offered first, so browsers that could take the smaller one do not');
+  sources.forEach(([, src]) => {
+    const file = path.join(root, 'public', src.replace(/^\//, ''));
+    assert.ok(fs.existsSync(file), `${src} is referenced but not in the build`);
+  });
+
+  /*
+   * Size is part of the contract. The source encode was 13MB because it
+   * carried an audio track a muted background video can never play.
+   */
+  const bytes = sources.reduce((total, [, src]) =>
+    total + fs.statSync(path.join(root, 'public', src.replace(/^\//, ''))).size, 0);
+  assert.ok(bytes < 1.6 * 1024 * 1024,
+    `the scene ships ${(bytes / 1024 / 1024).toFixed(1)}MB of video; that is a landing page nobody waits for`);
+});
+
+/*
+ * Driven, not read.
+ *
+ * The first version of this asked whether the source mentioned canPlayType and
+ * IntersectionObserver. Both perturbations walked through it: `true || ...`
+ * leaves the call in the text while neutering it, and deleting the pause from
+ * the observer still left a pause elsewhere in the file for the regex to find.
+ * So the module is compiled against a stub document and actually run.
+ */
+function runLandingStage(options) {
+  const settings = options || {};
+  const source = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
+  const calls = { play: 0, pause: 0 };
+  const listeners = {};
+  const video = {
+    paused: true,
+    classList: { names: new Set(), add(n) { this.names.add(n); }, contains(n) { return this.names.has(n); } },
+    canPlayType: () => (settings.decodable ? 'probably' : ''),
+    play() { calls.play += 1; this.paused = false; return { catch() {} }; },
+    pause() { calls.pause += 1; this.paused = true; },
+    addEventListener(name, fn) { (listeners[name] = listeners[name] || []).push(fn); }
+  };
+  let observerCallback = null;
+  const documentStub = {
+    getElementById: id => (id === 'lpVideo' ? video : null),
+    documentElement: { dataset: { motion: settings.motion === false ? 'off' : 'on' } },
+    addEventListener() {}, removeEventListener() {}
+  };
+  /*
+   * A VM context, not an injected parameter. The module closes over
+   * `globalThis`, so passing a stub named `global` to new Function() is
+   * shadowed by the real one and every matchMedia read silently reaches Node's
+   * globalThis instead -- which is how a reduced-motion check that works in a
+   * browser looked broken from here.
+   */
+  const sandbox = {
+    document: documentStub,
+    matchMedia: query => ({ matches: !!settings.reducedMotion && /reduced-motion/.test(query) }),
+    IntersectionObserver: function (cb) { observerCallback = cb; this.observe = () => {}; },
+    MutationObserver: function () { this.observe = () => {}; }
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(source, sandbox, { filename: 'public/landing-stage.js' });
+  return {
+    calls, video, listeners,
+    enter: () => observerCallback && observerCallback([{ isIntersecting: true }]),
+    leave: () => observerCallback && observerCallback([{ isIntersecting: false }]),
+    fire: name => (listeners[name] || []).forEach(fn => fn({ target: video })),
+    sawObserver: () => observerCallback !== null
+  };
+}
+
+check('the scene is revealed only once it is actually running', () => {
+  const run = runLandingStage({ decodable: true });
+  run.enter();
+  assert.ok(!run.video.classList.contains('is-playing'),
+    'the scene is revealed before any frame has been shown, which flashes over the poster');
+  run.fire('playing');
+  assert.ok(run.video.classList.contains('is-playing'),
+    'the scene never reveals, so the poster is all a reader ever sees');
+});
+
+check('the scene does not ask a build that cannot decode it to play', () => {
+  const refused = runLandingStage({ decodable: false });
+  refused.enter();
+  assert.strictEqual(refused.calls.play, 0,
+    'play was attempted on a build whose decoder refuses both encodes');
+  const able = runLandingStage({ decodable: true });
+  able.enter();
+  assert.ok(able.calls.play > 0,
+    'play is never attempted even where both encodes decode, so the scene is always a still');
+});
+
+check('the scene stops when the reader is no longer looking at it', () => {
+  const run = runLandingStage({ decodable: true });
+  assert.ok(run.sawObserver(),
+    'nothing watches whether the scene is on screen, so it decodes for the whole session');
+  run.enter();
+  const played = run.calls.play;
+  run.leave();
+  assert.strictEqual(run.calls.pause, 1,
+    'leaving the screen does not pause the scene; a decoder keeps running behind the application');
+  assert.strictEqual(run.calls.play, played, 'leaving the screen started playback');
+});
+
+check('the scene honours a reader who asked for less motion', () => {
+  const off = runLandingStage({ decodable: true, motion: false });
+  off.enter();
+  assert.strictEqual(off.calls.play, 0, 'the scene plays with the motion setting off');
+  const reduced = runLandingStage({ decodable: true, reducedMotion: true });
+  reduced.enter();
+  assert.strictEqual(reduced.calls.play, 0, 'the scene plays despite prefers-reduced-motion');
+});
+
+/*
+ * The gate kept every control it had. This page is a landing page wrapped
+ * around the access flow, not a replacement for it, and the flow's contract is
+ * the ids and labels the browser suite reaches for.
+ */
+check('the access flow survived being given a stage', () => {
+  const gate = htmlSource.slice(htmlSource.indexOf('id="page-alpha-access"'));
+  ['alphaWakeState', 'alphaInviteInput', 'alphaTermsAccept', 'alphaTermsVersion',
+   'alphaRedeemBtn', 'alphaAccessError', 'alphaAccessTitle'].forEach(id => {
+    assert.ok(new RegExp(`id="${id}"`).test(gate), `the access flow lost #${id}`);
+  });
+  assert.ok(/class="page active" id="page-alpha-access"/.test(htmlSource),
+    'the gate is no longer the initially painted screen');
+  /*
+   * The heading is this landmark's accessible name, and the browser suite
+   * finds the screen by it. Line breaks inside it are fine -- the name
+   * computation folds them to spaces -- but the words cannot change.
+   */
+  const heading = gate.match(/id="alphaAccessTitle"[^>]*>([\s\S]*?)<\/h1>/);
+  assert.ok(heading, 'the gate heading is gone');
+  const flattened = heading[1].replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  assert.strictEqual(flattened, 'Enter the Nebulaverse-X test orbit',
+    `the screen's accessible name changed to "${flattened}"; the browser suite finds this landmark by it`);
+});
+
+/*
+ * Focusing an input scrolls it into view. On a bare gate that was helpful; on
+ * a landing page it threw the reader past the headline before they had read a
+ * word of it -- measured at 323px on a phone.
+ */
+check('raising the gate does not scroll the page past its own headline', () => {
+  const alphaSource = fs.readFileSync(path.join(root, 'public/alpha-ui.js'), 'utf8');
+  const focuses = [...alphaSource.matchAll(/invite\.focus\(([^)]*)\)/g)];
+  assert.ok(focuses.length >= 1, 'nothing focuses the invitation any more');
+  focuses.forEach(match => {
+    assert.ok(/preventScroll:\s*true/.test(match[1]),
+      'the invitation is focused without preventScroll, which scrolls the landing page away');
+  });
 });
 
 check('the stylesheet actually carries overlay exits', () => {

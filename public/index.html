@@ -78,21 +78,114 @@
 
 
 <!-- ======================= CONTROLLED ALPHA ACCESS ======================= -->
+<!--
+  The landing page and the gate are one screen.
+  ---------------------------------------------------------------------------
+  A visitor arriving at a controlled alpha needs two things at once: a reason to
+  want in, and the way in. Splitting those across two screens costs a click
+  before the reason has landed, and the gate raises itself on boot anyway --
+  alpha-ui's activateAccessPage() clears every other page the moment readiness
+  resolves, so a separate landing screen would be painted and then taken away.
+
+  So the invitation card is the action panel of the landing page rather than a
+  page of its own. Every id, label and control the access flow owns is
+  unchanged; what is new is the stage around them.
+-->
 <main class="page active" id="page-alpha-access" aria-labelledby="alphaAccessTitle">
-  <section class="alpha-access card">
-    <p class="eyebrow">Controlled hosted public alpha</p>
-    <h1 id="alphaAccessTitle">Enter the Nebulaverse-X test orbit</h1>
-    <p class="alpha-access-rule">Use only a sandbox/test repository containing no real secrets, personal data, production deployments, or irreplaceable source.</p>
-    <div class="alpha-wake-state" id="alphaWakeState" role="status" aria-live="polite" aria-label="Service readiness">Checking service readiness…</div>
-    <label class="field-label" for="alphaInviteInput">One-time invitation</label>
-    <input id="alphaInviteInput" type="password" autocomplete="one-time-code" spellcheck="false">
-    <label class="check" for="alphaTermsAccept">
-      <input id="alphaTermsAccept" type="checkbox">
-      <span>I accept <strong id="alphaTermsVersion">the current alpha terms</strong> and the sandbox-repository rule.</span>
-    </label>
-    <button class="btn btn-primary btn-block" id="alphaRedeemBtn">Continue</button>
-    <div class="login-error" id="alphaAccessError" role="alert" hidden></div>
-  </section>
+  <div class="lp">
+    <!--
+      The stage. Decorative: it carries no information the copy does not, so it
+      is hidden from assistive technology entirely and never takes a pointer.
+      The poster is a real frame of the video, so the first paint is the scene
+      rather than a black box waiting for bytes.
+    -->
+    <div class="lp-stage" aria-hidden="true">
+      <video class="lp-video" id="lpVideo" poster="/assets/orbit-hero.jpg"
+             muted loop playsinline preload="metadata"
+             disablepictureinpicture disableremoteplayback tabindex="-1">
+        <!-- VP9 first: half the bytes of the mp4 where it is supported. The
+             mp4 is H.264 so Safari, which has no VP9 for this container, still
+             gets the scene rather than only the poster. -->
+        <source src="/assets/orbit-hero.webm" type="video/webm">
+        <source src="/assets/orbit-hero.mp4" type="video/mp4">
+      </video>
+      <div class="lp-veil"></div>
+      <div class="lp-grain"></div>
+    </div>
+
+    <header class="lp-nav">
+      <span class="lp-brand">
+        <svg class="lp-mark" viewBox="0 0 24 24" aria-hidden="true">
+          <ellipse class="lp-mark-ring" cx="12" cy="12" rx="10.4" ry="3.7"/>
+          <circle class="lp-mark-body" cx="12" cy="12" r="5.6"/>
+        </svg>
+        <span class="lp-word">__NV_PRODUCT_NAME__</span>
+      </span>
+      <span class="lp-state"><span class="lp-state-dot" aria-hidden="true"></span>Controlled alpha</span>
+    </header>
+
+    <div class="lp-body">
+      <div class="lp-copy">
+        <p class="lp-eyebrow">Controlled hosted public alpha</p>
+        <!--
+          This heading is the screen's accessible name, so its text is fixed:
+          the browser suite finds this landmark by it. The emphasis is markup
+          inside it, which the name computation flattens back to the same
+          string.
+        -->
+        <h1 id="alphaAccessTitle" class="lp-title">Enter the<br>Nebulaverse-X<br><em>test orbit</em></h1>
+        <p class="lp-lede">Connect one sandbox repository, read its real health, and preview
+          every change against GitHub, GitLab or Gitea before a single write reaches a provider.</p>
+
+        <!-- The golden path the overview already teaches, stated once up front
+             so the reader knows the shape of the thing before entering it. -->
+        <ol class="lp-steps">
+          <li class="lp-step">
+            <span class="lp-step-ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M9.2 14.8a4.2 4.2 0 0 0 6 0l3.1-3.1a4.24 4.24 0 0 0-6-6l-.8.8"/><path d="M14.8 9.2a4.2 4.2 0 0 0-6 0l-3.1 3.1a4.24 4.24 0 0 0 6 6l.8-.8"/></svg>
+            </span>
+            <span class="lp-step-n">01</span>
+            <span class="lp-step-t">Connect</span>
+            <span class="lp-step-d">One sandbox repository</span>
+          </li>
+          <li class="lp-step">
+            <span class="lp-step-ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M2.5 12h4l2.4-7 3.5 14 2.7-9.6 1.9 5.1 1.7-2.5h3.8"/></svg>
+            </span>
+            <span class="lp-step-n">02</span>
+            <span class="lp-step-t">Understand</span>
+            <span class="lp-step-d">Health and live signals</span>
+          </li>
+          <li class="lp-step">
+            <span class="lp-step-ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 3.2l7.2 3v5.4c0 4.3-3 7.8-7.2 9.5-4.2-1.7-7.2-5.2-7.2-9.5V6.2z"/><path d="M9 12.2l2.1 2.2 4-4.3"/></svg>
+            </span>
+            <span class="lp-step-n">03</span>
+            <span class="lp-step-t">Prove</span>
+            <span class="lp-step-d">Every action previewed</span>
+          </li>
+        </ol>
+      </div>
+
+      <!--
+        The action panel. Structure, ids, labels and order are exactly what the
+        access flow had before this page existed.
+      -->
+      <section class="alpha-access card lp-card">
+        <p class="eyebrow">Request entry</p>
+        <p class="alpha-access-rule">Use only a sandbox/test repository containing no real secrets, personal data, production deployments, or irreplaceable source.</p>
+        <div class="alpha-wake-state" id="alphaWakeState" role="status" aria-live="polite" aria-label="Service readiness">Checking service readiness…</div>
+        <label class="field-label" for="alphaInviteInput">One-time invitation</label>
+        <input id="alphaInviteInput" type="password" autocomplete="one-time-code" spellcheck="false" autocorrect="off" autocapitalize="off">
+        <label class="check" for="alphaTermsAccept">
+          <input id="alphaTermsAccept" type="checkbox">
+          <span>I accept <strong id="alphaTermsVersion">the current alpha terms</strong> and the sandbox-repository rule.</span>
+        </label>
+        <button class="btn btn-primary btn-block" id="alphaRedeemBtn">Continue</button>
+        <div class="login-error" id="alphaAccessError" role="alert" hidden></div>
+      </section>
+    </div>
+  </div>
 </main>
 
 <!-- ======================= LOGIN ======================= -->
@@ -909,6 +1002,7 @@
 <script src="/export-safety.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/governance-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/alpha-ui.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/landing-stage.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/repo-sigil.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>

@@ -316,13 +316,137 @@ em{color:var(--teal);font-style:normal}
 @keyframes pageIn{from{opacity:0}to{opacity:1}}
 
 /* ---------------- login ---------------- */
-.alpha-access{width:min(620px,calc(100% - 32px));margin:0 auto;padding:clamp(24px,5vw,42px);text-align:left}
-#page-alpha-access{align-items:center;justify-content:center;padding:max(28px,env(safe-area-inset-top)) 16px max(28px,env(safe-area-inset-bottom))}
-#page-alpha-access.active{display:flex}
+/* ============================================================
+   LANDING — the gate, on a stage
+   ============================================================
+ * The page a visitor arrives at and the gate they pass through are the same
+ * screen. The scene is a real video rather than drawn artwork, and everything
+ * over it is our own glass: the copy sits on the dark half, the card floats on
+ * the lit half, and the video is never asked to be legible behind text.
+ */
+#page-alpha-access{padding:0}
+#page-alpha-access.active{display:block}
+.lp{position:relative;isolation:isolate;min-height:100dvh;display:flex;flex-direction:column;
+  overflow:hidden;background:var(--shellSolid)}
+
+/* ---- the stage --------------------------------------------------------- */
+.lp-stage{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+/*
+ * object-position keeps the planet in frame as the viewport narrows: the scene
+ * is composed with its subject right of centre, so a centred crop on a phone
+ * would cut it in half and leave the empty left wall on screen.
+ */
+.lp-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  object-position:68% center;opacity:0;transition:opacity .9s var(--ease)}
+.lp-video.is-playing{opacity:1}
+/* A still poster is a complete fallback, not a placeholder: where the codec is
+   refused or motion is off, the scene is simply not moving. */
+.lp-stage{background:#05030c center/cover no-repeat}
+.lp-video::-webkit-media-controls,.lp-video::-webkit-media-controls-panel,
+.lp-video::-webkit-media-controls-start-playback-button{display:none!important;-webkit-appearance:none!important}
+
+/*
+ * The veil is directional, not a flat wash: it is opaque where the copy sits
+ * and clears entirely over the subject, so the scene keeps its depth instead
+ * of being dimmed uniformly to make room for text.
+ */
+.lp-veil{position:absolute;inset:0;
+  background:
+    linear-gradient(94deg,var(--shellSolid) 0%,rgba(8,5,19,.88) 26%,rgba(8,5,19,.46) 48%,rgba(8,5,19,0) 72%),
+    linear-gradient(to top,var(--shellSolid) 0%,rgba(8,5,19,0) 34%)}
+[data-theme="light"] .lp-veil{
+  background:
+    linear-gradient(94deg,#fff 0%,rgba(255,255,255,.9) 26%,rgba(255,255,255,.5) 48%,rgba(255,255,255,0) 74%),
+    linear-gradient(to top,#fff 0%,rgba(255,255,255,0) 30%)}
+/* Grain: video compression bands badly under a glass blur. Three percent of
+   noise hides the banding and costs one tiled data URI. */
+.lp-grain{position:absolute;inset:0;opacity:.035;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E")}
+
+/* ---- chrome ------------------------------------------------------------ */
+.lp-nav{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;
+  gap:16px;padding:clamp(16px,3vw,26px) clamp(18px,5vw,54px);
+  padding-top:max(clamp(16px,3vw,26px),env(safe-area-inset-top))}
+.lp-brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display);
+  font-weight:700;letter-spacing:-.015em;color:var(--text);font-size:1rem}
+.lp-mark{width:24px;height:24px;fill:none;stroke:var(--accent2);stroke-width:1.6}
+.lp-mark-ring{transform-box:fill-box;transform-origin:center;transform:rotate(-22deg);opacity:.75}
+.lp-state{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);
+  font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;color:var(--text2);
+  padding:6px 12px;border-radius:999px;border:1px solid var(--glass-border);
+  background:rgba(255,255,255,.04);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+[data-theme="light"] .lp-state{background:rgba(255,255,255,.5)}
+.lp-state-dot{width:6px;height:6px;border-radius:50%;background:var(--teal);
+  box-shadow:0 0 0 0 currentColor;color:var(--teal);animation:lp-pulse 2.6s var(--ease) infinite}
+@keyframes lp-pulse{0%{box-shadow:0 0 0 0 rgba(34,211,238,.5)}70%{box-shadow:0 0 0 8px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
+
+/* ---- body -------------------------------------------------------------- */
+.lp-body{position:relative;z-index:2;flex:1;display:grid;align-items:center;
+  gap:clamp(26px,5vw,64px);padding:0 clamp(18px,5vw,54px) clamp(28px,5vw,54px);
+  padding-bottom:max(clamp(28px,5vw,54px),env(safe-area-inset-bottom))}
+@media (min-width:940px){ .lp-body{grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr)} }
+.lp-copy{min-width:0;max-width:36rem}
+.lp-eyebrow{margin:0 0 14px;font-family:var(--font-mono);font-size:.68rem;font-weight:600;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--teal)}
+.lp-title{margin:0;font-family:var(--font-display);font-weight:700;color:var(--text);
+  font-size:clamp(2.1rem,6.4vw,4rem);line-height:1.02;letter-spacing:-.032em}
+.lp-title em{font-style:italic;font-weight:600;color:var(--accent2)}
+.lp-lede{margin:18px 0 0;max-width:34rem;color:var(--text2);font-size:clamp(.9rem,1.6vw,1rem);line-height:1.62}
+
+/* ---- the golden path --------------------------------------------------- */
+.lp-steps{list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;margin:clamp(24px,4vw,36px) 0 0;padding:0}
+.lp-step{position:relative;display:grid;gap:2px;padding:13px 13px 14px;border-radius:14px;
+  border:1px solid var(--glass-border);background:rgba(255,255,255,.055);
+  backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%)}
+[data-theme="light"] .lp-step{background:rgba(255,255,255,.55)}
+.lp-step-ico{display:block;width:17px;height:17px;margin-bottom:7px;color:var(--accent2)}
+.lp-step-ico svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+.lp-step-n{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.1em;color:var(--muted)}
+.lp-step-t{font-family:var(--font-display);font-size:.88rem;font-weight:700;color:var(--text);letter-spacing:-.012em}
+.lp-step-d{font-size:.71rem;color:var(--text2);line-height:1.4}
+
+/* ---- the action panel -------------------------------------------------- */
+.alpha-access{width:min(620px,100%);margin:0;padding:clamp(22px,4vw,32px);text-align:left}
+.lp-card{justify-self:end;width:min(430px,100%)}
+@media (max-width:939px){ .lp-card{justify-self:stretch;width:100%} }
 .alpha-access .eyebrow{margin:0 0 10px;color:var(--teal);font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
 .alpha-access h1{margin:0;font-size:clamp(1.75rem,6vw,2.55rem);line-height:1.08;letter-spacing:-.025em}
-.alpha-access-rule{margin:16px 0;color:var(--text2);line-height:1.65}
-.alpha-wake-state{margin:18px 0;padding:10px 12px;border:1px solid var(--glass-border);border-radius:10px;color:var(--text2);background:rgba(34,211,238,.055)}
+.alpha-access-rule{margin:0 0 16px;color:var(--text2);line-height:1.6;font-size:.82rem}
+
+/* ---- phones ------------------------------------------------------------ */
+/*
+ * The scene moves behind the copy rather than beside it, and the column
+ * scrolls. Locking a phone to one viewport here would put the invitation
+ * below the fold with no way to reach it.
+ */
+@media (max-width:939px){
+  .lp{min-height:100dvh}
+  .lp-video{object-position:74% 32%}
+  .lp-veil{background:
+    linear-gradient(to bottom,rgba(8,5,19,.25) 0%,rgba(8,5,19,.72) 38%,var(--shellSolid) 72%)}
+  [data-theme="light"] .lp-veil{background:
+    linear-gradient(to bottom,rgba(255,255,255,.2) 0%,rgba(255,255,255,.78) 38%,#fff 72%)}
+  .lp-body{align-items:end;padding-top:clamp(140px,34vh,300px)}
+  .lp-steps{grid-template-columns:1fr;gap:8px}
+  .lp-step{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:4px 11px;padding:11px 13px}
+  .lp-step-ico{margin:0}
+  .lp-step-d{grid-column:3;justify-self:end;text-align:right}
+  .lp-step-n{grid-row:1;grid-column:2}
+  .lp-step-t{grid-row:1;grid-column:2}
+  .lp-step-n{display:none}
+}
+/*
+ * A status, not a control. Boxed like this it sat directly above the
+ * invitation and read as a second, disabled input -- the reader's eye met two
+ * fields where there is one.
+ */
+.alpha-wake-state{display:inline-flex;align-items:center;gap:7px;margin:14px 0 16px;padding:0;
+  border:0;background:none;color:var(--text2);font-family:var(--font-mono);
+  font-size:.68rem;letter-spacing:.1em;text-transform:uppercase}
+.alpha-wake-state::before{content:"";width:6px;height:6px;border-radius:50%;flex:none;
+  background:var(--teal);box-shadow:0 0 10px rgba(34,211,238,.6)}
 .alpha-access .check{align-items:flex-start;line-height:1.45}
 .alpha-access .check input{flex:0 0 auto;margin-top:2px}
 .login-wrap{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;

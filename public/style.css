@@ -326,42 +326,108 @@ em{color:var(--teal);font-style:normal}
  */
 #page-alpha-access{padding:0}
 #page-alpha-access.active{display:block}
-.lp{position:relative;isolation:isolate;min-height:100dvh;display:flex;flex-direction:column;
-  overflow:hidden;background:var(--shellSolid)}
+.lp{position:relative;isolation:isolate;display:flex;flex-direction:column;background:var(--page)}
+/*
+ * The hero owns the scene: the stage is absolute within it, so it covers
+ * exactly the first screen however tall the copy makes that screen. Pinning
+ * the stage to the whole page would have stretched it over the sections
+ * below, and pinning it to 100dvh would have left a seam under a phone's
+ * taller hero.
+ */
+.lp-hero{position:relative;overflow:hidden;min-height:100dvh;display:flex;flex-direction:column}
 
 /* ---- the stage --------------------------------------------------------- */
-.lp-stage{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 /*
- * object-position keeps the planet in frame as the viewport narrows: the scene
- * is composed with its subject right of centre, so a centred crop on a phone
- * would cut it in half and leave the empty left wall on screen.
+ * Three layers, each a complete picture on its own: the theme's ground, the
+ * poster, then the video fading in over a poster already showing the same
+ * frame.
+ *
+ * The poster used to live only on the <video> element's poster attribute,
+ * which paints nothing at all while that element sits at opacity 0 -- and it
+ * sits there until `playing` fires, which for a reader who asked for less
+ * motion is never. The fallback was invisible to exactly the people it was
+ * for, and the claim that "the poster stays" was never true.
  */
-.lp-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
-  object-position:68% center;opacity:0;transition:opacity .9s var(--ease)}
+.lp-stage{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;
+  background:var(--page)}
+/* The theme's own bloom, on the stage. Without it the copy side is a flat
+   patch, and flat is where glass stops reading as glass. */
+.lp-ground{position:absolute;inset:0;background:var(--bloom)}
+.lp-poster,.lp-video{position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;object-position:68% center}
+.lp-video{opacity:0;transition:opacity .9s var(--ease)}
 .lp-video.is-playing{opacity:1}
-/* A still poster is a complete fallback, not a placeholder: where the codec is
-   refused or motion is off, the scene is simply not moving. */
-.lp-stage{background:#05030c center/cover no-repeat}
 .lp-video::-webkit-media-controls,.lp-video::-webkit-media-controls-panel,
 .lp-video::-webkit-media-controls-start-playback-button{display:none!important;-webkit-appearance:none!important}
 
 /*
- * The veil is directional, not a flat wash: it is opaque where the copy sits
- * and clears entirely over the subject, so the scene keeps its depth instead
- * of being dimmed uniformly to make room for text.
+ * Masked into the page, not veiled over it.
+ *
+ * Compositing white over a dark nebula is what made the light theme grey: 90%
+ * white on a near-black field averages to mud, and the theme's own violet
+ * ground never showed at all. A mask removes the scene instead of painting
+ * over it, so where the scene leaves off the page's own light arrives at full
+ * saturation. One mechanism, both themes, different stops.
+ */
+/*
+ * The scene stops before the copy column starts, in both themes.
+ *
+ * Letting it ramp in under the copy measured as low as 1.35:1 on the lede in
+ * light mode -- dark text over the dark video bleeding through at rgb(53,56,60)
+ * -- and 3.7:1 on a phone. Contrast under glyphs, not under boxes: the copy
+ * column is 36rem wide, so the scene is held off until past it and reaches
+ * full strength across the empty middle, where it belongs.
+ */
+.lp{--lp-mask:linear-gradient(97deg,transparent 0%,rgba(0,0,0,.025) 32%,rgba(0,0,0,.05) 44%,rgba(0,0,0,.45) 57%,#000 69%)}
+@supports (mask-image:linear-gradient(#000,#000)){
+  .lp-poster,.lp-video{-webkit-mask-image:var(--lp-mask);mask-image:var(--lp-mask)}
+}
+/*
+ * What is left of the veil is a tint and a floor, not a wash: enough of the
+ * theme's own colour to make both halves one picture, and a gradient along the
+ * bottom so the copy never lands on a bright frame.
  */
 .lp-veil{position:absolute;inset:0;
   background:
-    linear-gradient(94deg,var(--shellSolid) 0%,rgba(8,5,19,.88) 26%,rgba(8,5,19,.46) 48%,rgba(8,5,19,0) 72%),
-    linear-gradient(to top,var(--shellSolid) 0%,rgba(8,5,19,0) 34%)}
+    linear-gradient(97deg,rgba(6,3,15,.34) 0%,rgba(6,3,15,.13) 34%,rgba(6,3,15,0) 60%),
+    linear-gradient(to top,rgba(6,3,15,.7) 0%,rgba(6,3,15,0) 28%)}
 [data-theme="light"] .lp-veil{
   background:
-    linear-gradient(94deg,#fff 0%,rgba(255,255,255,.9) 26%,rgba(255,255,255,.5) 48%,rgba(255,255,255,0) 74%),
-    linear-gradient(to top,#fff 0%,rgba(255,255,255,0) 30%)}
+    linear-gradient(97deg,rgba(245,243,251,.3) 0%,rgba(245,243,251,.1) 34%,rgba(245,243,251,0) 60%),
+    linear-gradient(to top,rgba(245,243,251,.6) 0%,rgba(245,243,251,0) 26%)}
 /* Grain: video compression bands badly under a glass blur. Three percent of
    noise hides the banding and costs one tiled data URI. */
 .lp-grain{position:absolute;inset:0;opacity:.035;mix-blend-mode:overlay;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E")}
+
+/*
+ * The signature moment: the portal answers the gate.
+ *
+ * Reaching for the invitation is the one action this page exists for, so the
+ * scene answers it -- the mask opens further across the page, the veil thins,
+ * and the portal drifts a little closer. It is the only thing on this page
+ * that moves on its own, which is what lets it read as deliberate rather than
+ * as one more animated element.
+ *
+ * Transform and opacity only: both are composited, so the scene cannot jank
+ * the field the reader is typing into.
+ */
+@media (prefers-reduced-motion:no-preference){
+  .lp-stage{transition:transform 1.5s var(--ease)}
+  .lp-grain{transition:opacity 1.5s var(--ease)}
+  .lp.is-reaching .lp-stage{transform:scale(1.05)}
+  .lp.is-reaching .lp-grain{opacity:.055}
+}
+/*
+ * Transform and opacity only, and nothing that thins the veil: the first
+ * draft lifted the veil's opacity on focus, which pulled the headline's
+ * contrast down at the exact moment the reader had committed to the page.
+ * A push-in costs no contrast and is composited, so it cannot jank the field
+ * being typed into.
+ */
+[data-motion="off"] .lp-stage,[data-motion="off"] .lp-grain{transition:none}
+[data-motion="off"] .lp.is-reaching .lp-stage{transform:none}
+[data-motion="off"] .lp.is-reaching .lp-grain{opacity:.035}
 
 /* ---- chrome ------------------------------------------------------------ */
 .lp-nav{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;
@@ -371,14 +437,21 @@ em{color:var(--teal);font-style:normal}
   font-weight:700;letter-spacing:-.015em;color:var(--text);font-size:1rem}
 .lp-mark{width:24px;height:24px;fill:none;stroke:var(--accent2);stroke-width:1.6}
 .lp-mark-ring{transform-box:fill-box;transform-origin:center;transform:rotate(-22deg);opacity:.75}
+.lp-nav-end{display:inline-flex;align-items:center;gap:10px}
 .lp-state{display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);
   font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;color:var(--text2);
   padding:6px 12px;border-radius:999px;border:1px solid var(--glass-border);
   background:rgba(255,255,255,.04);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
-[data-theme="light"] .lp-state{background:rgba(255,255,255,.5)}
+/*
+ * The pill sits over the scene's dark side, where a 50% white fill composited
+ * to mid grey and put dark text at 2.83:1. Like the access card, it carries
+ * enough fill of its own that its contrast does not depend on the frame.
+ */
+[data-theme="light"] .lp-state{background:rgba(255,255,255,.88)}
 .lp-state-dot{width:6px;height:6px;border-radius:50%;background:var(--teal);
   box-shadow:0 0 0 0 currentColor;color:var(--teal);animation:lp-pulse 2.6s var(--ease) infinite}
 @keyframes lp-pulse{0%{box-shadow:0 0 0 0 rgba(34,211,238,.5)}70%{box-shadow:0 0 0 8px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
+@media (max-width:620px){ .lp-state{display:none} }
 
 /* ---- body -------------------------------------------------------------- */
 .lp-body{position:relative;z-index:2;flex:1;display:grid;align-items:center;
@@ -388,18 +461,38 @@ em{color:var(--teal);font-style:normal}
 .lp-copy{min-width:0;max-width:36rem}
 .lp-eyebrow{margin:0 0 14px;font-family:var(--font-mono);font-size:.68rem;font-weight:600;
   letter-spacing:.18em;text-transform:uppercase;color:var(--teal)}
+/*
+ * The eyebrow teal is --cyan, and on the light theme's lilac ground that pair
+ * measures 3.2:1 under the glyphs -- it fails for text this small with or
+ * without a scene behind it, so no amount of masking would have fixed it. The
+ * same hue, darker, reads identically and clears 5:1.
+ */
+[data-theme="light"] .lp-eyebrow,[data-theme="light"] .lp-sec-eyebrow,
+[data-theme="light"] .alpha-access .eyebrow,
+[data-theme="light"] .alpha-wake-state{color:#0A6B80}
 .lp-title{margin:0;font-family:var(--font-display);font-weight:700;color:var(--text);
   font-size:clamp(2.1rem,6.4vw,4rem);line-height:1.02;letter-spacing:-.032em}
 .lp-title em{font-style:italic;font-weight:600;color:var(--accent2)}
 .lp-lede{margin:18px 0 0;max-width:34rem;color:var(--text2);font-size:clamp(.9rem,1.6vw,1rem);line-height:1.62}
 
 /* ---- the golden path --------------------------------------------------- */
+/*
+ * One strip with hairlines between the steps rather than three separate
+ * chips. Three chips read as three unrelated things; the path is one thing
+ * with an order, which is what it actually is.
+ */
 .lp-steps{list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:10px;margin:clamp(24px,4vw,36px) 0 0;padding:0}
-.lp-step{position:relative;display:grid;gap:2px;padding:13px 13px 14px;border-radius:14px;
-  border:1px solid var(--glass-border);background:rgba(255,255,255,.055);
-  backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%)}
-[data-theme="light"] .lp-step{background:rgba(255,255,255,.55)}
+  margin:clamp(24px,4vw,36px) 0 0;padding:0;border-radius:16px;overflow:hidden;
+  border:1px solid var(--glass-border);background:rgba(255,255,255,.045);
+  backdrop-filter:blur(var(--elev-1-blur)) saturate(160%);
+  -webkit-backdrop-filter:blur(var(--elev-1-blur)) saturate(160%);
+  box-shadow:0 1px 2px rgba(0,0,0,.20),0 18px 44px -22px rgba(0,0,0,.55),
+    inset 0 1px 0 rgba(255,255,255,.14)}
+[data-theme="light"] .lp-steps{background:rgba(255,255,255,.74);
+  box-shadow:0 1px 2px rgba(38,26,90,.06),0 18px 44px -22px rgba(38,26,90,.26),
+    inset 0 1px 0 rgba(255,255,255,.95)}
+.lp-step{position:relative;display:grid;gap:2px;padding:14px 15px 15px}
+.lp-step + .lp-step{border-left:1px solid var(--glass-border)}
 .lp-step-ico{display:block;width:17px;height:17px;margin-bottom:7px;color:var(--accent2)}
 .lp-step-ico svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;
   stroke-linecap:round;stroke-linejoin:round}
@@ -409,11 +502,109 @@ em{color:var(--teal);font-style:normal}
 
 /* ---- the action panel -------------------------------------------------- */
 .alpha-access{width:min(620px,100%);margin:0;padding:clamp(22px,4vw,32px);text-align:left}
-.lp-card{justify-self:end;width:min(430px,100%)}
+/*
+ * This card floats over moving media rather than over the shell, so it cannot
+ * borrow the shell's contrast the way every other card in the product does.
+ * It carries a minimum fill of its own -- enough that the text's contrast
+ * never depends on which frame is behind it -- a heavier ambient shadow to
+ * separate it from a bright scene, and elevation 2, because it sits further
+ * from its backdrop than a card resting on a page.
+ */
+.lp-card{justify-self:end;width:min(438px,100%);
+  backdrop-filter:blur(var(--elev-2-blur)) saturate(185%);
+  -webkit-backdrop-filter:blur(var(--elev-2-blur)) saturate(185%);
+  background:
+    linear-gradient(155deg,rgba(255,255,255,.11) 0%,rgba(255,255,255,.035) 30%,transparent 56%),
+    rgba(9,6,24,.74);
+  border-color:rgba(255,255,255,.17);
+  box-shadow:0 2px 10px rgba(0,0,0,.34),0 36px 92px -20px rgba(0,0,0,.64),
+    inset 0 1.5px 0 rgba(255,255,255,.22),inset 1px 0 0 rgba(255,255,255,.07),
+    inset 0 -1px 0 rgba(0,0,0,.30)}
+[data-theme="light"] .lp-card{
+  background:
+    linear-gradient(155deg,rgba(255,255,255,.66) 0%,rgba(255,255,255,.32) 32%,transparent 58%),
+    rgba(255,255,255,.87);
+  border-color:rgba(255,255,255,.92);
+  box-shadow:0 2px 10px rgba(38,26,90,.10),0 36px 88px -22px rgba(38,26,90,.36),
+    inset 0 1.5px 0 rgba(255,255,255,1),inset 1px 0 0 rgba(255,255,255,.72),
+    inset 0 -1px 0 rgba(20,14,50,.06)}
+.lp-card::before{background:linear-gradient(90deg,rgba(255,255,255,.18),rgba(255,255,255,.95) 48%,rgba(255,255,255,.18))}
 @media (max-width:939px){ .lp-card{justify-self:stretch;width:100%} }
 .alpha-access .eyebrow{margin:0 0 10px;color:var(--teal);font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
 .alpha-access h1{margin:0;font-size:clamp(1.75rem,6vw,2.55rem);line-height:1.08;letter-spacing:-.025em}
 .alpha-access-rule{margin:0 0 16px;color:var(--text2);line-height:1.6;font-size:.82rem}
+
+/* ---- below the fold ---------------------------------------------------- */
+/*
+ * The page used to stop at the gate, which left a dead band under the card on
+ * a desktop and told a visitor without an invitation nothing at all. What
+ * follows is only what the product actually does, and only what it actually
+ * refuses to do.
+ */
+.lp-more{position:relative;z-index:2;background:var(--page);
+  border-top:1px solid var(--hair);
+  padding:clamp(52px,8vw,104px) clamp(18px,5vw,54px) 0}
+/* A measure. Full-window text ran past 200 characters a line on a desktop,
+   which is unreadable however good the contrast is. */
+.lp-more>*{max-width:1240px;margin-inline:auto}
+.lp-limit-d{max-width:74ch}
+.lp-sec + .lp-sec{margin-top:clamp(48px,7vw,92px)}
+.lp-sec-head{max-width:38rem;margin:0 0 clamp(22px,3.5vw,34px)}
+.lp-sec-eyebrow{margin:0 0 10px;font-family:var(--font-mono);font-size:.66rem;font-weight:600;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--teal)}
+.lp-sec-title{margin:0;font-family:var(--font-display);font-weight:700;color:var(--text);
+  font-size:clamp(1.5rem,3.4vw,2.2rem);line-height:1.12;letter-spacing:-.026em}
+.lp-sec-lede{margin:12px 0 0;color:var(--text2);font-size:clamp(.86rem,1.5vw,.95rem);line-height:1.62}
+
+.lp-caps{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));
+  margin:0;padding:0;list-style:none}
+.lp-cap{position:relative;overflow:hidden;border-radius:16px;padding:20px 20px 22px;
+  border:1px solid var(--glass-border);background:var(--card-grad);
+  box-shadow:0 1px 2px rgba(0,0,0,.16),0 16px 40px -24px rgba(0,0,0,.5);
+  transition:transform .3s var(--ease),box-shadow .3s var(--ease)}
+[data-theme="light"] .lp-cap{box-shadow:0 1px 2px rgba(38,26,90,.05),0 16px 40px -24px rgba(38,26,90,.22)}
+.lp-cap::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.5) 45%,transparent)}
+@media (hover:hover) and (pointer:fine){
+  .lp-cap:hover{transform:translateY(-4px);
+    box-shadow:0 2px 6px rgba(0,0,0,.2),0 28px 62px -26px rgba(0,0,0,.6)}
+  [data-theme="light"] .lp-cap:hover{box-shadow:0 2px 6px rgba(38,26,90,.07),0 28px 62px -26px rgba(38,26,90,.3)}
+}
+[data-motion="off"] .lp-cap{transition:none}
+[data-motion="off"] .lp-cap:hover{transform:none}
+.lp-cap-ico{display:block;width:20px;height:20px;margin-bottom:13px;color:var(--accent2)}
+.lp-cap-ico svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round}
+.lp-cap-t{margin:0 0 7px;font-family:var(--font-display);font-size:1rem;font-weight:700;
+  color:var(--text);letter-spacing:-.016em}
+.lp-cap-d{margin:0;color:var(--text2);font-size:.83rem;line-height:1.58}
+
+/*
+ * The limits are set in the same type as the capabilities, not in smaller
+ * grey print. A controlled alpha that hides its constraints under the fold is
+ * not controlled, it is merely quiet about it.
+ */
+.lp-limits{display:grid;gap:0;margin:0;padding:0;list-style:none;
+  border-radius:16px;overflow:hidden;border:1px solid var(--glass-border);
+  background:var(--card2)}
+.lp-limit{display:grid;grid-template-columns:auto 1fr;gap:13px;align-items:start;
+  padding:16px 18px}
+.lp-limit + .lp-limit{border-top:1px solid var(--hair)}
+.lp-limit-ico{width:17px;height:17px;margin-top:2px;color:var(--amber);fill:none;
+  stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.lp-limit-b{display:block;font-weight:700;color:var(--text);font-size:.88rem;letter-spacing:-.01em}
+.lp-limit-d{display:block;margin-top:3px;color:var(--text2);font-size:.81rem;line-height:1.55}
+
+.lp-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+  gap:14px;margin-top:clamp(48px,7vw,92px);padding:22px 0 clamp(26px,4vw,40px);
+  border-top:1px solid var(--hair);
+  padding-bottom:max(clamp(26px,4vw,40px),env(safe-area-inset-bottom))}
+.lp-foot-brand{display:inline-flex;align-items:center;gap:9px;color:var(--text2);
+  font-size:.82rem;font-weight:600}
+/* --muted put this at 4.60:1 -- over the bar, but with a tenth of a point of
+   headroom, which is not a margin a guard can be held to across machines. */
+.lp-foot-meta{display:inline-flex;flex-wrap:wrap;gap:8px 16px;font-family:var(--font-mono);
+  font-size:.68rem;letter-spacing:.06em;color:var(--text2)}
 
 /* ---- phones ------------------------------------------------------------ */
 /*
@@ -422,20 +613,43 @@ em{color:var(--teal);font-style:normal}
  * below the fold with no way to reach it.
  */
 @media (max-width:939px){
-  .lp{min-height:100dvh}
-  .lp-video{object-position:74% 32%}
+  /*
+   * On a phone the scene is a band of its own height, not a full-bleed layer.
+   *
+   * Covering a 390x1137 portrait box with a landscape frame scales to height
+   * and shows a nineteen-percent-wide vertical slice of it -- and once the
+   * height already covers, object-position's Y does nothing at all. The
+   * subject was cropped out and what was left was a streak of the ring. A
+   * band gets the frame's width back, and the mask then fades the band's own
+   * bottom edge instead of most of the picture.
+   */
+  .lp-poster,.lp-video{height:clamp(300px,46vh,430px);bottom:auto;object-position:64% 46%}
+  /*
+   * The nav rides over the band on a phone, and the band's top edge is the
+   * dark side of the frame: the product name measured 1.22:1 there in the
+   * light theme. A scrim the height of the nav lifts the chrome without
+   * touching the picture below it.
+   */
+  .lp-nav::before{content:'';position:absolute;inset:0 0 auto;z-index:-1;pointer-events:none;
+    height:calc(100% + 26px);
+    background:linear-gradient(to bottom,rgba(6,3,15,.7),rgba(6,3,15,0))}
+  [data-theme="light"] .lp-nav::before{
+    background:linear-gradient(to bottom,rgba(245,243,251,.88),rgba(245,243,251,0))}
+  .lp{--lp-mask:linear-gradient(to bottom,#000 0%,#000 44%,rgba(0,0,0,.34) 74%,transparent 100%)}
   .lp-veil{background:
-    linear-gradient(to bottom,rgba(8,5,19,.25) 0%,rgba(8,5,19,.72) 38%,var(--shellSolid) 72%)}
+    linear-gradient(to bottom,rgba(6,3,15,.12) 0%,rgba(6,3,15,.34) 24%,rgba(6,3,15,.8) 37%)}
   [data-theme="light"] .lp-veil{background:
-    linear-gradient(to bottom,rgba(255,255,255,.2) 0%,rgba(255,255,255,.78) 38%,#fff 72%)}
-  .lp-body{align-items:end;padding-top:clamp(140px,34vh,300px)}
-  .lp-steps{grid-template-columns:1fr;gap:8px}
-  .lp-step{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:4px 11px;padding:11px 13px}
+    linear-gradient(to bottom,rgba(245,243,251,.08) 0%,rgba(245,243,251,.3) 24%,rgba(245,243,251,.76) 37%)}
+  .lp-body{align-items:end;padding-top:clamp(160px,38vh,330px)}
+  .lp-steps{grid-template-columns:1fr}
+  .lp-step{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:4px 11px;padding:12px 14px}
+  .lp-step + .lp-step{border-left:0;border-top:1px solid var(--glass-border)}
   .lp-step-ico{margin:0}
   .lp-step-d{grid-column:3;justify-self:end;text-align:right}
-  .lp-step-n{grid-row:1;grid-column:2}
-  .lp-step-t{grid-row:1;grid-column:2}
   .lp-step-n{display:none}
+  .lp-step-t{grid-row:1;grid-column:2}
+  .lp-limit{padding:15px 16px}
+  .lp-foot{flex-direction:column;align-items:flex-start;gap:10px}
 }
 /*
  * A status, not a control. Boxed like this it sat directly above the

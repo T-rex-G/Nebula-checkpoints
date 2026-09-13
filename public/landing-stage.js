@@ -2,6 +2,56 @@
 'use strict';
 
 (function landingStage(global) {
+  /*
+   * The signature moment: the portal answers the gate.
+   *
+   * Reaching for the invitation is the one action this page exists for, so
+   * the scene leans in while the reader is in the card and settles back when
+   * they leave it. It is the only thing on this page that moves of its own
+   * accord, which is what lets it read as deliberate rather than as one more
+   * animated element.
+   *
+   * focusin/focusout rather than focus/blur on the field alone: the card
+   * holds three controls, and moving between them should not make the scene
+   * flinch once per tab stop.
+   *
+   * All this does is carry a class. The motion itself is CSS, gated on both
+   * prefers-reduced-motion and the interface's own switch, so a reader who
+   * asked for less motion gets the state and none of the movement. It is
+   * wired before the video is looked for, because the scene leans in whether
+   * or not a decoder ever agreed to play it.
+   */
+  const lp = document.querySelector('.lp');
+  const card = document.querySelector('.lp-card');
+  if (lp && card) {
+    /*
+     * Not until the reader has actually touched the page.
+     *
+     * alpha-ui focuses the invitation as soon as the gate is raised, so a
+     * lean-in bound to focus alone was applied on the first frame and never
+     * came back -- the moment was the resting state, which is no moment at
+     * all. A cursor the browser parked in the field is not the reader
+     * reaching for it.
+     *
+     * If they were already focused there when the first gesture lands -- the
+     * ordinary case, since they arrive and start typing -- that gesture is
+     * what the scene answers.
+     */
+    let engaged = false;
+    const engage = () => {
+      if (engaged) return;
+      engaged = true;
+      if (card.contains(document.activeElement)) lp.classList.add('is-reaching');
+    };
+    ['pointerdown', 'keydown', 'touchstart'].forEach(name =>
+      document.addEventListener(name, engage, { once: true, passive: true }));
+
+    card.addEventListener('focusin', () => { if (engaged) lp.classList.add('is-reaching'); });
+    card.addEventListener('focusout', () => {
+      if (!card.contains(document.activeElement)) lp.classList.remove('is-reaching');
+    });
+  }
+
   const video = document.getElementById('lpVideo');
   if (!video) return;
 

@@ -846,7 +846,7 @@ function toggleTheme() {
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;
   const meta = document.querySelector('meta[name=theme-color]');
-  if (meta) meta.content = next === 'dark' ? '#070712' : '#e9ecf8';
+  if (meta) meta.content = next === 'dark' ? '#06030F' : '#F5F3FB';
   try { localStorage.setItem('nv_theme', next); } catch {}
   $$('.theme-toggle').forEach(t => t.setAttribute('aria-checked', String(next === 'dark')));
   /* The artwork has its own palettes; it follows the toggle like everything else. */

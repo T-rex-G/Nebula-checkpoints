@@ -633,11 +633,42 @@ check('the landing scene degrades to a still rather than to nothing', () => {
     assert.ok(new RegExp(`\\b${attribute}\\b`).test(tag[0]),
       `the landing video is missing ${attribute}; without it autoplay is refused or iOS takes the page fullscreen`);
   });
-  assert.ok(/poster="[^"]+"/.test(tag[0]),
-    'the video has no poster, so a refused decode leaves an empty stage');
-  const poster = tag[0].match(/poster="([^"]+)"/)[1];
-  assert.ok(fs.existsSync(path.join(root, 'public', poster.replace(/^\//, ''))),
-    `the poster ${poster} is not in the build`);
+  /*
+   * The poster has to be able to paint, which is not the same as being
+   * declared. It used to live only on this attribute -- and the video element
+   * is held at opacity 0 until `playing` fires, which for a reader who asked
+   * for less motion never fires at all. The attribute was present, the guard
+   * was green, and the stage was a flat rectangle for exactly the people the
+   * fallback existed for. So it is an element of its own now, and nothing in
+   * the cascade may hide it.
+   */
+  const posterTag = htmlSource.match(/<img[^>]*class="lp-poster"[^>]*>/);
+  assert.ok(posterTag, 'the poster is not an element, so it paints only when the video already does');
+  const posterSrc = (posterTag[0].match(/src="([^"]+)"/) || [])[1];
+  assert.ok(posterSrc && fs.existsSync(path.join(root, 'public', posterSrc.replace(/^\//, ''))),
+    `the poster ${posterSrc} is not in the build`);
+  /*
+   * The attribute is a fallback behind the fallback now -- it covers the case
+   * where the element itself fails to load -- so it is allowed to be absent,
+   * but it is not allowed to drift to a different picture than the one the
+   * element shows.
+   */
+  const attr = (tag[0].match(/poster="([^"]+)"/) || [])[1];
+  assert.ok(!attr || attr === posterSrc,
+    `the video poster ${attr} and the poster element ${posterSrc} are two different pictures`);
+  rules.filter(rule => eachSelector(rule).some(one => /\.lp-poster\b/.test(one.selector)))
+    .forEach(rule => {
+      assert.ok(!/opacity\s*:\s*0(\D|$)/.test(rule.body),
+        `${rule.selector} holds the poster at zero opacity, which is the bug this element exists to fix`);
+      assert.ok(!/display\s*:\s*none|visibility\s*:\s*hidden/.test(rule.body),
+        `${rule.selector} hides the poster outright`);
+    });
+  const gated = rules.filter(rule => /opacity\s*:\s*0(\D|$)/.test(rule.body))
+    .flatMap(eachSelector).map(one => one.selector)
+    .filter(selector => /\.lp-(poster|video)\b/.test(selector));
+  assert.ok(gated.length, 'nothing holds the video back until it is running');
+  assert.ok(gated.every(selector => /\.lp-video\b/.test(selector) && !/\.lp-poster\b/.test(selector)),
+    `the playback gate reaches past the video itself: ${gated.join(' | ')}`);
 
   /* Both encodes shipped, and the smaller one offered first. */
   const block = htmlSource.match(/<video[^>]*id="lpVideo"[\s\S]*?<\/video>/)[0];
@@ -684,10 +715,35 @@ function runLandingStage(options) {
     addEventListener(name, fn) { (listeners[name] = listeners[name] || []).push(fn); }
   };
   let observerCallback = null;
+  /* The scene leans in while focus is inside the access card. Stubs enough of
+     the card to run that, rather than to read the source for a class name. */
+  const cardListeners = {};
+  const docListeners = {};
+  const inside = { name: 'a field in the card' };
+  const outside = { name: 'something else on the page' };
+  const card = {
+    addEventListener(name, fn) { (cardListeners[name] = cardListeners[name] || []).push(fn); },
+    contains: node => node === inside
+  };
+  const lp = {
+    classList: {
+      names: new Set(),
+      add(n) { this.names.add(n); },
+      remove(n) { this.names.delete(n); },
+      contains(n) { return this.names.has(n); }
+    }
+  };
   const documentStub = {
-    getElementById: id => (id === 'lpVideo' ? video : null),
+    getElementById: id => (id === 'lpVideo' && !settings.noVideo ? video : null),
+    querySelector: selector => {
+      if (selector === '.lp') return settings.noStage ? null : lp;
+      if (selector === '.lp-card') return settings.noStage ? null : card;
+      return null;
+    },
+    activeElement: outside,
     documentElement: { dataset: { motion: settings.motion === false ? 'off' : 'on' } },
-    addEventListener() {}, removeEventListener() {}
+    addEventListener(name, fn) { (docListeners[name] = docListeners[name] || []).push(fn); },
+    removeEventListener() {}
   };
   /*
    * A VM context, not an injected parameter. The module closes over
@@ -709,7 +765,15 @@ function runLandingStage(options) {
     enter: () => observerCallback && observerCallback([{ isIntersecting: true }]),
     leave: () => observerCallback && observerCallback([{ isIntersecting: false }]),
     fire: name => (listeners[name] || []).forEach(fn => fn({ target: video })),
-    sawObserver: () => observerCallback !== null
+    sawObserver: () => observerCallback !== null,
+    reaching: () => lp.classList.contains('is-reaching'),
+    /* A real gesture: the scene does not answer a cursor the browser parked. */
+    gesture: () => (docListeners.pointerdown || []).forEach(fn => fn({})),
+    focusIn: () => (cardListeners.focusin || []).forEach(fn => fn({})),
+    focusOut: stillInside => {
+      documentStub.activeElement = stillInside ? inside : outside;
+      (cardListeners.focusout || []).forEach(fn => fn({}));
+    }
   };
 }
 
@@ -1484,6 +1548,182 @@ check('the pointer light costs nothing on a device that has no pointer', () => {
     'nothing in the cascade reads the pointer position the shell writes');
 });
 
+
+/* ---------------- the portal answers the gate ---------------- */
+
+check('the scene leans in while the reader is in the card, and settles when they leave', () => {
+  const run = runLandingStage({ decodable: true });
+  assert.ok(!run.reaching(), 'the scene starts leaned in, so the moment has nothing to answer');
+  run.gesture();
+  run.focusIn();
+  assert.ok(run.reaching(), 'reaching for the invitation does not move the scene at all');
+  run.focusOut(false);
+  assert.ok(!run.reaching(), 'the scene stays leaned in after focus has left the card');
+});
+
+check('the scene does not answer a cursor the browser parked in the field', () => {
+  /*
+   * alpha-ui focuses the invitation the moment the gate is raised. Bound to
+   * focus alone the lean-in was applied on the first frame and never came
+   * back, so the moment was the resting state. Found by a browser check
+   * asserting the scene rests at scale 1 before anyone has touched anything.
+   */
+  const run = runLandingStage({ decodable: true });
+  run.focusIn();
+  assert.ok(!run.reaching(),
+    'the gate autofocus leans the scene in before the reader has touched the page');
+
+  /* And the first real gesture, with focus already there, is what it answers. */
+  const arriving = runLandingStage({ decodable: true });
+  arriving.focusIn();
+  arriving.focusOut(true);
+  arriving.gesture();
+  assert.ok(arriving.reaching(),
+    'a reader who arrives and starts typing in the autofocused field never gets the moment');
+});
+
+check('moving between the card own controls does not make the scene flinch', () => {
+  const run = runLandingStage({ decodable: true });
+  run.gesture();
+  run.focusIn();
+  /* focusout fires on every tab stop inside the card; only leaving it counts. */
+  run.focusOut(true);
+  assert.ok(run.reaching(),
+    'tabbing from the invitation to the terms drops the scene back, once per control');
+});
+
+check('the moment is wired before the video is looked for', () => {
+  /*
+   * The scene leans in whether or not a decoder ever agreed to play it. A
+   * build that refuses both encodes still gets the poster, and the poster
+   * still answers.
+   */
+  const refused = runLandingStage({ decodable: false });
+  refused.gesture();
+  refused.focusIn();
+  assert.ok(refused.reaching(),
+    'a build that cannot decode the video loses the moment as well as the motion');
+  assert.strictEqual(refused.calls.play, 0, 'an undecodable build was asked to play anyway');
+
+  /*
+   * And with no video element at all. The module returns early when it cannot
+   * find one, so anything wired after that line is wired only for pages that
+   * happen to carry a scene.
+   */
+  const bare = runLandingStage({ noVideo: true });
+  bare.gesture();
+  bare.focusIn();
+  assert.ok(bare.reaching(),
+    'the moment sits behind the early return, so a page without a scene loses it');
+});
+
+check('the motion itself is in the cascade, gated both ways', () => {
+  /*
+   * The module carries a class and nothing else. If it ever moves the element
+   * directly the reduced-motion and data-motion gates below stop applying to
+   * it, because they are cascade rules.
+   */
+  const source = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
+  const reaching = source.slice(source.indexOf('is-reaching'));
+  assert.ok(!/\.style\./.test(reaching.slice(0, 400)),
+    'the moment writes a style directly, which no motion setting can then turn off');
+
+  const moved = rules.filter(rule => /\.is-reaching\b/.test(rule.selector)
+    && /transform\s*:|opacity\s*:/.test(rule.body));
+  assert.ok(moved.length, 'nothing in the cascade answers the class the module sets');
+
+  /* Every movement sits under a no-preference query. */
+  const guarded = stripped.match(/@media\s*\(prefers-reduced-motion:\s*no-preference\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(guarded && /\.is-reaching[\s\S]*?transform\s*:\s*scale/.test(guarded[1]),
+    'the push-in is not inside a prefers-reduced-motion: no-preference block');
+  const off = rules.filter(rule => /\[data-motion="off"\][\s\S]*\.is-reaching/.test(rule.selector)
+    && /transform\s*:\s*none/.test(rule.body));
+  assert.ok(off.length, 'the interface own motion switch does not stand the scene back down');
+});
+
+/* ---------------- the theme, before the gate ---------------- */
+
+/*
+ * Restoring the theme used to live in app.js loadSettings(), which runs from
+ * boot(), which runs only once the access gate has granted. Every visitor met
+ * the landing page in dark whatever they had chosen, and toggling it there was
+ * written and never read back. Run the module rather than read it: the whole
+ * point of the file is a side effect on a document that does not exist yet.
+ */
+function runThemeBoot(options) {
+  const settings = options || {};
+  const source = fs.readFileSync(path.join(root, 'public/theme-boot.js'), 'utf8');
+  const documentElement = { dataset: { theme: 'dark' } };
+  const meta = { content: '' };
+  const toggles = Array.from({ length: settings.toggles || 0 }, () => ({
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; }
+  }));
+  const listeners = {};
+  const documentStub = {
+    documentElement,
+    querySelector: selector => (selector === 'meta[name=theme-color]' ? meta : null),
+    querySelectorAll: selector => (selector === '.theme-toggle' ? toggles : []),
+    addEventListener(name, fn) { (listeners[name] = listeners[name] || []).push(fn); }
+  };
+  const sandbox = {
+    document: documentStub,
+    localStorage: settings.blocked
+      ? { getItem() { throw new Error('storage is blocked in this context'); } }
+      : { getItem: key => (key === 'nv_theme' ? (settings.stored || null) : null) }
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(source, sandbox, { filename: 'public/theme-boot.js' });
+  return {
+    theme: () => documentElement.dataset.theme,
+    meta, toggles,
+    parsed: () => (listeners.DOMContentLoaded || []).forEach(fn => fn())
+  };
+}
+
+check('a stored theme is restored without waiting for the gate to grant', () => {
+  assert.strictEqual(runThemeBoot({ stored: 'light' }).theme(), 'light',
+    'the visitor stored light and the document is still dark');
+  assert.strictEqual(runThemeBoot({ stored: 'dark' }).theme(), 'dark');
+});
+
+check('a first visit and a blocked store both leave the document alone', () => {
+  assert.strictEqual(runThemeBoot({ stored: null }).theme(), 'dark',
+    'an empty store moved the theme to something nobody chose');
+  assert.strictEqual(runThemeBoot({ stored: 'chartreuse' }).theme(), 'dark',
+    'a value that is not a theme was written onto the document');
+  /* Private mode throws on the first read rather than returning null. */
+  assert.strictEqual(runThemeBoot({ blocked: true }).theme(), 'dark',
+    'a browser that refuses storage takes the page down with it');
+});
+
+check('the switches report the theme they are actually in', () => {
+  const run = runThemeBoot({ stored: 'light', toggles: 3 });
+  run.parsed();
+  run.toggles.forEach(toggle => assert.strictEqual(toggle.attributes['aria-checked'], 'false',
+    'a reader who chose light met a switch telling a screen reader it was dark'));
+  const dark = runThemeBoot({ stored: 'dark', toggles: 2 });
+  dark.parsed();
+  dark.toggles.forEach(toggle => assert.strictEqual(toggle.attributes['aria-checked'], 'true'));
+});
+
+check('the restore runs from the head, before anything is painted', () => {
+  const head = htmlSource.slice(0, htmlSource.indexOf('</head>'));
+  assert.ok(/<script[^>]+src="\/theme-boot\.js/.test(head),
+    'theme-boot is not in the head, so the shell paints in one theme and corrects to the other');
+  /* An inline block here would be refused: script-src is 'self' with no 'unsafe-inline'. */
+  assert.ok(/script-src 'self'/.test(serverSource),
+    'the policy this file is a file rather than an inline block for has changed');
+  /*
+   * In the landing nav specifically. Counting toggles across the document
+   * passed with the landing one deleted, because the shell carries two of its
+   * own -- behind the gate, where a visitor cannot reach them.
+   */
+  const nav = htmlSource.match(/<header class="lp-nav">[\s\S]*?<\/header>/);
+  assert.ok(nav, 'the landing nav is gone');
+  assert.ok(/class="theme-toggle"/.test(nav[0]),
+    'the landing page has no theme control, so a visitor cannot reach the one inside the shell');
+});
 
 console.log(failures ? `\n${failures} failed` : '\nall passed');
 process.exit(failures ? 1 : 0);

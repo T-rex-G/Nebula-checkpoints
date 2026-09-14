@@ -183,6 +183,19 @@ check('with no exit animation the close is immediate', () => {
 
 /* ---------------- reopening mid-exit ---------------- */
 
+check('a still-painted reopen flushes a hidden layout before replaying its entrance', () => {
+  const { api, layer, clock } = harness();
+  const hiddenAtLayout = [];
+  layer.getBoundingClientRect = () => { hiddenAtLayout.push(layer.hidden); return {}; };
+  api.closeOverlay(layer);
+  api.openOverlay(layer);
+  assert.deepStrictEqual(hiddenAtLayout, [true]);
+  assert.strictEqual(layer.hidden, false);
+  assert.strictEqual(layer.inert, false);
+  clock.runAll();
+  assert.strictEqual(layer.hidden, false);
+});
+
 check('reopening during an exit leaves the layer up, and keeps it up', () => {
   const { api, layer, clock } = harness();
   api.closeOverlay(layer);
@@ -1000,9 +1013,11 @@ check('the unread marker counts what the session was actually told', () => {
 });
 
 check('the unread marker is asked for from the notifications the server holds', () => {
-  assert.ok(/paintUnread\(await api\('\/api\/notifications'\)\)/.test(appSource),
-    'nothing paints the marker from the notifications endpoint, so it can only be showing a guess');
+  const load = appSource.slice(appSource.indexOf('async function loadNotifications'), appSource.indexOf('async function refreshUnread'));
+  assert.ok(/await api\('\/api\/notifications'\)/.test(load) && /paintUnread\(list\)/.test(load),
+    'the identity-checked loader must paint the provider notification list');
   const refresh = appSource.slice(appSource.indexOf('async function refreshUnread'));
+  assert.ok(/await loadNotifications\(\)/.test(refresh), 'refresh must use the guarded loader');
   assert.ok(/decision\('notifications'\)/.test(refresh.slice(0, 600)),
     'the refresh asks without checking the capability first, so a refused deployment is polled to be told no');
 });

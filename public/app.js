@@ -10,6 +10,7 @@ const NV_PRODUCT_NAME = 'Nebulaverse-X';
 
 const state = {
   me: null,
+  uiEpoch: 0,
   repos: [], repoPage: 1, repoSort: 'pushed',
   work: null, file: null, cm: null,
   commitsPage: 1,
@@ -429,7 +430,18 @@ function anchorOverlayOrigin(panel, opener) {
 /* ---------------- modal ---------------- */
 let modalResolve = null;
 let modalReturnFocus = null;
+let modalGeneration = 0;
+// A shared scrim being open does not mean it still belongs to this request.
+function modalOwner() {
+  const generation = modalGeneration;
+  const epoch = state.uiEpoch;
+  const identity = state.me;
+  return () => generation === modalGeneration && epoch === state.uiEpoch &&
+    identity === state.me && overlayOpen($('#scrim'));
+}
 function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = null }) {
+  modalGeneration++;
+  if (modalResolve) { modalResolve(false); modalResolve = null; }
   return new Promise(resolve => {
     modalResolve = resolve;
     modalReturnFocus = document.activeElement;
@@ -439,6 +451,7 @@ function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = n
     ok.textContent = okText;
     ok.classList.toggle('danger', danger);
     openOverlay($('#scrim'));
+    const ownsModal = modalOwner();
     /* Before the entrance is painted, so the first frame already grows from
        the right place rather than correcting on the second. */
     anchorOverlayOrigin($('#modal'), modalReturnFocus);
@@ -447,16 +460,20 @@ function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = n
     const initialFocus = fi || $('#modalCancel');
     if (initialFocus) setTimeout(() => {
       const scrim = $('#scrim');
-      if (overlayOpen(scrim) && !scrim.contains(document.activeElement)) initialFocus.focus({ preventScroll: true });
+      if (ownsModal() && initialFocus.isConnected && !scrim.contains(document.activeElement)) initialFocus.focus({ preventScroll: true });
     }, 60);
   });
 }
 function closeModal(v) {
+  modalGeneration++;
   closeOverlay($('#scrim'));
   if (modalResolve) { modalResolve(v); modalResolve = null; }
   const restore = modalReturnFocus;
   modalReturnFocus = null;
-  if (restore && restore.isConnected && typeof restore.focus === 'function') requestAnimationFrame(() => restore.focus());
+  const generation = modalGeneration;
+  if (restore && restore.isConnected && typeof restore.focus === 'function') requestAnimationFrame(() => {
+    if (generation === modalGeneration) restore.focus({ preventScroll: true });
+  });
 }
 $('#modalOk').addEventListener('click', () => closeModal(true));
 $('#modalCancel').addEventListener('click', () => closeModal(false));
@@ -487,7 +504,10 @@ function withTransition(fn) {
   if (document.startViewTransition && state.settings.motion &&
       !anyOverlayClosing() &&
       !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    document.startViewTransition(fn);
+    const transition = document.startViewTransition(fn);
+    // A superseding navigation may skip only the animation; its DOM update
+    // still runs. Handle that expected cancellation without hiding real errors.
+    transition.ready.catch(error => { if (error.name !== 'AbortError') throw error; });
   } else fn();
 }
 function measureTopbar() {
@@ -1029,17 +1049,9 @@ document.addEventListener('click', async event => {
   }
 });
 async function openSettings() {
-  const githubAppStatus = await loadGithubAppStatus();
-  setTimeout(() => {
-    const cb = $('#clearLocalBtn');
-    if (cb) cb.addEventListener('click', async () => {
-      await purgeLocalData(true);
-      toast('Offline caches and queued commits cleared ✦', 'ok');
-    });
-  }, 60);
   const s = state.settings;
   const dark = document.documentElement.dataset.theme === 'dark';
-  await modal({
+  const closed = modal({
     title: 'Settings',
     okText: 'Done',
     bodyHTML: `
@@ -1063,7 +1075,7 @@ async function openSettings() {
       <div class="set-group github-app-panel">
         <div class="set-label">GitHub App <span class="br-tag">optional</span></div>
         <p class="hint">Use short-lived installation credentials with repository-scoped access. Existing PAT and OAuth connections continue to work.</p>
-        <div id="githubAppSettingsBody">${renderGithubAppSettings(githubAppStatus)}</div>
+        <div id="githubAppSettingsBody"><p class="hint" role="status">Loading connection details…</p></div>
       </div>
       ${$('#alphaPrivacyActions').innerHTML}
       <div class="set-group">
@@ -1078,6 +1090,17 @@ async function openSettings() {
         </div>
       </div>`
   });
+  const ownsModal = modalOwner();
+  $('#clearLocalBtn').addEventListener('click', async () => {
+    await purgeLocalData(true);
+    toast('Offline caches and queued commits cleared ✦', 'ok');
+  });
+  // The panel and its controls open immediately; optional provider details
+  // must neither delay the entrance nor replace a later dialog.
+  loadGithubAppStatus().then(status => {
+    if (ownsModal()) $('#githubAppSettingsBody').innerHTML = renderGithubAppSettings(status);
+  });
+  await closed;
   applySettings();
 }
 
@@ -1447,6 +1470,9 @@ async function purgePrivateCaches() {
   } catch {}
 }
 async function purgeLocalData(full) {
+  // Invalidate before the first await: an old fetch may finish during cleanup.
+  state.uiEpoch++;
+  paintUnread([]);
   clearCsrfToken();
   clearGovernanceState();
   await purgePrivateCaches();
@@ -1851,9 +1877,10 @@ function renderOverviewPulse(repos, pulse) {
 /* Both home screens open the same account sheet. */
 async function openAccounts() {
   modal({ title: 'Accounts', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:60px"></div>' });
+  const ownsModal = modalOwner();
   try {
     const a = await api('/api/accounts');
-    if (!overlayOpen($('#scrim'))) return;
+    if (!ownsModal()) return;
     $('#modalBody').innerHTML = a.accounts.map((ac, i) => `
       <div class="acct-row ${i === a.active ? 'active' : ''}">
         <img class="avatar" src="${escAttr(ac.avatar || '')}" alt="">
@@ -1901,7 +1928,7 @@ async function openAccounts() {
       showPage('login');
     });
     $('#accOut').addEventListener('click', async () => { closeModal(true); doLogout(); });
-  } catch (e) { if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
+  } catch (e) { if (ownsModal()) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
 }
 $('#accountBtn').addEventListener('click', openAccounts);
 $('#accountBtnOv') && $('#accountBtnOv').addEventListener('click', openAccounts);
@@ -1926,6 +1953,17 @@ function paintUnread(list) {
       : 'Notifications');
   }
 }
+let unreadRequest = 0;
+async function loadNotifications() {
+  const identity = state.me;
+  const epoch = state.uiEpoch;
+  const request = ++unreadRequest;
+  const list = await api('/api/notifications');
+  if (!identity || identity !== state.me || epoch !== state.uiEpoch) return null;
+  // A background refresh must not replace a more recently requested inbox.
+  if (request === unreadRequest) paintUnread(list);
+  return list;
+}
 async function refreshUnread() {
   /* Both directions through one door. Returning early on a session with no
      identity left whatever the last session lit still lit, so a reader who
@@ -1938,15 +1976,15 @@ async function refreshUnread() {
        request to be told no, and would light nothing either way. */
     if (decision && decision.blocked) return;
   }
-  try { paintUnread(await api('/api/notifications')); } catch { /* left as it was */ }
+  try { await loadNotifications(); } catch { /* left as it was */ }
 }
 
 $('#notifBtn').addEventListener('click', async () => {
   modal({ title: 'Notifications', okText: 'Close', bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
+  const ownsModal = modalOwner();
   try {
-    const list = await api('/api/notifications');
-    paintUnread(list);
-    if (!overlayOpen($('#scrim'))) return;
+    const list = await loadNotifications();
+    if (!list || !ownsModal()) return;
     $('#modalBody').innerHTML = list.length ? '' : '<p class="hint">Inbox zero. ✦</p>';
     list.forEach(n => {
       const el = document.createElement('div');
@@ -1959,7 +1997,7 @@ $('#notifBtn').addEventListener('click', async () => {
       if (n.web) el.addEventListener('click', () => window.open(n.web, '_blank', 'noopener'));
       $('#modalBody').appendChild(el);
     });
-  } catch (e) { if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
+  } catch (e) { if (ownsModal()) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
 });
 $('#backBtn').addEventListener('click', () => {
   if (state.staged.length && !confirm('You have staged changes that will be lost. Leave anyway?')) return;
@@ -3571,15 +3609,16 @@ $('#fileHistoryBtn').addEventListener('click', async () => {
   const p = state.file.path;
   modal({ title: `History — ${p.split('/').pop()}`, okText: 'Close',
     bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
+  const ownsModal = modalOwner();
   try {
     const commits = await api(`/api/repo/${wPath()}/commits?ref=${encodeURIComponent(state.work.branch)}&path=${encodeURIComponent(p)}`);
-    if (!overlayOpen($('#scrim'))) return;
+    if (!ownsModal()) return;
     $('#modalBody').innerHTML = commits.length ? commits.map(c => `
       <div class="comment">
         <div class="comment-head"><span class="mono commit-sha">${c.sha.slice(0, 7)}</span><span>${esc(c.author)}</span><span>${timeAgo(c.date)}</span></div>
         <div class="comment-body">${esc(c.message.split('\n')[0])}</div>
       </div>`).join('') : '<p class="hint">No history found for this path.</p>';
-  } catch (e) { if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
+  } catch (e) { if (ownsModal()) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
 });
 
 $('#newFileBtn').addEventListener('click', async () => {
@@ -4050,7 +4089,12 @@ document.addEventListener('keydown', e => {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
   }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    // Do not navigate away from an open confirmation or Settings dialog.
+    if (overlayOpen($('#scrim'))) return;
+    if (_page === 'overview') { e.preventDefault(); showPage('repos'); }
+    else if (_page === 'work') { e.preventDefault(); openPalette(); }
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && _page === 'work' && state.file && !state.file.binary && currentTab() === 'editor') {
     e.preventDefault(); openFindPanel();
   }
@@ -5762,10 +5806,12 @@ $('#actionsRefreshBtn').addEventListener('click', () => { _cache.clear(); loadAc
 /* ---- branch manager ---- */
 async function openBranchManager() {
   modal({ title: 'Branches', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
+  const ownsModal = modalOwner();
+  const work = state.work;
   try {
     const info = await api(`/api/repo/${wPath()}`);
-    state.work.branches = info.branches;
-    if (!overlayOpen($('#scrim'))) return;
+    if (!ownsModal() || state.work !== work) return;
+    work.branches = info.branches;
     const host = $('#modalBody');
     host.innerHTML = '';
     info.branches.forEach(b => {
@@ -5794,7 +5840,7 @@ async function openBranchManager() {
       });
       host.appendChild(row);
     });
-  } catch (e) { if (overlayOpen($('#scrim'))) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
+  } catch (e) { if (ownsModal()) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
 }
 
 /* ---- upload retry ---- */

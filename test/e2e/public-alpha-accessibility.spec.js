@@ -8,6 +8,14 @@ const ui = require('./semantic');
 test.use({ serviceWorkers: 'block' });
 
 async function expectNoHighImpactViolations(page, screen) {
+  // Measure the presented screen, not a random opacity part-way through its
+  // entrance. Keep all axe rules enabled; motion has separate browser coverage.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    const entrances = document.getAnimations().filter(animation => animation.timeline === document.timeline &&
+      animation.effect && Number.isFinite(animation.effect.getComputedTiming().endTime));
+    await Promise.all(entrances.map(animation => animation.finished.catch(() => {})));
+  });
   const result = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze();

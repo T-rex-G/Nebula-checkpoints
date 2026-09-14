@@ -90,6 +90,7 @@ async function assertPendingPrivacyActionsPreserveRetryState() {
 async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
   const operations = [];
   const state = {
+    uiEpoch: 0,
     staged: [{ path: 'private.txt', content: 'private source' }],
     file: { path: 'private.txt', original: 'private source' },
     work: { owner: 'private-owner', repo: 'private-repo' },
@@ -132,7 +133,10 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     state,
     clearCsrfToken: () => operations.push(['csrf']),
     clearGovernanceState: () => operations.push(['governance']),
-    purgePrivateCaches: async () => operations.push(['cache']),
+    purgePrivateCaches: async () => {
+      assert.strictEqual(state.uiEpoch, 1, 'invalidate pending UI responses before asynchronous cache cleanup');
+      operations.push(['cache']);
+    },
     sessionStorage: { clear: () => operations.push(['session-storage']) },
     navigator: { serviceWorker: { controller: { postMessage: message => operations.push(['sw', message.type]) } } },
     localStorage,

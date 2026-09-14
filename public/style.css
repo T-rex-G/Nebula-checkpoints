@@ -2308,6 +2308,13 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * slides underneath it and gets clipped by the pill on the way past -- which
  * is what it was doing: visible, filling correctly, and half hidden.
  */
+[data-motion="off"] #page-overview .ov-hero,
+[data-motion="off"] #page-overview .ov-path,
+[data-motion="off"] #page-overview #ovPulse,
+[data-motion="off"] #page-overview .wp-card,
+[data-motion="off"] #page-overview .ov-core-art,
+[data-motion="off"] #page-overview .ov-scroll-progress{animation:none}
+[data-motion="off"] #page-overview .ov-scroll-progress{display:none}
 .ov-scroll-progress{display:none;position:sticky;z-index:6;height:2px;
   top:calc(12px + env(safe-area-inset-top) + var(--topbar-h));
   transform-origin:0 50%;transform:scaleX(0);border-radius:2px;

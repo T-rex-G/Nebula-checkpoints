@@ -115,6 +115,14 @@
     function openOverlay(el) {
       if (!el) return;
       cancelOverlayExit(el);
+      // Reopening a still-painted layer can coalesce exit and entry into the
+      // same computed style, leaving its completed entrance animation in place.
+      // Flush a hidden layout once per reopen; restore it before the next paint.
+      // The stylesheet still decides whether motion is allowed at all.
+      if (!el.hidden && typeof el.getBoundingClientRect === 'function') {
+        el.hidden = true;
+        el.getBoundingClientRect();
+      }
       el.hidden = false;
     }
 

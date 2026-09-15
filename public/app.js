@@ -1077,7 +1077,7 @@ async function openSettings() {
         <p class="hint">Use short-lived installation credentials with repository-scoped access. Existing PAT and OAuth connections continue to work.</p>
         <div id="githubAppSettingsBody"><p class="hint" role="status">Loading connection details…</p></div>
       </div>
-      ${$('#alphaPrivacyActions').innerHTML}
+      ${window.NebulaAlphaUI.gateEnabled() ? $('#alphaPrivacyActions').innerHTML : ''}
       <div class="set-group">
         <div class="set-label">About</div>
         <p class="hint" style="margin:4px 0 8px">Nebulaverse-X — GitHub · GitLab · Gitea from your pocket.</p>
@@ -1230,7 +1230,25 @@ document.addEventListener('change', async e => {
 
 /* ================= AUTH ================= */
 let loginProvider = 'github';
+/*
+ * These two panels belong to the controlled alpha, and say so out loud: one
+ * tells an invited tester never to connect a production repository, the other
+ * offers to end an alpha session. With the gate off there is no cohort, no
+ * alpha session and no /api/alpha/* route that answers anything but 404 --
+ * so on an open deployment they were a sign-in screen still talking about an
+ * invitation the reader was never asked for and could not act on.
+ *
+ * Removed rather than merely not added: the gate is read per load, but a
+ * panel built on an earlier one outlives the screen it was built for.
+ */
+function removeAlphaLoginChrome() {
+  for (const id of ['#alphaProviderGuidance', '#loginAlphaSessionControls']) {
+    const node = $(id);
+    if (node) node.remove();
+  }
+}
 function ensureAlphaProviderGuidance() {
+  if (!window.NebulaAlphaUI.gateEnabled()) { removeAlphaLoginChrome(); return null; }
   const card = document.querySelector('.login-card');
   if (!card) return null;
   let panel = $('#alphaProviderGuidance');
@@ -1252,6 +1270,7 @@ function ensureAlphaProviderGuidance() {
   return panel;
 }
 function ensureLoginAlphaSessionControls() {
+  if (!window.NebulaAlphaUI.gateEnabled()) { removeAlphaLoginChrome(); return null; }
   const card = document.querySelector('.login-card');
   if (!card) return null;
   let controls = $('#loginAlphaSessionControls');

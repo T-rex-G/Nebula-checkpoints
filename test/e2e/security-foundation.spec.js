@@ -20,7 +20,7 @@ test('PAT sensitive mutation obtains a scoped grant and sends both CSRF and step
      * pass, so saying 'off' here would park every journey below on the front
      * door. Admission is what these tests need; the gate has its own suite.
      */
-    if (url.pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'on', authenticated: true, access: 'active' } });
+    if (url.pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'invite', authenticated: true, access: 'active' } });
     if (url.pathname === '/api/config') return route.fulfill({ json: { oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, contentsMaxMb: 40 } });
     if (url.pathname === '/api/me') return route.fulfill({ json: {
       login: 'alice', name: 'Alice', avatar: '', provider: 'github', authMethod: 'token',

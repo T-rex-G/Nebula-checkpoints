@@ -98,7 +98,8 @@ const {
 const {
   AlphaAccessError,
   canonicalRepositoryScope,
-  repositoryAllowed
+  repositoryAllowed,
+  inviteUnbound
 } = require('./src/alpha-access');
 const { PRODUCT_NAME, APP_VERSION, ASSET_VERSION } = require('./src/version');
 const { computeReleaseFingerprint } = require('./src/release-fingerprint');
@@ -2528,6 +2529,7 @@ function alphaRepositoryDecision(alpha, account, owner, repo) {
   const canonical = canonicalRepositoryScope(target);
   return {
     allowed: !ALPHA_CONFIG.enabled
+      || inviteUnbound(alpha && alpha.repositoryScopes)
       || repositoryAllowed(alpha && alpha.repositoryScopes, target),
     canonical
   };

@@ -7,7 +7,8 @@ const {
   digestInviteSecret,
   canonicalRepositoryScope,
   parseRepositoryScope,
-  repositoryAllowed
+  repositoryAllowed,
+  inviteUnbound
 } = require('../src/alpha-access');
 
 function assertScopeInvalid(callback, label) {
@@ -361,5 +362,31 @@ assert.strictEqual(repositoryAllowed(
   'github:github.com/acme/demo',
   { provider: 'github', authority: 'github.com', owner: 'acme', repo: 'demo' }
 ), false);
+
+/*
+ * An unbound invitation: no scopes, so no list to stay inside. The whole of
+ * the repository restriction lived in the database -- the column required
+ * between one and twenty scopes -- so this predicate is the application half
+ * of relaxing that floor to zero.
+ */
+assert.strictEqual(inviteUnbound([]), true, 'an empty scope list is unbound');
+
+/*
+ * And nothing else is. A scope list that failed to load must read as "refuse",
+ * never as "permit": undefined is what a missing field looks like, and it is
+ * the shape most likely to appear if the session store ever changes.
+ */
+[undefined, null, 0, '', false, {}, 'github:github.com/acme/demo', [''], ['github:github.com/acme/demo']]
+  .forEach(value => {
+    assert.strictEqual(inviteUnbound(value), false,
+      `${JSON.stringify(value) || String(value)} must not read as an unbound invitation`);
+  });
+
+/* A scoped invitation is unchanged: it is bound, and still checked. */
+assert.strictEqual(inviteUnbound(['github:github.com/acme/demo']), false);
+assert.strictEqual(repositoryAllowed(
+  ['github:github.com/acme/demo'],
+  { provider: 'github', authority: 'github.com', owner: 'acme', repo: 'demo' }
+), true);
 
 console.log('alpha access domain tests passed');

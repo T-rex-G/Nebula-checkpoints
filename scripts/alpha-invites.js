@@ -72,7 +72,12 @@ function parseIssueArgs(args) {
   }
 
   if (label === null) throw inputError('issue requires --label');
-  if (!repos.length) throw inputError('issue requires at least one --repo');
+  /*
+   * --repo is optional now. Issued without one the invitation is unbound and
+   * the tester may work against anything their own credentials reach, which
+   * is the point: a tester asked to try the product should not first have to
+   * be told which repositories they are allowed to try it on.
+   */
   return { command: 'issue', label, repos };
 }
 

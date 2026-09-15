@@ -219,6 +219,19 @@
         </label>
         <button class="btn btn-primary btn-block" id="alphaRedeemBtn">Continue</button>
         <div class="login-error" id="alphaAccessError" role="alert" hidden></div>
+        <!--
+          The way through when the gate is off.
+          ---------------------------------------------------------------
+          alpha-ui reveals this only when /api/alpha/status reports mode
+          "off"; with the gate on it stays hidden and the invitation is the
+          only way in. It sits inside the action panel rather than at the
+          foot of the scroll because a control a reader has to go looking
+          for is not a way out, and the panel is already where the eye is.
+        -->
+        <div class="alpha-open" id="alphaOpenAccess" hidden>
+          <p class="alpha-open-note" id="alphaOpenNote">Entry is open.</p>
+          <button class="btn btn-primary btn-block" id="alphaPassThrough" type="button">Continue</button>
+        </div>
       </section>
     </div>
     </div><!-- /.lp-hero -->

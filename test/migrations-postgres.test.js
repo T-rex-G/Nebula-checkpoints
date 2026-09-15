@@ -55,6 +55,45 @@ async function withClient(connectionString, run) {
   }
 }
 
+/*
+ * An invitation may carry no repository scope at all.
+ *
+ * The restriction was never in the application: the column's own CHECK
+ * required between one and twenty scopes, so no amount of JavaScript could
+ * issue an unbound invitation. 019 relaxes that floor, and this is the only
+ * place that can prove it -- a migration that reports success while leaving
+ * the original constraint in place looks identical from Node.
+ *
+ * The ceiling is asserted in the same breath, because relaxing a bound by
+ * dropping the whole constraint would pass a test that only checked the floor.
+ */
+async function verifyUnboundInvites(scratchUrl) {
+  await withClient(scratchUrl, async client => {
+    const insert = `INSERT INTO nv_alpha_invites(
+        invite_id, secret_digest, tester_label, repository_scopes,
+        terms_version, expires_at)
+      VALUES ($1, repeat('a', 64), 'unbound tester', $2::text[],
+        '2026-07-30', now() + interval '7 days')`;
+
+    await client.query(insert, ['a'.repeat(20), []]);
+    const stored = await client.query(
+      'SELECT cardinality(repository_scopes) AS n FROM nv_alpha_invites WHERE invite_id = $1',
+      ['a'.repeat(20)]
+    );
+    assert.strictEqual(
+      Number(stored.rows[0].n), 0,
+      'an invitation with no repository scope must be storable'
+    );
+
+    const tooMany = Array.from({ length: 21 }, (unused, index) => `github:github.com/acme/r${index}`);
+    await assert.rejects(
+      () => client.query(insert, ['b'.repeat(20), tooMany]),
+      /repository_scopes/,
+      'the ceiling of twenty repository scopes must still be enforced'
+    );
+  });
+}
+
 async function main() {
   const expected = loadMigrations(DIRECTORY);
   assert(expected.length > 0, 'no migrations were discovered');
@@ -125,6 +164,7 @@ async function main() {
         await client.query('ROLLBACK');
       }
     });
+    await verifyUnboundInvites(scratchUrl);
     await verifyAlphaPrivacyPurge(scratchUrl);
   } finally {
     await withClient(ADMIN_URL, client => client.query(`DROP DATABASE IF EXISTS ${scratch} WITH (FORCE)`));

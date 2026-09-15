@@ -34,9 +34,69 @@
     target.hidden = !message;
   }
 
+  /*
+   * The invitation form is the only way in when the gate is on, and means
+   * nothing when it is off -- there is no code to redeem. Rather than wrap
+   * these in a container, each is hidden by id: the browser suite finds this
+   * card by the names a reader reads, and a new wrapper around them is a
+   * structural change for no gain.
+   */
+  function setInviteFormHidden(hidden) {
+    ['alphaInviteInput', 'alphaTermsAccept', 'alphaRedeemBtn']
+      .forEach(id => { const el = byId(id); if (el) el.hidden = hidden; });
+    ['alphaInviteInput', 'alphaTermsAccept']
+      .forEach(id => {
+        const label = document.querySelector(`label[for="${id}"]`);
+        if (label) label.hidden = hidden;
+      });
+  }
+
+  function setOpenAccessHidden(hidden) {
+    const open = byId('alphaOpenAccess');
+    if (open) open.hidden = hidden;
+  }
+
+  /*
+   * Entry is open: the gate is configured off, so there is no invitation to
+   * redeem and nothing to check. The landing page stays rather than handing
+   * over on its own.
+   *
+   * It used to hand over, and that is the flash: boot() raised this page on
+   * its first line and only learned the mode two round trips later, so the
+   * page was painted and taken away a beat afterwards. The front door should
+   * not do that, and a visitor who wants past it can say so.
+   */
+  function showOpenAccess(nextStatus = status) {
+    status = nextStatus || status;
+    activateAccessPage();
+    showTerms(status && status.termsVersion);
+    showAccessError('');
+    setInviteFormHidden(true);
+    setOpenAccessHidden(false);
+    /*
+     * Which way through depends on who is asking. A session that is already
+     * signed in has a workspace to return to; one that is not has to sign in
+     * first, and saying so is the difference between a button and a guess.
+     */
+    const signedIn = !!(status && status.authenticated);
+    const note = byId('alphaOpenNote');
+    if (note) {
+      note.textContent = signedIn
+        ? 'Entry is open, and this session is already signed in.'
+        : 'Entry is open. No invitation is needed while the gate is off.';
+    }
+    const pass = byId('alphaPassThrough');
+    if (pass) {
+      pass.textContent = signedIn ? 'Continue to your workspace' : 'Continue to sign in';
+    }
+    global.dispatchEvent(new CustomEvent('nebula:alpha-access-gated'));
+  }
+
   function showAccessGate(nextStatus = status) {
     status = nextStatus || status;
     activateAccessPage();
+    setOpenAccessHidden(true);
+    setInviteFormHidden(false);
     showTerms(status && status.termsVersion);
     const terms = byId('alphaTermsAccept');
     if (terms) terms.checked = false;
@@ -136,6 +196,16 @@
     if (invite) invite.addEventListener('keydown', event => {
       if (event.key === 'Enter') redeemInvitation();
     });
+    /*
+     * The same event the redemption path fires. app.js guards its own boot
+     * against a second call, so pressing this twice costs nothing.
+     */
+    const pass = byId('alphaPassThrough');
+    if (pass) {
+      pass.addEventListener('click', () => {
+        global.dispatchEvent(new CustomEvent('nebula:alpha-access-granted'));
+      });
+    }
   }
 
   async function boot() {
@@ -159,7 +229,11 @@
       showExpired('ALPHA_SESSION_EXPIRED');
       return Object.freeze({ allowed: false, reason: 'expired', status });
     }
-    if (status.mode === 'off' || status.authenticated === true) {
+    if (status.mode === 'off') {
+      showOpenAccess(status);
+      return Object.freeze({ allowed: false, reason: 'open', status });
+    }
+    if (status.authenticated === true) {
       return Object.freeze({ allowed: true, status });
     }
     showAccessGate(status);
@@ -177,6 +251,7 @@
   global.NebulaAlphaUI = Object.freeze({
     boot,
     showAccessGate,
+    showOpenAccess,
     showWaking,
     showTerms,
     showExpired

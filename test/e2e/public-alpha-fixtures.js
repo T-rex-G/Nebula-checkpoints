@@ -116,7 +116,14 @@ const VALID = Object.freeze({
    * failure. 'populated' serves a real read model, which is the surface the
    * reader actually uses and which nothing had ever drawn.
    */
-  governance: new Set(['unavailable', 'populated'])
+  governance: new Set(['unavailable', 'populated']),
+  /*
+   * The gate's own setting, in the words the server uses for it: 'off' or
+   * 'invite', straight from NV_ALPHA_ACCESS_MODE. It was spelled 'on' here,
+   * which no deployment ever sends -- so a client branching on the real value
+   * could be wrong in production while every test agreed with it.
+   */
+  mode: new Set(['off', 'invite'])
 });
 
 function normalizedScenario(input = {}) {
@@ -128,7 +135,7 @@ function normalizedScenario(input = {}) {
      * gate off could not be expressed here at all -- which is why the landing
      * page being replaced a beat after it painted went unnoticed.
      */
-    mode: input.mode || 'on',
+    mode: input.mode || 'invite',
     ready: input.ready || 'ready',
     provider: input.provider || 'github',
     authMethod: input.authMethod || 'token',

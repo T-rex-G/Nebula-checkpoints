@@ -92,6 +92,30 @@
     global.dispatchEvent(new CustomEvent('nebula:alpha-access-gated'));
   }
 
+  /*
+   * Whether the deployment runs a controlled alpha at all.
+   *
+   * The gate decides more than the front door. An invitation, a tester label,
+   * an alpha session to end, alpha data to delete -- none of those exist when
+   * the operator has the gate off, and every /api/alpha/* route answers 404
+   * in that mode. The application has to be able to ask, or it offers alpha
+   * controls to a visitor who has no alpha session and cannot get one.
+   *
+   * Unknown reads as off. The mode is unknown when the status request never
+   * landed, or when what landed did not name one, and in that state the
+   * honest thing is to withhold controls whose entire purpose is a session we
+   * cannot confirm exists.
+   *
+   * Written as the exact complement of the test boot() makes, rather than as
+   * an equality against the one mode that turns the gate on. The server sends
+   * 'invite', so a check for that string would have been right in production
+   * and wrong wherever a status says the gate is on by another name -- the
+   * kind of disagreement the client should never have with itself.
+   */
+  function gateEnabled() {
+    return !!(status && status.mode && status.mode !== 'off');
+  }
+
   function showAccessGate(nextStatus = status) {
     status = nextStatus || status;
     activateAccessPage();
@@ -250,6 +274,7 @@
 
   global.NebulaAlphaUI = Object.freeze({
     boot,
+    gateEnabled,
     showAccessGate,
     showOpenAccess,
     showWaking,

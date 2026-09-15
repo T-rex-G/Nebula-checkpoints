@@ -65,7 +65,7 @@ async function mockTask20Api(page, state = {}) {
      * pass, so saying 'off' here would park every journey below on the front
      * door. Admission is what these tests need; the gate has its own suite.
      */
-    if (pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'on', authenticated: true, access: 'active' } });
+    if (pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'invite', authenticated: true, access: 'active' } });
     if (pathname === '/api/config') return route.fulfill({ json: { oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, contentsMaxMb: 40 } });
     // Signed-in sessions request the account projection; both describe this
     // fixture's ordinary GitHub token. Keep unrelated API routes fail-closed.

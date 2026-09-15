@@ -22,6 +22,15 @@
   try { stored = localStorage.getItem('nv_theme'); } catch (e) { stored = null; }
   if (stored === 'dark' || stored === 'light') root.dataset.theme = stored;
 
+  // The access gate appears before app.js restores Settings. Motion is a
+  // product-wide choice too, including the landing video and CSS entrances.
+  try {
+    var settings = JSON.parse(localStorage.getItem('nv_settings'));
+    if (settings && typeof settings.motion === 'boolean') {
+      root.dataset.motion = settings.motion ? 'on' : 'off';
+    }
+  } catch (e) { /* Missing, malformed or blocked storage keeps the defaults. */ }
+
   var meta = document.querySelector('meta[name=theme-color]');
   if (meta) meta.content = root.dataset.theme === 'light' ? '#F5F3FB' : '#06030F';
 

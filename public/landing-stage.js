@@ -54,6 +54,33 @@
 
   const video = document.getElementById('lpVideo');
   if (!video) return;
+  const gate = document.getElementById('page-alpha-access');
+  const reducedMotion = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)');
+  const connection = global.navigator && global.navigator.connection;
+  let intersecting = typeof IntersectionObserver !== 'function';
+  let pendingPlay = false;
+  let playGeneration = 0;
+  let retry = null;
+  const gestures = ['pointerdown', 'keydown', 'touchstart'];
+
+  const eligible = () => document.documentElement.dataset.motion !== 'off'
+    && !(reducedMotion && reducedMotion.matches)
+    && !(connection && connection.saveData)
+    && !document.hidden && intersecting
+    && (!gate || (!gate.hidden && gate.classList.contains('active')));
+
+  function clearRetry() {
+    if (!retry) return;
+    gestures.forEach(name => document.removeEventListener(name, retry));
+    retry = null;
+  }
+
+  function stop() {
+    playGeneration++;
+    clearRetry();
+    if (pendingPlay || !video.paused) video.pause();
+    pendingPlay = false;
+  }
 
   /*
    * Revealed on `playing`, never on `canplay` or `loadedmetadata`.
@@ -66,11 +93,15 @@
    */
   let revealed = false;
   const reveal = () => {
+    // A decoder may deliver `playing` after an outstanding play was stopped.
+    // Keep enforcing the preference, including after the first reveal.
+    pendingPlay = false;
+    if (!eligible()) { stop(); return; }
     if (revealed) return;
     revealed = true;
     video.classList.add('is-playing');
   };
-  video.addEventListener('playing', reveal, { once: true });
+  video.addEventListener('playing', reveal);
 
   /*
    * Three ways this legitimately never plays, and all of them are fine:
@@ -80,31 +111,38 @@
    *  - the tab is saving data.
    * In each case the poster stays, which is the same picture holding still.
    */
-  const motionOff = () => document.documentElement.dataset.motion === 'off'
-    || (global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
-
   const playable = () => !!(video.canPlayType('video/webm; codecs="vp9"')
     || video.canPlayType('video/mp4; codecs="avc1.42E01E"'));
 
-  function attempt() {
-    if (motionOff() || !playable()) return;
-    const started = video.play();
-    if (!started || typeof started.catch !== 'function') return;
+  function attempt(allowRetry = true) {
+    if (!eligible()) { stop(); return; }
+    if (!playable() || pendingPlay || !video.paused || retry) return;
+    const generation = ++playGeneration;
+    pendingPlay = true;
     /*
      * Autoplay can be refused even when muted. Rather than argue with the
      * policy, wait for the first gesture of any kind and try once more; a
      * reader who never gestures keeps the poster and loses nothing.
      */
-    started.catch(() => {
-      const retry = () => {
-        video.play().catch(() => {});
-        ['pointerdown', 'keydown', 'touchstart'].forEach(name =>
-          document.removeEventListener(name, retry));
+    const refused = () => {
+      if (generation !== playGeneration) return;
+      pendingPlay = false;
+      if (!allowRetry || !eligible()) return;
+      retry = () => {
+        clearRetry();
+        attempt(false);
       };
-      ['pointerdown', 'keydown', 'touchstart'].forEach(name =>
+      gestures.forEach(name =>
         document.addEventListener(name, retry, { once: true, passive: true }));
-    });
+    };
+    try {
+      const started = video.play();
+      if (started && typeof started.catch === 'function') started.catch(refused);
+      else pendingPlay = false;
+    } catch (error) { refused(); }
   }
+
+  const sync = () => attempt();
 
   /*
    * Paused off-screen. The gate is the first screen, so once a reader is past
@@ -114,8 +152,8 @@
   if (typeof IntersectionObserver === 'function') {
     new IntersectionObserver(entries => {
       entries.forEach(entry => {
-        if (entry.isIntersecting) attempt();
-        else if (!video.paused) video.pause();
+        intersecting = entry.isIntersecting && (entry.intersectionRatio == null || entry.intersectionRatio >= 0.05);
+        sync();
       });
     }, { threshold: 0.05 }).observe(video);
   } else {
@@ -125,9 +163,11 @@
   /* The motion setting is applied to the root element, so follow it live
      rather than only reading it once at load. */
   if (typeof MutationObserver === 'function') {
-    new MutationObserver(() => {
-      if (motionOff()) video.pause();
-      else attempt();
-    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] });
+    new MutationObserver(sync).observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] });
+    if (gate) new MutationObserver(sync).observe(gate, { attributes: true, attributeFilter: ['class', 'hidden'] });
   }
+  document.addEventListener('visibilitychange', sync);
+  if (reducedMotion && reducedMotion.addEventListener) reducedMotion.addEventListener('change', sync);
+  else if (reducedMotion && reducedMotion.addListener) reducedMotion.addListener(sync);
+  if (connection && connection.addEventListener) connection.addEventListener('change', sync);
 })(typeof globalThis === 'undefined' ? this : globalThis);

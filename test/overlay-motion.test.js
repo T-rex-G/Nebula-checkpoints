@@ -706,11 +706,16 @@ function runLandingStage(options) {
   const source = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
   const calls = { play: 0, pause: 0 };
   const listeners = {};
+  let rejectPlay = null;
   const video = {
     paused: true,
     classList: { names: new Set(), add(n) { this.names.add(n); }, contains(n) { return this.names.has(n); } },
     canPlayType: () => (settings.decodable ? 'probably' : ''),
-    play() { calls.play += 1; this.paused = false; return { catch() {} }; },
+    play() {
+      calls.play += 1;
+      if (!settings.deferredPlay) this.paused = false;
+      return { catch(fn) { rejectPlay = fn; } };
+    },
     pause() { calls.pause += 1; this.paused = true; },
     addEventListener(name, fn) { (listeners[name] = listeners[name] || []).push(fn); }
   };
@@ -719,6 +724,10 @@ function runLandingStage(options) {
      the card to run that, rather than to read the source for a class name. */
   const cardListeners = {};
   const docListeners = {};
+  const mutations = new Map();
+  const media = { matches: !!settings.reducedMotion, addEventListener(name, fn) { this.changed = fn; } };
+  const connection = { saveData: !!settings.saveData, addEventListener(name, fn) { this.changed = fn; } };
+  const gate = { active: true, hidden: false, classList: { contains: () => gate.active } };
   const inside = { name: 'a field in the card' };
   const outside = { name: 'something else on the page' };
   const card = {
@@ -734,16 +743,17 @@ function runLandingStage(options) {
     }
   };
   const documentStub = {
-    getElementById: id => (id === 'lpVideo' && !settings.noVideo ? video : null),
+    getElementById: id => id === 'page-alpha-access' ? gate : (id === 'lpVideo' && !settings.noVideo ? video : null),
     querySelector: selector => {
       if (selector === '.lp') return settings.noStage ? null : lp;
       if (selector === '.lp-card') return settings.noStage ? null : card;
       return null;
     },
     activeElement: outside,
+    hidden: false,
     documentElement: { dataset: { motion: settings.motion === false ? 'off' : 'on' } },
     addEventListener(name, fn) { (docListeners[name] = docListeners[name] || []).push(fn); },
-    removeEventListener() {}
+    removeEventListener(name, fn) { docListeners[name] = (docListeners[name] || []).filter(item => item !== fn); }
   };
   /*
    * A VM context, not an injected parameter. The module closes over
@@ -754,14 +764,24 @@ function runLandingStage(options) {
    */
   const sandbox = {
     document: documentStub,
-    matchMedia: query => ({ matches: !!settings.reducedMotion && /reduced-motion/.test(query) }),
+    matchMedia: () => media,
+    navigator: { connection },
     IntersectionObserver: function (cb) { observerCallback = cb; this.observe = () => {}; },
-    MutationObserver: function () { this.observe = () => {}; }
+    MutationObserver: function (cb) { this.observe = target => mutations.set(target, cb); }
   };
   sandbox.globalThis = sandbox;
   vm.runInNewContext(source, sandbox, { filename: 'public/landing-stage.js' });
   return {
     calls, video, listeners,
+    reject: () => { video.paused = true; rejectPlay(new Error('Autoplay refused')); },
+    motion: value => {
+      documentStub.documentElement.dataset.motion = value ? 'on' : 'off';
+      const cb = mutations.get(documentStub.documentElement); if (cb) cb();
+    },
+    gate: value => { gate.active = value; const cb = mutations.get(gate); if (cb) cb(); },
+    visibility: value => { documentStub.hidden = !value; (docListeners.visibilitychange || []).slice().forEach(fn => fn()); },
+    reduced: value => { media.matches = value; if (media.changed) media.changed(); },
+    saveData: value => { connection.saveData = value; if (connection.changed) connection.changed(); },
     enter: () => observerCallback && observerCallback([{ isIntersecting: true }]),
     leave: () => observerCallback && observerCallback([{ isIntersecting: false }]),
     fire: name => (listeners[name] || []).forEach(fn => fn({ target: video })),
@@ -817,6 +837,59 @@ check('the scene honours a reader who asked for less motion', () => {
   const reduced = runLandingStage({ decodable: true, reducedMotion: true });
   reduced.enter();
   assert.strictEqual(reduced.calls.play, 0, 'the scene plays despite prefers-reduced-motion');
+});
+
+check('an autoplay retry cannot bypass a later stop-animation preference', () => {
+  const run = runLandingStage({ decodable: true });
+  run.enter(); run.reject(); run.motion(false); run.gesture();
+  assert.strictEqual(run.calls.play, 1, 'a gesture restarted video after motion was disabled');
+  assert.strictEqual(run.video.paused, true);
+});
+
+check('enabling motion while the scene is offscreen does not restart it', () => {
+  const run = runLandingStage({ decodable: true });
+  run.enter(); run.leave(); run.motion(false); run.motion(true);
+  assert.strictEqual(run.calls.play, 1, 'offscreen video restarted');
+  run.enter();
+  assert.strictEqual(run.calls.play, 2, 'visible scene did not resume');
+});
+
+check('a hidden gate stands down before an intersection callback arrives', () => {
+  const run = runLandingStage({ decodable: true });
+  run.enter(); run.gate(false); run.motion(false); run.motion(true);
+  assert.strictEqual(run.video.paused, true, 'the inactive landing screen kept playing');
+  assert.strictEqual(run.calls.play, 1);
+});
+
+check('Save-Data, OS motion and tab visibility all control playback live', () => {
+  const saved = runLandingStage({ decodable: true, saveData: true });
+  saved.enter();
+  assert.strictEqual(saved.calls.play, 0, 'Save-Data was ignored');
+  saved.saveData(false);
+  assert.strictEqual(saved.calls.play, 1);
+  for (const boundary of ['saveData', 'reduced', 'visibility']) {
+    const run = runLandingStage({ decodable: true });
+    run.enter(); run[boundary](boundary !== 'visibility');
+    assert.strictEqual(run.video.paused, true, boundary + ' did not pause playback');
+    run[boundary](boundary === 'visibility');
+    assert.strictEqual(run.calls.play, 2, boundary + ' did not resume eligible playback');
+  }
+});
+
+check('late playing events cannot revive a disabled scene', () => {
+  const run = runLandingStage({ decodable: true, deferredPlay: true });
+  run.enter(); run.motion(false);
+  run.video.paused = false; run.fire('playing');
+  assert.strictEqual(run.video.paused, true, 'a pending play completed after motion stopped');
+  assert.ok(!run.video.classList.contains('is-playing'), 'late playback covered the poster');
+});
+
+check('a pending play is not duplicated and its obsolete rejection cannot retry', () => {
+  const run = runLandingStage({ decodable: true, deferredPlay: true });
+  run.enter(); run.enter();
+  assert.strictEqual(run.calls.play, 1, 'observers launched overlapping play requests');
+  run.motion(false); run.reject(); run.gesture();
+  assert.strictEqual(run.calls.play, 1, 'obsolete rejection armed a retry');
 });
 
 /*
@@ -1703,12 +1776,13 @@ function runThemeBoot(options) {
     document: documentStub,
     localStorage: settings.blocked
       ? { getItem() { throw new Error('storage is blocked in this context'); } }
-      : { getItem: key => (key === 'nv_theme' ? (settings.stored || null) : null) }
+      : { getItem: key => key === 'nv_settings' ? (settings.motionSettings || null) : (key === 'nv_theme' ? (settings.stored || null) : null) }
   };
   sandbox.globalThis = sandbox;
   vm.runInNewContext(source, sandbox, { filename: 'public/theme-boot.js' });
   return {
     theme: () => documentElement.dataset.theme,
+    motion: () => documentElement.dataset.motion,
     meta, toggles,
     parsed: () => (listeners.DOMContentLoaded || []).forEach(fn => fn())
   };
@@ -1718,6 +1792,15 @@ check('a stored theme is restored without waiting for the gate to grant', () => 
   assert.strictEqual(runThemeBoot({ stored: 'light' }).theme(), 'light',
     'the visitor stored light and the document is still dark');
   assert.strictEqual(runThemeBoot({ stored: 'dark' }).theme(), 'dark');
+});
+
+check('stored motion is restored before the gate, independently of theme', () => {
+  assert.strictEqual(runThemeBoot({ stored: 'light', motionSettings: '{"motion":false}' }).motion(), 'off');
+  assert.strictEqual(runThemeBoot({ motionSettings: '{"motion":true}' }).motion(), 'on');
+  for (const value of [null, '{broken', 'null', '{"motion":"false"}']) {
+    assert.notStrictEqual(runThemeBoot({ stored: 'light', motionSettings: value }).motion(), 'off');
+    assert.strictEqual(runThemeBoot({ stored: 'light', motionSettings: value }).theme(), 'light');
+  }
 });
 
 check('a first visit and a blocked store both leave the document alone', () => {

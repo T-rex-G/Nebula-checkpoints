@@ -2,6 +2,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -130,4 +131,71 @@ test('the theme control at the gate changes the theme and survives a reload', as
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect(page.locator('.lp-nav .theme-toggle')).toHaveAttribute('aria-checked', 'false');
+});
+
+test('the real Settings motion switch stays off at the landing gate after reload', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const session = await mockPublicAlphaApi(page);
+  await page.addInitScript(() => {
+    const play = HTMLMediaElement.prototype.play;
+    window.landingPlayCalls = 0;
+    HTMLMediaElement.prototype.play = function (...args) {
+      if (this.id === 'lpVideo') window.landingPlayCalls++;
+      return play.apply(this, args);
+    };
+  });
+  await page.goto('/');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await (await ui.action(page, 'Settings')).click();
+  const settings = ui.dialog(page, 'Settings');
+  await ui.checkbox(settings, 'Animated nebula background').uncheck();
+  await expect(page.locator('html')).toHaveAttribute('data-motion', 'off');
+  await ui.button(settings, 'Done').click();
+  session.accessGranted = false;
+  session.providerConnected = false;
+  await page.reload();
+  await expect(ui.screen(page, 'access')).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-motion', 'off');
+  await page.locator('#alphaInviteInput').click();
+  await expect(page.locator('#lpVideo')).toHaveJSProperty('paused', true);
+  await expect(page.locator('.lp-poster')).toBeVisible();
+  // Cross the observer/animation boundary; this is not just an initial paused value.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await page.evaluate(() => window.landingPlayCalls)).toBe(0);
+});
+
+test('landing playback follows live OS motion and remains stopped behind the gate', async ({ page, isMobile }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await mockPublicAlphaApi(page, { access: 'required' });
+  await page.goto('/');
+  const video = page.locator('#lpVideo');
+  const decodable = await video.evaluate(el => !!(el.canPlayType('video/webm; codecs="vp9"') || el.canPlayType('video/mp4; codecs="avc1.42E01E"')));
+  test.skip(!decodable, 'This browser has neither landing-video decoder; poster coverage runs separately.');
+  await page.locator('#alphaInviteInput').click();
+  // Reaching the invitation scrolls the scene out of view on a phone. Its
+  // pause is intentional; bring it back before checking actual playback.
+  if (isMobile) {
+    await expect(video).not.toBeInViewport();
+    await expect(video).toHaveJSProperty('paused', true);
+  }
+  await video.scrollIntoViewIfNeeded();
+  await expect(video).toBeInViewport({ ratio: 0.05 });
+  await expect(video).toHaveJSProperty('paused', false);
+  await expect(video).toHaveClass(/is-playing/);
+  const before = await video.evaluate(el => el.currentTime);
+  await expect.poll(() => video.evaluate(el => el.currentTime)).toBeGreaterThan(before);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(video).toHaveJSProperty('paused', true);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect(video).toHaveJSProperty('paused', false);
+
+  await page.locator('#alphaInviteInput').fill('fixture-invitation');
+  await ui.checkbox(page, /I accept/).check();
+  await ui.button(ui.screen(page, 'access'), 'Continue').click();
+  await expect(ui.screen(page, 'login')).toBeVisible();
+  await expect(video).toHaveJSProperty('paused', true);
+  await page.evaluate(() => { document.documentElement.dataset.motion = 'off'; });
+  await page.evaluate(() => { document.documentElement.dataset.motion = 'on'; });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(video).toHaveJSProperty('paused', true);
 });

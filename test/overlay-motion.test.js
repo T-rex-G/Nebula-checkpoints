@@ -23,6 +23,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const root = path.join(__dirname, '..');
 const motion = require('../public/overlay-motion');
@@ -627,6 +628,321 @@ check('the phone reveals are driven by scroll, and degrade to nothing', () => {
   const bar = rules.find(rule => eachSelector(rule).some(one => one.selector.trim() === '.ov-scroll-progress'));
   assert.ok(bar && /display\s*:\s*none/.test(bar.body),
     'the progress bar is visible by default, so a browser without scroll timelines shows an empty rule');
+});
+
+/* ---------------- the landing stage ---------------- */
+
+/*
+ * The scene is allowed to fail. A landing page whose first paint depends on a
+ * 550KB decode is a landing page that is blank on a slow connection, on a
+ * build without the codec, and for a reader who asked for less motion. The
+ * poster is a real frame of the same scene, so every one of those cases is the
+ * picture holding still rather than an empty black stage.
+ */
+check('the landing scene degrades to a still rather than to nothing', () => {
+  const tag = htmlSource.match(/<video[^>]*id="lpVideo"[^>]*>/);
+  assert.ok(tag, 'the landing video is gone');
+  ['muted', 'loop', 'playsinline'].forEach(attribute => {
+    assert.ok(new RegExp(`\\b${attribute}\\b`).test(tag[0]),
+      `the landing video is missing ${attribute}; without it autoplay is refused or iOS takes the page fullscreen`);
+  });
+  /*
+   * The poster has to be able to paint, which is not the same as being
+   * declared. It used to live only on this attribute -- and the video element
+   * is held at opacity 0 until `playing` fires, which for a reader who asked
+   * for less motion never fires at all. The attribute was present, the guard
+   * was green, and the stage was a flat rectangle for exactly the people the
+   * fallback existed for. So it is an element of its own now, and nothing in
+   * the cascade may hide it.
+   */
+  const posterTag = htmlSource.match(/<img[^>]*class="lp-poster"[^>]*>/);
+  assert.ok(posterTag, 'the poster is not an element, so it paints only when the video already does');
+  const posterSrc = (posterTag[0].match(/src="([^"]+)"/) || [])[1];
+  assert.ok(posterSrc && fs.existsSync(path.join(root, 'public', posterSrc.replace(/^\//, ''))),
+    `the poster ${posterSrc} is not in the build`);
+  /*
+   * The attribute is a fallback behind the fallback now -- it covers the case
+   * where the element itself fails to load -- so it is allowed to be absent,
+   * but it is not allowed to drift to a different picture than the one the
+   * element shows.
+   */
+  const attr = (tag[0].match(/poster="([^"]+)"/) || [])[1];
+  assert.ok(!attr || attr === posterSrc,
+    `the video poster ${attr} and the poster element ${posterSrc} are two different pictures`);
+  rules.filter(rule => eachSelector(rule).some(one => /\.lp-poster\b/.test(one.selector)))
+    .forEach(rule => {
+      assert.ok(!/opacity\s*:\s*0(\D|$)/.test(rule.body),
+        `${rule.selector} holds the poster at zero opacity, which is the bug this element exists to fix`);
+      assert.ok(!/display\s*:\s*none|visibility\s*:\s*hidden/.test(rule.body),
+        `${rule.selector} hides the poster outright`);
+    });
+  const gated = rules.filter(rule => /opacity\s*:\s*0(\D|$)/.test(rule.body))
+    .flatMap(eachSelector).map(one => one.selector)
+    .filter(selector => /\.lp-(poster|video)\b/.test(selector));
+  assert.ok(gated.length, 'nothing holds the video back until it is running');
+  assert.ok(gated.every(selector => /\.lp-video\b/.test(selector) && !/\.lp-poster\b/.test(selector)),
+    `the playback gate reaches past the video itself: ${gated.join(' | ')}`);
+
+  /* Both encodes shipped, and the smaller one offered first. */
+  const block = htmlSource.match(/<video[^>]*id="lpVideo"[\s\S]*?<\/video>/)[0];
+  const sources = [...block.matchAll(/<source[^>]*src="([^"]+)"[^>]*type="([^"]+)"/g)];
+  assert.strictEqual(sources.length, 2,
+    'the scene offers one encode; a browser that refuses it gets only the poster');
+  assert.ok(/webm/.test(sources[0][2]),
+    'the larger encode is offered first, so browsers that could take the smaller one do not');
+  sources.forEach(([, src]) => {
+    const file = path.join(root, 'public', src.replace(/^\//, ''));
+    assert.ok(fs.existsSync(file), `${src} is referenced but not in the build`);
+  });
+
+  /*
+   * Size is part of the contract. The source encode was 13MB because it
+   * carried an audio track a muted background video can never play.
+   */
+  const bytes = sources.reduce((total, [, src]) =>
+    total + fs.statSync(path.join(root, 'public', src.replace(/^\//, ''))).size, 0);
+  assert.ok(bytes < 1.6 * 1024 * 1024,
+    `the scene ships ${(bytes / 1024 / 1024).toFixed(1)}MB of video; that is a landing page nobody waits for`);
+});
+
+/*
+ * Driven, not read.
+ *
+ * The first version of this asked whether the source mentioned canPlayType and
+ * IntersectionObserver. Both perturbations walked through it: `true || ...`
+ * leaves the call in the text while neutering it, and deleting the pause from
+ * the observer still left a pause elsewhere in the file for the regex to find.
+ * So the module is compiled against a stub document and actually run.
+ */
+function runLandingStage(options) {
+  const settings = options || {};
+  const source = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
+  const calls = { play: 0, pause: 0 };
+  const listeners = {};
+  let rejectPlay = null;
+  const video = {
+    paused: true,
+    classList: { names: new Set(), add(n) { this.names.add(n); }, contains(n) { return this.names.has(n); } },
+    canPlayType: () => (settings.decodable ? 'probably' : ''),
+    play() {
+      calls.play += 1;
+      if (!settings.deferredPlay) this.paused = false;
+      return { catch(fn) { rejectPlay = fn; } };
+    },
+    pause() { calls.pause += 1; this.paused = true; },
+    addEventListener(name, fn) { (listeners[name] = listeners[name] || []).push(fn); }
+  };
+  let observerCallback = null;
+  /* The scene leans in while focus is inside the access card. Stubs enough of
+     the card to run that, rather than to read the source for a class name. */
+  const cardListeners = {};
+  const docListeners = {};
+  const mutations = new Map();
+  const media = { matches: !!settings.reducedMotion, addEventListener(name, fn) { this.changed = fn; } };
+  const connection = { saveData: !!settings.saveData, addEventListener(name, fn) { this.changed = fn; } };
+  const gate = { active: true, hidden: false, classList: { contains: () => gate.active } };
+  const inside = { name: 'a field in the card' };
+  const outside = { name: 'something else on the page' };
+  const card = {
+    addEventListener(name, fn) { (cardListeners[name] = cardListeners[name] || []).push(fn); },
+    contains: node => node === inside
+  };
+  const lp = {
+    classList: {
+      names: new Set(),
+      add(n) { this.names.add(n); },
+      remove(n) { this.names.delete(n); },
+      contains(n) { return this.names.has(n); }
+    }
+  };
+  const documentStub = {
+    getElementById: id => id === 'page-alpha-access' ? gate : (id === 'lpVideo' && !settings.noVideo ? video : null),
+    querySelector: selector => {
+      if (selector === '.lp') return settings.noStage ? null : lp;
+      if (selector === '.lp-card') return settings.noStage ? null : card;
+      return null;
+    },
+    activeElement: outside,
+    hidden: false,
+    documentElement: { dataset: { motion: settings.motion === false ? 'off' : 'on' } },
+    addEventListener(name, fn) { (docListeners[name] = docListeners[name] || []).push(fn); },
+    removeEventListener(name, fn) { docListeners[name] = (docListeners[name] || []).filter(item => item !== fn); }
+  };
+  /*
+   * A VM context, not an injected parameter. The module closes over
+   * `globalThis`, so passing a stub named `global` to new Function() is
+   * shadowed by the real one and every matchMedia read silently reaches Node's
+   * globalThis instead -- which is how a reduced-motion check that works in a
+   * browser looked broken from here.
+   */
+  const sandbox = {
+    document: documentStub,
+    matchMedia: () => media,
+    navigator: { connection },
+    IntersectionObserver: function (cb) { observerCallback = cb; this.observe = () => {}; },
+    MutationObserver: function (cb) { this.observe = target => mutations.set(target, cb); }
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(source, sandbox, { filename: 'public/landing-stage.js' });
+  return {
+    calls, video, listeners,
+    reject: () => { video.paused = true; rejectPlay(new Error('Autoplay refused')); },
+    motion: value => {
+      documentStub.documentElement.dataset.motion = value ? 'on' : 'off';
+      const cb = mutations.get(documentStub.documentElement); if (cb) cb();
+    },
+    gate: value => { gate.active = value; const cb = mutations.get(gate); if (cb) cb(); },
+    visibility: value => { documentStub.hidden = !value; (docListeners.visibilitychange || []).slice().forEach(fn => fn()); },
+    reduced: value => { media.matches = value; if (media.changed) media.changed(); },
+    saveData: value => { connection.saveData = value; if (connection.changed) connection.changed(); },
+    enter: () => observerCallback && observerCallback([{ isIntersecting: true }]),
+    leave: () => observerCallback && observerCallback([{ isIntersecting: false }]),
+    fire: name => (listeners[name] || []).forEach(fn => fn({ target: video })),
+    sawObserver: () => observerCallback !== null,
+    reaching: () => lp.classList.contains('is-reaching'),
+    /* A real gesture: the scene does not answer a cursor the browser parked. */
+    gesture: () => (docListeners.pointerdown || []).forEach(fn => fn({})),
+    focusIn: () => (cardListeners.focusin || []).forEach(fn => fn({})),
+    focusOut: stillInside => {
+      documentStub.activeElement = stillInside ? inside : outside;
+      (cardListeners.focusout || []).forEach(fn => fn({}));
+    }
+  };
+}
+
+check('the scene is revealed only once it is actually running', () => {
+  const run = runLandingStage({ decodable: true });
+  run.enter();
+  assert.ok(!run.video.classList.contains('is-playing'),
+    'the scene is revealed before any frame has been shown, which flashes over the poster');
+  run.fire('playing');
+  assert.ok(run.video.classList.contains('is-playing'),
+    'the scene never reveals, so the poster is all a reader ever sees');
+});
+
+check('the scene does not ask a build that cannot decode it to play', () => {
+  const refused = runLandingStage({ decodable: false });
+  refused.enter();
+  assert.strictEqual(refused.calls.play, 0,
+    'play was attempted on a build whose decoder refuses both encodes');
+  const able = runLandingStage({ decodable: true });
+  able.enter();
+  assert.ok(able.calls.play > 0,
+    'play is never attempted even where both encodes decode, so the scene is always a still');
+});
+
+check('the scene stops when the reader is no longer looking at it', () => {
+  const run = runLandingStage({ decodable: true });
+  assert.ok(run.sawObserver(),
+    'nothing watches whether the scene is on screen, so it decodes for the whole session');
+  run.enter();
+  const played = run.calls.play;
+  run.leave();
+  assert.strictEqual(run.calls.pause, 1,
+    'leaving the screen does not pause the scene; a decoder keeps running behind the application');
+  assert.strictEqual(run.calls.play, played, 'leaving the screen started playback');
+});
+
+check('the scene honours a reader who asked for less motion', () => {
+  const off = runLandingStage({ decodable: true, motion: false });
+  off.enter();
+  assert.strictEqual(off.calls.play, 0, 'the scene plays with the motion setting off');
+  const reduced = runLandingStage({ decodable: true, reducedMotion: true });
+  reduced.enter();
+  assert.strictEqual(reduced.calls.play, 0, 'the scene plays despite prefers-reduced-motion');
+});
+
+check('an autoplay retry cannot bypass a later stop-animation preference', () => {
+  const run = runLandingStage({ decodable: true });
+  run.enter(); run.reject(); run.motion(false); run.gesture();
+  assert.strictEqual(run.calls.play, 1, 'a gesture restarted video after motion was disabled');
+  assert.strictEqual(run.video.paused, true);
+});
+
+check('enabling motion while the scene is offscreen does not restart it', () => {
+  const run = runLandingStage({ decodable: true });
+  run.enter(); run.leave(); run.motion(false); run.motion(true);
+  assert.strictEqual(run.calls.play, 1, 'offscreen video restarted');
+  run.enter();
+  assert.strictEqual(run.calls.play, 2, 'visible scene did not resume');
+});
+
+check('a hidden gate stands down before an intersection callback arrives', () => {
+  const run = runLandingStage({ decodable: true });
+  run.enter(); run.gate(false); run.motion(false); run.motion(true);
+  assert.strictEqual(run.video.paused, true, 'the inactive landing screen kept playing');
+  assert.strictEqual(run.calls.play, 1);
+});
+
+check('Save-Data, OS motion and tab visibility all control playback live', () => {
+  const saved = runLandingStage({ decodable: true, saveData: true });
+  saved.enter();
+  assert.strictEqual(saved.calls.play, 0, 'Save-Data was ignored');
+  saved.saveData(false);
+  assert.strictEqual(saved.calls.play, 1);
+  for (const boundary of ['saveData', 'reduced', 'visibility']) {
+    const run = runLandingStage({ decodable: true });
+    run.enter(); run[boundary](boundary !== 'visibility');
+    assert.strictEqual(run.video.paused, true, boundary + ' did not pause playback');
+    run[boundary](boundary === 'visibility');
+    assert.strictEqual(run.calls.play, 2, boundary + ' did not resume eligible playback');
+  }
+});
+
+check('late playing events cannot revive a disabled scene', () => {
+  const run = runLandingStage({ decodable: true, deferredPlay: true });
+  run.enter(); run.motion(false);
+  run.video.paused = false; run.fire('playing');
+  assert.strictEqual(run.video.paused, true, 'a pending play completed after motion stopped');
+  assert.ok(!run.video.classList.contains('is-playing'), 'late playback covered the poster');
+});
+
+check('a pending play is not duplicated and its obsolete rejection cannot retry', () => {
+  const run = runLandingStage({ decodable: true, deferredPlay: true });
+  run.enter(); run.enter();
+  assert.strictEqual(run.calls.play, 1, 'observers launched overlapping play requests');
+  run.motion(false); run.reject(); run.gesture();
+  assert.strictEqual(run.calls.play, 1, 'obsolete rejection armed a retry');
+});
+
+/*
+ * The gate kept every control it had. This page is a landing page wrapped
+ * around the access flow, not a replacement for it, and the flow's contract is
+ * the ids and labels the browser suite reaches for.
+ */
+check('the access flow survived being given a stage', () => {
+  const gate = htmlSource.slice(htmlSource.indexOf('id="page-alpha-access"'));
+  ['alphaWakeState', 'alphaInviteInput', 'alphaTermsAccept', 'alphaTermsVersion',
+   'alphaRedeemBtn', 'alphaAccessError', 'alphaAccessTitle'].forEach(id => {
+    assert.ok(new RegExp(`id="${id}"`).test(gate), `the access flow lost #${id}`);
+  });
+  assert.ok(/class="page active" id="page-alpha-access"/.test(htmlSource),
+    'the gate is no longer the initially painted screen');
+  /*
+   * The heading is this landmark's accessible name, and the browser suite
+   * finds the screen by it. Line breaks inside it are fine -- the name
+   * computation folds them to spaces -- but the words cannot change.
+   */
+  const heading = gate.match(/id="alphaAccessTitle"[^>]*>([\s\S]*?)<\/h1>/);
+  assert.ok(heading, 'the gate heading is gone');
+  const flattened = heading[1].replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  assert.strictEqual(flattened, 'Enter the Nebulaverse-X test orbit',
+    `the screen's accessible name changed to "${flattened}"; the browser suite finds this landmark by it`);
+});
+
+/*
+ * Focusing an input scrolls it into view. On a bare gate that was helpful; on
+ * a landing page it threw the reader past the headline before they had read a
+ * word of it -- measured at 323px on a phone.
+ */
+check('raising the gate does not scroll the page past its own headline', () => {
+  const alphaSource = fs.readFileSync(path.join(root, 'public/alpha-ui.js'), 'utf8');
+  const focuses = [...alphaSource.matchAll(/invite\.focus\(([^)]*)\)/g)];
+  assert.ok(focuses.length >= 1, 'nothing focuses the invitation any more');
+  focuses.forEach(match => {
+    assert.ok(/preventScroll:\s*true/.test(match[1]),
+      'the invitation is focused without preventScroll, which scrolls the landing page away');
+  });
 });
 
 check('the stylesheet actually carries overlay exits', () => {
@@ -1320,6 +1636,225 @@ check('the pointer light costs nothing on a device that has no pointer', () => {
     'nothing in the cascade reads the pointer position the shell writes');
 });
 
+
+/* ---------------- the portal answers the gate ---------------- */
+
+check('the scene leans in while the reader is in the card, and settles when they leave', () => {
+  const run = runLandingStage({ decodable: true });
+  assert.ok(!run.reaching(), 'the scene starts leaned in, so the moment has nothing to answer');
+  run.gesture();
+  run.focusIn();
+  assert.ok(run.reaching(), 'reaching for the invitation does not move the scene at all');
+  run.focusOut(false);
+  assert.ok(!run.reaching(), 'the scene stays leaned in after focus has left the card');
+});
+
+check('the scene does not answer a cursor the browser parked in the field', () => {
+  /*
+   * alpha-ui focuses the invitation the moment the gate is raised. Bound to
+   * focus alone the lean-in was applied on the first frame and never came
+   * back, so the moment was the resting state. Found by a browser check
+   * asserting the scene rests at scale 1 before anyone has touched anything.
+   */
+  const run = runLandingStage({ decodable: true });
+  run.focusIn();
+  assert.ok(!run.reaching(),
+    'the gate autofocus leans the scene in before the reader has touched the page');
+
+  /* And the first real gesture, with focus already there, is what it answers. */
+  const arriving = runLandingStage({ decodable: true });
+  arriving.focusIn();
+  arriving.focusOut(true);
+  arriving.gesture();
+  assert.ok(arriving.reaching(),
+    'a reader who arrives and starts typing in the autofocused field never gets the moment');
+});
+
+check('moving between the card own controls does not make the scene flinch', () => {
+  const run = runLandingStage({ decodable: true });
+  run.gesture();
+  run.focusIn();
+  /* focusout fires on every tab stop inside the card; only leaving it counts. */
+  run.focusOut(true);
+  assert.ok(run.reaching(),
+    'tabbing from the invitation to the terms drops the scene back, once per control');
+});
+
+check('the moment is wired before the video is looked for', () => {
+  /*
+   * The scene leans in whether or not a decoder ever agreed to play it. A
+   * build that refuses both encodes still gets the poster, and the poster
+   * still answers.
+   */
+  const refused = runLandingStage({ decodable: false });
+  refused.gesture();
+  refused.focusIn();
+  assert.ok(refused.reaching(),
+    'a build that cannot decode the video loses the moment as well as the motion');
+  assert.strictEqual(refused.calls.play, 0, 'an undecodable build was asked to play anyway');
+
+  /*
+   * And with no video element at all. The module returns early when it cannot
+   * find one, so anything wired after that line is wired only for pages that
+   * happen to carry a scene.
+   */
+  const bare = runLandingStage({ noVideo: true });
+  bare.gesture();
+  bare.focusIn();
+  assert.ok(bare.reaching(),
+    'the moment sits behind the early return, so a page without a scene loses it');
+});
+
+check('the motion itself is in the cascade, gated both ways', () => {
+  /*
+   * The module carries a class and nothing else. If it ever moves the element
+   * directly the reduced-motion and data-motion gates below stop applying to
+   * it, because they are cascade rules.
+   */
+  const source = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
+  const reaching = source.slice(source.indexOf('is-reaching'));
+  assert.ok(!/\.style\./.test(reaching.slice(0, 400)),
+    'the moment writes a style directly, which no motion setting can then turn off');
+
+  const moved = rules.filter(rule => /\.is-reaching\b/.test(rule.selector)
+    && /transform\s*:|opacity\s*:/.test(rule.body));
+  assert.ok(moved.length, 'nothing in the cascade answers the class the module sets');
+
+  /* Every movement sits under a no-preference query. */
+  const guarded = stripped.match(/@media\s*\(prefers-reduced-motion:\s*no-preference\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(guarded && /\.is-reaching[\s\S]*?transform\s*:\s*scale/.test(guarded[1]),
+    'the push-in is not inside a prefers-reduced-motion: no-preference block');
+  const off = rules.filter(rule => /\[data-motion="off"\][\s\S]*\.is-reaching/.test(rule.selector)
+    && /transform\s*:\s*none/.test(rule.body));
+  assert.ok(off.length, 'the interface own motion switch does not stand the scene back down');
+});
+
+check('the landing page wears the product mark rather than one drawn in place', () => {
+  /*
+   * Twice now a screen has ended up with artwork invented for it instead of
+   * the product's own: a cropped hero, and then a ringed planet ellipse drawn
+   * straight into the landing nav and footer. The first screen a visitor sees
+   * is the last place to introduce a second brand.
+   *
+   * So this reads the mechanism: the mark is referenced from the shared
+   * symbol, and the elements that carry it draw no shapes of their own. A
+   * replacement glyph under any class name fails here.
+   */
+  const symbol = htmlSource.match(/<symbol id="nvMark"[\s\S]*?<\/symbol>/);
+  assert.ok(symbol, 'the shared mark symbol is gone');
+
+  /*
+   * The brand elements themselves, not the chrome around them: the theme
+   * control in the same header draws a sun and a moon, and those are icons
+   * doing a job rather than a second logo.
+   */
+  const nav = htmlSource.match(/<span class="lp-brand">[\s\S]*?<\/span>\s*<\/span>/);
+  const foot = htmlSource.match(/<span class="lp-foot-brand">[\s\S]*?<\/span>/);
+  assert.ok(nav && foot, 'the landing brand is gone');
+
+  [['nav', nav[0]], ['footer', foot[0]]].forEach(([where, block]) => {
+    assert.ok(/<use href="#nvMark"\s*\/?>/.test(block),
+      `the landing ${where} does not use the product mark`);
+    /* And nothing in it paints a mark of its own. */
+    const drawn = block.match(/<(path|circle|ellipse|rect|polygon|polyline)\b/g) || [];
+    assert.deepStrictEqual(drawn, [],
+      `the landing ${where} draws its own artwork (${drawn.join(', ')}) beside the product mark`);
+  });
+});
+
+/* ---------------- the theme, before the gate ---------------- */
+
+/*
+ * Restoring the theme used to live in app.js loadSettings(), which runs from
+ * boot(), which runs only once the access gate has granted. Every visitor met
+ * the landing page in dark whatever they had chosen, and toggling it there was
+ * written and never read back. Run the module rather than read it: the whole
+ * point of the file is a side effect on a document that does not exist yet.
+ */
+function runThemeBoot(options) {
+  const settings = options || {};
+  const source = fs.readFileSync(path.join(root, 'public/theme-boot.js'), 'utf8');
+  const documentElement = { dataset: { theme: 'dark' } };
+  const meta = { content: '' };
+  const toggles = Array.from({ length: settings.toggles || 0 }, () => ({
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; }
+  }));
+  const listeners = {};
+  const documentStub = {
+    documentElement,
+    querySelector: selector => (selector === 'meta[name=theme-color]' ? meta : null),
+    querySelectorAll: selector => (selector === '.theme-toggle' ? toggles : []),
+    addEventListener(name, fn) { (listeners[name] = listeners[name] || []).push(fn); }
+  };
+  const sandbox = {
+    document: documentStub,
+    localStorage: settings.blocked
+      ? { getItem() { throw new Error('storage is blocked in this context'); } }
+      : { getItem: key => key === 'nv_settings' ? (settings.motionSettings || null) : (key === 'nv_theme' ? (settings.stored || null) : null) }
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(source, sandbox, { filename: 'public/theme-boot.js' });
+  return {
+    theme: () => documentElement.dataset.theme,
+    motion: () => documentElement.dataset.motion,
+    meta, toggles,
+    parsed: () => (listeners.DOMContentLoaded || []).forEach(fn => fn())
+  };
+}
+
+check('a stored theme is restored without waiting for the gate to grant', () => {
+  assert.strictEqual(runThemeBoot({ stored: 'light' }).theme(), 'light',
+    'the visitor stored light and the document is still dark');
+  assert.strictEqual(runThemeBoot({ stored: 'dark' }).theme(), 'dark');
+});
+
+check('stored motion is restored before the gate, independently of theme', () => {
+  assert.strictEqual(runThemeBoot({ stored: 'light', motionSettings: '{"motion":false}' }).motion(), 'off');
+  assert.strictEqual(runThemeBoot({ motionSettings: '{"motion":true}' }).motion(), 'on');
+  for (const value of [null, '{broken', 'null', '{"motion":"false"}']) {
+    assert.notStrictEqual(runThemeBoot({ stored: 'light', motionSettings: value }).motion(), 'off');
+    assert.strictEqual(runThemeBoot({ stored: 'light', motionSettings: value }).theme(), 'light');
+  }
+});
+
+check('a first visit and a blocked store both leave the document alone', () => {
+  assert.strictEqual(runThemeBoot({ stored: null }).theme(), 'dark',
+    'an empty store moved the theme to something nobody chose');
+  assert.strictEqual(runThemeBoot({ stored: 'chartreuse' }).theme(), 'dark',
+    'a value that is not a theme was written onto the document');
+  /* Private mode throws on the first read rather than returning null. */
+  assert.strictEqual(runThemeBoot({ blocked: true }).theme(), 'dark',
+    'a browser that refuses storage takes the page down with it');
+});
+
+check('the switches report the theme they are actually in', () => {
+  const run = runThemeBoot({ stored: 'light', toggles: 3 });
+  run.parsed();
+  run.toggles.forEach(toggle => assert.strictEqual(toggle.attributes['aria-checked'], 'false',
+    'a reader who chose light met a switch telling a screen reader it was dark'));
+  const dark = runThemeBoot({ stored: 'dark', toggles: 2 });
+  dark.parsed();
+  dark.toggles.forEach(toggle => assert.strictEqual(toggle.attributes['aria-checked'], 'true'));
+});
+
+check('the restore runs from the head, before anything is painted', () => {
+  const head = htmlSource.slice(0, htmlSource.indexOf('</head>'));
+  assert.ok(/<script[^>]+src="\/theme-boot\.js/.test(head),
+    'theme-boot is not in the head, so the shell paints in one theme and corrects to the other');
+  /* An inline block here would be refused: script-src is 'self' with no 'unsafe-inline'. */
+  assert.ok(/script-src 'self'/.test(serverSource),
+    'the policy this file is a file rather than an inline block for has changed');
+  /*
+   * In the landing nav specifically. Counting toggles across the document
+   * passed with the landing one deleted, because the shell carries two of its
+   * own -- behind the gate, where a visitor cannot reach them.
+   */
+  const nav = htmlSource.match(/<header class="lp-nav">[\s\S]*?<\/header>/);
+  assert.ok(nav, 'the landing nav is gone');
+  assert.ok(/class="theme-toggle"/.test(nav[0]),
+    'the landing page has no theme control, so a visitor cannot reach the one inside the shell');
+});
 
 console.log(failures ? `\n${failures} failed` : '\nall passed');
 process.exit(failures ? 1 : 0);

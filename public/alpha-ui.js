@@ -238,7 +238,18 @@
     showAccessError('');
     showWaking();
     const ready = await waitUntilReady();
-    if (!ready) return Object.freeze({ allowed: false, reason: 'unavailable' });
+    /*
+     * Asked whether or not the service came back ready.
+     *
+     * The gate's setting does not depend on the database: with the gate off
+     * the status route answers from configuration alone, and it is that
+     * setting -- not the database -- which decides what this screen is. This
+     * used to return here, so a deployment whose database was behind never
+     * learned its own gate was open. It sat on the invitation form, because
+     * that was the markup's default, under a readiness line that never
+     * cleared. An operator who had turned entry off saw the gate anyway, and
+     * the one thing that could have corrected it was the request never made.
+     */
     try {
       status = await jsonRequest('/api/alpha/status');
     } catch {
@@ -256,6 +267,16 @@
     if (status.mode === 'off') {
       showOpenAccess(status);
       return Object.freeze({ allowed: false, reason: 'open', status });
+    }
+    /*
+     * The gate is on, and redemption needs the database that is not answering.
+     * Say that plainly rather than offering a field that cannot be honoured:
+     * a reader who types an invitation into it has spent their one-time code
+     * on a request that was always going to fail.
+     */
+    if (!ready) {
+      showWaking('Temporarily unavailable');
+      return Object.freeze({ allowed: false, reason: 'unavailable', status });
     }
     if (status.authenticated === true) {
       return Object.freeze({ allowed: true, status });

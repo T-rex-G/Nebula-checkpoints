@@ -211,13 +211,24 @@
         <p class="eyebrow">Request entry</p>
         <p class="alpha-access-rule">Use only a sandbox/test repository containing no real secrets, personal data, production deployments, or irreplaceable source.</p>
         <div class="alpha-wake-state" id="alphaWakeState" role="status" aria-live="polite" aria-label="Service readiness">Checking service readiness…</div>
-        <label class="field-label" for="alphaInviteInput">One-time invitation</label>
-        <input id="alphaInviteInput" type="password" autocomplete="one-time-code" spellcheck="false" autocorrect="off" autocapitalize="off">
-        <label class="check" for="alphaTermsAccept">
-          <input id="alphaTermsAccept" type="checkbox">
+        <!--
+          Hidden until the gate is known to be on.
+          ---------------------------------------------------------------
+          This was the card's default paint, which made it the answer to every
+          question the page could not yet answer. A deployment whose database
+          was behind never reached the status request at all, so an open gate
+          served a visitor an invitation field it would never have asked for,
+          under a readiness line that would never clear. The form is a claim
+          about how entry works; nothing should make that claim before the
+          server has been asked. alpha-ui reveals it in showAccessGate().
+        -->
+        <label class="field-label" for="alphaInviteInput" hidden>One-time invitation</label>
+        <input id="alphaInviteInput" type="password" autocomplete="one-time-code" spellcheck="false" autocorrect="off" autocapitalize="off" hidden>
+        <label class="check" for="alphaTermsAccept" hidden>
+          <input id="alphaTermsAccept" type="checkbox" hidden>
           <span>I accept <strong id="alphaTermsVersion">the current alpha terms</strong> and the sandbox-repository rule.</span>
         </label>
-        <button class="btn btn-primary btn-block" id="alphaRedeemBtn">Continue</button>
+        <button class="btn btn-primary btn-block" id="alphaRedeemBtn" hidden>Continue</button>
         <div class="login-error" id="alphaAccessError" role="alert" hidden></div>
         <!--
           The way through when the gate is off.

@@ -129,3 +129,65 @@ test('Settings offers alpha privacy actions only while the gate is on', async ({
     await expect(settings).toBeHidden();
   }
 });
+
+/*
+ * A database that never comes back must not turn into an invitation gate.
+ *
+ * The production deployment ran with entry off and a database one migration
+ * behind, so /readyz answered "migration-mismatch" on every retry. boot()
+ * returned on that failed readiness check, before it had ever asked what the
+ * gate was set to -- and the invitation form was the card's default markup, so
+ * that is what the visitor was left looking at: a one-time-invitation field on
+ * a deployment whose operator had turned invitations off, under a readiness
+ * line that would never clear.
+ *
+ * Two rules, because either alone leaves the hole open. The form is never the
+ * default paint, and the gate's setting is learned whether or not the database
+ * answers -- it does not depend on the database, and it is what decides which
+ * screen this is.
+ */
+
+const wakeState = page => page.locator('#alphaWakeState');
+
+/*
+ * waitUntilReady() backs off 1s, 2s, 4s then 8s before it gives up, so a
+ * deployment that never answers takes fifteen seconds to settle -- three times
+ * the default expect timeout. Waited out rather than shortened: the ladder is
+ * the behaviour under test, and a reader on a stuck deployment really does sit
+ * through it.
+ */
+const SETTLES_AFTER_RETRIES = { timeout: 20000 };
+
+test('the invitation form is not what the page paints before it has asked', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'invite', access: 'required', ready: 'database-unavailable' });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+  /* Checked at once, before any request settles: this is about what the
+     markup claims on its own, not about what the page settles on. */
+  await expect(invite(page)).toBeHidden();
+  await expect(page.locator('#alphaRedeemBtn')).toBeHidden();
+  await expect(page.locator('#alphaTermsAccept')).toBeHidden();
+});
+
+test('entry stays open when the database is behind, and still offers the way through', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'off', access: 'required', ready: 'database-unavailable' });
+  await page.goto('/');
+
+  await expect(passThrough(page)).toBeVisible(SETTLES_AFTER_RETRIES);
+  await expect(landing(page)).toHaveClass(/active/);
+  await expect(passThrough(page)).toHaveText(/Continue to sign in/);
+  /* The whole complaint: no invitation is asked for on a deployment that
+     does not use invitations, however poorly the database is answering. */
+  await expect(invite(page)).toBeHidden();
+});
+
+test('a gate that cannot redeem says so instead of offering the field', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'invite', access: 'required', ready: 'database-unavailable' });
+  await page.goto('/');
+
+  await expect(wakeState(page)).toHaveText('Temporarily unavailable', SETTLES_AFTER_RETRIES);
+  /* Redemption needs the database. Offering the field would spend a reader's
+     one-time code on a request that was always going to fail. */
+  await expect(invite(page)).toBeHidden();
+  await expect(passThrough(page)).toBeHidden();
+});

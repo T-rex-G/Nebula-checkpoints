@@ -12,7 +12,15 @@ async function mockApi(page, overrides = {}) {
     const url = new URL(request.url());
     const key = `${request.method()} ${url.pathname}`;
     if (overrides[key]) return overrides[key](route, request, url);
-    if (url.pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'off', authenticated: true, access: 'active' } });
+    /*
+     * An admitted session: the gate is on and this reader is already through
+     * it. It used to say the gate was off, which reached the same place by
+     * accident -- gate-off handed straight over to the workspace. It no longer
+     * does: with entry open the landing page stays until the reader asks to
+     * pass, so saying 'off' here would park every journey below on the front
+     * door. Admission is what these tests need; the gate has its own suite.
+     */
+    if (url.pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'on', authenticated: true, access: 'active' } });
     if (url.pathname === '/api/config') return route.fulfill({ json: { oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, contentsMaxMb: 40 } });
     if (url.pathname === '/api/me') return route.fulfill({ json: { login: 'alice', name: 'Alice', avatar: '', provider: 'github', authMethod: 'token', caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true }, offlineCacheScope: scope } });
     if (url.pathname === '/api/security/csrf') return route.fulfill({ json: { token: 'csrf-test-token', expiresAt: new Date(Date.now() + 600000).toISOString() } });

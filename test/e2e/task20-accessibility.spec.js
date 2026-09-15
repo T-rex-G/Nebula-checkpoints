@@ -142,6 +142,17 @@ test.describe('Task 20 governance service-worker boundary', () => {
   test('offline service worker keeps governance API responses live-only', async ({ page, context }) => {
     const governanceUrl = '/api/repo/acme/demo/governance/digital-twin';
     await page.goto('/');
+    /*
+     * Unmocked, so this meets the deployment's own gate. Entry is open here,
+     * and an open gate now leaves the landing page standing until the reader
+     * asks to pass -- it used to hand over by itself, which is how this
+     * arrived at a registered worker without anyone pressing anything. The
+     * worker belongs to the workspace, so the way in has to be walked. The
+     * boundary under test is the worker's, further down.
+     */
+    const through = page.locator('#alphaPassThrough');
+    await through.waitFor({ state: 'visible' });
+    await through.click();
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.reload();
     await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);

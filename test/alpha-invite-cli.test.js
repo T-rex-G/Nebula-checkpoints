@@ -230,12 +230,27 @@ async function tests() {
     'an invitation id is matched case-insensitively and trimmed'
   );
 
+  /*
+   * An invitation with no --repo. This was listed as an invalid shape, because
+   * the CLI required at least one: the repository restriction was enforced all
+   * the way down in the column's own CHECK, so an unbound invitation could not
+   * be issued at any layer. It is the ordinary case now -- the tester is not
+   * handed a list to stay inside, and works against whatever their own
+   * credentials reach.
+   */
+  {
+    const unbound = parseArgs(['issue', '--label', 'Tester 01']);
+    assert.strictEqual(unbound.command, 'issue');
+    assert.strictEqual(unbound.label, 'Tester 01');
+    assert.deepStrictEqual(unbound.repos, [],
+      'an issue without --repo must carry no repository scope at all');
+  }
+
   for (const invalid of [
     [],
     ['unknown'],
     ['list', '--repo', 'github:github.com/acme/demo'],
     ['purge', '--force'],
-    ['issue', '--label', 'Tester 01'],
     ['issue', '--repo', 'github:github.com/acme/demo'],
     ['issue', '--label'],
     ['issue', '--label', '--repo', 'github:github.com/acme/demo'],
@@ -289,10 +304,16 @@ async function tests() {
   assert(!JSON.stringify(view).includes('session'));
   assert(!JSON.stringify(view).includes('ipHash'));
 
+  /*
+   * A missing --label, not a missing --repo. This drove the CLI with an issue
+   * that had no --repo and expected exit 2; --repo is optional now, so that
+   * input succeeds and the check was asserting the old rule rather than the
+   * refusal path it is here for. --label is still required.
+   */
   const inputFailure = await runMain([
     'issue',
-    '--label',
-    'Tester 01'
+    '--repo',
+    'github:github.com/acme/demo'
   ]);
   assert.strictEqual(inputFailure.status, 2);
   assert.deepStrictEqual(inputFailure.exitCodes, [2]);

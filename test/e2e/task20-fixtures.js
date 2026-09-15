@@ -57,7 +57,15 @@ async function mockTask20Api(page, state = {}) {
     const pathname = url.pathname;
     if (pathname.includes('/governance/')) state.governanceRequests += 1;
 
-    if (pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'off', authenticated: true, access: 'active' } });
+    /*
+     * An admitted session: the gate is on and this reader is already through
+     * it. It used to say the gate was off, which reached the same place by
+     * accident -- gate-off handed straight over to the workspace. It no longer
+     * does: with entry open the landing page stays until the reader asks to
+     * pass, so saying 'off' here would park every journey below on the front
+     * door. Admission is what these tests need; the gate has its own suite.
+     */
+    if (pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'on', authenticated: true, access: 'active' } });
     if (pathname === '/api/config') return route.fulfill({ json: { oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, contentsMaxMb: 40 } });
     // Signed-in sessions request the account projection; both describe this
     // fixture's ordinary GitHub token. Keep unrelated API routes fail-closed.

@@ -531,6 +531,13 @@ em{color:var(--teal);font-style:normal}
     inset 0 -1px 0 rgba(20,14,50,.06)}
 .lp-card::before{background:linear-gradient(90deg,rgba(255,255,255,.18),rgba(255,255,255,.95) 48%,rgba(255,255,255,.18))}
 @media (max-width:939px){ .lp-card{justify-self:stretch;width:100%} }
+/*
+ * The open-access panel takes the invitation form's place rather than sitting
+ * beside it: with the gate off there is no code to redeem, so a field asking
+ * for one is a dead end dressed as a control.
+ */
+.alpha-open{display:grid;gap:12px}
+.alpha-open-note{margin:0;color:var(--text2);font-size:.83rem;line-height:1.55}
 .alpha-access .eyebrow{margin:0 0 10px;color:var(--teal);font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
 .alpha-access h1{margin:0;font-size:clamp(1.75rem,6vw,2.55rem);line-height:1.08;letter-spacing:-.025em}
 .alpha-access-rule{margin:0 0 16px;color:var(--text2);line-height:1.6;font-size:.82rem}

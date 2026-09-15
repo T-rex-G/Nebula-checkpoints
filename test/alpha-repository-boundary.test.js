@@ -215,6 +215,14 @@ function alphaState(letter) {
 function activeSession(letter) {
   const scopes = {
     A: ['github:github.com/acme/demo'],
+    /*
+     * An unbound invitation: no scopes, so no list to check against. It is a
+     * distinct shape from a session whose scopes failed to load, which is why
+     * the server asks for an array of length zero and nothing else -- and why
+     * this is spelled out here rather than left to a missing entry, which is
+     * what every letter below the map means and which must still refuse.
+     */
+    U: [],
     G: ['github:github.com/fixture-user/cohort-new'],
     E: ['gitlab:gitlab.com/acme/demo'],
     F: ['gitea:gitea.example/acme/demo'],
@@ -566,6 +574,15 @@ global.fetch = async function providerFetch(url, options = {}) {
         default_branch: 'main'
       }
     ]);
+  }
+  if (href === 'https://api.github.com/repos/acme/production') {
+    return jsonResponse({
+      id: 21, full_name: 'Acme/Production', default_branch: 'main',
+      private: true, description: 'Production'
+    });
+  }
+  if (href === 'https://api.github.com/repos/acme/production/branches?per_page=100') {
+    return jsonResponse([{ name: 'main', protected: true, commit: { sha: 'c'.repeat(40) } }]);
   }
   if ((href === 'https://api.github.com/user/repos' && options.method === 'POST')
     || href === 'https://api.github.com/repos/fixture-user/cohort-new') {
@@ -1199,6 +1216,39 @@ ${logs}`
       transportEvents(),
       transportBeforeDeniedRepository,
       'an uncached GitHub App denied repository must perform zero credential, installation, token, or provider calls'
+    );
+
+    /*
+     * The same repository, under an unbound invitation, is reached.
+     *
+     * This is the whole of the loosening, and the only place it is visible
+     * end to end: the predicate is proved in isolation elsewhere and the
+     * column's relaxed floor is proved against real PostgreSQL, but neither
+     * says the server consults them. Asserted against the repository the
+     * scoped invitation directly above is refused, so the two cases differ
+     * in the invitation alone.
+     *
+     * It is also the risk, stated as a test rather than a sentence: an
+     * unbound invitation reaches whatever the tester's own credential
+     * reaches, and nothing in the product narrows that further.
+     */
+    const transportBeforeUnbound = transportEvents();
+    const unboundRepository = await request('/api/repo/acme/production', {
+      headers: { cookie: combinedCookie('U', 'provider-app') }
+    });
+    assert.strictEqual(unboundRepository.status, 200,
+      'an unbound invitation must reach a repository a scoped invitation may not');
+    assert.deepStrictEqual(await json(unboundRepository), {
+      full_name: 'Acme/Production',
+      default_branch: 'main',
+      private: true,
+      description: 'Production',
+      branches: [{ name: 'main', protected: true, sha: 'c'.repeat(40) }]
+    });
+    assert.notDeepStrictEqual(
+      transportEvents(),
+      transportBeforeUnbound,
+      'an unbound invitation must actually reach the provider, not be answered from the boundary'
     );
 
     for (const [provider, letter, sid] of [

@@ -177,6 +177,19 @@ function parseRepositoryScope(scope) {
   };
 }
 
+/*
+ * An invitation that carries no repository scope is unbound: the tester was
+ * never handed a list to stay inside, so there is nothing to check them
+ * against and any repository their own credentials reach is theirs to test.
+ *
+ * An EMPTY list, specifically -- never a missing one. A scope list that failed
+ * to load must read as "refuse", not as "permit", so anything that is not an
+ * array of length zero is not unbound.
+ */
+function inviteUnbound(allowedScopes) {
+  return Array.isArray(allowedScopes) && allowedScopes.length === 0;
+}
+
 function repositoryAllowed(allowedScopes, target) {
   const canonical = canonicalRepositoryScope(target);
   if (!Array.isArray(allowedScopes)) return false;
@@ -198,5 +211,6 @@ module.exports = Object.freeze({
   digestInviteSecret,
   canonicalRepositoryScope,
   parseRepositoryScope,
-  repositoryAllowed
+  repositoryAllowed,
+  inviteUnbound
 });

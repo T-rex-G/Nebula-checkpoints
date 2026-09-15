@@ -36,7 +36,12 @@ If the cohort opens, each tester receives a one-time invite, accepts the current
 terms and sandbox rule, connects a least-privilege GitHub, GitLab, or Gitea
 credential, and may select only repositories on the invite's exact canonical
 allowlist. Repository scopes use the exact canonical
-`provider:hostname/owner/repository` form. GitHub is the complete intended
+`provider:hostname/owner/repository` form. An invitation may also be issued
+with no repository scope at all. That invitation is unbound: it carries no
+allowlist to check against, so the tester may work against any repository
+their own provider credential already reaches. It is the shape to use when a
+tester is asked to try the product rather than to exercise a named repository,
+and the credential they connect is the only boundary left. GitHub is the complete intended
 golden path. Root-host-only GitLab and Gitea installations are eligible for the
 cohort; installations whose provider base URL contains a path prefix remain
 unavailable. GitLab and Gitea expose only their registry-qualified subsets.

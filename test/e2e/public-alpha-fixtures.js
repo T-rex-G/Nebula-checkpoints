@@ -122,6 +122,13 @@ const VALID = Object.freeze({
 function normalizedScenario(input = {}) {
   const scenario = {
     access: input.access || 'active',
+    /*
+     * The gate itself, as distinct from one visitor's standing in it. It was
+     * hardcoded on, so the screen a visitor meets when the operator turns the
+     * gate off could not be expressed here at all -- which is why the landing
+     * page being replaced a beat after it painted went unnoticed.
+     */
+    mode: input.mode || 'on',
     ready: input.ready || 'ready',
     provider: input.provider || 'github',
     authMethod: input.authMethod || 'token',
@@ -202,7 +209,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
 
     if (pathname === '/api/alpha/status') {
       return fulfill({
-        mode: 'on',
+        mode: scenario.mode,
         authenticated: state.accessGranted,
         access: scenario.access,
         termsVersion: 'alpha-terms-v1'

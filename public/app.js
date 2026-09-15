@@ -4063,7 +4063,14 @@ $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value))
 $('#paletteInput').addEventListener('keydown', e => {
   if (e.key === 'ArrowDown') { palSel = Math.min(palSel + 1, palItems.length - 1); paintSel(); e.preventDefault(); }
   else if (e.key === 'ArrowUp') { palSel = Math.max(palSel - 1, 0); paintSel(); e.preventDefault(); }
-  else if (e.key === 'Enter') { const it = palItems[palSel]; if (it) runPaletteItem(it); }
+  else if (e.key === 'Enter') {
+    // Selecting a command restores focus to the opener. Consume Enter before
+    // that handoff so its native activation cannot reopen the palette behind
+    // the command's dialog and steal focus with a second autofocus timer.
+    e.preventDefault();
+    const it = palItems[palSel];
+    if (it) runPaletteItem(it);
+  }
   else if (e.key === 'Escape') closePalette();
 });
 function paintSel() {

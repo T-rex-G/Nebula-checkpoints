@@ -194,6 +194,35 @@ test('overview shortcut opens the repository browser without replacing workbench
   await expect(ui.palette(page)).toBeVisible();
 });
 
+for (const motion of [true, false]) {
+  test(`keyboard palette selection stays dismissed with motion ${motion ? 'on' : 'off'}`, async ({ page }) => {
+    await boot(page, motion);
+    await ui.enterRepositories(page);
+    await ui.button(page, /^Open repository /).first().click();
+    await expect(ui.screen(page, 'work')).toBeVisible();
+    const trigger = await ui.action(page, 'Command palette');
+    const dock = page.getByRole('button', { name: 'Workspace actions', exact: true });
+    const returnFocus = await dock.isVisible() ? dock : trigger;
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    await ui.palette(page).fill('Settings');
+    await page.keyboard.press('Enter');
+    const settings = ui.dialog(page, 'Settings');
+    await expect(settings).toBeVisible();
+    // Enter must not activate the button that closePalette restores focus to.
+    // Otherwise it reopens the palette behind Settings and its autofocus
+    // steals the next keyboard action from the dialog.
+    await expect(ui.palette(page)).toBeHidden();
+    const disconnect = page.locator('[data-alpha-privacy-action="disconnect"]');
+    await ui.focusAndConfirm(expect, disconnect);
+    await page.keyboard.press('Tab');
+    await expect.poll(() => settings.evaluate(el => el.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(settings).toBeHidden();
+    await expect(returnFocus).toBeFocused();
+  });
+}
+
 test('a skipped native page transition still navigates without an unhandled rejection', async ({ page }) => {
   const failures = [];
   page.on('pageerror', error => failures.push(String(error)));

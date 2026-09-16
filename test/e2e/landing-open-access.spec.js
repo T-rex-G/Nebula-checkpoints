@@ -169,16 +169,80 @@ test('the invitation form is not what the page paints before it has asked', asyn
   await expect(page.locator('#alphaTermsAccept')).toBeHidden();
 });
 
-test('entry stays open when the database is behind, and still offers the way through', async ({ page }) => {
+test('entry stays open when the database is behind, and settles in one step', async ({ page }) => {
   await mockPublicAlphaApi(page, { mode: 'off', access: 'required', ready: 'database-unavailable' });
+  const opened = Date.now();
   await page.goto('/');
 
-  await expect(passThrough(page)).toBeVisible(SETTLES_AFTER_RETRIES);
+  /*
+   * Drawn without waiting out the readiness ladder. The gate's setting comes
+   * from configuration in one round trip; the database is a separate question
+   * and used to be asked first, which made every visitor watch fifteen seconds
+   * of "Waking database" before the page would say what it was. Three seconds
+   * is far under the ladder and far over a local round trip, so this fails on
+   * a rebuilt sequence rather than on a slow machine.
+   */
+  await expect(passThrough(page)).toBeVisible({ timeout: 3000 });
+  expect(Date.now() - opened).toBeLessThan(6000);
   await expect(landing(page)).toHaveClass(/active/);
-  await expect(passThrough(page)).toHaveText(/Continue to sign in/);
-  /* The whole complaint: no invitation is asked for on a deployment that
-     does not use invitations, however poorly the database is answering. */
+  /* No invitation is asked for on a deployment that does not use invitations,
+     however poorly the database is answering. */
   await expect(invite(page)).toBeHidden();
+
+  /*
+   * And once the database has failed for good, the door is shut rather than
+   * left standing open. Sessions live in PostgreSQL, so every authenticated
+   * request behind this door answers 503: a reader who walked it reached a
+   * sign-in screen that could not succeed and was returned to the front door,
+   * which is the loop this closes.
+   */
+  await expect(passThrough(page)).toBeDisabled(SETTLES_AFTER_RETRIES);
+  await expect(passThrough(page)).toHaveText(/Workspace unavailable/);
+});
+
+test('a sign-in that did not finish is explained at the door', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'off', access: 'required', ready: 'ready' });
+  /*
+   * The provider round trip ends at a fresh page load, and with entry open the
+   * reader stays at the door -- so the application, which used to announce
+   * this, never runs. The reason was lost entirely: they pressed continue,
+   * went to GitHub, came back to the same front door and were told nothing.
+   */
+  await page.goto('/?oauth=bad_verification_code');
+
+  await expect(page.locator('#alphaAccessError'))
+    .toContainText('Could not finish signing in with GitHub');
+  await expect(page.locator('#alphaAccessError')).toContainText('already been used');
+  await expect(landing(page)).toHaveClass(/active/);
+  /* The marker is consumed, so a reload does not re-accuse the reader. */
+  expect(new URL(page.url()).search).toBe('');
+});
+
+test('a reader returning from a finished sign-in is not sent back to the door', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'off', access: 'active', ready: 'ready' });
+  await page.goto('/?entered=1');
+
+  /*
+   * They asked to pass once already and then signed in; the front door is not
+   * where they were going. Anything else is the loop -- continue, sign in,
+   * back to continue.
+   */
+  await expect(landing(page)).not.toHaveClass(/active/);
+  expect(new URL(page.url()).search).toBe('');
+});
+
+test('the marker admits nobody on its own', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'invite', access: 'required', ready: 'ready' });
+  /*
+   * It says a sign-in finished, not who finished it, and it is a query string
+   * anyone can type. With the gate on it changes nothing: the invitation is
+   * still the only way in, and the session cookie is what admits anyone.
+   */
+  await page.goto('/?entered=1');
+
+  await expect(landing(page)).toHaveClass(/active/);
+  await expect(invite(page)).toBeVisible();
+  await expect(passThrough(page)).toBeHidden();
 });
 
 test('a gate that cannot redeem says so instead of offering the field', async ({ page }) => {

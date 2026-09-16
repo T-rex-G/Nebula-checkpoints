@@ -3669,7 +3669,16 @@ app.get('/api/oauth/callback', async (req, res) => {
     if (!td.access_token) return abandon(td.error || 'exchange_failed');
     const user = await gh(td.access_token, '/user');
     await addAccount(req, res, td.access_token, user, 'github', '', { authMethod: 'oauth' });
-    res.redirect('/');
+    /*
+     * Marked as entered. Signing in with the provider is a full page trip --
+     * away to GitHub and back to a fresh load -- and the front door is where a
+     * fresh load begins. With entry open the door stays put by design, so a
+     * reader who had just finished signing in was returned to it and asked to
+     * continue to sign in. The marker says this load is the far side of a
+     * completed sign-in, not a new arrival, and carries no identity of its
+     * own: the session cookie is what admits anyone.
+     */
+    res.redirect('/?entered=1');
   } catch (e) { return abandon('unexpected'); }
 });
 app.get('/api/alpha/privacy', (req, res) => {

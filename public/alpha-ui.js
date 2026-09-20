@@ -6,6 +6,15 @@
   const GENERIC_INVITE_ERROR = 'Invitation could not be redeemed. Check the invitation and try again.';
   let status = null;
   let redeemBound = false;
+  /*
+   * Why a sign-in did not finish, held for as long as this screen lasts.
+   *
+   * showOpenAccess() clears the error region when it draws -- it is redrawing
+   * the card, and a stale redemption failure must not outlive the form it came
+   * from. The callback's answer is not stale: it is the reason this load
+   * exists, so it is re-applied rather than wiped.
+   */
+  let entryNotice = '';
 
   const byId = id => document.getElementById(id);
   const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -70,7 +79,7 @@
     status = nextStatus || status;
     activateAccessPage();
     showTerms(status && status.termsVersion);
-    showAccessError('');
+    showAccessError(entryNotice);
     setInviteFormHidden(true);
     setOpenAccessHidden(false);
     /*
@@ -114,6 +123,29 @@
    */
   function gateEnabled() {
     return !!(status && status.mode && status.mode !== 'off');
+  }
+
+  /*
+   * The door is open but leads nowhere.
+   *
+   * Sessions live in PostgreSQL: once DATABASE_URL is set, the cookie carries
+   * only a session id and every authenticated request reads the rest from the
+   * database. With the database behind, /api/me and /api/login answer 503, so
+   * a reader who takes this door reaches a sign-in screen that cannot succeed
+   * and is returned here -- the round trip that looked like the front door
+   * refusing them. Say what is actually wrong instead of offering the trip.
+   */
+  function closeOpenAccess() {
+    const note = byId('alphaOpenNote');
+    if (note) {
+      note.textContent = 'Entry is open, but the workspace is temporarily unavailable. '
+        + 'Nothing behind this door can answer yet.';
+    }
+    const pass = byId('alphaPassThrough');
+    if (pass) {
+      pass.disabled = true;
+      pass.textContent = 'Workspace unavailable';
+    }
   }
 
   function showAccessGate(nextStatus = status) {
@@ -232,27 +264,63 @@
     }
   }
 
+  /*
+   * The provider sign-in ends here, whichever way it went.
+   *
+   * app.js announced the outcome, but app.js does not run until the gate has
+   * handed over -- so on an open deployment, where the reader stays at the
+   * door, a failed sign-in said nothing at all. They pressed continue, went to
+   * GitHub, came back to the same front door, and were told nothing about why.
+   */
+  const OAUTH_FAILURES = Object.freeze({
+    state_mismatch: 'that sign-in did not match this browser session. Start it again from this page.',
+    provider_unreadable: 'GitHub did not answer in a form we could read. It may be rate-limiting; try again shortly.',
+    bad_verification_code: 'that sign-in link had already been used. Start a fresh one.',
+    exchange_failed: 'GitHub declined the sign-in.',
+    unexpected: 'something failed part-way through.'
+  });
+
+  function takeCallbackMarkers() {
+    const params = new URLSearchParams(global.location.search);
+    const failure = params.get('oauth');
+    const entered = params.get('entered') === '1';
+    if (!failure && !entered) return { failure: '', entered: false };
+    params.delete('oauth');
+    params.delete('entered');
+    const query = params.toString();
+    global.history.replaceState(null, '',
+      `${global.location.pathname}${query ? `?${query}` : ''}${global.location.hash}`);
+    return { failure: failure || '', entered };
+  }
+
   async function boot() {
     bindRedemption();
     activateAccessPage();
-    showAccessError('');
+    const callback = takeCallbackMarkers();
+    entryNotice = callback.failure
+      ? `Could not finish signing in with GitHub — ${OAUTH_FAILURES[callback.failure]
+        || `it failed (${callback.failure.replace(/_/g, ' ')}).`}`
+      : '';
+    showAccessError(entryNotice);
     showWaking();
-    const ready = await waitUntilReady();
     /*
-     * Asked whether or not the service came back ready.
+     * Both at once, because they answer different questions.
      *
-     * The gate's setting does not depend on the database: with the gate off
-     * the status route answers from configuration alone, and it is that
-     * setting -- not the database -- which decides what this screen is. This
-     * used to return here, so a deployment whose database was behind never
-     * learned its own gate was open. It sat on the invitation form, because
-     * that was the markup's default, under a readiness line that never
-     * cleared. An operator who had turned entry off saw the gate anyway, and
-     * the one thing that could have corrected it was the request never made.
+     * Readiness is about the database. The gate's setting is not: with entry
+     * off the status route answers from configuration alone, in a single
+     * round trip. Asking them in sequence made every visitor wait out the
+     * whole 1s-2s-4s-8s readiness ladder -- fifteen seconds of "Waking
+     * database" -- before the page could say what kind of screen it even was,
+     * on a deployment where the answer was already sitting there.
+     *
+     * The ladder still runs; nothing below it is skipped. It simply no longer
+     * stands in front of a question it cannot answer.
      */
+    const readiness = waitUntilReady();
     try {
       status = await jsonRequest('/api/alpha/status');
     } catch {
+      await readiness;
       showWaking('Temporarily unavailable');
       return Object.freeze({ allowed: false, reason: 'unavailable' });
     }
@@ -265,9 +333,27 @@
       return Object.freeze({ allowed: false, reason: 'expired', status });
     }
     if (status.mode === 'off') {
+      /*
+       * The way through is drawn at once, so the page settles in one step
+       * instead of two. Whether it can be walked depends on the database --
+       * sessions live there -- so the readiness answer, when it arrives,
+       * decides only that.
+       */
+      /*
+       * A reader on the far side of a completed sign-in is not a new arrival,
+       * and the front door is not where they were going. They asked to pass
+       * once already; asking again is the loop. Readiness is awaited on this
+       * path alone, because the workspace they are being handed to is the
+       * thing that needs the database.
+       */
+      if (callback.entered && await readiness) {
+        return Object.freeze({ allowed: true, reason: 'entered', status });
+      }
       showOpenAccess(status);
+      readiness.then(open => { if (!open) closeOpenAccess(); });
       return Object.freeze({ allowed: false, reason: 'open', status });
     }
+    const ready = await readiness;
     /*
      * The gate is on, and redemption needs the database that is not answering.
      * Say that plainly rather than offering a field that cannot be honoured:

@@ -207,6 +207,19 @@ test('the scene leans in while the reader is in the card and settles when they l
   ).toBeLessThan(1.01);
 });
 
+test('resizing a stopped scene redraws its held frame without starting a loop', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await instrument(page);
+  await mockPublicAlphaApi(page, { access: 'required', ready: 'ready' });
+  await page.goto('/');
+  await ringOrSkip(page);
+  expect(await litPixels(page)).toBeGreaterThan(500);
+  await page.setViewportSize({ width: 820, height: 780 });
+  await expect.poll(() => litPixels(page)).toBeGreaterThan(500);
+  await page.waitForTimeout(200);
+  expect(await draws(page, 500)).toBe(0);
+});
+
 test('the motion switch stands the scene down without taking the state away', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'required', ready: 'ready' });
   await page.goto('/');
@@ -294,21 +307,24 @@ test('the scene follows live OS motion and stands down behind the gate', async (
   const portal = page.locator('#lpPortal');
 
   await page.locator('#alphaInviteInput').click();
-  // Reaching the invitation scrolls the scene out of view on a phone. Standing
-  // down is intentional there; bring it back before checking it runs.
+  // The redesigned phone puts the card close to the scene. Scroll beyond the
+  // artwork explicitly: lifecycle should not depend on the form's position.
   if (isMobile) {
+    await page.locator('.lp-foot').scrollIntoViewIfNeeded();
     await expect(portal).not.toBeInViewport();
     expect(await draws(page)).toBe(0);
   }
   await portal.scrollIntoViewIfNeeded();
   await expect(portal).toBeInViewport({ ratio: 0.05 });
   await expect(portal).toHaveClass(/is-live/);
-  expect(await running(page)).toBe(true);
+  await expect.poll(() => running(page), { timeout: 7000 }).toBe(true);
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await draws(page)).toBeLessThan(HELD);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  expect(await running(page)).toBe(true);
+  // Media-query notifications and GPU scheduling settle asynchronously.
+  // Require sustained drawing, but do not race one particular time window.
+  await expect.poll(() => running(page), { timeout: 7000 }).toBe(true);
 
   /*
    * Through the gate, the scene is behind a screen nobody is looking at. The

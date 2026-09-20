@@ -8,8 +8,8 @@
  * shipped in a public repository with no licence anyone could name. This
  * draws the same idea from arithmetic: a wireframe sphere, latitude-coloured,
  * with a travelling wave over it and a rim that lights where the surface
- * turns away from the camera. Nothing is downloaded, nothing is licensed, and
- * it answers the pointer -- which a video never could.
+ * turns away from the camera. No video is downloaded; the geometry answers
+ * the pointer. The supplied component's attribution is retained below.
  *
  * Adapted from the Plasma Ring component. The original is a React component
  * built on motion/react; neither exists here (no build step, and the page's
@@ -367,8 +367,8 @@ void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
     let reaching = 0;
     let reachingTarget = 0;
     const cam = { yaw: 0, pitch: 0, yawV: 0, pitchV: 0 };
-    const hover = { active: 0, target: 0, miss: 1, x: 0, y: 0, dirX: 0, dirY: 1, dirZ: 0 };
-    const drag = { active: false, lastX: 0, lastY: 0 };
+    const hover = { active: 0, target: 0, x: 0, y: 0, dirX: 0, dirY: 1, dirZ: 0 };
+    const drag = { active: false, id: null, touch: false, lastX: 0, lastY: 0 };
 
     let cssW = 0;
     let cssH = 0;
@@ -405,19 +405,9 @@ void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
       return DENSITY_MAX;
     }
 
-    /*
-     * Where the subject sits, in clip space.
-     *
-     * Centred, it lands under the copy column -- which the mask then removes,
-     * so the reader sees the half of a sphere that survived a gradient. The
-     * open middle-right of the hero is where the mask is fully open and where
-     * the eye already travels between the headline and the card, so that is
-     * where it belongs. A phone gets the band, which is already the subject's
-     * own box, so there it stays centred.
-     */
+    /* The artwork now has its own layout box, separate from the entry form. */
     function shiftFor() {
-      if (cssW < 940) return [0, 0];
-      return [0.34, 0.04];
+      return [0, 0];
     }
 
     function raySphereHit(mx, my, focal, yaw, pitch, camDist, radius) {
@@ -435,7 +425,7 @@ void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
          nowhere near it. */
       const [shx, shy] = shiftFor();
       const px = mx * dpr - canvas.width / 2 - (shx * canvas.width / 2);
-      const py = canvas.height / 2 - my * dpr + (shy * canvas.height / 2);
+      const py = canvas.height / 2 - my * dpr - (shy * canvas.height / 2);
       const dcx = px / focal;
       const dcy = py / focal;
       const dcz = -1;
@@ -472,8 +462,6 @@ void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
 
       /* Eased rather than animated by a library: one exponential approach per
          frame reads the same and costs nothing. */
-      const ease = 1 - Math.exp(-dt * 6);
-      hover.active += (hover.target * hover.miss - hover.active) * ease;
       reaching += (reachingTarget - reaching) * (1 - Math.exp(-dt * 3.2));
 
       const damp = 1 - Math.pow(BASE.orbitDamping / 100, dt * 10);
@@ -485,18 +473,18 @@ void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
       cam.pitchV *= (1 - damp * 1.4);
 
       const camDist = BASE.camFar - BASE.camPerScale * BASE.scale;
-      const focal = canvas.height / (2 * Math.tan((FOV_DEG / 2) * Math.PI / 180));
+      const focal = Math.min(canvas.width, canvas.height) / (2 * Math.tan((FOV_DEG / 2) * Math.PI / 180)) * 1.25;
       const totalPitch = cam.pitch + BASE.tilt;
 
-      if (hover.active > 0.001) {
-        const hit = raySphereHit(hover.x, hover.y, focal, cam.yaw, totalPitch, camDist, BASE.radius);
+      let hit = null;
+      if (hover.target) {
+        hit = raySphereHit(hover.x, hover.y, focal, cam.yaw, totalPitch, camDist, BASE.radius);
         if (hit) {
           hover.dirX = hit[0]; hover.dirY = hit[1]; hover.dirZ = hit[2];
-          hover.miss = Math.min(1, hover.miss / 0.8);
-        } else {
-          hover.miss *= 0.8;
         }
       }
+      // A miss must not disable picking: the next pointer position can hit.
+      hover.active += ((hit ? 1 : 0) - hover.active) * (1 - Math.exp(-dt * 6));
 
       const cy = Math.cos(cam.yaw);
       const sy = Math.sin(cam.yaw);
@@ -570,32 +558,28 @@ void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
     };
     canvas.addEventListener('webglcontextlost', onLost);
 
+    const onResize = () => {
+      resize();
+      // Resizing clears the drawing buffer even when animation is stopped.
+      if (!running) draw(0);
+    };
     let observer = null;
     if (typeof global.ResizeObserver === 'function') {
-      observer = new global.ResizeObserver(resize);
+      observer = new global.ResizeObserver(onResize);
       observer.observe(canvas);
     } else if (global.addEventListener) {
-      global.addEventListener('resize', resize);
+      global.addEventListener('resize', onResize);
     }
     resize();
 
-    /*
-     * Pointer interaction is for pointers that can hover, and nothing else.
-     *
-     * The hero is the whole first screen, and the original captures the
-     * pointer on pointerdown to run its orbit drag. On a touch device that
-     * capture is a scroll the reader does not get: the page simply stops
-     * moving under their thumb on the one screen they must get past. A finger
-     * cannot hover either, so the bulge it drives has nothing to follow.
-     */
-    const finePointer = !global.matchMedia
-      || global.matchMedia('(hover: hover) and (pointer: fine)').matches;
-
+    // One pointer stream, on the canvas only. Pointer capture carries a drag
+    // outside it; pan-y/pinch-zoom in CSS leave native touch scrolling intact.
     const pointerMove = event => {
-      const rect = host.getBoundingClientRect();
-      hover.x = event.clientX - rect.left;
-      hover.y = event.clientY - rect.top;
-      hover.target = 1;
+      if (!running || (drag.active && event.pointerId !== drag.id)) return;
+      const rect = canvas.getBoundingClientRect();
+      hover.x = (event.clientX - rect.left) * cssW / (rect.width || 1);
+      hover.y = (event.clientY - rect.top) * cssH / (rect.height || 1);
+      hover.target = hover.x >= 0 && hover.x <= cssW && hover.y >= 0 && hover.y <= cssH ? 1 : 0;
       if (!drag.active) return;
       const speed = (BASE.orbitSpeed / 100) * (Math.PI / 180);
       cam.yawV += (event.clientX - drag.lastX) * speed;
@@ -604,25 +588,34 @@ void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
       drag.lastY = event.clientY;
     };
     const pointerDown = event => {
+      if (!running || drag.active || event.isPrimary === false || event.button !== 0) return;
       drag.active = true;
+      drag.id = event.pointerId;
+      drag.touch = event.pointerType === 'touch';
       drag.lastX = event.clientX;
       drag.lastY = event.clientY;
+      pointerMove(event);
       if (host.setPointerCapture) {
         try { host.setPointerCapture(event.pointerId); } catch { /* not capturable */ }
       }
     };
-    const pointerUp = () => { drag.active = false; };
+    const pointerUp = event => {
+      if (event && event.pointerId !== drag.id) return;
+      const id = drag.id;
+      if (drag.touch || !event || event.type !== 'pointerup') hover.target = 0;
+      drag.active = false;
+      drag.id = null;
+      if (id !== null && host.releasePointerCapture) {
+        try { host.releasePointerCapture(id); } catch { /* already released */ }
+      }
+    };
     const pointerLeave = () => { hover.target = 0; };
-
-    if (finePointer) {
-      host.addEventListener('pointerdown', pointerDown);
-      host.addEventListener('pointermove', pointerMove);
-      host.addEventListener('pointerleave', pointerLeave);
-      /* On the window too, so a drag that runs off the stage keeps its grip
-         and releases wherever the button actually comes up. */
-      global.addEventListener('pointermove', pointerMove);
-      global.addEventListener('pointerup', pointerUp);
-    }
+    host.addEventListener('pointerdown', pointerDown);
+    host.addEventListener('pointermove', pointerMove);
+    host.addEventListener('pointerleave', pointerLeave);
+    host.addEventListener('pointerup', pointerUp);
+    host.addEventListener('pointercancel', pointerUp);
+    host.addEventListener('lostpointercapture', pointerUp);
 
     return Object.freeze({
       /*
@@ -642,6 +635,9 @@ void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
       },
       stop() {
         running = false;
+        pointerUp();
+        cam.yawV = 0;
+        cam.pitchV = 0;
         if (raf) global.cancelAnimationFrame(raf);
         raf = 0;
       },
@@ -651,18 +647,22 @@ void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
         if (!running) this.renderStill();
       },
       setReaching(on) { reachingTarget = on ? 1 : 0; },
-      interactive() { return finePointer; },
+      interactive() { return true; },
       destroy() {
         this.stop();
         canvas.removeEventListener('webglcontextlost', onLost);
         if (observer) observer.disconnect();
-        else if (global.removeEventListener) global.removeEventListener('resize', resize);
-        if (!finePointer) return;
+        else if (global.removeEventListener) global.removeEventListener('resize', onResize);
         host.removeEventListener('pointerdown', pointerDown);
         host.removeEventListener('pointermove', pointerMove);
         host.removeEventListener('pointerleave', pointerLeave);
-        global.removeEventListener('pointermove', pointerMove);
-        global.removeEventListener('pointerup', pointerUp);
+        host.removeEventListener('pointerup', pointerUp);
+        host.removeEventListener('pointercancel', pointerUp);
+        host.removeEventListener('lostpointercapture', pointerUp);
+        gl.deleteBuffer(polarBuf);
+        gl.deleteBuffer(rndBuf);
+        gl.deleteBuffer(idxBuf);
+        gl.deleteProgram(program);
       }
     });
   }

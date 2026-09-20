@@ -21,6 +21,7 @@
    */
   const lp = document.querySelector('.lp');
   const card = document.querySelector('.lp-card');
+  const art = document.querySelector('.lp-art');
   const reachListeners = [];
   const announceReaching = on => reachListeners.forEach(fn => fn(on));
 
@@ -66,6 +67,20 @@
   const connection = global.navigator && global.navigator.connection;
   const root = document.documentElement;
 
+  // Content is visible by default, including without WebGL/JavaScript. Animate
+  // each section once as it arrives; never take over the browser's scrolling.
+  if (typeof IntersectionObserver === 'function' && document.querySelectorAll) {
+    const sections = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        if (root.dataset.motion !== 'off' && !(reducedMotion && reducedMotion.matches)
+            && !(connection && connection.saveData)) entry.target.classList.add('lp-revealed');
+        sections.unobserve(entry.target);
+      });
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.lp-steps, .lp-sec').forEach(section => sections.observe(section));
+  }
+
   /*
    * WebGL can be absent for reasons that are none of the reader's business: a
    * blocklisted driver, a headless build, a browser with it switched off. The
@@ -73,12 +88,11 @@
    * a subject and nothing else -- the page is never a black box waiting for a
    * context that is not coming.
    */
-  /* Listening on the canvas, not the stage: the stage is pointer-events:none
-     so the copy above it is never blocked, and only the canvas opts back in
-     (and only for a pointer that can hover -- see plasma-ring.js). */
+  // The canvas owns an unobstructed box and handles pointer capture itself.
   const ring = global.NebulaPlasmaRing && global.NebulaPlasmaRing.create(canvas);
   if (!ring) {
     canvas.hidden = true;
+    if (art) art.hidden = true;
     return;
   }
   reachListeners.push(on => ring.setReaching(on));
@@ -100,14 +114,16 @@
    * cannot address.
    */
   const glow = document.querySelector('.lp-glow');
+  let stopGlow = () => {};
   if (glow && ring.interactive()) {
-    const rest = { x: 68, y: 46 };
+    const rest = { x: 50, y: 50 };
     const at = { x: rest.x, y: rest.y };
     const want = { x: rest.x, y: rest.y };
     let glowRaf = 0;
     let glowLast = 0;
 
     const step = now => {
+      if (!ring.isRunning()) { glowRaf = 0; return; }
       const dt = Math.min((now - glowLast) / 1000, 0.05);
       glowLast = now;
       const k = 1 - Math.exp(-dt * 4.5);
@@ -122,13 +138,18 @@
       glowRaf = global.requestAnimationFrame(step);
     };
     const nudge = () => {
-      if (glowRaf) return;
+      if (glowRaf || !ring.isRunning()) return;
       glowLast = global.performance ? global.performance.now() : Date.now();
       glowRaf = global.requestAnimationFrame(step);
     };
 
-    const hero = document.querySelector('.lp-hero') || document;
+    stopGlow = () => {
+      if (glowRaf) global.cancelAnimationFrame(glowRaf);
+      glowRaf = 0;
+    };
+    const hero = art || document.querySelector('.lp-hero') || document;
     hero.addEventListener('pointermove', event => {
+      if (!ring.isRunning()) return;
       const rect = (hero.getBoundingClientRect ? hero : document.documentElement).getBoundingClientRect();
       want.x = ((event.clientX - rect.left) / (rect.width || 1)) * 100;
       want.y = ((event.clientY - rect.top) / (rect.height || 1)) * 100;
@@ -167,12 +188,14 @@
   }
 
   function sync() {
+    if (art) art.classList.toggle('is-static', !eligible());
     if (eligible()) {
       ring.start();
       reveal();
       return;
     }
     ring.stop();
+    stopGlow();
     /*
      * Still, not gone. A reader who asked for less motion gets the portal as
      * a held frame -- the picture without the movement -- which is what the

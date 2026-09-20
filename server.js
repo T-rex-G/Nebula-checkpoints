@@ -134,6 +134,10 @@ const { createGiteaFileMutationAdapter } = require('./src/provider-file-mutation
 const { normalizeFileBatch, summarizeBatchItems } = require('./src/mutation-coverage');
 const { pathFactsForAction } = require('./src/protected-paths');
 const { offerSafePassage } = require('./src/safe-passage');
+const {
+  selectRepositories: selectActivityRepositories,
+  feed: buildActivityFeed
+} = require('./src/activity-feed');
 const { createGovernanceRuntime } = require('./src/governance-enforcement');
 const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
@@ -4293,38 +4297,52 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
 });
 
 /* ================= REPOS ================= */
+/*
+ * The inventory a session may see, in one place.
+ *
+ * Two screens read this list now -- the repositories page and the overview's
+ * activity feed -- and the filter it applies is a security boundary, not a
+ * convenience: alphaRepositoryListAllowed is what keeps a cohort session from
+ * being told about repositories its invitation does not reach. A second copy
+ * of this logic is a second place for that filter to be forgotten, so both
+ * callers come through here.
+ */
+async function listRepositoriesFor(req, query = {}) {
+  if (req.gh.provider === 'gitlab') {
+    const list = await glFetch(req.gh, '/projects?membership=true&order_by=last_activity_at&per_page=100');
+    return list.filter(p => alphaRepositoryListAllowed(
+      req,
+      p && p.namespace && p.namespace.full_path,
+      p && p.path
+    )).map(p => ({
+      full_name: p.path_with_namespace, name: p.path,
+      private: p.visibility !== 'public', default_branch: p.default_branch,
+      pushed_at: p.last_activity_at, description: p.description,
+      stargazers_count: p.star_count, language: null,
+      owner: { login: (p.namespace && p.namespace.full_path) || '' }
+    }));
+  }
+  const page = parseInt(query.page || '1', 10);
+  const sort = ['pushed', 'created', 'updated', 'full_name'].includes(query.sort) ? query.sort : 'pushed';
+  const result = req.gh.authMethod === 'github-app'
+    ? await gh(req.gh, `/installation/repositories?per_page=30&page=${page}`)
+    : await gh(req.gh, `/user/repos?sort=${sort}&per_page=30&page=${page}&affiliation=owner,collaborator,organization_member`);
+  const repos = req.gh.authMethod === 'github-app' ? (Array.isArray(result && result.repositories) ? result.repositories : []) : result;
+  return repos.filter(r => alphaRepositoryListAllowed(
+    req,
+    r && r.owner && r.owner.login,
+    r && r.name
+  )).map(r => ({
+    full_name: r.full_name, name: r.name, owner: r.owner.login,
+    private: r.private, description: r.description, language: r.language,
+    default_branch: r.default_branch, pushed_at: r.pushed_at,
+    stars: r.stargazers_count, forks: r.forks_count, open_issues: r.open_issues_count
+  }));
+}
+
 app.get('/api/repos', providerSessionAccess, alphaRepositoryListAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const list = await glFetch(req.gh, '/projects?membership=true&order_by=last_activity_at&per_page=100');
-      return res.json(list.filter(p => alphaRepositoryListAllowed(
-        req,
-        p && p.namespace && p.namespace.full_path,
-        p && p.path
-      )).map(p => ({
-        full_name: p.path_with_namespace, name: p.path,
-        private: p.visibility !== 'public', default_branch: p.default_branch,
-        pushed_at: p.last_activity_at, description: p.description,
-        stargazers_count: p.star_count, language: null,
-        owner: { login: (p.namespace && p.namespace.full_path) || '' }
-      })));
-    }
-    const page = parseInt(req.query.page || '1', 10);
-    const sort = ['pushed', 'created', 'updated', 'full_name'].includes(req.query.sort) ? req.query.sort : 'pushed';
-    const result = req.gh.authMethod === 'github-app'
-      ? await gh(req.gh, `/installation/repositories?per_page=30&page=${page}`)
-      : await gh(req.gh, `/user/repos?sort=${sort}&per_page=30&page=${page}&affiliation=owner,collaborator,organization_member`);
-    const repos = req.gh.authMethod === 'github-app' ? (Array.isArray(result && result.repositories) ? result.repositories : []) : result;
-    res.json(repos.filter(r => alphaRepositoryListAllowed(
-      req,
-      r && r.owner && r.owner.login,
-      r && r.name
-    )).map(r => ({
-      full_name: r.full_name, name: r.name, owner: r.owner.login,
-      private: r.private, description: r.description, language: r.language,
-      default_branch: r.default_branch, pushed_at: r.pushed_at,
-      stars: r.stargazers_count, forks: r.forks_count, open_issues: r.open_issues_count
-    })));
+    res.json(await listRepositoriesFor(req, req.query));
   } catch (e) { fail(res, e); }
 });
 app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.create', { allowExperimental: true }), repositoryCreationAccess, auth, mutationContext('repository.create'), async (req, res) => {
@@ -6147,6 +6165,77 @@ app.get('/api/repo/:owner/:repo/activity', providerSessionAccess, alphaRepositor
       pulls: (pulls || []).filter(p => fresh(p.updated_at)).map(p => ({ number: p.number, title: p.title, state: p.merged_at ? 'merged' : p.state, updated: p.updated_at })),
       issues: (issues || []).filter(i => !i.pull_request && fresh(i.updated_at)).map(i => ({ number: i.number, title: i.title, state: i.state, updated: i.updated_at })),
       releases: (releases || []).filter(r => fresh(r.published_at || r.created_at)).map(r => ({ tag: r.tag_name, name: r.name, published: r.published_at || r.created_at }))
+    });
+  } catch (e) { fail(res, e); }
+});
+
+/*
+ * The overview's activity feed.
+ *
+ * The overview has no repository in hand -- that is the whole difficulty. The
+ * cheap cross-repository source, GitHub's per-user event stream, is one request
+ * for everything, and it is not usable here: it does not exist for a GitHub App
+ * installation, which has no user to attribute events to, and it would be a new
+ * provider read that this project does not let itself claim as verified until a
+ * live run has earned it. So the feed is assembled from reads already earned,
+ * over a bounded set of repositories.
+ *
+ * Bounded is the operative word. Every repository here is a separate round trip
+ * against someone's rate limit, and an inventory of two hundred repositories
+ * must not turn opening the overview into two hundred requests. src/activity-feed.js
+ * caps the fan-out; this asks only for commits, because commits are the signal
+ * a feed is mostly made of and pulls, issues and releases would triple the cost
+ * of a screen the reader has not asked to drill into. The response says which
+ * kinds it carries so the card can describe itself truthfully rather than imply
+ * it is showing everything that happened.
+ *
+ * One repository failing is not the feed failing. Each read is settled
+ * independently and a repository that refused is named in the payload, because
+ * a card that quietly shows the other five is telling the reader the sixth was
+ * quiet when it was in fact unreadable.
+ */
+app.get('/api/activity/recent', providerSessionAccess, alphaRepositoryListAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days || '14', 10) || 14, 1), 90);
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const inventory = await listRepositoriesFor(req);
+    /* How many repositories to fan out over, not which ones -- the module
+       caps it either way. Named so nobody reads it as a list of names. */
+    const selected = selectActivityRepositories(inventory, req.query.repositoryLimit);
+
+    const results = await Promise.all(selected.map(async entry => {
+      try {
+        const commits = req.gh.provider === 'gitlab'
+          ? (await glFetch(req.gh, `/projects/${encodeURIComponent(entry.full_name)}/repository/commits?since=${encodeURIComponent(since)}&per_page=20`))
+            .map(c => ({ sha: c.id, message: c.title, author: c.author_name, date: c.created_at }))
+          : (await gh(req.gh, `/repos/${entry.owner}/${entry.name}/commits?since=${encodeURIComponent(since)}&per_page=20`))
+            .map(c => ({
+              sha: c.sha,
+              message: ((c.commit && c.commit.message) || '').split('\n')[0],
+              author: (c.commit && c.commit.author && c.commit.author.name) || '',
+              date: c.commit && c.commit.author && c.commit.author.date
+            }));
+        return { repo: entry.full_name, commits };
+      } catch (error) {
+        /*
+         * The reason, not a stack. publicErrorBody is what every other route
+         * uses to decide what a caller may be told, so the feed does not invent
+         * its own disclosure rule for the same provider errors.
+         */
+        const body = publicErrorBody(error, { correlationId: res.locals.correlationId });
+        return { repo: entry.full_name, error: (body && body.error) || 'unavailable' };
+      }
+    }));
+
+    res.json({
+      kind: 'nebulaverse-activity-feed',
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      days,
+      since,
+      kinds: ['commit'],
+      inventoryCount: inventory.length,
+      ...buildActivityFeed(results, { limit: req.query.limit })
     });
   } catch (e) { fail(res, e); }
 });

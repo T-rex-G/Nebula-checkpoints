@@ -1689,7 +1689,65 @@ function showOverview() {
   paintCoreState();
   renderWorkspacePulse();
   loadScannerPosture();
+  loadActivityFeed();
   showPage('overview');
+}
+
+/*
+ * The recent-activity feed.
+ *
+ * Fetched rather than computed, and fetched once: the reader who returns to
+ * the overview between two repository visits should not spend another handful
+ * of provider requests to see the same commits. A refresh of the page is what
+ * re-reads it, which is the same contract the rest of the overview has.
+ *
+ * Every failure path ends in a drawn card. A feed that silently stays on
+ * "Reading recent activity…" is worse than one that says it could not read
+ * anything, because the reader cannot tell a slow network from a broken
+ * surface.
+ */
+let activityFeedState = null;
+
+function paintActivityFeed() {
+  const root = $('#wpFeed');
+  if (!root || !window.NebulaWorkspacePulse || !window.NebulaWorkspacePulse.renderActivityFeed) return;
+  window.NebulaWorkspacePulse.renderActivityFeed(root, activityFeedState);
+}
+
+async function loadActivityFeed(force) {
+  if (!$('#wpFeed')) return;
+  if (activityFeedState && !activityFeedState.loading && !force) { paintActivityFeed(); return; }
+  activityFeedState = { loading: true };
+  paintActivityFeed();
+  try {
+    const payload = await api('/api/activity/recent');
+    activityFeedState = {
+      loading: false,
+      /*
+       * The moment the answer arrived, not the moment each row is painted.
+       * Reading Date.now() inside the renderer makes "3h ago" creep upward
+       * every time anything else repaints the card, which is a clock the
+       * reader can watch drift.
+       */
+      now: Date.now(),
+      days: payload.days,
+      kinds: payload.kinds || [],
+      inventoryCount: payload.inventoryCount || 0,
+      measured: !!payload.measured,
+      events: Array.isArray(payload.events) ? payload.events : [],
+      truncated: !!payload.truncated,
+      totalEvents: payload.totalEvents || 0,
+      undated: payload.undated || 0,
+      repositories: Array.isArray(payload.repositories) ? payload.repositories : [],
+      failed: Array.isArray(payload.failed) ? payload.failed : []
+    };
+  } catch (error) {
+    activityFeedState = {
+      loading: false,
+      error: `Recent activity could not be read: ${(error && error.message) || 'request failed'}`
+    };
+  }
+  paintActivityFeed();
 }
 
 /*

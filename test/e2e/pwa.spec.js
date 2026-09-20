@@ -39,7 +39,24 @@ test('PWA shell uses official release identity and installs a versioned shell ca
   await mockApi(page);
   await page.goto('/');
   await expect(page).toHaveTitle(/Nebulaverse-X/);
-  await expect(await ui.enterRepositories(page)).toBeVisible();
+  /*
+   * Whatever screen the shell settles on, not a chosen one.
+   *
+   * This is the only test in this file that lets a service worker run, and
+   * sw.js answers every /api/ GET with fetch() from inside the worker. A
+   * request a service worker makes is out of reach of page.route, so from the
+   * moment the worker calls clients.claim() the mocks above stop applying and
+   * boot talks to the real server -- which has no session, so the app settles
+   * on the invitation gate rather than the workspace. Whether that happens is
+   * a race between boot and the worker's install, which is why walking to the
+   * repository inventory here passed every local run and timed out in CI.
+   *
+   * Nothing below needs an admitted session: the registration, the cache names
+   * and /api/version are all answered by the real server either way. So this
+   * asks only what the rest of the test rests on -- that the shell booted far
+   * enough to render a screen and register a worker.
+   */
+  await expect(page.locator('.page.active').first()).toBeVisible();
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.evaluate(async () => {
     await caches.open('nv-api-perm');

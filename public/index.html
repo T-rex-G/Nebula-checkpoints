@@ -100,8 +100,13 @@
 -->
 <main class="page active" id="page-alpha-access" aria-labelledby="alphaAccessTitle">
   <div class="lp">
-    <div class="lp-hero">
-
+    <!--
+      The nav is a child of .lp rather than of .lp-hero so that it can stick to
+      the viewport. A sticky box resolves against its nearest scrollport, and
+      .lp-hero's overflow:hidden makes one that never scrolls -- so inside it
+      the bar simply scrolled away with the hero, and a visitor on a phone had
+      to scroll back to the top of the page to reach the theme control.
+    -->
     <header class="lp-nav">
       <span class="lp-brand">
         <!--
@@ -128,6 +133,8 @@
         </button>
       </span>
     </header>
+
+    <div class="lp-hero">
 
     <div class="lp-body">
       <div class="lp-copy">

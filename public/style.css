@@ -321,18 +321,37 @@ em{color:var(--teal);font-style:normal}
    ============================================================ */
 #page-alpha-access{padding:0}
 #page-alpha-access.active{display:block}
+/*
+ * No var(--page) in this stack. The shell already paints the product's ground:
+ * body carries var(--page) and body::before carries var(--bloom) as a fixed
+ * layer. Repeating the page colour here laid an opaque slab of it over that
+ * bloom, so the landing read as a second surface built on top of the theme --
+ * and because the slab scrolled while the bloom stayed fixed, dragging the
+ * page far enough slid the slab off and uncovered the real background behind
+ * it. These two accents now sit on the shell's ground rather than replacing
+ * it, which is also what makes the landing and the workspace the same room.
+ */
 .lp{position:relative;isolation:isolate;background:
   radial-gradient(ellipse 720px 800px at 83% 350px,rgba(34,211,238,.07),transparent 72%),
-  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(124,58,237,.13),transparent 75%),
-  var(--page)}
+  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(124,58,237,.13),transparent 75%)}
 [data-theme="light"] .lp{background:
   radial-gradient(ellipse 720px 800px at 83% 350px,rgba(14,154,184,.07),transparent 72%),
-  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(124,58,237,.07),transparent 75%),
-  var(--page)}
+  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(124,58,237,.07),transparent 75%)}
 .lp-hero{position:relative;overflow:hidden}
 .lp-nav,.lp-body,.lp-more{width:min(100%,1352px);margin-inline:auto;padding-inline:clamp(20px,5vw,56px)}
-.lp-nav{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;
+.lp-nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
   gap:16px;padding-block:28px;padding-top:max(28px,env(safe-area-inset-top))}
+/*
+ * The bar reads through to whatever passes under it rather than sitting on a
+ * ruled strip: the scrim is a blur that fades to nothing before the bar ends,
+ * so there is no edge drawn across the page at rest. It is a child layer of
+ * the nav's own stacking context, so z-index:-1 stays behind the brand and the
+ * theme control without reaching the page behind the nav.
+ */
+.lp-nav::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  backdrop-filter:blur(13px) saturate(118%);-webkit-backdrop-filter:blur(13px) saturate(118%);
+  -webkit-mask-image:linear-gradient(180deg,#000 58%,transparent);
+  mask-image:linear-gradient(180deg,#000 58%,transparent)}
 .lp-brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display);
   font-weight:700;letter-spacing:-.015em;color:var(--text);font-size:1rem}
 .lp-brand .nv-mark{width:26px;height:26px;flex:0 0 26px}
@@ -351,6 +370,18 @@ em{color:var(--teal);font-style:normal}
   font-size:clamp(2.5rem,4.4vw,3.85rem);line-height:1.06;letter-spacing:-.04em}
 .lp-title em{font-style:italic;font-weight:600;color:var(--accent2)}
 .lp-lede{margin:20px 0 0;max-width:34rem;color:var(--text2);font-size:1rem;line-height:1.65}
+/*
+ * Light theme, landing only. Behind the gate this copy sits on an opaque plate
+ * -- var(--shell) is solid white -- so var(--fg2) has a flat ground to earn
+ * its contrast against. On the landing it now sits directly on the shell's
+ * bloom, a violet wash over var(--page), and against that the same ink
+ * measures 4.20:1 for the lede and 4.12:1 for the state line, under the 4.5:1
+ * floor for body text. The ink is weighted for the ground it is actually on
+ * rather than the bloom being thinned to suit it: the bloom is the product's
+ * background, and this is the one screen that shows it behind running text.
+ */
+[data-theme="light"] .lp-lede,
+[data-theme="light"] .lp-state{color:rgba(22,18,52,.78)}
 
 /* The artwork owns its hit area. No content layer covers the canvas. */
 .lp-art{grid-area:art;position:relative;align-self:center;min-width:0;aspect-ratio:1/1.12}
@@ -360,9 +391,20 @@ em{color:var(--teal);font-style:normal}
   opacity:0;transition:opacity .7s var(--ease)}
 .lp-portal:active{cursor:grabbing}
 .lp-portal.is-live{opacity:1}
-.lp-glow{position:absolute;inset:0;--gx:50%;--gy:50%;pointer-events:none;
+/*
+ * Masked, and inset outward past the stage. Both light sources are wider than
+ * the box that carries them -- the violet one is centred at 65% 65% and still
+ * has colour left at 100% -- so the element's own rectangle cut them off and
+ * the plasma appeared to sit inside a lit panel with visible corners. The
+ * radial mask is what removes the rectangle for good: --gx/--gy follow the
+ * pointer, so any fixed set of stops is only ever one gesture away from
+ * reaching an edge again.
+ */
+.lp-glow{position:absolute;inset:-14%;--gx:50%;--gy:50%;pointer-events:none;
   background:radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(34,211,238,.16),transparent 80%),
-    radial-gradient(ellipse 48% 45% at 65% 65%,rgba(124,58,237,.15),transparent 80%)}
+    radial-gradient(ellipse 48% 45% at 65% 65%,rgba(124,58,237,.15),transparent 80%);
+  -webkit-mask-image:radial-gradient(closest-side at 50% 50%,#000 54%,rgba(0,0,0,0) 100%);
+  mask-image:radial-gradient(closest-side at 50% 50%,#000 54%,rgba(0,0,0,0) 100%)}
 [data-theme="light"] .lp-glow{background:
   radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(14,154,184,.12),transparent 80%),
   radial-gradient(ellipse 48% 45% at 65% 65%,rgba(124,58,237,.08),transparent 80%)}
@@ -399,8 +441,17 @@ em{color:var(--teal);font-style:normal}
 .alpha-access .eyebrow{margin:0 0 10px;color:var(--teal);font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
 .alpha-access h1{margin:0;font-size:clamp(1.75rem,6vw,2.55rem);line-height:1.08;letter-spacing:-.025em}
 .alpha-access-rule{margin:0 0 10px;color:var(--text2);line-height:1.6;font-size:.82rem}
+/*
+ * Darker than it needs to be against a plate, because the two eyebrows are not
+ * on one: they sit on the shell's bloom, which this theme paints as a violet
+ * wash over var(--page). #0A6B80 cleared the 4.5:1 floor at desktop width and
+ * measured 3.69:1 at phone width, where the wash is strongest over the copy
+ * column -- a colour whose contrast depends on where the line happens to land
+ * has not got contrast. The card labels take the same value so the label reads
+ * as one thing down the page; on the card's own plate it simply reads darker.
+ */
 [data-theme="light"] .lp-eyebrow,[data-theme="light"] .lp-sec-eyebrow,
-[data-theme="light"] .alpha-access .eyebrow,[data-theme="light"] .alpha-wake-state{color:#0A6B80}
+[data-theme="light"] .alpha-access .eyebrow,[data-theme="light"] .alpha-wake-state{color:#06505F}
 
 /* A shared, open rhythm connects entry to the rest of the page. */
 .lp-steps{grid-area:steps;list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));

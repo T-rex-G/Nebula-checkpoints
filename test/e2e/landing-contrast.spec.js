@@ -40,13 +40,13 @@ const COPY = [
 async function measure(page, selectors) {
   const runs = await page.evaluate(sels => {
     /*
-     * The poster, not a frame of the video: a guard needs the same answer
-     * every run. The poster is a real frame of the same scene, and the copy
-     * has at most a few percent of the scene behind it by design, so the
-     * difference a moving frame could make is far smaller than the headroom.
+     * A held frame, not a moving one: a guard needs the same answer every
+     * run. The caller stands the scene down before calling this, which leaves
+     * the portal drawn at time zero -- the same picture every time -- and the
+     * copy has at most a few percent of the scene behind it by design, so the
+     * difference a moving frame could make is far smaller than the headroom
+     * anyway.
      */
-    const video = document.getElementById('lpVideo');
-    if (video) { try { video.pause(); } catch (e) { /* nothing to pause */ } video.classList.remove('is-playing'); }
 
     const out = [];
     for (const sel of sels) {
@@ -145,7 +145,18 @@ for (const theme of ['dark', 'light']) {
       try { localStorage.setItem('nv_theme', value); } catch (e) { /* private mode */ }
     }, theme);
     await page.goto('/');
-    await expect(page.locator('.lp-poster')).toHaveJSProperty('complete', true);
+
+    /*
+     * Stand the scene down before measuring. The portal draws itself, so
+     * there is no poster to wait for -- what there is instead is a frame at
+     * time zero, which is reached by turning motion off and letting the
+     * module settle. Without this the sample is taken from whichever frame
+     * the GPU happened to be on.
+     */
+    await page.evaluate(() => { document.documentElement.dataset.motion = 'off'; });
+    await page.evaluate(() => new Promise(resolve =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(page.locator('#lpPortal')).toHaveClass(/is-live/);
 
     const worst = await measure(page, COPY);
     expect(Object.keys(worst).length).toBeGreaterThan(12);

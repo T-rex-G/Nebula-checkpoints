@@ -692,7 +692,10 @@
      * the whole point.
      */
     const when = element('time', 'wp-feed-when', since(event.at, now));
-    if (Number.isFinite(event.at)) when.setAttribute('datetime', new Date(event.at).toISOString());
+    if (Number.isFinite(event.at)) {
+      when.setAttribute('datetime', new Date(event.at).toISOString());
+      when.setAttribute('title', new Date(event.at).toLocaleString());
+    }
     head.append(when);
     row.appendChild(head);
 
@@ -703,21 +706,11 @@
      * a claim the reader cannot go and check, which is the one thing this
      * surface is not allowed to be.
      */
-    const marks = [event.ref, event.detail, event.actor]
-      .map(value => String(value || '').trim())
-      .filter(Boolean)
-      /*
-       * One fact per mark. A commit's ref is the full sha and its detail is the
-       * first seven characters of that same sha, so a plain equality check
-       * leaves "a1b2c3d4e5 · a1b2c3d" on every row -- a number and its own
-       * prefix, which reads as a rendering fault. A release repeats its tag
-       * outright. Both are the same problem: drop a mark another mark already
-       * contains, keeping the longer one.
-       */
-      .filter((value, index, all) => !all.some((other, at) =>
-        at !== index && other.length >= value.length &&
-        (other.length > value.length || at < index) &&
-        other.startsWith(value)));
+    // Deduplicate the reference, never the actor: a user's name can happen
+    // to be a prefix of a hash and remains a different fact.
+    const ref = String(event.ref || '').trim();
+    const detail = String(event.detail || '').trim();
+    const marks = [ref, detail && !ref.startsWith(detail) ? detail : '', event.actor].filter(Boolean);
     if (marks.length) row.appendChild(element('p', 'wp-feed-meta', marks.join(' \u00b7 ')));
     return row;
   }
@@ -730,10 +723,6 @@
   function renderFeed(host, current) {
     if (!host) return;
     host.textContent = '';
-    const head = element('div', 'wp-head');
-    head.append(element('span', 'wp-label', 'RECENT ACTIVITY'));
-    host.appendChild(head);
-
     if (!current || current.loading) {
       host.appendChild(element('p', 'wp-stat-note', 'Reading recent activity\u2026'));
       return;
@@ -742,7 +731,10 @@
       host.appendChild(element('p', 'wp-stat-note', current.error));
       return;
     }
-    if (!current.measured) {
+    if (!current.inventoryCount && !current.failed?.length) {
+      host.appendChild(element('p', 'wp-stat-note',
+        'No repositories are available to this session yet. Connect a sandbox repository to see recent activity.'));
+    } else if (!current.measured) {
       /* Not measured is not "nothing happened": no repository answered, and
          saying "no recent activity" here would be inventing a quiet week. */
       host.appendChild(element('p', 'wp-stat-note',
@@ -755,14 +747,17 @@
       const list = element('ul', 'wp-feed');
       current.events.forEach(event => list.appendChild(feedRow(event, now)));
       host.appendChild(list);
-      /*
-       * What the feed is and is not. It reads commits over a bounded set of
-       * repositories, and a reader who is not told that will read an empty
-       * stretch as a quiet workspace rather than as a window that did not
-       * reach far enough.
-       */
-      host.appendChild(element('p', 'wp-stat-note',
-        `Commits from the last ${current.days} days across ${current.repositories.length} of ${current.inventoryCount} repositor${current.inventoryCount === 1 ? 'y' : 'ies'}, most recently pushed first${current.truncated ? `, showing ${current.events.length} of ${current.totalEvents}` : ''}.`));
+    }
+
+    if (current.inventoryCount) {
+      host.appendChild(element('p', 'wp-stat-note wp-feed-scope',
+        `Commits from the last ${current.days} days across ${current.repositories.length} of ${current.inventoryCount} repositor${current.inventoryCount === 1 ? 'y' : 'ies'} in the first inventory page. Up to ${current.perRepositoryLimit || 20} commits per repository${current.truncated ? `; showing ${current.events.length} of ${current.totalEvents} returned commits` : ''}. This is a bounded sample, not a complete activity history.`));
+    }
+    const readAt = Date.parse(current.generatedAt);
+    if (Number.isFinite(readAt)) {
+      const stamp = element('time', 'wp-stat-note wp-feed-updated', `Updated ${new Date(readAt).toLocaleString()}`);
+      stamp.setAttribute('datetime', new Date(readAt).toISOString());
+      host.appendChild(stamp);
     }
 
     if (current.undated > 0) {

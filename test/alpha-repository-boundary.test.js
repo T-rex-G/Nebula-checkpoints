@@ -509,6 +509,15 @@ function jsonResponse(body, status = 200) {
 global.fetch = async function providerFetch(url, options = {}) {
   const href = String(url);
   record({ kind: 'provider.fetch', method: options.method || 'GET', url: href });
+  if (/\/projects\/Acme%2FDemo\/repository\/commits\?/i.test(href)) {
+    return jsonResponse([{ id: 'a'.repeat(40), title: 'Allowed activity', author_name: 'Fixture', created_at: '2026-09-20T10:00:00Z' }]);
+  }
+  if (/\/repos\/Acme\/Demo\/commits\?/i.test(href)) {
+    return jsonResponse([{ sha: 'a'.repeat(40), commit: {
+      message: 'Allowed activity', author: { name: 'Fixture', date: '2026-01-01T10:00:00Z' },
+      committer: { date: '2026-09-20T10:00:00Z' }
+    } }]);
+  }
   if (/\/api\/v4\/user$/.test(href)) {
     return jsonResponse({ username: 'fixture-user', name: 'Fixture', avatar_url: '' });
   }
@@ -906,6 +915,11 @@ ${logs}`
       const response = await request(pathname);
       assert.strictEqual(response.status, 200, `${pathname} must remain public`);
     }
+    const beforeUnauthenticatedFeed = transportEvents();
+    const unauthenticatedFeed = await request('/api/activity/recent');
+    assert.strictEqual(unauthenticatedFeed.status, 401);
+    assert.deepStrictEqual(transportEvents(), beforeUnauthenticatedFeed,
+      'an unauthenticated feed request must not resolve credentials or contact providers');
     for (const pathname of [
       '/api/version',
       '/api/config',
@@ -1163,6 +1177,23 @@ ${logs}`
         ['Acme/Demo'],
         `${sid} list must contain only the exact invitation scope`
       );
+
+      const beforeFeed = events('provider.fetch').length;
+      const feedResponse = await request('/api/activity/recent?repositoryLimit=999', {
+        headers: { cookie: combinedCookie(letter, sid) }
+      });
+      const feed = await json(feedResponse);
+      assert.strictEqual(feedResponse.status, 200, JSON.stringify(feed));
+      assert.strictEqual(feedResponse.headers.get('cache-control'), 'no-store');
+      assert.deepStrictEqual(feed.repositories, ['Acme/Demo']);
+      assert.strictEqual(feed.inventoryCount, 1);
+      assert.strictEqual(feed.events[0].title, 'Allowed activity');
+      assert.strictEqual(feed.events[0].at, Date.parse('2026-09-20T10:00:00Z'));
+      assert.strictEqual(feed.perRepositoryLimit, 20);
+      const reads = events('provider.fetch').slice(beforeFeed);
+      assert.ok(reads.every(event => event.method === 'GET'), 'the overview must never write to a provider');
+      assert.ok(!reads.some(event => /Production/i.test(event.url)), 'the feed must not read a repository outside the invitation');
+      assert.strictEqual(reads.filter(event => /commits\?/.test(event.url)).length, 1);
     }
 
     const cacheIdentityResponse = await request('/api/me', {

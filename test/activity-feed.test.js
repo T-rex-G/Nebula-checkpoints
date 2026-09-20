@@ -156,8 +156,7 @@ check('a multi-line commit message is reduced to its subject', () => {
     repo: 'a/one',
     commits: [{ sha: 'aaaaaaa', message: 'Subject line\n\nA body that goes on\nand on', author: 'Ada', date: '2026-09-20T10:00:00Z' }]
   }]);
-  assert.strictEqual(result.events[0].title, 'Subject line A body that goes on and on'.slice(0, 120),
-    'the body reached the feed unfolded');
+  assert.strictEqual(result.events[0].title, 'Subject line', 'the body reached the feed');
   assert.ok(!result.events[0].title.includes('\n'), 'a newline reached the feed and will break the row');
 });
 
@@ -246,6 +245,14 @@ check('the result and every event in it are frozen', () => {
   assert.ok(Object.isFrozen(result.events));
   assert.ok(result.events.every(event => Object.isFrozen(event)));
   assert.ok(Object.isFrozen(result.failed));
+});
+
+check('long commit subjects stay bounded independently of their bodies', () => {
+  const result = feed([{ repo: 'a/one', commits: [{
+    sha: 'a'.repeat(40), message: 'x'.repeat(180) + '\n\nA long body that belongs on the commit.',
+    author: 'Ada', date: '2026-09-20T10:00:00Z'
+  }] }]);
+  assert.strictEqual(result.events[0].title, 'x'.repeat(119) + '…');
 });
 
 check('junk in is an empty feed, not a crash', () => {

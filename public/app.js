@@ -1491,6 +1491,7 @@ async function purgePrivateCaches() {
 async function purgeLocalData(full) {
   // Invalidate before the first await: an old fetch may finish during cleanup.
   state.uiEpoch++;
+  clearActivityFeed();
   paintUnread([]);
   clearCsrfToken();
   clearGovernanceState();
@@ -1696,10 +1697,9 @@ function showOverview() {
 /*
  * The recent-activity feed.
  *
- * Fetched rather than computed, and fetched once: the reader who returns to
- * the overview between two repository visits should not spend another handful
- * of provider requests to see the same commits. A refresh of the page is what
- * re-reads it, which is the same contract the rest of the overview has.
+ * Fetched rather than computed, and cached per identity: a reader returning to
+ * the overview should not spend another handful of provider requests. Refresh
+ * explicitly re-reads it. A request from an old identity may never repaint it.
  *
  * Every failure path ends in a drawn card. A feed that silently stays on
  * "Reading recent activity…" is worse than one that says it could not read
@@ -1707,20 +1707,40 @@ function showOverview() {
  * surface.
  */
 let activityFeedState = null;
+let activityFeedRequest = 0;
+
+function clearActivityFeed() {
+  activityFeedRequest++;
+  activityFeedState = null;
+  const body = $('#wpFeed .wp-body');
+  if (body) body.replaceChildren();
+  const refresh = $('#wpFeedRefresh');
+  if (refresh) refresh.disabled = true;
+}
 
 function paintActivityFeed() {
   const root = $('#wpFeed');
   if (!root || !window.NebulaWorkspacePulse || !window.NebulaWorkspacePulse.renderActivityFeed) return;
   window.NebulaWorkspacePulse.renderActivityFeed(root, activityFeedState);
+  const refresh = $('#wpFeedRefresh');
+  if (refresh) {
+    refresh.disabled = !state.me || !!(activityFeedState && activityFeedState.loading);
+    refresh.textContent = activityFeedState && activityFeedState.loading ? 'Refreshing…' : 'Refresh';
+  }
 }
 
 async function loadActivityFeed(force) {
-  if (!$('#wpFeed')) return;
-  if (activityFeedState && !activityFeedState.loading && !force) { paintActivityFeed(); return; }
+  if (!$('#wpFeed') || !state.me) return;
+  if (activityFeedState && (activityFeedState.loading || !force)) { paintActivityFeed(); return; }
+  const request = ++activityFeedRequest;
+  const epoch = state.uiEpoch;
+  const identity = state.me;
+  const current = () => request === activityFeedRequest && epoch === state.uiEpoch && identity === state.me;
   activityFeedState = { loading: true };
   paintActivityFeed();
   try {
     const payload = await api('/api/activity/recent');
+    if (!current()) return;
     activityFeedState = {
       loading: false,
       /*
@@ -1730,7 +1750,9 @@ async function loadActivityFeed(force) {
        * reader can watch drift.
        */
       now: Date.now(),
+      generatedAt: payload.generatedAt,
       days: payload.days,
+      perRepositoryLimit: payload.perRepositoryLimit || 20,
       kinds: payload.kinds || [],
       inventoryCount: payload.inventoryCount || 0,
       measured: !!payload.measured,
@@ -1742,6 +1764,7 @@ async function loadActivityFeed(force) {
       failed: Array.isArray(payload.failed) ? payload.failed : []
     };
   } catch (error) {
+    if (!current()) return;
     activityFeedState = {
       loading: false,
       error: `Recent activity could not be read: ${(error && error.message) || 'request failed'}`
@@ -1749,6 +1772,8 @@ async function loadActivityFeed(force) {
   }
   paintActivityFeed();
 }
+
+$('#wpFeedRefresh')?.addEventListener('click', () => loadActivityFeed(true));
 
 /*
  * The core panel's rail says where this session actually is.

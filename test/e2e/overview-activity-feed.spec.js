@@ -199,3 +199,101 @@ test('the feed is read once per visit, not once per glance', async ({ page }) =>
   await expect(rows(page)).toHaveCount(2);
   expect(reads, 'returning to the overview re-read the feed and spent the requests again').toBe(1);
 });
+
+test('a failed read can be retried without reloading the workspace', async ({ page }) => {
+  let reads = 0;
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/activity/recent*', route => {
+    reads++;
+    return reads === 1 ? route.fulfill({ status: 503, json: { error: 'Activity unavailable' } }) : route.fallback();
+  });
+  await page.goto('/');
+  await expect(feed(page)).toContainText('could not be read');
+  await page.getByRole('button', { name: 'Refresh recent activity' }).click();
+  await expect(rows(page)).toHaveCount(2);
+  await expect(feed(page)).not.toContainText('could not be read');
+  expect(reads).toBe(2);
+});
+
+test('a pending read is shared when the reader revisits the overview', async ({ page }) => {
+  let reads = 0;
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/activity/recent*', async route => {
+    reads++;
+    await pending;
+    await route.fallback();
+  });
+  await page.goto('/');
+  await expect(feed(page)).toContainText('Reading recent activity');
+  await expect(page.locator('#wpFeedRefresh')).toBeDisabled();
+  await page.locator('#ovGoRepos').click();
+  const rail = page.locator('.nv-rail-item[data-rail="overview"]');
+  if (!(await rail.isVisible())) await page.locator('.page.active .nav-menu-btn').click();
+  await rail.click();
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  release();
+  await expect(rows(page)).toHaveCount(2);
+  expect(reads).toBe(1);
+});
+
+test('privacy cleanup clears the feed and rejects a response that arrives afterwards', async ({ page }) => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/activity/recent*', async route => { await pending; await route.fallback(); });
+  await page.goto('/');
+  await expect(feed(page)).toContainText('Reading recent activity');
+  await page.evaluate(() => window.NebulaPwa.purgePrivateData(true));
+  const received = page.waitForResponse(response => response.url().includes('/api/activity/recent'));
+  release();
+  await received;
+  await page.waitForTimeout(100);
+  await expect(rows(page)).toHaveCount(0);
+  await expect(feed(page).locator('.wp-body')).toBeEmpty();
+});
+
+test('signing in again reads a new feed instead of reusing the previous identity', async ({ page }) => {
+  let reads = 0;
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/activity/recent*', async route => { reads++; await route.fallback(); });
+  await page.goto('/');
+  await expect(rows(page)).toHaveCount(2);
+  await page.locator('#logoutBtnOv').click();
+  await expect(ui.screen(page, 'login')).toBeVisible();
+  await expect(rows(page)).toHaveCount(0);
+  await page.locator('#tokenInput').fill('fixture-second-session');
+  await page.locator('#loginBtn').click();
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect(rows(page)).toHaveCount(2);
+  expect(reads).toBe(2);
+});
+
+test('the sample bounds and snapshot time are visible, including an empty inventory', async ({ page }) => {
+  await overview(page);
+  await expect(feed(page)).toContainText('first inventory page');
+  await expect(feed(page)).toContainText('Up to 20 commits per repository');
+  await expect(feed(page).locator('.wp-feed-updated')).toHaveAttribute('datetime', /T/);
+  await page.route('**/api/activity/recent*', route => route.fulfill({ json: {
+    days: 14, inventoryCount: 0, measured: false, events: [], repositories: [], failed: []
+  } }));
+  await page.locator('#wpFeedRefresh').click();
+  await expect(feed(page)).toContainText('No repositories are available to this session yet');
+  await expect(feed(page)).not.toContainText('could be read');
+});
+
+test('provider text stays text, long evidence fits, and an actor is not deduplicated as a hash', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/activity/recent*', route => route.fulfill({ json: {
+    days: 14, inventoryCount: 1, measured: true, repositories: ['sandbox/demo'], failed: [],
+    events: [{ kind: 'commit', repo: 'sandbox/' + 'x'.repeat(90), title: '<img src=x onerror=alert(1)>',
+      ref: 'abc' + 'd'.repeat(37), detail: 'abcdddd', actor: 'abc', at: Date.now() }]
+  } }));
+  await page.goto('/');
+  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).locator('.wp-feed-title')).toHaveText('<img src=x onerror=alert(1)>');
+  await expect(rows(page).locator('img')).toHaveCount(0);
+  await expect(rows(page).locator('.wp-feed-meta')).toContainText(' · abc');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});

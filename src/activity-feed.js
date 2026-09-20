@@ -78,7 +78,7 @@ function commitEvents(repo, list) {
       repo,
       /* The subject line only. A commit body belongs to the commit, not to a
          feed entry, and pasting one in makes every row a different height. */
-      title: text(item && item.message, 120),
+      title: text(String((item && item.message) || '').split(/\r?\n/, 1)[0], 120),
       detail: sha ? sha.slice(0, 7) : '',
       actor: text(item && item.author, 80),
       at: instant(item && item.date),

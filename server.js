@@ -6213,7 +6213,8 @@ app.get('/api/activity/recent', providerSessionAccess, alphaRepositoryListAccess
               sha: c.sha,
               message: ((c.commit && c.commit.message) || '').split('\n')[0],
               author: (c.commit && c.commit.author && c.commit.author.name) || '',
-              date: c.commit && c.commit.author && c.commit.author.date
+              date: (c.commit && c.commit.committer && c.commit.committer.date)
+                || (c.commit && c.commit.author && c.commit.author.date)
             }));
         return { repo: entry.full_name, commits };
       } catch (error) {
@@ -6234,6 +6235,8 @@ app.get('/api/activity/recent', providerSessionAccess, alphaRepositoryListAccess
       days,
       since,
       kinds: ['commit'],
+      perRepositoryLimit: 20,
+      inventoryScope: 'first-page',
       inventoryCount: inventory.length,
       ...buildActivityFeed(results, { limit: req.query.limit })
     });

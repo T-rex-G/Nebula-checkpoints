@@ -112,23 +112,27 @@
            above it can refract rather than a flat patch. -->
       <div class="lp-ground"></div>
       <!--
-        The poster as an element of its own, not only the <video> poster
-        attribute. That attribute paints nothing while the video element is
-        transparent, and the video element is transparent until `playing`
-        fires -- which for a reader who asked for less motion never happens.
-        The fallback was invisible to exactly the people it exists for.
+        The cyan bloom the ring sits inside. Under the portal, over the
+        ground: the ring is line work, and line work with nothing behind it
+        reads as a wireframe rather than as something lit. On a pointer that
+        can hover this follows the cursor, so the light in the scene and the
+        bulge in the sphere come from the same place.
       -->
-      <img class="lp-poster" src="/assets/orbit-hero.jpg" alt=""
-           decoding="async" fetchpriority="high">
-      <video class="lp-video" id="lpVideo" poster="/assets/orbit-hero.jpg"
-             muted loop playsinline preload="metadata"
-             disablepictureinpicture disableremoteplayback tabindex="-1">
-        <!-- VP9 first: half the bytes of the mp4 where it is supported. The
-             mp4 is H.264 so Safari, which has no VP9 for this container, still
-             gets the scene rather than only the poster. -->
-        <source src="/assets/orbit-hero.webm" type="video/webm">
-        <source src="/assets/orbit-hero.mp4" type="video/mp4">
-      </video>
+      <div class="lp-glow"></div>
+      <!--
+        The portal, drawn rather than downloaded.
+        ---------------------------------------------------------------
+        This was an mp4/webm pair and a poster frame: 850KB of footage whose
+        licence nobody could name, in a public repository. plasma-ring.js
+        draws the same subject from arithmetic, so there is nothing to
+        license, nothing to decode, and no poster to fall back to -- a reader
+        who asked for less motion gets the identical picture, held still.
+
+        It keeps the video's place in the stack exactly: under the veil and
+        the grain, over the theme's ground, and masked off the copy column by
+        the same --lp-mask, which is what holds the lede above 4.5:1.
+      -->
+      <canvas class="lp-portal" id="lpPortal"></canvas>
       <div class="lp-veil"></div>
       <div class="lp-grain"></div>
     </div>
@@ -581,6 +585,10 @@
            only here to carry the spacing. -->
       <article class="card wp-card wp-card-feed" id="wpFeed" aria-labelledby="ovFeedTitle">
         <h2 class="sr-only" id="ovFeedTitle">Recent activity</h2>
+        <div class="wp-feed-toolbar">
+          <span class="wp-label">RECENT ACTIVITY</span>
+          <button class="btn btn-ghost small" id="wpFeedRefresh" type="button" aria-label="Refresh recent activity">Refresh</button>
+        </div>
         <div class="wp-body"></div>
       </article>
     </section>
@@ -1178,6 +1186,7 @@
 <script src="/export-safety.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/governance-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/alpha-ui.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/plasma-ring.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/landing-stage.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/repo-sigil.js?v=__NV_ASSET_VERSION__"></script>

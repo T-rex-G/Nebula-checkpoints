@@ -353,12 +353,43 @@ em{color:var(--teal);font-style:normal}
 /* The theme's own bloom, on the stage. Without it the copy side is a flat
    patch, and flat is where glass stops reading as glass. */
 .lp-ground{position:absolute;inset:0;background:var(--bloom)}
-.lp-poster,.lp-video{position:absolute;inset:0;width:100%;height:100%;
-  object-fit:cover;object-position:68% center}
-.lp-video{opacity:0;transition:opacity .9s var(--ease)}
-.lp-video.is-playing{opacity:1}
-.lp-video::-webkit-media-controls,.lp-video::-webkit-media-controls-panel,
-.lp-video::-webkit-media-controls-start-playback-button{display:none!important;-webkit-appearance:none!important}
+/*
+ * The cyan bloom: the light the ring is lit by.
+ *
+ * Two offset stops rather than one -- a single radial reads as a flashlight,
+ * two slightly apart read as a source with depth. --gx/--gy are driven by
+ * landing-stage.js where a pointer can hover, and rest at the ring's own
+ * placement otherwise, so a phone gets the composition and none of the cost.
+ * Gradient stop positions cannot be transitioned, so the easing happens in JS
+ * on the variables; CSS only ever sees a settled value.
+ */
+.lp-glow{position:absolute;inset:0;
+  --gx:68%; --gy:46%;
+  background:
+    radial-gradient(52% 48% at var(--gx) var(--gy),rgba(34,211,238,.30),transparent 68%),
+    radial-gradient(38% 40% at calc(var(--gx) + 9%) calc(var(--gy) + 16%),rgba(124,58,237,.20),transparent 70%),
+    radial-gradient(26% 24% at calc(var(--gx) - 6%) calc(var(--gy) - 9%),rgba(207,250,254,.16),transparent 72%)}
+[data-theme="light"] .lp-glow{
+  background:
+    radial-gradient(52% 48% at var(--gx) var(--gy),rgba(14,154,184,.20),transparent 70%),
+    radial-gradient(38% 40% at calc(var(--gx) + 9%) calc(var(--gy) + 16%),rgba(109,40,217,.12),transparent 72%),
+    radial-gradient(26% 24% at calc(var(--gx) - 6%) calc(var(--gy) - 9%),rgba(34,211,238,.14),transparent 74%)}
+/*
+ * The portal. A canvas rather than a video: same box, same place in the
+ * stack, no decoder and no poster.
+ *
+ * pointer-events opts back in only where a pointer can hover. The hero is the
+ * whole first screen, and a canvas that captures a touch to run its orbit
+ * drag is a screen the reader cannot scroll past -- so on a phone it stays
+ * inert and the page scrolls, as it must.
+ */
+.lp-portal{position:absolute;inset:0;width:100%;height:100%;display:block;
+  opacity:0;transition:opacity 1.1s var(--ease)}
+.lp-portal.is-live{opacity:1}
+@media (hover:hover) and (pointer:fine){
+  .lp-portal{pointer-events:auto;cursor:grab}
+  .lp-portal:active{cursor:grabbing}
+}
 
 /*
  * Masked into the page, not veiled over it.
@@ -380,7 +411,7 @@ em{color:var(--teal);font-style:normal}
  */
 .lp{--lp-mask:linear-gradient(97deg,transparent 0%,rgba(0,0,0,.025) 32%,rgba(0,0,0,.05) 44%,rgba(0,0,0,.45) 57%,#000 69%)}
 @supports (mask-image:linear-gradient(#000,#000)){
-  .lp-poster,.lp-video{-webkit-mask-image:var(--lp-mask);mask-image:var(--lp-mask)}
+  .lp-portal{-webkit-mask-image:var(--lp-mask);mask-image:var(--lp-mask)}
 }
 /*
  * What is left of the veil is a tint and a floor, not a wash: enough of the
@@ -631,7 +662,11 @@ em{color:var(--teal);font-style:normal}
    * band gets the frame's width back, and the mask then fades the band's own
    * bottom edge instead of most of the picture.
    */
-  .lp-poster,.lp-video{height:clamp(300px,46vh,430px);bottom:auto;object-position:64% 46%}
+  /* A canvas has no frame to crop, but the band still earns its place: it
+     keeps the ring up where the mask is solid, and it is the part of the
+     screen a phone has to rasterise -- a full-bleed portrait canvas is twice
+     the pixels for a subject that would sit behind the copy anyway. */
+  .lp-portal{height:clamp(300px,46vh,430px);bottom:auto}
   /*
    * The nav rides over the band on a phone, and the band's top edge is the
    * dark side of the frame: the product name measured 1.22:1 there in the
@@ -3100,6 +3135,10 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  */
 .wp-feed-section{margin-top:16px}
 .wp-card-feed{padding:18px 18px 8px}
+.wp-feed-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.wp-feed-toolbar .btn{min-height:40px;flex:none}
+.wp-feed-scope{padding-top:14px;border-top:1px solid var(--hair);line-height:1.6}
+.wp-feed-updated{display:block;margin-block:8px 12px}
 .wp-feed{list-style:none;margin:14px 0 4px;padding:0;display:grid;gap:2px}
 /*
  * Rows are separated by a rule between them, never a border on each: a border

@@ -686,8 +686,16 @@ check('the landing scene draws itself rather than shipping a picture', () => {
    * The ring script has to be in the document before the script that drives
    * it, or the driver finds no factory and hides the canvas on every load.
    */
-  const ringAt = htmlSource.indexOf('plasma-ring.js');
-  const stageAt = htmlSource.indexOf('landing-stage.js');
+  /*
+   * Matched as a <script> tag, not as a filename. Reading the first mention
+   * of "plasma-ring.js" anywhere in the source finds the comment above the
+   * canvas, which sits a thousand lines earlier than either tag and so
+   * reports the right order whatever the tags actually do -- this guard was
+   * written that way, and swapping the two tags walked straight through it.
+   */
+  const tagAt = name => htmlSource.indexOf(`<script src="/${name}?v=`);
+  const ringAt = tagAt('plasma-ring.js');
+  const stageAt = tagAt('landing-stage.js');
   assert.ok(ringAt !== -1, 'the ring script is not in the document');
   assert.ok(stageAt !== -1, 'the landing-stage script is not in the document');
   assert.ok(ringAt < stageAt,
@@ -843,22 +851,40 @@ function runLandingStage(options) {
     requestAnimationFrame: fn => { frames.push(fn); return frames.length; },
     cancelAnimationFrame: () => {},
     IntersectionObserver: function (cb) { observerCallback = cb; this.observe = () => {}; },
-    MutationObserver: function (cb) { this.observe = target => mutations.set(target, cb); },
+    /*
+     * The filter is modelled, not ignored.
+     *
+     * A stub that fires every observer callback whatever changed reports a
+     * module as watching an attribute it never asked for -- narrowing the
+     * real attributeFilter to ['data-motion'] walked straight through the
+     * theme guard, because the stub called the callback anyway.
+     */
+    MutationObserver: function (cb) {
+      this.observe = (target, options) =>
+        mutations.set(target, { cb, filter: (options && options.attributeFilter) || null });
+    },
     NebulaPlasmaRing: settings.noWebgl ? { create: () => null } : { create: () => ring }
   };
   sandbox.globalThis = sandbox;
   vm.runInNewContext(fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8'), sandbox, { filename: 'public/landing-stage.js' });
+  /* An attribute changes; only the observers that asked for it hear about it. */
+  const mutate = (target, attribute) => {
+    const watch = mutations.get(target);
+    if (!watch) return;
+    if (watch.filter && watch.filter.indexOf(attribute) === -1) return;
+    watch.cb();
+  };
   return {
     calls, ring, canvas, glow,
     motion: value => {
       documentStub.documentElement.dataset.motion = value ? 'on' : 'off';
-      const cb = mutations.get(documentStub.documentElement); if (cb) cb();
+      mutate(documentStub.documentElement, 'data-motion');
     },
     theme: value => {
       documentStub.documentElement.dataset.theme = value;
-      const cb = mutations.get(documentStub.documentElement); if (cb) cb();
+      mutate(documentStub.documentElement, 'data-theme');
     },
-    gate: value => { gate.active = value; const cb = mutations.get(gate); if (cb) cb(); },
+    gate: value => { gate.active = value; mutate(gate, 'class'); },
     visibility: value => { documentStub.hidden = !value; (docListeners.visibilitychange || []).slice().forEach(fn => fn()); },
     reduced: value => { media.matches = value; if (media.changed) media.changed(); },
     saveData: value => { connection.saveData = value; if (connection.changed) connection.changed(); },

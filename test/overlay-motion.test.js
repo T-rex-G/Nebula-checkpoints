@@ -1043,6 +1043,7 @@ check('the scene follows the theme rather than reading it once at load', () => {
  */
 check('the bloom eases toward the pointer and stops once it is there', () => {
   const run = runLandingStage({});
+  run.enter();
   /*
    * Run to a standstill rather than for a fixed count. The loop ends itself
    * when it is close enough, so "how many frames" is a property of the easing
@@ -1075,8 +1076,22 @@ check('the bloom eases toward the pointer and stops once it is there', () => {
 
   run.depart();
   settle();
-  assert.ok(Math.abs(parseFloat(run.glow.style.props['--gx']) - 68) < 0.5,
+  assert.ok(Math.abs(parseFloat(run.glow.style.props['--gx']) - 50) < 0.5,
     'the bloom does not return to rest when the pointer leaves the scene');
+});
+
+check('stopping motion stops the bloom too, including a frame already queued', () => {
+  for (const boundary of ['motion', 'reduced', 'saveData', 'visibility', 'gate']) {
+    const run = runLandingStage({});
+    run.enter();
+    run.point(900, 400);
+    run.pump(2);
+    run[boundary](['reduced', 'saveData'].includes(boundary));
+    const held = { ...run.glow.style.props };
+    run.point(100, 100);
+    run.pump(10);
+    assert.deepStrictEqual(run.glow.style.props, held, boundary + ' left the bloom moving');
+  }
 });
 
 check('a pointer that cannot hover gets no bloom loop at all', () => {

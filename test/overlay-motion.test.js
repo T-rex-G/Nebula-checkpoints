@@ -2072,5 +2072,75 @@ check('the restore runs from the head, before anything is painted', () => {
     'the landing page has no theme control, so a visitor cannot reach the one inside the shell');
 });
 
+/*
+ * The sticky bar has to clear the status bar, not stop at it.
+ *
+ * env(safe-area-inset-top) is the height of the region the status bar covers.
+ * max(28px, inset) spends the entire padding arriving at the bottom of that
+ * region, so the brand and the theme control end up flush against it -- and
+ * with viewport-fit=cover and a black-translucent status bar, flush against it
+ * is underneath it, which is how a bar that is sticking can still look gone.
+ * The two have to add.
+ */
+check('the landing bar reserves the safe area on top of its own padding', () => {
+  const rule = cssSource.match(/\.lp-nav\{([^}]*)\}/);
+  assert.ok(rule, 'the landing nav rule is gone');
+  assert.ok(/position:sticky/.test(rule[1]),
+    'the landing bar no longer sticks, so the theme control leaves with the hero');
+  assert.ok(/padding-top:calc\(env\(safe-area-inset-top/.test(rule[1]),
+    'the safe area is not added to the padding, so the bar sits under the status bar');
+  assert.ok(/env\(safe-area-inset-top,\s*0px\)/.test(rule[1]),
+    'env() carries no fallback, so the declaration is dropped wherever the variable is unsupported');
+});
+
+/*
+ * backdrop-filter inside a position:sticky box is a WebKit soft spot, and this
+ * bar is the one element on the landing that has to survive being scrolled. A
+ * scrim is not worth the bar's stickiness, so the scrim behind it paints and
+ * does nothing else.
+ */
+check('the sticky bar carries no filter that could cost it its stickiness', () => {
+  const rule = cssSource.match(/\.lp-nav::after\{([^}]*)\}/);
+  assert.ok(rule, 'the landing bar has no scrim, so content passes under it unreadably');
+  assert.ok(!/backdrop-filter/.test(rule[1]),
+    'the scrim promotes a layer inside the sticky bar, which is what takes the sticking with it');
+  assert.ok(/linear-gradient/.test(rule[1]),
+    'the scrim no longer paints anything, so the bar has nothing behind its text');
+});
+
+/*
+ * Two of these shipped twice. Nothing breaks, and that is the point: a head
+ * nobody reads is a head where the next duplicate is invisible too.
+ */
+check('no meta name is declared twice in the head', () => {
+  const head = htmlSource.slice(0, htmlSource.indexOf('</head>'));
+  const seen = new Map();
+  for (const tag of head.match(/<meta\s+name="[^"]+"[^>]*>/g) || []) {
+    const name = tag.match(/name="([^"]+)"/)[1];
+    /* theme-color is legitimately repeated: one per media query. */
+    if (name === 'theme-color') continue;
+    seen.set(name, (seen.get(name) || 0) + 1);
+  }
+  const repeated = [...seen].filter(([, n]) => n > 1).map(([name]) => name);
+  assert.deepStrictEqual(repeated, [],
+    `these meta names are declared more than once: ${repeated.join(', ')}`);
+});
+
+/*
+ * The release version was published on the root element, where no code read
+ * it. The footer still prints it, deliberately -- an alpha tester reporting a
+ * fault needs to be able to say which build they are on -- but that is a
+ * sentence the product chose to say, not a build number leaking through an
+ * attribute nobody asked for.
+ */
+check('the root element publishes no release version', () => {
+  const root = htmlSource.match(/<html[^>]*>/);
+  assert.ok(root, 'the root element is gone');
+  assert.ok(!/data-nv-version/.test(root[0]),
+    'the release version is back on the root element, where nothing reads it');
+  assert.ok(/data-nv-asset-version/.test(root[0]),
+    'the asset version is gone, and app.js reads it to stamp every asset URL');
+});
+
 console.log(failures ? `\n${failures} failed` : '\nall passed');
 process.exit(failures ? 1 : 0);

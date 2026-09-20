@@ -1,4 +1,4 @@
-/* The landing scene: a video that is allowed to fail without taking the page. */
+/* The landing scene: a portal that is allowed to fail without taking the page. */
 'use strict';
 
 (function landingStage(global) {
@@ -15,14 +15,15 @@
    * holds three controls, and moving between them should not make the scene
    * flinch once per tab stop.
    *
-   * All this does is carry a class. The motion itself is CSS, gated on both
-   * prefers-reduced-motion and the interface's own switch, so a reader who
-   * asked for less motion gets the state and none of the movement. It is
-   * wired before the video is looked for, because the scene leans in whether
-   * or not a decoder ever agreed to play it.
+   * The class is carried for CSS as it always was, and now also handed to the
+   * ring, which raises its wave and opens its centre. The moment reaches the
+   * geometry rather than stopping at a transform over it.
    */
   const lp = document.querySelector('.lp');
   const card = document.querySelector('.lp-card');
+  const reachListeners = [];
+  const announceReaching = on => reachListeners.forEach(fn => fn(on));
+
   if (lp && card) {
     /*
      * Not until the reader has actually touched the page.
@@ -32,142 +33,182 @@
      * came back -- the moment was the resting state, which is no moment at
      * all. A cursor the browser parked in the field is not the reader
      * reaching for it.
-     *
-     * If they were already focused there when the first gesture lands -- the
-     * ordinary case, since they arrive and start typing -- that gesture is
-     * what the scene answers.
      */
     let engaged = false;
     const engage = () => {
       if (engaged) return;
       engaged = true;
-      if (card.contains(document.activeElement)) lp.classList.add('is-reaching');
+      if (card.contains(document.activeElement)) {
+        lp.classList.add('is-reaching');
+        announceReaching(true);
+      }
     };
     ['pointerdown', 'keydown', 'touchstart'].forEach(name =>
       document.addEventListener(name, engage, { once: true, passive: true }));
 
-    card.addEventListener('focusin', () => { if (engaged) lp.classList.add('is-reaching'); });
+    card.addEventListener('focusin', () => {
+      if (!engaged) return;
+      lp.classList.add('is-reaching');
+      announceReaching(true);
+    });
     card.addEventListener('focusout', () => {
-      if (!card.contains(document.activeElement)) lp.classList.remove('is-reaching');
+      if (card.contains(document.activeElement)) return;
+      lp.classList.remove('is-reaching');
+      announceReaching(false);
     });
   }
 
-  const video = document.getElementById('lpVideo');
-  if (!video) return;
+  const canvas = document.getElementById('lpPortal');
+  if (!canvas) return;
+
   const gate = document.getElementById('page-alpha-access');
   const reducedMotion = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)');
   const connection = global.navigator && global.navigator.connection;
-  let intersecting = typeof IntersectionObserver !== 'function';
-  let pendingPlay = false;
-  let playGeneration = 0;
-  let retry = null;
-  const gestures = ['pointerdown', 'keydown', 'touchstart'];
+  const root = document.documentElement;
 
-  const eligible = () => document.documentElement.dataset.motion !== 'off'
+  /*
+   * WebGL can be absent for reasons that are none of the reader's business: a
+   * blocklisted driver, a headless build, a browser with it switched off. The
+   * stage keeps its own ground and veil, so losing the ring costs the picture
+   * a subject and nothing else -- the page is never a black box waiting for a
+   * context that is not coming.
+   */
+  /* Listening on the canvas, not the stage: the stage is pointer-events:none
+     so the copy above it is never blocked, and only the canvas opts back in
+     (and only for a pointer that can hover -- see plasma-ring.js). */
+  const ring = global.NebulaPlasmaRing && global.NebulaPlasmaRing.create(canvas);
+  if (!ring) {
+    canvas.hidden = true;
+    return;
+  }
+  reachListeners.push(on => ring.setReaching(on));
+
+  const themeName = () => (root.dataset.theme === 'light' ? 'light' : 'dark');
+  ring.setTheme(themeName());
+
+  /*
+   * The bloom follows the pointer, eased.
+   *
+   * Written straight from pointermove it snaps, because a mouse reports in
+   * jumps and a gradient has no transition of its own to smooth them --
+   * stop positions are not animatable properties. One exponential approach
+   * per frame, on the same clock as the ring, and the light and the bulge
+   * arrive together rather than one chasing the other.
+   *
+   * Only where a pointer can hover: a finger has no resting position to
+   * follow, and a phone should not be running a loop to move a gradient it
+   * cannot address.
+   */
+  const glow = document.querySelector('.lp-glow');
+  if (glow && ring.interactive()) {
+    const rest = { x: 68, y: 46 };
+    const at = { x: rest.x, y: rest.y };
+    const want = { x: rest.x, y: rest.y };
+    let glowRaf = 0;
+    let glowLast = 0;
+
+    const step = now => {
+      const dt = Math.min((now - glowLast) / 1000, 0.05);
+      glowLast = now;
+      const k = 1 - Math.exp(-dt * 4.5);
+      at.x += (want.x - at.x) * k;
+      at.y += (want.y - at.y) * k;
+      glow.style.setProperty('--gx', at.x.toFixed(2) + '%');
+      glow.style.setProperty('--gy', at.y.toFixed(2) + '%');
+      if (Math.abs(want.x - at.x) < 0.05 && Math.abs(want.y - at.y) < 0.05) {
+        glowRaf = 0;
+        return;
+      }
+      glowRaf = global.requestAnimationFrame(step);
+    };
+    const nudge = () => {
+      if (glowRaf) return;
+      glowLast = global.performance ? global.performance.now() : Date.now();
+      glowRaf = global.requestAnimationFrame(step);
+    };
+
+    const hero = document.querySelector('.lp-hero') || document;
+    hero.addEventListener('pointermove', event => {
+      const rect = (hero.getBoundingClientRect ? hero : document.documentElement).getBoundingClientRect();
+      want.x = ((event.clientX - rect.left) / (rect.width || 1)) * 100;
+      want.y = ((event.clientY - rect.top) / (rect.height || 1)) * 100;
+      nudge();
+    }, { passive: true });
+    hero.addEventListener('pointerleave', () => {
+      want.x = rest.x;
+      want.y = rest.y;
+      nudge();
+    }, { passive: true });
+  }
+
+  let intersecting = typeof IntersectionObserver !== 'function';
+  let revealed = false;
+
+  /*
+   * The same eligibility the video honoured, for the same reasons: the
+   * interface's own motion switch, the system preference, a metered
+   * connection, a hidden tab, and whether this screen is even on.
+   */
+  const eligible = () => root.dataset.motion !== 'off'
     && !(reducedMotion && reducedMotion.matches)
     && !(connection && connection.saveData)
     && !document.hidden && intersecting
     && (!gate || (!gate.hidden && gate.classList.contains('active')));
 
-  function clearRetry() {
-    if (!retry) return;
-    gestures.forEach(name => document.removeEventListener(name, retry));
-    retry = null;
-  }
-
-  function stop() {
-    playGeneration++;
-    clearRetry();
-    if (pendingPlay || !video.paused) video.pause();
-    pendingPlay = false;
-  }
-
   /*
-   * Revealed on `playing`, never on `canplay` or `loadedmetadata`.
-   *
-   * Those two fire while the first frame may still not be composited, so
-   * revealing there can flash a black rectangle over the poster that is
-   * already showing the same scene. `playing` is the only event that promises
-   * frames are on screen. Until it arrives the poster carries the page, which
-   * is why the poster is a real frame of the video rather than a placeholder.
+   * Revealed once something has actually been drawn, never before. The
+   * canvas is transparent until the first frame lands, and fading in an empty
+   * one is the flash the video's poster existed to prevent.
    */
-  let revealed = false;
-  const reveal = () => {
-    // A decoder may deliver `playing` after an outstanding play was stopped.
-    // Keep enforcing the preference, including after the first reveal.
-    pendingPlay = false;
-    if (!eligible()) { stop(); return; }
+  function reveal() {
     if (revealed) return;
     revealed = true;
-    video.classList.add('is-playing');
-  };
-  video.addEventListener('playing', reveal);
-
-  /*
-   * Three ways this legitimately never plays, and all of them are fine:
-   *  - the reader asked for less motion,
-   *  - the build has no decoder for either source (Chromium without
-   *    proprietary codecs refuses the H.264 and, without VP9, the WebM too),
-   *  - the tab is saving data.
-   * In each case the poster stays, which is the same picture holding still.
-   */
-  const playable = () => !!(video.canPlayType('video/webm; codecs="vp9"')
-    || video.canPlayType('video/mp4; codecs="avc1.42E01E"'));
-
-  function attempt(allowRetry = true) {
-    if (!eligible()) { stop(); return; }
-    if (!playable() || pendingPlay || !video.paused || retry) return;
-    const generation = ++playGeneration;
-    pendingPlay = true;
-    /*
-     * Autoplay can be refused even when muted. Rather than argue with the
-     * policy, wait for the first gesture of any kind and try once more; a
-     * reader who never gestures keeps the poster and loses nothing.
-     */
-    const refused = () => {
-      if (generation !== playGeneration) return;
-      pendingPlay = false;
-      if (!allowRetry || !eligible()) return;
-      retry = () => {
-        clearRetry();
-        attempt(false);
-      };
-      gestures.forEach(name =>
-        document.addEventListener(name, retry, { once: true, passive: true }));
-    };
-    try {
-      const started = video.play();
-      if (started && typeof started.catch === 'function') started.catch(refused);
-      else pendingPlay = false;
-    } catch (error) { refused(); }
+    canvas.classList.add('is-live');
   }
 
-  const sync = () => attempt();
+  function sync() {
+    if (eligible()) {
+      ring.start();
+      reveal();
+      return;
+    }
+    ring.stop();
+    /*
+     * Still, not gone. A reader who asked for less motion gets the portal as
+     * a held frame -- the picture without the movement -- which is what the
+     * poster used to be, drawn rather than downloaded.
+     */
+    ring.renderStill();
+    reveal();
+  }
 
-  /*
-   * Paused off-screen. The gate is the first screen, so once a reader is past
-   * it this element is still in the document and would otherwise keep a
-   * decoder running behind the application for the rest of the session.
-   */
   if (typeof IntersectionObserver === 'function') {
     new IntersectionObserver(entries => {
       entries.forEach(entry => {
-        intersecting = entry.isIntersecting && (entry.intersectionRatio == null || entry.intersectionRatio >= 0.05);
+        intersecting = entry.isIntersecting
+          && (entry.intersectionRatio == null || entry.intersectionRatio >= 0.05);
         sync();
       });
-    }, { threshold: 0.05 }).observe(video);
+    }, { threshold: 0.05 }).observe(canvas);
   } else {
-    attempt();
+    sync();
   }
 
-  /* The motion setting is applied to the root element, so follow it live
-     rather than only reading it once at load. */
+  /* The motion setting and the theme both live on the root element, so follow
+     them live rather than reading them once at load. */
   if (typeof MutationObserver === 'function') {
-    new MutationObserver(sync).observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] });
-    if (gate) new MutationObserver(sync).observe(gate, { attributes: true, attributeFilter: ['class', 'hidden'] });
+    new MutationObserver(() => {
+      ring.setTheme(themeName());
+      sync();
+    }).observe(root, { attributes: true, attributeFilter: ['data-motion', 'data-theme'] });
+    if (gate) {
+      new MutationObserver(sync).observe(gate, { attributes: true, attributeFilter: ['class', 'hidden'] });
+    }
   }
   document.addEventListener('visibilitychange', sync);
   if (reducedMotion && reducedMotion.addEventListener) reducedMotion.addEventListener('change', sync);
   else if (reducedMotion && reducedMotion.addListener) reducedMotion.addListener(sync);
   if (connection && connection.addEventListener) connection.addEventListener('change', sync);
+
+  sync();
 })(typeof globalThis === 'undefined' ? this : globalThis);

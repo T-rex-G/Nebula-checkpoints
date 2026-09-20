@@ -633,110 +633,147 @@ check('the phone reveals are driven by scroll, and degrade to nothing', () => {
 /* ---------------- the landing stage ---------------- */
 
 /*
- * The scene is allowed to fail. A landing page whose first paint depends on a
- * 550KB decode is a landing page that is blank on a slow connection, on a
- * build without the codec, and for a reader who asked for less motion. The
- * poster is a real frame of the same scene, so every one of those cases is the
- * picture holding still rather than an empty black stage.
+ * The scene is allowed to fail, and it fails to a picture rather than to a
+ * hole. The 1.5MB of video this replaced was a landing page nobody waited for
+ * on a slow connection, and a flat rectangle on any build without the codec.
+ * The portal draws itself, so the still and the motion are the same picture:
+ * a reader who asked for less motion gets one frame of it rather than a
+ * substitute image that has to be shipped, kept in step, and proven to paint.
+ *
+ * What that costs instead is WebGL, which can be absent for reasons that are
+ * none of the reader's business. So the markup guard is not that the canvas
+ * works -- it is that nothing on this page depends on it working.
  */
-check('the landing scene degrades to a still rather than to nothing', () => {
-  const tag = htmlSource.match(/<video[^>]*id="lpVideo"[^>]*>/);
-  assert.ok(tag, 'the landing video is gone');
-  ['muted', 'loop', 'playsinline'].forEach(attribute => {
-    assert.ok(new RegExp(`\\b${attribute}\\b`).test(tag[0]),
-      `the landing video is missing ${attribute}; without it autoplay is refused or iOS takes the page fullscreen`);
+check('the landing scene draws itself rather than shipping a picture', () => {
+  const tag = htmlSource.match(/<canvas[^>]*id="lpPortal"[^>]*>/);
+  assert.ok(tag, 'the landing canvas is gone');
+  assert.ok(/class="[^"]*\blp-portal\b/.test(tag[0]),
+    'the canvas does not carry .lp-portal, so none of the stage styling reaches it');
+
+  /*
+   * The scene ships no media at all now. Asserting the files are absent is
+   * the guard that catches the video being restored beside the canvas and
+   * quietly downloaded again by a browser that still has the old markup
+   * cached -- and it is what keeps the weight claim honest.
+   */
+  ['assets/orbit-hero.mp4', 'assets/orbit-hero.webm', 'assets/orbit-hero.jpg'].forEach(file => {
+    assert.ok(!fs.existsSync(path.join(root, 'public', file)),
+      `${file} is still in the build; the scene is meant to cost no download`);
   });
+  assert.ok(!/<video[^>]*id="lpVideo"/.test(htmlSource),
+    'the landing video is back, so the scene has two subjects and one of them is 1.5MB');
+
   /*
-   * The poster has to be able to paint, which is not the same as being
-   * declared. It used to live only on this attribute -- and the video element
-   * is held at opacity 0 until `playing` fires, which for a reader who asked
-   * for less motion never fires at all. The attribute was present, the guard
-   * was green, and the stage was a flat rectangle for exactly the people the
-   * fallback existed for. So it is an element of its own now, and nothing in
-   * the cascade may hide it.
+   * The canvas is transparent until the first frame lands, so it is held at
+   * zero opacity and revealed by a class the script only adds once something
+   * has been drawn. That gate is allowed to reach the canvas and nothing
+   * else: a rule that holds the stage or the ground at zero takes the whole
+   * picture away on any build where the reveal never runs.
    */
-  const posterTag = htmlSource.match(/<img[^>]*class="lp-poster"[^>]*>/);
-  assert.ok(posterTag, 'the poster is not an element, so it paints only when the video already does');
-  const posterSrc = (posterTag[0].match(/src="([^"]+)"/) || [])[1];
-  assert.ok(posterSrc && fs.existsSync(path.join(root, 'public', posterSrc.replace(/^\//, ''))),
-    `the poster ${posterSrc} is not in the build`);
-  /*
-   * The attribute is a fallback behind the fallback now -- it covers the case
-   * where the element itself fails to load -- so it is allowed to be absent,
-   * but it is not allowed to drift to a different picture than the one the
-   * element shows.
-   */
-  const attr = (tag[0].match(/poster="([^"]+)"/) || [])[1];
-  assert.ok(!attr || attr === posterSrc,
-    `the video poster ${attr} and the poster element ${posterSrc} are two different pictures`);
-  rules.filter(rule => eachSelector(rule).some(one => /\.lp-poster\b/.test(one.selector)))
-    .forEach(rule => {
-      assert.ok(!/opacity\s*:\s*0(\D|$)/.test(rule.body),
-        `${rule.selector} holds the poster at zero opacity, which is the bug this element exists to fix`);
-      assert.ok(!/display\s*:\s*none|visibility\s*:\s*hidden/.test(rule.body),
-        `${rule.selector} hides the poster outright`);
-    });
+  const portalRules = rules.filter(rule => eachSelector(rule).some(one => /\.lp-portal\b/.test(one.selector)));
+  assert.ok(portalRules.length, 'the canvas has no styling of its own, so it has no size');
   const gated = rules.filter(rule => /opacity\s*:\s*0(\D|$)/.test(rule.body))
     .flatMap(eachSelector).map(one => one.selector)
-    .filter(selector => /\.lp-(poster|video)\b/.test(selector));
-  assert.ok(gated.length, 'nothing holds the video back until it is running');
-  assert.ok(gated.every(selector => /\.lp-video\b/.test(selector) && !/\.lp-poster\b/.test(selector)),
-    `the playback gate reaches past the video itself: ${gated.join(' | ')}`);
-
-  /* Both encodes shipped, and the smaller one offered first. */
-  const block = htmlSource.match(/<video[^>]*id="lpVideo"[\s\S]*?<\/video>/)[0];
-  const sources = [...block.matchAll(/<source[^>]*src="([^"]+)"[^>]*type="([^"]+)"/g)];
-  assert.strictEqual(sources.length, 2,
-    'the scene offers one encode; a browser that refuses it gets only the poster');
-  assert.ok(/webm/.test(sources[0][2]),
-    'the larger encode is offered first, so browsers that could take the smaller one do not');
-  sources.forEach(([, src]) => {
-    const file = path.join(root, 'public', src.replace(/^\//, ''));
-    assert.ok(fs.existsSync(file), `${src} is referenced but not in the build`);
-  });
+    .filter(selector => /\.lp-(portal|stage|ground|glow)\b/.test(selector));
+  assert.ok(gated.length, 'nothing holds the canvas back until it has drawn a frame');
+  assert.ok(gated.every(selector => /\.lp-portal\b/.test(selector)),
+    `the reveal gate reaches past the canvas itself: ${gated.join(' | ')}`);
+  assert.ok(rules.some(rule => eachSelector(rule).some(one => /\.lp-portal\.is-live\b/.test(one.selector))
+      && /opacity\s*:\s*1/.test(rule.body)),
+    'nothing brings the canvas back, so the scene is held at zero opacity forever');
 
   /*
-   * Size is part of the contract. The source encode was 13MB because it
-   * carried an audio track a muted background video can never play.
+   * The ring script has to be in the document before the script that drives
+   * it, or the driver finds no factory and hides the canvas on every load.
    */
-  const bytes = sources.reduce((total, [, src]) =>
-    total + fs.statSync(path.join(root, 'public', src.replace(/^\//, ''))).size, 0);
-  assert.ok(bytes < 1.6 * 1024 * 1024,
-    `the scene ships ${(bytes / 1024 / 1024).toFixed(1)}MB of video; that is a landing page nobody waits for`);
+  const ringAt = htmlSource.indexOf('plasma-ring.js');
+  const stageAt = htmlSource.indexOf('landing-stage.js');
+  assert.ok(ringAt !== -1, 'the ring script is not in the document');
+  assert.ok(stageAt !== -1, 'the landing-stage script is not in the document');
+  assert.ok(ringAt < stageAt,
+    'landing-stage.js is parsed before plasma-ring.js, so the factory is never there when it looks');
+});
+
+/*
+ * The vertex count is a cliff, not a slope.
+ *
+ * Indices are UNSIGNED_SHORT, so the grid may hold 65536 vertices and not one
+ * more. Past that the indices wrap to the start of the buffer and the ring
+ * draws a garbled subset of itself -- it does not throw, warn, or fail to
+ * compile. The density ladder in the module must stay below the cliff on its
+ * own, and the clamp in build() is the belt behind it.
+ */
+check('the ring cannot ask for more vertices than its index type can address', () => {
+  const ringSource = fs.readFileSync(path.join(root, 'public/plasma-ring.js'), 'utf8');
+  assert.ok(/UNSIGNED_SHORT/.test(ringSource),
+    'the index type changed; this guard is measuring a limit that no longer applies');
+  const max = Number((ringSource.match(/DENSITY_MAX\s*=\s*(\d+)/) || [])[1]);
+  assert.ok(max > 0, 'DENSITY_MAX is gone, so nothing caps the grid');
+  /* The same expressions build() uses to turn a density into a grid. */
+  const vertices = d => Math.round(d * 2.5) * Math.round(d * 1.8);
+  assert.ok(vertices(max) <= 65536,
+    `density ${max} asks for ${vertices(max)} vertices; UNSIGNED_SHORT indices wrap at 65536`);
+  const ladder = [...ringSource.matchAll(/return\s+(\d+);/g)].map(m => Number(m[1]));
+  ladder.filter(value => value > 24 && value <= 400).forEach(value => {
+    assert.ok(vertices(value) <= 65536,
+      `a density rung of ${value} asks for ${vertices(value)} vertices, past the index limit`);
+  });
 });
 
 /*
  * Driven, not read.
  *
- * The first version of this asked whether the source mentioned canPlayType and
- * IntersectionObserver. Both perturbations walked through it: `true || ...`
- * leaves the call in the text while neutering it, and deleting the pause from
- * the observer still left a pause elsewhere in the file for the regex to find.
- * So the module is compiled against a stub document and actually run.
+ * The first version of the video guard this replaces asked whether the source
+ * mentioned canPlayType and IntersectionObserver. Both perturbations walked
+ * through it: `true || ...` leaves the call in the text while neutering it,
+ * and deleting a pause from the observer still left a pause elsewhere in the
+ * file for the regex to find. So the module is compiled against a stub
+ * document and actually run.
+ *
+ * The actor changed from a <video> to the ring, and nothing else did: the
+ * eligibility rules are the same rules, so these are the same checks with
+ * start() and stop() where play() and pause() used to be.
  */
 function runLandingStage(options) {
   const settings = options || {};
-  const source = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
-  const calls = { play: 0, pause: 0 };
-  const listeners = {};
-  let rejectPlay = null;
-  const video = {
-    paused: true,
-    classList: { names: new Set(), add(n) { this.names.add(n); }, contains(n) { return this.names.has(n); } },
-    canPlayType: () => (settings.decodable ? 'probably' : ''),
-    play() {
-      calls.play += 1;
-      if (!settings.deferredPlay) this.paused = false;
-      return { catch(fn) { rejectPlay = fn; } };
-    },
-    pause() { calls.pause += 1; this.paused = true; },
-    addEventListener(name, fn) { (listeners[name] = listeners[name] || []).push(fn); }
+  const calls = { start: 0, stop: 0, still: 0, theme: [], reaching: [] };
+  let running = false;
+  const ring = {
+    renderStill() { calls.still += 1; },
+    start() { if (running) return; running = true; calls.start += 1; },
+    stop() { running = false; calls.stop += 1; },
+    isRunning: () => running,
+    setTheme(name) { calls.theme.push(name); },
+    setReaching(on) { calls.reaching.push(!!on); },
+    interactive: () => settings.interactive !== false,
+    destroy() {}
+  };
+  /*
+   * The canvas records what had been drawn at the moment it was revealed.
+   * "Revealed after a frame" is an ordering claim, and a stub that only
+   * remembers the final state cannot tell a reveal that waited from one that
+   * happened to be followed by a draw.
+   */
+  const canvas = {
+    hidden: false,
+    drawnAtReveal: null,
+    classList: {
+      names: new Set(),
+      add(n) {
+        if (n === 'is-live' && canvas.drawnAtReveal === null) {
+          canvas.drawnAtReveal = calls.start + calls.still;
+        }
+        this.names.add(n);
+      },
+      contains(n) { return this.names.has(n); }
+    }
   };
   let observerCallback = null;
   /* The scene leans in while focus is inside the access card. Stubs enough of
      the card to run that, rather than to read the source for a class name. */
   const cardListeners = {};
   const docListeners = {};
+  const hostListeners = {};
   const mutations = new Map();
   const media = { matches: !!settings.reducedMotion, addEventListener(name, fn) { this.changed = fn; } };
   const connection = { saveData: !!settings.saveData, addEventListener(name, fn) { this.changed = fn; } };
@@ -755,16 +792,32 @@ function runLandingStage(options) {
       contains(n) { return this.names.has(n); }
     }
   };
+  const glow = { style: { props: {}, setProperty(k, v) { this.props[k] = v; } } };
+  const hero = {
+    addEventListener(name, fn) { (hostListeners[name] = hostListeners[name] || []).push(fn); },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 500 })
+  };
   const documentStub = {
-    getElementById: id => id === 'page-alpha-access' ? gate : (id === 'lpVideo' && !settings.noVideo ? video : null),
+    getElementById: id => {
+      if (id === 'page-alpha-access') return gate;
+      if (id === 'lpPortal') return settings.noCanvas ? null : canvas;
+      return null;
+    },
     querySelector: selector => {
       if (selector === '.lp') return settings.noStage ? null : lp;
       if (selector === '.lp-card') return settings.noStage ? null : card;
+      if (selector === '.lp-glow') return settings.noGlow ? null : glow;
+      if (selector === '.lp-hero') return hero;
       return null;
     },
     activeElement: outside,
     hidden: false,
-    documentElement: { dataset: { motion: settings.motion === false ? 'off' : 'on' } },
+    documentElement: {
+      dataset: {
+        motion: settings.motion === false ? 'off' : 'on',
+        theme: settings.theme || 'dark'
+      }
+    },
     addEventListener(name, fn) { (docListeners[name] = docListeners[name] || []).push(fn); },
     removeEventListener(name, fn) { docListeners[name] = (docListeners[name] || []).filter(item => item !== fn); }
   };
@@ -775,20 +828,34 @@ function runLandingStage(options) {
    * globalThis instead -- which is how a reduced-motion check that works in a
    * browser looked broken from here.
    */
+  const frames = [];
+  /*
+   * A clock the pump advances, not a constant. Held at zero, every eased step
+   * computes dt = 0 and the bloom never moves -- which reads as the easing
+   * being broken rather than as the stub standing still.
+   */
+  const clock = { now: 0 };
   const sandbox = {
     document: documentStub,
     matchMedia: () => media,
     navigator: { connection },
+    performance: { now: () => clock.now },
+    requestAnimationFrame: fn => { frames.push(fn); return frames.length; },
+    cancelAnimationFrame: () => {},
     IntersectionObserver: function (cb) { observerCallback = cb; this.observe = () => {}; },
-    MutationObserver: function (cb) { this.observe = target => mutations.set(target, cb); }
+    MutationObserver: function (cb) { this.observe = target => mutations.set(target, cb); },
+    NebulaPlasmaRing: settings.noWebgl ? { create: () => null } : { create: () => ring }
   };
   sandbox.globalThis = sandbox;
-  vm.runInNewContext(source, sandbox, { filename: 'public/landing-stage.js' });
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8'), sandbox, { filename: 'public/landing-stage.js' });
   return {
-    calls, video, listeners,
-    reject: () => { video.paused = true; rejectPlay(new Error('Autoplay refused')); },
+    calls, ring, canvas, glow,
     motion: value => {
       documentStub.documentElement.dataset.motion = value ? 'on' : 'off';
+      const cb = mutations.get(documentStub.documentElement); if (cb) cb();
+    },
+    theme: value => {
+      documentStub.documentElement.dataset.theme = value;
       const cb = mutations.get(documentStub.documentElement); if (cb) cb();
     },
     gate: value => { gate.active = value; const cb = mutations.get(gate); if (cb) cb(); },
@@ -797,7 +864,6 @@ function runLandingStage(options) {
     saveData: value => { connection.saveData = value; if (connection.changed) connection.changed(); },
     enter: () => observerCallback && observerCallback([{ isIntersecting: true }]),
     leave: () => observerCallback && observerCallback([{ isIntersecting: false }]),
-    fire: name => (listeners[name] || []).forEach(fn => fn({ target: video })),
     sawObserver: () => observerCallback !== null,
     reaching: () => lp.classList.contains('is-reaching'),
     /* A real gesture: the scene does not answer a cursor the browser parked. */
@@ -806,103 +872,194 @@ function runLandingStage(options) {
     focusOut: stillInside => {
       documentStub.activeElement = stillInside ? inside : outside;
       (cardListeners.focusout || []).forEach(fn => fn({}));
-    }
+    },
+    point: (x, y) => (hostListeners.pointermove || []).forEach(fn => fn({ clientX: x, clientY: y })),
+    depart: () => (hostListeners.pointerleave || []).forEach(fn => fn({})),
+    pump: n => {
+      for (let i = 0; i < (n || 1); i += 1) {
+        clock.now += 16;
+        const queued = frames.splice(0, frames.length);
+        queued.forEach(fn => fn(clock.now));
+      }
+    },
+    pending: () => frames.length
   };
 }
 
-check('the scene is revealed only once it is actually running', () => {
-  const run = runLandingStage({ decodable: true });
-  run.enter();
-  assert.ok(!run.video.classList.contains('is-playing'),
-    'the scene is revealed before any frame has been shown, which flashes over the poster');
-  run.fire('playing');
-  assert.ok(run.video.classList.contains('is-playing'),
-    'the scene never reveals, so the poster is all a reader ever sees');
+check('the scene is revealed only once something has actually been drawn', () => {
+  /*
+   * The canvas is transparent until a frame lands in it, so fading in an
+   * empty one is the flash the poster used to exist to prevent. The module
+   * settles the scene once on load rather than waiting for the observer, and
+   * that is deliberate -- it is what makes the still immediate -- so the
+   * claim being tested is the ordering, not the timing.
+   */
+  const run = runLandingStage({});
+  assert.ok(run.canvas.classList.contains('is-live'),
+    'the canvas is never revealed on load, so the stage is empty until the observer reports');
+  assert.ok(run.canvas.drawnAtReveal > 0,
+    'the canvas was revealed before anything had been drawn into it, which fades in an empty rectangle');
+
+  /* And the running case reveals too, rather than only the held one. */
+  const live = runLandingStage({});
+  live.enter();
+  assert.ok(live.calls.start > 0, 'an eligible scene never started');
+  assert.ok(live.canvas.classList.contains('is-live'), 'a running scene is left invisible');
 });
 
-check('the scene does not ask a build that cannot decode it to play', () => {
-  const refused = runLandingStage({ decodable: false });
-  refused.enter();
-  assert.strictEqual(refused.calls.play, 0,
-    'play was attempted on a build whose decoder refuses both encodes');
-  const able = runLandingStage({ decodable: true });
-  able.enter();
-  assert.ok(able.calls.play > 0,
-    'play is never attempted even where both encodes decode, so the scene is always a still');
+check('a build without WebGL loses the subject and keeps the page', () => {
+  const run = runLandingStage({ noWebgl: true });
+  assert.strictEqual(run.canvas.hidden, true,
+    'a canvas that can never draw is left in the layout as a transparent hole');
+  assert.strictEqual(run.calls.start, 0, 'something drove a ring that was never created');
 });
 
 check('the scene stops when the reader is no longer looking at it', () => {
-  const run = runLandingStage({ decodable: true });
+  const run = runLandingStage({});
   assert.ok(run.sawObserver(),
-    'nothing watches whether the scene is on screen, so it decodes for the whole session');
+    'nothing watches whether the scene is on screen, so it renders for the whole session');
   run.enter();
-  const played = run.calls.play;
+  assert.strictEqual(run.ring.isRunning(), true, 'the visible scene never started');
   run.leave();
-  assert.strictEqual(run.calls.pause, 1,
-    'leaving the screen does not pause the scene; a decoder keeps running behind the application');
-  assert.strictEqual(run.calls.play, played, 'leaving the screen started playback');
+  assert.strictEqual(run.ring.isRunning(), false,
+    'leaving the screen does not stop the scene; a GPU loop keeps running behind the application');
+  assert.ok(run.calls.still > 0, 'the scene went away entirely rather than being held as a frame');
 });
 
 check('the scene honours a reader who asked for less motion', () => {
-  const off = runLandingStage({ decodable: true, motion: false });
+  const off = runLandingStage({ motion: false });
   off.enter();
-  assert.strictEqual(off.calls.play, 0, 'the scene plays with the motion setting off');
-  const reduced = runLandingStage({ decodable: true, reducedMotion: true });
+  assert.strictEqual(off.calls.start, 0, 'the scene animates with the motion setting off');
+  assert.ok(off.calls.still > 0, 'the motion setting took the picture away instead of holding it still');
+  const reduced = runLandingStage({ reducedMotion: true });
   reduced.enter();
-  assert.strictEqual(reduced.calls.play, 0, 'the scene plays despite prefers-reduced-motion');
+  assert.strictEqual(reduced.calls.start, 0, 'the scene animates despite prefers-reduced-motion');
+  assert.ok(reduced.calls.still > 0, 'prefers-reduced-motion took the picture away');
 });
 
-check('an autoplay retry cannot bypass a later stop-animation preference', () => {
-  const run = runLandingStage({ decodable: true });
-  run.enter(); run.reject(); run.motion(false); run.gesture();
-  assert.strictEqual(run.calls.play, 1, 'a gesture restarted video after motion was disabled');
-  assert.strictEqual(run.video.paused, true);
+check('a gesture cannot bypass a later stop-animation preference', () => {
+  const run = runLandingStage({});
+  run.enter();
+  run.motion(false);
+  run.gesture();
+  assert.strictEqual(run.ring.isRunning(), false, 'a gesture restarted the scene after motion was disabled');
+  assert.strictEqual(run.calls.start, 1, 'the scene was started again after motion was disabled');
 });
 
 check('enabling motion while the scene is offscreen does not restart it', () => {
-  const run = runLandingStage({ decodable: true });
+  const run = runLandingStage({});
   run.enter(); run.leave(); run.motion(false); run.motion(true);
-  assert.strictEqual(run.calls.play, 1, 'offscreen video restarted');
+  assert.strictEqual(run.ring.isRunning(), false, 'an offscreen scene restarted');
+  assert.strictEqual(run.calls.start, 1, 'an offscreen scene restarted');
   run.enter();
-  assert.strictEqual(run.calls.play, 2, 'visible scene did not resume');
+  assert.strictEqual(run.calls.start, 2, 'the visible scene did not resume');
 });
 
-check('a hidden gate stands down before an intersection callback arrives', () => {
-  const run = runLandingStage({ decodable: true });
+check('a hidden gate stands the scene down', () => {
+  const run = runLandingStage({});
   run.enter(); run.gate(false); run.motion(false); run.motion(true);
-  assert.strictEqual(run.video.paused, true, 'the inactive landing screen kept playing');
-  assert.strictEqual(run.calls.play, 1);
+  assert.strictEqual(run.ring.isRunning(), false, 'the inactive landing screen kept rendering');
+  assert.strictEqual(run.calls.start, 1);
 });
 
-check('Save-Data, OS motion and tab visibility all control playback live', () => {
-  const saved = runLandingStage({ decodable: true, saveData: true });
+check('Save-Data, OS motion and tab visibility all control the scene live', () => {
+  const saved = runLandingStage({ saveData: true });
   saved.enter();
-  assert.strictEqual(saved.calls.play, 0, 'Save-Data was ignored');
+  assert.strictEqual(saved.calls.start, 0, 'Save-Data was ignored');
   saved.saveData(false);
-  assert.strictEqual(saved.calls.play, 1);
+  assert.strictEqual(saved.calls.start, 1);
   for (const boundary of ['saveData', 'reduced', 'visibility']) {
-    const run = runLandingStage({ decodable: true });
+    const run = runLandingStage({});
     run.enter(); run[boundary](boundary !== 'visibility');
-    assert.strictEqual(run.video.paused, true, boundary + ' did not pause playback');
+    assert.strictEqual(run.ring.isRunning(), false, boundary + ' did not stop the scene');
     run[boundary](boundary === 'visibility');
-    assert.strictEqual(run.calls.play, 2, boundary + ' did not resume eligible playback');
+    assert.strictEqual(run.calls.start, 2, boundary + ' did not resume an eligible scene');
   }
 });
 
-check('late playing events cannot revive a disabled scene', () => {
-  const run = runLandingStage({ decodable: true, deferredPlay: true });
-  run.enter(); run.motion(false);
-  run.video.paused = false; run.fire('playing');
-  assert.strictEqual(run.video.paused, true, 'a pending play completed after motion stopped');
-  assert.ok(!run.video.classList.contains('is-playing'), 'late playback covered the poster');
+/*
+ * The signature moment has to reach the geometry.
+ *
+ * It began as a transform on the stage, which meant the scene did not answer
+ * the reader so much as get scaled while it carried on doing what it was
+ * doing. The class is still carried for CSS; this is the half that makes the
+ * ring itself lean in, and it is the half a refactor drops silently because
+ * the visible transform keeps working without it.
+ */
+check('the moment reaches the ring and not only the stylesheet', () => {
+  const run = runLandingStage({});
+  run.gesture();
+  assert.deepStrictEqual(run.calls.reaching, [], 'the scene leaned in before anyone had focused the card');
+  run.focusIn();
+  assert.ok(run.reaching(), 'the stage never takes the class the stylesheet keys on');
+  assert.deepStrictEqual(run.calls.reaching, [true], 'the ring was never told the reader had reached for the card');
+  run.focusOut(true);
+  assert.deepStrictEqual(run.calls.reaching, [true], 'moving between controls in the card made the ring flinch');
+  run.focusOut(false);
+  assert.ok(!run.reaching(), 'the stage keeps the class after focus has left the card');
+  assert.deepStrictEqual(run.calls.reaching, [true, false], 'the ring was never told the reader had left');
 });
 
-check('a pending play is not duplicated and its obsolete rejection cannot retry', () => {
-  const run = runLandingStage({ decodable: true, deferredPlay: true });
-  run.enter(); run.enter();
-  assert.strictEqual(run.calls.play, 1, 'observers launched overlapping play requests');
-  run.motion(false); run.reject(); run.gesture();
-  assert.strictEqual(run.calls.play, 1, 'obsolete rejection armed a retry');
+check('the scene follows the theme rather than reading it once at load', () => {
+  const run = runLandingStage({ theme: 'light' });
+  assert.deepStrictEqual(run.calls.theme, ['light'],
+    'the ring is built in the dark palette whatever theme the page loaded in');
+  run.theme('dark');
+  assert.deepStrictEqual(run.calls.theme, ['light', 'dark'],
+    'switching the theme leaves the scene in the palette it started in');
+});
+
+/*
+ * Gradient stop positions cannot be transitioned, so the easing has to happen
+ * in JS -- and a loop that never stops is a phone that never sleeps. It runs
+ * while the light is still travelling and gives the frame back once it has
+ * arrived.
+ */
+check('the bloom eases toward the pointer and stops once it is there', () => {
+  const run = runLandingStage({});
+  /*
+   * Run to a standstill rather than for a fixed count. The loop ends itself
+   * when it is close enough, so "how many frames" is a property of the easing
+   * constant and asserting it would break on any tuning of the feel; that the
+   * loop ends at all, under the pointer, is the contract.
+   */
+  const settle = limit => {
+    let frames = 0;
+    while (run.pending() && frames < (limit || 600)) { run.pump(1); frames += 1; }
+    return frames;
+  };
+
+  run.point(900, 400);
+  assert.ok(run.pending() > 0, 'nothing was scheduled, so the bloom never moves');
+  const frames = settle();
+  const x = parseFloat(run.glow.style.props['--gx']);
+  const y = parseFloat(run.glow.style.props['--gy']);
+  assert.ok(Math.abs(x - 90) < 0.5, `the bloom settled at ${x}% rather than under the pointer at 90%`);
+  assert.ok(Math.abs(y - 80) < 0.5, `the bloom settled at ${y}% rather than under the pointer at 80%`);
+  assert.strictEqual(run.pending(), 0,
+    'the bloom keeps asking for frames after it has arrived, which is a loop that never ends');
+
+  /*
+   * Eased, not written straight through. A handler that assigns the pointer
+   * position directly would satisfy every assertion above on its first frame,
+   * and snap in the browser -- gradient stop positions carry no transition of
+   * their own to smooth it.
+   */
+  assert.ok(frames > 5, `the bloom arrived in ${frames} frames, which is a jump rather than a glide`);
+
+  run.depart();
+  settle();
+  assert.ok(Math.abs(parseFloat(run.glow.style.props['--gx']) - 68) < 0.5,
+    'the bloom does not return to rest when the pointer leaves the scene');
+});
+
+check('a pointer that cannot hover gets no bloom loop at all', () => {
+  const run = runLandingStage({ interactive: false });
+  run.point(900, 400);
+  assert.strictEqual(run.pending(), 0,
+    'a phone is running an animation loop to move a gradient no finger can address');
+  assert.strictEqual(run.glow.style.props['--gx'], undefined,
+    'the bloom was moved on a device with no pointer to follow');
 });
 
 /*
@@ -1680,25 +1837,25 @@ check('moving between the card own controls does not make the scene flinch', () 
     'tabbing from the invitation to the terms drops the scene back, once per control');
 });
 
-check('the moment is wired before the video is looked for', () => {
+check('the moment is wired before the scene is looked for', () => {
   /*
-   * The scene leans in whether or not a decoder ever agreed to play it. A
-   * build that refuses both encodes still gets the poster, and the poster
-   * still answers.
+   * The scene leans in whether or not the subject is ever drawn. A build
+   * without WebGL still gets the ground, the veil and the card, and they
+   * still answer the reader.
    */
-  const refused = runLandingStage({ decodable: false });
+  const refused = runLandingStage({ noWebgl: true });
   refused.gesture();
   refused.focusIn();
   assert.ok(refused.reaching(),
-    'a build that cannot decode the video loses the moment as well as the motion');
-  assert.strictEqual(refused.calls.play, 0, 'an undecodable build was asked to play anyway');
+    'a build without WebGL loses the moment as well as the subject');
+  assert.strictEqual(refused.calls.start, 0, 'a ring that was never created was started anyway');
 
   /*
-   * And with no video element at all. The module returns early when it cannot
-   * find one, so anything wired after that line is wired only for pages that
+   * And with no canvas at all. The module returns early when it cannot find
+   * one, so anything wired after that line is wired only for pages that
    * happen to carry a scene.
    */
-  const bare = runLandingStage({ noVideo: true });
+  const bare = runLandingStage({ noCanvas: true });
   bare.gesture();
   bare.focusIn();
   assert.ok(bare.reaching(),

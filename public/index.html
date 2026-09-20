@@ -302,8 +302,14 @@
           <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
           __NV_PRODUCT_NAME__
         </span>
+        <!--
+          The build used to be printed here, on a page that requires no
+          invitation to read. A tester still needs to be able to quote it, so
+          it moved to Settings, where a session has already been established --
+          /api/me carries it. What is left is the thing a visitor to this page
+          actually needs to know about the deployment.
+        -->
         <span class="lp-foot-meta">
-          <span>__NV_VERSION__</span>
           <span>Controlled hosted public alpha</span>
         </span>
       </footer>

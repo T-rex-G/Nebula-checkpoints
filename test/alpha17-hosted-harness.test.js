@@ -138,7 +138,7 @@ function startFixtureServer(initialReleaseTreeSha256) {
     if (supported.has(url.pathname)) {
       response.statusCode = 200;
       const body = JSON.stringify(url.pathname === '/api/version'
-        ? { version: '5.3.0-alpha.17.0', product: 'Nebulaverse-X', releaseTreeSha256 }
+        ? { product: 'Nebulaverse-X', releaseTreeSha256 }
         : { ok: true, memoryMb: 128, mutationPresent });
       response.setHeader('Content-Length', String(Buffer.byteLength(body)));
       response.end(body);

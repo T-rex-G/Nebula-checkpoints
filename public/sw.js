@@ -1,7 +1,9 @@
 /* Nebulaverse-X service worker — versioned shell + opt-in scoped private reads. */
 'use strict';
 importScripts('/offline-cache-policy.js?v=__NV_ASSET_VERSION__');
-const RELEASE_VERSION = '__NV_VERSION__';
+/* No release version here. /sw.js is fetched without a session, and this
+   constant was read by nothing -- VER below is the asset stamp, which is what
+   actually names the shell cache. */
 const VER = 'v__NV_ASSET_VERSION__';
 const STATIC = `nv-static-${VER}`;
 const POLICY = self.NebulaOfflineCachePolicy;

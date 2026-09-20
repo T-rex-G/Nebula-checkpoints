@@ -536,11 +536,17 @@ app.use('/api', (req, res, next) => {
  */
 const MAINTENANCE_MODE = /^(1|true|on|yes)$/i.test(String(process.env.NV_MAINTENANCE_MODE || '').trim());
 
+/*
+ * No version here. This answers "is the process up" to anyone who asks, with
+ * no session and no invitation, which makes it the cheapest place in the
+ * product to read the build number off. Liveness does not depend on knowing
+ * which release is alive, and the operator checklist verifies that this route
+ * answers, not what it says about the release.
+ */
 app.get('/healthz', (req, res) => res.json({
   ok: true,
   service: MAINTENANCE_MODE ? 'maintenance' : 'alive',
-  maintenance: MAINTENANCE_MODE,
-  version: APP_VERSION
+  maintenance: MAINTENANCE_MODE
 }));
 app.get('/readyz', async (req, res) => {
   /*
@@ -3807,7 +3813,9 @@ app.get('/api/me', accountAuth, async (req, res) => {
       out = { login: u.login, name: u.name, avatar: u.avatar_url };
     }
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ ...out, provider, authMethod: req.gh.authMethod || 'token', caps: providerCapabilities(req.gh), offlineCacheScope: offlineCacheScope(req) });
+    /* The build a tester quotes in a fault report. It rides an authenticated
+       response so the landing page no longer has to publish it to everyone. */
+    res.json({ ...out, provider, authMethod: req.gh.authMethod || 'token', caps: providerCapabilities(req.gh), offlineCacheScope: offlineCacheScope(req), release: APP_VERSION });
   } catch (e) { fail(res, e); }
 });
 app.get('/api/rate', auth, capabilityAccess('rate.read', { allowExperimental: true }), async (req, res) => {
@@ -6926,8 +6934,23 @@ app.post('/api/security/revoke-others', auth, async (req, res) => {
   } catch (e) { fail(res, e); }
 });
 
+/*
+ * Identity, not a version number.
+ *
+ * This route is deliberately readable before an invitation -- the hosted
+ * alpha.17 validator and the operator checklist both probe it anonymously --
+ * so whatever it says is said to everyone. releaseTreeSha256 is what those
+ * callers actually read: ci/run-hosted-alpha17-validation.js takes the
+ * fingerprint and nothing else, and the qualification manual records it at
+ * the start and end of a run. It names the build exactly without publishing
+ * the semantic version, which is the half an attacker can line up against a
+ * list of known vulnerabilities.
+ *
+ * The version itself is not secret and is not being hidden from the people
+ * running the alpha: it travels on /api/me, behind a session, and Settings
+ * shows it to the tester who needs to quote it in a report.
+ */
 app.get('/api/version', (req, res) => res.json({
-  version: APP_VERSION,
   product: PRODUCT_NAME,
   releaseTreeSha256: RELEASE_TREE_SHA256
 }));

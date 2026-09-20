@@ -6,7 +6,7 @@ const { spawn } = require('child_process');
 
 const port = 22000 + Math.floor(Math.random() * 5000);
 const root = path.resolve(__dirname, '..');
-const { ASSET_VERSION } = require('../src/version');
+const { ASSET_VERSION, APP_VERSION } = require('../src/version');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 const releaseTreeSha256 = computeReleaseFingerprint(root);
 const sessionSecret = ['smoke-test', '0123456789abcdef', '0123456789abcdef'].join('-');
@@ -62,8 +62,7 @@ async function waitForServer() {
     assert.deepStrictEqual(await health.json(), {
       ok: true,
       service: 'alive',
-      maintenance: false,
-      version: '5.3.0-alpha.17.0'
+      maintenance: false
     });
     assert.match(health.headers.get('strict-transport-security') || '', /max-age=/);
     const csp = health.headers.get('content-security-policy') || '';
@@ -77,10 +76,31 @@ async function waitForServer() {
     const version = await request('/api/version');
     assert.strictEqual(version.status, 200);
     assert.deepStrictEqual(await version.json(), {
-      version: '5.3.0-alpha.17.0',
       product: 'Nebulaverse-X',
       releaseTreeSha256
     });
+
+    /*
+     * The rule, rather than one route's shape: nothing a caller can reach
+     * without a session names the release.
+     *
+     * Each of these is deliberately anonymous -- the hosted validator and the
+     * operator checklist probe them, the landing page is the front door, and
+     * /sw.js is fetched by the browser before anyone signs in. Any one of them
+     * carrying the version puts it back within reach of a single curl, so the
+     * guard sweeps all of them rather than trusting the four edits that made
+     * it true today.
+     */
+    const anonymous = ['/', '/healthz', '/readyz', '/api/version', '/api/config',
+      '/api/alpha/status', '/sw.js'];
+    const leaking = [];
+    for (const pathname of anonymous) {
+      const response = await request(pathname);
+      if (!response.ok) continue;
+      if ((await response.text()).includes(APP_VERSION)) leaking.push(pathname);
+    }
+    assert.deepStrictEqual(leaking, [],
+      `these routes name the release to callers with no session: ${leaking.join(', ')}`);
 
     const config = await request('/api/config');
     assert.strictEqual(config.status, 200);

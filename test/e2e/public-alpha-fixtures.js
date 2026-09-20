@@ -123,7 +123,19 @@ const VALID = Object.freeze({
    * which no deployment ever sends -- so a client branching on the real value
    * could be wrong in production while every test agreed with it.
    */
-  mode: new Set(['off', 'invite'])
+  mode: new Set(['off', 'invite']),
+  /*
+   * The four shapes the activity feed draws differently, named so a test can
+   * ask for one rather than construct it. 'normal' is a read that worked;
+   * 'quiet' is a workspace that answered and had nothing to say; 'partial' is
+   * one repository lost out of several; 'unreadable' is none of them readable.
+   *
+   * The last three are the states that matter and the ones that never happen
+   * by accident, which is the whole reason they are expressible here: a feed
+   * that cannot be read and a feed that is empty look identical if nobody ever
+   * renders both.
+   */
+  activityState: new Set(['normal', 'quiet', 'partial', 'unreadable'])
 });
 
 function normalizedScenario(input = {}) {
@@ -144,7 +156,8 @@ function normalizedScenario(input = {}) {
     mutation: input.mutation || 'verified',
     cleanup: input.cleanup || 'verified',
     trust: input.trust || 'settled',
-    governance: input.governance || 'unavailable'
+    governance: input.governance || 'unavailable',
+    activityState: input.activityState || 'normal'
   };
   for (const [key, values] of Object.entries(VALID)) {
     if (!values.has(scenario[key])) throw new TypeError(`Unsupported public-alpha fixture ${key}: ${scenario[key]}`);
@@ -292,6 +305,52 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       if (method === 'POST') return fulfill({ id: 12, full_name: 'sandbox/demo', default_branch: 'main', verified: true }, 201);
       if (scenario.repositoryState === 'empty') return fulfill([]);
       return fulfill([{ full_name: 'sandbox/demo', name: 'demo', owner: 'sandbox', private: true, description: 'Disposable alpha sandbox', language: 'JavaScript', stars: 0, forks: 0, pushed_at: new Date().toISOString() }]);
+    }
+    /*
+     * The overview's activity feed. Every signed-in test lands on the overview,
+     * so an unmocked route here is a failed request on the way into every one
+     * of them -- the fixture answers it whether or not the test is about it.
+     *
+     * activityState selects the shape: a normal read, a workspace where nothing
+     * happened, one where a repository could not be read, and one where none
+     * could. Those are the four the card draws differently, and three of them
+     * are exactly the ones that never occur by accident.
+     */
+    if (pathname === '/api/activity/recent') {
+      const at = offset => new Date(Date.now() - offset).toISOString();
+      const base = {
+        kind: 'nebulaverse-activity-feed', version: 1, generatedAt: at(0),
+        days: 14, since: at(14 * 86400000), kinds: ['commit'], inventoryCount: 1,
+        undated: 0, truncated: false
+      };
+      if (scenario.activityState === 'unreadable') {
+        return fulfill({
+          ...base, measured: false, events: [], totalEvents: 0, repositories: [],
+          failed: [{ repo: 'sandbox/demo', reason: 'rate limit exceeded' }]
+        });
+      }
+      if (scenario.activityState === 'quiet') {
+        return fulfill({
+          ...base, measured: true, events: [], totalEvents: 0,
+          repositories: ['sandbox/demo'], failed: []
+        });
+      }
+      if (scenario.activityState === 'partial') {
+        return fulfill({
+          ...base, inventoryCount: 2, measured: true, totalEvents: 1,
+          events: [{ kind: 'commit', repo: 'sandbox/demo', title: 'Add a bounded signature gate', detail: 'a1b2c3d', actor: 'Ada Lovelace', at: Date.parse(at(3600000)), ref: 'a1b2c3d4e5' }],
+          repositories: ['sandbox/demo'],
+          failed: [{ repo: 'sandbox/other', reason: 'not found' }]
+        });
+      }
+      return fulfill({
+        ...base, measured: true, totalEvents: 2,
+        events: [
+          { kind: 'commit', repo: 'sandbox/demo', title: 'Add a bounded signature gate', detail: 'a1b2c3d', actor: 'Ada Lovelace', at: Date.parse(at(3600000)), ref: 'a1b2c3d4e5' },
+          { kind: 'commit', repo: 'sandbox/demo', title: 'Tighten the upload timeout', detail: 'f6e5d4c', actor: 'Lin Zhou', at: Date.parse(at(90000000)), ref: 'f6e5d4c3b2' }
+        ],
+        repositories: ['sandbox/demo'], failed: []
+      });
     }
     if (pathname === '/api/search') return fulfill([{ repo: 'sandbox/demo', path: 'README.md' }]);
     if (pathname === '/api/notifications') return fulfill([{ id: 'n1', repo: 'sandbox/demo', title: 'Review requested', type: 'PullRequest', reason: 'mention', unread: true }]);

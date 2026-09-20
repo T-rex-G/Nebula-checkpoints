@@ -530,6 +530,39 @@
         </article>
       </div>
     </section>
+
+    <!--
+      Recent activity: what happened, where the card above says how much.
+      -------------------------------------------------------------------
+      The activity card beside the trust score plots a trailing seven-day count
+      of repositories pushed. It is a real measure and it answers a question
+      nobody arrives at the overview asking -- a reader wants to know what has
+      been going on, and a count cannot tell them.
+
+      This reads commits across the most recently pushed repositories the
+      session may see. It is its own section rather than a fourth card in the
+      grid because rows of text and a column of numbers do not share a shape,
+      and cramming a list into a card sized for a figure is how the list ends
+      up three rows tall with a scrollbar.
+
+      aria-live is deliberately absent: the feed arrives once, on its own, and
+      announcing a screenful of commits to a screen reader that was reading
+      something else is an interruption nobody asked for. The heading names it
+      and the reader reaches it when they reach it.
+    -->
+    <section class="wp-feed-section">
+      <!-- The name goes on the card, as it does on every card in the grid
+           above: the card is the region a reader lands in, and the section is
+           only here to carry the spacing. -->
+      <article class="card wp-card wp-card-feed" id="wpFeed" aria-labelledby="ovFeedTitle">
+        <h2 class="sr-only" id="ovFeedTitle">Recent activity</h2>
+        <div class="wp-feed-toolbar">
+          <span class="wp-label">RECENT ACTIVITY</span>
+          <button class="btn btn-ghost small" id="wpFeedRefresh" type="button" aria-label="Refresh recent activity">Refresh</button>
+        </div>
+        <div class="wp-body"></div>
+      </article>
+    </section>
   </div>
 </main>
 

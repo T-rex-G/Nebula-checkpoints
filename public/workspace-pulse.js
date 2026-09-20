@@ -654,6 +654,122 @@
     ));
   }
 
+  /* --------------------------------------------------------------- the feed */
+
+  /*
+   * How long ago, in words.
+   *
+   * Written here rather than reused from the application because this module
+   * is loaded on its own and tested on its own -- reaching into app.js for a
+   * formatter would make the card depend on the whole shell to render one row.
+   * Absolute dates past a month: "63d ago" is arithmetic the reader has to do,
+   * and by then the exact day is the more useful fact anyway.
+   */
+  function since(at, now) {
+    if (!Number.isFinite(at)) return '';
+    const seconds = Math.max(0, (now - at) / 1000);
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 2592000) return `${Math.floor(seconds / 86400)}d ago`;
+    return new Date(at).toLocaleDateString();
+  }
+
+  const KIND_LABEL = Object.freeze({
+    commit: 'Commit', pull: 'Pull request', issue: 'Issue', release: 'Release'
+  });
+
+  function feedRow(event, now) {
+    const row = element('li', 'wp-feed-row');
+    const head = element('p', 'wp-feed-head');
+    head.append(element('span', `wp-feed-kind wp-feed-kind-${event.kind}`,
+      KIND_LABEL[event.kind] || event.kind));
+    head.append(element('span', 'wp-feed-repo', event.repo));
+    /*
+     * The time carries a machine-readable stamp as well as the words. "3h ago"
+     * is unreadable to anything that is not a person reading it at this moment,
+     * and this card is the one place on the overview where when it happened is
+     * the whole point.
+     */
+    const when = element('time', 'wp-feed-when', since(event.at, now));
+    if (Number.isFinite(event.at)) {
+      when.setAttribute('datetime', new Date(event.at).toISOString());
+      when.setAttribute('title', new Date(event.at).toLocaleString());
+    }
+    head.append(when);
+    row.appendChild(head);
+
+    row.appendChild(element('p', 'wp-feed-title', event.title || event.ref));
+
+    /*
+     * The evidence line: which commit, which number, who. Without it the row is
+     * a claim the reader cannot go and check, which is the one thing this
+     * surface is not allowed to be.
+     */
+    // Deduplicate the reference, never the actor: a user's name can happen
+    // to be a prefix of a hash and remains a different fact.
+    const ref = String(event.ref || '').trim();
+    const detail = String(event.detail || '').trim();
+    const marks = [ref, detail && !ref.startsWith(detail) ? detail : '', event.actor].filter(Boolean);
+    if (marks.length) row.appendChild(element('p', 'wp-feed-meta', marks.join(' \u00b7 ')));
+    return row;
+  }
+
+  /*
+   * The feed is fetched, not computed, so unlike the cards above it has a state
+   * before it has an answer. All four are drawn rather than left blank: loading,
+   * nothing readable, nothing happened, and something happened.
+   */
+  function renderFeed(host, current) {
+    if (!host) return;
+    host.textContent = '';
+    if (!current || current.loading) {
+      host.appendChild(element('p', 'wp-stat-note', 'Reading recent activity\u2026'));
+      return;
+    }
+    if (current.error) {
+      host.appendChild(element('p', 'wp-stat-note', current.error));
+      return;
+    }
+    if (!current.inventoryCount && !current.failed?.length) {
+      host.appendChild(element('p', 'wp-stat-note',
+        'No repositories are available to this session yet. Connect a sandbox repository to see recent activity.'));
+    } else if (!current.measured) {
+      /* Not measured is not "nothing happened": no repository answered, and
+         saying "no recent activity" here would be inventing a quiet week. */
+      host.appendChild(element('p', 'wp-stat-note',
+        'No repository could be read, so recent activity is not measured.'));
+    } else if (!current.events.length) {
+      host.appendChild(element('p', 'wp-stat-note',
+        `No commits in the last ${current.days} days across the ${current.repositories.length} most recently pushed repositor${current.repositories.length === 1 ? 'y' : 'ies'}.`));
+    } else {
+      const now = Number.isFinite(current.now) ? current.now : Date.now();
+      const list = element('ul', 'wp-feed');
+      current.events.forEach(event => list.appendChild(feedRow(event, now)));
+      host.appendChild(list);
+    }
+
+    if (current.inventoryCount) {
+      host.appendChild(element('p', 'wp-stat-note wp-feed-scope',
+        `Commits from the last ${current.days} days across ${current.repositories.length} of ${current.inventoryCount} repositor${current.inventoryCount === 1 ? 'y' : 'ies'} in the first inventory page. Up to ${current.perRepositoryLimit || 20} commits per repository${current.truncated ? `; showing ${current.events.length} of ${current.totalEvents} returned commits` : ''}. This is a bounded sample, not a complete activity history.`));
+    }
+    const readAt = Date.parse(current.generatedAt);
+    if (Number.isFinite(readAt)) {
+      const stamp = element('time', 'wp-stat-note wp-feed-updated', `Updated ${new Date(readAt).toLocaleString()}`);
+      stamp.setAttribute('datetime', new Date(readAt).toISOString());
+      host.appendChild(stamp);
+    }
+
+    if (current.undated > 0) {
+      host.appendChild(element('p', 'wp-stat-note',
+        `${current.undated} event${current.undated === 1 ? '' : 's'} reported no time and ${current.undated === 1 ? 'is' : 'are'} not listed above.`));
+    }
+    if (current.failed && current.failed.length) {
+      host.appendChild(element('p', 'wp-stat-note',
+        `Not read: ${current.failed.map(entry => `${entry.repo} (${entry.reason})`).join('; ')}.`));
+    }
+  }
+
   /*
    * Each card names itself through a heading that lives outside the region this
    * repaints. Clearing the whole card took that heading with it, and a card
@@ -674,7 +790,21 @@
     return current;
   }
 
-  global.NebulaWorkspacePulse = Object.freeze({ COMPONENTS, ACTIVITY_BUCKETS, model, render });
+  /*
+   * The feed renders on its own clock. It arrives from the network while the
+   * cards above are already computed from what the session holds, so folding it
+   * into render() would mean either holding the whole grid back until a request
+   * lands, or repainting cards that have not changed every time it does.
+   */
+  function renderActivityFeed(root, current) {
+    if (!root || typeof document === 'undefined') return current;
+    renderFeed(body(root), current);
+    return current;
+  }
+
+  global.NebulaWorkspacePulse = Object.freeze({
+    COMPONENTS, ACTIVITY_BUCKETS, model, render, renderActivityFeed
+  });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaWorkspacePulse;

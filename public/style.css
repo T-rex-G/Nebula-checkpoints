@@ -2951,6 +2951,51 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-area-head{r:3.5px;transform-box:fill-box;transform-origin:center}
 .wp-card-activity{position:relative;overflow:hidden;min-height:210px}
 .wp-card-activity>.wp-body{position:relative;z-index:1}
+
+/* ---- recent activity ----------------------------------------------------
+ * A list, not a figure, so it gets the container's full width rather than a
+ * grid cell sized for a number. Commit subjects run long; in a 330px column
+ * every row wraps to three lines and the card becomes a wall.
+ */
+.wp-feed-section{margin-top:16px}
+.wp-card-feed{padding:18px 18px 8px}
+.wp-feed-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.wp-feed-toolbar .btn{min-height:40px;flex:none}
+.wp-feed-scope{padding-top:14px;border-top:1px solid var(--hair);line-height:1.6}
+.wp-feed-updated{display:block;margin-block:8px 12px}
+.wp-feed{list-style:none;margin:14px 0 4px;padding:0;display:grid;gap:2px}
+/*
+ * Rows are separated by a rule between them, never a border on each: a border
+ * per row draws a line under the last one too, which closes the list off from
+ * the note that explains it and reads as a table that lost its footer.
+ */
+.wp-feed-row{padding:10px 0;border-top:1px solid var(--hair)}
+.wp-feed-row:first-child{border-top:0;padding-top:4px}
+.wp-feed-head{display:flex;align-items:baseline;gap:10px;margin:0 0 3px;flex-wrap:wrap}
+/*
+ * The kind, as a mono tag rather than a coloured pill. Pills would put four
+ * competing accent colours in a column the reader scans top to bottom, and the
+ * thing they are scanning for is the message, not the category.
+ */
+.wp-feed-kind{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--lab);flex:0 0 auto}
+.wp-feed-kind-pull{color:var(--mint)}
+.wp-feed-kind-issue{color:var(--orange)}
+.wp-feed-kind-release{color:var(--teal)}
+.wp-feed-repo{font-size:12px;color:var(--fg2);min-width:0;overflow-wrap:anywhere}
+/* Pushed to the end so the times line up down the right edge and can be read
+   as a column, with auto margin rather than a fixed width that a long
+   repository name would push off the card. */
+.wp-feed-when{margin-left:auto;font-size:11.5px;color:var(--fg3);white-space:nowrap;flex:0 0 auto}
+.wp-feed-title{margin:0;font-size:13.5px;line-height:1.45;color:var(--fg);overflow-wrap:anywhere}
+.wp-feed-meta{margin:3px 0 0;font-family:var(--font-mono);font-size:11px;color:var(--fg3);overflow-wrap:anywhere}
+
+@media (max-width:640px){
+  /* The time moves under the repository rather than off the edge: at this
+     width the head row is already wrapping, and an auto margin on a wrapped
+     line puts the stamp alone on a line of its own for no gain. */
+  .wp-feed-when{margin-left:0}
+}
 /* ---- radial readings ----------------------------------------------------
  * One arc, one number in the middle of it. The arc is a single stroked circle
  * whose dash length is the reading, so the browser animates one presentation

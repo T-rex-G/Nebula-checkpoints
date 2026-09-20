@@ -133,8 +133,11 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     state,
     clearCsrfToken: () => operations.push(['csrf']),
     clearGovernanceState: () => operations.push(['governance']),
+    clearActivityFeed: () => operations.push(['activity-feed']),
     purgePrivateCaches: async () => {
       assert.strictEqual(state.uiEpoch, 1, 'invalidate pending UI responses before asynchronous cache cleanup');
+      assert(operations.some(([kind]) => kind === 'activity-feed'),
+        'clear private activity before asynchronous cache cleanup');
       operations.push(['cache']);
     },
     sessionStorage: { clear: () => operations.push(['session-storage']) },

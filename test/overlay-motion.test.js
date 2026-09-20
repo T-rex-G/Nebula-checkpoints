@@ -1269,6 +1269,24 @@ check('the moving ground yields where the galaxy is drawn', () => {
     'the waves are hidden by painting rather than by layout, so the loop keeps running behind the galaxy');
 });
 
+/*
+ * The landing owes the same yield, for the same reason and with the same
+ * mechanism: it mounts the plasma portal, so the waves there were a second
+ * full-bleed animation -- running as a column of violet verticals straight
+ * through the copy on the one screen whose whole job is to be read once.
+ *
+ * Asserted as its own rule rather than folded into the selector above, because
+ * each screen states its own reason for standing the ground down and a shared
+ * selector would make one of them disappear into the other's.
+ */
+check('the moving ground yields where the landing draws its portal', () => {
+  const rule = cssSource.match(/body:has\(#page-alpha-access\.active\) #lightWaves\{([^}]*)\}/);
+  assert.ok(rule,
+    'the waves still run underneath the invitation hero, where the portal is already drawing');
+  assert.ok(/display:none/.test(rule[1]),
+    'the waves are hidden by painting rather than by layout, so the loop keeps running behind the portal');
+});
+
 /* ---------------- typed on a phone ---------------- */
 
 check('every exact-match confirmation declines the phone keyboard', () => {

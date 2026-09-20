@@ -238,11 +238,14 @@ em{color:var(--teal);font-style:normal}
 /*
  * The moving ground yields to a screen that draws its own artwork.
  *
- * The repositories screen mounts the galaxy, which is full-bleed and moving
- * already. Running the waves underneath put two independent animations at two
- * unrelated speeds on one screen, and they read as interference rather than as
- * depth -- the galaxy is the subject there, and the ground was arguing with it.
- * Every other screen keeps the waves.
+ * The repositories screen mounts the galaxy and the landing mounts the plasma
+ * portal. Both are full-bleed and moving already, and running the waves
+ * underneath put two independent animations at two unrelated speeds on one
+ * screen: they read as interference rather than as depth, because on each of
+ * those screens the artwork is the subject and the ground was arguing with it.
+ * On the landing the waves also crossed the copy column as a column of violet
+ * verticals, which is a second thing to read on the one screen whose whole job
+ * is to be read once. Every other screen keeps the waves.
  *
  * display:none, not opacity or a paint trick: light-waves.js measures its own
  * box and holds when there is nothing to measure, so removing it from the
@@ -250,6 +253,7 @@ em{color:var(--teal);font-style:normal}
  * needing to know that screens exist.
  */
 [data-theme="light"] body:has(#page-repos.active) #lightWaves{display:none}
+[data-theme="light"] body:has(#page-alpha-access.active) #lightWaves{display:none}
 @media(min-width:1140px){
   body:has(#page-overview.active, #page-repos.active, #page-work.active) #lightWaves{
     inset:23px;width:calc(100% - 46px);height:calc(100% - 46px);border-radius:23px}

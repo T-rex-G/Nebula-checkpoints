@@ -203,3 +203,28 @@ test('the glow fades out on every side instead of ending at a rectangle', async 
   });
   expect(held).toMatch(/radial-gradient/);
 });
+
+/*
+ * The landing draws its own artwork, so the moving ground stands down there --
+ * the same yield the repositories screen already makes to the galaxy. In light
+ * theme the waves ran as a column of violet verticals straight through the
+ * copy, which is a second moving thing to read on the one screen whose whole
+ * job is to be read once.
+ *
+ * display:none rather than a paint trick, because light-waves.js measures its
+ * own box: out of the layout, the render loop stops too.
+ */
+test('the light-theme waves stand down behind the landing artwork', async ({ page }) => {
+  await page.addInitScript(() => {
+    try { localStorage.setItem('nv_theme', 'light'); } catch (e) { /* private mode */ }
+  });
+  await openScene(page);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  const waves = page.locator('#lightWaves');
+  await expect(waves).toBeHidden();
+  expect(await waves.evaluate(el => getComputedStyle(el).display)).toBe('none');
+  /* And the module really stopped rather than drawing into a hidden canvas. */
+  const first = await waves.evaluate(el => el.toDataURL());
+  await page.waitForTimeout(250);
+  expect(await waves.evaluate(el => el.toDataURL())).toBe(first);
+});

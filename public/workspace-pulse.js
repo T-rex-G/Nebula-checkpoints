@@ -545,84 +545,300 @@
    * the second silently paint with the first's ramp, which is the kind of bug
    * that looks like a rendering quirk and never gets traced.
    */
+  /*
+   * The spacing at which a dot is still its own mark rather than a bead on a
+   * chain. Below this the line is left to carry the shape by itself.
+   */
+  const DOT_SPACING = 12;
   let areaSequence = 0;
 
-  function areaChart(values, label) {
-    const width = 380;
-    const height = 120;
-    /*
-     * The plot is inset on every side. Drawn edge to edge, a series that is
-     * mostly zero laid its baseline exactly on the bottom of the frame, where
-     * the card's overflow clipped it away, and a single trailing spike landed
-     * exactly on the right edge -- so the whole reading appeared as one stray
-     * vertical line at the border of the card. The data was right; there was
-     * nowhere for it to be drawn.
-     */
-    /*
-     * The horizontal inset was four units of a 380-unit box, which the card
-     * stretches to its own width: the last point landed about five pixels from
-     * the frame, so a series that ends on its only non-zero reading drew what
-     * looked like a stray line down the card's border. There is room for the
-     * endpoint to be a point now.
-     */
-    const padX = 16;
-    const padTop = 16;
-    const padBottom = 11;
-    const plotW = width - padX * 2;
-    const plotH = height - padTop - padBottom;
-    const id = `wp-area-${areaSequence += 1}`;
-    const peak = Math.max(...values, 1);
-    const step = values.length > 1 ? plotW / (values.length - 1) : plotW;
-    const points = values.map((value, index) => {
-      const x = Math.round((padX + index * step) * 10) / 10;
-      const y = Math.round((padTop + (1 - value / peak) * plotH) * 10) / 10;
-      return `${x},${y}`;
-    });
-    const baseY = padTop + plotH;
-
-    const chart = svg('svg', {
-      class: 'wp-area', viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: 'none',
-      role: 'img', 'aria-label': label
-    });
+  /*
+   * The shared marks every chart on this card is drawn from.
+   *
+   * One <defs> factory rather than a gradient declared inside each chart: the
+   * three cards are rendered independently and re-rendered on refresh, and
+   * duplicated gradient ids across a document resolve to whichever one the
+   * browser parsed last -- which is how a card ends up borrowing another
+   * card's colours after a repaint.
+   *
+   * The pieces here are the whole visual vocabulary: a stroke gradient along
+   * the series, a fill that fades the same hue to nothing, a 45-degree hatch
+   * for a period that is not finished yet, and a soft outer glow. All of them
+   * are ordinary SVG, which is the same technique the rest of this module
+   * already uses -- there is no library behind any of it.
+   */
+  function chartDefs(id, options) {
+    const settings = options || {};
     const defs = svg('defs', {});
+
     const stroke = svg('linearGradient', { id: `${id}-s`, x1: 0, y1: 0, x2: 1, y2: 0 });
     for (const [offset, color] of [['0%', '#8B5CF6'], ['55%', '#6366F1'], ['100%', '#22D3EE']]) {
       stroke.appendChild(svg('stop', { offset, 'stop-color': color }));
     }
+    defs.appendChild(stroke);
+
     const fill = svg('linearGradient', { id: `${id}-f`, x1: 0, y1: 0, x2: 0, y2: 1 });
-    fill.appendChild(svg('stop', { offset: '0%', 'stop-color': '#6366F1', 'stop-opacity': '.45' }));
+    fill.appendChild(svg('stop', { offset: '0%', 'stop-color': '#6366F1', 'stop-opacity': '.42' }));
+    fill.appendChild(svg('stop', { offset: '72%', 'stop-color': '#6366F1', 'stop-opacity': '.06' }));
     fill.appendChild(svg('stop', { offset: '100%', 'stop-color': '#6366F1', 'stop-opacity': '0' }));
-    defs.append(stroke, fill);
-    chart.appendChild(defs);
-    /* A zero line, so a flat stretch reads as measured zero and not as no data. */
-    chart.appendChild(svg('line', {
-      x1: padX, y1: baseY, x2: width - padX, y2: baseY,
-      stroke: 'currentColor', 'stroke-width': 1, opacity: '.22',
-      'vector-effect': 'non-scaling-stroke'
-    }));
-    chart.appendChild(svg('polygon', {
-      points: `${points.join(' ')} ${width - padX},${baseY} ${padX},${baseY}`, fill: `url(#${id}-f)`
-    }));
-    chart.appendChild(svg('polyline', {
-      points: points.join(' '), fill: 'none', stroke: `url(#${id}-s)`,
-      'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
-      'vector-effect': 'non-scaling-stroke'
-    }));
+    defs.appendChild(fill);
+
     /*
-     * The latest reading gets a mark of its own. A workspace with one
-     * repository produces a series that is zero until its final value, and a
-     * bare polyline renders that as a cliff with nothing at the top of it --
-     * the shape a reader takes for a rendering fault rather than for one push.
-     * The circle is drawn in screen units so the chart's horizontal stretch
-     * cannot flatten it into an ellipse.
+     * Texture, and it means something. A hatched mark is the last period,
+     * which is still being counted -- the reader is told the bar is short
+     * because the day is young, not because the work stopped. It is the one
+     * place this card uses a pattern, so the pattern has exactly one meaning.
      */
+    if (settings.hatch) {
+      const hatch = svg('pattern', {
+        id: `${id}-h`, width: 6, height: 6, patternUnits: 'userSpaceOnUse',
+        patternTransform: 'rotate(45)'
+      });
+      hatch.appendChild(svg('rect', { width: 6, height: 6, fill: '#6366F1', 'fill-opacity': '.12' }));
+      hatch.appendChild(svg('line', {
+        x1: 0, y1: 0, x2: 0, y2: 6, stroke: '#8B5CF6', 'stroke-width': 2, 'stroke-opacity': '.55'
+      }));
+      defs.appendChild(hatch);
+    }
+
+    /*
+     * The glow is drawn wide enough to hold the blur. A filter region defaults
+     * to a tenth of the box on each side, which clips the bloom off the ends
+     * of a stroke that runs to the edge of its viewBox and leaves a visible
+     * square shadow where the region stops.
+     */
+    if (settings.glow) {
+      const glow = svg('filter', {
+        id: `${id}-g`, x: '-30%', y: '-30%', width: '160%', height: '160%',
+        filterUnits: 'objectBoundingBox'
+      });
+      glow.appendChild(svg('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: settings.glow, result: 'b' }));
+      const merge = svg('feMerge', {});
+      merge.appendChild(svg('feMergeNode', { in: 'b' }));
+      merge.appendChild(svg('feMergeNode', { in: 'SourceGraphic' }));
+      glow.appendChild(merge);
+      defs.appendChild(glow);
+    }
+    return defs;
+  }
+
+  /*
+   * Motion has one owner on this page already -- the data-motion setting and
+   * the OS preference -- so a chart asks rather than decides. A reveal that
+   * ignores either is a chart that animates for a reader who asked it not to.
+   */
+  function motionAllowed() {
+    if (document.documentElement.dataset.motion === 'off') return false;
+    try {
+      return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch { return true; }
+  }
+
+  /*
+   * A hairline grid, drawn solid.
+   *
+   * Dashed gridlines are the house style of most chart libraries and they are
+   * a mistake: a dash reads as a threshold or a projection, so a grid drawn
+   * that way says "target" four times on a chart that has no target. One
+   * shade off the surface, solid, and the eye stops seeing it as soon as it
+   * has used it.
+   */
+  function gridLines(chart, geometry, ticks) {
+    for (const tick of ticks) {
+      chart.appendChild(svg('line', {
+        class: 'wp-grid-line',
+        x1: geometry.padX, y1: tick.y, x2: geometry.width - geometry.padX, y2: tick.y,
+        'vector-effect': 'non-scaling-stroke'
+      }));
+    }
+  }
+
+  /*
+   * The area chart.
+   *
+   * Not stretched. preserveAspectRatio="none" made the card's width scale the
+   * viewBox horizontally and not vertically, so a 2-unit stroke arrived on
+   * screen as a 2-unit vertical and a much thinner horizontal, and every
+   * circle came out an ellipse -- which is why the old endpoint mark had to be
+   * drawn in screen units to survive. The box keeps its ratio now and the
+   * marks are simply the size they say they are.
+   */
+  function areaChart(values, label, options) {
+    const settings = options || {};
+    const width = 380;
+    const plotH = 96;
+    const padX = 16;
+    const padTop = 14;
+    /* The band the x labels sit in is part of the box. A container sized to
+       the plot alone gives the card its own small vertical scrollbar. */
+    const axisBand = 18;
+    const height = padTop + plotH + axisBand;
+    const plotW = width - padX * 2;
+    const id = `wp-area-${areaSequence += 1}`;
+    const peak = Math.max(...values, 1);
+    const step = values.length > 1 ? plotW / (values.length - 1) : plotW;
+    const at = (value, index) => ({
+      x: Math.round((padX + index * step) * 10) / 10,
+      y: Math.round((padTop + (1 - value / peak) * plotH) * 10) / 10
+    });
+    const points = values.map(at);
+    const baseY = padTop + plotH;
+
+    const chart = svg('svg', {
+      class: 'wp-area', viewBox: `0 0 ${width} ${height}`,
+      role: 'img', 'aria-label': label
+    });
+    chart.appendChild(chartDefs(id, { glow: 2.4 }));
+
+    /* Three lines: the peak, the middle and the floor. More than that on a
+       96-unit plot is chrome competing with the series. */
+    gridLines(chart, { padX, width }, [0, 0.5, 1].map(fraction => ({
+      y: Math.round((padTop + fraction * plotH) * 10) / 10
+    })));
+
+    chart.appendChild(svg('polygon', {
+      points: `${points.map(point => `${point.x},${point.y}`).join(' ')} ${width - padX},${baseY} ${padX},${baseY}`,
+      fill: `url(#${id}-f)`
+    }));
+
+    const line = svg('polyline', {
+      class: 'wp-area-line',
+      points: points.map(point => `${point.x},${point.y}`).join(' '),
+      fill: 'none', stroke: `url(#${id}-s)`,
+      'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+      filter: `url(#${id}-g)`
+    });
+    chart.appendChild(line);
+
+    /*
+     * The reveal draws the line on rather than fading the card in: a wipe
+     * follows the direction the data is read in, so the eye arrives at the
+     * most recent reading last. It is one animated presentation attribute on
+     * one element, and it is skipped entirely when motion is off.
+     */
+    if (motionAllowed() && points.length > 1) {
+      const length = points.reduce((total, point, index) => index === 0 ? 0
+        : total + Math.hypot(point.x - points[index - 1].x, point.y - points[index - 1].y), 0);
+      line.setAttribute('stroke-dasharray', String(length));
+      line.setAttribute('stroke-dashoffset', String(length));
+      const draw = svg('animate', {
+        attributeName: 'stroke-dashoffset', from: String(length), to: '0',
+        dur: '.7s', fill: 'freeze', calcMode: 'spline',
+        keySplines: '.22 .61 .36 1', keyTimes: '0;1', values: `${length};0`
+      });
+      line.appendChild(draw);
+    }
+
+    /*
+     * Dots only when they can be read as dots.
+     *
+     * They exist to say where the readings are, because without them a flat
+     * run cannot be told from a line drawn between two distant points. At the
+     * sixty-day window this series actually uses, the readings are under six
+     * units apart and a 2.2-unit dot on each one is not sixty marks, it is a
+     * bead chain laid over the line -- chrome pretending to be data. Below
+     * the spacing where a dot is still its own mark, they are drawn; above
+     * it, the line carries the shape on its own and the endpoint carries the
+     * reading. A value is never printed on every point either way.
+     */
+    if (step >= DOT_SPACING) {
+      for (const point of points) {
+        chart.appendChild(svg('circle', {
+          class: 'wp-area-dot', cx: point.x, cy: point.y, r: 2.2
+        }));
+      }
+    }
     const last = points[points.length - 1];
     if (last) {
-      const [lastX, lastY] = last.split(',');
-      chart.appendChild(svg('circle', {
-        class: 'wp-area-head', cx: lastX, cy: lastY, r: 3.5,
-        fill: '#22D3EE', 'vector-effect': 'non-scaling-stroke'
-      }));
+      chart.appendChild(svg('circle', { class: 'wp-area-head', cx: last.x, cy: last.y, r: 4 }));
+      const readout = svg('text', {
+        class: 'wp-area-value', x: Math.min(last.x, width - padX - 2), y: Math.max(last.y - 10, 10),
+        'text-anchor': last.x > width - padX - 24 ? 'end' : 'middle'
+      });
+      readout.textContent = String(values[values.length - 1]);
+      chart.appendChild(readout);
+    }
+
+    if (settings.axis && settings.axis.length) {
+      for (const mark of settings.axis) {
+        const text = svg('text', {
+          class: 'wp-area-axis',
+          x: at(0, mark.index).x, y: height - 5,
+          'text-anchor': mark.index === 0 ? 'start' : (mark.index === values.length - 1 ? 'end' : 'middle')
+        });
+        text.textContent = mark.label;
+        chart.appendChild(text);
+      }
+    }
+    return chart;
+  }
+
+  /*
+   * Commits per day, as bars.
+   *
+   * The feed below this answers "what happened" one row at a time, which is
+   * the right shape for reading a change and the wrong shape for seeing a
+   * week. Thirty rows of text cannot show that Tuesday was quiet; a row of
+   * bars shows it without being read. The two are the same events counted two
+   * ways, so the chart is derived here rather than fetched.
+   */
+  function barChart(bars, label) {
+    const width = 380;
+    const plotH = 54;
+    const padX = 14;
+    const padTop = 8;
+    const axisBand = 16;
+    const height = padTop + plotH + axisBand;
+    const plotW = width - padX * 2;
+    const id = `wp-bar-${areaSequence += 1}`;
+    const peak = Math.max(...bars.map(bar => bar.count), 1);
+    /* A 2-unit gap between neighbours, which is the surface showing through
+       rather than a border drawn around each bar. */
+    const slot = plotW / Math.max(bars.length, 1);
+    const barW = Math.max(slot - 2, 1);
+
+    const chart = svg('svg', {
+      class: 'wp-bars', viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': label
+    });
+    chart.appendChild(chartDefs(id, { hatch: true }));
+    chart.appendChild(svg('line', {
+      class: 'wp-grid-line', x1: padX, y1: padTop + plotH, x2: width - padX, y2: padTop + plotH,
+      'vector-effect': 'non-scaling-stroke'
+    }));
+
+    bars.forEach((bar, index) => {
+      /*
+       * A day still being counted is drawn even at zero, as a hatched stub.
+       * Skipping it renders "nothing has landed today yet" as a chart that
+       * simply stops at yesterday, and those are different statements -- the
+       * same distinction the feed beside this makes between a quiet workspace
+       * and one it could not read. Every other empty day is genuinely empty
+       * and draws nothing.
+       */
+      const barH = bar.count ? Math.max((bar.count / peak) * plotH, 2) : (bar.partial ? 2 : 0);
+      if (!barH) return;
+      const rect = svg('rect', {
+        class: 'wp-bar', x: Math.round((padX + index * slot) * 10) / 10,
+        y: Math.round((padTop + plotH - barH) * 10) / 10,
+        width: Math.round(barW * 10) / 10, height: Math.round(barH * 10) / 10,
+        /* Rounded at the data end only, and anchored to the baseline: a bar
+           rounded at the bottom floats off the axis it is measured from. */
+        rx: Math.min(3, barW / 2),
+        fill: bar.partial ? `url(#${id}-h)` : `url(#${id}-f)`
+      });
+      rect.appendChild(svg('title', {})).textContent =
+        `${bar.label}: ${bar.count} commit${bar.count === 1 ? '' : 's'}${bar.partial ? ' so far' : ''}`;
+      chart.appendChild(rect);
+    });
+
+    for (const mark of [0, bars.length - 1]) {
+      if (!bars[mark]) continue;
+      const text = svg('text', {
+        class: 'wp-area-axis', x: padX + mark * slot + barW / 2, y: height - 4,
+        'text-anchor': mark === 0 ? 'start' : 'end'
+      });
+      text.textContent = bars[mark].label;
+      chart.appendChild(text);
     }
     return chart;
   }
@@ -638,9 +854,18 @@
     }
     host.appendChild(element('p', 'wp-stat-note',
       `${activity.windowTotal} of ${activity.total} repositories pushed in the last ${activity.windowDays} days, shown as a trailing ${activity.rollingDays}-day count.`));
+    /*
+     * Two labels, not thirty. The series is one reading per day over a month,
+     * and a tick under every one of them is a band of unreadable text that
+     * tells the reader nothing the ends do not already say.
+     */
     host.appendChild(areaChart(
       activity.series,
-      `Repositories pushed, as a trailing ${activity.rollingDays}-day count over the last ${activity.windowDays} days.`
+      `Repositories pushed, as a trailing ${activity.rollingDays}-day count over the last ${activity.windowDays} days.`,
+      { axis: [
+        { index: 0, label: `${activity.windowDays}d ago` },
+        { index: activity.series.length - 1, label: 'today' }
+      ] }
     ));
 
     if (activity.unknownCount > 0) {
@@ -720,6 +945,41 @@
    * before it has an answer. All four are drawn rather than left blank: loading,
    * nothing readable, nothing happened, and something happened.
    */
+  /*
+   * The feed's own events, counted into days.
+   *
+   * Derived rather than requested: a second read would be a second set of
+   * provider round trips for numbers this card already holds, and two reads
+   * of a moving target disagree. Days are walked backwards from now so the
+   * last slot is today whatever hour it is, and an event with no usable time
+   * is left out of the count rather than dropped into the nearest day -- the
+   * feed reports those separately and this chart must not quietly absorb them.
+   */
+  function dailyCommits(events, now, days) {
+    const span = Math.max(1, Math.min(Number(days) || 7, 60));
+    const midnight = new Date(now);
+    midnight.setHours(0, 0, 0, 0);
+    const today = midnight.getTime();
+    const bars = [];
+    for (let back = span - 1; back >= 0; back -= 1) {
+      const at = today - back * DAY;
+      bars.push({
+        at,
+        count: 0,
+        partial: back === 0,
+        label: back === 0 ? 'today'
+          : new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      });
+    }
+    for (const event of Array.isArray(events) ? events : []) {
+      const at = Number.isFinite(event && event.at) ? event.at : Date.parse((event && event.at) || '');
+      if (!Number.isFinite(at)) continue;
+      const age = Math.floor((today - new Date(at).setHours(0, 0, 0, 0)) / DAY);
+      if (age >= 0 && age < span) bars[span - 1 - age].count += 1;
+    }
+    return bars;
+  }
+
   function renderFeed(host, current) {
     if (!host) return;
     host.textContent = '';
@@ -744,6 +1004,19 @@
         `No commits in the last ${current.days} days across the ${current.repositories.length} most recently pushed repositor${current.repositories.length === 1 ? 'y' : 'ies'}.`));
     } else {
       const now = Number.isFinite(current.now) ? current.now : Date.now();
+      /*
+       * The shape first, then the rows.
+       *
+       * The list answers "what changed" one entry at a time, which is right
+       * for reading a single change and wrong for seeing a week: thirty rows
+       * of text cannot show that the middle of the week was quiet. The bars
+       * are the same events counted per day, so nothing new is fetched and
+       * nothing can disagree -- and the last bar is hatched because today is
+       * still being counted, which is the difference between a short bar and
+       * a finished one.
+       */
+      host.appendChild(barChart(dailyCommits(current.events, now, current.days),
+        `Commits per day over the last ${current.days} days.`));
       const list = element('ul', 'wp-feed');
       current.events.forEach(event => list.appendChild(feedRow(event, now)));
       host.appendChild(list);

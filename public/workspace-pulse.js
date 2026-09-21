@@ -937,9 +937,17 @@
      * the reading. It runs along the same diagonal as the stroke now, at an
      * alpha low enough that the fill says "inside" and nothing else.
      */
+    /*
+     * Classed rather than written as attributes, so the stylesheet owns the
+     * colour and the alpha. The theme can be toggled after the chart is on
+     * screen -- app.js sets data-theme and does not redraw the overview -- and
+     * an attribute written at build time would keep whichever theme's value
+     * was current then. The light surface needs a stronger fill than the dark
+     * one to read as the same tint; the stylesheet says how much.
+     */
     const fill = svg('linearGradient', { id: `${id}-r`, x1: 0, y1: 0, x2: 1, y2: 1 });
-    fill.appendChild(svg('stop', { offset: '0%', 'stop-color': '#8B5CF6', 'stop-opacity': '.20' }));
-    fill.appendChild(svg('stop', { offset: '100%', 'stop-color': '#22D3EE', 'stop-opacity': '.12' }));
+    fill.appendChild(svg('stop', { offset: '0%', class: 'wp-radar-fill-from' }));
+    fill.appendChild(svg('stop', { offset: '100%', class: 'wp-radar-fill-to' }));
     defs.appendChild(fill);
     const stroke = svg('linearGradient', { id: `${id}-s`, x1: 0, y1: 0, x2: 1, y2: 1 });
     stroke.appendChild(svg('stop', { offset: '0%', 'stop-color': '#8B5CF6' }));

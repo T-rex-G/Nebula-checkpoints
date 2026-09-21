@@ -3290,3 +3290,25 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-feed-scope-full{margin:14px 0 0;padding-top:12px;border-top:1px solid var(--hair)}
 .gx-pulse-radar dd{margin:0}
 .gx-pulse-radar .wp-radar{margin:2px auto}
+
+/*
+ * The activity card's header: what it measures on the left, how much on the
+ * right. The figure wears the display face at a size that survives being the
+ * first thing seen, and the ink is a text token -- a headline in the series
+ * colour turns the number into part of the mark.
+ */
+.wp-area-head-row{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:16px;margin:10px 0 0}
+.wp-area-head-said{min-width:0}
+.wp-area-head-title{margin:0;font-family:var(--font-display);font-weight:700;
+  font-size:.95rem;color:var(--fg);letter-spacing:-.01em}
+.wp-area-head-desc{margin:3px 0 0;font-family:var(--font-mono);font-size:.66rem;
+  letter-spacing:.05em;color:var(--fg3)}
+.wp-area-head-figure{margin:0;flex:0 0 auto;text-align:right;
+  font-family:var(--font-display);font-weight:700;font-size:1.9rem;line-height:1;
+  color:var(--fg);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.wp-area-head-of{display:block;margin-top:4px;font-family:var(--font-mono);
+  font-size:.64rem;font-weight:500;letter-spacing:.06em;color:var(--fg3)}
+/* The live end of the series. Its colour comes from the endpoint it sits
+   under, so the two read as one mark rather than a dot inside a ring. */
+.wp-area-ping{fill:#22D3EE;pointer-events:none}

@@ -69,12 +69,14 @@ test('the grid is a solid hairline, not a dashed rule', async ({ page }) => {
  */
 test('a dense series draws no dots, and still names its latest reading', async ({ page }) => {
   await overview(page);
-  const points = await page.evaluate(() =>
-    (document.querySelector('#wpActivity .wp-area-line')?.getAttribute('points') || '').trim().split(/\s+/).length);
-  expect(points).toBeGreaterThan(30);
+  /* Segment count off the curve: one cubic per gap between readings. */
+  const segments = await page.evaluate(() =>
+    ((document.querySelector('#wpActivity .wp-area-line')?.getAttribute('d') || '').match(/C/g) || []).length);
+  expect(segments).toBeGreaterThan(30);
   await expect(page.locator('#wpActivity .wp-area-dot')).toHaveCount(0);
   await expect(page.locator('#wpActivity .wp-area-head')).toBeVisible();
-  await expect(page.locator('#wpActivity .wp-area-value')).toBeVisible();
+  /* The reading is named by the header now, not printed over the plot. */
+  await expect(page.locator('#wpActivity .wp-area-head-figure')).toBeVisible();
 });
 
 /*
@@ -137,4 +139,89 @@ test('an opened ledger stays open across a revisit', async ({ page }) => {
   await expect(ui.screen(page, 'overview')).toBeVisible();
   await expect(page.locator('#wpFeed .wp-feed-row').first()).toBeVisible();
   expect(await page.locator('#wpFeed .wp-feed-fold').evaluate(el => el.open)).toBe(true);
+});
+
+/*
+ * The block composition: what is measured on the left, how much on the right,
+ * and the series underneath. The card used to open with a sentence carrying
+ * the number inside it, which puts the one fact a reader came for behind a
+ * clause they have to parse.
+ */
+test('the activity card leads with its figure, and prints it once', async ({ page }) => {
+  await overview(page);
+  const figure = page.locator('#wpActivity .wp-area-head-figure');
+  await expect(figure).toBeVisible();
+  await expect(page.locator('#wpActivity .wp-area-head-title')).toHaveText('Repositories pushed');
+  /* The endpoint readout stands down when the header states the figure --
+     the same number twice within a couple of centimetres invites the reader
+     to look for a difference between them. */
+  await expect(page.locator('#wpActivity .wp-area-value')).toHaveCount(0);
+});
+
+/*
+ * Curved, and never outside its own readings.
+ *
+ * This pins the property, not a bug that was seen: sampled along the rendered
+ * curve, no point of it may fall below the zero line. Against this product's
+ * own series -- a trailing count, which moves as plateaus rather than isolated
+ * spikes -- an unclamped fit measures the same, so this assertion does not
+ * currently separate the two implementations. It separates either of them from
+ * a future one that overshoots, which is what it is here to do.
+ */
+test('the series is curved and never dips below its own baseline', async ({ page }) => {
+  /*
+   * A bump with zeros on both sides of it, which is the shape that exposes an
+   * overshooting spline. Every repository was pushed on the same day a month
+   * back, so the trailing count climbs, holds, and returns to zero -- and a
+   * curve fitted with plain Catmull-Rom swings under the baseline on the way
+   * down, drawing a count of repositories as a negative number.
+   */
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route(/\/api\/repos(\?|$)/, route => route.fulfill({
+    json: Array.from({ length: 6 }, (unused, index) => ({
+      full_name: `acme/r${index}`, name: `r${index}`, owner: 'acme',
+      private: false, language: 'Go', pushed_at: thirtyDaysAgo
+    }))
+  }));
+  await page.goto('/');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+
+  const geometry = await page.evaluate(() => {
+    const path = document.querySelector('#wpActivity .wp-area-line');
+    const d = path.getAttribute('d');
+    /* The baseline is where the series reads zero: the lowest grid line. */
+    const baseline = Math.max(...[...document.querySelectorAll('#wpActivity .wp-grid-line')]
+      .map(line => Number(line.getAttribute('y1'))));
+    /* Sample the rendered curve rather than its control points -- a bezier
+       leaves the interval between its endpoints, which is the whole failure. */
+    const total = path.getTotalLength();
+    let lowest = -Infinity;
+    for (let at = 0; at <= total; at += total / 400) {
+      lowest = Math.max(lowest, path.getPointAtLength(at).y);
+    }
+    return { curved: d.includes(' C'), lowest, baseline, peak: Math.min(...
+      Array.from({ length: 401 }, (unused, index) => path.getPointAtLength(index * total / 400).y)) };
+  });
+  expect(geometry.curved).toBe(true);
+  /* Sampled on the curve itself: no point of it may fall below zero. */
+  expect(geometry.lowest).toBeLessThanOrEqual(geometry.baseline + 0.5);
+  /* And the bump is real, so this is not passing on a flat line. */
+  expect(geometry.peak).toBeLessThan(geometry.baseline - 10);
+});
+
+/*
+ * The live end pings, and stops pinging when the reader asked for stillness.
+ * A halo left static would be a ring they have to interpret.
+ */
+test('the endpoint pings, and does not when motion is off', async ({ page }) => {
+  await overview(page);
+  await expect(page.locator('#wpActivity .wp-area-ping')).toHaveCount(1);
+
+  await page.addInitScript(() => {
+    try { localStorage.setItem('nv_settings', JSON.stringify({ motion: false })); } catch (e) { /* private mode */ }
+  });
+  await page.reload();
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect(page.locator('#wpActivity .wp-area-ping')).toHaveCount(0);
 });

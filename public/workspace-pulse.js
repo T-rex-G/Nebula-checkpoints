@@ -655,6 +655,66 @@
   }
 
   /*
+   * A monotone curve, not a spline.
+   *
+   * The block this composition follows uses a curved line. The usual way to
+   * get one -- Catmull-Rom through the points -- can overshoot: its tangents
+   * are set from the neighbours without regard to direction, so between a zero
+   * and a spike the curve is free to swing past both, and a chart of counts
+   * can draw itself going negative.
+   *
+   * Fritsch-Carlson clamps each tangent where the direction changes and zeroes
+   * it across flat runs, so the curve provably cannot leave the interval its
+   * own readings define. It is chosen for that property rather than for a
+   * defect observed here: against this product's series -- a trailing count,
+   * which moves as plateaus rather than isolated spikes -- both fits measure
+   * the same, and no fixture was found where the unclamped one leaves the
+   * plot. The guarantee is the point. A future series with sharper steps is
+   * exactly the case that would have needed it, and it will not be obvious
+   * that it did.
+   */
+  function monotonePath(points) {
+    if (points.length < 2) return points.length ? `M${points[0].x},${points[0].y}` : '';
+    const n = points.length;
+    const slope = [];
+    for (let i = 0; i < n - 1; i += 1) {
+      const dx = points[i + 1].x - points[i].x;
+      slope.push(dx === 0 ? 0 : (points[i + 1].y - points[i].y) / dx);
+    }
+    const tangent = [slope[0]];
+    for (let i = 1; i < n - 1; i += 1) {
+      if (slope[i - 1] * slope[i] <= 0) {
+        /* A turning point: a zero tangent is what stops the curve carrying
+           its previous direction past the reading and overshooting it. */
+        tangent.push(0);
+      } else {
+        tangent.push((slope[i - 1] + slope[i]) / 2);
+      }
+    }
+    tangent.push(slope[n - 2]);
+    for (let i = 0; i < n - 1; i += 1) {
+      if (slope[i] === 0) { tangent[i] = 0; tangent[i + 1] = 0; continue; }
+      const a = tangent[i] / slope[i];
+      const b = tangent[i + 1] / slope[i];
+      const h = Math.hypot(a, b);
+      if (h > 3) {
+        tangent[i] = (3 / h) * a * slope[i];
+        tangent[i + 1] = (3 / h) * b * slope[i];
+      }
+    }
+    let path = `M${points[0].x},${points[0].y}`;
+    for (let i = 0; i < n - 1; i += 1) {
+      const dx = (points[i + 1].x - points[i].x) / 3;
+      path += ` C${round(points[i].x + dx)},${round(points[i].y + tangent[i] * dx)}`
+        + ` ${round(points[i + 1].x - dx)},${round(points[i + 1].y - tangent[i + 1] * dx)}`
+        + ` ${points[i + 1].x},${points[i + 1].y}`;
+    }
+    return path;
+  }
+
+  const round = value => Math.round(value * 10) / 10;
+
+  /*
    * The area chart.
    *
    * Not stretched. preserveAspectRatio="none" made the card's width scale the
@@ -697,14 +757,13 @@
       y: Math.round((padTop + fraction * plotH) * 10) / 10
     })));
 
-    chart.appendChild(svg('polygon', {
-      points: `${points.map(point => `${point.x},${point.y}`).join(' ')} ${width - padX},${baseY} ${padX},${baseY}`,
-      fill: `url(#${id}-f)`
+    const curve = monotonePath(points);
+    chart.appendChild(svg('path', {
+      d: `${curve} L${width - padX},${baseY} L${padX},${baseY} Z`, fill: `url(#${id}-f)`
     }));
 
-    const line = svg('polyline', {
-      class: 'wp-area-line',
-      points: points.map(point => `${point.x},${point.y}`).join(' '),
+    const line = svg('path', {
+      class: 'wp-area-line', d: curve,
       fill: 'none', stroke: `url(#${id}-s)`,
       'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
       filter: `url(#${id}-g)`
@@ -718,8 +777,15 @@
      * one element, and it is skipped entirely when motion is off.
      */
     if (motionAllowed() && points.length > 1) {
-      const length = points.reduce((total, point, index) => index === 0 ? 0
-        : total + Math.hypot(point.x - points[index - 1].x, point.y - points[index - 1].y), 0);
+      /*
+       * Measured off the curve, not the chord. Summing the straight-line gaps
+       * under-counts a curved path, and a dasharray shorter than the path it
+       * hides leaves the tail of the line drawn before the reveal starts.
+       */
+      const length = typeof line.getTotalLength === 'function'
+        ? line.getTotalLength()
+        : points.reduce((total, point, index) => index === 0 ? 0
+          : total + Math.hypot(point.x - points[index - 1].x, point.y - points[index - 1].y), 0);
       line.setAttribute('stroke-dasharray', String(length));
       line.setAttribute('stroke-dashoffset', String(length));
       const draw = svg('animate', {
@@ -751,13 +817,40 @@
     }
     const last = points[points.length - 1];
     if (last) {
+      /*
+       * The latest reading pings. A halo that breathes under a solid core says
+       * "this end is live" without a label saying so -- and it is the one mark
+       * on the card that moves, so it cannot be confused with decoration. It
+       * is drawn before the core, and it is dropped entirely when motion is
+       * off rather than left as a static ring the reader has to interpret.
+       */
+      if (motionAllowed()) {
+        const halo = svg('circle', { class: 'wp-area-ping', cx: last.x, cy: last.y, r: 4 });
+        halo.appendChild(svg('animate', {
+          attributeName: 'r', values: '4;11;4', dur: '2.4s', repeatCount: 'indefinite',
+          calcMode: 'spline', keyTimes: '0;.5;1', keySplines: '.4 0 .6 1;.4 0 .6 1'
+        }));
+        halo.appendChild(svg('animate', {
+          attributeName: 'opacity', values: '.5;0;.5', dur: '2.4s', repeatCount: 'indefinite',
+          calcMode: 'spline', keyTimes: '0;.5;1', keySplines: '.4 0 .6 1;.4 0 .6 1'
+        }));
+        chart.appendChild(halo);
+      }
       chart.appendChild(svg('circle', { class: 'wp-area-head', cx: last.x, cy: last.y, r: 4 }));
-      const readout = svg('text', {
-        class: 'wp-area-value', x: Math.min(last.x, width - padX - 2), y: Math.max(last.y - 10, 10),
-        'text-anchor': last.x > width - padX - 24 ? 'end' : 'middle'
-      });
-      readout.textContent = String(values[values.length - 1]);
-      chart.appendChild(readout);
+      /*
+       * The endpoint is labelled only when nothing above it already says the
+       * number. With the header carrying the figure, a readout here prints it
+       * twice within a couple of centimetres -- and a reader who sees the same
+       * value in two places starts looking for the difference between them.
+       */
+      if (!settings.headline) {
+        const readout = svg('text', {
+          class: 'wp-area-value', x: Math.min(last.x, width - padX - 2), y: Math.max(last.y - 10, 10),
+          'text-anchor': last.x > width - padX - 24 ? 'end' : 'middle'
+        });
+        readout.textContent = String(values[values.length - 1]);
+        chart.appendChild(readout);
+      }
     }
 
     if (settings.axis && settings.axis.length) {
@@ -993,8 +1086,27 @@
       host.appendChild(element('p', 'wp-stat-note', 'No repository has reported a last-push time yet.'));
       return;
     }
-    host.appendChild(element('p', 'wp-stat-note',
-      `${activity.windowTotal} of ${activity.total} repositories pushed in the last ${activity.windowDays} days, shown as a trailing ${activity.rollingDays}-day count.`));
+    /*
+     * The figure leads, the sentence explains.
+     *
+     * The card used to open with a sentence carrying a number inside it, which
+     * puts the one fact a reader came for behind a clause they have to parse.
+     * The count sits on its own now, right-aligned against the description, so
+     * the card answers "how much" before it is read at all -- and the sentence
+     * underneath still says what the count is of and over what window, because
+     * a bare figure with no grain is the other way to mislead.
+     */
+    const stat = element('div', 'wp-area-head-row');
+    const said = element('div', 'wp-area-head-said');
+    said.append(
+      element('p', 'wp-area-head-title', 'Repositories pushed'),
+      element('p', 'wp-area-head-desc',
+        `trailing ${activity.rollingDays}-day count, last ${activity.windowDays} days`)
+    );
+    const figure = element('p', 'wp-area-head-figure', String(activity.windowTotal));
+    figure.append(element('span', 'wp-area-head-of', `of ${activity.total}`));
+    stat.append(said, figure);
+    host.appendChild(stat);
     /*
      * Two labels, not thirty. The series is one reading per day over a month,
      * and a tick under every one of them is a band of unreadable text that
@@ -1003,10 +1115,13 @@
     host.appendChild(areaChart(
       activity.series,
       `Repositories pushed, as a trailing ${activity.rollingDays}-day count over the last ${activity.windowDays} days.`,
-      { axis: [
-        { index: 0, label: `${activity.windowDays}d ago` },
-        { index: activity.series.length - 1, label: 'today' }
-      ] }
+      {
+        headline: true,
+        axis: [
+          { index: 0, label: `${activity.windowDays}d ago` },
+          { index: activity.series.length - 1, label: 'today' }
+        ]
+      }
     ));
 
     if (activity.unknownCount > 0) {

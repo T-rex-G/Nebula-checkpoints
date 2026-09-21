@@ -298,6 +298,39 @@
   `GO` by a hand-built object that never satisfied the gate schema, the run-id
   contract, or the final-release ratchet.
 
+### API Rate Limit Identity
+
+- Fixed the `/api` rate limit counting nothing it could rely on. The bucket key
+  was `(getCookie(req, 'nv_session') || req.ip || '').slice(0, 40)` — the
+  session cookie as it arrived, which is text the caller controls. Nothing
+  required it to unseal, so any value at all opened a fresh 300-request bucket
+  and a caller that varied it per request was never limited. A regression test
+  sent 301 requests under a cookie that changed each time and received no 429
+  at all.
+- The same key also reset itself for legitimate callers. `seal` is AES-256-GCM
+  with a random 12-byte IV, and 40 base64url characters cover 30 bytes: the IV,
+  the whole 16-byte authentication tag, and two bytes of ciphertext. Both of
+  those fields are drawn fresh on every seal, so the key held essentially no
+  session identity, and every time the server wrote a session back the caller
+  returned to zero.
+- Those forged keys accumulated in a map whose overflow path deletes
+  oldest-first, so unauthenticated traffic could evict the counters of
+  authenticated callers as a side effect.
+- Added `src/rate-limit-identity.js`, which derives the bucket key from the
+  unsealed session rather than the ciphertext. A caller cannot forge a sealed
+  payload without `SESSION_SECRET`, so it cannot mint identities; the fields the
+  derivation reads — `sid` when a database holds the session, the
+  `sessionNonce` when the cookie carries it, the active account before a nonce
+  exists — are the ones that survive a reseal. A request with no session, or one
+  whose cookie does not unseal, is counted against its address.
+- Keys are HMACs under a `RATE_LIMIT_IDENTITY` HKDF purpose, so the bucket map
+  holds no session id, nonce or login, and identity parts are length-prefixed
+  before hashing so a separator inside a field cannot produce another caller's
+  key. The ceiling stays 300, the window stays the same strict minute, and the
+  limiter keeps its per-session meaning rather than becoming per-address.
+- The webhook limiter is unchanged: it already keys on `req.ip` behind
+  `trust proxy`, which a caller cannot choose.
+
 ### Overview Card Arrival
 
 - Fixed the overview's cards being read while they were still arriving.

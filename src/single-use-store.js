@@ -125,6 +125,10 @@ class SingleUseStore {
    * its replacement disagreeing by one millisecond at the boundary is the kind
    * of difference that only shows up as an unreproducible replay.
    */
+  /**
+   * @param {{ kind?: string, key?: string|null, expiresAt?: number }} [claim]
+   * @returns {Promise<boolean>} true when this caller is the one that claimed it
+   */
   async consumeOnce({ kind, key, expiresAt } = {}) {
     const guardKind = requireKind(kind);
     const guardKey = guardKeyFor(guardKind, String(key == null ? '' : key));
@@ -160,6 +164,10 @@ class SingleUseStore {
    * used. Nothing else is ever deleted: a table that discards a live guard
    * under pressure is a guard that fails open exactly when it matters, which
    * is what the ten-thousand-entry ceiling on the Map it replaces did.
+   */
+  /**
+   * @param {{ limit?: number }} [options]
+   * @returns {Promise<number>} how many expired rows were removed
    */
   async sweepExpired({ limit } = {}) {
     const batch = Math.min(

@@ -68,6 +68,22 @@ assert(localised.includes('/tmp/example-release'), 'the runner temp path must be
 assert(!/RUNNER_TEMP|runner\.temp/.test(localised),
   'no runner placeholder may survive into the command that is executed');
 
+/*
+ * Type checking is worth having only if it is reported before the gates that
+ * cost minutes. A type error found after fifteen minutes of Playwright has
+ * been paid for at the wrong price, so the order is part of the contract
+ * rather than a preference about how the file reads.
+ */
+const typecheckAt = steps.findIndex(step => /run typecheck/.test(step));
+assert(typecheckAt >= 0, 'the workflow must type-check');
+for (const expensive of [/run test:e2e/, /install-browser/, /run package:release/]) {
+  const at = steps.findIndex(step => expensive.test(step));
+  assert(
+    at === -1 || typecheckAt < at,
+    `type checking must run before ${expensive}: seconds of feedback are worth nothing after minutes of it`
+  );
+}
+
 /* A parser that finds nothing must say so rather than report an empty pass. */
 assert.deepStrictEqual(readRunSteps('jobs:\n  verify:\n    steps:\n      - uses: actions/checkout\n'), []);
 

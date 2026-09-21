@@ -554,6 +554,41 @@
 - `write()` returning `false` is deliberately *not* the signal — that happens
   routinely on healthy connections. Accumulated bytes are.
 
+### Type Checking Without a Build Step
+
+- Added `npm run typecheck`: `tsc --project jsconfig.json`, with `allowJs`,
+  `checkJs` and `noEmit`. Nothing is compiled and nothing is produced — the
+  checker reads the JavaScript that already runs. `npm start` keeps its
+  meaning, `index.html` keeps its unbundled script tags, and no file changes
+  language. TypeScript is pinned exactly as a development dependency, like
+  every other dependency here, so the gate cannot be a network call.
+- **33 of the 51 modules in `src/` are checked from the first commit**, chosen
+  because they and their imports already pass. The gate is therefore green
+  immediately and any red is a regression rather than inherited debt.
+- The set is listed file by file rather than globbed, and that is forced rather
+  than preferred: `exclude` does not stop a file being checked when something
+  in the set imports it, so a glob minus a deny-list reports errors in files it
+  claims to have excluded. An explicit list is the only honest way to say what
+  is covered. The remaining eighteen are not suppressed — no `any`, no
+  `@ts-nocheck` — they are simply not listed yet.
+- Turning it on required documenting the shape of the step-up guard's pending
+  state and the single-use store's claim, since the checker could not infer
+  through their default-parameter destructuring. Those are contracts worth
+  writing down anyway.
+- `maxNodeModuleJsDepth: 0` is set deliberately: without it, module resolution
+  finds the userland `events`, `punycode` and `string_decoder` packages sitting
+  in `node_modules` as transitive dependencies and type-checks *their* source,
+  reporting dozens of failures in code this repository neither owns nor can
+  fix. `skipLibCheck` does not cover them — it skips `.d.ts`, and those are
+  `.js`.
+- Both workflows run it immediately after `lint` and before anything expensive,
+  and both orderings are pinned by contract tests that were checked by moving
+  the step after the browser gates and watching them object. A type error found
+  after fifteen minutes of Playwright has been paid for at the wrong price.
+- `test/typecheck.test.js` runs the checker rather than grepping for a script
+  name: it copies a checked module into a disposable fixture, injects a real
+  type error, and asserts a nonzero exit **and that no file was emitted**.
+
 ### Key Separation and Dependency Determinism
 
 - Gave every keyed construction its own HKDF-SHA256 derived key. One

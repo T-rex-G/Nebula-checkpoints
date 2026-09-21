@@ -1,0 +1,87 @@
+{
+  // Type checking without a build step. Nothing is emitted and nothing is
+  // compiled: tsc reads the JavaScript that already runs and reports what it
+  // can prove about it. `npm start` keeps its meaning, index.html keeps its
+  // unbundled script tags, and no file in this repository changes language.
+  //
+  // checkJs over plain CommonJS finds a narrower class of defect than a typed
+  // codebase would -- a misspelled property, a value used as a number that
+  // cannot be one, a call whose shape does not match the signature. That is
+  // worth having in seconds rather than after the browser gates.
+  //
+  // The set is listed file by file rather than globbed, and that is forced
+  // rather than chosen: `exclude` does not stop a file being checked when
+  // something in the set imports it, so a glob minus a deny-list reports
+  // errors in files it claims to have excluded. An explicit list is the only
+  // honest way to say which files are actually covered.
+  //
+  // These thirty-three are the ones that pass today and whose imports also
+  // pass, so the check is green from the first commit and any red is a
+  // regression rather than inherited debt. The remaining eighteen are not
+  // suppressed -- no `any`, no `@ts-nocheck` -- they are simply not listed
+  // yet, which is honest about what is known. Extending this list is the
+  // measured slice the plan calls for; loosening the options to swallow them
+  // is how type checking quietly stops meaning anything.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    // Report, never produce. A build step is the thing this repository does
+    // not have and is not acquiring.
+    "noEmit": true,
+    "target": "ES2023",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "types": ["node"],
+    // Node's own modules are declared by @types/node. Without this, moduleResolution
+    // finds the userland `events`, `punycode` and `string_decoder` packages that
+    // sit in node_modules as a transitive dependency and type-checks their
+    // source, reporting dozens of failures in code this repository does not own
+    // and cannot fix. skipLibCheck does not cover them: it skips .d.ts, and
+    // these are .js.
+    "maxNodeModuleJsDepth": 0,
+    // A dependency's own declarations are its problem; checking them would
+    // report failures nothing here can fix.
+    "skipLibCheck": true,
+    // Off to begin with. Tightening is a series of small changes with their
+    // own evidence, not a flag flipped alongside the one that turns checking
+    // on at all.
+    "strict": false
+  },
+  "files": [
+    "src/activity-feed.js",
+    "src/alpha-access-store.js",
+    "src/alpha-access.js",
+    "src/alpha-privacy-store.js",
+    "src/alpha-privacy.js",
+    "src/asset-stamp.js",
+    "src/backup-format.js",
+    "src/capability-registry.js",
+    "src/config-registry.js",
+    "src/config.js",
+    "src/control-catalog.js",
+    "src/github-account-operations.js",
+    "src/github-app.js",
+    "src/governance-digital-twin.js",
+    "src/governance-model.js",
+    "src/governance-templates.js",
+    "src/hosted-readiness.js",
+    "src/key-derivation.js",
+    "src/live-stream.js",
+    "src/migrations.js",
+    "src/mutation-coverage.js",
+    "src/protected-paths.js",
+    "src/provider-credentials.js",
+    "src/provider-disconnect.js",
+    "src/public-errors.js",
+    "src/rate-limit-identity.js",
+    "src/release-fingerprint.js",
+    "src/secret-scanner.js",
+    "src/security-foundation.js",
+    "src/single-use-store.js",
+    "src/staging-validation.js",
+    "src/version.js",
+    "src/work-continuity.js"
+  ],
+  "exclude": ["node_modules"]
+}

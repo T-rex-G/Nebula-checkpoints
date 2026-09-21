@@ -91,6 +91,8 @@ jobs:
       - run: npm run docs:check
       - run: npm run check:syntax
       - run: npm run lint
+      # Same placement as ci.yml: seconds, before anything expensive.
+      - run: npm run typecheck
       - run: npm run check:secrets
       - run: node scripts/audit-production.js
       - name: Classify development audit without raw advisory upload

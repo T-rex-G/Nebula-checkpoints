@@ -44,6 +44,9 @@ jobs:
       - run: npm run docs:check
       - run: npm run check:syntax
       - run: npm run lint
+      # Before the suites and long before the browser gates: a type error should
+      # be reported in seconds, not after fifteen minutes of Playwright.
+      - run: npm run typecheck
       - run: npm test
       - run: npm run test:migrations
         env:

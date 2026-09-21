@@ -47,6 +47,12 @@ function safeEqual(left, right) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/**
+ * @param {string} secret
+ * @param {string} kind
+ * @param {Record<string, unknown>} claims
+ * @param {{ now?: number, ttlMs?: number, nonce?: string }} [options]
+ */
 function createToken(secret, kind, claims, { now = Date.now(), ttlMs, nonce } = {}) {
   if (!secret || !Number.isFinite(ttlMs) || ttlMs <= 0) throw new TypeError('A secret and positive token lifetime are required');
   const issuedAt = Math.floor(Number(now));
@@ -90,6 +96,11 @@ function requireContext(context, prefix) {
   return { sessionBinding, identityKey };
 }
 
+/**
+ * @param {string} secret
+ * @param {Record<string, unknown>} context
+ * @param {{ now?: number, ttlMs?: number, nonce?: string }} [options]
+ */
 function createCsrfToken(secret, context, options = {}) {
   const bindings = requireContext(context, 'CSRF token');
   return createToken(secret, 'csrf', bindings, { ...options, ttlMs: options.ttlMs || 30 * 60 * 1000 });
@@ -173,6 +184,11 @@ function normalizeStepUpRequest(action, requestedScope, context = {}) {
   return { action: normalizedAction, scope };
 }
 
+/**
+ * @param {string} secret
+ * @param {{ action?: string, assurance?: string, scope?: Record<string, unknown> }} claims
+ * @param {{ now?: number, ttlMs?: number, nonce?: string, jti?: string }} [options]
+ */
 function createStepUpGrant(secret, claims, options = {}) {
   const bindings = requireContext(claims, 'Step-up grant');
   const action = String(claims && claims.action || '');
@@ -238,6 +254,17 @@ function replayStoreFor(store, maxEntries) {
   throw new TypeError('The step-up replay store must be a Map or implement consumeOnce()');
 }
 
+/**
+ * The pending grant a session is holding: the identifiers the claim has to
+ * match, and the moment past which it is no longer a grant at all.
+ * @typedef {{ jti?: string, action?: string, scopeHash?: string, expiresAt?: number, assurance?: string }} PendingStepUp
+ *
+ * @param {{ stepUp?: PendingStepUp|null }} securityState
+ * @param {Record<string, unknown>} claims
+ * @param {{ action?: string, scope?: Record<string, unknown> }} operation
+ * @param {{ now?: number, replayStore?: unknown, maxReplayEntries?: number }} [options]
+ * @returns {Promise<{ action: unknown, assurance: unknown, authorizedAt: unknown }>}
+ */
 async function consumePendingStepUp(securityState, claims, operation, { now = Date.now(), replayStore, maxReplayEntries = 5000 } = {}) {
   if (!securityState || typeof securityState !== 'object') {
     throw new TypeError('A mutable session security state is required');

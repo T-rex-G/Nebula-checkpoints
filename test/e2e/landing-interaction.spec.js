@@ -173,6 +173,54 @@ test('the theme control stays reachable once the visitor has scrolled', async ({
 });
 
 /*
+ * Sticking is not the same as being reachable, and this is the half that was
+ * still broken after the bar was made to stick.
+ *
+ * On a phone the status bar is drawn over the top of the page, so a bar pinned
+ * at top:0 needs that strip reserved as padding or its contents sit beneath
+ * the clock -- which is what a reader photographed: the theme control's pill
+ * peeking out from under the time. The stylesheet did reserve it, and a
+ * `padding-block` shorthand in the narrow-screen block, later in the file,
+ * wrote a flat 20px back over the top edge on every viewport under 480px.
+ * Every phone is under 480px, so the reservation existed everywhere except
+ * where it was needed, and making the bar sticky had not helped because
+ * sticking was never the half that was broken.
+ *
+ * What is asserted is that the clearance survives to the phone, which is the
+ * part that broke. The inset itself cannot be exercised here -- Chromium
+ * reports 0 for env(safe-area-inset-top) and no runner has a notch -- so with
+ * the inset at 0 the reservation is the bar's own breathing room, and the test
+ * holds it to that. It reads 28 and not 44 deliberately: 44 would only pass by
+ * padding the bar out on every phone whose browser reports the inset honestly
+ * because it genuinely has nothing to clear, which is most of them. Any later
+ * rule that writes the top edge back down -- a shorthand, a reset, a tighter
+ * mobile block -- lands under this number.
+ */
+const CLEARANCE = 28;
+test('the bar reserves the status-bar strip on a phone, not just a sticky position', async ({ page }) => {
+  const width = page.viewportSize().width;
+  test.skip(width > 900, 'no status bar is drawn over the page at this width');
+  await openScene(page);
+  await page.evaluate(() => window.scrollTo(0, 900));
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(400);
+  const placed = await page.evaluate(() => {
+    const nav = document.querySelector('.lp-nav');
+    const box = nav.getBoundingClientRect();
+    return {
+      paddingTop: parseFloat(getComputedStyle(nav).paddingTop),
+      navTop: box.top,
+      brandTop: document.querySelector('.lp-brand').getBoundingClientRect().top,
+      toggleTop: document.querySelector('.lp-nav .theme-toggle').getBoundingClientRect().top
+    };
+  });
+  /* Pinned, or the clearance is measured against a bar that scrolled away. */
+  expect(Math.abs(placed.navTop)).toBeLessThan(2);
+  expect(placed.paddingTop).toBeGreaterThanOrEqual(CLEARANCE);
+  expect(placed.brandTop).toBeGreaterThanOrEqual(CLEARANCE);
+  expect(placed.toggleTop).toBeGreaterThanOrEqual(CLEARANCE);
+});
+
+/*
  * The plasma is a light in the room, not an object in a lit panel. Both of the
  * glow's sources are wider than the box that carries them -- the violet one is
  * centred at 65% 65% and still has colour at 100% -- so the element's own

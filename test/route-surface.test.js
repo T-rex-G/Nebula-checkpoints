@@ -103,6 +103,66 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
   }
 }
 
+/*
+ * The growth ratchet.
+ *
+ * This number is a speed bump with a message on it, and it is worth being
+ * plain about that: a hardcoded count proves nothing about the code it
+ * guards, and anyone can raise it in the same commit that breaks it. What it
+ * does is make growing server.js a deliberate act with a diff line attached,
+ * rather than the path of least resistance it is today at a hundred and
+ * forty-seven routes and seven thousand lines.
+ *
+ * The rule it is here to carry:
+ *
+ *   A new route's *logic* belongs in a module under src/ behind a narrow
+ *   contract, with server.js holding only the registration. That is the
+ *   pattern that has actually worked here -- src/single-use-store.js,
+ *   src/live-stream.js and src/rate-limit-identity.js each took real logic
+ *   out and each made what remained smaller and testable on its own.
+ *
+ * What was measured and deliberately not done: lifting a whole URL prefix
+ * into a router module. Every candidate group needs between twenty-two and
+ * ninety-nine of server.js's top-level bindings passed in to work. That
+ * dependency count is the finding, not an obstacle to route around -- routes
+ * and helpers here are entangled, and moving routes behind a large injected
+ * dependency object relocates the entanglement across a parameter list
+ * without reducing it. Extracting logic reduces it; extracting URLs does not.
+ */
+const SERVER_ROUTE_CEILING = 147;
+const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const registeredInServer = serverSource
+  .split('\n')
+  .filter(line => /^app\.(get|post|put|patch|delete)\('/.test(line)).length;
+
+assert(
+  registeredInServer <= SERVER_ROUTE_CEILING,
+  `server.js now registers ${registeredInServer} routes, above the ${SERVER_ROUTE_CEILING} it held when this ratchet was set. `
+  + 'Put the new route\'s logic in a module under src/ behind a narrow contract and leave the registration here, '
+  + 'or raise this number deliberately and say why.'
+);
+
+/* The ratchet may only tighten. A count that has drifted below the ceiling
+   means the ceiling is stale and is quietly permitting growth again. */
+assert(
+  registeredInServer >= SERVER_ROUTE_CEILING - 5,
+  `server.js registers ${registeredInServer} routes, well under the ${SERVER_ROUTE_CEILING} ceiling. `
+  + 'Lower SERVER_ROUTE_CEILING to match so the ratchet keeps meaning something.'
+);
+
+/* A route module that nothing mounts is worse than no route module: it reads
+   as covered and serves nothing. */
+const routesDir = path.join(root, 'src', 'routes');
+if (fs.existsSync(routesDir)) {
+  for (const file of fs.readdirSync(routesDir).filter(name => name.endsWith('.js'))) {
+    const moduleName = file.replace(/\.js$/, '');
+    assert(
+      serverSource.includes(`routes/${moduleName}`),
+      `src/routes/${file} is never mounted from server.js`
+    );
+  }
+}
+
 const child = spawn(process.execPath, ['server.js'], {
   cwd: root,
   env: {

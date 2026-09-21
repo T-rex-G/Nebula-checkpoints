@@ -618,6 +618,29 @@
   cohesion by name is not cohesion by dependency. The extraction itself is
   therefore held pending that decision, while the characterization test that
   makes any extraction safe is not.
+- **Declined the route-prefix extraction on the evidence, and shipped the half
+  that changes the trajectory instead.** Every candidate group needs between 22
+  and 99 of `server.js`'s top-level bindings passed in to work. That dependency
+  count is the finding rather than an obstacle to route around: routes and
+  helpers here are entangled, and moving routes behind a large injected
+  dependency object relocates the entanglement across a parameter list without
+  reducing it. Extracting *logic* reduces it — `src/single-use-store.js`,
+  `src/live-stream.js` and `src/rate-limit-identity.js` each did, and each left
+  what remained smaller and separately testable.
+- Added a growth ratchet: `server.js` may not register more than the 147 routes
+  it holds today, and the ceiling may not drift more than five below the real
+  count without being tightened. It is a speed bump with a message rather than
+  a proof, and says so — a hardcoded count proves nothing about the code it
+  guards. What it does is make growing the file a deliberate act with a diff
+  line attached rather than the path of least resistance. A route module under
+  `src/routes/` that nothing mounts also fails, because a module that reads as
+  covered and serves nothing is worse than no module.
+- Closed a vacuity trap in the guards added earlier in this branch. Each one
+  scans `server.js` line by line for a call that must be awaited, and a loop
+  that finds nothing passes — so moving any of that code out of `server.js`
+  would have left four security guards reporting success while checking an
+  empty string. All four now assert they found at least one call, verified by
+  renaming the call sites and watching them object.
 
 ### Key Separation and Dependency Determinism
 

@@ -17,6 +17,7 @@ const root = path.resolve(__dirname, '..');
  * mistake leaves no trace at runtime, so it is pinned here at the source.
  */
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+let consumePendingStepUpCalls = 0;
 for (const line of serverSource.split('\n')) {
   if (!line.includes('consumePendingStepUp(')) continue;
   if (line.trimStart().startsWith('*') || line.includes('require(')) continue;
@@ -24,7 +25,15 @@ for (const line of serverSource.split('\n')) {
     line, /await consumePendingStepUp\(/,
     `every consumePendingStepUp call must be awaited: ${line.trim()}`
   );
+  consumePendingStepUpCalls += 1;
 }
+/*
+ * A loop that finds nothing passes. If these calls ever move out of
+ * server.js -- which an extraction would do -- this file would keep
+ * reporting success while checking an empty string, which is the failure
+ * mode worth guarding above all the others here.
+ */
+assert(consumePendingStepUpCalls > 0, 'no consumePendingStepUp call was found to check: this guard has gone vacuous');
 assert.match(
   serverSource, /async function consumeStepUpAuthorization\(/,
   'consumeStepUpAuthorization must stay asynchronous so its callers keep awaiting it'
@@ -56,6 +65,7 @@ assert.match(
   serverSource, /async function consumeGithubAppPending\(/,
   'consuming an OAuth state must be asynchronous: the guard may not be in this process'
 );
+let consumeGithubAppPendingCalls = 0;
 for (const line of serverSource.split('\n')) {
   if (!line.includes('consumeGithubAppPending(')) continue;
   if (line.includes('async function')) continue;
@@ -63,7 +73,9 @@ for (const line of serverSource.split('\n')) {
     line, /await consumeGithubAppPending\(/,
     `every consumeGithubAppPending call must be awaited: ${line.trim()}`
   );
+  consumeGithubAppPendingCalls += 1;
 }
+assert(consumeGithubAppPendingCalls > 0, 'no consumeGithubAppPending call was found to check: this guard has gone vacuous');
 assert.strictEqual(
   /catch[\s\S]{0,200}USED_GITHUB_APP_STATES/.test(serverSource), false,
   'no failure path may fall back to the in-process OAuth state guard'
@@ -86,6 +98,7 @@ assert.match(
   serverSource, /async function claimRestoreAuthorization\(/,
   'claiming a recovery authorization must be asynchronous'
 );
+let claimRestoreAuthorizationCalls = 0;
 for (const line of serverSource.split('\n')) {
   if (!line.includes('claimRestoreAuthorization(')) continue;
   if (line.includes('async function')) continue;
@@ -93,7 +106,9 @@ for (const line of serverSource.split('\n')) {
     line, /await claimRestoreAuthorization\(/,
     `every claimRestoreAuthorization call must be awaited: ${line.trim()}`
   );
+  claimRestoreAuthorizationCalls += 1;
 }
+assert(claimRestoreAuthorizationCalls > 0, 'no claimRestoreAuthorization call was found to check: this guard has gone vacuous');
 
 const restoreRoute = serverSource.slice(serverSource.indexOf("app.post('/api/repo/:owner/:repo/restore-refs'"));
 const preflightAt = restoreRoute.indexOf('await preflightRestoreActions(');
@@ -117,6 +132,7 @@ assert.strictEqual(
   /catch[\s\S]{0,200}USED_RESTORE_AUTHORIZATIONS/.test(serverSource), false,
   'no failure path may fall back to the in-process recovery guard'
 );
+let consumeStepUpAuthorizationCalls = 0;
 for (const line of serverSource.split('\n')) {
   if (!line.includes('consumeStepUpAuthorization(')) continue;
   if (line.includes('async function')) continue;
@@ -124,7 +140,9 @@ for (const line of serverSource.split('\n')) {
     line, /await consumeStepUpAuthorization\(/,
     `every consumeStepUpAuthorization call must be awaited: ${line.trim()}`
   );
+  consumeStepUpAuthorizationCalls += 1;
 }
+assert(consumeStepUpAuthorizationCalls > 0, 'no consumeStepUpAuthorization call was found to check: this guard has gone vacuous');
 const secret = 'security-server-test-secret-0123456789abcdef-0123456789abcdef';
 const snapKey = ['security', 'server', 'snapshot', 'secret',
   'fedcba9876543210', 'fedcba9876543210'].join('-');

@@ -2476,10 +2476,21 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
         to{opacity:1;transform:none}
       }
       /*
-       * `entry 5% cover 30%` finishes the reveal well before the section
-       * reaches the middle of the screen. A range that runs the full cover
-       * leaves the reader scrolling a half-faded panel, which reads as the
-       * page struggling rather than as motion.
+       * The range is measured in `entry`, not `cover`, and the last card on
+       * the page is why.
+       *
+       * `cover` runs from the element meeting the viewport to it leaving on
+       * the far side, so any range inside it needs the element to travel most
+       * of the way across the screen. The bottom card has nowhere to travel
+       * to: the document ends under it, so the scroll runs out and the
+       * animation stops wherever it had got to -- measured at opacity 0.00
+       * with its 22px offset still applied, which is a card that is both
+       * invisible and pushed down, under a gap where it should have been.
+       *
+       * `entry` ends when the element has finished arriving in the viewport,
+       * which every element reaches, including the last one and including one
+       * taller than the screen. The reveal still finishes before the card
+       * settles, which is what the range was tuned for.
        */
       #page-overview .ov-hero,
       #page-overview .ov-path,
@@ -2487,7 +2498,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
       #page-overview .wp-card{
         animation:nv-arrive linear both;
         animation-timeline:view();
-        animation-range:entry 5% cover 30%;
+        animation-range:entry 5% entry 85%;
       }
       /* The hero is already on screen at rest, so it has no arrival to play --
          animating it would hide the first thing the reader came for. */

@@ -14,37 +14,36 @@ async function overview(page, scenario = {}) {
 }
 
 /*
- * The card leads with a shape.
+ * The card leads with a shape, and it is the same shape as the card above it.
  *
- * The feed answers "what changed" one row at a time, which is the right shape
- * for reading a single change and the wrong one for seeing a week: no number
- * of rows shows that the middle of the week was quiet. The bars are the same
- * events counted per day, derived here rather than fetched, so the two cannot
- * disagree and no extra provider round trip is spent on them.
+ * These two cards sit one under the other and answer the same kind of question
+ * over the same kind of window, so drawing one as bars and the other as an
+ * area made the overview read as two products. Derived, not fetched: the
+ * series is the events already on screen counted per day, so the chart and the
+ * ledger cannot disagree and no extra provider round trip is spent.
  */
 test('the feed leads with its own events counted per day', async ({ page }) => {
   await overview(page);
-  const bars = page.locator('#wpFeed .wp-bar');
-  await expect(bars.first()).toBeVisible();
-  /* Derived, not fetched: the counts must add up to the rows on screen. */
-  const counted = await page.evaluate(() => [...document.querySelectorAll('#wpFeed .wp-bar title')]
-    .reduce((total, node) => total + Number((node.textContent.match(/(\d+) commit/) || [0, 0])[1]), 0));
-  await expect(page.locator('#wpFeed .wp-feed-row')).toHaveCount(counted);
+  const line = page.locator('#wpFeed .wp-area-line');
+  await expect(line).toBeVisible();
+  /* Same chart language as the activity card, not a second one. */
+  expect(await page.locator('#wpFeed .wp-bars, #wpFeed .wp-bar').count()).toBe(0);
+  /* Derived: the headline figure is the number of rows the ledger holds. */
+  const figure = await page.locator('#wpFeed .wp-area-head-figure').evaluate(
+    el => Number(el.firstChild.textContent.trim()));
+  await expect(page.locator('#wpFeed .wp-feed-row')).toHaveCount(figure);
 });
 
 /*
- * A day that is still being counted is drawn even at zero, and marked.
- * Skipping it renders "nothing has landed today yet" as a chart that stops at
- * yesterday, and those are different statements -- the same distinction this
- * card already makes between a quiet workspace and one it could not read.
+ * Today is still being counted, and the card says so in words rather than
+ * leaving the reader to infer it from a short final reading. A day that is
+ * half over drawn the same as a finished one is the card overstating what it
+ * knows.
  */
-test('the day still being counted is drawn, hatched, even when it is empty', async ({ page }) => {
+test('the feed says that today is still being counted', async ({ page }) => {
   await overview(page);
-  const last = page.locator('#wpFeed .wp-bar').last();
-  await expect(last).toHaveAttribute('fill', /-h\)$/);
-  await expect(last.locator('title')).toHaveText(/so far$/);
-  /* And the texture it points at is really defined, not a dangling url(). */
-  expect(await page.locator('#wpFeed .wp-bars pattern').count()).toBe(1);
+  await expect(page.locator('#wpFeed .wp-area-head-desc')).toContainText('today still counting');
+  await expect(page.locator('#wpFeed .wp-area-axis').last()).toHaveText('today');
 });
 
 /*
@@ -107,7 +106,7 @@ test('the commit rows are folded away, and the chart is what is left', async ({ 
   expect(await fold.evaluate(el => el.open)).toBe(false);
   await expect(page.locator('#wpFeed .wp-feed-row').first()).toBeHidden();
   /* The chart is not folded with them. */
-  await expect(page.locator('#wpFeed .wp-bars')).toBeVisible();
+  await expect(page.locator('#wpFeed .wp-area-line')).toBeVisible();
   /* And the bounds are still stated where the chart is read, sample included. */
   await expect(page.locator('#wpFeed .wp-feed-scope')).toContainText('bounded sample');
 

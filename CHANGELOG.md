@@ -466,6 +466,27 @@
   It evicts only after the claim it was asked for, so the key being claimed is
   never the one discarded — the previous GitHub App prune ran *before* its
   check, so a capacity eviction could free the very key about to be tested.
+- **Fixed the recovery authorization not being single-use at all.** Its check
+  and its record sat either side of `await preflightRestoreActions(...)`, a
+  series of reads against the provider. Two requests carrying one authorization
+  both passed the check while the first was still on the network, both recorded
+  it, and both restored the refs. Unlike the other two guards this needed no
+  second instance: one process is enough, because an await is all it takes to
+  interleave a read and a write. Nothing in the suite asserted the single-use
+  property, so nothing noticed.
+- The claim is now one operation, and where it sits is the fix: after the
+  preflight, so a stale preview still leaves the authorization unspent exactly
+  as before; before the first ref is written, so nothing is restored on an
+  authorization that was not claimed. Both positions are pinned by tests that
+  were checked by moving the claim and watching them fail.
+- The guard is no longer reachable directly — a test refuses any
+  `USED_RESTORE_AUTHORIZATIONS.set/has/delete` in the server — and a store
+  failure reports `RESTORE_AUTHORIZATION_UNAVAILABLE` with a 503 rather than a
+  replay.
+- One behaviour changes: a token that is both replayed *and* whose preview has
+  gone stale now reports `RESTORE_PREVIEW_STALE` rather than
+  `RESTORE_AUTHORIZATION_REPLAY`, because the staleness is found first. Both
+  are 409 and both tell the reader to regenerate the preview.
 
 ### Key Separation and Dependency Determinism
 

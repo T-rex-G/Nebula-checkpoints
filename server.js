@@ -5869,15 +5869,58 @@ function inspectRestoreAuthorization(req, token) {
   return { encoded, actions, expiresAt: payload.expiresAt };
 }
 
-function consumeRestoreAuthorization(req, token) {
+/*
+ * This one was not a single-use guard at all, whatever it looked like.
+ *
+ * The check and the record were separated by `await preflightRestoreActions`,
+ * which is a series of reads against the provider. Two requests carrying one
+ * authorization both passed the check while the first was still waiting on the
+ * network, and both went on to record it and restore the refs. That is not the
+ * multi-instance problem the other two guards had: one process was enough,
+ * because an await is all it takes to interleave a read and a write.
+ *
+ * So preparation no longer consults the guard. It validates the token and
+ * hashes it, and the claim happens as one operation at the point of use, below.
+ */
+function prepareRestoreAuthorization(req, token) {
   const inspected = inspectRestoreAuthorization(req, token);
   const tokenHash = crypto.createHash('sha256').update(inspected.encoded).digest('hex');
-  const now = Date.now();
-  for (const [hash, expiresAt] of USED_RESTORE_AUTHORIZATIONS) if (expiresAt <= now) USED_RESTORE_AUTHORIZATIONS.delete(hash);
-  if (USED_RESTORE_AUTHORIZATIONS.has(tokenHash)) {
-    throw Object.assign(new Error('Recovery preview authorization has already been used; generate a fresh preview before retrying'), { status: 409, code: 'RESTORE_AUTHORIZATION_REPLAY' });
-  }
   return { actions: inspected.actions, expiresAt: inspected.expiresAt, tokenHash };
+}
+
+function restoreAuthorizationStore() {
+  if (!DB_URL) return memorySingleUseStore(USED_RESTORE_AUTHORIZATIONS, { maxEntries: 5000 });
+  return durableSingleUseStore();
+}
+
+/*
+ * Claimed immediately before the refs are written and never before the
+ * preflight, so a preview that turns out to be stale leaves its authorization
+ * unspent exactly as it did before -- the reader is told to regenerate it, and
+ * nothing has been consumed on their behalf.
+ */
+async function claimRestoreAuthorization(grant, now = Date.now()) {
+  let claimed;
+  try {
+    claimed = await restoreAuthorizationStore().consumeOnce({
+      kind: 'restore-authorization',
+      key: grant.tokenHash,
+      expiresAt: Number(grant.expiresAt),
+      now: Number(now)
+    });
+  } catch (error) {
+    throw Object.assign(
+      new Error('Recovery authorization cannot be verified right now; retry shortly'),
+      { status: 503, code: 'RESTORE_AUTHORIZATION_UNAVAILABLE' }
+    );
+  }
+  if (!claimed) {
+    throw Object.assign(
+      new Error('Recovery preview authorization has already been used; generate a fresh preview before retrying'),
+      { status: 409, code: 'RESTORE_AUTHORIZATION_REPLAY' }
+    );
+  }
+  return grant;
 }
 
 async function preflightRestoreActions(req, actions) {
@@ -6159,7 +6202,7 @@ app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepo
     if (req.gh.provider === 'gitlab') return res.status(501).json({ error: 'Ref restore is GitHub/Gitea-only for now' });
     const { authorization, confirm } = req.body || {};
     if (String(confirm || '').toUpperCase() !== 'RESTORE') return res.status(400).json({ error: 'Type RESTORE to confirm recovery', code: 'RESTORE_CONFIRMATION_REQUIRED' });
-    const grant = consumeRestoreAuthorization(req, authorization);
+    const grant = prepareRestoreAuthorization(req, authorization);
     const conflicts = await preflightRestoreActions(req, grant.actions);
     if (conflicts.length) {
       return res.status(409).json({
@@ -6167,7 +6210,7 @@ app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepo
         code: 'RESTORE_PREVIEW_STALE', conflicts
       });
     }
-    USED_RESTORE_AUTHORIZATIONS.set(grant.tokenHash, grant.expiresAt);
+    await claimRestoreAuthorization(grant);
     const report = [];
     for (const action of grant.actions) {
       try {

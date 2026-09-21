@@ -68,6 +68,55 @@ assert.strictEqual(
   /catch[\s\S]{0,200}USED_GITHUB_APP_STATES/.test(serverSource), false,
   'no failure path may fall back to the in-process OAuth state guard'
 );
+
+/*
+ * The recovery authorization was not a single-use guard at all. Its check and
+ * its record sat either side of `await preflightRestoreActions`, a series of
+ * reads against the provider, so two requests carrying one authorization both
+ * passed the check while the first was still on the network and both went on
+ * to restore the refs. One process was enough for that: an await is all it
+ * takes to interleave a read and a write.
+ *
+ * The claim is now one operation, and where it sits is the fix. After the
+ * preflight, so a stale preview still leaves the authorization unspent; before
+ * the refs are written, so nothing is restored on an authorization that was
+ * not claimed.
+ */
+assert.match(
+  serverSource, /async function claimRestoreAuthorization\(/,
+  'claiming a recovery authorization must be asynchronous'
+);
+for (const line of serverSource.split('\n')) {
+  if (!line.includes('claimRestoreAuthorization(')) continue;
+  if (line.includes('async function')) continue;
+  assert.match(
+    line, /await claimRestoreAuthorization\(/,
+    `every claimRestoreAuthorization call must be awaited: ${line.trim()}`
+  );
+}
+
+const restoreRoute = serverSource.slice(serverSource.indexOf("app.post('/api/repo/:owner/:repo/restore-refs'"));
+const preflightAt = restoreRoute.indexOf('await preflightRestoreActions(');
+const claimAt = restoreRoute.indexOf('await claimRestoreAuthorization(');
+const writeAt = restoreRoute.indexOf("method: 'PATCH'");
+assert(preflightAt > -1 && claimAt > -1 && writeAt > -1, 'the restore route must still preflight, claim and write');
+assert(
+  claimAt > preflightAt,
+  'the claim must follow the preflight, so a stale preview leaves the authorization unspent'
+);
+assert(
+  claimAt < writeAt,
+  'the claim must precede the first ref write, so nothing is restored on an unclaimed authorization'
+);
+
+assert.strictEqual(
+  /USED_RESTORE_AUTHORIZATIONS\.(set|has|delete)\(/.test(serverSource), false,
+  'the recovery guard must be reached through the claim contract, never poked directly'
+);
+assert.strictEqual(
+  /catch[\s\S]{0,200}USED_RESTORE_AUTHORIZATIONS/.test(serverSource), false,
+  'no failure path may fall back to the in-process recovery guard'
+);
 for (const line of serverSource.split('\n')) {
   if (!line.includes('consumeStepUpAuthorization(')) continue;
   if (line.includes('async function')) continue;

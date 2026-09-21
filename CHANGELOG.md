@@ -298,6 +298,35 @@
   `GO` by a hand-built object that never satisfied the gate schema, the run-id
   contract, or the final-release ratchet.
 
+### Overview Card Arrival
+
+- Fixed the overview's cards being read while they were still arriving.
+  `nv-arrive` holds a card at opacity 0 with a 22px downward offset until its
+  scroll range begins, and the range was written as `entry 5% entry 85%`. A
+  percentage of `entry` is a percentage of the card's own travel, so a card only
+  finished arriving once its top edge had climbed near the top of the screen.
+  Measured on a 727px viewport: a card whose top sat three quarters of the way
+  down was at **0.30 opacity with 17px of its offset still applied**, and at
+  the middle of the screen it was at 0.48. That is the reading position — so
+  the reader was shown a half-transparent card sitting under an empty band.
+- Recent activity showed it worst because three things compound there. It is
+  the last card, so a reader stops at it instead of scrolling past. Expanding
+  its commits makes it taller than the screen, which stretches the distance the
+  range is measured against. And expanding it mid-range re-measures that range
+  underneath the reader, which is the layer that appeared at the top of the
+  card.
+- The range is now `entry 0px entry 200px`. Arrival is a fixed distance rather
+  than a fraction of the card's travel, so it cannot be stretched by a card
+  that outgrows the screen. Measured after the change: the same tall card is
+  fully arrived by the time its top reaches three quarters of the way down,
+  against 0.30 before.
+- The entrance is kept, not removed: a card is still at 0.07 opacity as it
+  appears at the bottom edge. `entry` is also kept rather than reverting to
+  `cover`, so the last card on the page still reaches its end state instead of
+  resting invisible under a gap — the regression this range was rewritten for
+  the first time. All three properties are now pinned by
+  `test/e2e/overview-card-arrival.spec.js`.
+
 ### Key Separation and Dependency Determinism
 
 - Gave every keyed construction its own HKDF-SHA256 derived key. One

@@ -2560,8 +2560,26 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
        *
        * `entry` ends when the element has finished arriving in the viewport,
        * which every element reaches, including the last one and including one
-       * taller than the screen. The reveal still finishes before the card
-       * settles, which is what the range was tuned for.
+       * taller than the screen.
+       *
+       * The offsets are lengths rather than percentages, and that is the
+       * second half of the same lesson. A percentage of `entry` is a
+       * percentage of the element's own travel, so `entry 85%` asked a card to
+       * climb most of the screen before it finished arriving -- and a card
+       * only finished once its top edge was near the top of the viewport.
+       * Measured at 727px tall: a card whose top sat three quarters of the way
+       * down the screen was at 0.30 opacity with 17px of its offset still
+       * applied. That is the reading position. The reader was being shown a
+       * half-transparent card under an empty band, and the taller the card the
+       * longer it stayed that way -- which is why Recent activity showed it
+       * worst, being both the card a reader stops at and the one that grows
+       * when its commits are expanded.
+       *
+       * 200px of scrolling is the whole arrival now, whatever the card's
+       * height. It still starts faded as the card appears at the bottom edge,
+       * it is finished well before the card reaches anywhere a reader reads,
+       * and being a fixed distance it cannot be stretched by an element that
+       * outgrows the screen or re-measured underneath a reader who expands one.
        */
       #page-overview .ov-hero,
       #page-overview .ov-path,
@@ -2569,7 +2587,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
       #page-overview .wp-card{
         animation:nv-arrive linear both;
         animation-timeline:view();
-        animation-range:entry 5% entry 85%;
+        animation-range:entry 0px entry 200px;
       }
       /* The hero is already on screen at rest, so it has no arrival to play --
          animating it would hide the first thing the reader came for. */

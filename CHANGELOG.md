@@ -368,6 +368,47 @@
   wins; verified in the browser, where `animation-range` computes to
   `entry 0px entry 200px`.
 
+### Step-Up Replay Guard Contract
+
+- Made the step-up replay guard implementable by something other than a `Map`.
+  `consumePendingStepUp` rejected any store that was not one — `replayStore
+  instanceof Map` — which is a decision about where the guard lives rather than
+  what it has to do. A `Map` is per-process, so its guarantee that a grant is
+  spent held only for the process that spent it; a second instance would have
+  honoured the same grant again, and nothing durable could be passed in to fix
+  that.
+- Widening the type check alone would not have been enough, and this is the
+  part that mattered. The old shape read the guard at the top and wrote it at
+  the bottom with the validation in between, which is safe only while the read
+  and the write cannot be interleaved — true of a `Map` in one process, false
+  of anything asked over a connection. Two requests carrying one grant would
+  both get past the read before either wrote, and both would be authorized.
+- The guard is now one operation, `consumeOnce({ kind, key, expiresAt, now })`,
+  which claims the grant and says whether this caller is the one that claimed
+  it. There is no interval to interleave, and the store supplies the
+  atomicity — a table does it with an insert whose conflict means "already
+  used". A regression test races two consumers of one valid grant against a
+  store that takes time to answer and asserts exactly one proceeds.
+- Validation now precedes consumption, so a claim naming another action,
+  another scope, or no grant at all never reaches the store. Spending a guard
+  entry on such a claim would have let anyone who can reach the route burn a
+  grant its owner was still entitled to use; a test asserts the store is not
+  called at all in those cases.
+- A store that cannot answer now denies and reports `STEP_UP_STORE_UNAVAILABLE`
+  with a 503, rather than reporting a replay. They are different facts: one
+  says try again, the other says this grant is finished, and telling a caller
+  its valid grant was spent because a database blinked is a lie it cannot
+  recover from. The pending grant survives the failure unspent.
+- `consumePendingStepUp` is asynchronous as a result, and its one call site in
+  `server.js` awaits it. An un-awaited call assigns a Promise, and a Promise is
+  truthy — the sensitive action would run and the audit record reading
+  `req.stepUp.action` would write undefined for every field, leaving no trace
+  at runtime. `test/security-foundation-server.test.js` pins the `await` at the
+  source, and that guard was verified to fail when the `await` is removed.
+- The in-memory adapter keeps the semantics the `Map` always had, eviction
+  included. A guard that must never be evicted belongs with the durable store,
+  which is its own task.
+
 ### Key Separation and Dependency Determinism
 
 - Gave every keyed construction its own HKDF-SHA256 derived key. One

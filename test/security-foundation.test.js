@@ -104,24 +104,138 @@ const pendingState = {
     assurance: 'credential'
   }
 };
-const consumed = consumePendingStepUp(pendingState, grantClaims, normalizedDelete, { now: now + 20_000 });
-assert.strictEqual(consumed.assurance, 'credential');
-assert.strictEqual(pendingState.stepUp, null, 'a consumed grant must be removed before the sensitive action executes');
-assert.throws(
-  () => consumePendingStepUp(pendingState, grantClaims, normalizedDelete, { now: now + 20_000 }),
-  error => error && error.code === 'STEP_UP_REPLAY',
-  'the same grant must not be reusable'
-);
+/*
+ * Consumption is asynchronous because the store that decides it may not be in
+ * this process. What the contract has to hold either way: one grant is
+ * claimed exactly once, a claim that does not validate never reaches the
+ * store at all, and a store that cannot answer denies rather than allows.
+ */
+const at = now + 20_000;
 
-const sharedReplayStore = new Map();
-const concurrentStateA = { stepUp: { ...pendingState.stepUp, jti: grantClaims.jti, action: normalizedDelete.action, scopeHash: security.scopeHash(normalizedDelete.scope), expiresAt: now + 300_000 } };
-const concurrentStateB = { stepUp: { ...concurrentStateA.stepUp } };
-consumePendingStepUp(concurrentStateA, grantClaims, normalizedDelete, { now: now + 20_000, replayStore: sharedReplayStore });
-assert.throws(
-  () => consumePendingStepUp(concurrentStateB, grantClaims, normalizedDelete, { now: now + 20_000, replayStore: sharedReplayStore }),
-  error => error && error.code === 'STEP_UP_REPLAY',
-  'parallel copies of the same session must not consume one grant twice'
-);
+function pendingFor(claims = grantClaims, operation = normalizedDelete) {
+  return {
+    stepUp: {
+      jti: claims.jti,
+      action: operation.action,
+      scopeHash: security.scopeHash(operation.scope),
+      expiresAt: now + 300_000,
+      assurance: 'credential'
+    }
+  };
+}
+
+/*
+ * A store that takes time to answer and then decides atomically: the latency
+ * is before the decision, so the read and the write are one indivisible step.
+ * That is what a database doing INSERT .. ON CONFLICT DO NOTHING gives, and a
+ * store that instead awaited between its own read and write would be the race
+ * this contract exists to make impossible.
+ */
+function atomicStore({ delayMs = 5, fail = false } = {}) {
+  const consumed = new Map();
+  const store = {
+    calls: 0,
+    async consumeOnce({ key, expiresAt, now: currentTime }) {
+      store.calls += 1;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      if (fail) throw new Error('replay store is unreachable');
+      const until = Number(consumed.get(key) || 0);
+      if (until >= currentTime) return false;
+      consumed.set(key, expiresAt);
+      return true;
+    }
+  };
+  return store;
+}
+
+async function replayContract() {
+  /* The in-memory Map keeps its meaning: consumed once, refused after. */
+  const pendingState = pendingFor();
+  const consumed = await consumePendingStepUp(pendingState, grantClaims, normalizedDelete, { now: at });
+  assert.strictEqual(consumed.assurance, 'credential');
+  assert.strictEqual(pendingState.stepUp, null, 'a consumed grant must be removed before the sensitive action executes');
+  await assert.rejects(
+    consumePendingStepUp(pendingState, grantClaims, normalizedDelete, { now: at }),
+    error => error && error.code === 'STEP_UP_REPLAY',
+    'the same grant must not be reusable'
+  );
+
+  const sharedReplayStore = new Map();
+  await consumePendingStepUp(pendingFor(), grantClaims, normalizedDelete, { now: at, replayStore: sharedReplayStore });
+  await assert.rejects(
+    consumePendingStepUp(pendingFor(), grantClaims, normalizedDelete, { now: at, replayStore: sharedReplayStore }),
+    error => error && error.code === 'STEP_UP_REPLAY',
+    'parallel copies of the same session must not consume one grant twice'
+  );
+
+  /* A store that is not a Map but honours the contract must be accepted:
+     that is the whole point, since a durable one can never be a Map. */
+  const durable = atomicStore();
+  const viaContract = await consumePendingStepUp(pendingFor(), grantClaims, normalizedDelete, { now: at, replayStore: durable });
+  assert.strictEqual(viaContract.assurance, 'credential', 'a conforming store must be usable');
+
+  /*
+   * The race. Two requests carrying the same valid grant arrive together and
+   * the store takes time to answer. Widening the type check without making
+   * consumption one operation leaves both of them past the read before either
+   * writes, and both proceed.
+   */
+  const contended = atomicStore({ delayMs: 15 });
+  const raced = await Promise.allSettled([
+    consumePendingStepUp(pendingFor(), grantClaims, normalizedDelete, { now: at, replayStore: contended }),
+    consumePendingStepUp(pendingFor(), grantClaims, normalizedDelete, { now: at, replayStore: contended })
+  ]);
+  assert.strictEqual(
+    raced.filter(result => result.status === 'fulfilled').length, 1,
+    'exactly one of two racing consumers of one grant may proceed'
+  );
+  assert.strictEqual(
+    raced.filter(result => result.status === 'rejected' && result.reason && result.reason.code === 'STEP_UP_REPLAY').length, 1,
+    'the consumer that loses the race is refused as a replay'
+  );
+
+  /* A claim that does not validate must not spend anything in the store. */
+  const untouched = atomicStore();
+  await assert.rejects(
+    consumePendingStepUp(pendingFor(), grantClaims, normalizedReset, { now: at, replayStore: untouched }),
+    error => error && error.code === 'STEP_UP_REPLAY',
+    'a grant for one action must not authorize another'
+  );
+  await assert.rejects(
+    consumePendingStepUp(pendingFor(), { ...grantClaims, jti: '' }, normalizedDelete, { now: at, replayStore: untouched }),
+    error => error && error.code === 'STEP_UP_REPLAY',
+    'a claim with no grant id is not a grant'
+  );
+  await assert.rejects(
+    consumePendingStepUp(pendingFor(), grantClaims, normalizedDelete, { now: now + 400_000, replayStore: untouched }),
+    error => error && error.code === 'STEP_UP_REPLAY',
+    'an expired pending grant is not consumable'
+  );
+  assert.strictEqual(untouched.calls, 0, 'a claim that does not validate must never reach the store');
+
+  /* A store that cannot answer denies, and leaves the grant unspent. */
+  const unreachable = atomicStore({ fail: true });
+  const survives = pendingFor();
+  await assert.rejects(
+    consumePendingStepUp(survives, grantClaims, normalizedDelete, { now: at, replayStore: unreachable }),
+    error => error && error.code === 'STEP_UP_STORE_UNAVAILABLE' && error.status === 503,
+    'an unavailable store must deny rather than allow, and say it is unavailable rather than a replay'
+  );
+  assert.notStrictEqual(survives.stepUp, null, 'a store failure must not spend the pending grant');
+
+  /* A store that does not implement the contract is refused, not ignored. */
+  await assert.rejects(
+    consumePendingStepUp(pendingFor(), grantClaims, normalizedDelete, { now: at, replayStore: { get() {}, set() {} } }),
+    error => error instanceof TypeError,
+    'a store missing the contract method must be rejected rather than silently skipped'
+  );
+
+  /* The returned promise is not an authorization until it resolves. */
+  const unresolved = consumePendingStepUp(pendingFor(), grantClaims, normalizedDelete, { now: at, replayStore: atomicStore() });
+  assert.strictEqual(typeof unresolved.then, 'function', 'consumption is asynchronous');
+  assert.strictEqual(unresolved.action, undefined, 'an unresolved promise carries no authorization');
+  assert.strictEqual((await unresolved).action, normalizedDelete.action);
+}
 
 assert.deepStrictEqual(sensitiveOperationFor({
   method: 'DELETE', path: '/api/repo/acme/demo', params: { owner: 'Acme', repo: 'Demo' }, body: {},
@@ -156,4 +270,9 @@ assert.deepStrictEqual(sensitiveOperationFor({
 assert.strictEqual(sensitiveOperationFor({ method: 'POST', path: '/api/repo/acme/demo/issues', params: {}, body: {} }), null);
 assert.strictEqual(sensitiveOperationFor({ method: 'POST', path: '/api/profile/reset', params: {}, body: {} }), null, 'unrelated reset routes must not be classified as repository hard resets');
 
-console.log('security foundation unit tests passed');
+replayContract().then(() => {
+  console.log('security foundation unit tests passed');
+}).catch(error => {
+  console.error(error && error.stack || error);
+  process.exitCode = 1;
+});

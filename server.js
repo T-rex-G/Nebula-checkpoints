@@ -1601,7 +1601,13 @@ async function consumeStepUpAuthorization(req, res, operation) {
   const context = requestSecurityContext(req);
   const claims = verifyStepUpGrant(STEP_UP_SECRET, token, { ...context, action: operation.action, scope: operation.scope });
   const state = sessionSecurityState(req.session);
-  req.stepUp = consumePendingStepUp(state, claims, operation, { replayStore: USED_STEP_UP_GRANTS });
+  /*
+   * Awaited, because the guard behind this may not be in this process. An
+   * un-awaited call assigns a Promise, and a Promise is truthy: the audit
+   * record at the end of a sensitive action would read it as an authorization
+   * and write undefined for every field it carries.
+   */
+  req.stepUp = await consumePendingStepUp(state, claims, operation, { replayStore: USED_STEP_UP_GRANTS });
   await setSession(req, res, req.session);
   return req.stepUp;
 }

@@ -2,11 +2,41 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
 
 const root = path.resolve(__dirname, '..');
+
+/*
+ * Consumption of a step-up grant is asynchronous, because the guard behind it
+ * may not live in this process. An un-awaited call assigns a Promise, and a
+ * Promise is truthy -- the sensitive action would run, and the audit record
+ * that reads req.stepUp.action would write undefined for every field. The
+ * mistake leaves no trace at runtime, so it is pinned here at the source.
+ */
+const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+for (const line of serverSource.split('\n')) {
+  if (!line.includes('consumePendingStepUp(')) continue;
+  if (line.trimStart().startsWith('*') || line.includes('require(')) continue;
+  assert.match(
+    line, /await consumePendingStepUp\(/,
+    `every consumePendingStepUp call must be awaited: ${line.trim()}`
+  );
+}
+assert.match(
+  serverSource, /async function consumeStepUpAuthorization\(/,
+  'consumeStepUpAuthorization must stay asynchronous so its callers keep awaiting it'
+);
+for (const line of serverSource.split('\n')) {
+  if (!line.includes('consumeStepUpAuthorization(')) continue;
+  if (line.includes('async function')) continue;
+  assert.match(
+    line, /await consumeStepUpAuthorization\(/,
+    `every consumeStepUpAuthorization call must be awaited: ${line.trim()}`
+  );
+}
 const secret = 'security-server-test-secret-0123456789abcdef-0123456789abcdef';
 const snapKey = ['security', 'server', 'snapshot', 'secret',
   'fedcba9876543210', 'fedcba9876543210'].join('-');

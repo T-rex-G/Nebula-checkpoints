@@ -204,22 +204,84 @@ function verifyStepUpGrant(secret, token, expected, options = {}) {
   return payload;
 }
 
-function consumePendingStepUp(securityState, claims, operation, { now = Date.now(), replayStore, maxReplayEntries = 5000 } = {}) {
+/*
+ * The replay guard was typed as a Map, which is a decision about where the
+ * guard lives rather than about what it has to do. A Map is per-process, so
+ * the guarantee it gives -- this grant is spent -- held only for the process
+ * that spent it, and a second instance would have honoured the same grant
+ * again. Nothing durable could be passed in to fix that, because the type
+ * check refused anything that was not a Map.
+ *
+ * What the guard actually needs is one operation: claim this grant, and say
+ * whether this caller is the one that claimed it. Expressed that way it can be
+ * a Map, a table, or anything else that can answer, and the answer means the
+ * same thing in every one of them.
+ *
+ * The operation has to be indivisible, which is the reason the old shape could
+ * not simply be widened. It read the guard at the top and wrote it at the
+ * bottom with the validation in between, and that is only safe while the read
+ * and the write cannot be interleaved -- true of a Map in one process, false
+ * of anything that has to be asked over a connection. Two requests carrying
+ * one grant would both get past the read before either wrote, and both would
+ * be authorized. `consumeOnce` is one call so there is no interval to
+ * interleave, and the store is the thing that makes it atomic: a table does it
+ * with an insert whose conflict means "already used".
+ */
+const REPLAY_STORE_UNAVAILABLE = 'STEP_UP_STORE_UNAVAILABLE';
+
+/*
+ * The in-memory adapter, for the profile that runs without a database. Its
+ * decision is synchronous, which is exactly what makes it atomic here: nothing
+ * can run between the read and the write. It keeps the eviction the Map always
+ * had -- expired entries first, then oldest -- because a bounded process-local
+ * guard is the most this profile can offer, and the durable store in its own
+ * task is where a guard that must never be evicted belongs.
+ */
+function mapReplayStore(map, maxEntries) {
+  return {
+    consumeOnce({ key, expiresAt, now: currentTime }) {
+      const consumedUntil = Number(map.get(key) || 0);
+      if (consumedUntil >= currentTime) return false;
+      /* Delete before setting so a key re-claimed after its old record expired
+         moves to the back of the insertion order, as it did before this was a
+         separate adapter. Plain assignment keeps a key where it was, and the
+         eviction below walks that order -- which would retire a live guard
+         sooner than the one behind it. */
+      map.delete(key);
+      map.set(key, expiresAt);
+      if (map.size > maxEntries) {
+        for (const [id, until] of map) {
+          if (Number(until) < currentTime) map.delete(id);
+        }
+        while (map.size > maxEntries) map.delete(map.keys().next().value);
+      }
+      return true;
+    }
+  };
+}
+
+function replayStoreFor(store, maxEntries) {
+  if (store instanceof Map) return mapReplayStore(store, maxEntries);
+  if (store && typeof store.consumeOnce === 'function') return store;
+  throw new TypeError('The step-up replay store must be a Map or implement consumeOnce()');
+}
+
+async function consumePendingStepUp(securityState, claims, operation, { now = Date.now(), replayStore, maxReplayEntries = 5000 } = {}) {
   if (!securityState || typeof securityState !== 'object') {
     throw new TypeError('A mutable session security state is required');
   }
-  if (replayStore !== undefined && !(replayStore instanceof Map)) {
-    throw new TypeError('The step-up replay store must be a Map');
-  }
+  const store = replayStore === undefined
+    ? null
+    : replayStoreFor(replayStore, Math.max(100, Number(maxReplayEntries) || 5000));
   const currentTime = Number(now);
   const grantId = String(claims && claims.jti || '');
-  if (replayStore) {
-    const consumedUntil = Number(replayStore.get(grantId) || 0);
-    if (consumedUntil >= currentTime) {
-      throw new SecurityTokenError('Step-up authorization is missing, expired, or already used', 'STEP_UP_REPLAY');
-    }
-    if (consumedUntil) replayStore.delete(grantId);
-  }
+
+  /*
+   * Validation comes first, and nothing reaches the store until it passes. A
+   * claim that names another action, another scope, or no grant at all is not
+   * this session's grant, and spending a guard entry on it would let anyone
+   * who can reach the route burn a grant its owner is still entitled to use.
+   */
   const pending = securityState.stepUp;
   const expectedScopeHash = scopeHash(operation && operation.scope || {});
   const valid = pending && grantId &&
@@ -230,17 +292,37 @@ function consumePendingStepUp(securityState, claims, operation, { now = Date.now
   if (!valid) {
     throw new SecurityTokenError('Step-up authorization is missing, expired, or already used', 'STEP_UP_REPLAY');
   }
-  if (replayStore) {
-    replayStore.set(grantId, Math.max(Number(claims.exp || 0), Number(pending.expiresAt || 0)));
-    if (replayStore.size > Math.max(100, Number(maxReplayEntries) || 5000)) {
-      for (const [id, expiresAt] of replayStore) {
-        if (Number(expiresAt) < currentTime) replayStore.delete(id);
-      }
-      while (replayStore.size > Math.max(100, Number(maxReplayEntries) || 5000)) {
-        replayStore.delete(replayStore.keys().next().value);
-      }
+
+  if (store) {
+    let claimed;
+    try {
+      claimed = await store.consumeOnce({
+        kind: 'step-up',
+        key: grantId,
+        expiresAt: Math.max(Number(claims.exp || 0), Number(pending.expiresAt || 0)),
+        now: currentTime
+      });
+    } catch (error) {
+      /*
+       * A guard that cannot answer has not said this grant is unspent, so the
+       * only safe reading is to refuse. It is reported as unavailable rather
+       * than as a replay because they are different facts: one says try again,
+       * the other says this grant is finished, and telling a caller its valid
+       * grant is spent because a database blinked would be a lie it cannot
+       * recover from.
+       */
+      if (error instanceof SecurityTokenError) throw error;
+      throw new SecurityTokenError(
+        'Step-up authorization cannot be verified right now', REPLAY_STORE_UNAVAILABLE, 503
+      );
+    }
+    if (!claimed) {
+      throw new SecurityTokenError('Step-up authorization is missing, expired, or already used', 'STEP_UP_REPLAY');
     }
   }
+
+  /* Only now: the grant is claimed, so clearing the pending state cannot lose
+     an authorization that was never spent. */
   securityState.stepUp = null;
   return {
     action: operation.action,
@@ -285,5 +367,6 @@ module.exports = Object.freeze({
   normalizeStepUpRequest,
   sensitiveOperationFor,
   consumePendingStepUp,
+  REPLAY_STORE_UNAVAILABLE,
   scopeHash
 });

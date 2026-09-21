@@ -149,11 +149,15 @@ async function wait() {
   try {
     await wait();
     const version = await fetch(`http://127.0.0.1:${port}/api/version`).then(r => r.json());
+    /* No version field: this route answers before an invitation, so what it
+       says it says to everyone. The fingerprint names the build exactly; the
+       semantic version travels on /api/me, behind a session. */
     assert.deepStrictEqual(version, {
-      version: pkg.version,
       product: PRODUCT_NAME,
       releaseTreeSha256: expectedReleaseTreeSha256
     });
+    assert.ok(!JSON.stringify(version).includes(pkg.version),
+      'the anonymous identity route still publishes the semantic version');
 
     const html = await fetch(`http://127.0.0.1:${port}/`).then(r => r.text());
     assert(!html.includes('__NV_'), 'release placeholders must be rendered');
@@ -175,7 +179,11 @@ async function wait() {
     assert(!sw.includes('__NV_'), 'service worker placeholders must be rendered');
     assert(sw.includes(`const VER = 'v${servedStamp}'`));
     assert(sw.includes('const STATIC = `nv-static-${VER}`')); 
-    assert(sw.includes(`const RELEASE_VERSION = '${APP_VERSION}'`));
+    /* /sw.js is fetched without a session. It names the shell cache by the
+       asset stamp, which is a content hash; it must not also carry the
+       semantic version, which is the half that lines up against a CVE list. */
+    assert(!sw.includes(APP_VERSION),
+      'the service worker publishes the semantic version to anonymous callers');
     console.log('release contract tests passed');
   } finally {
     if (child.exitCode === null) {

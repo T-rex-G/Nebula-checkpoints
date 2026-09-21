@@ -1,5 +1,8 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-nv-version="__NV_VERSION__" data-nv-asset-version="__NV_ASSET_VERSION__">
+<!-- data-nv-asset-version only. app.js reads it to stamp asset URLs; nothing
+     read the release version that stood beside it, so it was a build number
+     published to every visitor for no caller's sake. -->
+<html lang="en" data-theme="dark" data-nv-asset-version="__NV_ASSET_VERSION__">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -13,8 +16,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="__NV_PRODUCT_NAME__">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="/vendor/codemirror/5.65.16/codemirror.min.css">
 <link rel="stylesheet" href="/vendor/codemirror/5.65.16/theme/material-ocean.min.css">
 <link rel="stylesheet" href="/vendor/codemirror/5.65.16/theme/dracula.min.css">
@@ -301,8 +302,14 @@
           <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
           __NV_PRODUCT_NAME__
         </span>
+        <!--
+          The build used to be printed here, on a page that requires no
+          invitation to read. A tester still needs to be able to quote it, so
+          it moved to Settings, where a session has already been established --
+          /api/me carries it. What is left is the thing a visitor to this page
+          actually needs to know about the deployment.
+        -->
         <span class="lp-foot-meta">
-          <span>__NV_VERSION__</span>
           <span>Controlled hosted public alpha</span>
         </span>
       </footer>

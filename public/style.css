@@ -343,19 +343,36 @@ em{color:var(--teal);font-style:normal}
   radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(124,58,237,.07),transparent 75%)}
 .lp-hero{position:relative;overflow:hidden}
 .lp-nav,.lp-body,.lp-more{width:min(100%,1352px);margin-inline:auto;padding-inline:clamp(20px,5vw,56px)}
-.lp-nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
-  gap:16px;padding-block:28px;padding-top:max(28px,env(safe-area-inset-top))}
 /*
- * The bar reads through to whatever passes under it rather than sitting on a
- * ruled strip: the scrim is a blur that fades to nothing before the bar ends,
- * so there is no edge drawn across the page at rest. It is a child layer of
- * the nav's own stacking context, so z-index:-1 stays behind the brand and the
- * theme control without reaching the page behind the nav.
+ * calc(), not max(). The inset is the height of the region the status bar
+ * occupies, so max(28px, inset) spends the whole padding reaching the bottom
+ * edge of that region and leaves the brand and the theme control sitting flush
+ * against it -- and with viewport-fit=cover and a black-translucent status
+ * bar, flush against it means underneath it. Adding the two keeps the bar's
+ * own breathing room below the inset instead of inside it. The 0px fallback
+ * is required: env() with no fallback makes the whole declaration invalid
+ * where the variable is unsupported, which would drop the padding entirely.
+ */
+.lp-nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
+  gap:16px;padding-block:28px;padding-top:calc(env(safe-area-inset-top,0px) + 28px)}
+/*
+ * A gradient rather than a blur, and the reason is not taste.
+ *
+ * backdrop-filter inside a position:sticky box is a WebKit soft spot, and this
+ * bar is the one element on the landing that has to survive being scrolled --
+ * a scrim that costs the bar its stickiness is not worth a scrim. A gradient
+ * cannot promote a layer or alter containment, so it cannot take the sticking
+ * with it.
+ *
+ * It also covers the inset the padding above reserves, which the blur never
+ * did: over a translucent status bar the strip behind the clock is the part
+ * that most needs something behind the pixels. It fades out before the bar
+ * ends, so no edge is ruled across the page at rest.
  */
 .lp-nav::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
-  backdrop-filter:blur(13px) saturate(118%);-webkit-backdrop-filter:blur(13px) saturate(118%);
-  -webkit-mask-image:linear-gradient(180deg,#000 58%,transparent);
-  mask-image:linear-gradient(180deg,#000 58%,transparent)}
+  background:linear-gradient(180deg,rgba(6,3,15,.82),rgba(6,3,15,.42) 62%,transparent)}
+[data-theme="light"] .lp-nav::after{
+  background:linear-gradient(180deg,rgba(245,243,251,.86),rgba(245,243,251,.46) 62%,transparent)}
 .lp-brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display);
   font-weight:700;letter-spacing:-.015em;color:var(--text);font-size:1rem}
 .lp-brand .nv-mark{width:26px;height:26px;flex:0 0 26px}

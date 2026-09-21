@@ -1081,6 +1081,9 @@ async function openSettings() {
       <div class="set-group">
         <div class="set-label">About</div>
         <p class="hint" style="margin:4px 0 8px">Nebulaverse-X — GitHub · GitLab · Gitea from your pocket.</p>
+        ${state.me && state.me.release
+          ? `<p class="hint mono" id="setBuild" style="margin:0 0 8px">Build ${esc(state.me.release)}</p>`
+          : ''}
         <div class="about-actions">
           <a class="btn btn-ghost small" href="https://t.me/MonteCristo_X" target="_blank" rel="noopener noreferrer">
             <svg class="ico" width="15" height="15" viewBox="0 0 24 24"><path d="M21.5 3.6L2.9 10.8c-1 .4-1 1.4.1 1.7l4.6 1.5 1.8 5.5c.3.9 1 .9 1.5.3l2.5-2.4 4.7 3.5c.8.5 1.5.2 1.7-.8l3-15.1c.3-1.2-.5-1.8-1.3-1.4z"/></svg>

@@ -228,3 +228,22 @@ test('the light-theme waves stand down behind the landing artwork', async ({ pag
   await page.waitForTimeout(250);
   expect(await waves.evaluate(el => el.toDataURL())).toBe(first);
 });
+
+/*
+ * The build is still reachable by the person who needs it.
+ *
+ * Removing it from the landing footer only helps if it did not simply vanish:
+ * a tester filing a fault report has to be able to say which build they saw
+ * it on. It travels on /api/me now, which is behind a session, and Settings
+ * prints it -- so the same string is one screen further in and no longer
+ * within reach of an anonymous curl.
+ */
+test('the landing publishes no build, and a signed-in session can still read one', async ({ page }) => {
+  const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+  await mockPublicAlphaApi(page, { access: 'required', ready: 'ready' });
+  await page.goto('/');
+  await expect(page.locator('.lp-foot-meta')).toBeVisible();
+  expect(await page.locator('.lp-foot-meta').innerText()).not.toMatch(/\d+\.\d+\.\d+/);
+  /* And the whole landing document, not just the footer it used to sit in. */
+  expect(await page.locator('#page-alpha-access').innerText()).not.toMatch(/\d+\.\d+\.\d+-alpha/);
+});

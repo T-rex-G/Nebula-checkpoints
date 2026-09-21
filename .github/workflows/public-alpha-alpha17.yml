@@ -109,8 +109,23 @@ jobs:
             );
           '
       - run: npm run test:runtime:matrix
+      # Chromium is installed here for the qualifier below, which runs the
+      # browser suite inside the extracted candidate.
+      #
+      # The other browser matrix -- the one over this checkout -- used to run
+      # here too, and the two of them were 93.5% of this job: 14m06s for the
+      # checkout matrix and 15m11s for the build-and-qualify step, against
+      # about two minutes for everything else combined. Run one after the
+      # other in one job they cost half an hour and neither could start until
+      # the other finished.
+      #
+      # It moved to the browser-matrix job below rather than being deleted.
+      # Both matrices still run on every pull request, because they answer
+      # different questions -- one whether the source is sound, the other
+      # whether the bytes that were packaged from it are -- and a failure in
+      # the candidate alone is what tells you packaging broke something. What
+      # they no longer do is wait for each other.
       - run: bash ci/install-browser.sh
-      - run: npm run test:e2e
       - name: Build candidate twice and freeze bytes
         id: freeze
         shell: bash
@@ -150,6 +165,48 @@ jobs:
           path: ${{ runner.temp }}/Nebulaverse-X-v5.3.0-alpha.17.0.zip
           if-no-files-found: error
           retention-days: 1
+
+  # The checkout browser matrix, split four ways and run beside the candidate
+  # one instead of in front of it.
+  #
+  # Playwright's --shard divides at file granularity and each shard reports its
+  # own result, so this is the same suite under the same config rather than a
+  # subset. Nothing downstream reads its report: the qualification evidence is
+  # the candidate matrix's report, which qualify-candidate-archive.js generates
+  # itself through PLAYWRIGHT_JSON_OUTPUT_FILE. So the shards need no merge step
+  # and simply pass or fail, and this job needs no artifact.
+  #
+  # It does not share the automated job's Playwright cache, because a sibling
+  # job is a different runner. That costs one browser install per shard -- 21
+  # seconds measured -- against the fourteen minutes it takes off the critical
+  # path.
+  #
+  # fail-fast is off: a failure in one shard is a failure in a quarter of the
+  # suite, and cancelling the rest hides whether the problem is local to a few
+  # specs or general, which is the first thing worth knowing.
+  #
+  # A shallow checkout is enough here. The server computes its release
+  # fingerprint with `git ls-files`, which reads the working tree rather than
+  # history, and declines to claim anything when git cannot answer.
+  browser-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+      - run: npm ci
+      - run: bash ci/install-browser.sh
+      - run: npx playwright test --shard=${{ matrix.shard }}/4
 
   authorize-live:
     if: >-

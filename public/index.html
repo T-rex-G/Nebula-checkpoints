@@ -425,7 +425,17 @@
 <main class="page" id="page-overview" aria-label="Workspace overview">
   <header class="topbar glass">
     <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <!--
+      The mark, not only the wordmark. This button's sole child was a .hide-sm
+      span, and .hide-sm is display:none below 900px -- so on a phone the
+      button held nothing, collapsed to zero width, and the bar lost the
+      product's name and face together. The crumbs beside it are display:none
+      below 901px as well, so nothing else on the bar said where the reader
+      was. The mark carries the identity at 22px where the word will not fit,
+      and the word returns beside it on a wide screen.
+    -->
     <button class="topbar-brand" id="ovHomeBtn" type="button" aria-label="Workspace overview">
+      <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </button>
     <nav class="ov-crumbs" aria-label="Location">
@@ -437,8 +447,30 @@
       sign out of is not a home screen.
     -->
     <div class="topbar-actions">
-      <button class="btn btn-ghost" id="ovGoRepos">Repositories</button>
+      <!--
+        Named by aria-label rather than by its own text, because on a phone the
+        text is not drawn. A name taken from content disappears with the
+        content, and this control is how a reader -- and the suite's journey
+        helper -- reaches the repositories screen.
+      -->
+      <button class="btn btn-ghost" id="ovGoRepos" aria-label="Repositories">
+        <svg class="ico ov-repos-ico" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-28 12 12)"/></svg>
+        <span class="ov-repos-word">Repositories</span>
+      </button>
       <button class="btn btn-ghost icon-btn" id="settingsBtnOv" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <!--
+        The overview is where a signed-in session starts, and it was the one
+        screen with no way to change the theme: the inventory and the workbench
+        each carry this control, the overview did not, so a reader who landed
+        here had to leave to reach it. app.js delegates .theme-toggle at module
+        scope and syncs aria-checked across every copy, so this rides the
+        existing mechanism rather than adding a second.
+      -->
+      <button class="theme-toggle" id="themeBtnOv" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
+        <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
+        <svg class="tt-ico tt-moon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg>
+        <span class="tt-knob"></span>
+      </button>
       <button class="avatar-btn" id="accountBtnOv" title="Accounts" aria-label="Accounts"><svg class="ico avatar-fallback" width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.7"/><path d="M4.8 19.5a7.2 7.2 0 0 1 14.4 0"/></svg><img class="avatar" id="meAvatarOv" alt="" hidden></button>
       <button class="btn btn-ghost icon-btn btn-signout" id="logoutBtnOv" title="Sign out" aria-label="Sign out"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 17l5-5-5-5"/><path d="M20 12H9"/><path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6"/></svg></button>
     </div>
@@ -578,6 +610,7 @@
   <header class="topbar glass">
     <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     <button class="topbar-brand" id="homeBtn" type="button" aria-label="Workspace overview">
+      <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </button>
     <div class="topbar-actions">

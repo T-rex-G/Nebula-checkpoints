@@ -64,6 +64,40 @@ function requireExpiry(expiresAt) {
   return value;
 }
 
+/*
+ * The in-process adapter, for the profile allowed to run without a database
+ * and as the default the security foundation falls back to. Its decision is
+ * synchronous, which is what makes it atomic: nothing can run between the read
+ * and the write.
+ *
+ * It keeps a capacity ceiling because a process-local guard cannot grow
+ * without bound, but it evicts only after the claim it was asked for, so the
+ * key being claimed is never the one discarded. Expired entries go first, then
+ * the oldest. A guard that must never be evicted at all belongs in the table
+ * above, which has no ceiling.
+ */
+function memorySingleUseStore(map, { maxEntries = 5000 } = {}) {
+  if (!(map instanceof Map)) throw new TypeError('An in-process single-use guard requires a Map');
+  const ceiling = Math.max(100, Number(maxEntries) || 5000);
+  return {
+    consumeOnce({ key, expiresAt, now: currentTime }) {
+      const consumedUntil = Number(map.get(key) || 0);
+      if (consumedUntil >= currentTime) return false;
+      /* Delete before setting so a key re-claimed after its old record expired
+         moves to the back of the insertion order the eviction below walks. */
+      map.delete(key);
+      map.set(key, expiresAt);
+      if (map.size > ceiling) {
+        for (const [id, until] of map) {
+          if (Number(until) < currentTime) map.delete(id);
+        }
+        while (map.size > ceiling) map.delete(map.keys().next().value);
+      }
+      return true;
+    }
+  };
+}
+
 class SingleUseStore {
   constructor(options = {}) {
     const pool = options && options.pool;
@@ -159,5 +193,6 @@ module.exports = Object.freeze({
   MAX_SWEEP_BATCH,
   SingleUseStore,
   SingleUseStoreError,
+  memorySingleUseStore,
   guardKeyFor
 });

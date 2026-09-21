@@ -46,6 +46,28 @@ assert.strictEqual(
   /catch[\s\S]{0,200}USED_STEP_UP_GRANTS/.test(serverSource), false,
   'no failure path may fall back to the in-process replay guard'
 );
+
+/*
+ * The GitHub App OAuth state is the same guard under another kind, and carries
+ * the same hazard: an un-awaited claim is a truthy Promise, so the callback
+ * would go on to exchange the code with GitHub having verified nothing.
+ */
+assert.match(
+  serverSource, /async function consumeGithubAppPending\(/,
+  'consuming an OAuth state must be asynchronous: the guard may not be in this process'
+);
+for (const line of serverSource.split('\n')) {
+  if (!line.includes('consumeGithubAppPending(')) continue;
+  if (line.includes('async function')) continue;
+  assert.match(
+    line, /await consumeGithubAppPending\(/,
+    `every consumeGithubAppPending call must be awaited: ${line.trim()}`
+  );
+}
+assert.strictEqual(
+  /catch[\s\S]{0,200}USED_GITHUB_APP_STATES/.test(serverSource), false,
+  'no failure path may fall back to the in-process OAuth state guard'
+);
 for (const line of serverSource.split('\n')) {
   if (!line.includes('consumeStepUpAuthorization(')) continue;
   if (line.includes('async function')) continue;

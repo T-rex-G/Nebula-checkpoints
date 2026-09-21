@@ -449,6 +449,23 @@
   since every instance would answer "unspent" for a grant another had already
   spent, letting a replay through precisely during an outage. A test pins that
   no failure path reaches the Map.
+- The GitHub App OAuth state guard moved onto the same contract. It carried the
+  same check-then-set shape — `USED_GITHUB_APP_STATES.has(replayKey)` and then
+  `.set(...)` — and the same per-process blindness, so an OAuth state consumed
+  on one instance could be redeemed again on another. It is now one claim under
+  its own guard kind, and `consumeGithubAppPending` is asynchronous with both
+  callback routes awaiting it. An un-awaited claim there would have been a
+  truthy Promise, and the callback would have gone on to exchange the code with
+  GitHub having verified nothing; a test pins the `await` at the source and was
+  checked by removing it.
+- A store failure on that path reports `GITHUB_APP_STATE_UNAVAILABLE` with a
+  503 rather than a replay, for the same reason as step-up: one is worth
+  retrying and the other never is.
+- Both guards and the security foundation now share one in-process adapter,
+  `memorySingleUseStore`, so the meaning of a claim cannot drift between them.
+  It evicts only after the claim it was asked for, so the key being claimed is
+  never the one discarded — the previous GitHub App prune ran *before* its
+  check, so a capacity eviction could free the very key about to be tested.
 
 ### Key Separation and Dependency Determinism
 

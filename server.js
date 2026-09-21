@@ -127,7 +127,7 @@ const {
 } = require('./src/github-app');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation');
 const { rateLimitIdentity } = require('./src/rate-limit-identity');
-const { SingleUseStore } = require('./src/single-use-store');
+const { SingleUseStore, memorySingleUseStore } = require('./src/single-use-store');
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
@@ -1580,10 +1580,13 @@ let _singleUseStore = null;
  * of both: every instance would answer "unspent" for a grant another instance
  * had already spent, and a replay would go through precisely during an outage.
  */
-function stepUpReplayStore() {
-  if (!DB_URL) return USED_STEP_UP_GRANTS;
+function durableSingleUseStore() {
   if (!_singleUseStore) _singleUseStore = new SingleUseStore({ pool: pool() });
   return _singleUseStore;
+}
+function stepUpReplayStore() {
+  if (!DB_URL) return USED_STEP_UP_GRANTS;
+  return durableSingleUseStore();
 }
 function sessionSecurityState(session) {
   if (!session.security || typeof session.security !== 'object') session.security = {};
@@ -3255,15 +3258,16 @@ const OAUTH_SECRET = (process.env.GITHUB_CLIENT_SECRET || '').trim();
 const GITHUB_APP_FLOW_TTL_MS = 10 * 60 * 1000;
 const MAX_USED_GITHUB_APP_STATES = 10000;
 const USED_GITHUB_APP_STATES = new Map();
-function pruneUsedGithubAppStates(now = Date.now()) {
-  for (const [key, expiresAt] of USED_GITHUB_APP_STATES) {
-    if (Number(expiresAt) < Number(now)) USED_GITHUB_APP_STATES.delete(key);
+/*
+ * The same guard the step-up grant uses, under its own kind. Without a
+ * database this stays the bounded in-process Map it has always been; with one,
+ * an OAuth state consumed on any instance is consumed on all of them.
+ */
+function githubAppStateStore() {
+  if (!DB_URL) {
+    return memorySingleUseStore(USED_GITHUB_APP_STATES, { maxEntries: MAX_USED_GITHUB_APP_STATES });
   }
-  while (USED_GITHUB_APP_STATES.size >= MAX_USED_GITHUB_APP_STATES) {
-    const oldest = USED_GITHUB_APP_STATES.keys().next();
-    if (oldest.done) break;
-    USED_GITHUB_APP_STATES.delete(oldest.value);
-  }
+  return durableSingleUseStore();
 }
 function githubAppStateReplayKey(slot, nonce, identity) {
   return crypto.createHmac('sha256', GITHUB_APP_STATE_REPLAY_KEY)
@@ -3281,19 +3285,38 @@ function githubAppPending(session) {
   if (!security.githubApp || typeof security.githubApp !== 'object') security.githubApp = {};
   return security.githubApp;
 }
-function consumeGithubAppPending(session, slot, nonce, identity, now = Date.now()) {
+async function consumeGithubAppPending(session, slot, nonce, identity, now = Date.now()) {
   const store = githubAppPending(session);
   const pending = store[slot];
+  /*
+   * The pending state is spent before it is checked, and stays that way even
+   * when the check fails. That is deliberate and older than this change: an
+   * attempt against a state is the state's one use, so a wrong nonce cannot be
+   * retried until it is guessed.
+   */
   delete store[slot];
   if (!pending || !secureTextEqual(pending.nonce, nonce) || !secureTextEqual(pending.identityKey, identity) || Number(pending.expiresAt) < Number(now)) {
     throw new GithubAppError('GitHub App authorization state is missing, expired, or already used', 'GITHUB_APP_STATE_REPLAY', 403);
   }
-  pruneUsedGithubAppStates(now);
   const replayKey = githubAppStateReplayKey(slot, nonce, identity);
-  if (USED_GITHUB_APP_STATES.has(replayKey)) {
+  let claimed;
+  try {
+    claimed = await githubAppStateStore().consumeOnce({
+      kind: 'github-app-state',
+      key: replayKey,
+      expiresAt: Number(pending.expiresAt),
+      now: Number(now)
+    });
+  } catch (error) {
+    /* Unverifiable is not the same as replayed: this one is worth retrying and
+       a replay never is, so they must not share a code or a status. */
+    throw new GithubAppError(
+      'GitHub App authorization state cannot be verified right now', 'GITHUB_APP_STATE_UNAVAILABLE', 503
+    );
+  }
+  if (!claimed) {
     throw new GithubAppError('GitHub App authorization state is missing, expired, or already used', 'GITHUB_APP_STATE_REPLAY', 403);
   }
-  USED_GITHUB_APP_STATES.set(replayKey, Number(pending.expiresAt));
   return pending;
 }
 async function githubAppCallbackContext(req, res) {
@@ -3410,7 +3433,7 @@ app.get('/api/github-app/oauth/callback', requireGithubAppFeature, async (req, r
   try {
     const context = await githubAppCallbackContext(req, res);
     const claims = verifyGithubAppState(GITHUB_APP_STATE_SECRET, req.query && req.query.state, { ...context, purpose: 'user-auth' });
-    const pending = consumeGithubAppPending(req.session, 'userAuth', claims.nonce, context.identityKey);
+    const pending = await consumeGithubAppPending(req.session, 'userAuth', claims.nonce, context.identityKey);
     await setSession(req, res, req.session);
     const exchange = await githubAppBroker.exchangeUserCode(req.query && req.query.code);
     const user = await githubAppBroker.getAuthorizedUser(exchange.token);
@@ -3445,7 +3468,7 @@ app.get('/api/github-app/setup', requireGithubAppFeature, async (req, res) => {
   try {
     const context = await githubAppCallbackContext(req, res);
     const claims = verifyGithubAppState(GITHUB_APP_STATE_SECRET, req.query && req.query.state, { ...context, purpose: 'installation-claim' });
-    const pending = consumeGithubAppPending(req.session, 'installation', claims.nonce, context.identityKey);
+    const pending = await consumeGithubAppPending(req.session, 'installation', claims.nonce, context.identityKey);
     await setSession(req, res, req.session);
     const installationId = Number(req.query && req.query.installation_id);
     if (!Number.isSafeInteger(installationId) || installationId <= 0) {

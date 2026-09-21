@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { memorySingleUseStore } = require('./single-use-store');
 
 const TOKEN_VERSION = 1;
 const STEP_UP_ACTIONS = new Set([
@@ -229,39 +230,10 @@ function verifyStepUpGrant(secret, token, expected, options = {}) {
  */
 const REPLAY_STORE_UNAVAILABLE = 'STEP_UP_STORE_UNAVAILABLE';
 
-/*
- * The in-memory adapter, for the profile that runs without a database. Its
- * decision is synchronous, which is exactly what makes it atomic here: nothing
- * can run between the read and the write. It keeps the eviction the Map always
- * had -- expired entries first, then oldest -- because a bounded process-local
- * guard is the most this profile can offer, and the durable store in its own
- * task is where a guard that must never be evicted belongs.
- */
-function mapReplayStore(map, maxEntries) {
-  return {
-    consumeOnce({ key, expiresAt, now: currentTime }) {
-      const consumedUntil = Number(map.get(key) || 0);
-      if (consumedUntil >= currentTime) return false;
-      /* Delete before setting so a key re-claimed after its old record expired
-         moves to the back of the insertion order, as it did before this was a
-         separate adapter. Plain assignment keeps a key where it was, and the
-         eviction below walks that order -- which would retire a live guard
-         sooner than the one behind it. */
-      map.delete(key);
-      map.set(key, expiresAt);
-      if (map.size > maxEntries) {
-        for (const [id, until] of map) {
-          if (Number(until) < currentTime) map.delete(id);
-        }
-        while (map.size > maxEntries) map.delete(map.keys().next().value);
-      }
-      return true;
-    }
-  };
-}
-
 function replayStoreFor(store, maxEntries) {
-  if (store instanceof Map) return mapReplayStore(store, maxEntries);
+  /* One in-process adapter, shared with the server's other single-use guards,
+     so the meaning of a claim cannot drift between them. */
+  if (store instanceof Map) return memorySingleUseStore(store, { maxEntries });
   if (store && typeof store.consumeOnce === 'function') return store;
   throw new TypeError('The step-up replay store must be a Map or implement consumeOnce()');
 }

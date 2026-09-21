@@ -128,6 +128,7 @@ const {
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation');
 const { rateLimitIdentity } = require('./src/rate-limit-identity');
 const { SingleUseStore, memorySingleUseStore } = require('./src/single-use-store');
+const { writeLiveClient } = require('./src/live-stream');
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
@@ -1766,8 +1767,20 @@ function liveStreamKey(provider, owner, repo, identity) {
 }
 function broadcastLive(provider, owner, repo, identity, event) {
   const key = liveStreamKey(provider, owner, repo, identity);
-  for (const client of LIVE_CLIENTS.get(key) || []) {
-    try { client.write(`id: ${String(event.id || '').replace(/[^0-9a-f-]/gi, '')}\nevent: intelligence\ndata: ${JSON.stringify(event)}\n\n`); } catch {}
+  const clients = LIVE_CLIENTS.get(key);
+  if (!clients) return;
+  const payload = `id: ${String(event.id || '').replace(/[^0-9a-f-]/gi, '')}\nevent: intelligence\ndata: ${JSON.stringify(event)}\n\n`;
+  /*
+   * A copy, because a reader that has fallen behind is disconnected during
+   * this loop and its own close handler removes it from the set being walked.
+   */
+  for (const client of [...clients]) {
+    writeLiveClient(client, payload, {
+      onDrop(dropped) {
+        clients.delete(dropped);
+        if (!clients.size) LIVE_CLIENTS.delete(key);
+      }
+    });
   }
 }
 function publicBase(req) {
@@ -6892,9 +6905,15 @@ data: ${JSON.stringify({ repository: `${req.params.owner}/${req.params.repo}`, a
   let keepAliveTicks = 0;
   let sessionCheckBusy = false;
   const keepAlive = setInterval(() => {
-    try { res.write(`: keepalive ${Date.now()}
+    /*
+     * The keepalive is the canary. A reader that has stopped reading takes no
+     * events -- it may be subscribed to a quiet repository -- but it still
+     * takes one of these every fifteen seconds, so this is what notices a
+     * stalled socket on a stream that is otherwise idle.
+     */
+    writeLiveClient(res, `: keepalive ${Date.now()}
 
-`); } catch {}
+`);
     keepAliveTicks += 1;
     /* revocation check runs every 20th tick (~5 min), not every minute: a 60s poll would
        keep a free-tier Neon compute instance from ever auto-suspending. */

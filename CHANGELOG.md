@@ -524,6 +524,36 @@
   What changes is that duplicates now come from genuine retries rather than
   from a worker racing itself.
 
+### Live Stream Backpressure
+
+- **Fixed a stalled live-event reader growing the server's memory without
+  bound.** Every SSE write went out as `try { client.write(...) } catch {}`,
+  and that catch does nothing for the failure it looks like it is guarding: a
+  response stream does not throw when the reader stops reading. `write()`
+  returns `false` and Node buffers the payload in memory until it can be sent.
+  A paused tab, a phone that lost signal, a proxy that stalls — the socket
+  stays open, the writes keep being accepted, and nothing in the process ever
+  finds out. The default admission ceiling is a hundred streams.
+- The download path already knew this and awaits `'drain'` before its next
+  chunk, but an event fan-out cannot wait: it runs inside a request that has
+  its own work to finish, and one stalled reader would hold up everyone else's
+  events. So a reader that has fallen past a byte bound is disconnected
+  instead.
+- Disconnecting is safe here precisely because it loses nothing. Intelligence
+  events are persisted and the browser reconnects and resumes from its cursor —
+  the same path it takes after any dropped connection. Ending the stream is
+  what tells it to. Silently skipping the write would not: the client would sit
+  on an open socket believing it was current, which is the outcome worth
+  avoiding.
+- The bound is checked before the write rather than after. After is too late —
+  the payload crossing the line has already been taken into memory, and a
+  single large event would be accepted however far behind the reader was.
+- The keepalive is bounded too, and is what notices a stalled socket on an
+  otherwise idle stream: a reader subscribed to a quiet repository takes no
+  events, but still takes one keepalive every fifteen seconds.
+- `write()` returning `false` is deliberately *not* the signal — that happens
+  routinely on healthy connections. Accumulated bytes are.
+
 ### Key Separation and Dependency Determinism
 
 - Gave every keyed construction its own HKDF-SHA256 derived key. One

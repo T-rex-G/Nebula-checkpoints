@@ -89,3 +89,52 @@ test('the reveal is skipped when motion is off', async ({ page }) => {
   expect(await page.locator('#wpActivity .wp-area-line animate').count()).toBe(0);
   await expect(page.locator('#wpActivity .wp-area-line')).not.toHaveAttribute('stroke-dashoffset', /.+/);
 });
+
+/*
+ * The rows are the evidence, not the headline.
+ *
+ * Every row carries a repository, a short sha and an author so a claim can be
+ * checked, which is exactly why they cannot be deleted -- and exactly why
+ * thirty of them stacked under the chart buries both the shape and the card
+ * below. Folded, the card is the shape; opened, it is the ledger.
+ */
+test('the commit rows are folded away, and the chart is what is left', async ({ page }) => {
+  await overview(page);
+  const fold = page.locator('#wpFeed .wp-feed-fold');
+  await expect(fold).toBeVisible();
+  expect(await fold.evaluate(el => el.open)).toBe(false);
+  await expect(page.locator('#wpFeed .wp-feed-row').first()).toBeHidden();
+  /* The chart is not folded with them. */
+  await expect(page.locator('#wpFeed .wp-bars')).toBeVisible();
+  /* And the bounds are still stated where the chart is read, sample included. */
+  await expect(page.locator('#wpFeed .wp-feed-scope')).toContainText('bounded sample');
+
+  await fold.locator('summary').click();
+  await expect(page.locator('#wpFeed .wp-feed-row').first()).toBeVisible();
+  /* The long provenance travels with the rows it describes. */
+  await expect(page.locator('#wpFeed .wp-feed-scope-full')).toBeVisible();
+});
+
+/*
+ * A reader who opened the ledger did so to read it. Re-folding it under them
+ * on the next repaint -- a refresh, a revisit -- is the card taking that back.
+ */
+test('an opened ledger stays open across a revisit', async ({ page }) => {
+  await overview(page);
+  await page.locator('#wpFeed .wp-feed-fold summary').click();
+  await expect(page.locator('#wpFeed .wp-feed-row').first()).toBeVisible();
+  /*
+   * Wait for the choice to be written, not just for the rows to appear. The
+   * toggle event fires after the element opens, so a reload issued on the
+   * strength of the rows being visible can outrun the write -- which is this
+   * assertion failing for a reason that has nothing to do with the behaviour
+   * it is about.
+   */
+  await expect.poll(() => page.evaluate(() => {
+    try { return localStorage.getItem('nv_feed_rows_open'); } catch { return null; }
+  })).toBe('open');
+  await page.reload();
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect(page.locator('#wpFeed .wp-feed-row').first()).toBeVisible();
+  expect(await page.locator('#wpFeed .wp-feed-fold').evaluate(el => el.open)).toBe(true);
+});

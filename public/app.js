@@ -261,10 +261,24 @@ function renderGalaxyPulse(repos) {
   if (!section || !grid) return;
   const list = Array.isArray(repos) ? repos : [];
   const languages = new Set(list.map(r => r && r.language).filter(Boolean));
+  /*
+   * The language tile earned a chart and lost its number.
+   *
+   * "Languages 7" is true and it is not an answer: it cannot say which seven,
+   * nor that one of them is nearly the whole estate while the rest are a file
+   * each. The radar puts every language on its own spoke against a shared
+   * scale, so the shape of the estate is what you see. Below three languages
+   * there is no polygon to draw -- one or two spokes is a line pretending to
+   * be a shape -- so the count stays in that case rather than a degenerate
+   * chart being drawn to keep the layout tidy.
+   */
+  const pulse = window.NebulaWorkspacePulse;
+  const spread = pulse && pulse.languageSpread ? pulse.languageSpread(list) : [];
+  const drawRadar = spread.length >= (pulse ? pulse.RADAR_MIN_AXES : 3);
   const measures = [
     { label: 'Galaxies online', value: list.length, note: list.length === 1 ? 'connected system' : 'connected systems' },
     { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
-    { label: 'Languages', value: languages.size, note: languages.size === 1 ? 'in use' : 'across the set' }
+    ...(drawRadar ? [] : [{ label: 'Languages', value: languages.size, note: languages.size === 1 ? 'in use' : 'across the set' }])
   ].filter(measure => Number.isFinite(measure.value));
   grid.innerHTML = '';
   for (const measure of measures) {
@@ -283,7 +297,27 @@ function renderGalaxyPulse(repos) {
     cell.append(dt, dd);
     grid.appendChild(cell);
   }
-  section.hidden = measures.length === 0;
+  if (drawRadar) {
+    /* Its own cell, spanning the row: a radar squeezed into a third of the
+       grid beside two numbers is a chart nobody can read the labels of. */
+    const cell = document.createElement('div');
+    cell.className = 'gx-pulse-cell gx-pulse-radar';
+    const dt = document.createElement('dt');
+    dt.textContent = 'Languages';
+    const dd = document.createElement('dd');
+    dd.appendChild(pulse.radarChart(spread,
+      `Repositories by language: ${spread.map(axis => `${axis.label} ${axis.count}`).join(', ')}.`));
+    const note = document.createElement('span');
+    note.className = 'gx-pulse-note';
+    const folded = spread.find(axis => axis.folded);
+    note.textContent = folded
+      ? `${languages.size} in use, the smallest ${folded.folded} grouped`
+      : `${languages.size} across the set`;
+    dd.appendChild(note);
+    cell.append(dt, dd);
+    grid.appendChild(cell);
+  }
+  section.hidden = measures.length === 0 && !drawRadar;
 }
 
 function selectSegment(groupSelector, isChosen) {

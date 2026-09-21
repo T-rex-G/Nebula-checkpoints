@@ -550,6 +550,7 @@
    * chain. Below this the line is left to carry the shape by itself.
    */
   const DOT_SPACING = 12;
+  const FEED_FOLD_KEY = 'nv_feed_rows_open';
   let areaSequence = 0;
 
   /*
@@ -770,6 +771,146 @@
         chart.appendChild(text);
       }
     }
+    return chart;
+  }
+
+  /*
+   * Languages across the connected set, as a radar.
+   *
+   * This replaced a tile that read "Languages 7". Seven is true and it is not
+   * an answer: it cannot say which seven, nor that one of them is nearly the
+   * whole estate and the rest are a file each. A radar puts every language on
+   * its own spoke against a shared scale, so the shape of the estate is the
+   * thing you see rather than a number you have to go and expand.
+   *
+   * Three spokes minimum, because a polygon needs three corners: with one or
+   * two languages the chart is a line or a dot pretending to be a shape, and
+   * the caller is told to keep its tile instead. Eight maximum, because past
+   * that the labels collide and every extra spoke is a slice of angle nobody
+   * can measure -- the tail folds into one "Other" spoke that says how many
+   * it stands for.
+   */
+  const RADAR_MIN_AXES = 3;
+  const RADAR_MAX_AXES = 8;
+
+  function languageSpread(repos) {
+    const counts = new Map();
+    for (const repo of Array.isArray(repos) ? repos : []) {
+      const name = repo && typeof repo.language === 'string' ? repo.language.trim() : '';
+      if (!name) continue;
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    const ranked = [...counts].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+    if (ranked.length <= RADAR_MAX_AXES) {
+      return ranked.map(([label, count]) => ({ label, count }));
+    }
+    const kept = ranked.slice(0, RADAR_MAX_AXES - 1).map(([label, count]) => ({ label, count }));
+    const rest = ranked.slice(RADAR_MAX_AXES - 1);
+    kept.push({
+      label: 'Other',
+      count: rest.reduce((total, entry) => total + entry[1], 0),
+      folded: rest.length
+    });
+    return kept;
+  }
+
+  function radarChart(axes, label) {
+    const size = 260;
+    const centre = size / 2;
+    /* The web stops well inside the box so the labels have somewhere to sit.
+       Drawn to the edge, the longest language name is clipped by the viewBox
+       and the chart reads as broken rather than as crowded. */
+    const radius = 78;
+    const id = `wp-radar-${areaSequence += 1}`;
+    const peak = Math.max(...axes.map(axis => axis.count), 1);
+    const step = (Math.PI * 2) / axes.length;
+    /* Start at twelve o'clock: a polygon that begins at three reads as
+       rotated, and a reader compares spokes against vertical without being
+       asked to. */
+    const point = (index, ratio) => {
+      const angle = -Math.PI / 2 + index * step;
+      return {
+        x: Math.round((centre + Math.cos(angle) * radius * ratio) * 10) / 10,
+        y: Math.round((centre + Math.sin(angle) * radius * ratio) * 10) / 10
+      };
+    };
+    const ring = ratio => axes.map((_, index) => {
+      const at = point(index, ratio);
+      return `${at.x},${at.y}`;
+    }).join(' ');
+
+    const chart = svg('svg', {
+      class: 'wp-radar', viewBox: `0 0 ${size} ${size}`, role: 'img', 'aria-label': label
+    });
+
+    const defs = svg('defs', {});
+    /* Brightest at the centre and fading to the rim, so a filled polygon reads
+       as a body with weight rather than as a flat sheet of colour. */
+    const fill = svg('radialGradient', { id: `${id}-r`, cx: '50%', cy: '50%', r: '50%' });
+    fill.appendChild(svg('stop', { offset: '0%', 'stop-color': '#8B5CF6', 'stop-opacity': '.42' }));
+    fill.appendChild(svg('stop', { offset: '100%', 'stop-color': '#22D3EE', 'stop-opacity': '.14' }));
+    defs.appendChild(fill);
+    const stroke = svg('linearGradient', { id: `${id}-s`, x1: 0, y1: 0, x2: 1, y2: 1 });
+    stroke.appendChild(svg('stop', { offset: '0%', 'stop-color': '#8B5CF6' }));
+    stroke.appendChild(svg('stop', { offset: '100%', 'stop-color': '#22D3EE' }));
+    defs.appendChild(stroke);
+    chart.appendChild(defs);
+
+    /* Four rings and one spoke per axis, solid hairlines. The library this is
+       modelled on dashes them; a dash reads as a threshold, and a web made of
+       thresholds is four rings of meaning that is not there. */
+    for (const ratio of [0.25, 0.5, 0.75, 1]) {
+      chart.appendChild(svg('polygon', { class: 'wp-radar-ring', points: ring(ratio) }));
+    }
+    axes.forEach((_, index) => {
+      const outer = point(index, 1);
+      chart.appendChild(svg('line', {
+        class: 'wp-radar-spoke', x1: centre, y1: centre, x2: outer.x, y2: outer.y
+      }));
+    });
+
+    const shape = svg('polygon', {
+      class: 'wp-radar-area', points: ring(0).split(' ').length ? ring(0) : '',
+      fill: `url(#${id}-r)`, stroke: `url(#${id}-s)`
+    });
+    const full = axes.map((axis, index) => {
+      const at = point(index, axis.count / peak);
+      return `${at.x},${at.y}`;
+    }).join(' ');
+    shape.setAttribute('points', full);
+    chart.appendChild(shape);
+
+    /*
+     * The reveal grows the polygon out of the centre rather than fading it in,
+     * so the vertices stay on the shape while it arrives instead of hanging in
+     * their final positions over a growing fill.
+     */
+    if (motionAllowed()) {
+      shape.setAttribute('points', ring(0));
+      shape.appendChild(svg('animate', {
+        attributeName: 'points', dur: '.8s', fill: 'freeze',
+        calcMode: 'spline', keyTimes: '0;1', keySplines: '.22 .61 .36 1',
+        values: `${ring(0)};${full}`
+      }));
+    }
+
+    axes.forEach((axis, index) => {
+      const at = point(index, axis.count / peak);
+      const dot = svg('circle', { class: 'wp-radar-dot', cx: at.x, cy: at.y, r: 3.2 });
+      dot.appendChild(svg('title', {})).textContent =
+        `${axis.label}: ${axis.count} repositor${axis.count === 1 ? 'y' : 'ies'}` +
+        (axis.folded ? ` across ${axis.folded} languages` : '');
+      chart.appendChild(dot);
+      /* The label sits just past its own spoke, anchored by which side of the
+         circle it is on, so nothing overlaps the web it belongs to. */
+      const seat = point(index, 1.16);
+      const text = svg('text', {
+        class: 'wp-radar-label', x: seat.x, y: seat.y + 3,
+        'text-anchor': Math.abs(seat.x - centre) < 6 ? 'middle' : (seat.x > centre ? 'start' : 'end')
+      });
+      text.textContent = axis.label;
+      chart.appendChild(text);
+    });
     return chart;
   }
 
@@ -1017,14 +1158,63 @@
        */
       host.appendChild(barChart(dailyCommits(current.events, now, current.days),
         `Commits per day over the last ${current.days} days.`));
+      /*
+       * The rows are the evidence, not the headline.
+       *
+       * Every row carries a repository, a short sha and an author so a claim
+       * can be checked, and that is exactly why they cannot be deleted -- but
+       * thirty of them stacked under the chart is a wall the reader scrolls
+       * past, and it buries the card below. Folded away, the card is the
+       * shape; opened, it is the ledger. <details> rather than a button and a
+       * hidden list: it is the element that already means this, it is
+       * keyboard-operable and announced without any code from here, and find-
+       * in-page opens it on its own.
+       */
+      const fold = element('details', 'wp-feed-fold');
+      const summary = element('summary', 'wp-feed-summary');
+      summary.append(
+        element('span', 'wp-feed-summary-word',
+          `${current.events.length} commit${current.events.length === 1 ? '' : 's'}`),
+        element('span', 'wp-feed-summary-hint', 'with repository, sha and author')
+      );
+      fold.appendChild(summary);
       const list = element('ul', 'wp-feed');
       current.events.forEach(event => list.appendChild(feedRow(event, now)));
-      host.appendChild(list);
+      fold.appendChild(list);
+      /*
+       * The choice sticks. A reader who opened the ledger did so to read it,
+       * and re-folding it under them on the next repaint -- a refresh, a
+       * revisit -- is the card taking that back. Stored per browser, guarded
+       * because storage throws in a private window.
+       */
+      try {
+        fold.open = localStorage.getItem(FEED_FOLD_KEY) === 'open';
+      } catch { /* private mode: closed, as designed */ }
+      fold.addEventListener('toggle', () => {
+        try { localStorage.setItem(FEED_FOLD_KEY, fold.open ? 'open' : 'closed'); } catch { /* ignore */ }
+      });
+      host.appendChild(fold);
     }
 
     if (current.inventoryCount) {
-      host.appendChild(element('p', 'wp-stat-note wp-feed-scope',
-        `Commits from the last ${current.days} days across ${current.repositories.length} of ${current.inventoryCount} repositor${current.inventoryCount === 1 ? 'y' : 'ies'} in the first inventory page. Up to ${current.perRepositoryLimit || 20} commits per repository${current.truncated ? `; showing ${current.events.length} of ${current.totalEvents} returned commits` : ''}. This is a bounded sample, not a complete activity history.`));
+      /*
+       * The bounds, twice: a line and a sentence.
+       *
+       * The full sentence is what stops this card implying it saw everything,
+       * so it does not get deleted -- but five lines of prose under a chart is
+       * the wall this card was just rescued from, and a reader scanning the
+       * shape has already scrolled past it. The line carries the three facts
+       * that change how the chart is read, including the word "sample"; the
+       * sentence that says it at length sits with the rows, where somebody who
+       * opened the ledger is reading carefully anyway.
+       */
+      const scope = element('p', 'wp-stat-note wp-feed-scope',
+        `${current.days}d · ${current.repositories.length} of ${current.inventoryCount} repositor${current.inventoryCount === 1 ? 'y' : 'ies'} · bounded sample`);
+      host.appendChild(scope);
+      const detail = element('p', 'wp-stat-note wp-feed-scope-full',
+        `Commits from the last ${current.days} days across ${current.repositories.length} of ${current.inventoryCount} repositor${current.inventoryCount === 1 ? 'y' : 'ies'} in the first inventory page. Up to ${current.perRepositoryLimit || 20} commits per repository${current.truncated ? `; showing ${current.events.length} of ${current.totalEvents} returned commits` : ''}. This is a bounded sample, not a complete activity history.`);
+      const fold = host.querySelector('.wp-feed-fold');
+      if (fold) fold.appendChild(detail); else host.appendChild(detail);
     }
     const readAt = Date.parse(current.generatedAt);
     if (Number.isFinite(readAt)) {
@@ -1076,7 +1266,8 @@
   }
 
   global.NebulaWorkspacePulse = Object.freeze({
-    COMPONENTS, ACTIVITY_BUCKETS, model, render, renderActivityFeed
+    COMPONENTS, ACTIVITY_BUCKETS, model, render, renderActivityFeed,
+    languageSpread, radarChart, RADAR_MIN_AXES
   });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 

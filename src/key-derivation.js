@@ -41,7 +41,8 @@ const KEY_PURPOSES = Object.freeze({
   STEP_UP_GRANT: 'step-up-grant',
   GITHUB_APP_STATE: 'github-app-state',
   EVIDENCE_LEDGER: 'evidence-ledger-hmac',
-  GOVERNANCE_AUDIT: 'governance-audit'
+  GOVERNANCE_AUDIT: 'governance-audit',
+  RATE_LIMIT_IDENTITY: 'rate-limit-identity-hmac'
 });
 
 const PURPOSE_LABELS = Object.freeze(Object.values(KEY_PURPOSES));

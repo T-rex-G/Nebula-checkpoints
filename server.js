@@ -126,6 +126,7 @@ const {
   GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker
 } = require('./src/github-app');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation');
+const { rateLimitIdentity } = require('./src/rate-limit-identity');
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
@@ -187,6 +188,7 @@ const CSRF_SECRET = deriveSecret(SECRET, KEY_PURPOSES.CSRF_TOKEN);
 const STEP_UP_SECRET = deriveSecret(SECRET, KEY_PURPOSES.STEP_UP_GRANT);
 const GITHUB_APP_STATE_SECRET = deriveSecret(SECRET, KEY_PURPOSES.GITHUB_APP_STATE);
 const EVIDENCE_LEDGER_SECRET = deriveSecret(SECRET, KEY_PURPOSES.EVIDENCE_LEDGER);
+const RATE_LIMIT_IDENTITY_KEY = deriveKey(SECRET, KEY_PURPOSES.RATE_LIMIT_IDENTITY);
 /*
  * Evidence verification holds two keyrings, assembled together in
  * src/intelligence.js so their retired lists cannot drift apart.
@@ -499,10 +501,24 @@ app.use('/api', (req, res, next) => {
   }
   next();
 });
-/* per-session rate limit: 300 API req/min */
+/*
+ * Per-session rate limit: 300 API req/min.
+ *
+ * The bucket key is derived from the unsealed session rather than from the
+ * cookie as it arrived. A caller cannot forge a sealed payload without
+ * SESSION_SECRET, so it cannot mint bucket identities, and the fields the
+ * derivation reads survive a reseal, so writing a session back no longer
+ * returns it to zero. src/rate-limit-identity.js records what the previous
+ * key did instead.
+ */
 const _buckets = new Map();
 app.use('/api', (req, res, next) => {
-  const key = (getCookie(req, 'nv_session') || req.ip || '').slice(0, 40);
+  const { key } = rateLimitIdentity({
+    session: unseal(getCookie(req, 'nv_session') || ''),
+    address: req.ip,
+    hmacKey: RATE_LIMIT_IDENTITY_KEY,
+    namespace: 'api'
+  });
   const now = Date.now();
   let b = _buckets.get(key);
   if (!b || now - b.t > 60000) { b = { t: now, n: 0 }; _buckets.set(key, b); }

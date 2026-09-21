@@ -580,6 +580,13 @@ em{color:var(--teal);font-style:normal}
   padding:9px 14px;border-radius:16px;min-height:var(--topbar-h)}
 .topbar-brand{display:flex;align-items:center;gap:9px;font-weight:600;cursor:pointer;font-size:.95rem;min-height:44px;min-width:0}
 .topbar-brand:is(button){font:inherit;color:inherit;border:0;background:transparent;padding:0;text-align:left}
+/* The mark holds the bar's identity wherever the wordmark beside it is not
+   drawn. It may not shrink: a brand that survives a narrow bar by becoming
+   4px wide has not survived it. */
+.topbar-brand .nv-mark{width:22px;height:22px;flex:0 0 22px}
+/* The word carries this control on a wide bar; the icon only stands in where
+   the word will not fit. Exactly one of the two is ever drawn. */
+.ov-repos-ico{display:none}
 .repo-name-trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38vw;font-size:.85rem}
 /* The generated repository mark. Sized to the heading beside it rather than
    set in pixels, so it holds its proportion when the text scales. */
@@ -1410,6 +1417,40 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
    ============================================================ */
 @media (max-width:900px){
   .topbar{left:8px;right:8px;padding:8px 10px}
+  /*
+   * The overview's "Repositories" button keeps its place and loses its word.
+   *
+   * Spelled out it spent about a hundred pixels of a 344px-wide bar, and with
+   * the theme control added the bar overflowed its own box by 57px at 360 and
+   * 97px at 320 -- which a fixed bar of non-shrinking children reports by
+   * laying one child over another, and it was the brand that got covered.
+   *
+   * Hiding the button outright was the first attempt and it was wrong. It is
+   * not merely a duplicate of a rail destination: it is the route the suite's
+   * own journey helper takes into the repositories screen, waiting on this
+   * control by its accessible name, so removing it from a phone removed the
+   * way into a repository for every test that enters one at phone width. The
+   * mark below keeps the name on the button through aria-label, so the icon
+   * that replaces the word answers to it exactly as the word did.
+   */
+  .ov-repos-ico{display:block}
+  .ov-repos-word{display:none}
+  /*
+   * The brand is the last thing the bar gives up, not the first.
+   *
+   * `.topbar-brand` carries min-width:0 so a long repository name can ellipsis
+   * inside it. On the overview it holds a 22px mark that must not shrink, and
+   * min-width:0 let flex crush the whole button to zero at 320px -- the mark
+   * still 22px wide inside a 0px box, drawn over whatever sat beside it. The
+   * identity was the first casualty of a narrow bar rather than the last.
+   *
+   * Only where the mark is what it holds: the workbench bar uses this class
+   * for the repository name and still needs to be able to shrink.
+   */
+  #page-overview .topbar-brand,#page-repos .topbar-brand{flex:0 0 auto;min-width:auto}
+  /* Four gaps between five controls is 28px of a 304px bar. */
+  .topbar{gap:6px;padding:8px 8px}
+  .topbar-actions{gap:4px}
   #deskTabs{display:none}
   .bottomnav{display:flex}
   .workspace{grid-template-columns:1fr;padding:10px;gap:0;

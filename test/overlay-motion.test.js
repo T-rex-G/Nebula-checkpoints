@@ -1279,6 +1279,36 @@ check('the moving ground yields where the galaxy is drawn', () => {
  * each screen states its own reason for standing the ground down and a shared
  * selector would make one of them disappear into the other's.
  */
+/*
+ * The overview's cards arrive on a scroll-driven timeline, and the range has
+ * to be one the last card can reach.
+ *
+ * `cover` runs from the card meeting the viewport to it leaving on the far
+ * side. The bottom card has nowhere to leave to -- the document ends under it
+ * -- so the scroll runs out and the reveal stops wherever it had got to.
+ * Measured at 0.86 opacity with its 22px offset still applied while the card
+ * was fully on screen: faded, and pushed down under a gap where it should
+ * have been. `entry` ends when the card has finished arriving, which every
+ * card reaches.
+ *
+ * Asserted against the stylesheet rather than in a browser. The difference
+ * between the two ranges is only visible at a scroll position where the last
+ * card has finished entering and the page has not yet bottomed out; at the
+ * bottom both have completed. Several browser assertions written for that
+ * window passed against the broken range as well, and a guard that cannot
+ * fail is worse than no guard, so this pins the rule instead of the symptom.
+ */
+check('the overview reveal uses a range its last card can finish', () => {
+  const block = cssSource.match(/#page-overview \.wp-card\{([^}]*)\}/);
+  assert.ok(block, 'the overview card arrival rule is gone');
+  const range = block[1].match(/animation-range:([^;]+);/);
+  assert.ok(range, 'the arrival has no range, so it runs on the default cover');
+  assert.ok(!/\bcover\b/.test(range[1]),
+    `the reveal is measured in cover (${range[1].trim()}), which the last card on the page cannot finish`);
+  assert.ok(/\bentry\b/.test(range[1]),
+    'the reveal is not measured in entry, so nothing guarantees the last card completes');
+});
+
 check('the moving ground yields where the landing draws its portal', () => {
   const rule = cssSource.match(/body:has\(#page-alpha-access\.active\) #lightWaves\{([^}]*)\}/);
   assert.ok(rule,

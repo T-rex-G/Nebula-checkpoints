@@ -2124,6 +2124,49 @@ check('the landing bar reserves the safe area on top of its own padding', () => 
 });
 
 /*
+ * And the half the guard above could not see, which is the half that broke.
+ *
+ * That check reads the .lp-nav rule and stops there, so it went on passing
+ * while a `padding-block:20px` in the max-width:480px block -- later in the
+ * file, same weight, therefore the winner -- wrote both edges and put the top
+ * one back to a flat 20px. Every phone is narrower than 480px, so the
+ * clearance was intact on every viewport except the ones it exists for, and a
+ * reader photographed the theme control peeking out from under the clock
+ * twice before the shorthand was found.
+ *
+ * A declaration is only as good as the last rule that touches it. This reads
+ * every .lp-nav rule after the clearance and fails on any that writes the top
+ * edge, whether by naming padding-top or by reaching it through a shorthand.
+ */
+check('no later rule writes the landing bar top padding back down', () => {
+  const clearance = cssSource.indexOf('padding-top:calc(env(safe-area-inset-top');
+  assert.ok(clearance > 0, 'the clearance declaration is gone');
+  const offenders = [];
+  for (const match of cssSource.matchAll(/(^|[\s,{}])(\.lp-nav)\s*\{([^}]*)\}/g)) {
+    if (match.index < clearance) continue;
+    const body = match[3];
+    /* padding and padding-block both write the top edge; padding-top says so. */
+    if (/(^|;)\s*padding(-top|-block)?\s*:/.test(body)) offenders.push(body.trim());
+  }
+  assert.deepStrictEqual(offenders, [],
+    `these rules reset the landing bar top edge after the clearance set it: ${offenders.join(' | ')}`);
+});
+
+/*
+ * The same fallback the landing bar's rule is held to, held across the file.
+ *
+ * env() with no fallback is not a zero -- where the variable is unsupported
+ * the whole declaration is invalid, which for `.topbar{top:calc(6px + env(...))}`
+ * means a fixed bar with no top at all, dropped to its static position. One
+ * rule carried the fallback and thirty-seven did not.
+ */
+check('every safe-area inset carries a fallback', () => {
+  const bare = [...cssSource.matchAll(/env\(safe-area-inset-[a-z]+\s*\)/g)].map(m => m[0]);
+  assert.deepStrictEqual([...new Set(bare)], [],
+    `these env() uses are dropped wherever the variable is unsupported: ${[...new Set(bare)].join(', ')}`);
+});
+
+/*
  * backdrop-filter inside a position:sticky box is a WebKit soft spot, and this
  * bar is the one element on the landing that has to survive being scrolled. A
  * scrim is not worth the bar's stickiness, so the scrim behind it paints and

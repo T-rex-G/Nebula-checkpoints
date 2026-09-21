@@ -229,6 +229,18 @@ test('a pending read is shared when the reader revisits the overview', async ({ 
   await expect(feed(page)).toContainText('Reading recent activity');
   await expect(page.locator('#wpFeedRefresh')).toBeDisabled();
   await page.locator('#ovGoRepos').click();
+  /*
+   * Wait for the screen before reaching for its chrome.
+   *
+   * .page.active is read the instant the click returns, while the overview is
+   * still the active page and the repositories screen is mid-transition. The
+   * locator resolves against the overview's own menu button, which goes
+   * display:none the moment the overview stops being active -- so the click
+   * waits out its whole timeout on an element that can never be visible
+   * again. Which page wins that race is a matter of how fast the machine is,
+   * which is why this passed in CI and failed on slower hardware.
+   */
+  await expect(ui.screen(page, 'repos')).toBeVisible();
   const rail = page.locator('.nv-rail-item[data-rail="overview"]');
   if (!(await rail.isVisible())) await page.locator('.page.active .nav-menu-btn').click();
   await rail.click();

@@ -326,6 +326,14 @@
   resting invisible under a gap — the regression this range was rewritten for
   the first time. All three properties are now pinned by
   `test/e2e/overview-card-arrival.spec.js`.
+- A percentage range is declared ahead of the length one as a cascade fallback.
+  Scroll-driven animations reached WebKit late, and an engine that supports
+  `view()` but rejects a length offset would drop the declaration and fall back
+  to the initial value — the full `cover` range, which is the behaviour being
+  fixed here. The fallback lands such an engine on a range that finishes around
+  two thirds of the way down the screen instead. Where both parse the length
+  wins; verified in the browser, where `animation-range` computes to
+  `entry 0px entry 200px`.
 
 ### Key Separation and Dependency Determinism
 

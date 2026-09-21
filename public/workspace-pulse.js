@@ -585,24 +585,6 @@
     defs.appendChild(fill);
 
     /*
-     * Texture, and it means something. A hatched mark is the last period,
-     * which is still being counted -- the reader is told the bar is short
-     * because the day is young, not because the work stopped. It is the one
-     * place this card uses a pattern, so the pattern has exactly one meaning.
-     */
-    if (settings.hatch) {
-      const hatch = svg('pattern', {
-        id: `${id}-h`, width: 6, height: 6, patternUnits: 'userSpaceOnUse',
-        patternTransform: 'rotate(45)'
-      });
-      hatch.appendChild(svg('rect', { width: 6, height: 6, fill: '#6366F1', 'fill-opacity': '.12' }));
-      hatch.appendChild(svg('line', {
-        x1: 0, y1: 0, x2: 0, y2: 6, stroke: '#8B5CF6', 'stroke-width': 2, 'stroke-opacity': '.55'
-      }));
-      defs.appendChild(hatch);
-    }
-
-    /*
      * The glow is drawn wide enough to hold the blur. A filter region defaults
      * to a tenth of the box on each side, which clips the bloom off the ends
      * of a stroke that runs to the edge of its viewBox and leaves a visible
@@ -907,13 +889,22 @@
     return kept;
   }
 
+  /*
+   * A language name is as long as it is.
+   *
+   * "TypeScript" at the nine-o'clock spoke is anchored to its end, so it grows
+   * leftwards from the web -- and in a square box it grew straight off the
+   * edge and arrived as "eScript". The box is wider than it is tall now, with
+   * the extra width spent entirely on the gutters the side labels sit in, and
+   * anything past the cap is elided with its full name kept on the mark.
+   */
+  const RADAR_LABEL_MAX = 13;
+
   function radarChart(axes, label) {
-    const size = 260;
-    const centre = size / 2;
-    /* The web stops well inside the box so the labels have somewhere to sit.
-       Drawn to the edge, the longest language name is clipped by the viewBox
-       and the chart reads as broken rather than as crowded. */
-    const radius = 78;
+    const width = 340;
+    const height = 272;
+    const centre = { x: width / 2, y: height / 2 };
+    const radius = 74;
     const id = `wp-radar-${areaSequence += 1}`;
     const peak = Math.max(...axes.map(axis => axis.count), 1);
     const step = (Math.PI * 2) / axes.length;
@@ -923,8 +914,8 @@
     const point = (index, ratio) => {
       const angle = -Math.PI / 2 + index * step;
       return {
-        x: Math.round((centre + Math.cos(angle) * radius * ratio) * 10) / 10,
-        y: Math.round((centre + Math.sin(angle) * radius * ratio) * 10) / 10
+        x: Math.round((centre.x + Math.cos(angle) * radius * ratio) * 10) / 10,
+        y: Math.round((centre.y + Math.sin(angle) * radius * ratio) * 10) / 10
       };
     };
     const ring = ratio => axes.map((_, index) => {
@@ -933,15 +924,22 @@
     }).join(' ');
 
     const chart = svg('svg', {
-      class: 'wp-radar', viewBox: `0 0 ${size} ${size}`, role: 'img', 'aria-label': label
+      class: 'wp-radar', viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': label
     });
 
     const defs = svg('defs', {});
-    /* Brightest at the centre and fading to the rim, so a filled polygon reads
-       as a body with weight rather than as a flat sheet of colour. */
-    const fill = svg('radialGradient', { id: `${id}-r`, cx: '50%', cy: '50%', r: '50%' });
-    fill.appendChild(svg('stop', { offset: '0%', 'stop-color': '#8B5CF6', 'stop-opacity': '.42' }));
-    fill.appendChild(svg('stop', { offset: '100%', 'stop-color': '#22D3EE', 'stop-opacity': '.14' }));
+    /*
+     * A tint laid across the shape, not a light behind it.
+     *
+     * The fill was a radial gradient bright at the centre, and over a violet
+     * card that centre read as a magenta core sitting inside the polygon --
+     * a second object, brighter than the outline that is supposed to carry
+     * the reading. It runs along the same diagonal as the stroke now, at an
+     * alpha low enough that the fill says "inside" and nothing else.
+     */
+    const fill = svg('linearGradient', { id: `${id}-r`, x1: 0, y1: 0, x2: 1, y2: 1 });
+    fill.appendChild(svg('stop', { offset: '0%', 'stop-color': '#8B5CF6', 'stop-opacity': '.20' }));
+    fill.appendChild(svg('stop', { offset: '100%', 'stop-color': '#22D3EE', 'stop-opacity': '.12' }));
     defs.appendChild(fill);
     const stroke = svg('linearGradient', { id: `${id}-s`, x1: 0, y1: 0, x2: 1, y2: 1 });
     stroke.appendChild(svg('stop', { offset: '0%', 'stop-color': '#8B5CF6' }));
@@ -958,7 +956,7 @@
     axes.forEach((_, index) => {
       const outer = point(index, 1);
       chart.appendChild(svg('line', {
-        class: 'wp-radar-spoke', x1: centre, y1: centre, x2: outer.x, y2: outer.y
+        class: 'wp-radar-spoke', x1: centre.x, y1: centre.y, x2: outer.x, y2: outer.y
       }));
     });
 
@@ -996,84 +994,20 @@
       chart.appendChild(dot);
       /* The label sits just past its own spoke, anchored by which side of the
          circle it is on, so nothing overlaps the web it belongs to. */
-      const seat = point(index, 1.16);
+      const seat = point(index, 1.18);
       const text = svg('text', {
         class: 'wp-radar-label', x: seat.x, y: seat.y + 3,
-        'text-anchor': Math.abs(seat.x - centre) < 6 ? 'middle' : (seat.x > centre ? 'start' : 'end')
+        'text-anchor': Math.abs(seat.x - centre.x) < 6 ? 'middle' : (seat.x > centre.x ? 'start' : 'end')
       });
-      text.textContent = axis.label;
+      text.textContent = axis.label.length > RADAR_LABEL_MAX
+        ? `${axis.label.slice(0, RADAR_LABEL_MAX - 1)}\u2026` : axis.label;
+      /* The full name stays reachable on the label as well as the vertex, so
+         an elided spoke is never a language the reader cannot identify. */
+      if (text.textContent !== axis.label) {
+        text.appendChild(svg('title', {})).textContent = axis.label;
+      }
       chart.appendChild(text);
     });
-    return chart;
-  }
-
-  /*
-   * Commits per day, as bars.
-   *
-   * The feed below this answers "what happened" one row at a time, which is
-   * the right shape for reading a change and the wrong shape for seeing a
-   * week. Thirty rows of text cannot show that Tuesday was quiet; a row of
-   * bars shows it without being read. The two are the same events counted two
-   * ways, so the chart is derived here rather than fetched.
-   */
-  function barChart(bars, label) {
-    const width = 380;
-    const plotH = 54;
-    const padX = 14;
-    const padTop = 8;
-    const axisBand = 16;
-    const height = padTop + plotH + axisBand;
-    const plotW = width - padX * 2;
-    const id = `wp-bar-${areaSequence += 1}`;
-    const peak = Math.max(...bars.map(bar => bar.count), 1);
-    /* A 2-unit gap between neighbours, which is the surface showing through
-       rather than a border drawn around each bar. */
-    const slot = plotW / Math.max(bars.length, 1);
-    const barW = Math.max(slot - 2, 1);
-
-    const chart = svg('svg', {
-      class: 'wp-bars', viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': label
-    });
-    chart.appendChild(chartDefs(id, { hatch: true }));
-    chart.appendChild(svg('line', {
-      class: 'wp-grid-line', x1: padX, y1: padTop + plotH, x2: width - padX, y2: padTop + plotH,
-      'vector-effect': 'non-scaling-stroke'
-    }));
-
-    bars.forEach((bar, index) => {
-      /*
-       * A day still being counted is drawn even at zero, as a hatched stub.
-       * Skipping it renders "nothing has landed today yet" as a chart that
-       * simply stops at yesterday, and those are different statements -- the
-       * same distinction the feed beside this makes between a quiet workspace
-       * and one it could not read. Every other empty day is genuinely empty
-       * and draws nothing.
-       */
-      const barH = bar.count ? Math.max((bar.count / peak) * plotH, 2) : (bar.partial ? 2 : 0);
-      if (!barH) return;
-      const rect = svg('rect', {
-        class: 'wp-bar', x: Math.round((padX + index * slot) * 10) / 10,
-        y: Math.round((padTop + plotH - barH) * 10) / 10,
-        width: Math.round(barW * 10) / 10, height: Math.round(barH * 10) / 10,
-        /* Rounded at the data end only, and anchored to the baseline: a bar
-           rounded at the bottom floats off the axis it is measured from. */
-        rx: Math.min(3, barW / 2),
-        fill: bar.partial ? `url(#${id}-h)` : `url(#${id}-f)`
-      });
-      rect.appendChild(svg('title', {})).textContent =
-        `${bar.label}: ${bar.count} commit${bar.count === 1 ? '' : 's'}${bar.partial ? ' so far' : ''}`;
-      chart.appendChild(rect);
-    });
-
-    for (const mark of [0, bars.length - 1]) {
-      if (!bars[mark]) continue;
-      const text = svg('text', {
-        class: 'wp-area-axis', x: padX + mark * slot + barW / 2, y: height - 4,
-        'text-anchor': mark === 0 ? 'start' : 'end'
-      });
-      text.textContent = bars[mark].label;
-      chart.appendChild(text);
-    }
     return chart;
   }
 
@@ -1271,8 +1205,45 @@
        * still being counted, which is the difference between a short bar and
        * a finished one.
        */
-      host.appendChild(barChart(dailyCommits(current.events, now, current.days),
-        `Commits per day over the last ${current.days} days.`));
+      /*
+       * The same block as the card above it, not a second chart language.
+       *
+       * These two cards sit one under the other and answer the same kind of
+       * question over the same kind of window, so drawing one as bars and the
+       * other as an area made the overview read as two products. The bars also
+       * lost: at one slot per day most of them are a thin sliver on a baseline,
+       * and the shape of a week is carried by the gaps rather than by anything
+       * drawn. The area gives the same counts a line to follow.
+       *
+       * The header carries the figure, as it does above, so the plot is not
+       * asked to print a number as well as draw one.
+       */
+      const bars = dailyCommits(current.events, now, current.days);
+      const stat = element('div', 'wp-area-head-row');
+      const said = element('div', 'wp-area-head-said');
+      said.append(
+        element('p', 'wp-area-head-title', 'Commits'),
+        /* The window and the caveat belong together on the description line.
+           "today still counting" under the figure was as wide as the figure's
+           whole column and collided with this line beside it. */
+        element('p', 'wp-area-head-desc', `last ${current.days} days · today still counting`)
+      );
+      const figure = element('p', 'wp-area-head-figure', String(current.events.length));
+      figure.append(element('span', 'wp-area-head-of',
+        `${current.repositories.length} repositor${current.repositories.length === 1 ? 'y' : 'ies'}`));
+      stat.append(said, figure);
+      host.appendChild(stat);
+      host.appendChild(areaChart(
+        bars.map(bar => bar.count),
+        `Commits per day over the last ${current.days} days.`,
+        {
+          headline: true,
+          axis: [
+            { index: 0, label: bars[0] ? bars[0].label : '' },
+            { index: bars.length - 1, label: 'today' }
+          ]
+        }
+      ));
       /*
        * The rows are the evidence, not the headline.
        *

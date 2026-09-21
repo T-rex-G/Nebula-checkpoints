@@ -26,18 +26,20 @@
 const { APP_VERSION, deriveAssetVersion } = require('./version');
 
 /*
- * Twelve hex characters of a SHA-256, alongside the version. Collision here
- * means a browser keeps a stale shell, not a security failure, and the version
- * still separates releases on its own.
+ * The whole fingerprint, not a prefix of it.
+ *
+ * Twelve hex characters were taken when the derivation rendered its input byte
+ * by byte and a longer input meant a longer stamp. The derivation is a digest
+ * now and its output is a fixed thirty digits whatever goes in, so there is
+ * nothing left to buy by truncating -- and the full tree is strictly the
+ * better identity to name a cache after.
  */
-const TREE_PREFIX_LENGTH = 12;
-
 function assetStampFor(releaseTreeSha256) {
   const tree = String(releaseTreeSha256 == null ? '' : releaseTreeSha256).trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(tree)) {
     throw new TypeError('asset stamp requires a release tree fingerprint');
   }
-  return deriveAssetVersion(`${APP_VERSION}+${tree.slice(0, TREE_PREFIX_LENGTH)}`);
+  return deriveAssetVersion(`${APP_VERSION}+${tree}`);
 }
 
-module.exports = Object.freeze({ assetStampFor, TREE_PREFIX_LENGTH });
+module.exports = Object.freeze({ assetStampFor });

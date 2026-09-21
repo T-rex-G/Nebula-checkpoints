@@ -642,6 +642,41 @@
   empty string. All four now assert they found at least one call, verified by
   renaming the call sites and watching them object.
 
+### Shared Rate Limits
+
+- **A limit of N now means N across every instance, not N per process.** Both
+  limiters counted in module-scope Maps, so adding an instance loosened the
+  ceiling — the opposite of what a limit is for. `nv_rate_limit_buckets`
+  (migration `021`) and `src/rate-limit-store.js` count in one conditional
+  upsert, and PostgreSQL serialises conflicting inserts on the primary key, so
+  two simultaneous requests cannot both read N and both write N+1.
+- **Two layers, and the local one exists to protect the shared one.**
+  Consulting a shared counter is a query, and a limiter that queries once per
+  request hands an attacker a way to turn a flood of cheap HTTP into a flood of
+  database work — against a pool of three connections on a free plan. So once
+  the shared counter refuses a caller, the process remembers until their window
+  closes and refuses again without asking anything. **The caller sending the
+  most requests is the one costing no queries at all.** An absolute local
+  ceiling sits above that for the case the shared counter never refuses because
+  it cannot answer.
+- Both window boundaries are preserved rather than unified. The API window
+  reopens once *more than* sixty seconds have passed; the webhook window once
+  sixty seconds *have*. They differ by one millisecond a minute and only
+  because both were written by hand — but silently rounding them together is
+  how an unreproducible 429 gets created, so each keeps its own comparison and
+  a test pins both.
+- A counter that cannot answer refuses with `RATE_LIMIT_UNAVAILABLE` (503)
+  rather than falling back to the local count, which would answer "well within"
+  on every instance that has not seen the caller. A test refuses any failure
+  path that calls `next()`.
+- No capacity ceiling. The Map discarded its oldest entry past five thousand,
+  so a caller near their limit could be forgotten under load and start again —
+  a limit failing open exactly when the most traffic is arriving. A test holds
+  twenty thousand counters and asserts the first still has its count.
+- The identity is a digest and the namespaces are closed, so the API budget and
+  the webhook budget can never be the same row, and a caller identity cannot
+  reach the table by mistake.
+
 ### Key Separation and Dependency Determinism
 
 - Gave every keyed construction its own HKDF-SHA256 derived key. One

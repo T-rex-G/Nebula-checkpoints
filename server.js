@@ -129,6 +129,7 @@ const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation'
 const { rateLimitIdentity } = require('./src/rate-limit-identity');
 const { SingleUseStore, memorySingleUseStore } = require('./src/single-use-store');
 const { writeLiveClient } = require('./src/live-stream');
+const { RateLimitStore } = require('./src/rate-limit-store');
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
@@ -513,7 +514,31 @@ app.use('/api', (req, res, next) => {
  * returns it to zero. src/rate-limit-identity.js records what the previous
  * key did instead.
  */
+const API_RATE_WINDOW_MS = 60000;
+const API_RATE_LIMIT = 300;
+/*
+ * Two limiters, and the local one exists to protect the shared one.
+ *
+ * The shared counter is what makes a limit of three hundred mean three
+ * hundred rather than three hundred per instance. But consulting it is a
+ * query, and a limiter that queries once per request hands an attacker a way
+ * to turn a flood of cheap HTTP into a flood of database work -- against a
+ * pool of three connections on a free plan. The in-process bucket in front of
+ * it is what stops that: once the shared counter has refused a caller, this
+ * process remembers until their window closes and refuses them again without
+ * asking anything. A caller being throttled therefore costs no queries at all,
+ * which is exactly the caller sending the most requests.
+ *
+ * An absolute local ceiling sits above that as a backstop for the case the
+ * shared counter never refuses because it cannot answer.
+ */
+const LOCAL_ADMISSION_CEILING = API_RATE_LIMIT + 30;
 const _buckets = new Map();
+function apiRateLimitStore() {
+  if (!DB_URL) return null;
+  if (!_rateLimitStore) _rateLimitStore = new RateLimitStore({ pool: pool() });
+  return _rateLimitStore;
+}
 app.use('/api', (req, res, next) => {
   const { key } = rateLimitIdentity({
     session: unseal(getCookie(req, 'nv_session') || ''),
@@ -523,15 +548,49 @@ app.use('/api', (req, res, next) => {
   });
   const now = Date.now();
   let b = _buckets.get(key);
-  if (!b || now - b.t > 60000) { b = { t: now, n: 0 }; _buckets.set(key, b); }
-  if (++b.n > 300) return res.status(429).json({ error: 'Rate limit: slow down a little' });
+  if (!b || now - b.t > API_RATE_WINDOW_MS) { b = { t: now, n: 0, refusedUntil: 0 }; _buckets.set(key, b); }
+  b.n += 1;
   if (_buckets.size > 5000) {
     for (const [bucketKey, value] of _buckets) {
       if (now - value.t > 120000) _buckets.delete(bucketKey);
     }
     while (_buckets.size > 5000) _buckets.delete(_buckets.keys().next().value);
   }
-  next();
+
+  /* Already refused inside this window: answer from memory, ask nothing. */
+  if (b.refusedUntil > now) return res.status(429).json({ error: 'Rate limit: slow down a little' });
+  if (b.n > LOCAL_ADMISSION_CEILING) {
+    b.refusedUntil = b.t + API_RATE_WINDOW_MS;
+    return res.status(429).json({ error: 'Rate limit: slow down a little' });
+  }
+
+  const store = apiRateLimitStore();
+  /* Without a database this process is the only counter there is, and the
+     local bucket is the limit rather than an admission filter in front of it. */
+  if (!store) {
+    if (b.n > API_RATE_LIMIT) return res.status(429).json({ error: 'Rate limit: slow down a little' });
+    return next();
+  }
+
+  store.count({
+    namespace: 'api', key, windowMs: API_RATE_WINDOW_MS, limit: API_RATE_LIMIT,
+    /* The window this limiter has always kept: it reopens once MORE than
+       sixty seconds have passed, which is not the webhook limiter's rule. */
+    inclusiveReset: false
+  }).then(verdict => {
+    if (verdict.allowed) return next();
+    b.refusedUntil = b.t + API_RATE_WINDOW_MS;
+    res.status(429).json({ error: 'Rate limit: slow down a little' });
+  }).catch(() => {
+    /* A counter that cannot answer has not said this caller is within their
+       limit, and a local count would answer "well within" on every instance
+       that has not seen them. Refuse, and say it is the limiter that is
+       unavailable rather than the caller who is over. */
+    res.status(503).json({
+      error: 'Request limits cannot be checked right now; retry shortly',
+      code: 'RATE_LIMIT_UNAVAILABLE'
+    });
+  });
 });
 /*
  * Maintenance mode.
@@ -1494,17 +1553,57 @@ function closeAlphaLiveSession(key, client) {
   try { client.end(); } catch {}
 }
 const WEBHOOK_BUCKETS = new Map();
-function allowWebhookRequest(req, hookId) {
+const WEBHOOK_RATE_WINDOW_MS = 60000;
+const WEBHOOK_RATE_LIMIT = 120;
+/*
+ * The same two-layer shape as the API limiter, and the same reason for it: the
+ * shared counter makes a hundred and twenty mean a hundred and twenty rather
+ * than that many per instance, and the local bucket in front of it means a
+ * sender being throttled costs no queries.
+ *
+ * This limiter keys on the address and the hook rather than on a session --
+ * a provider delivering a webhook has no session -- so the identity is already
+ * unforgeable behind trust proxy and needs no derivation.
+ *
+ * Its window rule is not the API limiter's. This one reopens once sixty
+ * seconds have passed; that one reopens once MORE than sixty seconds have.
+ * The difference is one millisecond a minute and exists only because both were
+ * written by hand, but preserving each is cheaper than explaining an
+ * unreproducible 429 to whoever hits the boundary.
+ */
+async function allowWebhookRequest(req, hookId) {
   const now = Date.now();
   const key = `${String(req.ip || 'unknown').slice(0, 80)}|${hookId}`;
   let bucket = WEBHOOK_BUCKETS.get(key);
-  if (!bucket || now - bucket.startedAt >= 60000) bucket = { startedAt: now, count: 0 };
+  if (!bucket || now - bucket.startedAt >= WEBHOOK_RATE_WINDOW_MS) bucket = { startedAt: now, count: 0, refusedUntil: 0 };
   bucket.count += 1;
   WEBHOOK_BUCKETS.set(key, bucket);
   if (WEBHOOK_BUCKETS.size > 2000) {
     for (const [k, value] of WEBHOOK_BUCKETS) if (now - value.startedAt >= 120000) WEBHOOK_BUCKETS.delete(k);
   }
-  return bucket.count <= 120;
+
+  if (bucket.refusedUntil > now) return false;
+  if (bucket.count > WEBHOOK_RATE_LIMIT + 30) {
+    bucket.refusedUntil = bucket.startedAt + WEBHOOK_RATE_WINDOW_MS;
+    return false;
+  }
+
+  const store = apiRateLimitStore();
+  if (!store) return bucket.count <= WEBHOOK_RATE_LIMIT;
+
+  let verdict;
+  try {
+    verdict = await store.count({
+      namespace: 'webhook', key, windowMs: WEBHOOK_RATE_WINDOW_MS, limit: WEBHOOK_RATE_LIMIT,
+      inclusiveReset: true
+    });
+  } catch (error) {
+    /* Unanswerable is not permission. The caller turns a false into a 429,
+       which is the safe reading for a sender that can retry. */
+    return false;
+  }
+  if (!verdict.allowed) bucket.refusedUntil = bucket.startedAt + WEBHOOK_RATE_WINDOW_MS;
+  return verdict.allowed;
 }
 function repoKey(provider, owner, repo) { return `${provider || 'github'}:${String(owner).toLowerCase()}/${String(repo).toLowerCase()}`; }
 function encodeEventCursor(createdAt, eventId) {
@@ -1573,6 +1672,7 @@ const STEP_UP_TTL_MS = 5 * 60 * 1000;
  */
 const USED_STEP_UP_GRANTS = new Map();
 let _singleUseStore = null;
+let _rateLimitStore = null;
 /*
  * Which guard answers is decided by configuration, never by whether the
  * database happens to be reachable. A deployment that has a database has one
@@ -1800,7 +1900,7 @@ async function receiveGithubWebhook(req, res) {
   try {
     const hookId = String(req.params.hookId || '');
     if (!/^[0-9a-f]{32,64}$/i.test(hookId)) return res.status(404).end();
-    if (!allowWebhookRequest(req, hookId)) return res.status(429).json({ error: 'Webhook delivery rate exceeded' });
+    if (!(await allowWebhookRequest(req, hookId))) return res.status(429).json({ error: 'Webhook delivery rate exceeded' });
     if (!(await dbReady())) return res.status(503).json({ error: 'Live events require the existing Neon DATABASE_URL' });
     const found = await pool().query(
       'SELECT hook_id,owner,repo,identity_key,secret_enc,active FROM nv_webhooks WHERE hook_id=$1 AND provider=$2',

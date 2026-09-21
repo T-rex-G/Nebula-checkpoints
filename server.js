@@ -7083,10 +7083,19 @@ async function shutdown(signal) {
   }
   LIVE_CLIENTS.clear();
   if (governanceWebhookBootstrapTimer) clearTimeout(governanceWebhookBootstrapTimer);
-  if (governanceWebhookWorker) governanceWebhookWorker.stop();
+  /*
+   * Drained before the pool closes. A delivery in flight has already sent its
+   * request; if the pool goes first it cannot record the attempt, so its row
+   * stays leased and the receiver is sent the same event again once the lease
+   * expires. The force timer below still bounds this -- a batch that outlasts
+   * it is cut off regardless -- but the common case, a batch part-way through,
+   * now finishes.
+   */
+  const drainedWebhookWorker = governanceWebhookWorker ? governanceWebhookWorker.stop() : null;
   const force = setTimeout(() => process.exit(1), 10000);
   if (typeof force.unref === 'function') force.unref();
   httpServer.close(async () => {
+    try { await drainedWebhookWorker; } catch {}
     try { if (_pool) await _pool.end(); } catch {}
     clearTimeout(force);
     process.exit(0);

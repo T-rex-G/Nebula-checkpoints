@@ -109,10 +109,37 @@ async function processWebhookDeliveryBatch(options = {}) {
     : async hostname => dns.promises.lookup(hostname, { all: true, verbatim: true });
   const transport = typeof options.transport === 'function' ? options.transport : sendPinnedHttpsWebhook;
   const claimed = await store.claimWebhookDeliveries({ limit: options.limit || 10, leaseSeconds: options.leaseSeconds || 60 });
-  const summary = { claimed: claimed.length, delivered: 0, retrying: 0, deadLettered: 0 };
+  const summary = { claimed: claimed.length, delivered: 0, retrying: 0, deadLettered: 0, released: 0 };
 
   for (const delivery of claimed) {
     const requestTime = nowDate(options.now);
+    /*
+     * The batch is claimed all at once under one lease and delivered one at a
+     * time. Ten rows at a ten-second transport timeout apiece against a
+     * sixty-second lease is arithmetic that does not close, and the rows at
+     * the back are the ones it fails for.
+     *
+     * A row whose lease has passed is reclaimable by any other worker --
+     * claimWebhookDeliveries takes rows still marked 'delivering' whose
+     * lease_until has gone by -- so sending it here would deliver it twice:
+     * once from whoever reclaimed it and once from a batch still working
+     * through a lease it no longer holds. Database fencing cannot retract an
+     * HTTP request that has already left, so the only place to stop that is
+     * before the send.
+     *
+     * The comparison is `<=` because that is exactly what the reclaim query
+     * uses. A boundary the two disagree about is a row that one of them thinks
+     * is free while the other is still sending it.
+     *
+     * Nothing has to be written to put the row down. Its lease has expired,
+     * which is already the state that makes it available; leaving it is the
+     * release.
+     */
+    const leaseUntil = delivery.leaseUntil ? new Date(delivery.leaseUntil) : null;
+    if (leaseUntil && Number.isFinite(leaseUntil.getTime()) && leaseUntil.getTime() <= requestTime.getTime()) {
+      summary.released += 1;
+      continue;
+    }
     let eventHash = '0'.repeat(64);
     let signatureHash = '0'.repeat(64);
     let statusCode = null;
@@ -187,21 +214,41 @@ async function processWebhookDeliveryBatch(options = {}) {
 function startWebhookWorker(options = {}) {
   const intervalMs = Number.isInteger(options.intervalMs) ? Math.min(Math.max(options.intervalMs, 10_000), 15 * 60_000) : 30_000;
   let running = false;
+  let stopped = false;
+  /*
+   * Held so stop() can be waited on. Clearing the interval only stops the next
+   * batch; the one already running keeps going, and shutdown closes the pool
+   * underneath it. A delivery caught that way has already sent its request and
+   * can no longer record the attempt, so its row stays 'delivering' until the
+   * lease expires and the receiver is sent the same event again -- a duplicate
+   * on every restart that lands mid-batch.
+   */
+  let inFlight = Promise.resolve();
   const run = async () => {
-    if (running) return;
+    if (running || stopped) return;
     running = true;
-    try {
-      await processWebhookDeliveryBatch(options);
-    } catch (error) {
-      if (typeof options.onError === 'function') options.onError(error);
-    } finally {
-      running = false;
-    }
+    inFlight = (async () => {
+      try {
+        await processWebhookDeliveryBatch(options);
+      } catch (error) {
+        if (typeof options.onError === 'function') options.onError(error);
+      } finally {
+        running = false;
+      }
+    })();
+    await inFlight;
   };
   const timer = setInterval(run, intervalMs);
   if (typeof timer.unref === 'function') timer.unref();
   void run();
-  return Object.freeze({ stop: () => clearInterval(timer), run });
+  /*
+   * stop() returns that promise rather than nothing, so a caller who can wait
+   * does, and one who cannot behaves exactly as before.
+   */
+  return Object.freeze({
+    stop: () => { stopped = true; clearInterval(timer); return inFlight; },
+    run
+  });
 }
 
 module.exports = Object.freeze({

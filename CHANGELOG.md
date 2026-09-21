@@ -488,6 +488,42 @@
   `RESTORE_AUTHORIZATION_REPLAY`, because the staleness is found first. Both
   are 409 and both tell the reader to regenerate the preview.
 
+### Webhook Delivery Leases
+
+- **Fixed a batch delivering rows whose lease it no longer held.** Deliveries
+  are claimed ten at a time under a single sixty-second lease and then sent one
+  at a time, each with a ten-second transport timeout. Ten times ten against
+  sixty is arithmetic that does not close, and the rows at the back are the
+  ones it fails for. `claimWebhookDeliveries` reclaims any row still marked
+  `delivering` whose `lease_until` has passed, so another worker takes those
+  rows and sends them while the first batch is still working through them — the
+  receiver gets the same governance event twice.
+- The worker now checks the lease immediately before each send and puts the row
+  down instead, reporting it as `released` in the batch summary. Nothing has to
+  be written to release it: an expired lease *is* the state that makes a row
+  available again. The comparison is `<=`, matching the reclaim query exactly,
+  because a boundary the two disagree about is a row one thinks is free while
+  the other is still sending it.
+- This is deliberately fixed before the send rather than after it. Database
+  fencing cannot retract an HTTP request that has already left, so a lease
+  check that runs at completion time would record the right thing about a
+  delivery the receiver had already been sent twice.
+- **Fixed a duplicate delivery on every restart that lands mid-batch.**
+  `stop()` cleared the interval and nothing else, so shutdown closed the pool
+  underneath a batch still running. A delivery caught that way has already sent
+  its request and can no longer record the attempt, leaving its row leased
+  until it expires and is sent again. `stop()` now returns the in-flight batch
+  so a caller that can wait does, and the shutdown path awaits it before
+  closing the pool. The existing ten-second force-exit still bounds this — a
+  batch that outlasts it is cut off regardless — but the common case now
+  finishes.
+- A stopped worker also refuses to begin another batch, which `clearInterval`
+  alone did not cover for a directly invoked `run()`.
+- None of this makes delivery exactly-once, and it is not meant to. Network
+  delivery is at-least-once and receivers must deduplicate on the delivery id.
+  What changes is that duplicates now come from genuine retries rather than
+  from a worker racing itself.
+
 ### Key Separation and Dependency Determinism
 
 - Gave every keyed construction its own HKDF-SHA256 derived key. One

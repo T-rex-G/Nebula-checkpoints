@@ -2580,6 +2580,16 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
        * it is finished well before the card reaches anywhere a reader reads,
        * and being a fixed distance it cannot be stretched by an element that
        * outgrows the screen or re-measured underneath a reader who expands one.
+       *
+       * The percentage declaration below it is a cascade fallback, not a
+       * leftover. Scroll-driven animations reached WebKit late, and an engine
+       * that supports `view()` but rejects a length offset would drop the
+       * whole declaration and fall back to the initial value -- which is the
+       * full `cover` range, the exact behaviour the paragraphs above exist to
+       * describe as broken. Ordering the percentages first means such an
+       * engine lands on a range that at least finishes around two thirds of
+       * the way down the screen rather than on the one that leaves the last
+       * card invisible. Where both parse, the length wins, as it does here.
        */
       #page-overview .ov-hero,
       #page-overview .ov-path,
@@ -2587,6 +2597,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
       #page-overview .wp-card{
         animation:nv-arrive linear both;
         animation-timeline:view();
+        animation-range:entry 5% entry 40%;
         animation-range:entry 0px entry 200px;
       }
       /* The hero is already on screen at rest, so it has no arrival to play --

@@ -647,6 +647,23 @@ em{color:var(--teal);font-style:normal}
   backdrop-filter:none;-webkit-backdrop-filter:none;
   box-shadow:0 2px 6px -1px rgba(76,29,149,.28), 0 6px 16px -6px rgba(76,29,149,.32),
     inset 0 1px 0 rgba(255,255,255,0.35);color:#fff}
+/*
+ * The same elevation, re-weighted for the light surface.
+ *
+ * Those two shadows are rgba(76,29,149,...) -- the palette's deep violet, at
+ * .28 and .32. Over the dark shell they disappear into it and read as lift.
+ * Over a pale lavender page they are a dark shape sitting below and right of
+ * the button, close enough in size to look like a second, broken copy of it,
+ * which is how it was reported.
+ *
+ * Light surfaces take a shallower, more transparent shadow to read as the
+ * same height: the contact shadow tightens and both alphas come down by about
+ * half. The inset highlight goes too -- a white sheen along the top edge is
+ * what separates a raised control from a dark background, and against a light
+ * one it only washes out the gradient's first few pixels.
+ */
+[data-theme="light"] .btn-primary{
+  box-shadow:0 1px 2px -1px rgba(76,29,149,.20), 0 4px 10px -5px rgba(76,29,149,.18)}
 .btn-primary:hover{background:linear-gradient(135deg,var(--accent2),#6a58ff)}
 .btn-primary:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
@@ -2986,6 +3003,30 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   --wp-track:rgba(139,92,246,.16);
 }
 /*
+ * The same two tokens for the light surface, which they never had.
+ *
+ * --wp-muted was rgba(232,229,255,.34) in both themes -- a near-white ink,
+ * correct over the dark card and invisible over the light one. It is not a
+ * detail of one chart: it draws the area chart's axis, the bars, the gauge
+ * arc, a donut's unknown state, the meter fill, .wp-fill-muted and the whole
+ * radar web. On a white card at .34 behind the radar's own .2 opacity it
+ * resolves to about seven percent white on white, so the rings and spokes
+ * stopped being drawn at all and the polygon was left as a shape with no
+ * scale behind it to be read against.
+ *
+ * Mirrored on --fg2, which flips correctly -- rgba(232,229,255,.62) dark to
+ * rgba(22,18,52,.64) light -- so the muted ink takes the same ink at the same
+ * alpha it always had. The track goes to the indigo the series is drawn in,
+ * because a violet at .16 over white is a smudge rather than a track.
+ *
+ * The four status colours are deliberately absent: they are fixed, never
+ * themed, and never carry meaning without a glyph and a word beside them.
+ */
+[data-theme="light"]{
+  --wp-muted:rgba(22,18,52,.34);
+  --wp-track:rgba(99,102,241,.15);
+}
+/*
  * Reflows with the room available instead of holding two fixed columns, so
  * widening the page -- by collapsing the sidebar or by having a larger screen
  * -- adds a column rather than stretching the same two.
@@ -3345,6 +3386,22 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-radar-ring,.wp-radar-spoke{fill:none;stroke:currentColor;stroke-width:1;opacity:.2;
   vector-effect:non-scaling-stroke}
 .wp-radar-area{stroke-width:1.5;stroke-linejoin:round}
+/*
+ * The fill's stops live here rather than on the element, because the theme
+ * toggles without redrawing the chart. app.js sets data-theme and syncs the
+ * controls; it does not re-render the overview, so anything written into the
+ * SVG as an attribute when the chart was built keeps the value the theme it
+ * was built under wanted. A stop styled from CSS follows the toggle.
+ *
+ * Light needs more of the fill, not less: .20 of a violet over a dark card
+ * and .20 over a white one are not the same reading, and on white the polygon
+ * came out as an almost colourless wash. It stays low enough that the stroke
+ * still carries the shape -- the fill only has to say "inside".
+ */
+.wp-radar-fill-from{stop-color:#8B5CF6;stop-opacity:.20}
+.wp-radar-fill-to{stop-color:#22D3EE;stop-opacity:.12}
+[data-theme="light"] .wp-radar-fill-from{stop-opacity:.34}
+[data-theme="light"] .wp-radar-fill-to{stop-opacity:.22}
 .wp-radar-dot{fill:#22D3EE;stroke:var(--shellSolid);stroke-width:1.5}
 .wp-radar-label{fill:var(--fg2);font-family:var(--font-mono);font-size:9.5px;letter-spacing:.03em}
 .gx-pulse-radar{grid-column:1/-1}

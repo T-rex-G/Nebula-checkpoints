@@ -522,7 +522,18 @@ assert(/node-version:\s*['"]?22\.23\.1['"]?/m.test(workflow), 'exact Node 22.23.
 assert(!/group:[^\n]*github\.run_id/.test(workflow), 'live runs must not use a run-unique concurrency group');
 assert(workflow.includes('live-shared-targets'), 'all live dispatches must share one concurrency group');
 assert(/^  cancel-in-progress: false$/m.test(workflow), 'a running destructive qualification must not be cancelled');
-assert.strictEqual((workflow.match(/runs-on: ubuntu-24\.04/g) || []).length, 6, 'every job must pin ubuntu-24.04');
+/*
+ * The claim is "every job", so count every job rather than a number that has
+ * to be edited each time one is added -- a hardcoded 6 fails on a new job that
+ * pins the runner correctly, and would keep passing if someone swapped one of
+ * the six for a different image while adding a seventh on ubuntu-24.04.
+ */
+const runnerPins = workflow.match(/^\s*runs-on:\s*\S+/gm) || [];
+assert(runnerPins.length >= 6, `expected at least six jobs, found ${runnerPins.length}`);
+assert(
+  runnerPins.every(line => /runs-on:\s*ubuntu-24\.04$/.test(line.trim())),
+  `every job must pin ubuntu-24.04, found: ${runnerPins.map(l => l.trim()).join(', ')}`
+);
 const actionPins = {
   'actions/checkout': '11d5960a326750d5838078e36cf38b85af677262',
   'actions/setup-node': '49933ea5288caeca8642d1e84afbd3f7d6820020',
@@ -572,9 +583,20 @@ for (const command of [
   */
   'node scripts/audit-production.js',
   'node scripts/audit-production.js --include-dev --json',
-  'npm run test:runtime:matrix',
-  'npm run test:e2e'
+  'npm run test:runtime:matrix'
 ]) assert(automated.includes(command), `automated job omits ${command}`);
+/*
+ * The checkout browser matrix is not in this job any more, and that is the
+ * contract rather than an omission. Measured, the two browser matrices were
+ * 93.5% of this job -- 14m06s for the checkout one and 15m11s for
+ * build-and-qualify -- and running them one after the other in a single job
+ * meant neither could start until the other finished. The checkout matrix is
+ * a sibling job now, asserted below. Both still run on every pull request.
+ */
+assert(
+  !automated.includes('npm run test:e2e'),
+  'the checkout browser matrix belongs in its own job, not in front of the qualifier'
+);
 assert(
   !automated.includes('npm audit --json >'),
   'development audit must not bypass the bounded three-state gate'
@@ -592,16 +614,45 @@ assert(browserInstaller.includes('npx playwright install --with-deps chromium'),
   'browser provisioning must install the pinned browser and its system dependencies');
 assert(!browserInstaller.includes('PLAYWRIGHT_BROWSERS_PATH='),
   'browser provisioning must inherit the cache shared with extracted-candidate qualification');
-/* The message below claims both matrices, so bound the last invocation. */
-const checkoutBrowserMatrix = automated.lastIndexOf('npm run test:e2e');
+/*
+ * One cache, one matrix, in this job. The binding still has to precede the
+ * install and the install still has to precede the qualifier, because the
+ * qualifier runs the browser suite inside the extracted candidate and needs
+ * the browser the install put in that cache.
+ *
+ * What is gone is the clause about *both* matrices sharing it. The checkout
+ * matrix runs on a different runner now and installs its own browser -- 21
+ * seconds, measured, per shard -- which is what a sibling job costs and what
+ * buys the fourteen minutes.
+ */
 const extractedCandidateQualifier = automated.indexOf('node scripts/qualify-candidate-archive.js');
 assert(
   playwrightCacheBinding >= 0 &&
     playwrightCacheBinding < playwrightInstall &&
-    playwrightInstall < checkoutBrowserMatrix &&
-    checkoutBrowserMatrix < extractedCandidateQualifier,
-  'Playwright installation and both browser matrices must share one cache bound before installation'
+    playwrightInstall < extractedCandidateQualifier,
+  'the candidate qualifier needs a Playwright cache bound before the browser is installed'
 );
+
+/*
+ * The checkout browser matrix, as its own sharded job. Asserted here so that
+ * deleting it, unsharding it, or letting the shard count drift from the matrix
+ * fails a test rather than quietly halving what a green tick covers.
+ */
+const browserMatrix = job('browser-matrix');
+const shardCommand = /npx playwright test --shard=\$\{\{\s*matrix\.shard\s*\}\}\/(\d+)/.exec(browserMatrix);
+assert(shardCommand, 'the browser-matrix job must run the suite with an explicit shard');
+const declaredShards = /shard:\s*\[([^\]]+)\]/.exec(browserMatrix);
+assert(declaredShards, 'the browser-matrix job declares no shard matrix');
+assert.strictEqual(
+  declaredShards[1].split(',').length,
+  Number(shardCommand[1]),
+  `the matrix declares ${declaredShards[1].split(',').length} shards but the command splits into ${shardCommand[1]}`
+);
+assert(Number(shardCommand[1]) >= 2, 'the browser suite must be split across more than one runner');
+assert(/fail-fast:\s*false/.test(browserMatrix),
+  'one failing shard must not cancel the other three, which is how you tell a local break from a general one');
+assert(browserMatrix.includes('bash ci/install-browser.sh'),
+  'the browser-matrix job provisions its own browser, having no cache to share');
 assert(
   automated.includes('playwright_browsers="${RUNNER_TEMP}/ms-playwright"') &&
     automated.includes('>> "${GITHUB_ENV}"'),

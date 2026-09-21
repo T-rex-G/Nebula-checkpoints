@@ -589,6 +589,36 @@
   name: it copies a checked module into a disposable fixture, injects a real
   type error, and asserts a nonzero exit **and that no file was emitted**.
 
+### Route Surface Characterization
+
+- Added `test/route-surface.test.js`, which pins what a caller observes from
+  every `/api/security` route: the status and code an anonymous caller gets,
+  and the status and code a session gets. Each expectation was taken from the
+  running server rather than read off the handler, so a route that never
+  behaved the way its source reads is captured as it really is.
+- It is deliberately **not** an inventory of methods and paths. A list of routes
+  that still exist cannot tell you that one of them lost its `auth`, its
+  capability gate or its repository check — the path is still there, still
+  answers, and now answers anyone. Removing `auth` from
+  `/api/security/sessions` was checked against this test and it objects.
+- Behaviour cannot see everything, so the middleware chain is also read as
+  text. Dropping `capabilityAccess('upload-security')` from scanner-status
+  changes no status any cheap fixture can produce — verified by removing it and
+  watching the behavioural half stay green — so the structural half catches
+  that one. Neither half is sufficient alone. The source is searched wherever
+  these routes live, so moving them out of `server.js` cannot quietly turn the
+  structural half into a check of an empty string.
+- **Measured the extraction cost of every API route group before extracting
+  anything**, and the result contradicts the plan. `/api/security` is 89 lines
+  of handler requiring 22 injected dependencies — 4.0 lines per dependency,
+  near the bottom of the table — and 1.3% of `server.js`, while containing the
+  route that mints step-up grants. `/api/github-app` is 7.7 lines per
+  dependency across 240 lines, and `/api/repo` is 20.5 across 2,028 lines, or
+  29% of the file. The plan chose `/api/security` for being cohesive by name;
+  cohesion by name is not cohesion by dependency. The extraction itself is
+  therefore held pending that decision, while the characterization test that
+  makes any extraction safe is not.
+
 ### Key Separation and Dependency Determinism
 
 - Gave every keyed construction its own HKDF-SHA256 derived key. One

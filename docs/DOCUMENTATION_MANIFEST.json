@@ -466,6 +466,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/superpowers/plans/2026-09-21-multi-instance-foundation.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-21-github-app-foundation.md",
       "lifecycle": "development-record",
       "authority": "approved-development-record",
@@ -530,6 +537,13 @@
     },
     {
       "path": "docs/superpowers/plans/2026-08-09-documentation-truth-architecture.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-21-exposure-verified-repository-scanning.md",
       "lifecycle": "development-record",
       "authority": "approved-development-record",
       "releaseIncluded": true,

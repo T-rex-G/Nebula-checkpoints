@@ -91,13 +91,32 @@ async function waitForServer() {
      * guard sweeps all of them rather than trusting the four edits that made
      * it true today.
      */
-    const anonymous = ['/', '/healthz', '/readyz', '/api/version', '/api/config',
+    const anonymous = ['/', '/readyz', '/api/version', '/api/config',
       '/api/alpha/status', '/sw.js'];
+    /*
+     * Decoded, not only matched.
+     *
+     * A plain search for the version string missed the way it actually
+     * escaped: the asset stamp rendered each byte of "5.3.0-alpha.17.0" as
+     * three decimal digits, so the build travelled on every asset URL as
+     * 053046051046048... and no assertion looking for the literal saw it. Any
+     * run of three-digit groups long enough to be a stamp is read back as
+     * bytes here, which is exactly what an attacker would do.
+     */
+    const decodedLeak = body => {
+      for (const run of body.match(/\d{18,}/g) || []) {
+        const groups = run.slice(0, run.length - (run.length % 3)).match(/.{3}/g) || [];
+        if (groups.some(group => Number(group) > 255)) continue;
+        if (Buffer.from(groups.map(Number)).toString('latin1').includes(APP_VERSION)) return true;
+      }
+      return false;
+    };
     const leaking = [];
     for (const pathname of anonymous) {
       const response = await request(pathname);
       if (!response.ok) continue;
-      if ((await response.text()).includes(APP_VERSION)) leaking.push(pathname);
+      const body = await response.text();
+      if (body.includes(APP_VERSION) || decodedLeak(body)) leaking.push(pathname);
     }
     assert.deepStrictEqual(leaking, [],
       `these routes name the release to callers with no session: ${leaking.join(', ')}`);

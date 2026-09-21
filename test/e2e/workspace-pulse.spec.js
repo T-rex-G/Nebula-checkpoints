@@ -147,11 +147,19 @@ test('the activity plot is drawn inside its frame, not along the edges', async (
 
   const box = await chart.evaluate(node => {
     const view = node.getAttribute('viewBox').split(/\s+/).map(Number);
-    const line = node.querySelector('polyline');
-    const points = line.getAttribute('points').trim().split(/\s+/).map(pair => {
-      const [x, y] = pair.split(',').map(Number);
-      return { x, y };
-    });
+    /*
+     * Sampled along the rendered curve rather than read off its control
+     * points. The series is a path now, and a curve can leave the interval
+     * its endpoints define -- so checking the points it was built from would
+     * be checking the one part of the shape that cannot be wrong.
+     */
+    const line = node.querySelector('path.wp-area-line');
+    const total = line.getTotalLength();
+    const points = [];
+    for (let at = 0; at <= total; at += total / 240) {
+      const point = line.getPointAtLength(at);
+      points.push({ x: point.x, y: point.y });
+    }
     return { width: view[2], height: view[3], points };
   });
 
@@ -163,8 +171,10 @@ test('the activity plot is drawn inside its frame, not along the edges', async (
     expect(point.y).toBeLessThan(box.height);
   }
 
-  /* And it has to use the height it was given, not collapse onto one level. */
-  const levels = new Set(box.points.map(point => point.y));
+  /* And it has to use the height it was given, not collapse onto one level.
+     Rounded, because sampling a curve returns fractional positions that would
+     make a flat line look like hundreds of distinct levels. */
+  const levels = new Set(box.points.map(point => Math.round(point.y)));
   expect(levels.size).toBeGreaterThan(1);
 
   /*

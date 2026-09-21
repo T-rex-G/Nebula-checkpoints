@@ -2962,10 +2962,30 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * measured from different origins. In flow, the chart takes its own room and
  * the caption below it is where it looks.
  */
-.wp-area{display:block;width:100%;height:104px;margin:12px 0 4px;pointer-events:none;color:var(--wp-muted)}
-/* preserveAspectRatio is none on the plot, so a circle drawn in user units
-   comes out as an ellipse. This one is sized in screen pixels instead. */
-.wp-area-head{r:3.5px;transform-box:fill-box;transform-origin:center}
+/*
+ * height:auto, because the box carries its own axis band now. A fixed height
+ * against a viewBox that grew by the label strip squeezes the plot instead of
+ * making room, which is how a card ends up with its own small scrollbar under
+ * a chart that looks a little short.
+ */
+.wp-area{display:block;width:100%;height:auto;margin:12px 0 4px;color:var(--wp-muted)}
+/* The plot keeps its ratio, so a circle is a circle and a mark is the size it
+   says it is. Nothing here needs sizing in screen units any more. */
+.wp-area-line{pointer-events:none}
+.wp-area-dot{fill:#22D3EE;fill-opacity:.55}
+.wp-area-head{fill:#22D3EE;stroke:var(--shellSolid);stroke-width:2}
+/* Text wears text tokens. A readout in the series colour turns the number
+   into part of the mark, and then the mark has to carry two jobs. */
+.wp-area-value{fill:var(--fg);font-family:var(--font-mono);font-size:11px;font-weight:600}
+.wp-area-axis{fill:var(--fg3);font-family:var(--font-mono);font-size:9.5px;letter-spacing:.04em}
+/* One shade off the surface, and solid. A dashed grid reads as a threshold. */
+.wp-grid-line{stroke:currentColor;stroke-width:1;opacity:.16}
+.wp-bars{display:block;width:100%;height:auto;margin:6px 0 10px;color:var(--wp-muted)}
+.wp-bar{transition:fill-opacity .18s var(--ease)}
+.wp-bars:hover .wp-bar{fill-opacity:.45}
+.wp-bars .wp-bar:hover{fill-opacity:1}
+[data-motion="off"] .wp-bar{transition:none}
+@media (prefers-reduced-motion:reduce){.wp-bar{transition:none}}
 .wp-card-activity{position:relative;overflow:hidden;min-height:210px}
 .wp-card-activity>.wp-body{position:relative;z-index:1}
 
@@ -3028,7 +3048,17 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-gauge-arc{stroke:var(--wp-muted);stroke-width:9;fill:none;
   /* From empty to the reading on first paint, so the figure and its arc arrive
      together rather than the number appearing over a finished shape. */
-  animation:wp-sweep .85s var(--ease) both}
+  animation:wp-sweep .85s var(--ease) both;
+  /* The bloom takes the arc's own colour, so it reads as the mark being lit
+     rather than as a grey shadow behind it -- and drop-shadow follows the
+     alpha of the stroke, so the open quarter of the dial stays open. */
+  filter:drop-shadow(0 0 5px currentColor)}
+.wp-gauge[data-status="good"] .wp-gauge-arc{color:var(--wp-good)}
+.wp-gauge[data-status="warning"] .wp-gauge-arc{color:var(--wp-warning)}
+.wp-gauge[data-status="critical"] .wp-gauge-arc{color:var(--wp-critical)}
+/* A glow is decoration, and decoration is the first thing to go when a reader
+   has asked for less of it or the device cannot afford it. */
+@media (prefers-reduced-transparency:reduce){.wp-gauge-arc{filter:none}}
 .wp-gauge[data-status="good"] .wp-gauge-arc{stroke:var(--wp-good)}
 .wp-gauge[data-status="warning"] .wp-gauge-arc{stroke:var(--wp-warning)}
 .wp-gauge[data-status="critical"] .wp-gauge-arc{stroke:var(--wp-critical)}
@@ -3215,3 +3245,70 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .gx-hero>:not(.gx-hero-art){max-width:720px}
   .gx-hero-art{right:0;top:-20%;width:47%;height:150%}
 }
+
+/*
+ * The recent-activity ledger, folded.
+ *
+ * The chart is the card; the rows are the evidence behind it. The summary is
+ * a real control, so it carries the same hit size and focus ring as every
+ * other control here rather than the browser's default disclosure text.
+ */
+.wp-feed-fold{margin-top:4px}
+.wp-feed-summary{display:flex;align-items:center;gap:10px;min-height:38px;padding:0 4px;
+  cursor:pointer;list-style:none;border-radius:10px;
+  font-family:var(--font-mono);font-size:.7rem;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--fg2);transition:color .16s var(--ease)}
+.wp-feed-summary::-webkit-details-marker{display:none}
+.wp-feed-summary:hover{color:var(--fg)}
+.wp-feed-summary:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
+/* The caret is drawn rather than typed, so it matches the icon set and cannot
+   fall back to a glyph the font does not have. */
+.wp-feed-summary::before{content:"";width:7px;height:7px;flex:0 0 7px;
+  border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
+  transform:rotate(-45deg);transition:transform .2s var(--ease)}
+.wp-feed-fold[open] .wp-feed-summary::before{transform:rotate(45deg)}
+.wp-feed-summary-hint{color:var(--fg3);letter-spacing:.06em;text-transform:none;
+  font-family:var(--font-body);font-size:.74rem}
+[data-motion="off"] .wp-feed-summary,[data-motion="off"] .wp-feed-summary::before{transition:none}
+@media (prefers-reduced-motion:reduce){
+  .wp-feed-summary,.wp-feed-summary::before{transition:none}
+}
+
+/* The language radar. Web and spokes are one shade off the surface and solid:
+   a dashed web is four rings of threshold that is not there. */
+.wp-radar{display:block;width:100%;max-width:300px;height:auto;margin:6px auto 2px;color:var(--wp-muted)}
+.wp-radar-ring,.wp-radar-spoke{fill:none;stroke:currentColor;stroke-width:1;opacity:.2;
+  vector-effect:non-scaling-stroke}
+.wp-radar-area{stroke-width:1.5;stroke-linejoin:round}
+.wp-radar-dot{fill:#22D3EE;stroke:var(--shellSolid);stroke-width:1.5}
+.wp-radar-label{fill:var(--fg2);font-family:var(--font-mono);font-size:9.5px;letter-spacing:.03em}
+.gx-pulse-radar{grid-column:1/-1}
+/* The short bounds line sits with the chart; the full sentence sits with the
+   rows it describes, inside the fold. */
+.wp-feed-scope{font-family:var(--font-mono);font-size:.68rem;letter-spacing:.05em;
+  color:var(--fg3);margin:2px 0 0}
+.wp-feed-scope-full{margin:14px 0 0;padding-top:12px;border-top:1px solid var(--hair)}
+.gx-pulse-radar dd{margin:0}
+.gx-pulse-radar .wp-radar{margin:2px auto}
+
+/*
+ * The activity card's header: what it measures on the left, how much on the
+ * right. The figure wears the display face at a size that survives being the
+ * first thing seen, and the ink is a text token -- a headline in the series
+ * colour turns the number into part of the mark.
+ */
+.wp-area-head-row{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:16px;margin:10px 0 0}
+.wp-area-head-said{min-width:0}
+.wp-area-head-title{margin:0;font-family:var(--font-display);font-weight:700;
+  font-size:.95rem;color:var(--fg);letter-spacing:-.01em}
+.wp-area-head-desc{margin:3px 0 0;font-family:var(--font-mono);font-size:.66rem;
+  letter-spacing:.05em;color:var(--fg3)}
+.wp-area-head-figure{margin:0;flex:0 0 auto;text-align:right;
+  font-family:var(--font-display);font-weight:700;font-size:1.9rem;line-height:1;
+  color:var(--fg);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.wp-area-head-of{display:block;margin-top:4px;font-family:var(--font-mono);
+  font-size:.64rem;font-weight:500;letter-spacing:.06em;color:var(--fg3)}
+/* The live end of the series. Its colour comes from the endpoint it sits
+   under, so the two read as one mark rather than a dot inside a ring. */
+.wp-area-ping{fill:#22D3EE;pointer-events:none}

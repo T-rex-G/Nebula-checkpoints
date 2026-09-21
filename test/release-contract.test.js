@@ -13,9 +13,9 @@ assert.strictEqual(pkg.version, '5.3.0-alpha.17.0');
 assert.strictEqual(pkg.engines.node, '22.23.1');
 assert.strictEqual(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8'), '22.23.1\n');
 
-const { APP_VERSION, PRODUCT_NAME, ASSET_VERSION, deriveAssetVersion } = require('../src/version');
+const { APP_VERSION, PRODUCT_NAME, ASSET_VERSION, deriveAssetVersion, DIGEST_BYTES } = require('../src/version');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
-const { assetStampFor, TREE_PREFIX_LENGTH } = require('../src/asset-stamp');
+const { assetStampFor } = require('../src/asset-stamp');
 const expectedReleaseTreeSha256 = computeReleaseFingerprint(root);
 const servedStamp = assetStampFor(expectedReleaseTreeSha256);
 assert.strictEqual(APP_VERSION, pkg.version);
@@ -63,11 +63,8 @@ assert.strictEqual(
 const digest = value => createHash('sha256').update(value).digest('hex');
 const treeA = digest('one release tree');
 const treeB = digest('a different release tree');
-assert.notStrictEqual(
-  treeA.slice(0, TREE_PREFIX_LENGTH),
-  treeB.slice(0, TREE_PREFIX_LENGTH),
-  'the fixtures must differ within the prefix the stamp is built from, or this proves nothing'
-);
+assert.notStrictEqual(treeA, treeB,
+  'the fixtures must differ, or this proves nothing');
 assert.notStrictEqual(
   assetStampFor(treeA),
   assetStampFor(treeB),
@@ -88,28 +85,54 @@ assert.throws(() => deriveAssetVersion(''), /asset version requires an applicati
  * these prove the stamp cannot silently change shape, which would orphan every
  * already deployed service-worker shell cache.
  */
-assert.strictEqual(deriveAssetVersion('5.3.0'), '053046051046048');
+assert.strictEqual(deriveAssetVersion('5.3.0'), '034001189035254120222186225032');
 assert.strictEqual(deriveAssetVersion('5.3.0-alpha.17.0'),
-  '053046051046048045097108112104097046049055046048');
+  '114005174011086124138020189187');
 assert.strictEqual(deriveAssetVersion('5.3.0-alpha.1.70'),
-  '053046051046048045097108112104097046049046055048');
-assert.strictEqual(ASSET_VERSION, '053046051046048045097108112104097046049055046048');
+  '240003128132154057252250187128');
+assert.strictEqual(ASSET_VERSION, '114005174011086124138020189187');
+assert.strictEqual(ASSET_VERSION.length, DIGEST_BYTES * 3,
+  'the stamp must be fixed width, so its length cannot hint at the version it came from');
 
 /*
- * Injectivity is structural rather than probabilistic: every byte occupies
- * exactly three digits, so the stamp decodes back to the exact version it came
- * from. A truncated hash could not support this assertion.
+ * This assertion used to run the other way, and the reversal is the point.
+ *
+ * Injectivity was structural: every byte occupied exactly three digits, so the
+ * stamp decoded back to the exact version it came from, and that was asserted
+ * here as a guarantee. It is also how the version reached every visitor. The
+ * stamp is the query on every asset URL and the value of an attribute on the
+ * root element of a page that needs no invitation to read, so a decoder three
+ * lines long turned the cache-busting mechanism into a version banner.
+ *
+ * Distinctness is now probabilistic -- an eighty-bit digest collision -- and
+ * the property asserted here is the one that failed: the stamp must not carry
+ * its input. Reading the groups back as bytes must not produce the version,
+ * and must not produce a run of printable text at all, since a stamp that
+ * happened to decode to something readable would be a stamp that still
+ * encodes rather than digests.
  */
-function decodeAssetVersion(stamp) {
+function decodeAssetVersionBytes(stamp) {
   assert.match(stamp, /^(?:[0-9]{3})+$/, 'the stamp must be whole three-digit byte groups');
   const bytes = stamp.match(/.{3}/g).map(Number);
   assert(bytes.every(byte => byte <= 255), 'each group must be a byte value');
-  return Buffer.from(bytes).toString('utf8');
+  return Buffer.from(bytes);
 }
 for (const version of [...distinctReleases, APP_VERSION, '9.9.9+build.1']) {
-  assert.strictEqual(decodeAssetVersion(deriveAssetVersion(version)), version,
-    `the stamp for ${version} must decode back to it`);
+  const stamp = deriveAssetVersion(version);
+  const bytes = decodeAssetVersionBytes(stamp);
+  assert.notStrictEqual(bytes.toString('utf8'), version,
+    `the stamp for ${version} decodes back to it, so every asset URL publishes the build`);
+  assert(!bytes.toString('latin1').includes(version),
+    `the stamp for ${version} contains it verbatim`);
+  assert(!stamp.includes(deriveAssetVersion(version).slice(0, 0) + version),
+    `the stamp for ${version} carries the version as digits`);
 }
+/*
+ * And the served stamp, which is the one a visitor actually sees, over the
+ * real release identity rather than a fixture.
+ */
+assert(!decodeAssetVersionBytes(servedStamp).toString('latin1').includes(APP_VERSION),
+  'the served asset stamp decodes to the running version');
 
 
 const port = 27000 + Math.floor(Math.random() * 1000);

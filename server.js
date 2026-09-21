@@ -127,6 +127,7 @@ const {
 } = require('./src/github-app');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation');
 const { rateLimitIdentity } = require('./src/rate-limit-identity');
+const { SingleUseStore } = require('./src/single-use-store');
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
@@ -1564,7 +1565,26 @@ function stableProviderIdentityKey(acct) {
 }
 const CSRF_TTL_MS = 30 * 60 * 1000;
 const STEP_UP_TTL_MS = 5 * 60 * 1000;
+/*
+ * The in-process guard, kept for the profile that is allowed to run without a
+ * database. There it is honest: one process, and the guard covers everything
+ * that process can be replayed against.
+ */
 const USED_STEP_UP_GRANTS = new Map();
+let _singleUseStore = null;
+/*
+ * Which guard answers is decided by configuration, never by whether the
+ * database happens to be reachable. A deployment that has a database has one
+ * shared guard; if it cannot be reached, the claim fails and the sensitive
+ * action is refused. Falling back to the Map at that moment would be the worst
+ * of both: every instance would answer "unspent" for a grant another instance
+ * had already spent, and a replay would go through precisely during an outage.
+ */
+function stepUpReplayStore() {
+  if (!DB_URL) return USED_STEP_UP_GRANTS;
+  if (!_singleUseStore) _singleUseStore = new SingleUseStore({ pool: pool() });
+  return _singleUseStore;
+}
 function sessionSecurityState(session) {
   if (!session.security || typeof session.security !== 'object') session.security = {};
   return session.security;
@@ -1607,7 +1627,7 @@ async function consumeStepUpAuthorization(req, res, operation) {
    * record at the end of a sensitive action would read it as an authorization
    * and write undefined for every field it carries.
    */
-  req.stepUp = await consumePendingStepUp(state, claims, operation, { replayStore: USED_STEP_UP_GRANTS });
+  req.stepUp = await consumePendingStepUp(state, claims, operation, { replayStore: stepUpReplayStore() });
   await setSession(req, res, req.session);
   return req.stepUp;
 }

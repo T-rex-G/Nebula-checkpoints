@@ -29,6 +29,23 @@ assert.match(
   serverSource, /async function consumeStepUpAuthorization\(/,
   'consumeStepUpAuthorization must stay asynchronous so its callers keep awaiting it'
 );
+
+/*
+ * Which guard answers is a question about configuration, not about whether the
+ * database is reachable this second. A deployment that has a database has one
+ * shared guard; when it cannot be reached the claim fails and the action is
+ * refused. Falling back to the in-process Map there would be the worst of both,
+ * because every instance would answer "unspent" for a grant another instance
+ * had already spent -- a replay let through precisely during an outage.
+ */
+assert.match(
+  serverSource, /function stepUpReplayStore\(\)\s*\{\s*\n\s*if \(!DB_URL\) return USED_STEP_UP_GRANTS;/,
+  'the replay guard must be chosen by configuration, not by database availability'
+);
+assert.strictEqual(
+  /catch[\s\S]{0,200}USED_STEP_UP_GRANTS/.test(serverSource), false,
+  'no failure path may fall back to the in-process replay guard'
+);
 for (const line of serverSource.split('\n')) {
   if (!line.includes('consumeStepUpAuthorization(')) continue;
   if (line.includes('async function')) continue;

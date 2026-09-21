@@ -409,6 +409,47 @@
   included. A guard that must never be evicted belongs with the durable store,
   which is its own task.
 
+### Durable Single-Use Guards
+
+- Added `nv_single_use_guards` (migration `020`) and `src/single-use-store.js`,
+  the durable half of the guard contract the previous change defined. It
+  answers `consumeOnce` exactly as the in-memory adapter does and differs only
+  in where the answer is kept, so a second process gets the same answer as the
+  first.
+- One statement decides. Not a `SELECT` and then an `INSERT` — those can be
+  interleaved by anything crossing a connection, and two requests carrying one
+  grant would both read "unspent" before either wrote. An insert whose conflict
+  clause is itself conditional does the reading, deciding and writing in one
+  round trip, and PostgreSQL serialises conflicting inserts on the primary key.
+  A test asserts a claim is one statement, because that is the property a fake
+  database cannot prove on its own: it decides atomically because a real server
+  does, so a split implementation would still race correctly against the fake.
+- The comparison uses the database's clock, not the caller's. Two instances
+  with drifting clocks must not disagree about whether a grant is still alive,
+  and the only clock they share is the one attached to the table. The boundary
+  matches the in-memory adapter exactly — a record expiring at this instant
+  still refuses — because a guard and its replacement disagreeing by one
+  millisecond shows up only as an unreproducible replay.
+- The table stores a digest, never the grant. A grant id, an OAuth state and a
+  restore authorization are each a credential while they live, and a guard
+  table is the wrong place to keep a copy of one. The digest is domain
+  separated by kind, so one value arriving under two kinds cannot produce one
+  key, and the column `CHECK` refuses anything that is not a SHA-256 digest —
+  so a caller passing a raw grant fails the insert rather than storing it.
+- There is no capacity ceiling, deliberately. The Map being replaced evicted
+  its oldest entry once it held ten thousand, so a live grant could be
+  forgotten under load and then replayed — a guard that fails open exactly when
+  it is under the most pressure. Rows leave when they expire and at no other
+  time; the sweep takes a bounded slice of expired rows only, and a test holds
+  twenty thousand live guards and asserts the first still refuses.
+- Step-up now uses the durable guard whenever `DATABASE_URL` is set, and the
+  in-process Map only in the profile allowed to run without a database. Which
+  one answers is decided by configuration, never by whether the database
+  happens to be reachable: falling back on failure would be the worst of both,
+  since every instance would answer "unspent" for a grant another had already
+  spent, letting a replay through precisely during an outage. A test pins that
+  no failure path reaches the Map.
+
 ### Key Separation and Dependency Determinism
 
 - Gave every keyed construction its own HKDF-SHA256 derived key. One

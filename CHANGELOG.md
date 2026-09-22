@@ -2,6 +2,104 @@
 
 ## Unreleased
 
+### Exposure Storage
+
+- Added `db/migrations/022_exposure_scans.sql`, `src/exposure-store.js` and two
+  gates. One rule decides the whole shape: the server stores what it **learned
+  about** a repository and never any part of the repository itself. No file
+  contents, no source excerpt, no redacted line, no probe response, no provider
+  credential, no session.
+- **The privacy claim is the schema's, not a serializer's.** A serializer is a
+  promise in application code and the next person to add a column will not read
+  it. So the locations of a credential inside a file are stored as
+  `integer[]` — a caller who tried to keep a source line alongside a finding
+  would be writing text into an integer column, and PostgreSQL refuses before
+  any application logic is consulted. Fingerprints, identity keys, commits and
+  subject digests are constrained to fixed-length hex. Every text column is
+  length-bounded or shape-constrained; no `bytea` and no `jsonb` column exists
+  at all. The absence of a column named `secret` proves nothing, and the
+  contract test says so in as many words.
+- The placeholder column is matched against `^<[a-z-]+ #[0-9]+>$`. A partial
+  redaction — the usual instinct — publishes the prefix of a token, which is the
+  part identifying the provider and often the account, so that mistake is a
+  failed insert. The store refuses it earlier with a message that says why.
+- Idempotency and execution ownership are both the database's. Repeating an
+  idempotency key returns the same scan (proved with ten simultaneous requests
+  resolving to one row), and a partial unique index allows exactly one live scan
+  per repository. One `ON CONFLICT DO NOTHING` without a target settles both,
+  which is what makes the two outcomes distinguishable afterwards: no row with a
+  matching key is a replay, no row without one is a conflicting live scan.
+  Naming a constraint in the conflict clause would have made the other case an
+  exception instead of an answer.
+- Work is claimed with a **fresh fencing token per claim**, so a worker that
+  stalled through its lease and woke up finalising a job somebody else now owns
+  matches zero rows. An expired lease is reclaimable, which makes a killed
+  worker's job recoverable with no heartbeat to trust and no `finally` block to
+  hope ran. Both are tested against a real server, including the reclaim
+  fencing the original holder out.
+- **What makes two workers unable to claim one scan is the predicate, not
+  `SKIP LOCKED`** — and that is in the code comment because sabotaging the
+  obvious candidate did not break the test. Under READ COMMITTED a second
+  claimer that blocks on the row re-evaluates the qualifying conditions when the
+  first commits, and by then the scan is running with a live lease. `SKIP
+  LOCKED` only decides whether that claimer waits to be told no.
+- Observations are append-only: written once, `ON CONFLICT DO NOTHING` so a
+  retry is free, and the contract test asserts the store contains no `UPDATE` or
+  `DELETE` against that table at all. Retention deletes expired **scans**, whose
+  observations cascade, and leaves the findings — so what was seen where ages
+  out while the fact that a credential was ever exposed does not.
+- **Nothing concludes a credential is gone without the evidence.**
+  `concludeRemovedFromTree` refuses, with a reason, when the scan was canceled,
+  failed, truncated, finished with partial coverage, has no recorded
+  predecessor, is compared against a different ref, or ran under different rule,
+  engine, key or config versions. That last one is the quiet catastrophe it
+  exists to prevent: rotate the fingerprint key and every fingerprint changes at
+  once, so every previous finding is missing from the new scan for a reason that
+  has nothing to do with the repository — and a naive diff would mark the entire
+  backlog resolved. Seven refusal cases, each asserting its own reason and that
+  every finding was left exactly as it was.
+- **And even when it concludes, the word is not "resolved".** A credential
+  absent from HEAD is still in the repository's history, reachable by anyone
+  with a clone. The disposition is `removed-from-tree` and it says that much and
+  no more. `credential-rejected` — the issuing provider saying the credential no
+  longer works — is the only disposition that means the exposure is over, and it
+  does not overturn a person's `accepted-risk`. A credential that reappears in
+  the tree goes back to `open`, because the removal claim was simply wrong.
+- Only a person's decision names a person: a schema CHECK makes
+  `disposition_by` present exactly when the disposition is `accepted-risk`, so a
+  provider's refusal or a tree comparison cannot invent an approval.
+- Every read carries the identity boundary **in the WHERE clause** rather than
+  checking it afterwards. A scan id is a uuid somebody could hold without
+  owning, and "fetch then compare" is one forgotten comparison away from a
+  cross-tenant read. The contract test extracts every statement in the store,
+  requires each one touching a scan or a finding to carry an identity, a claim
+  token or one of four stated exceptions, and asserts the scan found statements
+  at all.
+- The tester purge was **extended, not duplicated**. Two deletes alongside the
+  existing ones, by the same `identity_key` every other table here uses, rather
+  than a second model of who owns what. Observations are deliberately not listed
+  because they cascade, and both the contract test and the real-SQL purge
+  regression assert that — a cascade is exactly the kind of thing that looks
+  right in a migration and does not happen.
+- **The store gate needs a real PostgreSQL server and refuses without one.**
+  Nearly every property here belongs to the database rather than to JavaScript,
+  and a fake that decides a conflict atomically does so because it was written
+  to — so a store that read and then wrote would pass against the fake and race
+  against a server. Added as `npm run test:exposure-store` with its own CI step
+  against the same service the migration gate uses.
+- The strong form of the leak check runs there too: every value in every column
+  of all three tables, dumped via `to_jsonb`, searched for a synthetic
+  credential and slices of it, with the number of cells examined asserted so a
+  sweep over an empty database cannot pass. The array element types are checked
+  against the live catalog rather than the migration text.
+- All 22 migrations applied, verified and re-applied clean against PostgreSQL
+  16, and the extended purge regression passed there. Twenty-two sabotages,
+  twenty-two failures — after three that initially survived were traced to bad
+  sabotages of my own (`&&` binds tighter than `||`, so disabling one clause of
+  a four-clause guard leaves it firing) and one genuine gap: no test produced a
+  scan that finished cleanly with partial coverage, which is the case the
+  coverage check exists for.
+
 ### Stable Finding Identity
 
 - Added `src/exposure-detection.js`, which finds **every** credential in a

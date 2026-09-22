@@ -2329,6 +2329,26 @@ class AlphaPrivacyStore {
           `DELETE FROM nv_github_app_audit WHERE identity_key=ANY($1::text[])`,
           [exclusiveIdentityKeys]
         );
+        /*
+         * Exposure scanning, added alongside the tables it owns rather than
+         * afterwards. A scan and its findings are things this server learned
+         * about somebody's repository -- bounded locations, a keyed fingerprint,
+         * a placeholder -- and none of it should outlive the tester it was
+         * learned for.
+         *
+         * Observations are deliberately not listed. They reference their scan
+         * with ON DELETE CASCADE, so they leave with it; a second delete here
+         * would make two places responsible for the same rows and one of them
+         * would eventually be wrong.
+         */
+        await client.query(
+          `DELETE FROM nv_exposure_scans WHERE identity_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
+        );
+        await client.query(
+          `DELETE FROM nv_exposure_findings WHERE identity_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
+        );
         const feedback = await client.query(
           `DELETE FROM nv_alpha_feedback WHERE tester_id=$1`,
           [testerId]

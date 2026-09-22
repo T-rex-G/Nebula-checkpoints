@@ -28,6 +28,8 @@ class FakePool {
       webhooks: [],
       events: [],
       snapshots: [],
+      exposureScans: [],
+      exposureFindings: [],
       installations: [],
       security: [],
       githubAudit: [],
@@ -452,6 +454,12 @@ class FakeClient {
     }
     if (/DELETE FROM nv_github_app_audit WHERE identity_key=ANY/.test(text)) {
       return this.deleteIdentityRows('githubAudit', params[0]);
+    }
+    if (/DELETE FROM nv_exposure_scans WHERE identity_key=ANY/.test(text)) {
+      return this.deleteIdentityRows('exposureScans', params[0]);
+    }
+    if (/DELETE FROM nv_exposure_findings WHERE identity_key=ANY/.test(text)) {
+      return this.deleteIdentityRows('exposureFindings', params[0]);
     }
     if (/DELETE FROM nv_alpha_feedback WHERE tester_id=\$1/.test(text)) {
       const before = this.pool.state.feedback.length;
@@ -1101,6 +1109,15 @@ function makeStore(pool, currentTime = NOW) {
     details: { marker: 'exclusive-app-audit-body' }
   });
   purgePool.state.feedback.push({ feedback_id: 'feedback', tester_id: TESTER_ID });
+  /*
+   * What an exposure scan learned about somebody's repository is theirs, so it
+   * leaves with them. The finding row carries the placeholder and the bounded
+   * locations; both are seeded here so the purge has something to miss.
+   */
+  purgePool.state.exposureScans.push({ scan_id: 'scan', identity_key: input.identityKey });
+  purgePool.state.exposureFindings.push({
+    fingerprint: 'e'.repeat(64), identity_key: input.identityKey, placeholder: '<github-token #1>'
+  });
   purgePool.state.governanceAudit.push({
     actor_identity_key: input.identityKey,
     record_hash: '1'.repeat(64),
@@ -1135,7 +1152,8 @@ function makeStore(pool, currentTime = NOW) {
   });
   for (const name of [
     'providerSessions', 'webhooks', 'events', 'snapshots', 'installations',
-    'security', 'githubAudit', 'feedback', 'governanceAudit', 'governanceDecisions'
+    'security', 'githubAudit', 'feedback', 'governanceAudit', 'governanceDecisions',
+    'exposureScans', 'exposureFindings'
   ]) assert.strictEqual(purgePool.state[name].length, 0, `${name} must be removed`);
   assert.strictEqual(purgePool.state.retainedIntegrity.length, 2);
   assert.deepStrictEqual(
@@ -1241,6 +1259,10 @@ function makeStore(pool, currentTime = NOW) {
   sharedPool.state.security.push({ identity_key: input.identityKey });
   sharedPool.state.githubAudit.push({ event_id: 'shared-audit', identity_key: input.identityKey });
   sharedPool.state.feedback.push({ feedback_id: 'shared-feedback', tester_id: TESTER_ID });
+  sharedPool.state.exposureScans.push({ scan_id: 'shared-scan', identity_key: input.identityKey });
+  sharedPool.state.exposureFindings.push({
+    fingerprint: 'f'.repeat(64), identity_key: input.identityKey, placeholder: '<github-token #1>'
+  });
   sharedPool.state.governanceAudit.push({
     actor_identity_key: input.identityKey,
     record_hash: '5'.repeat(64), previous_hash: '6'.repeat(64),
@@ -1257,7 +1279,7 @@ function makeStore(pool, currentTime = NOW) {
   });
   for (const name of [
     'providerSessions', 'webhooks', 'events', 'snapshots', 'installations',
-    'security', 'githubAudit', 'governanceAudit'
+    'security', 'githubAudit', 'governanceAudit', 'exposureScans', 'exposureFindings'
   ]) assert.strictEqual(sharedPool.state[name].length, 1, `${name} must survive shared identity purge`);
   assert.strictEqual(sharedPool.state.retainedIntegrity.length, 0);
   assert(sharedPool.state.ownership.find(item => item.tester_id === TESTER_ID).released_at);

@@ -10,6 +10,7 @@ const {
   signWebhookPayload
 } = require('./governance-delivery');
 const { stableJson } = require('./governance-model');
+const { PROFILES, CODES: GUARDED_FETCH_CODES, GuardedFetchError, guardedFetch } = require('./guarded-fetch');
 
 const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -44,59 +45,80 @@ function permanentStatus(statusCode) {
   return statusCode >= 400 && statusCode < 500 && ![408, 425, 429].includes(statusCode);
 }
 
-function sendPinnedHttpsWebhook(input = {}) {
-  const body = String(input.body || '');
-  if (Buffer.byteLength(body, 'utf8') > MAX_WEBHOOK_BODY_BYTES) {
-    const error = new Error('Webhook body exceeds the delivery limit');
-    error.code = 'WEBHOOK_BODY_TOO_LARGE';
-    return Promise.reject(error);
-  }
+/*
+ * The webhook's entry point, now a thin caller of the one outbound path in
+ * src/guarded-fetch.js rather than a second implementation of it.
+ *
+ * Two things are preserved deliberately. The destination's addresses are
+ * handed over rather than resolved again -- a second lookup is a second chance
+ * for the name to answer differently, which is the window pinning closes --
+ * and the error vocabulary stays the webhook's own, because those codes are
+ * recorded on delivery attempts and read by whoever is looking at why a
+ * delivery failed.
+ */
+/*
+ * The transport speaks its own codes; a delivery attempt records this file's.
+ * The table is total rather than defaulted: every code the transport can
+ * raise has a line here, and the test asserts that against the transport's
+ * own registry. A `||` fallback would have absorbed a missing line, and the
+ * cost of that is not cosmetic -- `terminal` is decided from the recorded
+ * code, so a permanent fault translated as a generic transport error is
+ * retried until the attempt ceiling instead of being dead-lettered once.
+ *
+ * WEBHOOK_TRANSPORT_ERROR is deliberate for the three that can only mean a
+ * mistake in this repository rather than anything about the destination: an
+ * invalid profile, an invalid method, or a bare refusal carries no advice an
+ * operator could act on, and inventing a code per internal slip would grow
+ * the vocabulary operators read without telling them anything.
+ */
+const GUARDED_TO_WEBHOOK_CODE = Object.freeze({
+  [GUARDED_FETCH_CODES.BODY_TOO_LARGE]: 'WEBHOOK_BODY_TOO_LARGE',
+  [GUARDED_FETCH_CODES.DEADLINE]: 'WEBHOOK_TIMEOUT',
+  [GUARDED_FETCH_CODES.DNS_INVALID]: 'WEBHOOK_DNS_INVALID',
+  [GUARDED_FETCH_CODES.ENCODING_REFUSED]: 'WEBHOOK_ENCODING_REFUSED',
+  [GUARDED_FETCH_CODES.METHOD_INVALID]: 'WEBHOOK_TRANSPORT_ERROR',
+  [GUARDED_FETCH_CODES.PROFILE_INVALID]: 'WEBHOOK_TRANSPORT_ERROR',
+  [GUARDED_FETCH_CODES.REFUSED]: 'WEBHOOK_TRANSPORT_ERROR',
+  [GUARDED_FETCH_CODES.RESPONSE_TOO_LARGE]: 'WEBHOOK_RESPONSE_TOO_LARGE',
+  [GUARDED_FETCH_CODES.SSRF_BLOCKED]: 'WEBHOOK_SSRF_BLOCKED',
+  [GUARDED_FETCH_CODES.TIMEOUT]: 'WEBHOOK_TIMEOUT',
+  [GUARDED_FETCH_CODES.TRANSPORT_FAILED]: 'WEBHOOK_TRANSPORT_ERROR',
+  [GUARDED_FETCH_CODES.URL_INVALID]: 'WEBHOOK_URL_INVALID'
+});
+
+async function sendPinnedHttpsWebhook(input = {}) {
   const destination = input.destination;
   if (!destination || !Array.isArray(destination.addresses) || !destination.addresses.length) {
     const error = new Error('Webhook destination is unresolved');
     error.code = 'WEBHOOK_DNS_INVALID';
-    return Promise.reject(error);
+    throw error;
   }
-  const parsed = new URL(destination.url);
-  const selected = destination.addresses[0];
-  const requestImpl = typeof input.requestImpl === 'function' ? input.requestImpl : https.request;
-  const timeoutMs = Number.isInteger(input.timeoutMs) ? Math.min(Math.max(input.timeoutMs, 1000), 30_000) : DEFAULT_TIMEOUT_MS;
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (callback, value) => {
-      if (settled) return;
-      settled = true;
-      callback(value);
-    };
-    const request = requestImpl({
-      protocol: 'https:',
-      hostname: parsed.hostname,
-      port: 443,
-      path: `${parsed.pathname || '/'}${parsed.search || ''}`,
+  const body = String(input.body || '');
+  if (Buffer.byteLength(body, 'utf8') > MAX_WEBHOOK_BODY_BYTES) {
+    const error = new Error('Webhook body exceeds the delivery limit');
+    error.code = 'WEBHOOK_BODY_TOO_LARGE';
+    throw error;
+  }
+  try {
+    return await guardedFetch({
+      url: destination.url,
+      profile: PROFILES.WEBHOOK,
       method: 'POST',
       headers: input.headers,
-      servername: parsed.hostname,
-      lookup: (_hostname, _options, callback) => callback(null, selected.address, selected.family),
-      timeout: timeoutMs,
-      agent: false
-    }, response => {
-      let received = 0;
-      response.on('data', chunk => {
-        received += chunk.length;
-        if (received > 64 * 1024) response.destroy();
-      });
-      response.on('end', () => finish(resolve, { statusCode: Number(response.statusCode || 0) }));
-      response.on('error', error => finish(reject, error));
-      response.resume();
+      body,
+      addresses: destination.addresses,
+      timeoutMs: input.timeoutMs,
+      requestImpl: input.requestImpl
     });
-    request.on('timeout', () => {
-      const error = new Error('Webhook request timed out');
-      error.code = 'WEBHOOK_TIMEOUT';
-      request.destroy(error);
-    });
-    request.on('error', error => finish(reject, error));
-    request.end(body);
-  });
+  } catch (error) {
+    if (error instanceof GuardedFetchError) {
+      const translated = new Error('Webhook delivery failed');
+      translated.code = GUARDED_TO_WEBHOOK_CODE[error.code] || 'WEBHOOK_TRANSPORT_ERROR';
+      if (error.transportCode) translated.transportCode = error.transportCode;
+      throw translated;
+    }
+    throw error;
+  }
 }
 
 async function processWebhookDeliveryBatch(options = {}) {
@@ -253,6 +275,7 @@ function startWebhookWorker(options = {}) {
 
 module.exports = Object.freeze({
   MAX_WEBHOOK_BODY_BYTES,
+  GUARDED_TO_WEBHOOK_CODE,
   sendPinnedHttpsWebhook,
   processWebhookDeliveryBatch,
   startWebhookWorker

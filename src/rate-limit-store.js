@@ -68,6 +68,15 @@ class RateLimitStore {
    * The count is returned as well as the verdict, because a limiter that can
    * only say yes or no cannot tell an operator how close a caller was.
    */
+  /**
+   * Every field is optional to the checker and required at run time: the
+   * validators below reject a missing one with a message, which is a better
+   * answer than a destructuring crash.
+   *
+   * @param {{ namespace?: string, key?: unknown, windowMs?: number, limit?: number,
+   *   inclusiveReset?: boolean }} [request]
+   * @returns {Promise<{ allowed: boolean, count: number, limit: number }>}
+   */
   async count({ namespace, key, windowMs, limit, inclusiveReset = false } = {}) {
     const bucketNamespace = requireNamespace(namespace);
     const bucketKey = bucketKeyFor(bucketNamespace, String(key == null ? '' : key));
@@ -112,6 +121,10 @@ class RateLimitStore {
 
   /* Closed windows only, a bounded slice at a time. A live window is never
      discarded to make room: that is a limit failing open under load. */
+  /**
+   * @param {{ windowMs?: number, limit?: number }} [request]
+   * @returns {Promise<number>}
+   */
   async sweepClosed({ windowMs, limit } = {}) {
     const window = requirePositiveInteger(windowMs, 'Rate limit window');
     const batch = Math.min(MAX_SWEEP_BATCH, Math.max(1, Number(limit) || this.sweepBatch));

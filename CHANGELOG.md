@@ -2,6 +2,68 @@
 
 ## Unreleased
 
+### Guarded Outbound Transport
+
+- Added `src/guarded-fetch.js`: one outbound path for everything this server
+  reaches on the public internet. The webhook worker already resolved a
+  hostname, validated every answer against a public-address policy, and pinned
+  the socket to the address it had checked so a second DNS answer could not
+  move it. That part worked and is unchanged. What it lacked, and what an
+  exposure scan needs before it sends a discovered credential anywhere, is a
+  **total deadline**, a **bound on the response it reads**, and a notion of a
+  caller other than a signed POST.
+- Two profiles, and the point of the extraction is that the second cannot widen
+  the first. `signed-webhook` is POST-only, sends no query string and reads no
+  response body; `provider-read` allows GET and HEAD, a query string, and a
+  bounded body. A profile is not a suggestion: the method, the query string and
+  whether a body is read are all decided by the profile, so a scan cannot reach
+  the webhook's policy and the webhook cannot start reading response bodies.
+- The deadline is total, which a socket timeout is not: a response that delivers
+  one byte inside every timeout window never times out and holds a connection
+  for as long as it likes. `guardedFetch` abandons the request on its own clock
+  regardless of how the bytes are paced.
+- The deadline timer is deliberately **not** unref'd, and that is the bug this
+  work found in its own first draft. An unreferenced timer lets Node exit while
+  a request is still in flight, so the deadline never fires and nothing learns
+  the request was abandoned — which showed up as a test suite leaving with a
+  success code having proved nothing. The test's watchdog is not unref'd for the
+  same reason: a hang is the one failure mode that looks like nothing happened.
+- No message this module raises is built from caller input. A verification probe
+  sends a discovered credential in a header, so an error that quotes what it was
+  given is an error that writes a secret into a log. The underlying failure
+  contributes its code; the message is fixed text. A test asserts no credential
+  and no `Bearer` appears in the message, the stack, or the JSON form.
+- Compression is refused rather than bounded on the profiles that read a body:
+  `accept-encoding` is never sent, and a `content-encoding` that arrives anyway
+  is refused by code. A bound on decompressed bytes is a bound you have to
+  decompress to enforce, which is the wrong side of the decision.
+- Repointed `sendPinnedHttpsWebhook` at the shared transport with its recorded
+  error vocabulary preserved, and made the translation **total rather than
+  defaulted**. `terminal` is decided from the code this file records, so a
+  translation that goes missing is not cosmetic — a permanently misconfigured
+  destination would be written down as a generic transport error and retried to
+  the attempt ceiling instead of dead-lettered once. The transport now publishes
+  its codes, the worker has a line for every one of them, and two tests check
+  that both ways: a dropped line fails, and so does a translation that invents a
+  code nothing reading delivery attempts has ever seen.
+- The worker hands its already-validated addresses to the transport instead of
+  letting it resolve again. A second lookup is a second chance for the name to
+  answer differently, which is precisely the window pinning exists to close.
+  Passed-in addresses are still validated.
+- Added `test/guarded-fetch.test.js`: URL policy for both profiles, 21 private
+  and reserved addresses including `169.254.169.254`, `100.64.0.1` and
+  `::ffff:127.0.0.1`, a mixed answer set refused whole, the pin and the SNI name
+  held apart, a redirect returned rather than followed, the response bound, the
+  encoding refusal, the total deadline, and a refused address never reaching a
+  socket. Every guard was checked by breaking the module and watching the test
+  fail: eight sabotages, eight failures.
+- Brought `src/guarded-fetch.js`, `src/rate-limit-store.js` and — with the first,
+  since an import cannot be excluded — `src/governance-delivery.js` into the
+  type-checked set, which needed two real annotations rather than a loosened
+  flag: a CSV column pair that inference widened until its reader stopped being
+  callable, and two store methods whose destructured options the checker could
+  only see through their defaults.
+
 ### Uploads and the Neural graph
 
 - Fixed a zip of more than a hundred files failing after all the work rather

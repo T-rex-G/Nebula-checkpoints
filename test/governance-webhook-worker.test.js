@@ -4,10 +4,12 @@ const assert = require('assert');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const {
+  GUARDED_TO_WEBHOOK_CODE,
   processWebhookDeliveryBatch,
   sendPinnedHttpsWebhook,
   startWebhookWorker
 } = require('../src/governance-webhook-worker');
+const { CODES: GUARDED_FETCH_CODES } = require('../src/guarded-fetch');
 const { verifyWebhookSignature } = require('../src/governance-delivery');
 
 const scope = { provider: 'github', baseUrl: 'https://github.com', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo' };
@@ -33,6 +35,36 @@ const delivery = {
   secretVersion: 1,
   attemptCount: 0
 };
+
+/*
+ * Delivery now runs over the shared guarded transport, which speaks its own
+ * codes. `terminal` is decided from the code this file records, so a
+ * translation that goes missing is not cosmetic: a permanently misconfigured
+ * destination gets recorded as a generic transport error and retried to the
+ * attempt ceiling instead of being dead-lettered on the first try.
+ *
+ * So the table is checked for totality against the transport's own registry
+ * rather than trusted, and the codes it produces are checked against this
+ * file's vocabulary so a translation cannot quietly invent a new one that
+ * nothing reading attempts has ever seen.
+ */
+{
+  const knownWebhookCodes = new Set([
+    'WEBHOOK_BODY_TOO_LARGE', 'WEBHOOK_DNS_INVALID', 'WEBHOOK_ENCODING_REFUSED',
+    'WEBHOOK_RESPONSE_TOO_LARGE', 'WEBHOOK_SSRF_BLOCKED', 'WEBHOOK_TIMEOUT',
+    'WEBHOOK_TRANSPORT_ERROR', 'WEBHOOK_URL_INVALID'
+  ]);
+  const transportCodes = Object.values(GUARDED_FETCH_CODES);
+  assert(transportCodes.length > 0, 'the transport must publish its codes, or this check proves nothing');
+  assert.deepStrictEqual(
+    transportCodes.filter(code => !(code in GUARDED_TO_WEBHOOK_CODE)), [],
+    'every transport code must translate explicitly: a fallback hides the ones that should be terminal'
+  );
+  assert.deepStrictEqual(
+    Object.values(GUARDED_TO_WEBHOOK_CODE).filter(code => !knownWebhookCodes.has(code)), [],
+    'a translation may not invent a code outside the vocabulary recorded on delivery attempts'
+  );
+}
 
 (async () => {
   const attempts = [];
@@ -263,6 +295,33 @@ const delivery = {
     const before = startedAfterStop;
     await quiet.run();
     assert.strictEqual(startedAfterStop, before, 'a stopped worker must not begin another batch');
+  }
+
+  /*
+   * And the translation is exercised, not just tabulated. A destination whose
+   * answers include a private address is refused by the transport before a
+   * socket exists, and this file has to record it as its own SSRF code -- the
+   * one the batch treats as terminal. The batch path normalizes destinations
+   * first and would catch this earlier; that is the point of checking the
+   * transport's own refusal here, because it is the line that still holds if
+   * a caller ever assembles a destination another way.
+   */
+  {
+    let opened = 0;
+    await assert.rejects(
+      sendPinnedHttpsWebhook({
+        destination: {
+          url: 'https://hooks.example.com/nebulaverse',
+          addresses: [{ address: '140.82.121.6', family: 4 }, { address: '169.254.169.254', family: 4 }]
+        },
+        body: '{}',
+        headers: { 'X-Nebulaverse-Signature': 'v1=deadbeef' },
+        requestImpl: () => { opened += 1; throw new Error('must not be called'); }
+      }),
+      error => error.code === 'WEBHOOK_SSRF_BLOCKED',
+      'a private answer must be refused in this file\'s vocabulary, which the batch reads as terminal'
+    );
+    assert.strictEqual(opened, 0, 'and refused before any connection is attempted');
   }
 
   console.log('governance webhook worker tests passed');

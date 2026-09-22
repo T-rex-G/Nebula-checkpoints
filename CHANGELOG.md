@@ -677,6 +677,38 @@
   the webhook budget can never be the same row, and a caller identity cannot
   reach the table by mistake.
 
+### Multi-Instance Proof
+
+- Added `test/multi-instance-contract.test.js` and the `test:multi-instance`
+  gate: **two real server processes against one PostgreSQL database, one set of
+  keys.** Everything else in this work is proved against a fake database or a
+  source assertion. Those catch the mistakes they were written for, but none of
+  them can settle the actual claim — a limit that is N *per instance* and a
+  grant spendable once *per instance* pass every unit test in the repository.
+- It refuses rather than skips without a server, for the same reason the
+  migration gate does: a gate that quietly passes when its dependency is
+  missing is the same as not having the gate.
+- **Executed, not just written.** A PostgreSQL server was installed in the
+  development container, and against it: all 21 migrations applied, verified
+  and re-applied clean — the first real execution of `020` and `021`, which had
+  until now only ever met a fake. Then all three guard kinds proved single-use
+  across two connections, two simultaneous claims of one grant resolved to
+  exactly one winner, a ceiling of 10 held at 10 across two connections rather
+  than 20, **two real server processes shared one 300-request ceiling over
+  HTTP**, and the no-database profile still booted and served.
+- The run also surfaced the fail-closed path under a genuine outage. The local
+  server speaks no TLS, so the first attempt saw every request answered 503 by
+  the limiter and the flood stopped at the local ceiling — the shared counter
+  refusing rather than permitting when it could not answer, which no unit test
+  had exercised against a real connection failure.
+- Added `docs/architecture/2026-09-21-multi-instance-state.md`: what is shared
+  and why, what is deliberately local and why sharing it would be wrong, the
+  one ceiling that is still per instance (`LIVE_CLIENTS`, so an operator
+  reading the configured number is reading half the true one), the four things
+  a deployment must provide, restart semantics, and an explicit statement that
+  none of this claims the application has been run on two instances in
+  production.
+
 ### Key Separation and Dependency Determinism
 
 - Gave every keyed construction its own HKDF-SHA256 derived key. One

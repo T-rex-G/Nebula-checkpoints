@@ -51,6 +51,13 @@ jobs:
       - run: npm run test:migrations
         env:
           NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # The same database service, and the property the whole foundation plan
+      # exists for: two processes, one database, one set of keys. Everything
+      # else is proved against a fake or a source assertion, and none of those
+      # can tell you whether a guard holds when the second process is real.
+      - run: npm run test:multi-instance
+        env:
+          NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       - run: node scripts/audit-production.js
       - run: npm run check:secrets
       - run: npm run test:staging:gate

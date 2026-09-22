@@ -25,6 +25,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/architecture/2026-09-21-multi-instance-state.md",
+      "lifecycle": "architecture",
+      "authority": "current-architecture",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/architecture/ALPHA17_REVIEW_DISPOSITIONS.md",
       "lifecycle": "architecture",
       "authority": "accepted-architecture-record",

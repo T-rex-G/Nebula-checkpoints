@@ -640,7 +640,7 @@ function runnerFor(store, reader, options = {}) {
 /* ---- The routes, and the boundaries every one of them carries ------- */
 
 /*
- * Six routes, and what matters about each is the chain in front of it.
+ * Ten routes, and what matters about each is the chain in front of it.
  * Reading these as text is a weaker instrument than exercising them, and it is
  * the one that catches the mistake that actually happens: a route added later
  * copying the line above it and losing a middleware in the process.
@@ -648,7 +648,7 @@ function runnerFor(store, reader, options = {}) {
 {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const routeLines = server.split('\n').filter(line => /^app\.(get|post)\('\/api\/repo\/:owner\/:repo\/exposure\//.test(line));
-  assert.strictEqual(routeLines.length, 6, `expected six exposure routes, found ${routeLines.length}`);
+  assert.strictEqual(routeLines.length, 10, `expected ten exposure routes, found ${routeLines.length}`);
 
   for (const line of routeLines) {
     for (const middleware of ['providerSessionAccess', 'alphaRepositoryAccess', 'capabilityAccess(', 'auth', 'governanceAccess(']) {
@@ -672,9 +672,20 @@ function runnerFor(store, reader, options = {}) {
   const acceptLine = routeLines.find(line => line.includes('/accept-risk'));
   assert(acceptLine, 'the accept-risk route must exist');
   assert(acceptLine.includes("governanceAccess('administrator')"), acceptLine.slice(0, 100));
+  /*
+   * The role is the control here, not the capability status. Accepting a risk
+   * performs no outbound request and uses no credential -- it records that a
+   * named person decided -- so gating it on the capability being Supported
+   * only produced readers who could not triage a false positive, and a screen
+   * that cannot be cleared is one people stop reading.
+   */
   assert(
-    acceptLine.includes("capabilityAccess('exposure.scan')") && !acceptLine.includes('allowExperimental'),
-    'accepting a risk must not be available on an experimental capability'
+    acceptLine.includes('allowExperimental'),
+    'accepting a risk is available while the capability is experimental'
+  );
+  assert.strictEqual(
+    routeLines.filter(line => line.includes("governanceAccess('administrator')")).length, 1,
+    'and it is the only route that needs an administrator'
   );
   for (const line of routeLines.filter(item => item !== acceptLine)) {
     assert(
@@ -687,7 +698,9 @@ function runnerFor(store, reader, options = {}) {
   for (const [fragment, action] of [
     ["app.post('/api/repo/:owner/:repo/exposure/scans'", 'exposure.scan.request'],
     ['/cancel', 'exposure.scan.cancel'],
-    ['/accept-risk', 'exposure.finding.accept-risk']
+    ['/accept-risk', 'exposure.finding.accept-risk'],
+    ['/verify', 'exposure.credential.verify'],
+    ['/probe-readability', 'exposure.readability.probe']
   ]) {
     const line = routeLines.find(item => item.includes(fragment));
     assert(line, fragment);
@@ -704,6 +717,40 @@ function runnerFor(store, reader, options = {}) {
   }
 
   /*
+   * A finding never leaves the server as a bare row. Two sentences travel with
+   * it: what the credential is, and what this repository has since decided
+   * about it. Both come from one reviewed lookup table, so a screen cannot
+   * drift into printing `accepted-risk` as a slug and making a decision a
+   * named person made look like machine bookkeeping.
+   *
+   * Checked per response rather than by counting one spelling, because the
+   * failure mode is a new route that forgets, not an existing one that
+   * changes.
+   */
+  const findingResponses = server.match(/res\.(?:status\([0-9]+\)\.)?json\(\{[^;]*?\bfinding[s]?\b[^;]*?\}\);/g) || [];
+  const exposureFindingResponses = findingResponses.filter(body => (
+    /exposureFindingPayload|stored\.finding|\bfindings\.map\b/.test(body)
+  ));
+  assert(
+    exposureFindingResponses.length >= 3,
+    `the exposure routes must return findings: ${exposureFindingResponses.length}`
+  );
+  for (const body of exposureFindingResponses) {
+    assert(
+      body.includes('exposureFindingPayload'),
+      `a finding left the server undescribed: ${body.slice(0, 90)}`
+    );
+  }
+  assert(
+    /function exposureFindingPayload\(finding\)[\s\S]{0,400}dispositionNarration: describeDisposition\(finding\.disposition\)/.test(server),
+    'and the payload is where both sentences are attached'
+  );
+  assert(
+    /const \{[^}]*describeDisposition[^}]*\} = require\('\.\/src\/exposure-narration'\)/.test(server),
+    'the disposition sentence comes from the reviewed table, not from this file'
+  );
+
+  /*
    * The identity boundary is passed into the store on every call rather than
    * compared afterwards, and the ref is resolved once on the request path.
    */
@@ -712,12 +759,30 @@ function runnerFor(store, reader, options = {}) {
     server.indexOf("app.post('/api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke'")
   );
   assert(handlers.length > 1000, 'the handler slice must cover the routes');
-  const storeCalls = handlers.match(/exposureService\(\)\.[a-zA-Z]+\(|store\.[a-zA-Z]+\(/g) || [];
-  assert(storeCalls.length >= 6, `the handlers must call the store: ${storeCalls.length}`);
-  assert.strictEqual(
-    (handlers.match(/identityKey: req\.governance\.actor\.identityKey/g) || []).length, storeCalls.length,
-    'every store call passes the identity, including the one that creates the scan: '
-      + 'a scan is written under an identity so every later read can be scoped to it'
+  /*
+   * Every store call carries the identity, checked per call site rather than
+   * by counting one spelling of it. A handler that binds
+   * `const identityKey = req.governance.actor.identityKey` and then passes the
+   * shorthand is doing the right thing, and a check that only matched the long
+   * form would have failed on correct code -- which is how a guard gets
+   * relaxed rather than fixed.
+   */
+  const storeCallRx = /(?:exposureService\(\)|store)\.[a-zA-Z]+\(/g;
+  const storeCalls = [];
+  let call;
+  while ((call = storeCallRx.exec(handlers))) storeCalls.push(call.index);
+  assert(storeCalls.length >= 8, `the handlers must call the store: ${storeCalls.length}`);
+  for (const index of storeCalls) {
+    const args = handlers.slice(index, index + 320);
+    assert(
+      /\bidentityKey\b/.test(args),
+      `a store call does not carry the identity: ${handlers.slice(index, index + 70)}`
+    );
+  }
+  /* And the shorthand is genuinely that value, not some other local. */
+  assert(
+    handlers.includes('const identityKey = req.governance.actor.identityKey;'),
+    'a handler binding identityKey must bind it from the governance actor'
   );
   assert(
     handlers.includes('exposureReader.resolveCommit('),
@@ -740,12 +805,181 @@ function runnerFor(store, reader, options = {}) {
   assert(failureHelper, 'the exposure failure helper must exist');
   assert(failureHelper[0].includes('publicErrorBody(error)'), failureHelper[0]);
   assert.strictEqual(
-    (handlers.match(/catch \(error\) \{ exposureFailure\(res, error\); \}/g) || []).length, 6,
+    (handlers.match(/catch \(error\) \{ exposureFailure\(res, error\); \}/g) || []).length, 10,
     'every exposure handler must fail through that helper'
   );
   assert.strictEqual(
     /error\.message|String\(error\)/.test(handlers), false,
     'and none of them may put an error message into a response itself'
+  );
+}
+
+/* ---- Verification: the one route that uses somebody's credential ---- */
+
+/*
+ * The properties that matter here are different from the other routes'. This
+ * one takes a credential found in a repository and sends it to a third party,
+ * so what is checked is that it cannot happen by accident, cannot happen
+ * without a fresh bound grant, and cannot happen from anything the store kept.
+ */
+{
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const start = server.indexOf("app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify'");
+  assert(start > 0, 'the verify route must exist');
+  const handler = server.slice(start, server.indexOf("app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications'", start));
+  assert(handler.length > 800, 'the handler slice must cover the route');
+
+  /*
+   * An explicit word, checked before anything is read. A button that says
+   * "check this" and a request that says so are not the same thing, and the
+   * confirmation is what the plan requires an operator to give.
+   */
+  assert(
+    handler.includes("'use-this-credential'"),
+    'verifying must require an explicit confirmation'
+  );
+  const confirmAt = handler.indexOf("'use-this-credential'");
+  const readAt = handler.indexOf('exposureReader.readTree(');
+  assert(
+    confirmAt > 0 && readAt > confirmAt,
+    'the confirmation must be checked before the repository is read, not after'
+  );
+
+  /*
+   * The bytes are recovered, never retrieved. Nothing stored them, so the
+   * handler re-reads the blob at the recorded commit and re-detects; a file
+   * that changed yields no match and nothing is sent.
+   */
+  assert(handler.includes('exposureReader.readBlob('), 'the blob is re-read');
+  assert(handler.includes('detectInText('), 'and re-detected');
+  assert(
+    handler.includes('EXPOSURE_CANDIDATE_GONE'),
+    'a candidate that is no longer there must be reported, not guessed at'
+  );
+  assert(
+    handler.includes('built.probes.find'),
+    'the candidate is matched by fingerprint rather than by position'
+  );
+
+  /* A fresh grant per attempt, bound to this candidate and this adapter. */
+  assert(handler.includes('signVerificationAuthorization('), 'a grant is minted');
+  assert(handler.includes('candidateFingerprint: fingerprint'), 'bound to this candidate');
+  assert(handler.includes('commit: finding.commit'), 'and this commit');
+  assert(
+    /expiresAt: new Date\(issuedAt\.getTime\(\) \+ 60_000\)/.test(handler),
+    'and it expires in a minute: it is spent immediately or not at all'
+  );
+
+  /* Recorded whatever the answer, because the history is the evidence. */
+  assert(handler.includes('store.recordVerification('), 'every attempt is recorded');
+  assert(
+    handler.includes('identityKey') && handler.includes('requestedBy'),
+    'with the identity it belongs to and the person who asked'
+  );
+
+  /* ---- The readability probe route ----------------------------------- */
+
+  /*
+   * The prober was written in Task 6 and, until this, nothing could call it.
+   * What these assert is the shape that makes it safe to call: the operator
+   * supplies the confirmation, the relation and the columns; the route
+   * supplies the project only from the file's own text; and the grant is
+   * signed over all of it so the prober cannot be asked for anything else.
+   */
+  {
+    const start = server.indexOf("app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability'");
+    assert(start >= 0, 'the probe route must exist');
+    const probeHandler = server.slice(start, server.indexOf("app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes'"));
+    assert(probeHandler.length > 800, 'the probe handler slice must cover the handler');
+
+    /* The confirmation, refused before anything is read. */
+    const confirmAt = probeHandler.indexOf("!== 'contact-this-project'");
+    assert(confirmAt > 0, 'a probe requires an explicit confirmation');
+    assert(
+      confirmAt < probeHandler.indexOf('readTree('),
+      'and it is refused before the repository is read, not after'
+    );
+
+    /*
+     * Only the anonymous key. A service-role key is the same shape and
+     * bypasses every policy, so probing with one comes back readable whatever
+     * the project permits.
+     */
+    assert(
+      probeHandler.includes("finding.rule !== 'supabase-anon-key'"),
+      'only an anonymous key may be used to ask what the public can read'
+    );
+    assert(
+      probeHandler.indexOf("finding.rule !== 'supabase-anon-key'") < probeHandler.indexOf('readTree('),
+      'and that is decided before the file is read'
+    );
+
+    /* The project comes from the file, through the module that rebuilds an
+       origin rather than trusting a URL a repository chose. */
+    assert(probeHandler.includes('discoverProject(blob.text)'), 'the project is discovered from the file');
+    assert.strictEqual(
+      /https:\/\/\$\{|\.supabase\.co/.test(probeHandler), false,
+      'this file must not build a provider address itself'
+    );
+
+    /* The relation and the columns are the operator's, never this route's. */
+    assert(probeHandler.includes('const relation = String(body.relation'), 'the relation arrives from the request');
+    assert(probeHandler.includes('Array.isArray(body.projection)'), 'and so do the columns');
+    assert.strictEqual(
+      /relation = '|relation: '[a-z_]/.test(probeHandler), false,
+      'a probe against a table nobody named would be this server choosing what to read'
+    );
+
+    /* A grant bound to all of it, spent immediately. */
+    assert(probeHandler.includes('signReadabilityAuthorization('), 'a grant is minted');
+    assert(probeHandler.includes('candidateFingerprint: fingerprint'), 'bound to this candidate');
+    assert(probeHandler.includes('projectRef: project.projectRef'), 'and this project');
+    assert(probeHandler.includes('relation,') && probeHandler.includes('projection,'), 'and this exact question');
+    assert(
+      /expiresAt: new Date\(issuedAt\.getTime\(\) \+ 60_000\)/.test(probeHandler),
+      'and it expires in a minute: it is spent immediately or not at all'
+    );
+    /*
+     * Its own key. A grant to ask a provider "is this credential yours" is not
+     * a grant to ask a project "may the public read this table", and a shared
+     * key would let one signature satisfy both checks.
+     */
+    assert(probeHandler.includes('EXPOSURE_READABILITY_KEY'), 'the probe grant has its own key');
+    assert.strictEqual(
+      /EXPOSURE_VERIFICATION_KEY/.test(probeHandler), false,
+      'and it is not the verification key'
+    );
+    assert(
+      server.includes('const EXPOSURE_READABILITY_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_READABILITY_AUTHORIZATION);'),
+      'derived for its own purpose rather than reused'
+    );
+
+    /* Recorded whatever the answer, including the ones that never went out. */
+    assert(probeHandler.includes('store.recordReadabilityProbe('), 'every probe is recorded');
+
+    /* And nothing from the key or the rows reaches the response. */
+    assert.strictEqual(
+      /res\.(json|status\([0-9]+\)\.json)\([^)]*candidate/.test(probeHandler), false,
+      'the candidate must not reach a response body'
+    );
+    assert.strictEqual(
+      /probe\.secret|\.reveal\(\)/.test(probeHandler.replace('revealForVerification(found)', '')), false,
+      'and the bytes leave the wrapper exactly once, through the one documented exit'
+    );
+  }
+
+  /*
+   * And the credential does not reach the response. The route returns the
+   * stored attempt and a narration drawn from a lookup table, both of which
+   * are checked elsewhere to carry nothing.
+   */
+  assert.strictEqual(
+    /res\.(json|status\([0-9]+\)\.json)\([^)]*candidate/.test(handler), false,
+    'the candidate must not reach a response body'
+  );
+  assert.strictEqual(
+    /probe\.secret|\.reveal\(\)/.test(handler.replace('revealForVerification(probe)', '')), false,
+    'and the bytes leave the wrapper exactly once, through the one documented exit'
   );
 }
 

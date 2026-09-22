@@ -141,8 +141,22 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * wording are all in modules with their own tests. That is exactly the shape
  * this ratchet exists to encourage, so the number moves rather than the logic
  * being pushed back into this file to avoid moving it.
+ *
+ * 153 to 155 adds the two verification routes. The verify handler is the
+ * longest of the eight and worth naming: it re-reads a blob, re-detects, mints
+ * a bound grant and records an attempt. Every one of those is a call into a
+ * module with its own tests -- the handler sequences them and decides nothing
+ * itself, which is the line this ratchet is drawn at.
+ *
+ * 155 to 157 adds the two readability-probe routes, which make the prober
+ * reachable at all. The probe handler is the same shape as the verify handler
+ * beside it and the same argument applies: it discovers a project, mints a
+ * grant bound to the relation and columns an operator named, and records the
+ * answer. What it does not do is choose any of them -- the relation and the
+ * projection arrive from the request and the prober refuses whatever it will
+ * not ask for, so no judgement about somebody's database lives in this file.
  */
-const SERVER_ROUTE_CEILING = 153;
+const SERVER_ROUTE_CEILING = 157;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

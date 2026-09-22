@@ -59,6 +59,19 @@ const DISPOSITIONS = Object.freeze(['open', 'credential-rejected', 'accepted-ris
 const DEFAULT_LEASE_MS = 60_000;
 const MAX_LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+/*
+ * How long a provider's answer stays current. It matches the verifier's own
+ * window: an attempt that outlived its deadline is not a rejection, it is an
+ * answer nobody should still be relying on.
+ */
+const DEFAULT_VERIFICATION_FRESHNESS_MS = 24 * 60 * 60 * 1000;
+/*
+ * Shorter than a verification's, and on purpose. Whether a token still works
+ * changes when somebody revokes it; whether a table is readable changes when
+ * somebody edits a policy, which is a far more ordinary thing to do in an
+ * afternoon. A readability answer from yesterday is history, not news.
+ */
+const DEFAULT_PROBE_FRESHNESS_MS = 60 * 60 * 1000;
 const MAX_OCCURRENCES = 20;
 const MAX_FINDINGS_PER_SCAN = 500;
 const MAX_LIST_LIMIT = 200;
@@ -227,6 +240,46 @@ function observationFromRow(row) {
   });
 }
 
+function verificationFromRow(row) {
+  if (!row) return null;
+  return Object.freeze({
+    verificationId: row.verification_id,
+    fingerprint: row.fingerprint,
+    requestedBy: row.requested_by,
+    adapter: row.adapter || null,
+    adapterVersion: row.adapter_version == null ? null : Number(row.adapter_version),
+    targetId: row.target_id || null,
+    authorizationId: row.authorization_id || null,
+    state: row.state,
+    reason: row.reason,
+    subjectDigest: row.subject_digest || null,
+    retryAfterMs: row.retry_after_ms == null ? null : Number(row.retry_after_ms),
+    observedAt: iso(row.observed_at),
+    freshnessDeadline: iso(row.freshness_deadline)
+  });
+}
+
+function readabilityProbeFromRow(row) {
+  if (!row) return null;
+  return Object.freeze({
+    probeId: row.probe_id,
+    fingerprint: row.fingerprint,
+    requestedBy: row.requested_by,
+    authorizationId: row.authorization_id || null,
+    projectRef: row.project_ref || null,
+    relation: row.relation || null,
+    /* Stored joined because the grant was signed over the joined form; split
+       on the way out so a caller never has to know that. */
+    projection: Object.freeze(row.projection ? String(row.projection).split(',') : []),
+    state: row.state,
+    reason: row.reason,
+    testedRole: row.tested_role || null,
+    rowCount: row.row_count == null ? 0 : Number(row.row_count),
+    observedAt: iso(row.observed_at),
+    freshnessDeadline: iso(row.freshness_deadline)
+  });
+}
+
 /* ---- Input normalisation ----------------------------------------------- */
 
 /*
@@ -310,6 +363,60 @@ function normalizeVerification(verification) {
       : null,
     retryAfterMs: Number.isFinite(source.retryAfterMs)
       ? Math.min(Math.max(Math.round(source.retryAfterMs), 1000), 3_600_000)
+      : null
+  };
+}
+
+/*
+ * An observation from `anonymous-readability-probe.js`, reduced to the bounded
+ * fields the schema admits. Notably absent: the key, the response body and
+ * anything from inside a row. `rowCount` is a count the prober capped at one
+ * and is the whole payload -- "a row came back" is the entire finding, and
+ * keeping the row would turn a security check into a second copy of somebody's
+ * data.
+ *
+ * A relation or projection the prober refused is stored as null rather than as
+ * typed. It was never asked, `reason` says so, and a column constrained to
+ * hold only askable names could not hold it anyway.
+ */
+function normalizeReadabilityProbe(observation) {
+  if (observation == null) return null;
+  const source = observation && typeof observation === 'object' ? observation : {};
+  const state = requireMember(source.state, ['readable', 'denied', 'unverifiable'], 'Probe state');
+  const reason = text(source.reason);
+  if (!/^[a-z][a-z0-9-]{2,63}$/.test(reason)) throw new TypeError('Probe reason must be a bounded reason code');
+  const projectRef = text(source.projectRef);
+  if (projectRef && !/^[a-z]{20}$/.test(projectRef)) throw new TypeError('Probe project reference must be twenty lowercase letters');
+  const relation = text(source.relation);
+  const relationStorable = /^[a-z_][a-z0-9_]{0,62}$/.test(relation);
+  const projection = (Array.isArray(source.projection) ? source.projection : []).map(text);
+  const projectionStorable = projection.length > 0 && projection.length <= 8
+    && projection.every(column => /^[a-z_][a-z0-9_]{0,62}$/.test(column));
+  const testedRole = text(source.testedRole);
+  if (testedRole && !['anon', 'publishable'].includes(testedRole)) {
+    throw new TypeError('Probe tested role must be the anonymous role');
+  }
+  const rowCount = Number.isInteger(source.rowCount) ? source.rowCount : 0;
+  if (rowCount < 0 || rowCount > 1) throw new TypeError('A probe asks for one row and counts at most one');
+  /*
+   * The schema says a row was seen exactly when the state is `readable`, so a
+   * record disagreeing with itself is refused here rather than arriving at the
+   * database as a constraint violation nobody can read.
+   */
+  if ((rowCount > 0) !== (state === 'readable')) {
+    throw new TypeError('A probe row count must agree with its state');
+  }
+  return {
+    state,
+    reason,
+    projectRef: projectRef || null,
+    relation: relationStorable ? relation : null,
+    projection: projectionStorable ? projection.join(',') : null,
+    testedRole: testedRole || null,
+    rowCount,
+    observedAt: instant(Date.parse(text(source.observedAt)) || source.observedAt, 'Probe time'),
+    freshnessDeadline: source.freshnessDeadline
+      ? instant(Date.parse(text(source.freshnessDeadline)) || source.freshnessDeadline, 'Probe deadline')
       : null
   };
 }
@@ -772,6 +879,242 @@ class ExposureStore {
     return findingFromRow(updated.rows[0] || null);
   }
 
+  /*
+   * Recording what the provider said.
+   *
+   * Two writes in one transaction, because they are one fact. The attempt is
+   * appended -- always, whatever the answer -- and a `rejected` answer also
+   * moves the finding, because the issuing provider refusing a credential is
+   * the only thing that means the exposure is over.
+   *
+   * The disposition move is deliberately narrow. It does not touch a finding
+   * somebody has already accepted the risk of: a person's decision is not
+   * overturned by a later provider answer, and a provider saying no to an
+   * accepted risk is simply good news recorded in the attempt history.
+   */
+  async recordVerification(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Verification identity');
+    const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
+    const requestedBy = requireText(input.requestedBy, 'Verification actor', 255);
+    const attempt = normalizeVerification(input.record);
+    if (!attempt) throw new TypeError('A verification attempt requires a record');
+    const verificationId = text(input.verificationId) || crypto.randomUUID();
+    const adapterVersion = Number.isInteger(input.adapterVersion) ? input.adapterVersion : null;
+    const targetId = text(input.targetId) || null;
+    const authorizationId = text(input.authorizationId) || null;
+    /*
+     * A record without a deadline gets the store's own, rather than being
+     * written with none: an attempt that never goes stale would read as
+     * current forever.
+     */
+    const freshnessDeadline = attempt.freshnessDeadline
+      || new Date(attempt.observedAt.getTime() + DEFAULT_VERIFICATION_FRESHNESS_MS);
+
+    return this.#transaction(async client => {
+      const owned = await client.query(
+        `SELECT fingerprint FROM nv_exposure_findings
+          WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+            AND fingerprint=$5 AND identity_key=$6
+          FOR UPDATE`,
+        [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, identityKey]
+      );
+      if (!owned.rows.length) {
+        fail('That finding does not exist for this identity', 'EXPOSURE_FINDING_NOT_FOUND', 404);
+      }
+
+      const inserted = await client.query(
+        `INSERT INTO nv_exposure_verifications (
+           verification_id, provider, authority, owner_login, repo_name, fingerprint,
+           identity_key, requested_by, adapter, adapter_version, target_id, authorization_id,
+           state, reason, subject_digest, retry_after_ms, observed_at, freshness_deadline
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         RETURNING *`,
+        [
+          verificationId, scope.provider, scope.authority, scope.owner, scope.repo, fingerprint,
+          identityKey, requestedBy, attempt.adapter, adapterVersion, targetId, authorizationId,
+          attempt.state, attempt.reason,
+          /* Only a verdict names an account; the schema insists on it too. */
+          attempt.state === 'verified' ? attempt.subjectDigest : null,
+          attempt.retryAfterMs, attempt.observedAt, freshnessDeadline
+        ]
+      );
+
+      let finding = null;
+      if (attempt.state === 'rejected') {
+        const moved = await client.query(
+          `UPDATE nv_exposure_findings
+              SET disposition='credential-rejected', disposition_at=$6, disposition_by=NULL
+            WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+              AND fingerprint=$5 AND disposition <> 'accepted-risk'
+           RETURNING *`,
+          [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, attempt.observedAt]
+        );
+        finding = findingFromRow(moved.rows[0] || null);
+      }
+      return Object.freeze({
+        verification: verificationFromRow(inserted.rows[0]),
+        finding
+      });
+    }, 'record a verification');
+  }
+
+  /*
+   * The attempts for one finding, newest first. The history is the point: a
+   * `verified` on Tuesday and a `rejected` on Friday is what proves somebody's
+   * revocation worked, and keeping only the latest answer would throw that
+   * away.
+   */
+  async listVerifications(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Verification identity');
+    const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
+    const limit = boundedInteger(input.limit, 20, 1, MAX_LIST_LIMIT);
+    const found = await this.#query(
+      `SELECT * FROM nv_exposure_verifications
+        WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+          AND fingerprint=$5 AND identity_key=$6
+        ORDER BY observed_at DESC, verification_id
+        LIMIT $7`,
+      [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, identityKey, limit],
+      'list verifications'
+    );
+    return Object.freeze(found.rows.map(verificationFromRow));
+  }
+
+  /*
+   * Recording what the project allowed the anonymous role to read.
+   *
+   * Appended, never updated, and appended whatever the answer -- including the
+   * attempts that never reached the network. An attempt refused for its shape
+   * is evidence too: it says this server was asked to probe something it will
+   * not probe, and a history that kept only the requests that went out could
+   * not show that.
+   *
+   * Unlike a verification this moves no disposition, and that is the honest
+   * behaviour rather than an omission. A readable table is not the credential
+   * being live and a denied one is not the exposure ending: what the anonymous
+   * role can reach says nothing about whether this particular key still works,
+   * so inferring a disposition from it would be inventing a fact.
+   */
+  async recordReadabilityProbe(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Probe identity');
+    const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
+    const requestedBy = requireText(input.requestedBy, 'Probe actor', 255);
+    const attempt = normalizeReadabilityProbe(input.record);
+    if (!attempt) throw new TypeError('A readability probe requires an observation');
+    const probeId = text(input.probeId) || crypto.randomUUID();
+    const authorizationId = text(input.authorizationId) || null;
+    const freshnessDeadline = attempt.freshnessDeadline
+      || new Date(attempt.observedAt.getTime() + DEFAULT_PROBE_FRESHNESS_MS);
+
+    return this.#transaction(async client => {
+      const owned = await client.query(
+        `SELECT fingerprint FROM nv_exposure_findings
+          WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+            AND fingerprint=$5 AND identity_key=$6
+          FOR UPDATE`,
+        [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, identityKey]
+      );
+      if (!owned.rows.length) {
+        fail('That finding does not exist for this identity', 'EXPOSURE_FINDING_NOT_FOUND', 404);
+      }
+      const inserted = await client.query(
+        `INSERT INTO nv_exposure_readability_probes (
+           probe_id, provider, authority, owner_login, repo_name, fingerprint,
+           identity_key, requested_by, authorization_id,
+           project_ref, relation, projection,
+           state, reason, tested_role, row_count, observed_at, freshness_deadline
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         RETURNING *`,
+        [
+          probeId, scope.provider, scope.authority, scope.owner, scope.repo, fingerprint,
+          identityKey, requestedBy, authorizationId,
+          attempt.projectRef, attempt.relation, attempt.projection,
+          attempt.state, attempt.reason, attempt.testedRole, attempt.rowCount,
+          attempt.observedAt, freshnessDeadline
+        ]
+      );
+      return Object.freeze({ probe: readabilityProbeFromRow(inserted.rows[0]) });
+    }, 'record a readability probe');
+  }
+
+  /*
+   * The latest answer of each kind for a page of findings, in two queries
+   * rather than two per finding.
+   *
+   * This exists because a screen that only shows what was asked in the current
+   * session is a screen that forgets. A verification from yesterday and a
+   * readability answer from last week are the evidence a reader came back for,
+   * and making them appear by re-asking would mean using somebody's credential
+   * again to redisplay a fact already recorded.
+   *
+   * Only the latest of each, because that is what a list can show. The full
+   * sequence -- which is what proves a revocation or a policy change landed --
+   * stays behind the history reads, where a reader asks for one finding.
+   */
+  async latestAnswers(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Answer identity');
+    const fingerprints = [...new Set(
+      (Array.isArray(input.fingerprints) ? input.fingerprints : [])
+        .map(value => text(value).toLowerCase())
+        .filter(value => /^[0-9a-f]{64}$/.test(value))
+    )].slice(0, MAX_LIST_LIMIT);
+    if (!fingerprints.length) {
+      return Object.freeze({ verifications: Object.freeze({}), probes: Object.freeze({}) });
+    }
+    const parameters = [scope.provider, scope.authority, scope.owner, scope.repo, identityKey, fingerprints];
+    const [verifications, probes] = await Promise.all([
+      this.#query(
+        `SELECT DISTINCT ON (fingerprint) * FROM nv_exposure_verifications
+          WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+            AND identity_key=$5 AND fingerprint = ANY($6)
+          ORDER BY fingerprint, observed_at DESC, verification_id`,
+        parameters,
+        'read the latest verifications'
+      ),
+      this.#query(
+        `SELECT DISTINCT ON (fingerprint) * FROM nv_exposure_readability_probes
+          WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+            AND identity_key=$5 AND fingerprint = ANY($6)
+          ORDER BY fingerprint, observed_at DESC, probe_id`,
+        parameters,
+        'read the latest readability probes'
+      )
+    ]);
+    const index = (rows, map) => Object.freeze(Object.fromEntries(
+      rows.map(row => [row.fingerprint, map(row)])
+    ));
+    return Object.freeze({
+      verifications: index(verifications.rows, verificationFromRow),
+      probes: index(probes.rows, readabilityProbeFromRow)
+    });
+  }
+
+  /*
+   * The probes for one finding, newest first. The history is the point here
+   * too: "readable on Tuesday, denied on Friday" is what shows somebody's
+   * policy change landed, and it is the only evidence that it did.
+   */
+  async listReadabilityProbes(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Probe identity');
+    const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
+    const limit = boundedInteger(input.limit, 20, 1, MAX_LIST_LIMIT);
+    const found = await this.#query(
+      `SELECT * FROM nv_exposure_readability_probes
+        WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+          AND fingerprint=$5 AND identity_key=$6
+        ORDER BY observed_at DESC, probe_id
+        LIMIT $7`,
+      [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, identityKey, limit],
+      'list readability probes'
+    );
+    return Object.freeze(found.rows.map(readabilityProbeFromRow));
+  }
+
   /* A person decided. It records who, and the schema insists on that. */
   async acceptRisk(input = {}) {
     const scope = requireScope(input.scope);
@@ -871,6 +1214,8 @@ class ExposureStore {
 
 module.exports = Object.freeze({
   COVERAGE,
+  DEFAULT_PROBE_FRESHNESS_MS,
+  DEFAULT_VERIFICATION_FRESHNESS_MS,
   DISPOSITIONS,
   EXPOSURE_CONFIG_VERSION,
   ExposureStore,

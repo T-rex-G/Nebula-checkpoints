@@ -147,9 +147,20 @@ const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { startExposureWorker } = require('./src/exposure-worker');
-const { RULES_VERSION, DETECTION_ENGINE_VERSION } = require('./src/exposure-detection');
-const { FINGERPRINT_KEY_VERSION } = require('./src/exposure-findings');
-const { describeFinding } = require('./src/exposure-narration');
+const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
+
+const { describeDisposition, describeFinding, describeProbe, describeVerification } = require('./src/exposure-narration');
+const {
+  FINGERPRINT_KEY_VERSION, buildFindings, revealForVerification
+} = require('./src/exposure-findings');
+
+const {
+  adapterForCandidate, signVerificationAuthorization, verifyCredential
+} = require('./src/credential-verification');
+const {
+  OPERATIONS: READABILITY_OPERATIONS,
+  discoverProject, probeAnonymousReadability, signReadabilityAuthorization
+} = require('./src/anonymous-readability-probe');
 const exposureReader = require('./src/exposure-reader');
 const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('./src/exposure-store');
 const {
@@ -206,6 +217,21 @@ const RATE_LIMIT_IDENTITY_KEY = deriveKey(SECRET, KEY_PURPOSES.RATE_LIMIT_IDENTI
  * backlog resolved.
  */
 const EXPOSURE_FINGERPRINT_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_FINDING_FINGERPRINT);
+/*
+ * The grant a verification probe requires, and the key that digests the
+ * provider account it comes back with. Separate purposes because one is a
+ * MAC over a grant this server issued and the other a MAC over a value a
+ * provider told us.
+ */
+const EXPOSURE_VERIFICATION_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_VERIFICATION_AUTHORIZATION);
+const EXPOSURE_VERIFICATION_SUBJECT_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_VERIFICATION_SUBJECT);
+/*
+ * And the grant a readability probe requires, which is a third purpose rather
+ * than a reuse of the second. A grant to ask a provider "is this credential
+ * yours" is not a grant to ask a project "may the public read this table", and
+ * a shared key would make one signature satisfy both checks.
+ */
+const EXPOSURE_READABILITY_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_READABILITY_AUTHORIZATION);
 /*
  * Evidence verification holds two keyrings, assembled together in
  * src/intelligence.js so their retired lists cannot drift apart.
@@ -356,7 +382,6 @@ function receiveRawFile(req, tmp, maxBytes, hash) {
   });
 }
 
-
 async function scanUploadOrThrow(req, tmp, repoPath, size) {
   const result = await scanUploadFile(tmp, { repoPath, size });
   if (result.blocked) {
@@ -389,7 +414,6 @@ async function scanUploadOrThrow(req, tmp, repoPath, size) {
     }
   };
 }
-
 
 const STALE_UPLOAD_HOURS = HOSTED_LIMITS?.staleUploadHours ?? Math.min(Math.max(parseInt(process.env.NV_STALE_UPLOAD_HOURS || '6', 10) || 6, 1), 72);
 const STALE_UPLOAD_AGE_MS = STALE_UPLOAD_HOURS * 60 * 60 * 1000;
@@ -2617,6 +2641,25 @@ function governanceMutationMetadata(req, action) {
         simulationHash: cleanText(String(simulation.simulationHash || ''), 64).toLowerCase()
       };
     }
+    /*
+     * The two exposure actions that contact somebody else. Every other one
+     * records only that it happened, which is right for a decision this server
+     * makes about its own rows -- but a request refused before it reached the
+     * store (an unconfirmed press, a key that is not the anonymous one, a file
+     * with no project beside it) leaves no attempt row anywhere, so the ledger
+     * is the only place that remembers it was asked for.
+     *
+     * The column names stay out. The count bounds the request, and the probe
+     * table already holds the names for the probes that actually ran.
+     */
+    case 'exposure.credential.verify':
+      return { fingerprint: boundedId(req.params.fingerprint) };
+    case 'exposure.readability.probe':
+      return {
+        fingerprint: boundedId(req.params.fingerprint),
+        relation: cleanText(String(body.relation || ''), 64),
+        columnCount: Array.isArray(body.projection) ? Math.min(body.projection.length, 100) : 0
+      };
     case 'governance.notification.preferences.update':
       return {
         enabled: body.enabled === true,
@@ -4450,7 +4493,6 @@ app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionI
   } catch (error) { governanceFailure(res, error); }
 });
 
-
 app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const simulation = await req.governance.service.simulateVersion({
@@ -4628,21 +4670,53 @@ app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSession
   } catch (error) { exposureFailure(res, error); }
 });
 
+/*
+ * The narration travels with the finding rather than being rebuilt in the
+ * browser. It is a lookup table, so the words are the same wherever they are
+ * read, and keeping it server-side means the table is reviewed in one place
+ * rather than in two languages.
+ *
+ * Both sentences, and they are not the same sentence. `narration` says what
+ * the credential is and what it costs; `dispositionNarration` says what this
+ * repository has since decided about it. A screen that shows the first and
+ * prints the second as a slug ("Status: accepted-risk") makes the decision
+ * look like machine bookkeeping rather than something a named person did.
+ */
+function exposureFindingPayload(finding) {
+  if (!finding) return null;
+  return {
+    ...finding,
+    narration: describeFinding(finding),
+    dispositionNarration: describeDisposition(finding.disposition)
+  };
+}
+
 app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
-    const findings = await exposureService().listFindings({
-      scope: req.governance.scope,
-      identityKey: req.governance.actor.identityKey,
+    const store = exposureService();
+    const scope = req.governance.scope;
+    const identityKey = req.governance.actor.identityKey;
+    const findings = await store.listFindings({
+      scope, identityKey,
       limit: Number.parseInt(String(req.query.limit || '50'), 10)
     });
     /*
-     * The narration travels with the finding rather than being rebuilt in the
-     * browser. It is a lookup table, so the words are the same wherever they
-     * are read, and keeping it server-side means the table is reviewed in one
-     * place rather than in two languages.
+     * And the latest answer of each kind, in one round trip rather than one
+     * per finding. A screen that showed only what was asked in the current
+     * session would forget, and making a week-old answer reappear by asking
+     * again would mean using somebody's credential a second time to redisplay
+     * a fact already recorded.
      */
+    const answers = await store.latestAnswers({
+      scope, identityKey,
+      fingerprints: findings.map(finding => finding.fingerprint)
+    });
     res.json({
-      findings: findings.map(finding => ({ ...finding, narration: describeFinding(finding) }))
+      findings: findings.map(exposureFindingPayload),
+      verifications: Object.fromEntries(Object.entries(answers.verifications)
+        .map(([fingerprint, item]) => [fingerprint, { ...item, narration: describeVerification(item) }])),
+      probes: Object.fromEntries(Object.entries(answers.probes)
+        .map(([fingerprint, item]) => [fingerprint, { ...item, narration: describeProbe(item) }]))
     });
   } catch (error) { exposureFailure(res, error); }
 });
@@ -4658,7 +4732,315 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSe
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('administrator'), governanceMutationContext('exposure.finding.accept-risk'), async (req, res) => {
+/*
+ * Asking the provider whether a discovered credential is still live.
+ *
+ * This is the most consequential thing the feature does: it takes a credential
+ * found in somebody's repository and sends it to a third party. So it is the
+ * one route that asks for an explicit word rather than a click, and the word
+ * is checked before anything is read.
+ *
+ * The interesting part is where the credential comes from. Nothing stored it --
+ * that is the whole design of `nv_exposure_findings`, which holds a keyed
+ * fingerprint, a generated placeholder and bounded line numbers. So the bytes
+ * are recovered the only honest way: re-read that blob from the provider at
+ * the commit the finding recorded, run detection over it again, and take the
+ * candidate whose fingerprint matches. If the file changed, no candidate
+ * matches and nothing is sent.
+ *
+ * The bytes exist for the length of one probe and are never written down. That
+ * is a weaker claim than "erased" and it is the true one: a JavaScript string
+ * cannot be wiped, so what is promised is that no copy is kept.
+ */
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.credential.verify'), async (req, res) => {
+  try {
+    const store = exposureService();
+    const scope = req.governance.scope;
+    const identityKey = req.governance.actor.identityKey;
+    const fingerprint = String(req.params.fingerprint || '').toLowerCase();
+
+    /*
+     * The explicit word. A button that reads "check this" and a request that
+     * says so are not the same thing: this is the confirmation the plan
+     * requires an operator to give before a credential is used, and it is
+     * refused before any repository read happens.
+     */
+    if (String(req.body && req.body.confirm || '') !== 'use-this-credential') {
+      return res.status(400).json({
+        error: 'Verifying a credential requires an explicit confirmation',
+        code: 'EXPOSURE_VERIFY_UNCONFIRMED'
+      });
+    }
+
+    const findings = await store.listFindings({ scope, identityKey, limit: 200 });
+    const finding = findings.find(item => item.fingerprint === fingerprint);
+    if (!finding) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_FINDING_NOT_FOUND' });
+
+    /*
+     * Re-read, re-detect, and match by fingerprint. A file that changed since
+     * the scan yields no match, and that is reported rather than guessed at:
+     * verifying a credential the repository no longer contains would be using
+     * a secret nobody asked about.
+     */
+    const tree = await exposureReader.readTree({
+      scope, commitSha: finding.commit, token: req.gh.token
+    });
+    const entry = tree.entries.find(item => item.path === finding.path);
+    if (!entry) {
+      return res.status(409).json({ error: 'That file is no longer readable at that commit', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+    const blob = await exposureReader.readBlob({
+      scope, sha: entry.sha, path: entry.path, token: req.gh.token
+    });
+    if (blob.skip || typeof blob.text !== 'string') {
+      return res.status(409).json({ error: 'That file could not be read', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+    const built = buildFindings({
+      detection: detectInText({ text: blob.text, path: finding.path }),
+      path: finding.path, scope, commit: finding.commit,
+      hmacKey: EXPOSURE_FINGERPRINT_KEY, keyVersion: finding.fingerprintKeyVersion
+    });
+    const probe = built.probes.find(item => item.fingerprint === fingerprint);
+    if (!probe) {
+      return res.status(409).json({ error: 'That credential is no longer at that location', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+
+    /*
+     * The grant is minted here and spent immediately, which is not
+     * ceremony. It binds the probe to this candidate, this repository, this
+     * commit, this adapter and this target, and the verifier checks all of it
+     * -- so the verifier cannot be called for anything other than what this
+     * route resolved, even by a future caller in this file.
+     */
+    const candidate = revealForVerification(probe);
+    const adapter = adapterForCandidate(candidate);
+    const issuedAt = new Date();
+    const authorizationId = crypto.randomUUID();
+    const authorization = signVerificationAuthorization({
+      hmacKey: EXPOSURE_VERIFICATION_KEY,
+      authorizationId,
+      actorLogin: retainedActor(req),
+      scope,
+      commit: finding.commit,
+      candidateFingerprint: fingerprint,
+      adapter: adapter ? adapter.id : 'none',
+      targetId: adapter ? adapter.targetId : 'none',
+      issuedAt: issuedAt.toISOString(),
+      expiresAt: new Date(issuedAt.getTime() + 60_000).toISOString()
+    });
+
+    const record = await verifyCredential({
+      candidate,
+      authorization,
+      authorizationKey: EXPOSURE_VERIFICATION_KEY,
+      subjectKey: EXPOSURE_VERIFICATION_SUBJECT_KEY,
+      actorLogin: retainedActor(req),
+      now: issuedAt.getTime()
+    });
+
+    const stored = await store.recordVerification({
+      scope, identityKey, fingerprint,
+      requestedBy: retainedActor(req),
+      adapterVersion: record.adapterVersion,
+      targetId: record.targetId,
+      authorizationId,
+      record
+    });
+    res.status(201).json({
+      verification: stored.verification,
+      finding: exposureFindingPayload(stored.finding),
+      narration: describeVerification(record)
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const verifications = await exposureService().listVerifications({
+      scope: req.governance.scope,
+      identityKey: req.governance.actor.identityKey,
+      fingerprint: String(req.params.fingerprint || '').toLowerCase(),
+      limit: Number.parseInt(String(req.query.limit || '20'), 10)
+    });
+    res.json({
+      verifications: verifications.map(item => ({ ...item, narration: describeVerification(item) }))
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * Asking a project what the anonymous role can read.
+ *
+ * This is the one question a scan cannot answer by looking. An anonymous key
+ * in a repository is published on purpose -- it is in the browser bundle of
+ * every app that uses one -- and whether it can read anything is decided by
+ * row-level security policies that live in somebody's project, not in their
+ * tree. Reporting the key as a leak would make every project a critical
+ * finding; reporting nothing would miss the projects where the policies are
+ * open. So the product asks.
+ *
+ * Three things an operator supplies and this route will not invent: the
+ * confirmation, the relation, and the columns. A probe against a table nobody
+ * named would be this server choosing what to read out of somebody's
+ * database, and the grant is signed over exactly what was named so the prober
+ * cannot be asked for anything else.
+ */
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.readability.probe'), async (req, res) => {
+  try {
+    const store = exposureService();
+    const scope = req.governance.scope;
+    const identityKey = req.governance.actor.identityKey;
+    const fingerprint = String(req.params.fingerprint || '').toLowerCase();
+    const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
+
+    /* Refused before any repository read, like the verification confirmation
+       beside it: this contacts a third party's project. */
+    if (String(body.confirm || '') !== 'contact-this-project') {
+      return res.status(400).json({
+        error: 'Probing readability requires an explicit confirmation',
+        code: 'EXPOSURE_PROBE_UNCONFIRMED'
+      });
+    }
+    const relation = String(body.relation || '').trim();
+    const projection = (Array.isArray(body.projection) ? body.projection : [])
+      .map(column => String(column || '').trim());
+
+    const findings = await store.listFindings({ scope, identityKey, limit: 200 });
+    const finding = findings.find(item => item.fingerprint === fingerprint);
+    if (!finding) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_FINDING_NOT_FOUND' });
+
+    /*
+     * Only the anonymous key. A service-role key looks almost exactly like it
+     * and bypasses every policy, so a probe with one comes back readable
+     * whatever the project permits: it would prove nothing and would have used
+     * an administrator credential to do it. The prober refuses it too; this
+     * refuses it earlier, without reading the file.
+     */
+    if (finding.rule !== 'supabase-anon-key') {
+      return res.status(400).json({
+        error: 'Only an anonymous key can be used to ask what the public can read',
+        code: 'EXPOSURE_PROBE_NOT_ANONYMOUS'
+      });
+    }
+
+    const tree = await exposureReader.readTree({
+      scope, commitSha: finding.commit, token: req.gh.token
+    });
+    const entry = tree.entries.find(item => item.path === finding.path);
+    if (!entry) {
+      return res.status(409).json({ error: 'That file is no longer readable at that commit', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+    const blob = await exposureReader.readBlob({
+      scope, sha: entry.sha, path: entry.path, token: req.gh.token
+    });
+    if (blob.skip || typeof blob.text !== 'string') {
+      return res.status(409).json({ error: 'That file could not be read', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+
+    /*
+     * The project reference comes out of the same file, and `discoverProject`
+     * rebuilds the origin from twenty validated letters rather than copying a
+     * URL somebody put in a repository. Without one there is nothing to ask,
+     * and that is reported rather than guessed at.
+     */
+    const project = discoverProject(blob.text);
+    if (!project) {
+      return res.status(409).json({
+        error: 'No project reference was found beside that key',
+        code: 'EXPOSURE_PROBE_NO_PROJECT'
+      });
+    }
+
+    const built = buildFindings({
+      detection: detectInText({ text: blob.text, path: finding.path }),
+      path: finding.path, scope, commit: finding.commit,
+      hmacKey: EXPOSURE_FINGERPRINT_KEY, keyVersion: finding.fingerprintKeyVersion
+    });
+    const found = built.probes.find(item => item.fingerprint === fingerprint);
+    if (!found) {
+      return res.status(409).json({ error: 'That credential is no longer at that location', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+
+    /*
+     * Minted here and spent immediately. It binds the probe to this candidate,
+     * this repository, this commit, this project, this relation and these
+     * columns in this order -- and the prober checks all of it, so it cannot
+     * be called for anything other than what an operator named.
+     */
+    const candidate = revealForVerification(found);
+    const issuedAt = new Date();
+    const authorizationId = crypto.randomUUID();
+    const authorization = signReadabilityAuthorization({
+      hmacKey: EXPOSURE_READABILITY_KEY,
+      operation: READABILITY_OPERATIONS.PROBE,
+      authorizationId,
+      actorLogin: retainedActor(req),
+      scope,
+      commit: finding.commit,
+      candidateFingerprint: fingerprint,
+      projectRef: project.projectRef,
+      relation,
+      projection,
+      issuedAt: issuedAt.toISOString(),
+      expiresAt: new Date(issuedAt.getTime() + 60_000).toISOString()
+    });
+
+    const record = await probeAnonymousReadability({
+      candidate,
+      anonKey: candidate.secret,
+      authorization,
+      authorizationKey: EXPOSURE_READABILITY_KEY,
+      actorLogin: retainedActor(req),
+      projectRef: project.projectRef,
+      relation,
+      projection,
+      now: issuedAt.getTime()
+    });
+
+    const stored = await store.recordReadabilityProbe({
+      scope, identityKey, fingerprint,
+      requestedBy: retainedActor(req),
+      authorizationId,
+      record
+    });
+    res.status(201).json({
+      probe: stored.probe,
+      narration: describeProbe(record)
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const probes = await exposureService().listReadabilityProbes({
+      scope: req.governance.scope,
+      identityKey: req.governance.actor.identityKey,
+      fingerprint: String(req.params.fingerprint || '').toLowerCase(),
+      limit: Number.parseInt(String(req.query.limit || '20'), 10)
+    });
+    res.json({ probes: probes.map(item => ({ ...item, narration: describeProbe(item) })) });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * Accepting the risk of a finding.
+ *
+ * This was gated on the capability being Supported, and that was wrong. It
+ * performs no outbound request, uses no credential and changes nothing at the
+ * provider: it records that a named person looked at a finding and decided it
+ * was acceptable, and the finding stays listed under that disposition.
+ *
+ * What blocking it actually produced was a reader with a false positive -- a
+ * documentation example, a deliberately public fixture token -- and no way to
+ * triage it, so every scan re-reported it. A screen that cannot be cleared is
+ * a screen people stop reading, which costs more than the thing the gate was
+ * protecting.
+ *
+ * The meaningful control here is the role, and it stays: a repository reader
+ * cannot wave away their own finding, and a governance administrator who does
+ * has their name on it.
+ */
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.finding.accept-risk'), async (req, res) => {
   try {
     const finding = await exposureService().acceptRisk({
       scope: req.governance.scope,
@@ -4667,7 +5049,7 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', pr
       actor: retainedActor(req)
     });
     if (!finding) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_FINDING_NOT_FOUND' });
-    res.status(201).json({ finding });
+    res.status(201).json({ finding: exposureFindingPayload(finding) });
   } catch (error) { exposureFailure(res, error); }
 });
 
@@ -5315,7 +5697,6 @@ app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryA
     res.json((out.items || []).map(i => ({ name: i.name, path: i.path })));
   } catch (e) { fail(res, e); }
 });
-
 
 async function enforceProtectedPullMerge(req, number) {
   if (!protectedPatternsForReq(req).length) return;
@@ -6333,7 +6714,6 @@ app.get('/api/repo/:owner/:repo/refs-snapshot', providerSessionAccess, alphaRepo
   catch (e) { fail(res, e); }
 });
 
-
 function validateSnapshotForRequest(req, snapshot) {
   if (!snapshot || typeof snapshot !== 'object' || !Array.isArray(snapshot.refs)) {
     throw Object.assign(new Error('A valid Nebulaverse-X snapshot with refs is required'), { status: 400, code: 'INVALID_SNAPSHOT' });
@@ -6441,7 +6821,6 @@ app.post('/api/repo/:owner/:repo/signed-snapshot', providerSessionAccess, alphaR
     });
   } catch (e) { fail(res, e); }
 });
-
 
 app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
@@ -6944,7 +7323,6 @@ function guessMime(p) {
   };
   return map[path.extname(p || '').toLowerCase()] || 'application/octet-stream';
 }
-
 
 /* ================= LIVE INTELLIGENCE + EVIDENCE (v5.2) ================= */
 app.get('/api/repo/:owner/:repo/live-events/status', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, async (req, res) => {

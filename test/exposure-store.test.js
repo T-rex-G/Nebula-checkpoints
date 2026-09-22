@@ -730,6 +730,313 @@ async function claim(store, now = T0) {
       assert.strictEqual(orphans.rows[0].total, 0);
     }
 
+    /* ---- Verification attempts are history, not a column ---------------- */
+
+    /*
+     * The sequence is the point. "Verified live on Tuesday, rejected on
+     * Friday" is what proves somebody's revocation worked; a single mutable
+     * column would keep only the last answer and throw that away.
+     */
+    {
+      const target = fingerprint('one');
+      const base = T0 + 2_000_000;
+
+      const live = await store.recordVerification({
+        scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+        adapterVersion: 1, targetId: 'api.github.com', authorizationId: 'grant-1',
+        record: {
+          state: 'verified', reason: 'identity-confirmed', adapter: 'github-user-token',
+          subjectDigest: '1'.repeat(32),
+          observedAt: new Date(base).toISOString(),
+          freshnessDeadline: new Date(base + 86_400_000).toISOString(),
+          retryAfterMs: null
+        }
+      });
+      assert.strictEqual(live.verification.state, 'verified');
+      assert.strictEqual(live.verification.adapter, 'github-user-token');
+      assert.strictEqual(live.verification.subjectDigest, '1'.repeat(32));
+      assert.strictEqual(live.verification.requestedBy, 'alice');
+      assert.strictEqual(
+        live.finding, null,
+        'a live credential does not move the finding: it was already open'
+      );
+
+      /* An unverifiable attempt never reached an account, so it names none. */
+      const couldNotTell = await store.recordVerification({
+        scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+        record: {
+          state: 'unverifiable', reason: 'provider-throttled', adapter: 'github-user-token',
+          subjectDigest: '2'.repeat(32),
+          observedAt: new Date(base + 1000).toISOString(),
+          retryAfterMs: 60_000
+        }
+      });
+      assert.strictEqual(couldNotTell.verification.state, 'unverifiable');
+      assert.strictEqual(
+        couldNotTell.verification.subjectDigest, null,
+        'an attempt that reached no account must not record one'
+      );
+      assert.strictEqual(couldNotTell.verification.retryAfterMs, 60_000);
+
+      /*
+       * And the provider saying no is the one answer that ends an exposure, so
+       * it moves the finding in the same transaction that records it.
+       */
+      const refused = await store.recordVerification({
+        scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+        record: {
+          state: 'rejected', reason: 'credential-refused', adapter: 'github-user-token',
+          observedAt: new Date(base + 2000).toISOString()
+        }
+      });
+      assert.strictEqual(refused.verification.state, 'rejected');
+      assert.strictEqual(refused.finding.disposition, 'credential-rejected');
+      assert.strictEqual(
+        refused.finding.dispositionBy, null,
+        'the provider said no, not a person'
+      );
+
+      /* All three kept, newest first. */
+      const history = await store.listVerifications({
+        scope, identityKey: IDENTITY, fingerprint: target, limit: 10
+      });
+      assert.deepStrictEqual(
+        history.map(item => item.state), ['rejected', 'unverifiable', 'verified'],
+        'every attempt is kept, and the order is the story'
+      );
+
+      /* A default deadline is supplied rather than left open: an attempt that
+         never goes stale would read as current forever. */
+      assert(Date.parse(history[0].freshnessDeadline) > Date.parse(history[0].observedAt));
+    }
+
+    /* A person's decision is not overturned by a later provider answer. */
+    {
+      const target = fingerprint('two');
+      const accepted = await store.listFindings({
+        scope, identityKey: IDENTITY, dispositions: ['accepted-risk'], limit: 10
+      });
+      assert.strictEqual(accepted[0].fingerprint, target, 'the fixture must already be accepted');
+
+      const refused = await store.recordVerification({
+        scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+        record: {
+          state: 'rejected', reason: 'credential-refused', adapter: 'slack-user-token',
+          observedAt: new Date(T0 + 2_100_000).toISOString()
+        }
+      });
+      assert.strictEqual(refused.verification.state, 'rejected', 'the attempt is still recorded');
+      assert.strictEqual(
+        refused.finding, null,
+        'but an accepted risk is a person\'s decision and a provider does not overturn it'
+      );
+      const stillAccepted = await store.listFindings({
+        scope, identityKey: IDENTITY, dispositions: ['accepted-risk'], limit: 10
+      });
+      assert.strictEqual(stillAccepted.length, 1);
+    }
+
+    /* The identity boundary, here as everywhere. */
+    {
+      const target = fingerprint('one');
+      await assert.rejects(
+        store.recordVerification({
+          scope, identityKey: OTHER_IDENTITY, fingerprint: target, requestedBy: 'mallory',
+          record: { state: 'verified', reason: 'identity-confirmed', adapter: 'github-user-token', observedAt: new Date(T0).toISOString() }
+        }),
+        error => error.code === 'EXPOSURE_FINDING_NOT_FOUND' && error.status === 404,
+        'another identity cannot record an attempt against this finding'
+      );
+      assert.deepStrictEqual(
+        await store.listVerifications({ scope, identityKey: OTHER_IDENTITY, fingerprint: target, limit: 10 }),
+        []
+      );
+    }
+
+    /* ---- Readability probes are history too ----------------------------- */
+
+    /*
+     * The same shape and one crucial difference: a probe never moves a
+     * finding. "The anonymous role can read this table" and "this key still
+     * works" are different facts, and a probe that changed a disposition would
+     * be reporting the second on the evidence of the first.
+     */
+    {
+      const target = fingerprint('one');
+      const base = T0 + 2_200_000;
+      const project = 'q'.repeat(20);
+
+      const readable = await store.recordReadabilityProbe({
+        scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+        authorizationId: 'probe-grant-1',
+        record: {
+          state: 'readable', reason: 'rows-visible',
+          projectRef: project, relation: 'profiles', projection: ['id', 'email'],
+          testedRole: 'anon', rowCount: 1,
+          observedAt: new Date(base).toISOString()
+        }
+      });
+      assert.strictEqual(readable.probe.state, 'readable');
+      assert.strictEqual(readable.probe.rowCount, 1);
+      assert.strictEqual(readable.probe.relation, 'profiles');
+      assert.deepStrictEqual(
+        readable.probe.projection, ['id', 'email'],
+        'the question comes back in the order it was asked, because the grant was signed over that order'
+      );
+      /* A default deadline, and a shorter one than a verification's: a policy
+         is a far more ordinary thing to change in an afternoon than a key. */
+      assert(Date.parse(readable.probe.freshnessDeadline) > Date.parse(readable.probe.observedAt));
+      assert(
+        Date.parse(readable.probe.freshnessDeadline) - Date.parse(readable.probe.observedAt) <= 24 * 60 * 60 * 1000,
+        'a readability answer goes stale sooner than a credential answer'
+      );
+
+      /* A refused shape never reached the network and is recorded anyway: it
+         says this server was asked to probe something it will not probe. */
+      const refusedShape = await store.recordReadabilityProbe({
+        scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+        record: {
+          state: 'unverifiable', reason: 'relation-refused',
+          projectRef: project, relation: 'auth.users', projection: ['*'],
+          rowCount: 0,
+          observedAt: new Date(base + 1000).toISOString()
+        }
+      });
+      assert.strictEqual(refusedShape.probe.state, 'unverifiable');
+      assert.strictEqual(
+        refusedShape.probe.relation, null,
+        'a relation this server refuses to ask about is not stored as though it had been asked'
+      );
+      assert.deepStrictEqual(refusedShape.probe.projection, []);
+
+      const denied = await store.recordReadabilityProbe({
+        scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+        record: {
+          state: 'denied', reason: 'access-denied-for-tested-request',
+          projectRef: project, relation: 'profiles', projection: ['id'],
+          testedRole: 'publishable', rowCount: 0,
+          observedAt: new Date(base + 2000).toISOString()
+        }
+      });
+      assert.strictEqual(denied.probe.testedRole, 'publishable');
+
+      const history = await store.listReadabilityProbes({
+        scope, identityKey: IDENTITY, fingerprint: target, limit: 10
+      });
+      assert.deepStrictEqual(
+        history.map(item => item.state), ['denied', 'unverifiable', 'readable'],
+        'every probe is kept, and the order is the story'
+      );
+
+      /* And the finding is exactly where it was. */
+      const untouched = await store.listFindings({ scope, identityKey: IDENTITY, limit: 20 });
+      assert.strictEqual(
+        untouched.find(item => item.fingerprint === target).disposition, 'credential-rejected',
+        'a probe moves no disposition: the provider answer above is still the only thing that did'
+      );
+
+      /* A record disagreeing with itself is refused here, not at the database:
+         the constraint violation would be unreadable. */
+      await assert.rejects(
+        store.recordReadabilityProbe({
+          scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+          record: {
+            state: 'denied', reason: 'access-denied-for-tested-request',
+            projectRef: project, relation: 'profiles', projection: ['id'],
+            testedRole: 'anon', rowCount: 1,
+            observedAt: new Date(base + 3000).toISOString()
+          }
+        }),
+        /row count must agree with its state/
+      );
+
+      /* A service-role answer is not the anonymous role's and is not storable
+         as one. */
+      await assert.rejects(
+        store.recordReadabilityProbe({
+          scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+          record: {
+            state: 'denied', reason: 'key-not-anonymous',
+            projectRef: project, relation: 'profiles', projection: ['id'],
+            testedRole: 'service-role', rowCount: 0,
+            observedAt: new Date(base + 4000).toISOString()
+          }
+        }),
+        /tested role must be the anonymous role/
+      );
+
+      /* The identity boundary, here as everywhere. */
+      await assert.rejects(
+        store.recordReadabilityProbe({
+          scope, identityKey: OTHER_IDENTITY, fingerprint: target, requestedBy: 'mallory',
+          record: {
+            state: 'denied', reason: 'access-denied-for-tested-request',
+            projectRef: project, relation: 'profiles', projection: ['id'],
+            testedRole: 'anon', rowCount: 0,
+            observedAt: new Date(base + 5000).toISOString()
+          }
+        }),
+        error => error.code === 'EXPOSURE_FINDING_NOT_FOUND' && error.status === 404
+      );
+      assert.deepStrictEqual(
+        await store.listReadabilityProbes({ scope, identityKey: OTHER_IDENTITY, fingerprint: target, limit: 10 }),
+        []
+      );
+    }
+
+    /* ---- The latest answers, for a list that does not forget ------------ */
+
+    /*
+     * A screen showing only what was asked in this session is a screen that
+     * forgets, and making a week-old answer reappear by asking again would
+     * mean using somebody's credential a second time to redisplay a fact
+     * already recorded. So the list carries the latest of each kind, in two
+     * queries rather than two per finding.
+     */
+    {
+      const one = fingerprint('one');
+      const two = fingerprint('two');
+      const answers = await store.latestAnswers({
+        scope, identityKey: IDENTITY, fingerprints: [one, two, fingerprint('three')]
+      });
+
+      /* The latest, not the first: three verifications were recorded against
+         `one` above and the newest is the rejection. */
+      assert.strictEqual(answers.verifications[one].state, 'rejected');
+      assert.strictEqual(answers.verifications[two].state, 'rejected');
+      /* And the latest probe, which was the denial rather than the readable
+         answer that preceded it. */
+      assert.strictEqual(answers.probes[one].state, 'denied');
+      assert.strictEqual(
+        answers.probes[two], undefined,
+        'a finding nobody probed has no probe, rather than an invented one'
+      );
+      assert.strictEqual(
+        answers.verifications[fingerprint('three')], undefined,
+        'and a finding nobody asked about has neither'
+      );
+
+      /* The identity boundary is in the query, as everywhere else here. */
+      const stranger = await store.latestAnswers({
+        scope, identityKey: OTHER_IDENTITY, fingerprints: [one, two]
+      });
+      assert.deepStrictEqual(stranger.verifications, {});
+      assert.deepStrictEqual(stranger.probes, {});
+
+      /* An empty or unusable list asks nothing rather than asking for
+         everything. */
+      assert.deepStrictEqual(
+        await store.latestAnswers({ scope, identityKey: IDENTITY, fingerprints: [] }),
+        { verifications: {}, probes: {} }
+      );
+      assert.deepStrictEqual(
+        await store.latestAnswers({ scope, identityKey: IDENTITY, fingerprints: ['not-a-digest', ''] }),
+        { verifications: {}, probes: {} }
+      );
+    }
+
+    /* ---- The attempt table holds no credential either ------------------- */
+
     /* ---- No row, anywhere, can carry a credential ----------------------- */
 
     /*
@@ -739,7 +1046,7 @@ async function claim(store, now = T0) {
      * the whole table.
      */
     {
-      const tables = ['nv_exposure_scans', 'nv_exposure_findings', 'nv_exposure_observations'];
+      const tables = ['nv_exposure_scans', 'nv_exposure_findings', 'nv_exposure_observations', 'nv_exposure_verifications', 'nv_exposure_readability_probes'];
       let cellsExamined = 0;
       for (const table of tables) {
         const dumped = await pool.query(`SELECT to_jsonb(row) AS row FROM ${table} AS row`);
@@ -790,9 +1097,16 @@ async function claim(store, now = T0) {
         .filter(row => row.data_type === 'text')
         .map(row => `${row.table_name}.${row.column_name}`);
       const unbounded = [];
-      const sql = require('fs').readFileSync(
-        path.join(DIRECTORY, '022_exposure_scans.sql'), 'utf8'
-      );
+      /*
+       * Every migration that defines one of these tables, not just the first.
+       * The column list comes from the live catalog and spans all of them, so
+       * reading one file made a column added later look unconstrained -- which
+       * is how this check would have decayed into noise the moment somebody
+       * added a table.
+       */
+      const sql = ['022_exposure_scans.sql', '023_exposure_verifications.sql', '024_exposure_readability_probes.sql']
+        .map(file => require('fs').readFileSync(path.join(DIRECTORY, file), 'utf8'))
+        .join('\n');
       for (const column of textColumns) {
         const name = column.split('.')[1];
         const constrained = new RegExp(`${name} text[^,]*CHECK`, 's').test(sql)

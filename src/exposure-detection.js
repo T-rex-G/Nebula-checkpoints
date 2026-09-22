@@ -1,6 +1,7 @@
 'use strict';
 
 const { RULES } = require('./secret-scanner');
+const { KEY_KINDS, KEY_PATTERN, classifyKey } = require('./supabase-key-kinds');
 
 /*
  * Finding every credential in a file, rather than proving one exists.
@@ -40,16 +41,62 @@ const { RULES } = require('./secret-scanner');
  */
 
 /*
+ * Rules that belong to a scan rather than to the release gate.
+ *
+ * The gate asks one question -- is there a secret in this repository -- and
+ * every rule it carries has to be a secret, because a rule that is not fails
+ * builds for things that are fine. A Supabase anonymous key is published in
+ * client bundles by design; putting it in the shared set would break every
+ * repository that legitimately ships one, which is why these are not there.
+ *
+ * A scan asks a wider question: what in this tree decides who can read the
+ * data. An anonymous key is the input to that question, not the answer --
+ * whether it can read anything is decided by policies this server cannot see
+ * from the outside, and the only honest way to find out is to ask. So the key
+ * is detected here so it can be asked about, and its narration says plainly
+ * that finding one is not itself a leak.
+ *
+ * The service-role key beside it is the opposite case and is here for the
+ * opposite reason: it bypasses every policy, so its presence needs no probe
+ * to be serious. Both come out of the same shape, and which is which is
+ * decided by decoding the key rather than by where it was found.
+ */
+const EXPOSURE_RULES = Object.freeze([
+  Object.freeze({
+    rule: 'supabase-anon-key',
+    regex: KEY_PATTERN,
+    accept: secret => {
+      const kind = classifyKey(secret).kind;
+      return kind === KEY_KINDS.ANON || kind === KEY_KINDS.PUBLISHABLE;
+    }
+  }),
+  Object.freeze({
+    rule: 'supabase-service-role-key',
+    regex: KEY_PATTERN,
+    /*
+     * `sb_secret_` as well as the JWT, because a project that has migrated to
+     * the newer key format has the same credential under a different name and
+     * a rule that missed it would report the repository clean.
+     */
+    accept: secret => {
+      const kind = classifyKey(secret).kind;
+      return kind === KEY_KINDS.SERVICE_ROLE || kind === KEY_KINDS.SECRET;
+    }
+  })
+]);
+
+/*
  * Both versions are part of a finding's identity, so both are stated rather
  * than derived. The rule-set digest below is checked by this module's test:
  * changing a rule without moving RULES_VERSION would leave two different
  * detections claiming to be the same one, and a finding from each comparing as
  * unchanged.
  *
- * Rule set digest (sha256 over rule name, source and flags):
- *   37a790d120acd31fc814c7fc4c1d9dbe130da2743bc3edef9b01aabeba145f92
+ * Rule set digest (sha256 over rule name, source and flags, gate rules then
+ * scan rules):
+ *   0c9d1ba4c9a3e895173c13b15bb6144fa6d4b28d5d65f7fa1b78b40e3da08f8c
  */
-const RULES_VERSION = 1;
+const RULES_VERSION = 2;
 const DETECTION_ENGINE_VERSION = 1;
 
 /* A file this server will read at all. Past it the file is not scanned and the
@@ -93,6 +140,15 @@ function locationAt(text, index) {
   return { line, column: index - lineStart + 1 };
 }
 
+/**
+ * The rules a scan runs: the shared release-gate set, then this module's own.
+ * Spelled out as a type because the two halves have different shapes -- only
+ * the scan's rules carry a predicate -- and a union of the literal shapes
+ * would make reading `accept` an error on the half that has none.
+ *
+ * @typedef {{ rule: string, regex: RegExp, accept?: (secret: string) => boolean }} DetectionRule
+ */
+
 /*
  * A fresh expression per file, with the global flag added so `exec` can walk.
  * Recompiling rather than reusing is the whole point: a shared global regex
@@ -100,10 +156,39 @@ function locationAt(text, index) {
  * test.
  */
 function compiledRules() {
-  return RULES.map(rule => ({
-    rule: rule.rule,
-    regex: new RegExp(rule.regex.source, `${rule.regex.flags.replace(/[gy]/g, '')}g`)
-  }));
+  /** @type {ReadonlyArray<DetectionRule>} */
+  const all = [...RULES, ...EXPOSURE_RULES];
+  /*
+   * Grouped by expression, so a shape two rules share is walked once.
+   *
+   * The two Supabase rules are the same pattern -- an anonymous key and a
+   * service-role key look almost identical and are told apart by decoding
+   * them, not by matching them. Compiling them as two passes would walk every
+   * file twice and, worse, spend two of this file's match budget on every
+   * key it contains, including keys neither rule wants. A file of unrelated
+   * JWTs would then report itself truncated, which is a scan saying it could
+   * not read everything about a file where there was nothing to read.
+   *
+   * A match belongs to the first rule in this pass that accepts it, in
+   * declaration order. A rule with no predicate accepts everything, which is
+   * correct for the release-gate rules -- each has a pattern of its own -- and
+   * is why one would swallow a pass it shared.
+   */
+  const passes = new Map();
+  for (const rule of all) {
+    const flags = rule.regex.flags.replace(/[gy]/g, '');
+    const key = `${rule.regex.source}\u0000${flags}`;
+    let pass = passes.get(key);
+    if (!pass) {
+      pass = { regex: new RegExp(rule.regex.source, `${flags}g`), rules: [] };
+      passes.set(key, pass);
+    }
+    pass.rules.push({
+      rule: rule.rule,
+      accept: typeof rule.accept === 'function' ? rule.accept : null
+    });
+  }
+  return [...passes.values()];
 }
 
 function sanitizeCandidate(candidate) {
@@ -146,7 +231,7 @@ function detectInText(input = {}) {
   let matchCount = 0;
   let truncated = false;
 
-  for (const { rule, regex } of compiledRules()) {
+  for (const { regex, rules } of compiledRules()) {
     let match;
     while ((match = regex.exec(text)) !== null) {
       /*
@@ -167,6 +252,15 @@ function detectInText(input = {}) {
       matchCount += 1;
 
       const secret = match[0];
+      /*
+       * Whose match this is. The first rule in the pass that accepts it, so a
+       * service-role key is never also reported as an anonymous one -- and a
+       * match no rule in the pass wants becomes no candidate at all, though it
+       * still counts against the ceiling, because the bound is on work done.
+       */
+      const owner = rules.find(candidate => !candidate.accept || candidate.accept(secret));
+      if (!owner) continue;
+      const rule = owner.rule;
       const key = `${rule}\u0000${secret}`;
       let candidate = byKey.get(key);
       if (!candidate) {
@@ -214,6 +308,7 @@ function detectInText(input = {}) {
 }
 
 module.exports = Object.freeze({
+  EXPOSURE_RULES,
   DETECTION_ENGINE_VERSION,
   MAX_CANDIDATES_PER_FILE,
   MAX_MATCHES_PER_FILE,

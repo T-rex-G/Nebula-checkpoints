@@ -2469,9 +2469,96 @@ function scheduleGovernanceAccessExpiry() {
  * this file inserts all of it as text, never as markup, because a path is
  * bytes a repository chose and a finding should be safe to put on a screen.
  */
+/*
+ * Used only if the server sends an attempt with no narration. The words there
+ * come from a reviewed lookup table; these exist so a missing entry reads as
+ * an unfinished sentence rather than an empty element.
+ */
+const EXPOSURE_VERIFICATION_FALLBACK = {
+  verified: 'The provider confirmed this credential is live.',
+  rejected: 'The provider refused this credential, so it no longer works.',
+  unverifiable: 'The provider was asked and could not tell us either way.'
+};
+const EXPOSURE_PROBE_FALLBACK = {
+  readable: 'The anonymous role read a row from that table.',
+  denied: 'That request was refused, which is evidence about that request and not about the whole table.',
+  unverifiable: 'Nothing was established about what the anonymous role can read.'
+};
+const EXPOSURE_DISPOSITION_FALLBACK = {
+  open: 'This finding is open and nothing has established that the credential stopped working.',
+  'credential-rejected': 'The issuing provider refused this credential, so it no longer works.',
+  'accepted-risk': 'Somebody accepted this risk. The credential is still in the repository.',
+  'removed-from-tree': 'This credential is no longer in the tree, but it is still in the history.'
+};
+
+/*
+ * The readability question, as a form rather than a button, because a probe
+ * needs two things this server will not invent: which table, and which
+ * columns. `*` is refused by the prober outright -- selecting every column of
+ * a table somebody may not have meant to expose is a different act from
+ * establishing that the table is readable -- so the field asks for names.
+ */
+function exposureProbeForm(finding, current) {
+  const draft = current.probeDrafts[finding.fingerprint] || { relation: '', columns: '' };
+  const form = document.createElement('div');
+  form.className = 'exposure-probe-form';
+  form.dataset.fingerprint = finding.fingerprint;
+
+  const explain = document.createElement('p');
+  explain.className = 'exposure-probe-explain';
+  explain.textContent = 'Ask the project what the anonymous role can read. Name one table and the columns to ask for; nothing from inside a row is kept.';
+  form.appendChild(explain);
+
+  const fields = document.createElement('div');
+  fields.className = 'exposure-probe-fields';
+  for (const [field, label, placeholder] of [
+    ['relation', 'Table', 'profiles'],
+    ['columns', 'Columns', 'id, email']
+  ]) {
+    const wrap = document.createElement('label');
+    wrap.className = 'exposure-probe-field';
+    const caption = document.createElement('span');
+    caption.textContent = label;
+    wrap.appendChild(caption);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'exposure-probe-input';
+    input.dataset.fingerprint = finding.fingerprint;
+    input.dataset.field = field;
+    input.placeholder = placeholder;
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.value = draft[field] || '';
+    wrap.appendChild(input);
+    fields.appendChild(wrap);
+  }
+  form.appendChild(fields);
+
+  const ask = document.createElement('button');
+  ask.type = 'button';
+  ask.className = 'btn ghost exposure-probe';
+  ask.dataset.fingerprint = finding.fingerprint;
+  const armed = current.confirming === `probe:${finding.fingerprint}`;
+  ask.textContent = armed ? 'Ask this project now' : 'Ask what the public can read';
+  if (armed) ask.classList.add('exposure-probe-armed');
+  ask.disabled = current.probing === finding.fingerprint;
+  form.appendChild(ask);
+  return form;
+}
+
+function exposureWarning(message) {
+  const warning = document.createElement('p');
+  warning.className = 'exposure-item-warning';
+  warning.textContent = message;
+  return warning;
+}
+
 function exposureState() {
   if (!state.exposure) {
-    state.exposure = { scan: null, findings: [], loading: false, error: '', scopeKey: '' };
+    state.exposure = {
+      scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
+      confirming: '', verifying: '', accepting: '', probing: '', loading: false, error: '', scopeKey: ''
+    };
   }
   return state.exposure;
 }
@@ -2488,7 +2575,10 @@ function exposureScopeKey() {
 }
 
 function clearExposureState() {
-  state.exposure = { scan: null, findings: [], loading: false, error: '', scopeKey: '' };
+  state.exposure = {
+    scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
+    confirming: '', verifying: '', accepting: '', probing: '', loading: false, error: '', scopeKey: ''
+  };
   renderExposure();
 }
 
@@ -2614,10 +2704,153 @@ function renderExposure() {
     action.textContent = (finding.narration && finding.narration.action) || '';
     item.appendChild(action);
 
+    /*
+     * The decision this repository has made, in the same voice as everything
+     * above it. A slug ("Status: accepted-risk") reads as bookkeeping; the
+     * sentence says a person decided and that the credential is still there.
+     */
     const disposition = document.createElement('p');
     disposition.className = 'exposure-item-disposition';
-    disposition.textContent = `Status: ${finding.disposition || 'open'}`;
+    disposition.textContent = finding.dispositionNarration
+      || EXPOSURE_DISPOSITION_FALLBACK[finding.disposition || 'open']
+      || `Status: ${finding.disposition || 'open'}`;
     item.appendChild(disposition);
+
+    /*
+     * Whose name is on it. The acceptance is only worth anything as a record
+     * of who made it, so an accepted finding that cannot say who accepted it
+     * says that, rather than quietly reading as though nobody did.
+     */
+    if ((finding.disposition || 'open') === 'accepted-risk') {
+      const provenance = document.createElement('p');
+      provenance.className = 'exposure-item-provenance';
+      const when = timeAgo(finding.dispositionAt);
+      provenance.textContent = finding.dispositionBy
+        ? `Accepted by ${finding.dispositionBy}${when ? ` ${when}` : ''}.`
+        : 'Accepted, but this record does not name who accepted it.';
+      item.appendChild(provenance);
+    }
+
+    /*
+     * What the provider said, if it was asked. Kept separate from the
+     * disposition above because they answer different questions: the
+     * disposition is what this repository has decided, the verification is
+     * what the issuing provider reported, and a reader needs to be able to
+     * see one without inferring the other.
+     */
+    const verification = current.verifications[finding.fingerprint];
+    if (verification) {
+      const liveness = document.createElement('p');
+      liveness.className = 'exposure-item-liveness';
+      liveness.dataset.state = verification.state;
+      liveness.textContent = (verification.narration
+        || EXPOSURE_VERIFICATION_FALLBACK[verification.state]
+        || 'The provider was asked and the answer was not interpreted.');
+      item.appendChild(liveness);
+    }
+
+    /*
+     * What the project answered, if it was asked. Kept apart from the
+     * verification line above for the same reason that one is kept apart from
+     * the disposition: they are three different facts, and a reader must never
+     * have to infer one from another. A readable table does not mean this key
+     * is live, and a denied request does not mean the table is protected --
+     * it means that request was refused.
+     */
+    const probe = current.probes[finding.fingerprint];
+    if (probe) {
+      const readability = document.createElement('p');
+      readability.className = 'exposure-item-readability';
+      readability.dataset.state = probe.state;
+      const answer = probe.narration
+        || EXPOSURE_PROBE_FALLBACK[probe.state]
+        || 'The project was asked and the answer was not interpreted.';
+      /* The question travels with the answer. "Readable" means nothing
+         without it, and a reader who cannot see what was asked cannot tell
+         whether the answer matters. */
+      const asked = probe.relation
+        ? ` Asked: ${probe.relation} (${(probe.projection || []).join(', ')}).`
+        : '';
+      readability.textContent = `${answer}${asked}`;
+      item.appendChild(readability);
+    }
+
+    /*
+     * Both controls are two-step on purpose, and for different reasons.
+     * Checking whether a credential is live sends somebody's leaked secret to
+     * a third party; accepting the risk is a decision recorded under a name
+     * and there is no route that undoes it. So the first press asks and the
+     * second acts, and the question names what will happen rather than saying
+     * "are you sure".
+     *
+     * Only one control is armed at a time -- across findings as well as
+     * within one -- because a screen with several armed buttons on it makes
+     * the next click ambiguous, and one of these two clicks is irreversible.
+     */
+    if ((finding.disposition || 'open') === 'open') {
+      const actions = document.createElement('div');
+      actions.className = 'exposure-item-actions';
+      const armed = current.confirming;
+
+      if (armed === `verify:${finding.fingerprint}`) {
+        actions.appendChild(exposureWarning('This uses the credential against the service that issued it, which that service may log. Nothing is stored here.'));
+      } else if (armed === `accept:${finding.fingerprint}`) {
+        actions.appendChild(exposureWarning('This records you as having accepted the exposure. The credential stays in the repository, it stays usable by anyone who has it, and nothing here undoes the decision.'));
+      } else if (armed === `probe:${finding.fingerprint}`) {
+        actions.appendChild(exposureWarning('This sends one request to that project, using the key it published, asking for a single row. The project may log it. Only whether a row came back is kept.'));
+      }
+
+      const row = document.createElement('div');
+      row.className = 'exposure-item-buttons';
+
+      const verify = document.createElement('button');
+      verify.type = 'button';
+      verify.className = 'btn ghost exposure-verify';
+      verify.dataset.fingerprint = finding.fingerprint;
+      verify.textContent = armed === `verify:${finding.fingerprint}`
+        ? 'Send this credential to the provider'
+        : 'Check whether it still works';
+      if (armed === `verify:${finding.fingerprint}`) verify.classList.add('exposure-verify-armed');
+      verify.disabled = current.verifying === finding.fingerprint;
+      row.appendChild(verify);
+
+      /*
+       * The exception, offered here rather than buried in governance,
+       * because this is where somebody is looking at a finding they believe
+       * is intended. It is deliberately the quieter of the two: a sample
+       * key in a fixture is a real reason to accept, and "I do not want to
+       * deal with this" is not, and the control should not flatter the
+       * second.
+       */
+      const accept = document.createElement('button');
+      accept.type = 'button';
+      accept.className = 'btn ghost exposure-accept';
+      accept.dataset.fingerprint = finding.fingerprint;
+      accept.textContent = armed === `accept:${finding.fingerprint}`
+        ? 'Record me as accepting this exposure'
+        : 'This one is intended';
+      if (armed === `accept:${finding.fingerprint}`) accept.classList.add('exposure-accept-armed');
+      accept.disabled = current.accepting === finding.fingerprint;
+      row.appendChild(accept);
+
+      actions.appendChild(row);
+
+      /*
+       * And, for an anonymous key only, the question this whole feature
+       * exists to answer. The key is not the finding -- what the public can
+       * read with it is -- and nobody but an operator can say which table is
+       * worth asking about, so the form asks them rather than guessing.
+       *
+       * A service-role key gets no form. It bypasses every policy, so a
+       * readable answer would come back whatever the project permits and
+       * would have used an administrator credential to produce it.
+       */
+      if (finding.rule === 'supabase-anon-key') {
+        actions.appendChild(exposureProbeForm(finding, current));
+      }
+
+      item.appendChild(actions);
+    }
 
     list.appendChild(item);
   }
@@ -2633,7 +2866,10 @@ async function loadExposure() {
   const current = exposureState();
   const scopeKey = exposureScopeKey();
   if (current.scopeKey !== scopeKey) {
-    state.exposure = { scan: null, findings: [], loading: false, error: '', scopeKey };
+    state.exposure = {
+      scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
+      confirming: '', verifying: '', accepting: '', probing: '', loading: false, error: '', scopeKey
+    };
   }
   const now = exposureState();
   now.loading = true;
@@ -2641,12 +2877,182 @@ async function loadExposure() {
   try {
     const findings = await api(`/api/repo/${wPath()}/exposure/findings?limit=50`);
     now.findings = Array.isArray(findings && findings.findings) ? findings.findings : [];
+    /*
+     * The answers already on record, which arrive with the list rather than
+     * being asked for again. A screen that showed only what was asked in this
+     * session would forget, and re-asking to redisplay a fact would mean using
+     * somebody's credential a second time to learn nothing new.
+     */
+    now.verifications = (findings && findings.verifications) || {};
+    now.probes = (findings && findings.probes) || {};
     now.error = '';
   } catch (error) {
     now.findings = [];
+    now.verifications = {};
+    now.probes = {};
     now.error = 'Findings could not be loaded for this repository.';
   } finally {
     now.loading = false;
+    renderExposure();
+  }
+}
+
+/*
+ * Two presses, and the second one is the one that acts. The first arms the
+ * control and shows what will happen; anything else -- the other control,
+ * another finding, a reload, leaving the screen -- disarms it. A single click
+ * that quietly used somebody's leaked credential, or quietly signed their
+ * name to an exposure, would be the wrong default however clear the label was.
+ *
+ * The armed control is named by action and fingerprint together, so arming
+ * one disarms every other: there is never a second armed button waiting to
+ * be hit by a click aimed at the first.
+ */
+function exposureArm(action, fingerprint, question) {
+  const current = exposureState();
+  const key = `${action}:${fingerprint}`;
+  if (current.confirming === key) return false;
+  current.confirming = key;
+  renderExposure();
+  announceExposure(question);
+  return true;
+}
+
+async function verifyExposureFinding(fingerprint) {
+  if (!state.work) return;
+  const current = exposureState();
+  if (exposureArm('verify', fingerprint, 'Press again to send this credential to the service that issued it.')) return;
+  current.confirming = '';
+  current.verifying = fingerprint;
+  renderExposure();
+  try {
+    const body = await api(`/api/repo/${wPath()}/exposure/findings/${fingerprint}/verify`, {
+      method: 'POST',
+      /* `api` serialises the body itself; stringifying here would send a
+         JSON string rather than an object, and the server would see no
+         confirmation at all. */
+      body: { confirm: 'use-this-credential' }
+    });
+    const verification = body && body.verification ? { ...body.verification, narration: body.narration } : null;
+    if (verification) current.verifications[fingerprint] = verification;
+    if (body && body.finding) {
+      current.findings = current.findings.map(item => (
+        item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
+      ));
+    }
+    announceExposure(verification && (body.narration || EXPOSURE_VERIFICATION_FALLBACK[verification.state]) || 'The check finished.');
+  } catch (error) {
+    current.error = 'That credential could not be checked.';
+    announceExposure(current.error);
+  } finally {
+    current.verifying = '';
+    renderExposure();
+  }
+}
+
+/*
+ * Accepting the risk, which is the honest response to a finding that is
+ * genuinely intended -- a sample key in a fixture, a credential that was
+ * already revoked before anyone looked. Without it a reader with a screen of
+ * known-intended findings has one option left, which is to stop reading the
+ * screen, and that costs more than any single finding on it.
+ *
+ * It is not a dismissal. The finding stays, the sentence under it says a
+ * person accepted the exposure and that the credential is still in the
+ * repository, and the server records the name. This is why the control does
+ * not say "ignore".
+ */
+async function acceptExposureRisk(fingerprint) {
+  if (!state.work) return;
+  const current = exposureState();
+  if (exposureArm('accept', fingerprint, 'Press again to record you as accepting this exposure. Nothing here undoes it.')) return;
+  current.confirming = '';
+  current.accepting = fingerprint;
+  renderExposure();
+  try {
+    const body = await api(`/api/repo/${wPath()}/exposure/findings/${fingerprint}/accept-risk`, {
+      method: 'POST'
+    });
+    if (body && body.finding) {
+      current.findings = current.findings.map(item => (
+        item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
+      ));
+    }
+    current.error = '';
+    announceExposure('Recorded. The credential is still in the repository.');
+  } catch (error) {
+    /*
+     * Who may accept is the server's decision and it is a role, not a
+     * capability. Saying so beats "that did not work", because the reader
+     * whose press was refused can do something about the first sentence and
+     * nothing about the second.
+     */
+    current.error = error && error.code === 'GOVERNANCE_ROLE_REQUIRED'
+      ? 'Accepting an exposure needs a governance administrator. Yours is recorded as a lower role.'
+      : 'That finding could not be accepted.';
+    announceExposure(current.error);
+  } finally {
+    current.accepting = '';
+    renderExposure();
+  }
+}
+
+/*
+ * Asking the project, which is the only way to find out. What the anonymous
+ * role can read is decided by policies living in somebody's project rather
+ * than in their repository, so no amount of reading the tree answers it.
+ *
+ * Two presses again, and the same reason as the verification beside it: this
+ * contacts a third party. The difference is what a refusal means -- a denied
+ * request is evidence about that request, not a clean bill of health for the
+ * table -- and the narration the server sends says so rather than leaving the
+ * reader to infer it.
+ */
+async function probeExposureReadability(fingerprint) {
+  if (!state.work) return;
+  const current = exposureState();
+  const draft = current.probeDrafts[fingerprint] || { relation: '', columns: '' };
+  const relation = String(draft.relation || '').trim();
+  const projection = String(draft.columns || '')
+    .split(',').map(column => column.trim()).filter(Boolean);
+  /*
+   * Refused here rather than sent, because a press with nothing typed is a
+   * mis-click and not a question. Anything that is typed goes to the server
+   * as typed: what this product will and will not ask a project for is the
+   * prober's decision, and duplicating it here would mean two answers.
+   */
+  if (!relation || !projection.length) {
+    announceExposure('Name a table and at least one column before asking.');
+    return;
+  }
+  if (exposureArm('probe', fingerprint, 'Press again to send one request to that project.')) return;
+  current.confirming = '';
+  current.probing = fingerprint;
+  renderExposure();
+  try {
+    const body = await api(`/api/repo/${wPath()}/exposure/findings/${fingerprint}/probe-readability`, {
+      method: 'POST',
+      body: { confirm: 'contact-this-project', relation, projection }
+    });
+    const probe = body && body.probe ? { ...body.probe, narration: body.narration } : null;
+    if (probe) current.probes[fingerprint] = probe;
+    current.error = '';
+    announceExposure((probe && (body.narration || EXPOSURE_PROBE_FALLBACK[probe.state])) || 'The question finished.');
+  } catch (error) {
+    /*
+     * The two refusals a reader can act on, named rather than flattened into
+     * "that did not work": one says the key is the wrong kind for this
+     * question, the other that the file holds no project to ask.
+     */
+    const code = error && error.code;
+    current.error = code === 'EXPOSURE_PROBE_NOT_ANONYMOUS'
+      ? 'Only an anonymous key can be used to ask what the public can read.'
+      : code === 'EXPOSURE_PROBE_NO_PROJECT'
+        ? 'No project reference was found beside that key, so there is nothing to ask.'
+        : 'That project could not be asked.';
+    announceExposure(current.error);
+  } finally {
+    current.probing = '';
     renderExposure();
   }
 }
@@ -2659,7 +3065,7 @@ async function requestExposureScan() {
   try {
     const body = await api(`/api/repo/${wPath()}/exposure/scans`, {
       method: 'POST',
-      body: JSON.stringify({ ref: (state.work && state.work.branch) || 'HEAD' })
+      body: { ref: (state.work && state.work.branch) || 'HEAD' }
     });
     current.scan = body && body.scan ? body.scan : null;
     current.error = '';
@@ -4155,6 +4561,32 @@ $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.ta
   if (scanBtn) scanBtn.addEventListener('click', () => { void requestExposureScan(); });
   const cancelBtn = $('#exposureCancelBtn');
   if (cancelBtn) cancelBtn.addEventListener('click', () => { void cancelExposureScan(); });
+  /* Delegated, because the list is rebuilt on every render. */
+  const list = $('#exposureList');
+  if (list) {
+    list.addEventListener('click', event => {
+      const verify = event.target.closest('.exposure-verify');
+      if (verify) return void verifyExposureFinding(verify.dataset.fingerprint);
+      const accept = event.target.closest('.exposure-accept');
+      if (accept) return void acceptExposureRisk(accept.dataset.fingerprint);
+      const probe = event.target.closest('.exposure-probe');
+      if (probe) return void probeExposureReadability(probe.dataset.fingerprint);
+    });
+    /*
+     * Typed values live in state rather than in the DOM, because the list is
+     * rebuilt on every render and a half-typed table name would otherwise
+     * vanish the moment anything else on the screen changed. Nothing
+     * re-renders on a keystroke, so the field keeps focus.
+     */
+    list.addEventListener('input', event => {
+      const field = event.target.closest('.exposure-probe-input');
+      if (!field) return;
+      const current = exposureState();
+      const draft = current.probeDrafts[field.dataset.fingerprint] || { relation: '', columns: '' };
+      draft[field.dataset.field] = field.value;
+      current.probeDrafts[field.dataset.fingerprint] = draft;
+    });
+  }
 }
 
 $('#bottomNav').addEventListener('click', e => {

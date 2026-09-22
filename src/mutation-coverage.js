@@ -144,6 +144,15 @@ const MUTATION_ROUTE_INVENTORY = deepFreeze([
   route('POST', '/api/repo/:owner/:repo/exposure/scans', 'exposure.scan.request'),
   route('POST', '/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', 'exposure.scan.cancel'),
   route('POST', '/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', 'exposure.finding.accept-risk'),
+  /*
+   * The two that contact somebody else. A verification uses a discovered
+   * credential against the service that issued it; a probe asks a project what
+   * its anonymous role can read. Both are decisions worth having in the ledger
+   * with a name on them, which is the whole reason they are inventoried rather
+   * than treated as ordinary reads.
+   */
+  route('POST', '/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', 'exposure.credential.verify'),
+  route('POST', '/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability', 'exposure.readability.probe'),
   route('POST', '/api/repo/:owner/:repo/governance/policies', 'governance.policy.create'),
   route('POST', '/api/repo/:owner/:repo/governance/policies/:policyId/drafts', 'governance.draft.create'),
   route('PATCH', '/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId', 'governance.draft.update'),

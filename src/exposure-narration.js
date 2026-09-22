@@ -79,6 +79,34 @@ const RULE_NARRATION = Object.freeze({
     severity: 'serious',
     consequence: 'A configuration value that names a provider secret has a literal value committed beside it. What it unlocks depends on which secret it is, and the name usually says: a session secret forges sessions, a webhook secret forges webhook deliveries, an OAuth secret impersonates the application.',
     action: 'Rotate that specific secret and move the value into the deployment environment rather than the repository. Check what the name implies before deciding this is minor.'
+  }),
+  /*
+   * The one entry here that does not say "this is a leak", because it is not
+   * one. An anonymous key is published in client bundles by design, and a
+   * narration that called it critical would make every project in every
+   * repository a critical finding -- which is how a reader learns to scroll
+   * past a screen of them.
+   *
+   * What it is instead is a question this server cannot answer by looking:
+   * what the anonymous role can read is decided by policies that live in
+   * somebody's project, not in their repository. So the consequence says the
+   * key is not the problem, and the action is to ask.
+   */
+  'supabase-anon-key': Object.freeze({
+    severity: 'warning',
+    consequence: 'A Supabase anonymous key is in the repository. That is normal -- it is meant to be public and it is in the browser bundle of every app that uses one. What it can actually read is decided by the row-level security policies on the project, and those are not visible from here.',
+    action: 'Do not rotate it; that fixes nothing and breaks the app. Check what the anonymous role can read instead, which is what the readability check below asks the project directly.'
+  }),
+  /*
+   * The same shape, the opposite finding. This one needs no probe to be
+   * serious: a service-role key bypasses row-level security entirely, so
+   * asking whether it can read a table would establish nothing except that
+   * this server had used an administrator credential to find out.
+   */
+  'supabase-service-role-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Supabase service-role key is in the repository. It bypasses row-level security completely, so anyone who has it can read and write every table in the project regardless of what the policies say. It looks almost exactly like the anonymous key and is nothing like it.',
+    action: 'Rotate the service-role key in the project API settings now, and move it into the deployment environment rather than the repository. Rotating is what ends the exposure; the key stays in the repository history.'
   })
 });
 

@@ -2,6 +2,162 @@
 
 ## Unreleased
 
+### Using a Finding: Verification, Acceptance, and Asking the Project
+
+The three routes built in the previous rounds could not be reached from
+anywhere. A verifier nothing calls is not a feature, so this round wires all
+of them end to end — and closing the gap turned up two judgements worth
+recording as reversals rather than as quiet edits.
+
+- **The accept-risk capability gate was wrong, and it is reversed.** It was
+  gated on `exposure.scan` being *Supported*, on the reasoning that accepting
+  the risk of a live credential is the most consequential decision on the
+  screen. What that actually produced was a reader with a false positive — a
+  sample key in a fixture, a credential revoked before anybody looked — and no
+  way to say so. A screen people stop reading costs more than the thing the
+  gate was protecting. The route now passes `allowExperimental`; the control
+  that matters is the **role**, and that stays: it is still the only exposure
+  route needing a governance administrator, so a repository reader cannot wave
+  away their own finding and an administrator who does has their name on it.
+  The two tests that praised the old split now assert the new one and say why.
+- **The verification route was never in the mutation inventory.** The
+  contract test caught it as an unclassified repository-mutating route the
+  moment the probe route was added beside it. Both are inventoried now, with
+  their actions and execution contracts, rather than exempted — an exemption
+  list only records that somebody decided not to look.
+- `POST .../findings/:fingerprint/verify` and its history read, behind an
+  explicit `confirm: 'use-this-credential'` that is refused **before any
+  repository read happens**. The handler re-reads the blob, re-detects, matches
+  by fingerprint, mints a grant bound to that candidate, commit, adapter and
+  target that expires in a minute, and records the attempt whatever the answer.
+  A file that changed since the scan yields no match and says so: verifying a
+  credential the repository no longer contains would be using a secret nobody
+  asked about.
+- **The e2e suite caught a second real bug in this application's own
+  conventions.** The UI passed `body: JSON.stringify(...)`, but `api()`
+  serialises the body itself — the server would have seen `req.body.confirm`
+  undefined and refused every verification, and the scan request would have
+  silently ignored the branch. Both call sites are fixed and a case asserts the
+  parsed body shape rather than that a request was made.
+- **Two-press controls, and only one armed at a time.** Checking whether a
+  credential is live sends somebody's leaked secret to a third party;
+  accepting the risk is recorded under a name with no route that undoes it.
+  The first press arms and names what the next one does — "Send this credential
+  to the provider", "Record me as accepting this exposure" — rather than asking
+  whether the reader is sure. Arming either disarms every other control on the
+  screen, because a second armed button makes the next click ambiguous and one
+  of these clicks is irreversible.
+- **The list no longer forgets.** A screen that showed only what was asked in
+  the current session would lose a verification from yesterday and a
+  readability answer from last week — and making them reappear by asking again
+  would mean using somebody's credential a second time to redisplay a fact
+  already recorded. The findings read now carries the latest answer of each
+  kind, fetched in two `DISTINCT ON` queries rather than two per finding. Only
+  the latest, because that is what a list can show; the full sequence — which
+  is what proves a revocation or a policy change landed — stays behind the
+  per-finding history reads.
+- A finding now leaves the server with **two** sentences: what the credential
+  is, and what this repository has since decided about it. The disposition
+  table was written in Task 7 and never wired; the screen printed
+  `Status: accepted-risk`, which reads as machine bookkeeping rather than
+  something a named person did. An accepted finding also shows who accepted it
+  and when — an acceptance nobody can be asked about is not a decision, it is a
+  disappearance. A refused acceptance says it needs a governance administrator,
+  not "that did not work": the reader can act on the first sentence and not on
+  the second.
+
+### The Readability Probe, Made Reachable
+
+The prober was written in Task 6 and nothing could call it — and the reason
+turned out to be a real gap rather than missing plumbing. **No detection rule
+produced its inputs.** Nothing matched a Supabase project URL or an anonymous
+key, and neither belongs in the shared release-gate rule set: an anonymous key
+is published in client bundles by design, so a gate rule for one would fail
+builds for every repository that legitimately ships one.
+
+- **The scan now has rules of its own, separate from the gate's.** The gate
+  asks whether there is a secret; a scan asks what in this tree decides who can
+  read the data, which is a wider question. `supabase-anon-key` is detected so
+  it can be *asked about*, and its narration is the one entry in the table that
+  says plainly that finding one is not a leak: *"Do not rotate it; that fixes
+  nothing and breaks the app."*
+- `supabase-service-role-key` is the opposite case and comes out of the same
+  shape. Which rule a match belongs to is decided by **decoding the key**, not
+  by where it was found: a service-role key bypasses row-level security
+  entirely, and a probe with one comes back readable whatever the project
+  permits — proving nothing, having used an administrator credential to do it.
+  A user-session JWT is neither, because it answers as a person. An unrelated
+  JWT is not a Supabase key at all, and a test asserts that too: without it the
+  rule is a token-shaped wildcard that reports every session fixture in the
+  repository, which is the noise that gets a screen ignored.
+- The two rules are the same pattern, so the detector now **walks a shared
+  shape once**. Compiling them as two passes spent two of a file's match budget
+  on every key it contained — including keys neither rule wanted — so a file of
+  unrelated JWTs would have reported itself truncated: a scan claiming it could
+  not read everything about a file where there was nothing to read. A match
+  belongs to the first rule in the pass that accepts it.
+- `RULES_VERSION` moves 1 → 2 and the rule-set digest is recomputed over both
+  halves. The digest test covered only the shared set, so the scan's own rules
+  — the ones whose wording matters most, being the ones a reader has never seen
+  — could have changed silently; it now covers both, in order.
+- Added `src/supabase-key-kinds.js`. Telling an anonymous key from a
+  service-role key is knowledge about **text**; the prober is knowledge about
+  **contacting a service**. The scanner needs the first and must never acquire
+  the second, because a scan walks somebody's whole repository and the module
+  that does it should not have an outbound transport anywhere in its import
+  graph. The prober re-exports it, so there is one definition rather than two
+  that drift.
+- Migration **024** records readability probes, append-only, beside the
+  verification attempts. What it will not hold is a row: `row_count` is capped
+  at 0–1 by a CHECK and constrained to agree with the state, because "a row came
+  back" is the entire finding and storing the row would turn a security check
+  into a second copy of somebody's data. The relation and the projection carry
+  the prober's own patterns as column constraints — a table name cannot hold a
+  credential if the column will not store one — and the projection is stored
+  comma-joined precisely because a CHECK cannot run a subquery, so an array
+  could only have been constrained by promise.
+- A probe **moves no disposition**, and that is the honest behaviour rather
+  than an omission. A readable table is not the credential being live and a
+  denied one is not the exposure ending; inferring a disposition from either
+  would be inventing a fact. A test asserts the method contains no
+  `UPDATE nv_exposure_findings`.
+- `POST .../findings/:fingerprint/probe-readability` and its history read. The
+  operator supplies three things this route will not invent: the confirmation,
+  the relation and the columns. The project reference comes from the file's own
+  text through `discoverProject`, which **rebuilds** the origin from twenty
+  validated letters rather than trusting a URL a repository chose — asserted by
+  requiring that `server.js` never writes a provider address itself. The grant
+  is signed over the project, the relation and the columns in order, under its
+  own derived key: a grant to ask a provider "is this credential yours" is not
+  a grant to ask a project "may the public read this table", and a shared key
+  would let one signature satisfy both checks.
+- The screen asks for a table and columns rather than guessing, and a press
+  with nothing typed is treated as a mis-click rather than a question. What
+  will and will not be asked for is the prober's decision and is not duplicated
+  in the browser — duplicating it would mean two answers. Typed values live in
+  state rather than in the DOM, because the list is rebuilt on every render and
+  a half-typed table name would otherwise vanish.
+- **The answer carries the question.** "Readable" means nothing without what
+  was asked, so the result line reads *"… Asked: profiles (id, email)."* A
+  denied answer is not shown in a safe tone and the narration says it is
+  evidence about *that request*, not about the table: a reader told their table
+  is protected stops looking. A service-role finding gets no form at all.
+- The ratchets moved deliberately and with reasons written into them: route
+  surface 155 → 157, exposure routes 8 → 10, migrations 023 → 024, narration
+  coverage widened to both rule sets, the text-column bound check widened to
+  migration 024, and the credential-search dump extended to the new table.
+- Seventeen sabotages this round, all caught: a single-press accept; a missing
+  acceptance provenance line; two controls armed at once; a generic message
+  where the required role should be named; a disposition printed as a slug; a
+  finding leaving the server undescribed; the payload dropping the disposition
+  sentence; a service-role key allowed to be probed; the probe form offered for
+  one; a typed question lost to a re-render; an answer shown without its
+  question; an empty question sent anyway; a generic message where the missing
+  project should be named; the confirmation moved after the repository read;
+  the verification key reused for the probe grant; and the detector compiling
+  one pass per rule instead of one per shape; and the screen dropping the
+  answers already on record.
+
 ### Governable Findings, and the Screen That Shows Them
 
 - Control catalog **1.3.0** maps six exposure actions. Revisions are

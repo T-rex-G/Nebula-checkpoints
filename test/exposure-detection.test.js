@@ -280,6 +280,105 @@ function bytesOf(result, secret) {
   assert(Object.isFrozen(occurrence));
 }
 
+/* ---- The keys a readability question is asked about -------------------- */
+
+/*
+ * Two Supabase keys are the same shape and one of them is an administrator
+ * credential. Which rule a match belongs to is therefore decided by reading
+ * the key, and these cases are the ones that would be wrong if it were decided
+ * by shape.
+ *
+ * Getting this backwards is not a cosmetic failure. An anonymous key reported
+ * as a leak makes every project in every repository a critical finding and
+ * teaches readers to scroll past the screen; a service-role key reported as an
+ * anonymous one sends a probe that bypasses every policy, comes back readable
+ * whatever the project is configured to allow, and has used an administrator
+ * credential to prove nothing.
+ */
+function jwt(claims) {
+  const part = value => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  return `${part({ alg: 'HS256', typ: 'JWT' })}.${part(claims)}.${'S'.repeat(43)}`;
+}
+
+const ANON_JWT = jwt({ iss: 'supabase', ref: 'a'.repeat(20), role: 'anon', iat: 1, exp: 2 });
+const SERVICE_JWT = jwt({ iss: 'supabase', ref: 'a'.repeat(20), role: 'service_role', iat: 1, exp: 2 });
+const SESSION_JWT = jwt({ iss: 'supabase', sub: 'e6b1c0de-0000-4000-8000-000000000001', role: 'authenticated', iat: 1, exp: 2 });
+const ROLELESS_JWT = jwt({ iss: 'some-other-service', aud: 'anybody', iat: 1, exp: 2 });
+const PUBLISHABLE = `sb_pub${'lishable'}_${'E'.repeat(24)}`;
+const SB_SECRET = `sb_sec${'ret'}_${'F'.repeat(24)}`;
+
+function rulesFor(text) {
+  return candidatesOf(text).candidates.map(candidate => candidate.rule).sort();
+}
+
+{
+  assert.deepStrictEqual(rulesFor(`const key = '${ANON_JWT}';`), ['supabase-anon-key']);
+  assert.deepStrictEqual(rulesFor(`const key = '${PUBLISHABLE}';`), ['supabase-anon-key']);
+
+  assert.deepStrictEqual(rulesFor(`const key = '${SERVICE_JWT}';`), ['supabase-service-role-key']);
+  assert.deepStrictEqual(rulesFor(`const key = '${SB_SECRET}';`), ['supabase-service-role-key']);
+
+  /*
+   * A session answers as a person, so a row it can read proves that person can
+   * read it -- which is not the question the probe asks. It is not an
+   * anonymous key and must not be offered as one.
+   */
+  assert.deepStrictEqual(rulesFor(`const key = '${SESSION_JWT}';`), []);
+
+  /*
+   * And an unrelated JWT is not a Supabase key at all. Without this the rule
+   * is a token-shaped wildcard that reports every session cookie in every
+   * fixture, which is the noise that gets a screen ignored.
+   */
+  assert.deepStrictEqual(rulesFor(`const token = '${ROLELESS_JWT}';`), []);
+  assert.deepStrictEqual(rulesFor('const token = "eyJnope";'), []);
+
+  /*
+   * Both in one file, each under its own rule, each with its own placeholder.
+   * A file holding an anonymous key beside an administrator one is the case
+   * where conflating them costs the most.
+   */
+  const both = candidatesOf(`anon: '${ANON_JWT}',\nservice: '${SERVICE_JWT}',\n`);
+  assert.deepStrictEqual(both.candidates.map(item => item.rule).sort(), ['supabase-anon-key', 'supabase-service-role-key']);
+  assert.strictEqual(both.candidates.find(item => item.rule === 'supabase-anon-key').secret, ANON_JWT);
+  assert.strictEqual(both.candidates.find(item => item.rule === 'supabase-service-role-key').secret, SERVICE_JWT);
+  for (const candidate of both.candidates) {
+    assert.strictEqual(candidate.placeholder, `<${candidate.rule} #1>`);
+    /* The placeholder is the label; it must not carry the key. */
+    assert.strictEqual(candidate.placeholder.includes(candidate.secret), false);
+  }
+
+  /*
+   * A shape two rules share is walked once. Compiling them as two passes would
+   * spend two of a file's match budget on every key it contains -- including
+   * the keys neither rule wants -- so a file of unrelated JWTs would report
+   * itself truncated: a scan saying it could not read everything about a file
+   * where there was nothing to read.
+   */
+  {
+    const one = candidatesOf(`const key = '${ANON_JWT}';`);
+    assert.strictEqual(one.matchCount, 1, 'one key is one walked match, not one per rule sharing the shape');
+
+    const many = Array.from({ length: 40 }, (unused, index) => (
+      `const token${index} = '${jwt({ iss: 'elsewhere', aud: `client-${index}`, iat: 1, exp: 2 })}';`
+    )).join('\n');
+    const noise = candidatesOf(many);
+    assert.strictEqual(noise.candidates.length, 0, 'none of them is a Supabase key');
+    assert.strictEqual(noise.matchCount, 40, 'and none of them is counted twice');
+    assert.strictEqual(
+      noise.truncated, false,
+      'a file with nothing to find must not report that it could not be read'
+    );
+  }
+
+  /*
+   * A project URL is not a credential and is not a finding. The probe reads it
+   * out of the same file when somebody asks a question about that file, and a
+   * rule that reported it would put a public hostname on a list of leaks.
+   */
+  assert.deepStrictEqual(rulesFor(`const url = 'https://${'a'.repeat(20)}.supabase.co';`), []);
+}
+
 /* ---- Versions ---------------------------------------------------------- */
 
 /*
@@ -294,8 +393,17 @@ function bytesOf(result, secret) {
   assert(Number.isInteger(RULES_VERSION) && RULES_VERSION >= 1);
 
   const { RULES } = require('../src/secret-scanner');
+  /*
+   * The gate's rules and the scan's own, in that order and in one digest. A
+   * scan's identity depends on every rule it ran, so a rule added here has to
+   * move RULES_VERSION exactly as one added to the shared set does -- and a
+   * digest covering only half of them would let the scan-only half change
+   * silently.
+   */
+  const { EXPOSURE_RULES } = require('../src/exposure-detection');
   const digest = crypto.createHash('sha256')
-    .update(RULES.map(rule => `${rule.rule}\u0000${rule.regex.source}\u0000${rule.regex.flags}`).join('\u0001'))
+    .update([...RULES, ...EXPOSURE_RULES]
+      .map(rule => `${rule.rule}\u0000${rule.regex.source}\u0000${rule.regex.flags}`).join('\u0001'))
     .digest('hex');
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-detection.js'), 'utf8');
   assert(

@@ -3559,3 +3559,116 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .exposure-shell { padding: 12px; gap: 12px; }
   .exposure-facts { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 }
+
+/*
+ * What the provider said, kept visually distinct from the disposition above
+ * it. They answer different questions -- what this repository decided, and
+ * what the issuing service reported -- and a reader has to be able to see one
+ * without inferring the other.
+ */
+.exposure-item-liveness {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  line-height: 1.45;
+  background: color-mix(in oklab, var(--muted) 10%, transparent);
+  color: var(--text);
+}
+.exposure-item-liveness[data-state="verified"] {
+  background: color-mix(in oklab, var(--danger, #c0392b) 12%, transparent);
+}
+.exposure-item-liveness[data-state="rejected"] {
+  background: color-mix(in oklab, var(--ok, #2e7d32) 12%, transparent);
+}
+
+.exposure-item-actions { margin-top: 10px; display: grid; gap: 8px; justify-items: start; }
+/*
+ * The armed state is loud on purpose: the next press sends somebody's leaked
+ * credential to a third party, and the control should not look like the one
+ * that merely asked.
+ */
+.exposure-verify-armed {
+  border-color: var(--danger, #c0392b);
+  color: var(--danger, #c0392b);
+  font-weight: 650;
+}
+.exposure-item-warning {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.45;
+  font-size: 0.92em;
+}
+
+/*
+ * Two controls, and the quieter of the two is the one that accepts. Both are
+ * ghost buttons; only the armed one is loud, and they are never armed at the
+ * same time.
+ */
+.exposure-item-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.exposure-accept-armed {
+  border-color: var(--warn, #b26a00);
+  color: var(--warn, #b26a00);
+  font-weight: 650;
+}
+/*
+ * Whose name is on the acceptance. Recessive, because it is provenance rather
+ * than the decision itself -- but present, because an acceptance nobody can
+ * be asked about is not a decision, it is a disappearance.
+ */
+.exposure-item-provenance {
+  margin: 0 0 6px;
+  color: var(--muted);
+  line-height: 1.45;
+  font-size: 0.92em;
+}
+
+/*
+ * The readability question. Quieter than the two buttons above it because it
+ * is a question rather than an action on the finding -- and the answer it
+ * produces is the point, so the form stays small and the result line below
+ * carries the weight.
+ */
+.exposure-probe-form {
+  margin-top: 4px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line, rgba(128, 128, 128, 0.3));
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  width: 100%;
+}
+.exposure-probe-explain { margin: 0; color: var(--muted); line-height: 1.45; font-size: 0.92em; }
+.exposure-probe-fields { display: flex; gap: 10px; flex-wrap: wrap; width: 100%; }
+.exposure-probe-field { display: grid; gap: 4px; flex: 1 1 140px; min-width: 0; }
+.exposure-probe-field span { color: var(--muted); font-size: 0.86em; }
+.exposure-probe-input {
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line, rgba(128, 128, 128, 0.35));
+  background: var(--bg, transparent);
+  color: var(--text);
+  min-width: 0;
+}
+.exposure-probe-armed {
+  border-color: var(--warn, #b26a00);
+  color: var(--warn, #b26a00);
+  font-weight: 650;
+}
+/*
+ * The answer. `readable` is the alarming one and says so; `denied` is not
+ * green, because a refused request is evidence about that request and not a
+ * clean bill of health for the table.
+ */
+.exposure-item-readability {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  line-height: 1.45;
+  background: color-mix(in oklab, var(--muted) 10%, transparent);
+  color: var(--text);
+}
+.exposure-item-readability[data-state="readable"] {
+  background: color-mix(in oklab, var(--danger, #c0392b) 12%, transparent);
+}

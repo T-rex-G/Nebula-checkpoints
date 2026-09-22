@@ -215,12 +215,12 @@ assert.deepStrictEqual(legacyCapsFor(document, {
    * this registry and it is the status `file.rename` already carries for the
    * same reason.
    *
-   * The consequence is the interesting part. Reading and scanning routes opt
-   * in with `allowExperimental`, so they work; accepting the risk of a live
-   * credential does not, so it stays closed until somebody has evidence. A
-   * feature being usable and a feature's most consequential decision being
-   * usable are separate questions, and the capability gate is where they
-   * separate.
+   * Every exposure route opts in with `allowExperimental`, so the feature is
+   * usable while it is unproven. The controls that matter are elsewhere: a
+   * governance role on the one route that records a human decision, and an
+   * explicit typed confirmation on the one route that uses a discovered
+   * credential. A capability status says how well proven a feature is; it is a
+   * poor substitute for deciding who may do what.
    */
   {
     const github = resolveCapability(document, {

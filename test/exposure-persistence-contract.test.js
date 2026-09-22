@@ -234,7 +234,16 @@ assert.strictEqual(
     const declaredException = /FOR UPDATE SKIP LOCKED/.test(normalized)
       || /SELECT \* FROM nv_exposure_scans WHERE scan_id=\$1$/.test(normalized)
       || /DELETE FROM nv_exposure_scans WHERE ctid IN/.test(normalized)
-      || /UPDATE nv_exposure_findings AS finding/.test(normalized);
+      || /UPDATE nv_exposure_findings AS finding/.test(normalized)
+      /*
+       * The disposition move inside `recordVerification`. Its transaction's
+       * first statement selects the finding FOR UPDATE on the identity, so
+       * this statement runs only for a row already proven to belong to the
+       * caller -- and repeating the identity here would be re-checking a lock
+       * we are holding. Listed rather than pattern-matched so a fifth
+       * exception has to be argued for.
+       */
+      || /UPDATE nv_exposure_findings SET disposition='credential-rejected'/.test(normalized);
 
     if (!carriesIdentity && !carriesClaim && !declaredException) {
       unscoped.push(normalized.slice(0, 90));
@@ -243,6 +252,124 @@ assert.strictEqual(
   assert.deepStrictEqual(
     unscoped, [],
     `a statement reaches a scan or finding without an identity, a claim, or a stated exception:\n${unscoped.join('\n')}`
+  );
+}
+
+/* ---- Verification attempts are append-only, like observations --------- */
+
+/*
+ * A provider's answer is evidence, and the sequence of answers is what proves
+ * a revocation worked. Editing one would lose the only record of what was true
+ * at a moment, so the store never updates or deletes them; they leave with the
+ * finding, by cascade.
+ */
+{
+  const attempts = fs.readFileSync(
+    path.join(__dirname, '..', 'db', 'migrations', '023_exposure_verifications.sql'), 'utf8'
+  );
+  assert(attempts.includes('CREATE TABLE nv_exposure_verifications'), 'missing nv_exposure_verifications');
+  assert.match(
+    attempts, /ON DELETE CASCADE/,
+    'attempts leave with the finding they are about'
+  );
+  assert.match(
+    attempts, /CHECK \(state IN \('verified', 'rejected', 'unverifiable'\)\)/,
+    'the three-state vocabulary is the schema\'s, not just the application\'s'
+  );
+  assert.match(
+    attempts, /CHECK \(subject_digest IS NULL OR state = 'verified'\)/,
+    'only a verdict may name a provider account: an unverifiable attempt reached none'
+  );
+  assert.match(
+    attempts, /CHECK \(freshness_deadline > observed_at\)/,
+    'an answer that never goes stale would read as current forever'
+  );
+  assert.match(
+    attempts, /subject_digest text NULL CHECK \(subject_digest IS NULL OR subject_digest ~ '\^\[0-9a-f\]\{32\}\$'\)/,
+    'the provider account is stored as a digest, never as a login'
+  );
+  assert.strictEqual(
+    /\bbytea\b|\bjsonb?\b/i.test(attempts), false,
+    'no column may hold a response body'
+  );
+
+  assert.strictEqual(
+    /UPDATE nv_exposure_verifications/.test(storeSource), false,
+    'an attempt is evidence; editing one loses what was true at that moment'
+  );
+  assert.strictEqual(
+    /DELETE FROM nv_exposure_verifications/.test(storeSource), false,
+    'attempts leave with their finding, by cascade, and not otherwise'
+  );
+}
+
+/* ---- Readability probes are append-only too ---------------------------- */
+
+/*
+ * What a project allowed the anonymous role to read, recorded the same way and
+ * for the same reason. The one thing this table must never grow is a column
+ * that could hold a row: the whole point of the probe is that "a row came
+ * back" is the entire finding, and storing the row would turn a security check
+ * into a second copy of somebody's data.
+ */
+{
+  const probes = fs.readFileSync(
+    path.join(__dirname, '..', 'db', 'migrations', '024_exposure_readability_probes.sql'), 'utf8'
+  );
+  assert(probes.includes('CREATE TABLE nv_exposure_readability_probes'), 'missing nv_exposure_readability_probes');
+  assert.match(probes, /ON DELETE CASCADE/, 'probes leave with the finding they are about');
+  assert.match(
+    probes, /CHECK \(state IN \('readable', 'denied', 'unverifiable'\)\)/,
+    "the three-state vocabulary is the schema's, not just the application's"
+  );
+  assert.match(
+    probes, /row_count integer NOT NULL DEFAULT 0 CHECK \(row_count BETWEEN 0 AND 1\)/,
+    'one row is the whole question, and the column will not hold more'
+  );
+  assert.match(
+    probes, /CHECK \(\(row_count > 0\) = \(state = 'readable'\)\)/,
+    'a result claiming to have seen a row it did not count is a result nobody measured'
+  );
+  assert.match(
+    probes, /project_ref text NULL CHECK \(project_ref IS NULL OR project_ref ~ '\^\[a-z\]\{20\}\$'\)/,
+    'the only shape this server turns into a host is the one the column admits'
+  );
+  assert.match(
+    probes, /relation text NULL CHECK \(relation IS NULL OR relation ~ '\^\[a-z_\]\[a-z0-9_\]\{0,62\}\$'\)/,
+    'a relation name cannot hold a credential if the column will not store one'
+  );
+  assert.match(
+    probes, /projection text NULL\s*\n\s*CHECK \(projection IS NULL OR projection ~ /,
+    'the projection is bounded by the same kind of pattern, count and order included'
+  );
+  assert.match(probes, /CHECK \(freshness_deadline > observed_at\)/, 'an answer that never goes stale would read as current forever');
+  assert.strictEqual(
+    /\bbytea\b|\bjsonb?\b/i.test(probes), false,
+    'no column may hold a response body'
+  );
+
+  assert.strictEqual(
+    /UPDATE nv_exposure_readability_probes/.test(storeSource), false,
+    'a probe is evidence; editing one loses what was true at that moment'
+  );
+  assert.strictEqual(
+    /DELETE FROM nv_exposure_readability_probes/.test(storeSource), false,
+    'probes leave with their finding, by cascade, and not otherwise'
+  );
+
+  /*
+   * And the store does not infer a disposition from a probe. A readable table
+   * is not the credential being live and a denied one is not the exposure
+   * ending, so a probe that moved a finding would be inventing a fact.
+   */
+  const probeMethod = storeSource.slice(
+    storeSource.indexOf('async recordReadabilityProbe('),
+    storeSource.indexOf('async listReadabilityProbes(')
+  );
+  assert(probeMethod.length > 400, 'the probe method slice must cover the method');
+  assert.strictEqual(
+    /UPDATE nv_exposure_findings/.test(probeMethod), false,
+    'what the anonymous role can reach says nothing about whether this key still works'
   );
 }
 

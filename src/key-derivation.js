@@ -53,7 +53,15 @@ const KEY_PURPOSES = Object.freeze({
    * under the other.
    */
   EXPOSURE_VERIFICATION_AUTHORIZATION: 'exposure-verification-authorization-hmac',
-  EXPOSURE_VERIFICATION_SUBJECT: 'exposure-verification-subject-hmac'
+  EXPOSURE_VERIFICATION_SUBJECT: 'exposure-verification-subject-hmac',
+  /*
+   * The finding fingerprint. Keyed rather than hashed because the thing
+   * being fingerprinted is a credential: the population of a provider's
+   * token format is small enough to enumerate offline, so an unkeyed
+   * digest published on a finding is the credential for anyone willing to
+   * spend the hardware.
+   */
+  EXPOSURE_FINDING_FINGERPRINT: 'exposure-finding-fingerprint-hmac'
 });
 
 const PURPOSE_LABELS = Object.freeze(Object.values(KEY_PURPOSES));

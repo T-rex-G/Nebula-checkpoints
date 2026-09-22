@@ -194,4 +194,78 @@ try {
   fs.rmSync(serializedRoot, { recursive: true, force: true });
 }
 
+/*
+ * Compatibility with the exposure scanner, which reads the same rules.
+ *
+ * The two answer different questions -- the gate asks whether a secret exists
+ * and stops, the scanner enumerates every one -- and they must never disagree
+ * about existence. If the gate flags a file and the scanner finds nothing in
+ * it, one of them is broken and only this comparison would say which. So: for
+ * every finding the gate reports, the scanner must report a candidate of the
+ * same rule whose first location is the same line, and the scanner must never
+ * be quiet about a file the gate flagged.
+ */
+{
+  const { detectInText } = require('../src/exposure-detection');
+  const compatibilityRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-scanner-compat-'));
+  try {
+    /* Its own fixtures: the set above is scoped to the block that built it,
+       and split prefixes keep this file out of its own findings. */
+    const shared = {
+      github: `gh${'p'}_${'Q'.repeat(36)}`,
+      slack: `xo${'xb'}-${'R'.repeat(24)}`,
+      gitlabPat: `gl${'pat'}-${'S'.repeat(24)}`,
+      aws: `AK${'IA'}${'T'.repeat(16)}`,
+      authenticatedUrl: ['https://', 'fixture:', 'U'.repeat(24), '@example.invalid/repository'].join('')
+    };
+    const sample = {
+      'multi.txt': [`one=${shared.github}`, `two=${shared.slack}`, `three=${shared.github}`].join('\n'),
+      'crlf.txt': [`a=${shared.gitlabPat}`, `b=${shared.aws}`].join('\r\n'),
+      'single.txt': shared.authenticatedUrl,
+      'quiet.js': 'const token = process.env.GITEA_TOKEN;'
+    };
+    for (const [relative, content] of Object.entries(sample)) {
+      fs.writeFileSync(path.join(compatibilityRoot, relative), `${content}\n`);
+    }
+    const gateFindings = scanFiles({ root: compatibilityRoot, files: Object.keys(sample) });
+    assert(gateFindings.length >= 5, 'the comparison needs findings to compare');
+
+    for (const finding of gateFindings) {
+      const text = fs.readFileSync(path.join(compatibilityRoot, finding.path), 'utf8');
+      const detection = detectInText({ text, path: finding.path });
+      const matching = detection.candidates.filter(candidate => candidate.rule === finding.rule);
+      assert(
+        matching.length > 0,
+        `the exposure scanner is silent about a file the gate flagged: ${finding.path} ${finding.rule}`
+      );
+      assert.strictEqual(
+        Math.min(...matching.map(candidate => candidate.occurrences[0].line)), finding.line,
+        `the two disagree about where ${finding.rule} first appears in ${finding.path}`
+      );
+    }
+
+    /* And the file the gate leaves alone stays quiet in both. */
+    assert.strictEqual(
+      detectInText({ text: fs.readFileSync(path.join(compatibilityRoot, 'quiet.js'), 'utf8'), path: 'quiet.js' })
+        .candidates.length,
+      0
+    );
+
+    /* The gate reports one github token in multi.txt; the scanner reports the
+       file truthfully. That difference is the reason the scanner exists. */
+    const multi = detectInText({
+      text: fs.readFileSync(path.join(compatibilityRoot, 'multi.txt'), 'utf8'), path: 'multi.txt'
+    });
+    assert.strictEqual(
+      gateFindings.filter(item => item.path === 'multi.txt' && item.rule === 'github-token').length, 1
+    );
+    assert.strictEqual(
+      multi.candidates.filter(item => item.rule === 'github-token')[0].occurrenceCount, 2,
+      'the same credential twice is one candidate seen twice'
+    );
+  } finally {
+    fs.rmSync(compatibilityRoot, { recursive: true, force: true });
+  }
+}
+
 console.log('secret scanner tests passed');

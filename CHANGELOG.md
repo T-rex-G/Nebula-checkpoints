@@ -2,6 +2,90 @@
 
 ## Unreleased
 
+### Stable Finding Identity
+
+- Added `src/exposure-detection.js`, which finds **every** credential in a
+  file rather than proving one exists. The release gate stops at the first match
+  per rule per file — correct for a gate, since one is enough to fail a build,
+  and wrong for a reader triaging an exposure. A scan reporting one token in a
+  file holding four has told them the repository is clean three times over.
+- The rules are imported, not restated, so there is one definition of what a
+  credential looks like in this repository and a rule improved for the gate
+  improves the scan. `test/secret-scanner.test.js` now carries compatibility
+  coverage that the two never disagree about existence: for every finding the
+  gate reports, the scanner must report the same rule with the same first line,
+  and the file the gate leaves alone stays quiet in both.
+- **The shared-regex-state test was wrong before it was right, and the reason is
+  worth recording.** A global expression carries `lastIndex` between calls, so
+  sharing a compiled rule across files skips the second file's beginning. But an
+  `exec` loop that runs to completion resets `lastIndex` on the way out — so the
+  obvious two-file check passes whether the rules are shared or not, and it did.
+  The path that actually leaves stale state is the match ceiling, which exits
+  the loop early. The test now scans a file that hits the ceiling and then a
+  small file whose only credential is on line one, and it fails when rules are
+  shared.
+- A bare `\r` is a line ending. Counting only `\n` puts every credential in a
+  legacy Mac-encoded file on line 1, which sends a reader to the wrong place in
+  a file they may not be able to open. CRLF and LF produce identical locations.
+- Every dimension is bounded — bytes read, matches walked, candidates kept,
+  locations per candidate — and a result that hit a cap says `truncated`. The
+  occurrence **count** is not capped with the occurrence **list**: "found 400
+  times, here are the first 20" is useful and "found 20 times" is wrong. A file
+  past the size ceiling reports `scanned: false` rather than an empty candidate
+  list, because an empty list reads as an all-clear.
+- A placeholder is a generated label (`<github-token #1>`), never a redacted
+  prefix. Showing the first characters of a token is the usual instinct and it
+  publishes the part identifying the provider and often the account — most of
+  what the leak was worth. A test asserts no placeholder contains any prefix of
+  any credential in the file, at every length from 4 to 12.
+- Added `src/exposure-findings.js`: a **keyed** fingerprint over the scope, the
+  exact Git path, the rule and the credential bytes, with the key, rules and
+  engine versions all part of the message and recorded on the finding. Keyed
+  rather than hashed because the population of a provider's token format is
+  small enough to walk offline, so an unkeyed digest published on a finding is
+  the credential for anyone with hardware to spend.
+- Nothing in identity is folded. `README` and `readme` are two entries in a Git
+  tree even where a filesystem disagrees, and a name written with a combining
+  accent is a different name from the same name composed — so two distinct paths
+  never collapse into one finding. A test asserts the module source contains no
+  `normalize`, `toLowerCase` or `toUpperCase` at all.
+- A line number is a location, not an identity: adding imports above a
+  credential changes its occurrences and not its fingerprint. Two credentials
+  sharing a 30-character prefix are two findings. The same credential in two
+  repositories is two findings, neither reachable from the other's record.
+- **Reconciliation refuses rather than diffs across a version change.** Rotate
+  the fingerprint key or edit a rule and every fingerprint changes at once; an
+  ordinary diff then shows every previous finding resolved and every current one
+  new, which reads to a human as "everything was fixed". `reconcileFindings`
+  returns `comparable: false` with a reason and reports nothing resolved. A
+  previous set written under two key versions is refused for the same reason —
+  picking the majority would silently resolve the minority.
+- The credential travels on a probe guarded by **two independent mechanisms**,
+  and the distinction is load-bearing rather than belt-and-braces. The private
+  field covers the accidents that enumerate — a spread while building a record,
+  an `Object.values` in a serializer — which never consult `toJSON` at all. The
+  `toJSON`, `toString` and inspect hooks cover the accidents that stringify, and
+  they say `[redacted]` rather than rendering an empty object: `CandidateSecret {}`
+  in a log leaves a reader unable to tell whether the value was absent, empty or
+  withheld. Both are sabotage-verified, and `Symbol.toPrimitive` was **removed**
+  once no test could distinguish its presence from `toString` alone.
+- `revealForVerification` is the single deliberate exit, and it refuses a
+  fabricated probe. That guard is what keeps the wrapper from becoming optional:
+  a refactor that started passing plain objects through would drop every
+  protection above without changing a single leakage assertion, because a plain
+  string secret has nothing to leak *from*. It hands the verifier a candidate
+  the verifier's own classifier accepts, so there is no translation layer
+  between the two tasks.
+- Nothing here claims a JavaScript string can be wiped. It is immutable and the
+  engine copies it at will, so the stated claim is the weaker true one: as few
+  copies as possible, held as briefly as possible, and never stored.
+- Added the `EXPOSURE_FINDING_FINGERPRINT` key purpose.
+- Twenty-two sabotages. Four initially survived and all four were defects in the
+  tests rather than the code: the shared-regex premise above, two
+  separator-collision fixtures that shifted a boundary instead of crossing one,
+  and an assertion that a private field was unreadable when it was already
+  unreadable by construction. Each is now written to fail for the stated reason.
+
 ### Credential Liveness Verification
 
 - Added `src/credential-verification.js`: asking the provider that issued a

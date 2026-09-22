@@ -3,7 +3,8 @@
 const crypto = require('crypto');
 
 const CATALOG_ID = 'nebulaverse-control-catalog';
-const CATALOG_VERSION = '1.2.0';
+const CATALOG_VERSION = '1.3.0';
+const TASK_19_CATALOG_VERSION = '1.2.0';
 const TASK_14_CATALOG_VERSION = '1.1.0';
 const LEGACY_CATALOG_VERSION = '1.0.0';
 const FRAMEWORK_REVISION = '2017-revised-2022';
@@ -78,6 +79,17 @@ const TASK_19_MAPPED_ACTIONS = Object.freeze([
   'governance.audit.export.create'
 ]);
 
+/*
+ * Exposure scanning. A revision is append-only because a stored policy names a
+ * catalog version and hash: editing 1.2.0 to add these would change what an
+ * already-approved policy covers without anybody approving it.
+ */
+const TASK_20_MAPPED_ACTIONS = Object.freeze([
+  'exposure.scan.request', 'exposure.scan.cancel',
+  'exposure.credential.verify', 'exposure.readability.probe',
+  'exposure.finding.accept-risk', 'exposure.finding.export'
+]);
+
 function actionControlRefs(actions) {
   return Object.freeze(Object.fromEntries(actions.map(action => [action, Object.freeze(['SOC2-TSC:CC6.1', 'SOC2-TSC:CC8.1'])])));
 }
@@ -97,13 +109,18 @@ function createCatalog(version, mappings) {
 
 const LEGACY_ACTION_CONTROL_REFS = actionControlRefs(BASE_MAPPED_ACTIONS);
 const TASK_14_ACTION_CONTROL_REFS = actionControlRefs([...BASE_MAPPED_ACTIONS, ...TASK_14_MAPPED_ACTIONS]);
-const ACTION_CONTROL_REFS = actionControlRefs([...BASE_MAPPED_ACTIONS, ...TASK_14_MAPPED_ACTIONS, ...TASK_19_MAPPED_ACTIONS]);
+const TASK_19_ACTION_CONTROL_REFS = actionControlRefs([...BASE_MAPPED_ACTIONS, ...TASK_14_MAPPED_ACTIONS, ...TASK_19_MAPPED_ACTIONS]);
+const ACTION_CONTROL_REFS = actionControlRefs([
+  ...BASE_MAPPED_ACTIONS, ...TASK_14_MAPPED_ACTIONS, ...TASK_19_MAPPED_ACTIONS, ...TASK_20_MAPPED_ACTIONS
+]);
 const LEGACY_CONTROL_CATALOG = createCatalog(LEGACY_CATALOG_VERSION, LEGACY_ACTION_CONTROL_REFS);
 const TASK_14_CONTROL_CATALOG = createCatalog(TASK_14_CATALOG_VERSION, TASK_14_ACTION_CONTROL_REFS);
+const TASK_19_CONTROL_CATALOG = createCatalog(TASK_19_CATALOG_VERSION, TASK_19_ACTION_CONTROL_REFS);
 const CONTROL_CATALOG = createCatalog(CATALOG_VERSION, ACTION_CONTROL_REFS);
 const CONTROL_CATALOGS = Object.freeze({
   [LEGACY_CONTROL_CATALOG.version]: Object.freeze({ catalog: LEGACY_CONTROL_CATALOG, actionMappings: LEGACY_ACTION_CONTROL_REFS }),
   [TASK_14_CONTROL_CATALOG.version]: Object.freeze({ catalog: TASK_14_CONTROL_CATALOG, actionMappings: TASK_14_ACTION_CONTROL_REFS }),
+  [TASK_19_CONTROL_CATALOG.version]: Object.freeze({ catalog: TASK_19_CONTROL_CATALOG, actionMappings: TASK_19_ACTION_CONTROL_REFS }),
   [CONTROL_CATALOG.version]: Object.freeze({ catalog: CONTROL_CATALOG, actionMappings: ACTION_CONTROL_REFS })
 });
 
@@ -287,6 +304,7 @@ module.exports = Object.freeze({
   CONTROL_CATALOG,
   LEGACY_CONTROL_CATALOG,
   TASK_14_CONTROL_CATALOG,
+  TASK_19_CONTROL_CATALOG,
   normalizeControlRefs,
   deriveControlMapping,
   normalizeControlMapping

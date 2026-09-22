@@ -2,6 +2,78 @@
 
 ## Unreleased
 
+### Governable Findings, and the Screen That Shows Them
+
+- Control catalog **1.3.0** maps six exposure actions. Revisions are
+  append-only because a stored policy names a catalog version and hash: editing
+  1.2.0 to add these would change what an already-approved policy covers
+  without anybody approving it. A test asserts the earlier revisions report
+  these actions as unmapped and that a revision may only add.
+- The bindings are the distinction that matters. `exposure.scan.request` binds
+  to whoever executes it — it reads a repository the caller can already read.
+  `exposure.finding.accept-risk` binds to a **governance** role and is marked
+  critical: deciding that an exposed credential is acceptable is a decision
+  about somebody else's security, and a repository reader cannot wave away
+  their own finding. Using a discovered credential (`exposure.credential.verify`,
+  `exposure.readability.probe`) is `high`, which is what it is.
+- Six routes, each carrying the full chain — provider session, repository
+  boundary, capability gate, authentication, governance role, and a mutation
+  context on the three that decide something. The identity is passed **into**
+  the store on every call so the boundary lands in a WHERE clause rather than in
+  a comparison somebody could forget; a scan id is a uuid a caller could hold
+  without owning. The routes are inventoried rather than exempted, so route,
+  action and execution contract are checked together.
+- The ref is resolved to a commit **once**, on the request path, and the worker
+  cannot reach the resolver at all — asserted by requiring its source not to
+  mention it. That is what stops a branch moving mid-scan from producing a
+  finding set assembled from two trees.
+- The route-surface ratchet moved from 147 to 153, deliberately and with the
+  reason it asks for: these six are registration and nothing else, each
+  validating a couple of parameters and calling one method on a module that has
+  its own tests. That is the shape the ratchet exists to encourage.
+- `exposure.scan` is **Experimental** for GitHub — implemented and fixture-tested
+  end to end, not exercised by the live-provider harness, which is exactly what
+  that status means here and what `file.rename` already carries. The consequence
+  is the interesting part: reading and scanning routes opt in and work, while
+  **accepting the risk of a live credential does not**, because it does not pass
+  `allowExperimental`. A feature being usable and its most consequential
+  decision being usable are separate questions, and the capability gate is where
+  they separate.
+- **The screen leads with what was proven, then coverage, then the list.** That
+  order is the argument: a findings list on its own invites the reading "nothing
+  here, so nothing is wrong", which is precisely the conclusion a partial scan
+  does not support. An empty list under partial coverage says *"No credentials
+  were found in the part of the tree this scan read. That is not an all-clear."*
+  Queued, running, partial, failed and canceled all render in a warning tone;
+  only a complete scan with complete coverage reads as settled, and even that is
+  neutral rather than a green tick.
+- Added `test/e2e/exposure.spec.js`: eight cases covering the proof-before-list
+  order, the empty-list-under-partial-coverage sentence, a scan in progress
+  never looking settled, no credential reaching the DOM or browser storage,
+  provider text inserted as text rather than markup, the keyboard path and the
+  live region, both themes, 320px reflow, and findings not surviving a
+  repository switch.
+- **The e2e suite caught a real bug before anybody ran the feature.** The UI
+  built its request URLs from `state.owner`/`state.repo`, which this application
+  does not have — the repository lives on `state.work` and paths are built with
+  `wPath()`. Every exposure request would have gone to `/api/repo//exposure/...`
+  and failed silently, showing an empty screen that looked like a clean
+  repository. It is fixed, and the loaders now return early when no repository
+  is open rather than asking the server about one nobody named.
+- **And a second real defect, found the same way.** The screen existed only as
+  a tab, and the tab strip is hidden at phone width — so the whole destination
+  was unreachable on the device this product is most used on. It now has a More
+  sheet entry and a command-palette entry alongside Governance, and a case named
+  for it asserts both paths exist. The browser-purge suite gained the exposure
+  clear, because findings carry a placeholder, a path and bounded locations for
+  somebody's credentials and must not survive into the next session.
+- Thirteen sabotages across the catalog, the routes, the capability document,
+  the screen and the purge path;
+  all eleven caught, including a reader being allowed to accept their own risk,
+  a route losing the repository boundary, a read dropping the identity, the
+  caller supplying a commit instead of the ref being resolved, an error message
+  returned raw, and a decision no longer being recorded.
+
 ### Anonymous Readability, and Saying What a Finding Means
 
 - Added `src/anonymous-readability-probe.js`: establishing whether a discovered

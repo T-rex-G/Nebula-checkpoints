@@ -1532,6 +1532,7 @@ async function purgeLocalData(full) {
   paintUnread([]);
   clearCsrfToken();
   clearGovernanceState();
+  clearExposureState();
   await purgePrivateCaches();
   try { sessionStorage.clear(); } catch {}
   try {
@@ -2250,6 +2251,7 @@ async function loadRepositoryTrustSummary() {
 async function openRepo(owner, repo) {
   showPage('work');
   clearGovernanceState();
+  clearExposureState();
   $('#workRepoName').textContent = `${owner}/${repo}`;
   $('#tree').innerHTML = '<div class="skeleton" style="height:200px"></div>';
   closeFile();
@@ -2451,6 +2453,244 @@ function scheduleGovernanceAccessExpiry() {
     announceGovernance('Repository permission evidence expired. Refresh governance before taking action.');
   }, delay);
 }
+/* ---- Exposure ------------------------------------------------------- */
+
+/*
+ * The screen leads with what was proven, not with a list.
+ *
+ * A findings list on its own invites one reading -- "nothing here, so nothing
+ * is wrong" -- and that is exactly the conclusion a partial scan does not
+ * support. So the proof line and the coverage come first, a partial scan says
+ * so in the same breath, and an empty list under partial coverage never reads
+ * as an all-clear.
+ *
+ * Nothing rendered here is built from a credential. The server sends a
+ * placeholder, bounded locations and a narration drawn from a lookup table;
+ * this file inserts all of it as text, never as markup, because a path is
+ * bytes a repository chose and a finding should be safe to put on a screen.
+ */
+function exposureState() {
+  if (!state.exposure) {
+    state.exposure = { scan: null, findings: [], loading: false, error: '', scopeKey: '' };
+  }
+  return state.exposure;
+}
+
+function announceExposure(message) {
+  const live = $('#exposureLive');
+  if (!live) return;
+  live.textContent = '';
+  requestAnimationFrame(() => { live.textContent = String(message || ''); });
+}
+
+function exposureScopeKey() {
+  return state.work ? `${state.work.provider || 'github'}:${state.work.owner}/${state.work.repo}` : '';
+}
+
+function clearExposureState() {
+  state.exposure = { scan: null, findings: [], loading: false, error: '', scopeKey: '' };
+  renderExposure();
+}
+
+/*
+ * The one place a scan's state becomes words. `pending`, `partial`, `failed`
+ * and `canceled` all render as themselves and none of them renders green:
+ * a scan that has not finished, or finished without reading everything, is not
+ * a clean repository and must never look like one.
+ */
+const EXPOSURE_STATE_WORDS = {
+  queued: 'Queued',
+  running: 'Running',
+  complete: 'Complete',
+  partial: 'Finished, partial',
+  failed: 'Failed',
+  canceled: 'Canceled'
+};
+const EXPOSURE_COVERAGE_WORDS = {
+  unknown: 'Unknown',
+  complete: 'Whole tree read',
+  partial: 'Part of the tree read'
+};
+const EXPOSURE_SKIPPED_WORDS = {
+  'file-count-limit': 'the file ceiling was reached',
+  'byte-limit': 'the byte ceiling was reached',
+  'time-limit': 'the time ceiling was reached',
+  'tree-truncated': 'the provider truncated the file listing',
+  'unreadable-files': 'some files were not read',
+  canceled: 'it was canceled',
+  'transport-refused': 'the repository could not be read',
+  'authorization-revoked': 'the authorised session is no longer valid'
+};
+
+function exposureProofLine(scan) {
+  if (!scan) return 'No scan has been run for this repository yet.';
+  if (scan.state === 'queued' || scan.state === 'running') {
+    return 'A scan is in progress. Nothing is proven until it finishes.';
+  }
+  if (scan.coverage === 'complete' && scan.state === 'complete') {
+    return 'This scan read the whole tree at the commit below. Anything it found is listed here; anything it did not find was not in that tree.';
+  }
+  return 'This scan did not read the whole tree, so it cannot tell you the repository is clean.';
+}
+
+function renderExposure() {
+  const pane = $('#tab-exposure');
+  if (!pane) return;
+  const current = exposureState();
+  const scan = current.scan;
+
+  const stateEl = $('#exposureState');
+  const coverageEl = $('#exposureCoverage');
+  if (stateEl) {
+    stateEl.textContent = scan ? (EXPOSURE_STATE_WORDS[scan.state] || scan.state) : 'Not started';
+    stateEl.dataset.state = scan ? scan.state : 'none';
+  }
+  if (coverageEl) {
+    coverageEl.textContent = scan ? (EXPOSURE_COVERAGE_WORDS[scan.coverage] || scan.coverage) : 'Unknown';
+    coverageEl.dataset.coverage = scan ? scan.coverage : 'unknown';
+  }
+  const commitEl = $('#exposureCommit');
+  if (commitEl) commitEl.textContent = scan && scan.commitSha ? scan.commitSha.slice(0, 12) : '—';
+  const filesEl = $('#exposureFiles');
+  if (filesEl) filesEl.textContent = scan && Number.isFinite(scan.filesScanned) ? String(scan.filesScanned) : '—';
+
+  const proof = $('#exposureProofLine');
+  if (proof) proof.textContent = current.error || exposureProofLine(scan);
+
+  const caveat = $('#exposureCaveat');
+  if (caveat) {
+    const reason = scan && scan.skippedReason ? EXPOSURE_SKIPPED_WORDS[scan.skippedReason] : '';
+    caveat.hidden = !reason;
+    caveat.textContent = reason ? `Coverage is partial because ${reason}.` : '';
+  }
+
+  const cancel = $('#exposureCancelBtn');
+  if (cancel) cancel.hidden = !(scan && (scan.state === 'queued' || scan.state === 'running'));
+  const scanBtn = $('#exposureScanBtn');
+  if (scanBtn) scanBtn.disabled = Boolean(current.loading || (scan && (scan.state === 'queued' || scan.state === 'running')));
+
+  const list = $('#exposureList');
+  const empty = $('#exposureEmpty');
+  if (!list || !empty) return;
+  list.textContent = '';
+  if (!current.findings.length) {
+    /*
+     * The empty state depends on the coverage, which is the whole point of
+     * putting coverage above the list. "Nothing found" and "nothing found in
+     * the part we read" are different sentences.
+     */
+    empty.hidden = false;
+    empty.textContent = !scan
+      ? 'Nothing to show yet.'
+      : (scan.coverage === 'complete'
+        ? 'No credentials were found in the tree this scan read.'
+        : 'No credentials were found in the part of the tree this scan read. That is not an all-clear.');
+    return;
+  }
+  empty.hidden = true;
+  for (const finding of current.findings) {
+    const item = document.createElement('li');
+    item.className = 'exposure-item';
+    item.dataset.severity = (finding.narration && finding.narration.severity) || 'serious';
+    item.dataset.disposition = finding.disposition || 'open';
+
+    const title = document.createElement('p');
+    title.className = 'exposure-item-title';
+    title.textContent = (finding.narration && finding.narration.what) || finding.placeholder || 'A credential';
+    item.appendChild(title);
+
+    const consequence = document.createElement('p');
+    consequence.className = 'exposure-item-consequence';
+    consequence.textContent = (finding.narration && finding.narration.consequence) || '';
+    item.appendChild(consequence);
+
+    const where = document.createElement('p');
+    where.className = 'exposure-item-where';
+    where.textContent = (finding.narration && finding.narration.where) || '';
+    item.appendChild(where);
+
+    const action = document.createElement('p');
+    action.className = 'exposure-item-action';
+    action.textContent = (finding.narration && finding.narration.action) || '';
+    item.appendChild(action);
+
+    const disposition = document.createElement('p');
+    disposition.className = 'exposure-item-disposition';
+    disposition.textContent = `Status: ${finding.disposition || 'open'}`;
+    item.appendChild(disposition);
+
+    list.appendChild(item);
+  }
+}
+
+async function loadExposure() {
+  /*
+   * A repository has to be open. Reaching this with none -- a deep link, a
+   * tab restored before the workbench finished loading -- would build a URL
+   * with an empty owner and ask the server about a repository nobody named.
+   */
+  if (!state.work) return;
+  const current = exposureState();
+  const scopeKey = exposureScopeKey();
+  if (current.scopeKey !== scopeKey) {
+    state.exposure = { scan: null, findings: [], loading: false, error: '', scopeKey };
+  }
+  const now = exposureState();
+  now.loading = true;
+  renderExposure();
+  try {
+    const findings = await api(`/api/repo/${wPath()}/exposure/findings?limit=50`);
+    now.findings = Array.isArray(findings && findings.findings) ? findings.findings : [];
+    now.error = '';
+  } catch (error) {
+    now.findings = [];
+    now.error = 'Findings could not be loaded for this repository.';
+  } finally {
+    now.loading = false;
+    renderExposure();
+  }
+}
+
+async function requestExposureScan() {
+  if (!state.work) return;
+  const current = exposureState();
+  current.loading = true;
+  renderExposure();
+  try {
+    const body = await api(`/api/repo/${wPath()}/exposure/scans`, {
+      method: 'POST',
+      body: JSON.stringify({ ref: (state.work && state.work.branch) || 'HEAD' })
+    });
+    current.scan = body && body.scan ? body.scan : null;
+    current.error = '';
+    announceExposure('Scan requested. Nothing is proven until it finishes.');
+  } catch (error) {
+    current.error = 'The scan could not be started for this repository.';
+    announceExposure(current.error);
+  } finally {
+    current.loading = false;
+    renderExposure();
+  }
+}
+
+async function cancelExposureScan() {
+  if (!state.work) return;
+  const current = exposureState();
+  if (!current.scan) return;
+  try {
+    const body = await api(`/api/repo/${wPath()}/exposure/scans/${current.scan.scanId}/cancel`, {
+      method: 'POST'
+    });
+    current.scan = body && body.scan ? body.scan : current.scan;
+    announceExposure('Scan canceled. Its coverage is partial.');
+  } catch (error) {
+    current.error = 'The scan could not be canceled.';
+    announceExposure(current.error);
+  } finally {
+    renderExposure();
+  }
+}
+
 function announceGovernance(message) {
   const live = $('#govLive');
   if (!live) return;
@@ -3902,12 +4142,20 @@ function switchTab(name) {
   if (name === 'releases' && !$('#releaseList').children.length) loadReleases();
   if (name === 'actions' && !$('#actionsList').children.length) loadActions();
   if (name === 'governance') loadGovernanceTwin();
+  if (name === 'exposure') loadExposure();
   if (name === 'neural') ensureNeural();
   else if (window.NebulaNeural) window.NebulaNeural.deactivate();
   if (name === 'editor' && state.cm) setTimeout(() => state.cm.refresh(), 30);
   saveRoute();
 }
 $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+{
+  const scanBtn = $('#exposureScanBtn');
+  if (scanBtn) scanBtn.addEventListener('click', () => { void requestExposureScan(); });
+  const cancelBtn = $('#exposureCancelBtn');
+  if (cancelBtn) cancelBtn.addEventListener('click', () => { void cancelExposureScan(); });
+}
 
 $('#bottomNav').addEventListener('click', e => {
   const btn = e.target.closest('button');
@@ -3931,7 +4179,7 @@ $('#sheet').addEventListener('click', e => {
   runCapabilityAction(item.dataset.feature, () => {
     closeSheet();
     const act = item.dataset.act;
-    if (['pulls', 'issues', 'releases', 'compare', 'actions', 'neural', 'governance'].includes(act)) switchTab(act);
+    if (['pulls', 'issues', 'releases', 'compare', 'actions', 'neural', 'governance', 'exposure'].includes(act)) switchTab(act);
     else if (act === 'palette') openPalette();
     else if (act === 'zip') downloadZip();
     else if (act === 'branches') openBranchManager();
@@ -3969,6 +4217,7 @@ const COMMANDS = [
    * the tab strip was the one a reader could not jump to by name either.
    */
   { label: 'Governance', kind: 'view', feature: 'governance', allowExperimental: true, run: () => switchTab('governance') },
+  { label: 'Exposure', kind: 'view', feature: 'exposure.scan', allowExperimental: true, run: () => switchTab('exposure') },
   { label: 'Manage branches', kind: 'action', feature: 'branches.write', run: () => openBranchManager() },
   { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', allowExperimental: true, run: () => toggleStar() },
   { label: 'Open the Time Machine', kind: 'action', feature: 'recovery', run: () => openTimeMachine() },

@@ -10,7 +10,15 @@ for (const item of MUTATION_ROUTE_INVENTORY) {
   const index = server.indexOf(needle);
   assert(index >= 0, `missing inventoried mutation route ${item.method} ${item.route}`);
   const line = server.slice(index, server.indexOf('\n', index));
-  const middleware = item.action.startsWith('governance.') ? 'governanceMutationContext' : 'mutationContext';
+  /*
+   * Exposure actions take the governance mutation context for the same reason
+   * governance actions do: they record a decision in this server's own
+   * evidence ledger rather than writing to a provider. The rule keys off the
+   * namespace so a new action in either family cannot quietly pick the wrong
+   * recorder.
+   */
+  const governanceShaped = item.action.startsWith('governance.') || item.action.startsWith('exposure.');
+  const middleware = governanceShaped ? 'governanceMutationContext' : 'mutationContext';
   assert(line.includes(`${middleware}('${item.action}')`), `${item.route} must use ${middleware}('${item.action}')`);
 }
 const routeRx = /app\.(post|put|patch|delete)\('([^']+)'[^\n]*/g;

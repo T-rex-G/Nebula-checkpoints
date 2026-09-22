@@ -46,14 +46,14 @@ mutations remain blocked.
 
 ## GitHub — evidence-bounded alpha subset
 
-Counted from the capability registry: 20 Supported, 14 Experimental, 1 Unavailable. Of those, 15 carry
+Counted from the capability registry: 20 Supported, 15 Experimental, 0 Unavailable. Of those, 15 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
 | Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; single-commit batch; native push; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; access-surface analysis; dependency audit; recovery; governance; upload security |
-| Experimental | repository create/delete; global search; notifications; file rename; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; Git LFS; folder move; live events |
-| Unavailable | exposure scanning, which is implemented and not yet exposed by any route; otherwise none at the provider level, though connection permissions and invitation scopes still apply |
+| Experimental | repository create/delete; global search; notifications; file rename; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; Git LFS; folder move; live events; exposure scanning, whose routes are opt-in and whose risk acceptance stays closed until the capability is Supported |
+| Unavailable | none at the provider level; connection permissions and invitation scopes still apply |
 
 Repository creation/deletion, global search, and notifications are usable
 experimental operations with deterministic coverage, not new live-provider

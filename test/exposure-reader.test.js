@@ -33,7 +33,8 @@ const {
   classifyTreeEntry,
   readBlob,
   readTree,
-  readerFor
+  readerFor,
+  resolveCommit
 } = require('../src/exposure-reader');
 
 const scope = Object.freeze({
@@ -396,6 +397,58 @@ function blobEntry(entryPath, overrides = {}) {
       assert.strictEqual(surface.includes(TOKEN.slice(4, 20)), false, 'nor part of it');
     }
   }
+
+/* ---- Resolving a ref, exactly once ---------------------------------- */
+
+/*
+ * The one place a ref is turned into a commit. It happens when a scan is
+ * requested, the answer is stored on the scan row, and nothing afterwards ever
+ * looks at the ref again -- which is what stops a branch moving mid-scan from
+ * producing a finding set assembled from two trees.
+ */
+{
+  const transport = transportReturning({
+    statusCode: 200, body: JSON.stringify({ sha: COMMIT, commit: { message: 'x' } })
+  });
+  const resolved = await resolveCommit({ scope, ref: 'refs/heads/main', token: TOKEN, transport });
+  assert.strictEqual(resolved.commitSha, COMMIT);
+  assert.strictEqual(
+    transport.calls[0].url,
+    'https://api.github.com/repos/Acme/Demo/commits/refs%2Fheads%2Fmain'
+  );
+  assert.strictEqual(transport.calls[0].profile, PROFILES.PROVIDER_READ);
+
+  /* A ref is a ref shape, not free text: nothing here interpolates a caller's
+     string into a path without saying what it will accept. */
+  for (const ref of ['', '..', 'refs/heads/../../x', 'a b', 'a\nb', '-leading-dash', 'a'.repeat(300), 'refs/heads/']) {
+    await assert.rejects(
+      resolveCommit({ scope, ref, token: TOKEN, transport }),
+      error => error.code === 'EXPOSURE_REF_INVALID',
+      JSON.stringify(ref)
+    );
+  }
+  for (const ref of ['main', 'refs/heads/main', 'release/2026-09', 'v1.2.3', COMMIT]) {
+    const ok = transportReturning({ statusCode: 200, body: JSON.stringify({ sha: COMMIT }) });
+    assert.strictEqual((await resolveCommit({ scope, ref, token: TOKEN, transport: ok })).commitSha, COMMIT);
+  }
+
+  /* An answer that is not a commit is an error, not a guess. */
+  for (const body of ['{}', '{"sha":"nothex"}', `{"sha":"${COMMIT.slice(0, 7)}"}`, 'not json', '[]']) {
+    await assert.rejects(
+      resolveCommit({ scope, ref: 'main', token: TOKEN, transport: transportReturning({ statusCode: 200, body }) }),
+      error => error.code === 'EXPOSURE_REF_UNRESOLVED',
+      body
+    );
+  }
+  await assert.rejects(
+    resolveCommit({ scope, ref: 'main', token: TOKEN, transport: transportReturning({ statusCode: 404, body: '{}' }) }),
+    error => error.code === 'EXPOSURE_REF_UNRESOLVED'
+  );
+  await assert.rejects(
+    resolveCommit({ scope, ref: 'main', token: TOKEN, transport: transportReturning({ statusCode: 401, body: '{}' }) }),
+    error => error.code === 'EXPOSURE_AUTHORIZATION_REVOKED'
+  );
+}
 
   console.log('exposure reader tests passed');
 })().catch(error => {

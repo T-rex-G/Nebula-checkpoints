@@ -3463,3 +3463,99 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 /* The live end of the series. Its colour comes from the endpoint it sits
    under, so the two read as one mark rather than a dot inside a ring. */
 .wp-area-ping{fill:#22D3EE;pointer-events:none}
+
+/* ---- Exposure ------------------------------------------------------- */
+
+/*
+ * The proof card comes first and is the widest thing on the screen, because
+ * the order of this pane is its argument: what was proven, then how much was
+ * read, then the list. A findings list on its own reads as "nothing here, so
+ * nothing is wrong", which is the conclusion a partial scan does not support.
+ */
+.exposure-shell {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.exposure-heading {
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin: 0 0 10px;
+  color: var(--text);
+}
+.exposure-proof-line {
+  margin: 0 0 14px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.exposure-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 0 0 12px;
+}
+.exposure-fact dt {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.exposure-fact dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/*
+ * Only a complete scan is allowed to look settled, and even that is a neutral
+ * tone rather than a green tick. Every other state -- queued, running, partial,
+ * failed, canceled -- carries a warning tone, because none of them supports
+ * the reading that the repository is clean.
+ */
+#exposureState[data-state="complete"],
+#exposureCoverage[data-coverage="complete"] { color: var(--text); }
+#exposureState[data-state="queued"],
+#exposureState[data-state="running"],
+#exposureState[data-state="partial"],
+#exposureState[data-state="failed"],
+#exposureState[data-state="canceled"],
+#exposureCoverage[data-coverage="partial"],
+#exposureCoverage[data-coverage="unknown"] { color: var(--warn, #b26a00); }
+
+.exposure-caveat {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--warn, #b26a00) 12%, transparent);
+  color: var(--text);
+  line-height: 1.45;
+}
+.exposure-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.exposure-empty { margin: 0; color: var(--muted); line-height: 1.5; }
+.exposure-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.exposure-item {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  /* The severity stripe is a second signal beside the words, never the only
+     one: the title and the consequence say what this is without it. */
+  border-left-width: 4px;
+}
+.exposure-item[data-severity="critical"] { border-left-color: var(--danger, #c0392b); }
+.exposure-item[data-severity="serious"] { border-left-color: var(--warn, #b26a00); }
+.exposure-item[data-severity="warning"] { border-left-color: var(--muted); }
+.exposure-item-title { margin: 0 0 6px; font-weight: 650; color: var(--text); }
+.exposure-item-consequence { margin: 0 0 8px; color: var(--text); line-height: 1.5; }
+.exposure-item-where,
+.exposure-item-action,
+.exposure-item-disposition { margin: 0 0 6px; color: var(--muted); line-height: 1.45; }
+.exposure-item-disposition { margin-bottom: 0; }
+
+@media (max-width: 480px) {
+  .exposure-shell { padding: 12px; gap: 12px; }
+  .exposure-facts { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+}

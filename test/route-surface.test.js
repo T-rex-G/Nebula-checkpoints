@@ -129,7 +129,20 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * dependency object relocates the entanglement across a parameter list
  * without reducing it. Extracting logic reduces it; extracting URLs does not.
  */
-const SERVER_ROUTE_CEILING = 147;
+/*
+ * Raised from 147 to 153 for exposure scanning, deliberately and with the
+ * reason the ratchet asks for.
+ *
+ * The six routes are registration and nothing else: each one validates a
+ * couple of parameters, calls one method on `src/exposure-store.js`,
+ * `src/exposure-reader.js` or `src/exposure-narration.js`, and returns the
+ * result. The identity boundary is a parameter passed into the store, where it
+ * lands in a WHERE clause; the decisions about coverage, disposition and
+ * wording are all in modules with their own tests. That is exactly the shape
+ * this ratchet exists to encourage, so the number moves rather than the logic
+ * being pushed back into this file to avoid moving it.
+ */
+const SERVER_ROUTE_CEILING = 153;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

@@ -147,8 +147,11 @@ const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { startExposureWorker } = require('./src/exposure-worker');
+const { RULES_VERSION, DETECTION_ENGINE_VERSION } = require('./src/exposure-detection');
+const { FINGERPRINT_KEY_VERSION } = require('./src/exposure-findings');
+const { describeFinding } = require('./src/exposure-narration');
 const exposureReader = require('./src/exposure-reader');
-const { ExposureStore } = require('./src/exposure-store');
+const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('./src/exposure-store');
 const {
   createSnapshotSignatures,
   loadSnapshotSigningConfig
@@ -4530,6 +4533,142 @@ app.post('/api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision', p
     });
     res.status(201).json({ exception });
   } catch (error) { governanceFailure(res, error); }
+});
+
+/*
+ * Exposure scanning routes.
+ *
+ * Every one of them carries the same chain as a governance route, and for the
+ * same reasons: a provider session, the alpha repository boundary, the
+ * capability gate, authentication, a governance role, and -- where something is
+ * decided rather than read -- a mutation context that records it.
+ *
+ * Two things about this chain are load-bearing rather than copied.
+ *
+ * The identity comes from `req.governance.actor.identityKey`, and it is passed
+ * into every store call so the boundary lives in the WHERE clause rather than
+ * in a comparison somebody could forget. A scan id is a uuid a caller could
+ * hold without owning.
+ *
+ * Accepting the risk of a live credential requires `administrator`, not
+ * `reader`. A repository reader can ask for a scan of a repository they can
+ * already read, and cannot wave away what it finds: deciding that an exposed
+ * credential is acceptable is a decision about somebody else's security.
+ */
+function exposureService() {
+  if (!DB_URL) {
+    throw Object.assign(new Error('Exposure scanning requires the configured PostgreSQL DATABASE_URL'), {
+      status: 503, code: 'EXPOSURE_DATABASE_REQUIRED'
+    });
+  }
+  if (!_exposureStore) _exposureStore = new ExposureStore({ pool: pool() });
+  return _exposureStore;
+}
+
+function exposureFailure(res, error) {
+  const status = Number.isInteger(error && error.status) ? error.status : 500;
+  /*
+   * The same public-error body every other route uses. It is the one that
+   * already refuses to echo a message carrying a secret signal, which matters
+   * more here than anywhere else: an error on this path can have been raised
+   * while a request carrying a discovered credential was in flight.
+   */
+  res.status(status).json(publicErrorBody(error));
+}
+
+app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.scan.request'), async (req, res) => {
+  try {
+    const store = exposureService();
+    /*
+     * The ref is resolved here, once, and the commit is what the scan records.
+     * Resolving it later -- in the worker, per read -- is what would let a push
+     * between the tree read and the blob reads mix two trees.
+     */
+    const resolved = await exposureReader.resolveCommit({
+      scope: req.governance.scope,
+      ref: String((req.body && req.body.ref) || 'HEAD'),
+      token: req.gh.token
+    });
+    const requested = await store.requestScan({
+      scope: req.governance.scope,
+      identityKey: req.governance.actor.identityKey,
+      requestedBy: retainedActor(req),
+      refName: resolved.ref,
+      commitSha: resolved.commitSha,
+      rulesVersion: RULES_VERSION,
+      engineVersion: DETECTION_ENGINE_VERSION,
+      fingerprintKeyVersion: FINGERPRINT_KEY_VERSION,
+      configVersion: EXPOSURE_CONFIG_VERSION,
+      idempotencyKey: cleanText(String(req.get('Idempotency-Key') || crypto.randomUUID()), 200)
+    });
+    ensureExposureWorker();
+    res.status(requested.created ? 201 : 200).json({ scan: requested.scan, created: requested.created });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const scan = await exposureService().getScan({
+      scanId: String(req.params.scanId || ''),
+      identityKey: req.governance.actor.identityKey
+    });
+    if (!scan) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_SCAN_NOT_FOUND' });
+    res.json({ scan });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.scan.cancel'), async (req, res) => {
+  try {
+    const scan = await exposureService().cancelScan({
+      scanId: String(req.params.scanId || ''),
+      identityKey: req.governance.actor.identityKey
+    });
+    if (!scan) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_SCAN_NOT_FOUND' });
+    res.status(201).json({ scan });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const findings = await exposureService().listFindings({
+      scope: req.governance.scope,
+      identityKey: req.governance.actor.identityKey,
+      limit: Number.parseInt(String(req.query.limit || '50'), 10)
+    });
+    /*
+     * The narration travels with the finding rather than being rebuilt in the
+     * browser. It is a lookup table, so the words are the same wherever they
+     * are read, and keeping it server-side means the table is reviewed in one
+     * place rather than in two languages.
+     */
+    res.json({
+      findings: findings.map(finding => ({ ...finding, narration: describeFinding(finding) }))
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const observations = await exposureService().listObservations({
+      scanId: String(req.params.scanId || ''),
+      identityKey: req.governance.actor.identityKey,
+      limit: Number.parseInt(String(req.query.limit || '50'), 10)
+    });
+    res.json({ observations });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('administrator'), governanceMutationContext('exposure.finding.accept-risk'), async (req, res) => {
+  try {
+    const finding = await exposureService().acceptRisk({
+      scope: req.governance.scope,
+      identityKey: req.governance.actor.identityKey,
+      fingerprint: String(req.params.fingerprint || ''),
+      actor: retainedActor(req)
+    });
+    if (!finding) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_FINDING_NOT_FOUND' });
+    res.status(201).json({ finding });
+  } catch (error) { exposureFailure(res, error); }
 });
 
 app.post('/api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), governanceMutationContext('governance.exception.revoke'), async (req, res) => {

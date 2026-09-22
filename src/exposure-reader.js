@@ -146,7 +146,9 @@ const READERS = Object.freeze({
     treePath: (scope, commitSha) =>
       `/repos/${encodeURIComponent(scope.owner)}/${encodeURIComponent(scope.repo)}/git/trees/${commitSha}?recursive=1`,
     blobPath: (scope, sha) =>
-      `/repos/${encodeURIComponent(scope.owner)}/${encodeURIComponent(scope.repo)}/git/blobs/${sha}`
+      `/repos/${encodeURIComponent(scope.owner)}/${encodeURIComponent(scope.repo)}/git/blobs/${sha}`,
+    commitPath: (scope, ref) =>
+      `/repos/${encodeURIComponent(scope.owner)}/${encodeURIComponent(scope.repo)}/commits/${encodeURIComponent(ref)}`
   })
 });
 
@@ -242,6 +244,53 @@ function parsed(response, maxBytes) {
   } catch {
     return null;
   }
+}
+
+/*
+ * A ref is a branch, a tag or an object id, and it is bounded here rather than
+ * interpolated. A path segment built from a caller's free text is the kind of
+ * thing that works until somebody sends `..`, and while the transport would
+ * refuse the resulting URL, refusing it by shape says which field was wrong.
+ */
+const REF_PATTERN = /^(?!-)[A-Za-z0-9][A-Za-z0-9._\/-]{0,254}$/;
+
+function requireRef(ref) {
+  const value = text(ref);
+  if (!value || value.endsWith('/') || !REF_PATTERN.test(value) || value.split('/').some(part => part === '' || part === '.' || part === '..')) {
+    throw new ExposureReaderError('A scan ref must be a branch, tag or object id', 'EXPOSURE_REF_INVALID', 400);
+  }
+  return value;
+}
+
+/*
+ * The one place a ref becomes a commit.
+ *
+ * It happens when a scan is requested, the answer is stored on the scan row,
+ * and nothing afterwards looks at the ref again. That is what stops a branch
+ * moving mid-scan from producing a finding set assembled from two trees, with
+ * locations that never existed together -- so this function exists once and
+ * the worker deliberately cannot reach it.
+ */
+async function resolveCommit(input = {}) {
+  const reader = requireReader(input.scope);
+  const scope = requireScope(input.scope);
+  const ref = requireRef(input.ref);
+  const token = requireToken(input.token);
+
+  const response = await request({
+    scope, reader, apiPath: reader.commitPath(scope, ref), token,
+    transport: input.transport, maxResponseBytes: MAX_TREE_RESPONSE_BYTES
+  });
+  assertAuthorized(Number(response && response.statusCode));
+  if (Number(response && response.statusCode) !== 200) {
+    throw new ExposureReaderError('That ref could not be resolved', 'EXPOSURE_REF_UNRESOLVED', 404);
+  }
+  const body = parsed(response, MAX_TREE_RESPONSE_BYTES);
+  const sha = text(body && body.sha).toLowerCase();
+  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) {
+    throw new ExposureReaderError('That ref did not resolve to a commit', 'EXPOSURE_REF_UNRESOLVED', 502);
+  }
+  return Object.freeze({ ref, commitSha: sha });
 }
 
 /*
@@ -378,5 +427,6 @@ module.exports = Object.freeze({
   readBlob,
   readTree,
   readerFor,
+  resolveCommit,
   safePath
 });

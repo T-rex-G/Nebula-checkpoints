@@ -43,9 +43,9 @@
           "OSV unavailability is reported as incomplete, never clean."
         ],
         "exposure.scan": [
-          "Unavailable",
-          "Unavailable",
-          "Detection, identity, storage and the bounded job exist and are tested; no route exposes them yet and no live-provider qualification has been run, so nothing here is usable."
+          "Experimental",
+          "Inferred",
+          "Implemented and fixture-tested end to end -- detection, identity, storage, the bounded job, verification and the readability probe -- and not exercised by the alpha.17 live-provider harness. Every route is opt-in and accepting a finding's risk requires the capability to be Supported."
         ],
         "file.batch": [
           "Supported",

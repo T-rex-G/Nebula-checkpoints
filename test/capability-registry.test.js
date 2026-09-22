@@ -209,7 +209,40 @@ assert.deepStrictEqual(legacyCapsFor(document, {
   const document = loadCapabilityDocument(
     path.join(__dirname, '..', 'config', 'public-alpha-capabilities.json')
   );
-  for (const provider of ['github', 'gitlab', 'gitea']) {
+  /*
+   * GitHub is Experimental: implemented and fixture-tested end to end, and not
+   * exercised by the live-provider harness. That is what Experimental means in
+   * this registry and it is the status `file.rename` already carries for the
+   * same reason.
+   *
+   * The consequence is the interesting part. Reading and scanning routes opt
+   * in with `allowExperimental`, so they work; accepting the risk of a live
+   * credential does not, so it stays closed until somebody has evidence. A
+   * feature being usable and a feature's most consequential decision being
+   * usable are separate questions, and the capability gate is where they
+   * separate.
+   */
+  {
+    const github = resolveCapability(document, {
+      provider: 'github', deployment: 'hosted-alpha', feature: 'exposure.scan'
+    });
+    assert.strictEqual(github.status, 'Experimental');
+    assert.strictEqual(github.evidenceState, 'Inferred');
+    assert.match(github.reason, /live-provider harness/i, 'Experimental must say what evidence is missing');
+
+    assertCapabilityAvailable(document, {
+      provider: 'github', deployment: 'hosted-alpha', feature: 'exposure.scan', allowExperimental: true
+    });
+    assert.throws(
+      () => assertCapabilityAvailable(document, {
+        provider: 'github', deployment: 'hosted-alpha', feature: 'exposure.scan'
+      }),
+      error => error instanceof CapabilityError,
+      'an experimental capability must refuse a route that did not opt in'
+    );
+  }
+
+  for (const provider of ['gitlab', 'gitea']) {
     const resolved = resolveCapability(document, {
       provider, deployment: 'hosted-alpha', feature: 'exposure.scan'
     });

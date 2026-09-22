@@ -746,6 +746,7 @@
         <button class="tab" data-feature="recovery" data-allow-experimental="true" data-tab="compare">Compare</button>
         <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
         <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel">Governance</button>
+        <button class="tab" data-feature="exposure.scan" data-allow-experimental="true" data-tab="exposure" id="exposureTabLabel">Exposure</button>
       </nav>
 
       <!-- EDITOR -->
@@ -1014,6 +1015,53 @@
         </div>
         <div id="govLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Governance updates"></div>
       </div>
+
+      <!-- EXPOSURE -->
+      <div class="tabpane" id="tab-exposure" role="region" aria-labelledby="exposureTabLabel">
+        <div class="exposure-shell">
+          <!--
+            The order is the argument. What was proven comes first, then how
+            much of the repository was actually read, and only then the list.
+            A findings list on its own invites the reading "nothing here, so
+            nothing is wrong", which is exactly the conclusion a partial scan
+            does not support.
+          -->
+          <section class="card exposure-proof" aria-labelledby="exposureProofHeading">
+            <h2 id="exposureProofHeading" class="exposure-heading">What this scan proved</h2>
+            <p class="exposure-proof-line" id="exposureProofLine">No scan has been run for this repository yet.</p>
+            <dl class="exposure-facts">
+              <div class="exposure-fact">
+                <dt>Scan</dt>
+                <dd id="exposureState" data-state="none">Not started</dd>
+              </div>
+              <div class="exposure-fact">
+                <dt>Coverage</dt>
+                <dd id="exposureCoverage" data-coverage="unknown">Unknown</dd>
+              </div>
+              <div class="exposure-fact">
+                <dt>Commit</dt>
+                <dd><code id="exposureCommit">—</code></dd>
+              </div>
+              <div class="exposure-fact">
+                <dt>Files read</dt>
+                <dd id="exposureFiles">—</dd>
+              </div>
+            </dl>
+            <p class="exposure-caveat" id="exposureCaveat" hidden></p>
+            <div class="exposure-actions">
+              <button class="btn" id="exposureScanBtn" type="button">Scan this branch</button>
+              <button class="btn ghost" id="exposureCancelBtn" type="button" hidden>Cancel scan</button>
+            </div>
+          </section>
+
+          <section class="card exposure-findings" aria-labelledby="exposureFindingsHeading">
+            <h2 id="exposureFindingsHeading" class="exposure-heading">Findings</h2>
+            <p class="exposure-empty" id="exposureEmpty">Nothing to show yet.</p>
+            <ul class="exposure-list" id="exposureList"></ul>
+          </section>
+        </div>
+        <div id="exposureLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Exposure scan updates"></div>
+      </div>
     </section>
   </div>
 
@@ -1076,6 +1124,7 @@
     <button class="sheet-item" data-feature="recovery" data-allow-experimental="true" data-act="compare"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M8 3.5v17M8 3.5L4.5 7M8 3.5L11.5 7M16 20.5v-17M16 20.5L12.5 17M16 20.5l3.5-3.5"/></svg><span>Compare branches</span></button>
     <button class="sheet-item" data-feature="access-surface" data-act="neural"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="7" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="18" cy="18" r="1.7"/><circle cx="6" cy="18" r="1.7"/><path d="M7 8.3l3.2 2.3M14 10.2l3.4-2.8M14 13.5l2.7 3M9.9 13.6l-2.7 3"/></svg><span>Neural</span></button>
     <button class="sheet-item" data-feature="governance" data-allow-experimental="true" data-act="governance"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg><span>Governance</span></button>
+    <button class="sheet-item" data-feature="exposure.scan" data-allow-experimental="true" data-act="exposure"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg><span>Exposure</span></button>
     <div class="sheet-div"></div>
     <button class="sheet-item" data-act="palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg><span>Command palette</span></button>
     <button class="sheet-item" data-feature="branches.write" data-act="branches"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg><span>Manage branches</span></button>

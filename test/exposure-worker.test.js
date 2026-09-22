@@ -637,6 +637,118 @@ function runnerFor(store, reader, options = {}) {
   );
 }
 
+/* ---- The routes, and the boundaries every one of them carries ------- */
+
+/*
+ * Six routes, and what matters about each is the chain in front of it.
+ * Reading these as text is a weaker instrument than exercising them, and it is
+ * the one that catches the mistake that actually happens: a route added later
+ * copying the line above it and losing a middleware in the process.
+ */
+{
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const routeLines = server.split('\n').filter(line => /^app\.(get|post)\('\/api\/repo\/:owner\/:repo\/exposure\//.test(line));
+  assert.strictEqual(routeLines.length, 6, `expected six exposure routes, found ${routeLines.length}`);
+
+  for (const line of routeLines) {
+    for (const middleware of ['providerSessionAccess', 'alphaRepositoryAccess', 'capabilityAccess(', 'auth', 'governanceAccess(']) {
+      assert(
+        line.includes(middleware),
+        `an exposure route is missing ${middleware}: ${line.slice(0, 80)}`
+      );
+    }
+    assert(
+      line.includes("capabilityAccess('exposure.scan'"),
+      `an exposure route must be gated on its own capability: ${line.slice(0, 80)}`
+    );
+  }
+
+  /*
+   * Accepting the risk of a live credential requires an administrator, and it
+   * is the only one that does. A repository reader can ask for a scan of a
+   * repository they can already read; deciding that what it found is
+   * acceptable is a decision about somebody else's security.
+   */
+  const acceptLine = routeLines.find(line => line.includes('/accept-risk'));
+  assert(acceptLine, 'the accept-risk route must exist');
+  assert(acceptLine.includes("governanceAccess('administrator')"), acceptLine.slice(0, 100));
+  assert(
+    acceptLine.includes("capabilityAccess('exposure.scan')") && !acceptLine.includes('allowExperimental'),
+    'accepting a risk must not be available on an experimental capability'
+  );
+  for (const line of routeLines.filter(item => item !== acceptLine)) {
+    assert(
+      line.includes("governanceAccess('reader')"),
+      `every other exposure route is a reader route: ${line.slice(0, 80)}`
+    );
+  }
+
+  /* Everything that decides something records it; the two reads do not. */
+  for (const [fragment, action] of [
+    ["app.post('/api/repo/:owner/:repo/exposure/scans'", 'exposure.scan.request'],
+    ['/cancel', 'exposure.scan.cancel'],
+    ['/accept-risk', 'exposure.finding.accept-risk']
+  ]) {
+    const line = routeLines.find(item => item.includes(fragment));
+    assert(line, fragment);
+    assert(
+      line.includes(`governanceMutationContext('${action}')`),
+      `${fragment} must record ${action}`
+    );
+  }
+  for (const line of routeLines.filter(item => item.startsWith("app.get('"))) {
+    assert.strictEqual(
+      line.includes('governanceMutationContext'), false,
+      `a read must not record a mutation: ${line.slice(0, 80)}`
+    );
+  }
+
+  /*
+   * The identity boundary is passed into the store on every call rather than
+   * compared afterwards, and the ref is resolved once on the request path.
+   */
+  const handlers = server.slice(
+    server.indexOf("app.post('/api/repo/:owner/:repo/exposure/scans'"),
+    server.indexOf("app.post('/api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke'")
+  );
+  assert(handlers.length > 1000, 'the handler slice must cover the routes');
+  const storeCalls = handlers.match(/exposureService\(\)\.[a-zA-Z]+\(|store\.[a-zA-Z]+\(/g) || [];
+  assert(storeCalls.length >= 6, `the handlers must call the store: ${storeCalls.length}`);
+  assert.strictEqual(
+    (handlers.match(/identityKey: req\.governance\.actor\.identityKey/g) || []).length, storeCalls.length,
+    'every store call passes the identity, including the one that creates the scan: '
+      + 'a scan is written under an identity so every later read can be scoped to it'
+  );
+  assert(
+    handlers.includes('exposureReader.resolveCommit('),
+    'the request path resolves the ref once, here'
+  );
+  assert.strictEqual(
+    /resolveCommit/.test(fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-worker.js'), 'utf8')), false,
+    'and the worker cannot reach the resolver at all'
+  );
+
+  /*
+   * No handler returns a provider error message or a raw store error. Every
+   * one routes failures through a single helper that uses the public error
+   * body -- the one that already refuses to echo a message carrying a secret
+   * signal, which matters more on this path than anywhere else: an error here
+   * can be raised while a request carrying a discovered credential is in
+   * flight.
+   */
+  const failureHelper = server.match(/function exposureFailure\(res, error\)[\s\S]*?\n}/);
+  assert(failureHelper, 'the exposure failure helper must exist');
+  assert(failureHelper[0].includes('publicErrorBody(error)'), failureHelper[0]);
+  assert.strictEqual(
+    (handlers.match(/catch \(error\) \{ exposureFailure\(res, error\); \}/g) || []).length, 6,
+    'every exposure handler must fail through that helper'
+  );
+  assert.strictEqual(
+    /error\.message|String\(error\)/.test(handlers), false,
+    'and none of them may put an error message into a response itself'
+  );
+}
+
   console.log('exposure worker tests passed');
 })().catch(error => {
   console.error(error && error.stack || error);

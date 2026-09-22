@@ -61,7 +61,14 @@ const KEY_PURPOSES = Object.freeze({
    * digest published on a finding is the credential for anyone willing to
    * spend the hardware.
    */
-  EXPOSURE_FINDING_FINGERPRINT: 'exposure-finding-fingerprint-hmac'
+  EXPOSURE_FINDING_FINGERPRINT: 'exposure-finding-fingerprint-hmac',
+  /*
+   * The grant a readability probe requires. Separate from the credential
+   * verification grant because it binds different things -- a project, a
+   * relation and an exact column projection -- and a grant for one must
+   * not verify as a grant for the other.
+   */
+  EXPOSURE_READABILITY_AUTHORIZATION: 'exposure-readability-authorization-hmac'
 });
 
 const PURPOSE_LABELS = Object.freeze(Object.values(KEY_PURPOSES));

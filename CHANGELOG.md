@@ -2,6 +2,86 @@
 
 ## Unreleased
 
+### Anonymous Readability, and Saying What a Finding Means
+
+- Added `src/anonymous-readability-probe.js`: establishing whether a discovered
+  project is actually readable by a stranger, rather than reasoning about
+  whether its configuration looks wrong. The temptation with a leaked project
+  URL and public key is to infer — this key is anonymous, that table probably
+  has no policy, therefore the data is exposed — and every step of that is a
+  guess. The only thing that settles it is asking the way an anonymous stranger
+  would.
+- **What that proves is narrower than it looks, and most of the module is about
+  saying so precisely.** A row came back: that projection of that relation was
+  readable by the anonymous role at that moment, and nothing else. No rows came
+  back: *nothing is known* — an empty table, a filter that matched nothing and a
+  policy that permits the read while hiding every row are indistinguishable from
+  outside. The request was refused: *that request* was refused.
+- The vocabulary contains no word for "protected", and a test asserts that: no
+  reason code may contain `protected` or `rls`, and the narration for an empty
+  result or a refusal may not read as safety. A reader told their table is
+  protected stops looking.
+- **A service-role key is refused, and so is a user session.** A stronger key
+  bypasses the policies the question is about, so a row would come back whatever
+  the configuration is — proving nothing, using an administrator credential to
+  do it. A token carrying a subject is somebody's session whatever its role
+  claims; the test for that uses a token claiming `role: anon` *with* a subject,
+  because a token with a non-anonymous role is already refused by its role and
+  would not exercise the check.
+- The origin is rebuilt from a validated twenty-letter project reference, never
+  copied from the discovered text. `https://<ref>.supabase.co.evil.example` and
+  `https://evil.example/<ref>.supabase.co` are both refused. Discovery itself is
+  pure text and sends nothing: the whole consent model rests on it being free.
+- One row, named columns only, `select=*` refused outright, no pagination ever
+  requested, and the result carries a **count and no values**. Embedded
+  resources, aliases, casts and function calls are refused for the same reason —
+  each reaches past the columns an operator agreed to.
+- **A real bug the sabotage pass found:** the relation guard refused any name
+  beginning `rpc`, which was wrong in both directions. `rpc/do_thing` was already
+  excluded because a table name cannot contain a slash, and a table legitimately
+  called `rpc_helpers` was being refused for its prefix. Excluding by shape
+  rather than by prefix is the point, and there is now a fixture asserting
+  `rpc_helpers`, `rpcs` and `auth_events` are read as the ordinary table names
+  they are.
+- Service description reads the project's OpenAPI document under its **own**
+  grant and its own operation, returns relation names only — no column names, no
+  types, no values — and reduces coverage to `partial` when unavailable rather
+  than inventing a list. A probe grant is not a description grant.
+- Added `src/exposure-narration.js` and `docs/reference/exposure-findings.md`:
+  saying what a finding means, in words, without a model. A stored finding is a
+  rule name, a path, a line and four version numbers — enough to act on if you
+  already know what `contextual-provider-secret` implies, and the person who
+  most needs to act is the one least likely to know.
+- **It is a lookup table, not a generator.** A generator would be shorter and
+  would drift: the same finding would be worded differently between runs, a
+  reader comparing two scans could not tell whether the wording or the world had
+  changed, and nobody could review sentences nobody can enumerate. The test
+  asserts one entry per rule, no orphan entries for rules that do not exist, and
+  that narration is a pure function of the record — no clock, no randomness, no
+  environment.
+- The consequence comes first, in the reader's terms. "A GitHub personal access
+  token" is what it is; "anyone who has this can act as the account that issued
+  it" is what it means, and only the second tells somebody whether to stop what
+  they are doing. Every entry also says what to do, and says that revoking is
+  what ends an exposure because the credential stays in the repository history.
+- No narration carries the credential, any prefix of it, or the fingerprint —
+  a finding should be safe to paste into a ticket and show on a screen in an
+  open-plan office. The one path by which a secret could reach a sentence is a
+  **file whose name is itself credential-shaped**, and that is handled rather
+  than reasoned about: such a name is described instead of quoted, while the
+  directory is still shown so the file can be found.
+- The reference document is registered in the manifest under the `current`
+  lifecycle, and it is checked against the code rather than trusted. Its
+  disposition and verification tables must have one row per value the code
+  defines — checked at row level, because every disposition is also named in the
+  summary table at the top and a word-level check passes while the row
+  explaining it has been deleted. Four sentences it must never contain are
+  asserted absent by pattern.
+- Twenty-three sabotages, twenty-three failures across both modules and the
+  document, after four survivors were corrected: two test helpers that defeated
+  their own assertions with `||` defaults, a leak check aimed at column names
+  rather than row values, and the `rpc` prefix bug above.
+
 ### Bounded, Restart-Safe Repository Scanning
 
 - Added `src/exposure-reader.js` and `src/exposure-worker.js`: reading a

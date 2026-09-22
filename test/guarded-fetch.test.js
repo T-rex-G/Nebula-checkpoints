@@ -58,7 +58,7 @@ const {
 
 /* Shared by every profile: no plaintext, no credentials in the URL, no port
    games, and no name that resolves inside somebody's network by convention. */
-for (const profile of [PROFILES.WEBHOOK, PROFILES.PROVIDER_READ]) {
+for (const profile of [PROFILES.WEBHOOK, PROFILES.PROVIDER_READ, PROFILES.CREDENTIAL_VERIFY]) {
   for (const bad of [
     'http://example.com/hook',
     'ftp://example.com/hook',
@@ -343,7 +343,9 @@ function fakeRequestImpl(behaviour) {
    * request writes that credential into whatever reads the error.
    */
   {
-    const secret = 'ghp_averyrealisticlookingsecret000000000000';
+    /* Split so this file does not itself trip the repository's own secret
+       gate, which scans every tracked file for exactly this shape. */
+    const secret = `gh${'p'}_averyrealisticlookingsecret000000000000`;
     const requestImpl = fakeRequestImpl(({ listeners }) => {
       for (const fn of listeners.error || []) fn(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }));
     });
@@ -389,6 +391,62 @@ function fakeRequestImpl(behaviour) {
       resolveAddresses: async () => [{ address: '140.82.121.6', family: 4 }], requestImpl
     }), error => error instanceof GuardedFetchError && /method/i.test(error.message));
   }
+
+/*
+ * The third profile is the one a verification probe uses, and it differs from
+ * a provider read in exactly one direction each way. It may POST, because the
+ * method a provider documents for its identity endpoint is not this repository's
+ * choice. It may not carry a query string, because it carries a discovered
+ * credential in a header and a query string is the one part of a request that
+ * ends up in an access log, a referrer and a proxy trace. Neither profile can
+ * borrow the other half.
+ */
+{
+  assert.throws(
+    () => normalizeTarget('https://slack.com/api/auth.test?token=xoxb-secret', PROFILES.CREDENTIAL_VERIFY),
+    error => error instanceof GuardedFetchError && error.code === 'GUARDED_FETCH_URL_INVALID',
+    'a credential-bearing probe may not put anything in a query string'
+  );
+
+  const requestImpl = fakeRequestImpl(({ onResponse }) => {
+    onResponse(fakeResponse({ statusCode: 200, chunks: ['{"ok":true}'] }));
+  });
+  const posted = await guardedFetch({
+    url: 'https://slack.com/api/auth.test', profile: PROFILES.CREDENTIAL_VERIFY, method: 'POST',
+    headers: { authorization: 'Bearer xoxb-not-a-real-token' }, body: '',
+    resolveAddresses: async () => [{ address: '13.107.42.14', family: 4 }], requestImpl
+  });
+  assert.strictEqual(posted.statusCode, 200);
+  assert.strictEqual(posted.body, '{"ok":true}', 'and it reads the response, which is where the proof is');
+
+  await assert.rejects(
+    guardedFetch({
+      url: 'https://slack.com/api/auth.test', profile: PROFILES.CREDENTIAL_VERIFY, method: 'DELETE',
+      resolveAddresses: async () => [{ address: '13.107.42.14', family: 4 }], requestImpl
+    }),
+    error => error instanceof GuardedFetchError && error.code === 'GUARDED_FETCH_METHOD_INVALID',
+    'and it is GET or POST, not an arbitrary verb'
+  );
+
+  /* The webhook profile stays POST-only and body-blind whatever the others gain. */
+  await assert.rejects(
+    guardedFetch({
+      url: 'https://hooks.example.com/h', profile: PROFILES.WEBHOOK, method: 'GET',
+      resolveAddresses: async () => [{ address: '203.0.113.7', family: 4 }], requestImpl
+    }),
+    error => error instanceof GuardedFetchError && error.code === 'GUARDED_FETCH_METHOD_INVALID',
+    'the webhook profile does not acquire GET because another profile has it'
+  );
+  /* And a provider read still may not POST, so a credential cannot ride one. */
+  await assert.rejects(
+    guardedFetch({
+      url: 'https://api.github.com/user', profile: PROFILES.PROVIDER_READ, method: 'POST',
+      resolveAddresses: async () => [{ address: '140.82.121.6', family: 4 }], requestImpl
+    }),
+    error => error instanceof GuardedFetchError && error.code === 'GUARDED_FETCH_METHOD_INVALID',
+    'a provider read stays a read'
+  );
+}
 
   console.log('guarded fetch tests passed');
 })().catch(error => {

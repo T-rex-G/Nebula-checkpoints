@@ -38,12 +38,30 @@ const PROFILES = Object.freeze({
   WEBHOOK: 'signed-webhook',
   /* A read of a provider API. Carries a query string, returns a bounded body,
      and never carries a URL that came out of a repository. */
-  PROVIDER_READ: 'provider-read'
+  PROVIDER_READ: 'provider-read',
+  /*
+   * A probe that carries a discovered credential to the provider that issued
+   * it. It differs from a provider read in one direction each way, and both
+   * directions are the point.
+   *
+   * It may POST, because which method a provider documents for its identity
+   * endpoint is that provider's decision and not this repository's -- Slack's
+   * `auth.test` is the case in hand.
+   *
+   * It may not carry a query string at all. A query string is the part of a
+   * request that survives into an access log, a referrer header and every
+   * proxy in between, and this is the one profile whose request contains a
+   * secret. Putting the credential in a header is only half of that; refusing
+   * the query string outright is the half that cannot be forgotten at a call
+   * site.
+   */
+  CREDENTIAL_VERIFY: 'credential-verify'
 });
 
 const PROFILE_RULES = Object.freeze({
   [PROFILES.WEBHOOK]: Object.freeze({ methods: Object.freeze(['POST']), query: false, readsBody: false }),
-  [PROFILES.PROVIDER_READ]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: true, readsBody: true })
+  [PROFILES.PROVIDER_READ]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: true, readsBody: true }),
+  [PROFILES.CREDENTIAL_VERIFY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true })
 });
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
@@ -51,13 +69,6 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_DEADLINE_MS = 20_000;
 const MAX_DNS_ANSWERS = 32;
 
-/*
- * Carries a code and nothing else. A verification probe sends a discovered
- * credential in a header, and an error that quotes its own request writes that
- * credential into whatever reads the error -- a log, an evidence record, a
- * response body. So no message here is built from caller input, and the
- * underlying failure contributes its code rather than its text.
- */
 /*
  * Every code this transport can raise, in one frozen set. It exists so a
  * caller that translates these into its own vocabulary can be checked for
@@ -82,6 +93,13 @@ const CODES = Object.freeze({
   URL_INVALID: 'GUARDED_FETCH_URL_INVALID'
 });
 
+/*
+ * Carries a code and nothing else. A verification probe sends a discovered
+ * credential in a header, and an error that quotes its own request writes that
+ * credential into whatever reads the error -- a log, an evidence record, a
+ * response body. So no message here is built from caller input, and the
+ * underlying failure contributes its code rather than its text.
+ */
 class GuardedFetchError extends Error {
   constructor(message, code = 'GUARDED_FETCH_REFUSED', transportCode = null) {
     super(message);

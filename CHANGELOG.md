@@ -2,6 +2,100 @@
 
 ## Unreleased
 
+### Credential Liveness Verification
+
+- Added `src/credential-verification.js`: asking the provider that issued a
+  discovered credential whether it is still live. The scanner already finds
+  credentials; what it could not say is whether the one it found still works,
+  and that is the difference between a finding to triage and a finding to act
+  on this hour. Only the issuing provider knows, so the only way to find out is
+  to use the credential — which is why almost all of this module is about not
+  doing that.
+- **A repository read is not permission to use what is inside it.** A probe
+  requires a separate signed authorization bound to the actor, the repository,
+  the commit, the exact candidate fingerprint, the adapter and the target,
+  valid for at most ten minutes. Twelve refusal cases are tested and every one
+  of them makes **zero** network calls: no authorization, an empty one, a forged
+  signature, one signed under another key, an expired one, one issued in the
+  future, one that outlives the ceiling, and one bound to another candidate,
+  repository, commit, adapter, target or actor. The check runs before a socket
+  exists, because a probe refused afterwards has already used the credential
+  and no later verdict takes that back.
+- The answer is three-state and deliberately asymmetric. `verified` means an
+  identity endpoint confirmed it. `rejected` means a documented, unambiguous
+  refusal. Everything else is `unverifiable` — because "we could not tell" and
+  "it is harmless" are different sentences and only one of them is true.
+- GitHub uses `/user`, not `/rate_limit`. The rate limit endpoint answers 200 to
+  an unauthenticated caller, so a 200 there proves nothing at all; `/user`
+  requires a user credential and returns the user it belongs to. A 200 whose
+  body is not an identity — no login, a numeric login, a missing id, unparseable
+  — is `malformed-identity-response`, not a pass.
+- A GitHub 403 is never read as a refusal. It is primary throttling, secondary
+  throttling, or an organisation policy blocking this token from this resource,
+  and all three describe a credential that works. The reason and a **bounded**
+  retry window are preserved; a `Retry-After` of eleven days is clamped to an
+  hour, because that header is the provider's opinion and not our scheduler.
+- Slack's `invalid_auth` is reported as ambiguous, which is the point of having
+  the adapter. Slack returns it both for a revoked token and for a live token
+  presented from an address the workspace restricts, so calling it revoked tells
+  a reader the exposure is over while the credential still works. `token_revoked`,
+  `token_expired`, `account_inactive` and `invalid_token` are the unambiguous
+  ones; `ekm_access_denied` is policy; `ratelimited` is throttling; anything
+  Slack adds later is `provider-unexpected-status` rather than a guess.
+- **There is no AWS adapter, on purpose.** The rule finds an access key ID,
+  which is a name and not a credential: signing needs the secret access key too,
+  and a session token for a temporary one. So an access key ID is
+  `incomplete-credential` and is never sent anywhere, and no combination of a
+  found ID with a nearby-looking string is ever attempted — that would be
+  guessing at somebody's account with their own data.
+- Installation, refresh, deploy, runner, agent, app and session token classes
+  are recognised and deliberately not probed: each authenticates against a
+  different surface, and an unreviewed guess at the right endpoint is a verdict
+  with no evidence behind it. Private keys, authenticated URLs and contextual
+  secrets stay detected and unverifiable rather than being submitted to an
+  unrelated authority.
+- A run is bounded three ways: the same credential found in four files is one
+  probe, a provider that says it is throttling is not asked again in that run,
+  and a run asks at most fifty times however large the repository is. Throttling
+  one provider does not stop another. Every request still gets a record — the
+  bounds change what is asked, never what is accounted for.
+- Nothing carries the credential back out. The module writes nothing at all, no
+  transport error message reaches a record (it can quote the request it failed
+  to send), and the probe target comes from the adapter's own constants so a
+  candidate can never contribute an origin, a path or a query string. The leak
+  sweep drives six probes whose fixtures echo the token back — in a 401 message,
+  a 500 body, a Slack error object and a thrown transport error — then searches
+  every record, error, stack and console write for the synthetic credential and
+  for a twenty-character slice of it.
+- The provider identity that comes back is recorded as a **keyed** digest under
+  its own derived purpose, never the login. Two keys over the same subject
+  disagree and no key produces no digest, which is what makes it a digest: a
+  provider user id is a short integer, so an unkeyed hash of one is the id with
+  extra steps.
+- Going stale is not a verdict. An observation is good for a day and
+  `verificationFreshness` reports `fresh` or `stale`; a `verified` record whose
+  deadline has passed still records a credential seen live. Letting staleness
+  read as `rejected` would resolve findings by waiting.
+- Liveness is not severity: the record has no severity field and a test asserts
+  its shape is closed, so a field added later has to be considered for leakage
+  first. Records and runs are frozen — an attempt is history.
+- Added the third transport profile Task 1 called for. `credential-verify` may
+  POST, because which method a provider documents for its identity endpoint is
+  that provider's decision and not this repository's, and it may not carry a
+  query string **at all** — a query string is the part of a request that
+  survives into an access log, a referrer header and every proxy in between, and
+  this is the one profile whose request contains a secret. Tests assert the
+  webhook profile does not acquire GET and a provider read does not acquire
+  POST, so no profile borrows another's half.
+- Added `EXPOSURE_VERIFICATION_AUTHORIZATION` and `EXPOSURE_VERIFICATION_SUBJECT`
+  key purposes. They are separate from each other for the same reason every
+  label in that file is separate: one is a MAC over a grant this server issued,
+  the other a MAC over a value a provider told us.
+- Eighteen sabotages, eighteen failures. The one that initially passed is
+  recorded here because it was a real gap: replacing the keyed subject digest
+  with an unkeyed hash was invisible to the first version of the test, which
+  only matched a hex shape. The test now compares digests under two keys.
+
 ### Guarded Outbound Transport
 
 - Added `src/guarded-fetch.js`: one outbound path for everything this server

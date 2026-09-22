@@ -42,7 +42,18 @@ const KEY_PURPOSES = Object.freeze({
   GITHUB_APP_STATE: 'github-app-state',
   EVIDENCE_LEDGER: 'evidence-ledger-hmac',
   GOVERNANCE_AUDIT: 'governance-audit',
-  RATE_LIMIT_IDENTITY: 'rate-limit-identity-hmac'
+  RATE_LIMIT_IDENTITY: 'rate-limit-identity-hmac',
+  /*
+   * A repository read permission is not permission to use what is inside
+   * it. These two back the authorization a verification probe requires and
+   * the digest of the identity it comes back with, and they are separate
+   * from each other for the same reason every label here is: one is a MAC
+   * over a grant this server issued, the other a MAC over a value a
+   * provider told us, and a value produced under either must not verify
+   * under the other.
+   */
+  EXPOSURE_VERIFICATION_AUTHORIZATION: 'exposure-verification-authorization-hmac',
+  EXPOSURE_VERIFICATION_SUBJECT: 'exposure-verification-subject-hmac'
 });
 
 const PURPOSE_LABELS = Object.freeze(Object.values(KEY_PURPOSES));

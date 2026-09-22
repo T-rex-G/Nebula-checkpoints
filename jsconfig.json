@@ -15,12 +15,12 @@
   // errors in files it claims to have excluded. An explicit list is the only
   // honest way to say which files are actually covered.
   //
-  // The thirty-nine listed here are the ones that pass today and whose
+  // The forty-one listed here are the ones that pass today and whose
   // imports also pass, so the check is green from the first commit and any
   // red is a regression rather than inherited debt. `src/guarded-fetch.js`
   // brings `src/governance-delivery.js` in with it -- for the same reason the
-  // list is explicit -- so forty files are actually read. The remaining
-  // thirteen are not suppressed -- no `any`, no `@ts-nocheck` -- they are
+  // list is explicit -- so forty-two files are actually read. The remaining
+  // eleven are not suppressed -- no `any`, no `@ts-nocheck` -- they are
   // simply not listed yet, which is honest about what is known. Extending
   // this list is the measured slice the plan calls for; loosening the options
   // to swallow them is how type checking quietly stops meaning anything.
@@ -65,7 +65,9 @@
     "src/credential-verification.js",
     "src/exposure-detection.js",
     "src/exposure-findings.js",
+    "src/exposure-reader.js",
     "src/exposure-store.js",
+    "src/exposure-worker.js",
     "src/github-account-operations.js",
     "src/github-app.js",
     "src/governance-digital-twin.js",

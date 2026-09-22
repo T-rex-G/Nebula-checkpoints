@@ -191,4 +191,53 @@ assert.deepStrictEqual(legacyCapsFor(document, {
   prs: false, issues: false, releases: false, actions: false,
   lfs: false, tm: false, batch: false, search: false, notif: false, compare: false
 });
+/*
+ * Exposure scanning is declared and deliberately Unavailable.
+ *
+ * The point of an entry that reports Unavailable is that it is an entry: the
+ * registry's default for an unknown feature is also Unavailable, so a feature
+ * nobody declared and a feature declared as not ready are indistinguishable
+ * from a caller's view -- and one of them is a typo. Declaring it means the
+ * reason is written down, and means raising the status later is a deliberate
+ * edit rather than a side effect of a route appearing.
+ *
+ * The two non-GitHub providers carry a different reason on purpose. There is
+ * no repository reader for them, and a guessed tree API would return nothing
+ * and look successful, which for a security feature is worse than refusing.
+ */
+{
+  const document = loadCapabilityDocument(
+    path.join(__dirname, '..', 'config', 'public-alpha-capabilities.json')
+  );
+  for (const provider of ['github', 'gitlab', 'gitea']) {
+    const resolved = resolveCapability(document, {
+      provider, deployment: 'hosted-alpha', feature: 'exposure.scan'
+    });
+    assert.strictEqual(resolved.status, 'Unavailable', provider);
+    assert.strictEqual(resolved.evidenceState, 'Unavailable', provider);
+    assert(resolved.reason.length > 40, `${provider}: a status of Unavailable must say why`);
+
+    /* And it cannot be asserted available, with or without the experimental
+       allowance -- an Unavailable capability is not a weaker Experimental. */
+    for (const allowExperimental of [false, true]) {
+      assert.throws(
+        () => assertCapabilityAvailable(document, {
+          provider, deployment: 'hosted-alpha', feature: 'exposure.scan', allowExperimental
+        }),
+        error => error instanceof CapabilityError,
+        `${provider}: allowExperimental=${allowExperimental}`
+      );
+    }
+  }
+  /* The providers without a reader say so, rather than repeating the generic
+     "not wired up yet" that applies to the one that has it. */
+  for (const provider of ['gitlab', 'gitea']) {
+    assert.match(
+      resolveCapability(document, { provider, deployment: 'hosted-alpha', feature: 'exposure.scan' }).reason,
+      /reader/i,
+      `${provider}: the reason must name what is actually missing`
+    );
+  }
+}
+
 console.log('capability registry tests passed');

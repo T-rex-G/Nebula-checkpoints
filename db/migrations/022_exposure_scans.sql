@@ -60,7 +60,7 @@ CREATE TABLE nv_exposure_scans (
   skipped_reason text NULL
     CHECK (skipped_reason IS NULL OR skipped_reason IN (
       'file-count-limit', 'byte-limit', 'time-limit', 'tree-truncated',
-      'unreadable-files', 'canceled', 'transport-refused'
+      'unreadable-files', 'canceled', 'transport-refused', 'authorization-revoked'
     )),
 
   files_scanned integer NOT NULL DEFAULT 0 CHECK (files_scanned >= 0),

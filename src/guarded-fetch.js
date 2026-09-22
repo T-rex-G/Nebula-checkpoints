@@ -188,6 +188,42 @@ function boundedInteger(value, fallback, min, max) {
   return Number.isInteger(value) ? Math.min(Math.max(value, min), max) : fallback;
 }
 
+/*
+ * A credential belongs in a header and nowhere else.
+ *
+ * The verification profile refuses a query string outright, which handles the
+ * profile whose whole request is sensitive. This handles the mistake that ban
+ * cannot reach: a call site on a profile that legitimately carries both a
+ * credential and a query string -- a provider read, which sends the reader's
+ * own session token -- interpolating the token into the address. A URL is the
+ * part of a request that survives into an access log, a referrer header and
+ * every proxy in between, so a token that reaches one has been published.
+ *
+ * The floor on length is what keeps the check from being noise: an
+ * `Authorization: Bearer main` would otherwise refuse every URL containing the
+ * word, and a value that short is not a credential.
+ */
+const MIN_CREDENTIAL_LENGTH = 8;
+
+function assertCredentialNotInUrl(target, headers) {
+  const source = headers && typeof headers === 'object' ? headers : {};
+  const href = target.href;
+  for (const [name, value] of Object.entries(source)) {
+    if (!/^(?:authorization|proxy-authorization|private-token|x-api-key)$/i.test(name)) continue;
+    const raw = String(value == null ? '' : value);
+    /* The scheme is not the secret; what follows it is. Both are checked, so a
+       header carrying a bare token is covered as well as a prefixed one. */
+    for (const candidate of [raw, raw.replace(/^\S+\s+/, '')]) {
+      if (candidate.length >= MIN_CREDENTIAL_LENGTH && href.includes(candidate)) {
+        throw new GuardedFetchError(
+          'Outbound target must not carry a credential in the URL',
+          'GUARDED_FETCH_URL_INVALID'
+        );
+      }
+    }
+  }
+}
+
 async function guardedFetch(input = {}) {
   const rule = rules(input.profile);
   const method = String(input.method || '').toUpperCase();
@@ -196,6 +232,7 @@ async function guardedFetch(input = {}) {
   }
 
   const target = normalizeTarget(input.url, input.profile);
+  assertCredentialNotInUrl(target, input.headers);
   const body = input.body == null ? null : String(input.body);
   const maxBytes = boundedInteger(input.maxResponseBytes, MAX_RESPONSE_BYTES, 1024, MAX_RESPONSE_BYTES);
   if (body !== null && Buffer.byteLength(body, 'utf8') > MAX_RESPONSE_BYTES) {

@@ -45,7 +45,14 @@ const TERMINAL_STATES = Object.freeze(['complete', 'partial', 'failed', 'cancele
 const COVERAGE = Object.freeze(['unknown', 'complete', 'partial']);
 const SKIPPED_REASONS = Object.freeze([
   'file-count-limit', 'byte-limit', 'time-limit', 'tree-truncated',
-  'unreadable-files', 'canceled', 'transport-refused'
+  'unreadable-files', 'canceled', 'transport-refused',
+  /*
+   * The session that authorised the read is gone. Distinct from a transport
+   * refusal because it is not a network problem and retrying will not help:
+   * somebody disconnected the provider or revoked the grant, and the scan
+   * stopped rather than keeping the credential to try again with.
+   */
+  'authorization-revoked'
 ]);
 const DISPOSITIONS = Object.freeze(['open', 'credential-rejected', 'accepted-risk', 'removed-from-tree']);
 

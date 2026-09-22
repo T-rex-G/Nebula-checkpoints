@@ -97,17 +97,17 @@ const providerMappings = {
   'GitHub — evidence-bounded alpha subset': [
     ['Supported', 'repository reads; branch reads and controlled writes; bounded file read/write/delete; single-commit batch; native push; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; access-surface analysis; dependency audit; recovery; governance; upload security'],
     ['Experimental', 'repository create/delete; global search; notifications; file rename; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; Git LFS; folder move; live events'],
-    ['Unavailable', 'none at the provider level; connection permissions and invitation scopes still apply']
+    ['Unavailable', 'exposure scanning, which is implemented and not yet exposed by any route; otherwise none at the provider level, though connection permissions and invitation scopes still apply']
   ],
   'GitLab — registry-qualified subset': [
     ['Supported', 'repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; upload security'],
     ['Experimental', 'merge-request and issue writes; dependency audit; read-only recovery comparison; governance views'],
-    ['Unavailable', 'repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis']
+    ['Unavailable', 'repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning, which has no repository reader for this provider']
   ],
   'Gitea — registry-qualified subset': [
     ['Supported', 'repository and branch reads; bounded file read/write/delete; upload security'],
     ['Experimental', 'tree read; dependency audit; read-only recovery comparison; governance views'],
-    ['Unavailable', 'repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis']
+    ['Unavailable', 'repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning, which has no repository reader for this provider']
   ]
 };
 /*

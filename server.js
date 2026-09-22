@@ -146,6 +146,9 @@ const { createGovernanceRuntime } = require('./src/governance-enforcement');
 const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
+const { startExposureWorker } = require('./src/exposure-worker');
+const exposureReader = require('./src/exposure-reader');
+const { ExposureStore } = require('./src/exposure-store');
 const {
   createSnapshotSignatures,
   loadSnapshotSigningConfig
@@ -192,6 +195,14 @@ const STEP_UP_SECRET = deriveSecret(SECRET, KEY_PURPOSES.STEP_UP_GRANT);
 const GITHUB_APP_STATE_SECRET = deriveSecret(SECRET, KEY_PURPOSES.GITHUB_APP_STATE);
 const EVIDENCE_LEDGER_SECRET = deriveSecret(SECRET, KEY_PURPOSES.EVIDENCE_LEDGER);
 const RATE_LIMIT_IDENTITY_KEY = deriveKey(SECRET, KEY_PURPOSES.RATE_LIMIT_IDENTITY);
+/*
+ * Derived once at startup, like every other key here, so a finding's identity
+ * does not depend on when it was computed. It is also why a scan records the
+ * key version: rotating SESSION_SECRET changes every fingerprint, and the
+ * store refuses to compare across that rather than reporting the entire
+ * backlog resolved.
+ */
+const EXPOSURE_FINGERPRINT_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_FINDING_FINGERPRINT);
 /*
  * Evidence verification holds two keyrings, assembled together in
  * src/intelligence.js so their retired lists cannot drift apart.
@@ -1287,6 +1298,88 @@ async function bootstrapGovernanceDelivery() {
   governanceWebhookBootstrapTimer = setTimeout(() => { void bootstrapGovernanceDelivery(); }, 30_000);
   if (typeof governanceWebhookBootstrapTimer.unref === 'function') governanceWebhookBootstrapTimer.unref();
 }
+/*
+ * Exposure scanning.
+ *
+ * The worker starts only when the capability document says the feature is
+ * available for some provider, and today it says Unavailable everywhere. That
+ * is deliberate rather than a missing wire: a poller asking the database for
+ * work that no route can create would spend a query every fifteen seconds of a
+ * free service's budget for nothing. Raising the capability starts it, and
+ * nothing else here has to change -- which is the point of gating on the
+ * document rather than on a flag somebody would have to remember to set in two
+ * places.
+ */
+let exposureWorker = null;
+let _exposureStore = null;
+
+function exposureScanningAvailable() {
+  const providers = (CAPABILITY_DOCUMENT && CAPABILITY_DOCUMENT.providers) || {};
+  for (const deployments of Object.values(providers)) {
+    const features = (deployments && deployments[DEPLOYMENT_PROFILE]) || {};
+    const tuple = features['exposure.scan'];
+    if (Array.isArray(tuple) && (tuple[0] === 'Supported' || tuple[0] === 'Experimental')) return true;
+  }
+  return false;
+}
+
+/*
+ * A scan holds no credential. It holds the identity the work belongs to, and
+ * the token is resolved from a session that is still signed in at the moment
+ * the scan runs -- so a disconnect, a sign-out or a revocation simply stops the
+ * next read, rather than leaving a copied token in a job row for something to
+ * remember to clean up.
+ *
+ * The identity is read from the row here rather than carried on the scan object
+ * the store returns, because that object is passed around and a hashed identity
+ * is not something the rest of a scan needs to hold.
+ */
+async function resolveExposureSession({ scope, requestedBy, scanId }) {
+  if (!DB_URL) return null;
+  const owner = await pool().query(
+    'SELECT identity_key FROM nv_exposure_scans WHERE scan_id=$1',
+    [scanId]
+  ).catch(() => null);
+  const identityKey = owner && owner.rows.length ? owner.rows[0].identity_key : '';
+  if (!identityKey) return null;
+
+  const sessions = await pool().query(
+    `SELECT data FROM nv_sessions
+      WHERE $1 = ANY(identity_keys)
+      ORDER BY updated DESC
+      LIMIT 10`,
+    [identityKey]
+  ).catch(() => null);
+  if (!sessions || !sessions.rows.length) return null;
+
+  for (const row of sessions.rows) {
+    let content = null;
+    try { content = unseal(row.data); } catch { content = null; }
+    const accounts = content && Array.isArray(content.accounts) ? content.accounts : [];
+    for (const account of accounts) {
+      if (!account || typeof account.token !== 'string' || !account.token) continue;
+      if ((account.provider || 'github') !== scope.provider) continue;
+      /* The actor who asked for the scan, not merely somebody sharing the
+         identity: consent was given by a person and is theirs. */
+      if (String(account.login || '') !== String(requestedBy || '')) continue;
+      return { token: account.token };
+    }
+  }
+  return null;
+}
+
+function ensureExposureWorker() {
+  if (exposureWorker || !DB_URL || shuttingDown || !exposureScanningAvailable()) return exposureWorker;
+  _exposureStore = new ExposureStore({ pool: pool() });
+  exposureWorker = startExposureWorker({
+    store: _exposureStore,
+    reader: exposureReader,
+    fingerprintKey: EXPOSURE_FINGERPRINT_KEY,
+    sessionResolver: resolveExposureSession
+  });
+  return exposureWorker;
+}
+
 async function governanceService() {
   if (!(await dbReady())) {
     throw Object.assign(new Error('Governance requires the configured PostgreSQL DATABASE_URL'), {
@@ -7190,6 +7283,7 @@ startTempMaintenance();
 const httpServer = app.listen(PORT, () => console.log(`${PRODUCT_NAME} v${APP_VERSION} orbiting on :${PORT}`));
 let shuttingDown = false;
 void bootstrapGovernanceDelivery();
+ensureExposureWorker();
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -7211,10 +7305,18 @@ async function shutdown(signal) {
    * now finishes.
    */
   const drainedWebhookWorker = governanceWebhookWorker ? governanceWebhookWorker.stop() : null;
+  /*
+   * A scan in flight is drained for a different reason than a delivery: it has
+   * sent nothing irreversible, and an abandoned scan is recovered by its lease
+   * expiring. Finishing the one in hand is simply cheaper than reading the
+   * repository again.
+   */
+  const drainedExposureWorker = exposureWorker ? exposureWorker.stop() : null;
   const force = setTimeout(() => process.exit(1), 10000);
   if (typeof force.unref === 'function') force.unref();
   httpServer.close(async () => {
     try { await drainedWebhookWorker; } catch {}
+    try { await drainedExposureWorker; } catch {}
     try { if (_pool) await _pool.end(); } catch {}
     clearTimeout(force);
     process.exit(0);

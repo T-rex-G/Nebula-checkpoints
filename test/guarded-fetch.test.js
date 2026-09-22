@@ -448,6 +448,64 @@ function fakeRequestImpl(behaviour) {
   );
 }
 
+/*
+ * A credential never reaches a URL, on any profile.
+ *
+ * The query-string ban on the verification profile is one half of this. The
+ * other half is the mistake it cannot prevent: a call site that interpolates a
+ * token into a path or a query on a profile that permits one. A URL is the part
+ * of a request that survives into an access log, a referrer header and every
+ * proxy between here and the provider, so the transport refuses when what it
+ * was told to send in an authorization header also appears in the address.
+ *
+ * It is checked rather than documented because a provider read now carries the
+ * reader's own session token, so there is a profile where both a credential
+ * and a query string are legitimate.
+ */
+{
+  const requestImpl = fakeRequestImpl(({ onResponse }) => {
+    onResponse(fakeResponse({ statusCode: 200, chunks: ['{}'] }));
+  });
+  const token = `gh${'p'}_leakedintotheurl000000000000000000000`;
+
+  for (const [label, url] of [
+    ['a query string', `https://api.github.com/repos/a/b/git/trees/x?token=${token}`],
+    ['a path segment', `https://api.github.com/repos/a/b/${token}`],
+    ['a repeated parameter', `https://api.github.com/x?a=1&access_token=${token}&b=2`]
+  ]) {
+    await assert.rejects(
+      guardedFetch({
+        url, profile: PROFILES.PROVIDER_READ, method: 'GET',
+        headers: { authorization: `Bearer ${token}` },
+        resolveAddresses: async () => [{ address: '140.82.121.6', family: 4 }], requestImpl
+      }),
+      error => error instanceof GuardedFetchError && error.code === 'GUARDED_FETCH_URL_INVALID',
+      `a credential in ${label} must be refused`
+    );
+  }
+  assert.strictEqual(requestImpl.calls.length, 0, 'and refused before a socket exists');
+
+  /* The same token in a header alone is exactly what a provider read is for. */
+  const fine = await guardedFetch({
+    url: 'https://api.github.com/repos/a/b/git/trees/x?recursive=1',
+    profile: PROFILES.PROVIDER_READ, method: 'GET',
+    headers: { authorization: `Bearer ${token}` },
+    resolveAddresses: async () => [{ address: '140.82.121.6', family: 4 }], requestImpl
+  });
+  assert.strictEqual(fine.statusCode, 200);
+  assert.strictEqual(requestImpl.calls[0].headers.authorization, `Bearer ${token}`);
+
+  /* A short header value is not treated as a credential: refusing every URL
+     that happens to contain the word "token" would make the guard useless. */
+  const shortHeader = await guardedFetch({
+    url: 'https://api.github.com/repos/a/b?ref=main',
+    profile: PROFILES.PROVIDER_READ, method: 'GET',
+    headers: { authorization: 'Bearer main' },
+    resolveAddresses: async () => [{ address: '140.82.121.6', family: 4 }], requestImpl
+  });
+  assert.strictEqual(shortHeader.statusCode, 200);
+}
+
   console.log('guarded fetch tests passed');
 })().catch(error => {
   console.error(error && error.stack || error);

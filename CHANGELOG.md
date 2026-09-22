@@ -2,6 +2,113 @@
 
 ## Unreleased
 
+### Bounded, Restart-Safe Repository Scanning
+
+- Added `src/exposure-reader.js` and `src/exposure-worker.js`: reading a
+  repository without having a copy of it, and running that read on one free web
+  service without keeping anything.
+- **Every ordinary way to read a Git repository runs code.** `git clone` runs
+  hooks and clean/smudge filters, a checkout turns LFS pointers into network
+  fetches, a submodule is a second repository under somebody else's control, and
+  installing dependencies to inspect them is running the thing you were trying
+  to inspect. So this reads the provider's tree and blob APIs and nothing else —
+  no subprocess, no working directory, no clone to clean up. Tests assert the
+  source contains no `child_process`, no `fs`, no `spawn`, no `exec`, no
+  `mkdtemp` and no bare `fetch`, with comments stripped first so the sentence
+  explaining why `git clone` is unavailable does not trip the check on itself.
+- Not writing anything down is also what makes recovery work. A `finally` block
+  cannot run after SIGKILL, so a design whose recovery needs a disk is a design
+  whose recovery does not work. There is no cursor either: a restarted scan asks
+  the provider again at the same immutable commit, and what is in the database
+  is all there is.
+- **A Git tree is not a list of files**, and each kind is a decision this reader
+  makes explicitly: a directory, a symlink whose blob content is a path, a
+  submodule gitlink, a blob larger than this server will hold, a path that is
+  absolute or contains a traversal or a newline or `.git` at any level, a
+  malformed object id, an entry with no size. Twenty-two classification cases,
+  plus five paths that merely look alarming (`dot.git.js`, `a/..b/c.js`,
+  `src/.env.example`) and are correctly read as ordinary.
+- Binary blobs are skipped, not scanned: running text rules over arbitrary bytes
+  produces matches that are not credentials, and a reader shown one stops
+  trusting the rest. NUL bytes, invalid UTF-8 and a lone surrogate all count.
+  An **LFS pointer** is recognised and the object behind it is never fetched —
+  that fetch is exactly the smudge a clone would have done.
+- The declared size is the provider's claim; the bytes are the fact. A response
+  that decodes to more than the ceiling is over the ceiling whatever its `size`
+  field said.
+- **A 401 stops the scan; a 403, 404 or 500 skips one file.** The session being
+  gone means every remaining read would fail identically, and the scan stops
+  holding the credential rather than keeping it to retry with. A single
+  unreadable file must not end a scan of ten thousand.
+- An unreadable tree is an error, never an empty repository. Returning zero
+  entries there would produce a scan that completed, found nothing, and told
+  somebody their repository was clean.
+- There is a reader for GitHub and for nothing else. A guessed tree API returns
+  nothing and looks successful, which for a security feature is worse than
+  refusing — so `gitlab`, `gitea` and anything unknown are refused by code, and
+  the capability registry says so with that reason rather than the generic one.
+- **One commit, never a ref.** The worker reads the commit the scan row carries
+  and never the ref name; a branch that moves between the tree read and the blob
+  reads would otherwise produce a finding set assembled from two trees, with
+  locations that never existed together. A row carrying a ref, a short sha or
+  nothing is refused rather than read at "the current tip", which would be
+  inventing consent for a tree nobody authorised. A full object id in upper case
+  is normalised, and that is asserted too, because "normalise" and "accept
+  whatever arrives" look identical from outside.
+- **Every ceiling produces visibly partial coverage.** Files, bytes, wall clock,
+  a truncated tree, and any file the reader declined — all of them mean
+  `partial` with the reason named. Silently stopping at a limit and reporting
+  success is the worst thing this feature could do: it tells somebody their
+  repository is clean because the scan gave up. The budget floors are 1 rather
+  than a comfortable minimum, because silently raising a configured ceiling
+  produces a scan that read more than it was told to and nobody reading the
+  configuration would know.
+- **Cancellation is the lease renewal**, which is already periodic and already
+  returns false exactly when the scan is no longer running-and-ours — cancelled
+  by its owner, or reclaimed because this worker was thought dead. One mechanism
+  for both means neither is the one nobody wired up, and a lost claim stops the
+  scan mid-file rather than between jobs. A worker that lost its claim
+  deliberately does not finalise: the owner already did, or somebody else holds
+  it now.
+- The loop yields to the event loop between files, and the test proves it with a
+  timer that must tick *during* the scan. This process also answers HTTP, and a
+  loop that reads two thousand blobs without yielding stops answering requests
+  for as long as it runs.
+- **Killed, not thrown.** The recovery test stops the first worker between a
+  write and a finalise — no finalise, no `finally`, nothing — then has a second
+  worker reclaim the same scan through the store's expired-lease path and read
+  the same immutable commit again.
+- A background job holds no credential and cannot verify anything. The session
+  is resolved at execution from a live signed-in session belonging to the actor
+  who asked, so a disconnect or a revocation simply stops the next read instead
+  of leaving a copied token in a job row. Verifying a credential needs a
+  per-candidate signed authorization only a reader can give, so the worker
+  cannot reach the verifier at all — asserted by requiring its source not to
+  mention it.
+- Added a third guard to the transport: **a credential must never appear in a
+  URL, on any profile.** The verification profile's query-string ban covers the
+  profile whose whole request is sensitive; this covers the mistake it cannot
+  reach, a call site on a profile that legitimately carries both a credential
+  and a query string — a provider read, which sends the reader's own session
+  token — interpolating the token into the address. A URL survives into access
+  logs, referrer headers and every proxy in between. The floor on length keeps
+  it from refusing every URL containing a short header value.
+- `exposure.scan` is declared in the capability registry as `Unavailable` for
+  all three providers, and **the worker starts only when the document says
+  otherwise**. That is the wire being correct rather than missing: a poller
+  asking for work no route can create would spend a query every fifteen seconds
+  of a free service's budget for nothing. An entry that reports Unavailable is
+  still an entry — the registry's default for an unknown feature is also
+  Unavailable, so a feature nobody declared and a feature declared not-ready are
+  otherwise indistinguishable, and one of them is a typo.
+- Added the `authorization-revoked` skipped reason, distinct from a transport
+  refusal because retrying will not help: somebody disconnected the provider.
+- Twenty-nine sabotages, twenty-nine failures, across the reader, the worker,
+  the capability document and the server wiring. Two survivors were corrected
+  fixtures rather than code: a byte budget below the clamp floor, and an
+  expectation that an upper-case object id should be refused when normalising it
+  is right.
+
 ### Exposure Storage
 
 - Added `db/migrations/022_exposure_scans.sql`, `src/exposure-store.js` and two

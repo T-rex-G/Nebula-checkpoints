@@ -71,10 +71,8 @@ function requireExpiry(expiresAt) {
  * and the write.
  *
  * It keeps a capacity ceiling because a process-local guard cannot grow
- * without bound, but it evicts only after the claim it was asked for, so the
- * key being claimed is never the one discarded. Expired entries go first, then
- * the oldest. A guard that must never be evicted at all belongs in the table
- * above, which has no ceiling.
+ * without bound. Expired entries may be discarded, but a live grant must
+ * never be forgotten: at capacity a new claim is refused until space expires.
  */
 function memorySingleUseStore(map, { maxEntries = 5000 } = {}) {
   if (!(map instanceof Map)) throw new TypeError('An in-process single-use guard requires a Map');
@@ -83,16 +81,12 @@ function memorySingleUseStore(map, { maxEntries = 5000 } = {}) {
     consumeOnce({ key, expiresAt, now: currentTime }) {
       const consumedUntil = Number(map.get(key) || 0);
       if (consumedUntil >= currentTime) return false;
-      /* Delete before setting so a key re-claimed after its old record expired
-         moves to the back of the insertion order the eviction below walks. */
+      for (const [id, until] of map) {
+        if (Number(until) < currentTime) map.delete(id);
+      }
+      if (map.size >= ceiling) return false;
       map.delete(key);
       map.set(key, expiresAt);
-      if (map.size > ceiling) {
-        for (const [id, until] of map) {
-          if (Number(until) < currentTime) map.delete(id);
-        }
-        while (map.size > ceiling) map.delete(map.keys().next().value);
-      }
       return true;
     }
   };

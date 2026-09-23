@@ -52,7 +52,7 @@ const SKIPPED_REASONS = Object.freeze([
    * somebody disconnected the provider or revoked the grant, and the scan
    * stopped rather than keeping the credential to try again with.
    */
-  'authorization-revoked'
+  'authorization-revoked', 'finding-limit', 'configuration-changed'
 ]);
 const DISPOSITIONS = Object.freeze(['open', 'credential-rejected', 'accepted-risk', 'removed-from-tree']);
 
@@ -99,6 +99,13 @@ function requireText(value, label, max) {
   const out = text(value);
   if (!out || out.length > max) throw new TypeError(`${label} is required and must be at most ${max} characters`);
   return out;
+}
+
+function requirePath(value) {
+  if (typeof value !== 'string' || !value.length || value.length > 1024) {
+    throw new TypeError('Finding path is required and must be at most 1024 characters');
+  }
+  return value;
 }
 
 function requireScope(scope) {
@@ -175,6 +182,7 @@ function scanFromRow(row) {
     requestedBy: row.requested_by,
     refName: row.ref_name,
     commitSha: row.commit_sha,
+    fingerprintKeyId: row.fingerprint_key_id || null,
     rulesVersion: row.rules_version,
     engineVersion: row.engine_version,
     fingerprintKeyVersion: row.fingerprint_key_version,
@@ -204,6 +212,7 @@ function findingFromRow(row) {
     engineVersion: row.engine_version,
     rule: row.rule,
     path: row.file_path,
+    commit: row.commit_sha || null,
     placeholder: row.placeholder,
     disposition: row.disposition,
     dispositionAt: iso(row.disposition_at),
@@ -326,7 +335,7 @@ function normalizeFinding(finding) {
     rulesVersion: requireVersion(source.rulesVersion, 'Rules version'),
     engineVersion: requireVersion(source.engineVersion, 'Engine version'),
     rule: requireText(source.rule, 'Finding rule', 64),
-    path: requireText(source.path, 'Finding path', 1024),
+    path: requirePath(source.path),
     placeholder,
     lines,
     columns,
@@ -480,6 +489,7 @@ class ExposureStore {
     const requestedBy = requireText(input.requestedBy, 'Scan actor', 255);
     const refName = requireText(input.refName, 'Scan ref', 255);
     const commitSha = requireCommit(input.commitSha);
+    const keyId = input.fingerprintKeyId == null ? null : requireDigest(input.fingerprintKeyId, 'Fingerprint key id');
     const idempotencyKey = requireText(input.idempotencyKey, 'Scan idempotency key', 200);
     if (idempotencyKey.length < 8) throw new TypeError('Scan idempotency key must be at least 8 characters');
     const scanId = text(input.scanId) || crypto.randomUUID();
@@ -498,14 +508,14 @@ class ExposureStore {
       `INSERT INTO nv_exposure_scans (
          scan_id, provider, authority, owner_login, repo_name, identity_key, requested_by,
          ref_name, commit_sha, rules_version, engine_version, fingerprint_key_version,
-         config_version, state, coverage, idempotency_key, retain_until, created_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'queued','unknown',$14,$15,$16)
+         config_version, state, coverage, idempotency_key, retain_until, created_at, fingerprint_key_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'queued','unknown',$14,$15,$16,$17)
        ON CONFLICT DO NOTHING
        RETURNING *`,
       [
         scanId, scope.provider, scope.authority, scope.owner, scope.repo, identityKey, requestedBy,
         refName, commitSha, versions.rules, versions.engine, versions.fingerprintKey,
-        versions.config, idempotencyKey, retainUntil, now
+        versions.config, idempotencyKey, retainUntil, now, keyId
       ],
       'accept a scan request'
     );
@@ -569,6 +579,7 @@ class ExposureStore {
                  LIMIT 1
                  FOR UPDATE SKIP LOCKED
               )
+          AND (target.state='queued' OR (target.state='running' AND target.claim_expires_at <= $2))
        RETURNING *`,
       [owner, now, leaseMs],
       'claim a scan'
@@ -586,7 +597,7 @@ class ExposureStore {
     const renewed = await this.#query(
       `UPDATE nv_exposure_scans
           SET claim_expires_at=$3::timestamptz + ($4::double precision / 1000.0) * interval '1 second'
-        WHERE scan_id=$1 AND claim_owner=$2 AND state='running'
+        WHERE scan_id=$1 AND claim_owner=$2 AND state='running' AND claim_expires_at > $3
        RETURNING scan_id`,
       [scanId, claimOwner, now, leaseMs],
       'renew a claim'
@@ -618,14 +629,22 @@ class ExposureStore {
     return this.#transaction(async client => {
       const owned = await client.query(
         `SELECT * FROM nv_exposure_scans
-          WHERE scan_id=$1 AND claim_owner=$2 AND state='running'
+          WHERE scan_id=$1 AND claim_owner=$2 AND state='running' AND claim_expires_at > $3
           FOR UPDATE`,
-        [scanId, claimOwner]
+        [scanId, claimOwner, now]
       );
       if (!owned.rows.length) {
         fail('This scan is not held by this worker', 'EXPOSURE_SCAN_NOT_OWNED', 409);
       }
       const scan = owned.rows[0];
+      const existing = await client.query(
+        'SELECT fingerprint FROM nv_exposure_observations WHERE scan_id=$1', [scanId]
+      );
+      const fingerprints = new Set(existing.rows.map(row => row.fingerprint));
+      for (const finding of normalized) fingerprints.add(finding.fingerprint);
+      if (fingerprints.size > MAX_FINDINGS_PER_SCAN) {
+        fail('A scan may not exceed its finding ceiling', 'EXPOSURE_FINDING_LIMIT', 409);
+      }
 
       let written = 0;
       for (const finding of normalized) {
@@ -648,10 +667,12 @@ class ExposureStore {
           `INSERT INTO nv_exposure_findings (
              provider, authority, owner_login, repo_name, fingerprint, identity_key,
              fingerprint_key_version, rules_version, engine_version, rule, file_path, placeholder,
-             first_observed_at, last_observed_at
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
-           ON CONFLICT (provider, authority, owner_login, repo_name, fingerprint) DO UPDATE
+             first_observed_at, last_observed_at, commit_sha
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$14)
+           ON CONFLICT (provider, authority, owner_login, repo_name, fingerprint, identity_key) DO UPDATE
               SET last_observed_at=GREATEST(nv_exposure_findings.last_observed_at, $13),
+                  commit_sha=CASE WHEN $13 >= nv_exposure_findings.last_observed_at
+                    THEN EXCLUDED.commit_sha ELSE nv_exposure_findings.commit_sha END,
                   disposition=CASE
                     WHEN nv_exposure_findings.disposition='removed-from-tree' THEN 'open'
                     ELSE nv_exposure_findings.disposition END,
@@ -661,7 +682,7 @@ class ExposureStore {
           [
             scan.provider, scan.authority, scan.owner_login, scan.repo_name, finding.fingerprint,
             scan.identity_key, finding.fingerprintKeyVersion, finding.rulesVersion, finding.engineVersion,
-            finding.rule, finding.path, finding.placeholder, now
+            finding.rule, finding.path, finding.placeholder, now, scan.commit_sha
           ]
         );
 
@@ -722,7 +743,7 @@ class ExposureStore {
       `UPDATE nv_exposure_scans
           SET state=$3, coverage=$4, skipped_reason=$5, files_scanned=$6, bytes_scanned=$7,
               parent_scan_id=$8, finished_at=$9, claim_owner=NULL, claim_expires_at=NULL
-        WHERE scan_id=$1 AND claim_owner=$2 AND state='running'
+        WHERE scan_id=$1 AND claim_owner=$2 AND state='running' AND claim_expires_at > $9
        RETURNING *`,
       [scanId, claimOwner, state, coverage, skippedReason, filesScanned, bytesScanned, parentScanId, now],
       'finalize a scan'
@@ -737,6 +758,7 @@ class ExposureStore {
      need the identity boundary, and it leaves coverage as whatever was
      actually achieved rather than claiming anything. */
   async cancelScan(input = {}) {
+    const scope = requireScope(input.scope);
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
     const now = instant(input.now == null ? Date.now() : input.now, 'Cancel time');
@@ -745,8 +767,9 @@ class ExposureStore {
           SET state='canceled', coverage=CASE WHEN coverage='unknown' THEN 'unknown' ELSE 'partial' END,
               skipped_reason='canceled', finished_at=$3, claim_owner=NULL, claim_expires_at=NULL
         WHERE scan_id=$1 AND identity_key=$2 AND state IN ('queued','running')
+          AND provider=$4 AND authority=$5 AND owner_login=$6 AND repo_name=$7
        RETURNING *`,
-      [scanId, identityKey, now],
+      [scanId, identityKey, now, scope.provider, scope.authority, scope.owner, scope.repo],
       'cancel a scan'
     );
     return scanFromRow(canceled.rows[0] || null);
@@ -796,6 +819,9 @@ class ExposureStore {
         return Object.freeze({ concluded: false, reason: 'no-comparable-predecessor', removed: 0 });
       }
       const parent = parentRows.rows[0];
+      if (parent.identity_key !== scan.identity_key) {
+        return Object.freeze({ concluded: false, reason: 'identity-mismatch', removed: 0 });
+      }
 
       /*
        * The same repository and the same ref. A scan of `main` says nothing
@@ -821,6 +847,7 @@ class ExposureStore {
       if (parent.rules_version !== scan.rules_version
         || parent.engine_version !== scan.engine_version
         || parent.fingerprint_key_version !== scan.fingerprint_key_version
+        || parent.fingerprint_key_id !== scan.fingerprint_key_id
         || parent.config_version !== scan.config_version) {
         return Object.freeze({ concluded: false, reason: 'incompatible-versions', removed: 0 });
       }
@@ -830,7 +857,7 @@ class ExposureStore {
             SET disposition='removed-from-tree', disposition_at=$6
           WHERE finding.provider=$1 AND finding.authority=$2
             AND finding.owner_login=$3 AND finding.repo_name=$4
-            AND finding.disposition='open'
+            AND finding.disposition='open' AND finding.identity_key=$11
             AND finding.fingerprint_key_version=$7
             AND finding.rules_version=$8
             AND finding.engine_version=$9
@@ -844,7 +871,7 @@ class ExposureStore {
         [
           scan.provider, scan.authority, scan.owner_login, scan.repo_name,
           parent.scan_id, now, scan.fingerprint_key_version, scan.rules_version,
-          scan.engine_version, scan.scan_id
+          scan.engine_version, scan.scan_id, identityKey
         ]
       );
       return Object.freeze({
@@ -946,9 +973,9 @@ class ExposureStore {
           `UPDATE nv_exposure_findings
               SET disposition='credential-rejected', disposition_at=$6, disposition_by=NULL
             WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
-              AND fingerprint=$5 AND disposition <> 'accepted-risk'
+              AND fingerprint=$5 AND identity_key=$7 AND disposition <> 'accepted-risk'
            RETURNING *`,
-          [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, attempt.observedAt]
+          [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, attempt.observedAt, identityKey]
         );
         finding = findingFromRow(moved.rows[0] || null);
       }
@@ -1141,14 +1168,30 @@ class ExposureStore {
    * comparison away from being a cross-tenant read.
    */
   async getScan(input = {}) {
+    const scope = requireScope(input.scope);
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
     const found = await this.#query(
-      'SELECT * FROM nv_exposure_scans WHERE scan_id=$1 AND identity_key=$2',
-      [scanId, identityKey],
+      `SELECT * FROM nv_exposure_scans WHERE scan_id=$1 AND identity_key=$2
+         AND provider=$3 AND authority=$4 AND owner_login=$5 AND repo_name=$6`,
+      [scanId, identityKey, scope.provider, scope.authority, scope.owner, scope.repo],
       'read a scan'
     );
     return scanFromRow(found.rows[0] || null);
+  }
+
+  async getFinding(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Finding identity');
+    const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
+    const found = await this.#query(
+      `SELECT * FROM nv_exposure_findings
+        WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+          AND identity_key=$5 AND fingerprint=$6`,
+      [scope.provider, scope.authority, scope.owner, scope.repo, identityKey, fingerprint],
+      'read a finding'
+    );
+    return findingFromRow(found.rows[0] || null);
   }
 
   async listFindings(input = {}) {
@@ -1171,6 +1214,7 @@ class ExposureStore {
   }
 
   async listObservations(input = {}) {
+    const scope = requireScope(input.scope);
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
     const limit = boundedInteger(input.limit, 50, 1, MAX_LIST_LIMIT);
@@ -1178,9 +1222,10 @@ class ExposureStore {
       `SELECT observation.* FROM nv_exposure_observations AS observation
          JOIN nv_exposure_scans AS scan ON scan.scan_id=observation.scan_id
         WHERE observation.scan_id=$1 AND scan.identity_key=$2
+          AND scan.provider=$4 AND scan.authority=$5 AND scan.owner_login=$6 AND scan.repo_name=$7
         ORDER BY observation.fingerprint
         LIMIT $3`,
-      [scanId, identityKey, limit],
+      [scanId, identityKey, limit, scope.provider, scope.authority, scope.owner, scope.repo],
       'list observations'
     );
     return Object.freeze(found.rows.map(observationFromRow));

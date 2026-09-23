@@ -32,7 +32,8 @@ const path = require('path');
 
 const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
 const { SKIP_REASONS } = require('../src/exposure-reader');
-const { fingerprintFor } = require('../src/exposure-findings');
+const { fingerprintFor, fingerprintKeyId } = require('../src/exposure-findings');
+const { RULES_VERSION } = require('../src/exposure-detection');
 const {
   DEFAULT_BUDGETS,
   EXPOSURE_BUDGET_VERSION,
@@ -64,9 +65,10 @@ function fakeStore(overrides = {}) {
       requestedBy: 'alice',
       refName: 'refs/heads/main',
       commitSha: COMMIT,
-      rulesVersion: 1,
+      rulesVersion: RULES_VERSION,
       engineVersion: 1,
       fingerprintKeyVersion: 1,
+      fingerprintKeyId: fingerprintKeyId(fingerprintKey),
       configVersion: 1,
       state: 'running',
       coverage: 'unknown'
@@ -238,7 +240,7 @@ function runnerFor(store, reader, options = {}) {
         return { token: TOKEN };
       }
     }).runOnce();
-    assert.strictEqual(resolverCalls, 1, 'once per scan, at execution');
+    assert(resolverCalls >= 3, 'authorization is rechecked during execution');
 
     /* No call into the store carries the token, at any depth. */
     const serialized = JSON.stringify(store.calls);
@@ -620,7 +622,9 @@ function runnerFor(store, reader, options = {}) {
    * rather than anything stored on the job. The token must not be written
    * anywhere: asserted by requiring the resolver to return it and nothing else.
    */
-  const resolver = server.match(/async function resolveExposureSession\([\s\S]*?\n}/);
+  assert(server.includes('resolveStoredExposureSession(input'), 'the server uses the owned-session resolver');
+  const resolver = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-session.js'), 'utf8')
+    .match(/async function resolveExposureSession\([\s\S]*?\n}/);
   assert(resolver, 'the session resolver must exist');
   assert(resolver[0].includes('nv_sessions'), 'it must read a live session');
   assert(
@@ -632,7 +636,7 @@ function runnerFor(store, reader, options = {}) {
     'a resolver must not write anything: a token that reaches a row outlives its consent'
   );
   assert(
-    /SELECT identity_key FROM nv_exposure_scans WHERE scan_id=\$1/.test(resolver[0]),
+    /SELECT identity_key FROM nv_exposure_scans\s+WHERE scan_id=\$1/.test(resolver[0]),
     'the identity comes from the row rather than being carried on the scan object'
   );
 }
@@ -684,10 +688,11 @@ function runnerFor(store, reader, options = {}) {
     'accepting a risk is available while the capability is experimental'
   );
   assert.strictEqual(
-    routeLines.filter(line => line.includes("governanceAccess('administrator')")).length, 1,
-    'and it is the only route that needs an administrator'
+    routeLines.filter(line => line.includes("governanceAccess('administrator')")).length, 3,
+    'risk acceptance and external credential use require an administrator'
   );
-  for (const line of routeLines.filter(item => item !== acceptLine)) {
+  for (const line of routeLines.filter(item => item !== acceptLine
+    && !item.includes("/verify'") && !item.includes('/probe-readability'))) {
     assert(
       line.includes("governanceAccess('reader')"),
       `every other exposure route is a reader route: ${line.slice(0, 80)}`

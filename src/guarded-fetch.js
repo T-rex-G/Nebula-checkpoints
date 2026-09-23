@@ -225,6 +225,8 @@ function assertCredentialNotInUrl(target, headers) {
 }
 
 async function guardedFetch(input = {}) {
+  const deadlineMs = boundedInteger(input.deadlineMs, DEFAULT_DEADLINE_MS, 1000, 120_000);
+  const startedAt = Date.now();
   const rule = rules(input.profile);
   const method = String(input.method || '').toUpperCase();
   if (!rule.methods.includes(method)) {
@@ -254,10 +256,21 @@ async function guardedFetch(input = {}) {
     const resolver = typeof input.resolveAddresses === 'function'
       ? input.resolveAddresses
       : async hostname => dns.promises.lookup(hostname, { all: true, verbatim: true });
+    let dnsDeadline;
     try {
-      answers = await resolver(target.hostname);
+      answers = await Promise.race([
+        Promise.resolve().then(() => resolver(target.hostname)),
+        new Promise((_, reject) => {
+          dnsDeadline = setTimeout(() => reject(new GuardedFetchError(
+            'Outbound request exceeded its deadline', 'GUARDED_FETCH_DEADLINE'
+          )), Math.max(0, deadlineMs - (Date.now() - startedAt)));
+        })
+      ]);
     } catch (error) {
+      if (error instanceof GuardedFetchError) throw error;
       throw new GuardedFetchError('Outbound target could not be resolved', 'GUARDED_FETCH_DNS_INVALID', error && error.code);
+    } finally {
+      clearTimeout(dnsDeadline);
     }
   }
   /* Validation before a socket exists: a refused address must never reach one. */
@@ -266,7 +279,10 @@ async function guardedFetch(input = {}) {
 
   const requestImpl = typeof input.requestImpl === 'function' ? input.requestImpl : https.request;
   const timeoutMs = boundedInteger(input.timeoutMs, DEFAULT_TIMEOUT_MS, 1000, 30_000);
-  const deadlineMs = boundedInteger(input.deadlineMs, DEFAULT_DEADLINE_MS, 1000, 120_000);
+  const remainingMs = deadlineMs - (Date.now() - startedAt);
+  if (remainingMs <= 0) {
+    throw new GuardedFetchError('Outbound request exceeded its deadline', 'GUARDED_FETCH_DEADLINE');
+  }
   /* Never accept-encoding: the bound that matters is on the bytes a caller
      ends up holding, and a small compressed body can become an enormous one. */
   const headers = { ...(input.headers || {}) };
@@ -290,7 +306,7 @@ async function guardedFetch(input = {}) {
       const error = new GuardedFetchError('Outbound request exceeded its deadline', 'GUARDED_FETCH_DEADLINE');
       if (request && typeof request.destroy === 'function') request.destroy(error);
       finish(reject, error);
-    }, deadlineMs);
+    }, remainingMs);
     /*
      * Deliberately not unref'd. An unreferenced deadline lets the process exit
      * while a request is still in flight, so the deadline never fires and the

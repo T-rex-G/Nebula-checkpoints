@@ -1,8 +1,8 @@
 'use strict';
 
-const { detectInText } = require('./exposure-detection');
-const { buildFindings } = require('./exposure-findings');
-const { MAX_FINDINGS_PER_SCAN } = require('./exposure-store');
+const { detectInText, RULES_VERSION, DETECTION_ENGINE_VERSION } = require('./exposure-detection');
+const { buildFindings, fingerprintKeyId, FINGERPRINT_KEY_VERSION } = require('./exposure-findings');
+const { MAX_FINDINGS_PER_SCAN, EXPOSURE_CONFIG_VERSION } = require('./exposure-store');
 
 /*
  * Running a scan: one process, one free web service, repositories nobody here
@@ -132,6 +132,16 @@ function createExposureRunner(options = {}) {
     if (!claimed) return Object.freeze({ claimed: false });
     const { scan, claimOwner } = claimed;
 
+    if (scan.fingerprintKeyId !== fingerprintKeyId(fingerprintKey)
+      || scan.rulesVersion !== RULES_VERSION || scan.engineVersion !== DETECTION_ENGINE_VERSION
+      || scan.fingerprintKeyVersion !== FINGERPRINT_KEY_VERSION || scan.configVersion !== EXPOSURE_CONFIG_VERSION) {
+      await finalize(scan, claimOwner, {
+        state: 'failed', coverage: 'unknown', skippedReason: 'configuration-changed',
+        filesScanned: 0, bytesScanned: 0
+      });
+      return Object.freeze({ claimed: true, stopped: 'configuration-changed' });
+    }
+
     /*
      * The commit is the scan's, and it has to be a commit. A row carrying a
      * ref name, a short sha or nothing at all is a row this worker cannot
@@ -159,7 +169,7 @@ function createExposureRunner(options = {}) {
     } catch {
       session = null;
     }
-    const token = session && typeof session.token === 'string' ? session.token : '';
+    let token = session && typeof session.token === 'string' ? session.token : '';
     if (!token) {
       await finalize(scan, claimOwner, {
         state: 'failed', coverage: 'unknown', skippedReason: 'authorization-revoked',
@@ -174,9 +184,26 @@ function createExposureRunner(options = {}) {
     let skippedAny = false;
     let budgetReason = null;
     let pending = [];
+    let findingCount = 0;
+
+    async function checkAccess() {
+      const held = await store.renewClaim({ scanId: scan.scanId, claimOwner, leaseMs, now: now() });
+      if (!held) {
+        throw Object.assign(new Error('Scan claim is no longer held'), { code: 'EXPOSURE_SCAN_NOT_OWNED' });
+      }
+      let current;
+      try {
+        current = await sessionResolver({ scope: scan.scope, requestedBy: scan.requestedBy, scanId: scan.scanId });
+      } catch { current = null; }
+      if (!current || !current.token) {
+        throw Object.assign(new Error('Scan authorization was revoked'), { code: 'EXPOSURE_AUTHORIZATION_REVOKED' });
+      }
+      token = current.token;
+    }
 
     async function flush() {
       if (!pending.length) return true;
+      await checkAccess();
       const batch = pending;
       pending = [];
       await store.recordObservations({ scanId: scan.scanId, claimOwner, findings: batch, now: now() });
@@ -184,6 +211,7 @@ function createExposureRunner(options = {}) {
     }
 
     try {
+      await checkAccess();
       const tree = await reader.readTree({ scope: scan.scope, commitSha, token });
       if (tree.truncated) {
         skippedAny = true;
@@ -221,18 +249,22 @@ function createExposureRunner(options = {}) {
          * set of cases where continuing would be writing into somebody else's
          * job or into one its owner has already ended.
          */
-        if (filesScanned > 0 && filesScanned % budgets.renewEveryFiles === 0) {
-          const held = await store.renewClaim({ scanId: scan.scanId, claimOwner, leaseMs, now: now() });
-          if (!held) return Object.freeze({ claimed: true, stopped: 'claim-lost' });
-        }
+        await checkAccess();
 
         const blob = await reader.readBlob({ scope: scan.scope, sha: entry.sha, path: entry.path, token });
+        await checkAccess();
         filesScanned += 1;
         if (blob.skip || typeof blob.text !== 'string') {
           skippedAny = true;
           continue;
         }
-        bytesScanned += Buffer.byteLength(blob.text, 'utf8');
+        const blobBytes = Buffer.byteLength(blob.text, 'utf8');
+        if (bytesScanned + blobBytes > budgets.maxBytes || now() - startedAt >= budgets.maxWallClockMs) {
+          skippedAny = true;
+          budgetReason = bytesScanned + blobBytes > budgets.maxBytes ? 'byte-limit' : 'time-limit';
+          break;
+        }
+        bytesScanned += blobBytes;
 
         const detection = detectInText({ text: blob.text, path: entry.path });
         if (!detection.scanned || detection.truncated) skippedAny = true;
@@ -249,11 +281,23 @@ function createExposureRunner(options = {}) {
           detection, path: entry.path, scope: scan.scope, commit: commitSha, hmacKey: fingerprintKey,
           keyVersion: scan.fingerprintKeyVersion
         });
-        pending.push(...built.findings);
+        const admitted = built.findings.slice(0, MAX_FINDINGS_PER_SCAN - findingCount);
+        pending.push(...admitted);
+        findingCount += admitted.length;
         if (pending.length >= budgets.flushEveryFindings) await flush();
+        if (findingCount >= MAX_FINDINGS_PER_SCAN || admitted.length < built.findings.length) {
+          skippedAny = true;
+          budgetReason = 'finding-limit';
+          break;
+        }
       }
 
       await flush();
+      await checkAccess();
+      if (now() - startedAt >= budgets.maxWallClockMs) {
+        skippedAny = true;
+        budgetReason = 'time-limit';
+      }
       const complete = !skippedAny && !budgetReason;
       await finalize(scan, claimOwner, {
         state: complete ? 'complete' : 'partial',
@@ -272,6 +316,9 @@ function createExposureRunner(options = {}) {
         claimed: true, state: complete ? 'complete' : 'partial', filesScanned, bytesScanned
       });
     } catch (error) {
+      if (errorCode(error) === 'EXPOSURE_SCAN_NOT_OWNED') {
+        return Object.freeze({ claimed: true, stopped: 'claim-lost' });
+      }
       if (errorCode(error) === 'EXPOSURE_AUTHORIZATION_REVOKED') {
         /*
          * The session went away mid-scan. Stop, record it as that rather than

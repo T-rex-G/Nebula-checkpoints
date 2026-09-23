@@ -44,7 +44,10 @@ for (const table of ['nv_exposure_scans', 'nv_exposure_findings', 'nv_exposure_o
  * either a write that fails at run time or a state nothing can produce.
  */
 function checkedValues(pattern) {
-  const match = sql.match(pattern);
+  const source = pattern.source.includes('skipped_reason')
+    ? fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '025_exposure_identity_provenance.sql'), 'utf8')
+    : sql;
+  const match = source.match(pattern);
   assert(match, `missing constraint: ${pattern}`);
   return (match[1].match(/'[^']+'/g) || []).map(value => value.slice(1, -1)).sort();
 }
@@ -52,7 +55,7 @@ function checkedValues(pattern) {
 assert.deepStrictEqual(checkedValues(/CHECK \(state IN \(([^)]+)\)\)/), [...SCAN_STATES].sort());
 assert.deepStrictEqual(checkedValues(/CHECK \(coverage IN \(([^)]+)\)\)/), [...COVERAGE].sort());
 assert.deepStrictEqual(
-  checkedValues(/skipped_reason IN \(([\s\S]*?)\)\)/), [...SKIPPED_REASONS].sort()
+  checkedValues(/skipped_reason IN \(([\s\S]*?)\)\s*\)/), [...SKIPPED_REASONS].sort()
 );
 assert.deepStrictEqual(
   checkedValues(/CHECK \(disposition IN \(([^)]+)\)\)/), [...DISPOSITIONS].sort()

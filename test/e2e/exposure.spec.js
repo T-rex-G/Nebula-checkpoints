@@ -303,13 +303,14 @@ test('checking whether a credential is live takes two deliberate presses', async
   /* The armed control says what the next press does, rather than asking
      whether the reader is sure. */
   await expect(verify).toHaveText(/Send this credential to the provider/i);
-  await expect(page.locator('.exposure-item-warning')).toContainText(/issued it/i);
+  await expect(page.locator('.exposure-item-warning')).toContainText(/issuing service/i);
+  await expect(page.locator('.exposure-item-warning')).toContainText(/own this credential or have explicit permission/i);
 
   await verify.click();
   await expect(page.locator('.exposure-item-liveness')).toBeVisible();
   expect(state.verifyBodies).toHaveLength(1);
   /* And the confirmation the server demands actually travels. */
-  expect(state.verifyBodies[0]).toEqual({ confirm: 'use-this-credential' });
+  expect(state.verifyBodies[0]).toEqual({ confirm: 'use-this-credential', authorized: true });
 });
 
 test('a live credential is reported without becoming the finding status', async ({ page }) => {
@@ -477,6 +478,7 @@ test('asking a project takes two presses and carries the question that was typed
   expect(state.probeBodies).toHaveLength(0);
   await expect(ask).toHaveText(/Ask this project now/i);
   await expect(page.locator('.exposure-item-warning')).toContainText(/single row/i);
+  await expect(page.locator('.exposure-item-warning')).toContainText(/own this project or have explicit permission/i);
   /* The typed question survives the re-render that arming causes. */
   await expect(page.locator('.exposure-probe-input[data-field="relation"]')).toHaveValue('profiles');
 
@@ -486,7 +488,7 @@ test('asking a project takes two presses and carries the question that was typed
   await expect(answer).toHaveAttribute('data-state', 'readable');
   expect(state.probeBodies).toHaveLength(1);
   expect(state.probeBodies[0]).toEqual({
-    confirm: 'contact-this-project', relation: 'profiles', projection: ['id', 'email']
+    confirm: 'contact-this-project', authorized: true, relation: 'profiles', projection: ['id', 'email']
   });
 
   /* The answer carries the question, because "readable" means nothing without

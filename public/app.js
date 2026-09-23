@@ -2793,11 +2793,11 @@ function renderExposure() {
       const armed = current.confirming;
 
       if (armed === `verify:${finding.fingerprint}`) {
-        actions.appendChild(exposureWarning('This uses the credential against the service that issued it, which that service may log. Nothing is stored here.'));
+        actions.appendChild(exposureWarning('Continue only if you own this credential or have explicit permission to test it. This sends it to the issuing service, which may log the request. The credential is not stored; the result is retained.'));
       } else if (armed === `accept:${finding.fingerprint}`) {
         actions.appendChild(exposureWarning('This records you as having accepted the exposure. The credential stays in the repository, it stays usable by anyone who has it, and nothing here undoes the decision.'));
       } else if (armed === `probe:${finding.fingerprint}`) {
-        actions.appendChild(exposureWarning('This sends one request to that project, using the key it published, asking for a single row. The project may log it. Only whether a row came back is kept.'));
+        actions.appendChild(exposureWarning('Continue only if you own this project or have explicit permission to test it. This sends one request using its anonymous key, asking for a single row. The project may log it. Only whether a row came back is kept.'));
       }
 
       const row = document.createElement('div');
@@ -2931,7 +2931,7 @@ async function verifyExposureFinding(fingerprint) {
       /* `api` serialises the body itself; stringifying here would send a
          JSON string rather than an object, and the server would see no
          confirmation at all. */
-      body: { confirm: 'use-this-credential' }
+      body: { confirm: 'use-this-credential', authorized: true }
     });
     const verification = body && body.verification ? { ...body.verification, narration: body.narration } : null;
     if (verification) current.verifications[fingerprint] = verification;
@@ -2942,7 +2942,9 @@ async function verifyExposureFinding(fingerprint) {
     }
     announceExposure(verification && (body.narration || EXPOSURE_VERIFICATION_FALLBACK[verification.state]) || 'The check finished.');
   } catch (error) {
-    current.error = 'That credential could not be checked.';
+    current.error = error && error.code === 'GOV_ROLE_REQUIRED'
+      ? 'A governance administrator with permission from the credential owner must run this check.'
+      : 'That credential could not be checked.';
     announceExposure(current.error);
   } finally {
     current.verifying = '';
@@ -3032,7 +3034,7 @@ async function probeExposureReadability(fingerprint) {
   try {
     const body = await api(`/api/repo/${wPath()}/exposure/findings/${fingerprint}/probe-readability`, {
       method: 'POST',
-      body: { confirm: 'contact-this-project', relation, projection }
+      body: { confirm: 'contact-this-project', authorized: true, relation, projection }
     });
     const probe = body && body.probe ? { ...body.probe, narration: body.narration } : null;
     if (probe) current.probes[fingerprint] = probe;
@@ -3045,7 +3047,9 @@ async function probeExposureReadability(fingerprint) {
      * question, the other that the file holds no project to ask.
      */
     const code = error && error.code;
-    current.error = code === 'EXPOSURE_PROBE_NOT_ANONYMOUS'
+    current.error = code === 'GOV_ROLE_REQUIRED'
+      ? 'A governance administrator with permission from the project owner must run this probe.'
+      : code === 'EXPOSURE_PROBE_NOT_ANONYMOUS'
       ? 'Only an anonymous key can be used to ask what the public can read.'
       : code === 'EXPOSURE_PROBE_NO_PROJECT'
         ? 'No project reference was found beside that key, so there is nothing to ask.'

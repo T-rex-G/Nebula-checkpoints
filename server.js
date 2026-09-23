@@ -147,11 +147,12 @@ const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { startExposureWorker } = require('./src/exposure-worker');
+const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
 
 const { describeDisposition, describeFinding, describeProbe, describeVerification } = require('./src/exposure-narration');
 const {
-  FINGERPRINT_KEY_VERSION, buildFindings, revealForVerification
+  FINGERPRINT_KEY_VERSION, buildFindings, fingerprintKeyId, revealForVerification
 } = require('./src/exposure-findings');
 
 const {
@@ -1361,38 +1362,17 @@ function exposureScanningAvailable() {
  * the store returns, because that object is passed around and a hashed identity
  * is not something the rest of a scan needs to hold.
  */
-async function resolveExposureSession({ scope, requestedBy, scanId }) {
+async function resolveExposureSession(input) {
   if (!DB_URL) return null;
-  const owner = await pool().query(
-    'SELECT identity_key FROM nv_exposure_scans WHERE scan_id=$1',
-    [scanId]
-  ).catch(() => null);
-  const identityKey = owner && owner.rows.length ? owner.rows[0].identity_key : '';
-  if (!identityKey) return null;
-
-  const sessions = await pool().query(
-    `SELECT data FROM nv_sessions
-      WHERE $1 = ANY(identity_keys)
-      ORDER BY updated DESC
-      LIMIT 10`,
-    [identityKey]
-  ).catch(() => null);
-  if (!sessions || !sessions.rows.length) return null;
-
-  for (const row of sessions.rows) {
-    let content = null;
-    try { content = unseal(row.data); } catch { content = null; }
-    const accounts = content && Array.isArray(content.accounts) ? content.accounts : [];
-    for (const account of accounts) {
-      if (!account || typeof account.token !== 'string' || !account.token) continue;
-      if ((account.provider || 'github') !== scope.provider) continue;
-      /* The actor who asked for the scan, not merely somebody sharing the
-         identity: consent was given by a person and is theirs. */
-      if (String(account.login || '') !== String(requestedBy || '')) continue;
-      return { token: account.token };
-    }
-  }
-  return null;
+  return resolveStoredExposureSession(input, {
+    pool: pool(), unseal, identityKey, providerAuthority,
+    resolveAccount: account => resolveProviderAccount(account, { githubAppBroker }),
+    alphaEnabled: ALPHA_CONFIG.enabled,
+    readAlphaSession: id => alphaStore.readSession(id, { touch: false }),
+    readOwnedSession: input => alphaPrivacyStore.readHostedProviderSession(input),
+    repositoryAllowed: (access, scope) => inviteUnbound(access.repositoryScopes)
+      || repositoryAllowed(access.repositoryScopes, scope)
+  });
 }
 
 function ensureExposureWorker() {
@@ -4640,6 +4620,7 @@ app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRe
       rulesVersion: RULES_VERSION,
       engineVersion: DETECTION_ENGINE_VERSION,
       fingerprintKeyVersion: FINGERPRINT_KEY_VERSION,
+      fingerprintKeyId: fingerprintKeyId(EXPOSURE_FINGERPRINT_KEY),
       configVersion: EXPOSURE_CONFIG_VERSION,
       idempotencyKey: cleanText(String(req.get('Idempotency-Key') || crypto.randomUUID()), 200)
     });
@@ -4651,6 +4632,7 @@ app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRe
 app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const scan = await exposureService().getScan({
+      scope: req.governance.scope,
       scanId: String(req.params.scanId || ''),
       identityKey: req.governance.actor.identityKey
     });
@@ -4662,6 +4644,7 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, 
 app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.scan.cancel'), async (req, res) => {
   try {
     const scan = await exposureService().cancelScan({
+      scope: req.governance.scope,
       scanId: String(req.params.scanId || ''),
       identityKey: req.governance.actor.identityKey
     });
@@ -4724,6 +4707,7 @@ app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alpha
 app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const observations = await exposureService().listObservations({
+      scope: req.governance.scope,
       scanId: String(req.params.scanId || ''),
       identityKey: req.governance.actor.identityKey,
       limit: Number.parseInt(String(req.query.limit || '50'), 10)
@@ -4752,7 +4736,7 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSe
  * is a weaker claim than "erased" and it is the true one: a JavaScript string
  * cannot be wiped, so what is promised is that no copy is kept.
  */
-app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.credential.verify'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.credential.verify'), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -4765,16 +4749,20 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', provide
      * requires an operator to give before a credential is used, and it is
      * refused before any repository read happens.
      */
-    if (String(req.body && req.body.confirm || '') !== 'use-this-credential') {
+    if (String(req.body && req.body.confirm || '') !== 'use-this-credential' || req.body.authorized !== true) {
       return res.status(400).json({
         error: 'Verifying a credential requires an explicit confirmation',
         code: 'EXPOSURE_VERIFY_UNCONFIRMED'
       });
     }
 
-    const findings = await store.listFindings({ scope, identityKey, limit: 200 });
-    const finding = findings.find(item => item.fingerprint === fingerprint);
+    const finding = await store.getFinding({ scope, identityKey, fingerprint });
     if (!finding) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_FINDING_NOT_FOUND' });
+    if (!finding.commit) {
+      return res.status(409).json({
+        error: 'Run a new scan to establish the finding commit', code: 'EXPOSURE_PROVENANCE_REQUIRED'
+      });
+    }
 
     /*
      * Re-read, re-detect, and match by fingerprint. A file that changed since
@@ -4885,7 +4873,7 @@ app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', p
  * database, and the grant is signed over exactly what was named so the prober
  * cannot be asked for anything else.
  */
-app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.readability.probe'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.readability.probe'), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -4895,7 +4883,7 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readabilit
 
     /* Refused before any repository read, like the verification confirmation
        beside it: this contacts a third party's project. */
-    if (String(body.confirm || '') !== 'contact-this-project') {
+    if (String(body.confirm || '') !== 'contact-this-project' || body.authorized !== true) {
       return res.status(400).json({
         error: 'Probing readability requires an explicit confirmation',
         code: 'EXPOSURE_PROBE_UNCONFIRMED'
@@ -4905,9 +4893,13 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readabilit
     const projection = (Array.isArray(body.projection) ? body.projection : [])
       .map(column => String(column || '').trim());
 
-    const findings = await store.listFindings({ scope, identityKey, limit: 200 });
-    const finding = findings.find(item => item.fingerprint === fingerprint);
+    const finding = await store.getFinding({ scope, identityKey, fingerprint });
     if (!finding) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_FINDING_NOT_FOUND' });
+    if (!finding.commit) {
+      return res.status(409).json({
+        error: 'Run a new scan to establish the finding commit', code: 'EXPOSURE_PROVENANCE_REQUIRED'
+      });
+    }
 
     /*
      * Only the anonymous key. A service-role key looks almost exactly like it

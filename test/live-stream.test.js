@@ -54,11 +54,11 @@ function fakeClient({ buffered = 0, ended = false, destroyed = false, throwOnWri
   assert.strictEqual(stalled.endCalls, 1, 'the stream is ended so the browser reconnects and resumes from its cursor');
 }
 
-/* Momentary buffering is not a stall: a reader at the bound is still served. */
+/* No additional payload fits when the reader is already at the bound. */
 {
   const busy = fakeClient({ buffered: MAX_LIVE_CLIENT_BUFFER_BYTES });
-  assert.strictEqual(writeLiveClient(busy, 'data: x\n\n'), WRITTEN);
-  assert.strictEqual(busy.endCalls, 0, 'a reader at the bound has not exceeded it');
+  assert.strictEqual(writeLiveClient(busy, 'data: x\n\n'), DROPPED);
+  assert.strictEqual(busy.endCalls, 1, 'the next payload would exceed the bound');
 }
 
 /* The caller is told, so a drop can be counted rather than inferred. */
@@ -118,7 +118,7 @@ function fakeClient({ buffered = 0, ended = false, destroyed = false, throwOnWri
   let attempts = 0;
   while (status === WRITTEN && attempts < 100_000) { status = writeLiveClient(stalled, 'data: '.padEnd(1024, 'x') + '\n\n'); attempts += 1; }
   assert.strictEqual(status, DROPPED, 'a reader that never drains is eventually disconnected');
-  assert(stalled.writableLength > MAX_LIVE_CLIENT_BUFFER_BYTES, 'and only after it passed the bound');
+  assert(stalled.writableLength <= MAX_LIVE_CLIENT_BUFFER_BYTES, 'without ever exceeding the bound');
   assert(stalled.writableLength < MAX_LIVE_CLIENT_BUFFER_BYTES * 2, 'and not long after');
 }
 

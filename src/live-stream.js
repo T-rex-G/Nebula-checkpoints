@@ -59,9 +59,13 @@ function writeLiveClient(client, payload, options = {}) {
    * crosses the line has already been taken into memory, and a single large
    * event would be accepted no matter how far behind the reader already was.
    */
-  if (bufferedBytes(client) > limit) {
+  const payloadBytes = Buffer.isBuffer(payload) ? payload.length : Buffer.byteLength(String(payload), 'utf8');
+  if (bufferedBytes(client) + payloadBytes > limit) {
     if (typeof options.onDrop === 'function') options.onDrop(client);
-    try { client.end(); } catch { /* the socket is already gone */ }
+    try {
+      if (typeof client.destroy === 'function') client.destroy();
+      else client.end();
+    } catch { /* the socket is already gone */ }
     return DROPPED;
   }
 

@@ -292,7 +292,7 @@ async function claim(store, now = T0) {
       assert.strictEqual(retried.recorded, 0, 'an observation is written once');
       assert.strictEqual(retried.submitted, 3);
 
-      const observations = await store.listObservations({
+      const observations = await store.listObservations({ scope,
         scanId: baselineScanId, identityKey: IDENTITY, limit: 10
       });
       assert.strictEqual(observations.length, 3);
@@ -356,7 +356,7 @@ async function claim(store, now = T0) {
           now: T0 + 103_500
         });
         assert.strictEqual(lying.recorded, 1);
-        const written = (await store.listObservations({
+        const written = (await store.listObservations({ scope,
           scanId: baselineScanId, identityKey: IDENTITY, limit: 50
         })).find(item => item.occurrenceCount === 9);
         assert.strictEqual(written.truncated, true, 'the store decides this, not the caller');
@@ -675,10 +675,10 @@ async function claim(store, now = T0) {
     /* ---- The identity boundary is in the query, not after it ------------ */
 
     {
-      assert.strictEqual(await store.getScan({ scanId: baselineScanId, identityKey: OTHER_IDENTITY }), null);
-      assert(await store.getScan({ scanId: baselineScanId, identityKey: IDENTITY }));
+      assert.strictEqual(await store.getScan({ scope, scanId: baselineScanId, identityKey: OTHER_IDENTITY }), null);
+      assert(await store.getScan({ scope, scanId: baselineScanId, identityKey: IDENTITY }));
       assert.deepStrictEqual(
-        await store.listObservations({ scanId: baselineScanId, identityKey: OTHER_IDENTITY, limit: 10 }),
+        await store.listObservations({ scope, scanId: baselineScanId, identityKey: OTHER_IDENTITY, limit: 10 }),
         []
       );
       assert.deepStrictEqual(
@@ -713,7 +713,7 @@ async function claim(store, now = T0) {
       const swept = await store.sweepExpiredScans({ now: T0 + 1_000_600, limit: 100 });
       assert.strictEqual(swept, 1);
       assert.strictEqual(
-        await store.getScan({ scanId: expiring.scan.scanId, identityKey: IDENTITY }), null
+        await store.getScan({ scope, scanId: expiring.scan.scanId, identityKey: IDENTITY }), null
       );
       const survived = await store.listFindings({
         scope: otherScope, identityKey: IDENTITY, limit: 10
@@ -1104,7 +1104,7 @@ async function claim(store, now = T0) {
        * is how this check would have decayed into noise the moment somebody
        * added a table.
        */
-      const sql = ['022_exposure_scans.sql', '023_exposure_verifications.sql', '024_exposure_readability_probes.sql']
+      const sql = ['022_exposure_scans.sql', '023_exposure_verifications.sql', '024_exposure_readability_probes.sql', '025_exposure_identity_provenance.sql']
         .map(file => require('fs').readFileSync(path.join(DIRECTORY, file), 'utf8'))
         .join('\n');
       for (const column of textColumns) {
@@ -1121,6 +1121,19 @@ async function claim(store, now = T0) {
       );
     }
 
+    const review = require('./fixtures/exposure-review-cases');
+    const reviewDatabase = scratchName();
+    await withClient(ADMIN_URL, client => client.query(`CREATE DATABASE ${reviewDatabase}`));
+    const reviewUrl = urlForDatabase(ADMIN_URL, reviewDatabase);
+    const reviewPool = new Pool({ connectionString: reviewUrl, max: 4 });
+    try {
+      await withClient(reviewUrl, client => runMigrations(client, { directory: DIRECTORY }));
+      await review.checkStoreBoundaries(reviewPool);
+      await withClient(reviewUrl, review.checkLegacyUpgrade);
+    } finally {
+      await reviewPool.end();
+      await withClient(ADMIN_URL, client => client.query(`DROP DATABASE IF EXISTS ${reviewDatabase} WITH (FORCE)`));
+    }
     console.log('exposure store tests passed');
   } finally {
     await pool.end();

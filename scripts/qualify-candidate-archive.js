@@ -26,7 +26,9 @@ const COMMAND_TIMEOUTS_MS = Object.freeze({
   install: 10 * 60 * 1000,
   gate: 5 * 60 * 1000,
   matrix: 10 * 60 * 1000,
-  browser: 15 * 60 * 1000
+  // The full unsharded candidate suite can exceed 15 minutes. Keep every
+  // browser case and its individual timeout, with a bounded 30-minute total.
+  browser: 30 * 60 * 1000
 });
 /*
  * NV_TEST_DATABASE_URL is here because the candidate's own suite includes a

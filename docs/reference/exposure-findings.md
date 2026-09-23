@@ -121,3 +121,24 @@ A conclusion of `removed-from-tree` is only drawn when the scan completed, read
 everything, compared against a recorded predecessor on the same ref, and ran
 under identical versions. A canceled, failed, truncated or incompatible scan
 cannot mark anything as gone.
+
+## Review corrections and authorization
+
+Passive scans remain available to repository readers. Sending a discovered
+credential to its issuer, or probing a project's anonymous readability, requires
+a governance administrator and explicit confirmation that the operator owns the
+credential/project or has permission to test it. The warning explains the request
+and retained result before confirmation.
+
+Findings retain the exact Git path and immutable commit used to read them.
+Migration 025 separates finding identities and backfills provenance only from
+that identity's own observations. It does not copy another identity's risk
+decisions. A legacy finding without surviving provenance requires a new scan
+before verification.
+
+The 500-finding ceiling applies to the entire scan. Reaching it reports partial
+coverage. Workers recheck the claim and current session authorization around
+provider reads and writes. A changed fingerprint key, rules, engine or configuration
+refuses queued work rather than running it with a different identity scheme.
+Source text, credentials, provider response bodies and returned data rows are
+never persisted by these operations.

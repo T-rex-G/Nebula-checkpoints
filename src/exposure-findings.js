@@ -270,10 +270,17 @@ function reconcileFindings(input = {}) {
   });
 }
 
+/* A non-secret, domain-separated identifier detects key rotation between
+   queuing and executing a scan, even when the numeric key version is unchanged. */
+function fingerprintKeyId(key) {
+  return crypto.createHmac('sha256', requireKey(key)).update('nv-exposure-key-id/v1').digest('hex');
+}
+
 module.exports = Object.freeze({
   FINGERPRINT_KEY_VERSION,
   buildFindings,
   fingerprintFor,
+  fingerprintKeyId,
   reconcileFindings,
   revealForVerification
 });

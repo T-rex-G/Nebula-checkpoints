@@ -44,8 +44,28 @@ jobs:
       - run: npm run docs:check
       - run: npm run check:syntax
       - run: npm run lint
+      # Before the suites and long before the browser gates: a type error should
+      # be reported in seconds, not after fifteen minutes of Playwright.
+      - run: npm run typecheck
       - run: npm test
       - run: npm run test:migrations
+        env:
+          NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # The same database service, and the property the whole foundation plan
+      # exists for: two processes, one database, one set of keys. Everything
+      # else is proved against a fake or a source assertion, and none of those
+      # can tell you whether a guard holds when the second process is real.
+      - run: npm run test:multi-instance
+        env:
+          NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # Exposure storage, against the same service. Nearly every property this
+      # store depends on belongs to the database rather than to JavaScript:
+      # idempotency is a unique index, one-live-scan-per-repository is a partial
+      # unique index, the fencing token is a conditional UPDATE matching zero
+      # rows, and the guarantee that no row can carry a credential is a set of
+      # CHECK constraints and two integer arrays. A fake that decides a conflict
+      # atomically does so because it was written to.
+      - run: npm run test:exposure-store
         env:
           NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       - run: node scripts/audit-production.js

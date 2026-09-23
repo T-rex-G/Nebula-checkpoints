@@ -81,7 +81,11 @@ assert(exportSafety.includes('/^\\s*[=+\\-@]/') || exportSafety.includes('/^\s*[
 assert(app.includes("snap.kind !== 'nebulaverse-snapshot' && snap.kind !== 'nebulaverse-emergency-manifest'"), 'Recovery must accept signed emergency manifests as snapshot inputs');
 assert(server.includes("SNAPSHOT_KINDS = new Set(['nebulaverse-snapshot', 'nebulaverse-emergency-manifest'])") && server.includes('SNAPSHOT_KIND_INVALID'), 'Server-side recovery must explicitly accept only trusted Nebulaverse snapshot kinds');
 assert(app.includes('/snapshot-compare') && app.includes('/restore-preview'), 'Recovery workflow must compare snapshots and preview ref changes');
-assert(server.includes('createRestoreAuthorization') && server.includes('consumeRestoreAuthorization'), 'Restore preview must issue a short-lived server authorization consumed by the write route');
+/* The write route claims the authorization rather than checking it and
+   recording it later: those two sat either side of an awaited preflight, so
+   one process was enough for two requests to spend one authorization. The
+   await is part of the contract, not an implementation detail. */
+assert(server.includes('createRestoreAuthorization') && server.includes('await claimRestoreAuthorization('), 'Restore preview must issue a short-lived server authorization claimed exactly once by the write route');
 assert(server.includes('RESTORE_PREVIEW_STALE') && server.includes('preflightRestoreActions'), 'Restore must verify branch heads still match the preview before changing refs');
 assert(app.includes("authorization: preview.authorization") && app.includes("confirm: 'RESTORE'"), 'Client restore must submit only the preview authorization and typed confirmation');
 assert(neural.includes("osv && data.deps.osv.available === false"), 'Neural graph must distinguish an unavailable vulnerability scan from a clean result');

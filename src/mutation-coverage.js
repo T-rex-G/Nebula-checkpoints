@@ -79,6 +79,19 @@ const ACTION_EXECUTION_CONTRACTS = deepFreeze({
   'governance.exception.request': DEFAULT_GOVERNANCE,
   'governance.exception.decide': DEFAULT_GOVERNANCE,
   'governance.exception.revoke': DEFAULT_GOVERNANCE,
+  /*
+   * Exposure actions are governance-shaped: they record a decision or start a
+   * read, and none of them writes to a provider. The contract is the same one
+   * every other zero-write governed action uses, which is the point -- an
+   * action with its own bespoke contract is an action nobody can reason about
+   * alongside the rest.
+   */
+  'exposure.scan.request': DEFAULT_GOVERNANCE,
+  'exposure.scan.cancel': DEFAULT_GOVERNANCE,
+  'exposure.credential.verify': DEFAULT_GOVERNANCE,
+  'exposure.readability.probe': DEFAULT_GOVERNANCE,
+  'exposure.finding.accept-risk': DEFAULT_GOVERNANCE,
+  'exposure.finding.export': DEFAULT_GOVERNANCE,
   'governance.notification.preferences.update': DEFAULT_GOVERNANCE,
   'governance.notification.read': DEFAULT_GOVERNANCE,
   'governance.webhook.create': DEFAULT_GOVERNANCE,
@@ -123,6 +136,23 @@ const MUTATION_ROUTE_INVENTORY = deepFreeze([
   route('POST', '/api/repo/:owner/:repo/restore-refs', 'recovery.restore-refs'),
   route('POST', '/api/repo/:owner/:repo/live-events/connect', 'webhook.connect'),
   route('DELETE', '/api/repo/:owner/:repo/live-events', 'webhook.disconnect'),
+  /*
+   * Exposure scanning. These are inventoried rather than exempted, so the
+   * route, its action and its execution contract are checked together -- an
+   * exemption list only records that somebody decided not to look.
+   */
+  route('POST', '/api/repo/:owner/:repo/exposure/scans', 'exposure.scan.request'),
+  route('POST', '/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', 'exposure.scan.cancel'),
+  route('POST', '/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', 'exposure.finding.accept-risk'),
+  /*
+   * The two that contact somebody else. A verification uses a discovered
+   * credential against the service that issued it; a probe asks a project what
+   * its anonymous role can read. Both are decisions worth having in the ledger
+   * with a name on them, which is the whole reason they are inventoried rather
+   * than treated as ordinary reads.
+   */
+  route('POST', '/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', 'exposure.credential.verify'),
+  route('POST', '/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability', 'exposure.readability.probe'),
   route('POST', '/api/repo/:owner/:repo/governance/policies', 'governance.policy.create'),
   route('POST', '/api/repo/:owner/:repo/governance/policies/:policyId/drafts', 'governance.draft.create'),
   route('PATCH', '/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId', 'governance.draft.update'),

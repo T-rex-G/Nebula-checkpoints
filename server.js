@@ -127,6 +127,9 @@ const {
 } = require('./src/github-app');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation');
 const { rateLimitIdentity } = require('./src/rate-limit-identity');
+const { SingleUseStore, memorySingleUseStore } = require('./src/single-use-store');
+const { writeLiveClient } = require('./src/live-stream');
+const { RateLimitStore } = require('./src/rate-limit-store');
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
@@ -143,6 +146,24 @@ const { createGovernanceRuntime } = require('./src/governance-enforcement');
 const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
+const { startExposureWorker } = require('./src/exposure-worker');
+const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
+const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
+
+const { describeDisposition, describeFinding, describeProbe, describeVerification } = require('./src/exposure-narration');
+const {
+  FINGERPRINT_KEY_VERSION, buildFindings, fingerprintKeyId, revealForVerification
+} = require('./src/exposure-findings');
+
+const {
+  adapterForCandidate, signVerificationAuthorization, verifyCredential
+} = require('./src/credential-verification');
+const {
+  OPERATIONS: READABILITY_OPERATIONS,
+  discoverProject, probeAnonymousReadability, signReadabilityAuthorization
+} = require('./src/anonymous-readability-probe');
+const exposureReader = require('./src/exposure-reader');
+const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('./src/exposure-store');
 const {
   createSnapshotSignatures,
   loadSnapshotSigningConfig
@@ -189,6 +210,29 @@ const STEP_UP_SECRET = deriveSecret(SECRET, KEY_PURPOSES.STEP_UP_GRANT);
 const GITHUB_APP_STATE_SECRET = deriveSecret(SECRET, KEY_PURPOSES.GITHUB_APP_STATE);
 const EVIDENCE_LEDGER_SECRET = deriveSecret(SECRET, KEY_PURPOSES.EVIDENCE_LEDGER);
 const RATE_LIMIT_IDENTITY_KEY = deriveKey(SECRET, KEY_PURPOSES.RATE_LIMIT_IDENTITY);
+/*
+ * Derived once at startup, like every other key here, so a finding's identity
+ * does not depend on when it was computed. It is also why a scan records the
+ * key version: rotating SESSION_SECRET changes every fingerprint, and the
+ * store refuses to compare across that rather than reporting the entire
+ * backlog resolved.
+ */
+const EXPOSURE_FINGERPRINT_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_FINDING_FINGERPRINT);
+/*
+ * The grant a verification probe requires, and the key that digests the
+ * provider account it comes back with. Separate purposes because one is a
+ * MAC over a grant this server issued and the other a MAC over a value a
+ * provider told us.
+ */
+const EXPOSURE_VERIFICATION_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_VERIFICATION_AUTHORIZATION);
+const EXPOSURE_VERIFICATION_SUBJECT_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_VERIFICATION_SUBJECT);
+/*
+ * And the grant a readability probe requires, which is a third purpose rather
+ * than a reuse of the second. A grant to ask a provider "is this credential
+ * yours" is not a grant to ask a project "may the public read this table", and
+ * a shared key would make one signature satisfy both checks.
+ */
+const EXPOSURE_READABILITY_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_READABILITY_AUTHORIZATION);
 /*
  * Evidence verification holds two keyrings, assembled together in
  * src/intelligence.js so their retired lists cannot drift apart.
@@ -339,7 +383,6 @@ function receiveRawFile(req, tmp, maxBytes, hash) {
   });
 }
 
-
 async function scanUploadOrThrow(req, tmp, repoPath, size) {
   const result = await scanUploadFile(tmp, { repoPath, size });
   if (result.blocked) {
@@ -372,7 +415,6 @@ async function scanUploadOrThrow(req, tmp, repoPath, size) {
     }
   };
 }
-
 
 const STALE_UPLOAD_HOURS = HOSTED_LIMITS?.staleUploadHours ?? Math.min(Math.max(parseInt(process.env.NV_STALE_UPLOAD_HOURS || '6', 10) || 6, 1), 72);
 const STALE_UPLOAD_AGE_MS = STALE_UPLOAD_HOURS * 60 * 60 * 1000;
@@ -511,7 +553,31 @@ app.use('/api', (req, res, next) => {
  * returns it to zero. src/rate-limit-identity.js records what the previous
  * key did instead.
  */
+const API_RATE_WINDOW_MS = 60000;
+const API_RATE_LIMIT = 300;
+/*
+ * Two limiters, and the local one exists to protect the shared one.
+ *
+ * The shared counter is what makes a limit of three hundred mean three
+ * hundred rather than three hundred per instance. But consulting it is a
+ * query, and a limiter that queries once per request hands an attacker a way
+ * to turn a flood of cheap HTTP into a flood of database work -- against a
+ * pool of three connections on a free plan. The in-process bucket in front of
+ * it is what stops that: once the shared counter has refused a caller, this
+ * process remembers until their window closes and refuses them again without
+ * asking anything. A caller being throttled therefore costs no queries at all,
+ * which is exactly the caller sending the most requests.
+ *
+ * An absolute local ceiling sits above that as a backstop for the case the
+ * shared counter never refuses because it cannot answer.
+ */
+const LOCAL_ADMISSION_CEILING = API_RATE_LIMIT + 30;
 const _buckets = new Map();
+function apiRateLimitStore() {
+  if (!DB_URL) return null;
+  if (!_rateLimitStore) _rateLimitStore = new RateLimitStore({ pool: pool() });
+  return _rateLimitStore;
+}
 app.use('/api', (req, res, next) => {
   const { key } = rateLimitIdentity({
     session: unseal(getCookie(req, 'nv_session') || ''),
@@ -521,15 +587,49 @@ app.use('/api', (req, res, next) => {
   });
   const now = Date.now();
   let b = _buckets.get(key);
-  if (!b || now - b.t > 60000) { b = { t: now, n: 0 }; _buckets.set(key, b); }
-  if (++b.n > 300) return res.status(429).json({ error: 'Rate limit: slow down a little' });
+  if (!b || now - b.t > API_RATE_WINDOW_MS) { b = { t: now, n: 0, refusedUntil: 0 }; _buckets.set(key, b); }
+  b.n += 1;
   if (_buckets.size > 5000) {
     for (const [bucketKey, value] of _buckets) {
       if (now - value.t > 120000) _buckets.delete(bucketKey);
     }
     while (_buckets.size > 5000) _buckets.delete(_buckets.keys().next().value);
   }
-  next();
+
+  /* Already refused inside this window: answer from memory, ask nothing. */
+  if (b.refusedUntil > now) return res.status(429).json({ error: 'Rate limit: slow down a little' });
+  if (b.n > LOCAL_ADMISSION_CEILING) {
+    b.refusedUntil = b.t + API_RATE_WINDOW_MS;
+    return res.status(429).json({ error: 'Rate limit: slow down a little' });
+  }
+
+  const store = apiRateLimitStore();
+  /* Without a database this process is the only counter there is, and the
+     local bucket is the limit rather than an admission filter in front of it. */
+  if (!store) {
+    if (b.n > API_RATE_LIMIT) return res.status(429).json({ error: 'Rate limit: slow down a little' });
+    return next();
+  }
+
+  store.count({
+    namespace: 'api', key, windowMs: API_RATE_WINDOW_MS, limit: API_RATE_LIMIT,
+    /* The window this limiter has always kept: it reopens once MORE than
+       sixty seconds have passed, which is not the webhook limiter's rule. */
+    inclusiveReset: false
+  }).then(verdict => {
+    if (verdict.allowed) return next();
+    b.refusedUntil = b.t + API_RATE_WINDOW_MS;
+    res.status(429).json({ error: 'Rate limit: slow down a little' });
+  }).catch(() => {
+    /* A counter that cannot answer has not said this caller is within their
+       limit, and a local count would answer "well within" on every instance
+       that has not seen them. Refuse, and say it is the limiter that is
+       unavailable rather than the caller who is over. */
+    res.status(503).json({
+      error: 'Request limits cannot be checked right now; retry shortly',
+      code: 'RATE_LIMIT_UNAVAILABLE'
+    });
+  });
 });
 /*
  * Maintenance mode.
@@ -1226,6 +1326,67 @@ async function bootstrapGovernanceDelivery() {
   governanceWebhookBootstrapTimer = setTimeout(() => { void bootstrapGovernanceDelivery(); }, 30_000);
   if (typeof governanceWebhookBootstrapTimer.unref === 'function') governanceWebhookBootstrapTimer.unref();
 }
+/*
+ * Exposure scanning.
+ *
+ * The worker starts only when the capability document says the feature is
+ * available for some provider, and today it says Unavailable everywhere. That
+ * is deliberate rather than a missing wire: a poller asking the database for
+ * work that no route can create would spend a query every fifteen seconds of a
+ * free service's budget for nothing. Raising the capability starts it, and
+ * nothing else here has to change -- which is the point of gating on the
+ * document rather than on a flag somebody would have to remember to set in two
+ * places.
+ */
+let exposureWorker = null;
+let _exposureStore = null;
+
+function exposureScanningAvailable() {
+  const providers = (CAPABILITY_DOCUMENT && CAPABILITY_DOCUMENT.providers) || {};
+  for (const deployments of Object.values(providers)) {
+    const features = (deployments && deployments[DEPLOYMENT_PROFILE]) || {};
+    const tuple = features['exposure.scan'];
+    if (Array.isArray(tuple) && (tuple[0] === 'Supported' || tuple[0] === 'Experimental')) return true;
+  }
+  return false;
+}
+
+/*
+ * A scan holds no credential. It holds the identity the work belongs to, and
+ * the token is resolved from a session that is still signed in at the moment
+ * the scan runs -- so a disconnect, a sign-out or a revocation simply stops the
+ * next read, rather than leaving a copied token in a job row for something to
+ * remember to clean up.
+ *
+ * The identity is read from the row here rather than carried on the scan object
+ * the store returns, because that object is passed around and a hashed identity
+ * is not something the rest of a scan needs to hold.
+ */
+async function resolveExposureSession(input) {
+  if (!DB_URL) return null;
+  return resolveStoredExposureSession(input, {
+    pool: pool(), unseal, identityKey, providerAuthority,
+    resolveAccount: account => resolveProviderAccount(account, { githubAppBroker }),
+    alphaEnabled: ALPHA_CONFIG.enabled,
+    readAlphaSession: id => alphaStore.readSession(id, { touch: false }),
+    readOwnedSession: input => alphaPrivacyStore.readHostedProviderSession(input),
+    repositoryAllowed: (access, scope) => inviteUnbound(access.repositoryScopes)
+      || repositoryAllowed(access.repositoryScopes, scope)
+  });
+}
+
+function ensureExposureWorker() {
+  if (exposureWorker || !DB_URL || shuttingDown || !exposureScanningAvailable()) return exposureWorker;
+  _exposureStore = new ExposureStore({ pool: pool() });
+  exposureWorker = startExposureWorker({
+    store: _exposureStore,
+    reader: exposureReader,
+    fingerprintKey: EXPOSURE_FINGERPRINT_KEY,
+    sessionResolver: resolveExposureSession
+  });
+  return exposureWorker;
+}
+
 async function governanceService() {
   if (!(await dbReady())) {
     throw Object.assign(new Error('Governance requires the configured PostgreSQL DATABASE_URL'), {
@@ -1492,17 +1653,57 @@ function closeAlphaLiveSession(key, client) {
   try { client.end(); } catch {}
 }
 const WEBHOOK_BUCKETS = new Map();
-function allowWebhookRequest(req, hookId) {
+const WEBHOOK_RATE_WINDOW_MS = 60000;
+const WEBHOOK_RATE_LIMIT = 120;
+/*
+ * The same two-layer shape as the API limiter, and the same reason for it: the
+ * shared counter makes a hundred and twenty mean a hundred and twenty rather
+ * than that many per instance, and the local bucket in front of it means a
+ * sender being throttled costs no queries.
+ *
+ * This limiter keys on the address and the hook rather than on a session --
+ * a provider delivering a webhook has no session -- so the identity is already
+ * unforgeable behind trust proxy and needs no derivation.
+ *
+ * Its window rule is not the API limiter's. This one reopens once sixty
+ * seconds have passed; that one reopens once MORE than sixty seconds have.
+ * The difference is one millisecond a minute and exists only because both were
+ * written by hand, but preserving each is cheaper than explaining an
+ * unreproducible 429 to whoever hits the boundary.
+ */
+async function allowWebhookRequest(req, hookId) {
   const now = Date.now();
   const key = `${String(req.ip || 'unknown').slice(0, 80)}|${hookId}`;
   let bucket = WEBHOOK_BUCKETS.get(key);
-  if (!bucket || now - bucket.startedAt >= 60000) bucket = { startedAt: now, count: 0 };
+  if (!bucket || now - bucket.startedAt >= WEBHOOK_RATE_WINDOW_MS) bucket = { startedAt: now, count: 0, refusedUntil: 0 };
   bucket.count += 1;
   WEBHOOK_BUCKETS.set(key, bucket);
   if (WEBHOOK_BUCKETS.size > 2000) {
     for (const [k, value] of WEBHOOK_BUCKETS) if (now - value.startedAt >= 120000) WEBHOOK_BUCKETS.delete(k);
   }
-  return bucket.count <= 120;
+
+  if (bucket.refusedUntil > now) return false;
+  if (bucket.count > WEBHOOK_RATE_LIMIT + 30) {
+    bucket.refusedUntil = bucket.startedAt + WEBHOOK_RATE_WINDOW_MS;
+    return false;
+  }
+
+  const store = apiRateLimitStore();
+  if (!store) return bucket.count <= WEBHOOK_RATE_LIMIT;
+
+  let verdict;
+  try {
+    verdict = await store.count({
+      namespace: 'webhook', key, windowMs: WEBHOOK_RATE_WINDOW_MS, limit: WEBHOOK_RATE_LIMIT,
+      inclusiveReset: true
+    });
+  } catch (error) {
+    /* Unanswerable is not permission. The caller turns a false into a 429,
+       which is the safe reading for a sender that can retry. */
+    return false;
+  }
+  if (!verdict.allowed) bucket.refusedUntil = bucket.startedAt + WEBHOOK_RATE_WINDOW_MS;
+  return verdict.allowed;
 }
 function repoKey(provider, owner, repo) { return `${provider || 'github'}:${String(owner).toLowerCase()}/${String(repo).toLowerCase()}`; }
 function encodeEventCursor(createdAt, eventId) {
@@ -1564,7 +1765,30 @@ function stableProviderIdentityKey(acct) {
 }
 const CSRF_TTL_MS = 30 * 60 * 1000;
 const STEP_UP_TTL_MS = 5 * 60 * 1000;
+/*
+ * The in-process guard, kept for the profile that is allowed to run without a
+ * database. There it is honest: one process, and the guard covers everything
+ * that process can be replayed against.
+ */
 const USED_STEP_UP_GRANTS = new Map();
+let _singleUseStore = null;
+let _rateLimitStore = null;
+/*
+ * Which guard answers is decided by configuration, never by whether the
+ * database happens to be reachable. A deployment that has a database has one
+ * shared guard; if it cannot be reached, the claim fails and the sensitive
+ * action is refused. Falling back to the Map at that moment would be the worst
+ * of both: every instance would answer "unspent" for a grant another instance
+ * had already spent, and a replay would go through precisely during an outage.
+ */
+function durableSingleUseStore() {
+  if (!_singleUseStore) _singleUseStore = new SingleUseStore({ pool: pool() });
+  return _singleUseStore;
+}
+function stepUpReplayStore() {
+  if (!DB_URL) return USED_STEP_UP_GRANTS;
+  return durableSingleUseStore();
+}
 function sessionSecurityState(session) {
   if (!session.security || typeof session.security !== 'object') session.security = {};
   return session.security;
@@ -1601,7 +1825,13 @@ async function consumeStepUpAuthorization(req, res, operation) {
   const context = requestSecurityContext(req);
   const claims = verifyStepUpGrant(STEP_UP_SECRET, token, { ...context, action: operation.action, scope: operation.scope });
   const state = sessionSecurityState(req.session);
-  req.stepUp = consumePendingStepUp(state, claims, operation, { replayStore: USED_STEP_UP_GRANTS });
+  /*
+   * Awaited, because the guard behind this may not be in this process. An
+   * un-awaited call assigns a Promise, and a Promise is truthy: the audit
+   * record at the end of a sensitive action would read it as an authorization
+   * and write undefined for every field it carries.
+   */
+  req.stepUp = await consumePendingStepUp(state, claims, operation, { replayStore: stepUpReplayStore() });
   await setSession(req, res, req.session);
   return req.stepUp;
 }
@@ -1737,8 +1967,20 @@ function liveStreamKey(provider, owner, repo, identity) {
 }
 function broadcastLive(provider, owner, repo, identity, event) {
   const key = liveStreamKey(provider, owner, repo, identity);
-  for (const client of LIVE_CLIENTS.get(key) || []) {
-    try { client.write(`id: ${String(event.id || '').replace(/[^0-9a-f-]/gi, '')}\nevent: intelligence\ndata: ${JSON.stringify(event)}\n\n`); } catch {}
+  const clients = LIVE_CLIENTS.get(key);
+  if (!clients) return;
+  const payload = `id: ${String(event.id || '').replace(/[^0-9a-f-]/gi, '')}\nevent: intelligence\ndata: ${JSON.stringify(event)}\n\n`;
+  /*
+   * A copy, because a reader that has fallen behind is disconnected during
+   * this loop and its own close handler removes it from the set being walked.
+   */
+  for (const client of [...clients]) {
+    writeLiveClient(client, payload, {
+      onDrop(dropped) {
+        clients.delete(dropped);
+        if (!clients.size) LIVE_CLIENTS.delete(key);
+      }
+    });
   }
 }
 function publicBase(req) {
@@ -1758,7 +2000,7 @@ async function receiveGithubWebhook(req, res) {
   try {
     const hookId = String(req.params.hookId || '');
     if (!/^[0-9a-f]{32,64}$/i.test(hookId)) return res.status(404).end();
-    if (!allowWebhookRequest(req, hookId)) return res.status(429).json({ error: 'Webhook delivery rate exceeded' });
+    if (!(await allowWebhookRequest(req, hookId))) return res.status(429).json({ error: 'Webhook delivery rate exceeded' });
     if (!(await dbReady())) return res.status(503).json({ error: 'Live events require the existing Neon DATABASE_URL' });
     const found = await pool().query(
       'SELECT hook_id,owner,repo,identity_key,secret_enc,active FROM nv_webhooks WHERE hook_id=$1 AND provider=$2',
@@ -2379,6 +2621,25 @@ function governanceMutationMetadata(req, action) {
         simulationHash: cleanText(String(simulation.simulationHash || ''), 64).toLowerCase()
       };
     }
+    /*
+     * The two exposure actions that contact somebody else. Every other one
+     * records only that it happened, which is right for a decision this server
+     * makes about its own rows -- but a request refused before it reached the
+     * store (an unconfirmed press, a key that is not the anonymous one, a file
+     * with no project beside it) leaves no attempt row anywhere, so the ledger
+     * is the only place that remembers it was asked for.
+     *
+     * The column names stay out. The count bounds the request, and the probe
+     * table already holds the names for the probes that actually ran.
+     */
+    case 'exposure.credential.verify':
+      return { fingerprint: boundedId(req.params.fingerprint) };
+    case 'exposure.readability.probe':
+      return {
+        fingerprint: boundedId(req.params.fingerprint),
+        relation: cleanText(String(body.relation || ''), 64),
+        columnCount: Array.isArray(body.projection) ? Math.min(body.projection.length, 100) : 0
+      };
     case 'governance.notification.preferences.update':
       return {
         enabled: body.enabled === true,
@@ -3229,15 +3490,16 @@ const OAUTH_SECRET = (process.env.GITHUB_CLIENT_SECRET || '').trim();
 const GITHUB_APP_FLOW_TTL_MS = 10 * 60 * 1000;
 const MAX_USED_GITHUB_APP_STATES = 10000;
 const USED_GITHUB_APP_STATES = new Map();
-function pruneUsedGithubAppStates(now = Date.now()) {
-  for (const [key, expiresAt] of USED_GITHUB_APP_STATES) {
-    if (Number(expiresAt) < Number(now)) USED_GITHUB_APP_STATES.delete(key);
+/*
+ * The same guard the step-up grant uses, under its own kind. Without a
+ * database this stays the bounded in-process Map it has always been; with one,
+ * an OAuth state consumed on any instance is consumed on all of them.
+ */
+function githubAppStateStore() {
+  if (!DB_URL) {
+    return memorySingleUseStore(USED_GITHUB_APP_STATES, { maxEntries: MAX_USED_GITHUB_APP_STATES });
   }
-  while (USED_GITHUB_APP_STATES.size >= MAX_USED_GITHUB_APP_STATES) {
-    const oldest = USED_GITHUB_APP_STATES.keys().next();
-    if (oldest.done) break;
-    USED_GITHUB_APP_STATES.delete(oldest.value);
-  }
+  return durableSingleUseStore();
 }
 function githubAppStateReplayKey(slot, nonce, identity) {
   return crypto.createHmac('sha256', GITHUB_APP_STATE_REPLAY_KEY)
@@ -3255,19 +3517,38 @@ function githubAppPending(session) {
   if (!security.githubApp || typeof security.githubApp !== 'object') security.githubApp = {};
   return security.githubApp;
 }
-function consumeGithubAppPending(session, slot, nonce, identity, now = Date.now()) {
+async function consumeGithubAppPending(session, slot, nonce, identity, now = Date.now()) {
   const store = githubAppPending(session);
   const pending = store[slot];
+  /*
+   * The pending state is spent before it is checked, and stays that way even
+   * when the check fails. That is deliberate and older than this change: an
+   * attempt against a state is the state's one use, so a wrong nonce cannot be
+   * retried until it is guessed.
+   */
   delete store[slot];
   if (!pending || !secureTextEqual(pending.nonce, nonce) || !secureTextEqual(pending.identityKey, identity) || Number(pending.expiresAt) < Number(now)) {
     throw new GithubAppError('GitHub App authorization state is missing, expired, or already used', 'GITHUB_APP_STATE_REPLAY', 403);
   }
-  pruneUsedGithubAppStates(now);
   const replayKey = githubAppStateReplayKey(slot, nonce, identity);
-  if (USED_GITHUB_APP_STATES.has(replayKey)) {
+  let claimed;
+  try {
+    claimed = await githubAppStateStore().consumeOnce({
+      kind: 'github-app-state',
+      key: replayKey,
+      expiresAt: Number(pending.expiresAt),
+      now: Number(now)
+    });
+  } catch (error) {
+    /* Unverifiable is not the same as replayed: this one is worth retrying and
+       a replay never is, so they must not share a code or a status. */
+    throw new GithubAppError(
+      'GitHub App authorization state cannot be verified right now', 'GITHUB_APP_STATE_UNAVAILABLE', 503
+    );
+  }
+  if (!claimed) {
     throw new GithubAppError('GitHub App authorization state is missing, expired, or already used', 'GITHUB_APP_STATE_REPLAY', 403);
   }
-  USED_GITHUB_APP_STATES.set(replayKey, Number(pending.expiresAt));
   return pending;
 }
 async function githubAppCallbackContext(req, res) {
@@ -3384,7 +3665,7 @@ app.get('/api/github-app/oauth/callback', requireGithubAppFeature, async (req, r
   try {
     const context = await githubAppCallbackContext(req, res);
     const claims = verifyGithubAppState(GITHUB_APP_STATE_SECRET, req.query && req.query.state, { ...context, purpose: 'user-auth' });
-    const pending = consumeGithubAppPending(req.session, 'userAuth', claims.nonce, context.identityKey);
+    const pending = await consumeGithubAppPending(req.session, 'userAuth', claims.nonce, context.identityKey);
     await setSession(req, res, req.session);
     const exchange = await githubAppBroker.exchangeUserCode(req.query && req.query.code);
     const user = await githubAppBroker.getAuthorizedUser(exchange.token);
@@ -3419,7 +3700,7 @@ app.get('/api/github-app/setup', requireGithubAppFeature, async (req, res) => {
   try {
     const context = await githubAppCallbackContext(req, res);
     const claims = verifyGithubAppState(GITHUB_APP_STATE_SECRET, req.query && req.query.state, { ...context, purpose: 'installation-claim' });
-    const pending = consumeGithubAppPending(req.session, 'installation', claims.nonce, context.identityKey);
+    const pending = await consumeGithubAppPending(req.session, 'installation', claims.nonce, context.identityKey);
     await setSession(req, res, req.session);
     const installationId = Number(req.query && req.query.installation_id);
     if (!Number.isSafeInteger(installationId) || installationId <= 0) {
@@ -4192,7 +4473,6 @@ app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionI
   } catch (error) { governanceFailure(res, error); }
 });
 
-
 app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const simulation = await req.governance.service.simulateVersion({
@@ -4275,6 +4555,494 @@ app.post('/api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision', p
     });
     res.status(201).json({ exception });
   } catch (error) { governanceFailure(res, error); }
+});
+
+/*
+ * Exposure scanning routes.
+ *
+ * Every one of them carries the same chain as a governance route, and for the
+ * same reasons: a provider session, the alpha repository boundary, the
+ * capability gate, authentication, a governance role, and -- where something is
+ * decided rather than read -- a mutation context that records it.
+ *
+ * Two things about this chain are load-bearing rather than copied.
+ *
+ * The identity comes from `req.governance.actor.identityKey`, and it is passed
+ * into every store call so the boundary lives in the WHERE clause rather than
+ * in a comparison somebody could forget. A scan id is a uuid a caller could
+ * hold without owning.
+ *
+ * Accepting the risk of a live credential requires `administrator`, not
+ * `reader`. A repository reader can ask for a scan of a repository they can
+ * already read, and cannot wave away what it finds: deciding that an exposed
+ * credential is acceptable is a decision about somebody else's security.
+ */
+function exposureService() {
+  if (!DB_URL) {
+    throw Object.assign(new Error('Exposure scanning requires the configured PostgreSQL DATABASE_URL'), {
+      status: 503, code: 'EXPOSURE_DATABASE_REQUIRED'
+    });
+  }
+  if (!_exposureStore) _exposureStore = new ExposureStore({ pool: pool() });
+  return _exposureStore;
+}
+
+function exposureFailure(res, error) {
+  const status = Number.isInteger(error && error.status) ? error.status : 500;
+  /*
+   * The same public-error body every other route uses. It is the one that
+   * already refuses to echo a message carrying a secret signal, which matters
+   * more here than anywhere else: an error on this path can have been raised
+   * while a request carrying a discovered credential was in flight.
+   */
+  res.status(status).json(publicErrorBody(error));
+}
+
+app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.scan.request'), async (req, res) => {
+  try {
+    const store = exposureService();
+    /*
+     * The ref is resolved here, once, and the commit is what the scan records.
+     * Resolving it later -- in the worker, per read -- is what would let a push
+     * between the tree read and the blob reads mix two trees.
+     */
+    const resolved = await exposureReader.resolveCommit({
+      scope: req.governance.scope,
+      ref: String((req.body && req.body.ref) || 'HEAD'),
+      token: req.gh.token
+    });
+    const requested = await store.requestScan({
+      scope: req.governance.scope,
+      identityKey: req.governance.actor.identityKey,
+      requestedBy: retainedActor(req),
+      refName: resolved.ref,
+      commitSha: resolved.commitSha,
+      rulesVersion: RULES_VERSION,
+      engineVersion: DETECTION_ENGINE_VERSION,
+      fingerprintKeyVersion: FINGERPRINT_KEY_VERSION,
+      fingerprintKeyId: fingerprintKeyId(EXPOSURE_FINGERPRINT_KEY),
+      configVersion: EXPOSURE_CONFIG_VERSION,
+      idempotencyKey: cleanText(String(req.get('Idempotency-Key') || crypto.randomUUID()), 200)
+    });
+    ensureExposureWorker();
+    res.status(requested.created ? 201 : 200).json({ scan: requested.scan, created: requested.created });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const scan = await exposureService().getScan({
+      scope: req.governance.scope,
+      scanId: String(req.params.scanId || ''),
+      identityKey: req.governance.actor.identityKey
+    });
+    if (!scan) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_SCAN_NOT_FOUND' });
+    res.json({ scan });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.scan.cancel'), async (req, res) => {
+  try {
+    const scan = await exposureService().cancelScan({
+      scope: req.governance.scope,
+      scanId: String(req.params.scanId || ''),
+      identityKey: req.governance.actor.identityKey
+    });
+    if (!scan) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_SCAN_NOT_FOUND' });
+    res.status(201).json({ scan });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * The narration travels with the finding rather than being rebuilt in the
+ * browser. It is a lookup table, so the words are the same wherever they are
+ * read, and keeping it server-side means the table is reviewed in one place
+ * rather than in two languages.
+ *
+ * Both sentences, and they are not the same sentence. `narration` says what
+ * the credential is and what it costs; `dispositionNarration` says what this
+ * repository has since decided about it. A screen that shows the first and
+ * prints the second as a slug ("Status: accepted-risk") makes the decision
+ * look like machine bookkeeping rather than something a named person did.
+ */
+function exposureFindingPayload(finding) {
+  if (!finding) return null;
+  return {
+    ...finding,
+    narration: describeFinding(finding),
+    dispositionNarration: describeDisposition(finding.disposition)
+  };
+}
+
+app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const store = exposureService();
+    const scope = req.governance.scope;
+    const identityKey = req.governance.actor.identityKey;
+    const findings = await store.listFindings({
+      scope, identityKey,
+      limit: Number.parseInt(String(req.query.limit || '50'), 10)
+    });
+    /*
+     * And the latest answer of each kind, in one round trip rather than one
+     * per finding. A screen that showed only what was asked in the current
+     * session would forget, and making a week-old answer reappear by asking
+     * again would mean using somebody's credential a second time to redisplay
+     * a fact already recorded.
+     */
+    const answers = await store.latestAnswers({
+      scope, identityKey,
+      fingerprints: findings.map(finding => finding.fingerprint)
+    });
+    res.json({
+      findings: findings.map(exposureFindingPayload),
+      verifications: Object.fromEntries(Object.entries(answers.verifications)
+        .map(([fingerprint, item]) => [fingerprint, { ...item, narration: describeVerification(item) }])),
+      probes: Object.fromEntries(Object.entries(answers.probes)
+        .map(([fingerprint, item]) => [fingerprint, { ...item, narration: describeProbe(item) }]))
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const observations = await exposureService().listObservations({
+      scope: req.governance.scope,
+      scanId: String(req.params.scanId || ''),
+      identityKey: req.governance.actor.identityKey,
+      limit: Number.parseInt(String(req.query.limit || '50'), 10)
+    });
+    res.json({ observations });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * Asking the provider whether a discovered credential is still live.
+ *
+ * This is the most consequential thing the feature does: it takes a credential
+ * found in somebody's repository and sends it to a third party. So it is the
+ * one route that asks for an explicit word rather than a click, and the word
+ * is checked before anything is read.
+ *
+ * The interesting part is where the credential comes from. Nothing stored it --
+ * that is the whole design of `nv_exposure_findings`, which holds a keyed
+ * fingerprint, a generated placeholder and bounded line numbers. So the bytes
+ * are recovered the only honest way: re-read that blob from the provider at
+ * the commit the finding recorded, run detection over it again, and take the
+ * candidate whose fingerprint matches. If the file changed, no candidate
+ * matches and nothing is sent.
+ *
+ * The bytes exist for the length of one probe and are never written down. That
+ * is a weaker claim than "erased" and it is the true one: a JavaScript string
+ * cannot be wiped, so what is promised is that no copy is kept.
+ */
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.credential.verify'), async (req, res) => {
+  try {
+    const store = exposureService();
+    const scope = req.governance.scope;
+    const identityKey = req.governance.actor.identityKey;
+    const fingerprint = String(req.params.fingerprint || '').toLowerCase();
+
+    /*
+     * The explicit word. A button that reads "check this" and a request that
+     * says so are not the same thing: this is the confirmation the plan
+     * requires an operator to give before a credential is used, and it is
+     * refused before any repository read happens.
+     */
+    if (String(req.body && req.body.confirm || '') !== 'use-this-credential' || req.body.authorized !== true) {
+      return res.status(400).json({
+        error: 'Verifying a credential requires an explicit confirmation',
+        code: 'EXPOSURE_VERIFY_UNCONFIRMED'
+      });
+    }
+
+    const finding = await store.getFinding({ scope, identityKey, fingerprint });
+    if (!finding) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_FINDING_NOT_FOUND' });
+    if (!finding.commit) {
+      return res.status(409).json({
+        error: 'Run a new scan to establish the finding commit', code: 'EXPOSURE_PROVENANCE_REQUIRED'
+      });
+    }
+
+    /*
+     * Re-read, re-detect, and match by fingerprint. A file that changed since
+     * the scan yields no match, and that is reported rather than guessed at:
+     * verifying a credential the repository no longer contains would be using
+     * a secret nobody asked about.
+     */
+    const tree = await exposureReader.readTree({
+      scope, commitSha: finding.commit, token: req.gh.token
+    });
+    const entry = tree.entries.find(item => item.path === finding.path);
+    if (!entry) {
+      return res.status(409).json({ error: 'That file is no longer readable at that commit', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+    const blob = await exposureReader.readBlob({
+      scope, sha: entry.sha, path: entry.path, token: req.gh.token
+    });
+    if (blob.skip || typeof blob.text !== 'string') {
+      return res.status(409).json({ error: 'That file could not be read', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+    const built = buildFindings({
+      detection: detectInText({ text: blob.text, path: finding.path }),
+      path: finding.path, scope, commit: finding.commit,
+      hmacKey: EXPOSURE_FINGERPRINT_KEY, keyVersion: finding.fingerprintKeyVersion
+    });
+    const probe = built.probes.find(item => item.fingerprint === fingerprint);
+    if (!probe) {
+      return res.status(409).json({ error: 'That credential is no longer at that location', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+
+    /*
+     * The grant is minted here and spent immediately, which is not
+     * ceremony. It binds the probe to this candidate, this repository, this
+     * commit, this adapter and this target, and the verifier checks all of it
+     * -- so the verifier cannot be called for anything other than what this
+     * route resolved, even by a future caller in this file.
+     */
+    const candidate = revealForVerification(probe);
+    const adapter = adapterForCandidate(candidate);
+    const issuedAt = new Date();
+    const authorizationId = crypto.randomUUID();
+    const authorization = signVerificationAuthorization({
+      hmacKey: EXPOSURE_VERIFICATION_KEY,
+      authorizationId,
+      actorLogin: retainedActor(req),
+      scope,
+      commit: finding.commit,
+      candidateFingerprint: fingerprint,
+      adapter: adapter ? adapter.id : 'none',
+      targetId: adapter ? adapter.targetId : 'none',
+      issuedAt: issuedAt.toISOString(),
+      expiresAt: new Date(issuedAt.getTime() + 60_000).toISOString()
+    });
+
+    const record = await verifyCredential({
+      candidate,
+      authorization,
+      authorizationKey: EXPOSURE_VERIFICATION_KEY,
+      subjectKey: EXPOSURE_VERIFICATION_SUBJECT_KEY,
+      actorLogin: retainedActor(req),
+      now: issuedAt.getTime()
+    });
+
+    const stored = await store.recordVerification({
+      scope, identityKey, fingerprint,
+      requestedBy: retainedActor(req),
+      adapterVersion: record.adapterVersion,
+      targetId: record.targetId,
+      authorizationId,
+      record
+    });
+    res.status(201).json({
+      verification: stored.verification,
+      finding: exposureFindingPayload(stored.finding),
+      narration: describeVerification(record)
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const verifications = await exposureService().listVerifications({
+      scope: req.governance.scope,
+      identityKey: req.governance.actor.identityKey,
+      fingerprint: String(req.params.fingerprint || '').toLowerCase(),
+      limit: Number.parseInt(String(req.query.limit || '20'), 10)
+    });
+    res.json({
+      verifications: verifications.map(item => ({ ...item, narration: describeVerification(item) }))
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * Asking a project what the anonymous role can read.
+ *
+ * This is the one question a scan cannot answer by looking. An anonymous key
+ * in a repository is published on purpose -- it is in the browser bundle of
+ * every app that uses one -- and whether it can read anything is decided by
+ * row-level security policies that live in somebody's project, not in their
+ * tree. Reporting the key as a leak would make every project a critical
+ * finding; reporting nothing would miss the projects where the policies are
+ * open. So the product asks.
+ *
+ * Three things an operator supplies and this route will not invent: the
+ * confirmation, the relation, and the columns. A probe against a table nobody
+ * named would be this server choosing what to read out of somebody's
+ * database, and the grant is signed over exactly what was named so the prober
+ * cannot be asked for anything else.
+ */
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.readability.probe'), async (req, res) => {
+  try {
+    const store = exposureService();
+    const scope = req.governance.scope;
+    const identityKey = req.governance.actor.identityKey;
+    const fingerprint = String(req.params.fingerprint || '').toLowerCase();
+    const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
+
+    /* Refused before any repository read, like the verification confirmation
+       beside it: this contacts a third party's project. */
+    if (String(body.confirm || '') !== 'contact-this-project' || body.authorized !== true) {
+      return res.status(400).json({
+        error: 'Probing readability requires an explicit confirmation',
+        code: 'EXPOSURE_PROBE_UNCONFIRMED'
+      });
+    }
+    const relation = String(body.relation || '').trim();
+    const projection = (Array.isArray(body.projection) ? body.projection : [])
+      .map(column => String(column || '').trim());
+
+    const finding = await store.getFinding({ scope, identityKey, fingerprint });
+    if (!finding) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_FINDING_NOT_FOUND' });
+    if (!finding.commit) {
+      return res.status(409).json({
+        error: 'Run a new scan to establish the finding commit', code: 'EXPOSURE_PROVENANCE_REQUIRED'
+      });
+    }
+
+    /*
+     * Only the anonymous key. A service-role key looks almost exactly like it
+     * and bypasses every policy, so a probe with one comes back readable
+     * whatever the project permits: it would prove nothing and would have used
+     * an administrator credential to do it. The prober refuses it too; this
+     * refuses it earlier, without reading the file.
+     */
+    if (finding.rule !== 'supabase-anon-key') {
+      return res.status(400).json({
+        error: 'Only an anonymous key can be used to ask what the public can read',
+        code: 'EXPOSURE_PROBE_NOT_ANONYMOUS'
+      });
+    }
+
+    const tree = await exposureReader.readTree({
+      scope, commitSha: finding.commit, token: req.gh.token
+    });
+    const entry = tree.entries.find(item => item.path === finding.path);
+    if (!entry) {
+      return res.status(409).json({ error: 'That file is no longer readable at that commit', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+    const blob = await exposureReader.readBlob({
+      scope, sha: entry.sha, path: entry.path, token: req.gh.token
+    });
+    if (blob.skip || typeof blob.text !== 'string') {
+      return res.status(409).json({ error: 'That file could not be read', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+
+    /*
+     * The project reference comes out of the same file, and `discoverProject`
+     * rebuilds the origin from twenty validated letters rather than copying a
+     * URL somebody put in a repository. Without one there is nothing to ask,
+     * and that is reported rather than guessed at.
+     */
+    const project = discoverProject(blob.text);
+    if (!project) {
+      return res.status(409).json({
+        error: 'No project reference was found beside that key',
+        code: 'EXPOSURE_PROBE_NO_PROJECT'
+      });
+    }
+
+    const built = buildFindings({
+      detection: detectInText({ text: blob.text, path: finding.path }),
+      path: finding.path, scope, commit: finding.commit,
+      hmacKey: EXPOSURE_FINGERPRINT_KEY, keyVersion: finding.fingerprintKeyVersion
+    });
+    const found = built.probes.find(item => item.fingerprint === fingerprint);
+    if (!found) {
+      return res.status(409).json({ error: 'That credential is no longer at that location', code: 'EXPOSURE_CANDIDATE_GONE' });
+    }
+
+    /*
+     * Minted here and spent immediately. It binds the probe to this candidate,
+     * this repository, this commit, this project, this relation and these
+     * columns in this order -- and the prober checks all of it, so it cannot
+     * be called for anything other than what an operator named.
+     */
+    const candidate = revealForVerification(found);
+    const issuedAt = new Date();
+    const authorizationId = crypto.randomUUID();
+    const authorization = signReadabilityAuthorization({
+      hmacKey: EXPOSURE_READABILITY_KEY,
+      operation: READABILITY_OPERATIONS.PROBE,
+      authorizationId,
+      actorLogin: retainedActor(req),
+      scope,
+      commit: finding.commit,
+      candidateFingerprint: fingerprint,
+      projectRef: project.projectRef,
+      relation,
+      projection,
+      issuedAt: issuedAt.toISOString(),
+      expiresAt: new Date(issuedAt.getTime() + 60_000).toISOString()
+    });
+
+    const record = await probeAnonymousReadability({
+      candidate,
+      anonKey: candidate.secret,
+      authorization,
+      authorizationKey: EXPOSURE_READABILITY_KEY,
+      actorLogin: retainedActor(req),
+      projectRef: project.projectRef,
+      relation,
+      projection,
+      now: issuedAt.getTime()
+    });
+
+    const stored = await store.recordReadabilityProbe({
+      scope, identityKey, fingerprint,
+      requestedBy: retainedActor(req),
+      authorizationId,
+      record
+    });
+    res.status(201).json({
+      probe: stored.probe,
+      narration: describeProbe(record)
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const probes = await exposureService().listReadabilityProbes({
+      scope: req.governance.scope,
+      identityKey: req.governance.actor.identityKey,
+      fingerprint: String(req.params.fingerprint || '').toLowerCase(),
+      limit: Number.parseInt(String(req.query.limit || '20'), 10)
+    });
+    res.json({ probes: probes.map(item => ({ ...item, narration: describeProbe(item) })) });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * Accepting the risk of a finding.
+ *
+ * This was gated on the capability being Supported, and that was wrong. It
+ * performs no outbound request, uses no credential and changes nothing at the
+ * provider: it records that a named person looked at a finding and decided it
+ * was acceptable, and the finding stays listed under that disposition.
+ *
+ * What blocking it actually produced was a reader with a false positive -- a
+ * documentation example, a deliberately public fixture token -- and no way to
+ * triage it, so every scan re-reported it. A screen that cannot be cleared is
+ * a screen people stop reading, which costs more than the thing the gate was
+ * protecting.
+ *
+ * The meaningful control here is the role, and it stays: a repository reader
+ * cannot wave away their own finding, and a governance administrator who does
+ * has their name on it.
+ */
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.finding.accept-risk'), async (req, res) => {
+  try {
+    const finding = await exposureService().acceptRisk({
+      scope: req.governance.scope,
+      identityKey: req.governance.actor.identityKey,
+      fingerprint: String(req.params.fingerprint || ''),
+      actor: retainedActor(req)
+    });
+    if (!finding) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_FINDING_NOT_FOUND' });
+    res.status(201).json({ finding: exposureFindingPayload(finding) });
+  } catch (error) { exposureFailure(res, error); }
 });
 
 app.post('/api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), governanceMutationContext('governance.exception.revoke'), async (req, res) => {
@@ -4921,7 +5689,6 @@ app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryA
     res.json((out.items || []).map(i => ({ name: i.name, path: i.path })));
   } catch (e) { fail(res, e); }
 });
-
 
 async function enforceProtectedPullMerge(req, number) {
   if (!protectedPatternsForReq(req).length) return;
@@ -5820,15 +6587,58 @@ function inspectRestoreAuthorization(req, token) {
   return { encoded, actions, expiresAt: payload.expiresAt };
 }
 
-function consumeRestoreAuthorization(req, token) {
+/*
+ * This one was not a single-use guard at all, whatever it looked like.
+ *
+ * The check and the record were separated by `await preflightRestoreActions`,
+ * which is a series of reads against the provider. Two requests carrying one
+ * authorization both passed the check while the first was still waiting on the
+ * network, and both went on to record it and restore the refs. That is not the
+ * multi-instance problem the other two guards had: one process was enough,
+ * because an await is all it takes to interleave a read and a write.
+ *
+ * So preparation no longer consults the guard. It validates the token and
+ * hashes it, and the claim happens as one operation at the point of use, below.
+ */
+function prepareRestoreAuthorization(req, token) {
   const inspected = inspectRestoreAuthorization(req, token);
   const tokenHash = crypto.createHash('sha256').update(inspected.encoded).digest('hex');
-  const now = Date.now();
-  for (const [hash, expiresAt] of USED_RESTORE_AUTHORIZATIONS) if (expiresAt <= now) USED_RESTORE_AUTHORIZATIONS.delete(hash);
-  if (USED_RESTORE_AUTHORIZATIONS.has(tokenHash)) {
-    throw Object.assign(new Error('Recovery preview authorization has already been used; generate a fresh preview before retrying'), { status: 409, code: 'RESTORE_AUTHORIZATION_REPLAY' });
-  }
   return { actions: inspected.actions, expiresAt: inspected.expiresAt, tokenHash };
+}
+
+function restoreAuthorizationStore() {
+  if (!DB_URL) return memorySingleUseStore(USED_RESTORE_AUTHORIZATIONS, { maxEntries: 5000 });
+  return durableSingleUseStore();
+}
+
+/*
+ * Claimed immediately before the refs are written and never before the
+ * preflight, so a preview that turns out to be stale leaves its authorization
+ * unspent exactly as it did before -- the reader is told to regenerate it, and
+ * nothing has been consumed on their behalf.
+ */
+async function claimRestoreAuthorization(grant, now = Date.now()) {
+  let claimed;
+  try {
+    claimed = await restoreAuthorizationStore().consumeOnce({
+      kind: 'restore-authorization',
+      key: grant.tokenHash,
+      expiresAt: Number(grant.expiresAt),
+      now: Number(now)
+    });
+  } catch (error) {
+    throw Object.assign(
+      new Error('Recovery authorization cannot be verified right now; retry shortly'),
+      { status: 503, code: 'RESTORE_AUTHORIZATION_UNAVAILABLE' }
+    );
+  }
+  if (!claimed) {
+    throw Object.assign(
+      new Error('Recovery preview authorization has already been used; generate a fresh preview before retrying'),
+      { status: 409, code: 'RESTORE_AUTHORIZATION_REPLAY' }
+    );
+  }
+  return grant;
 }
 
 async function preflightRestoreActions(req, actions) {
@@ -5895,7 +6705,6 @@ app.get('/api/repo/:owner/:repo/refs-snapshot', providerSessionAccess, alphaRepo
   try { res.json(await captureRefsSnapshot(req, req.query.manifest === '1')); }
   catch (e) { fail(res, e); }
 });
-
 
 function validateSnapshotForRequest(req, snapshot) {
   if (!snapshot || typeof snapshot !== 'object' || !Array.isArray(snapshot.refs)) {
@@ -6005,7 +6814,6 @@ app.post('/api/repo/:owner/:repo/signed-snapshot', providerSessionAccess, alphaR
   } catch (e) { fail(res, e); }
 });
 
-
 app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     if (String(req.body && req.body.confirm || '').toUpperCase() !== 'FREEZE') {
@@ -6110,7 +6918,7 @@ app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepo
     if (req.gh.provider === 'gitlab') return res.status(501).json({ error: 'Ref restore is GitHub/Gitea-only for now' });
     const { authorization, confirm } = req.body || {};
     if (String(confirm || '').toUpperCase() !== 'RESTORE') return res.status(400).json({ error: 'Type RESTORE to confirm recovery', code: 'RESTORE_CONFIRMATION_REQUIRED' });
-    const grant = consumeRestoreAuthorization(req, authorization);
+    const grant = prepareRestoreAuthorization(req, authorization);
     const conflicts = await preflightRestoreActions(req, grant.actions);
     if (conflicts.length) {
       return res.status(409).json({
@@ -6118,7 +6926,7 @@ app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepo
         code: 'RESTORE_PREVIEW_STALE', conflicts
       });
     }
-    USED_RESTORE_AUTHORIZATIONS.set(grant.tokenHash, grant.expiresAt);
+    await claimRestoreAuthorization(grant);
     const report = [];
     for (const action of grant.actions) {
       try {
@@ -6508,7 +7316,6 @@ function guessMime(p) {
   return map[path.extname(p || '').toLowerCase()] || 'application/octet-stream';
 }
 
-
 /* ================= LIVE INTELLIGENCE + EVIDENCE (v5.2) ================= */
 app.get('/api/repo/:owner/:repo/live-events/status', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, async (req, res) => {
   try {
@@ -6800,9 +7607,15 @@ data: ${JSON.stringify({ repository: `${req.params.owner}/${req.params.repo}`, a
   let keepAliveTicks = 0;
   let sessionCheckBusy = false;
   const keepAlive = setInterval(() => {
-    try { res.write(`: keepalive ${Date.now()}
+    /*
+     * The keepalive is the canary. A reader that has stopped reading takes no
+     * events -- it may be subscribed to a quiet repository -- but it still
+     * takes one of these every fifteen seconds, so this is what notices a
+     * stalled socket on a stream that is otherwise idle.
+     */
+    writeLiveClient(res, `: keepalive ${Date.now()}
 
-`); } catch {}
+`);
     keepAliveTicks += 1;
     /* revocation check runs every 20th tick (~5 min), not every minute: a 60s poll would
        keep a free-tier Neon compute instance from ever auto-suspending. */
@@ -6979,6 +7792,7 @@ startTempMaintenance();
 const httpServer = app.listen(PORT, () => console.log(`${PRODUCT_NAME} v${APP_VERSION} orbiting on :${PORT}`));
 let shuttingDown = false;
 void bootstrapGovernanceDelivery();
+ensureExposureWorker();
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -6991,10 +7805,27 @@ async function shutdown(signal) {
   }
   LIVE_CLIENTS.clear();
   if (governanceWebhookBootstrapTimer) clearTimeout(governanceWebhookBootstrapTimer);
-  if (governanceWebhookWorker) governanceWebhookWorker.stop();
+  /*
+   * Drained before the pool closes. A delivery in flight has already sent its
+   * request; if the pool goes first it cannot record the attempt, so its row
+   * stays leased and the receiver is sent the same event again once the lease
+   * expires. The force timer below still bounds this -- a batch that outlasts
+   * it is cut off regardless -- but the common case, a batch part-way through,
+   * now finishes.
+   */
+  const drainedWebhookWorker = governanceWebhookWorker ? governanceWebhookWorker.stop() : null;
+  /*
+   * A scan in flight is drained for a different reason than a delivery: it has
+   * sent nothing irreversible, and an abandoned scan is recovered by its lease
+   * expiring. Finishing the one in hand is simply cheaper than reading the
+   * repository again.
+   */
+  const drainedExposureWorker = exposureWorker ? exposureWorker.stop() : null;
   const force = setTimeout(() => process.exit(1), 10000);
   if (typeof force.unref === 'function') force.unref();
   httpServer.close(async () => {
+    try { await drainedWebhookWorker; } catch {}
+    try { await drainedExposureWorker; } catch {}
     try { if (_pool) await _pool.end(); } catch {}
     clearTimeout(force);
     process.exit(0);

@@ -133,6 +133,14 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     state,
     clearCsrfToken: () => operations.push(['csrf']),
     clearGovernanceState: () => operations.push(['governance']),
+    /*
+     * Exposure findings are per repository and per identity, and they carry a
+     * placeholder, a path and bounded locations for somebody's credentials.
+     * A purge that left them on screen would show the next session what the
+     * previous one found, so the call is stubbed like its peers and recorded
+     * so the assertion can prove it happened.
+     */
+    clearExposureState: () => operations.push(['exposure']),
     clearActivityFeed: () => operations.push(['activity-feed']),
     purgePrivateCaches: async () => {
       assert.strictEqual(state.uiEpoch, 1, 'invalidate pending UI responses before asynchronous cache cleanup');
@@ -186,6 +194,8 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
   }
   assert.deepStrictEqual(operations.find(([kind]) => kind === 'unread'), ['unread', 0],
     'the purge must clear the notification unread marker, or one session\'s count stays lit over the next');
+  assert.deepStrictEqual(operations.find(([kind]) => kind === 'exposure'), ['exposure'],
+    'the purge must clear exposure findings, or the next session sees what the previous one found');
 }
 
 (async () => {

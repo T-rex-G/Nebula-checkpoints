@@ -4,6 +4,19 @@
 
 **Status:** Reviewed implementation plan, not evidence that multi-instance operation is supported today. Merging this document does not scale Render, change Neon configuration, run migrations or authorize a deployment.
 
+**Implementation review for PR #49:** Shared replay guards, database rate limits,
+bounded SSE writes and incremental type checking are implemented. This does not
+complete this plan. The remaining work includes:
+
+- Webhook fencing during execution and outcome writes; skipping an already
+  expired lease before sending does not cover expiry during a request.
+- Session merge and revocation safety in invitation-off database mode, where
+  replacing sealed session data can lose concurrent changes.
+- Cross-process event catch-up for connected clients and prompt revocation.
+- Integrated two-process failure tests and the rollout preconditions below.
+
+Keep the existing single-instance deployment until those gates pass.
+
 **Goal:** Make shared security state, job ownership and authorized event delivery correct across processes and restarts. Preserve the current free-tier single-instance deployment; enable additional instances only after the integrated failure tests and rollout preconditions pass.
 
 **Architecture:** Keep Node/CommonJS and the existing PostgreSQL stores. Sessions are **not uniformly stateless**: with `DATABASE_URL`, the cookie holds a sealed `sid` and `sessionOf` reads `nv_sessions`; only the optional no-database path keeps session data in a sealed cookie. Existing hosted-session mutation already has a concurrency-aware path. Webhook delivery already uses database row claims with `FOR UPDATE SKIP LOCKED`; the missing work is lease ownership/fencing and lifecycle behavior, not replacing it with an unconditional global singleton. Three replay guards and two rate ledgers need shared state. Sockets stay local, while durable, scope-checked events and revocations cross instances.

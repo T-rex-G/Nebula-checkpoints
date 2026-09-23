@@ -943,4 +943,28 @@ assert(
   'standard CI must check generated documentation before package creation'
 );
 
+/*
+ * Both workflows type-check, and both do it before anything expensive. The
+ * qualification workflow matters as much as standard CI here: it is the one
+ * whose browser matrix takes the longest, so it is the one where finding a
+ * type error late costs the most.
+ */
+/* Named `source`, not `workflow`: a loop variable of that name would shadow
+   the file read above and leave it in the temporal dead zone while this very
+   array is being evaluated. */
+for (const [label, source, expensive] of [
+  ['standard CI', ciWorkflow, ['npm run test:e2e', 'ci/install-browser.sh']],
+  ['the qualification workflow', workflow, ['npx playwright test']]
+]) {
+  const typecheckAt = source.indexOf('npm run typecheck');
+  assert(typecheckAt >= 0, `${label} must type-check`);
+  for (const gate of expensive) {
+    const gateAt = source.indexOf(gate);
+    assert(
+      gateAt === -1 || typecheckAt < gateAt,
+      `${label} must type-check before ${gate}`
+    );
+  }
+}
+
 console.log('public alpha workflow contract tests passed');

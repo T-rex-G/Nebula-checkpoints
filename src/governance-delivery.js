@@ -292,6 +292,12 @@ function csvFormulaSafe(value) {
   if (/[",\r\n]/.test(text)) text = `"${text.replace(/"/g, '""')}"`;
   return text;
 }
+/*
+ * Each column is a name and a reader. The pair is annotated as a tuple
+ * rather than left to inference: without it a checker widens the inner
+ * array to `string | reader` and the reader stops being callable.
+ */
+/** @type {ReadonlyArray<readonly [string, (event: any) => unknown]>} */
 const CSV_COLUMNS = Object.freeze([
   ['event_seq', e => e.eventSeq], ['event_id', e => e.eventId], ['event_type', e => e.type],
   ['occurred_at', e => e.occurredAt], ['provider', e => e.scope.provider], ['authority', e => e.scope.authority],

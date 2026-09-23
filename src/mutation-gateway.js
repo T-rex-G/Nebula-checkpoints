@@ -77,6 +77,24 @@ const MUTATION_ACTIONS = Object.freeze({
   'governance.exception.request': defineAction('governance', 'high', 'Request a time-bounded policy exception or waiver', [], null, 'governance'),
   'governance.exception.decide': defineAction('governance', 'critical', 'Approve or reject a time-bounded policy exception or waiver', [], null, 'governance'),
   'governance.exception.revoke': defineAction('governance', 'critical', 'Revoke an approved policy exception or waiver', [], null, 'governance'),
+  /*
+   * Exposure scanning. None of these performs a provider mutation -- the
+   * operations list is empty for every one -- but all of them are governed
+   * actions: they read somebody's repository, use a credential found inside
+   * it, or decide that a live exposure is acceptable.
+   *
+   * The bindings are the distinction that matters. Asking for a scan reads a
+   * repository the caller can already read, so it binds to whoever executes
+   * it. Accepting the risk of a live credential is a governance decision about
+   * somebody else's security, so it binds to a governance role -- a repository
+   * reader cannot wave away their own finding.
+   */
+  'exposure.scan.request': defineAction('exposure', 'medium', 'Request an exposure scan of a repository at a commit', []),
+  'exposure.scan.cancel': defineAction('exposure', 'low', 'Cancel an exposure scan in progress', []),
+  'exposure.credential.verify': defineAction('exposure', 'high', 'Ask the issuing provider whether a discovered credential is live', []),
+  'exposure.readability.probe': defineAction('exposure', 'high', 'Establish whether a discovered project is readable anonymously', []),
+  'exposure.finding.accept-risk': defineAction('exposure', 'critical', 'Accept the risk of an exposed credential', [], null, 'governance'),
+  'exposure.finding.export': defineAction('exposure', 'medium', 'Export exposure findings as evidence', []),
   'governance.notification.preferences.update': defineAction('governance', 'low', 'Update repository governance notification preferences', [], null, 'governance'),
   'governance.notification.read': defineAction('governance', 'low', 'Advance repository governance notification read state', [], null, 'governance'),
   'governance.webhook.create': defineAction('governance', 'high', 'Create a signed governance webhook destination', [], null, 'governance'),

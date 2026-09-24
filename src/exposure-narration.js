@@ -2,6 +2,8 @@
 
 const { REASONS: VERIFICATION_REASONS, VERIFICATION_STATES } = require('./credential-verification');
 const { REASONS: PROBE_REASONS, PROBE_STATES } = require('./anonymous-readability-probe');
+const { detectInText } = require('./exposure-detection');
+const { shannonEntropy } = require('./exposure-rules');
 
 /*
  * Saying what a finding means, in words, without a model.
@@ -552,33 +554,63 @@ function describeDisposition(disposition) {
 function describeLocation(finding) {
   const occurrences = Array.isArray(finding.occurrences) ? finding.occurrences : [];
   const count = Number.isInteger(finding.occurrenceCount) ? finding.occurrenceCount : occurrences.length;
-  const where = safeDisplayPath(text(finding.path));
-  if (!occurrences.length) return `In ${where}.`;
+  const path = text(finding.path);
+  const where = safeDisplayPath(path);
+  const hidden = path && where !== path
+    ? ` Part of the file's path is not shown, because it is itself credential-shaped.`
+    : '';
+  if (!occurrences.length) return `In ${where}.${hidden}`;
   const first = occurrences[0];
   const at = `line ${first.line}`;
-  if (count <= 1) return `In ${where}, at ${at}.`;
+  if (count <= 1) return `In ${where}, at ${at}.${hidden}`;
   if (finding.truncated) {
-    return `In ${where}, in ${count} places. The first ${occurrences.length} are recorded, starting at ${at}.`;
+    return `In ${where}, in ${count} places. The first ${occurrences.length} are recorded, starting at ${at}.${hidden}`;
   }
-  return `In ${where}, in ${count} places, starting at ${at}.`;
+  return `In ${where}, in ${count} places, starting at ${at}.${hidden}`;
 }
 
 /*
- * A file name that is itself credential-shaped is described rather than
- * quoted. It is an unusual case and it is the only way a secret could reach a
- * sentence that is meant to be safe to read aloud, so it is handled rather
- * than reasoned about.
+ * A path is shown as it is unless part of it could itself be a credential,
+ * and then only that part is withheld. It is the one way a secret could reach
+ * a sentence that is meant to be safe to read aloud, so it is decided by the
+ * same rules that find credentials in files -- and by a shape test for tokens
+ * no rule names -- rather than by length.
+ *
+ * Length was the old test, and it was wrong in the direction that matters to
+ * a reader: any name with twenty letters, digits, hyphens or underscores in a
+ * row was withheld, which is most test files and workflows in an ordinary
+ * repository (`anonymous-readability-probe.test.js`,
+ * `public-alpha-alpha17.yml`), so the finding could not say where it was.
  */
+const HIDDEN_SEGMENT = '\u2039hidden\u203a';
+
+function credentialShapedSegment(segment) {
+  if (!segment) return false;
+  if (detectInText({ text: segment }).candidates.length) return true;
+  /*
+   * A token no rule names still looks like one: a long run with no word
+   * breaks, letters and digits mixed, and not much repetition. Words joined
+   * by hyphens, underscores or dots are split first, so a descriptive name is
+   * judged a word at a time and never reaches the length.
+   */
+  return segment.split(/[-_.\s]+/).some(piece => piece.length >= 16
+    && /[A-Za-z]/.test(piece) && /[0-9]/.test(piece)
+    && shannonEntropy(piece) >= 3);
+}
+
 function safeDisplayPath(filePath) {
   if (!filePath) return 'an unnamed file';
   const segments = filePath.split('/');
-  const name = segments.pop() || '';
-  const looksLikeCredential = name.length >= 20 && /[A-Za-z0-9_-]{20,}/.test(name.replace(/\.[a-z0-9]+$/i, ''));
-  if (!looksLikeCredential) return filePath;
-  const directory = segments.join('/');
-  return directory
-    ? `${directory}/ (a file whose name is not shown, because it is itself credential-shaped)`
-    : 'a file whose name is not shown, because it is itself credential-shaped';
+  const last = segments.length - 1;
+  return segments.map((segment, index) => {
+    if (!credentialShapedSegment(segment)) return segment;
+    /*
+     * A short alphabetic extension carries no secret and says what kind of
+     * file this is, so a file keeps it; anything else in the segment goes.
+     */
+    const extension = index === last ? (/\.[A-Za-z]{1,5}$/.exec(segment) || [''])[0] : '';
+    return `${HIDDEN_SEGMENT}${extension}`;
+  }).join('/');
 }
 
 /*

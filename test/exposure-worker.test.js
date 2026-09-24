@@ -1101,6 +1101,10 @@ function runnerFor(store, reader, options = {}) {
     const reportHandler = server.slice(reportStart, server.indexOf('\n});', reportStart));
     assert(reportHandler.includes('scanReport('), 'a scan\'s report joins each observation to its finding');
     assert(reportHandler.includes('exposureFindingPayload('), 'and describes the finding the same way the list does');
+    const listStart = server.indexOf("app.get('/api/repo/:owner/:repo/exposure/findings',");
+    const listHandler = server.slice(listStart, server.indexOf('\n});', listStart));
+    assert(listHandler.includes('latestLocations('), 'the list says which line each finding was last seen on');
+    assert(/locations\[finding\.fingerprint\]/.test(listHandler), 'and describes each finding with those lines');
 
     /* A finding says which questions it can be asked. */
     assert(/verifiable: EXPOSURE_VERIFIABLE_RULES\.has\(finding\.rule\)/.test(server), 'verification is offered only where a verifier exists');

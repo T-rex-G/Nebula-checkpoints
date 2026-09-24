@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Exposure: File Names, Line Numbers and a Cleaner Findings Header
+
+- **Findings name their file again.** A path was withheld whenever its file
+  name held twenty letters, digits, hyphens or underscores in a row -- which is
+  most test files and workflows (`anonymous-readability-probe.test.js`,
+  `public-alpha-alpha17.yml`), so findings read "a file whose name is not
+  shown". A path is now withheld only where a part of it is credential-shaped
+  by the detection rules or by a token-shape test, and only that part:
+  `secrets/‹hidden›.txt`.
+- **The list says which line.** Lines live on each scan's observation, and only
+  a scan's report carried them. The findings list now carries the lines from
+  the newest scan that saw each finding (`latestLocations`), scoped to the
+  reader's own scans.
+- **Paths wrap instead of being cut.** On a phone the badge and status share
+  the top row and the title and `path:line` take the full width.
+- **Findings header.** A count beside the title, severity chips instead of a
+  wrapping sentence (the sentence stays for screen readers), and a lighter
+  Expand all control.
+- **Sidebar.** Overview has a subtitle, "Workspace pulse", like every other
+  entry, so the four line up.
+
 ### Exposure: Faster Scans, Broader Detection, History and a Clear Button
 
 Exposure worked, but it was slow, recognised seven kinds of credential, forgot

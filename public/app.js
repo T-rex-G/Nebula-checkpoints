@@ -2668,17 +2668,39 @@ function renderExposureTally(current) {
     if ((finding.disposition || 'open') === 'open') open += 1;
   }
   const total = current.findings.length;
+  const severities = ['critical', 'serious', 'warning'].filter(key => counts[key]);
   if (tally) {
     tally.hidden = !total;
-    const parts = ['critical', 'serious', 'warning']
-      .filter(key => counts[key])
-      .map(key => `${counts[key]} ${key}`);
+    const parts = severities.map(key => `${counts[key]} ${key}`);
     tally.textContent = total ? `${total} ${total === 1 ? 'finding' : 'findings'}: ${parts.join(', ')}. ${open} still open.` : '';
+  }
+  const count = $('#exposureCount');
+  if (count) {
+    count.hidden = !total;
+    count.textContent = total ? String(total) : '';
+  }
+  const chips = $('#exposureChips');
+  if (chips) {
+    chips.hidden = !total;
+    chips.replaceChildren(...(total ? [
+      ...severities.map(key => {
+        const chip = document.createElement('span');
+        chip.className = 'exposure-chip';
+        chip.dataset.severity = key;
+        chip.textContent = `${counts[key]} ${key}`;
+        return chip;
+      }),
+      Object.assign(document.createElement('span'), {
+        className: 'exposure-chip exposure-chip-open',
+        textContent: `${open} open`
+      })
+    ] : []));
   }
   if (toggle) {
     toggle.hidden = !total;
     const allOpen = total > 0 && current.findings.every(finding => current.expanded.has(finding.fingerprint));
-    toggle.textContent = allOpen ? 'Collapse all' : 'Expand all';
+    const label = toggle.querySelector('.exposure-expand-label') || toggle;
+    label.textContent = allOpen ? 'Collapse all' : 'Expand all';
     toggle.setAttribute('aria-expanded', String(allOpen));
   }
 }
@@ -3129,8 +3151,9 @@ function exposureFindingItem(finding, current, { interactive }) {
   location.className = 'exposure-item-location';
   const line = exposureFirstLine(finding);
   /* Never the raw path: a file can be named with a credential, and the
-     server says how to show one that is. */
-  location.textContent = `${finding.displayPath || 'a file'}${line && finding.displayPath === finding.path ? `:${line}` : ''}`;
+     server says how to show one that is -- withholding only that part, so
+     the line still belongs beside it. */
+  location.textContent = `${finding.displayPath || 'a file'}${line ? `:${line}` : ''}`;
   const status = document.createElement('span');
   status.className = 'exposure-item-status';
   status.dataset.disposition = finding.disposition || 'open';

@@ -1137,6 +1137,41 @@ class ExposureStore {
   }
 
   /*
+   * Where each finding was last seen: the lines from the newest observation
+   * of it in a scan this identity ran. A finding is the credential, not its
+   * place, so its row holds no line; the scans that saw it do. Without this
+   * the list could say what was found but not on which line.
+   */
+  async latestLocations(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Location identity');
+    const fingerprints = [...new Set(
+      (Array.isArray(input.fingerprints) ? input.fingerprints : [])
+        .map(value => text(value).toLowerCase())
+        .filter(value => /^[0-9a-f]{64}$/.test(value))
+    )].slice(0, MAX_LIST_LIMIT);
+    if (!fingerprints.length) return Object.freeze({});
+    const found = await this.#query(
+      `SELECT DISTINCT ON (observation.fingerprint) observation.*
+         FROM nv_exposure_observations AS observation
+         JOIN nv_exposure_scans AS scan ON scan.scan_id=observation.scan_id
+        WHERE scan.provider=$1 AND scan.authority=$2 AND scan.owner_login=$3 AND scan.repo_name=$4
+          AND scan.identity_key=$5 AND observation.fingerprint = ANY($6)
+        ORDER BY observation.fingerprint, observation.observed_at DESC, observation.scan_id DESC`,
+      [scope.provider, scope.authority, scope.owner, scope.repo, identityKey, fingerprints],
+      'read the latest finding locations'
+    );
+    return Object.freeze(Object.fromEntries(found.rows.map(row => {
+      const observation = observationFromRow(row);
+      return [observation.fingerprint, Object.freeze({
+        occurrences: observation.occurrences,
+        occurrenceCount: observation.occurrenceCount,
+        truncated: observation.truncated
+      })];
+    })));
+  }
+
+  /*
    * The probes for one finding, newest first. The history is the point here
    * too: "readable on Tuesday, denied on Friday" is what shows somebody's
    * policy change landed, and it is the only evidence that it did.

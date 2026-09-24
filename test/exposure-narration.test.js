@@ -43,9 +43,11 @@ const {
   NARRATION_VERSION,
   describeDisposition,
   describeFinding,
+  describeLocation,
   describeProbe,
   describeVerification,
-  narrationForRule
+  narrationForRule,
+  safeDisplayPath
 } = require('../src/exposure-narration');
 
 const finding = Object.freeze({
@@ -349,6 +351,67 @@ const finding = Object.freeze({
   assert(entry, 'the reference document must be registered in the manifest');
   assert.strictEqual(entry.lifecycle, 'current');
   assert.strictEqual(entry.releaseIncluded, true);
+}
+
+/* ---- Showing a path ----------------------------------------------------- */
+
+/*
+ * A path is shown as it is, because "where" is the half of a finding a reader
+ * acts on. Only a part that could itself be a credential is withheld. The old
+ * test withheld any name with twenty word characters in a row, which is most
+ * of an ordinary repository's test files and workflows.
+ */
+{
+  for (const ordinary of [
+    'test/anonymous-readability-probe.test.js',
+    '.github/workflows/public-alpha-alpha17.yml',
+    '.github/workflows/ci.yml',
+    'db/migrations/026_exposure_scan_history.sql',
+    'src/ExposureFindingsReportController.js',
+    'cache/351a023f-2c99-42a7-8c14-3fff04c0bbfa.json',
+    'release/nebulaverse-x-v5.3.0-alpha.17.0.zip'
+  ]) {
+    assert.strictEqual(safeDisplayPath(ordinary), ordinary, `${ordinary} is an ordinary name and is shown`);
+  }
+
+  /* Built from parts so no token is written in this file. */
+  const githubToken = ['gh', 'p_', 'aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5b'].join('');
+  const awsKeyId = ['AK', 'IA', 'Q3EGT5XRZ7W2PL4M'].join('');
+  const unnamedToken = ['k7Qm2Xp9', 'Lr4Tz8Vw'].join('');
+  /* Hyphenated into short pieces, so only a rule can recognise it. */
+  const slackToken = ['xo', 'xb-', '284619370452-', '573920184657-', 'qWkRmTzPvLxNcBhJdGfSaYeU'].join('');
+  const cases = [
+    /* Named by a rule: withheld, and the file keeps what kind of file it is. */
+    [`secrets/${githubToken}.txt`, 'secrets/‹hidden›.txt'],
+    [`keys/${awsKeyId}.pem`, 'keys/‹hidden›.pem'],
+    /* A directory can be the credential too. */
+    [`${githubToken}/config.json`, '‹hidden›/config.json'],
+    /* A token no rule names still has a token's shape. */
+    [`tmp/${unnamedToken}`, 'tmp/‹hidden›']
+  ];
+  for (const [raw, shown] of cases) {
+    const displayed = safeDisplayPath(raw);
+    assert.strictEqual(displayed, shown, `${shown} is what a reader sees`);
+    for (const secret of [githubToken, awsKeyId, unnamedToken, slackToken]) {
+      assert(!displayed.includes(secret), 'a withheld part never reaches the display');
+    }
+  }
+  assert.strictEqual(safeDisplayPath(''), 'an unnamed file');
+
+  /* The sentence names the line and says why part of the path is missing. */
+  const where = describeLocation({
+    path: `secrets/${githubToken}.txt`, occurrences: [{ line: 3, column: 1 }], occurrenceCount: 1
+  });
+  assert.strictEqual(
+    where,
+    'In secrets/‹hidden›.txt, at line 3. Part of the file\'s path is not shown, because it is itself credential-shaped.'
+  );
+  assert(!where.includes(githubToken));
+  assert.strictEqual(
+    describeLocation({ path: '.github/workflows/ci.yml', occurrences: [{ line: 57, column: 9 }], occurrenceCount: 1 }),
+    'In .github/workflows/ci.yml, at line 57.',
+    'an ordinary path is not followed by an explanation it does not need'
+  );
 }
 
 console.log('exposure narration tests passed');

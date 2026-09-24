@@ -784,19 +784,33 @@ test('findings are summaries a reader can scan, worst first, opened to read', as
   await expect(consequence).toBeHidden();
 });
 
-test('a file named with a credential is described in the summary, never printed', async ({ page }) => {
+test('a file named with a credential is withheld in the summary, and the line still shown', async ({ page }) => {
   const named = `app/gh${'p'}_${'Q'.repeat(36)}.txt`;
   await mockExposure(page, {
-    findings: [finding({
-      path: named,
-      displayPath: 'app/ (a file whose name is not shown, because it is itself credential-shaped)'
-    })]
+    findings: [finding({ path: named, displayPath: 'app/\u2039hidden\u203a.txt' })]
   });
   await openExposure(page);
   const location = page.locator('.exposure-item-location').first();
-  await expect(location).toContainText('name is not shown');
+  await expect(location).toHaveText('app/\u2039hidden\u203a.txt:4');
   const text = await page.locator('#tab-exposure').evaluate(node => node.textContent);
   expect(text.includes('Q'.repeat(36))).toBe(false);
+});
+
+test('a finding says its whole path and line, even on a phone', async ({ page }) => {
+  const path = '.github/workflows/public-alpha-alpha17.yml';
+  await mockExposure(page, {
+    findings: [finding({ path, displayPath: path, occurrences: [{ line: 63, column: 9 }] })]
+  });
+  await openExposure(page);
+  const location = page.locator('.exposure-item-location').first();
+  await expect(location).toHaveText(`${path}:63`);
+  /* Wrapped rather than cut: every character of it is inside the row. */
+  const clipped = await location.evaluate(node => node.scrollWidth > node.clientWidth + 1);
+  expect(clipped).toBe(false);
+  /* The count and the chips agree with the sentence a screen reader hears. */
+  await expect(page.locator('#exposureCount')).toHaveText('1');
+  await expect(page.locator('#exposureChips .exposure-chip')).toHaveText(['1 critical', '1 open']);
+  await expect(page.locator('#exposureChips')).toHaveAttribute('aria-hidden', 'true');
 });
 
 /* ---- History: every scan, by time, each opening into its report --------- */
@@ -943,7 +957,7 @@ test('no credential reaches the DOM, the storage or a copy of the page', async (
   await mockExposure(page, {
     findings: [finding({
       path: `secrets/${SECRET}.js`,
-      narration: { ...finding().narration, where: 'In secrets/ (a file whose name is not shown, because it is itself credential-shaped).' }
+      narration: { ...finding().narration, where: 'In secrets/\u2039hidden\u203a.js, at line 4. Part of the file\'s path is not shown, because it is itself credential-shaped.' }
     })]
   });
   await openExposure(page);

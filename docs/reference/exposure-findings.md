@@ -240,8 +240,17 @@ latest answers are.
 
 Findings on the current list are summaries a reader scans down: severity as a
 word, the credential's kind, the file and line, and what has been decided.
-Opening one shows the explanation and the controls. A file named with a
-credential is described in the summary rather than printed.
+Opening one shows the explanation and the controls. The line is the one the
+newest scan saw it on; a finding is the credential rather than its place, so
+the line comes from that scan's observation.
+
+A path is shown in full unless part of it could itself be a credential. That
+is decided by the same rules that find credentials in files, and by a shape
+test for tokens no rule names: a run of at least sixteen characters with no
+word break, mixing letters and digits, with little repetition. Only that part
+is withheld, shown as `‹hidden›` with the file's extension kept, so
+`secrets/‹hidden›.txt:3` still says where to look. Descriptive names such as
+`anonymous-readability-probe.test.js` are shown as they are.
 
 ## Clearing
 

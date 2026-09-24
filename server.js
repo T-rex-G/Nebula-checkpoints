@@ -4796,12 +4796,16 @@ app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alpha
      * again would mean using somebody's credential a second time to redisplay
      * a fact already recorded.
      */
-    const answers = await store.latestAnswers({
-      scope, identityKey,
-      fingerprints: findings.map(finding => finding.fingerprint)
-    });
+    const fingerprints = findings.map(finding => finding.fingerprint);
+    const [answers, locations] = await Promise.all([
+      store.latestAnswers({ scope, identityKey, fingerprints }),
+      /* The line each was last seen on, so the list says where, not only what. */
+      store.latestLocations({ scope, identityKey, fingerprints })
+    ]);
     res.json({
-      findings: findings.map(exposureFindingPayload),
+      findings: findings.map(finding => exposureFindingPayload(
+        locations[finding.fingerprint] ? { ...finding, ...locations[finding.fingerprint] } : finding
+      )),
       verifications: Object.fromEntries(Object.entries(answers.verifications)
         .map(([fingerprint, item]) => [fingerprint, { ...item, narration: describeVerification(item) }])),
       probes: Object.fromEntries(Object.entries(answers.probes)

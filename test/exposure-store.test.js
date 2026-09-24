@@ -1072,7 +1072,8 @@ async function claim(store, now = T0) {
         findingFixture('hist-b', { path: 'src/a.js', rule: 'slack-token', placeholder: '<slack-token #1>' })
       ], { filesTotal: 10, filesSkippedBinary: 2, filesSkippedOther: 1 });
       const newer = await runScan(IDENTITY, 'hist-00000002', base + 60_000, [
-        findingFixture('hist-a', { path: 'src/b.js' })
+        /* The same credential, moved down the file since the older scan. */
+        findingFixture('hist-a', { path: 'src/b.js', occurrences: [{ line: 12, column: 2 }] })
       ], { filesTotal: 9, filesSkippedBinary: 2, filesSkippedOther: 0 });
       /* Somebody else's scan of the same repository. */
       await runScan(OTHER_IDENTITY, 'hist-00000003', base + 120_000, [
@@ -1129,6 +1130,27 @@ async function claim(store, now = T0) {
       assert.strictEqual(report[0].finding.rule, 'slack-token');
       assert.strictEqual(report[0].observation.fingerprint, report[0].finding.fingerprint);
       assert.deepStrictEqual(report[1].observation.occurrences.map(item => ({ ...item })), [{ line: 4, column: 11 }]);
+
+      /*
+       * Where each finding was last seen, for the list that is not a report:
+       * the newest observation's lines, not the first ones, and nothing
+       * invented for a finding no scan of this person's saw.
+       */
+      const lines = entry => entry.occurrences.map(item => ({ ...item }));
+      const locations = await store.latestLocations({
+        scope: historyScope, identityKey: IDENTITY,
+        fingerprints: [fingerprint('hist-a'), fingerprint('hist-b'), fingerprint('hist-never'), 'not-a-digest']
+      });
+      assert.deepStrictEqual(lines(locations[fingerprint('hist-a')]), [{ line: 12, column: 2 }], 'the newest scan, not the first');
+      assert.deepStrictEqual(lines(locations[fingerprint('hist-b')]), [{ line: 4, column: 11 }]);
+      assert.strictEqual(locations[fingerprint('hist-a')].occurrenceCount, 1);
+      assert.strictEqual(locations[fingerprint('hist-never')], undefined);
+      assert.deepStrictEqual(
+        { ...(await store.latestLocations({ scope: historyScope, identityKey: OTHER_IDENTITY, fingerprints: [fingerprint('hist-a')] })) },
+        {},
+        'another person never learns where somebody else\'s scan saw a credential'
+      );
+      assert.deepStrictEqual({ ...(await store.latestLocations({ scope: historyScope, identityKey: IDENTITY, fingerprints: [] })) }, {});
 
       /* The identity boundary, in all three. */
       assert.deepStrictEqual(

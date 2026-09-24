@@ -10,7 +10,12 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # The browser suite runs here on one worker, in full, after every other
+    # gate. At 20 minutes main was already finishing in 19m21s, so the next
+    # handful of specs cancelled the job mid-suite rather than failing a test.
+    # 30 matches the window the candidate browser suite is given and leaves
+    # room for the suite to grow without a hang going unnoticed for hours.
+    timeout-minutes: 30
     # Every other gate reads the migrations as text, so PostgreSQL never got a
     # say in whether this release's schema can exist. 015_alpha_privacy shipped
     # in a green candidate while being impossible to apply. Version 17 matches

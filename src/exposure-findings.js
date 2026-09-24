@@ -196,6 +196,7 @@ function buildFindings(input = {}) {
       occurrences: sanitized.occurrences,
       occurrenceCount: sanitized.occurrenceCount,
       truncated: sanitized.truncated,
+      decodedFrom: sanitized.decodedFrom,
       scope,
       commit
     }));

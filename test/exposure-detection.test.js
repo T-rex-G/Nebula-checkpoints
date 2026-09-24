@@ -33,9 +33,11 @@ const {
   MAX_OCCURRENCES_PER_CANDIDATE,
   MAX_TEXT_BYTES,
   RULES_VERSION,
+  detectInHunks,
   detectInText,
   sanitizeCandidate
 } = require('../src/exposure-detection');
+const { parsePatch } = require('../src/exposure-reader');
 
 /* Split prefixes: this file is scanned by the gate it is testing. */
 const TOKEN_A = `gh${'p'}_${'A'.repeat(36)}`;
@@ -238,8 +240,11 @@ function bytesOf(result, secret) {
     assert.strictEqual('secret' in candidate, false, 'a sanitized candidate carries no bytes');
     assert(Object.isFrozen(candidate));
     assert.deepStrictEqual(Object.keys(candidate).sort(), [
-      'occurrenceCount', 'occurrences', 'placeholder', 'rule', 'truncated'
+      'decodedFrom', 'occurrenceCount', 'occurrences', 'placeholder', 'rule', 'truncated'
     ]);
+    /* The one field added since: a word from a closed set, never the bytes
+       that were decoded. */
+    assert(candidate.decodedFrom === null || candidate.decodedFrom === 'base64');
   }
 
   const serialized = JSON.stringify(sanitized);
@@ -411,6 +416,96 @@ function rulesFor(text) {
     source.includes(digest),
     `the rule set changed without RULES_VERSION moving: record ${digest} and raise the version`
   );
+}
+
+/* ---- Encoded credentials ------------------------------------------------- */
+
+/*
+ * A credential committed in base64 -- a Kubernetes secret, a Docker config, a
+ * key pasted as one encoded line -- is found at the line of the encoded run,
+ * marked as decoded, and is the same credential it would be written plainly:
+ * one candidate, not two, when a file holds both.
+ */
+{
+  const encoded = Buffer.from(`GITHUB_TOKEN=${TOKEN_A}\n`).toString('base64');
+  const found = candidatesOf(`apiVersion: v1\ndata:\n  token: ${encoded}\n`);
+  assert.strictEqual(found.candidates.length, 1);
+  assert.strictEqual(found.candidates[0].rule, 'github-token');
+  assert.strictEqual(found.candidates[0].decodedFrom, 'base64');
+  assert.deepStrictEqual({ ...found.candidates[0].occurrences[0] }, { line: 3, column: 10 });
+
+  const both = candidatesOf(`plain=${TOKEN_A}\nencoded=${encoded}\n`);
+  assert.strictEqual(both.candidates.length, 1, 'the same credential written two ways is one credential');
+  assert.strictEqual(both.candidates[0].occurrenceCount, 2);
+  assert.strictEqual(both.candidates[0].decodedFrom, null, 'first seen as written, so not described as decoded');
+
+  /* A private key inside a kubeconfig is base64 of a PEM block. */
+  const pem = ['-----BEGIN RSA ', 'PRIVATE KEY-----\nMIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gun\n-----END RSA ', 'PRIVATE KEY-----\n'].join('');
+  const kube = candidatesOf(`users:\n- name: admin\n  user:\n    client-key-data: ${Buffer.from(pem).toString('base64')}\n`);
+  assert.deepStrictEqual(kube.candidates.map(item => [item.rule, item.decodedFrom]), [['private-key', 'base64']]);
+
+  /* Switched off, nothing is decoded: this is what the engine version moved for. */
+  assert.strictEqual(detectInText({ text: `token: ${encoded}\n`, decode: false }).candidates.length, 0);
+  assert.strictEqual(DETECTION_ENGINE_VERSION, 2);
+
+  /*
+   * What must decode to nothing: hashes, images, lockfile integrity, JWTs
+   * and minified identifiers. Each is base64-shaped and none is text, and a
+   * scanner that reported them would be read as noise from then on.
+   */
+  const noise = [
+    `"integrity": "sha512-${Buffer.from('x'.repeat(10) + '\u0000ÿ'.repeat(27), 'latin1').toString('base64')}"`,
+    `src="data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(40).fill(0)]).toString('base64')}"`,
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ.c2lnbmF0dXJlLXZhbHVlLWhlcmU',
+    'const aVeryLongMinifiedIdentifierNameThatGoesOn = computeSomethingInteresting();',
+    Buffer.from('just a harmless sentence about configuration and nothing else').toString('base64')
+  ].join('\n');
+  assert.deepStrictEqual(candidatesOf(noise).candidates, [], 'encoded noise decodes to no finding');
+
+  /* Bounded: a file of thousands of runs stops trying, and says nothing false. */
+  const flood = Array.from({ length: 5000 }, (_, index) =>
+    Buffer.from(`harmless line number ${index} padding`).toString('base64')).join('\n');
+  const started = Date.now();
+  assert.strictEqual(candidatesOf(flood).candidates.length, 0);
+  assert(Date.now() - started < 2000, 'decoding is bounded per file');
+}
+
+/* ---- What a commit added ------------------------------------------------- */
+
+/*
+ * History is scanned a commit at a time, and a commit is responsible for the
+ * lines it added. A credential on a context line belongs to whichever commit
+ * added it, so it is not reported here; one on an added line is reported at
+ * its line in the file as it stood at this commit.
+ */
+{
+  const patch = [
+    '@@ -1,2 +1,3 @@',
+    ' const a = 1;',
+    `+const token = "${TOKEN_A}";`,
+    ' const b = 2;',
+    '@@ -20,2 +21,3 @@',
+    ` legacy = "${TOKEN_B}"`,
+    `+slack = "${SLACK}"`,
+    '-removed = 1'
+  ].join('\n');
+  const found = detectInHunks({ hunks: parsePatch(patch) });
+  assert.deepStrictEqual(
+    found.candidates.map(item => [item.rule, item.placeholder, { ...item.occurrences[0] }]),
+    [
+      ['github-token', '<github-token #1>', { line: 2, column: 16 }],
+      ['slack-token', '<slack-token #1>', { line: 22, column: 10 }]
+    ],
+    'an added line is reported at its new-file line; a context line is not reported at all'
+  );
+  assert(!found.candidates.some(item => item.secret === TOKEN_B), 'the context-line token belongs to an earlier commit');
+
+  /* A hunk with only context and removals says nothing about this commit. */
+  assert.deepStrictEqual(detectInHunks({ hunks: parsePatch(`@@ -1,2 +1,1 @@\n ${TOKEN_A}\n-gone`) }).candidates, []);
+  /* Decoding works on what a commit added, too. */
+  const encoded = Buffer.from(`key=${TOKEN_B}\n`).toString('base64');
+  const decoded = detectInHunks({ hunks: parsePatch(`@@ -0,0 +1,1 @@\n+data: ${encoded}`) });
+  assert.deepStrictEqual(decoded.candidates.map(item => [item.rule, item.decodedFrom]), [['github-token', 'base64']]);
 }
 
 console.log('exposure detection tests passed');

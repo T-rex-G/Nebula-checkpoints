@@ -40,8 +40,16 @@ const crypto = require('crypto');
  *
  * 2: binary formats are recognised by name and never fetched, and the byte
  * ceiling is charged at declared size when a read starts.
+ *
+ * 3: a scan can read history under a commit ceiling, archives are opened
+ * under member and size ceilings, and the wall clock is longer to fit both.
  */
-const EXPOSURE_CONFIG_VERSION = 2;
+const EXPOSURE_CONFIG_VERSION = 3;
+
+/* A scan of the tree at one commit, or of that tree and every commit's
+   changes reachable from it. */
+const SCAN_MODES = Object.freeze(['tree', 'history']);
+const DECODINGS = Object.freeze(['base64']);
 
 const SCAN_STATES = Object.freeze(['queued', 'running', 'complete', 'partial', 'failed', 'canceled']);
 const TERMINAL_STATES = Object.freeze(['complete', 'partial', 'failed', 'canceled']);
@@ -55,7 +63,10 @@ const SKIPPED_REASONS = Object.freeze([
    * somebody disconnected the provider or revoked the grant, and the scan
    * stopped rather than keeping the credential to try again with.
    */
-  'authorization-revoked', 'finding-limit', 'configuration-changed'
+  'authorization-revoked', 'finding-limit', 'configuration-changed',
+  /* History stopped at its commit ceiling, or the provider asked for fewer
+     requests. Either way what was read is kept and coverage says partial. */
+  'commit-limit', 'rate-limited'
 ]);
 const DISPOSITIONS = Object.freeze(['open', 'credential-rejected', 'accepted-risk', 'removed-from-tree']);
 
@@ -200,6 +211,13 @@ function scanFromRow(row) {
     filesTotal: row.files_total == null ? null : Number(row.files_total),
     filesSkippedBinary: row.files_skipped_binary == null ? null : Number(row.files_skipped_binary),
     filesSkippedOther: row.files_skipped_other == null ? null : Number(row.files_skipped_other),
+    scanMode: row.scan_mode || 'tree',
+    historyBaseCommit: row.history_base_commit || null,
+    commitsTotal: row.commits_total == null ? null : Number(row.commits_total),
+    commitsScanned: row.commits_scanned == null ? null : Number(row.commits_scanned),
+    commitsSkipped: row.commits_skipped == null ? null : Number(row.commits_skipped),
+    archivesScanned: row.archives_scanned == null ? null : Number(row.archives_scanned),
+    archiveMembersScanned: row.archive_members_scanned == null ? null : Number(row.archive_members_scanned),
     parentScanId: row.parent_scan_id || null,
     createdAt: iso(row.created_at),
     startedAt: iso(row.started_at),
@@ -242,6 +260,13 @@ function observationFromRow(row) {
       line: Number(line), column: Number(columns[index])
     }))),
     truncated: Boolean(row.truncated),
+    /* Null on an observation from before history was read, which only ever
+       read the tree. */
+    inTree: row.in_tree === false ? false : true,
+    introducedCommit: row.introduced_commit || null,
+    introducedAt: iso(row.introduced_at),
+    historyCommits: row.history_commits == null ? null : Number(row.history_commits),
+    decodedFrom: row.decoded_from || null,
     verification: row.verification_state
       ? Object.freeze({
         state: row.verification_state,
@@ -349,8 +374,31 @@ function normalizeFinding(finding) {
     columns,
     occurrenceCount,
     truncated: occurrenceCount > lines.length,
-    verification: normalizeVerification(source.verification)
+    verification: normalizeVerification(source.verification),
+    ...normalizeProvenance(source)
   };
+}
+
+/*
+ * Where a finding came from. A finding from the tree is in the tree; one from
+ * history names the commit that introduced it, and one that is only in
+ * history must -- a credential found nowhere is not a finding. `decodedFrom`
+ * is a word from a closed set, never what was decoded.
+ */
+function normalizeProvenance(source) {
+  const inTree = source.inTree !== false;
+  const introducedCommit = source.introducedCommit == null || source.introducedCommit === ''
+    ? null
+    : requireCommit(source.introducedCommit);
+  if (!inTree && !introducedCommit) {
+    throw new TypeError('A finding that is not in the tree must name the commit that introduced it');
+  }
+  /* A commit date arrives from the provider as ISO text. */
+  const introducedAt = introducedCommit && source.introducedAt != null
+    ? instant(typeof source.introducedAt === 'string' ? Date.parse(source.introducedAt) : source.introducedAt, 'Introduction time')
+    : null;
+  const decodedFrom = source.decodedFrom == null ? null : requireMember(source.decodedFrom, DECODINGS, 'Decoding');
+  return { inTree, introducedCommit, introducedAt, decodedFrom };
 }
 
 /*
@@ -505,6 +553,7 @@ class ExposureStore {
     const retainUntil = input.retainUntil == null
       ? new Date(now.getTime() + DEFAULT_RETENTION_MS)
       : instant(input.retainUntil, 'Scan retention');
+    const scanMode = input.scanMode == null ? 'tree' : requireMember(input.scanMode, SCAN_MODES, 'Scan mode');
     const versions = {
       rules: requireVersion(input.rulesVersion, 'Rules version'),
       engine: requireVersion(input.engineVersion, 'Engine version'),
@@ -512,18 +561,36 @@ class ExposureStore {
       config: requireVersion(input.configVersion == null ? EXPOSURE_CONFIG_VERSION : input.configVersion, 'Config version')
     };
 
+    /*
+     * A history scan starts where this person's last complete history scan of
+     * the same ref stopped, when that scan ran under the same rules, engine,
+     * key and caps -- its findings are this scan's generation, so reading the
+     * same commits again would only find them again. Anything else, and the
+     * history is read from the top.
+     */
     const inserted = await this.#query(
       `INSERT INTO nv_exposure_scans (
          scan_id, provider, authority, owner_login, repo_name, identity_key, requested_by,
          ref_name, commit_sha, rules_version, engine_version, fingerprint_key_version,
-         config_version, state, coverage, idempotency_key, retain_until, created_at, fingerprint_key_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'queued','unknown',$14,$15,$16,$17)
+         config_version, state, coverage, idempotency_key, retain_until, created_at, fingerprint_key_id,
+         scan_mode, history_base_commit
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'queued','unknown',$14,$15,$16,$17,$18::text,
+         CASE WHEN $18::text = 'history' THEN (
+           SELECT previous.commit_sha FROM nv_exposure_scans AS previous
+            WHERE previous.provider=$2 AND previous.authority=$3 AND previous.owner_login=$4
+              AND previous.repo_name=$5 AND previous.identity_key=$6 AND previous.ref_name=$8
+              AND previous.scan_mode='history' AND previous.state='complete'
+              AND previous.rules_version=$10 AND previous.engine_version=$11
+              AND previous.fingerprint_key_version=$12 AND previous.config_version=$13
+              AND previous.fingerprint_key_id IS NOT DISTINCT FROM $17
+            ORDER BY previous.finished_at DESC, previous.scan_id DESC
+            LIMIT 1) ELSE NULL END)
        ON CONFLICT DO NOTHING
        RETURNING *`,
       [
         scanId, scope.provider, scope.authority, scope.owner, scope.repo, identityKey, requestedBy,
         refName, commitSha, versions.rules, versions.engine, versions.fingerprintKey,
-        versions.config, idempotencyKey, retainUntil, now, keyId
+        versions.config, idempotencyKey, retainUntil, now, keyId, scanMode
       ],
       'accept a scan request'
     );
@@ -679,8 +746,14 @@ class ExposureStore {
            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$14)
            ON CONFLICT (provider, authority, owner_login, repo_name, fingerprint, identity_key) DO UPDATE
               SET last_observed_at=GREATEST(nv_exposure_findings.last_observed_at, $13),
-                  commit_sha=CASE WHEN $13 >= nv_exposure_findings.last_observed_at
-                    THEN EXCLUDED.commit_sha ELSE nv_exposure_findings.commit_sha END,
+                  /* A sighting in the tree moves the read-back commit to the
+                     newest tree; a sighting in history only fills one in when
+                     there is none, so it never pulls a finding that is in the
+                     tree back to the commit that first added it. */
+                  commit_sha=CASE
+                    WHEN $15::boolean AND $13 >= nv_exposure_findings.last_observed_at THEN EXCLUDED.commit_sha
+                    WHEN nv_exposure_findings.commit_sha IS NULL THEN EXCLUDED.commit_sha
+                    ELSE nv_exposure_findings.commit_sha END,
                   disposition=CASE
                     WHEN nv_exposure_findings.disposition='removed-from-tree' THEN 'open'
                     ELSE nv_exposure_findings.disposition END,
@@ -690,19 +763,49 @@ class ExposureStore {
           [
             scan.provider, scan.authority, scan.owner_login, scan.repo_name, finding.fingerprint,
             scan.identity_key, finding.fingerprintKeyVersion, finding.rulesVersion, finding.engineVersion,
-            finding.rule, finding.path, finding.placeholder, now, scan.commit_sha
+            finding.rule, finding.path, finding.placeholder, now,
+            /* The commit it can be read back at: the scan's own when it is in
+               the tree, the one that introduced it when it is only in history. */
+            finding.inTree ? scan.commit_sha : finding.introducedCommit,
+            finding.inTree
           ]
         );
 
+        /*
+         * One observation per credential per scan, however many places the
+         * scan saw it. A scan that reads history can see one credential in the
+         * tree and in the commit that added it, and the two are merged: in the
+         * tree if either says so, with the tree's lines when there are any --
+         * that is where a reader can go and look today -- and the earliest
+         * introduction, because history is read oldest first and the first
+         * one recorded is kept.
+         */
         const observation = await client.query(
           `INSERT INTO nv_exposure_observations (
              scan_id, fingerprint, occurrence_count, occurrence_lines, occurrence_columns, truncated,
              verification_state, verification_reason, verification_adapter, verification_subject_digest,
              verification_observed_at, verification_freshness_deadline, verification_retry_after_ms,
-             observed_at
-           ) VALUES ($1,$2,$3,$4::integer[],$5::integer[],$6,$7,$8,$9,$10,$11,$12,$13,$14)
-           ON CONFLICT (scan_id, fingerprint) DO NOTHING
-           RETURNING fingerprint`,
+             observed_at, in_tree, introduced_commit, introduced_at, history_commits, decoded_from
+           ) VALUES ($1,$2,$3,$4::integer[],$5::integer[],$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+             CASE WHEN $16::text IS NULL THEN NULL ELSE 1 END, $18)
+           ON CONFLICT (scan_id, fingerprint) DO UPDATE SET
+             occurrence_count=CASE WHEN EXCLUDED.in_tree AND nv_exposure_observations.in_tree IS FALSE
+               THEN EXCLUDED.occurrence_count ELSE nv_exposure_observations.occurrence_count END,
+             occurrence_lines=CASE WHEN EXCLUDED.in_tree AND nv_exposure_observations.in_tree IS FALSE
+               THEN EXCLUDED.occurrence_lines ELSE nv_exposure_observations.occurrence_lines END,
+             occurrence_columns=CASE WHEN EXCLUDED.in_tree AND nv_exposure_observations.in_tree IS FALSE
+               THEN EXCLUDED.occurrence_columns ELSE nv_exposure_observations.occurrence_columns END,
+             truncated=CASE WHEN EXCLUDED.in_tree AND nv_exposure_observations.in_tree IS FALSE
+               THEN EXCLUDED.truncated ELSE nv_exposure_observations.truncated END,
+             in_tree=(nv_exposure_observations.in_tree IS NOT FALSE) OR EXCLUDED.in_tree,
+             introduced_commit=COALESCE(nv_exposure_observations.introduced_commit, EXCLUDED.introduced_commit),
+             introduced_at=CASE WHEN nv_exposure_observations.introduced_commit IS NULL
+               THEN EXCLUDED.introduced_at ELSE nv_exposure_observations.introduced_at END,
+             history_commits=CASE
+               WHEN EXCLUDED.history_commits IS NULL THEN nv_exposure_observations.history_commits
+               ELSE COALESCE(nv_exposure_observations.history_commits, 0) + EXCLUDED.history_commits END,
+             decoded_from=COALESCE(nv_exposure_observations.decoded_from, EXCLUDED.decoded_from)
+           RETURNING (xmax = 0) AS inserted`,
           [
             scanId, finding.fingerprint, finding.occurrenceCount, finding.lines, finding.columns,
             finding.truncated,
@@ -713,10 +816,14 @@ class ExposureStore {
             finding.verification && finding.verification.observedAt,
             finding.verification && finding.verification.freshnessDeadline,
             finding.verification && finding.verification.retryAfterMs,
-            now
+            now,
+            finding.inTree,
+            finding.introducedCommit,
+            finding.introducedAt,
+            finding.decodedFrom
           ]
         );
-        if (observation.rows.length) written += 1;
+        if (observation.rows.length && observation.rows[0].inserted) written += 1;
       }
       return Object.freeze({ recorded: written, submitted: normalized.length });
     }, 'record observations');
@@ -743,6 +850,11 @@ class ExposureStore {
     const filesTotal = count(input.filesTotal);
     const filesSkippedBinary = count(input.filesSkippedBinary);
     const filesSkippedOther = count(input.filesSkippedOther);
+    const commitsTotal = count(input.commitsTotal);
+    const commitsScanned = count(input.commitsScanned);
+    const commitsSkipped = count(input.commitsSkipped);
+    const archivesScanned = count(input.archivesScanned);
+    const archiveMembersScanned = count(input.archiveMembersScanned);
 
     if (coverage === 'complete' && state !== 'complete') {
       throw new TypeError('Only a complete scan may claim complete coverage');
@@ -755,12 +867,15 @@ class ExposureStore {
       `UPDATE nv_exposure_scans
           SET state=$3, coverage=$4, skipped_reason=$5, files_scanned=$6, bytes_scanned=$7,
               parent_scan_id=$8, finished_at=$9, claim_owner=NULL, claim_expires_at=NULL,
-              files_total=$10, files_skipped_binary=$11, files_skipped_other=$12
+              files_total=$10, files_skipped_binary=$11, files_skipped_other=$12,
+              commits_total=$13, commits_scanned=$14, commits_skipped=$15,
+              archives_scanned=$16, archive_members_scanned=$17
         WHERE scan_id=$1 AND claim_owner=$2 AND state='running' AND claim_expires_at > $9
        RETURNING *`,
       [
         scanId, claimOwner, state, coverage, skippedReason, filesScanned, bytesScanned, parentScanId, now,
-        filesTotal, filesSkippedBinary, filesSkippedOther
+        filesTotal, filesSkippedBinary, filesSkippedOther,
+        commitsTotal, commitsScanned, commitsSkipped, archivesScanned, archiveMembersScanned
       ],
       'finalize a scan'
     );
@@ -1166,7 +1281,12 @@ class ExposureStore {
       return [observation.fingerprint, Object.freeze({
         occurrences: observation.occurrences,
         occurrenceCount: observation.occurrenceCount,
-        truncated: observation.truncated
+        truncated: observation.truncated,
+        inTree: observation.inTree,
+        introducedCommit: observation.introducedCommit,
+        introducedAt: observation.introducedAt,
+        historyCommits: observation.historyCommits,
+        decodedFrom: observation.decodedFrom
       })];
     })));
   }
@@ -1252,13 +1372,32 @@ class ExposureStore {
     const dispositions = Array.isArray(input.dispositions) && input.dispositions.length
       ? input.dispositions.map(value => requireMember(value, DISPOSITIONS, 'Disposition'))
       : DISPOSITIONS.slice();
+    /*
+     * The current generation, when asked for -- as the findings screen does.
+     * Every fingerprint moves with the rules, the
+     * engine and the key, so a scan after an upgrade finds each credential
+     * again under a new identity -- and listing both generations would show
+     * every finding twice. The list follows this person's newest finished
+     * scan of the repository; until one runs under the new rules, the old
+     * findings are what there is and they stay on the screen.
+     */
     const found = await this.#query(
-      `SELECT * FROM nv_exposure_findings
-        WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
-          AND identity_key=$5 AND disposition = ANY($6::text[])
-        ORDER BY first_observed_at, fingerprint
+      `WITH generation AS (
+         SELECT rules_version, engine_version, fingerprint_key_version FROM nv_exposure_scans
+          WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+            AND identity_key=$5 AND state IN ('complete', 'partial')
+          ORDER BY finished_at DESC, scan_id DESC
+          LIMIT 1)
+       SELECT finding.* FROM nv_exposure_findings AS finding
+        WHERE finding.provider=$1 AND finding.authority=$2 AND finding.owner_login=$3 AND finding.repo_name=$4
+          AND finding.identity_key=$5 AND finding.disposition = ANY($6::text[])
+          AND (NOT $8::boolean OR NOT EXISTS (SELECT 1 FROM generation)
+            OR (finding.rules_version, finding.engine_version, finding.fingerprint_key_version)
+               = (SELECT rules_version, engine_version, fingerprint_key_version FROM generation))
+        ORDER BY finding.first_observed_at, finding.fingerprint
         LIMIT $7`,
-      [scope.provider, scope.authority, scope.owner, scope.repo, identityKey, dispositions, limit],
+      [scope.provider, scope.authority, scope.owner, scope.repo, identityKey, dispositions, limit,
+        input.currentGeneration === true],
       'list findings'
     );
     return Object.freeze(found.rows.map(findingFromRow));
@@ -1496,6 +1635,8 @@ class ExposureStore {
 }
 
 module.exports = Object.freeze({
+  DECODINGS,
+  SCAN_MODES,
   COVERAGE,
   DEFAULT_PROBE_FRESHNESS_MS,
   DEFAULT_VERIFICATION_FRESHNESS_MS,

@@ -64,7 +64,11 @@ const { EXPOSURE_RULES, PATH_RULES } = require('./exposure-rules');
  * placeholders, and rules that recognise a credential container by its name.
  */
 const RULES_VERSION = 3;
-const DETECTION_ENGINE_VERSION = 1;
+/*
+ * 2: base64 runs are decoded and scanned, and a commit's hunks can be scanned
+ * for what that commit added.
+ */
+const DETECTION_ENGINE_VERSION = 2;
 
 /* A file this server will read at all. Past it the file is not scanned and the
    result says so. */
@@ -191,7 +195,8 @@ function sanitizeCandidate(candidate) {
     placeholder: candidate.placeholder,
     occurrences: candidate.occurrences,
     occurrenceCount: candidate.occurrenceCount,
-    truncated: candidate.truncated
+    truncated: candidate.truncated,
+    decodedFrom: candidate.decodedFrom || null
   });
 }
 
@@ -204,6 +209,161 @@ function sanitizeCandidate(candidate) {
  */
 function placeholderFor(rule, ordinal) {
   return `<${rule} #${ordinal}>`;
+}
+
+function newDetectionState() {
+  return { byKey: new Map(), ordinals: new Map(), matchCount: 0, truncated: false };
+}
+
+/*
+ * One walk of every rule over one text, adding what it finds to `state`.
+ *
+ * `locateAt` turns an offset into a location, or returns null for a match
+ * that is not this caller's to report -- a history read passes the context
+ * lines around each change so a credential recognised by the words beside it
+ * is still recognised, and refuses any match that does not start on a line
+ * the commit added. `decodedFrom` marks a candidate first seen inside an
+ * encoded run, so a reader is told why the line shows no credential.
+ */
+function scanInto(state, text, locateAt, prefilter, decodedFrom) {
+  const lower = prefilter ? text.toLowerCase() : '';
+  for (const { regex, rules, keywords } of compiledRules()) {
+    if (prefilter && keywords && !keywords.some(keyword => lower.includes(keyword))) continue;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      /*
+       * A rule whose expression can match nothing would loop forever on a
+       * zero-width match, since `lastIndex` would not advance. None does
+       * today; the guard is here so adding one is a bounded mistake rather
+       * than a hung process.
+       */
+      if (match[0].length === 0) {
+        regex.lastIndex += 1;
+        continue;
+      }
+
+      if (state.matchCount >= MAX_MATCHES_PER_FILE) {
+        state.truncated = true;
+        break;
+      }
+      state.matchCount += 1;
+
+      const secret = match[0];
+      /*
+       * Whose match this is. The first rule in the pass that accepts it, so a
+       * service-role key is never also reported as an anonymous one -- and a
+       * match no rule in the pass wants becomes no candidate at all, though it
+       * still counts against the ceiling, because the bound is on work done.
+       */
+      const owner = rules.find(candidate => !candidate.accept || candidate.accept(secret));
+      if (!owner) continue;
+      const location = locateAt(match.index);
+      if (!location) continue;
+      const rule = owner.rule;
+      const key = `${rule}\u0000${secret}`;
+      let candidate = state.byKey.get(key);
+      if (!candidate) {
+        if (state.byKey.size >= MAX_CANDIDATES_PER_FILE) {
+          state.truncated = true;
+          continue;
+        }
+        const ordinal = (state.ordinals.get(rule) || 0) + 1;
+        state.ordinals.set(rule, ordinal);
+        candidate = {
+          rule,
+          secret,
+          placeholder: placeholderFor(rule, ordinal),
+          occurrences: [],
+          occurrenceCount: 0,
+          truncated: false,
+          decodedFrom: decodedFrom || null
+        };
+        state.byKey.set(key, candidate);
+      }
+
+      candidate.occurrenceCount += 1;
+      if (candidate.occurrences.length < MAX_OCCURRENCES_PER_CANDIDATE) {
+        candidate.occurrences.push(Object.freeze({ line: location.line, column: location.column }));
+      } else {
+        candidate.truncated = true;
+      }
+    }
+    if (state.matchCount >= MAX_MATCHES_PER_FILE) {
+      state.truncated = true;
+      break;
+    }
+  }
+}
+
+/*
+ * Credentials committed in base64 -- a Kubernetes secret, a Docker config's
+ * `auth`, a key pasted as one encoded line -- are invisible to a pattern that
+ * reads the text as written. Each run that is plausibly base64 is decoded and,
+ * when what comes out is text, every rule is run over that too, and whatever
+ * it finds is reported at the run's own line.
+ *
+ * A run may follow `=` -- `KEY=<base64>` in an env file is the commonest
+ * place one is written -- but not a character that could belong to it.
+ *
+ * One level only, and bounded: a run is standard base64 of at least 24
+ * characters with the right padding, mixing cases and digits the way encoded
+ * text does; at most MAX_DECODED_RUNS are tried and MAX_DECODED_BYTES decoded
+ * per file; and only output that is almost entirely printable UTF-8 is read,
+ * so an image, a hash or a compressed blob decodes to nothing and costs
+ * nothing further.
+ */
+const BASE64_RUN = /(?<![A-Za-z0-9+/_-])(?:[A-Za-z0-9+/]{4}){6,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?(?![A-Za-z0-9+/=_-])/g;
+const MAX_DECODED_RUNS = 200;
+const MAX_DECODED_BYTES = 256 * 1024;
+const MIN_DECODED_BYTES = 16;
+
+function decodedText(run) {
+  if (!/[A-Z]/.test(run) || !/[a-z]/.test(run) || !/[0-9+/]/.test(run)) return null;
+  const bytes = Buffer.from(run, 'base64');
+  if (bytes.length < MIN_DECODED_BYTES) return null;
+  let decoded;
+  try {
+    decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+  let printable = 0;
+  for (let index = 0; index < decoded.length; index += 1) {
+    const code = decoded.charCodeAt(index);
+    if ((code >= 32 && code < 127) || code === 9 || code === 10 || code === 13) printable += 1;
+  }
+  return printable / decoded.length >= 0.9 ? decoded : null;
+}
+
+function decodeInto(state, text, locateAt, prefilter) {
+  const runs = new RegExp(BASE64_RUN.source, 'g');
+  let attempts = 0;
+  let decodedBytes = 0;
+  let match;
+  while ((match = runs.exec(text)) !== null) {
+    if (attempts >= MAX_DECODED_RUNS || decodedBytes >= MAX_DECODED_BYTES) break;
+    if (state.matchCount >= MAX_MATCHES_PER_FILE) break;
+    const location = locateAt(match.index);
+    if (!location) continue;
+    attempts += 1;
+    const decoded = decodedText(match[0]);
+    if (!decoded) continue;
+    decodedBytes += decoded.length;
+    scanInto(state, decoded, () => location, prefilter, 'base64');
+  }
+}
+
+function detectionResult(state) {
+  const candidates = [...state.byKey.values()].map(candidate => Object.freeze({
+    ...candidate,
+    occurrences: Object.freeze(candidate.occurrences)
+  }));
+  return Object.freeze({
+    scanned: true,
+    truncated: state.truncated,
+    matchCount: state.matchCount,
+    candidates: Object.freeze(candidates)
+  });
 }
 
 /*
@@ -220,91 +380,48 @@ function detectInText(input = {}) {
     });
   }
 
-  const byKey = new Map();
-  const ordinals = new Map();
-  let matchCount = 0;
-  let truncated = false;
+  const state = newDetectionState();
   const locate = createLocator(text);
   /* The keyword check is an optimisation and can be switched off, which is
      how a test proves it never changes an answer. */
   const prefilter = input.prefilter !== false;
-  const lower = prefilter ? text.toLowerCase() : '';
+  scanInto(state, text, locate, prefilter, null);
+  if (input.decode !== false) decodeInto(state, text, locate, prefilter);
+  return detectionResult(state);
+}
 
-  for (const { regex, rules, keywords } of compiledRules()) {
-    if (prefilter && keywords && !keywords.some(keyword => lower.includes(keyword))) continue;
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      /*
-       * A rule whose expression can match nothing would loop forever on a
-       * zero-width match, since `lastIndex` would not advance. None does
-       * today; the guard is here so adding one is a bounded mistake rather
-       * than a hung process.
-       */
-      if (match[0].length === 0) {
-        regex.lastIndex += 1;
-        continue;
-      }
-
-      if (matchCount >= MAX_MATCHES_PER_FILE) {
-        truncated = true;
-        break;
-      }
-      matchCount += 1;
-
-      const secret = match[0];
-      /*
-       * Whose match this is. The first rule in the pass that accepts it, so a
-       * service-role key is never also reported as an anonymous one -- and a
-       * match no rule in the pass wants becomes no candidate at all, though it
-       * still counts against the ceiling, because the bound is on work done.
-       */
-      const owner = rules.find(candidate => !candidate.accept || candidate.accept(secret));
-      if (!owner) continue;
-      const rule = owner.rule;
-      const key = `${rule}\u0000${secret}`;
-      let candidate = byKey.get(key);
-      if (!candidate) {
-        if (byKey.size >= MAX_CANDIDATES_PER_FILE) {
-          truncated = true;
-          continue;
-        }
-        const ordinal = (ordinals.get(rule) || 0) + 1;
-        ordinals.set(rule, ordinal);
-        candidate = {
-          rule,
-          secret,
-          placeholder: placeholderFor(rule, ordinal),
-          occurrences: [],
-          occurrenceCount: 0,
-          truncated: false
-        };
-        byKey.set(key, candidate);
-      }
-
-      candidate.occurrenceCount += 1;
-      if (candidate.occurrences.length < MAX_OCCURRENCES_PER_CANDIDATE) {
-        candidate.occurrences.push(Object.freeze(locate(match.index)));
-      } else {
-        candidate.truncated = true;
-      }
+/*
+ * What one commit added to one file, from the hunks of its diff. Each hunk is
+ * scanned with its context so a credential recognised by the words around it
+ * is still recognised; a match is kept only when it starts on a line this
+ * commit added, and is located at that line in the file as it stood at this
+ * commit. Placeholders are numbered across the file's hunks, as they would be
+ * across a whole file.
+ */
+function detectInHunks(input = {}) {
+  const hunks = Array.isArray(input.hunks) ? input.hunks : [];
+  const prefilter = input.prefilter !== false;
+  const state = newDetectionState();
+  for (const hunk of hunks) {
+    const lines = hunk && Array.isArray(hunk.lines) ? hunk.lines : [];
+    if (!lines.some(line => line && line.added)) continue;
+    const text = lines.map(line => String(line.text || '')).join('\n');
+    if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {
+      state.truncated = true;
+      continue;
     }
-    if (matchCount >= MAX_MATCHES_PER_FILE) {
-      truncated = true;
-      break;
-    }
+    const locate = createLocator(text);
+    const at = index => {
+      const relative = locate(index);
+      const source = lines[relative.line - 1];
+      if (!source || !source.added || !Number.isInteger(source.line)) return null;
+      return { line: source.line, column: relative.column };
+    };
+    scanInto(state, text, at, prefilter, null);
+    if (input.decode !== false) decodeInto(state, text, at, prefilter);
+    if (state.matchCount >= MAX_MATCHES_PER_FILE) break;
   }
-
-  const candidates = [...byKey.values()].map(candidate => Object.freeze({
-    ...candidate,
-    occurrences: Object.freeze(candidate.occurrences)
-  }));
-
-  return Object.freeze({
-    scanned: true,
-    truncated,
-    matchCount,
-    candidates: Object.freeze(candidates)
-  });
+  return detectionResult(state);
 }
 
 /*
@@ -349,6 +466,7 @@ module.exports = Object.freeze({
   MAX_TEXT_BYTES,
   RULES_VERSION,
   createLocator,
+  detectInHunks,
   detectInPath,
   detectInText,
   sanitizeCandidate

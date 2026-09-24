@@ -40,7 +40,10 @@ const { shannonEntropy } = require('./exposure-rules');
  * a reader: changing them silently means two people reading the same finding a
  * month apart disagree about what they were told.
  */
-const NARRATION_VERSION = 1;
+/* 2: a location says when a credential is only in history, inside an archive,
+   or written base64-encoded, and withholds only the credential-shaped part of
+   a path. */
+const NARRATION_VERSION = 2;
 
 /* Severity is about the credential class, not about liveness. Whether a
    particular one still works is the verifier's answer and is reported
@@ -551,22 +554,57 @@ function describeDisposition(disposition) {
  * its directory and its last segment is described rather than quoted whenever
  * the last segment looks like it might be a secret itself.
  */
+const MONTHS = Object.freeze(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
+
+/* A date as a reader says it, read from the stored UTC timestamp's own text --
+   no clock, no locale and no date arithmetic, so the sentence is the same
+   wherever and whenever it is read. */
+function spokenDate(value) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T/.exec(text(value));
+  if (!parts) return '';
+  const month = Number(parts[2]);
+  const day = Number(parts[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return '';
+  return `${day} ${MONTHS[month - 1]} ${parts[1]}`;
+}
+
+/*
+ * Where it is, and what about where it is changes what to do: a credential
+ * only in history is still exposed to anyone with a clone, one written in
+ * base64 does not look like itself on the line it is on, and one inside an
+ * archive is in a file a reader has to download and open to see.
+ */
 function describeLocation(finding) {
   const occurrences = Array.isArray(finding.occurrences) ? finding.occurrences : [];
   const count = Number.isInteger(finding.occurrenceCount) ? finding.occurrenceCount : occurrences.length;
   const path = text(finding.path);
   const where = safeDisplayPath(path);
-  const hidden = path && where !== path
-    ? ` Part of the file's path is not shown, because it is itself credential-shaped.`
-    : '';
-  if (!occurrences.length) return `In ${where}.${hidden}`;
+  const notes = [];
+  if (path && where !== path) notes.push(`Part of the file's path is not shown, because it is itself credential-shaped.`);
+  const archive = path.indexOf('!/');
+  if (archive > 0) {
+    notes.push(`That is a file inside the archive ${safeDisplayPath(path.slice(0, archive))}, which anyone who can read the repository can download and open.`);
+  }
+  if (text(finding.decodedFrom) === 'base64') {
+    notes.push('It is written base64-encoded, so the line shows an encoded run rather than the credential as it is used.');
+  }
+  const introduced = /^[0-9a-f]{40}$/.test(text(finding.introducedCommit)) ? text(finding.introducedCommit) : '';
+  if (introduced) {
+    const when = spokenDate(finding.introducedAt);
+    const added = `commit ${introduced.slice(0, 7)}${when ? ` on ${when}` : ''}`;
+    notes.push(finding.inTree === false
+      ? `It is no longer in the current files, but it is still in the repository's history: it was added in ${added}, and anyone with a clone can check that commit out and read it. Deleting it from the files did not remove it.`
+      : `It was first added in ${added}.`);
+  }
+  const tail = notes.length ? ` ${notes.join(' ')}` : '';
+  if (!occurrences.length) return `In ${where}.${tail}`;
   const first = occurrences[0];
   const at = `line ${first.line}`;
-  if (count <= 1) return `In ${where}, at ${at}.${hidden}`;
+  if (count <= 1) return `In ${where}, at ${at}.${tail}`;
   if (finding.truncated) {
-    return `In ${where}, in ${count} places. The first ${occurrences.length} are recorded, starting at ${at}.${hidden}`;
+    return `In ${where}, in ${count} places. The first ${occurrences.length} are recorded, starting at ${at}.${tail}`;
   }
-  return `In ${where}, in ${count} places, starting at ${at}.${hidden}`;
+  return `In ${where}, in ${count} places, starting at ${at}.${tail}`;
 }
 
 /*

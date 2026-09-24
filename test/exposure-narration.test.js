@@ -414,4 +414,42 @@ const finding = Object.freeze({
   );
 }
 
+/* ---- Where, when it is not simply a line in a current file ----------------- */
+
+/*
+ * Three places change what a reader does. Only in history: deleting it did
+ * not help, and anyone with a clone can still read it. Inside an archive: a
+ * file they have to download and open. Base64: the line does not show the
+ * credential as written. Each is said, and dated from the stored text alone.
+ */
+{
+  const INTRODUCED = 'a1b2c3d'.padEnd(40, '0');
+  const pastOnly = describeLocation({
+    path: 'config/old.env', occurrences: [{ line: 3, column: 1 }], occurrenceCount: 1,
+    inTree: false, introducedCommit: INTRODUCED, introducedAt: '2026-09-01T10:00:00.000Z'
+  });
+  assert.match(pastOnly, /no longer in the current files, but it is still in the repository's history/);
+  assert.match(pastOnly, /added in commit a1b2c3d on 1 Sep 2026/);
+  assert.match(pastOnly, /Deleting it from the files did not remove it\./);
+
+  const stillHere = describeLocation({
+    path: 'src/a.js', occurrences: [{ line: 30, column: 1 }], occurrenceCount: 1,
+    inTree: true, introducedCommit: INTRODUCED, introducedAt: '2026-01-15T00:00:00.000Z'
+  });
+  assert.strictEqual(stillHere, 'In src/a.js, at line 30. It was first added in commit a1b2c3d on 15 Jan 2026.');
+
+  const inArchive = describeLocation({ path: 'dist/app.zip!/config/.env', occurrences: [{ line: 1, column: 1 }], occurrenceCount: 1 });
+  assert.match(inArchive, /inside the archive dist\/app\.zip, which anyone who can read the repository can download and open/);
+
+  const encoded = describeLocation({ path: 'k8s/secret.yaml', occurrences: [{ line: 7, column: 9 }], occurrenceCount: 1, decodedFrom: 'base64' });
+  assert.match(encoded, /base64-encoded, so the line shows an encoded run/);
+
+  /* A date that is not an ISO timestamp is left out rather than guessed. */
+  assert.strictEqual(
+    describeLocation({ path: 'a.js', occurrences: [{ line: 1, column: 1 }], occurrenceCount: 1, inTree: true, introducedCommit: INTRODUCED, introducedAt: 'yesterday' }),
+    'In a.js, at line 1. It was first added in commit a1b2c3d.'
+  );
+  assert.strictEqual(NARRATION_VERSION, 2);
+}
+
 console.log('exposure narration tests passed');

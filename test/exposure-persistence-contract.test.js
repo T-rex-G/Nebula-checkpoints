@@ -45,7 +45,7 @@ for (const table of ['nv_exposure_scans', 'nv_exposure_findings', 'nv_exposure_o
  */
 function checkedValues(pattern) {
   const source = pattern.source.includes('skipped_reason')
-    ? fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '025_exposure_identity_provenance.sql'), 'utf8')
+    ? fs.readFileSync(path.join(__dirname, '..', 'db', 'migrations', '027_exposure_history_archives.sql'), 'utf8')
     : sql;
   const match = source.match(pattern);
   assert(match, `missing constraint: ${pattern}`);

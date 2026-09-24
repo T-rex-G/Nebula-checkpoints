@@ -1210,6 +1210,131 @@ async function claim(store, now = T0) {
       assert.deepStrictEqual({ ...(await store.clearHistory({ scope: historyScope, identityKey: IDENTITY })) }, { scans: 0, findings: 0 });
     }
 
+    /* ---- History scans, merged sightings, and the current generation ----- */
+
+    /*
+     * A history scan records where a credential is: in the tree, in the commit
+     * that added it, or both. The two sightings of one credential in one scan
+     * are one observation -- in the tree, with the tree's lines, and with the
+     * earliest introduction -- and a credential only in history must say which
+     * commit introduced it.
+     */
+    {
+      const deepScope = Object.freeze({ ...scope, repo: 'Deep' });
+      const base = T0 + 5_000_000;
+      const INTRODUCED = '1'.repeat(40);
+      const LATER = '2'.repeat(40);
+      async function historyScan(key, at, commitSha, writes, finalize = {}) {
+        const requested = await store.requestScan(scanRequest({
+          scope: deepScope, identityKey: IDENTITY, idempotencyKey: key, now: at, commitSha, scanMode: 'history'
+        }));
+        const held = await claim(store, at + 1000);
+        assert.strictEqual(held.scan.scanId, requested.scan.scanId);
+        assert.strictEqual(held.scan.scanMode, 'history');
+        for (const findings of writes) {
+          await store.recordObservations({ scanId: held.scan.scanId, claimOwner: held.claimOwner, findings, now: at + 2000 });
+        }
+        const done = await store.finalizeScan({
+          scanId: held.scan.scanId, claimOwner: held.claimOwner, now: at + 3000,
+          state: 'complete', coverage: 'complete', filesScanned: 3, bytesScanned: 30,
+          commitsTotal: 5, commitsScanned: 5, commitsSkipped: 0, archivesScanned: 1, archiveMembersScanned: 4,
+          ...finalize
+        });
+        return { requested: requested.scan, done };
+      }
+
+      const inTree = findingFixture('deep-a', { path: 'src/a.js', occurrences: [{ line: 30, column: 5 }], inTree: true });
+      const inHistory = findingFixture('deep-a', {
+        path: 'src/a.js', occurrences: [{ line: 3, column: 5 }], inTree: false,
+        introducedCommit: INTRODUCED, introducedAt: new Date(base - 86_400_000).toISOString()
+      });
+      const historyOnly = findingFixture('deep-b', {
+        path: 'old/secrets.env', occurrences: [{ line: 1, column: 1 }], inTree: false,
+        introducedCommit: INTRODUCED, introducedAt: new Date(base - 86_400_000).toISOString(), decodedFrom: 'base64'
+      });
+      const again = findingFixture('deep-b', {
+        path: 'old/secrets.env', occurrences: [{ line: 9, column: 1 }], inTree: false,
+        introducedCommit: LATER, introducedAt: new Date(base).toISOString()
+      });
+      const first = await historyScan('deep-00000001', base, COMMIT, [[inTree], [inHistory, historyOnly], [again]]);
+      assert.strictEqual(first.requested.historyBaseCommit, null, 'nothing to start from yet');
+      assert.strictEqual(first.done.commitsScanned, 5);
+      assert.strictEqual(first.done.archiveMembersScanned, 4);
+
+      const report = await store.scanReport({ scope: deepScope, scanId: first.done.scanId, identityKey: IDENTITY, limit: 10 });
+      const byPath = Object.fromEntries(report.map(item => [item.finding.path, item.observation]));
+      const merged = byPath['src/a.js'];
+      assert.strictEqual(merged.inTree, true, 'seen in the tree and in history is in the tree');
+      assert.deepStrictEqual(merged.occurrences.map(item => ({ ...item })), [{ line: 30, column: 5 }], 'with the tree\'s lines');
+      assert.strictEqual(merged.introducedCommit, INTRODUCED, 'and the commit that introduced it');
+      assert.strictEqual(merged.historyCommits, 1);
+      const past = byPath['old/secrets.env'];
+      assert.strictEqual(past.inTree, false);
+      assert.strictEqual(past.introducedCommit, INTRODUCED, 'the earliest introduction is kept');
+      assert.strictEqual(past.historyCommits, 2, 'added twice in history');
+      assert.strictEqual(past.decodedFrom, 'base64');
+      assert.deepStrictEqual(past.occurrences.map(item => ({ ...item })), [{ line: 1, column: 1 }]);
+
+      /* Read back at the commit it can be found at. */
+      const findingA = await store.getFinding({ scope: deepScope, identityKey: IDENTITY, fingerprint: fingerprint('deep-a') });
+      const findingB = await store.getFinding({ scope: deepScope, identityKey: IDENTITY, fingerprint: fingerprint('deep-b') });
+      assert.strictEqual(findingA.commit, COMMIT, 'a credential in the tree is read back from the tree, not from where it began');
+      assert.strictEqual(findingB.commit, INTRODUCED, 'one only in history is read back where it was added');
+
+      const located = await store.latestLocations({ scope: deepScope, identityKey: IDENTITY, fingerprints: [fingerprint('deep-b')] });
+      assert.strictEqual(located[fingerprint('deep-b')].inTree, false);
+      assert.strictEqual(located[fingerprint('deep-b')].introducedCommit, INTRODUCED);
+
+      /* Nowhere is not a place: a finding out of the tree must name its commit. */
+      const lonely = await store.requestScan(scanRequest({ scope: deepScope, identityKey: IDENTITY, idempotencyKey: 'deep-00000009', now: base + 50_000, scanMode: 'history' }));
+      const heldLonely = await claim(store, base + 51_000);
+      await assert.rejects(
+        store.recordObservations({ scanId: heldLonely.scan.scanId, claimOwner: heldLonely.claimOwner, now: base + 52_000,
+          findings: [findingFixture('deep-c', { inTree: false })] }),
+        /must name the commit/
+      );
+      await assert.rejects(
+        store.recordObservations({ scanId: heldLonely.scan.scanId, claimOwner: heldLonely.claimOwner, now: base + 52_000,
+          findings: [findingFixture('deep-c', { decodedFrom: 'rot13' })] }),
+        /Decoding/
+      );
+      await store.finalizeScan({ scanId: heldLonely.scan.scanId, claimOwner: heldLonely.claimOwner, now: base + 53_000, state: 'failed', coverage: 'unknown' });
+      await assert.rejects(
+        pool.query(`UPDATE nv_exposure_observations SET in_tree=false, introduced_commit=NULL, history_commits=NULL WHERE scan_id=$1`, [first.done.scanId]),
+        /presence_check/, 'the schema refuses a finding that is nowhere'
+      );
+
+      /* The next history scan of the same ref starts where this one finished. */
+      const second = await historyScan('deep-00000002', base + 100_000, 'd'.repeat(40), []);
+      assert.strictEqual(second.requested.historyBaseCommit, COMMIT);
+      /* A tree scan never has one, and another person's history is not a starting point. */
+      const tree = await store.requestScan(scanRequest({ scope: deepScope, identityKey: IDENTITY, idempotencyKey: 'deep-00000003', now: base + 200_000 }));
+      assert.strictEqual(tree.scan.scanMode, 'tree');
+      assert.strictEqual(tree.scan.historyBaseCommit, null);
+      await store.cancelScan({ scope: deepScope, scanId: tree.scan.scanId, identityKey: IDENTITY, now: base + 200_500 });
+      const stranger = await store.requestScan(scanRequest({ scope: deepScope, identityKey: OTHER_IDENTITY, idempotencyKey: 'deep-00000004', now: base + 300_000, scanMode: 'history' }));
+      assert.strictEqual(stranger.scan.historyBaseCommit, null);
+      await store.cancelScan({ scope: deepScope, scanId: stranger.scan.scanId, identityKey: OTHER_IDENTITY, now: base + 300_500 });
+      await assert.rejects(store.requestScan(scanRequest({ scope: deepScope, identityKey: IDENTITY, idempotencyKey: 'deep-00000005', scanMode: 'everything' })), /Scan mode/);
+
+      /*
+       * The list is the current generation. A finding recorded under older
+       * rules stays on the screen until a scan under the new rules finishes,
+       * and then it is not shown twice.
+       */
+      await pool.query(
+        `UPDATE nv_exposure_findings SET rules_version=rules_version + 1 WHERE repo_name='Deep' AND fingerprint=$1`,
+        [fingerprint('deep-a')]
+      );
+      const current = await store.listFindings({ scope: deepScope, identityKey: IDENTITY, limit: 50, currentGeneration: true });
+      assert.deepStrictEqual(current.map(item => item.fingerprint), [fingerprint('deep-b')],
+        'a finding from an older generation is not listed beside the newer scan');
+      const everything = await store.listFindings({ scope: deepScope, identityKey: IDENTITY, limit: 50 });
+      assert.strictEqual(everything.length, 2, 'every generation is still there for anything that asks for all of it');
+      await store.clearHistory({ scope: deepScope, identityKey: IDENTITY });
+      await store.clearHistory({ scope: deepScope, identityKey: OTHER_IDENTITY });
+    }
+
     /* ---- The attempt table holds no credential either ------------------- */
 
     /* ---- No row, anywhere, can carry a credential ----------------------- */
@@ -1279,7 +1404,9 @@ async function claim(store, now = T0) {
        * is how this check would have decayed into noise the moment somebody
        * added a table.
        */
-      const sql = ['022_exposure_scans.sql', '023_exposure_verifications.sql', '024_exposure_readability_probes.sql', '025_exposure_identity_provenance.sql']
+      const sql = require('fs').readdirSync(DIRECTORY)
+        .filter(file => /^\d+_exposure_.*\.sql$/.test(file))
+        .sort()
         .map(file => require('fs').readFileSync(path.join(DIRECTORY, file), 'utf8'))
         .join('\n');
       for (const column of textColumns) {

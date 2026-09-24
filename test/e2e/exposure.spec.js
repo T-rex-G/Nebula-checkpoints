@@ -99,18 +99,25 @@ function anonKeyFinding(overrides = {}) {
 }
 
 async function mockExposure(page, { findings = [], scanState = null, acceptStatus = 201, probe = null, probeStatus = 201, verifications = {}, probes = {} } = {}) {
-  const state = { requests: [], verifyBodies: [], scanBodies: [], acceptCalls: [], probeBodies: [] };
+  const state = { requests: [], verifyBodies: [], scanBodies: [], acceptCalls: [], probeBodies: [],
+    currentScan: scanState || scan({ state: 'queued', coverage: 'unknown', finishedAt: null }),
+    currentFindings: findings, scanError: null, statusError: false };
   await mockTask20Api(page);
   await page.route('**/api/repo/acme/demo/exposure/**', async route => {
     const request = route.request();
     const url = new URL(request.url());
     state.requests.push(`${request.method()} ${url.pathname}`);
     if (url.pathname.endsWith('/exposure/findings')) {
-      return route.fulfill({ json: { findings, verifications, probes } });
+      return route.fulfill({ json: { findings: state.currentFindings, verifications, probes } });
     }
     if (url.pathname.endsWith('/exposure/scans') && request.method() === 'POST') {
       state.scanBodies.push(request.postDataJSON());
-      return route.fulfill({ status: 201, json: { scan: scanState || scan({ state: 'queued', coverage: 'unknown', finishedAt: null }), created: true } });
+      if (state.scanError) return route.fulfill({ status: 502, json: { code: state.scanError, error: 'Private upstream detail' } });
+      return route.fulfill({ status: 201, json: { scan: state.currentScan, created: true } });
+    }
+    if (/\/exposure\/scans\/[^/]+$/.test(url.pathname) && request.method() === 'GET') {
+      if (state.statusError) return route.fulfill({ status: 502, json: { error: 'Status unavailable' } });
+      return route.fulfill({ json: { scan: state.currentScan } });
     }
     if (url.pathname.endsWith('/cancel')) {
       return route.fulfill({ status: 201, json: { scan: scan({ state: 'canceled', coverage: 'partial', skippedReason: 'canceled' }) } });
@@ -284,6 +291,67 @@ test('a scan in progress never shows a settled state', async ({ page }) => {
   /* And the cancel control appears, because a scan in progress is the only
      time there is something to cancel. */
   await expect(page.getByRole('button', { name: /Cancel scan/i })).toBeVisible();
+});
+
+test('a requested scan progresses to completion and loads its findings', async ({ page }) => {
+  const state = await mockExposure(page);
+  await openExposure(page);
+  await page.locator('#exposureScanBtn').click();
+  await expect(page.locator('#exposureState')).toHaveText('Queued');
+  state.currentScan = scan({ state: 'running', coverage: 'unknown', filesScanned: 10 });
+  await expect(page.locator('#exposureState')).toHaveText('Running');
+  state.currentScan = scan();
+  state.currentFindings = [finding()];
+  await expect(page.locator('#exposureState')).toHaveText('Complete');
+  await expect(page.locator('.exposure-item')).toHaveCount(1);
+  await expect(page.locator('#exposureFiles')).toHaveText('120');
+  await expect(page.locator('#exposureScanBtn')).toBeEnabled();
+  await expect(page.locator('#exposureCancelBtn')).toBeHidden();
+  expect(state.scanBodies).toHaveLength(1);
+});
+
+test('failed scan startup explains a next step without provider details', async ({ page }) => {
+  const state = await mockExposure(page);
+  state.scanError = 'EXPOSURE_READ_FAILED';
+  await openExposure(page);
+  await page.locator('#exposureScanBtn').click();
+  await expect(page.locator('#exposureProofLine')).toContainText('Try again shortly');
+  await expect(page.locator('#exposureProofLine')).not.toContainText('Private upstream detail');
+  await expect(page.locator('#exposureState')).toHaveText('Not started');
+  await expect(page.locator('#exposureScanBtn')).toBeEnabled();
+});
+
+test('a failed status read can be retried without requesting another scan', async ({ page }) => {
+  const state = await mockExposure(page);
+  state.statusError = true;
+  await openExposure(page);
+  await page.locator('#exposureScanBtn').click();
+  await expect(page.locator('#exposureRefreshBtn')).toBeVisible();
+  state.statusError = false;
+  state.currentScan = scan();
+  await page.locator('#exposureRefreshBtn').click();
+  await expect(page.locator('#exposureState')).toHaveText('Complete');
+  await expect(page.locator('#exposureRefreshBtn')).toBeHidden();
+  expect(state.scanBodies).toHaveLength(1);
+});
+
+test('a late status response cannot restore a cleared repository scan', async ({ page }) => {
+  await mockExposure(page);
+  let release;
+  const delayed = new Promise(resolve => { release = resolve; });
+  await page.route('**/exposure/scans/90000000-0000-4000-8000-000000000001', async route => {
+    await delayed;
+    await route.fulfill({ json: { scan: scan() } });
+  });
+  await openExposure(page);
+  await page.locator('#exposureScanBtn').click();
+  await page.waitForRequest(request => request.method() === 'GET' && /\/exposure\/scans\//.test(request.url()));
+  await page.evaluate(() => window.clearExposureState());
+  const response = page.waitForResponse(url => /\/exposure\/scans\//.test(url.url()));
+  release();
+  await response;
+  await expect(page.locator('#exposureState')).toHaveText('Not started');
+  await expect(page.locator('.exposure-item')).toHaveCount(0);
 });
 
 test('checking whether a credential is live takes two deliberate presses', async ({ page }) => {
@@ -684,6 +752,25 @@ test('both themes and a 320px screen keep it readable', async ({ page }) => {
   });
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
   expect(overflow.shellWidth).toBeLessThanOrEqual(320);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => document.documentElement.setAttribute('data-theme', value), theme);
+    for (const selector of ['.exposure-proof', '.exposure-findings']) {
+      const bounds = await page.locator(selector).evaluate(card => {
+        const rect = card.getBoundingClientRect();
+        const title = card.querySelector('h2').getBoundingClientRect();
+        return { inset: title.left - rect.left, rightInset: rect.right - title.right,
+          padding: parseFloat(getComputedStyle(card).paddingTop) };
+      });
+      expect(bounds.inset).toBeGreaterThanOrEqual(16);
+      expect(bounds.rightInset).toBeGreaterThanOrEqual(16);
+      expect(bounds.padding).toBeGreaterThanOrEqual(16);
+    }
+    const button = page.locator('#exposureScanBtn');
+    await button.scrollIntoViewIfNeeded();
+    expect((await button.boundingBox()).height).toBeGreaterThanOrEqual(44);
+    await expect(page.locator('.exposure-intro')).toContainText('Hosted app URL scanning is not available yet');
+    await page.screenshot({ path: test.info().outputPath(`exposure-320-${theme}.png`), fullPage: true });
+  }
 });
 
 test('switching repository does not leave the previous findings on screen', async ({ page }) => {
@@ -691,14 +778,12 @@ test('switching repository does not leave the previous findings on screen', asyn
   await openExposure(page);
   await expect(page.locator('.exposure-item')).toHaveCount(1);
 
-  await page.evaluate(() => {
-    if (typeof window.clearExposureState === 'function') window.clearExposureState();
-  });
+  await page.evaluate(() => window.clearExposureState());
   /*
    * Whether or not the helper is reachable from here, the guarantee is that
    * findings belong to one repository and one identity: leaving them up after
    * a switch would show somebody another repository's exposures.
    */
   const stale = await page.evaluate(() => document.querySelectorAll('.exposure-item').length);
-  expect(stale).toBeLessThanOrEqual(1);
+  expect(stale).toBe(0);
 });

@@ -65,6 +65,9 @@ const PROFILE_RULES = Object.freeze({
 });
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
+/* A recursive tree may exceed the default. Only repository reads opt into
+   this larger bound; webhook and credential-probe limits stay unchanged. */
+const MAX_PROVIDER_RESPONSE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_DEADLINE_MS = 20_000;
 const MAX_DNS_ANSWERS = 32;
@@ -236,7 +239,8 @@ async function guardedFetch(input = {}) {
   const target = normalizeTarget(input.url, input.profile);
   assertCredentialNotInUrl(target, input.headers);
   const body = input.body == null ? null : String(input.body);
-  const maxBytes = boundedInteger(input.maxResponseBytes, MAX_RESPONSE_BYTES, 1024, MAX_RESPONSE_BYTES);
+  const maxBytes = boundedInteger(input.maxResponseBytes, MAX_RESPONSE_BYTES, 1024,
+    input.profile === PROFILES.PROVIDER_READ ? MAX_PROVIDER_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
   if (body !== null && Buffer.byteLength(body, 'utf8') > MAX_RESPONSE_BYTES) {
     throw new GuardedFetchError('Outbound body exceeds the transport limit', 'GUARDED_FETCH_BODY_TOO_LARGE');
   }
@@ -325,7 +329,12 @@ async function guardedFetch(input = {}) {
       /* The certificate is still checked against the name, not the pinned
          address: pinning decides where the bytes go, not who may answer. */
       servername: target.hostname,
-      lookup: (_hostname, _options, callback) => callback(null, pinned.address, pinned.family),
+      lookup: (_hostname, options, callback) => {
+        /* Node's family auto-selection asks for all:true. Both callback
+           forms must return the same validated pin, never resolve again. */
+        if (options && options.all) callback(null, [{ ...pinned }]);
+        else callback(null, pinned.address, pinned.family);
+      },
       timeout: timeoutMs,
       /* No shared agent: a pooled socket could be one opened to a different
          address for the same hostname. */

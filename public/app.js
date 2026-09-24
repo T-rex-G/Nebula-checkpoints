@@ -2575,6 +2575,7 @@ function exposureScopeKey() {
 }
 
 function clearExposureState() {
+  clearTimeout(exposurePollTimer);
   state.exposure = {
     scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
     confirming: '', verifying: '', accepting: '', probing: '', loading: false, error: '', scopeKey: ''
@@ -2613,12 +2614,12 @@ const EXPOSURE_SKIPPED_WORDS = {
 };
 
 function exposureProofLine(scan) {
-  if (!scan) return 'No scan has been run for this repository yet.';
+  if (!scan) return 'Start a scan to check this branch for exposed credentials.';
   if (scan.state === 'queued' || scan.state === 'running') {
     return 'A scan is in progress. Nothing is proven until it finishes.';
   }
   if (scan.coverage === 'complete' && scan.state === 'complete') {
-    return 'This scan read the whole tree at the commit below. Anything it found is listed here; anything it did not find was not in that tree.';
+    return 'This scan read the whole tree at the commit below and checked supported credential patterns. This is not a full application security audit.';
   }
   return 'This scan did not read the whole tree, so it cannot tell you the repository is clean.';
 }
@@ -2645,7 +2646,10 @@ function renderExposure() {
   if (filesEl) filesEl.textContent = scan && Number.isFinite(scan.filesScanned) ? String(scan.filesScanned) : '—';
 
   const proof = $('#exposureProofLine');
-  if (proof) proof.textContent = current.error || exposureProofLine(scan);
+  if (proof) {
+    proof.textContent = current.error || exposureProofLine(scan);
+    proof.dataset.error = String(Boolean(current.error));
+  }
 
   const caveat = $('#exposureCaveat');
   if (caveat) {
@@ -2657,7 +2661,13 @@ function renderExposure() {
   const cancel = $('#exposureCancelBtn');
   if (cancel) cancel.hidden = !(scan && (scan.state === 'queued' || scan.state === 'running'));
   const scanBtn = $('#exposureScanBtn');
-  if (scanBtn) scanBtn.disabled = Boolean(current.loading || (scan && (scan.state === 'queued' || scan.state === 'running')));
+  const activeScan = scan && (scan.state === 'queued' || scan.state === 'running');
+  if (scanBtn) {
+    scanBtn.disabled = Boolean(current.loading || activeScan);
+    scanBtn.textContent = current.loading ? 'Please wait…' : activeScan ? 'Scan in progress…' : 'Scan this branch';
+  }
+  const refresh = $('#exposureRefreshBtn');
+  if (refresh) refresh.hidden = !(activeScan && current.error);
 
   const list = $('#exposureList');
   const empty = $('#exposureEmpty');
@@ -2672,6 +2682,7 @@ function renderExposure() {
     empty.hidden = false;
     empty.textContent = !scan
       ? 'Nothing to show yet.'
+      : activeScan ? 'Waiting for scan results. This is not an all-clear.'
       : (scan.coverage === 'complete'
         ? 'No credentials were found in the tree this scan read.'
         : 'No credentials were found in the part of the tree this scan read. That is not an all-clear.');
@@ -2876,6 +2887,7 @@ async function loadExposure() {
   renderExposure();
   try {
     const findings = await api(`/api/repo/${wPath()}/exposure/findings?limit=50`);
+    if (now !== exposureState() || scopeKey !== exposureScopeKey()) return;
     now.findings = Array.isArray(findings && findings.findings) ? findings.findings : [];
     /*
      * The answers already on record, which arrive with the list rather than
@@ -2887,13 +2899,57 @@ async function loadExposure() {
     now.probes = (findings && findings.probes) || {};
     now.error = '';
   } catch (error) {
+    if (now !== exposureState() || scopeKey !== exposureScopeKey()) return;
     now.findings = [];
     now.verifications = {};
     now.probes = {};
     now.error = 'Findings could not be loaded for this repository.';
   } finally {
     now.loading = false;
+    if (now === exposureState() && scopeKey === exposureScopeKey()) {
+      renderExposure();
+      scheduleExposurePoll(now);
+    }
+  }
+}
+
+/* A scan runs asynchronously. Poll only its scoped, identity-protected route;
+   stop on navigation or errors and refresh findings when it finishes. */
+let exposurePollTimer = null;
+function scheduleExposurePoll(current) {
+  clearTimeout(exposurePollTimer);
+  if (current !== exposureState() || current.scopeKey !== exposureScopeKey()
+    || !$('#tab-exposure')?.classList.contains('active')
+    || !['queued', 'running'].includes(current.scan?.state)) return;
+  exposurePollTimer = setTimeout(() => { void refreshExposureScan(current); }, 2000);
+}
+
+async function refreshExposureScan(current = exposureState()) {
+  if (current !== exposureState() || current.scopeKey !== exposureScopeKey()
+    || !$('#tab-exposure')?.classList.contains('active') || !current.scan) return;
+  if (document.hidden) { scheduleExposurePoll(current); return; }
+  const scanId = current.scan.scanId;
+  try {
+    const body = await api(`/api/repo/${wPath()}/exposure/scans/${encodeURIComponent(scanId)}`);
+    if (current !== exposureState() || current.scan?.scanId !== scanId
+      || current.scopeKey !== exposureScopeKey()) return;
+    if (!body?.scan) throw new Error('Missing scan status');
+    /* A status read begun before cancellation cannot resurrect the scan. */
+    if (current.scan.state === 'canceled') return;
+    current.scan = body.scan;
+    current.error = '';
     renderExposure();
+    if (['queued', 'running'].includes(current.scan.state)) scheduleExposurePoll(current);
+    else {
+      announceExposure(`Scan ${EXPOSURE_STATE_WORDS[current.scan.state] || 'finished'}. Updating findings.`);
+      await loadExposure();
+    }
+  } catch (error) {
+    if (current !== exposureState() || current.scan?.scanId !== scanId
+      || current.scopeKey !== exposureScopeKey() || current.scan.state === 'canceled') return;
+    current.error = 'The status check failed. Your scan may still be running. Retry the status check.';
+    renderExposure();
+    announceExposure(current.error);
   }
 }
 
@@ -3064,6 +3120,8 @@ async function probeExposureReadability(fingerprint) {
 async function requestExposureScan() {
   if (!state.work) return;
   const current = exposureState();
+  if (current.loading || ['queued', 'running'].includes(current.scan?.state)) return;
+  const scopeKey = exposureScopeKey();
   current.loading = true;
   renderExposure();
   try {
@@ -3071,15 +3129,27 @@ async function requestExposureScan() {
       method: 'POST',
       body: { ref: (state.work && state.work.branch) || 'HEAD' }
     });
+    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
     current.scan = body && body.scan ? body.scan : null;
     current.error = '';
     announceExposure('Scan requested. Nothing is proven until it finishes.');
   } catch (error) {
-    current.error = 'The scan could not be started for this repository.';
+    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
+    const messages = {
+      EXPOSURE_AUTHORIZATION_MISSING: 'Reconnect GitHub, then try the scan again.',
+      EXPOSURE_AUTHORIZATION_REVOKED: 'Your GitHub session expired. Reconnect GitHub, then try again.',
+      EXPOSURE_REF_UNRESOLVED: 'This branch could not be found or accessed. Refresh your branches and check repository access.',
+      EXPOSURE_PROVIDER_UNSUPPORTED: 'Repository exposure scanning currently supports GitHub only.',
+      EXPOSURE_READ_FAILED: 'GitHub could not be reached or refused this read. Try again shortly; if it persists, check your GitHub connection.'
+    };
+    current.error = messages[error?.code] || 'The scan could not be started for this repository. Try again or check your repository access.';
     announceExposure(current.error);
   } finally {
     current.loading = false;
-    renderExposure();
+    if (current === exposureState() && scopeKey === exposureScopeKey()) {
+      renderExposure();
+      scheduleExposurePoll(current);
+    }
   }
 }
 
@@ -3091,7 +3161,10 @@ async function cancelExposureScan() {
     const body = await api(`/api/repo/${wPath()}/exposure/scans/${current.scan.scanId}/cancel`, {
       method: 'POST'
     });
+    if (current !== exposureState() || current.scopeKey !== exposureScopeKey()) return;
     current.scan = body && body.scan ? body.scan : current.scan;
+    current.error = '';
+    clearTimeout(exposurePollTimer);
     announceExposure('Scan canceled. Its coverage is partial.');
   } catch (error) {
     current.error = 'The scan could not be canceled.';
@@ -4553,6 +4626,7 @@ function switchTab(name) {
   if (name === 'actions' && !$('#actionsList').children.length) loadActions();
   if (name === 'governance') loadGovernanceTwin();
   if (name === 'exposure') loadExposure();
+  else clearTimeout(exposurePollTimer);
   if (name === 'neural') ensureNeural();
   else if (window.NebulaNeural) window.NebulaNeural.deactivate();
   if (name === 'editor' && state.cm) setTimeout(() => state.cm.refresh(), 30);
@@ -4563,6 +4637,8 @@ $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.ta
 {
   const scanBtn = $('#exposureScanBtn');
   if (scanBtn) scanBtn.addEventListener('click', () => { void requestExposureScan(); });
+  const refreshBtn = $('#exposureRefreshBtn');
+  if (refreshBtn) refreshBtn.addEventListener('click', () => { void refreshExposureScan(); });
   const cancelBtn = $('#exposureCancelBtn');
   if (cancelBtn) cancelBtn.addEventListener('click', () => { void cancelExposureScan(); });
   /* Delegated, because the list is rebuilt on every render. */

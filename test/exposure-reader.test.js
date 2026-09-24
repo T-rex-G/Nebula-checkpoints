@@ -408,7 +408,7 @@ function blobEntry(entryPath, overrides = {}) {
  */
 {
   const transport = transportReturning({
-    statusCode: 200, body: JSON.stringify({ sha: COMMIT, commit: { message: 'x' } })
+    statusCode: 200, body: `${COMMIT}\n`
   });
   const resolved = await resolveCommit({ scope, ref: 'refs/heads/main', token: TOKEN, transport });
   assert.strictEqual(resolved.commitSha, COMMIT);
@@ -417,6 +417,10 @@ function blobEntry(entryPath, overrides = {}) {
     'https://api.github.com/repos/Acme/Demo/commits/refs%2Fheads%2Fmain'
   );
   assert.strictEqual(transport.calls[0].profile, PROFILES.PROVIDER_READ);
+  assert.strictEqual(transport.calls[0].headers.accept, 'application/vnd.github.sha');
+  assert.match(transport.calls[0].headers['user-agent'], /^Nebulaverse-X/);
+  assert.strictEqual(transport.calls[0].maxResponseBytes, 1024,
+    'resolving a branch must not download a commit diff');
 
   /* A ref is a ref shape, not free text: nothing here interpolates a caller's
      string into a path without saying what it will accept. */
@@ -428,7 +432,7 @@ function blobEntry(entryPath, overrides = {}) {
     );
   }
   for (const ref of ['main', 'refs/heads/main', 'release/2026-09', 'v1.2.3', COMMIT]) {
-    const ok = transportReturning({ statusCode: 200, body: JSON.stringify({ sha: COMMIT }) });
+    const ok = transportReturning({ statusCode: 200, body: COMMIT });
     assert.strictEqual((await resolveCommit({ scope, ref, token: TOKEN, transport: ok })).commitSha, COMMIT);
   }
 
@@ -448,6 +452,13 @@ function blobEntry(entryPath, overrides = {}) {
     resolveCommit({ scope, ref: 'main', token: TOKEN, transport: transportReturning({ statusCode: 401, body: '{}' }) }),
     error => error.code === 'EXPOSURE_AUTHORIZATION_REVOKED'
   );
+  for (const statusCode of [403, 429, 500, 503]) {
+    await assert.rejects(
+      resolveCommit({ scope, ref: 'main', token: TOKEN, transport: transportReturning({ statusCode, body: '{}' }) }),
+      error => error.status === 502 && error.code === 'EXPOSURE_READ_FAILED',
+      'a provider outage or limit is not a missing branch'
+    );
+  }
 }
 
   console.log('exposure reader tests passed');

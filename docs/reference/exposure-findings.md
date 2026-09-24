@@ -13,7 +13,10 @@ sentences the product says.
 ## What can be scanned today
 
 Exposure reads files from one selected GitHub branch at an immutable commit,
-looking for supported credential patterns. It does not execute repository code,
+looking for supported credential patterns -- and, when **Include every commit**
+is on, every commit's changes reachable from that commit, because a credential
+deleted in a later commit is still in the history and still readable by anyone
+with a clone. It does not execute repository code,
 audit all application vulnerabilities, or scan a hosted application by URL.
 Hosted URL scanning is not implemented; it is a separate capability, not an
 alternative input to **Scan this branch**.
@@ -28,7 +31,7 @@ inviting a new one as though none had run.
 ## What is detected
 
 A scan runs the release gate's seven rules and the scan's own catalogue of
-sixty-eight more, plus two rules that recognise a file by its name. The
+ninety-nine more, plus two rules that recognise a file by its name. The
 catalogue covers cloud and infrastructure (AWS secret keys, Google, Azure
 storage, DigitalOcean, Cloudflare, Vault, Terraform Cloud, Doppler, Pulumi,
 Render, Neon, Fly.io, Netlify, PlanetScale, Databricks), packages and CI (npm,
@@ -40,8 +43,24 @@ and webhooks (SendGrid, Mailgun, Mailchimp, Resend, Twilio, Slack, Discord and
 Teams webhook URLs, Telegram bots, Firebase messaging, X, Mapbox), content
 platforms (Notion, Airtable, HubSpot, Contentful), keys (age, PGP, DSA,
 encrypted PKCS#8, PuTTY), database connection strings with a password, and
-Supabase anonymous and service-role keys. The complete list is
+Supabase anonymous and service-role keys and the Supabase management token.
+Rules version 4 added the Supabase management token, Azure Entra ID client
+secrets, Alibaba access key ids, Heroku, Tailscale, 1Password service accounts,
+Datadog, Bitbucket app passwords, SonarQube, Sourcegraph, Octopus Deploy,
+Prefect, LaunchDarkly, RubyGems, NuGet, crates.io, Clojars, Docker config
+`auth` fields, `.npmrc` tokens, xAI, OpenRouter, Pinecone, LangSmith, Shippo,
+Plaid, WooCommerce, Slack app tokens, Discord bot tokens, Dropbox, Asana and
+Algolia admin keys. A credential with no prefix of its own -- Datadog, Algolia,
+Octopus, LaunchDarkly, Discord, Asana -- is recognised only where it is
+assigned to a name that says what it is. The complete list is
 `src/exposure-rules.js`, and every rule has an entry in the narration table.
+
+A credential written base64-encoded -- a Kubernetes secret, a Docker config, a
+key pasted as one encoded line -- is found too: each run that is plausibly
+base64 is decoded and, when what comes out is text, every rule is run over it.
+The finding is at the run's line and says it was encoded. Decoding is one level
+deep and bounded per file, and hashes, images, lockfile integrity strings and
+JWTs decode to nothing. Files saved as UTF-16 are read as text.
 
 Each rule is chosen for precision, because a findings list that is mostly
 documentation placeholders is a list people stop reading:
@@ -74,9 +93,41 @@ addresses, and reads up to six files at a time; results are consumed in tree
 order, so the same inputs make the same decisions whatever order answers arrive
 in. Every ceiling is decided when a read is started -- the byte ceiling at the
 size the tree declares -- so it falls on the same file at any concurrency.
-Images, fonts, archives, media, compiled objects and credential containers are
+Images, fonts, media, compiled objects and credential containers are
 recognised by extension and never fetched; they are counted, and they still
 make coverage partial, because they are places a scan did not look.
+
+An archive is opened instead: `.zip`, `.jar`, `.war`, `.ear`, `.whl`,
+`.nupkg`, `.apk`, Office documents, `.tar`, `.tar.gz`/`.tgz` and `.gz`, up to
+4 MiB compressed. Nothing is written to disk. Its members are read as files of
+their own and located as `<archive>!/<member>`; a keystore inside one is found
+by its name. Every member is capped at 512 KiB and the whole archive at 16 MiB
+inflated, by the output inflating produces rather than the sizes the archive
+declares, so a zip bomb costs one ceiling. An archive inside an archive, an
+encrypted member and a member whose name climbs out of the archive are counted
+and not read.
+
+### History
+
+With **Include every commit** on, a scan reads the tree first -- the current
+files are what a reader acts on first -- and then every commit reachable from
+the scan's commit, oldest first, up to 1,000 commits. Each commit's diff is
+reduced to the lines it added, scanned with the lines around them so a
+credential recognised by the words beside it still is, and a match is kept only
+when it starts on a line that commit added. A credential is therefore reported
+once, at the commit that introduced it. A merge's changes are its parents'
+changes and are not read twice. A change GitHub sends without a patch -- a
+binary, or a diff too large to include -- is read from its blob instead, up to
+200 per scan, and an archive changed in a commit is opened.
+
+Nothing about a commit is kept but its id and date: no author, no message. A
+finding that is only in history says so, names the commit that added it and
+when, and says that deleting it from the files did not remove it. The next
+history scan of the same branch by the same person starts where the last
+complete one stopped, when both ran under the same rules. The provider asking
+for fewer requests stops the history part of a scan, keeps what was read and
+records `rate-limited`; the commit ceiling records `commit-limit`. Both are
+partial coverage.
 
 The scan's claim and the requesting session are rechecked before the tree is
 read, every twenty-five reads or five seconds (whichever comes first), before
@@ -158,6 +209,22 @@ Slack `invalid_auth` — which Slack returns both for a revoked token and for a
 live token used from a restricted address. None of these may be read as safety:
 "we could not tell" and "it is harmless" are different sentences and only one
 of them is true.
+
+Verifiers exist for GitHub, GitLab and Slack tokens, and for OpenAI,
+Anthropic, Hugging Face, Groq, Replicate, xAI, OpenRouter, Google API keys,
+Stripe live and test keys, SendGrid, Mailgun, Resend, npm, DigitalOcean,
+Notion, Airtable, Linear, Postman, Figma, Doppler, Netlify, Render, Neon,
+Sentry, CircleCI, Buildkite, Terraform Cloud, Pulumi, HubSpot, Contentful,
+Square, X, the Supabase management token, Pinecone, Tailscale API keys,
+Dropbox, Asana, Heroku and Datadog API keys. Each asks one fixed endpoint
+that proves authentication and changes nothing, with the credential in a
+header. A Mailgun, Square or Datadog refusal is `unverifiable`, not `rejected`,
+because those keys are regional or share a prefix with sandbox keys and the
+endpoint asked may simply be the wrong one. Providers whose credential would
+have to travel in a URL (Telegram, Mapbox, webhooks), whose endpoint depends
+on a host found in the repository (Shopify, Databricks, Vault), or whose
+credential is half of a pair (AWS, Twilio, Braintree) have no verifier by
+design.
 
 An observation is good for a day. Past that it is stale, and a stale `verified`
 record is still a record of a credential seen live — staleness never becomes a

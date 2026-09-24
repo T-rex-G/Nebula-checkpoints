@@ -370,7 +370,6 @@ function adapter(spec) {
     profile: PROFILES.CREDENTIAL_VERIFY,
     method: 'GET',
     body: null,
-    headers: Object.freeze({ accept: 'application/json' }),
     credential: bearer,
     maxResponseBytes: PROBE_MAX_RESPONSE_BYTES,
     ...spec,

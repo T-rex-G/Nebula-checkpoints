@@ -555,6 +555,13 @@ function textFromBytes(bytes) {
 const MAX_ARCHIVE_RESPONSE_BYTES = Math.ceil(MAX_ARCHIVE_BYTES * 1.4) + 64 * 1024;
 const PATH_RULE_EXTENSIONS = Object.freeze(PATH_RULES.flatMap(rule => rule.extensions));
 
+function archiveSkip(reason) {
+  return Object.freeze({
+    skip: reason, members: Object.freeze([]), named: Object.freeze([]),
+    examined: 0, membersSkipped: 0, membersSkippedBinary: 0, truncated: false
+  });
+}
+
 /*
  * The text files inside one archive blob, each located as
  * `<archive>!/<member>`, with credential containers found by name and counts
@@ -568,7 +575,7 @@ async function readArchive(input = {}) {
   const archivePath = typeof input.path === 'string' ? input.path : '';
   const kind = archiveKind(archivePath);
   if (!kind || !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) {
-    return Object.freeze({ skip: SKIP_REASONS.UNREADABLE });
+    return archiveSkip(SKIP_REASONS.UNREADABLE);
   }
   let response;
   try {
@@ -577,22 +584,22 @@ async function readArchive(input = {}) {
       transport: input.transport, maxResponseBytes: MAX_ARCHIVE_RESPONSE_BYTES
     });
   } catch {
-    return Object.freeze({ skip: SKIP_REASONS.OVERSIZE });
+    return archiveSkip(SKIP_REASONS.OVERSIZE);
   }
   assertAuthorized(Number(response && response.statusCode));
-  if (Number(response && response.statusCode) !== 200) return Object.freeze({ skip: SKIP_REASONS.UNREADABLE });
+  if (Number(response && response.statusCode) !== 200) return archiveSkip(SKIP_REASONS.UNREADABLE);
   const body = parsed(response, MAX_ARCHIVE_RESPONSE_BYTES);
   if (!body || text(body.encoding) !== 'base64' || typeof body.content !== 'string') {
-    return Object.freeze({ skip: SKIP_REASONS.UNREADABLE });
+    return archiveSkip(SKIP_REASONS.UNREADABLE);
   }
   const bytes = Buffer.from(body.content, 'base64');
-  if (bytes.length > MAX_ARCHIVE_BYTES) return Object.freeze({ skip: SKIP_REASONS.OVERSIZE });
+  if (bytes.length > MAX_ARCHIVE_BYTES) return archiveSkip(SKIP_REASONS.OVERSIZE);
   const opened = openArchive({
     bytes, kind, path: archivePath, decodeText: textFromBytes,
     binaryExtensions: BINARY_EXTENSIONS, pathRuleExtensions: PATH_RULE_EXTENSIONS
   });
-  if (!opened) return Object.freeze({ skip: SKIP_REASONS.UNREADABLE });
-  if (opened.oversize) return Object.freeze({ skip: SKIP_REASONS.OVERSIZE });
+  if (!opened) return archiveSkip(SKIP_REASONS.UNREADABLE);
+  if (opened.oversize) return archiveSkip(SKIP_REASONS.OVERSIZE);
   const skippedCount = Object.values(opened.skipped).reduce((sum, value) => sum + value, 0);
   return Object.freeze({
     skip: null,
@@ -600,7 +607,7 @@ async function readArchive(input = {}) {
     named: opened.named,
     examined: opened.examined,
     membersSkipped: skippedCount,
-    membersSkippedBinary: opened.skipped.binary || 0,
+    membersSkippedBinary: /** @type {Record<string, number>} */ (opened.skipped).binary || 0,
     truncated: opened.truncated
   });
 }

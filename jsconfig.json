@@ -67,6 +67,7 @@
     "src/exposure-detection.js",
     "src/exposure-findings.js",
     "src/exposure-reader.js",
+    "src/exposure-archives.js",
     "src/exposure-narration.js",
     "src/exposure-store.js",
     "src/exposure-worker.js",

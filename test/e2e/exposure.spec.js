@@ -347,6 +347,53 @@ test('a requested scan progresses to completion and loads its findings', async (
   expect(state.scanBodies).toHaveLength(1);
 });
 
+test('history is included unless the reader turns it off, and the choice is remembered here', async ({ page }) => {
+  const state = await mockExposure(page);
+  await openExposure(page);
+  const depth = page.locator('#exposureHistoryToggle');
+  await expect(depth).toBeChecked();
+  await page.locator('#exposureScanBtn').click();
+  await expect(page.locator('#exposureState')).toHaveText('Queued');
+  expect(state.scanBodies[0].history).toBe(true);
+
+  /* A history scan says how many commits it read, and since when. */
+  state.currentScan = scan({
+    scanMode: 'history', commitsTotal: 42, commitsScanned: 42, commitsSkipped: 0,
+    filesTotal: 120, filesScanned: 120, filesSkippedBinary: 0, filesSkippedOther: 0,
+    archivesScanned: 2, archiveMembersScanned: 17, historyBaseCommit: 'b'.repeat(40)
+  });
+  await expect(page.locator('#exposureState')).toHaveText('Complete');
+  await expect(page.locator('#exposureCommitsFact')).toBeVisible();
+  await expect(page.locator('#exposureCommits')).toHaveText('42');
+  await expect(page.locator('#exposureBreakdown')).toContainText('Read 42 of 42 commits since the last full history scan (bbbbbbb).');
+  await expect(page.locator('#exposureBreakdown')).toContainText('Opened 2 archives and read 17 files inside.');
+  await expect(page.locator('#exposureProofLine')).toContainText('every commit before it');
+
+  /* Off is off, and stays off in this browser. */
+  await depth.uncheck();
+  await page.reload();
+  await openExposure(page);
+  await expect(page.locator('#exposureHistoryToggle')).not.toBeChecked();
+});
+
+test('a finding says when it is only in history, inside an archive, or encoded', async ({ page }) => {
+  const history = finding({
+    fingerprint: 'a'.repeat(64), path: 'config/old.env', displayPath: 'config/old.env',
+    inTree: false, introducedCommit: 'a1b2c3d'.padEnd(40, '0'), introducedAt: '2026-09-01T00:00:00.000Z'
+  });
+  const archived = finding({ fingerprint: 'b'.repeat(64), path: 'dist/app.zip!/config/.env', displayPath: 'dist/app.zip!/config/.env' });
+  const encoded = finding({ fingerprint: 'c'.repeat(64), path: 'k8s/secret.yaml', displayPath: 'k8s/secret.yaml', decodedFrom: 'base64' });
+  const plain = finding({ fingerprint: 'd'.repeat(64), path: 'app/plain.js', displayPath: 'app/plain.js', inTree: true });
+  await mockExposure(page, { findings: [history, archived, encoded, plain] });
+  await openExposure(page);
+  const tagsOf = fingerprint => page.locator(`.exposure-disclosure[data-fingerprint="${fingerprint.repeat(64)}"] .exposure-tag`);
+  await expect(tagsOf('a')).toHaveText(['Only in history · a1b2c3d']);
+  await expect(tagsOf('b')).toHaveText(['In an archive']);
+  await expect(tagsOf('c')).toHaveText(['Base64-encoded']);
+  await expect(tagsOf('d')).toHaveCount(0);
+  await expect(page.locator('.exposure-disclosure[data-fingerprint="' + 'd'.repeat(64) + '"] .exposure-item-tags')).toBeHidden();
+});
+
 test('failed scan startup explains a next step without provider details', async ({ page }) => {
   const state = await mockExposure(page);
   state.scanError = 'EXPOSURE_READ_FAILED';

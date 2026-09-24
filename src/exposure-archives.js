@@ -256,6 +256,13 @@ function readTar(bytes, archivePath, decodeText, binaryExtensions, pathRuleExten
   return state;
 }
 
+/* One shape for every answer, so a caller never has to ask which one it got. */
+function oversizeArchive() {
+  return Object.freeze({
+    oversize: true, members: Object.freeze([]), named: Object.freeze([]), examined: 0, truncated: false, skipped: Object.freeze({})
+  });
+}
+
 function gunzip(bytes) {
   try {
     return zlib.gunzipSync(bytes, { maxOutputLength: MAX_EXPANDED_BYTES + 1 });
@@ -283,13 +290,13 @@ function openArchive(input = {}) {
   else if (kind === 'tar') state = readTar(bytes, archivePath, decodeText, binaryExtensions, pathRuleExtensions);
   else if (kind === 'tgz') {
     const expanded = gunzip(bytes);
-    if (expanded === 'oversize') return Object.freeze({ oversize: true });
+    if (expanded === 'oversize') return oversizeArchive();
     state = expanded ? readTar(expanded, archivePath, decodeText, binaryExtensions, pathRuleExtensions) : null;
   } else if (kind === 'gz') {
     /* A single compressed file: its member is the archive's own name
        without `.gz`. */
     const expanded = gunzip(bytes);
-    if (expanded === 'oversize') return Object.freeze({ oversize: true });
+    if (expanded === 'oversize') return oversizeArchive();
     if (!expanded) return null;
     state = newState(pathRuleExtensions);
     state.examined = 1;

@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Exposure: History, Encoded Credentials, Archives, and Many More Checks
+
+A credential deleted in the commit after the one that added it is still in the
+repository -- anyone with a clone can read it -- and Exposure could not see
+that. It now can, alongside the kinds of hiding places a real scanner has to
+look in.
+
+- **History.** With **Include every commit** on (the default), a scan reads
+  the current files and then every commit's changes, oldest first, up to 1,000
+  commits. Only the lines a commit added are reported, so a credential is found
+  once, at the commit that introduced it. A finding only in history is tagged
+  and explained: which commit, when, and that deleting it did not help. The
+  next history scan of the same branch starts where the last complete one
+  stopped. Commit ceilings and provider throttling are partial coverage that
+  names itself.
+- **Encoded credentials.** Base64 runs are decoded and scanned (Kubernetes
+  secrets, Docker configs, kubeconfig keys), one level deep and bounded; UTF-16
+  files are read as text instead of being skipped as binary.
+- **Archives.** `.zip`, `.jar`, `.war`, `.whl`, Office documents, `.tar`,
+  `.tgz` and `.gz` are opened in memory and their files scanned as
+  `archive!/member`, with per-member and per-archive inflation ceilings that a
+  zip bomb cannot talk its way past.
+- **Detectors: 68 -> 99.** Supabase management tokens, Azure Entra secrets,
+  Heroku, Tailscale, 1Password, Datadog, package registries (RubyGems, NuGet,
+  crates.io, Clojars, `.npmrc`), xAI, OpenRouter, Pinecone, LangSmith, Plaid,
+  Discord bots, Docker config `auth` and more. Rules version 4.
+- **Verifiers: 3 -> 43.** "Check whether it still works" now answers for
+  OpenAI, Anthropic, Stripe, Google, SendGrid, npm, Notion, Heroku, the
+  Supabase management token and 30 more, each through one read-only endpoint
+  with the credential in a header, and regional or sandbox-ambiguous refusals
+  reported as ambiguous rather than rejected.
+- **No duplicates after an upgrade.** The findings list shows the generation
+  of the newest finished scan, so findings are not listed twice once a scan
+  runs under the new rules.
+- Migration **027** adds the scan mode, commit and archive counts, and each
+  observation's place (in the tree or only in history), introducing commit and
+  decoding. It must be applied before this release is deployed.
+
 ### Exposure: File Names, Line Numbers and a Cleaner Findings Header
 
 - **Findings name their file again.** A path was withheld whenever its file

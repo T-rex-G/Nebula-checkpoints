@@ -858,6 +858,136 @@ const refusingTransport = () => {
     }
   }
 
+  /* ---- The providers most often leaked ------------------------------------- */
+
+  /*
+   * Every provider adapter, against the exact token its rule reports: it is
+   * chosen for that token, it asks one fixed https endpoint with no query
+   * string, the credential travels in exactly one header and nowhere in the
+   * URL, a 200 of the documented shape is verified, a documented refusal is
+   * rejected -- except where a refusal is ambiguous by design -- throttling
+   * is throttling, and no record carries the credential.
+   */
+  {
+    const { ALL_FIXTURES } = require('./fixtures/exposure-rule-fixtures');
+    const { detectInText } = require('../src/exposure-detection');
+    const SUCCESS = {
+      'openai-api-key': { object: 'list', data: [] },
+      'anthropic-api-key': { data: [], has_more: false },
+      'huggingface-token': { id: 'u1', name: 'someone' },
+      'groq-api-key': { object: 'list', data: [] },
+      'replicate-token': { type: 'user', username: 'someone' },
+      'google-api-key': { models: [] },
+      'stripe-live-key': { id: 'acct_1', object: 'account' },
+      'stripe-test-key': { id: 'acct_1', object: 'account' },
+      'sendgrid-api-key': { scopes: ['mail.send'] },
+      'mailgun-api-key': { items: [], total_count: 0 },
+      'resend-api-key': { data: [] },
+      'npm-token': { username: 'someone' },
+      'digitalocean-token': { account: { uuid: 'u-1' } },
+      'notion-token': { object: 'user', id: 'n-1' },
+      'airtable-token': { id: 'usr1' },
+      'linear-api-key': { data: { viewer: { id: 'l-1' } } },
+      'postman-api-key': { user: { id: 7 } },
+      'figma-token': { id: 'f-1' },
+      'doppler-token': { slug: 'workplace' },
+      'netlify-token': { id: 'n-1' },
+      'render-api-key': { email: 'someone@example.com' },
+      'neon-api-key': { id: 'neon-1' },
+      'sentry-token': [],
+      'circleci-token': { id: 'c-1', login: 'someone' },
+      'buildkite-token': { uuid: 'b-1', scopes: [] },
+      'terraform-cloud-token': { data: { id: 'user-1' } },
+      'pulumi-token': { githubLogin: 'someone' },
+      'hubspot-token': { portalId: 123 },
+      'contentful-token': { sys: { id: 'c-1' } },
+      'square-token': { merchant: { id: 'm-1' } },
+      'twitter-bearer-token': { data: { id: '20' } },
+      'supabase-access-token': [],
+      'xai-api-key': { api_key_id: 'k-1' },
+      'openrouter-api-key': { data: { label: 'key' } },
+      'pinecone-api-key': { indexes: [] },
+      'tailscale-api-key': { keys: [] },
+      'dropbox-token': { account_id: 'dbid:1' },
+      'asana-token': { data: { gid: '1' } },
+      'heroku-api-key': { id: 'h-1' },
+      'datadog-api-key': { valid: true }
+    };
+    const AMBIGUOUS_401 = new Set(['mailgun-api-key', 'square-token']);
+    const NOT_REFUSED_BY_401 = new Set(['google-api-key', 'resend-api-key', 'datadog-api-key']);
+    const providers = Object.values(ADAPTERS).filter(item => !['github-user-token', 'gitlab-user-token', 'slack-user-token'].includes(item.id));
+    assert(providers.length >= 30, `expected the provider set, found ${providers.length}`);
+
+    for (const adapter of providers) {
+      assert(Object.hasOwn(SUCCESS, adapter.id), `${adapter.id} needs a documented success fixture here`);
+      const built = ALL_FIXTURES[adapter.rule]();
+      const text = built.line || `const value = '${built.secret}';`;
+      const found = detectInText({ text }).candidates.find(item => item.rule === adapter.rule);
+      assert(found, `${adapter.rule} fixture is found by its rule`);
+      const candidate = candidateFor(adapter.rule, found.secret);
+      assert.strictEqual(adapterForCandidate(candidate), adapter, `${adapter.id} is chosen for the token its rule reports`);
+      assert.doesNotMatch(adapter.probePath, /\?/, `${adapter.id} carries no query string`);
+
+      const answer = (statusCode, body) => fixtureTransport({ statusCode, body: JSON.stringify(body), headers: {} });
+      const run = transport => verifyCredential({
+        candidate, authorization: authorizationFor(candidate), authorizationKey, subjectKey, actorLogin: 'alice', now: NOW, transport
+      });
+
+      const okTransport = answer(200, SUCCESS[adapter.id]);
+      const ok = await run(okTransport);
+      assert.strictEqual(ok.state, 'verified', `${adapter.id}: a documented 200 is verified`);
+      const [request] = okTransport.calls;
+      assert.strictEqual(request.url, `${adapter.origin}${adapter.probePath}`);
+      assert.strictEqual(request.profile, PROFILES.CREDENTIAL_VERIFY);
+      assert(!request.url.includes(found.secret), `${adapter.id}: the credential is never in the URL`);
+      const carrying = Object.entries(request.headers).filter(([, value]) => String(value).includes(found.secret)
+        || String(value).includes(Buffer.from(`${found.secret}:`).toString('base64'))
+        || String(value).includes(Buffer.from(`api:${found.secret}`).toString('base64')));
+      assert.strictEqual(carrying.length, 1, `${adapter.id}: exactly one header carries the credential`);
+      assert(request.headers['user-agent']);
+      assert(!JSON.stringify(ok).includes(found.secret), `${adapter.id}: no record carries the credential`);
+
+      const refusal = await run(answer(401, { error: 'unauthorized' }));
+      if (AMBIGUOUS_401.has(adapter.id)) {
+        assert.strictEqual(refusal.reason, REASONS.PROVIDER_AMBIGUOUS_REJECTION, `${adapter.id}: a regional or sandbox refusal is not a verdict`);
+      } else if (NOT_REFUSED_BY_401.has(adapter.id)) {
+        assert.strictEqual(refusal.state, 'unverifiable', `${adapter.id}: a bare 401 is not this provider's refusal`);
+      } else {
+        assert.strictEqual(refusal.state, 'rejected', `${adapter.id}: a documented refusal is rejected`);
+      }
+      const throttled = await run(answer(429, {}));
+      assert.strictEqual(throttled.reason, REASONS.PROVIDER_THROTTLED, `${adapter.id}: throttling is throttling`);
+      const odd = await run(answer(500, {}));
+      assert.strictEqual(odd.state, 'unverifiable', `${adapter.id}: an unexpected status is not a verdict`);
+      assert(!JSON.stringify([refusal, throttled, odd]).includes(found.secret));
+    }
+
+    /* The providers whose refusals needed reading, not counting. */
+    const pick = rule => {
+      const built = ALL_FIXTURES[rule]();
+      const found = detectInText({ text: built.line || `const value = '${built.secret}';` }).candidates.find(item => item.rule === rule);
+      return candidateFor(rule, found.secret);
+    };
+    const ask = async (rule, statusCode, body) => verifyCredential({
+      candidate: pick(rule), authorization: authorizationFor(pick(rule)), authorizationKey, subjectKey, actorLogin: 'alice', now: NOW,
+      transport: fixtureTransport({ statusCode, body: JSON.stringify(body), headers: {} })
+    });
+    assert.strictEqual((await ask('google-api-key', 400, { error: { status: 'INVALID_ARGUMENT', details: [{ reason: 'API_KEY_INVALID' }] } })).state, 'rejected');
+    assert.strictEqual((await ask('google-api-key', 403, { error: { status: 'PERMISSION_DENIED' } })).reason, REASONS.PROVIDER_POLICY_RESTRICTED,
+      'a key restricted from this API is still a live key');
+    assert.strictEqual((await ask('resend-api-key', 401, { name: 'restricted_api_key' })).reason, REASONS.PROVIDER_POLICY_RESTRICTED,
+      'a sending-only key is live');
+    assert.strictEqual((await ask('resend-api-key', 403, { name: 'invalid_api_key' })).state, 'rejected');
+    assert.strictEqual((await ask('figma-token', 403, { status: 403, err: 'Invalid token' })).state, 'rejected');
+    assert.strictEqual((await ask('figma-token', 403, { status: 403, err: 'Forbidden' })).reason, REASONS.PROVIDER_POLICY_RESTRICTED);
+    assert.strictEqual((await ask('linear-api-key', 400, { errors: [{ extensions: { code: 'AUTHENTICATION_ERROR' } }] })).state, 'rejected');
+    assert.strictEqual((await ask('datadog-api-key', 403, { errors: ['Forbidden'] })).reason, REASONS.PROVIDER_AMBIGUOUS_REJECTION,
+      'a key from another Datadog site is refused here as well');
+    assert.strictEqual((await ask('xai-api-key', 400, { error: 'Incorrect API key provided: xa***' })).state, 'rejected');
+    assert.strictEqual((await ask('npm-token', 200, {})).reason, REASONS.MALFORMED_IDENTITY_RESPONSE,
+      'a 200 without the identity it promises is not a confirmation');
+  }
+
   console.log('credential verification tests passed');
 })().catch(error => {
   console.error(error && error.stack || error);

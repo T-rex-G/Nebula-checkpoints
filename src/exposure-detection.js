@@ -56,14 +56,20 @@ const { EXPOSURE_RULES, PATH_RULES } = require('./exposure-rules');
  *
  * Rule set digest (sha256 over rule name, source and flags, gate rules then
  * scan rules, then each path rule's name and extensions):
- *   97d476c4c6acd46f4f653af37817b0a167a40e00c90ee5917ae76d30e8112e14
+ *   a96561b4616b0f5422d6835e1198c8c48cca85650d70d09987f6d77fc9763dcb
  */
 /*
  * 3: the scan's own catalogue -- cloud, CI, AI, payments, messaging, key files
  * and connection strings -- with a plausibility check that refuses
  * placeholders, and rules that recognise a credential container by its name.
  */
-const RULES_VERSION = 3;
+/*
+ * 4: thirty-one more -- package registries, AI providers, infrastructure,
+ * collaboration tools, the Supabase management token, Docker and npm
+ * configuration -- with the prefix-less ones recognised only beside a name
+ * that says what they are.
+ */
+const RULES_VERSION = 4;
 /*
  * 2: base64 runs are decoded and scanned, and a commit's hunks can be scanned
  * for what that commit added.

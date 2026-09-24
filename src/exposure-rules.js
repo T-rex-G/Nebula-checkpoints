@@ -51,6 +51,16 @@ function token(body, flags = '') {
   return new RegExp(`${LEFT}(?:${body})${RIGHT}`, flags);
 }
 
+/*
+ * A credential with no prefix of its own, recognised only where it is
+ * assigned to a name that says what it is: `OCTOPUS_API_KEY=API-...`,
+ * `asanaToken: "2/..."`. The name is behind a lookbehind, so the finding is
+ * the credential and not the formatting around it.
+ */
+function named(names, body) {
+  return new RegExp(`(?<=(?:${names})[A-Za-z0-9_]*["']?\\s{0,4}[:=]\\s{0,4}["']?)(?:${body})${RIGHT}`, 'i');
+}
+
 /* ---- Is this plausibly a real secret? ---------------------------------- */
 
 /*
@@ -143,6 +153,9 @@ const EXPOSURE_RULES = Object.freeze([
     }
   }),
 
+  /* The Management API token: it reaches every project the account can. */
+  Object.freeze({ rule: 'supabase-access-token', regex: token('sbp_(?:oauth_)?[a-f0-9]{40}'), keywords: Object.freeze(['sbp_']), accept: plausibleSecret }),
+
   /* ---- Cloud and infrastructure ---- */
   Object.freeze({
     rule: 'aws-secret-access-key',
@@ -177,6 +190,21 @@ const EXPOSURE_RULES = Object.freeze([
   Object.freeze({ rule: 'netlify-token', regex: token('nfp_[A-Za-z0-9]{36}'), keywords: Object.freeze(['nfp_']), accept: plausibleSecret }),
   Object.freeze({ rule: 'planetscale-token', regex: token('pscale_(?:tkn|pw|oauth)_[A-Za-z0-9=._-]{32,64}'), keywords: Object.freeze(['pscale_']), accept: plausibleSecret }),
   Object.freeze({ rule: 'databricks-token', regex: token('dapi[a-f0-9]{32}(?:-[0-9])?'), keywords: Object.freeze(['dapi']), accept: plausibleSecret }),
+  /* An Entra ID application secret carries `Q~` after its first four characters. */
+  Object.freeze({ rule: 'azure-ad-client-secret', regex: token('[A-Za-z0-9_~.]{3}[0-9]Q~[A-Za-z0-9_~.-]{31,34}'), keywords: Object.freeze(['q~']), accept: plausibleSecret }),
+  /* Half of a pair, like an AWS key id -- the secret is usually a line away. */
+  Object.freeze({ rule: 'alibaba-access-key', regex: token('LTAI[A-Za-z0-9]{12,20}'), keywords: Object.freeze(['ltai']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'heroku-api-key', regex: token('HRKU-[A-Za-z0-9_-]{58,64}'), keywords: Object.freeze(['hrku-']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'tailscale-key', regex: token('tskey-(?:api|auth|client|webhook|scim)-[A-Za-z0-9]{6,32}-[A-Za-z0-9]{20,64}'), keywords: Object.freeze(['tskey-']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'onepassword-service-token', regex: token('ops_eyJ[A-Za-z0-9_-]{100,}'), keywords: Object.freeze(['ops_eyj']), accept: plausibleSecret }),
+  /* Contextual: a Datadog key is thirty-two hex characters with no prefix, so
+     it is recognised only beside the name it is assigned to. */
+  Object.freeze({
+    rule: 'datadog-api-key',
+    regex: /(?<=(?:datadog|dd)_?(?:api|app(?:lication)?)_?key["']?\s{0,4}[:=]\s{0,4}["']?)[a-f0-9]{32}(?:[a-f0-9]{8})?(?![A-Za-z0-9])/i,
+    keywords: Object.freeze(['datadog', 'dd']),
+    accept: plausibleSecret
+  }),
 
   /* ---- Source, packages and CI ---- */
   Object.freeze({ rule: 'npm-token', regex: token('npm_[A-Za-z0-9]{36}'), keywords: Object.freeze(['npm_']), accept: plausibleSecret }),
@@ -193,6 +221,38 @@ const EXPOSURE_RULES = Object.freeze([
   Object.freeze({ rule: 'grafana-token', regex: token('glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}|glc_[A-Za-z0-9+/]{32,400}={0,2}'), keywords: Object.freeze(['glsa_', 'glc_']), accept: plausibleSecret }),
   Object.freeze({ rule: 'new-relic-key', regex: token('NRAK-[A-Z0-9]{27}'), keywords: Object.freeze(['nrak-']), accept: plausibleSecret }),
   Object.freeze({ rule: 'dynatrace-token', regex: token('dt0c01\\.[A-Z0-9]{24}\\.[A-Z0-9]{64}'), keywords: Object.freeze(['dt0c01.']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'bitbucket-app-password', regex: token('ATBB[A-Za-z0-9_=.-]{32}'), keywords: Object.freeze(['atbb']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'sonarqube-token', regex: token('sqp_[a-f0-9]{40}|squ_[a-f0-9]{40}|sqa_[a-f0-9]{40}'), keywords: Object.freeze(['sqp_', 'squ_', 'sqa_']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'sourcegraph-token', regex: token('sgp_(?:[a-f0-9]{16}_)?[a-f0-9]{40}'), keywords: Object.freeze(['sgp_']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'octopus-deploy-key', regex: named('octopus', 'API-[A-Z0-9]{26,32}'), keywords: Object.freeze(['octopus']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'prefect-api-key', regex: token('pnu_[A-Za-z0-9]{36}'), keywords: Object.freeze(['pnu_']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'launchdarkly-key', regex: named('launchdarkly|ld_(?:sdk|api)', '(?:api|sdk)-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'), keywords: Object.freeze(['launchdarkly', 'ld_']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'rubygems-token', regex: token('rubygems_[a-f0-9]{48}'), keywords: Object.freeze(['rubygems_']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'nuget-api-key', regex: token('oy2[a-z0-9]{43}'), keywords: Object.freeze(['oy2']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'cratesio-token', regex: token('cio[A-Za-z0-9]{32}'), keywords: Object.freeze(['cio']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'clojars-token', regex: token('CLOJARS_[a-z0-9]{60}'), keywords: Object.freeze(['clojars_']), accept: plausibleSecret }),
+  /*
+   * Registry credentials in a Docker config: base64 of `user:password`, which
+   * decodes to nothing any other rule names -- so the field itself is the
+   * finding, and only when it decodes to a user and a password.
+   */
+  Object.freeze({
+    rule: 'docker-config-auth',
+    regex: /(?<="auth"\s{0,4}:\s{0,4}")[A-Za-z0-9+/]{12,}={0,2}(?=")/,
+    keywords: Object.freeze(['"auth"']),
+    accept: secret => {
+      let decoded = '';
+      try { decoded = Buffer.from(secret, 'base64').toString('utf8'); } catch { return false; }
+      return /^[^:\s]{1,256}:\S{6,}$/.test(decoded) && plausibleSecret(decoded.slice(decoded.indexOf(':') + 1));
+    }
+  }),
+  /* A legacy npm token -- a UUID -- only means anything after `_authToken=`. */
+  Object.freeze({
+    rule: 'npmrc-auth-token',
+    regex: /(?<=:_authToken=)[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(?![A-Za-z0-9-])/,
+    keywords: Object.freeze(['_authtoken']),
+    accept: plausibleSecret
+  }),
 
   /* ---- AI providers ---- */
   Object.freeze({
@@ -208,6 +268,10 @@ const EXPOSURE_RULES = Object.freeze([
   Object.freeze({ rule: 'replicate-token', regex: token('r8_[A-Za-z0-9]{37}'), keywords: Object.freeze(['r8_']), accept: plausibleSecret }),
   Object.freeze({ rule: 'groq-api-key', regex: token('gsk_[A-Za-z0-9]{52}'), keywords: Object.freeze(['gsk_']), accept: plausibleSecret }),
   Object.freeze({ rule: 'perplexity-api-key', regex: token('pplx-[A-Za-z0-9]{48}'), keywords: Object.freeze(['pplx-']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'xai-api-key', regex: token('xai-[A-Za-z0-9]{80}'), keywords: Object.freeze(['xai-']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'openrouter-api-key', regex: token('sk-or-v1-[a-f0-9]{64}'), keywords: Object.freeze(['sk-or-v1-']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'pinecone-api-key', regex: token('pcsk_[A-Za-z0-9]{5,6}_[A-Za-z0-9]{50,70}'), keywords: Object.freeze(['pcsk_']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'langsmith-api-key', regex: token('lsv2_(?:pt|sk)_[a-f0-9]{32}_[a-f0-9]{10}'), keywords: Object.freeze(['lsv2_']), accept: plausibleSecret }),
 
   /* ---- Payments and commerce ---- */
   Object.freeze({ rule: 'stripe-live-key', regex: token('(?:sk|rk)_live_[0-9a-zA-Z]{24,247}'), keywords: Object.freeze(['_live_']), accept: plausibleSecret }),
@@ -218,6 +282,10 @@ const EXPOSURE_RULES = Object.freeze([
   Object.freeze({ rule: 'braintree-token', regex: token('access_token\\$production\\$[0-9a-z]{16}\\$[0-9a-f]{32}'), keywords: Object.freeze(['access_token$production$']), accept: plausibleSecret }),
   Object.freeze({ rule: 'flutterwave-secret-key', regex: token('FLWSECK(?:_TEST)?-[a-f0-9]{32}-X'), keywords: Object.freeze(['flwseck']), accept: plausibleSecret }),
   Object.freeze({ rule: 'easypost-api-key', regex: token('EZAK[a-f0-9]{54}'), keywords: Object.freeze(['ezak']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'shippo-token', regex: token('shippo_(?:live|test)_[a-f0-9]{40}'), keywords: Object.freeze(['shippo_']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'plaid-access-token', regex: token(['access-sandbox', 'access-development', 'access-production']
+    .map(prefix => `${prefix}-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`).join('|')), keywords: Object.freeze(['access-production', 'access-sandbox', 'access-development']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'woocommerce-secret', regex: token('cs_[a-f0-9]{40}'), keywords: Object.freeze(['cs_']), accept: plausibleSecret }),
 
   /* ---- Messaging, email and webhooks ---- */
   Object.freeze({ rule: 'sendgrid-api-key', regex: token('SG\\.[A-Za-z0-9_-]{22}\\.[A-Za-z0-9_-]{43}'), keywords: Object.freeze(['sg.']), accept: plausibleSecret }),
@@ -232,12 +300,25 @@ const EXPOSURE_RULES = Object.freeze([
   Object.freeze({ rule: 'firebase-cloud-messaging-key', regex: token('AAAA[A-Za-z0-9_-]{7}:[A-Za-z0-9_-]{140}'), keywords: Object.freeze(['aaaa']), accept: plausibleSecret }),
   Object.freeze({ rule: 'twitter-bearer-token', regex: token('AAAAAAAAAAAAAAAAAAAAA[A-Za-z0-9%]{30,}'), keywords: Object.freeze(['aaaaaaaaaaaaaaaaaaaaa']), accept: plausibleSecret }),
   Object.freeze({ rule: 'mapbox-secret-token', regex: token('sk\\.eyJ[A-Za-z0-9_-]{50,}\\.[A-Za-z0-9_-]{20,}'), keywords: Object.freeze(['sk.eyj']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'slack-app-token', regex: token('xapp-[0-9]-[A-Z0-9]{9,12}-[0-9]{10,16}-[a-f0-9]{64}'), keywords: Object.freeze(['xapp-']), accept: plausibleSecret }),
+  /* A Discord bot token has no prefix of its own, so it is recognised beside
+     a name that says it is one. */
+  Object.freeze({ rule: 'discord-bot-token', regex: named('discord', '[MN][A-Za-z0-9]{23,25}\\.[A-Za-z0-9_-]{6}\\.[A-Za-z0-9_-]{27,38}'), keywords: Object.freeze(['discord']), accept: plausibleSecret }),
 
   /* ---- Productivity and content platforms ---- */
   Object.freeze({ rule: 'notion-token', regex: token('secret_[A-Za-z0-9]{43}|ntn_[A-Za-z0-9]{46}'), keywords: Object.freeze(['secret_', 'ntn_']), accept: plausibleSecret }),
   Object.freeze({ rule: 'airtable-token', regex: token('pat[A-Za-z0-9]{14}\\.[a-f0-9]{64}'), keywords: Object.freeze(['pat']), accept: plausibleSecret }),
   Object.freeze({ rule: 'hubspot-token', regex: token('pat-(?:na|eu)1-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'), keywords: Object.freeze(['pat-']), accept: plausibleSecret }),
   Object.freeze({ rule: 'contentful-token', regex: token('CFPAT-[A-Za-z0-9_-]{43}'), keywords: Object.freeze(['cfpat-']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'dropbox-token', regex: token('sl\\.[A-Za-z0-9_-]{130,}'), keywords: Object.freeze(['sl.']), accept: plausibleSecret }),
+  Object.freeze({ rule: 'asana-token', regex: named('asana', '[12]/[0-9]{10,20}(?:/[0-9]{10,20})?:[a-f0-9]{32}'), keywords: Object.freeze(['asana']), accept: plausibleSecret }),
+  /* Contextual, like Datadog: thirty-two hex characters beside the name. */
+  Object.freeze({
+    rule: 'algolia-admin-key',
+    regex: /(?<=algolia_?(?:admin_?|write_?)?(?:api_?)?key["']?\s{0,4}[:=]\s{0,4}["']?)[a-f0-9]{32}(?![A-Za-z0-9])/i,
+    keywords: Object.freeze(['algolia']),
+    accept: plausibleSecret
+  }),
 
   /* ---- Keys and key files ---- */
   Object.freeze({ rule: 'age-secret-key', regex: token('AGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58}'), keywords: Object.freeze(['age-secret-key-1']), accept: plausibleSecret }),

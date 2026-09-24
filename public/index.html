@@ -1052,10 +1052,24 @@
                 <dt>Files read</dt>
                 <dd id="exposureFiles">—</dd>
               </div>
+              <div class="exposure-fact" id="exposureCommitsFact" hidden>
+                <dt>Commits read</dt>
+                <dd id="exposureCommits">—</dd>
+              </div>
             </dl>
             <p class="exposure-breakdown" id="exposureBreakdown" hidden></p>
             <p class="exposure-caveat" id="exposureCaveat" hidden></p>
             <p class="exposure-clear-warning" id="exposureClearWarning" role="alert" hidden></p>
+            <!-- How deep the next scan reads. The current files are always read;
+                 history is every commit's changes, which is where a credential
+                 somebody deleted is still readable. -->
+            <label class="exposure-depth" for="exposureHistoryToggle">
+              <input type="checkbox" id="exposureHistoryToggle" checked>
+              <span class="exposure-depth-text">
+                <span class="exposure-depth-title">Include every commit</span>
+                <span class="exposure-depth-hint">Also finds credentials that were deleted but are still in the history.</span>
+              </span>
+            </label>
             <div class="exposure-actions">
               <button class="btn" id="exposureScanBtn" type="button">Scan this branch</button>
               <button class="btn ghost" id="exposureCancelBtn" type="button" hidden>Cancel scan</button>

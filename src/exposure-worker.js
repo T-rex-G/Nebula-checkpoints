@@ -104,6 +104,7 @@ const DEFAULT_BUDGETS = Object.freeze({
 });
 
 const COMMIT_PATTERN = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
+const MAX_ARCHIVES_IN_FLIGHT = 2;
 /* The reader's word for a file that is not text, spelled once here rather than
    requiring the reader -- the worker receives a reader, it does not pick one. */
 const SKIP_BINARY = 'binary';
@@ -410,6 +411,16 @@ function createExposureRunner(options = {}) {
             break;
           }
           const entry = entries[next];
+          /*
+           * An archive read holds its response, its bytes and what it inflates
+           * to at once -- tens of megabytes at the ceilings -- so no more than
+           * two are in flight on a service with half a gigabyte. The next one
+           * waits for an earlier read to be consumed; nothing is skipped.
+           */
+          if (entry.archive && canOpenArchives
+            && inflight.filter(item => item.entry.archive).length >= MAX_ARCHIVES_IN_FLIGHT) {
+            break;
+          }
           const declared = Number.isInteger(entry.size) && entry.size > 0 ? entry.size : 0;
           if (dispatchedBytes >= budgets.maxBytes || dispatchedBytes + declared > budgets.maxBytes) {
             budgetReason = 'byte-limit';

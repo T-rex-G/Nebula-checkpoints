@@ -1396,6 +1396,33 @@ function runnerFor(store, reader, options = {}) {
     assert.strictEqual(result.state, 'partial', 'a member that was not read makes the scan partial');
   }
 
+  /* No more than two archives are open at once, and none is skipped for it. */
+  {
+    const store = fakeStore();
+    const reader = fakeReader({ 'README.md': 'x\n' });
+    const baseTree = reader.readTree;
+    reader.readTree = async input => {
+      const tree = await baseTree(input);
+      const archives = Array.from({ length: 6 }, (_, index) => ({ path: `dist/a${index}.zip`, sha: String(index).repeat(40), size: 1024, archive: 'zip' }));
+      return { ...tree, entries: [...archives, ...tree.entries] };
+    };
+    let open = 0;
+    let peak = 0;
+    const opened = [];
+    reader.readArchive = async input => {
+      open += 1;
+      peak = Math.max(peak, open);
+      await new Promise(resolve => setImmediate(resolve));
+      open -= 1;
+      opened.push(input.path);
+      return { skip: null, members: [], named: [], examined: 0, membersSkipped: 0, membersSkippedBinary: 0, truncated: false };
+    };
+    await runnerFor(store, reader).runOnce();
+    assert(peak <= 2, `at most two archives in flight, saw ${peak}`);
+    assert.strictEqual(opened.length, 6);
+    assert.strictEqual(store.finalized.archivesScanned, 6);
+  }
+
   console.log('exposure worker tests passed');
 })().catch(error => {
   console.error(error && error.stack || error);

@@ -2,6 +2,114 @@
 
 ## Unreleased
 
+### Exposure: Faster Scans, Broader Detection, History and a Clear Button
+
+Exposure worked, but it was slow, recognised seven kinds of credential, forgot
+every scan the moment the page reloaded, and had no way to read a report
+except as a wall of text. This round addresses all four.
+
+**Speed.** Measured on the scan loop alone with a fixed 100 ms per read, 200
+files went from 23.1 s to 3.5 s, and the authorization checks from 402 to 9.
+That excludes the two changes below that save most on a real network.
+
+- **The access check was most of what a scan did.** The worker renewed its
+  lease and fully re-resolved the requesting session -- several database
+  queries and an unseal -- before *and* after every file. It is now due every
+  25 reads or 5 seconds, whichever is first, and unconditionally before every
+  write and before finishing. No read is started after a revocation is noticed,
+  and nothing read under a revoked session is ever written.
+- **Every file paid a DNS lookup and a TLS handshake.** The transport refused
+  connection pools, because a pooled socket could be one opened to a different
+  address for the same name. A scan now opens one keep-alive pool per
+  *validated address* (`createGuardedSession`), so that property holds by
+  construction; the transport also refuses any pool it did not mint, or one
+  minted for another name or address. Provider reads only -- signed webhooks
+  and credential probes keep one connection per request.
+- **Reads overlap**, up to six at once, and are consumed in tree order, so the
+  same inputs make the same decisions however the network orders its answers.
+  Every ceiling is decided when a read starts -- the byte ceiling at the size
+  the tree declares -- so it falls on the same file at every concurrency, and a
+  test holds it there.
+- **Binaries are recognised by name and never fetched.** Every image, font and
+  archive used to cost a request only to be refused once its bytes arrived.
+  Only formats that cannot be UTF-8 text are skipped this way; SVG, `.bin` and
+  `.dat` are still read. Skipped files still make coverage partial.
+- **A requested scan starts immediately** instead of waiting up to fifteen
+  seconds for the next poll, and a queue of scans drains back to back.
+- **Line numbers are computed once per file** rather than by walking from the
+  top of the file for every match.
+
+**A deliberate trade-off to review.** The review round's guarantee was that a
+revocation *during* a read stops the scan before a second read -- which holds
+only if reads are strictly sequential with a check between each, the very
+pattern that made scans slow. The default is now the bounded guarantee above:
+reads already in flight (at most five) may complete, but none is started after
+the revocation is noticed and none of their results is written. The strict
+guarantee is kept as a tested configuration (`readConcurrency: 1,
+renewEveryFiles: 1`) and the default's bounded guarantee has its own test.
+
+**Breadth.** 68 scan-only rules beside the release gate's seven, plus two that
+recognise a file by its name -- cloud and infrastructure, CI and package
+registries, AI providers, payments, messaging and webhook URLs, content
+platforms, private-key formats the gate does not cover, and database
+connection strings. Each is built for precision, because a findings list that
+is mostly documentation placeholders is a list people stop reading:
+
+- **A distinctive, bounded shape** -- almost every rule anchors on a prefix its
+  issuer chose so tokens could be recognised.
+- **A plausibility check** refuses placeholders (a key prefix followed by a run of x's, `YOUR_API_KEY`,
+  `${SECRET}`) and anything under three bits of entropy per character;
+  connection strings with a placeholder password are not reported.
+- **Keywords** skip a rule entirely on a file that cannot contain it, which is
+  what keeps seventy rules as cheap as seven. A test runs the whole corpus with
+  the pre-filter on and off and requires identical answers.
+- **Every rule has a positive fixture** found under exactly its own rule and no
+  other, placeholders and near misses produce nothing, and a corpus of ordinary
+  repository content -- lockfile hashes, UUIDs, commit ids, colours, base64
+  images, session JWTs -- produces no finding.
+- **Keystores and password databases** (`.p12`, `.pfx`, `.jks`, `.kdbx`, ...)
+  are found from the tree by name, never fetched, with the blob as identity.
+- Every new rule has its own consequence and revocation step in the narration
+  table. `RULES_VERSION` moves to 3 and the scan configuration to 2, so a new
+  scan is never compared with one that ran a different rule set.
+- Verification is now offered only where a verifier exists. Three do; offering
+  a two-press check on dozens of rules that would always answer
+  "unverifiable" would teach people to ignore the control.
+
+**History.** Every scan of a repository is listed newest first and grouped by
+day ("Today", "Yesterday", then dates), each row saying when it ran, how it
+ended, which branch and commit, and what it found by severity -- readable
+without opening it. Opening a row fetches that scan's report once: what it read
+in numbers that add up to the tree (read, binary, other, stopped by a limit),
+and each finding it observed. Older scans load a page at a time, continued from
+the last row seen rather than by offset. Reloading the page now restores the
+newest scan, including one still running, instead of offering to start one as
+though none had run. Migration 026 adds the skip counts and a history index.
+
+**Report.** Findings are disclosures sorted worst first: a summary row with
+severity as a word, the credential's kind, the file and line, and what has been
+decided; opened, the full explanation and the controls. One button expands or
+collapses them all. A file *named* with a credential is described in the
+summary rather than printed -- the summary row was the one place the raw path
+would otherwise have reached the screen.
+
+**Clear.** *Clear history* removes every scan, finding and check result recorded
+for the repository under the reader's own account. Two presses, the first
+saying exactly what goes; refused while a scan is queued or running; nobody
+else's record is touched. It is a governed action (`exposure.history.clear`,
+control catalog **1.4.0**); revision 1.3.0 is unchanged and hashes byte-for-byte
+as before, so policies approved against it still mean what they meant.
+
+**Two things the tests caught in my own work this round.** The summary row
+first printed the raw path, bypassing the credential-shaped-name guard; it now
+uses a server-computed `displayPath`. And `src/supabase-key-kinds.js` from the
+previous round had never been added to the typechecked set; it is now, with the
+new rules module.
+
+Ratchets moved with reasons: routes 157 → 159, exposure routes 10 → 12,
+migrations 025 → 026. 17 sabotages across the transport, worker, detectors
+and screen, all caught.
+
 ### Using a Finding: Verification, Acceptance, and Asking the Project
 
 The three routes built in the previous rounds could not be reached from

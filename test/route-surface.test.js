@@ -155,8 +155,14 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * answer. What it does not do is choose any of them -- the relation and the
  * projection arrive from the request and the prober refuses whatever it will
  * not ask for, so no judgement about somebody's database lives in this file.
+ *
+ * 157 to 159 adds the exposure history read and the clear. The history
+ * handler reads one page of scans and one query of rule counts, and sums the
+ * counts by the narration table's severity; the clear checks a confirmation
+ * word and calls one store method, whose transaction is where every decision
+ * about what is removed lives and is tested against a real database.
  */
-const SERVER_ROUTE_CEILING = 157;
+const SERVER_ROUTE_CEILING = 159;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

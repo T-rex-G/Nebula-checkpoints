@@ -146,17 +146,18 @@ const { createGovernanceRuntime } = require('./src/governance-enforcement');
 const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
-const { startExposureWorker } = require('./src/exposure-worker');
+const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
+const { PROFILES: GUARDED_PROFILES, createGuardedSession } = require('./src/guarded-fetch');
 const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
 
-const { describeDisposition, describeFinding, describeProbe, describeVerification } = require('./src/exposure-narration');
+const { RULE_NARRATION, describeDisposition, describeFinding, describeProbe, describeVerification, safeDisplayPath } = require('./src/exposure-narration');
 const {
   FINGERPRINT_KEY_VERSION, buildFindings, fingerprintKeyId, revealForVerification
 } = require('./src/exposure-findings');
 
 const {
-  adapterForCandidate, signVerificationAuthorization, verifyCredential
+  ADAPTERS: VERIFICATION_ADAPTERS, adapterForCandidate, signVerificationAuthorization, verifyCredential
 } = require('./src/credential-verification');
 const {
   OPERATIONS: READABILITY_OPERATIONS,
@@ -1382,9 +1383,31 @@ function ensureExposureWorker() {
     store: _exposureStore,
     reader: exposureReader,
     fingerprintKey: EXPOSURE_FINGERPRINT_KEY,
-    sessionResolver: resolveExposureSession
+    sessionResolver: resolveExposureSession,
+    /*
+     * One connection pool per scan, pinned to validated addresses. Without it
+     * every file costs a DNS lookup and a TLS handshake, which for a scan of
+     * small files is most of the time the scan takes.
+     */
+    createTransport: () => createGuardedSession({
+      profile: GUARDED_PROFILES.PROVIDER_READ,
+      maxSockets: EXPOSURE_BUDGETS.readConcurrency
+    })
   });
   return exposureWorker;
+}
+
+/*
+ * Start the scan now rather than at the worker's next tick. The worker is
+ * already one-at-a-time -- a run while one is in flight is refused -- so a
+ * nudge can never overlap two scans; it only stops a reader waiting up to a
+ * poll interval for work that was ready.
+ */
+function nudgeExposureWorker() {
+  const worker = ensureExposureWorker();
+  if (worker && typeof worker.run === 'function') {
+    Promise.resolve().then(() => worker.run()).catch(() => { /* the next tick tries again */ });
+  }
 }
 
 async function governanceService() {
@@ -4624,7 +4647,7 @@ app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRe
       configVersion: EXPOSURE_CONFIG_VERSION,
       idempotencyKey: cleanText(String(req.get('Idempotency-Key') || crypto.randomUUID()), 200)
     });
-    ensureExposureWorker();
+    nudgeExposureWorker();
     res.status(requested.created ? 201 : 200).json({ scan: requested.scan, created: requested.created });
   } catch (error) { exposureFailure(res, error); }
 });
@@ -4638,6 +4661,64 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, 
     });
     if (!scan) return res.status(404).json({ error: 'Not found', code: 'EXPOSURE_SCAN_NOT_FOUND' });
     res.json({ scan });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * The history: this person's scans of this repository, newest first, each with
+ * how many findings of each severity it recorded. Paged by the last row seen,
+ * so a scan finishing mid-page does not shift the next page.
+ */
+app.get('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const store = exposureService();
+    const scope = req.governance.scope;
+    const identityKey = req.governance.actor.identityKey;
+    const beforeAt = String(req.query.beforeAt || '');
+    const beforeId = String(req.query.beforeId || '');
+    const scans = await store.listScans({
+      scope, identityKey,
+      limit: Number.parseInt(String(req.query.limit || '20'), 10),
+      before: beforeAt && beforeId ? { createdAt: beforeAt, scanId: beforeId } : null
+    });
+    const counts = await store.scanRuleCounts({ scope, identityKey, scanIds: scans.map(scan => scan.scanId) });
+    const severities = new Map();
+    for (const item of counts) {
+      const tally = severities.get(item.scanId) || { critical: 0, serious: 0, warning: 0 };
+      tally[exposureSeverityOf(item.rule)] += item.total;
+      severities.set(item.scanId, tally);
+    }
+    res.json({
+      scans: scans.map(scan => ({
+        ...scan,
+        severityCounts: severities.get(scan.scanId) || { critical: 0, serious: 0, warning: 0 }
+      }))
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * Clearing this person's exposure record for this repository: every scan,
+ * finding and check result. The ledger entry this route writes is what
+ * survives, so clearing the evidence of a decision never clears the evidence
+ * of the clear.
+ */
+app.post('/api/repo/:owner/:repo/exposure/clear', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.history.clear'), async (req, res) => {
+  try {
+    /* The same explicit word as the other irreversible actions, refused
+       before anything is touched. */
+    const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
+    if (String(body.confirm || '') !== 'clear-exposure-history') {
+      return res.status(400).json({
+        error: 'Clearing exposure history requires an explicit confirmation',
+        code: 'EXPOSURE_CLEAR_UNCONFIRMED'
+      });
+    }
+    const cleared = await exposureService().clearHistory({
+      scope: req.governance.scope,
+      identityKey: req.governance.actor.identityKey
+    });
+    res.status(201).json({ cleared });
   } catch (error) { exposureFailure(res, error); }
 });
 
@@ -4670,8 +4751,33 @@ function exposureFindingPayload(finding) {
   return {
     ...finding,
     narration: describeFinding(finding),
-    dispositionNarration: describeDisposition(finding.disposition)
+    dispositionNarration: describeDisposition(finding.disposition),
+    /*
+     * The path as a screen may show it. A file can be named with a credential
+     * -- `ghp_...txt` is not unheard of -- and a summary row that printed the
+     * raw path would publish exactly what the rest of this payload is careful
+     * never to carry.
+     */
+    displayPath: safeDisplayPath(String(finding.path || '')),
+    /*
+     * Which questions this finding can be asked. Three verifiers exist and
+     * dozens of rules; offering "check whether it still works" on a finding
+     * nothing can check would send a reader through a two-press confirmation
+     * to be told "unverifiable" every time.
+     */
+    verifiable: EXPOSURE_VERIFIABLE_RULES.has(finding.rule),
+    probeable: finding.rule === 'supabase-anon-key'
   };
+}
+const EXPOSURE_VERIFIABLE_RULES = new Set(Object.values(VERIFICATION_ADAPTERS).map(adapter => adapter.rule));
+
+/*
+ * Severity is the narration table's. A rule with no entry is described as
+ * serious, as `describeFinding` does, rather than as nothing.
+ */
+function exposureSeverityOf(rule) {
+  const entry = RULE_NARRATION[rule];
+  return entry ? entry.severity : 'serious';
 }
 
 app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
@@ -4706,13 +4812,28 @@ app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alpha
 
 app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
-    const observations = await exposureService().listObservations({
+    /*
+     * A scan's report: each observation with the finding it is about, so a
+     * history entry can be opened and read without a second request per row.
+     */
+    const report = await exposureService().scanReport({
       scope: req.governance.scope,
       scanId: String(req.params.scanId || ''),
       identityKey: req.governance.actor.identityKey,
       limit: Number.parseInt(String(req.query.limit || '50'), 10)
     });
-    res.json({ observations });
+    res.json({
+      observations: report.map(entry => ({
+        ...entry.observation,
+        /* Described with this scan's locations, so "where" names the line. */
+        finding: exposureFindingPayload({
+          ...entry.finding,
+          occurrences: entry.observation.occurrences,
+          occurrenceCount: entry.observation.occurrenceCount,
+          truncated: entry.observation.truncated
+        })
+      }))
+    });
   } catch (error) { exposureFailure(res, error); }
 });
 

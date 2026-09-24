@@ -1,7 +1,7 @@
 'use strict';
 
 const { RULES } = require('./secret-scanner');
-const { KEY_KINDS, KEY_PATTERN, classifyKey } = require('./supabase-key-kinds');
+const { EXPOSURE_RULES, PATH_RULES } = require('./exposure-rules');
 
 /*
  * Finding every credential in a file, rather than proving one exists.
@@ -41,49 +41,11 @@ const { KEY_KINDS, KEY_PATTERN, classifyKey } = require('./supabase-key-kinds');
  */
 
 /*
- * Rules that belong to a scan rather than to the release gate.
- *
- * The gate asks one question -- is there a secret in this repository -- and
- * every rule it carries has to be a secret, because a rule that is not fails
- * builds for things that are fine. A Supabase anonymous key is published in
- * client bundles by design; putting it in the shared set would break every
- * repository that legitimately ships one, which is why these are not there.
- *
- * A scan asks a wider question: what in this tree decides who can read the
- * data. An anonymous key is the input to that question, not the answer --
- * whether it can read anything is decided by policies this server cannot see
- * from the outside, and the only honest way to find out is to ask. So the key
- * is detected here so it can be asked about, and its narration says plainly
- * that finding one is not itself a leak.
- *
- * The service-role key beside it is the opposite case and is here for the
- * opposite reason: it bypasses every policy, so its presence needs no probe
- * to be serious. Both come out of the same shape, and which is which is
- * decided by decoding the key rather than by where it was found.
+ * The scan's own rules live in `src/exposure-rules.js`: the gate's set asks
+ * whether there is a secret at all and must never be noisy, while a scan asks
+ * which credentials and where, and can afford more rules as long as each one
+ * is precise. Both sets run here, gate rules first.
  */
-const EXPOSURE_RULES = Object.freeze([
-  Object.freeze({
-    rule: 'supabase-anon-key',
-    regex: KEY_PATTERN,
-    accept: secret => {
-      const kind = classifyKey(secret).kind;
-      return kind === KEY_KINDS.ANON || kind === KEY_KINDS.PUBLISHABLE;
-    }
-  }),
-  Object.freeze({
-    rule: 'supabase-service-role-key',
-    regex: KEY_PATTERN,
-    /*
-     * `sb_secret_` as well as the JWT, because a project that has migrated to
-     * the newer key format has the same credential under a different name and
-     * a rule that missed it would report the repository clean.
-     */
-    accept: secret => {
-      const kind = classifyKey(secret).kind;
-      return kind === KEY_KINDS.SERVICE_ROLE || kind === KEY_KINDS.SECRET;
-    }
-  })
-]);
 
 /*
  * Both versions are part of a finding's identity, so both are stated rather
@@ -93,10 +55,15 @@ const EXPOSURE_RULES = Object.freeze([
  * unchanged.
  *
  * Rule set digest (sha256 over rule name, source and flags, gate rules then
- * scan rules):
- *   0c9d1ba4c9a3e895173c13b15bb6144fa6d4b28d5d65f7fa1b78b40e3da08f8c
+ * scan rules, then each path rule's name and extensions):
+ *   97d476c4c6acd46f4f653af37817b0a167a40e00c90ee5917ae76d30e8112e14
  */
-const RULES_VERSION = 2;
+/*
+ * 3: the scan's own catalogue -- cloud, CI, AI, payments, messaging, key files
+ * and connection strings -- with a plausibility check that refuses
+ * placeholders, and rules that recognise a credential container by its name.
+ */
+const RULES_VERSION = 3;
 const DETECTION_ENGINE_VERSION = 1;
 
 /* A file this server will read at all. Past it the file is not scanned and the
@@ -116,29 +83,6 @@ const MAX_CANDIDATES_PER_FILE = 50;
    wrong. */
 const MAX_OCCURRENCES_PER_CANDIDATE = 20;
 
-/*
- * A line ending is \n, \r\n or a bare \r. The last one is why this is a
- * function rather than a split: a legacy Mac-encoded file counted by \n alone
- * reports every credential on line 1, which sends a reader to the wrong place
- * in a file they may not be able to open.
- */
-function locationAt(text, index) {
-  let line = 1;
-  let lineStart = 0;
-  for (let cursor = 0; cursor < index; cursor += 1) {
-    const code = text.charCodeAt(cursor);
-    if (code === 10) {
-      line += 1;
-      lineStart = cursor + 1;
-    } else if (code === 13) {
-      line += 1;
-      /* \r\n is one ending, not two. */
-      if (text.charCodeAt(cursor + 1) === 10) cursor += 1;
-      lineStart = cursor + 1;
-    }
-  }
-  return { line, column: index - lineStart + 1 };
-}
 
 /**
  * The rules a scan runs: the shared release-gate set, then this module's own.
@@ -146,7 +90,7 @@ function locationAt(text, index) {
  * the scan's rules carry a predicate -- and a union of the literal shapes
  * would make reading `accept` an error on the half that has none.
  *
- * @typedef {{ rule: string, regex: RegExp, accept?: (secret: string) => boolean }} DetectionRule
+ * @typedef {{ rule: string, regex: RegExp, accept?: (secret: string) => boolean, keywords?: ReadonlyArray<string> }} DetectionRule
  */
 
 /*
@@ -187,8 +131,58 @@ function compiledRules() {
       rule: rule.rule,
       accept: typeof rule.accept === 'function' ? rule.accept : null
     });
+    /*
+     * A pass is skipped for a file containing none of its keywords, so a pass
+     * any of whose rules names none must always run -- a rule without
+     * keywords is a rule that could match anywhere.
+     */
+    const keywords = Array.isArray(rule.keywords) && rule.keywords.length ? rule.keywords : null;
+    if (!keywords) pass.always = true;
+    else pass.keywords = [...new Set([...(pass.keywords || []), ...keywords.map(item => item.toLowerCase())])];
   }
-  return [...passes.values()];
+  return [...passes.values()].map(pass => ({
+    regex: pass.regex,
+    rules: pass.rules,
+    keywords: pass.always ? null : pass.keywords
+  }));
+}
+
+/*
+ * A line ending is \n, \r\n or a bare \r. The last one is why this is not a
+ * split: a legacy Mac-encoded file counted by \n alone reports every
+ * credential on line 1, which sends a reader to the wrong place in a file they
+ * may not be able to open.
+ *
+ * Where each line starts, computed once per file and only when something was
+ * found in it. `locationAt` walked from the start of the file for every match,
+ * which for a large file with many matches is the file read hundreds of times
+ * over. The line endings are the same three -- \n, \r\n and a bare \r -- and
+ * a test holds this to the walk it replaces on every offset of a mixed file.
+ */
+function createLocator(text) {
+  let starts = null;
+  return function locate(index) {
+    if (!starts) {
+      starts = [0];
+      for (let cursor = 0; cursor < text.length; cursor += 1) {
+        const code = text.charCodeAt(cursor);
+        if (code === 10) {
+          starts.push(cursor + 1);
+        } else if (code === 13) {
+          if (text.charCodeAt(cursor + 1) === 10) cursor += 1;
+          starts.push(cursor + 1);
+        }
+      }
+    }
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (starts[middle] <= index) low = middle;
+      else high = middle - 1;
+    }
+    return { line: low + 1, column: index - starts[low] + 1 };
+  };
 }
 
 function sanitizeCandidate(candidate) {
@@ -230,8 +224,14 @@ function detectInText(input = {}) {
   const ordinals = new Map();
   let matchCount = 0;
   let truncated = false;
+  const locate = createLocator(text);
+  /* The keyword check is an optimisation and can be switched off, which is
+     how a test proves it never changes an answer. */
+  const prefilter = input.prefilter !== false;
+  const lower = prefilter ? text.toLowerCase() : '';
 
-  for (const { regex, rules } of compiledRules()) {
+  for (const { regex, rules, keywords } of compiledRules()) {
+    if (prefilter && keywords && !keywords.some(keyword => lower.includes(keyword))) continue;
     let match;
     while ((match = regex.exec(text)) !== null) {
       /*
@@ -283,7 +283,7 @@ function detectInText(input = {}) {
 
       candidate.occurrenceCount += 1;
       if (candidate.occurrences.length < MAX_OCCURRENCES_PER_CANDIDATE) {
-        candidate.occurrences.push(Object.freeze(locationAt(text, match.index)));
+        candidate.occurrences.push(Object.freeze(locate(match.index)));
       } else {
         candidate.truncated = true;
       }
@@ -307,14 +307,49 @@ function detectInText(input = {}) {
   });
 }
 
+/*
+ * A file that is an exposure by its name. Nothing is read: the caller has the
+ * path and the blob id from the tree, and the blob id is the identity -- so
+ * the same keystore committed again is the same finding, and a replaced one is
+ * a new one. The result has the same shape as `detectInText` so the findings
+ * module does not need to know which kind of rule produced a candidate.
+ */
+function detectInPath(input = {}) {
+  const filePath = typeof input.path === 'string' ? input.path : '';
+  const sha = typeof input.sha === 'string' ? input.sha.toLowerCase() : '';
+  const name = filePath.split('/').pop() || '';
+  const dot = name.lastIndexOf('.');
+  const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  const empty = Object.freeze({ scanned: true, truncated: false, matchCount: 0, candidates: Object.freeze([]) });
+  if (!extension || !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) return empty;
+  const rule = PATH_RULES.find(item => item.extensions.includes(extension));
+  if (!rule) return empty;
+  return Object.freeze({
+    scanned: true,
+    truncated: false,
+    matchCount: 1,
+    candidates: Object.freeze([Object.freeze({
+      rule: rule.rule,
+      secret: `blob:${sha}`,
+      placeholder: placeholderFor(rule.rule, 1),
+      occurrences: Object.freeze([Object.freeze({ line: 1, column: 1 })]),
+      occurrenceCount: 1,
+      truncated: false
+    })])
+  });
+}
+
 module.exports = Object.freeze({
   EXPOSURE_RULES,
+  PATH_RULES,
   DETECTION_ENGINE_VERSION,
   MAX_CANDIDATES_PER_FILE,
   MAX_MATCHES_PER_FILE,
   MAX_OCCURRENCES_PER_CANDIDATE,
   MAX_TEXT_BYTES,
   RULES_VERSION,
+  createLocator,
+  detectInPath,
   detectInText,
   sanitizeCandidate
 });

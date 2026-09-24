@@ -21,7 +21,7 @@ const path = require('path');
 const https = require('https');
 const {
   PROFILES, CODES, MAX_RESPONSE_BYTES, GuardedFetchError,
-  normalizeTarget, validateAddresses, guardedFetch
+  normalizeTarget, validateAddresses, guardedFetch, createGuardedSession
 } = require('../src/guarded-fetch');
 
 /* ---- The code registry ------------------------------------------------ */
@@ -555,6 +555,156 @@ function fakeRequestImpl(behaviour) {
   });
   assert.strictEqual(shortHeader.statusCode, 200);
 }
+
+  /* ---- A session: shared connections, same guarantees ---------------- */
+
+  /*
+   * Without a session every read is a fresh DNS lookup, TCP connect and TLS
+   * handshake -- which for a scan of two thousand small files is most of the
+   * time the scan takes. A session shares connections. What these assert is
+   * that it does so without relaxing anything the one-request path promises.
+   */
+  {
+    const ok = () => fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, chunks: ['{}'] })));
+
+    /* One resolution for many reads, and every read pinned to that answer. */
+    let lookups = 0;
+    const requestImpl = ok();
+    const minted = [];
+    class RecordingAgent extends https.Agent {
+      constructor(options) { super(options); minted.push({ agent: this, options }); }
+    }
+    const session = createGuardedSession({
+      profile: PROFILES.PROVIDER_READ,
+      resolveAddresses: async () => { lookups += 1; return [{ address: '140.82.121.6', family: 4 }]; },
+      requestImpl, Agent: RecordingAgent
+    });
+    for (let index = 0; index < 5; index += 1) {
+      const answer = await session.request({
+        url: `https://api.github.com/repos/a/b/git/blobs/${index}`, profile: PROFILES.PROVIDER_READ, method: 'GET'
+      });
+      assert.strictEqual(answer.statusCode, 200);
+    }
+    assert.strictEqual(lookups, 1, 'a session resolves once and pins, rather than once per read');
+    assert.strictEqual(requestImpl.calls.length, 5);
+    for (const call of requestImpl.calls) {
+      /* The pin is still the validated address, whatever the pool. */
+      await new Promise(resolve => call.lookup('api.github.com', {}, (error, address) => {
+        assert.strictEqual(error, null);
+        assert.strictEqual(address, '140.82.121.6');
+        resolve();
+      }));
+      assert.strictEqual(call.agent, minted[0].agent, 'every read shares the one pool for that address');
+    }
+    assert.strictEqual(minted.length, 1);
+    assert.strictEqual(minted[0].options.keepAlive, true, 'the pool keeps connections open between reads');
+    assert(minted[0].options.maxSockets >= 1 && minted[0].options.maxSockets <= 16, 'and it is bounded');
+
+    /* Closing it destroys every connection and refuses anything further. */
+    let destroyed = 0;
+    minted[0].agent.destroy = () => { destroyed += 1; };
+    session.close();
+    assert.strictEqual(destroyed, 1);
+    await assert.rejects(
+      session.request({ url: 'https://api.github.com/x', profile: PROFILES.PROVIDER_READ, method: 'GET' }),
+      error => error.code === 'GUARDED_FETCH_REFUSED'
+    );
+  }
+
+  /* An address change gets a new pool, validated again -- never a pooled
+     socket carried across to a different address for the same name. */
+  {
+    const requestImpl = fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200 })));
+    let clock = 0;
+    let answer = '140.82.121.6';
+    const session = createGuardedSession({
+      profile: PROFILES.PROVIDER_READ,
+      resolveAddresses: async () => [{ address: answer, family: 4 }],
+      requestImpl, now: () => clock, dnsTtlMs: 1000
+    });
+    await session.request({ url: 'https://api.github.com/a', profile: PROFILES.PROVIDER_READ, method: 'GET' });
+    answer = '140.82.121.3';
+    clock = 5000;
+    await session.request({ url: 'https://api.github.com/b', profile: PROFILES.PROVIDER_READ, method: 'GET' });
+    assert.notStrictEqual(requestImpl.calls[0].agent, requestImpl.calls[1].agent, 'a different address is a different pool');
+
+    /* And a refreshed answer that turns private is refused before a socket. */
+    answer = '169.254.169.254';
+    clock = 10_000;
+    await assert.rejects(
+      session.request({ url: 'https://api.github.com/c', profile: PROFILES.PROVIDER_READ, method: 'GET' }),
+      error => error.code === 'GUARDED_FETCH_SSRF_BLOCKED'
+    );
+    assert.strictEqual(requestImpl.calls.length, 2, 'no connection was opened to it');
+    session.close();
+  }
+
+  /*
+   * The boundary check. A pool is accepted only when a session minted it, and
+   * only for the name and address it was minted for -- so a caller cannot hand
+   * the transport an agent of its own, or one minted for another address.
+   */
+  {
+    const requestImpl = fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200 })));
+    await assert.rejects(
+      guardedFetch({
+        url: 'https://api.github.com/x', profile: PROFILES.PROVIDER_READ, method: 'GET',
+        addresses: [{ address: '140.82.121.6', family: 4 }], agent: new https.Agent({ keepAlive: true }), requestImpl
+      }),
+      error => error.code === 'GUARDED_FETCH_REFUSED',
+      'an agent the transport did not mint is refused'
+    );
+
+    const minted = [];
+    class RecordingAgent extends https.Agent {
+      constructor(options) { super(options); minted.push(this); }
+    }
+    const session = createGuardedSession({
+      profile: PROFILES.PROVIDER_READ,
+      resolveAddresses: async () => [{ address: '140.82.121.6', family: 4 }],
+      requestImpl, Agent: RecordingAgent
+    });
+    await session.request({ url: 'https://api.github.com/x', profile: PROFILES.PROVIDER_READ, method: 'GET' });
+    await assert.rejects(
+      guardedFetch({
+        url: 'https://api.github.com/x', profile: PROFILES.PROVIDER_READ, method: 'GET',
+        addresses: [{ address: '140.82.121.3', family: 4 }], agent: minted[0], requestImpl
+      }),
+      error => error.code === 'GUARDED_FETCH_REFUSED',
+      'a pool minted for one address cannot carry a request pinned to another'
+    );
+    await assert.rejects(
+      guardedFetch({
+        url: 'https://example.com/x', profile: PROFILES.PROVIDER_READ, method: 'GET',
+        addresses: [{ address: '140.82.121.6', family: 4 }], agent: minted[0], requestImpl
+      }),
+      error => error.code === 'GUARDED_FETCH_REFUSED',
+      'nor one for another name at the same address'
+    );
+    session.close();
+  }
+
+  /*
+   * Provider reads only. A signed webhook and a credential probe are never
+   * sent in bulk, and the credential probe is the one request whose contents
+   * are a secret -- both keep one connection per request.
+   */
+  for (const profile of [PROFILES.WEBHOOK, PROFILES.CREDENTIAL_VERIFY, 'nope']) {
+    assert.throws(
+      () => createGuardedSession({ profile }),
+      error => error.code === 'GUARDED_FETCH_PROFILE_INVALID',
+      `${profile} must not share connections`
+    );
+  }
+  {
+    const session = createGuardedSession({ profile: PROFILES.PROVIDER_READ, resolveAddresses: async () => [] });
+    await assert.rejects(
+      session.request({ url: 'https://example.com/hook', profile: PROFILES.WEBHOOK, method: 'POST' }),
+      error => error.code === 'GUARDED_FETCH_PROFILE_INVALID',
+      'a provider-read session will not carry another profile\'s request'
+    );
+    session.close();
+  }
 
   console.log('guarded fetch tests passed');
 })().catch(error => {

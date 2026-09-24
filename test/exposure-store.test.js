@@ -1035,6 +1035,159 @@ async function claim(store, now = T0) {
       );
     }
 
+    /* ---- History, reports, and clearing -------------------------------- */
+
+    /*
+     * A reader looking back: every scan of this repository, newest first, each
+     * with how many findings it recorded and what it did not read -- and a
+     * report per scan that says which credentials, where. Then a clear that
+     * takes all of it away for this person and nobody else.
+     */
+    {
+      const historyScope = Object.freeze({ ...scope, repo: 'History' });
+      const base = T0 + 3_000_000;
+      const leftovers = await pool.query(
+        `SELECT count(*)::int AS total FROM nv_exposure_scans WHERE state IN ('queued','running')`
+      );
+      assert.strictEqual(leftovers.rows[0].total, 0, 'this block claims scans, so nothing else may be waiting');
+
+      async function runScan(identityKey, key, at, findings, counts) {
+        const requested = await store.requestScan(scanRequest({
+          scope: historyScope, identityKey, idempotencyKey: key, now: at
+        }));
+        const held = await claim(store, at + 1000);
+        assert.strictEqual(held.scan.scanId, requested.scan.scanId);
+        if (findings.length) {
+          await store.recordObservations({ scanId: held.scan.scanId, claimOwner: held.claimOwner, findings, now: at + 2000 });
+        }
+        return store.finalizeScan({
+          scanId: held.scan.scanId, claimOwner: held.claimOwner, now: at + 3000,
+          state: 'partial', coverage: 'partial', skippedReason: 'unreadable-files',
+          filesScanned: 7, bytesScanned: 700, ...counts
+        });
+      }
+
+      const older = await runScan(IDENTITY, 'hist-00000001', base, [
+        findingFixture('hist-a', { path: 'src/b.js' }),
+        findingFixture('hist-b', { path: 'src/a.js', rule: 'slack-token', placeholder: '<slack-token #1>' })
+      ], { filesTotal: 10, filesSkippedBinary: 2, filesSkippedOther: 1 });
+      const newer = await runScan(IDENTITY, 'hist-00000002', base + 60_000, [
+        findingFixture('hist-a', { path: 'src/b.js' })
+      ], { filesTotal: 9, filesSkippedBinary: 2, filesSkippedOther: 0 });
+      /* Somebody else's scan of the same repository. */
+      await runScan(OTHER_IDENTITY, 'hist-00000003', base + 120_000, [
+        findingFixture('hist-other', { path: 'src/c.js' })
+      ], {});
+
+      /* The skip counts survive the round trip, and absent ones stay absent. */
+      assert.strictEqual(older.filesTotal, 10);
+      assert.strictEqual(older.filesSkippedBinary, 2);
+      assert.strictEqual(older.filesSkippedOther, 1);
+
+      const history = await store.listScans({ scope: historyScope, identityKey: IDENTITY, limit: 10 });
+      assert.deepStrictEqual(
+        history.map(item => item.scanId), [newer.scanId, older.scanId],
+        'newest first, and only this identity\'s'
+      );
+      assert.deepStrictEqual(history.map(item => item.findingCount), [1, 2]);
+      assert.strictEqual(history[1].filesSkippedBinary, 2);
+
+      /* Paged from the last row seen, not by offset. */
+      const firstPage = await store.listScans({ scope: historyScope, identityKey: IDENTITY, limit: 1 });
+      assert.deepStrictEqual(firstPage.map(item => item.scanId), [newer.scanId]);
+      const secondPage = await store.listScans({
+        scope: historyScope, identityKey: IDENTITY, limit: 1,
+        before: { createdAt: firstPage[0].createdAt, scanId: firstPage[0].scanId }
+      });
+      assert.deepStrictEqual(secondPage.map(item => item.scanId), [older.scanId]);
+
+      /* A malformed cursor is the caller's mistake, not a server error. */
+      for (const before of [
+        { createdAt: 'yesterday-ish', scanId: firstPage[0].scanId },
+        { createdAt: firstPage[0].createdAt, scanId: 'not-a-uuid' },
+        { createdAt: firstPage[0].createdAt, scanId: "x' OR '1'='1" }
+      ]) {
+        await assert.rejects(
+          store.listScans({ scope: historyScope, identityKey: IDENTITY, limit: 1, before }),
+          error => error.code === 'EXPOSURE_CURSOR_INVALID' && error.status === 400,
+          JSON.stringify(before)
+        );
+      }
+
+      /* Rule counts for a history row, in one query. */
+      const counts = await store.scanRuleCounts({
+        scope: historyScope, identityKey: IDENTITY, scanIds: [older.scanId, newer.scanId]
+      });
+      const byScan = key => counts.filter(item => item.scanId === key)
+        .map(item => `${item.rule}:${item.total}`).sort();
+      assert.deepStrictEqual(byScan(older.scanId), ['github-token:1', 'slack-token:1']);
+      assert.deepStrictEqual(byScan(newer.scanId), ['github-token:1']);
+
+      /* A report: each observation with the finding it is about. */
+      const report = await store.scanReport({ scope: historyScope, scanId: older.scanId, identityKey: IDENTITY, limit: 10 });
+      assert.deepStrictEqual(report.map(item => item.finding.path), ['src/a.js', 'src/b.js'], 'ordered by file');
+      assert.strictEqual(report[0].finding.rule, 'slack-token');
+      assert.strictEqual(report[0].observation.fingerprint, report[0].finding.fingerprint);
+      assert.deepStrictEqual(report[1].observation.occurrences.map(item => ({ ...item })), [{ line: 4, column: 11 }]);
+
+      /* The identity boundary, in all three. */
+      assert.deepStrictEqual(
+        (await store.listScans({ scope: historyScope, identityKey: OTHER_IDENTITY, limit: 10 })).map(item => item.findingCount),
+        [1],
+        'the other person sees only their own scan'
+      );
+      assert.deepStrictEqual(
+        await store.scanReport({ scope: historyScope, scanId: older.scanId, identityKey: OTHER_IDENTITY, limit: 10 }), []
+      );
+      assert.deepStrictEqual(
+        await store.scanRuleCounts({ scope: historyScope, identityKey: OTHER_IDENTITY, scanIds: [older.scanId] }), []
+      );
+
+      /* Evidence attached to a finding, so the clear can be seen to take it. */
+      await store.recordVerification({
+        scope: historyScope, identityKey: IDENTITY, fingerprint: fingerprint('hist-a'), requestedBy: 'alice',
+        record: { state: 'unverifiable', reason: 'no-adapter', observedAt: new Date(base + 200_000).toISOString() }
+      });
+
+      /* Refused while a scan is queued: clearing under it would make results
+         reappear a minute later. */
+      const pending = await store.requestScan(scanRequest({
+        scope: historyScope, identityKey: IDENTITY, idempotencyKey: 'hist-00000004', now: base + 300_000
+      }));
+      await assert.rejects(
+        store.clearHistory({ scope: historyScope, identityKey: IDENTITY }),
+        error => error.code === 'EXPOSURE_SCAN_ACTIVE' && error.status === 409
+      );
+      assert.strictEqual(
+        (await store.listScans({ scope: historyScope, identityKey: IDENTITY, limit: 10 })).length, 3,
+        'a refused clear removes nothing'
+      );
+      await store.cancelScan({ scope: historyScope, scanId: pending.scan.scanId, identityKey: IDENTITY, now: base + 301_000 });
+
+      const cleared = await store.clearHistory({ scope: historyScope, identityKey: IDENTITY });
+      assert.deepStrictEqual({ ...cleared }, { scans: 3, findings: 2 });
+      assert.deepStrictEqual(await store.listScans({ scope: historyScope, identityKey: IDENTITY, limit: 10 }), []);
+      assert.deepStrictEqual(await store.listFindings({ scope: historyScope, identityKey: IDENTITY, limit: 10 }), []);
+      assert.deepStrictEqual(
+        await store.listVerifications({ scope: historyScope, identityKey: IDENTITY, fingerprint: fingerprint('hist-a'), limit: 10 }),
+        [],
+        'the evidence attached to a finding leaves with it'
+      );
+      const orphaned = await pool.query(
+        `SELECT count(*)::int AS total FROM nv_exposure_observations WHERE scan_id = ANY($1::uuid[])`,
+        [[older.scanId, newer.scanId]]
+      );
+      assert.strictEqual(orphaned.rows[0].total, 0, 'observations went with their scans');
+
+      /* Nobody else's history moved, in this repository or any other. */
+      assert.strictEqual((await store.listScans({ scope: historyScope, identityKey: OTHER_IDENTITY, limit: 10 })).length, 1);
+      assert.strictEqual((await store.listFindings({ scope: historyScope, identityKey: OTHER_IDENTITY, limit: 10 })).length, 1);
+      assert((await store.listFindings({ scope, identityKey: IDENTITY, limit: 50 })).length > 0, 'another repository is untouched');
+
+      /* A second clear has nothing left to take, and says so. */
+      assert.deepStrictEqual({ ...(await store.clearHistory({ scope: historyScope, identityKey: IDENTITY })) }, { scans: 0, findings: 0 });
+    }
+
     /* ---- The attempt table holds no credential either ------------------- */
 
     /* ---- No row, anywhere, can carry a credential ----------------------- */

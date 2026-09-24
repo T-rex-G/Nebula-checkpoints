@@ -37,8 +37,11 @@ const crypto = require('crypto');
  * ceiling: the second scan looked in places the first never saw, so a
  * comparison between them would read "appeared" for credentials that were
  * always there. Changing any cap moves this number.
+ *
+ * 2: binary formats are recognised by name and never fetched, and the byte
+ * ceiling is charged at declared size when a read starts.
  */
-const EXPOSURE_CONFIG_VERSION = 1;
+const EXPOSURE_CONFIG_VERSION = 2;
 
 const SCAN_STATES = Object.freeze(['queued', 'running', 'complete', 'partial', 'failed', 'canceled']);
 const TERMINAL_STATES = Object.freeze(['complete', 'partial', 'failed', 'canceled']);
@@ -192,6 +195,11 @@ function scanFromRow(row) {
     skippedReason: row.skipped_reason || null,
     filesScanned: row.files_scanned,
     bytesScanned: Number(row.bytes_scanned),
+    /* Null on a scan that finished before these were recorded, rather than a
+       zero that would claim nothing was skipped. */
+    filesTotal: row.files_total == null ? null : Number(row.files_total),
+    filesSkippedBinary: row.files_skipped_binary == null ? null : Number(row.files_skipped_binary),
+    filesSkippedOther: row.files_skipped_other == null ? null : Number(row.files_skipped_other),
     parentScanId: row.parent_scan_id || null,
     createdAt: iso(row.created_at),
     startedAt: iso(row.started_at),
@@ -731,6 +739,10 @@ class ExposureStore {
     const filesScanned = boundedInteger(input.filesScanned, 0, 0, 2_000_000_000);
     const bytesScanned = Number.isFinite(input.bytesScanned) ? Math.max(0, Math.round(input.bytesScanned)) : 0;
     const parentScanId = text(input.parentScanId) || null;
+    const count = value => (Number.isInteger(value) ? boundedInteger(value, 0, 0, 2_000_000_000) : null);
+    const filesTotal = count(input.filesTotal);
+    const filesSkippedBinary = count(input.filesSkippedBinary);
+    const filesSkippedOther = count(input.filesSkippedOther);
 
     if (coverage === 'complete' && state !== 'complete') {
       throw new TypeError('Only a complete scan may claim complete coverage');
@@ -742,10 +754,14 @@ class ExposureStore {
     const finalized = await this.#query(
       `UPDATE nv_exposure_scans
           SET state=$3, coverage=$4, skipped_reason=$5, files_scanned=$6, bytes_scanned=$7,
-              parent_scan_id=$8, finished_at=$9, claim_owner=NULL, claim_expires_at=NULL
+              parent_scan_id=$8, finished_at=$9, claim_owner=NULL, claim_expires_at=NULL,
+              files_total=$10, files_skipped_binary=$11, files_skipped_other=$12
         WHERE scan_id=$1 AND claim_owner=$2 AND state='running' AND claim_expires_at > $9
        RETURNING *`,
-      [scanId, claimOwner, state, coverage, skippedReason, filesScanned, bytesScanned, parentScanId, now],
+      [
+        scanId, claimOwner, state, coverage, skippedReason, filesScanned, bytesScanned, parentScanId, now,
+        filesTotal, filesSkippedBinary, filesSkippedOther
+      ],
       'finalize a scan'
     );
     if (!finalized.rows.length) {
@@ -1229,6 +1245,193 @@ class ExposureStore {
       'list observations'
     );
     return Object.freeze(found.rows.map(observationFromRow));
+  }
+
+  /*
+   * The history: this identity's scans of this repository, newest first, each
+   * with how many findings it recorded. A page at a time, continued from the
+   * last row a caller saw rather than by offset, so a scan finishing while
+   * somebody pages does not shift every later page by one.
+   */
+  async listScans(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Scan identity');
+    const limit = boundedInteger(input.limit, 20, 1, MAX_LIST_LIMIT);
+    const before = input.before && typeof input.before === 'object' ? input.before : null;
+    /*
+     * A cursor arrives from a query string, so it is checked here rather than
+     * handed to the database to reject: a malformed one is the caller's
+     * mistake and says so, instead of surfacing as a server error.
+     */
+    let cursorAt = null;
+    let cursorId = null;
+    if (before) {
+      const at = Date.parse(text(before.createdAt));
+      const id = text(before.scanId).toLowerCase();
+      if (!Number.isFinite(at) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
+        fail('That history cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+      }
+      cursorAt = new Date(at);
+      cursorId = id;
+    }
+    const found = await this.#query(
+      `SELECT scan.*,
+              (SELECT count(*) FROM nv_exposure_observations AS observation
+                WHERE observation.scan_id = scan.scan_id)::integer AS finding_count
+         FROM nv_exposure_scans AS scan
+        WHERE scan.provider=$1 AND scan.authority=$2 AND scan.owner_login=$3 AND scan.repo_name=$4
+          AND scan.identity_key=$5
+          AND ($6::timestamptz IS NULL OR (scan.created_at, scan.scan_id) < ($6::timestamptz, $7::uuid))
+        ORDER BY scan.created_at DESC, scan.scan_id DESC
+        LIMIT $8`,
+      [scope.provider, scope.authority, scope.owner, scope.repo, identityKey, cursorAt, cursorId, limit],
+      'list scans'
+    );
+    return Object.freeze(found.rows.map(row => Object.freeze({
+      ...scanFromRow(row),
+      findingCount: Number(row.finding_count) || 0
+    })));
+  }
+
+  /*
+   * How many findings of each rule a page of scans recorded, in one query, so
+   * a history row can say "2 critical, 1 serious" without the reader opening
+   * it. Rules rather than severities: severity is the narration table's, and
+   * this file does not keep a second copy of it.
+   */
+  async scanRuleCounts(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Scan identity');
+    const scanIds = [...new Set((Array.isArray(input.scanIds) ? input.scanIds : [])
+      .map(value => text(value))
+      .filter(value => /^[0-9a-f-]{36}$/i.test(value)))].slice(0, MAX_LIST_LIMIT);
+    if (!scanIds.length) return Object.freeze([]);
+    const found = await this.#query(
+      `SELECT observation.scan_id, finding.rule, count(*)::integer AS total
+         FROM nv_exposure_observations AS observation
+         JOIN nv_exposure_scans AS scan ON scan.scan_id = observation.scan_id
+         JOIN nv_exposure_findings AS finding
+           ON finding.provider = scan.provider AND finding.authority = scan.authority
+          AND finding.owner_login = scan.owner_login AND finding.repo_name = scan.repo_name
+          AND finding.fingerprint = observation.fingerprint AND finding.identity_key = scan.identity_key
+        WHERE observation.scan_id = ANY($1::uuid[]) AND scan.identity_key=$2
+          AND scan.provider=$3 AND scan.authority=$4 AND scan.owner_login=$5 AND scan.repo_name=$6
+        GROUP BY observation.scan_id, finding.rule`,
+      [scanIds, identityKey, scope.provider, scope.authority, scope.owner, scope.repo],
+      'count findings by rule'
+    );
+    return Object.freeze(found.rows.map(row => Object.freeze({
+      scanId: row.scan_id, rule: row.rule, total: Number(row.total) || 0
+    })));
+  }
+
+  /*
+   * One scan's report: what it observed, each with the finding it is about.
+   * The observation says where and how many times in that scan; the finding
+   * says what the credential is and what has since been decided about it.
+   * Joined on the scan's own identity, so a report can never show somebody
+   * else's copy of a finding.
+   */
+  async scanReport(input = {}) {
+    const scope = requireScope(input.scope);
+    const scanId = requireText(input.scanId, 'Scan id', 64);
+    const identityKey = requireDigest(input.identityKey, 'Scan identity');
+    const limit = boundedInteger(input.limit, 50, 1, MAX_LIST_LIMIT);
+    const found = await this.#query(
+      `SELECT observation.*,
+              finding.provider AS finding_provider, finding.authority AS finding_authority,
+              finding.owner_login AS finding_owner_login, finding.repo_name AS finding_repo_name,
+              finding.fingerprint AS finding_fingerprint,
+              finding.fingerprint_key_version, finding.rules_version, finding.engine_version,
+              finding.rule, finding.file_path, finding.placeholder, finding.disposition,
+              finding.disposition_at, finding.disposition_by, finding.first_observed_at,
+              finding.last_observed_at, finding.commit_sha
+         FROM nv_exposure_observations AS observation
+         JOIN nv_exposure_scans AS scan ON scan.scan_id = observation.scan_id
+         JOIN nv_exposure_findings AS finding
+           ON finding.provider = scan.provider AND finding.authority = scan.authority
+          AND finding.owner_login = scan.owner_login AND finding.repo_name = scan.repo_name
+          AND finding.fingerprint = observation.fingerprint AND finding.identity_key = scan.identity_key
+        WHERE observation.scan_id=$1 AND scan.identity_key=$2
+          AND scan.provider=$3 AND scan.authority=$4 AND scan.owner_login=$5 AND scan.repo_name=$6
+        ORDER BY finding.file_path, finding.rule, observation.fingerprint
+        LIMIT $7`,
+      [scanId, identityKey, scope.provider, scope.authority, scope.owner, scope.repo, limit],
+      'read a scan report'
+    );
+    return Object.freeze(found.rows.map(row => Object.freeze({
+      observation: observationFromRow(row),
+      /* Named column by column, like every other row that leaves here. */
+      finding: findingFromRow({
+        provider: row.finding_provider,
+        authority: row.finding_authority,
+        owner_login: row.finding_owner_login,
+        repo_name: row.finding_repo_name,
+        fingerprint: row.finding_fingerprint,
+        fingerprint_key_version: row.fingerprint_key_version,
+        rules_version: row.rules_version,
+        engine_version: row.engine_version,
+        rule: row.rule,
+        file_path: row.file_path,
+        commit_sha: row.commit_sha,
+        placeholder: row.placeholder,
+        disposition: row.disposition,
+        disposition_at: row.disposition_at,
+        disposition_by: row.disposition_by,
+        first_observed_at: row.first_observed_at,
+        last_observed_at: row.last_observed_at
+      })
+    })));
+  }
+
+  /*
+   * Clearing: everything this identity has recorded about this repository --
+   * its scans, what they observed, its findings, and the verification and
+   * readability history attached to them, which leave with their findings by
+   * cascade. One transaction, so a clear is all of it or none of it.
+   *
+   * Refused while a scan is queued or running. Clearing underneath a scan
+   * would leave it writing observations for findings that no longer exist,
+   * and the reader would see results reappear a minute after pressing clear.
+   * The refusal names the fix: cancel the scan first.
+   *
+   * Only this identity's rows, and only this repository's. Another person's
+   * findings for the same repository are theirs, and a governance
+   * administrator's decisions on their own copy are untouched. What does
+   * survive is the governance ledger's record that a clear happened, which is
+   * written by the route, not here -- so clearing the evidence of a decision
+   * never clears the evidence of the clear.
+   */
+  async clearHistory(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Clear identity');
+    return this.#transaction(async client => {
+      const active = await client.query(
+        `SELECT scan_id FROM nv_exposure_scans
+          WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+            AND identity_key=$5 AND state IN ('queued','running')
+          FOR UPDATE`,
+        [scope.provider, scope.authority, scope.owner, scope.repo, identityKey]
+      );
+      if (active.rows.length) {
+        fail('A scan is in progress; cancel it before clearing', 'EXPOSURE_SCAN_ACTIVE', 409);
+      }
+      const scans = await client.query(
+        `DELETE FROM nv_exposure_scans
+          WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+            AND identity_key=$5 AND state IN ('complete','partial','failed','canceled')
+         RETURNING scan_id`,
+        [scope.provider, scope.authority, scope.owner, scope.repo, identityKey]
+      );
+      const findings = await client.query(
+        `DELETE FROM nv_exposure_findings
+          WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+            AND identity_key=$5
+         RETURNING fingerprint`,
+        [scope.provider, scope.authority, scope.owner, scope.repo, identityKey]
+      );
+      return Object.freeze({ scans: scans.rows.length, findings: findings.rows.length });
+    }, 'clear exposure history');
   }
 
   /*

@@ -71,6 +71,7 @@
     "src/exposure-store.js",
     "src/exposure-worker.js",
     "src/exposure-session.js",
+    "src/exposure-rules.js",
     "src/github-account-operations.js",
     "src/github-app.js",
     "src/governance-digital-twin.js",
@@ -93,6 +94,7 @@
     "src/security-foundation.js",
     "src/single-use-store.js",
     "src/staging-validation.js",
+    "src/supabase-key-kinds.js",
     "src/version.js",
     "src/work-continuity.js"
   ],

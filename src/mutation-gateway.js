@@ -95,6 +95,13 @@ const MUTATION_ACTIONS = Object.freeze({
   'exposure.readability.probe': defineAction('exposure', 'high', 'Establish whether a discovered project is readable anonymously', []),
   'exposure.finding.accept-risk': defineAction('exposure', 'critical', 'Accept the risk of an exposed credential', [], null, 'governance'),
   'exposure.finding.export': defineAction('exposure', 'medium', 'Export exposure findings as evidence', []),
+  /*
+   * Clearing is the reader's own record, not anybody else's, and it binds to
+   * whoever executes it for that reason. It is medium rather than low because
+   * it is irreversible: the verification and readability history it removes
+   * was evidence, and the ledger entry this action writes is what remains.
+   */
+  'exposure.history.clear': defineAction('exposure', 'medium', 'Clear an identity\'s exposure history for a repository', []),
   'governance.notification.preferences.update': defineAction('governance', 'low', 'Update repository governance notification preferences', [], null, 'governance'),
   'governance.notification.read': defineAction('governance', 'low', 'Advance repository governance notification read state', [], null, 'governance'),
   'governance.webhook.create': defineAction('governance', 'high', 'Create a signed governance webhook destination', [], null, 'governance'),

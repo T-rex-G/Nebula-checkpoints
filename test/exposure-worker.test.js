@@ -34,6 +34,7 @@ const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
 const { SKIP_REASONS } = require('../src/exposure-reader');
 const { fingerprintFor, fingerprintKeyId } = require('../src/exposure-findings');
 const { RULES_VERSION } = require('../src/exposure-detection');
+const { EXPOSURE_CONFIG_VERSION } = require('../src/exposure-store');
 const {
   DEFAULT_BUDGETS,
   EXPOSURE_BUDGET_VERSION,
@@ -69,7 +70,7 @@ function fakeStore(overrides = {}) {
       engineVersion: 1,
       fingerprintKeyVersion: 1,
       fingerprintKeyId: fingerprintKeyId(fingerprintKey),
-      configVersion: 1,
+      configVersion: EXPOSURE_CONFIG_VERSION,
       state: 'running',
       coverage: 'unknown'
     },
@@ -273,10 +274,46 @@ function runnerFor(store, reader, options = {}) {
       { 'a.js': 'x\n', 'b.js': 'y\n', 'c.js': 'z\n' },
       { onBlob: index => { if (index === 2) throw revoked; } }
     );
-    await runnerFor(store, reader).runOnce();
+    /* One read at a time, so "the next file" is well defined. */
+    await runnerFor(store, reader, { budgets: { readConcurrency: 1 } }).runOnce();
     assert.strictEqual(store.finalized.state, 'failed');
     assert.strictEqual(store.finalized.skippedReason, 'authorization-revoked');
     assert.strictEqual(reader.blobCalls.length, 2, 'the scan stops rather than retrying with a dead session');
+  }
+
+  /*
+   * And with reads in flight at once, the property is the one that matters: no
+   * read is started after the revocation has been seen. Reads already on the
+   * wire when it arrived finish into nothing; nothing new is sent.
+   */
+  {
+    const files = {};
+    for (let index = 0; index < 12; index += 1) files[`f${index}.js`] = `line ${index}\n`;
+    const store = fakeStore();
+    const revoked = Object.assign(new Error('revoked'), { code: 'EXPOSURE_AUTHORIZATION_REVOKED' });
+    /* The worker's first act on seeing the revocation is to record it, so
+       that is the moment after which nothing may be sent. */
+    let observed = false;
+    let startedAfter = 0;
+    const record = store.finalizeScan;
+    store.finalizeScan = async input => { observed = true; return record(input); };
+    const reader = fakeReader(files, {
+      onBlob: async index => {
+        if (observed) startedAfter += 1;
+        if (index === 2) {
+          await new Promise(resolve => setImmediate(resolve));
+          throw revoked;
+        }
+        /* The others stay in flight a little longer, so some are still
+           outstanding when the revocation lands. */
+        await new Promise(resolve => setImmediate(resolve));
+        await new Promise(resolve => setImmediate(resolve));
+      }
+    });
+    await runnerFor(store, reader, { budgets: { readConcurrency: 3, renewEveryFiles: 100 } }).runOnce();
+    assert.strictEqual(store.finalized.skippedReason, 'authorization-revoked');
+    assert.strictEqual(startedAfter, 0, 'no read begins once the revocation is known');
+    assert(reader.blobCalls.length <= 4, `only reads already in flight ran: ${reader.blobCalls.length}`);
   }
 
   /* ---- A budget is visible partial coverage, never a quiet all-clear -- */
@@ -392,6 +429,165 @@ function runnerFor(store, reader, options = {}) {
     }
     assert(ticks > 0, 'the event loop must run during a scan, not after it');
     assert.strictEqual(reader.blobCalls.length, 40);
+  }
+
+  /* ---- Fast without being careless ----------------------------------- */
+
+  /*
+   * The access check -- a lease write and a full session resolution -- used to
+   * run before and after every file, which was most of what a scan spent its
+   * time on. It is now due every `renewEveryFiles` reads or every
+   * `accessCheckIntervalMs`, and unconditionally before every write and at the
+   * end. Sixty files is a handful of checks, not a hundred and twenty.
+   */
+  {
+    const files = {};
+    for (let index = 0; index < 60; index += 1) files[`f${index}.js`] = `line ${index}\n`;
+    const store = fakeStore();
+    let resolutions = 0;
+    await runnerFor(store, fakeReader(files), {
+      budgets: { renewEveryFiles: 25, accessCheckIntervalMs: 60_000 },
+      sessionResolver: async () => { resolutions += 1; return { token: TOKEN }; }
+    }).runOnce();
+    const renewals = store.calls.filter(([name]) => name === 'renewClaim').length;
+    assert.strictEqual(store.finalized.state, 'complete');
+    assert(renewals >= 3 && renewals <= 6, `a handful of checks for sixty files, not one per file: ${renewals}`);
+    assert(resolutions <= renewals + 1, 'and a session resolution only with each check');
+  }
+
+  /* On a clock as well: a slow scan still notices within the interval. */
+  {
+    const files = {};
+    for (let index = 0; index < 6; index += 1) files[`f${index}.js`] = `line ${index}\n`;
+    const store = fakeStore();
+    let clock = T0;
+    await runnerFor(store, fakeReader(files), {
+      budgets: { renewEveryFiles: 1000, accessCheckIntervalMs: 1000, maxWallClockMs: 10 * 60 * 1000 },
+      now: () => (clock += 700)
+    }).runOnce();
+    const renewals = store.calls.filter(([name]) => name === 'renewClaim').length;
+    assert(renewals >= 4, `time alone makes the check due: ${renewals}`);
+  }
+
+  /*
+   * Reads overlap, up to the configured number, and are consumed in tree
+   * order whatever order they finish in -- so a scan with the same inputs
+   * records the same findings in the same order however the network behaves.
+   */
+  {
+    const files = {};
+    for (let index = 0; index < 12; index += 1) {
+      files[`f${String(index).padStart(2, '0')}.js`] = index % 3 === 0 ? `k = ${SECRET.slice(0, -2)}${String(index).padStart(2, '0')}\n` : 'x\n';
+    }
+    let inFlight = 0;
+    let peak = 0;
+    const reader = fakeReader(files, {
+      onBlob: async index => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        /* Later files finish first. */
+        for (let spin = 0; spin < 13 - index; spin += 1) await new Promise(resolve => setImmediate(resolve));
+        inFlight -= 1;
+      }
+    });
+    const store = fakeStore();
+    await runnerFor(store, reader, { budgets: { readConcurrency: 4, renewEveryFiles: 100 } }).runOnce();
+    assert.strictEqual(store.finalized.state, 'complete');
+    assert(peak > 1, `reads actually overlap: ${peak}`);
+    assert(peak <= 4, `and never beyond the limit: ${peak}`);
+    assert.deepStrictEqual(
+      store.recorded.map(item => item.path),
+      ['f00.js', 'f03.js', 'f06.js', 'f09.js'],
+      'findings are recorded in tree order, not arrival order'
+    );
+  }
+
+  /*
+   * One connection pool per scan: opened when the scan starts, handed to every
+   * read, and closed when it ends -- including when it ends badly, so no
+   * socket outlives the scan that opened it.
+   */
+  {
+    for (const [label, readerOptions, expectedState] of [
+      ['a scan that completes', {}, 'complete'],
+      ['a scan whose tree read fails', { treeError: Object.assign(new Error('x'), { code: 'EXPOSURE_TREE_INVALID' }) }, 'failed']
+    ]) {
+      const store = fakeStore();
+      const reader = fakeReader({ 'a.js': 'x\n', 'b.js': 'y\n' }, readerOptions);
+      const opened = [];
+      const runner = createExposureRunner({
+        store, reader, fingerprintKey,
+        sessionResolver: async () => ({ token: TOKEN }),
+        budgets: DEFAULT_BUDGETS,
+        now: () => T0,
+        createTransport: () => {
+          const pool = { closed: 0, request: async () => ({ statusCode: 200 }), close() { pool.closed += 1; } };
+          opened.push(pool);
+          return pool;
+        }
+      });
+      await runner.runOnce();
+      assert.strictEqual(store.finalized.state, expectedState, label);
+      assert.strictEqual(opened.length, 1, `${label}: one pool per scan`);
+      assert.strictEqual(opened[0].closed, 1, `${label}: and it is closed exactly once`);
+      assert.strictEqual(reader.treeCalls[0].transport, opened[0].request, `${label}: the tree read uses it`);
+      for (const call of reader.blobCalls) assert.strictEqual(call.transport, opened[0].request, label);
+    }
+  }
+
+  /*
+   * A file can be an exposure without being read. A committed keystore is one
+   * whatever its bytes say, so it is found from the tree -- by its name, with
+   * the blob as its identity -- and no request is spent fetching it.
+   */
+  {
+    const store = fakeStore();
+    const keystoreSha = crypto.createHash('sha1').update('release.jks').digest('hex');
+    const reader = fakeReader({ 'a.js': 'x\n' }, {
+      skipped: [
+        { path: 'android/release.jks', reason: SKIP_REASONS.BINARY, sha: keystoreSha },
+        { path: 'logo.png', reason: SKIP_REASONS.BINARY, sha: 'e'.repeat(40) },
+        { path: 'link', reason: SKIP_REASONS.SYMLINK, sha: null },
+        { path: 'vendor/lib', reason: SKIP_REASONS.SUBMODULE, sha: null }
+      ]
+    });
+    await runnerFor(store, reader).runOnce();
+    assert.deepStrictEqual(store.recorded.map(item => [item.rule, item.path]), [['keystore-file', 'android/release.jks']]);
+    assert.strictEqual(reader.blobCalls.length, 1, 'only the text file was fetched');
+    /*
+     * And the report can say what was not read, in numbers: one text file
+     * read of five, two binary files not scanned, two others not read.
+     */
+    assert.strictEqual(store.finalized.filesTotal, 5);
+    assert.strictEqual(store.finalized.filesSkippedBinary, 2);
+    assert.strictEqual(store.finalized.filesSkippedOther, 2);
+    assert.strictEqual(store.finalized.coverage, 'partial', 'files not read still mean partial coverage');
+  }
+
+  /* A binary discovered only after fetching is counted as binary too. */
+  {
+    const store = fakeStore();
+    const reader = fakeReader({ 'a.js': 'x\n', 'blob': { text: null, skip: SKIP_REASONS.BINARY }, 'odd': { text: null, skip: SKIP_REASONS.UNREADABLE } });
+    await runnerFor(store, reader).runOnce();
+    assert.strictEqual(store.finalized.filesTotal, 3);
+    assert.strictEqual(store.finalized.filesSkippedBinary, 1);
+    assert.strictEqual(store.finalized.filesSkippedOther, 1);
+  }
+
+  /*
+   * The byte ceiling is charged at the size the tree declares, when a read is
+   * started -- so it falls on the same file however the reads interleave.
+   */
+  {
+    const outcomes = new Set();
+    for (const readConcurrency of [1, 2, 6]) {
+      const store = fakeStore();
+      const reader = fakeReader({ 'a.js': 'a\n', 'b.js': 'b\n', 'c.js': 'c\n', 'd.js': 'd\n' });
+      /* Declared sizes are 100, 101, 102, 103: three fit in 305 bytes. */
+      await runnerFor(store, reader, { budgets: { maxBytes: 305, readConcurrency } }).runOnce();
+      outcomes.add(`${store.finalized.skippedReason}:${reader.blobCalls.length}`);
+    }
+    assert.deepStrictEqual([...outcomes], ['byte-limit:3'], 'the same ceiling on the same file at every concurrency');
   }
 
   /* ---- Killed, and recovered ------------------------------------------ */
@@ -644,7 +840,7 @@ function runnerFor(store, reader, options = {}) {
 /* ---- The routes, and the boundaries every one of them carries ------- */
 
 /*
- * Ten routes, and what matters about each is the chain in front of it.
+ * Twelve routes, and what matters about each is the chain in front of it.
  * Reading these as text is a weaker instrument than exercising them, and it is
  * the one that catches the mistake that actually happens: a route added later
  * copying the line above it and losing a middleware in the process.
@@ -652,7 +848,7 @@ function runnerFor(store, reader, options = {}) {
 {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const routeLines = server.split('\n').filter(line => /^app\.(get|post)\('\/api\/repo\/:owner\/:repo\/exposure\//.test(line));
-  assert.strictEqual(routeLines.length, 10, `expected ten exposure routes, found ${routeLines.length}`);
+  assert.strictEqual(routeLines.length, 12, `expected twelve exposure routes, found ${routeLines.length}`);
 
   for (const line of routeLines) {
     for (const middleware of ['providerSessionAccess', 'alphaRepositoryAccess', 'capabilityAccess(', 'auth', 'governanceAccess(']) {
@@ -705,7 +901,8 @@ function runnerFor(store, reader, options = {}) {
     ['/cancel', 'exposure.scan.cancel'],
     ['/accept-risk', 'exposure.finding.accept-risk'],
     ['/verify', 'exposure.credential.verify'],
-    ['/probe-readability', 'exposure.readability.probe']
+    ['/probe-readability', 'exposure.readability.probe'],
+    ['/exposure/clear', 'exposure.history.clear']
   ]) {
     const line = routeLines.find(item => item.includes(fragment));
     assert(line, fragment);
@@ -810,7 +1007,7 @@ function runnerFor(store, reader, options = {}) {
   assert(failureHelper, 'the exposure failure helper must exist');
   assert(failureHelper[0].includes('publicErrorBody(error)'), failureHelper[0]);
   assert.strictEqual(
-    (handlers.match(/catch \(error\) \{ exposureFailure\(res, error\); \}/g) || []).length, 10,
+    (handlers.match(/catch \(error\) \{ exposureFailure\(res, error\); \}/g) || []).length, 12,
     'every exposure handler must fail through that helper'
   );
   assert.strictEqual(
@@ -881,6 +1078,40 @@ function runnerFor(store, reader, options = {}) {
     handler.includes('identityKey') && handler.includes('requestedBy'),
     'with the identity it belongs to and the person who asked'
   );
+
+  /* ---- History, report and clear ------------------------------------ */
+  {
+    const clearStart = server.indexOf("app.post('/api/repo/:owner/:repo/exposure/clear'");
+    assert(clearStart >= 0, 'the clear route must exist');
+    const clearHandler = server.slice(clearStart, server.indexOf('\n});', clearStart));
+    /* The explicit word, refused before the store is touched. */
+    const confirmAt = clearHandler.indexOf("!== 'clear-exposure-history'");
+    assert(confirmAt > 0, 'clearing requires an explicit confirmation');
+    assert(confirmAt < clearHandler.indexOf('clearHistory('), 'and it is checked before anything is removed');
+    assert(clearHandler.includes('identityKey: req.governance.actor.identityKey'), 'a clear is this person\'s own record');
+
+    const historyStart = server.indexOf("app.get('/api/repo/:owner/:repo/exposure/scans',");
+    assert(historyStart >= 0, 'the history route must exist');
+    const historyHandler = server.slice(historyStart, server.indexOf('\n});', historyStart));
+    assert(historyHandler.includes('store.listScans('), 'the history is a page of scans');
+    assert(historyHandler.includes('store.scanRuleCounts('), 'with rule counts in one query');
+    assert(historyHandler.includes('exposureSeverityOf('), 'summed by the narration table\'s severity, not a second copy of it');
+
+    const reportStart = server.indexOf("app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations'");
+    const reportHandler = server.slice(reportStart, server.indexOf('\n});', reportStart));
+    assert(reportHandler.includes('scanReport('), 'a scan\'s report joins each observation to its finding');
+    assert(reportHandler.includes('exposureFindingPayload('), 'and describes the finding the same way the list does');
+
+    /* A finding says which questions it can be asked. */
+    assert(/verifiable: EXPOSURE_VERIFIABLE_RULES\.has\(finding\.rule\)/.test(server), 'verification is offered only where a verifier exists');
+    assert(/probeable: finding\.rule === 'supabase-anon-key'/.test(server), 'and a readability probe only for an anonymous key');
+
+    /* A scan starts now, not at the next tick. */
+    const requestStart = server.indexOf("app.post('/api/repo/:owner/:repo/exposure/scans',");
+    const requestHandler = server.slice(requestStart, server.indexOf('\n});', requestStart));
+    assert(requestHandler.includes('nudgeExposureWorker()'), 'requesting a scan starts the worker');
+    assert(server.includes('createTransport: () => createGuardedSession({'), 'and each scan reads through a pinned connection pool');
+  }
 
   /* ---- The readability probe route ----------------------------------- */
 

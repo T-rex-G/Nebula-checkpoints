@@ -98,10 +98,14 @@ function anonKeyFinding(overrides = {}) {
   });
 }
 
-async function mockExposure(page, { findings = [], scanState = null, acceptStatus = 201, probe = null, probeStatus = 201, verifications = {}, probes = {} } = {}) {
+async function mockExposure(page, {
+  findings = [], scanState = null, acceptStatus = 201, probe = null, probeStatus = 201,
+  verifications = {}, probes = {}, history = [], reports = {}, clearStatus = 201
+} = {}) {
   const state = { requests: [], verifyBodies: [], scanBodies: [], acceptCalls: [], probeBodies: [],
     currentScan: scanState || scan({ state: 'queued', coverage: 'unknown', finishedAt: null }),
-    currentFindings: findings, scanError: null, statusError: false };
+    currentFindings: findings, scanError: null, statusError: false,
+    history, reports, historyQueries: [], reportCalls: [], clearBodies: [] };
   await mockTask20Api(page);
   await page.route('**/api/repo/acme/demo/exposure/**', async route => {
     const request = route.request();
@@ -109,6 +113,27 @@ async function mockExposure(page, { findings = [], scanState = null, acceptStatu
     state.requests.push(`${request.method()} ${url.pathname}`);
     if (url.pathname.endsWith('/exposure/findings')) {
       return route.fulfill({ json: { findings: state.currentFindings, verifications, probes } });
+    }
+    if (url.pathname.endsWith('/exposure/scans') && request.method() === 'GET') {
+      state.historyQueries.push(Object.fromEntries(url.searchParams));
+      const limit = Number(url.searchParams.get('limit') || 20);
+      const beforeId = url.searchParams.get('beforeId');
+      const from = beforeId ? state.history.findIndex(item => item.scanId === beforeId) + 1 : 0;
+      return route.fulfill({ json: { scans: state.history.slice(from, from + limit) } });
+    }
+    if (/\/exposure\/scans\/[^/]+\/observations$/.test(url.pathname)) {
+      const scanId = url.pathname.split('/').slice(-2)[0];
+      state.reportCalls.push(scanId);
+      return route.fulfill({ json: { observations: state.reports[scanId] || [] } });
+    }
+    if (url.pathname.endsWith('/exposure/clear') && request.method() === 'POST') {
+      state.clearBodies.push(request.postDataJSON());
+      if (clearStatus !== 201) {
+        return route.fulfill({ status: clearStatus, json: { error: 'A scan is in progress', code: 'EXPOSURE_SCAN_ACTIVE' } });
+      }
+      state.history = [];
+      state.currentFindings = [];
+      return route.fulfill({ status: 201, json: { cleared: { scans: 2, findings: 1 } } });
     }
     if (url.pathname.endsWith('/exposure/scans') && request.method() === 'POST') {
       state.scanBodies.push(request.postDataJSON());
@@ -205,6 +230,18 @@ async function openExposure(page) {
     await page.locator('.sheet-item[data-act="exposure"]').click();
   }
   await page.locator('#tab-exposure.active').waitFor();
+}
+
+/*
+ * Findings are disclosures: a summary row a reader scans down, opened to read
+ * the explanation and act. Tests that act on a finding open them the way a
+ * person would, with the one control that opens them all.
+ */
+async function expandFindings(page) {
+  const toggle = page.locator('#exposureExpandAllBtn');
+  await toggle.waitFor();
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 }
 
 test('the screen is reachable on a phone as well as a desktop', async ({ page }) => {
@@ -362,6 +399,7 @@ test('checking whether a credential is live takes two deliberate presses', async
    */
   const state = await mockExposure(page, { findings: [finding()] });
   await openExposure(page);
+  await expandFindings(page);
 
   const verify = page.locator('.exposure-verify').first();
   await expect(verify).toHaveText(/Check whether it still works/i);
@@ -384,6 +422,7 @@ test('checking whether a credential is live takes two deliberate presses', async
 test('a live credential is reported without becoming the finding status', async ({ page }) => {
   await mockExposure(page, { findings: [finding()] });
   await openExposure(page);
+  await expandFindings(page);
 
   await page.locator('.exposure-verify').first().click();
   await page.locator('.exposure-verify').first().click();
@@ -408,6 +447,7 @@ test('arming one finding does not arm another', async ({ page }) => {
   });
   const state = await mockExposure(page, { findings: [finding(), second] });
   await openExposure(page);
+  await expandFindings(page);
 
   const buttons = page.locator('.exposure-verify');
   await expect(buttons).toHaveCount(2);
@@ -434,6 +474,7 @@ test('accepting an intended exposure takes two presses and says whose name is on
    */
   const state = await mockExposure(page, { findings: [finding()] });
   await openExposure(page);
+  await expandFindings(page);
 
   const accept = page.locator('.exposure-accept').first();
   await expect(accept).toHaveText(/This one is intended/i);
@@ -469,6 +510,7 @@ test('only one control is armed at a time', async ({ page }) => {
    */
   const state = await mockExposure(page, { findings: [finding()] });
   await openExposure(page);
+  await expandFindings(page);
 
   const verify = page.locator('.exposure-verify').first();
   const accept = page.locator('.exposure-accept').first();
@@ -496,6 +538,7 @@ test('a refusal to accept says it is the role, not that something went wrong', a
    */
   await mockExposure(page, { findings: [finding()], acceptStatus: 403 });
   await openExposure(page);
+  await expandFindings(page);
 
   const accept = page.locator('.exposure-accept').first();
   await accept.click();
@@ -516,6 +559,7 @@ test('an anonymous key is not reported as a leak, and asks the question instead'
    */
   const state = await mockExposure(page, { findings: [anonKeyFinding()] });
   await openExposure(page);
+  await expandFindings(page);
 
   const item = page.locator('.exposure-item').first();
   await expect(item).toHaveAttribute('data-severity', 'warning');
@@ -537,6 +581,7 @@ test('an anonymous key is not reported as a leak, and asks the question instead'
 test('asking a project takes two presses and carries the question that was typed', async ({ page }) => {
   const state = await mockExposure(page, { findings: [anonKeyFinding()] });
   await openExposure(page);
+  await expandFindings(page);
 
   await page.locator('.exposure-probe-input[data-field="relation"]').fill('profiles');
   await page.locator('.exposure-probe-input[data-field="columns"]').fill('id, email');
@@ -580,6 +625,7 @@ test('a denied answer is not shown as an all-clear', async ({ page }) => {
     }
   });
   await openExposure(page);
+  await expandFindings(page);
 
   await page.locator('.exposure-probe-input[data-field="relation"]').fill('profiles');
   await page.locator('.exposure-probe-input[data-field="columns"]').fill('id');
@@ -602,6 +648,8 @@ test('a service-role key gets no probe form at all', async ({ page }) => {
     findings: [anonKeyFinding({
       fingerprint: 'c'.repeat(64),
       rule: 'supabase-service-role-key',
+      /* As the server sends it: no verifier exists for this rule. */
+      verifiable: false,
       placeholder: '<supabase-service-role-key #1>',
       narration: {
         narrationVersion: 1, severity: 'critical',
@@ -613,17 +661,23 @@ test('a service-role key gets no probe form at all', async ({ page }) => {
     })]
   });
   await openExposure(page);
+  await expandFindings(page);
 
   await expect(page.locator('.exposure-item').first()).toHaveAttribute('data-severity', 'critical');
   await expect(page.locator('.exposure-probe-form')).toHaveCount(0);
-  /* It is still a credential, so it can still be checked and triaged. */
-  await expect(page.locator('.exposure-verify')).toHaveCount(1);
+  /*
+   * It is still a credential, so it can still be triaged -- but nothing can
+   * check whether it works, so it is not offered a check that would always
+   * end "unverifiable".
+   */
+  await expect(page.locator('.exposure-verify')).toHaveCount(0);
   await expect(page.locator('.exposure-accept')).toHaveCount(1);
 });
 
 test('a file with no project to ask says so, rather than failing vaguely', async ({ page }) => {
   await mockExposure(page, { findings: [anonKeyFinding()], probeStatus: 409 });
   await openExposure(page);
+  await expandFindings(page);
 
   await page.locator('.exposure-probe-input[data-field="relation"]').fill('profiles');
   await page.locator('.exposure-probe-input[data-field="columns"]').fill('id');
@@ -664,6 +718,7 @@ test('answers already on record are on the screen before anything is pressed', a
     }
   });
   await openExposure(page);
+  await expandFindings(page);
 
   await expect(page.locator('.exposure-item-liveness')).toHaveAttribute('data-state', 'verified');
   const readability = page.locator('.exposure-item-readability');
@@ -673,6 +728,211 @@ test('answers already on record are on the screen before anything is pressed', a
   /* Nothing was re-asked to put them there. */
   expect(state.verifyBodies).toHaveLength(0);
   expect(state.probeBodies).toHaveLength(0);
+});
+
+/* ---- The report: worst first, summaries a reader can scan, opened to act -- */
+
+function historyScan(overrides = {}) {
+  return {
+    ...scan(),
+    findingCount: 0,
+    severityCounts: { critical: 0, serious: 0, warning: 0 },
+    filesTotal: 855, filesSkippedBinary: 40, filesSkippedOther: 3, filesScanned: 812,
+    ...overrides
+  };
+}
+
+test('findings are summaries a reader can scan, worst first, opened to read', async ({ page }) => {
+  const serious = finding({
+    fingerprint: 'a'.repeat(64), rule: 'slack-token', path: 'z/notify.js', displayPath: 'z/notify.js',
+    placeholder: '<slack-token #1>',
+    narration: { ...finding().narration, severity: 'serious', what: '<slack-token #1> is a credential this scan recognised.' }
+  });
+  const critical = finding({ displayPath: 'app/config.js' });
+  await mockExposure(page, { findings: [serious, critical] });
+  await openExposure(page);
+
+  const items = page.locator('#exposureList > .exposure-item');
+  await expect(items).toHaveCount(2);
+  /* Worst first, whatever order the server listed them in. */
+  await expect(items.nth(0)).toHaveAttribute('data-severity', 'critical');
+  await expect(items.nth(1)).toHaveAttribute('data-severity', 'serious');
+
+  /* The summary answers how bad, what, where and what was decided, in words. */
+  const first = items.nth(0).locator('summary');
+  await expect(first.locator('.exposure-badge')).toHaveText('Critical');
+  await expect(first.locator('.exposure-item-title')).toHaveText('GitHub token');
+  await expect(first.locator('.exposure-item-location')).toHaveText('app/config.js:4');
+  await expect(first.locator('.exposure-item-status')).toHaveText('Open');
+  await expect(page.locator('#exposureTally')).toHaveText('2 findings: 1 critical, 1 serious. 2 still open.');
+
+  /* Closed until opened, and opening one leaves the other closed. */
+  const consequence = items.nth(0).locator('.exposure-item-consequence');
+  await expect(consequence).toBeHidden();
+  await first.click();
+  await expect(consequence).toBeVisible();
+  await expect(items.nth(1).locator('.exposure-item-consequence')).toBeHidden();
+
+  /* One control opens or closes them all, and says which it will do. */
+  const toggle = page.locator('#exposureExpandAllBtn');
+  await expect(toggle).toHaveText('Expand all');
+  await toggle.click();
+  await expect(items.nth(1).locator('.exposure-item-consequence')).toBeVisible();
+  await expect(toggle).toHaveText('Collapse all');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await toggle.click();
+  await expect(consequence).toBeHidden();
+});
+
+test('a file named with a credential is described in the summary, never printed', async ({ page }) => {
+  const named = `app/gh${'p'}_${'Q'.repeat(36)}.txt`;
+  await mockExposure(page, {
+    findings: [finding({
+      path: named,
+      displayPath: 'app/ (a file whose name is not shown, because it is itself credential-shaped)'
+    })]
+  });
+  await openExposure(page);
+  const location = page.locator('.exposure-item-location').first();
+  await expect(location).toContainText('name is not shown');
+  const text = await page.locator('#tab-exposure').evaluate(node => node.textContent);
+  expect(text.includes('Q'.repeat(36))).toBe(false);
+});
+
+/* ---- History: every scan, by time, each opening into its report --------- */
+
+test('scan history is grouped by day, newest first, and each scan opens into its report', async ({ page }) => {
+  const now = Date.now();
+  const today = new Date(now);
+  const earlierToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 30);
+  const threeDaysAgo = new Date(now - 3 * 86_400_000);
+  const latest = historyScan({
+    scanId: '90000000-0000-4000-8000-00000000000a', createdAt: today.toISOString(),
+    state: 'complete', coverage: 'complete', findingCount: 2, severityCounts: { critical: 2, serious: 0, warning: 0 }
+  });
+  const morning = historyScan({
+    scanId: '90000000-0000-4000-8000-00000000000b', createdAt: earlierToday.toISOString(),
+    state: 'partial', coverage: 'partial', skippedReason: 'unreadable-files'
+  });
+  const older = historyScan({
+    scanId: '90000000-0000-4000-8000-00000000000c', createdAt: threeDaysAgo.toISOString(),
+    state: 'complete', coverage: 'complete', refName: 'refs/heads/release', commitSha: 'e'.repeat(40)
+  });
+  const state = await mockExposure(page, {
+    history: [latest, morning, older],
+    reports: {
+      [latest.scanId]: [{
+        scanId: latest.scanId, fingerprint: 'f'.repeat(64), occurrenceCount: 1,
+        occurrences: [{ line: 4, column: 11 }], truncated: false,
+        finding: finding({ displayPath: 'app/config.js' })
+      }]
+    }
+  });
+  await openExposure(page);
+
+  const days = page.locator('.exposure-history-day');
+  await expect(days).toHaveCount(2);
+  await expect(days.nth(0)).toHaveText('Today');
+  await expect(days.nth(1)).not.toHaveText(/Today|Yesterday/);
+
+  const entries = page.locator('.exposure-scan');
+  await expect(entries).toHaveCount(3);
+  await expect(entries.nth(0)).toHaveAttribute('data-scan-id', latest.scanId);
+  await expect(entries.nth(2)).toHaveAttribute('data-scan-id', older.scanId);
+  /* Readable without opening: when, how it ended, which commit, what it found. */
+  await expect(entries.nth(0).locator('time')).toHaveAttribute('datetime', latest.createdAt);
+  await expect(entries.nth(0).locator('.exposure-scan-state')).toHaveText('Complete');
+  await expect(entries.nth(0).locator('.exposure-scan-counts')).toHaveText('2 critical');
+  await expect(entries.nth(1).locator('.exposure-scan-state')).toHaveText('Finished, partial');
+  await expect(entries.nth(1).locator('.exposure-scan-counts')).toHaveText('Nothing found in what was read');
+  await expect(entries.nth(2).locator('.exposure-scan-ref')).toHaveText('release @ eeeeeee');
+
+  /* The proof card describes the newest scan when this session started none. */
+  await expect(page.locator('#exposureState')).toHaveText('Complete');
+  await expect(page.locator('#exposureBreakdown')).toHaveText(
+    'Read 812 of 855 files. 40 binary files (images, fonts, archives) not scanned. 3 others not read (links, submodules, oversized or unreadable).'
+  );
+
+  /* Opening a scan fetches its report once and shows what it found. */
+  await entries.nth(0).locator(':scope > summary').click();
+  const report = entries.nth(0).locator('.exposure-report-list .exposure-item');
+  await expect(report).toHaveCount(1);
+  await expect(report.locator('.exposure-item-title')).toHaveText('GitHub token');
+  /* A report is a record: acting on a finding happens on the current list. */
+  await expect(entries.nth(0).locator('.exposure-verify, .exposure-accept')).toHaveCount(0);
+  await entries.nth(0).locator(':scope > summary').click();
+  await entries.nth(0).locator(':scope > summary').click();
+  expect(state.reportCalls).toEqual([latest.scanId]);
+
+  /* An empty report under partial coverage says it is not an all-clear. */
+  await entries.nth(1).locator(':scope > summary').click();
+  await expect(entries.nth(1).locator('.exposure-scan-body')).toContainText('That is not an all-clear.');
+});
+
+test('older scans load a page at a time', async ({ page }) => {
+  const history = Array.from({ length: 25 }, (unused, index) => historyScan({
+    scanId: `90000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+    createdAt: new Date(Date.now() - index * 3_600_000).toISOString()
+  }));
+  const state = await mockExposure(page, { history });
+  await openExposure(page);
+  await expect(page.locator('.exposure-scan')).toHaveCount(20);
+  const more = page.locator('#exposureHistoryMoreBtn');
+  await expect(more).toBeVisible();
+  await more.click();
+  await expect(page.locator('.exposure-scan')).toHaveCount(25);
+  await expect(more).toBeHidden();
+  /* Continued from the last row seen, not by offset. */
+  expect(state.historyQueries[1].beforeId).toBe(history[19].scanId);
+});
+
+/* ---- Clear -------------------------------------------------------------- */
+
+test('clearing takes two presses, says exactly what goes, and empties the screen', async ({ page }) => {
+  const state = await mockExposure(page, {
+    findings: [finding()],
+    history: [historyScan({ findingCount: 1, severityCounts: { critical: 1, serious: 0, warning: 0 } })]
+  });
+  await openExposure(page);
+
+  const clear = page.locator('#exposureClearBtn');
+  await expect(clear).toHaveText('Clear history');
+  await clear.click();
+  expect(state.clearBodies).toHaveLength(0);
+  await expect(clear).toHaveText('Delete all of it');
+  const warning = page.locator('#exposureClearWarning');
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('every scan, finding and check result');
+  await expect(warning).toContainText('The credentials themselves stay in the repository');
+
+  await clear.click();
+  await expect(page.locator('#exposureLive')).toContainText('Cleared 2 scans and 1 findings.');
+  expect(state.clearBodies).toEqual([{ confirm: 'clear-exposure-history' }]);
+  await expect(page.locator('#exposureList > .exposure-item')).toHaveCount(0);
+  await expect(page.locator('.exposure-scan')).toHaveCount(0);
+  await expect(page.locator('#exposureHistoryEmpty')).toBeVisible();
+  await expect(clear).toBeHidden();
+});
+
+test('arming clear disarms every other control, and a running scan blocks it', async ({ page }) => {
+  const state = await mockExposure(page, {
+    findings: [finding()], history: [historyScan()], clearStatus: 409
+  });
+  await openExposure(page);
+  await expandFindings(page);
+
+  const verify = page.locator('.exposure-verify').first();
+  await verify.click();
+  await expect(verify).toHaveText(/Send this credential/i);
+  await page.locator('#exposureClearBtn').click();
+  await expect(verify).toHaveText(/Check whether it still works/i);
+  expect(state.verifyBodies).toHaveLength(0);
+
+  await page.locator('#exposureClearBtn').click();
+  await expect(page.locator('#exposureProofLine')).toContainText('Cancel it before clearing');
+  /* Nothing was removed from the screen by a refused clear. */
+  await expect(page.locator('#exposureList > .exposure-item')).toHaveCount(1);
+  await expect(page.locator('.exposure-scan')).toHaveCount(1);
 });
 
 test('no credential reaches the DOM, the storage or a copy of the page', async ({ page }) => {

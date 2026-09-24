@@ -27,14 +27,15 @@ const fs = require('fs');
 const path = require('path');
 
 const { RULES: GATE_RULES } = require('../src/secret-scanner');
-const { EXPOSURE_RULES } = require('../src/exposure-detection');
+const { EXPOSURE_RULES, PATH_RULES } = require('../src/exposure-detection');
 /*
- * Every rule a scan actually runs, which is both sets. A narration table
- * checked against only the shared gate rules would let the scan's own rules --
- * the ones whose wording matters most, because they are the ones a reader has
- * never seen before -- ship with no sentence at all.
+ * Every rule a scan actually runs: the gate's, the scan's own, and the rules
+ * that recognise a file by its name. A narration table checked against only
+ * the shared gate rules would let the scan's own rules -- the ones whose
+ * wording matters most, because they are the ones a reader has never seen
+ * before -- ship with no sentence at all.
  */
-const RULES = Object.freeze([...GATE_RULES, ...EXPOSURE_RULES]);
+const RULES = Object.freeze([...GATE_RULES, ...EXPOSURE_RULES, ...PATH_RULES]);
 const { REASONS: VERIFICATION_REASONS, VERIFICATION_STATES } = require('../src/credential-verification');
 const { REASONS: PROBE_REASONS, PROBE_STATES } = require('../src/anonymous-readability-probe');
 const { DISPOSITIONS } = require('../src/exposure-store');
@@ -67,7 +68,7 @@ const finding = Object.freeze({
 
 {
   assert(Number.isInteger(NARRATION_VERSION) && NARRATION_VERSION >= 1);
-  assert(RULES.length >= 9, 'the rule set must be non-trivial for this to mean anything');
+  assert(RULES.length >= 70, 'the rule set must be non-trivial for this to mean anything');
 
   for (const { rule } of RULES) {
     const narration = narrationForRule(rule);

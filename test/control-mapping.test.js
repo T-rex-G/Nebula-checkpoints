@@ -8,7 +8,7 @@ for (const name of ['CONTROL_CATALOG', 'TASK_14_CONTROL_CATALOG', 'LEGACY_CONTRO
 const { CONTROL_CATALOG, TASK_14_CONTROL_CATALOG, LEGACY_CONTROL_CATALOG, normalizeControlRefs, deriveControlMapping, normalizeControlMapping } = controls;
 const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
 assert.strictEqual(CONTROL_CATALOG.id, 'nebulaverse-control-catalog');
-assert.strictEqual(CONTROL_CATALOG.version, '1.3.0');
+assert.strictEqual(CONTROL_CATALOG.version, '1.4.0');
 assert.strictEqual(TASK_14_CONTROL_CATALOG.version, '1.1.0');
 assert.strictEqual(LEGACY_CONTROL_CATALOG.id, 'nebulaverse-control-catalog');
 assert.strictEqual(LEGACY_CONTROL_CATALOG.version, '1.0.0');
@@ -150,6 +150,34 @@ for (const action of EXPOSURE_ACTIONS) {
   for (const action of EXPOSURE_ACTIONS) {
     assert.deepStrictEqual(actions[action].operations, [], `${action} must perform no provider mutation`);
   }
+}
+
+/*
+ * 1.4.0 adds clearing an exposure history, and only that. 1.3.0 must still
+ * exist, still hash what it hashed, and still not know the new action -- a
+ * policy approved against it never covered clearing anything.
+ */
+{
+  const current = CONTROL_CATALOG;
+  const previous = controls.TASK_20_CONTROL_CATALOG;
+  assert(previous && previous.version === '1.3.0', '1.3.0 must still be published');
+  assert.notStrictEqual(current.hash, previous.hash);
+  const before = new Set(previous.actionMappings.map(item => item.action));
+  const after = new Set(current.actionMappings.map(item => item.action));
+  assert.deepStrictEqual([...after].filter(action => !before.has(action)), ['exposure.history.clear'], '1.4.0 adds exactly one action');
+  assert.deepStrictEqual([...before].filter(action => !after.has(action)), [], 'a revision may only add');
+  for (const action of EXPOSURE_ACTIONS) assert(before.has(action), `1.3.0 still maps ${action}`);
+
+  assert.strictEqual(deriveControlMapping({ action: 'exposure.history.clear', policyEvaluations: [] }).status, 'mapped');
+  assert.strictEqual(
+    deriveControlMapping({ action: 'exposure.history.clear', catalogVersion: '1.3.0', policyEvaluations: [] }).status,
+    'unmapped',
+    'a policy approved against 1.3.0 never covered clearing a history'
+  );
+  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  assert.strictEqual(actions['exposure.history.clear'].actorBinding, 'execution', 'a person clears their own record');
+  assert.strictEqual(actions['exposure.history.clear'].risk, 'medium', 'irreversible, so not low');
+  assert.deepStrictEqual(actions['exposure.history.clear'].operations, []);
 }
 
 console.log('control mapping tests passed');

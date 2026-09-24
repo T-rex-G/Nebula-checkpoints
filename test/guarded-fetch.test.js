@@ -18,6 +18,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const {
   PROFILES, CODES, MAX_RESPONSE_BYTES, GuardedFetchError,
   normalizeTarget, validateAddresses, guardedFetch
@@ -223,6 +224,55 @@ function fakeRequestImpl(behaviour) {
       options.lookup('hooks.example.com', {}, (_error, address, family) => resolve({ address, family })));
     assert.deepStrictEqual(pinned, { address: '93.184.216.34', family: 4 },
       'the connection must go to the address that was validated, not to a fresh lookup');
+    const all = await new Promise(resolve =>
+      options.lookup('hooks.example.com', { all: true }, (_error, addresses) => resolve(addresses)));
+    assert.deepStrictEqual(all, [{ address: '93.184.216.34', family: 4 }],
+      'Node 22 autoSelectFamily requests all:true; return only the pinned address in an array');
+  }
+
+  /* Exercise Node's actual HTTPS client, not just a fake invoking lookup({}).
+     Stop at the lookup event, before connecting or sending any bytes. */
+  for (const pinned of [
+    { address: '93.184.216.34', family: 4 },
+    { address: '2606:4700:4700::1111', family: 6 }
+  ]) {
+    let observed = null;
+    await assert.rejects(guardedFetch({
+      url: 'https://provider.example/x', profile: PROFILES.PROVIDER_READ, method: 'GET',
+      addresses: [pinned],
+      requestImpl(options, onResponse) {
+        const req = https.request({ ...options,
+          /* DNS callbacks are asynchronous in production too. */
+          lookup: (...args) => setImmediate(() => options.lookup(...args))
+        }, onResponse);
+        req.on('socket', socket => socket.once('lookup', (error, address, family) => {
+          observed = { error, address, family };
+          req.destroy(Object.assign(new Error('Test stopped before connection'), { code: 'TEST_LOOKUP_COMPLETE' }));
+        }));
+        return req;
+      }
+    }), error => error.transportCode === 'TEST_LOOKUP_COMPLETE');
+    assert.deepStrictEqual(observed, { error: null, ...pinned });
+  }
+
+  /* Larger repository trees are opt-in; other profiles keep their limits. */
+  for (const [profile, requested, size, allowed] of [
+    [PROFILES.PROVIDER_READ, 8 * 1024 * 1024, 300 * 1024, true],
+    [PROFILES.PROVIDER_READ, 1024 * 1024, 1024 * 1024 + 1, false],
+    [PROFILES.PROVIDER_READ, Number.MAX_SAFE_INTEGER, 8 * 1024 * 1024 + 1, false],
+    [PROFILES.CREDENTIAL_VERIFY, 8 * 1024 * 1024, MAX_RESPONSE_BYTES + 1, false],
+    [PROFILES.WEBHOOK, 8 * 1024 * 1024, MAX_RESPONSE_BYTES + 1, false]
+  ]) {
+    const requestImpl = fakeRequestImpl(({ onResponse }) =>
+      onResponse(fakeResponse({ chunks: [Buffer.alloc(size, 120)] })));
+    const result = guardedFetch({
+      url: 'https://api.github.com/x', profile,
+      method: profile === PROFILES.WEBHOOK ? 'POST' : 'GET',
+      maxResponseBytes: requested,
+      addresses: [{ address: '140.82.121.6', family: 4 }], requestImpl
+    });
+    if (allowed) assert.strictEqual((await result).body.length, size);
+    else await assert.rejects(result, error => error.code === 'GUARDED_FETCH_RESPONSE_TOO_LARGE');
   }
 
   /* The signed bytes pass through untouched. */

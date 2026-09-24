@@ -1019,6 +1019,11 @@
       <!-- EXPOSURE -->
       <div class="tabpane" id="tab-exposure" role="region" aria-labelledby="exposureTabLabel">
         <div class="exposure-shell">
+          <header class="exposure-intro">
+            <p class="exposure-kicker">Repository security</p>
+            <h2>Exposure</h2>
+            <p>Find exposed credentials in files on your selected GitHub branch. Hosted app URL scanning is not available yet.</p>
+          </header>
           <!--
             The order is the argument. What was proven comes first, then how
             much of the repository was actually read, and only then the list.
@@ -1028,7 +1033,7 @@
           -->
           <section class="card exposure-proof" aria-labelledby="exposureProofHeading">
             <h2 id="exposureProofHeading" class="exposure-heading">What this scan proved</h2>
-            <p class="exposure-proof-line" id="exposureProofLine">No scan has been run for this repository yet.</p>
+            <p class="exposure-proof-line" id="exposureProofLine">Start a scan to check this branch for exposed credentials.</p>
             <dl class="exposure-facts">
               <div class="exposure-fact">
                 <dt>Scan</dt>
@@ -1051,6 +1056,7 @@
             <div class="exposure-actions">
               <button class="btn" id="exposureScanBtn" type="button">Scan this branch</button>
               <button class="btn ghost" id="exposureCancelBtn" type="button" hidden>Cancel scan</button>
+              <button class="btn ghost" id="exposureRefreshBtn" type="button" hidden>Retry status check</button>
             </div>
           </section>
 

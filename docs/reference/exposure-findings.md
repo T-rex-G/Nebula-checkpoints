@@ -10,6 +10,26 @@ This is the reference for reading a finding. The implementation lives in
 those and is a lookup table, so the sentences in this document are the
 sentences the product says.
 
+## What can be scanned today
+
+Exposure reads files from one selected GitHub branch at an immutable commit,
+looking for supported credential patterns. It does not execute repository code,
+audit all application vulnerabilities, or scan a hosted application by URL.
+Hosted URL scanning is not implemented; it is a separate capability, not an
+alternative input to **Scan this branch**.
+
+The page tracks a requested scan through queued, running and finished states,
+then reloads its findings. A failed status check can be retried without starting
+another scan. Leaving the Exposure tab stops polling; returning resumes a scan
+still held in the current session. Reloading the whole page does not restore that
+scan's progress, although retained findings can still be loaded.
+
+GitHub reads use a fixed User-Agent and resolve a branch with the SHA-only media
+type. The outbound transport supports Node 22's `lookup({ all: true })` callback
+while preserving DNS pinning and TLS hostname checks. Tree reads are bounded at
+8 MiB and blob responses at 1 MiB; credential verification and webhook response
+limits remain 256 KiB.
+
 ## The shape of a finding
 
 | Field | What it is |

@@ -141,6 +141,7 @@ const READERS = Object.freeze({
     origin: 'https://api.github.com',
     headers: Object.freeze({
       accept: 'application/vnd.github+json',
+      'user-agent': 'Nebulaverse-X-Exposure-Reader/1.0',
       'x-github-api-version': '2022-11-28'
     }),
     treePath: (scope, commitSha) =>
@@ -212,14 +213,14 @@ function assertAuthorized(statusCode) {
   }
 }
 
-async function request({ scope, reader, apiPath, token, transport, maxResponseBytes }) {
+async function request({ scope, reader, apiPath, token, transport, maxResponseBytes, accept = '' }) {
   const send = typeof transport === 'function' ? transport : guardedFetch;
   try {
     return await send({
       url: `${reader.origin}${apiPath}`,
       profile: PROFILES.PROVIDER_READ,
       method: 'GET',
-      headers: { ...reader.headers, authorization: `Bearer ${token}` },
+      headers: { ...reader.headers, ...(accept ? { accept } : {}), authorization: `Bearer ${token}` },
       maxResponseBytes
     });
   } catch (error) {
@@ -279,14 +280,17 @@ async function resolveCommit(input = {}) {
 
   const response = await request({
     scope, reader, apiPath: reader.commitPath(scope, ref), token,
-    transport: input.transport, maxResponseBytes: MAX_TREE_RESPONSE_BYTES
+    /* Ask for the immutable id alone, not a potentially enormous merge diff. */
+    transport: input.transport, maxResponseBytes: 1024, accept: 'application/vnd.github.sha'
   });
   assertAuthorized(Number(response && response.statusCode));
+  if ([403, 429].includes(Number(response && response.statusCode)) || Number(response && response.statusCode) >= 500) {
+    throw new ExposureReaderError('The provider could not complete the read', 'EXPOSURE_READ_FAILED', 502);
+  }
   if (Number(response && response.statusCode) !== 200) {
     throw new ExposureReaderError('That ref could not be resolved', 'EXPOSURE_REF_UNRESOLVED', 404);
   }
-  const body = parsed(response, MAX_TREE_RESPONSE_BYTES);
-  const sha = text(body && body.sha).toLowerCase();
+  const sha = text(response && response.body).toLowerCase();
   if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) {
     throw new ExposureReaderError('That ref did not resolve to a commit', 'EXPOSURE_REF_UNRESOLVED', 502);
   }

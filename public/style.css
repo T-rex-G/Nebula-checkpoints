@@ -3478,7 +3478,14 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   padding: 16px;
   max-width: 900px;
   margin: 0 auto;
+  min-width: 0;
+  width: 100%;
 }
+.exposure-intro { padding: 4px 2px; min-width: 0; }
+.exposure-kicker { margin: 0 0 8px; color: var(--muted); font-size: .75rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.exposure-intro h2 { margin: 0 0 8px; font-size: clamp(1.4rem, 3vw, 1.8rem); letter-spacing: -.025em; }
+.exposure-intro > p:last-child { margin: 0; max-width: 65ch; color: var(--muted); font-size: .9rem; line-height: 1.6; }
+.exposure-proof, .exposure-findings { padding: 24px; min-width: 0; overflow-wrap: anywhere; }
 .exposure-heading {
   font-size: 1.05rem;
   font-weight: 650;
@@ -3492,10 +3499,14 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 }
 .exposure-facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  margin: 0 0 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0 0 20px;
+  padding: 16px 0;
+  border-top: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--glass-border);
 }
+.exposure-fact { min-width: 0; }
 .exposure-fact dt {
   font-size: 0.78rem;
   text-transform: uppercase;
@@ -3534,6 +3545,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   line-height: 1.45;
 }
 .exposure-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.exposure-shell .btn { min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.exposure-proof-line[data-error="true"] { color: var(--warn, #b26a00); }
 
 .exposure-empty { margin: 0; color: var(--muted); line-height: 1.5; }
 .exposure-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
@@ -3555,9 +3568,16 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .exposure-item-disposition { margin: 0 0 6px; color: var(--muted); line-height: 1.45; }
 .exposure-item-disposition { margin-bottom: 0; }
 
+@media (max-width: 640px) {
+  .exposure-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 480px) {
   .exposure-shell { padding: 12px; gap: 12px; }
-  .exposure-facts { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .exposure-proof, .exposure-findings { padding: 18px; }
+  .exposure-heading { line-height: 1.35; }
+  .exposure-proof-line { font-size: .92rem; }
+  .exposure-fact dd { font-size: .9rem; }
+  .exposure-actions > .btn { flex: 1 1 180px; }
 }
 
 /*

@@ -400,11 +400,12 @@ function rulesFor(text) {
    * digest covering only half of them would let the scan-only half change
    * silently.
    */
-  const { EXPOSURE_RULES } = require('../src/exposure-detection');
-  const digest = crypto.createHash('sha256')
-    .update([...RULES, ...EXPOSURE_RULES]
-      .map(rule => `${rule.rule}\u0000${rule.regex.source}\u0000${rule.regex.flags}`).join('\u0001'))
-    .digest('hex');
+  const { EXPOSURE_RULES, PATH_RULES } = require('../src/exposure-detection');
+  /* And the path rules, which decide findings as surely as a pattern does. */
+  const parts = [...RULES, ...EXPOSURE_RULES]
+    .map(rule => `${rule.rule}\u0000${rule.regex.source}\u0000${rule.regex.flags}`);
+  for (const rule of PATH_RULES) parts.push(`${rule.rule}\u0000${rule.extensions.join(',')}`);
+  const digest = crypto.createHash('sha256').update(parts.join('\u0001')).digest('hex');
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-detection.js'), 'utf8');
   assert(
     source.includes(digest),

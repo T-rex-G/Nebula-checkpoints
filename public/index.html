@@ -1052,18 +1052,38 @@
                 <dd id="exposureFiles">—</dd>
               </div>
             </dl>
+            <p class="exposure-breakdown" id="exposureBreakdown" hidden></p>
             <p class="exposure-caveat" id="exposureCaveat" hidden></p>
+            <p class="exposure-clear-warning" id="exposureClearWarning" role="alert" hidden></p>
             <div class="exposure-actions">
               <button class="btn" id="exposureScanBtn" type="button">Scan this branch</button>
               <button class="btn ghost" id="exposureCancelBtn" type="button" hidden>Cancel scan</button>
               <button class="btn ghost" id="exposureRefreshBtn" type="button" hidden>Retry status check</button>
+              <button class="btn ghost exposure-clear" id="exposureClearBtn" type="button" hidden>Clear history</button>
             </div>
           </section>
 
           <section class="card exposure-findings" aria-labelledby="exposureFindingsHeading">
-            <h2 id="exposureFindingsHeading" class="exposure-heading">Findings</h2>
+            <div class="exposure-section-head">
+              <h2 id="exposureFindingsHeading" class="exposure-heading">Findings</h2>
+              <button class="btn ghost exposure-expand-all" id="exposureExpandAllBtn" type="button" aria-controls="exposureList" hidden>Expand all</button>
+            </div>
+            <p class="exposure-tally" id="exposureTally" hidden></p>
             <p class="exposure-empty" id="exposureEmpty">Nothing to show yet.</p>
             <ul class="exposure-list" id="exposureList"></ul>
+          </section>
+
+          <!--
+            Every scan of this repository, newest first and grouped by day.
+            Each entry opens into its own report: what that scan found, where,
+            and what it did not read -- so a reader can see whether a credential
+            appeared last Tuesday or has been there all along.
+          -->
+          <section class="card exposure-history" aria-labelledby="exposureHistoryHeading">
+            <h2 id="exposureHistoryHeading" class="exposure-heading">Scan history</h2>
+            <p class="exposure-empty" id="exposureHistoryEmpty">No scans yet.</p>
+            <div class="exposure-history-list" id="exposureHistory"></div>
+            <button class="btn ghost" id="exposureHistoryMoreBtn" type="button" hidden>Show older scans</button>
           </section>
         </div>
         <div id="exposureLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Exposure scan updates"></div>

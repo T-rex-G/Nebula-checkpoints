@@ -59,6 +59,40 @@ const GITLINK_MODE = '160000';
 
 const LFS_POINTER_PREFIX = 'version https://git-lfs.github.com/spec/v1';
 
+/*
+ * Formats that are binary by definition, recognised from the name so they are
+ * never fetched. Every one of these used to cost a provider request only to be
+ * refused as binary once its bytes arrived -- and a repository's images, fonts
+ * and archives are often most of its entries, so that was most of a scan.
+ *
+ * Only formats whose bytes cannot be UTF-8 text: each begins with a magic
+ * number containing a byte the decoder rejects or a NUL, so fetching one would
+ * reach the same skip this reaches without the request. SVG, which is XML,
+ * is deliberately absent, and so is anything a person might plausibly have
+ * named with a binary-looking extension while writing text into it (`.bin`,
+ * `.dat`). The outcome is identical to before -- the file is reported as not
+ * read and coverage says partial -- and only the request is saved.
+ */
+const BINARY_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp', 'tif', 'tiff', 'psd', 'heic', 'avif',
+  'woff', 'woff2', 'ttf', 'otf', 'eot',
+  'zip', 'gz', 'tgz', 'bz2', 'xz', '7z', 'rar', 'jar', 'war', 'ear', 'apk', 'aab', 'ipa',
+  'dmg', 'iso', 'whl', 'nupkg',
+  'mp3', 'mp4', 'm4a', 'm4v', 'wav', 'ogg', 'oga', 'flac', 'webm', 'mov', 'avi', 'mkv',
+  'pdf', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp',
+  'exe', 'dll', 'so', 'dylib', 'class', 'pyc', 'pyo', 'wasm',
+  'sqlite', 'sqlite3',
+  /* Credential containers are binary too. They are not fetched either: what a
+     scan says about one comes from its name, in exposure-detection. */
+  'p12', 'pfx', 'jks', 'keystore', 'bks', 'kdbx', 'kdb'
+]);
+
+function extensionOf(filePath) {
+  const name = String(filePath || '').split('/').pop() || '';
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+}
+
 class ExposureReaderError extends Error {
   /*
    * Carries a code and fixed text. Every request this module makes has the
@@ -124,6 +158,7 @@ function classifyTreeEntry(entry) {
    */
   if (!Number.isInteger(source.size) || source.size < 0) return { skip: SKIP_REASONS.UNREADABLE };
   if (source.size > MAX_BLOB_BYTES) return { skip: SKIP_REASONS.OVERSIZE };
+  if (BINARY_EXTENSIONS.has(extensionOf(source.path))) return { skip: SKIP_REASONS.BINARY };
   return { skip: null };
 }
 
@@ -342,7 +377,18 @@ async function readTree(input = {}) {
     }
     /* A directory was never a file, so it is not something a reader missed. */
     if (skip === SKIP_REASONS.NOT_A_FILE) continue;
-    skipped.push(Object.freeze({ path: typeof entry.path === 'string' ? entry.path : '', reason: skip }));
+    /*
+     * The object id travels with a skipped file whose path is safe, because a
+     * file can be an exposure without being read: a committed keystore is one
+     * whatever its bytes say, and its identity is the blob, not a string in it.
+     */
+    const safe = skip !== SKIP_REASONS.UNSAFE_PATH && safePath(entry.path);
+    const sha = text(entry.sha).toLowerCase();
+    skipped.push(Object.freeze({
+      path: safe ? entry.path : '',
+      reason: skip,
+      sha: safe && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha) ? sha : null
+    }));
   }
 
   return Object.freeze({
@@ -421,6 +467,7 @@ async function readBlob(input = {}) {
 }
 
 module.exports = Object.freeze({
+  BINARY_EXTENSIONS,
   DEFAULT_TRANSPORT: guardedFetch,
   ExposureReaderError,
   MAX_BLOB_BYTES,

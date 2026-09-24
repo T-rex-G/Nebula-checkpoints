@@ -107,7 +107,349 @@ const RULE_NARRATION = Object.freeze({
     severity: 'critical',
     consequence: 'A Supabase service-role key is in the repository. It bypasses row-level security completely, so anyone who has it can read and write every table in the project regardless of what the policies say. It looks almost exactly like the anonymous key and is nothing like it.',
     action: 'Rotate the service-role key in the project API settings now, and move it into the deployment environment rather than the repository. Rotating is what ends the exposure; the key stays in the repository history.'
+  }),
+  /* ---- The scan's own catalogue ---------------------------------------- */
+  'aws-secret-access-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'An AWS secret access key is in the repository, beside the name it is assigned to. With its access key id -- usually committed nearby -- anyone can act as that IAM identity: read buckets, start machines, and run up a bill in minutes.',
+    action: 'Deactivate the key pair in IAM now, create a new one, and check CloudTrail for activity from the old key. Deleting the file does not help; the key stays in the repository history.'
+  }),
+  'google-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Google API key is in the repository. Keys for browser use (Maps, Firebase) are often meant to be public, but an unrestricted key lets anyone call every Google API it is enabled for on your billing account.',
+    action: 'In Google Cloud credentials, restrict the key to the APIs and the referrers or apps that need it; if it is unrestricted or server-side, regenerate it.'
+  }),
+  'google-oauth-client-secret': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Google OAuth client secret is in the repository. With it, anyone can impersonate your application in the Google sign-in flow and exchange codes for users\' tokens.',
+    action: 'Reset the client secret in the Google Cloud console credentials page and update every deployment that uses it.'
+  }),
+  'azure-storage-account-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'An Azure storage connection string with its account key is in the repository. The account key is full control of the storage account: every blob, table and queue can be read, changed or deleted.',
+    action: 'Rotate the account key in the Azure portal (Access keys), then switch applications to the rotated key or, better, to managed identity or SAS tokens.'
+  }),
+  'digitalocean-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A DigitalOcean token is in the repository. Depending on its scope, anyone who has it can create, read or destroy droplets, databases and DNS for the account.',
+    action: 'Revoke the token under API in the DigitalOcean control panel now, and review recent account activity.'
+  }),
+  'cloudflare-origin-ca-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Cloudflare Origin CA key is in the repository. It can issue and revoke origin certificates for the account\'s zones, which is enough to impersonate your origin servers to Cloudflare.',
+    action: 'Regenerate the Origin CA key in your Cloudflare profile under API Tokens, and review recently issued origin certificates.'
+  }),
+  'hashicorp-vault-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A HashiCorp Vault token is in the repository. A Vault token is a key to other secrets: whatever its policies allow, anyone holding it can read -- often every credential the application uses.',
+    action: 'Revoke the token with `vault token revoke` (or its accessor) now, and rotate the secrets its policies could read.'
+  }),
+  'terraform-cloud-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Terraform Cloud token is in the repository. It can read state -- which routinely contains plaintext secrets -- and queue runs that change real infrastructure.',
+    action: 'Delete the token in Terraform Cloud user or team settings, and treat secrets stored in the workspaces\' state as exposed.'
+  }),
+  'doppler-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Doppler token is in the repository. Doppler exists to hold secrets, so this token is access to every secret its project and config can see.',
+    action: 'Revoke the token in the Doppler dashboard now and rotate the secrets it could read.'
+  }),
+  'pulumi-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Pulumi access token is in the repository. It can read stack state, including encrypted and plaintext secrets, and run updates against real infrastructure.',
+    action: 'Delete the token under Access Tokens in the Pulumi Cloud console, and review recent stack updates.'
+  }),
+  'render-api-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Render API key is in the repository. It can manage every service on the account: read environment variables, trigger deploys, change settings and delete services.',
+    action: 'Revoke the key under Account Settings, API Keys in the Render dashboard, then review the environment variables it could read.'
+  }),
+  'neon-api-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Neon API key is in the repository. It can manage projects, branches and roles -- including creating credentials that read every database on the account.',
+    action: 'Revoke the key under Account settings, API keys in the Neon console, and reset the passwords of roles it could have changed.'
+  }),
+  'flyio-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Fly.io token is in the repository. It can deploy to, read secrets from and destroy the apps its organization owns.',
+    action: 'Revoke it with `fly tokens revoke` or in the dashboard, and rotate the app secrets it could read.'
+  }),
+  'netlify-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Netlify personal access token is in the repository. It acts as your user: it can change sites, read build environment variables and deploy arbitrary code to your domains.',
+    action: 'Revoke the token under User settings, Applications in Netlify, and review recent deploys.'
+  }),
+  'planetscale-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A PlanetScale token or password is in the repository. Depending on its kind, it connects to a database branch directly or manages the organization\'s databases.',
+    action: 'Delete the password or service token in the PlanetScale dashboard and create a new one kept in the deployment environment.'
+  }),
+  'databricks-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Databricks personal access token is in the repository. It acts as that user in the workspace: notebooks, jobs, clusters and the data they can reach.',
+    action: 'Revoke the token under User Settings, Developer, Access tokens, and review recent job and cluster activity.'
+  }),
+  'npm-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'An npm access token is in the repository. With publish rights, anyone who has it can release a new version of your packages -- and everyone who installs them runs what they published.',
+    action: 'Revoke the token on npmjs.com under Access Tokens now, and check the recent versions of every package it could publish.'
+  }),
+  'pypi-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A PyPI API token is in the repository. Anyone who has it can upload new releases of the projects it is scoped to, which every downstream install then runs.',
+    action: 'Remove the token under Account settings, API tokens on PyPI, and review the release history of the affected projects.'
+  }),
+  'docker-hub-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Docker Hub personal access token is in the repository. It can push images to your repositories, so anyone who has it can replace an image your deployments pull.',
+    action: 'Delete the token under Account settings, Security on Docker Hub, and verify the digests of recently pushed images.'
+  }),
+  'circleci-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A CircleCI personal API token is in the repository. It can read project environment variables and trigger pipelines, which is usually access to every deployment secret.',
+    action: 'Delete the token under User Settings, Personal API Tokens, and rotate the project environment variables it could read.'
+  }),
+  'buildkite-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Buildkite API token is in the repository. Depending on its scopes it can read pipelines and builds or trigger new ones with your agents\' access.',
+    action: 'Revoke the token under Personal Settings, API Access Tokens in Buildkite.'
+  }),
+  'jfrog-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A JFrog Artifactory API key is in the repository. It can read and publish artifacts, so anyone who has it can replace a package your builds download.',
+    action: 'Revoke the key in the JFrog Platform user profile and review recent uploads.'
+  }),
+  'atlassian-api-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'An Atlassian API token is in the repository. Together with the account email, it acts as that user in Jira and Confluence: every issue and page they can see.',
+    action: 'Revoke the token at id.atlassian.com under Security, API tokens.'
+  }),
+  'linear-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Linear API key is in the repository. It acts as your user: it can read and change every issue, project and comment you can.',
+    action: 'Revoke the key in Linear under Settings, Security & access, Personal API keys.'
+  }),
+  'postman-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Postman API key is in the repository. It reads your collections and environments -- which frequently store other API keys in plain text.',
+    action: 'Revoke the key in Postman under Settings, API keys, and check environments for secrets that should be rotated too.'
+  }),
+  'figma-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Figma personal access token is in the repository. It reads every file the user can open, including unreleased designs.',
+    action: 'Revoke the token in Figma under Settings, Security, Personal access tokens.'
+  }),
+  'sentry-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Sentry auth token is in the repository. Depending on scope, it reads error events -- which often contain request data and user details -- and can change project settings.',
+    action: 'Revoke the token in Sentry under User or Organization settings, Auth Tokens.'
+  }),
+  'grafana-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Grafana service account or Cloud token is in the repository. It can read dashboards and data sources, and with editor rights change alerting.',
+    action: 'Delete the token in Grafana under Administration, Service accounts, or in the Grafana Cloud portal.'
+  }),
+  'new-relic-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A New Relic user API key is in the repository. It queries all telemetry the user can see through NerdGraph and can change account configuration.',
+    action: 'Delete the key in New Relic under API keys, and create a new one kept out of the repository.'
+  }),
+  'dynatrace-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Dynatrace API token is in the repository. Its scopes can include reading monitoring data, logs and configuration for the whole environment.',
+    action: 'Revoke the token in Dynatrace under Access tokens.'
+  }),
+  'openai-api-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'An OpenAI API key is in the repository. Anyone who has it can make requests billed to your organization, and leaked keys are found and abused by automated scanners within minutes.',
+    action: 'Revoke the key on the OpenAI platform under API keys now, and check usage for requests you did not make.'
+  }),
+  'anthropic-api-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'An Anthropic API key is in the repository. Anyone who has it can send requests billed to your workspace; an admin key can also manage the organization\'s other keys.',
+    action: 'Delete the key in the Anthropic Console under API keys now, and review usage for the period it was exposed.'
+  }),
+  'huggingface-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Hugging Face access token is in the repository. It reads your private models and datasets, and a write token can replace them.',
+    action: 'Invalidate the token under Settings, Access Tokens on Hugging Face.'
+  }),
+  'replicate-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Replicate API token is in the repository. Anyone who has it can run models billed to your account.',
+    action: 'Revoke the token in Replicate account settings under API tokens.'
+  }),
+  'groq-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Groq API key is in the repository. Anyone who has it can send requests billed to your account.',
+    action: 'Delete the key in the Groq console under API Keys.'
+  }),
+  'perplexity-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Perplexity API key is in the repository. Anyone who has it can make requests billed to your account.',
+    action: 'Revoke the key in Perplexity API settings.'
+  }),
+  'stripe-live-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A live secret key in Stripe\'s format is in the repository (a few services, such as Clerk, copy the same prefix). A Stripe live key moves real money: refunds, payouts and customer data are all within reach.',
+    action: 'Roll the key in the Stripe dashboard under Developers, API keys now -- or in the issuing service if it is not Stripe -- and review recent payouts and refunds.'
+  }),
+  'stripe-test-key': Object.freeze({
+    severity: 'warning',
+    consequence: 'A test-mode secret key in Stripe\'s format is in the repository. Test mode moves no real money, but it exposes test data and webhooks, and a repository with a test key often has the live one nearby.',
+    action: 'Roll the test key in the Stripe dashboard and move both keys into the deployment environment.'
+  }),
+  'stripe-webhook-secret': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Stripe webhook signing secret is in the repository. With it, anyone can forge webhook events your server will accept as genuine -- a payment that never happened, a subscription that was never paid.',
+    action: 'Roll the endpoint\'s signing secret in the Stripe dashboard under Developers, Webhooks.'
+  }),
+  'square-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Square access token or application secret is in the repository. It can take payments, issue refunds and read customer data for the seller account.',
+    action: 'Revoke the token or replace the secret in the Square Developer dashboard.'
+  }),
+  'shopify-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Shopify access token or shared secret is in the repository. An admin token reads and changes orders, customers and products for the store.',
+    action: 'Uninstall and reinstall the custom app, or rotate the secret in the Shopify admin under Apps, Develop apps.'
+  }),
+  'braintree-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Braintree production access token is in the repository. It can process transactions and refunds for the merchant account.',
+    action: 'Revoke the token in the Braintree control panel and review recent transactions.'
+  }),
+  'flutterwave-secret-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Flutterwave secret key is in the repository. It can initiate transfers and read transaction data for the account.',
+    action: 'Regenerate the API keys in the Flutterwave dashboard under Settings, API.'
+  }),
+  'easypost-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'An EasyPost API key is in the repository. It buys shipping labels billed to your account and reads shipment addresses.',
+    action: 'Delete the key in the EasyPost dashboard under API Keys.'
+  }),
+  'sendgrid-api-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A SendGrid API key is in the repository. Anyone who has it can send email as your verified domains -- the phishing that passes every check because it really is from you.',
+    action: 'Delete the key in SendGrid under Settings, API Keys, and review the activity feed for mail you did not send.'
+  }),
+  'mailgun-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Mailgun API key is in the repository. It sends mail from your domains and reads the message logs.',
+    action: 'Rotate the key in the Mailgun control panel under API Security.'
+  }),
+  'mailchimp-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Mailchimp API key is in the repository. It reads and exports your audience -- every subscriber\'s email address -- and can send campaigns.',
+    action: 'Delete the key in Mailchimp under Account, Extras, API keys.'
+  }),
+  'resend-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Resend API key is in the repository. With sending access, anyone who has it can send email from your verified domains.',
+    action: 'Delete the key in the Resend dashboard under API Keys.'
+  }),
+  'twilio-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Twilio API key identifier is in the repository. Its secret is usually committed alongside it, and together they send messages and place calls billed to the account.',
+    action: 'Delete the API key in the Twilio console under API keys & tokens.'
+  }),
+  'slack-webhook-url': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Slack incoming-webhook URL is in the repository. The URL is the credential: anyone who has it can post messages into that channel, looking like your integration.',
+    action: 'Regenerate the webhook in the Slack app configuration, which invalidates this URL.'
+  }),
+  'discord-webhook-url': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Discord webhook URL is in the repository. The URL is the credential: anyone who has it can post into that channel, or delete the webhook.',
+    action: 'Delete the webhook in the channel\'s Integrations settings and create a new one.'
+  }),
+  'teams-webhook-url': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Microsoft Teams incoming-webhook URL is in the repository. The URL is the credential: anyone who has it can post messages into that channel.',
+    action: 'Remove the connector or workflow from the channel and create a new one.'
+  }),
+  'telegram-bot-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Telegram bot token is in the repository. It is complete control of the bot: reading every message sent to it and sending as it to every chat it is in.',
+    action: 'Revoke the token with /revoke in a chat with @BotFather, which issues a new one.'
+  }),
+  'firebase-cloud-messaging-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Firebase Cloud Messaging server key is in the repository. Anyone who has it can push notifications to every installation of your app.',
+    action: 'Delete the legacy server key in the Firebase console under Cloud Messaging and move to the HTTP v1 API with service-account credentials.'
+  }),
+  'twitter-bearer-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'An X (Twitter) API bearer token is in the repository. It makes API calls against your app\'s quota and whatever access the app has been granted.',
+    action: 'Regenerate the bearer token in the X developer portal under the app\'s Keys and tokens.'
+  }),
+  'mapbox-secret-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Mapbox secret token is in the repository. Unlike the public `pk.` tokens, a secret token can have scopes that change styles, datasets and uploads on the account.',
+    action: 'Delete the token on the Mapbox account Tokens page.'
+  }),
+  'notion-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Notion integration token is in the repository. It reads and edits every page and database shared with the integration.',
+    action: 'Refresh the secret in Notion under Settings, Connections, the integration\'s page.'
+  }),
+  'airtable-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'An Airtable personal access token is in the repository. It reads and writes the bases its scopes allow.',
+    action: 'Delete the token on the Airtable developer hub.'
+  }),
+  'hubspot-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A HubSpot private-app token is in the repository. Its scopes typically include contacts and deals -- your customer records.',
+    action: 'Rotate the token in HubSpot under Settings, Integrations, Private Apps.'
+  }),
+  'contentful-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Contentful personal access token is in the repository. It uses the Content Management API as you: create, change and publish content in every space you can.',
+    action: 'Revoke the token in Contentful under Settings, CMA tokens.'
+  }),
+  'age-secret-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'An age private key is in the repository. Every file encrypted to its public key -- often the repository\'s own encrypted secrets -- can now be decrypted by anyone who has it.',
+    action: 'Generate a new key pair, re-encrypt what the old key protected, and treat everything it could decrypt as exposed.'
+  }),
+  'pgp-private-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A PGP private key block is in the repository. Unless it is protected by a strong passphrase, anyone who has it can sign as you and decrypt what was encrypted to you.',
+    action: 'Revoke the key with a revocation certificate, publish the revocation, and issue a new key.'
+  }),
+  'dsa-private-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A DSA private key is in the repository. Anyone who can read this file can authenticate as whatever trusts the key, with no password protecting it.',
+    action: 'Remove the key from every authorized_keys and trust store, and replace it with a modern key type such as Ed25519.'
+  }),
+  'encrypted-private-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A passphrase-protected private key is in the repository. It is not immediately usable, but it can be attacked offline for as long as anyone likes, and passphrases are often weak or committed nearby.',
+    action: 'Treat the key as compromised on a slower clock: replace it and remove the old one from wherever it is trusted.'
+  }),
+  'putty-private-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A PuTTY private key file is in the repository. Unless it is encrypted, anyone who has it can log in to every server that trusts the key.',
+    action: 'Remove the public key from every server\'s authorized_keys and generate a new key pair.'
+  }),
+  'database-url-password': Object.freeze({
+    severity: 'serious',
+    consequence: 'A database connection string with its password is in the repository. Anyone who can reach the host can connect as that user -- and managed databases are commonly reachable from the internet.',
+    action: 'Change that user\'s password, check whether the host accepts connections from anywhere, and move the connection string into the deployment environment.'
+  }),
+  'keystore-file': Object.freeze({
+    severity: 'serious',
+    consequence: 'A keystore file (PKCS#12, Java or BouncyCastle) is committed. It holds private keys and certificates -- often an app-signing or TLS key -- protected only by a password that can be attacked offline.',
+    action: 'Treat the keys inside as exposed: replace the certificate or signing key where you can, and remove the file from the repository and its history.'
+  }),
+  'password-database-file': Object.freeze({
+    severity: 'serious',
+    consequence: 'A password database (KeePass) is committed. Everything in it is protected by one master password, and anyone with a copy can try to guess it offline, forever.',
+    action: 'Change the passwords stored in it, starting with the most important, and remove the file from the repository and its history.'
   })
+
 });
 
 /*
@@ -278,6 +620,7 @@ function describeFinding(finding) {
 }
 
 module.exports = Object.freeze({
+  safeDisplayPath,
   DISPOSITION_NARRATION,
   NARRATION_VERSION,
   PROBE_NARRATION,

@@ -2553,13 +2553,27 @@ function exposureWarning(message) {
   return warning;
 }
 
+/*
+ * One constructor for the screen's state, so a field added here is a field
+ * every reset gets -- rather than three literals drifting apart and a
+ * repository switch leaving the previous history on screen.
+ */
+function freshExposureState(scopeKey = '') {
+  return {
+    scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
+    confirming: '', verifying: '', accepting: '', probing: '', clearing: false,
+    loading: false, error: '', scopeKey,
+    /* Which findings are open, by fingerprint, so a re-render keeps them. */
+    expanded: new Set(),
+    /* The history, newest first, with a cursor for the next page. */
+    history: [], historyLoading: false, historyDone: false, historyError: '',
+    /* Which history entries are open, and each one's report once fetched. */
+    openScans: new Set(), reports: {}
+  };
+}
+
 function exposureState() {
-  if (!state.exposure) {
-    state.exposure = {
-      scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
-      confirming: '', verifying: '', accepting: '', probing: '', loading: false, error: '', scopeKey: ''
-    };
-  }
+  if (!state.exposure) state.exposure = freshExposureState();
   return state.exposure;
 }
 
@@ -2576,10 +2590,7 @@ function exposureScopeKey() {
 
 function clearExposureState() {
   clearTimeout(exposurePollTimer);
-  state.exposure = {
-    scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
-    confirming: '', verifying: '', accepting: '', probing: '', loading: false, error: '', scopeKey: ''
-  };
+  state.exposure = freshExposureState();
   renderExposure();
 }
 
@@ -2624,6 +2635,315 @@ function exposureProofLine(scan) {
   return 'This scan did not read the whole tree, so it cannot tell you the repository is clean.';
 }
 
+/*
+ * What the scan read, in numbers that add up: text files read, binary files
+ * not scanned, others not read, and any a ceiling stopped before. "Partial"
+ * on its own cannot tell a scan that skipped three logos from one that
+ * skipped half the tree; this can.
+ */
+function exposureBreakdownLine(scan) {
+  if (!scan || !Number.isInteger(scan.filesTotal)) return '';
+  const read = Number.isInteger(scan.filesScanned) ? scan.filesScanned : 0;
+  const binary = Number.isInteger(scan.filesSkippedBinary) ? scan.filesSkippedBinary : 0;
+  const other = Number.isInteger(scan.filesSkippedOther) ? scan.filesSkippedOther : 0;
+  const unreached = Math.max(0, scan.filesTotal - read - binary - other);
+  const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+  const parts = [`Read ${read} of ${plural(scan.filesTotal, 'file', 'files')}.`];
+  if (binary) parts.push(`${plural(binary, 'binary file', 'binary files')} (images, fonts, archives) not scanned.`);
+  if (other) parts.push(`${plural(other, 'other', 'others')} not read (links, submodules, oversized or unreadable).`);
+  if (unreached && !['queued', 'running'].includes(scan.state)) {
+    parts.push(`${plural(unreached, 'file', 'files')} not reached before a limit.`);
+  }
+  return parts.join(' ');
+}
+
+/* The count by severity, and the one control that opens or closes them all. */
+function renderExposureTally(current) {
+  const tally = $('#exposureTally');
+  const toggle = $('#exposureExpandAllBtn');
+  const counts = { critical: 0, serious: 0, warning: 0 };
+  let open = 0;
+  for (const finding of current.findings) {
+    counts[exposureSeverity(finding)] += 1;
+    if ((finding.disposition || 'open') === 'open') open += 1;
+  }
+  const total = current.findings.length;
+  if (tally) {
+    tally.hidden = !total;
+    const parts = ['critical', 'serious', 'warning']
+      .filter(key => counts[key])
+      .map(key => `${counts[key]} ${key}`);
+    tally.textContent = total ? `${total} ${total === 1 ? 'finding' : 'findings'}: ${parts.join(', ')}. ${open} still open.` : '';
+  }
+  if (toggle) {
+    toggle.hidden = !total;
+    const allOpen = total > 0 && current.findings.every(finding => current.expanded.has(finding.fingerprint));
+    toggle.textContent = allOpen ? 'Collapse all' : 'Expand all';
+    toggle.setAttribute('aria-expanded', String(allOpen));
+  }
+}
+
+function toggleAllExposureFindings() {
+  const current = exposureState();
+  const allOpen = current.findings.length > 0
+    && current.findings.every(finding => current.expanded.has(finding.fingerprint));
+  current.expanded = allOpen ? new Set() : new Set(current.findings.map(finding => finding.fingerprint));
+  renderExposure();
+  announceExposure(allOpen ? 'All findings collapsed.' : 'All findings expanded.');
+}
+
+/* ---- The history ------------------------------------------------------- */
+
+function exposureRefLabel(refName) {
+  return String(refName || '').replace(/^refs\/(?:heads|tags)\//, '') || 'HEAD';
+}
+
+/* Today and yesterday by name, anything older by date -- a history is read by
+   "when was that", and "Tuesday 22 Sep" answers it faster than a timestamp. */
+function exposureDayLabel(date) {
+  const startOf = value => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(date)) / 86_400_000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function exposureScanCounts(scan) {
+  const counts = scan.severityCounts || {};
+  const parts = ['critical', 'serious', 'warning']
+    .filter(key => Number(counts[key]) > 0)
+    .map(key => `${counts[key]} ${key}`);
+  if (parts.length) return parts.join(' · ');
+  if (['queued', 'running'].includes(scan.state)) return 'In progress';
+  if (scan.state === 'failed' || scan.state === 'canceled') return 'No results';
+  return scan.coverage === 'complete' ? 'Nothing found' : 'Nothing found in what was read';
+}
+
+function renderExposureHistory(current) {
+  const host = $('#exposureHistory');
+  const empty = $('#exposureHistoryEmpty');
+  const more = $('#exposureHistoryMoreBtn');
+  if (!host || !empty) return;
+  host.textContent = '';
+  if (!current.history.length) {
+    empty.hidden = false;
+    empty.textContent = current.historyError
+      || (current.historyLoading ? 'Loading scan history…' : 'No scans yet. Each scan you run is kept here, newest first.');
+    if (more) more.hidden = true;
+    return;
+  }
+  empty.hidden = !current.historyError;
+  empty.textContent = current.historyError || '';
+
+  let day = '';
+  let group = null;
+  for (const scan of current.history) {
+    const at = new Date(scan.createdAt);
+    const key = Number.isNaN(at.getTime()) ? 'unknown' : at.toDateString();
+    if (key !== day) {
+      day = key;
+      const heading = document.createElement('h3');
+      heading.className = 'exposure-history-day';
+      heading.textContent = key === 'unknown' ? 'Undated' : exposureDayLabel(at);
+      group = document.createElement('ol');
+      group.className = 'exposure-history-group';
+      host.append(heading, group);
+    }
+    group.appendChild(exposureHistoryEntry(scan, current));
+  }
+  if (more) {
+    more.hidden = current.historyDone;
+    more.disabled = current.historyLoading;
+    more.textContent = current.historyLoading ? 'Loading…' : 'Show older scans';
+  }
+}
+
+/*
+ * One scan, as a disclosure: when, what state it ended in, how much it read,
+ * which commit, and what it found -- readable without opening it. Opening it
+ * fetches that scan's report once and keeps it.
+ */
+function exposureHistoryEntry(scan, current) {
+  const item = document.createElement('li');
+  item.className = 'exposure-history-item';
+  const details = document.createElement('details');
+  details.className = 'exposure-scan';
+  details.dataset.scanId = scan.scanId;
+  if (current.openScans.has(scan.scanId)) details.open = true;
+
+  const summary = document.createElement('summary');
+  summary.className = 'exposure-scan-summary';
+  const time = document.createElement('time');
+  time.className = 'exposure-scan-time';
+  time.dateTime = scan.createdAt || '';
+  const at = new Date(scan.createdAt);
+  time.textContent = Number.isNaN(at.getTime()) ? '—' : at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  time.title = Number.isNaN(at.getTime()) ? '' : at.toLocaleString();
+  const ago = document.createElement('span');
+  ago.className = 'exposure-scan-ago';
+  ago.textContent = timeAgo(scan.createdAt);
+  const stateBadge = document.createElement('span');
+  stateBadge.className = 'exposure-scan-state';
+  stateBadge.dataset.state = scan.state;
+  stateBadge.textContent = EXPOSURE_STATE_WORDS[scan.state] || scan.state;
+  const ref = document.createElement('span');
+  ref.className = 'exposure-scan-ref';
+  ref.textContent = `${exposureRefLabel(scan.refName)} @ ${String(scan.commitSha || '').slice(0, 7) || '—'}`;
+  const counts = document.createElement('span');
+  counts.className = 'exposure-scan-counts';
+  counts.dataset.found = String(Number(scan.findingCount) > 0);
+  counts.textContent = exposureScanCounts(scan);
+  summary.append(time, ago, stateBadge, ref, counts);
+  details.appendChild(summary);
+
+  const body = document.createElement('div');
+  body.className = 'exposure-scan-body';
+  const facts = document.createElement('p');
+  facts.className = 'exposure-scan-facts';
+  const coverage = EXPOSURE_COVERAGE_WORDS[scan.coverage] || scan.coverage;
+  facts.textContent = `${coverage}. ${exposureBreakdownLine(scan) || (Number.isInteger(scan.filesScanned) ? `Read ${scan.filesScanned} files.` : '')} Requested by ${scan.requestedBy || 'someone'}.`;
+  body.appendChild(facts);
+  if (scan.skippedReason && EXPOSURE_SKIPPED_WORDS[scan.skippedReason]) {
+    const caveat = document.createElement('p');
+    caveat.className = 'exposure-caveat';
+    caveat.textContent = `Coverage is partial because ${EXPOSURE_SKIPPED_WORDS[scan.skippedReason]}.`;
+    body.appendChild(caveat);
+  }
+
+  const report = current.reports[scan.scanId];
+  if (details.open) {
+    if (!report || report.loading) {
+      const loading = document.createElement('p');
+      loading.className = 'exposure-empty';
+      loading.textContent = 'Loading this scan’s report…';
+      body.appendChild(loading);
+    } else if (report.error) {
+      const failed = document.createElement('p');
+      failed.className = 'exposure-empty';
+      failed.textContent = report.error;
+      body.appendChild(failed);
+    } else if (!report.entries.length) {
+      const none = document.createElement('p');
+      none.className = 'exposure-empty';
+      none.textContent = scan.coverage === 'complete'
+        ? 'This scan found no credentials in the tree it read.'
+        : 'This scan found no credentials in the part of the tree it read. That is not an all-clear.';
+      body.appendChild(none);
+    } else {
+      const list = document.createElement('ul');
+      list.className = 'exposure-list exposure-report-list';
+      for (const finding of sortExposureFindings(report.entries)) {
+        list.appendChild(exposureFindingItem(finding, current, { interactive: false }));
+      }
+      body.appendChild(list);
+    }
+  }
+  details.appendChild(body);
+  item.appendChild(details);
+  return item;
+}
+
+async function loadExposureHistory({ more = false } = {}) {
+  if (!state.work) return;
+  const current = exposureState();
+  const scopeKey = exposureScopeKey();
+  if (current.historyLoading) return;
+  current.historyLoading = true;
+  renderExposure();
+  try {
+    const last = more ? current.history[current.history.length - 1] : null;
+    const query = new URLSearchParams({ limit: '20' });
+    if (last) {
+      query.set('beforeAt', last.createdAt);
+      query.set('beforeId', last.scanId);
+    }
+    const body = await api(`/api/repo/${wPath()}/exposure/scans?${query}`);
+    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
+    const page = Array.isArray(body && body.scans) ? body.scans : [];
+    current.history = more ? [...current.history, ...page] : page;
+    current.historyDone = page.length < 20;
+    current.historyError = '';
+    /*
+     * The proof card shows the newest scan when this session has not started
+     * one -- a reader coming back should see what the last scan proved, not
+     * an invitation to start one as though none had ever run.
+     */
+    if (!more && page.length && (!current.scan || current.scan.scanId === page[0].scanId)) {
+      current.scan = page[0];
+    }
+  } catch (error) {
+    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
+    current.historyError = 'Scan history could not be loaded.';
+  } finally {
+    if (current === exposureState()) {
+      current.historyLoading = false;
+      renderExposure();
+      scheduleExposurePoll(current);
+    }
+  }
+}
+
+async function loadExposureReport(scanId) {
+  const current = exposureState();
+  const scopeKey = exposureScopeKey();
+  const existing = current.reports[scanId];
+  if (existing && (existing.loading || existing.entries)) return;
+  current.reports[scanId] = { loading: true, entries: null, error: '' };
+  renderExposure();
+  try {
+    const body = await api(`/api/repo/${wPath()}/exposure/scans/${encodeURIComponent(scanId)}/observations?limit=100`);
+    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
+    const observations = Array.isArray(body && body.observations) ? body.observations : [];
+    current.reports[scanId] = {
+      loading: false, error: '',
+      entries: observations.filter(item => item && item.finding).map(item => ({
+        ...item.finding, occurrences: item.occurrences, occurrenceCount: item.occurrenceCount
+      }))
+    };
+  } catch (error) {
+    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
+    current.reports[scanId] = { loading: false, entries: null, error: 'This scan’s report could not be loaded.' };
+  } finally {
+    if (current === exposureState()) renderExposure();
+  }
+}
+
+/*
+ * Clearing, armed like every other irreversible control. On success the
+ * screen is emptied rather than reloaded: there is nothing left to load, and
+ * a reload racing the delete could briefly show what was just removed.
+ */
+async function clearExposureHistory() {
+  if (!state.work) return;
+  const current = exposureState();
+  if (exposureArm('clear', 'history', 'Press again to delete every scan, finding and check result for this repository.')) return;
+  current.confirming = '';
+  current.clearing = true;
+  renderExposure();
+  const scopeKey = exposureScopeKey();
+  try {
+    const body = await api(`/api/repo/${wPath()}/exposure/clear`, {
+      method: 'POST',
+      body: { confirm: 'clear-exposure-history' }
+    });
+    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
+    const cleared = (body && body.cleared) || {};
+    clearTimeout(exposurePollTimer);
+    state.exposure = freshExposureState(scopeKey);
+    state.exposure.historyDone = true;
+    renderExposure();
+    announceExposure(`Cleared ${Number(cleared.scans) || 0} scans and ${Number(cleared.findings) || 0} findings.`);
+  } catch (error) {
+    if (current !== exposureState()) return;
+    current.clearing = false;
+    current.error = error && error.code === 'EXPOSURE_SCAN_ACTIVE'
+      ? 'A scan is still running. Cancel it before clearing the history.'
+      : 'The history could not be cleared.';
+    renderExposure();
+    announceExposure(current.error);
+  }
+}
+
 function renderExposure() {
   const pane = $('#tab-exposure');
   if (!pane) return;
@@ -2651,11 +2971,40 @@ function renderExposure() {
     proof.dataset.error = String(Boolean(current.error));
   }
 
+  const breakdown = $('#exposureBreakdown');
+  if (breakdown) {
+    const words = exposureBreakdownLine(scan);
+    breakdown.hidden = !words;
+    breakdown.textContent = words;
+  }
+
   const caveat = $('#exposureCaveat');
   if (caveat) {
     const reason = scan && scan.skippedReason ? EXPOSURE_SKIPPED_WORDS[scan.skippedReason] : '';
     caveat.hidden = !reason;
     caveat.textContent = reason ? `Coverage is partial because ${reason}.` : '';
+  }
+
+  /*
+   * Clear, offered once there is something to clear, and armed like every
+   * other irreversible control here: the first press says exactly what will
+   * go, the second removes it.
+   */
+  const clearBtn = $('#exposureClearBtn');
+  const clearWarning = $('#exposureClearWarning');
+  const clearArmed = current.confirming === 'clear:history';
+  const hasRecord = Boolean(scan || current.findings.length || current.history.length);
+  if (clearBtn) {
+    clearBtn.hidden = !hasRecord;
+    clearBtn.disabled = Boolean(current.clearing);
+    clearBtn.textContent = current.clearing ? 'Clearing…' : clearArmed ? 'Delete all of it' : 'Clear history';
+    clearBtn.classList.toggle('exposure-clear-armed', clearArmed);
+  }
+  if (clearWarning) {
+    clearWarning.hidden = !clearArmed;
+    clearWarning.textContent = clearArmed
+      ? 'This deletes every scan, finding and check result recorded for this repository under your account. The credentials themselves stay in the repository, and nothing here undoes the deletion.'
+      : '';
   }
 
   const cancel = $('#exposureCancelBtn');
@@ -2668,6 +3017,9 @@ function renderExposure() {
   }
   const refresh = $('#exposureRefreshBtn');
   if (refresh) refresh.hidden = !(activeScan && current.error);
+
+  renderExposureHistory(current);
+  renderExposureTally(current);
 
   const list = $('#exposureList');
   const empty = $('#exposureEmpty');
@@ -2689,182 +3041,286 @@ function renderExposure() {
     return;
   }
   empty.hidden = true;
-  for (const finding of current.findings) {
-    const item = document.createElement('li');
-    item.className = 'exposure-item';
-    item.dataset.severity = (finding.narration && finding.narration.severity) || 'serious';
-    item.dataset.disposition = finding.disposition || 'open';
-
-    const title = document.createElement('p');
-    title.className = 'exposure-item-title';
-    title.textContent = (finding.narration && finding.narration.what) || finding.placeholder || 'A credential';
-    item.appendChild(title);
-
-    const consequence = document.createElement('p');
-    consequence.className = 'exposure-item-consequence';
-    consequence.textContent = (finding.narration && finding.narration.consequence) || '';
-    item.appendChild(consequence);
-
-    const where = document.createElement('p');
-    where.className = 'exposure-item-where';
-    where.textContent = (finding.narration && finding.narration.where) || '';
-    item.appendChild(where);
-
-    const action = document.createElement('p');
-    action.className = 'exposure-item-action';
-    action.textContent = (finding.narration && finding.narration.action) || '';
-    item.appendChild(action);
-
-    /*
-     * The decision this repository has made, in the same voice as everything
-     * above it. A slug ("Status: accepted-risk") reads as bookkeeping; the
-     * sentence says a person decided and that the credential is still there.
-     */
-    const disposition = document.createElement('p');
-    disposition.className = 'exposure-item-disposition';
-    disposition.textContent = finding.dispositionNarration
-      || EXPOSURE_DISPOSITION_FALLBACK[finding.disposition || 'open']
-      || `Status: ${finding.disposition || 'open'}`;
-    item.appendChild(disposition);
-
-    /*
-     * Whose name is on it. The acceptance is only worth anything as a record
-     * of who made it, so an accepted finding that cannot say who accepted it
-     * says that, rather than quietly reading as though nobody did.
-     */
-    if ((finding.disposition || 'open') === 'accepted-risk') {
-      const provenance = document.createElement('p');
-      provenance.className = 'exposure-item-provenance';
-      const when = timeAgo(finding.dispositionAt);
-      provenance.textContent = finding.dispositionBy
-        ? `Accepted by ${finding.dispositionBy}${when ? ` ${when}` : ''}.`
-        : 'Accepted, but this record does not name who accepted it.';
-      item.appendChild(provenance);
-    }
-
-    /*
-     * What the provider said, if it was asked. Kept separate from the
-     * disposition above because they answer different questions: the
-     * disposition is what this repository has decided, the verification is
-     * what the issuing provider reported, and a reader needs to be able to
-     * see one without inferring the other.
-     */
-    const verification = current.verifications[finding.fingerprint];
-    if (verification) {
-      const liveness = document.createElement('p');
-      liveness.className = 'exposure-item-liveness';
-      liveness.dataset.state = verification.state;
-      liveness.textContent = (verification.narration
-        || EXPOSURE_VERIFICATION_FALLBACK[verification.state]
-        || 'The provider was asked and the answer was not interpreted.');
-      item.appendChild(liveness);
-    }
-
-    /*
-     * What the project answered, if it was asked. Kept apart from the
-     * verification line above for the same reason that one is kept apart from
-     * the disposition: they are three different facts, and a reader must never
-     * have to infer one from another. A readable table does not mean this key
-     * is live, and a denied request does not mean the table is protected --
-     * it means that request was refused.
-     */
-    const probe = current.probes[finding.fingerprint];
-    if (probe) {
-      const readability = document.createElement('p');
-      readability.className = 'exposure-item-readability';
-      readability.dataset.state = probe.state;
-      const answer = probe.narration
-        || EXPOSURE_PROBE_FALLBACK[probe.state]
-        || 'The project was asked and the answer was not interpreted.';
-      /* The question travels with the answer. "Readable" means nothing
-         without it, and a reader who cannot see what was asked cannot tell
-         whether the answer matters. */
-      const asked = probe.relation
-        ? ` Asked: ${probe.relation} (${(probe.projection || []).join(', ')}).`
-        : '';
-      readability.textContent = `${answer}${asked}`;
-      item.appendChild(readability);
-    }
-
-    /*
-     * Both controls are two-step on purpose, and for different reasons.
-     * Checking whether a credential is live sends somebody's leaked secret to
-     * a third party; accepting the risk is a decision recorded under a name
-     * and there is no route that undoes it. So the first press asks and the
-     * second acts, and the question names what will happen rather than saying
-     * "are you sure".
-     *
-     * Only one control is armed at a time -- across findings as well as
-     * within one -- because a screen with several armed buttons on it makes
-     * the next click ambiguous, and one of these two clicks is irreversible.
-     */
-    if ((finding.disposition || 'open') === 'open') {
-      const actions = document.createElement('div');
-      actions.className = 'exposure-item-actions';
-      const armed = current.confirming;
-
-      if (armed === `verify:${finding.fingerprint}`) {
-        actions.appendChild(exposureWarning('Continue only if you own this credential or have explicit permission to test it. This sends it to the issuing service, which may log the request. The credential is not stored; the result is retained.'));
-      } else if (armed === `accept:${finding.fingerprint}`) {
-        actions.appendChild(exposureWarning('This records you as having accepted the exposure. The credential stays in the repository, it stays usable by anyone who has it, and nothing here undoes the decision.'));
-      } else if (armed === `probe:${finding.fingerprint}`) {
-        actions.appendChild(exposureWarning('Continue only if you own this project or have explicit permission to test it. This sends one request using its anonymous key, asking for a single row. The project may log it. Only whether a row came back is kept.'));
-      }
-
-      const row = document.createElement('div');
-      row.className = 'exposure-item-buttons';
-
-      const verify = document.createElement('button');
-      verify.type = 'button';
-      verify.className = 'btn ghost exposure-verify';
-      verify.dataset.fingerprint = finding.fingerprint;
-      verify.textContent = armed === `verify:${finding.fingerprint}`
-        ? 'Send this credential to the provider'
-        : 'Check whether it still works';
-      if (armed === `verify:${finding.fingerprint}`) verify.classList.add('exposure-verify-armed');
-      verify.disabled = current.verifying === finding.fingerprint;
-      row.appendChild(verify);
-
-      /*
-       * The exception, offered here rather than buried in governance,
-       * because this is where somebody is looking at a finding they believe
-       * is intended. It is deliberately the quieter of the two: a sample
-       * key in a fixture is a real reason to accept, and "I do not want to
-       * deal with this" is not, and the control should not flatter the
-       * second.
-       */
-      const accept = document.createElement('button');
-      accept.type = 'button';
-      accept.className = 'btn ghost exposure-accept';
-      accept.dataset.fingerprint = finding.fingerprint;
-      accept.textContent = armed === `accept:${finding.fingerprint}`
-        ? 'Record me as accepting this exposure'
-        : 'This one is intended';
-      if (armed === `accept:${finding.fingerprint}`) accept.classList.add('exposure-accept-armed');
-      accept.disabled = current.accepting === finding.fingerprint;
-      row.appendChild(accept);
-
-      actions.appendChild(row);
-
-      /*
-       * And, for an anonymous key only, the question this whole feature
-       * exists to answer. The key is not the finding -- what the public can
-       * read with it is -- and nobody but an operator can say which table is
-       * worth asking about, so the form asks them rather than guessing.
-       *
-       * A service-role key gets no form. It bypasses every policy, so a
-       * readable answer would come back whatever the project permits and
-       * would have used an administrator credential to produce it.
-       */
-      if (finding.rule === 'supabase-anon-key') {
-        actions.appendChild(exposureProbeForm(finding, current));
-      }
-
-      item.appendChild(actions);
-    }
-
-    list.appendChild(item);
+  /*
+   * Worst first, then by file, so the finding that matters most is the one a
+   * reader sees without scrolling -- and the order does not change between
+   * visits, which is what lets somebody find their place again.
+   */
+  for (const finding of sortExposureFindings(current.findings)) {
+    list.appendChild(exposureFindingItem(finding, current, { interactive: true }));
   }
+}
+
+const EXPOSURE_SEVERITY_RANK = { critical: 0, serious: 1, warning: 2 };
+const EXPOSURE_SEVERITY_WORDS = { critical: 'Critical', serious: 'Serious', warning: 'Warning' };
+const EXPOSURE_DISPOSITION_WORDS = {
+  open: 'Open', 'credential-rejected': 'No longer works', 'accepted-risk': 'Accepted', 'removed-from-tree': 'Removed from tree'
+};
+
+function exposureSeverity(finding) {
+  const severity = finding && finding.narration && finding.narration.severity;
+  return EXPOSURE_SEVERITY_RANK[severity] == null ? 'serious' : severity;
+}
+
+function sortExposureFindings(findings) {
+  return [...(findings || [])].sort((a, b) => (
+    EXPOSURE_SEVERITY_RANK[exposureSeverity(a)] - EXPOSURE_SEVERITY_RANK[exposureSeverity(b)]
+    || String(a.path || '').localeCompare(String(b.path || ''))
+    || String(a.rule || '').localeCompare(String(b.rule || ''))
+  ));
+}
+
+/*
+ * A rule name made readable: `stripe-live-key` is "Stripe live key", with
+ * the handful of initialisms a reader expects in capitals. A label, not a
+ * narration -- the sentence underneath is still the table's.
+ */
+const EXPOSURE_INITIALISMS = new Set(['aws', 'api', 'url', 'ca', 'pgp', 'dsa', 'jwt', 'ci', 'ssh', 'id']);
+/* Names a provider spells its own way. A label that reads "Github" or
+   "Openai" looks like a scanner that does not know what it found. */
+const EXPOSURE_NAMES = {
+  github: 'GitHub', gitlab: 'GitLab', oauth: 'OAuth', openai: 'OpenAI', huggingface: 'Hugging Face',
+  digitalocean: 'DigitalOcean', hashicorp: 'HashiCorp', pypi: 'PyPI', npm: 'npm', jfrog: 'JFrog',
+  circleci: 'CircleCI', planetscale: 'PlanetScale', flyio: 'Fly.io', sendgrid: 'SendGrid',
+  mailchimp: 'Mailchimp', easypost: 'EasyPost', putty: 'PuTTY', mongodb: 'MongoDB'
+};
+function exposureRuleLabel(rule) {
+  const words = String(rule || 'credential').split('-').filter(Boolean);
+  return words.map((word, index) => {
+    if (EXPOSURE_NAMES[word]) return EXPOSURE_NAMES[word];
+    if (EXPOSURE_INITIALISMS.has(word)) return word.toUpperCase();
+    return index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word;
+  }).join(' ');
+}
+
+function exposureFirstLine(finding) {
+  const occurrence = Array.isArray(finding.occurrences) && finding.occurrences[0];
+  return occurrence && Number.isInteger(occurrence.line) ? occurrence.line : null;
+}
+
+/*
+ * One finding, as a disclosure. The summary is what a reader scans down: how
+ * bad, what, where, and what has been decided. Opening it shows the whole
+ * explanation and, on the current list, the controls. A native <details>
+ * rather than a scripted accordion, so the keyboard, a screen reader and a
+ * browser's find-in-page all already know how to open it.
+ */
+function exposureFindingItem(finding, current, { interactive }) {
+  const item = document.createElement('li');
+  item.className = 'exposure-item';
+  item.dataset.severity = exposureSeverity(finding);
+  item.dataset.disposition = finding.disposition || 'open';
+
+  const details = document.createElement('details');
+  details.className = 'exposure-disclosure';
+  details.dataset.fingerprint = finding.fingerprint || '';
+  if (interactive && current.expanded.has(finding.fingerprint)) details.open = true;
+
+  const summary = document.createElement('summary');
+  summary.className = 'exposure-item-summary';
+  const badge = document.createElement('span');
+  badge.className = 'exposure-badge';
+  badge.dataset.severity = exposureSeverity(finding);
+  badge.textContent = EXPOSURE_SEVERITY_WORDS[exposureSeverity(finding)];
+  const title = document.createElement('span');
+  title.className = 'exposure-item-title';
+  title.textContent = exposureRuleLabel(finding.rule);
+  const location = document.createElement('span');
+  location.className = 'exposure-item-location';
+  const line = exposureFirstLine(finding);
+  /* Never the raw path: a file can be named with a credential, and the
+     server says how to show one that is. */
+  location.textContent = `${finding.displayPath || 'a file'}${line && finding.displayPath === finding.path ? `:${line}` : ''}`;
+  const status = document.createElement('span');
+  status.className = 'exposure-item-status';
+  status.dataset.disposition = finding.disposition || 'open';
+  status.textContent = EXPOSURE_DISPOSITION_WORDS[finding.disposition || 'open'] || (finding.disposition || 'Open');
+  summary.append(badge, title, location, status);
+  details.appendChild(summary);
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'exposure-item-body';
+  exposureFindingBody(bodyEl, finding, current, interactive);
+  details.appendChild(bodyEl);
+  item.appendChild(details);
+  return item;
+}
+
+function exposureFindingBody(item, finding, current, interactive) {
+  const what = document.createElement('p');
+  what.className = 'exposure-item-what';
+  what.textContent = (finding.narration && finding.narration.what) || finding.placeholder || 'A credential';
+  item.appendChild(what);
+
+  const consequence = document.createElement('p');
+  consequence.className = 'exposure-item-consequence';
+  consequence.textContent = (finding.narration && finding.narration.consequence) || '';
+  item.appendChild(consequence);
+
+  const where = document.createElement('p');
+  where.className = 'exposure-item-where';
+  where.textContent = (finding.narration && finding.narration.where) || '';
+  item.appendChild(where);
+
+  const action = document.createElement('p');
+  action.className = 'exposure-item-action';
+  action.textContent = (finding.narration && finding.narration.action) || '';
+  item.appendChild(action);
+
+  /*
+   * The decision this repository has made, in the same voice as everything
+   * above it. A slug ("Status: accepted-risk") reads as bookkeeping; the
+   * sentence says a person decided and that the credential is still there.
+   */
+  const disposition = document.createElement('p');
+  disposition.className = 'exposure-item-disposition';
+  disposition.textContent = finding.dispositionNarration
+    || EXPOSURE_DISPOSITION_FALLBACK[finding.disposition || 'open']
+    || `Status: ${finding.disposition || 'open'}`;
+  item.appendChild(disposition);
+
+  /*
+   * Whose name is on it. The acceptance is only worth anything as a record
+   * of who made it, so an accepted finding that cannot say who accepted it
+   * says that, rather than quietly reading as though nobody did.
+   */
+  if ((finding.disposition || 'open') === 'accepted-risk') {
+    const provenance = document.createElement('p');
+    provenance.className = 'exposure-item-provenance';
+    const when = timeAgo(finding.dispositionAt);
+    provenance.textContent = finding.dispositionBy
+      ? `Accepted by ${finding.dispositionBy}${when ? ` ${when}` : ''}.`
+      : 'Accepted, but this record does not name who accepted it.';
+    item.appendChild(provenance);
+  }
+
+  /*
+   * What the provider said, if it was asked. Kept separate from the
+   * disposition above because they answer different questions: the
+   * disposition is what this repository has decided, the verification is
+   * what the issuing provider reported, and a reader needs to be able to
+   * see one without inferring the other.
+   */
+  const verification = current.verifications[finding.fingerprint];
+  if (verification) {
+    const liveness = document.createElement('p');
+    liveness.className = 'exposure-item-liveness';
+    liveness.dataset.state = verification.state;
+    liveness.textContent = (verification.narration
+      || EXPOSURE_VERIFICATION_FALLBACK[verification.state]
+      || 'The provider was asked and the answer was not interpreted.');
+    item.appendChild(liveness);
+  }
+
+  /*
+   * What the project answered, if it was asked. Kept apart from the
+   * verification line above for the same reason that one is kept apart from
+   * the disposition: they are three different facts, and a reader must never
+   * have to infer one from another. A readable table does not mean this key
+   * is live, and a denied request does not mean the table is protected --
+   * it means that request was refused.
+   */
+  const probe = current.probes[finding.fingerprint];
+  if (probe) {
+    const readability = document.createElement('p');
+    readability.className = 'exposure-item-readability';
+    readability.dataset.state = probe.state;
+    const answer = probe.narration
+      || EXPOSURE_PROBE_FALLBACK[probe.state]
+      || 'The project was asked and the answer was not interpreted.';
+    /* The question travels with the answer. "Readable" means nothing
+       without it, and a reader who cannot see what was asked cannot tell
+       whether the answer matters. */
+    const asked = probe.relation
+      ? ` Asked: ${probe.relation} (${(probe.projection || []).join(', ')}).`
+      : '';
+    readability.textContent = `${answer}${asked}`;
+    item.appendChild(readability);
+  }
+
+  /*
+   * Both controls are two-step on purpose, and for different reasons.
+   * Checking whether a credential is live sends somebody's leaked secret to
+   * a third party; accepting the risk is a decision recorded under a name
+   * and there is no route that undoes it. So the first press asks and the
+   * second acts, and the question names what will happen rather than saying
+   * "are you sure".
+   *
+   * Only one control is armed at a time -- across findings as well as
+   * within one -- because a screen with several armed buttons on it makes
+   * the next click ambiguous, and one of these two clicks is irreversible.
+   */
+  if (interactive && (finding.disposition || 'open') === 'open') {
+    const actions = document.createElement('div');
+    actions.className = 'exposure-item-actions';
+    const armed = current.confirming;
+
+    if (armed === `verify:${finding.fingerprint}`) {
+      actions.appendChild(exposureWarning('Continue only if you own this credential or have explicit permission to test it. This sends it to the issuing service, which may log the request. The credential is not stored; the result is retained.'));
+    } else if (armed === `accept:${finding.fingerprint}`) {
+      actions.appendChild(exposureWarning('This records you as having accepted the exposure. The credential stays in the repository, it stays usable by anyone who has it, and nothing here undoes the decision.'));
+    } else if (armed === `probe:${finding.fingerprint}`) {
+      actions.appendChild(exposureWarning('Continue only if you own this project or have explicit permission to test it. This sends one request using its anonymous key, asking for a single row. The project may log it. Only whether a row came back is kept.'));
+    }
+
+    const row = document.createElement('div');
+    row.className = 'exposure-item-buttons';
+
+    const verify = document.createElement('button');
+    verify.type = 'button';
+    verify.className = 'btn ghost exposure-verify';
+    verify.dataset.fingerprint = finding.fingerprint;
+    verify.textContent = armed === `verify:${finding.fingerprint}`
+      ? 'Send this credential to the provider'
+      : 'Check whether it still works';
+    if (armed === `verify:${finding.fingerprint}`) verify.classList.add('exposure-verify-armed');
+    verify.disabled = current.verifying === finding.fingerprint;
+    /*
+     * Offered only where a verifier exists. Three do and dozens of rules
+     * exist; a two-press confirmation that always ends "unverifiable" is a
+     * control that teaches people to ignore controls. A finding from an
+     * older server without the flag keeps the control, as before.
+     */
+    if (finding.verifiable !== false) row.appendChild(verify);
+
+    /*
+     * The exception, offered here rather than buried in governance,
+     * because this is where somebody is looking at a finding they believe
+     * is intended. It is deliberately the quieter of the two: a sample
+     * key in a fixture is a real reason to accept, and "I do not want to
+     * deal with this" is not, and the control should not flatter the
+     * second.
+     */
+    const accept = document.createElement('button');
+    accept.type = 'button';
+    accept.className = 'btn ghost exposure-accept';
+    accept.dataset.fingerprint = finding.fingerprint;
+    accept.textContent = armed === `accept:${finding.fingerprint}`
+      ? 'Record me as accepting this exposure'
+      : 'This one is intended';
+    if (armed === `accept:${finding.fingerprint}`) accept.classList.add('exposure-accept-armed');
+    accept.disabled = current.accepting === finding.fingerprint;
+    row.appendChild(accept);
+
+    actions.appendChild(row);
+
+    /*
+     * And, for an anonymous key only, the question this whole feature
+     * exists to answer. The key is not the finding -- what the public can
+     * read with it is -- and nobody but an operator can say which table is
+     * worth asking about, so the form asks them rather than guessing.
+     *
+     * A service-role key gets no form. It bypasses every policy, so a
+     * readable answer would come back whatever the project permits and
+     * would have used an administrator credential to produce it.
+     */
+    if (finding.rule === 'supabase-anon-key') {
+      actions.appendChild(exposureProbeForm(finding, current));
+    }
+
+    item.appendChild(actions);
+  }
+
 }
 
 async function loadExposure() {
@@ -2876,15 +3332,13 @@ async function loadExposure() {
   if (!state.work) return;
   const current = exposureState();
   const scopeKey = exposureScopeKey();
-  if (current.scopeKey !== scopeKey) {
-    state.exposure = {
-      scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
-      confirming: '', verifying: '', accepting: '', probing: '', loading: false, error: '', scopeKey
-    };
-  }
+  if (current.scopeKey !== scopeKey) state.exposure = freshExposureState(scopeKey);
   const now = exposureState();
   now.loading = true;
   renderExposure();
+  /* The history loads beside the findings rather than after them: it is what
+     tells the proof card which scan it is describing. */
+  void loadExposureHistory();
   try {
     const findings = await api(`/api/repo/${wPath()}/exposure/findings?limit=50`);
     if (now !== exposureState() || scopeKey !== exposureScopeKey()) return;
@@ -2938,6 +3392,9 @@ async function refreshExposureScan(current = exposureState()) {
     if (current.scan.state === 'canceled') return;
     current.scan = body.scan;
     current.error = '';
+    current.history = current.history.map(item => (
+      item.scanId === body.scan.scanId ? { ...item, ...body.scan } : item
+    ));
     renderExposure();
     if (['queued', 'running'].includes(current.scan.state)) scheduleExposurePoll(current);
     else {
@@ -3132,6 +3589,12 @@ async function requestExposureScan() {
     if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
     current.scan = body && body.scan ? body.scan : null;
     current.error = '';
+    if (current.scan && !current.history.some(item => item.scanId === current.scan.scanId)) {
+      current.history = [
+        { ...current.scan, findingCount: 0, severityCounts: { critical: 0, serious: 0, warning: 0 } },
+        ...current.history
+      ];
+    }
     announceExposure('Scan requested. Nothing is proven until it finishes.');
   } catch (error) {
     if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
@@ -4641,9 +5104,42 @@ $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.ta
   if (refreshBtn) refreshBtn.addEventListener('click', () => { void refreshExposureScan(); });
   const cancelBtn = $('#exposureCancelBtn');
   if (cancelBtn) cancelBtn.addEventListener('click', () => { void cancelExposureScan(); });
+  const expandAll = $('#exposureExpandAllBtn');
+  if (expandAll) expandAll.addEventListener('click', toggleAllExposureFindings);
+  const clearBtn = $('#exposureClearBtn');
+  if (clearBtn) clearBtn.addEventListener('click', () => { void clearExposureHistory(); });
+  const moreBtn = $('#exposureHistoryMoreBtn');
+  if (moreBtn) moreBtn.addEventListener('click', () => { void loadExposureHistory({ more: true }); });
+  /*
+   * `toggle` does not bubble, so these listen in the capture phase. They only
+   * record what is open -- re-rendering from inside a toggle would rebuild
+   * the element that fired it.
+   */
+  const historyHost = $('#exposureHistory');
+  if (historyHost) {
+    historyHost.addEventListener('toggle', event => {
+      const details = event.target;
+      if (!(details instanceof HTMLDetailsElement) || !details.dataset.scanId) return;
+      const current = exposureState();
+      if (details.open) {
+        current.openScans.add(details.dataset.scanId);
+        if (!current.reports[details.dataset.scanId]) void loadExposureReport(details.dataset.scanId);
+      } else {
+        current.openScans.delete(details.dataset.scanId);
+      }
+    }, true);
+  }
   /* Delegated, because the list is rebuilt on every render. */
   const list = $('#exposureList');
   if (list) {
+    list.addEventListener('toggle', event => {
+      const details = event.target;
+      if (!(details instanceof HTMLDetailsElement) || !details.dataset.fingerprint) return;
+      const current = exposureState();
+      if (details.open) current.expanded.add(details.dataset.fingerprint);
+      else current.expanded.delete(details.dataset.fingerprint);
+      renderExposureTally(current);
+    }, true);
     list.addEventListener('click', event => {
       const verify = event.target.closest('.exposure-verify');
       if (verify) return void verifyExposureFinding(verify.dataset.fingerprint);

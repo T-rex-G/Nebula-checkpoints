@@ -211,7 +211,16 @@ function blobEntry(entryPath, overrides = {}) {
       ['an over-long path', blobEntry(`${'a/'.repeat(MAX_PATH_LENGTH)}b.js`), SKIP_REASONS.UNSAFE_PATH],
       ['no path at all', blobEntry(''), SKIP_REASONS.UNSAFE_PATH],
       ['a missing sha', blobEntry('a.js', { sha: '' }), SKIP_REASONS.UNREADABLE],
-      ['a malformed sha', blobEntry('a.js', { sha: 'nothex' }), SKIP_REASONS.UNREADABLE]
+      ['a malformed sha', blobEntry('a.js', { sha: 'nothex' }), SKIP_REASONS.UNREADABLE],
+      /*
+       * Binary by name, and never fetched. Each of these used to cost a
+       * provider request only to be refused once its bytes arrived.
+       */
+      ['an image', blobEntry('public/logo.png'), SKIP_REASONS.BINARY],
+      ['an image with an upper-case extension', blobEntry('public/Photo.JPEG'), SKIP_REASONS.BINARY],
+      ['a font', blobEntry('fonts/inter.woff2'), SKIP_REASONS.BINARY],
+      ['an archive', blobEntry('dist/release.tar.gz'), SKIP_REASONS.BINARY],
+      ['a keystore', blobEntry('android/app/release.jks'), SKIP_REASONS.BINARY]
     ];
     for (const [label, entry, expected] of cases) {
       assert.strictEqual(classifyTreeEntry(entry).skip, expected, label);
@@ -221,6 +230,20 @@ function blobEntry(entryPath, overrides = {}) {
     /* A path that merely looks alarming is still a path. */
     for (const safe of ['a/gitignore', 'dot.git.js', 'a/..b/c.js', 'a/b..c', 'src/.env.example']) {
       assert.strictEqual(classifyTreeEntry(blobEntry(safe)).skip, null, safe);
+    }
+
+    /*
+     * And text that merely sits near a binary name is still read. SVG is XML;
+     * `.bin` and `.dat` are names people put text under; a dotfile has no
+     * extension at all; and an extension in a directory name is not the
+     * file's. Skipping any of these would be a place a credential could be
+     * that the scan decided not to look, on a guess.
+     */
+    for (const text of [
+      'icons/logo.svg', 'data/seed.bin', 'data/export.dat', '.png', 'assets.png/readme.md',
+      'config.json', 'notes.txt', 'Makefile'
+    ]) {
+      assert.strictEqual(classifyTreeEntry(blobEntry(text)).skip, null, text);
     }
   }
 
@@ -244,6 +267,31 @@ function blobEntry(entryPath, overrides = {}) {
       ].sort(),
       'a directory is not a skipped file; the other three are things we declined to read'
     );
+  }
+
+  /*
+   * A skipped file whose path is safe carries its object id, because a file
+   * can be an exposure without being read -- a committed keystore is one
+   * whatever its bytes say. An unsafe path carries neither its name nor its id:
+   * nothing downstream should be able to report on a path it refused to show.
+   */
+  {
+    const keystore = blobEntry('android/release.jks');
+    const transport = transportReturning(treeResponse([
+      keystore,
+      blobEntry('../escape.p12'),
+      blobEntry('logo.png')
+    ]));
+    const tree = await readTree({ scope, commitSha: COMMIT, token: TOKEN, transport });
+    const byReason = new Map(tree.skipped.map(item => [item.path, item]));
+    assert.strictEqual(byReason.get('android/release.jks').sha, keystore.sha);
+    assert.strictEqual(byReason.get('android/release.jks').reason, SKIP_REASONS.BINARY);
+    const unsafe = tree.skipped.find(item => item.reason === SKIP_REASONS.UNSAFE_PATH);
+    assert(unsafe, 'the unsafe entry is still reported as skipped');
+    assert.strictEqual(unsafe.path, '');
+    assert.strictEqual(unsafe.sha, null);
+    assert.strictEqual(tree.entries.length, 0, 'none of the three is fetched');
+    assert.strictEqual(transport.calls.length, 1, 'the tree read is the only request');
   }
 
   /* ---- Blobs ----------------------------------------------------------- */

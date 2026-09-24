@@ -54,7 +54,7 @@ test('the outbound deadline includes DNS and late DNS cannot open a socket', asy
   assert.equal(sockets, 0);
 });
 
-function workerFixture(files = 2) {
+function workerFixture(files = 2, budgets = undefined) {
   const key = Buffer.alloc(32, 7);
   const fixture = { active: true, held: true, read: 0, recorded: [], final: null };
   fixture.scan = {
@@ -65,6 +65,7 @@ function workerFixture(files = 2) {
   };
   fixture.run = () => createExposureRunner({
     fingerprintKey: key,
+    ...(budgets ? { budgets } : {}),
     store: {
       claimScan: async () => ({ scan: fixture.scan, claimOwner: 'review-owner' }),
       renewClaim: async () => fixture.held,
@@ -94,13 +95,36 @@ test('the finding ceiling applies across all observation batches', async () => {
   assert.equal(fixture.final.skippedReason, 'finding-limit');
 });
 
+/*
+ * Strict configuration: one read at a time and authorization rechecked before
+ * every read. A revocation during a read stops the scan before a second read
+ * and before anything is written. This is the original review guarantee, kept
+ * as a tested configuration.
+ */
 test('authorization revoked during a blob read stops further reads and writes', async () => {
-  const fixture = workerFixture();
+  const fixture = workerFixture(2, { readConcurrency: 1, renewEveryFiles: 1 });
   fixture.afterBlob = () => { fixture.active = false; };
   await fixture.run();
   assert.equal(fixture.read, 1);
   assert.equal(fixture.recorded.length, 0);
   assert.equal(fixture.final.skippedReason, 'authorization-revoked');
+});
+
+/*
+ * Default configuration: reads overlap and authorization is rechecked every
+ * `renewEveryFiles` reads or `accessCheckIntervalMs`, and unconditionally
+ * before every write. The guarantee is bounded rather than per read: reads
+ * already in flight when the revocation lands may complete, but no read is
+ * started after it has been noticed, and nothing read under a revoked
+ * session is ever written.
+ */
+test('under the default budgets a revocation still stops the scan before anything is written', async () => {
+  const fixture = workerFixture(40);
+  fixture.afterBlob = () => { if (fixture.read === 3) fixture.active = false; };
+  await fixture.run();
+  assert.equal(fixture.recorded.length, 0, 'nothing read under a revoked session is written');
+  assert.equal(fixture.final.skippedReason, 'authorization-revoked');
+  assert(fixture.read < 40, `the scan stopped rather than reading everything: ${fixture.read}`);
 });
 
 test('a lost claim stops without publishing or finalizing stale work', async () => {

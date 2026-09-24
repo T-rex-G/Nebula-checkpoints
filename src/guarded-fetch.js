@@ -227,6 +227,136 @@ function assertCredentialNotInUrl(target, headers) {
   }
 }
 
+function lookupAll(hostname) {
+  return dns.promises.lookup(hostname, { all: true, verbatim: true });
+}
+
+/* A resolution that cannot outlive the request it serves. */
+async function resolveWithin(resolver, hostname, remainingMs) {
+  let dnsDeadline;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => resolver(hostname)),
+      new Promise((_, reject) => {
+        dnsDeadline = setTimeout(() => reject(new GuardedFetchError(
+          'Outbound request exceeded its deadline', 'GUARDED_FETCH_DEADLINE'
+        )), Math.max(0, remainingMs));
+      })
+    ]);
+  } catch (error) {
+    if (error instanceof GuardedFetchError) throw error;
+    throw new GuardedFetchError('Outbound target could not be resolved', 'GUARDED_FETCH_DNS_INVALID', error && error.code);
+  } finally {
+    clearTimeout(dnsDeadline);
+  }
+}
+
+/*
+ * Pools this file minted, and what each was minted for. A WeakMap rather than
+ * a flag on the object, so a caller cannot make an agent of its own look like
+ * one of these by setting a property on it.
+ */
+const SESSION_AGENTS = new WeakMap();
+const MAX_SESSION_POOLS = 8;
+const DEFAULT_SESSION_SOCKETS = 6;
+const DEFAULT_SESSION_DNS_TTL_MS = 30_000;
+
+/*
+ * A run of reads against one provider, sharing connections.
+ *
+ * Without it every read is a fresh DNS lookup, TCP connect and TLS handshake,
+ * which for a scan of two thousand small files is most of the time the scan
+ * takes -- the files themselves are a few hundred bytes each. A session keeps
+ * a small keep-alive pool per validated address and remembers the validated
+ * answer for a short while, so the handshake is paid once per connection
+ * rather than once per file.
+ *
+ * What it does not relax is anything the single-request path guarantees.
+ * Every address is validated before a socket exists, as before. Each pool
+ * belongs to exactly one validated address, so a pooled socket can never be
+ * one opened to a different address for the same name -- the property the
+ * unpooled path kept by refusing pools altogether. The remembered answer is a
+ * pin, which is the point: a name that starts answering differently mid-scan
+ * does not move the connections, and when the answer is refreshed it is
+ * validated again. And it is for provider reads only: a webhook's signed POST
+ * and a credential probe keep their one-connection-per-request behaviour,
+ * because neither is ever sent in bulk and both are worth the handshake.
+ *
+ * Closing it destroys every socket. A session lives for one scan.
+ */
+function createGuardedSession(options = {}) {
+  const profile = String(options.profile || '');
+  rules(profile);
+  if (profile !== PROFILES.PROVIDER_READ) {
+    throw new GuardedFetchError('Only provider reads may share connections', 'GUARDED_FETCH_PROFILE_INVALID');
+  }
+  const maxSockets = boundedInteger(options.maxSockets, DEFAULT_SESSION_SOCKETS, 1, 16);
+  const ttlMs = boundedInteger(options.dnsTtlMs, DEFAULT_SESSION_DNS_TTL_MS, 1000, 5 * 60 * 1000);
+  const resolver = typeof options.resolveAddresses === 'function' ? options.resolveAddresses : lookupAll;
+  const now = typeof options.now === 'function' ? options.now : Date.now;
+  const Agent = typeof options.Agent === 'function' ? options.Agent : https.Agent;
+  const requestImpl = typeof options.requestImpl === 'function' ? options.requestImpl : undefined;
+  const pins = new Map();
+  const pools = new Map();
+  let closed = false;
+
+  function refused() {
+    return new GuardedFetchError('This session has been closed', 'GUARDED_FETCH_REFUSED');
+  }
+
+  async function pinFor(hostname) {
+    const cached = pins.get(hostname);
+    if (cached && cached.expiresAt > now()) return cached.pinned;
+    const answers = await resolveWithin(resolver, hostname, DEFAULT_DEADLINE_MS);
+    const pinned = validateAddresses(answers)[0];
+    pins.set(hostname, { pinned, expiresAt: now() + ttlMs });
+    return pinned;
+  }
+
+  function poolFor(hostname, pinned) {
+    const key = `${hostname}\u0000${pinned.address}`;
+    let agent = pools.get(key);
+    if (agent) return agent;
+    /* A bounded number of pools. A scan talks to one provider; more than a
+       handful of distinct addresses is a name answering strangely, and the
+       oldest pool is closed rather than kept. */
+    if (pools.size >= MAX_SESSION_POOLS) {
+      const [oldestKey, oldest] = pools.entries().next().value;
+      pools.delete(oldestKey);
+      oldest.destroy();
+    }
+    agent = new Agent({ keepAlive: true, maxSockets, maxFreeSockets: maxSockets, timeout: 15_000, scheduling: 'lifo' });
+    SESSION_AGENTS.set(agent, Object.freeze({ hostname, address: pinned.address, profile }));
+    pools.set(key, agent);
+    return agent;
+  }
+
+  async function request(input = {}) {
+    if (closed) throw refused();
+    if (String(input.profile || '') !== profile) {
+      throw new GuardedFetchError('A session serves only the profile it was opened for', 'GUARDED_FETCH_PROFILE_INVALID');
+    }
+    const target = normalizeTarget(input.url, profile);
+    const pinned = await pinFor(target.hostname);
+    if (closed) throw refused();
+    return guardedFetch({
+      ...input,
+      ...(requestImpl ? { requestImpl } : {}),
+      addresses: [pinned],
+      agent: poolFor(target.hostname, pinned)
+    });
+  }
+
+  function close() {
+    closed = true;
+    for (const agent of pools.values()) agent.destroy();
+    pools.clear();
+    pins.clear();
+  }
+
+  return Object.freeze({ request, close });
+}
+
 async function guardedFetch(input = {}) {
   const deadlineMs = boundedInteger(input.deadlineMs, DEFAULT_DEADLINE_MS, 1000, 120_000);
   const startedAt = Date.now();
@@ -257,29 +387,33 @@ async function guardedFetch(input = {}) {
   if (Array.isArray(input.addresses)) {
     answers = input.addresses;
   } else {
-    const resolver = typeof input.resolveAddresses === 'function'
-      ? input.resolveAddresses
-      : async hostname => dns.promises.lookup(hostname, { all: true, verbatim: true });
-    let dnsDeadline;
-    try {
-      answers = await Promise.race([
-        Promise.resolve().then(() => resolver(target.hostname)),
-        new Promise((_, reject) => {
-          dnsDeadline = setTimeout(() => reject(new GuardedFetchError(
-            'Outbound request exceeded its deadline', 'GUARDED_FETCH_DEADLINE'
-          )), Math.max(0, deadlineMs - (Date.now() - startedAt)));
-        })
-      ]);
-    } catch (error) {
-      if (error instanceof GuardedFetchError) throw error;
-      throw new GuardedFetchError('Outbound target could not be resolved', 'GUARDED_FETCH_DNS_INVALID', error && error.code);
-    } finally {
-      clearTimeout(dnsDeadline);
-    }
+    answers = await resolveWithin(
+      typeof input.resolveAddresses === 'function' ? input.resolveAddresses : lookupAll,
+      target.hostname,
+      Math.max(0, deadlineMs - (Date.now() - startedAt))
+    );
   }
   /* Validation before a socket exists: a refused address must never reach one. */
   const validated = validateAddresses(answers);
   const pinned = validated[0];
+
+  /*
+   * A pool, only when a guarded session minted it, and only for the address
+   * and name it was minted for. The rule this file has always kept is that a
+   * pooled socket must never be one opened to a different address for the same
+   * hostname; a session keeps it by construction -- one pool per validated
+   * address -- and this check keeps it at the boundary, so a caller that
+   * passed the wrong pool is refused rather than trusted.
+   */
+  let agent = false;
+  if (input.agent != null) {
+    const minted = SESSION_AGENTS.get(input.agent);
+    if (!minted || minted.hostname !== target.hostname || minted.address !== pinned.address
+      || minted.profile !== input.profile) {
+      throw new GuardedFetchError('Only a guarded session may supply a connection pool', 'GUARDED_FETCH_REFUSED');
+    }
+    agent = input.agent;
+  }
 
   const requestImpl = typeof input.requestImpl === 'function' ? input.requestImpl : https.request;
   const timeoutMs = boundedInteger(input.timeoutMs, DEFAULT_TIMEOUT_MS, 1000, 30_000);
@@ -336,9 +470,10 @@ async function guardedFetch(input = {}) {
         else callback(null, pinned.address, pinned.family);
       },
       timeout: timeoutMs,
-      /* No shared agent: a pooled socket could be one opened to a different
+      /* No shared agent unless a session minted one for exactly this pinned
+         address: a pooled socket must never be one opened to a different
          address for the same hostname. */
-      agent: false
+      agent
     }, response => {
       const statusCode = Number(response.statusCode || 0);
 
@@ -397,5 +532,6 @@ module.exports = Object.freeze({
   GuardedFetchError,
   normalizeTarget,
   validateAddresses,
+  createGuardedSession,
   guardedFetch
 });

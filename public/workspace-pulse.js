@@ -860,6 +860,16 @@
       tip.append(plate, text);
       hover.append(rule, ring, tip);
       chart.appendChild(hover);
+      /*
+       * The target the pointer lands on: the whole plot, transparent. SVG hit
+       * tests only what is painted, and the empty space of a chart -- above
+       * the line, right of the last reading -- is most of it; Chrome 149
+       * stopped treating that space as the <svg> element's, so a pointer
+       * arriving there reached nothing and the reading never showed.
+       */
+      chart.appendChild(svg('rect', {
+        class: 'wp-hit', x: 0, y: 0, width, height, fill: 'transparent'
+      }));
       const name = index => (settings.labels && settings.labels[index] !== undefined ? settings.labels[index] : '');
       const show = index => {
         const at = points[index];

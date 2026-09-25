@@ -4192,6 +4192,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    Text in ink, not in the series colour. */
 .wp-area{cursor:crosshair}
 .wp-hover{opacity:0;transition:opacity .12s ease;pointer-events:none}
+.wp-hit{pointer-events:all}
 .wp-hover.is-on{opacity:1}
 .wp-hover-rule{stroke:var(--fg3);stroke-width:1;stroke-dasharray:none}
 .wp-hover-dot{fill:var(--shellSolid);stroke:var(--wp-series-hi);stroke-width:2}

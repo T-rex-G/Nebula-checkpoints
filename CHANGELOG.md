@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Neural: One Spine, Panels You Can Move, a Page That Scrolls
+
+On a phone the tall graph ran a ribbon of strands from below the hub, more
+wires than rows; the zoom buttons showed before the full view did; held
+sideways the tools ran off the stage; and on the page the graph took every
+wheel and swipe, so the page could not be scrolled past it.
+
+- **One spine.** On a tall stage one spine leaves the hub at its rim and each
+  row branches from it once, with a band in each group's colour; only
+  critical and selected signals run the spine to the hub. Turning a phone
+  re-lays the graph and keeps it animating.
+- **Move panels.** Drag a panel by its header; where it was put is remembered
+  in this browser for the repository, mode and layout. **Reset layout** puts
+  every panel back.
+- **The page scrolls.** On the page the wheel and one finger scroll past the
+  graph; Ctrl or Cmd with the wheel, a pinch or two fingers work the graph,
+  and a hint says so. The zoom buttons show only in the full view.
+- **Sideways and on laptops.** Held sideways the tools wrap into a second
+  column inside the stage, which fits the screen, and the minimap shrinks in
+  the full view and stays off the short page stage. At 1024 pixels the graph
+  has the pane's width instead of the rail's column, and it is sized to the
+  pane it scrolls in. On desktops up to 900 pixels tall the trust summary
+  folds into its one-line rollup, as it does on smaller screens.
+
 ### Neural: A Graph You Can Read, and Cards Where You Click
 
 The graph was glowing spheres on a starfield with letters for icons, labels

@@ -993,12 +993,14 @@
                 <button class="neural-tool nt-expanded-only" id="neuralPanelBtn" type="button" aria-pressed="false" aria-controls="neuralRail" title="Modes and filters" aria-label="Modes and filters"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/></svg></button>
                 <button class="neural-tool" id="neuralExpandBtn" type="button" aria-pressed="false" title="Enlarge the graph" aria-label="Enlarge the graph"><svg class="nt-grow" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h5v5M20 4l-6 6M9 20H4v-5M4 20l6-6"/></svg><svg class="nt-shrink" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 9h-5V4M15 9l5-5M4 15h5v5M9 15l-5 5"/></svg></button>
                 <button class="neural-tool" id="neuralPlayBtn" title="Pause or resume animation" aria-label="Pause or resume animation"><svg class="nt-filled" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg></button>
-                <button class="neural-tool" id="neuralZoomInBtn" type="button" title="Zoom in" aria-label="Zoom in"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-                <button class="neural-tool" id="neuralZoomOutBtn" type="button" title="Zoom out" aria-label="Zoom out"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+                <button class="neural-tool nt-expanded-only" id="neuralZoomInBtn" type="button" title="Zoom in" aria-label="Zoom in"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button class="neural-tool nt-expanded-only" id="neuralZoomOutBtn" type="button" title="Zoom out" aria-label="Zoom out"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
                 <button class="neural-tool" id="neuralFitBtn" title="Fit graph" aria-label="Fit graph"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
                 <button class="neural-tool" id="neuralExplainBtn" title="Explain a connection" aria-label="Explain a connection"><svg class="ico" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 3.5L5.5 13.4h5.2l-1.1 7.1 7.9-10.1h-5.3z"/></svg></button>
                 <button class="neural-tool" id="neuralDemoBtn" title="Inject a demonstration incident" aria-label="Inject a demonstration incident">✦</button>
               </div>
+              <!-- A passing note when a gesture scrolled the page instead of moving the graph. -->
+              <div class="neural-gesture-hint" id="neuralGestureHint" aria-hidden="true" hidden></div>
               <!-- Details for the selected node, placed beside it by neural.js. -->
               <section class="neural-card" id="neuralCard" role="dialog" aria-modal="false" aria-labelledby="neuralCardTitle" hidden></section>
               <p class="sr-only" id="neuralLive" role="status" aria-live="polite"></p>

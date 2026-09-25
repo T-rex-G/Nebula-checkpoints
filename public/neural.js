@@ -770,8 +770,26 @@
     resize();
   }
 
+  /*
+   * On a desktop the Neural tab scrolls inside its own pane. A stage taller
+   * than that pane could never be seen whole: the reader scrolled the pane to
+   * see the bottom of a graph whose top had just left. The stage is sized to
+   * the pane instead (within the design's 420 to 860 pixels), so scrolling to
+   * it shows all of it. Where the page itself scrolls -- a phone -- the
+   * stylesheet's own height stands.
+   */
+  function fitStageHeight() {
+    const pane = document.getElementById('tab-neural');
+    const workspace = document.querySelector('.neural-workspace');
+    if (!pane || !workspace || !pane.clientHeight) return;
+    const scrolls = /(auto|scroll)/.test(getComputedStyle(pane).overflowY);
+    if (!scrolls || stageExpanded()) { workspace.style.removeProperty('--neural-stage-h'); return; }
+    const height = Math.round(clamp(pane.clientHeight - 20, 420, 860));
+    if (workspace.style.getPropertyValue('--neural-stage-h') !== `${height}px`) workspace.style.setProperty('--neural-stage-h', `${height}px`);
+  }
   function resize() {
     if (!NVN.canvas) return;
+    fitStageHeight();
     const rect = NVN.canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
     NVN.dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -780,10 +798,22 @@
     if (NVN.canvas.width !== w || NVN.canvas.height !== h) { NVN.canvas.width = w; NVN.canvas.height = h; NVN.staticKey = ''; }
     if (NVN.fx && (NVN.fx.width !== w || NVN.fx.height !== h)) { NVN.fx.width = w; NVN.fx.height = h; }
     if (NVN.fitPending) fitGraph(false);
-    if (NVN.nodes.length && NVN.layoutAspectUsed && Math.abs(layoutAspect() - NVN.layoutAspectUsed) > .2) {
+    /* A rotation or a resize that changes the stage's shape re-lays the
+     * graph for it -- including every time the shape crosses from wide to
+     * tall, however small the change. */
+    const nextMode = layoutAspect() > 1.05 ? 'stack' : 'split';
+    if (NVN.nodes.length && NVN.layoutAspectUsed && (nextMode !== NVN.layoutMode || Math.abs(layoutAspect() - NVN.layoutAspectUsed) > .2)) {
       clearTimeout(NVN.reshapeTimer);
-      NVN.reshapeTimer = setTimeout(() => { layoutGraph(); fitGraph(true); }, 120);
+      NVN.reshapeTimer = setTimeout(() => { layoutGraph(); renderLegend(); fitGraph(true); }, 120);
     }
+    /* Whether the stage is on screen is re-read here rather than left to the
+     * observer alone: during a phone's rotation the observer can report the
+     * stage gone and not report it back. */
+    const onScreen = stageExpanded() || (rect.bottom > 0 && rect.top < (window.innerHeight || 0) && rect.right > 0 && rect.left < (window.innerWidth || 0));
+    NVN.onScreen = onScreen;
+    NVN.staticKey = '';
+    invalidate();
+    if (onScreen) startLoop();
   }
 
   /*
@@ -817,6 +847,9 @@
   const PAGE_ROWS = 10;
   const NODE_R = 16;
   const HUB_R = 58;
+  /* On a tall stage the spine every row branches from: down from the hub's
+   * lower rim, just clear of the panels' edge. */
+  const SPINE_X = HUB_R * .55;
   const LEFT_GROUPS = ['user', 'credential', 'session', 'protected', 'safety', 'snapshot', 'scan', 'release', 'tag'];
   const RIGHT_GROUPS = ['branch', 'commit', 'workflow', 'pull', 'issue', 'integration', 'external', 'package', 'vulnerability'];
   const SEVERITY_RANK = { critical: 0, warning: 1, normal: 2 };
@@ -909,6 +942,22 @@
         }
       }
     }
+    /* A panel the reader has moved keeps where they put it, in this browser,
+     * for this repository, mode and shape of stage. Its rows face the hub from
+     * whichever side of it the panel now stands. */
+    const placed = savedPlacements();
+    for (const panel of panels) {
+      const at = placed[panel.type];
+      if (at && Number.isFinite(at.x) && Number.isFinite(at.y)) { panel.x = at.x; panel.y = at.y; panel.placed = true; }
+    }
+    /* A moved panel's rows face whatever they are wired to: the hub on a wide
+     * stage, the spine on a tall one. */
+    for (const panel of panels) {
+      if (!panel.placed) continue;
+      const toward = NVN.layoutMode === 'stack' ? SPINE_X : 0;
+      panel.side = panel.x + panel.w / 2 < toward ? 'left' : 'right';
+    }
+    NVN.panelByType = new Map(panels.map(panel => [panel.type, panel]));
     for (const panel of panels) {
       panel.nodeX = panel.side === 'left' ? panel.x + panel.w - 30 : panel.x + 30;
       panel.shown.forEach((n, i) => {
@@ -923,9 +972,6 @@
       }
     }
     for (const n of visible) if (n.type === 'repo') { n.tx = 0; n.ty = 0; n.folded = false; }
-    let lane = 0;
-    for (const panel of panels) for (const n of panel.shown) n.lane = lane++;
-    NVN.laneCount = lane;
     NVN.panels = panels;
     invalidate();
     const snap = options.instant || !state.settings.motion;
@@ -1006,7 +1052,11 @@
     const b = layoutBounds();
     const a = screenToWorld(0, 0), c = screenToWorld(W, H);
     const overflow = b.minX < a.x - 4 || b.maxX > c.x + 4 || b.minY < a.y - 4 || b.maxY > c.y + 4;
-    const show = overflow && W >= 600 && (NVN.panels || []).length > 0 && !(NVN.selected && cardDocked());
+    /* A short stage -- a phone held sideways -- keeps the minimap for the full
+     * view, where it is drawn smaller; on the page it would cover half the
+     * graph it maps. */
+    const room = H >= 440 || (H >= 300 && stageExpanded());
+    const show = overflow && W >= 600 && room && (NVN.panels || []).length > 0 && !(NVN.selected && cardDocked());
     if (mini.hidden === show) mini.hidden = !show;
     if (!show) { NVN.miniKey = ''; return; }
     const key = `${NVN.frameKeyStatic}|${W}|${H}`;
@@ -1167,8 +1217,8 @@
     const colors = palette();
     const key = staticKey(colors);
     const animated = state.settings.motion && !NVN.paused;
-    const dirty = !NVN.fxCtx || moving || NVN.panning || key !== NVN.staticKey;
-    NVN.interacting = moving || NVN.panning;
+    const dirty = !NVN.fxCtx || moving || NVN.panning || !!NVN.draggingPanel || key !== NVN.staticKey;
+    NVN.interacting = moving || NVN.panning || !!NVN.draggingPanel;
     /* Nothing moved and nothing animates: the last frame is still right. */
     if (!dirty && !animated && NVN.frameKey === key) return;
     /* At rest, the signals run at half rate. */
@@ -1447,24 +1497,84 @@
     ctx.restore();
   }
 
-  /* One strand from the hub to a node: a cubic that leaves the hub level and
-   * arrives level, so a column of strands fans out like fibres rather than
-   * crossing each other. */
-  function fiberCurve(hub, n) {
+  /*
+   * One strand from the hub to a node.
+   *
+   * On a wide stage it is a cubic that leaves the hub's rim level and arrives
+   * level, so a column of strands fans out like fibres rather than crossing.
+   * On a tall stage every group has a single trunk down from the rim, and each
+   * row takes a short branch off its group's trunk: as many wires as there are
+   * groups run the length of the stage, not one per row.
+   *
+   * The strand is returned as the segments a signal travels along -- the
+   * trunk's run and the branch -- and as the branch drawn for this row.
+   */
+  function fiberGeometry(hub, n) {
     if (NVN.layoutMode === 'stack') {
-      /* Each strand has its own lane down the spine, so they run as a ribbon
-       * instead of piling into one white-hot line. */
-      const lane = ((n.lane || 0) - (NVN.laneCount || 1) / 2) * 1.6;
-      const start = { x: hub.x + lane, y: hub.y + HUB_R };
-      const end = { x: n.x - NODE_R, y: n.y };
-      return { start, c1: { x: hub.x + lane, y: start.y + (end.y - start.y) * .72 }, c2: { x: end.x - 64, y: end.y }, end };
+      const tx = hub.x + SPINE_X;
+      const reach = Math.sqrt(Math.max(0, HUB_R * HUB_R - (tx - hub.x) ** 2));
+      const below = n.y >= hub.y;
+      const rim = { x: tx, y: hub.y + (below ? reach : -reach) * .98 };
+      const sign = n.x >= tx ? 1 : -1;
+      const end = { x: n.x - sign * NODE_R, y: n.y };
+      const bendY = below ? Math.max(rim.y + 8, n.y - 26) : Math.min(rim.y - 8, n.y + 26);
+      const branch = {
+        start: { x: tx, y: bendY }, c1: { x: tx, y: n.y + (below ? -4 : 4) },
+        c2: { x: tx + (end.x - tx) * .45, y: n.y }, end
+      };
+      return { branch, rim, bendY, segs: [{ line: [rim, branch.start] }, { cubic: branch }], tail: [{ cubic: branch }] };
+    }
+    const panel = NVN.panelByType && NVN.panelByType.get(n.type);
+    if (panel && panel.placed) {
+      /* A panel the reader moved can be anywhere, even under the hub: the
+       * strand leaves the rim toward it and arrives from outside the panel,
+       * on the side its rows face, so it never crosses a label. */
+      const approach = panel.side === 'left' ? 1 : -1;
+      const end = { x: n.x + approach * NODE_R, y: n.y };
+      const toward = Math.atan2(end.y - hub.y, end.x - hub.x);
+      const start = { x: hub.x + Math.cos(toward) * HUB_R * .96, y: hub.y + Math.sin(toward) * HUB_R * .96 };
+      const d = Math.hypot(end.x - start.x, end.y - start.y);
+      const branch = {
+        start, c1: { x: start.x + Math.cos(toward) * d * .35, y: start.y + Math.sin(toward) * d * .35 },
+        c2: { x: end.x + approach * Math.max(50, d * .35), y: end.y }, end
+      };
+      return { branch, segs: [{ cubic: branch }] };
     }
     const sign = n.x >= hub.x ? 1 : -1;
     const angle = clamp(Math.atan2(n.y - hub.y, Math.abs(n.x - hub.x)) * .55, -1.05, 1.05);
     const start = { x: hub.x + sign * HUB_R * .96 * Math.cos(angle), y: hub.y + HUB_R * .96 * Math.sin(angle) };
     const end = { x: n.x - sign * NODE_R, y: n.y };
     const dx = Math.abs(end.x - start.x);
-    return { start, c1: { x: start.x + sign * dx * .5, y: start.y }, c2: { x: end.x - sign * dx * .5, y: end.y }, end };
+    const branch = { start, c1: { x: start.x + sign * dx * .5, y: start.y }, c2: { x: end.x - sign * dx * .5, y: end.y }, end };
+    return { branch, segs: [{ cubic: branch }] };
+  }
+  /* The length of each segment, measured once, so a signal moves at an even
+   * pace along a trunk and its branch. */
+  function measurePath(segs) {
+    let total = 0;
+    for (const seg of segs) {
+      if (seg.line) seg.len = Math.hypot(seg.line[1].x - seg.line[0].x, seg.line[1].y - seg.line[0].y);
+      else {
+        const c = seg.cubic;
+        const chord = Math.hypot(c.end.x - c.start.x, c.end.y - c.start.y);
+        const poly = Math.hypot(c.c1.x - c.start.x, c.c1.y - c.start.y) + Math.hypot(c.c2.x - c.c1.x, c.c2.y - c.c1.y) + Math.hypot(c.end.x - c.c2.x, c.end.y - c.c2.y);
+        seg.len = (chord + poly) / 2;
+      }
+      total += seg.len;
+    }
+    return { segs, total: Math.max(1, total) };
+  }
+  function pathPoint(path, t) {
+    let d = clamp(t, 0, 1) * path.total;
+    for (const seg of path.segs) {
+      if (d <= seg.len || seg === path.segs[path.segs.length - 1]) {
+        const f = seg.len ? clamp(d / seg.len, 0, 1) : 0;
+        if (seg.line) return { x: seg.line[0].x + (seg.line[1].x - seg.line[0].x) * f, y: seg.line[0].y + (seg.line[1].y - seg.line[0].y) * f };
+        return cubicPoint(seg.cubic, f);
+      }
+      d -= seg.len;
+    }
+    return path.segs.length ? cubicPoint(path.segs[path.segs.length - 1].cubic, 1) : { x: 0, y: 0 };
   }
   function cubicPoint(c, t) {
     const u = 1 - t;
@@ -1493,7 +1603,7 @@
      * that group from across the stage; only a critical node turns it red.
      * A warning stays on the node's badge. */
     const color = n.severity === 'critical' ? '#F43F6E' : n.color;
-    const base = (n.appear ?? 1) * (dim ? .2 : 1) * (NVN.layoutMode === 'stack' ? .75 : 1);
+    const base = (n.appear ?? 1) * (dim ? .2 : 1);
     return { lit, dim, color, stroke: colors.ink(color), base };
   }
   function drawFibers(ctx, colors, focus, hub, view) {
@@ -1504,28 +1614,76 @@
      * and while the graph is moving; they are drawn only when they can be
      * seen, which is most of the cost of a frame spent dragging. */
     const fine = NVN.zoom > .45 && !NVN.interacting;
+    const stack = NVN.layoutMode === 'stack';
+    /* On a tall stage: one spine each way from the rim, as far as its furthest
+     * branch; a band in each group's colour where its rows branch off; and
+     * the stretch to a lit node drawn lit. */
+    const spine = { reaches: new Map(), bands: new Map() };
     for (const n of NVN.nodes) {
       if (!n.visible || n.folded || n.type === 'repo') continue;
-      const curve = fiberCurve(hub, n);
-      n.curve = curve;
-      n.onView = curveInView(view, curve);
-      if (!n.onView) continue;
-      const { lit, color, stroke, base } = fiberStyle(n, focus, hub, colors);
+      const geo = fiberGeometry(hub, n);
+      n.curve = geo.branch;
+      n.path = measurePath(geo.segs);
+      n.tail = geo.tail ? measurePath(geo.tail) : null;
+      n.onView = geo.segs.some(seg => seg.line
+        ? inView(view, Math.min(seg.line[0].x, seg.line[1].x) - 14, Math.min(seg.line[0].y, seg.line[1].y), Math.max(seg.line[0].x, seg.line[1].x) + 14, Math.max(seg.line[0].y, seg.line[1].y))
+        : curveInView(view, seg.cubic));
+      const style = fiberStyle(n, focus, hub, colors);
+      if (stack) {
+        const way = geo.bendY < geo.rim.y ? -1 : 1;
+        const reach = spine.reaches.get(way) || { x: geo.rim.x, from: geo.rim.y, to: geo.rim.y, lit: null, base: 0 };
+        if (Math.abs(geo.bendY - reach.from) > Math.abs(reach.to - reach.from)) reach.to = geo.bendY;
+        if (style.lit && (!reach.lit || Math.abs(geo.bendY - reach.from) > Math.abs(reach.lit.to - reach.from))) reach.lit = { to: geo.bendY, color: style.color };
+        reach.base = Math.max(reach.base, n.appear ?? 1);
+        spine.reaches.set(way, reach);
+        const key = `${n.type}:${way}`;
+        const band = spine.bands.get(key) || { x: geo.rim.x, from: geo.bendY, to: geo.bendY, color: n.color, dim: true, base: 0 };
+        band.from = Math.min(band.from, geo.bendY); band.to = Math.max(band.to, geo.bendY);
+        band.dim = band.dim && style.dim;
+        band.base = Math.max(band.base, n.appear ?? 1);
+        spine.bands.set(key, band);
+      }
+      if (!curveInView(view, geo.branch)) continue;
+      const { lit, color, stroke, base } = style;
       if (colors.glow) {
         ctx.globalAlpha = base * (lit ? .24 : .1);
         ctx.strokeStyle = color; ctx.lineWidth = lit ? 8 : 5.5;
-        strokeCubic(ctx, curve);
+        strokeCubic(ctx, geo.branch);
       }
       ctx.globalAlpha = base * (lit ? 1 : colors.glow ? .62 : .5);
       ctx.strokeStyle = stroke; ctx.lineWidth = lit ? 2 : 1.3;
-      strokeCubic(ctx, curve);
-      if (!fine) continue;
+      strokeCubic(ctx, geo.branch);
+      if (!fine || stack) continue;
       const seed = (hashCode(n.id) % 1000) / 1000;
       ctx.globalAlpha = base * (lit ? .6 : .3);
       ctx.lineWidth = .8;
-      strokeCubic(ctx, curve, (seed - .5) * 26);
+      strokeCubic(ctx, geo.branch, (seed - .5) * 26);
       ctx.globalAlpha = base * (lit ? .45 : .2);
-      strokeCubic(ctx, curve, (.5 - seed) * 18 + 6);
+      strokeCubic(ctx, geo.branch, (.5 - seed) * 18 + 6);
+    }
+    const run = (x, from, to, color, alpha, width, glow) => {
+      if (!inView(view, x - 14, Math.min(from, to), x + 14, Math.max(from, to))) return;
+      ctx.beginPath(); ctx.moveTo(x, from); ctx.lineTo(x, to);
+      if (colors.glow && glow) {
+        ctx.globalAlpha = alpha * glow;
+        ctx.strokeStyle = color; ctx.lineWidth = width * 3.6;
+        ctx.stroke();
+      }
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = colors.ink(color); ctx.lineWidth = width;
+      ctx.stroke();
+    };
+    const spineColor = colors.glow ? '#818CF8' : '#6366F1';
+    for (const reach of spine.reaches.values()) {
+      run(reach.x, reach.from, reach.to, spineColor, reach.base * (focus ? .45 : colors.glow ? .78 : .6), 2.4, .16);
+    }
+    for (const band of spine.bands.values()) {
+      /* A group's band covers the stretch its rows branch from, and a little
+       * either side so a single row's is still seen. */
+      run(band.x, band.from - 9, band.to + 9, band.color, band.base * (band.dim && focus ? .2 : colors.glow ? .9 : .75), 3, .22);
+    }
+    for (const reach of spine.reaches.values()) {
+      if (reach.lit) run(reach.x, reach.from, reach.lit.to, reach.lit.color, reach.base, 2.6, .3);
     }
     ctx.restore();
   }
@@ -1548,11 +1706,17 @@
     ctx.save();
     if (colors.glow) ctx.globalCompositeOperation = 'lighter';
     for (const n of NVN.nodes) {
-      if (!n.visible || n.folded || n.type === 'repo' || !n.curve || n.onView === false) continue;
+      if (!n.visible || n.folded || n.type === 'repo' || !n.path || n.onView === false) continue;
       const { lit, dim, color, base } = fiberStyle(n, focus, hub, colors);
       if (dim) continue;
       const seed = (hashCode(n.id) % 1000) / 1000;
-      const speed = n.severity === 'critical' ? .00042 : .00017;
+      /* On the spine, only what matters travels all the way to the hub -- a
+       * critical node's signal, or the lit node's; the rest pulse along their
+       * own branch at the same pace, so the spine stays readable however
+       * many rows hang from it. */
+      const full = !n.tail || lit || n.severity === 'critical';
+      const path = full ? n.path : n.tail;
+      const speed = (n.severity === 'critical' ? .00042 : .00017) * Math.min(4, n.path.total / path.total);
       const r = lit ? 7 : 5;
       const sprite = signalSprite(color);
       for (const phase of lit ? [0, .5] : [0]) {
@@ -1560,7 +1724,7 @@
         /* Signals fade in and out at the ends rather than popping over the
          * hub and the node they run between. */
         const edge = Math.min(1, t / .08, (1 - t) / .08);
-        const p = cubicPoint(n.curve, t);
+        const p = pathPoint(path, t);
         ctx.globalAlpha = base * (lit ? 1 : .85) * edge;
         ctx.drawImage(sprite, p.x - r, p.y - r, r * 2, r * 2);
       }
@@ -1706,46 +1870,91 @@
    * pan that happened to start on a node picked the node up instead.
    */
   const DRAG_THRESHOLD = 5;
+  /*
+   * A short note over the stage when a gesture did not do what the reader
+   * may have meant: a wheel over the graph on the page scrolls the page, and
+   * a finger scrolls the page too; zooming and moving the graph need Ctrl (or
+   * the full view), or two fingers. Shown at most once every few seconds.
+   */
+  function gestureHint(kind) {
+    const hint = document.getElementById('neuralGestureHint');
+    const now = performance.now();
+    if (!hint || now - (NVN.hintAt || -1e9) < 6000) return;
+    NVN.hintAt = now;
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+    hint.textContent = kind === 'wheel'
+      ? `${mac ? '⌘' : 'Ctrl'} + scroll to zoom · or open the full view`
+      : 'Two fingers move the graph · or open the full view';
+    hint.hidden = false;
+    hint.classList.remove('is-leaving');
+    clearTimeout(NVN.hintTimer);
+    NVN.hintTimer = setTimeout(() => {
+      hint.classList.add('is-leaving');
+      NVN.hintTimer = setTimeout(() => { hint.hidden = true; hint.classList.remove('is-leaving'); }, 260);
+    }, 2200);
+  }
+
   function bindCanvas() {
     const c = NVN.canvas;
     const pts = new Map();
-    let pinchDist = 0, lastTap = 0;
+    let pinchDist = 0, pinchMid = null, lastTap = 0;
     const twoFinger = () => pts.size >= 2;
     const pair = () => { const [a, b] = [...pts.values()]; return { a, b }; };
     const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    /* On the page (not the full view) one finger belongs to the page: it
+     * scrolls past the graph, and a tap still opens a card. */
+    const pageTouch = e => e.pointerType === 'touch' && !stageExpanded();
     c.addEventListener('pointerdown', e => {
-      c.setPointerCapture(e.pointerId);
+      try { c.setPointerCapture(e.pointerId); } catch {}
       const pos = pointerPos(e);
       pts.set(e.pointerId, pos);
       NVN.camTarget = null;
       if (twoFinger()) {
-        const { a, b } = pair(); pinchDist = dist(a, b);
-        NVN.panning = false; NVN.pointerStart = null;
+        const { a, b } = pair(); pinchDist = dist(a, b); pinchMid = mid(a, b);
+        NVN.panning = false; NVN.draggingPanel = null; NVN.dragPlacement = null; NVN.pointerStart = null;
         return;
       }
-      NVN.pointerStart = { x: pos.x, y: pos.y, panX: NVN.panX, panY: NVN.panY, node: hitNode(pos.x, pos.y), moved: false };
+      const node = hitNode(pos.x, pos.y);
+      const panelHit = node ? null : panelHitAt(pos.x, pos.y);
+      NVN.pointerStart = {
+        x: pos.x, y: pos.y, panX: NVN.panX, panY: NVN.panY, node, moved: false,
+        header: panelHit && panelHit.kind === 'header' ? panelHit.type : null,
+        pageTouch: pageTouch(e)
+      };
       NVN.lastPointer = pos;
     });
     c.addEventListener('pointermove', e => {
       const pos = pointerPos(e); NVN.lastPointer = pos;
       if (pts.has(e.pointerId)) pts.set(e.pointerId, pos);
       if (twoFinger()) {
+        /* Two fingers pinch to zoom and move together to pan. */
         const { a, b } = pair();
         const d = dist(a, b), m = mid(a, b);
         if (pinchDist > 0 && d > 0) zoomAt(m.x, m.y, NVN.zoom * (d / pinchDist));
-        pinchDist = d;
+        if (pinchMid) { NVN.panX += m.x - pinchMid.x; NVN.panY += m.y - pinchMid.y; }
+        pinchDist = d; pinchMid = m;
         return;
       }
       const start = NVN.pointerStart;
       if (start && pts.has(e.pointerId)) {
-        /* A drag always moves the stage, from a row as from empty ground: every
-         * node keeps its row, so the panels stay the order the reader learned. */
         if (!start.moved && Math.hypot(pos.x - start.x, pos.y - start.y) > DRAG_THRESHOLD) {
           start.moved = true;
-          NVN.panning = true;
+          if (start.pageTouch) gestureHint('touch');
+          else if (start.header) {
+            /* A panel's header is its handle: dragging it moves the panel. */
+            const panel = NVN.panelByType && NVN.panelByType.get(start.header);
+            if (panel) {
+              const w = screenToWorld(start.x, start.y);
+              NVN.draggingPanel = { type: panel.type, dx: w.x - panel.x, dy: w.y - panel.y };
+              c.style.cursor = 'grabbing';
+            }
+          } else NVN.panning = true;
         }
-        if (NVN.panning) {
+        if (NVN.draggingPanel) {
+          const w = screenToWorld(pos.x, pos.y);
+          movePanel(NVN.draggingPanel.type, w.x - NVN.draggingPanel.dx, w.y - NVN.draggingPanel.dy);
+        } else if (NVN.panning) {
           NVN.panX = start.panX + pos.x - start.x;
           NVN.panY = start.panY + pos.y - start.y;
         }
@@ -1754,15 +1963,22 @@
       const hit = hitNode(pos.x, pos.y);
       if (hit !== NVN.hover) NVN.hover = hit;
       const panelHit = hit ? null : panelHitAt(pos.x, pos.y);
-      c.style.cursor = hit || (panelHit && panelHit.kind !== 'body') ? 'pointer' : 'grab';
+      c.style.cursor = hit || (panelHit && panelHit.kind !== 'body' && panelHit.kind !== 'header') ? 'pointer'
+        : panelHit && panelHit.kind === 'header' ? 'move' : 'grab';
     });
     c.addEventListener('pointerleave', () => { if (!NVN.pointerStart) NVN.hover = null; });
     const up = e => {
       try { c.releasePointerCapture(e.pointerId); } catch {}
       pts.delete(e.pointerId);
-      if (pts.size < 2) pinchDist = 0;
+      if (pts.size < 2) { pinchDist = 0; pinchMid = null; }
       const start = NVN.pointerStart;
-      if (e.type === 'pointerup' && start && !start.moved && pts.size === 0) {
+      if (NVN.draggingPanel) {
+        const placed = NVN.dragPlacement;
+        NVN.draggingPanel = null; NVN.dragPlacement = null;
+        if (placed && e.type === 'pointerup') commitPlacement(placed.type, placed.x, placed.y);
+        layoutGraph();
+        renderLegend();
+      } else if (e.type === 'pointerup' && start && !start.moved && pts.size === 0) {
         const panelHit = start.node ? null : panelHitAt(start.x, start.y);
         if (start.node) selectNode(start.node, { fly: true });
         else if (panelHit && panelHit.kind === 'more') toggleGroupRows(panelHit.type, true);
@@ -1776,11 +1992,16 @@
             if (now - lastTap < 320) { fitGraph(true); lastTap = 0; } else lastTap = now;
           }
         }
-      }
+      } else if (e.type === 'pointercancel' && start && start.pageTouch) gestureHint('touch');
       NVN.panning = false; NVN.pointerStart = null;
+      c.style.cursor = '';
     };
     c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
     c.addEventListener('wheel', e => {
+      /* On the page the wheel scrolls the page, as everywhere else on it;
+       * Ctrl or Cmd with the wheel -- which is also what a trackpad pinch
+       * sends -- zooms the graph. In the full view the wheel always zooms. */
+      if (!stageExpanded() && !e.ctrlKey && !e.metaKey) { gestureHint('wheel'); return; }
       e.preventDefault();
       NVN.camTarget = null;
       const pos = pointerPos(e);
@@ -1791,6 +2012,13 @@
       if (!hitNode(pos.x, pos.y)) fitGraph(true);
     });
     c.addEventListener('keydown', canvasKey);
+    /* A lost drawing context (a phone reclaiming memory during a rotation)
+     * comes back blank; the next frame redraws everything. */
+    for (const canvas of [c, NVN.fx]) {
+      if (!canvas) continue;
+      canvas.addEventListener('contextlost', () => { NVN.staticKey = ''; });
+      canvas.addEventListener('contextrestored', () => { NVN.staticKey = ''; invalidate(); startLoop(); });
+    }
   }
   function zoomAt(x, y, zoom) {
     const before = screenToWorld(x, y);
@@ -1862,6 +2090,67 @@
     renderLegend();
     fitGraph(true);
   }
+  /*
+   * Where the reader has put each panel, per repository, mode and shape of
+   * stage (a phone's column and a desktop's two columns are different
+   * arrangements). Kept in this browser only, and cleared with the rest of
+   * the repository-scoped data when the account changes.
+   */
+  const PLACEMENT_KEY = 'nv_neural_layout';
+  function placementKey() {
+    const w = state && state.work;
+    return w ? `${w.owner}/${w.repo}|${NVN.mode}|${NVN.layoutMode}` : '';
+  }
+  function placementStore() {
+    if (NVN.placementStore) return NVN.placementStore;
+    try {
+      const saved = JSON.parse(localStorage.getItem(PLACEMENT_KEY) || '{}');
+      NVN.placementStore = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+    } catch { NVN.placementStore = {}; }
+    return NVN.placementStore;
+  }
+  function savedPlacements() {
+    const key = placementKey();
+    const saved = (key && placementStore()[key]) || {};
+    const live = NVN.dragPlacement;
+    return live ? { ...saved, [live.type]: { x: live.x, y: live.y } } : saved;
+  }
+  function persistPlacements() {
+    const store = placementStore();
+    /* Bounded: the arrangements of the 40 most recently arranged views. */
+    const keys = Object.keys(store);
+    if (keys.length > 40) for (const key of keys.slice(0, keys.length - 40)) delete store[key];
+    try { localStorage.setItem(PLACEMENT_KEY, JSON.stringify(store)); } catch { /* not remembered */ }
+  }
+  function commitPlacement(type, x, y) {
+    const key = placementKey();
+    if (!key) return;
+    const store = placementStore();
+    const entry = { ...(store[key] || {}), [type]: { x: Math.round(x), y: Math.round(y) } };
+    delete store[key];
+    store[key] = entry;
+    persistPlacements();
+  }
+  function hasPlacements() {
+    const key = placementKey();
+    return !!(key && placementStore()[key] && Object.keys(placementStore()[key]).length);
+  }
+  function resetPlacements() {
+    const key = placementKey();
+    if (key) { delete placementStore()[key]; persistPlacements(); }
+    layoutGraph();
+    renderLegend();
+    fitGraph(true);
+  }
+  /* Moves a panel while it is dragged: its rows follow at once rather than
+   * easing, so the panel is under the pointer the whole way. */
+  function movePanel(type, x, y) {
+    NVN.dragPlacement = { type, x, y };
+    layoutGraph();
+    const panel = NVN.panelByType && NVN.panelByType.get(type);
+    if (panel) for (const n of panel.members) { n.x = n.tx; n.y = n.ty; n.appear = 1; }
+  }
+
   /* A group hidden from the sidebar leaves the graph until it is shown again;
    * the choice is this viewer's and is remembered in this browser. */
   const HIDDEN_KEY = 'nv_neural_hidden_groups';
@@ -2366,7 +2655,8 @@
     const hiddenHere = [...NVN.hiddenGroups].filter(type => stats.has(type));
     const tools = [
       foldable.length ? `<button type="button" class="neural-groups-tool" data-neural-groups="${allOpen ? 'fold' : 'open'}">${allOpen ? 'Fold all' : 'Open all'}</button>` : '',
-      hiddenHere.length ? `<button type="button" class="neural-groups-tool" data-neural-groups="show">Show all (${hiddenHere.length} hidden)</button>` : ''
+      hiddenHere.length ? `<button type="button" class="neural-groups-tool" data-neural-groups="show">Show all (${hiddenHere.length} hidden)</button>` : '',
+      hasPlacements() ? '<button type="button" class="neural-groups-tool" data-neural-groups="reset-layout">Reset layout</button>' : ''
     ].join('');
     host.innerHTML = (tools ? `<div class="neural-groups-tools">${tools}</div>` : '') + categories.filter(([, types]) => types.length).map(([name, types]) => {
       const rows = types.map(type => {
@@ -2645,6 +2935,7 @@
       if (tool) {
         const action = tool.dataset.neuralGroups;
         if (action === 'show') { NVN.hiddenGroups.clear(); try { localStorage.removeItem(HIDDEN_KEY); } catch {} applyMode(); fitGraph(true); }
+        else if (action === 'reset-layout') resetPlacements();
         else setAllGroupsOpen(action === 'open');
         return;
       }
@@ -2876,7 +3167,7 @@
     try {
       if (matchMedia('(pointer:coarse)').matches && !localStorage.getItem('nv_neural_hint')) {
         localStorage.setItem('nv_neural_hint', '1');
-        if (typeof toast === 'function') toast('Pinch to zoom · drag to pan · double-tap to fit', 'ok');
+        if (typeof toast === 'function') toast('Two fingers zoom and move the graph · double-tap to fit', 'ok');
       }
     } catch {}
     resize();

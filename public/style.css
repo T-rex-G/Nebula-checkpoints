@@ -855,6 +855,25 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   .trust-detail{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .trust-detail article{padding:9px 10px}
   .trust-detail article:last-child{grid-column:1/-1}}
+/*
+ * A laptop screen is short as well as wide. At 1280 by 720 the five trust
+ * cards and the tab strip took 380 pixels and left every tab a 300px slot to
+ * scroll in; at 1024 by 768 the slot was 240. Below 900 pixels of height the
+ * summary is the disclosure a phone gets: the states stay on screen, counted,
+ * and the prose is one press away.
+ */
+@media(min-width:901px) and (max-height:900px){
+  .trust-rollup{display:flex;align-items:baseline;gap:9px;width:100%;
+    font:inherit;font-size:.78rem;color:var(--text2);cursor:pointer;text-align:left;
+    padding:9px 12px;border:1px solid var(--glass-border);border-radius:12px;background:var(--glass-fill)}
+  .trust-rollup-title{flex:0 0 auto;font-weight:600;color:var(--text);white-space:nowrap}
+  .trust-rollup-states{min-width:0;flex:1 1 auto}
+  .trust-rollup-chev{flex:0 0 auto;margin-left:auto;fill:none;stroke:currentColor;stroke-width:2;
+    stroke-linecap:round;stroke-linejoin:round;transition:transform .2s var(--ease)}
+  .trust-summary[data-open="true"] .trust-rollup-chev{transform:rotate(180deg)}
+  .trust-detail{display:none;margin-top:8px}
+  .trust-summary[data-open="true"] .trust-detail{display:grid}
+}
 [aria-disabled="true"]{cursor:not-allowed}
 @media(max-width:700px){.alpha-access{width:100%;padding:22px}.alpha-access h1{max-width:12ch}}
 @media(prefers-reduced-motion:reduce){#page-alpha-access.active{animation:none}}
@@ -2054,6 +2073,18 @@ body.read-only .btn-primary{opacity:.55}
 [data-theme="light"] .neural-stage{background:radial-gradient(circle at 50% 46%,rgba(104,87,255,.12),transparent 32%),radial-gradient(circle at 23% 70%,rgba(31,180,162,.09),transparent 25%),rgba(238,240,251,.36)}
 #neuralCanvas{display:block;width:100%;height:100%;min-height:0;touch-action:none;cursor:grab;outline:none;position:relative;z-index:1}
 #neuralCanvas:active{cursor:grabbing}
+/* On the page, a finger scrolls the page past the graph; two fingers, or the
+ * full view, move it. Without this the graph took every swipe that landed on
+ * it and the page below it could not be reached. */
+.neural-stage:not(.is-expanded) #neuralCanvas{touch-action:pan-x pan-y}
+.neural-gesture-hint{position:absolute;z-index:6;left:50%;bottom:16px;transform:translateX(-50%);max-width:calc(100% - 32px);
+  padding:8px 14px;border-radius:99px;border:1px solid var(--glass-border);background:rgba(8,10,26,.88);backdrop-filter:blur(12px);
+  color:var(--text);font-size:.7rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;
+  box-shadow:0 10px 30px rgba(0,0,0,.35);animation:neuralHintIn .2s var(--ease) both;transition:opacity .25s var(--ease)}
+.neural-gesture-hint[hidden]{display:none}
+.neural-gesture-hint.is-leaving{opacity:0}
+[data-theme="light"] .neural-gesture-hint{background:rgba(255,255,255,.94);box-shadow:0 10px 30px rgba(49,46,129,.14)}
+@keyframes neuralHintIn{from{opacity:0;transform:translate(-50%,6px)}}
 .neural-fx{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
 .neural-stage-top{position:absolute;z-index:5;left:13px;right:13px;top:12px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;pointer-events:none}
 .neural-stream-state{display:grid;grid-template-columns:9px auto;align-items:center;column-gap:7px;padding:8px 10px;border:1px solid var(--glass-border);border-radius:11px;background:rgba(8,8,24,.63);backdrop-filter:blur(14px);pointer-events:auto}
@@ -2065,6 +2096,16 @@ body.read-only .btn-primary{opacity:.55}
 [data-theme="light"] .neural-search-wrap{background:rgba(255,255,255,.65)}
 .neural-search-wrap svg{fill:none;stroke:var(--muted);stroke-width:1.8;flex:none}.neural-search-wrap input{border:0;background:transparent;min-height:0;height:34px;padding:0;box-shadow:none;font-size:.7rem}
 .neural-stage-tools{position:absolute;z-index:5;right:13px;bottom:46px;display:grid;gap:6px}
+/*
+ * The tools hang from the top right, under the search, in as many columns as
+ * the stage's height needs: on a phone turned sideways the stage is short, and
+ * a single column ran off the top of it and under the search. The first
+ * column is the one against the edge (direction:rtl orders the columns right
+ * to left; each button is left-to-right again inside).
+ */
+.neural-stage-tools{top:64px;bottom:13px;grid-auto-flow:column;grid-template-rows:repeat(auto-fill,38px);grid-auto-columns:38px;
+  align-content:start;direction:rtl;pointer-events:none}
+.neural-stage-tools>*{direction:ltr;pointer-events:auto}
 .neural-tool{width:38px;height:38px;border:1px solid var(--glass-border);border-radius:11px;color:var(--text);background:rgba(8,8,24,.64);backdrop-filter:blur(14px);cursor:pointer;font-family:inherit;font-weight:600;font-size:.78rem;transition:.16s;
   /* The icons sat on the text baseline, 1.5px above the centre of their own
    * button, and the one text glyph among them centred differently again. */
@@ -2315,9 +2356,10 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 body.neural-emergency-active .neural-stage{box-shadow:0 0 0 1px rgba(244,63,110,.4),0 0 42px rgba(255,54,91,.14),inset 0 0 60px rgba(255,34,76,.05)}
 body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neuralStreamDot{background:#F43F6E!important;box-shadow:0 0 14px #F43F6E!important}
 
-@media(max-width:1250px){
-  .neural-workspace{grid-template-columns:190px minmax(420px,1fr)}
-}
+/* (The rail and stage columns follow the Neural pane's own width through the
+ * container queries above. A viewport rule here used to give the grid two
+ * columns at 1024px while the container rule had already put the rail on a
+ * row of its own, which dropped the graph into the 190px rail column.) */
 @media(max-width:900px){
   .neural-shell{padding-bottom:4px}.neural-head{align-items:flex-start;flex-direction:column;padding:15px}
   /* One per row. Three of these labels do not share a phone's width, and a
@@ -2346,7 +2388,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 }
 @media(max-width:560px){
   .neural-kpis{grid-template-columns:1fr 1fr;gap:8px}.neural-kpi small{display:none}.neural-workspace{gap:9px}.neural-stage{min-height:470px;border-radius:15px}#neuralCanvas{min-height:470px}
-  .neural-stage-top{left:9px;right:9px;top:9px}.neural-search-wrap{width:44%;padding:0 7px}.neural-stream-state{padding:7px}.neural-stream-state small{display:none}.neural-stage-tools{right:9px;bottom:10px}
+  .neural-stage-top{left:9px;right:9px;top:9px}.neural-search-wrap{width:44%;padding:0 7px}.neural-stream-state{padding:7px}.neural-stream-state small{display:none}.neural-stage-tools{right:9px;top:58px;bottom:10px}
   .neural-event-strip{grid-template-columns:1fr 1fr}.neural-timeline-actions .btn{padding:5px 8px}.neural-proto-badge{display:none}
 }
 @media(prefers-reduced-motion:reduce){.neural-live-dot,.neural-tab-dot,.neural-loader-core,.neural-loader-core::before,.neural-loader-core::after{animation:none!important}}
@@ -2363,6 +2405,12 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   /* Nothing to snap to now that the list wraps. */
   .neural-mode{min-height:46px}
   .neural-shell{padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+}
+/* A phone on its side: the stage is what is left between the bar and the
+ * navigation, so the whole graph is on screen rather than half under them. */
+@media(orientation:landscape) and (max-height:520px){
+  .neural-stage{height:max(210px,calc(100dvh - var(--tbh,64px) - 104px - env(safe-area-inset-bottom,0px)))}
+  .neural-minimap{left:9px;bottom:9px;width:112px;height:72px;border-radius:10px}
 }
 @media(max-width:560px){
   .neural-stage{height:clamp(280px,52dvh,460px)}

@@ -64,11 +64,13 @@
       const gradient = portrait
         ? ctx.createLinearGradient(0, 0, 0, height)
         : ctx.createLinearGradient(0, 0, width, 0);
-      gradient.addColorStop(0, 'rgba(144,114,225,0)');
-      gradient.addColorStop(0.20, 'rgba(130,96,213,0.26)');
-      gradient.addColorStop(0.48, 'rgba(109,64,207,0.46)');
-      gradient.addColorStop(0.72, 'rgba(112,132,213,0.32)');
-      gradient.addColorStop(1, 'rgba(144,114,225,0)');
+      /* Quartz: ribbons of the stone's own grey-rose, with a trace of the
+       * product violet where they are deepest. */
+      gradient.addColorStop(0, 'rgba(176,166,158,0)');
+      gradient.addColorStop(0.20, 'rgba(168,158,150,0.22)');
+      gradient.addColorStop(0.48, 'rgba(148,134,150,0.30)');
+      gradient.addColorStop(0.72, 'rgba(190,176,172,0.24)');
+      gradient.addColorStop(1, 'rgba(176,166,158,0)');
       ctx.strokeStyle = gradient;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';

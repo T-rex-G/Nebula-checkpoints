@@ -8,11 +8,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>__NV_PRODUCT_NAME__ — Git, from orbit</title>
 <meta name="description" content="Enterprise-grade web Git client for GitHub. PRs, issues, releases, staged commits — and pushes of any size via automatic Git LFS.">
-<meta name="theme-color" content="#06030F">
+<meta name="theme-color" content="#07080A">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#06030F">
-<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F5F3FB">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#07080A">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F4F2EE">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="__NV_PRODUCT_NAME__">
@@ -977,6 +977,7 @@
             </aside>
 
             <div class="card neural-stage" id="neuralStage">
+              <div class="neural-light" id="neuralLight" aria-hidden="true"></div>
               <canvas id="neuralCanvas" tabindex="0" aria-label="Interactive repository relationship graph. Arrow keys move between nodes, Page Up and Page Down page a group, Escape closes details, plus and minus zoom, F fits the graph."></canvas>
               <!-- What animates -- signals, breathing rings, the leader line -- above the graph, so the graph itself is redrawn only when it changes. -->
               <canvas class="neural-fx" id="neuralFx" aria-hidden="true"></canvas>

@@ -23,6 +23,7 @@
     external:      { color: '#ff7469', glyph: 'X', radius: 12, label: 'External destination', plural: 'Destinations' },
     scan:          { color: '#50e6c2', mark: 'check', radius: 12, label: 'Security scan', plural: 'Scans' },
     credential:    { color: '#ffd166', glyph: 'K', radius: 12, label: 'Deploy credential', plural: 'Credentials' },
+    leak:          { color: '#ff8a5c', glyph: '!', radius: 12, label: 'Leaked credential', plural: 'Leaked credentials', short: 'Leaked keys' },
     integration:   { color: '#ff8fab', glyph: 'H', radius: 12, label: 'Webhook integration', plural: 'Webhooks' }
   };
 
@@ -85,6 +86,9 @@
     external: 'M12 20.2a8.2 8.2 0 1 0 0-16.4 8.2 8.2 0 0 0 0 16.4zM3.8 12h16.4M12 3.8c2.2 2.3 3.2 5 3.2 8.2s-1 5.9-3.2 8.2M12 3.8C9.8 6.1 8.8 8.8 8.8 12s1 5.9 3.2 8.2',
     scan: 'M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M8.2 12.2l2.6 2.6 5-5.2',
     credential: 'M8 19a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM10.9 12.1L19 4M15.5 7.5l2.5 2.5M13.4 9.6l1.8 1.8',
+    /* The key, with the warning stroke where its teeth were: a credential that
+     * is out in the open. */
+    leak: 'M7.5 19.8a3.9 3.9 0 1 0 0-7.8 3.9 3.9 0 0 0 0 7.8zM10.3 13.2l5.6-5.6M13 10.5l1.7 1.7M19.5 3.6v5.2M19.5 11.6v.1',
     integration: 'M10 13.5a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2M14 10.5a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2'
   });
 
@@ -132,10 +136,10 @@
   }
 
   const MODE_TYPES = {
-    security: new Set(['repo', 'user', 'session', 'branch', 'commit', 'workflow', 'protected', 'package', 'vulnerability', 'safety', 'snapshot', 'external', 'credential', 'integration']),
+    security: new Set(['repo', 'user', 'session', 'branch', 'commit', 'workflow', 'protected', 'package', 'vulnerability', 'safety', 'snapshot', 'external', 'credential', 'leak', 'integration']),
     recovery: new Set(['repo', 'branch', 'tag', 'commit', 'release', 'snapshot', 'safety', 'protected']),
     dependencies: new Set(['repo', 'package', 'vulnerability', 'workflow', 'protected', 'scan']),
-    governance: new Set(['repo', 'user', 'session', 'branch', 'protected', 'safety', 'pull', 'workflow', 'snapshot', 'credential', 'integration']),
+    governance: new Set(['repo', 'user', 'session', 'branch', 'protected', 'safety', 'pull', 'workflow', 'snapshot', 'credential', 'leak', 'integration']),
     activity: new Set(['repo', 'user', 'branch', 'commit', 'pull', 'issue', 'release', 'workflow', 'protected'])
   };
 
@@ -145,6 +149,10 @@
     loading: false,
     mode: 'security',
     paused: false,
+    /* Whether the reader has moved the camera since the graph was last
+     * framed; an unmoved graph re-frames itself when the stage changes size. */
+    userCamera: false,
+    insets: null,
     canvas: null,
     ctx: null,
     dpr: 1,
@@ -205,6 +213,12 @@
   function nEsc(value) {
     return String(value == null ? '' : value).replace(/[&<>'"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[ch]);
   }
+  /* A count from a server response, as it may appear in markup: a number,
+   * whatever the response held. */
+  function nNum(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.round(n) : 0;
+  }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function hashCode(s) {
     let h = 2166136261;
@@ -262,7 +276,13 @@
     NVN.loading = true;
     const loading = document.getElementById('neuralLoading');
     const empty = document.getElementById('neuralEmpty');
-    if (loading) loading.hidden = false;
+    /* The full-stage "Mapping…" cover is for the first load only. A refresh
+     * -- every two minutes, or after an action -- used to raise it over the
+     * whole graph, so the strands and their signals vanished each time the
+     * map was polled; now the graph stays up and the status says it is
+     * syncing. */
+    const refreshing = NVN.nodes.length > 0;
+    if (loading) loading.hidden = refreshing;
     if (empty) empty.hidden = true;
     setStream('SYNCING', false);
     try {
@@ -279,7 +299,11 @@
         api(`${base}/intelligence/events?limit=500`),
         api(`${base}/signed-snapshots`),
         api(`${base}/access-surface`),
-        api('/api/security/scanner-status')
+        api('/api/security/scanner-status'),
+        /* What the Exposure scans found -- in the tree and in history --
+         * already masked by the server: never the secret, and a path only as
+         * a screen may show it. */
+        api(`${base}/exposure/findings?limit=60`)
       ]);
       const safety = settledValue(requests[0], { readOnly: false, freezeSync: false, protected: {} });
       const refs = settledValue(requests[1], { refs: [], tags: [], defaultBranch: state.work.branch });
@@ -292,15 +316,19 @@
       const signedSnapshots = settledValue(requests[8], { available: false, snapshots: [] });
       const access = settledValue(requests[9], { available: false, partial: true, collaborators: [], deployKeys: [], webhooks: [], risk: { score: 0, severity: 'normal', reasons: [] } });
       const scanner = settledValue(requests[10], { builtin: { available: false }, yara: { configured: false, required: false } });
+      const exposure = settledValue(requests[11], { findings: [], verifications: {} });
       const storedSnapshot = readStoredSnapshot();
-      NVN.data = { safety, refs, activity, deps, actions, sessions, live, intelligence, signedSnapshots, access, scanner, storedSnapshot, errors: requests.map(r => r.status === 'rejected' ? r.reason && r.reason.message : '').filter(Boolean) };
+      NVN.data = { safety, refs, activity, deps, actions, sessions, live, intelligence, signedSnapshots, access, scanner, exposure, storedSnapshot, errors: requests.map(r => r.status === 'rejected' ? r.reason && r.reason.message : '').filter(Boolean) };
       NVN.intelligenceCursor = intelligence && intelligence.cursor ? intelligence.cursor : '';
       buildGraph(NVN.data);
       NVN.loadedKey = key;
       NVN.demo = false;
       updateSummary();
       updateTimeline(true);
-      fitGraph(false);
+      /* A refresh leaves the camera where the reader put it; it re-frames
+       * only a graph the reader has not moved. */
+      if (!refreshing) fitGraph(false);
+      else if (!NVN.userCamera) fitGraph(true);
       ensureLiveStream();
       setStream(NVN.paused ? 'PAUSED' : (live.connected ? 'VERIFIED LIVE' : 'POLLING TOPOLOGY'), !NVN.paused);
       const sync = document.getElementById('neuralLastSync');
@@ -505,6 +533,45 @@
         description: key.readOnly === false ? 'A deploy key with repository write access.' : 'A read-only repository deploy key.'
       }, severity);
       addEdge(edges, id, repoId, key.readOnly === false ? 'write credential' : 'read credential', severity);
+    });
+    /*
+     * Credentials an Exposure scan found, including those that survive only in
+     * history. Each is shown by what it is and where, as the Exposure screen
+     * shows it: the rule, the masked path and line, whether deleting the file
+     * helped. The secret itself never reaches the browser. How loud a finding
+     * is follows what is known about it: one the provider confirmed live, or
+     * of a critical kind, is critical; one refused by its provider no longer
+     * works and is quiet.
+     */
+    const exposure = data.exposure || { findings: [], verifications: {} };
+    const verifications = exposure.verifications || {};
+    const ruleLabel = rule => (typeof exposureRuleLabel === 'function' ? exposureRuleLabel(rule) : String(rule || 'Credential'));
+    keep('leak', (exposure.findings || []).filter(finding => finding && finding.fingerprint), 60).forEach(finding => {
+      const id = `leak:${finding.fingerprint}`;
+      const disposition = finding.disposition || 'open';
+      const verification = verifications[finding.fingerprint] || null;
+      const kind = finding.narration && finding.narration.severity;
+      const severity = disposition === 'credential-rejected' || (verification && verification.state === 'rejected') ? 'normal'
+        : disposition === 'open' && ((verification && verification.state === 'verified') || kind === 'critical') ? 'critical'
+          : 'warning';
+      const occurrence = Array.isArray(finding.occurrences) ? finding.occurrences[0] : null;
+      const line = occurrence && Number.isInteger(occurrence.line) ? occurrence.line : null;
+      const where = `${finding.displayPath || 'a file'}${line ? `:${line}` : ''}`;
+      const file = String(finding.displayPath || '').split('/').filter(Boolean).pop() || '';
+      const commit = /^[0-9a-f]{7,40}$/i.test(String(finding.introducedCommit || '')) ? String(finding.introducedCommit) : '';
+      addNode(nodeMap, id, 'leak', file ? `${ruleLabel(finding.rule)} · ${file}` : ruleLabel(finding.rule), {
+        where,
+        foundIn: finding.inTree === false ? `History only${commit ? ` · ${commit.slice(0, 7)}` : ''}` : 'Current tree',
+        encoding: finding.decodedFrom === 'base64' ? 'Base64-encoded' : '',
+        status: (typeof EXPOSURE_DISPOSITION_WORDS === 'object' && EXPOSURE_DISPOSITION_WORDS[disposition]) || disposition,
+        providerCheck: verification ? (verification.narration || verification.state || '') : '',
+        description: (finding.narration && finding.narration.what) || 'A credential an Exposure scan found in this repository.'
+      }, severity);
+      addEdge(edges, id, repoId, 'exposed in repository', severity);
+      if (commit) {
+        const commitId = [...nodeMap.keys()].find(key => key.startsWith('commit:') && key.slice(7).startsWith(commit.toLowerCase()));
+        if (commitId) addEdge(edges, commitId, id, 'introduced credential', severity);
+      }
     });
     keep('integration', access.webhooks, 30).forEach(hook => {
       const id = `integration:${hook.id}`;
@@ -767,7 +834,31 @@
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { FIT_CACHE.clear(); invalidate(); }).catch(() => {});
     loadHiddenGroups();
     bindMinimap();
+    bindLight();
     resize();
+  }
+  /* The stage's light follows the pointer: one style write a frame at most,
+   * on an element with no children, and none at all with motion off. */
+  function bindLight() {
+    const stage = document.getElementById('neuralStage');
+    const light = document.getElementById('neuralLight');
+    if (!stage || !light) return;
+    let frame = 0, at = null;
+    stage.addEventListener('pointermove', e => {
+      if (!state.settings.motion) return;
+      at = e;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const r = stage.getBoundingClientRect();
+        light.style.setProperty('--nv-mx', `${Math.round(at.clientX - r.left)}px`);
+        light.style.setProperty('--nv-my', `${Math.round(at.clientY - r.top)}px`);
+      });
+    }, { passive: true });
+    stage.addEventListener('pointerleave', () => {
+      light.style.removeProperty('--nv-mx');
+      light.style.removeProperty('--nv-my');
+    });
   }
 
   /*
@@ -793,7 +884,9 @@
     const rect = NVN.canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
     NVN.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const resized = Math.abs(rect.width - NVN.width) > 1 || Math.abs(rect.height - NVN.height) > 1;
     NVN.width = rect.width; NVN.height = rect.height;
+    NVN.insets = null;
     const w = Math.round(rect.width * NVN.dpr), h = Math.round(rect.height * NVN.dpr);
     if (NVN.canvas.width !== w || NVN.canvas.height !== h) { NVN.canvas.width = w; NVN.canvas.height = h; NVN.staticKey = ''; }
     if (NVN.fx && (NVN.fx.width !== w || NVN.fx.height !== h)) { NVN.fx.width = w; NVN.fx.height = h; }
@@ -805,6 +898,12 @@
     if (NVN.nodes.length && NVN.layoutAspectUsed && (nextMode !== NVN.layoutMode || Math.abs(layoutAspect() - NVN.layoutAspectUsed) > .2)) {
       clearTimeout(NVN.reshapeTimer);
       NVN.reshapeTimer = setTimeout(() => { layoutGraph(); renderLegend(); fitGraph(true); }, 120);
+    } else if (resized && NVN.nodes.length && !NVN.userCamera && !NVN.fitPending) {
+      /* Any other change of size -- a window dragged wider, the browser's
+       * bars coming and going, a split screen -- re-frames the graph for the
+       * room it now has, unless the reader has moved it themselves. */
+      clearTimeout(NVN.refitTimer);
+      NVN.refitTimer = setTimeout(() => { if (!NVN.userCamera) fitGraph(true); }, 90);
     }
     /* Whether the stage is on screen is re-read here rather than left to the
      * observer alone: during a phone's rotation the observer can report the
@@ -847,10 +946,10 @@
   const PAGE_ROWS = 10;
   const NODE_R = 16;
   const HUB_R = 58;
-  /* On a tall stage the spine every row branches from: down from the hub's
-   * lower rim, just clear of the panels' edge. */
-  const SPINE_X = HUB_R * .55;
-  const LEFT_GROUPS = ['user', 'credential', 'session', 'protected', 'safety', 'snapshot', 'scan', 'release', 'tag'];
+  /* On a tall stage the spine every row branches from: straight down from
+   * the bottom of the hub, on its centre line. */
+  const SPINE_X = 0;
+  const LEFT_GROUPS = ['user', 'credential', 'leak', 'session', 'protected', 'safety', 'snapshot', 'scan', 'release', 'tag'];
   const RIGHT_GROUPS = ['branch', 'commit', 'workflow', 'pull', 'issue', 'integration', 'external', 'package', 'vulnerability'];
   const SEVERITY_RANK = { critical: 0, warning: 1, normal: 2 };
 
@@ -1006,13 +1105,16 @@
   }
   function isLight() { return document.documentElement.dataset.theme === 'light'; }
   function palette() {
+    /* Quartz and obsidian: the panels are the stone's own surface, frosted
+     * over the ground, and the ink is warm charcoal or cool ivory rather than
+     * the indigo of before. */
     return isLight() ? {
-      theme: 'light', surface: '#ffffff', grid: 'rgba(49,46,129,.07)', ring: 'rgba(79,70,229,.2)',
-      panel: 'rgba(255,255,255,.9)', panelEdge: .38, text: '#1e1b4b', muted: '#5b5f7a', row: 'rgba(49,46,129,.05)',
-      ink: color => (luminanceOf(color) > .78 ? '#475569' : darken(color, .28)), glow: false
+      theme: 'light', surface: '#fbfaf8', grid: 'rgba(41,37,36,.07)', ring: 'rgba(120,108,98,.22)',
+      panel: 'rgba(255,255,255,.9)', panelEdge: .34, text: '#1c1917', muted: '#6b645d', row: 'rgba(41,37,36,.045)',
+      ink: color => (luminanceOf(color) > .78 ? '#57534e' : darken(color, .3)), glow: false
     } : {
-      theme: 'dark', surface: '#0e1026', grid: 'rgba(196,203,255,.07)', ring: 'rgba(129,140,248,.24)',
-      panel: 'rgba(11,13,34,.78)', panelEdge: .34, text: '#eef0ff', muted: '#9aa0c3', row: 'rgba(255,255,255,.035)',
+      theme: 'dark', surface: '#0c0d10', grid: 'rgba(226,232,240,.055)', ring: 'rgba(203,213,225,.17)',
+      panel: 'rgba(14,15,19,.84)', panelEdge: .3, text: '#eceef1', muted: '#9aa1ab', row: 'rgba(255,255,255,.04)',
       ink: color => color, glow: true
     };
   }
@@ -1097,7 +1199,7 @@
       if (!map) return;
       const r = mini.getBoundingClientRect();
       const wx = (e.clientX - r.left - map.ox) / map.scale, wy = (e.clientY - r.top - map.oy) / map.scale;
-      NVN.camTarget = null;
+      NVN.camTarget = null; NVN.userCamera = true;
       NVN.panX = -wx * NVN.zoom; NVN.panY = -wy * NVN.zoom;
     };
     mini.addEventListener('pointerdown', e => { dragging = true; mini.setPointerCapture(e.pointerId); moveTo(e); e.preventDefault(); });
@@ -1400,6 +1502,15 @@
       ctx.strokeStyle = hexAlpha(st.color, lit ? .8 : colors.panelEdge);
       ctx.stroke();
       ctx.shadowBlur = 0;
+      /* Where the light catches the glass: a bright hairline along the top
+       * edge, fading out toward the corners. */
+      const edge = ctx.createLinearGradient(panel.x, 0, panel.x + panel.w, 0);
+      const shine = colors.glow ? .2 : .95;
+      edge.addColorStop(0, `rgba(255,255,255,0)`);
+      edge.addColorStop(.5, `rgba(255,255,255,${shine})`);
+      edge.addColorStop(1, `rgba(255,255,255,0)`);
+      ctx.beginPath(); ctx.moveTo(panel.x + 18, panel.y + 1); ctx.lineTo(panel.x + panel.w - 18, panel.y + 1);
+      ctx.lineWidth = 1; ctx.strokeStyle = edge; ctx.stroke();
       /* Header: the group's mark and name, and its count in a pill -- "60 of
        * 312" (60/312) where the repository has more than the graph holds. */
       const hx = panel.x + 30, hy = panel.y + HEAD_H / 2 + 2;
@@ -1932,7 +2043,7 @@
         const { a, b } = pair();
         const d = dist(a, b), m = mid(a, b);
         if (pinchDist > 0 && d > 0) zoomAt(m.x, m.y, NVN.zoom * (d / pinchDist));
-        if (pinchMid) { NVN.panX += m.x - pinchMid.x; NVN.panY += m.y - pinchMid.y; }
+        if (pinchMid) { NVN.panX += m.x - pinchMid.x; NVN.panY += m.y - pinchMid.y; NVN.userCamera = true; }
         pinchDist = d; pinchMid = m;
         return;
       }
@@ -1949,7 +2060,7 @@
               NVN.draggingPanel = { type: panel.type, dx: w.x - panel.x, dy: w.y - panel.y };
               c.style.cursor = 'grabbing';
             }
-          } else NVN.panning = true;
+          } else { NVN.panning = true; NVN.userCamera = true; }
         }
         if (NVN.draggingPanel) {
           const w = screenToWorld(pos.x, pos.y);
@@ -2021,12 +2132,14 @@
     }
   }
   function zoomAt(x, y, zoom) {
+    NVN.userCamera = true;
     const before = screenToWorld(x, y);
     NVN.zoom = clamp(zoom, .35, 2.6);
     const after = worldToScreen(before.x, before.y);
     NVN.panX += x - after.x; NVN.panY += y - after.y;
   }
   function zoomBy(factor) {
+    NVN.userCamera = true;
     const target = NVN.camTarget || { zoom: NVN.zoom, panX: NVN.panX, panY: NVN.panY };
     const zoom = clamp(target.zoom * factor, .35, 2.6);
     const scale = zoom / target.zoom;
@@ -2300,6 +2413,7 @@
     const button = document.getElementById('neuralPanelBtn');
     if (!stage) return;
     stage.classList.toggle('panel-open', open);
+    NVN.insets = null;
     if (button) {
       button.setAttribute('aria-pressed', open ? 'true' : 'false');
       const label = open ? 'Hide modes and filters' : 'Modes and filters';
@@ -2353,11 +2467,33 @@
    * above, the tool column on the right, and the modes panel on the left when
    * the enlarged stage has it open. */
   function viewportInsets() {
+    if (NVN.insets) return NVN.insets;
     const stage = document.getElementById('neuralStage');
     const rail = document.getElementById('neuralRail');
-    const panel = stage && stage.classList.contains('panel-open') && rail && rail.classList.contains('is-docked') && window.matchMedia('(min-width: 900px)').matches
-      ? rail.getBoundingClientRect().width : 0;
-    return { left: panel + 16, right: 64, top: 64, bottom: 20 };
+    const rect = NVN.canvas ? NVN.canvas.getBoundingClientRect() : null;
+    const inset = { left: 16, right: 64, top: 64, bottom: 20 };
+    if (!stage || !rect || !rect.width) return inset;
+    /* Measured, not assumed: the status and search may sit below a phone's
+     * clock, the tools may have wrapped into a second column on a short
+     * stage, and the edges may be clear of a notch -- the fit frames the
+     * graph in whatever is actually left. */
+    const top = stage.querySelector('.neural-stage-top');
+    const topRect = top ? top.getBoundingClientRect() : null;
+    if (topRect && topRect.height) {
+      inset.top = Math.max(24, topRect.bottom - rect.top + 10);
+      inset.left = Math.max(16, topRect.left - rect.left + 3);
+    }
+    const tools = stage.querySelector('.neural-stage-tools');
+    const toolRect = tools ? tools.getBoundingClientRect() : null;
+    if (toolRect && toolRect.width) {
+      inset.right = Math.max(16, rect.right - toolRect.left + 10);
+      inset.bottom = Math.max(16, rect.bottom - toolRect.bottom + 6);
+    }
+    if (stage.classList.contains('panel-open') && rail && rail.classList.contains('is-docked') && window.matchMedia('(min-width: 900px)').matches) {
+      inset.left = Math.max(inset.left, rail.getBoundingClientRect().right - rect.left + 16);
+    }
+    NVN.insets = inset;
+    return inset;
   }
   /*
    * Frames a world rectangle in the part of the stage nothing covers. A tall
@@ -2384,6 +2520,7 @@
       ? inset.top - NVN.height / 2 - b.minY * zoom
       : inset.top + boxH / 2 - NVN.height / 2 - ((b.minY + b.maxY) / 2) * zoom;
     const target = { zoom, panX, panY };
+    NVN.userCamera = false;
     if (!animateFit || !state.settings.motion) { NVN.zoom = zoom; NVN.panX = panX; NVN.panY = panY; NVN.camTarget = null; return; }
     NVN.camTarget = target;
   }
@@ -2438,6 +2575,7 @@
     const goalX = docked ? W * .5 : clamp(W - 64 - CARD_WIDTH - 16 - toRight, inset.left + 50, Math.max(inset.left + 50, W * .6));
     const goalY = docked ? H * .27 : H * .5;
     NVN.camTarget = { zoom, panX: goalX - W / 2 - x * zoom, panY: goalY - H / 2 - y * zoom };
+    NVN.userCamera = true;
   }
 
   function announceNode(node) {
@@ -2573,7 +2711,8 @@
     if (left + size.w > W - 60) { left = leftEdge0 - 16 - size.w; side = 'left'; }
     const leftEdge = viewportInsets().left - 4;
     left = clamp(left, leftEdge, Math.max(leftEdge, W - size.w - 60));
-    const top = clamp(p.y - 44, 62, Math.max(62, H - size.h - 12));
+    const inset = viewportInsets();
+    const top = clamp(p.y - 44, inset.top - 2, Math.max(inset.top - 2, H - size.h - inset.bottom + 8));
     const prev = NVN.cardPos;
     if (!prev || Math.abs(prev.left - left) > .5 || Math.abs(prev.top - top) > .5) {
       card.style.left = `${Math.round(left)}px`;
@@ -2625,7 +2764,7 @@
    * question, open or fold every group at once.
    */
   const GROUP_CATEGORIES = [
-    ['Access', ['user', 'credential', 'session', 'integration']],
+    ['Access', ['user', 'credential', 'leak', 'session', 'integration']],
     ['Code', ['branch', 'commit', 'tag', 'pull', 'issue', 'release']],
     ['Delivery', ['workflow', 'external']],
     ['Supply chain', ['package', 'vulnerability', 'scan']],
@@ -2666,13 +2805,16 @@
         const on = NVN.focusGroup === type;
         const total = (NVN.totals || {})[type];
         const plural = st.plural || st.label;
+        /* A name too long for the row beside its counts is shortened there;
+         * the whole name is the row's tooltip and the panel's header. */
+        const name = st.short || plural;
         const pips = [
           entry.critical ? `<i class="ng-pip is-critical" title="${entry.critical} critical">${entry.critical}</i>` : '',
           entry.warning ? `<i class="ng-pip is-warning" title="${entry.warning} to review">${entry.warning}</i>` : ''
         ].join('');
         return `<div class="neural-group-row${hidden ? ' is-hidden' : ''}" style="--node:${nEsc(st.color)}">`
           + `<button type="button" class="neural-chip${on ? ' is-on' : ''}" data-neural-group="${nEsc(type)}" aria-pressed="${on}"${hidden ? ' aria-disabled="true"' : ''}>`
-          + `<span class="ng-icon" aria-hidden="true">${iconSvg(type)}</span><span class="ng-name">${nEsc(plural)}</span>${pips}`
+          + `<span class="ng-icon" aria-hidden="true">${iconSvg(type)}</span><span class="ng-name" title="${nEsc(plural)}">${nEsc(name)}</span>${pips}`
           + `<b>${entry.count}</b>${total > entry.count ? `<small>of ${total}</small>` : ''}</button>`
           + `<button type="button" class="neural-eye" data-neural-toggle="${nEsc(type)}" aria-pressed="${!hidden}" aria-label="${hidden ? 'Show' : 'Hide'} ${nEsc(plural.toLowerCase())}" title="${hidden ? 'Show' : 'Hide'} ${nEsc(plural.toLowerCase())}">${hidden ? EYE_SHUT : EYE_OPEN}</button>`
           + '</div>';
@@ -2686,8 +2828,11 @@
     if (NVN.focusGroup) selectNode(null);
     renderLegend();
     const panel = (NVN.panels || []).find(item => item.type === NVN.focusGroup);
-    if (panel) fitRect({ minX: Math.min(panel.x, -HUB_R) - 30, minY: Math.min(panel.y, -HUB_R) - 30, maxX: Math.max(panel.x + panel.w, HUB_R) + 30, maxY: Math.max(panel.y + panel.h, HUB_R) + 30 }, true, 1.2, true);
-    else fitGraph(true);
+    if (panel) {
+      fitRect({ minX: Math.min(panel.x, -HUB_R) - 30, minY: Math.min(panel.y, -HUB_R) - 30, maxX: Math.max(panel.x + panel.w, HUB_R) + 30, maxY: Math.max(panel.y + panel.h, HUB_R) + 30 }, true, 1.2, true);
+      /* A framed group stays framed through a resize. */
+      NVN.userCamera = true;
+    } else fitGraph(true);
   }
 
   function inspectorDescription(node) {
@@ -2701,6 +2846,7 @@
       snapshot: 'A retained reference manifest used for rapid repository-state recovery.',
       session: 'An authenticated Nebulaverse-X session associated with this identity.',
       credential: 'A repository deploy key. Writable keys represent a direct non-human modification path.',
+      leak: 'A credential an Exposure scan found in the repository or its history. The secret itself is never stored or shown.',
       integration: 'A repository webhook integration and its destination security posture.'
     }[node.type] || 'Repository intelligence object correlated by the Neural Command Center.';
   }
@@ -2719,6 +2865,7 @@
     if (node.type === 'package' || node.type === 'vulnerability' || node.type === 'scan') buttons.push('<button class="btn btn-ghost small" data-neural-action="security-scan">Run full dependency scan</button>');
     if (node.type === 'snapshot') buttons.push('<button class="btn btn-ghost small" data-neural-action="snapshot">Capture fresh references</button><button class="btn btn-ghost small" data-neural-action="recovery-preview">Preview recovery impact</button><button class="btn btn-ghost small" data-neural-action="recovery">Open recovery workflow</button>');
     if (node.type === 'safety' || node.type === 'repo' || node.type === 'protected') buttons.push('<button class="btn btn-ghost small" data-neural-action="safeguards">Open safeguards</button>');
+    if (node.type === 'leak') buttons.push('<button class="btn btn-ghost small" data-neural-action="exposure">Open in Exposure</button>');
     if (node.type === 'session' || node.type === 'user') buttons.push('<button class="btn btn-ghost small" data-neural-action="revoke">Revoke other sessions</button>');
     buttons.push(`<button class="btn btn-ghost small" data-neural-action="explain">${NVN.explainStart ? 'Explain from selected start' : 'Use for connection path'}</button>`);
     if (!buttons.length) buttons.push('<button class="btn btn-ghost small" data-neural-action="refresh">Refresh intelligence</button>');
@@ -2971,6 +3118,7 @@
     else if (action === 'recovery-preview') previewSelectedRecovery();
     else if (action === 'recovery' && typeof recoveryFlow === 'function') recoveryFlow();
     else if (action === 'safeguards' && typeof openSafeguards === 'function') openSafeguards();
+    else if (action === 'exposure' && typeof switchTab === 'function') { if (stageExpanded()) setStageExpanded(false); switchTab('exposure'); }
     else if (action === 'revoke') revokeOtherSessions(true);
     else if (action === 'external-url' && /^https:\/\//.test(b.dataset.url || '')) window.open(b.dataset.url, '_blank', 'noopener');
     else if (action === 'explain') explainFromSelected();
@@ -3033,8 +3181,8 @@
       const c = preview.counts || {};
       await modal({
         title: 'Recovery impact preview', okText: 'Close',
-        bodyHTML: `<div class="neural-report-banner"><b>No repository changes were made.</b><p>${c.refsToMove || 0} branch(es) would move, ${c.refsToRecreate || 0} would be recreated and ${c.newerRefsPreserved || 0} newer branch(es) would be preserved.</p></div>
-          <p class="hint">Files changed since the snapshot: ${c.filesModified || 0} modified, ${c.filesToRestore || 0} missing from the current tree, ${c.newerFilesPreserved || 0} newer file(s) preserved.</p>
+        bodyHTML: `<div class="neural-report-banner"><b>No repository changes were made.</b><p>${nNum(c.refsToMove)} branch(es) would move, ${nNum(c.refsToRecreate)} would be recreated and ${nNum(c.newerRefsPreserved)} newer branch(es) would be preserved.</p></div>
+          <p class="hint">Files changed since the snapshot: ${nNum(c.filesModified)} modified, ${nNum(c.filesToRestore)} missing from the current tree, ${nNum(c.newerFilesPreserved)} newer file(s) preserved.</p>
           ${(preview.warnings || []).map(warning => `<p class="hint">⚠ ${nEsc(warning)}</p>`).join('')}`
       });
     } catch (error) { if (typeof toast === 'function') toast(error.message, 'err'); }
@@ -3065,7 +3213,7 @@
         method: 'POST', body: { confirm: true }
       }, 'Revoke every other active session');
       if (!out) return { available: false, revoked: 0, cancelled: true };
-      if (showResult && typeof modal === 'function') await modal({ title: 'Session containment', okText: 'Done', bodyHTML: `<p class="hint">${out.available ? `<b>${out.revoked}</b> other session(s) revoked for <span class="mono">${nEsc(out.login || '')}</span>.` : `Session inventory is unavailable because this deployment is using cookie-only sessions. Connect Neon to enable cross-device revocation.`}</p>` });
+      if (showResult && typeof modal === 'function') await modal({ title: 'Session containment', okText: 'Done', bodyHTML: `<p class="hint">${out.available ? `<b>${nNum(out.revoked)}</b> other session(s) revoked for <span class="mono">${nEsc(out.login || '')}</span>.` : `Session inventory is unavailable because this deployment is using cookie-only sessions. Connect Neon to enable cross-device revocation.`}</p>` });
       return out;
     } catch (e) { if (showResult && typeof toast === 'function') toast(e.message, 'err'); return { available: false, revoked: 0, error: e.message }; }
   }
@@ -3119,7 +3267,7 @@
       const refs = Array.isArray(manifest.refs) ? manifest.refs.length : 0;
       await modal({
         title: 'Emergency containment active', okText: 'Continue in read-only mode',
-        bodyHTML: `<div class="neural-report-banner"><b>Containment was recorded as a signed emergency manifest.</b><p>Read-only mode and synchronization freeze are active. ${controls.sessionRevocationAvailable ? `${Number(controls.sessionsRevoked || 0)} other session(s) were revoked.` : 'Cross-device session revocation was unavailable in cookie-only mode.'}</p></div>
+        bodyHTML: `<div class="neural-report-banner"><b>Containment was recorded as a signed emergency manifest.</b><p>Read-only mode and synchronization freeze are active. ${controls.sessionRevocationAvailable ? `${nNum(controls.sessionsRevoked)} other session(s) were revoked.` : 'Cross-device session revocation was unavailable in cookie-only mode.'}</p></div>
           <p class="hint">Reference snapshot: ${refs} branch ref(s) captured · ${containment.persisted ? 'stored in Neon' : 'downloaded locally'} · evidence ${containment.evidence ? 'recorded' : 'unavailable'}.</p>
           <p class="hint">Review the downloaded JSON evidence, protected files and recovery preview before making restore decisions.</p>`
       });

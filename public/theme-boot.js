@@ -32,7 +32,7 @@
   } catch (e) { /* Missing, malformed or blocked storage keeps the defaults. */ }
 
   var meta = document.querySelector('meta[name=theme-color]');
-  if (meta) meta.content = root.dataset.theme === 'light' ? '#F5F3FB' : '#06030F';
+  if (meta) meta.content = root.dataset.theme === 'light' ? '#F4F2EE' : '#07080A';
 
   /*
    * The switches report the theme they are actually in. They are markup, so

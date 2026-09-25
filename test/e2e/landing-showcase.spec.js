@@ -73,7 +73,15 @@ test('the closing call returns the reader to the card and into its first control
 });
 
 test('every width gets the whole page and nothing wider than the screen', async ({ page }) => {
-  await openLanding(page);
+  /*
+   * Five widths, each a relayout of the whole page, in one test. The question
+   * is where things are, not how they move, so the page is read with motion
+   * off: nothing is mid-arrival when it is measured, and the scene is not
+   * redrawn live on every resize -- which, on a software renderer under a
+   * loaded suite, was enough to run this past the default budget.
+   */
+  test.setTimeout(60000);
+  await openLanding(page, false);
   for (const width of [320, 390, 768, 1280, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await page.waitForTimeout(150);

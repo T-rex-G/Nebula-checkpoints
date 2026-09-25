@@ -960,7 +960,7 @@
                 <button class="neural-mode" data-neural-mode="activity"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2.6M10.4 12h3.2M18.4 12H21"/><circle cx="8" cy="12" r="2.4"/><circle cx="16" cy="12" r="2.4"/></svg></span><div><b>Activity</b><small>Commits, PRs and CI</small></div></button>
               </div>
 
-              <!-- The groups on screen, each one a control that lights and frames it. -->
+              <!-- The groups on screen by category: each one lights and frames its group, and its eye hides or shows it. -->
               <div class="neural-panel-title neural-filter-title" id="neuralLegendTitle">Groups on screen</div>
               <div class="neural-legend" id="neuralLegend" role="group" aria-labelledby="neuralLegendTitle" hidden></div>
 
@@ -977,7 +977,11 @@
             </aside>
 
             <div class="card neural-stage" id="neuralStage">
-              <canvas id="neuralCanvas" tabindex="0" aria-label="Interactive repository relationship graph. Arrow keys move between nodes, Escape closes details, plus and minus zoom, F fits the graph."></canvas>
+              <canvas id="neuralCanvas" tabindex="0" aria-label="Interactive repository relationship graph. Arrow keys move between nodes, Page Up and Page Down page a group, Escape closes details, plus and minus zoom, F fits the graph."></canvas>
+              <!-- What animates -- signals, breathing rings, the leader line -- above the graph, so the graph itself is redrawn only when it changes. -->
+              <canvas class="neural-fx" id="neuralFx" aria-hidden="true"></canvas>
+              <!-- The whole topology in miniature when it is larger than the stage; press or drag to move there. -->
+              <canvas class="neural-minimap" id="neuralMinimap" aria-hidden="true" hidden></canvas>
               <div class="neural-stage-top">
                 <div class="neural-stream-state"><span id="neuralStreamDot"></span><b id="neuralStreamLabel">LIVE TOPOLOGY</b><small id="neuralLastSync">Not synchronized</small></div>
                 <div class="neural-search-wrap">

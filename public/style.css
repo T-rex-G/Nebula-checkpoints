@@ -2039,10 +2039,22 @@ body.read-only .btn-primary{opacity:.55}
 .neural-swatch.warning{color:#F59E0B;background:#F59E0B}
 .neural-swatch.normal{color:#22D3EE;background:#22D3EE}
 .neural-rail-action{margin-top:6px!important;justify-content:flex-start;padding-left:11px;min-height:36px}
-.neural-stage{position:relative;height:var(--neural-stage-h,620px);min-height:0;border-radius:18px;background:radial-gradient(circle at 50% 46%,rgba(104,87,255,.11),transparent 30%),radial-gradient(circle at 23% 70%,rgba(34,211,238,.07),transparent 24%),rgba(4,5,17,.34);isolation:isolate;overflow:hidden}
+.neural-stage{position:relative;height:var(--neural-stage-h,620px);min-height:0;border-radius:18px;
+  /* The dark ground: deep navy lit from behind the hub, two faint clouds of
+   * the brand's indigo and cyan, and a vignette that keeps the eye in the
+   * middle -- enough depth to read as space, not enough to compete with a
+   * label. Painted once by the browser; the canvas draws only the graph. */
+  background:
+    radial-gradient(ellipse 120% 95% at 50% 50%,transparent 45%,rgba(3,4,12,.62) 100%),
+    radial-gradient(circle at 50% 50%,rgba(79,70,229,.22),rgba(79,70,229,.07) 32%,transparent 58%),
+    radial-gradient(circle at 16% 82%,rgba(8,145,178,.12),transparent 42%),
+    radial-gradient(circle at 86% 14%,rgba(124,58,237,.11),transparent 40%),
+    linear-gradient(180deg,#080a1c 0%,#0a0c22 55%,#06070f 100%);
+  isolation:isolate;overflow:hidden}
 [data-theme="light"] .neural-stage{background:radial-gradient(circle at 50% 46%,rgba(104,87,255,.12),transparent 32%),radial-gradient(circle at 23% 70%,rgba(31,180,162,.09),transparent 25%),rgba(238,240,251,.36)}
 #neuralCanvas{display:block;width:100%;height:100%;min-height:0;touch-action:none;cursor:grab;outline:none;position:relative;z-index:1}
 #neuralCanvas:active{cursor:grabbing}
+.neural-fx{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
 .neural-stage-top{position:absolute;z-index:5;left:13px;right:13px;top:12px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;pointer-events:none}
 .neural-stream-state{display:grid;grid-template-columns:9px auto;align-items:center;column-gap:7px;padding:8px 10px;border:1px solid var(--glass-border);border-radius:11px;background:rgba(8,8,24,.63);backdrop-filter:blur(14px);pointer-events:auto}
 [data-theme="light"] .neural-stream-state{background:rgba(255,255,255,.65)}
@@ -2127,7 +2139,7 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 .neural-rail.is-docked .neural-mode-list{grid-template-columns:minmax(0,1fr)}
 .neural-rail.is-docked .neural-filter-title{display:block}
 .neural-rail.is-docked .neural-filter{display:flex}
-.neural-rail.is-docked .neural-legend:not([hidden]){display:flex}
+.neural-rail.is-docked .neural-legend:not([hidden]){display:grid}
 .neural-rail.is-docked .neural-rail-action{display:flex!important;width:100%!important;margin:6px 0 0!important}
 /*
  * The stage's own furniture steps aside for the open panel, but only where
@@ -2142,22 +2154,68 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 .neural-stage.is-expanded .neural-tool .nt-shrink{display:block}
 .neural-stage.is-expanded .neural-tool .nt-grow{display:none}
 /*
- * The group legend. Each chip is the name of a group on screen and its count,
- * and pressing it lights and frames that group; the colour dot repeats the
- * group's colour in the graph so the two can be matched without reading.
+ * The groups on screen, by category. Each row is the group's icon, name,
+ * critical and warning counts and its count ("60 of 312" when the repository
+ * has more than the graph holds); pressing it lights and frames the group.
+ * The eye beside it hides or shows the group, and a hidden group stays
+ * listed, dimmed, so it can always be brought back.
  */
-.neural-legend{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.neural-legend{display:grid;gap:12px;container-type:inline-size}
 .neural-legend[hidden]{display:none}
-.neural-chip{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 10px 0 9px;border-radius:99px;
-  border:1px solid var(--glass-border);background:rgba(255,255,255,.03);color:var(--text2);
-  font:inherit;font-size:.66rem;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s,color .15s,transform .15s}
-.neural-chip i{width:8px;height:8px;border-radius:50%;background:var(--node);box-shadow:0 0 0 3px color-mix(in srgb,var(--node) 22%,transparent)}
-.neural-chip b{font-family:var(--font-mono);font-size:.62rem;font-weight:600;color:var(--muted);margin-left:1px}
-.neural-chip:hover{color:var(--text);border-color:color-mix(in srgb,var(--node) 55%,transparent)}
-.neural-chip.is-on{color:var(--text);background:color-mix(in srgb,var(--node) 20%,transparent);border-color:color-mix(in srgb,var(--node) 70%,transparent)}
-.neural-chip:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-[data-theme="light"] .neural-chip{background:rgba(255,255,255,.7)}
-[data-theme="light"] .neural-chip i{background:color-mix(in srgb,var(--node) 70%,#334155)}
+.neural-groups-tools{display:flex;flex-wrap:wrap;gap:6px}
+.neural-groups-tool{min-height:26px;padding:0 10px;border-radius:99px;border:1px solid var(--glass-border);background:rgba(255,255,255,.03);
+  color:var(--text2);font:inherit;font-size:.64rem;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+.neural-groups-tool:hover{color:var(--text);border-color:rgba(167,139,250,.5);background:rgba(139,92,246,.14)}
+.neural-groups-tool:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.neural-group-cat{display:grid;gap:3px}
+.neural-group-cat h4{margin:0 0 3px 2px;font-size:.58rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.neural-group-row{display:grid;grid-template-columns:minmax(0,1fr) 30px;align-items:center;gap:4px}
+.neural-chip{display:flex;align-items:center;gap:8px;min-width:0;min-height:34px;padding:0 10px 0 5px;border-radius:10px;
+  border:1px solid transparent;background:transparent;color:var(--text2);text-align:left;
+  font:inherit;font-size:.7rem;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+.neural-chip .ng-icon{flex:none;width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+  color:var(--node);background:color-mix(in srgb,var(--node) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--node) 45%,transparent)}
+.neural-chip .ng-icon svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.neural-chip .ng-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.neural-chip .ng-pip{flex:none;min-width:17px;height:17px;padding:0 4px;border-radius:99px;display:inline-flex;align-items:center;justify-content:center;
+  font-style:normal;font-family:var(--font-mono);font-size:.56rem;font-weight:700;color:#fff}
+.neural-chip .ng-pip.is-critical{background:#E11D48}
+.neural-chip .ng-pip.is-warning{background:#B45309}
+.neural-chip b{flex:none;font-family:var(--font-mono);font-size:.66rem;font-weight:700;color:var(--text)}
+.neural-chip small{flex:none;margin-left:-4px;font-family:var(--font-mono);font-size:.58rem;color:var(--muted)}
+.neural-chip:hover{color:var(--text);background:color-mix(in srgb,var(--node) 9%,transparent)}
+.neural-chip.is-on{color:var(--text);background:color-mix(in srgb,var(--node) 18%,transparent);border-color:color-mix(in srgb,var(--node) 60%,transparent)}
+.neural-chip:focus-visible,.neural-eye:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.neural-eye{width:30px;height:30px;border-radius:9px;border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;transition:color .15s,background .15s}
+.neural-eye svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.neural-eye:hover{color:var(--text);background:rgba(255,255,255,.06)}
+.neural-group-row.is-hidden .neural-chip{opacity:.5}
+.neural-group-row.is-hidden .neural-chip .ng-icon{filter:grayscale(1)}
+.neural-group-row.is-hidden .neural-eye{color:var(--text2)}
+[data-theme="light"] .neural-chip .ng-icon{color:color-mix(in srgb,var(--node) 45%,#1e293b)}
+[data-theme="light"] .neural-eye:hover{background:rgba(49,46,129,.06)}
+[data-theme="light"] .neural-groups-tool{background:rgba(255,255,255,.7)}
+/* Beside the graph on a laptop the rail is narrow: the name keeps the room,
+ * the total moves to the panel header, and the severity counts become dots
+ * (their numbers are still read out). */
+@container (max-width:230px){
+  .neural-chip{gap:6px;padding-right:6px}
+  .neural-chip small{display:none}
+  .neural-chip .ng-pip{min-width:8px;width:8px;height:8px;padding:0;font-size:0}
+  .neural-group-row{grid-template-columns:minmax(0,1fr) 26px}
+  .neural-eye{width:26px}
+}
+/* The minimap, bottom-left of the stage, clear of the tools on the right. */
+.neural-minimap{position:absolute;z-index:4;left:13px;bottom:13px;width:156px;height:108px;border-radius:12px;
+  border:1px solid var(--glass-border);background:rgba(8,10,26,.78);backdrop-filter:blur(12px);
+  cursor:crosshair;touch-action:none;box-shadow:0 10px 30px rgba(0,0,0,.35);opacity:.84;transition:opacity .15s}
+.neural-minimap:hover{opacity:1}
+.neural-minimap[hidden]{display:none}
+[data-theme="light"] .neural-minimap{background:rgba(255,255,255,.82);box-shadow:0 10px 30px rgba(49,46,129,.12)}
+@media(min-width:900px){
+  .neural-stage.is-expanded.panel-open .neural-minimap{left:calc(var(--nv-panel-w) + 13px)}
+}
 [data-theme="light"] .neural-chip.is-on{background:color-mix(in srgb,var(--node) 16%,#fff)}
 
 /*

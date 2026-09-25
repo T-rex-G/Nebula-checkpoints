@@ -139,12 +139,6 @@
     activity: new Set(['repo', 'user', 'branch', 'commit', 'pull', 'issue', 'release', 'workflow', 'protected'])
   };
 
-  const CLUSTER_ANGLE = {
-    user: -2.82, session: -2.54, branch: -2.05, tag: -1.75, commit: -1.35,
-    workflow: -.75, external: -.32, vulnerability: .08, package: .48, scan: .72,
-    protected: 1.08, safety: 1.48, snapshot: 1.95, release: 2.28, pull: 2.67, issue: 2.98, credential: -3.02, integration: -.08
-  };
-
   const NVN = {
     active: false,
     loadedKey: '',
@@ -177,7 +171,17 @@
     focusGroup: null,
     panels: [],
     expandedGroups: new Set(),
+    groupPages: new Map(),
+    hiddenGroups: new Set(),
+    totals: {},
     layoutMode: 'split',
+    version: 0,
+    fx: null,
+    fxCtx: null,
+    staticKey: '',
+    frameKey: '',
+    lastDraw: 0,
+    onScreen: true,
     cardSize: null,
     cardPos: null,
     cardMode: null,
@@ -324,6 +328,18 @@
     const nodeMap = new Map();
     const edges = [];
     const events = [];
+    /* A large repository has more of most things than a graph can show. The
+     * inventories keep their most telling members -- a branch list starts
+     * with the default, the working and the protected branches -- and record
+     * how many there were, so a panel says "60 of 312" instead of letting the
+     * reader believe 60 is all there is. */
+    const totals = {};
+    const keep = (type, list, max) => {
+      const all = list || [];
+      if (all.length > max) totals[type] = (totals[type] || 0) + all.length;
+      return all.slice(0, max);
+    };
+    const ordered = (node, order) => { if (node && node.order == null) node.order = order; return node; };
     const w = state.work;
     const repoId = 'repo:current';
     addNode(nodeMap, repoId, 'repo', `${w.owner}/${w.repo}`, {
@@ -339,7 +355,7 @@
     addEdge(edges, 'user:current', repoId, 'authenticated access');
 
     const sessionList = (data.sessions && data.sessions.sessions) || [];
-    sessionList.slice(0, 8).forEach((s, i) => {
+    keep('session', sessionList, 12).forEach((s, i) => {
       const id = `session:${i}`;
       addNode(nodeMap, id, 'session', s.current ? 'Current session' : `Active session ${i + 1}`, {
         current: !!s.current, updated: s.updated || '', provider: s.provider || '',
@@ -349,17 +365,19 @@
       addEdge(edges, id, repoId, 'repository access', s.current ? 'normal' : 'warning');
     });
 
-    const branches = (data.refs.refs || []).slice(0, 24);
+    const branchRank = b => (b.name === data.refs.defaultBranch ? 0 : b.name === w.branch ? 1 : b.protected ? 2 : 3);
+    const branches = keep('branch', (data.refs.refs || []).slice().sort((a, b) =>
+      branchRank(a) - branchRank(b) || String(a.name).localeCompare(String(b.name))), 60);
     branches.forEach((b, i) => {
       const id = `branch:${b.name}`;
       const sev = b.protected ? 'normal' : (b.name === data.refs.defaultBranch ? 'warning' : 'normal');
-      addNode(nodeMap, id, 'branch', b.name, {
+      ordered(addNode(nodeMap, id, 'branch', b.name, {
         sha: b.sha, protected: !!b.protected, default: b.name === data.refs.defaultBranch,
         description: b.protected ? 'Provider-protected branch.' : 'Repository branch reference.'
-      }, sev);
+      }, sev), i);
       addEdge(edges, repoId, id, b.protected ? 'protected ref' : 'branch ref', sev);
     });
-    (data.refs.tags || []).slice(0, 10).forEach(t => {
+    keep('tag', data.refs.tags, 24).forEach(t => {
       const id = `tag:${t.name}`;
       addNode(nodeMap, id, 'tag', t.name, { sha: t.sha, description: 'Immutable release or version marker.' });
       addEdge(edges, repoId, id, 'tag ref');
@@ -370,50 +388,50 @@
     (data.activity.commits || []).slice(0, 22).forEach((c, i) => {
       const id = `commit:${c.sha}`;
       const suspicious = /force|secret|password|disable|bypass|hotfix/i.test(`${c.message || ''}`);
-      addNode(nodeMap, id, 'commit', short(c.message || c.sha.slice(0, 8), 34), {
+      ordered(addNode(nodeMap, id, 'commit', short(c.message || c.sha.slice(0, 8), 34), {
         sha: c.sha, author: c.author, date: c.date, message: c.message,
         description: 'Recent commit observed in repository activity.'
-      }, suspicious ? 'warning' : 'normal');
+      }, suspicious ? 'warning' : 'normal'), i);
       addEdge(edges, previousCommit, id, i ? 'previous commit' : 'head commit', suspicious ? 'warning' : 'normal', { time: c.date });
       addEvent(events, 'commit', c.message || 'Commit', `${c.author || 'Unknown author'} · ${c.sha.slice(0, 8)}`, c.date, id, `${previousCommit}>${id}:${i ? 'previous commit' : 'head commit'}`, suspicious ? 'warning' : 'normal');
       previousCommit = id;
     });
 
-    (data.activity.pulls || []).slice(0, 10).forEach(p => {
+    (data.activity.pulls || []).slice(0, 10).forEach((p, order) => {
       const id = `pull:${p.number}`;
-      addNode(nodeMap, id, 'pull', `#${p.number} ${short(p.title, 30)}`, {
+      ordered(addNode(nodeMap, id, 'pull', `#${p.number} ${short(p.title, 30)}`, {
         number: p.number, state: p.state, updated: p.updated, title: p.title,
         description: `Pull request currently ${p.state}.`
-      }, p.state === 'open' ? 'warning' : 'normal');
+      }, p.state === 'open' ? 'warning' : 'normal'), order);
       addEdge(edges, repoId, id, 'pull request', p.state === 'open' ? 'warning' : 'normal', { time: p.updated });
       addEvent(events, 'pull', p.title, `Pull request #${p.number} · ${p.state}`, p.updated, id, '', p.state === 'open' ? 'warning' : 'normal');
     });
-    (data.activity.issues || []).slice(0, 8).forEach(i => {
+    (data.activity.issues || []).slice(0, 8).forEach((i, order) => {
       const id = `issue:${i.number}`;
-      addNode(nodeMap, id, 'issue', `#${i.number} ${short(i.title, 30)}`, {
+      ordered(addNode(nodeMap, id, 'issue', `#${i.number} ${short(i.title, 30)}`, {
         number: i.number, state: i.state, updated: i.updated, title: i.title,
         description: `Issue currently ${i.state}.`
-      }, i.state === 'open' ? 'warning' : 'normal');
+      }, i.state === 'open' ? 'warning' : 'normal'), order);
       addEdge(edges, repoId, id, 'issue', i.state === 'open' ? 'warning' : 'normal', { time: i.updated });
       addEvent(events, 'issue', i.title, `Issue #${i.number} · ${i.state}`, i.updated, id, '', i.state === 'open' ? 'warning' : 'normal');
     });
-    (data.activity.releases || []).slice(0, 7).forEach(r => {
+    (data.activity.releases || []).slice(0, 7).forEach((r, order) => {
       const id = `release:${r.tag}`;
-      addNode(nodeMap, id, 'release', r.name || r.tag, { tag: r.tag, published: r.published, description: 'Published repository release.' });
+      ordered(addNode(nodeMap, id, 'release', r.name || r.tag, { tag: r.tag, published: r.published, description: 'Published repository release.' }), order);
       addEdge(edges, repoId, id, 'release', 'normal', { time: r.published });
       addEvent(events, 'release', r.name || r.tag, `Release ${r.tag}`, r.published, id);
     });
 
-    (data.actions || []).slice(0, 14).forEach(a => {
+    (data.actions || []).slice(0, 14).forEach((a, order) => {
       const id = `workflow:${a.id}`;
       const failed = a.conclusion === 'failure' || a.conclusion === 'cancelled';
       const running = a.status !== 'completed';
       const sev = failed ? 'critical' : running ? 'warning' : 'normal';
-      addNode(nodeMap, id, 'workflow', short(a.name || `Workflow #${a.number}`, 31), {
+      ordered(addNode(nodeMap, id, 'workflow', short(a.name || `Workflow #${a.number}`, 31), {
         status: a.status, conclusion: a.conclusion || 'running', branch: a.branch, event: a.event,
         created: a.created_at, url: a.html_url, runId: a.id,
         description: failed ? 'A recent workflow did not complete successfully.' : 'Recent GitHub Actions workflow run.'
-      }, sev);
+      }, sev), order);
       addEdge(edges, nodeMap.has(`branch:${a.branch}`) ? `branch:${a.branch}` : repoId, id, 'triggered workflow', sev, { time: a.created_at });
       addEvent(events, 'workflow', a.name || 'Workflow', `${a.conclusion || a.status} · ${a.event || 'event'}`, a.created_at, id, '', sev);
     });
@@ -470,7 +488,7 @@
     });
 
     const access = data.access || { collaborators: [], deployKeys: [], webhooks: [], risk: { score: 0, severity: 'normal', reasons: [] } };
-    (access.collaborators || []).slice(0, 24).forEach(collaborator => {
+    keep('user', access.collaborators, 60).forEach(collaborator => {
       const id = collaborator.login === login ? 'user:current' : `access:user:${collaborator.login}`;
       const privileged = ['admin', 'maintain', 'write'].includes(String(collaborator.permission || '').toLowerCase());
       addNode(nodeMap, id, 'user', collaborator.login, {
@@ -479,7 +497,7 @@
       }, String(collaborator.permission || '').toLowerCase() === 'admin' ? 'warning' : 'normal');
       addEdge(edges, id, repoId, privileged ? 'can modify repository' : 'can read repository', privileged ? 'warning' : 'normal');
     });
-    (access.deployKeys || []).slice(0, 20).forEach(key => {
+    keep('credential', access.deployKeys, 30).forEach(key => {
       const id = `credential:${key.id}`;
       const severity = key.readOnly === false ? 'critical' : key.verified === false ? 'warning' : 'normal';
       addNode(nodeMap, id, 'credential', key.title || `Deploy key ${key.id}`, {
@@ -488,7 +506,7 @@
       }, severity);
       addEdge(edges, id, repoId, key.readOnly === false ? 'write credential' : 'read credential', severity);
     });
-    (access.webhooks || []).slice(0, 20).forEach(hook => {
+    keep('integration', access.webhooks, 30).forEach(hook => {
       const id = `integration:${hook.id}`;
       const severity = hook.insecureSsl ? 'critical' : hook.active === false ? 'warning' : 'normal';
       addNode(nodeMap, id, 'integration', hook.host || hook.name || `Webhook ${hook.id}`, {
@@ -510,7 +528,7 @@
     const protectedMap = ((data.safety || {}).protected || {});
     const requestedProtectedKey = `${w.owner}/${w.repo}`.toLowerCase();
     const protectedRepoKey = Object.keys(protectedMap).find(key => key.toLowerCase() === requestedProtectedKey);
-    const repoProtected = (protectedRepoKey ? protectedMap[protectedRepoKey] : []).slice(0, 28);
+    const repoProtected = keep('protected', protectedRepoKey ? protectedMap[protectedRepoKey] : [], 60);
     repoProtected.forEach(p => {
       const id = `protected:${p}`;
       addNode(nodeMap, id, 'protected', short(p, 36), {
@@ -530,7 +548,10 @@
       addEvent(events, 'safety', 'Synchronization frozen', 'Background synchronization is paused', Date.now(), 'safety:freeze', '', 'warning');
     }
 
-    const vulnerable = (data.deps.vulnerable || []).slice(0, 22);
+    const allVulnerable = data.deps.vulnerable || [];
+    const vulnerable = keep('package', allVulnerable, 40);
+    const allAlerts = (data.deps.dependabot || {}).alerts || [];
+    const advisoryCount = new Set(allVulnerable.flatMap(p => p.ids || [])).size + allAlerts.length;
     vulnerable.forEach((p, idx) => {
       const pkgId = `package:${p.ecosystem}:${p.name}@${p.version}`;
       addNode(nodeMap, pkgId, 'package', `${p.name}@${p.version}`, {
@@ -552,7 +573,7 @@
         addEvent(events, 'vulnerability', vId, `${p.name}@${p.version} · ${detail.summary || 'Known vulnerability'}`, Date.now() - idx * 1200, vulnId, `${pkgId}>${vulnId}:affected by`, sev);
       });
     });
-    const depAlerts = ((data.deps.dependabot || {}).alerts || []).slice(0, 8);
+    const depAlerts = allAlerts.slice(0, 12);
     depAlerts.forEach((a, i) => {
       const id = `vulnerability:dependabot:${i}`;
       const sev = /critical|high/i.test(a.severity || '') ? 'critical' : 'warning';
@@ -621,6 +642,12 @@
       if (old && old.x != null) { n.x = old.x; n.y = old.y; n.appear = old.appear; n.wasVisible = old.wasVisible; }
     }
     const selectedId = NVN.selected && NVN.selected.id;
+    /* A total is only worth printing where it is more than the graph holds. */
+    const inGraph = {};
+    for (const n of next) inGraph[n.type] = (inGraph[n.type] || 0) + 1;
+    if (advisoryCount > (inGraph.vulnerability || 0)) totals.vulnerability = advisoryCount;
+    for (const type of Object.keys(totals)) if (!(totals[type] > (inGraph[type] || 0))) delete totals[type];
+    NVN.totals = totals;
     NVN.nodes = next;
     NVN.edges = edges;
     NVN.events = events.sort((a, b) => new Date(a.time) - new Date(b.time)).slice(-80);
@@ -635,8 +662,10 @@
     const q = NVN.search.trim().toLowerCase();
     for (const n of NVN.nodes) {
       n.match = !!q && (`${n.label} ${JSON.stringify(n.meta)}`).toLowerCase().includes(q);
-      n.visible = allowed.has(n.type) && !!NVN.filters[n.severity || 'normal'];
-      if (q) n.visible = n.visible && n.match;
+      /* In scope is what the mode, the filters and the search admit; visible
+       * is that less any group the reader has hidden from the sidebar. */
+      n.inScope = allowed.has(n.type) && !!NVN.filters[n.severity || 'normal'] && (!q || n.match || n.type === 'repo');
+      n.visible = n.inScope && (n.type === 'repo' || !NVN.hiddenGroups.has(n.type));
     }
     for (const e of NVN.edges) {
       const a = nodeById(e.source), b = nodeById(e.target);
@@ -719,11 +748,25 @@
     NVN.canvas = document.getElementById('neuralCanvas');
     if (!NVN.canvas) return;
     NVN.ctx = NVN.canvas.getContext('2d', { alpha: true });
+    NVN.fx = document.getElementById('neuralFx');
+    NVN.fxCtx = NVN.fx ? NVN.fx.getContext('2d', { alpha: true }) : null;
     bindUI();
     bindCanvas();
     NVN.resizeObserver = new ResizeObserver(() => resize());
     const stage = document.getElementById('neuralStage');
     if (stage) NVN.resizeObserver.observe(stage);
+    /* Scrolled out of view, the graph stops drawing until it comes back. */
+    if (stage && typeof IntersectionObserver === 'function') {
+      NVN.viewObserver = new IntersectionObserver(entries => {
+        NVN.onScreen = entries.some(entry => entry.isIntersecting);
+        if (NVN.onScreen) startLoop();
+      });
+      NVN.viewObserver.observe(stage);
+    }
+    /* Labels were measured in the fallback font until the web fonts arrived. */
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { FIT_CACHE.clear(); invalidate(); }).catch(() => {});
+    loadHiddenGroups();
+    bindMinimap();
     resize();
   }
 
@@ -734,7 +777,8 @@
     NVN.dpr = Math.min(window.devicePixelRatio || 1, 2);
     NVN.width = rect.width; NVN.height = rect.height;
     const w = Math.round(rect.width * NVN.dpr), h = Math.round(rect.height * NVN.dpr);
-    if (NVN.canvas.width !== w || NVN.canvas.height !== h) { NVN.canvas.width = w; NVN.canvas.height = h; }
+    if (NVN.canvas.width !== w || NVN.canvas.height !== h) { NVN.canvas.width = w; NVN.canvas.height = h; NVN.staticKey = ''; }
+    if (NVN.fx && (NVN.fx.width !== w || NVN.fx.height !== h)) { NVN.fx.width = w; NVN.fx.height = h; }
     if (NVN.fitPending) fitGraph(false);
     if (NVN.nodes.length && NVN.layoutAspectUsed && Math.abs(layoutAspect() - NVN.layoutAspectUsed) > .2) {
       clearTimeout(NVN.reshapeTimer);
@@ -768,6 +812,9 @@
   const PANEL_GAP = 22;
   const COLUMN_GAP = 300;
   const MAX_ROWS = 6;
+  /* An opened group shows this many rows at a time and pages through the
+   * rest, so no panel becomes a column taller than the stage. */
+  const PAGE_ROWS = 10;
   const NODE_R = 16;
   const HUB_R = 58;
   const LEFT_GROUPS = ['user', 'credential', 'session', 'protected', 'safety', 'snapshot', 'scan', 'release', 'tag'];
@@ -800,15 +847,30 @@
       groups.get(n.type).push(n);
     }
     const panels = [...groups.keys()].sort((a, b) => groupOrder(a) - groupOrder(b)).map(type => {
+      /* Critical first, then in the source's own order where it has one --
+       * newest commit, default branch -- then by name. */
       const members = groups.get(type).slice().sort((a, b) =>
-        (SEVERITY_RANK[a.severity] ?? 2) - (SEVERITY_RANK[b.severity] ?? 2) || a.label.localeCompare(b.label));
-      const folds = members.length > MAX_ROWS && !expanded.has(type);
-      const shown = folds ? members.slice(0, MAX_ROWS - 1) : members;
-      const rows = shown.length + (folds || (expanded.has(type) && members.length > MAX_ROWS) ? 1 : 0);
+        (SEVERITY_RANK[a.severity] ?? 2) - (SEVERITY_RANK[b.severity] ?? 2)
+        || (a.order ?? 1e9) - (b.order ?? 1e9)
+        || a.label.localeCompare(b.label));
+      let shown = members, footer = null, page = 0, pages = 1, slots = members.length;
+      if (members.length > MAX_ROWS && !expanded.has(type)) {
+        shown = members.slice(0, MAX_ROWS - 1); footer = 'more'; slots = shown.length;
+      } else if (members.length > MAX_ROWS) {
+        pages = Math.ceil(members.length / PAGE_ROWS);
+        page = clamp(NVN.groupPages.get(type) || 0, 0, pages - 1);
+        NVN.groupPages.set(type, page);
+        shown = members.slice(page * PAGE_ROWS, (page + 1) * PAGE_ROWS);
+        footer = 'pager';
+        /* Every page is as tall as the first, so paging never moves the
+         * panels below. */
+        slots = pages > 1 ? PAGE_ROWS : shown.length;
+      }
+      const rows = slots + (footer ? 1 : 0);
       return {
-        type, members, shown, rows, folds,
+        type, members, shown, rows, footer, page, pages, slots,
         hiddenCount: members.length - shown.length,
-        collapsible: expanded.has(type) && members.length > MAX_ROWS,
+        total: Math.max(members.length, (NVN.totals || {})[type] || 0),
         w: PANEL_W, h: HEAD_H + rows * ROW_H + PANEL_PAD
       };
     });
@@ -828,7 +890,7 @@
       const FLEX = new Set(['release', 'tag', 'pull', 'issue', 'external', 'scan', 'snapshot', 'safety', 'integration']);
       for (let guard = 0; guard < 16; guard++) {
         const hl = stackHeight(left), hr = stackHeight(right);
-        if (Math.max(hl, hr) < Math.min(hl, hr) * 1.35 + 120) break;
+        if (Math.max(hl, hr) < Math.min(hl, hr) * 1.12 + 60) break;
         const from = hl > hr ? left : right, to = hl > hr ? right : left;
         const index = from.map(panel => FLEX.has(panel.type)).lastIndexOf(true);
         if (index < 0 || from.length < 2) break;
@@ -852,8 +914,11 @@
       panel.shown.forEach((n, i) => {
         n.tx = panel.nodeX; n.ty = panel.y + HEAD_H + i * ROW_H + ROW_H / 2; n.folded = false;
       });
-      panel.moreY = panel.rows > panel.shown.length ? panel.y + HEAD_H + panel.shown.length * ROW_H + ROW_H / 2 : null;
-      for (const n of panel.members.slice(panel.shown.length)) {
+      panel.moreY = panel.footer ? panel.y + HEAD_H + panel.slots * ROW_H + ROW_H / 2 : null;
+      /* Everything not on the panel's current page waits behind its footer. */
+      const onPage = new Set(panel.shown);
+      for (const n of panel.members) {
+        if (onPage.has(n)) continue;
         n.tx = panel.nodeX; n.ty = panel.moreY == null ? panel.y + HEAD_H : panel.moreY; n.folded = true;
       }
     }
@@ -862,6 +927,7 @@
     for (const panel of panels) for (const n of panel.shown) n.lane = lane++;
     NVN.laneCount = lane;
     NVN.panels = panels;
+    invalidate();
     const snap = options.instant || !state.settings.motion;
     for (const n of visible) {
       /* A node arriving in this mode grows out of the hub it belongs to. */
@@ -895,11 +961,11 @@
   function isLight() { return document.documentElement.dataset.theme === 'light'; }
   function palette() {
     return isLight() ? {
-      surface: '#ffffff', grid: 'rgba(49,46,129,.07)', ring: 'rgba(79,70,229,.2)',
+      theme: 'light', surface: '#ffffff', grid: 'rgba(49,46,129,.07)', ring: 'rgba(79,70,229,.2)',
       panel: 'rgba(255,255,255,.9)', panelEdge: .38, text: '#1e1b4b', muted: '#5b5f7a', row: 'rgba(49,46,129,.05)',
       ink: color => (luminanceOf(color) > .78 ? '#475569' : darken(color, .28)), glow: false
     } : {
-      surface: '#0e1026', grid: 'rgba(196,203,255,.06)', ring: 'rgba(129,140,248,.24)',
+      theme: 'dark', surface: '#0e1026', grid: 'rgba(196,203,255,.07)', ring: 'rgba(129,140,248,.24)',
       panel: 'rgba(11,13,34,.78)', panelEdge: .34, text: '#eef0ff', muted: '#9aa0c3', row: 'rgba(255,255,255,.035)',
       ink: color => color, glow: true
     };
@@ -928,6 +994,68 @@
     return true;
   }
 
+  /*
+   * The minimap: the whole topology in miniature, with the part on screen
+   * outlined. It appears only when the graph is larger than the stage, and a
+   * press or drag on it moves the stage there.
+   */
+  function drawMinimap(colors) {
+    const mini = NVN.minimap;
+    if (!mini) return;
+    const W = NVN.width, H = NVN.height;
+    const b = layoutBounds();
+    const a = screenToWorld(0, 0), c = screenToWorld(W, H);
+    const overflow = b.minX < a.x - 4 || b.maxX > c.x + 4 || b.minY < a.y - 4 || b.maxY > c.y + 4;
+    const show = overflow && W >= 600 && (NVN.panels || []).length > 0 && !(NVN.selected && cardDocked());
+    if (mini.hidden === show) mini.hidden = !show;
+    if (!show) { NVN.miniKey = ''; return; }
+    const key = `${NVN.frameKeyStatic}|${W}|${H}`;
+    if (key === NVN.miniKey) return;
+    NVN.miniKey = key;
+    const cw = mini.clientWidth || 156, ch = mini.clientHeight || 108, dpr = NVN.dpr;
+    if (mini.width !== Math.round(cw * dpr) || mini.height !== Math.round(ch * dpr)) { mini.width = Math.round(cw * dpr); mini.height = Math.round(ch * dpr); }
+    const g = mini.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, cw, ch);
+    const pad = 10;
+    const scale = Math.min((cw - pad * 2) / (b.maxX - b.minX), (ch - pad * 2) / (b.maxY - b.minY));
+    const ox = (cw - (b.maxX - b.minX) * scale) / 2 - b.minX * scale;
+    const oy = (ch - (b.maxY - b.minY) * scale) / 2 - b.minY * scale;
+    NVN.miniMap = { scale, ox, oy };
+    for (const panel of NVN.panels) {
+      const st = TYPE_STYLE[panel.type] || TYPE_STYLE.repo;
+      const lit = NVN.focusGroup === panel.type || (NVN.selected && NVN.selected.type === panel.type);
+      roundRect(g, ox + panel.x * scale, oy + panel.y * scale, panel.w * scale, panel.h * scale, 3);
+      g.fillStyle = hexAlpha(colors.ink(st.color), lit ? .6 : .3); g.fill();
+      g.lineWidth = 1; g.strokeStyle = hexAlpha(colors.ink(st.color), lit ? .95 : .6); g.stroke();
+    }
+    g.beginPath(); g.arc(ox, oy, Math.max(3, HUB_R * scale), 0, Math.PI * 2);
+    g.fillStyle = '#818cf8'; g.fill();
+    const vx = ox + a.x * scale, vy = oy + a.y * scale, vw = (c.x - a.x) * scale, vh = (c.y - a.y) * scale;
+    g.fillStyle = colors.glow ? 'rgba(255,255,255,.07)' : 'rgba(49,46,129,.07)';
+    g.fillRect(vx, vy, vw, vh);
+    g.lineWidth = 1.5; g.strokeStyle = colors.glow ? 'rgba(255,255,255,.9)' : 'rgba(49,46,129,.8)';
+    g.strokeRect(vx, vy, vw, vh);
+  }
+  function bindMinimap() {
+    const mini = document.getElementById('neuralMinimap');
+    if (!mini) return;
+    NVN.minimap = mini;
+    let dragging = false;
+    const moveTo = e => {
+      const map = NVN.miniMap;
+      if (!map) return;
+      const r = mini.getBoundingClientRect();
+      const wx = (e.clientX - r.left - map.ox) / map.scale, wy = (e.clientY - r.top - map.oy) / map.scale;
+      NVN.camTarget = null;
+      NVN.panX = -wx * NVN.zoom; NVN.panY = -wy * NVN.zoom;
+    };
+    mini.addEventListener('pointerdown', e => { dragging = true; mini.setPointerCapture(e.pointerId); moveTo(e); e.preventDefault(); });
+    mini.addEventListener('pointermove', e => { if (dragging) moveTo(e); });
+    const end = e => { dragging = false; try { mini.releasePointerCapture(e.pointerId); } catch {} };
+    mini.addEventListener('pointerup', end); mini.addEventListener('pointercancel', end);
+  }
+
   function worldToScreen(x, y) {
     return { x: NVN.width / 2 + NVN.panX + x * NVN.zoom, y: NVN.height / 2 + NVN.panY + y * NVN.zoom };
   }
@@ -943,14 +1071,17 @@
 
   function animate(now = performance.now()) {
     /* the loop owns its own life: when the panel is not visible it ends rather than
-       idling at 60fps for the rest of the session (battery + iOS renderer pressure) */
-    if (!NVN.active || !NVN.ctx || !NVN.canvas || document.visibilityState !== 'visible') { NVN.raf = 0; return; }
+       idling at 60fps for the rest of the session (battery + iOS renderer pressure).
+       Scrolled out of view counts as not visible. */
+    if (!NVN.active || !NVN.ctx || !NVN.canvas || !NVN.onScreen || document.visibilityState !== 'visible') { NVN.raf = 0; return; }
     NVN.raf = requestAnimationFrame(animate);
     const dt = Math.min(40, now - NVN.lastFrame); NVN.lastFrame = now;
     draw(now, dt);
   }
+  /* Something the static layer draws has changed: redraw it on the next frame. */
+  function invalidate() { NVN.version++; }
   function startLoop() {
-    if (NVN.raf || !NVN.active || document.visibilityState !== 'visible') return;
+    if (NVN.raf || !NVN.active || !NVN.onScreen || document.visibilityState !== 'visible') return;
     NVN.lastFrame = performance.now();
     NVN.raf = requestAnimationFrame(animate);
   }
@@ -963,14 +1094,17 @@
   function integrate(dt) {
     const motion = state.settings.motion;
     const k = motion ? 1 - Math.exp(-dt / 130) : 1;
+    let moving = false;
     for (const n of NVN.nodes) {
       if (!n.visible) continue;
       if (n.tx == null) { n.tx = n.x; n.ty = n.y; }
-      n.x += (n.tx - n.x) * k;
-      n.y += (n.ty - n.y) * k;
-      n.appear = Math.min(1, (n.appear ?? 1) + (motion ? dt / 280 : 1));
+      const dx = n.tx - n.x, dy = n.ty - n.y;
+      if (Math.abs(dx) > .25 || Math.abs(dy) > .25) { n.x += dx * k; n.y += dy * k; moving = true; }
+      else if (dx || dy) { n.x = n.tx; n.y = n.ty; moving = true; }
+      if ((n.appear ?? 1) < 1) { n.appear = Math.min(1, n.appear + (motion ? dt / 280 : 1)); moving = true; }
     }
     const cam = NVN.camTarget;
+    if (cam) moving = true;
     if (cam) {
       const c = motion ? 1 - Math.exp(-dt / 110) : 1;
       NVN.zoom += (cam.zoom - NVN.zoom) * c;
@@ -980,6 +1114,7 @@
         NVN.zoom = cam.zoom; NVN.panX = cam.panX; NVN.panY = cam.panY; NVN.camTarget = null;
       }
     }
+    return moving;
   }
 
   /* Which nodes stay lit: the explained path, else the selection and its
@@ -1005,48 +1140,148 @@
     return null;
   }
 
+  /*
+   * Drawing is two canvases.
+   *
+   * The graph canvas holds everything that only changes when the reader does
+   * something -- the panels, the strands, the nodes, the hub. It is redrawn
+   * while something moves and once when it settles, and then left alone. The
+   * effects canvas above it (it takes no pointer events) holds what really
+   * animates: the signals on the strands, the breathing ring of a critical
+   * node, the hub's turning arcs, the relationship dashes and the card's
+   * leader line. A resting graph therefore redraws only a few dozen small
+   * sprites, at half rate; paused, hidden, or scrolled out of view it draws
+   * nothing. The ground itself (the navy, the clouds, the vignette) is CSS,
+   * painted once by the browser rather than on every frame.
+   */
+  function staticKey(colors) {
+    return [NVN.width, NVN.height, NVN.dpr, NVN.zoom.toFixed(4), NVN.panX.toFixed(2), NVN.panY.toFixed(2),
+      colors.theme, NVN.version, NVN.hover ? NVN.hover.id : '', NVN.selected ? NVN.selected.id : '',
+      NVN.focusGroup || '', NVN.highlightNodes.size, state.settings.motion ? 1 : 0].join('|');
+  }
   function draw(now, dt = 16) {
     const ctx = NVN.ctx;
-    integrate(dt);
-    screenSpace(ctx);
-    ctx.clearRect(0, 0, NVN.width, NVN.height);
+    /* Before the stage has a size there is nothing to draw into. */
+    if (!NVN.width || !NVN.height) return;
+    const moving = integrate(dt);
     const colors = palette();
-    drawBackdrop(ctx, colors);
+    const key = staticKey(colors);
+    const animated = state.settings.motion && !NVN.paused;
+    const dirty = !NVN.fxCtx || moving || NVN.panning || key !== NVN.staticKey;
+    NVN.interacting = moving || NVN.panning;
+    /* Nothing moved and nothing animates: the last frame is still right. */
+    if (!dirty && !animated && NVN.frameKey === key) return;
+    /* At rest, the signals run at half rate. */
+    if (!dirty && animated && now - NVN.lastDraw < 31) return;
+    NVN.lastDraw = now;
     const focus = focusSets();
     const hub = NVN.nodes.find(n => n.type === 'repo' && n.visible);
+    const view = worldView();
+    if (dirty) {
+      screenSpace(ctx);
+      ctx.clearRect(0, 0, NVN.width, NVN.height);
+      drawStatic(ctx, colors, focus, hub, view);
+      NVN.staticKey = NVN.interacting ? '' : key;
+      NVN.frames = (NVN.frames || 0) + 1;
+    }
+    /* While the graph moves it is redrawn every frame anyway, so the effects
+     * go onto the same canvas and the effects canvas steps out: one layer to
+     * composite instead of two. */
+    const together = !NVN.fxCtx || NVN.interacting;
+    const fx = together ? ctx : NVN.fxCtx;
+    if (NVN.fx) {
+      const hide = together && !!NVN.fxCtx;
+      if (hide !== !!NVN.fxHidden) { NVN.fx.style.visibility = hide ? 'hidden' : ''; NVN.fxHidden = hide; }
+    }
+    if (fx !== ctx) { screenSpace(fx); fx.clearRect(0, 0, NVN.width, NVN.height); }
+    worldSpace(fx);
+    drawAnimated(fx, now, colors, focus, hub, view, animated);
+    screenSpace(fx);
+    drawLeader(fx, colors);
+    positionCard();
+    NVN.frameKeyStatic = moving || NVN.panning ? `${now}` : key;
+    drawMinimap(colors);
+    NVN.frameKey = key;
+  }
+  /* The part of the world on screen, with a margin, for skipping what is not. */
+  function worldView() {
+    const a = screenToWorld(-40, -40), b = screenToWorld(NVN.width + 40, NVN.height + 40);
+    return { minX: a.x, minY: a.y, maxX: b.x, maxY: b.y };
+  }
+  function inView(view, minX, minY, maxX, maxY) {
+    return maxX >= view.minX && minX <= view.maxX && maxY >= view.minY && minY <= view.maxY;
+  }
+  function curveInView(view, c) {
+    return inView(view,
+      Math.min(c.start.x, c.c1.x, c.c2.x, c.end.x) - 14, Math.min(c.start.y, c.c1.y, c.c2.y, c.end.y) - 14,
+      Math.max(c.start.x, c.c1.x, c.c2.x, c.end.x) + 14, Math.max(c.start.y, c.c1.y, c.c2.y, c.end.y) + 14);
+  }
+  function drawStatic(ctx, colors, focus, hub, view) {
+    screenSpace(ctx);
+    drawBackdrop(ctx, colors);
     worldSpace(ctx);
-    drawRings(ctx, now, colors, hub);
-    drawPanels(ctx, colors, focus);
-    if (hub) drawFibers(ctx, now, colors, focus, hub);
-    drawRelations(ctx, now, colors, focus);
+    drawRings(ctx, colors, hub);
+    drawPanels(ctx, colors, focus, view);
+    if (hub) drawFibers(ctx, colors, focus, hub, view);
     for (const n of NVN.nodes) {
       if (!n.visible || n.folded || n.type === 'repo') continue;
-      drawNode(ctx, n, now, !!focus && !focus.nodes.has(n.id), colors);
+      if (!inView(view, n.x - 30, n.y - 30, n.x + 30, n.y + 30)) continue;
+      drawNode(ctx, n, !!focus && !focus.nodes.has(n.id), colors);
     }
-    if (hub) drawHub(ctx, hub, now, colors, !!focus && !focus.nodes.has(hub.id));
-    screenSpace(ctx);
-    drawLeader(ctx, colors);
-    positionCard();
+    if (hub) drawHub(ctx, hub, colors, !!focus && !focus.nodes.has(hub.id));
+  }
+  function drawAnimated(ctx, now, colors, focus, hub, view, animated) {
+    drawRelations(ctx, now, colors, focus, animated);
+    if (!animated) return;
+    if (hub) drawSignals(ctx, now, colors, focus, hub, view);
+    for (const n of NVN.nodes) {
+      if (!n.visible || n.folded || n.severity !== 'critical' || n.type === 'repo') continue;
+      if (focus && !focus.nodes.has(n.id)) continue;
+      if (!inView(view, n.x - 40, n.y - 40, n.x + 40, n.y + 40)) continue;
+      /* A critical node breathes: one ring, expanding and fading, in red. */
+      const phase = ((now * .0011) + (hashCode(n.id) % 100) / 100) % 1;
+      ctx.strokeStyle = hexAlpha('#F43F6E', .55 * (1 - phase) * (n.appear ?? 1));
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(n.x, n.y, NODE_R * (1.2 + phase * .9), 0, Math.PI * 2); ctx.stroke();
+    }
+    if (hub) {
+      const turn = now * .0006, r = HUB_R;
+      ctx.save();
+      ctx.globalAlpha = focus && !focus.nodes.has(hub.id) ? .55 : 1;
+      ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(147,197,253,.7)';
+      ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.18, turn, turn + 1.2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(196,181,253,.6)';
+      ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.18, turn + Math.PI, turn + Math.PI + .8); ctx.stroke();
+      const slow = now * .00012;
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = hexAlpha('#818cf8', isLight() ? .3 : .4);
+      ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.7, slow, slow + 1.1); ctx.stroke();
+      ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.7, slow + Math.PI, slow + Math.PI + .6); ctx.stroke();
+      ctx.restore();
+    }
   }
 
+  /* A dot grid fixed to the graph rather than the screen, so panning and
+   * zooming read as moving over a surface. It thins out as it shrinks. The
+   * ground under it is the stage's CSS background. */
   function drawBackdrop(ctx, colors) {
-    /* A dot grid fixed to the graph rather than the screen, so panning and
-     * zooming read as moving over a surface. It thins out as it shrinks. */
+    const W = NVN.width, H = NVN.height;
     const spacing = 28 * NVN.zoom;
     if (spacing < 9) return;
     const origin = worldToScreen(0, 0);
     const startX = ((origin.x % spacing) + spacing) % spacing;
     const startY = ((origin.y % spacing) + spacing) % spacing;
-    const size = clamp(1.1 * NVN.zoom, .7, 1.6);
+    const dot = clamp(1.1 * NVN.zoom, .7, 1.6);
     ctx.fillStyle = colors.grid;
-    for (let x = startX; x < NVN.width; x += spacing) {
-      for (let y = startY; y < NVN.height; y += spacing) ctx.fillRect(x - size / 2, y - size / 2, size, size);
+    for (let x = startX; x < W; x += spacing) {
+      for (let y = startY; y < H; y += spacing) ctx.fillRect(x - dot / 2, y - dot / 2, dot, dot);
     }
   }
 
-  /* Concentric dotted rings around the hub, and two arcs turning slowly on
-   * them: the centre of the picture announces itself. */
-  function drawRings(ctx, now, colors, hub) {
+  /* Concentric dotted rings around the hub: the centre of the picture
+   * announces itself. Two arcs turn on the inner ring in the animated layer. */
+  function drawRings(ctx, colors, hub) {
     if (!hub) return;
     ctx.save();
     ctx.strokeStyle = colors.ring;
@@ -1054,14 +1289,6 @@
     ctx.setLineDash([2, 7]);
     for (const r of [HUB_R * 1.7, HUB_R * 2.6, HUB_R * 3.7]) {
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r, 0, Math.PI * 2); ctx.stroke();
-    }
-    ctx.setLineDash([]);
-    if (state.settings.motion) {
-      const turn = now * .00012;
-      ctx.lineWidth = 1.4;
-      ctx.strokeStyle = hexAlpha('#818cf8', isLight() ? .3 : .4);
-      ctx.beginPath(); ctx.arc(hub.x, hub.y, HUB_R * 1.7, turn, turn + 1.1); ctx.stroke();
-      ctx.beginPath(); ctx.arc(hub.x, hub.y, HUB_R * 1.7, turn + Math.PI, turn + Math.PI + .6); ctx.stroke();
     }
     ctx.restore();
   }
@@ -1102,9 +1329,10 @@
    * sits on the edge facing the hub and its name on the other side, so the
    * strands arriving from the hub never cross a word.
    */
-  function drawPanels(ctx, colors, focus) {
+  function drawPanels(ctx, colors, focus, view) {
     const selectedType = NVN.selected && NVN.selected.type;
     for (const panel of NVN.panels || []) {
+      if (!inView(view, panel.x - 24, panel.y - 24, panel.x + panel.w + 24, panel.y + panel.h + 24)) continue;
       const st = TYPE_STYLE[panel.type] || TYPE_STYLE.repo;
       const ink = colors.ink(st.color);
       const lit = NVN.focusGroup === panel.type || selectedType === panel.type;
@@ -1114,7 +1342,7 @@
       roundRect(ctx, panel.x, panel.y, panel.w, panel.h, 18);
       ctx.fillStyle = colors.panel; ctx.fill();
       const wash = ctx.createLinearGradient(panel.x, panel.y, panel.x + panel.w * .7, panel.y + panel.h);
-      wash.addColorStop(0, hexAlpha(st.color, isLight() ? .11 : .16));
+      wash.addColorStop(0, hexAlpha(st.color, isLight() ? .11 : .15));
       wash.addColorStop(1, hexAlpha(st.color, 0));
       ctx.fillStyle = wash; ctx.fill();
       if (lit && colors.glow) { ctx.shadowColor = hexAlpha(st.color, .55); ctx.shadowBlur = 22; }
@@ -1122,7 +1350,8 @@
       ctx.strokeStyle = hexAlpha(st.color, lit ? .8 : colors.panelEdge);
       ctx.stroke();
       ctx.shadowBlur = 0;
-      /* Header: the group's mark, then its name and count. */
+      /* Header: the group's mark and name, and its count in a pill -- "60 of
+       * 312" (60/312) where the repository has more than the graph holds. */
       const hx = panel.x + 30, hy = panel.y + HEAD_H / 2 + 2;
       ctx.beginPath(); ctx.arc(hx, hy, 17, 0, Math.PI * 2);
       ctx.fillStyle = hexAlpha(st.color, isLight() ? .12 : .18); ctx.fill();
@@ -1131,17 +1360,28 @@
         ctx.fillStyle = ink; ctx.font = "700 13px 'Public Sans Variable', system-ui, sans-serif";
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(st.glyph, hx, hy);
       }
+      ctx.textBaseline = 'middle';
+      ctx.font = "600 11px 'JetBrains Mono Variable', ui-monospace, monospace";
+      const count = panel.total > panel.members.length ? `${panel.members.length}/${panel.total}` : String(panel.members.length);
+      const pillW = ctx.measureText(count).width + 16;
+      const pillX = panel.x + panel.w - 16 - pillW;
+      roundRect(ctx, pillX, hy - 11, pillW, 22, 11);
+      ctx.fillStyle = hexAlpha(st.color, isLight() ? .12 : .16); ctx.fill();
+      ctx.fillStyle = isLight() ? ink : colors.text;
+      ctx.textAlign = 'center';
+      ctx.fillText(count, pillX + pillW / 2, hy + .5);
       ctx.font = "700 12px 'JetBrains Mono Variable', ui-monospace, monospace";
       if ('letterSpacing' in ctx) ctx.letterSpacing = '1.6px';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
       ctx.fillStyle = ink;
-      ctx.fillText(fitText(ctx, `${(st.plural || st.label).toUpperCase()} · ${panel.members.length}`, panel.w - 70), panel.x + 58, hy);
+      ctx.fillText(fitText(ctx, (st.plural || st.label).toUpperCase(), pillX - panel.x - 66), panel.x + 58, hy);
       if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
       /* Rows. */
-      ctx.font = "500 13px 'Public Sans Variable', system-ui, sans-serif";
       const labelWidth = panel.w - 78;
+      ctx.font = ROW_FONT;
       panel.shown.forEach((n, i) => {
         const rowY = panel.y + HEAD_H + i * ROW_H;
+        if (!inView(view, panel.x, rowY, panel.x + panel.w, rowY + ROW_H)) return;
         const selected = NVN.selected && NVN.selected.id === n.id;
         const hover = NVN.hover && NVN.hover.id === n.id;
         if (selected || hover) {
@@ -1151,21 +1391,60 @@
         const rowDim = !!focus && !focus.nodes.has(n.id) && !dim;
         ctx.globalAlpha = (dim ? .4 : 1) * (rowDim ? .45 : 1) * Math.min(1, (n.appear ?? 1) * 1.4);
         ctx.fillStyle = colors.text;
-        ctx.font = `${selected ? 700 : 500} 13px 'Public Sans Variable', system-ui, sans-serif`;
+        const font = selected ? ROW_FONT_BOLD : ROW_FONT;
+        if (ctx.font !== font) ctx.font = font;
         const text = fitText(ctx, n.label, labelWidth);
         if (panel.side === 'left') { ctx.textAlign = 'right'; ctx.fillText(text, panel.x + panel.w - 58, rowY + ROW_H / 2); }
         else { ctx.textAlign = 'left'; ctx.fillText(text, panel.x + 58, rowY + ROW_H / 2); }
         ctx.globalAlpha = dim ? .4 : 1;
       });
-      if (panel.moreY != null) {
-        const label = panel.folds ? `+ ${panel.hiddenCount} more` : 'Show fewer';
-        ctx.font = "600 12px 'Public Sans Variable', system-ui, sans-serif";
-        ctx.fillStyle = ink;
-        ctx.textAlign = panel.side === 'left' ? 'right' : 'left';
-        ctx.fillText(label, panel.side === 'left' ? panel.x + panel.w - 20 : panel.x + 20, panel.moreY);
-      }
+      if (panel.moreY != null) drawPanelFooter(ctx, panel, colors, ink);
       ctx.restore();
     }
+  }
+  const ROW_FONT = "500 13px 'Public Sans Variable', system-ui, sans-serif";
+  const ROW_FONT_BOLD = "700 13px 'Public Sans Variable', system-ui, sans-serif";
+  /* Where the footer's controls sit, in world units from the panel's left. */
+  const FOOTER = { lessEnd: 118, prevX: -140, nextX: -26, rangeX: -83, hit: 15 };
+  function drawPanelFooter(ctx, panel, colors, ink) {
+    const y = panel.moreY;
+    ctx.beginPath();
+    ctx.moveTo(panel.x + 16, y - ROW_H / 2); ctx.lineTo(panel.x + panel.w - 16, y - ROW_H / 2);
+    ctx.lineWidth = 1; ctx.strokeStyle = hexAlpha(panel.members[0] ? panel.members[0].color : '#818cf8', .18); ctx.stroke();
+    ctx.textBaseline = 'middle';
+    ctx.font = "600 12px 'Public Sans Variable', system-ui, sans-serif";
+    ctx.fillStyle = ink;
+    if (panel.footer === 'more') {
+      ctx.textAlign = 'left';
+      ctx.fillText(`+ ${panel.hiddenCount} more`, panel.x + 20, y);
+      chevron(ctx, panel.x + panel.w - 26, y, 'down', ink, 1);
+      return;
+    }
+    ctx.textAlign = 'left';
+    ctx.fillText('Show fewer', panel.x + 20, y);
+    if (panel.pages <= 1) return;
+    const first = panel.page * PAGE_ROWS + 1;
+    const last = Math.min(panel.members.length, first + PAGE_ROWS - 1);
+    ctx.font = "600 11px 'JetBrains Mono Variable', ui-monospace, monospace";
+    ctx.fillStyle = colors.muted;
+    ctx.textAlign = 'center';
+    ctx.fillText(`${first}–${last} of ${panel.members.length}`, panel.x + panel.w + FOOTER.rangeX, y + .5);
+    chevron(ctx, panel.x + panel.w + FOOTER.prevX, y, 'left', ink, panel.page > 0 ? 1 : .3);
+    chevron(ctx, panel.x + panel.w + FOOTER.nextX, y, 'right', ink, panel.page < panel.pages - 1 ? 1 : .3);
+  }
+  function chevron(ctx, x, y, direction, color, alpha) {
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2);
+    ctx.fillStyle = hexAlpha(color, .12); ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = hexAlpha(color, .45); ctx.stroke();
+    ctx.beginPath();
+    const d = 3.6;
+    if (direction === 'down') { ctx.moveTo(x - d, y - d / 2); ctx.lineTo(x, y + d / 2); ctx.lineTo(x + d, y - d / 2); }
+    else if (direction === 'left') { ctx.moveTo(x + d / 2, y - d); ctx.lineTo(x - d / 2, y); ctx.lineTo(x + d / 2, y + d); }
+    else { ctx.moveTo(x - d / 2, y - d); ctx.lineTo(x + d / 2, y); ctx.lineTo(x - d / 2, y + d); }
+    ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = color; ctx.stroke();
+    ctx.restore();
   }
 
   /* One strand from the hub to a node: a cubic that leaves the hub level and
@@ -1203,56 +1482,87 @@
 
   /*
    * The strands. Each member of each group is joined to the hub; the strand
-   * takes its node's colour, or its severity's when it has one, and carries a
-   * signal toward the hub. A selection lights its own strands and dims the
-   * rest, and the strands of a critical node run faster.
+   * wears its group's colour, or red for a critical node. A selection lights
+   * its own strands and dims the rest. The signals that run along them are
+   * the animated layer's (drawSignals).
    */
-  function drawFibers(ctx, now, colors, focus, hub) {
-    const motion = state.settings.motion && !NVN.paused;
+  function fiberStyle(n, focus, hub, colors) {
+    const lit = !!focus && focus.nodes.has(n.id) && (focus.nodes.has(hub.id) || NVN.focusGroup === n.type);
+    const dim = !!focus && !lit;
+    /* The strand wears its group's colour, so a column of strands reads as
+     * that group from across the stage; only a critical node turns it red.
+     * A warning stays on the node's badge. */
+    const color = n.severity === 'critical' ? '#F43F6E' : n.color;
+    const base = (n.appear ?? 1) * (dim ? .2 : 1) * (NVN.layoutMode === 'stack' ? .75 : 1);
+    return { lit, dim, color, stroke: colors.ink(color), base };
+  }
+  function drawFibers(ctx, colors, focus, hub, view) {
     ctx.save();
     if (colors.glow) ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
+    /* The strands' fine offset threads are invisible past a certain distance
+     * and while the graph is moving; they are drawn only when they can be
+     * seen, which is most of the cost of a frame spent dragging. */
+    const fine = NVN.zoom > .45 && !NVN.interacting;
     for (const n of NVN.nodes) {
       if (!n.visible || n.folded || n.type === 'repo') continue;
       const curve = fiberCurve(hub, n);
-      const lit = !!focus && focus.nodes.has(n.id) && (focus.nodes.has(hub.id) || NVN.focusGroup === n.type);
-      const dim = !!focus && !lit;
-      /* The strand wears its group's colour, so a column of strands reads as
-       * that group from across the stage; only a critical node turns it red.
-       * A warning stays on the node's badge. */
-      const color = n.severity === 'critical' ? '#F43F6E' : n.color;
-      const stroke = colors.ink(color);
-      const appear = n.appear ?? 1;
-      const stacked = NVN.layoutMode === 'stack';
-      const base = appear * (dim ? .2 : 1) * (stacked ? .75 : 1);
+      n.curve = curve;
+      n.onView = curveInView(view, curve);
+      if (!n.onView) continue;
+      const { lit, color, stroke, base } = fiberStyle(n, focus, hub, colors);
       if (colors.glow) {
-        ctx.globalAlpha = base * (lit ? .16 : .06);
-        ctx.strokeStyle = color; ctx.lineWidth = lit ? 12 : 9;
-        strokeCubic(ctx, curve);
-        ctx.globalAlpha = base * (lit ? .3 : .12);
-        ctx.lineWidth = lit ? 5 : 3.5;
+        ctx.globalAlpha = base * (lit ? .24 : .1);
+        ctx.strokeStyle = color; ctx.lineWidth = lit ? 8 : 5.5;
         strokeCubic(ctx, curve);
       }
       ctx.globalAlpha = base * (lit ? 1 : colors.glow ? .62 : .5);
       ctx.strokeStyle = stroke; ctx.lineWidth = lit ? 2 : 1.3;
       strokeCubic(ctx, curve);
+      if (!fine) continue;
       const seed = (hashCode(n.id) % 1000) / 1000;
       ctx.globalAlpha = base * (lit ? .6 : .3);
       ctx.lineWidth = .8;
       strokeCubic(ctx, curve, (seed - .5) * 26);
       ctx.globalAlpha = base * (lit ? .45 : .2);
       strokeCubic(ctx, curve, (.5 - seed) * 18 + 6);
-      if (motion && !dim) {
-        const speed = n.severity === 'critical' ? .00042 : .00017;
-        for (const phase of lit ? [0, .5] : [0]) {
-          const t = 1 - ((seed + phase + now * speed) % 1);
-          const p = cubicPoint(curve, t);
-          ctx.globalAlpha = base * (lit ? 1 : .85);
-          const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, lit ? 7 : 5);
-          glow.addColorStop(0, '#ffffff'); glow.addColorStop(.35, color); glow.addColorStop(1, hexAlpha(color, 0));
-          ctx.fillStyle = glow;
-          ctx.beginPath(); ctx.arc(p.x, p.y, lit ? 7 : 5, 0, Math.PI * 2); ctx.fill();
-        }
+    }
+    ctx.restore();
+  }
+  /* A glowing dot, drawn once per colour and size and stamped from then on:
+   * a radial gradient per signal per frame was most of the frame's cost. */
+  const SPRITES = new Map();
+  function signalSprite(color) {
+    if (SPRITES.has(color)) return SPRITES.get(color);
+    const size = 64;
+    const sprite = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(size, size) : document.createElement('canvas');
+    sprite.width = size; sprite.height = size;
+    const g = sprite.getContext('2d');
+    const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0, '#ffffff'); grad.addColorStop(.35, color); grad.addColorStop(1, hexAlpha(color, 0));
+    g.fillStyle = grad; g.fillRect(0, 0, size, size);
+    SPRITES.set(color, sprite);
+    return sprite;
+  }
+  function drawSignals(ctx, now, colors, focus, hub, view) {
+    ctx.save();
+    if (colors.glow) ctx.globalCompositeOperation = 'lighter';
+    for (const n of NVN.nodes) {
+      if (!n.visible || n.folded || n.type === 'repo' || !n.curve || n.onView === false) continue;
+      const { lit, dim, color, base } = fiberStyle(n, focus, hub, colors);
+      if (dim) continue;
+      const seed = (hashCode(n.id) % 1000) / 1000;
+      const speed = n.severity === 'critical' ? .00042 : .00017;
+      const r = lit ? 7 : 5;
+      const sprite = signalSprite(color);
+      for (const phase of lit ? [0, .5] : [0]) {
+        const t = 1 - ((seed + phase + now * speed) % 1);
+        /* Signals fade in and out at the ends rather than popping over the
+         * hub and the node they run between. */
+        const edge = Math.min(1, t / .08, (1 - t) / .08);
+        const p = cubicPoint(n.curve, t);
+        ctx.globalAlpha = base * (lit ? 1 : .85) * edge;
+        ctx.drawImage(sprite, p.x - r, p.y - r, r * 2, r * 2);
       }
     }
     ctx.restore();
@@ -1264,7 +1574,7 @@
    * in focus. Drawn always, they were the tangle that made the old graph hard
    * to read; drawn on demand, they answer "what is this connected to".
    */
-  function drawRelations(ctx, now, colors, focus) {
+  function drawRelations(ctx, now, colors, focus, animated) {
     if (!focus) return;
     const byId = new Map(NVN.nodes.map(n => [n.id, n]));
     ctx.save();
@@ -1274,22 +1584,24 @@
       const a = byId.get(e.source), b = byId.get(e.target);
       if (!a || !b || a.type === 'repo' || b.type === 'repo' || a.folded || b.folded) continue;
       const bend = Math.max(60, Math.abs(b.x - a.x) * .45);
-      const sa = a.x < 0 ? -1 : 1, sb = b.x < 0 ? -1 : 1;
+      /* Each end leaves its disc on the side facing the hub -- the side the
+       * strands arrive on -- so the dashes never cross an icon. */
+      const sa = NVN.layoutMode === 'stack' || a.x >= 0 ? 1 : -1, sb = NVN.layoutMode === 'stack' || b.x >= 0 ? 1 : -1;
       const curve = {
-        start: { x: a.x, y: a.y }, end: { x: b.x, y: b.y },
+        start: { x: a.x - sa * (NODE_R + 2), y: a.y }, end: { x: b.x - sb * (NODE_R + 2), y: b.y },
         c1: { x: a.x - sa * bend, y: a.y }, c2: { x: b.x - sb * bend, y: b.y }
       };
       const color = e.severity === 'critical' ? '#F43F6E' : e.severity === 'warning' ? '#F59E0B' : '#a78bfa';
       ctx.globalAlpha = .9;
       ctx.strokeStyle = colors.ink(color); ctx.lineWidth = 1.6;
-      if (state.settings.motion && !NVN.paused) { ctx.setLineDash([6, 7]); ctx.lineDashOffset = -now * .03; }
+      if (animated) { ctx.setLineDash([6, 7]); ctx.lineDashOffset = -now * .03; }
       strokeCubic(ctx, curve);
       ctx.setLineDash([]);
     }
     ctx.restore();
   }
 
-  function drawNode(ctx, node, now, dim, colors) {
+  function drawNode(ctx, node, dim, colors) {
     const selected = (NVN.selected && NVN.selected.id === node.id) || NVN.highlightNodes.has(node.id);
     const hover = NVN.hover && NVN.hover.id === node.id;
     const appear = node.appear ?? 1;
@@ -1300,13 +1612,6 @@
     const x = node.x, y = node.y;
     ctx.save();
     ctx.globalAlpha = appear * (dim ? .35 : 1);
-    /* A critical node breathes: one ring, expanding and fading, in red. */
-    if (node.severity === 'critical' && !dim && state.settings.motion) {
-      const phase = ((now * .0011) + (hashCode(node.id) % 100) / 100) % 1;
-      ctx.strokeStyle = hexAlpha('#F43F6E', .55 * (1 - phase));
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(x, y, radius * (1.2 + phase * .9), 0, Math.PI * 2); ctx.stroke();
-    }
     if (colors.glow) { ctx.shadowColor = hexAlpha(severity || node.color, selected ? .9 : .55); ctx.shadowBlur = selected ? 22 : hover ? 16 : 9; }
     ctx.fillStyle = colors.surface;
     ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
@@ -1351,7 +1656,7 @@
     { d: 'M178 124 L113 128 L205 215 Z', tone: 'light' }
   ];
   let hubMarkPaths = null;
-  function drawHub(ctx, node, now, colors, dim) {
+  function drawHub(ctx, node, colors, dim) {
     const x = node.x, y = node.y, r = HUB_R;
     const active = (NVN.selected && NVN.selected.id === node.id) || (NVN.hover && NVN.hover.id === node.id);
     ctx.save();
@@ -1367,13 +1672,6 @@
     ctx.fillStyle = orb; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
     ctx.lineWidth = active ? 2.4 : 1.6; ctx.strokeStyle = 'rgba(191,219,254,.75)'; ctx.stroke();
-    if (state.settings.motion) {
-      const turn = now * .0006;
-      ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(147,197,253,.7)';
-      ctx.beginPath(); ctx.arc(x, y, r * 1.18, turn, turn + 1.2); ctx.stroke();
-      ctx.strokeStyle = 'rgba(196,181,253,.6)';
-      ctx.beginPath(); ctx.arc(x, y, r * 1.18, turn + Math.PI, turn + Math.PI + .8); ctx.stroke();
-    }
     if (typeof Path2D === 'function') {
       if (!hubMarkPaths) hubMarkPaths = HUB_MARK.map(item => ({ path: new Path2D(item.d), tone: item.tone }));
       const size = r * 1.18, scale = size / 228;
@@ -1467,7 +1765,9 @@
       if (e.type === 'pointerup' && start && !start.moved && pts.size === 0) {
         const panelHit = start.node ? null : panelHitAt(start.x, start.y);
         if (start.node) selectNode(start.node, { fly: true });
-        else if (panelHit && panelHit.kind === 'more') toggleGroupRows(panelHit.type);
+        else if (panelHit && panelHit.kind === 'more') toggleGroupRows(panelHit.type, true);
+        else if (panelHit && panelHit.kind === 'less') toggleGroupRows(panelHit.type, false);
+        else if (panelHit && (panelHit.kind === 'prev' || panelHit.kind === 'next')) pageGroup(panelHit.type, panelHit.kind === 'next' ? 1 : -1);
         else if (panelHit && panelHit.kind === 'header') focusGroup(panelHit.type);
         else {
           if (NVN.selected || NVN.focusGroup) { selectNode(null); NVN.focusGroup = null; renderLegend(); }
@@ -1511,17 +1811,73 @@
     for (const panel of NVN.panels || []) {
       if (w.x < panel.x || w.x > panel.x + panel.w || w.y < panel.y || w.y > panel.y + panel.h) continue;
       if (w.y < panel.y + HEAD_H) return { kind: 'header', type: panel.type };
-      if (panel.moreY != null && Math.abs(w.y - panel.moreY) <= ROW_H / 2) return { kind: 'more', type: panel.type };
+      if (panel.moreY != null && Math.abs(w.y - panel.moreY) <= ROW_H / 2) {
+        if (panel.footer === 'more') return { kind: 'more', type: panel.type };
+        if (w.x - panel.x < FOOTER.lessEnd) return { kind: 'less', type: panel.type };
+        const right = panel.x + panel.w;
+        if (panel.pages > 1 && Math.abs(w.x - (right + FOOTER.prevX)) <= FOOTER.hit) return { kind: 'prev', type: panel.type };
+        if (panel.pages > 1 && Math.abs(w.x - (right + FOOTER.nextX)) <= FOOTER.hit) return { kind: 'next', type: panel.type };
+      }
       return { kind: 'body', type: panel.type };
     }
     return null;
   }
-  function toggleGroupRows(type) {
-    const expanded = NVN.expandedGroups || (NVN.expandedGroups = new Set());
-    if (expanded.has(type)) expanded.delete(type); else expanded.add(type);
+  function toggleGroupRows(type, open) {
+    const expanded = NVN.expandedGroups;
+    const opening = open == null ? !expanded.has(type) : open;
+    if (opening) expanded.add(type); else { expanded.delete(type); NVN.groupPages.delete(type); }
     layoutGraph();
+    if (NVN.selected && NVN.selected.folded) selectNode(null);
+    renderLegend();
     const panel = (NVN.panels || []).find(item => item.type === type);
     if (panel) fitRect({ minX: panel.x - 30, minY: panel.y - 30, maxX: panel.x + panel.w + 30, maxY: panel.y + panel.h + 30 }, true, 1.25, true);
+  }
+  /* The next or previous page of an opened group. Pages are the same height,
+   * so nothing else on the stage moves. */
+  function pageGroup(type, step) {
+    const panel = (NVN.panels || []).find(item => item.type === type);
+    if (!panel || panel.pages <= 1) return false;
+    const page = clamp(panel.page + step, 0, panel.pages - 1);
+    if (page === panel.page) return false;
+    NVN.groupPages.set(type, page);
+    layoutGraph();
+    if (NVN.selected && NVN.selected.folded) selectNode(null);
+    const next = NVN.panels.find(item => item.type === type);
+    const live = document.getElementById('neuralLive');
+    if (live && next) {
+      const first = next.page * PAGE_ROWS + 1;
+      live.textContent = `${(TYPE_STYLE[type] || {}).plural || type}: ${first} to ${Math.min(next.members.length, first + PAGE_ROWS - 1)} of ${next.members.length}.`;
+    }
+    return true;
+  }
+  /* Opens every group that folds, or folds them all again. */
+  function setAllGroupsOpen(open) {
+    for (const panel of NVN.panels || []) {
+      if (panel.members.length <= MAX_ROWS) continue;
+      if (open) NVN.expandedGroups.add(panel.type);
+      else { NVN.expandedGroups.delete(panel.type); NVN.groupPages.delete(panel.type); }
+    }
+    layoutGraph();
+    if (NVN.selected && NVN.selected.folded) selectNode(null);
+    renderLegend();
+    fitGraph(true);
+  }
+  /* A group hidden from the sidebar leaves the graph until it is shown again;
+   * the choice is this viewer's and is remembered in this browser. */
+  const HIDDEN_KEY = 'nv_neural_hidden_groups';
+  function loadHiddenGroups() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]');
+      if (Array.isArray(saved)) NVN.hiddenGroups = new Set(saved.filter(type => typeof type === 'string' && TYPE_STYLE[type] && type !== 'repo'));
+    } catch { /* storage unavailable: nothing hidden */ }
+  }
+  function setGroupHidden(type, hidden) {
+    if (!TYPE_STYLE[type] || type === 'repo') return;
+    if (hidden) NVN.hiddenGroups.add(type); else NVN.hiddenGroups.delete(type);
+    if (hidden && NVN.focusGroup === type) NVN.focusGroup = null;
+    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...NVN.hiddenGroups])); } catch { /* not remembered */ }
+    applyMode();
+    fitGraph(true);
   }
 
   function pointerPos(e) { const r = NVN.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
@@ -1560,6 +1916,20 @@
     if (key === '+' || key === '=') { e.preventDefault(); zoomBy(1.2); return; }
     if (key === '-') { e.preventDefault(); zoomBy(1 / 1.2); return; }
     if (key.toLowerCase() === 'f') { e.preventDefault(); fitGraph(true); return; }
+    /* Page Down and Page Up page the selected node's group, or the lit one;
+     * the selection follows to the same row on the new page. */
+    if (key === 'PageDown' || key === 'PageUp') {
+      const type = (NVN.selected && NVN.selected.type !== 'repo' && NVN.selected.type) || NVN.focusGroup;
+      const panel = type && (NVN.panels || []).find(item => item.type === type);
+      if (!panel) return;
+      e.preventDefault();
+      if (panel.footer === 'more') { toggleGroupRows(type, true); return; }
+      const row = NVN.selected ? panel.shown.indexOf(NVN.selected) : -1;
+      if (!pageGroup(type, key === 'PageDown' ? 1 : -1)) return;
+      const next = NVN.panels.find(item => item.type === type);
+      if (row >= 0 && next.shown.length) selectNode(next.shown[Math.min(row, next.shown.length - 1)], { fly: true, announce: true });
+      return;
+    }
     const dirs = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] };
     if (dirs[key]) {
       e.preventDefault();
@@ -1714,7 +2084,11 @@
     const byWidth = boxW / Math.max(1, b.maxX - b.minX);
     const byHeight = boxH / Math.max(1, b.maxY - b.minY);
     const tall = NVN.layoutMode === 'stack' && !whole;
-    const zoom = clamp(tall ? Math.min(byWidth, 1.1) : Math.min(byWidth, byHeight), .3, maxZoom);
+    let zoom = clamp(tall ? Math.min(byWidth, 1.1) : Math.min(byWidth, byHeight), .3, maxZoom);
+    /* A large topology fitted whole would shrink every label past reading.
+     * The fit stops at a zoom where a row can still be read, centred on the
+     * hub; the minimap shows what lies beyond. */
+    if (!tall && !whole && zoom < READABLE_ZOOM) zoom = Math.min(maxZoom, Math.max(zoom, Math.min(byWidth, READABLE_ZOOM)));
     const offsetX = inset.left + boxW / 2 - NVN.width / 2;
     const panX = offsetX - ((b.minX + b.maxX) / 2) * zoom;
     const panY = tall && (b.maxY - b.minY) * zoom > boxH
@@ -1724,6 +2098,7 @@
     if (!animateFit || !state.settings.motion) { NVN.zoom = zoom; NVN.panX = panX; NVN.panY = panY; NVN.camTarget = null; return; }
     NVN.camTarget = target;
   }
+  const READABLE_ZOOM = .78;
   function fitGraph(animateFit = true) {
     if (!(NVN.panels || []).length && !visibleNodes().length) return;
     fitRect(layoutBounds(), animateFit);
@@ -1740,8 +2115,14 @@
     NVN.selected = node;
     if (!node) { closeCard(); return; }
     if (node.folded) {
-      (NVN.expandedGroups || (NVN.expandedGroups = new Set())).add(node.type);
+      /* A node from a folded group, or from another page of an opened one,
+       * opens its group at the page it is on. */
+      NVN.expandedGroups.add(node.type);
       layoutGraph();
+      const panel = (NVN.panels || []).find(item => item.type === node.type);
+      const index = panel ? panel.members.indexOf(node) : -1;
+      if (panel && panel.pages > 1 && index >= 0) { NVN.groupPages.set(node.type, Math.floor(index / PAGE_ROWS)); layoutGraph(); }
+      renderLegend();
     }
     renderCard(node, previous !== node);
     if (options.fly) flyToNode(node);
@@ -1945,19 +2326,70 @@
    * The legend is the list of groups actually on screen, with their counts,
    * and each entry is a control: pressing one lights that group and frames it.
    */
+  /*
+   * The groups, organised by what they are about -- who can reach the
+   * repository, its code, how it ships, what it depends on, what protects
+   * it -- each with its count (and the repository's total where the graph
+   * holds fewer), its critical and warning counts, a press that lights and
+   * frames it, and an eye that hides it from the graph. For a large
+   * repository this is where the picture is managed: hide what is not the
+   * question, open or fold every group at once.
+   */
+  const GROUP_CATEGORIES = [
+    ['Access', ['user', 'credential', 'session', 'integration']],
+    ['Code', ['branch', 'commit', 'tag', 'pull', 'issue', 'release']],
+    ['Delivery', ['workflow', 'external']],
+    ['Supply chain', ['package', 'vulnerability', 'scan']],
+    ['Protection', ['protected', 'safety', 'snapshot']]
+  ];
+  const EYE_OPEN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>';
+  const EYE_SHUT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M9.9 5.8A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.9 3.7M6.1 7.4C3.8 9.1 2.5 12 2.5 12s3.5 6.5 9.5 6.5a9.6 9.6 0 0 0 4.2-.9"/></svg>';
   function renderLegend() {
     const host = document.getElementById('neuralLegend');
     if (!host) return;
-    const counts = new Map();
-    for (const n of NVN.nodes) if (n.visible && n.type !== 'repo') counts.set(n.type, (counts.get(n.type) || 0) + 1);
-    const types = [...counts.keys()].sort((a, b) => (CLUSTER_ANGLE[a] ?? 0) - (CLUSTER_ANGLE[b] ?? 0));
-    if (NVN.focusGroup && !counts.has(NVN.focusGroup)) NVN.focusGroup = null;
-    host.innerHTML = types.map(type => {
-      const st = TYPE_STYLE[type] || TYPE_STYLE.repo;
-      const on = NVN.focusGroup === type;
-      return `<button type="button" class="neural-chip${on ? ' is-on' : ''}" data-neural-group="${nEsc(type)}" aria-pressed="${on}" style="--node:${nEsc(st.color)}"><i aria-hidden="true"></i>${nEsc(st.plural || st.label)}<b>${counts.get(type)}</b></button>`;
+    const stats = new Map();
+    for (const n of NVN.nodes) {
+      if (!n.inScope || n.type === 'repo') continue;
+      const entry = stats.get(n.type) || { count: 0, critical: 0, warning: 0 };
+      entry.count++;
+      if (n.severity === 'critical') entry.critical++;
+      else if (n.severity === 'warning') entry.warning++;
+      stats.set(n.type, entry);
+    }
+    if (NVN.focusGroup && (!stats.has(NVN.focusGroup) || NVN.hiddenGroups.has(NVN.focusGroup))) NVN.focusGroup = null;
+    const known = new Set(GROUP_CATEGORIES.flatMap(([, types]) => types));
+    const categories = GROUP_CATEGORIES.map(([name, types]) => [name, types.filter(type => stats.has(type))]);
+    const other = [...stats.keys()].filter(type => !known.has(type));
+    if (other.length) categories.push(['Other', other]);
+    const foldable = (NVN.panels || []).filter(panel => panel.members.length > MAX_ROWS);
+    const allOpen = foldable.length && foldable.every(panel => NVN.expandedGroups.has(panel.type));
+    const hiddenHere = [...NVN.hiddenGroups].filter(type => stats.has(type));
+    const tools = [
+      foldable.length ? `<button type="button" class="neural-groups-tool" data-neural-groups="${allOpen ? 'fold' : 'open'}">${allOpen ? 'Fold all' : 'Open all'}</button>` : '',
+      hiddenHere.length ? `<button type="button" class="neural-groups-tool" data-neural-groups="show">Show all (${hiddenHere.length} hidden)</button>` : ''
+    ].join('');
+    host.innerHTML = (tools ? `<div class="neural-groups-tools">${tools}</div>` : '') + categories.filter(([, types]) => types.length).map(([name, types]) => {
+      const rows = types.map(type => {
+        const st = TYPE_STYLE[type] || TYPE_STYLE.repo;
+        const entry = stats.get(type);
+        const hidden = NVN.hiddenGroups.has(type);
+        const on = NVN.focusGroup === type;
+        const total = (NVN.totals || {})[type];
+        const plural = st.plural || st.label;
+        const pips = [
+          entry.critical ? `<i class="ng-pip is-critical" title="${entry.critical} critical">${entry.critical}</i>` : '',
+          entry.warning ? `<i class="ng-pip is-warning" title="${entry.warning} to review">${entry.warning}</i>` : ''
+        ].join('');
+        return `<div class="neural-group-row${hidden ? ' is-hidden' : ''}" style="--node:${nEsc(st.color)}">`
+          + `<button type="button" class="neural-chip${on ? ' is-on' : ''}" data-neural-group="${nEsc(type)}" aria-pressed="${on}"${hidden ? ' aria-disabled="true"' : ''}>`
+          + `<span class="ng-icon" aria-hidden="true">${iconSvg(type)}</span><span class="ng-name">${nEsc(plural)}</span>${pips}`
+          + `<b>${entry.count}</b>${total > entry.count ? `<small>of ${total}</small>` : ''}</button>`
+          + `<button type="button" class="neural-eye" data-neural-toggle="${nEsc(type)}" aria-pressed="${!hidden}" aria-label="${hidden ? 'Show' : 'Hide'} ${nEsc(plural.toLowerCase())}" title="${hidden ? 'Show' : 'Hide'} ${nEsc(plural.toLowerCase())}">${hidden ? EYE_SHUT : EYE_OPEN}</button>`
+          + '</div>';
+      }).join('');
+      return `<section class="neural-group-cat" aria-label="${nEsc(name)}"><h4>${nEsc(name)}</h4>${rows}</section>`;
     }).join('');
-    host.hidden = !types.length;
+    host.hidden = !stats.size;
   }
   function focusGroup(type) {
     NVN.focusGroup = NVN.focusGroup === type ? null : type;
@@ -2123,12 +2555,12 @@
     if (!node) { if (typeof toast === 'function') toast('Select a node first', 'err'); return; }
     if (!NVN.explainStart) {
       NVN.explainStart = node.id;
-      NVN.highlightNodes = new Set([node.id]); NVN.highlightEdges = new Set();
+      NVN.highlightNodes = new Set([node.id]); NVN.highlightEdges = new Set(); invalidate();
       if (typeof toast === 'function') toast(`Connection start: ${node.label}. Select another node and press Explain.`, 'ok');
       renderInspector(node); return;
     }
     if (NVN.explainStart === node.id) {
-      NVN.explainStart = null; NVN.highlightNodes.clear(); NVN.highlightEdges.clear();
+      NVN.explainStart = null; NVN.highlightNodes.clear(); NVN.highlightEdges.clear(); invalidate();
       if (typeof toast === 'function') toast('Connection selection cleared', 'ok');
       renderInspector(node); return;
     }
@@ -2137,6 +2569,7 @@
     if (!result) { if (typeof toast === 'function') toast('No relationship path was found in the current graph', 'err'); return; }
     NVN.highlightNodes = new Set(result.nodeIds);
     NVN.highlightEdges = new Set(result.edges.map(e => e.id));
+    invalidate();
     const steps = result.edges.map((edge, i) => {
       const from = nodeById(result.nodeIds[i]), to = nodeById(result.nodeIds[i + 1]);
       const direction = edge.reversed ? `${to && to.label} ← ${edge.type} ← ${from && from.label}` : `${from && from.label} → ${edge.type} → ${to && to.label}`;
@@ -2164,7 +2597,9 @@
     document.querySelectorAll('[data-neural-filter]').forEach(cb => cb.addEventListener('change', () => { NVN.filters[cb.dataset.neuralFilter] = cb.checked; applyMode(); }));
     document.getElementById('neuralSearch')?.addEventListener('input', e => {
       NVN.search = e.target.value; applyMode();
-      const matches = visibleNodes(); if (NVN.search && matches.length) selectNode(matches[0], { fly: true }); else if (!NVN.search) fitGraph(true);
+      /* The hub stays in view while searching, as the anchor; the first
+       * match is what gets selected. */
+      const matches = visibleNodes().filter(n => n.match); if (NVN.search && matches.length) selectNode(matches[0], { fly: true }); else if (!NVN.search) fitGraph(true);
     });
     document.getElementById('neuralLiveBtn')?.addEventListener('click', liveConnectionFlow);
     document.getElementById('neuralRefreshBtn')?.addEventListener('click', () => load(true));
@@ -2204,7 +2639,20 @@
       if (hadFocus) NVN.canvas?.focus({ preventScroll: true });
     }, true);
     document.getElementById('neuralLegend')?.addEventListener('click', event => {
-      const chip = event.target.closest('[data-neural-group]'); if (chip) focusGroup(chip.dataset.neuralGroup);
+      const eye = event.target.closest('[data-neural-toggle]');
+      if (eye) { setGroupHidden(eye.dataset.neuralToggle, !NVN.hiddenGroups.has(eye.dataset.neuralToggle)); return; }
+      const tool = event.target.closest('[data-neural-groups]');
+      if (tool) {
+        const action = tool.dataset.neuralGroups;
+        if (action === 'show') { NVN.hiddenGroups.clear(); try { localStorage.removeItem(HIDDEN_KEY); } catch {} applyMode(); fitGraph(true); }
+        else setAllGroupsOpen(action === 'open');
+        return;
+      }
+      const chip = event.target.closest('[data-neural-group]');
+      if (!chip) return;
+      /* A hidden group's name brings it back, lit. */
+      if (NVN.hiddenGroups.has(chip.dataset.neuralGroup)) setGroupHidden(chip.dataset.neuralGroup, false);
+      focusGroup(chip.dataset.neuralGroup);
     });
     document.getElementById('neuralZoomInBtn')?.addEventListener('click', () => zoomBy(1.25));
     document.getElementById('neuralZoomOutBtn')?.addEventListener('click', () => zoomBy(1 / 1.25));

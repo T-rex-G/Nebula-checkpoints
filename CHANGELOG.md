@@ -24,8 +24,23 @@ graph, out of sight of the node that was pressed.
   graph dims to the node's neighbourhood and its links animate toward it.
   Pressing a panel's header lights and frames the group. Dragging always moves
   the stage; rows never leave their panels.
-- **Groups on screen.** Chips in the side panel list the groups with counts
-  and frame a group when pressed. Zoom buttons join the tools.
+- **Groups on screen, organised.** The side panel lists the groups under
+  Access, Code, Delivery, Supply chain and Protection, each with its icon,
+  critical and warning counts and count; pressing one lights and frames it,
+  its eye hides it from the graph (remembered in this browser), and **Open
+  all**, **Fold all** and **Show all** manage every group at once. Zoom
+  buttons join the tools.
+- **Large repositories.** An opened group pages ten rows at a time
+  (`‹ 11–20 of 60 ›`, or Page Up and Page Down), and selecting a node on
+  another page turns to it. Where the repository has more than the graph
+  holds, the panel says `60/312`; the branches kept are the default, working
+  and protected ones first. Fits stop at a readable zoom, and a minimap shows
+  the whole graph and moves the stage when pressed.
+- **Lighter to run.** The graph is drawn only when it changes; a separate
+  effects layer animates the signals at half rate once it rests, and nothing
+  is drawn while paused, hidden or scrolled away. At rest it uses about a
+  quarter of the CPU it did. The dark ground is a deeper navy with faint
+  clouds and a vignette, painted once in CSS.
 - **Keyboard.** Arrow keys walk the graph, Enter opens the card, Escape closes
   it, and every move is announced.
 

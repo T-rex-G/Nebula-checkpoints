@@ -17,11 +17,15 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 
 test.use({ serviceWorkers: 'block' });
 
-async function openGraph(page, { runs } = {}) {
+async function openGraph(page, { runs, refs } = {}) {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   if (runs) {
     await page.route(url => new URL(url).pathname === '/api/repo/sandbox/demo/actions', route =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(runs) }));
+  }
+  if (refs) {
+    await page.route(url => new URL(url).pathname === '/api/repo/sandbox/demo/refs-snapshot', route =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(refs) }));
   }
   await page.goto('/#/sandbox/demo@main/neural');
   await page.locator('#neuralCanvas').waitFor({ state: 'visible' });
@@ -50,6 +54,44 @@ async function nodePoint(page, predicate) {
     return null;
   }, predicate.toString());
 }
+
+/* The groups list: in the rail on a wide screen, in the enlarged view's panel
+ * on a phone. */
+async function openGroups(page) {
+  if (await page.locator('#neuralLegend').isVisible()) return;
+  await page.locator('#neuralExpandBtn').click();
+  const stage = page.locator('#neuralStage');
+  if (!(await stage.evaluate(node => node.classList.contains('panel-open')))) await page.locator('#neuralPanelBtn').click();
+  await expect(page.locator('#neuralLegend')).toBeVisible();
+}
+
+/* Where a panel's footer control is on the page: dx from the panel's left
+ * edge, or from its right edge when negative. */
+async function footerPoint(page, type, dx) {
+  return page.evaluate(([kind, offset]) => {
+    const s = window.NebulaNeural.state;
+    const panel = s.panels.find(p => p.type === kind);
+    if (!panel || panel.moreY == null) return null;
+    const rect = s.canvas.getBoundingClientRect();
+    const x = offset < 0 ? panel.x + panel.w + offset : panel.x + offset;
+    return { x: rect.left + s.width / 2 + s.panX + x * s.zoom, y: rect.top + s.height / 2 + s.panY + panel.moreY * s.zoom };
+  }, [type, dx]);
+}
+/* Brings a panel to the middle of the stage (test set-up: on a phone the
+ * enlarged graph opens at the top of a long column). */
+async function centrePanel(page, type) {
+  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.camTarget)).toBeNull();
+  await page.evaluate(kind => {
+    const s = window.NebulaNeural.state;
+    const panel = s.panels.find(p => p.type === kind);
+    s.panX = -(panel.x + panel.w / 2) * s.zoom;
+    s.panY = -(panel.y + panel.h / 2) * s.zoom;
+  }, type);
+}
+const workflowRuns = count => Array.from({ length: count }, (_, i) => ({
+  id: 700 + i, name: `Pipeline ${String(i + 1).padStart(2, '0')}`, number: i + 1, status: 'completed', conclusion: 'success',
+  branch: 'main', event: 'push', created_at: new Date(Date.now() - i * 60000).toISOString()
+}));
 
 /* A point on the canvas with nothing under it: no node, no panel, nothing
  * painted over the canvas. */
@@ -124,11 +166,7 @@ test('dragging from a row moves the stage, keeps the node in its row, and opens 
 });
 
 test('a group panel folds past six rows and opens on "+ n more"', async ({ page }) => {
-  const runs = Array.from({ length: 9 }, (_, i) => ({
-    id: 700 + i, name: `Pipeline ${i + 1}`, number: i + 1, status: 'completed', conclusion: 'success',
-    branch: 'main', event: 'push', created_at: new Date(Date.now() - i * 60000).toISOString()
-  }));
-  await openGraph(page, { runs });
+  await openGraph(page, { runs: workflowRuns(9) });
   await expect.poll(() => page.evaluate(() => {
     const panel = (window.NebulaNeural.state.panels || []).find(p => p.type === 'workflow');
     return panel ? panel.members.length : 0;
@@ -252,4 +290,146 @@ test('on a phone the card is a sheet over the page, not a strip inside the graph
   await page.evaluate(() => document.activeElement && document.activeElement.blur());
   await page.keyboard.press('Escape');
   await expect(card).toBeHidden();
+});
+
+test('an opened group pages ten rows at a time, and a node on another page opens that page', async ({ page }) => {
+  const refs = { defaultBranch: 'main', refs: [{ name: 'main', sha: 'c'.repeat(40), protected: false }], tags: [] };
+  await openGraph(page, { runs: workflowRuns(14), refs });
+  /* Enlarged, the whole stage is on screen, footer controls included. The
+   * enlarged stage re-lays the graph for its new shape; wait for that. */
+  await page.locator('#neuralExpandBtn').click();
+  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.width > window.innerWidth * .95)).toBe(true);
+  /* The re-layout runs a moment after the resize settles. */
+  await page.waitForTimeout(300);
+  await expect.poll(() => page.evaluate(() => (window.NebulaNeural.state.panels.find(p => p.type === 'workflow') || { members: [] }).members.length)).toBe(14);
+  const read = () => page.evaluate(() => {
+    const p = window.NebulaNeural.state.panels.find(q => q.type === 'workflow');
+    return { footer: p.footer, page: p.page, pages: p.pages, shown: p.shown.map(n => n.label), h: p.h };
+  });
+  expect((await read()).footer).toBe('more');
+  await centrePanel(page, 'workflow');
+  const more = await footerPoint(page, 'workflow', 60);
+  await page.mouse.click(more.x, more.y);
+  await expect.poll(async () => (await read()).pages).toBe(2);
+  const first = await read();
+  expect(first.shown).toHaveLength(10);
+  /* Newest first: the runs keep the order the provider gave them. */
+  expect(first.shown[0]).toBe('Pipeline 01');
+  expect(first.shown[9]).toBe('Pipeline 10');
+  await centrePanel(page, 'workflow');
+  const next = await footerPoint(page, 'workflow', -26);
+  await page.mouse.click(next.x, next.y);
+  await expect.poll(async () => (await read()).page).toBe(1);
+  const second = await read();
+  expect(second.shown).toEqual(['Pipeline 11', 'Pipeline 12', 'Pipeline 13', 'Pipeline 14']);
+  /* A short last page is as tall as the first, so nothing below it moves. */
+  expect(second.h).toBe(first.h);
+  await expect(page.locator('#neuralLive')).toContainText('11 to 14 of 14');
+
+  /* A connection to a run on the other page turns to it. */
+  await centrePanel(page, 'branch');
+  const main = await nodePoint(page, n => n.id === 'branch:main');
+  expect(main).not.toBeNull();
+  await page.mouse.click(main.x, main.y);
+  const link = page.locator('#neuralCard [data-neural-goto="workflow:702"]');
+  await expect(link).toBeVisible();
+  await link.click();
+  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.selected && window.NebulaNeural.state.selected.id)).toBe('workflow:702');
+  expect((await read()).page).toBe(0);
+
+  /* Page Down turns the selected node's group, and the selection keeps its row. */
+  await page.locator('#neuralCanvas').focus();
+  await page.keyboard.press('PageDown');
+  await expect.poll(async () => (await read()).page).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.selected && window.NebulaNeural.state.selected.label)).toBe('Pipeline 13');
+});
+
+test('the eye hides a group from the graph and the list keeps it to bring back', async ({ page }) => {
+  await openGraph(page);
+  await openGroups(page);
+  const visibleTypes = () => page.evaluate(() => window.NebulaNeural.state.panels.map(p => p.type));
+  const type = (await visibleTypes())[0];
+  const eye = page.locator(`#neuralLegend [data-neural-toggle="${type}"]`);
+  await expect(eye).toHaveAttribute('aria-pressed', 'true');
+  await eye.click();
+  await expect.poll(visibleTypes).not.toContain(type);
+  expect(await page.evaluate(t => window.NebulaNeural.state.nodes.some(n => n.type === t && n.visible), type)).toBe(false);
+  await expect(page.locator(`#neuralLegend [data-neural-toggle="${type}"]`)).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator(`#neuralLegend .neural-group-row.is-hidden [data-neural-group="${type}"]`)).toBeVisible();
+  /* Remembered in this browser, and "Show all" undoes it. */
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('nv_neural_hidden_groups')))).toEqual([type]);
+  await page.locator('#neuralLegend [data-neural-groups="show"]').click();
+  await expect.poll(visibleTypes).toContain(type);
+  expect(await page.evaluate(() => localStorage.getItem('nv_neural_hidden_groups'))).toBeNull();
+});
+
+test('a repository with more branches than the graph holds says so', async ({ page }) => {
+  const names = Array.from({ length: 80 }, (_, i) => `feature/${String(i).padStart(3, '0')}`);
+  const refs = {
+    defaultBranch: 'main',
+    refs: [...names.map(name => ({ name, sha: 'a'.repeat(40) })), { name: 'main', sha: 'b'.repeat(40), protected: true }],
+    tags: []
+  };
+  await openGraph(page, { refs });
+  await expect.poll(() => page.evaluate(() => {
+    const p = window.NebulaNeural.state.panels.find(q => q.type === 'branch');
+    return p ? [p.members.length, p.total] : null;
+  })).toEqual([60, 81]);
+  /* The default branch leads, however the provider sorted the list. */
+  expect(await page.evaluate(() => window.NebulaNeural.state.panels.find(q => q.type === 'branch').members[0].label)).toBe('main');
+  await openGroups(page);
+  await expect(page.locator('#neuralLegend [data-neural-group="branch"] small')).toHaveText('of 81');
+});
+
+test('a resting graph is not redrawn, and the effects layer never takes a press', async ({ page }) => {
+  await openGraph(page);
+  await page.locator('#neuralPlayBtn').click();
+  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.paused)).toBe(true);
+  /* Let anything still easing finish, then watch. */
+  await expect.poll(() => page.evaluate(() => {
+    const s = window.NebulaNeural.state;
+    return !s.camTarget && s.nodes.every(n => !n.visible || (Math.abs(n.tx - n.x) <= .25 && Math.abs(n.ty - n.y) <= .25 && (n.appear ?? 1) >= 1));
+  })).toBe(true);
+  await page.waitForTimeout(200);
+  const before = await page.evaluate(() => window.NebulaNeural.state.frames);
+  await page.waitForTimeout(700);
+  expect(await page.evaluate(() => window.NebulaNeural.state.frames)).toBe(before);
+  const fx = await page.evaluate(() => {
+    const s = window.NebulaNeural.state;
+    const r = s.canvas.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { pointer: getComputedStyle(document.getElementById('neuralFx')).pointerEvents, hitIsFx: hit && hit.id === 'neuralFx' };
+  });
+  expect(fx).toEqual({ pointer: 'none', hitIsFx: false });
+});
+
+test('zoomed in, a minimap shows the whole graph and moves the stage when pressed', async ({ page }) => {
+  test.skip((page.viewportSize() || {}).width < 720, 'the minimap is for stages wide enough to hold it');
+  await openGraph(page);
+  await page.locator('#neuralExpandBtn').click();
+  const minimap = page.locator('#neuralMinimap');
+  for (let i = 0; i < 4; i++) await page.locator('#neuralZoomInBtn').click();
+  await expect(minimap).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.camTarget)).toBeNull();
+  const before = await page.evaluate(() => [window.NebulaNeural.state.panX, window.NebulaNeural.state.panY]);
+  const box = await minimap.boundingBox();
+  await page.mouse.click(box.x + 8, box.y + 8);
+  const after = await page.evaluate(() => [window.NebulaNeural.state.panX, window.NebulaNeural.state.panY]);
+  expect(after).not.toEqual(before);
+  /* Back to the whole picture, the minimap has nothing to add and goes. */
+  await page.locator('#neuralFitBtn').click();
+  await expect(minimap).toBeHidden();
+});
+
+test('a search keeps the hub in view and selects the first match', async ({ page }) => {
+  await openGraph(page, { runs: workflowRuns(14) });
+  await page.locator('#neuralSearch').fill('Pipeline 12');
+  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.selected && window.NebulaNeural.state.selected.id)).toBe('workflow:711');
+  const state = await page.evaluate(() => {
+    const s = window.NebulaNeural.state;
+    return { hub: s.nodes.some(n => n.type === 'repo' && n.visible), others: s.nodes.filter(n => n.visible && n.type !== 'repo').map(n => n.label) };
+  });
+  expect(state).toEqual({ hub: true, others: ['Pipeline 12'] });
+  await page.locator('#neuralSearch').fill('');
+  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.nodes.filter(n => n.visible && n.type === 'workflow').length)).toBe(14);
 });

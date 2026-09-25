@@ -6,18 +6,22 @@ The Neural Command Center is an operational graph built from repository, identit
 The repository is the hub at the centre, drawn with the Nebulaverse-X mark.
 Every other node belongs to a group -- branches, workflows, identities,
 vulnerabilities and so on -- and each group is a panel: a header with the
-group's icon, name and count (`WORKFLOWS · 4`), then one row per member, its
+group's icon and name and its count in a pill, then one row per member, its
 icon on a disc and its name beside it. Rows are ordered critical first, then
-warning, then by name. A panel shows six rows; a larger group shows five and a
-sixth row, `+ n more`, which opens the rest (and closes them again).
+warning, then in the source's own order where it has one (newest commit,
+newest run, the default branch first), then by name. A panel shows six rows;
+a larger group shows five and a sixth row, `+ n more`, which opens it. An
+opened group shows ten rows at a time with a pager at its foot
+(`‹ 11–20 of 60 ›`) and **Show fewer**; every page is as tall as the first,
+so turning one never moves the panels below.
 
 On a wide stage the panels stand in two columns either side of the hub. Groups
 keep a side by meaning -- identities, credentials, sessions, protected assets,
 safeguards and recovery on the left; branches, commits, workflows, webhooks,
 packages and their advisories on the right -- so a group is found where it was
-last time. When one column is much longer than the other, only groups without a
-natural side (releases, tags, pull requests, issues, external targets, scans,
-snapshots, safety controls, integrations) cross over. On a tall stage -- a
+last time. When one column is clearly longer than the other, only groups
+without a natural side (releases, tags, pull requests, issues, external
+targets, scans, snapshots, safety controls, webhooks) cross over. On a tall stage -- a
 phone, or a narrow window -- the panels stack in one column beside a spine that
 runs down from the hub, one strand per row, like a ribbon.
 
@@ -36,15 +40,52 @@ the links into it animate. On a narrow stage the card docks along the bottom
 edge; on a phone it opens as a sheet over the page. Escape, the close button,
 or pressing empty ground closes it.
 
-**Pressing a panel's header**, or the same group's chip under **Groups on
-screen**, lights the group and frames it; pressing empty ground lets it go.
+**Pressing a panel's header**, or the same group under **Groups on screen**,
+lights the group and frames it; pressing empty ground lets it go.
+
+**Groups on screen** in the side panel lists the groups by what they are
+about -- Access, Code, Delivery, Supply chain, Protection -- each with its
+icon, its critical and warning counts and its count. Its eye hides the group
+from the graph; a hidden group stays in the list, dimmed, and pressing its
+name or **Show all** brings it back. Which groups are hidden is remembered in
+this browser only. **Open all** and **Fold all** open or fold every group at
+once.
 
 Dragging -- from empty ground or from a row -- moves the stage; rows never
 leave their panels, so the layout stays the one the reader learned. The wheel
 or a pinch zooms; `+`, `-` and the zoom buttons zoom in steps; `F`,
 double-click or double-tap fits the graph. With the canvas focused, the arrow
-keys move to the nearest node in that direction and Enter opens the card, and
-each move is announced to screen readers.
+keys move to the nearest node in that direction, Enter opens the card, and
+Page Down and Page Up turn the selected node's group (the selection keeps its
+row); each move is announced to screen readers. Selecting a node that is on
+another page -- from a card's connections, the keyboard or the timeline --
+turns its group to that page.
+
+## Large repositories
+
+A repository can have more of most things than a graph can show. The graph
+holds up to 60 branches, collaborators and protected paths, 40 vulnerable
+packages, 30 deploy keys and webhooks, 24 tags and 12 sessions; activity is
+the recent window (22 commits, 14 workflow runs, 10 pull requests, 8 issues,
+7 releases). Where the repository has more than the graph holds, the panel's
+pill says so (`60/312`) and the side panel says `60 of 312`. The branches the
+graph keeps are the default branch, the working branch and the protected
+branches first, then the rest by name.
+
+A fit never shrinks the graph past the point where a row can be read: a
+topology taller than the stage is fitted at a readable zoom around the hub,
+and a **minimap** appears in the corner showing the whole graph with the part
+on screen outlined. Pressing or dragging on the minimap moves the stage there;
+when the whole graph fits again, it goes away.
+
+Drawing is split in two. The graph -- panels, strands, nodes, hub -- is drawn
+while something moves and once when it settles, and then left alone; an
+effects layer above it, which takes no pointer events, redraws only what
+animates (the signals on the strands, a critical node's breathing ring, the
+hub's arcs, the relationship dashes and the card's line), at half rate once
+the graph is at rest. Paused, or scrolled out of view, or in a hidden tab, the
+graph does not draw at all. The dark ground (navy, two faint clouds, a
+vignette) is CSS, painted once by the browser.
 
 ## Data sources
 
@@ -254,4 +295,7 @@ Commits, pull requests, issues, releases, workflows, and live provider events.
 
 ## Scale limits
 
-The Canvas renderer is optimized for repository-level operational views. The client deliberately caps many node families to keep the map understandable. Organization-scale graphs with thousands of nodes should use clustering, pagination, and potentially a WebGL renderer in a later release.
+The Canvas renderer is built for repository-level views: the limits under
+**Large repositories** keep a mode to a few hundred nodes at most, of which a
+folded panel draws six rows and an opened one ten. Organization-wide graphs
+of thousands of repositories are a different view and are not drawn here.

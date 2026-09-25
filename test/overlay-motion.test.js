@@ -1702,11 +1702,10 @@ check('every artwork the shell mounts still has somewhere to mount', () => {
   const registry = appSource.match(/const NEBULA_VISUALS = Object\.freeze\(\{([\s\S]*?)\}\);/);
   assert.ok(registry, 'the visuals registry is gone');
   const mounts = [...registry[1].matchAll(/'#([\w-]+)'/g)].map(m => m[1]);
-  assert.ok(mounts.length >= 2, `the registry names ${mounts.length} mount points`);
-  /* Nebula's Trust core is the dimensional mark; Obsidian keeps the SVG emblem. */
-  assert.ok(mounts.includes('ovCoreArt'), 'the overview no longer mounts the dimensional mark');
-  assert.ok(/kind === 'mark' && state\.settings\.design === 'obsidian'/.test(appSource),
-    'the mark is mounted in Obsidian, where the stage belongs to the emblem');
+  assert.ok(mounts.length >= 1, `the registry names ${mounts.length} mount points`);
+  /* The Trust core is the SVG instrument in both presets: nothing is mounted
+     over it, so no preset can end up drawing the other's centre. */
+  assert.ok(!mounts.includes('ovCoreArt'), 'the Trust core mounts WebGL artwork over its instrument again');
   mounts.forEach(id => {
     assert.ok(new RegExp(`id="${id}"`).test(htmlSource),
       `#${id} is named as an artwork mount but is not in the document`);
@@ -1773,13 +1772,11 @@ check('the overview artwork is shown whole, not cropped by its panel', () => {
     'the artwork ground has no height, so the mark has no room to be drawn in');
   assert.ok(/overflow\s*:\s*hidden/.test(combined),
     'the stage no longer clips, so this check has nothing to protect against');
-  /* The 3D mount, the aura and the SVG emblem each fill that stage exactly --
-     not a corner of it. */
+  /* The aura and the SVG emblem each fill that stage exactly -- not a corner
+     of it. */
   const fills = selector => rules.filter(rule => eachSelector(rule).some(one => subject(one.selector) === selector))
     .map(rule => rule.body).join(';');
-  const mount = rules.filter(rule => /nebula-mark-3d/.test(rule.selector)).map(rule => rule.body).join(';');
-  assert.ok(/inset\s*:\s*0/.test(mount),
-    'the dimensional mark does not fill its stage, so it draws into part of the frame');
+  assert.ok(!/nebula-mark-3d/.test(cssSource), 'styles for the retired WebGL mark are still shipped');
   assert.ok(/inset\s*:\s*0/.test(fills('.ov-core-glow')), 'the aura does not fill its stage');
   assert.ok(/inset\s*:\s*0/.test(fills('.ov-core-emblem')), 'the emblem does not fill its stage');
   assert.ok(/class="ov-core-emblem"/.test(htmlSource), 'the overview emblem is gone');
@@ -2145,8 +2142,14 @@ check('the restore runs from the head, before anything is painted', () => {
 check('the landing bar reserves the safe area on top of its own padding', () => {
   const rule = cssSource.match(/\.lp-nav\{([^}]*)\}/);
   assert.ok(rule, 'the landing nav rule is gone');
-  assert.ok(/position:sticky/.test(rule[1]),
-    'the landing bar no longer sticks, so the theme control leaves with the hero');
+  /* Fixed rather than sticky: a sticky bar is re-resolved against its
+     scrollport on every frame and was reported glitching and freezing under
+     a phone's scroll. The page reserves the bar's height, so nothing jumps. */
+  assert.ok(/position:fixed/.test(rule[1]),
+    'the landing bar no longer stays with the reader, so the theme control leaves with the hero');
+  assert.ok(/height:var\(--lp-nav-h\)/.test(rule[1]), 'the bar has no fixed height for the page to reserve');
+  assert.ok(/\.lp\{--lp-nav-h:[^}]*padding-top:var\(--lp-nav-h\)/.test(cssSource),
+    'the page does not reserve the fixed bar, so the hero starts underneath it');
   assert.ok(/padding-top:calc\(env\(safe-area-inset-top/.test(rule[1]),
     'the safe area is not added to the padding, so the bar sits under the status bar');
   assert.ok(/env\(safe-area-inset-top,\s*0px\)/.test(rule[1]),
@@ -2207,8 +2210,10 @@ check('the sticky bar carries no filter that could cost it its stickiness', () =
   assert.ok(rule, 'the landing bar has no scrim, so content passes under it unreadably');
   assert.ok(!/backdrop-filter/.test(rule[1]),
     'the scrim promotes a layer inside the sticky bar, which is what takes the sticking with it');
-  assert.ok(/linear-gradient/.test(rule[1]),
-    'the scrim no longer paints anything, so the bar has nothing behind its text');
+  /* Opaque: a scrim that lets the copy it passes over show through reads as
+     the bar glitching over the page, which is how it was reported. */
+  const ground = rule[1].match(/background:\s*(#[0-9a-f]{6})\b/i);
+  assert.ok(ground, 'the scrim is not a solid colour, so the copy under the bar shows through it');
 });
 
 /*
@@ -2243,6 +2248,41 @@ check('the root element publishes no release version', () => {
     'the release version is back on the root element, where nothing reads it');
   assert.ok(/data-nv-asset-version/.test(root[0]),
     'the asset version is gone, and app.js reads it to stamp every asset URL');
+});
+
+/*
+ * The overview's instruments are drawn in one hue per preset.
+ *
+ * The gauges were painted by state -- green, amber, red -- and the ring by
+ * state too, which put three unrelated hues on one card and was reported as
+ * the colours looking bad. Every mark there measures how much, so each takes
+ * the preset's series ink, stepped in lightness where it shows an order; state
+ * stays on the glyph and the word beside each reading.
+ */
+check('the overview charts draw in one hue per preset, never in status colours', () => {
+  const marks = rules.filter(rule => /\.wp-(gauge|donut|meter)/.test(rule.selector) && /(^|;)\s*(stroke|background|fill)\s*:/.test(rule.body));
+  assert.ok(marks.length, 'no chart mark rules found');
+  const painted = marks.filter(rule => /var\(--wp-(good|warning|critical)\)/.test(rule.body));
+  assert.deepStrictEqual(painted.map(rule => rule.selector), [],
+    'a chart mark is painted in a status colour again');
+  const obsidian = cssSource.match(/\[data-design="obsidian"\]\{\s*--wp-series:([^;]+);/);
+  assert.ok(obsidian, 'Obsidian has no series ink of its own, so its charts draw in Nebula violet');
+  assert.ok(!/8b5cf6|9a77f7|7c3aed|a78bfa/i.test(obsidian[1]), 'Obsidian draws its charts in violet');
+  const pulse = fs.readFileSync(path.join(root, 'public/workspace-pulse.js'), 'utf8');
+  assert.ok(!/'stop-color':\s*'#/.test(pulse), 'a chart gradient carries a colour of its own instead of the preset ink');
+});
+
+/*
+ * Nothing on the landing re-samples what is behind it while the page scrolls:
+ * no frosted surfaces over the WebGL ring, and no blur filter inside the map.
+ */
+check('the landing scrolls without frosted surfaces or filtered strokes', () => {
+  assert.ok(/\.lp \.card,\.lp \.glass\{backdrop-filter:none;-webkit-backdrop-filter:none\}/.test(cssSource),
+    'the landing cards are frosted again');
+  const halo = cssSource.match(/\.lp-map-halo\{([^}]*)\}/);
+  assert.ok(halo && !/filter\s*:/.test(halo[1]), 'the map halo is a blur filter again');
+  assert.ok(/@media \(hover:none\), \(max-width:720px\)\{\s*\.lp-map-flow,\.lp-map-arcs\{animation:none\}/.test(cssSource),
+    'the map keeps repainting its strokes under a finger that is scrolling the page');
 });
 
 console.log(failures ? `\n${failures} failed` : '\nall passed');

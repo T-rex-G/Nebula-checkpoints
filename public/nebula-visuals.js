@@ -1,10 +1,10 @@
 /*
  * Loader for the design's WebGL pieces.
  *
- * The galaxy and the dimensional mark pull three.js behind them -- around
- * 750KB across two files. That is a deliberate cost for the product's
- * personality, but it is not a cost every visit should pay, so nothing here
- * downloads until three questions are answered:
+ * The galaxy pulls three.js behind it -- around 750KB across two files.
+ * That is a deliberate cost for the product's personality, but it is not a
+ * cost every visit should pay, so nothing here downloads until three
+ * questions are answered:
  *
  *   1. Is the artwork actually on screen? The modules load when the screen
  *      that hosts them is shown, not at boot. A reader who signs in and goes
@@ -25,16 +25,16 @@
   /*
    * Stamped with the build like every other script. The server caches
    * static files for a week on the promise that their URLs change when their
-   * contents do; these two were imported by bare path, so a phone kept
+   * contents do; the module was imported by bare path, so a phone kept
    * running last week's galaxy -- violet in the Obsidian preset -- until its
    * cache happened to expire.
    */
   const STAMP = (document.documentElement && document.documentElement.dataset.nvAssetVersion) || '';
   const versioned = file => (STAMP ? `${file}?v=${encodeURIComponent(STAMP)}` : file);
   const MODULES = Object.freeze({
-    galaxy: versioned('/nebula-galaxy.js'),
-    mark: versioned('/nebula-mark-3d.js')
+    galaxy: versioned('/nebula-galaxy.js')
   });
+  const TAGS = Object.freeze({ galaxy: 'nebula-galaxy' });
 
   const requested = new Map();
   let capable = null;
@@ -116,7 +116,7 @@
     try {
       if (!requested.has(kind)) requested.set(kind, import(MODULES[kind]));
       await requested.get(kind);
-      const tag = kind === 'galaxy' ? 'nebula-galaxy' : 'nebula-mark-3d';
+      const tag = TAGS[kind];
       if (!global.customElements || !global.customElements.get(tag)) throw new Error(`${tag} did not define`);
       const element = document.createElement(tag);
       element.setAttribute('theme', theme());
@@ -135,7 +135,7 @@
   function repaint() {
     const next = theme();
     const preset = design();
-    document.querySelectorAll('nebula-galaxy, nebula-mark-3d')
+    document.querySelectorAll(Object.values(TAGS).join(', '))
       .forEach(element => { element.setAttribute('theme', next); element.setAttribute('design', preset); });
   }
 

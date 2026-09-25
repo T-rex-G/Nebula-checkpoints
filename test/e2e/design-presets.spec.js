@@ -155,24 +155,30 @@ test('the Trust core is alive in both presets, and still when motion is off', as
   expect(still.aura).toBe('none');
 });
 
-test('choosing Obsidian takes the dimensional mark out of the Trust core', async ({ page }) => {
+test('the Trust core is the same SVG instrument in both presets, its node riding the arc', async ({ page }) => {
   await openOverview(page);
-  /* Stand in for a device that drew the mark: the element is what matters. */
-  await page.evaluate(() => {
-    const core = document.getElementById('ovCoreArt');
-    const mark = document.createElement('nebula-mark-3d');
-    mark.style.display = 'block';
-    core.appendChild(mark);
-    core.dataset.nebulaMounted = 'true';
+  const core = () => page.evaluate(() => {
+    const art = document.getElementById('ovCoreArt');
+    const arc = art.querySelector('.oc-arc').getAttribute('d');
+    const end = arc.trim().split(/[\s,A-Za-z]+/).filter(Boolean).slice(-2).map(Number);
+    const node = art.querySelector('.oc-node');
+    return {
+      webgl: art.querySelectorAll('canvas, nebula-mark-3d, nebula-galaxy').length,
+      mark: getComputedStyle(art.querySelector('.oc-float')).display,
+      gap: Math.hypot(Number(node.getAttribute('cx')) - end[0], Number(node.getAttribute('cy')) - end[1])
+    };
   });
+  const nebula = await core();
+  expect(nebula.webgl).toBe(0);
+  expect(nebula.mark).not.toBe('none');
+  /* The node sits on the arc's leading end, not a step behind it. */
+  expect(nebula.gap).toBeLessThan(1);
+
   await openSettings(page);
   await page.getByRole('radio', { name: /Obsidian/ }).click();
   await expect.poll(() => design(page)).toBe('obsidian');
-  const core = await page.evaluate(() => {
-    const art = document.getElementById('ovCoreArt');
-    return { marks: art.querySelectorAll('nebula-mark-3d').length, mounted: art.dataset.nebulaMounted || '', emblem: getComputedStyle(art.querySelector('.oc-float')).display };
-  });
-  expect(core).toEqual({ marks: 0, mounted: '', emblem: 'inline' });
+  const obsidian = await core();
+  expect(obsidian).toEqual(nebula);
 });
 
 test('the landing bar has no ground at rest, and a full-width one once the page scrolls', async ({ page }) => {
@@ -204,9 +210,14 @@ test('a text field is focused on its own edge, not with a ring hung outside it',
   const field = page.getByLabel('One-time invitation');
   await field.focus();
   await page.keyboard.type('x');
+  /* The invitation shares one edge with its button, so that edge -- the row
+     they sit in -- is the control's own, and is what lights. */
   const ring = await field.evaluate(node => {
-    const style = getComputedStyle(node);
-    return { offset: parseFloat(style.outlineOffset), width: parseFloat(style.outlineWidth), shadow: style.boxShadow };
+    const style = getComputedStyle(node.closest('.lp-entry-row') || node);
+    /* An outline whose style is none draws nothing, whatever width it
+       reports: newer Chromium reports the initial 3px for it rather than 0. */
+    const drawn = style.outlineStyle !== 'none';
+    return { offset: drawn ? parseFloat(style.outlineOffset) : 0, width: drawn ? parseFloat(style.outlineWidth) : 0, shadow: style.boxShadow };
   });
   expect(ring.offset).toBe(0);
   expect(ring.width).toBeLessThanOrEqual(1.5);

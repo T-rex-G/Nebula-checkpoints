@@ -224,3 +224,54 @@ test('the endpoint pings, and does not when motion is off', async ({ page }) => 
   await expect(ui.screen(page, 'overview')).toBeVisible();
   await expect(page.locator('#wpActivity .wp-area-ping')).toHaveCount(0);
 });
+
+/*
+ * Drawn at the size it is shown. A fixed 380-unit box stretched across a wide
+ * card arrived with its axis labels, dots and stroke all three times their
+ * size. The box now matches the card, so a unit is a pixel.
+ */
+test('the chart is drawn at the width it is shown, not stretched to it', async ({ page }) => {
+  await overview(page);
+  const chart = page.locator('#wpFeed .wp-area');
+  await expect(chart).toBeVisible();
+  const fit = await chart.evaluate(svg => ({ box: svg.viewBox.baseVal.width, shown: svg.getBoundingClientRect().width }));
+  expect(Math.abs(fit.box - fit.shown), `drawn ${fit.box} wide, shown ${fit.shown} wide`).toBeLessThanOrEqual(26);
+  const label = await page.locator('#wpFeed .wp-area-axis').first()
+    .evaluate(text => text.getBoundingClientRect().height);
+  expect(label).toBeLessThan(16);
+});
+
+/*
+ * A pointer over the plot names the day under it and its count; leaving the
+ * plot puts it away. The table under the chart carries the same numbers for
+ * every other reader.
+ */
+test('hovering the series names the day and the count under the pointer', async ({ page }) => {
+  test.skip((page.viewportSize() || {}).width < 900, 'a hover layer is a mouse affordance');
+  await overview(page);
+  const chart = page.locator('#wpFeed .wp-area');
+  const hover = page.locator('#wpFeed .wp-hover');
+  await chart.scrollIntoViewIfNeeded();
+  /*
+   * A gesture, measured where the chart is when the hand arrives. The card
+   * can still be settling -- a late re-render, a refit to its final width --
+   * and a chart drawn under a pointer that has stopped does not light until
+   * the pointer moves, for a reader as for this test. So the hand moves across
+   * the last day, as a reader's does, until the reading shows.
+   */
+  await expect(async () => {
+    const box = await chart.boundingBox();
+    await page.mouse.move(box.x + box.width - 40, box.y + box.height / 2);
+    await page.mouse.move(box.x + box.width - 4, box.y + box.height / 2, { steps: 3 });
+    /* Named in the failure: what the pointer is actually over. */
+    const under = await page.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit ? `${hit.tagName.toLowerCase()}.${String(hit.getAttribute('class') || '').replace(/\s+/g, '.')}` : 'nothing';
+    }, { x: box.x + box.width - 4, y: box.y + box.height / 2 });
+    await expect(hover, `the pointer is over ${under}`).toHaveClass(/is-on/, { timeout: 1000 });
+  }).toPass({ timeout: 15000 });
+  await expect(page.locator('#wpFeed .wp-hover-text')).toHaveText(/^today · \d+$/);
+  const box = await chart.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y - 60);
+  await expect(hover).not.toHaveClass(/is-on/);
+});

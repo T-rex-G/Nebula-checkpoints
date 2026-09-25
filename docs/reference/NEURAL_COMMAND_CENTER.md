@@ -1,6 +1,21 @@
 # Nebulaverse-X Neural Command Center v5.3
 The Neural Command Center is an operational graph built from repository, identity, policy, dependency, recovery, and verified event data. It is not a decorative background and it does not require an AI API.
 
+## The header and the summary
+
+Above the graph sits one slim bar: the view's name, one line qualifying it,
+and its three controls -- **Connect verified live events**, **Refresh data**
+and **Activate Emergency Shield**. On a phone the qualifying line is dropped
+and the three controls share one row under their short labels (**Live
+events**, **Refresh**, **Shield**), each with its icon. Under the bar, the
+four readings -- risk posture, active signals, protected assets and recovery
+state -- are one strip divided by hairlines, two by two on a phone. Each
+reading is set in ink on one line; its state is the dot beside its label
+(green, amber or rose), never the colour of the figure. While this view is
+open the workbench's repository trust bar stands aside: the view carries
+the same reading in its own summary, and the bar comes back with the other
+tabs.
+
 ## Reading the graph
 
 The repository is the hub at the centre, drawn as the Nebulaverse-X app icon

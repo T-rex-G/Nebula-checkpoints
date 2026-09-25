@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+### One Hue per Instrument; a Landing Bar That Holds
+
+Reported: the overview's charts in green and yellow; the Trust core should
+be the Obsidian instrument in Nebula's violet, with its node on the arc; the
+landing's top bar glitching and freezing while scrolling; the entry drawn as
+a card; the repository trust bar and a tall header crowding the Neural view.
+
+- **Overview charts.** Gauges, the capability ring, meters, the area charts
+  and the radar draw in one hue per preset -- violet in Nebula, ivory on the
+  near-black and stone on the quartz in Obsidian -- stepped in lightness
+  where they show an order, each ramp run through the palette validator for
+  both themes. State stays on the glyph and the word beside each reading;
+  the headline state is a quiet pill. The small dials fit "100" inside
+  their ring. The activity and commit charts are drawn at the width they
+  are shown and refit on resize, so labels, dots and strokes keep their real
+  size on a wide card, and a pointer over either names the day and its
+  count. Gradient stops are classed, so a preset switch repaints them.
+- **Trust core.** The same SVG instrument in both presets: framed stage, the
+  stone mark floating with its specular sweep, the dial turning, and the
+  orbit's node riding the leading end of its arc. Nebula draws it in violet.
+  The WebGL mark is retired -- its module, loader entry, styles and audit
+  line are gone -- so no preset can draw the other's centre.
+- **Obsidian.** The accent tokens are Obsidian's own ink: the theme switch,
+  avatar, step numbers, pulse icons, live dots and the Settings selection
+  no longer wear Nebula's violet.
+- **Landing bar.** Fixed on its own layer with an opaque ground once the
+  page scrolls, and a height the page reserves, instead of a sticky bar
+  re-resolved on every frame. Nothing on the landing is frosted any more,
+  the map's halo is a gradient rather than a blur filter, and on touch
+  screens the map holds its flows still and the frame skips its scroll tilt.
+- **Entry.** One field and its button on one line under the promise, with a
+  readiness pill beside "Request entry" and the terms and sandbox rule as
+  small print -- no card. On a phone it follows the lede, above the scene.
+- **Map.** Phones get their own portrait composition -- three groups above
+  the hub and three below, wired from the edge that faces it -- instead of a
+  crop of the wide one; three notes under the frame say what to read off it.
+- **Neural view.** The repository trust bar stands aside on this tab. The
+  header is a slim bar whose three controls share one row on a phone under
+  short labels, and the four readings are one strip with a state dot by
+  each label rather than four slabs with coloured, wrapping figures.
+- **Overview on a phone.** The golden path is one row of three, and the
+  fifth reading takes the whole row instead of standing alone.
+
 ### A Landing That Shows the Product; Presets Finished
 
 On a phone the Obsidian preset still showed Nebula's 3D mark in the Trust

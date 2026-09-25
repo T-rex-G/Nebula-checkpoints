@@ -799,7 +799,7 @@ document.addEventListener('pointerdown', event => {
 });
 
 /* Which screen owns which piece of the design's artwork. */
-const NEBULA_VISUALS = Object.freeze({ overview: ['mark', '#ovCoreArt'], repos: ['galaxy', '#gxHeroArt'] });
+const NEBULA_VISUALS = Object.freeze({ repos: ['galaxy', '#gxHeroArt'] });
 
 function showPage(name) {
   setTimeout(measureTopbar, 30);
@@ -941,16 +941,6 @@ function applySettings() {
       choice.tabIndex = on ? 0 : -1;
     });
     if (window.NebulaVisuals) window.NebulaVisuals.repaint();
-    if (state.settings.design === 'obsidian') {
-      /* Obsidian's core is the SVG instrument. The mark sets its own inline
-       * display, so hiding it is not enough: it leaves the page, and its GL
-       * context with it, and mounts afresh if Nebula comes back. */
-      const core = $('#ovCoreArt');
-      if (core) {
-        core.querySelectorAll('nebula-mark-3d').forEach(mark => mark.remove());
-        delete core.dataset.nebulaMounted;
-      }
-    } else if (_page === 'overview') mountNebulaVisual('mark', '#ovCoreArt');
   }
   document.documentElement.style.setProperty('--ed-font', (state.settings.fontSize / 16) + 'rem');
   document.documentElement.style.setProperty('--ed-family', `'${state.settings.editorFont}', ui-monospace, monospace`);
@@ -2002,8 +1992,6 @@ async function loadScannerPosture() {
 function mountNebulaVisual(kind, selector) {
   const host = $(selector);
   if (!host || !window.NebulaVisuals) return;
-  /* The turning mark is Nebula's; Obsidian's core is the SVG instrument. */
-  if (kind === 'mark' && state.settings.design === 'obsidian') return;
   window.NebulaVisuals.mount(kind, host);
 }
 
@@ -5396,6 +5384,14 @@ function switchTab(name) {
   })) return;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.tabpane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  /*
+   * The pane knows which tab it holds, so chrome that belongs to some tabs and
+   * not others -- the repository trust bar is the workbench's, and the Neural
+   * view carries the same reading in its own header -- is decided by the
+   * stylesheet rather than toggled element by element here.
+   */
+  const pane = $('.main-pane');
+  if (pane) pane.dataset.tab = name;
   /*
    * Repainted here rather than by the click handler, so a tab reached from the
    * command palette marks the rail exactly as a pointer click does.

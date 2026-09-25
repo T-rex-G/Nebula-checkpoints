@@ -30,11 +30,22 @@ test('the product is framed, named and described for a reader who cannot see it'
   const show = page.locator('.lp-show');
   await show.scrollIntoViewIfNeeded();
   await expect(show.getByRole('heading', { name: 'Your repository, drawn as one living map' })).toBeVisible();
-  const map = page.locator('.lp-map');
-  await expect(map).toHaveAttribute('aria-hidden', 'true');
-  /* A real picture of the product: the hub and one panel per group. */
-  expect(await page.locator('.lp-map-panel').count()).toBe(6);
-  expect(await page.locator('.lp-map-hub').count()).toBe(1);
+  /* One composition per shape of screen, and exactly one of them drawn. */
+  const maps = page.locator('.lp-map');
+  for (const map of await maps.all()) await expect(map).toHaveAttribute('aria-hidden', 'true');
+  const map = page.locator('.lp-map:visible');
+  await expect(map).toHaveCount(1);
+  /* A real picture of the product: the hub and one panel per group, whole. */
+  expect(await map.locator('.lp-map-panel').count()).toBe(6);
+  expect(await map.locator('.lp-map-hub').count()).toBe(1);
+  const clipped = await map.evaluate(svg => {
+    const view = svg.viewBox.baseVal;
+    return [...svg.querySelectorAll('.lp-map-panel rect:first-child')].filter(rect => {
+      const box = rect.getBBox();
+      return box.x < view.x || box.y < view.y || box.x + box.width > view.x + view.width || box.y + box.height > view.y + view.height;
+    }).length;
+  });
+  expect(clipped, 'a group panel runs off the edge of the picture').toBe(0);
   /* And words for anyone who cannot see it. */
   await expect(page.locator('.lp-frame-cap')).toHaveText(/identities, branches, workflows/);
   await expect(page.getByRole('list', { name: 'Supported providers' }).getByRole('listitem')).toHaveText(['GitHub', 'GitLab', 'Gitea']);
@@ -62,7 +73,15 @@ test('the closing call returns the reader to the card and into its first control
 });
 
 test('every width gets the whole page and nothing wider than the screen', async ({ page }) => {
-  await openLanding(page);
+  /*
+   * Five widths, each a relayout of the whole page, in one test. The question
+   * is where things are, not how they move, so the page is read with motion
+   * off: nothing is mid-arrival when it is measured, and the scene is not
+   * redrawn live on every resize -- which, on a software renderer under a
+   * loaded suite, was enough to run this past the default budget.
+   */
+  test.setTimeout(60000);
+  await openLanding(page, false);
   for (const width of [320, 390, 768, 1280, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await page.waitForTimeout(150);

@@ -22,8 +22,13 @@ packages and their advisories on the right -- so a group is found where it was
 last time. When one column is clearly longer than the other, only groups
 without a natural side (releases, tags, pull requests, issues, external
 targets, scans, snapshots, safety controls, webhooks) cross over. On a tall stage -- a
-phone, or a narrow window -- the panels stack in one column beside a spine that
-runs down from the hub, one strand per row, like a ribbon.
+phone held upright, or a narrow window -- the panels stack in one column. One
+spine then leaves the hub at its lower rim and runs down beside them; each row
+branches from it once, and a band in the group's colour marks where a group's
+rows leave it, so there are never more wires than rows. On the spine only a
+critical node's signal, or the selected node's, travels all the way to the
+hub; the rest pulse along their own branch. Turning a phone sideways re-lays
+the graph in two columns; turning it back restores the column.
 
 Each row is joined to the hub by a strand in its group's colour, so a column of
 strands reads as that group from across the stage; a critical node's strand
@@ -51,10 +56,22 @@ name or **Show all** brings it back. Which groups are hidden is remembered in
 this browser only. **Open all** and **Fold all** open or fold every group at
 once.
 
-Dragging -- from empty ground or from a row -- moves the stage; rows never
-leave their panels, so the layout stays the one the reader learned. The wheel
-or a pinch zooms; `+`, `-` and the zoom buttons zoom in steps; `F`,
-double-click or double-tap fits the graph. With the canvas focused, the arrow
+Dragging from empty ground or from a row moves the stage; rows never leave
+their panels. **Dragging a panel by its header** moves the panel, its rows and
+their strands together. Where panels were put is remembered in this browser
+for that repository, mode and layout (two columns or one), and **Reset
+layout** under Groups on screen puts them back; signing out or switching
+account clears it with the rest of the repository's browser state.
+
+On the page, the graph does not trap scrolling: the wheel and a one-finger
+swipe scroll the page past it. Ctrl or Cmd with the wheel, a pinch, or two
+fingers zoom and move the graph, and a short hint says so when the wheel or a
+swipe lands on it. In the full view the wheel zooms and one finger moves the
+stage. `+`, `-` and the zoom buttons -- shown only in the full view -- zoom in
+steps; `F`, double-click or double-tap fits the graph. Held sideways, the
+tools wrap into a second column rather than running off the stage, and the
+minimap is drawn smaller in the full view and left out of the short stage on
+the page. With the canvas focused, the arrow
 keys move to the nearest node in that direction, Enter opens the card, and
 Page Down and Page Up turn the selected node's group (the selection keeps its
 row); each move is announced to screen readers. Selecting a node that is on

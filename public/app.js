@@ -1544,7 +1544,7 @@ async function purgeLocalData(full) {
     for (const k of Object.keys(localStorage)) {
       if (k.startsWith('nv_snap_') || k.startsWith('nv_incident_') ||
           k.startsWith('nv_draft:') || k.startsWith('nv_recent:') ||
-          k.startsWith('nv_offline_repos:')) localStorage.removeItem(k);
+          k.startsWith('nv_offline_repos:') || k.startsWith('nv_neural_layout')) localStorage.removeItem(k);
     }
   } catch {}
   /* Offline writes are not identity-bound in v5.2. Clearing them on any account

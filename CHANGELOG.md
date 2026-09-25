@@ -10,10 +10,22 @@ the graph with its loading screen, so the strands vanished each time; the
 spine left the hub off-centre; and credentials found by an Exposure scan were
 nowhere on the graph.
 
-- **Obsidian and Quartz.** Dark is obsidian: a black with a cool undertone and
-  one soft sheen, instead of the violet-black; light is quartz, a warm milky
-  white with charcoal ink. The violet stays the one accent. Chrome colours,
-  the manifest and the light-mode waves follow.
+- **Obsidian and Quartz.** Dark is obsidian: a near-black lit once from
+  above, with a fine grain, instead of the violet-black and its coloured
+  clouds; light is quartz, a warm milky stone with broad soft facets of light
+  and the faintest rose and aqua where it refracts. The violet stays the one
+  accent. Chrome colours, the manifest and the light-mode waves follow.
+- **Surfaces, not frosted glass.** Cards are solid slabs a step lighter than
+  the plate, edged by a hairline that is brighter along the top; under the
+  pointer the edge itself lights -- white on obsidian, pearlescent on quartz.
+  Buttons are solid (ivory on obsidian, charcoal on quartz) with no glow, the
+  headline is two inks rather than a colour, and the sidebar reads in
+  sentence case.
+- **A still Trust core.** The overview's spinning 3D mark and its animated
+  colour glow are replaced by an SVG instrument: hairline rings and ticks with
+  the product mark cut as a faceted stone at the centre. Nothing to download,
+  sharp at any size. The repositories galaxy is drawn in silver on obsidian
+  and graphite on quartz, without the haze behind it.
 - **A stage that answers the hand.** A soft light follows the pointer across
   the graph's ground, with a fine grain, painted behind the canvas; the panels
   catch a highlight along their top edge.

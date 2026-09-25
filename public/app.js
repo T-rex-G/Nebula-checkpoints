@@ -799,7 +799,7 @@ document.addEventListener('pointerdown', event => {
 });
 
 /* Which screen owns which piece of the design's artwork. */
-const NEBULA_VISUALS = Object.freeze({ overview: ['mark', '#ovCoreArt'], repos: ['galaxy', '#gxHeroArt'] });
+const NEBULA_VISUALS = Object.freeze({ repos: ['galaxy', '#gxHeroArt'] });
 
 function showPage(name) {
   setTimeout(measureTopbar, 30);

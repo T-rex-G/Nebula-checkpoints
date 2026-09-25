@@ -8,7 +8,8 @@ const SUPPORTED_EVENT_TYPES = Object.freeze([
   'policy.created', 'draft.created', 'draft.updated', 'version.created',
   'reviewer.assigned', 'approval.recorded', 'policy.activated', 'policy.rolled-back',
   'exception.requested', 'exception.approved', 'exception.rejected', 'exception.revoked',
-  'policy.decision.allow', 'policy.decision.warn', 'policy.decision.block'
+  'policy.decision.allow', 'policy.decision.warn', 'policy.decision.block',
+  'policy.deactivated', 'policy.archived', 'policy.restored', 'draft.discarded', 'version.withdrawn'
 ]);
 const EVENT_TYPE_SET = new Set(SUPPORTED_EVENT_TYPES);
 const DEFAULT_NOTIFICATION_EVENT_TYPES = Object.freeze(SUPPORTED_EVENT_TYPES.filter(type => type !== 'policy.decision.allow'));

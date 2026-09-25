@@ -117,7 +117,7 @@ const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]);
 const duplicates = ids.filter((id, i) => ids.indexOf(id) !== i);
 must(!duplicates.length, `Duplicate HTML IDs: ${[...new Set(duplicates)].join(', ')}`);
 for (const id of [
-  'tab-neural', 'neuralCanvas', 'neuralInspector', 'neuralTimeline',
+  'tab-neural', 'neuralCanvas', 'neuralCard', 'neuralLegend', 'neuralTimeline',
   'neuralEmergencyBtn', 'neuralModeList', 'neuralRiskScore', 'neuralLiveBtn', 'neuralExplainBtn'
 ]) must(ids.includes(id), `Missing #${id}`);
 must(/ensureNeural\(\)/.test(read('public/app.js')) && /neural\.js\?v=/.test(read('public/app.js')),

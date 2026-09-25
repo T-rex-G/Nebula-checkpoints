@@ -73,6 +73,13 @@ jobs:
       - run: npm run test:exposure-store
         env:
           NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # The governance lifecycle, against the same service. Switching a policy
+      # off, archiving it, reusing its key and resetting a repository each rest
+      # on a CHECK, a partial unique index, an append-only trigger or the outbox
+      # constraint -- properties of the database that no fake can settle.
+      - run: npm run test:governance-lifecycle
+        env:
+          NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       - run: node scripts/audit-production.js
       - run: npm run check:secrets
       - run: npm run test:staging:gate

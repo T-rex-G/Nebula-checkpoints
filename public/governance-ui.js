@@ -109,11 +109,11 @@
       <button type="button" class="btn btn-primary small" data-gov-action="refresh">Retry</button>
     </section>`;
   }
-  function renderEmpty(access) {
+  function renderEmpty(access, archivedCount = 0) {
     return `<section class="card gov-empty">
       <div class="gov-state-orb" aria-hidden="true"><svg class="gov-orb-mark" viewBox="0 0 24 24"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M12 9v3.4"/><path d="M12 15.4v.2"/></svg></div>
       <h3>No governance policy yet</h3>
-      <p>Create a policy from a repository baseline or start with an empty policy. Nothing is activated automatically.</p>
+      <p>Create a policy from a repository baseline or start with an empty policy. Nothing is activated automatically.${archivedCount ? ` ${archivedCount} archived ${archivedCount === 1 ? 'policy' : 'policies'} can be restored below.` : ''}</p>
       ${access.capabilities.author ? `<div class="gov-actions">${actionButton('create-policy', 'Create policy', {}, 'primary')}${actionButton('generate-baseline', 'Generate baseline')}</div>` : '<p class="hint">Repository write access is required to create governance policy drafts.</p>'}
     </section>`;
   }
@@ -139,12 +139,20 @@
       <div class="gov-card-grid">${policies.map(policy => {
         const active = asObject(policy.active);
         const latest = asObject(policy.latestVersion);
+        const off = asObject(policy.switchedOff);
+        const ids = { 'policy-id': policy.policyId, revision: count(policy.revision) };
+        const lifecycle = [
+          active.versionId && access.capabilities.activate ? actionButton('deactivate-policy', 'Switch off', { ...ids, 'version-number': count(active.versionNumber) }) : '',
+          !active.versionId && off.versionId && access.capabilities.activate ? actionButton('reactivate-policy', `Turn v${count(off.versionNumber)} back on`, { ...ids, 'version-id': off.versionId }, 'primary') : '',
+          access.capabilities.administer ? actionButton('archive-policy', 'Archive', { ...ids, active: active.versionId ? 'true' : 'false' }, 'ghost') : ''
+        ].join('');
         return `<article class="card gov-policy-card">
-          <div class="gov-policy-head"><div><span class="mono gov-kicker">${escapeHtml(policy.policyKey)}</span><h4>${escapeHtml(policy.name || policy.policyKey || 'Unnamed policy')}</h4></div>${active.versionId ? badge(active.enforcementMode || 'observe') : badge('neutral', 'Not active')}</div>
+          <div class="gov-policy-head"><div><span class="mono gov-kicker">${escapeHtml(policy.policyKey)}</span><h4>${escapeHtml(policy.name || policy.policyKey || 'Unnamed policy')}</h4></div>${active.versionId ? badge(active.enforcementMode || 'observe') : off.versionId ? badge('neutral', 'Switched off') : badge('neutral', 'Not active')}</div>
           <p>${escapeHtml(policy.description || 'No description')}</p>
-          <dl class="gov-facts"><div><dt>Revision</dt><dd>${count(policy.revision)}</dd></div><div><dt>Versions</dt><dd>${count(policy.versionCount)}</dd></div><div><dt>Active</dt><dd>${active.versionId ? `v${count(active.versionNumber)}` : 'None'}</dd></div><div><dt>Latest review</dt><dd>${latest.review ? escapeHtml(human(latest.review.status)) : 'No version'}</dd></div></dl>
+          <dl class="gov-facts"><div><dt>Revision</dt><dd>${count(policy.revision)}</dd></div><div><dt>Versions</dt><dd>${count(policy.versionCount)}</dd></div><div><dt>Active</dt><dd>${active.versionId ? `v${count(active.versionNumber)}` : off.versionId ? `Off · was v${count(off.versionNumber)}` : 'None'}</dd></div><div><dt>Latest review</dt><dd>${latest.review ? escapeHtml(human(latest.review.status)) : 'No version'}</dd></div></dl>
           <div class="gov-hash mono" title="Active document hash">${escapeHtml(hashShort(active.documentHash))}</div>
           <div class="gov-actions">${actionButton('select-policy', 'Inspect', { 'policy-id': policy.policyId })}${access.capabilities.author ? actionButton('new-draft', 'New draft', { 'policy-id': policy.policyId }) : ''}${active.versionId && access.capabilities.author ? actionButton('request-exception', 'Request exception', { 'policy-id': policy.policyId, 'version-id': active.versionId }) : ''}</div>
+          ${lifecycle ? `<div class="gov-actions gov-lifecycle-actions">${lifecycle}</div>` : ''}
         </article>`;
       }).join('')}</div>
     </section>`;
@@ -153,7 +161,7 @@
     const drafts = asArray(asObject(twin.proposed).drafts);
     if (!drafts.length) return '';
     return `<section class="gov-section" aria-labelledby="govDraftsTitle"><div class="gov-section-head"><div><h3 id="govDraftsTitle">Active drafts</h3><p>Mutable author-owned work. Submission creates an immutable version.</p></div></div><div class="gov-list">${drafts.map(draft => `
-      <article class="card gov-row"><div class="gov-row-main"><strong>Draft r${count(draft.revision)}</strong><span>Policy ${escapeHtml(String(draft.policyId || '').slice(0, 8))} · ${escapeHtml(draft.authoredByLogin)}</span><small>Updated ${escapeHtml(formatTime(draft.updatedAt))}</small></div><div class="gov-actions">${access.capabilities.author ? actionButton('edit-draft', 'Edit', { 'policy-id': draft.policyId, 'draft-id': draft.draftId }) + actionButton('validate-draft', 'Validate', { 'policy-id': draft.policyId, 'draft-id': draft.draftId }) + actionButton('submit-draft', 'Submit', { 'policy-id': draft.policyId, 'draft-id': draft.draftId, revision: draft.revision }, 'primary') : ''}</div></article>`).join('')}</div></section>`;
+      <article class="card gov-row"><div class="gov-row-main"><strong>Draft r${count(draft.revision)}</strong><span>Policy ${escapeHtml(String(draft.policyId || '').slice(0, 8))} · ${escapeHtml(draft.authoredByLogin)}</span><small>Updated ${escapeHtml(formatTime(draft.updatedAt))}</small></div><div class="gov-actions">${access.capabilities.author ? actionButton('edit-draft', 'Edit', { 'policy-id': draft.policyId, 'draft-id': draft.draftId }) + actionButton('validate-draft', 'Validate', { 'policy-id': draft.policyId, 'draft-id': draft.draftId }) + actionButton('submit-draft', 'Submit', { 'policy-id': draft.policyId, 'draft-id': draft.draftId, revision: draft.revision }, 'primary') : ''}${access.capabilities.author && (draft.authoredByLogin === access.actor.login || access.capabilities.administer) ? actionButton('discard-draft', 'Discard', { 'policy-id': draft.policyId, 'draft-id': draft.draftId, revision: draft.revision }, 'ghost') : ''}</div></article>`).join('')}</div></section>`;
   }
   function renderProposed(twin, access, simulation) {
     const versions = asArray(asObject(twin.proposed).versions);
@@ -164,7 +172,7 @@
       const simMatches = sim.policyId === version.policyId && sim.versionId === version.versionId;
       const eligible = simMatches && asObject(sim.report).activationReadiness && asObject(sim.report).activationReadiness.eligible === true;
       const ids = { 'policy-id': version.policyId, 'version-id': version.versionId };
-      return `<article class="card gov-version-row"><div class="gov-row-main"><div class="gov-row-title"><strong>${escapeHtml(version.policyKey)} v${count(version.versionNumber)}</strong>${badge(review.status || 'pending')}</div><span>${escapeHtml(reviewSummary(review))}</span><small>${escapeHtml(formatTime(version.createdAt))} · ${escapeHtml(hashShort(version.documentHash))}</small>${simMatches ? `<div class="gov-inline-result">${badge(eligible ? 'approved' : 'warn', eligible ? 'Simulation eligible' : 'Simulation blocked')}<span>${escapeHtml(hashShort(asObject(sim.report).simulationHash))}</span></div>` : ''}</div><div class="gov-actions">${actionButton('view-version', 'View JSON', ids)}${actionButton('simulate', 'Simulate', ids, simMatches ? 'ghost' : 'primary')}${access.capabilities.review && review.status === 'pending' ? actionButton('claim-review', 'Claim review', ids) + actionButton('approve', 'Approve', ids) + actionButton('reject', 'Reject', ids, 'ghost') : ''}${access.capabilities.activate ? actionButton('activate', 'Activate', ids, 'primary', !eligible, eligible ? '' : 'Run an eligible fresh simulation first') : ''}</div></article>`;
+      return `<article class="card gov-version-row"><div class="gov-row-main"><div class="gov-row-title"><strong>${escapeHtml(version.policyKey)} v${count(version.versionNumber)}</strong>${badge(review.status || 'pending')}</div><span>${escapeHtml(reviewSummary(review))}</span><small>${escapeHtml(formatTime(version.createdAt))} · ${escapeHtml(hashShort(version.documentHash))}</small>${simMatches ? `<div class="gov-inline-result">${badge(eligible ? 'approved' : 'warn', eligible ? 'Simulation eligible' : 'Simulation blocked')}<span>${escapeHtml(hashShort(asObject(sim.report).simulationHash))}</span></div>` : ''}</div><div class="gov-actions">${actionButton('view-version', 'View JSON', ids)}${actionButton('simulate', 'Simulate', ids, simMatches ? 'ghost' : 'primary')}${access.capabilities.review && review.status === 'pending' ? actionButton('claim-review', 'Claim review', ids) + actionButton('approve', 'Approve', ids) + actionButton('reject', 'Reject', ids, 'ghost') : ''}${access.capabilities.activate ? actionButton('activate', 'Activate', ids, 'primary', !eligible, eligible ? '' : 'Run an eligible fresh simulation first') : ''}${access.capabilities.author ? actionButton('withdraw-version', 'Withdraw', { ...ids, 'version-number': count(version.versionNumber) }, 'ghost') : ''}</div></article>`;
     }).join('')}</div></section>`;
   }
   function renderExceptions(twin, access) {
@@ -181,7 +189,7 @@
     const decisions = asArray(history.decisions);
     const verify = asObject(verification);
     return `<section class="gov-section" aria-labelledby="govHistoryTitle"><div class="gov-section-head"><div><h3 id="govHistoryTitle">Evidence history</h3><p>Activation and runtime decision references from the immutable ledger.</p></div><div class="gov-actions">${actionButton('verify-chain', verify.valid === true && verify.complete === true ? 'Chain verified' : 'Verify chain')}${history.nextDecisionSeq != null ? actionButton('load-more-decisions', 'Load more', { 'after-seq': history.nextDecisionSeq }) : ''}</div></div>${verify.valid != null ? `<div class="gov-banner ${verify.valid ? 'ok' : 'danger'}" role="status">${verify.valid ? (verify.complete === true ? 'Decision chain verified' : 'Decision chain valid through the configured verification limit') : 'Decision chain verification failed'}${verify.checked != null ? ` · ${count(verify.checked)} records checked` : ''}</div>` : ''}
-      <div class="gov-history-grid"><div class="card"><h4>Activations</h4>${activations.length ? `<ol class="gov-timeline">${activations.map(item => `<li><span class="gov-time">${escapeHtml(formatTime(item.createdAt))}</span><strong>${escapeHtml(human(item.action))}</strong><small>${escapeHtml(item.actorLogin)} · ${escapeHtml(String(item.versionId || '').slice(0, 8))}</small>${access.capabilities.activate ? actionButton('rollback', 'Rollback to version', { 'policy-id': item.policyId, 'version-id': item.versionId }) : ''}</li>`).join('')}</ol>` : '<p class="gov-muted">No activation history.</p>'}</div>
+      <div class="gov-history-grid"><div class="card"><h4>Activations</h4>${activations.length ? `<ol class="gov-timeline">${activations.map(item => `<li><span class="gov-time">${escapeHtml(formatTime(item.createdAt))}</span><strong>${escapeHtml(item.action === 'deactivate' ? 'Switched off' : human(item.action))}</strong><small>${escapeHtml(item.actorLogin)} · ${escapeHtml(String(item.versionId || '').slice(0, 8))}</small>${access.capabilities.activate ? actionButton('rollback', item.action === 'deactivate' ? 'Turn this version back on' : 'Rollback to version', { 'policy-id': item.policyId, 'version-id': item.versionId }) : ''}</li>`).join('')}</ol>` : '<p class="gov-muted">No activation history.</p>'}</div>
       <div class="card"><h4>Runtime decisions</h4>${decisions.length ? `<ol class="gov-timeline">${decisions.map(item => `<li><span class="gov-time">${escapeHtml(formatTime(item.evaluatedAt))}</span><strong>${escapeHtml(item.action)}</strong><small>${escapeHtml(human(item.enforcementOutcome))} · ${escapeHtml(human(item.effectiveEffect))} · ${escapeHtml(hashShort(item.decisionHash))}</small></li>`).join('')}</ol>` : '<p class="gov-muted">No runtime decisions.</p>'}</div></div>
     </section>`;
   }
@@ -203,6 +211,38 @@
     </section>`;
   }
 
+  /*
+   * Archived policies: out of the way, not gone. Each keeps its versions and
+   * history and can come back -- switched off, so returning to enforcement is
+   * still a deliberate, simulated step.
+   */
+  function renderArchived(archivedInput, access) {
+    const archived = asArray(archivedInput);
+    if (!archived.length) return '';
+    return `<section class="gov-section" aria-labelledby="govArchivedTitle"><details class="card gov-archived">
+      <summary><span id="govArchivedTitle" class="gov-archived-title">Archived policies</span>${badge('neutral', String(archived.length))}</summary>
+      <p class="gov-muted">Archived policies enforce nothing. Their versions and evidence are kept, and restoring one brings it back switched off.</p>
+      <div class="gov-list">${archived.map(item => `<article class="gov-row"><div class="gov-row-main"><strong>${escapeHtml(item.name || item.policyKey)}</strong><span class="mono">${escapeHtml(item.policyKey)}</span><small>Archived ${escapeHtml(formatTime(item.archivedAt))} · ${count(item.versionCount)} version${count(item.versionCount) === 1 ? '' : 's'}${item.keyInUse ? ' · a current policy uses this key' : ''}</small></div><div class="gov-actions">${access.capabilities.administer ? actionButton('restore-policy', 'Restore', { 'policy-id': item.policyId, name: item.name || item.policyKey }, 'ghost', item.keyInUse === true, item.keyInUse ? 'Archive or rename the current policy with this key first' : '') : ''}</div></article>`).join('')}</div>
+    </details></section>`;
+  }
+  /*
+   * The reset, kept apart from everything else on the page and spelled out
+   * before it is offered: what stops, what is kept, and that it can be undone
+   * policy by policy.
+   */
+  function renderDangerZone(twin, access) {
+    if (!access.capabilities.administer) return '';
+    const current = asObject(twin.current);
+    const total = count(current.policyCount);
+    if (!total) return '';
+    const running = count(current.activePolicyCount);
+    return `<section class="gov-section" aria-labelledby="govResetTitle"><article class="card gov-danger-zone">
+      <div class="gov-danger-copy"><h3 id="govResetTitle">Reset governance</h3>
+        <p>Switches off and archives all ${total} ${total === 1 ? 'policy' : 'policies'}${running ? ` (${running} running now)` : ''}. Enforcement stops at once. The evidence ledger, signed exports, webhooks and notification settings are kept, and every policy can be restored afterwards.</p></div>
+      ${actionButton('reset-governance', 'Reset governance…', { total, running }, 'ghost danger')}
+    </article></section>`;
+  }
+
   function renderGovernanceInterface(input = {}) {
     if (input.loading) return renderLoading();
     if (input.error) return renderError(input.error);
@@ -219,12 +259,14 @@
       ${access.evidence.status !== 'current' ? `<div class="gov-banner danger" role="alert"><strong>Authorization evidence ${escapeHtml(access.evidence.status)}</strong><span>Governance actions are disabled until repository permissions are refreshed.</span></div>` : ''}
       <div class="gov-access-line"><span>Signed in as <b>${escapeHtml(access.actor.login || 'unknown')}</b></span><span>${escapeHtml(access.execution.kind === 'installation' ? 'GitHub App execution · human governance actor' : human(access.execution.authMethod || 'user session'))}</span></div>
       ${renderSummary(twin)}
-      ${noPolicies ? renderEmpty(access) : renderPolicies(twin, access)}
+      ${noPolicies ? renderEmpty(access, asArray(input.archived).length) : renderPolicies(twin, access)}
       ${renderDrafts(twin, access)}
       ${renderProposed(twin, access, input.simulation)}
       ${renderExceptions(twin, access)}
       ${renderHistory(twin, access, input.verification)}
+      ${renderArchived(input.archived, access)}
       ${renderDelivery(input.delivery, access)}
+      ${renderDangerZone(twin, access)}
       <footer class="gov-foot"><span>Read-model hash</span><code>${escapeHtml(hashShort(twin.readModelHash))}</code></footer>
     </section>`;
   }

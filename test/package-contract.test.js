@@ -698,7 +698,7 @@ const unitGateChain = [
 /* test:multi-instance wants the same live PostgreSQL, for the same reason and
    under the same terms: it starts two real server processes against one
    database, which is the one claim no fake can settle. */
-const externallyGatedScripts = ['test:migrations', 'test:multi-instance', 'test:exposure-store'];
+const externallyGatedScripts = ['test:migrations', 'test:multi-instance', 'test:exposure-store', 'test:governance-lifecycle'];
 const workflow = read('.github/workflows/ci.yml');
 for (const script of externallyGatedScripts) {
   assert(pkg.scripts[script], `externally gated script is missing: ${script}`);

@@ -2,6 +2,86 @@
 
 ## Unreleased
 
+### Neural: A Graph You Can Read, and Cards Where You Click
+
+The graph was glowing spheres on a starfield with letters for icons, labels
+only on hover, and details in a panel that on most screens sat below the
+graph, out of sight of the node that was pressed.
+
+- **Panels around a hub.** The repository is a hub carrying the product mark;
+  every group is a panel with its icon, name and count, one row per member,
+  critical first. Two columns either side of the hub on a wide stage, groups
+  keeping their side by meaning; one column beside a spine on a phone. A
+  panel shows six rows and folds the rest behind `+ n more`.
+- **Strands in the group's colour.** Each row is joined to the hub by a
+  glowing strand in its group's colour; a critical node's strand turns red and
+  carries a signal. Severity is also a ring colour and a rim badge on the row.
+  Every change of mode, filter or search moves the graph smoothly instead of
+  redrawing it.
+- **Cards where you click.** Pressing a row opens its card beside the panel,
+  joined to the row by a line, with its facts, connections (each one a button
+  that moves there) and actions. On a phone it is a sheet. The rest of the
+  graph dims to the node's neighbourhood and its links animate toward it.
+  Pressing a panel's header lights and frames the group. Dragging always moves
+  the stage; rows never leave their panels.
+- **Groups on screen, organised.** The side panel lists the groups under
+  Access, Code, Delivery, Supply chain and Protection, each with its icon,
+  critical and warning counts and count; pressing one lights and frames it,
+  its eye hides it from the graph (remembered in this browser), and **Open
+  all**, **Fold all** and **Show all** manage every group at once. Zoom
+  buttons join the tools.
+- **Large repositories.** An opened group pages ten rows at a time
+  (`‹ 11–20 of 60 ›`, or Page Up and Page Down), and selecting a node on
+  another page turns to it. Where the repository has more than the graph
+  holds, the panel says `60/312`; the branches kept are the default, working
+  and protected ones first. Fits stop at a readable zoom, and a minimap shows
+  the whole graph and moves the stage when pressed.
+- **Lighter to run.** The graph is drawn only when it changes; a separate
+  effects layer animates the signals at half rate once it rests, and nothing
+  is drawn while paused, hidden or scrolled away. At rest it uses about a
+  quarter of the CPU it did. The dark ground is a deeper navy with faint
+  clouds and a vignette, painted once in CSS.
+- **Keyboard.** Arrow keys walk the graph, Enter opens the card, Escape closes
+  it, and every move is announced.
+
+### Governance: Switch Off, Archive, Restore, Reset
+
+A policy could be created, reviewed, activated and rolled back, and nothing
+else: there was no way to switch one off, set one aside, throw away a draft,
+take back a version, or clear a repository and start again. Now there is, and
+the history stays append-only through all of it.
+
+- **Switch off** stops a policy being enforced at once; **Turn v*n* back on**
+  returns the version that was running, through the rollback workflow with a
+  fresh simulation.
+- **Archive** takes a policy out of the Digital Twin (switching it off first if
+  it is running) and frees its key; **Archived policies** lists them and
+  **Restore** brings one back, switched off.
+- **Discard** a draft and **Withdraw** a version that never ran; authors for
+  their own, administrators for anybody's.
+- **Reset governance** switches off and archives every policy in one
+  transaction, after step-up re-authentication and the repository name typed.
+  The ledger, exports, webhooks and notification settings are kept, and every
+  policy can be restored.
+- Five new ledger events (`policy.deactivated`, `policy.archived`,
+  `policy.restored`, `draft.discarded`, `version.withdrawn`) reach
+  notifications and webhooks. Control catalog **1.5.0** maps the six new
+  actions; 1.4.0 is unchanged.
+- Migration **028** admits `deactivate` in the activation history, makes policy
+  keys unique among live policies only, adds the append-only
+  `nv_governance_version_withdrawals` table, and widens the event-type limits.
+  `npm run test:governance-lifecycle` exercises all of it against PostgreSQL.
+- Reference: `docs/reference/governance-lifecycle.md`.
+
+### Security Surfaces Grouped Together
+
+Neural, Governance, Exposure and Safeguards now sit together under
+**Security** in the phone menu and the sidebar, in the same order in both.
+Safeguards had been nine rows away from the other three, between "Delete
+repository" and Settings. The phone menu is grouped into Repository, Security
+and Workspace, and Safeguards has its own lock icon instead of Governance's
+shield.
+
 ### Exposure: History, Encoded Credentials, Archives, and Many More Checks
 
 A credential deleted in the commit after the one that added it is still in the

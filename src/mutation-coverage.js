@@ -79,6 +79,12 @@ const ACTION_EXECUTION_CONTRACTS = deepFreeze({
   'governance.exception.request': DEFAULT_GOVERNANCE,
   'governance.exception.decide': DEFAULT_GOVERNANCE,
   'governance.exception.revoke': DEFAULT_GOVERNANCE,
+  'governance.policy.deactivate': DEFAULT_GOVERNANCE,
+  'governance.policy.archive': DEFAULT_GOVERNANCE,
+  'governance.policy.restore': DEFAULT_GOVERNANCE,
+  'governance.draft.discard': DEFAULT_GOVERNANCE,
+  'governance.version.withdraw': DEFAULT_GOVERNANCE,
+  'governance.reset': DEFAULT_GOVERNANCE,
   /*
    * Exposure actions are governance-shaped: they record a decision or start a
    * read, and none of them writes to a provider. The contract is the same one
@@ -166,6 +172,12 @@ const MUTATION_ROUTE_INVENTORY = deepFreeze([
   route('POST', '/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions', 'governance.exception.request'),
   route('POST', '/api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision', 'governance.exception.decide'),
   route('POST', '/api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke', 'governance.exception.revoke'),
+  route('POST', '/api/repo/:owner/:repo/governance/policies/:policyId/deactivate', 'governance.policy.deactivate'),
+  route('POST', '/api/repo/:owner/:repo/governance/policies/:policyId/archive', 'governance.policy.archive'),
+  route('POST', '/api/repo/:owner/:repo/governance/policies/:policyId/restore', 'governance.policy.restore'),
+  route('DELETE', '/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId', 'governance.draft.discard'),
+  route('POST', '/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw', 'governance.version.withdraw'),
+  route('POST', '/api/repo/:owner/:repo/governance/reset', 'governance.reset'),
   route('PUT', '/api/repo/:owner/:repo/governance/notifications/preferences', 'governance.notification.preferences.update'),
   route('POST', '/api/repo/:owner/:repo/governance/notifications/read', 'governance.notification.read'),
   route('POST', '/api/repo/:owner/:repo/governance/webhooks', 'governance.webhook.create'),

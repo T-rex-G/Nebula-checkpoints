@@ -161,8 +161,17 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * counts by the narration table's severity; the clear checks a confirmation
  * word and calls one store method, whose transaction is where every decision
  * about what is removed lives and is tested against a real database.
+ *
+ * 159 to 166 adds the governance lifecycle: switching a policy off, archiving,
+ * restoring, discarding a draft, withdrawing a version, resetting a repository,
+ * and listing what was archived. Each handler passes the scope, the verified
+ * authorization and the request body to one method of the governance service
+ * and returns what it answers. The role is checked twice, here and in the
+ * service; every decision -- what may be switched off, whether a key is free,
+ * whose draft it is, what a reset touches -- is in `src/governance-api.js` and
+ * `src/governance-store.js`, and is tested against a real database.
  */
-const SERVER_ROUTE_CEILING = 159;
+const SERVER_ROUTE_CEILING = 166;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

@@ -1046,7 +1046,7 @@ test.describe('the rail', () => {
     const rail = page.getByRole('navigation', { name: 'Primary' });
 
     /*
-     * The two tabs that are applications rather than views.
+     * The tabs that are applications rather than views.
      *
      * Named here rather than derived, because the first attempt to derive them
      * -- any tab carrying a capability gate -- swept in Push files, which is a
@@ -1057,7 +1057,7 @@ test.describe('the rail', () => {
      * commits, issues, releases and the rest are views over provider data.
      * That is a product decision, so it is written down rather than guessed at.
      */
-    const promoted = ['neural', 'governance'];
+    const promoted = ['neural', 'governance', 'exposure'];
     for (const name of promoted) {
       const entry = rail.locator(`[data-rail="${name}"]`);
       await expect(entry, `${name} is an application of its own and has no rail entry`).toHaveCount(1);
@@ -1133,7 +1133,8 @@ test('the graph filter and the policy destination do not share a name', async ({
 test.describe('destination names', () => {
   const DESTINATIONS = [
     { tab: 'neural', name: 'Neural' },
-    { tab: 'governance', name: 'Governance' }
+    { tab: 'governance', name: 'Governance' },
+    { tab: 'exposure', name: 'Exposure' }
   ];
 
   test('every control that leads to a destination calls it the same thing', async ({ page }) => {
@@ -1182,4 +1183,41 @@ test.describe('destination names', () => {
       await expect(page.locator(`#tab-${tab}.active`)).toBeVisible();
     }
   });
+});
+
+/*
+ * The security surfaces are one set.
+ *
+ * Safeguards sat in the phone menu between "Delete repository" and Settings,
+ * nine rows away from Neural, Governance and Exposure, so a reader who had
+ * found one of the four had no reason to think the others existed. The menu
+ * and the rail now group them, in one order, under one name. The guard is on
+ * adjacency and order, not on styling: whatever the group looks like, the four
+ * have to be the four entries under it.
+ */
+test('the security entries sit together, in the same order, in the menu and the rail', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor();
+
+  const groups = await page.evaluate(() => {
+    const sheet = [...document.querySelectorAll('#sheet > .sheet-label, #sheet > .sheet-item')];
+    const at = sheet.findIndex(node => node.classList.contains('sheet-label') && node.textContent.trim() === 'Security');
+    const menu = [];
+    for (const node of sheet.slice(at + 1)) {
+      if (!node.classList.contains('sheet-item')) break;
+      menu.push(node.dataset.act);
+    }
+    const list = document.querySelector('#navRail [aria-labelledby="railSecurityLabel"]');
+    return {
+      menu,
+      rail: list ? [...list.querySelectorAll('[data-rail]')].map(node => node.dataset.rail) : [],
+      railLabel: (document.getElementById('railSecurityLabel') || {}).textContent
+    };
+  });
+
+  const expected = ['neural', 'governance', 'exposure', 'safeguards'];
+  expect(groups.menu).toEqual(expected);
+  expect(groups.rail).toEqual(expected);
+  expect(groups.railLabel).toBe('Security');
 });

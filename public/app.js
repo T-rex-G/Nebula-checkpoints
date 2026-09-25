@@ -2429,7 +2429,7 @@ function applyGovernanceCapabilityBoundary(root) {
 function clearGovernanceState() {
   if (governanceExpiryTimer) clearTimeout(governanceExpiryTimer);
   governanceExpiryTimer = null;
-  state.governance = { digitalTwin: null, access: null, loading: false, error: '', simulation: null, verification: null, scopeKey: '', decisionPages: [], delivery: { notifications: { events: [] }, preferences: {}, exports: [], webhooks: [], error: '' } };
+  state.governance = { digitalTwin: null, access: null, loading: false, error: '', simulation: null, verification: null, scopeKey: '', decisionPages: [], archived: [], delivery: { notifications: { events: [] }, preferences: {}, exports: [], webhooks: [], error: '' } };
   const root = $('#govRoot');
   if (root && window.NebulaGovernanceUI) root.innerHTML = window.NebulaGovernanceUI.renderGovernanceInterface({ loading: true });
   const live = $('#govLive');
@@ -3738,7 +3738,8 @@ function renderGovernanceInterface() {
     error: state.governance.error,
     simulation: state.governance.simulation,
     verification: state.governance.verification,
-    delivery: state.governance.delivery
+    delivery: state.governance.delivery,
+    archived: state.governance.archived
   });
   applyGovernanceCapabilityBoundary(root);
 }
@@ -3766,7 +3767,7 @@ async function loadGovernanceTwin(force = false) {
       state.governance.verification = null;
       state.governance.decisionPages = [];
     }
-    await loadGovernanceDelivery();
+    await Promise.all([loadGovernanceDelivery(), loadGovernanceArchive()]);
     announceGovernance('Policy Digital Twin and delivery evidence refreshed');
   } catch (error) {
     state.governance.error = error.message || 'Policy Digital Twin could not be loaded';
@@ -3795,6 +3796,17 @@ async function loadGovernanceDelivery() {
     error: errors.join(' · ')
   };
   renderGovernanceInterface();
+}
+
+/* Archived policies are a separate read: the twin is the governed present, and
+   an archived policy is by definition not part of it. */
+async function loadGovernanceArchive() {
+  try {
+    const response = await api(`${governanceBasePath()}/archive`);
+    state.governance.archived = Array.isArray(response.policies) ? response.policies : [];
+  } catch {
+    state.governance.archived = [];
+  }
 }
 
 async function verifyGovernanceDecisionChain() {
@@ -4029,7 +4041,7 @@ async function decideGovernanceReview(policyId, versionId, decision) {
   toast(`Policy version ${decision === 'approve' ? 'approved' : 'rejected'}`, 'ok');
   await loadGovernanceTwin(true);
 }
-async function governanceActivateOrRollback(policyId, versionId, operation) {
+async function governanceActivateOrRollback(policyId, versionId, operation, wording = null) {
   let simulation = state.governance.simulation;
   if (!simulation || simulation.policyId !== policyId || simulation.versionId !== versionId || !simulation.report || !simulation.report.activationReadiness || simulation.report.activationReadiness.eligible !== true) {
     simulation = await simulateGovernanceVersion(policyId, versionId);
@@ -4037,9 +4049,9 @@ async function governanceActivateOrRollback(policyId, versionId, operation) {
   if (!simulation || !simulation.report.activationReadiness.eligible) throw new Error('An eligible fresh simulation is required');
   const policy = governancePolicy(policyId) || (await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}`)).policy;
   const ok = await modal({
-    title: operation === 'rollback' ? 'Rollback active policy?' : 'Activate policy version?', danger: true,
-    okText: operation === 'rollback' ? 'Rollback' : 'Activate',
-    bodyHTML: `<p>This changes the authoritative policy head after server-side evidence is recomputed.</p><label class="field-label" for="govActivationReason">Reason</label><textarea id="govActivationReason" rows="5"></textarea>`
+    title: wording ? wording.title : operation === 'rollback' ? 'Rollback active policy?' : 'Activate policy version?', danger: true,
+    okText: wording ? wording.okText : operation === 'rollback' ? 'Rollback' : 'Activate',
+    bodyHTML: `<p>${wording ? esc(wording.body) : 'This changes the authoritative policy head after server-side evidence is recomputed.'}</p><label class="field-label" for="govActivationReason">Reason</label><textarea id="govActivationReason" rows="5"></textarea>`
   });
   if (!ok) return;
   await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/versions/${encodeURIComponent(versionId)}/${operation}`, {
@@ -4153,6 +4165,124 @@ async function deleteGovernanceWebhook(webhookId) {
   await loadGovernanceDelivery();
 }
 
+/*
+ * The rest of a policy's life. Each of these asks for a reason where the
+ * ledger will keep one, says what happens and what is kept before it happens,
+ * and reloads the twin afterwards so the page shows the server's answer rather
+ * than a guess at it.
+ */
+function governanceReason(selector) {
+  const reason = ($(selector) && $(selector).value || '').trim();
+  if (!reason) throw new Error('A reason is required; it is kept in the governance ledger.');
+  return reason;
+}
+function governancePolicyName(policyId) {
+  const policy = governancePolicy(policyId);
+  return policy ? (policy.name || policy.policyKey) : 'this policy';
+}
+async function deactivateGovernancePolicy(policyId, revision, versionNumber) {
+  const name = governancePolicyName(policyId);
+  const ok = await modal({
+    title: `Switch off ${name}?`, danger: true, okText: 'Switch off',
+    bodyHTML: `<p>Enforcement stops at once for every action this policy covers, and approved exceptions on it end. Version v${esc(versionNumber)} stays in the history; turning it back on later takes a fresh simulation.</p>
+      <label class="field-label" for="govLifecycleReason">Reason</label><textarea id="govLifecycleReason" rows="4"></textarea>`
+  });
+  if (!ok) return;
+  await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/deactivate`, {
+    method: 'POST', headers: governanceHeaders('policy-deactivate'),
+    body: { expectedRevision: Number(revision), reason: governanceReason('#govLifecycleReason') }
+  });
+  toast(`${name} switched off`, 'ok');
+  await loadGovernanceTwin(true);
+}
+async function reactivateGovernancePolicy(policyId, versionId) {
+  const name = governancePolicyName(policyId);
+  await governanceActivateOrRollback(policyId, versionId, 'rollback', {
+    title: `Turn ${name} back on?`, okText: 'Turn back on',
+    body: 'The version that was running when it was switched off becomes active again, checked against a fresh simulation.'
+  });
+}
+async function archiveGovernancePolicy(policyId, revision, active) {
+  const name = governancePolicyName(policyId);
+  const ok = await modal({
+    title: `Archive ${name}?`, danger: true, okText: 'Archive',
+    bodyHTML: `<p>${active ? 'It is switched off first, so enforcement stops at once. ' : ''}The policy leaves this list and enforces nothing. Its versions, drafts and history are kept, and you can restore it from Archived policies.</p>
+      <label class="field-label" for="govLifecycleReason">Reason</label><textarea id="govLifecycleReason" rows="4"></textarea>`
+  });
+  if (!ok) return;
+  await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/archive`, {
+    method: 'POST', headers: governanceHeaders('policy-archive'),
+    body: { expectedRevision: Number(revision), reason: governanceReason('#govLifecycleReason') }
+  });
+  toast(`${name} archived`, 'ok');
+  await loadGovernanceTwin(true);
+}
+async function restoreGovernancePolicy(policyId, name) {
+  const ok = await modal({
+    title: `Restore ${name}?`, okText: 'Restore',
+    bodyHTML: `<p>It comes back switched off, with its versions and history. Turning it on again is a separate step with a fresh simulation.</p>
+      <label class="field-label" for="govLifecycleReason">Reason</label><textarea id="govLifecycleReason" rows="4"></textarea>`
+  });
+  if (!ok) return;
+  await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/restore`, {
+    method: 'POST', headers: governanceHeaders('policy-restore'),
+    body: { reason: governanceReason('#govLifecycleReason') }
+  });
+  toast(`${name} restored, switched off`, 'ok');
+  await loadGovernanceTwin(true);
+}
+async function discardGovernanceDraft(policyId, draftId, revision) {
+  const ok = await modal({
+    title: `Discard draft r${esc(revision)}?`, danger: true, okText: 'Discard draft',
+    bodyHTML: '<p>The draft and its unsubmitted edits are deleted. Submitted versions are not affected, and the discard is recorded in the governance ledger.</p>'
+  });
+  if (!ok) return;
+  await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/drafts/${encodeURIComponent(draftId)}`, {
+    method: 'DELETE', headers: governanceHeaders('draft-discard'), body: { expectedRevision: Number(revision) }
+  });
+  toast('Draft discarded', 'ok');
+  await loadGovernanceTwin(true);
+}
+async function withdrawGovernanceVersion(policyId, versionId, versionNumber) {
+  const ok = await modal({
+    title: `Withdraw v${esc(versionNumber)}?`, danger: true, okText: 'Withdraw version',
+    bodyHTML: `<p>Reviewers can no longer review it and it can never be activated. It stays in the history as withdrawn.</p>
+      <label class="field-label" for="govLifecycleReason">Reason</label><textarea id="govLifecycleReason" rows="4"></textarea>`
+  });
+  if (!ok) return;
+  await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/versions/${encodeURIComponent(versionId)}/withdraw`, {
+    method: 'POST', headers: governanceHeaders('version-withdraw'), body: { reason: governanceReason('#govLifecycleReason') }
+  });
+  toast(`v${versionNumber} withdrawn`, 'ok');
+  await loadGovernanceTwin(true);
+}
+async function resetGovernance(total, running) {
+  const owner = state.work.owner, repo = state.work.repo;
+  const name = `${owner}/${repo}`;
+  const ok = await modal({
+    title: `Reset governance for ${name}?`, danger: true, okText: 'Reset governance',
+    bodyHTML: `<ul class="gov-reset-list">
+        <li>All ${esc(total)} ${Number(total) === 1 ? 'policy is' : 'policies are'} switched off and archived${Number(running) ? ` — ${esc(running)} running now` : ''}.</li>
+        <li>Enforcement stops at once, and approved exceptions end.</li>
+        <li>Kept: the evidence ledger, signed exports, webhooks and notification settings.</li>
+        <li>Every policy can be restored afterwards from Archived policies.</li>
+      </ul>
+      <label class="field-label" for="govLifecycleReason">Reason</label><textarea id="govLifecycleReason" rows="3"></textarea>
+      <label class="field-label" for="govResetConfirm">Type <span class="mono">${esc(name)}</span> to confirm</label><input id="govResetConfirm" type="text" autocomplete="off" spellcheck="false" placeholder="${escAttr(name)}">`
+  });
+  if (!ok) return;
+  const reason = governanceReason('#govLifecycleReason');
+  const confirm = ($('#govResetConfirm').value || '').trim();
+  if (confirm.toLowerCase() !== name.toLowerCase()) throw new Error(`Type ${name} exactly to reset its governance.`);
+  const result = await stepUpApi('governance.reset', { owner, repo }, `${governanceBasePath()}/reset`, {
+    method: 'POST', headers: governanceHeaders('reset'), body: { reason, confirm }
+  }, 'Reset repository governance');
+  if (!result) return;
+  const reset = result.reset || {};
+  toast(`Governance reset: ${Number(reset.archivedCount || 0)} archived, ${Number(reset.deactivatedCount || 0)} switched off`, 'ok');
+  await loadGovernanceTwin(true);
+}
+
 const governanceActionHandlers = Object.freeze({
   refresh: () => loadGovernanceTwin(true),
   'create-policy': () => createGovernancePolicy(),
@@ -4183,7 +4313,14 @@ const governanceActionHandlers = Object.freeze({
   'verify-export': button => verifyGovernanceExport(button.dataset.exportId),
   'create-webhook': () => createGovernanceWebhook(),
   'rotate-webhook': button => rotateGovernanceWebhook(button.dataset.webhookId),
-  'delete-webhook': button => deleteGovernanceWebhook(button.dataset.webhookId)
+  'delete-webhook': button => deleteGovernanceWebhook(button.dataset.webhookId),
+  'deactivate-policy': button => deactivateGovernancePolicy(button.dataset.policyId, button.dataset.revision, button.dataset.versionNumber),
+  'reactivate-policy': button => reactivateGovernancePolicy(button.dataset.policyId, button.dataset.versionId),
+  'archive-policy': button => archiveGovernancePolicy(button.dataset.policyId, button.dataset.revision, button.dataset.active === 'true'),
+  'restore-policy': button => restoreGovernancePolicy(button.dataset.policyId, button.dataset.name || 'this policy'),
+  'discard-draft': button => discardGovernanceDraft(button.dataset.policyId, button.dataset.draftId, button.dataset.revision),
+  'withdraw-version': button => withdrawGovernanceVersion(button.dataset.policyId, button.dataset.versionId, button.dataset.versionNumber),
+  'reset-governance': button => resetGovernance(button.dataset.total, button.dataset.running)
 });
 const governanceRoot = $('#govRoot');
 if (governanceRoot) governanceRoot.addEventListener('click', async event => {
@@ -5452,12 +5589,12 @@ function paintRail(name) {
   rail.hidden = !RAIL_SCREENS.has(name);
   const activeTab = ($('.tabpane.active') || {}).id || '';
   /*
-   * Two of the workbench's tabs are destinations in their own right rather
+   * Three of the workbench's tabs are destinations in their own right rather
    * than views of the file it has open, and the rail offers them as such -- so
    * when one of them is what the reader is looking at, the rail marks that
    * entry rather than the workbench it technically sits inside.
    */
-  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance' };
+  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance', 'tab-exposure': 'exposure' };
   const shown = name === 'work' && promoted[activeTab] ? promoted[activeTab] : name;
   $$('.nv-rail-item').forEach(item => {
     const current = item.dataset.rail === shown;
@@ -5543,8 +5680,9 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   if (target === 'repos') return showPage('repos');
   if (!state.work) return toast('Open a repository first.', 'err');
   showPage('work');
-  if (target === 'neural' || target === 'governance') switchTab(target);
+  if (target === 'neural' || target === 'governance' || target === 'exposure') switchTab(target);
   else paintRail('work');
+  if (target === 'safeguards') openSafeguards();
 }));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {

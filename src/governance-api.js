@@ -171,15 +171,53 @@ function assertActivationInput(input) {
   return deepFreeze({ expectedRevision, reason, simulationHash, simulationRequest: simulation.request });
 }
 
-function assertRequiredIdempotencyKey(value) {
+function assertRequiredIdempotencyKey(value, label = 'Activation and rollback') {
   const key = String(value == null ? '' : value).trim();
   if (!key) {
-    fail('Activation and rollback require an Idempotency-Key', 'GOVERNANCE_IDEMPOTENCY_KEY_REQUIRED', 400);
+    fail(`${label} require an Idempotency-Key`, 'GOVERNANCE_IDEMPOTENCY_KEY_REQUIRED', 400);
   }
   if (key.length < 8 || key.length > 200 || /[\u0000-\u001f\u007f]/.test(key)) {
     fail('Idempotency-Key must contain 8 to 200 printable characters', 'GOVERNANCE_IDEMPOTENCY_KEY_INVALID', 400);
   }
   return key;
+}
+
+/*
+ * Input for the lifecycle operations. Same rule as activation: the body says
+ * what to do and why; who is doing it, and with what authority, comes from the
+ * verified session and is refused if the body tries to say it.
+ */
+function assertLifecycleInput(input, allowedFields) {
+  const body = input == null ? {} : input;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    fail('Governance lifecycle input must be a JSON object', 'GOVERNANCE_LIFECYCLE_INPUT_INVALID', 400);
+  }
+  const proto = Object.getPrototypeOf(body);
+  if (proto !== Object.prototype && proto !== null) {
+    fail('Governance lifecycle input must be a plain JSON object', 'GOVERNANCE_LIFECYCLE_INPUT_INVALID', 400);
+  }
+  const allowed = new Set(allowedFields);
+  const forbidden = new Set([
+    'actor', 'actorIdentityKey', 'actorLogin', 'role', 'roles', 'accessLevel',
+    'permissions', 'installationPermissions', 'authorization', 'authorizationEvidence', 'allowOthers'
+  ]);
+  for (const key of Object.keys(body)) {
+    if (forbidden.has(key)) fail('Governance identity and authority are derived by the server', 'GOVERNANCE_LIFECYCLE_IDENTITY_FORBIDDEN', 400);
+    if (!allowed.has(key)) fail('Governance lifecycle input contains an unsupported field', 'GOVERNANCE_LIFECYCLE_INPUT_INVALID', 400);
+  }
+  const result = {};
+  if (allowed.has('expectedRevision')) {
+    const expectedRevision = Number(body.expectedRevision);
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) fail('Expected revision is invalid', 'GOVERNANCE_REVISION_INVALID', 400);
+    result.expectedRevision = expectedRevision;
+  }
+  if (allowed.has('reason')) {
+    const reason = String(body.reason == null ? '' : body.reason).trim();
+    if (!reason || reason.length > 4000 || /[\x00-\x1f\x7f]/.test(reason)) fail('A reason is required', 'GOVERNANCE_LIFECYCLE_REASON_INVALID', 400);
+    result.reason = reason;
+  }
+  if (allowed.has('confirm')) result.confirm = String(body.confirm == null ? '' : body.confirm).trim();
+  return deepFreeze(result);
 }
 
 function exceptionAuthorizationEvidence(authorization) {
@@ -261,6 +299,13 @@ function requireStore(store) {
 
 function createGovernanceApiService(options = {}) {
   const store = requireStore(options.store);
+  /* The lifecycle methods are looked up when used rather than demanded up
+   * front, so a store written before them still builds a service for
+   * everything else. */
+  const lifecycleStore = name => {
+    if (typeof store[name] !== 'function') fail('This governance operation is not available', 'GOVERNANCE_OPERATION_UNAVAILABLE', 501);
+    return input => store[name](input);
+  };
   const now = typeof options.now === 'function' ? options.now : Date.now;
   const resolveRepositoryFacts = typeof options.resolveRepositoryFacts === 'function'
     ? options.resolveRepositoryFacts
@@ -739,6 +784,86 @@ function createGovernanceApiService(options = {}) {
     async listActivationHistory(input = {}) {
       const context = authorize(input, 'reader');
       return store.listActivationHistory({ policyId: input.policyId, scope: context.scope, limit: input.limit });
+    },
+
+    /*
+     * The lifecycle. Switching a policy off takes the activator role, like
+     * switching one on; setting policies aside, bringing them back and clearing
+     * a repository take the administrator role. Authors can throw away their
+     * own drafts and take back their own versions; an administrator can do
+     * either for anybody, which is how stale work gets cleaned up.
+     */
+    async deactivatePolicy(input = {}) {
+      const context = authorize(input, 'activator');
+      const body = assertLifecycleInput(input.input, ['expectedRevision', 'reason']);
+      const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey, 'Switching a policy off and archiving it');
+      return lifecycleStore('deactivatePolicy')({
+        policyId: input.policyId, scope: context.scope, actor: context.actor,
+        authorizationEvidence: activatorAuthorizationEvidence(context.authorization),
+        expectedRevision: body.expectedRevision, reason: body.reason, idempotencyKey
+      });
+    },
+
+    async archivePolicy(input = {}) {
+      const context = authorize(input, 'administrator');
+      const body = assertLifecycleInput(input.input, ['expectedRevision', 'reason']);
+      const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey, 'Switching a policy off and archiving it');
+      return lifecycleStore('archivePolicy')({
+        policyId: input.policyId, scope: context.scope, actor: context.actor,
+        authorizationEvidence: activatorAuthorizationEvidence(context.authorization),
+        expectedRevision: body.expectedRevision, reason: body.reason, idempotencyKey
+      });
+    },
+
+    async restorePolicy(input = {}) {
+      const context = authorize(input, 'administrator');
+      const body = assertLifecycleInput(input.input, ['reason']);
+      return lifecycleStore('restorePolicy')({
+        policyId: input.policyId, scope: context.scope, actor: context.actor,
+        reason: body.reason, idempotencyKey: input.idempotencyKey
+      });
+    },
+
+    async listArchivedPolicies(input = {}) {
+      const context = authorize(input, 'reader');
+      return lifecycleStore('listArchivedPolicies')({ scope: context.scope, limit: input.limit });
+    },
+
+    async discardDraft(input = {}) {
+      const context = authorize(input, 'author');
+      const body = assertLifecycleInput(input.input, ['expectedRevision']);
+      return lifecycleStore('discardDraft')({
+        policyId: input.policyId, draftId: input.draftId, scope: context.scope, actor: context.actor,
+        expectedRevision: body.expectedRevision, idempotencyKey: input.idempotencyKey,
+        allowOthers: context.authorization.governanceRoles.administrator === true
+      });
+    },
+
+    async withdrawVersion(input = {}) {
+      const context = authorize(input, 'author');
+      const body = assertLifecycleInput(input.input, ['reason']);
+      return lifecycleStore('withdrawVersion')({
+        policyId: input.policyId, versionId: input.versionId, scope: context.scope, actor: context.actor,
+        reason: body.reason, idempotencyKey: input.idempotencyKey,
+        allowOthers: context.authorization.governanceRoles.administrator === true
+      });
+    },
+
+    async resetGovernance(input = {}) {
+      const context = authorize(input, 'administrator');
+      const body = assertLifecycleInput(input.input, ['reason', 'confirm']);
+      const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey, 'A governance reset and its confirmation');
+      /* Typed, not clicked: the repository's own name, the same confirmation
+       * deleting the repository asks for. */
+      const expected = `${context.scope.owner}/${context.scope.repo}`.toLowerCase();
+      if (body.confirm.toLowerCase() !== expected) {
+        fail('Type the repository name exactly to reset its governance', 'GOVERNANCE_RESET_CONFIRMATION_REQUIRED', 400);
+      }
+      return lifecycleStore('resetGovernance')({
+        scope: context.scope, actor: context.actor,
+        authorizationEvidence: activatorAuthorizationEvidence(context.authorization),
+        reason: body.reason, idempotencyKey
+      });
     }
   });
 }

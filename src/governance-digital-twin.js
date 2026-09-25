@@ -95,6 +95,8 @@ function buildPolicyDigitalTwinReadModel(input = {}) {
       documentHash: hash(row.document_hash, 'Policy document hash'),
       createdAt: date(row.created_at, 'Policy version time'),
       review: reviewState(row),
+      withdrawn: row.withdrawn === true,
+      previouslyActive: row.previously_active === true,
       simulationEvidence: simulationHash ? {
         status: 'recorded-activation-evidence',
         simulationHash: hash(simulationHash, 'Simulation hash'),
@@ -125,7 +127,13 @@ function buildPolicyDigitalTwinReadModel(input = {}) {
         enforcementMode: ['observe','warn','block'].includes(row.active_enforcement_mode) ? row.active_enforcement_mode : 'observe'
       } : null,
       latestVersion: versions[0] || null,
-      versionCount: versions.length
+      versionCount: versions.length,
+      /* Switched off rather than never switched on: the version it was running
+       * when it was turned off, which is the one "turn it back on" offers. */
+      switchedOff: !activeVersionId && row.last_activation_action === 'deactivate' && row.last_activation_version_id ? {
+        versionId: uuid(row.last_activation_version_id, 'Switched-off version id'),
+        versionNumber: count(row.last_activation_version_number)
+      } : null
     };
   }).sort((a, b) => a.policyKey.localeCompare(b.policyKey) || a.policyId.localeCompare(b.policyId));
 
@@ -145,9 +153,12 @@ function buildPolicyDigitalTwinReadModel(input = {}) {
   for (const [policyId, versions] of versionsByPolicy.entries()) {
     const policy = policies.find(item => item.policyId === policyId);
     if (!policy || !versions.length) continue;
+    /* Proposed means still on its way in: never run, not taken back, and newer
+     * than whatever is running now. */
+    const pending = versions.filter(version => !version.withdrawn && !version.previouslyActive);
     const candidates = policy.active
-      ? versions.filter(version => version.versionNumber > policy.active.versionNumber)
-      : [versions[0]];
+      ? pending.filter(version => version.versionNumber > policy.active.versionNumber)
+      : pending.slice(0, 1);
     for (const version of candidates) {
       const blockers = [];
       if (version.review.status !== 'approved') blockers.push(`review-${version.review.status}`);

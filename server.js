@@ -2113,8 +2113,16 @@ function isCurrentGovernanceControlPlaneRequest(req) {
   const method = String(req.method || '').toUpperCase();
   const route = String(req.path || '');
   const prefix = '^/api/repo/[^/]+/[^/]+/governance/policies';
+  /*
+   * Governance changes rows this server owns, not the repository, so read-only
+   * containment and protected paths do not apply to them -- and without the
+   * lifecycle routes listed here, "/restore" and "/reset" were read as
+   * repository-wide writes and refused whenever any path was protected.
+   */
   const patterns = method === 'PATCH'
     ? [new RegExp(`${prefix}/[^/]+/drafts/[^/]+$`)]
+    : method === 'DELETE'
+      ? [new RegExp(`${prefix}/[^/]+/drafts/[^/]+$`)]
     : method === 'POST'
       ? [
           new RegExp(`${prefix}$`),
@@ -2130,7 +2138,12 @@ function isCurrentGovernanceControlPlaneRequest(req) {
           new RegExp(`${prefix}/[^/]+/versions/[^/]+/exceptions$`),
           new RegExp('^/api/repo/[^/]+/[^/]+/governance/baselines/generate$'),
           new RegExp('^/api/repo/[^/]+/[^/]+/governance/exceptions/[^/]+/decision$'),
-          new RegExp('^/api/repo/[^/]+/[^/]+/governance/exceptions/[^/]+/revoke$')
+          new RegExp('^/api/repo/[^/]+/[^/]+/governance/exceptions/[^/]+/revoke$'),
+          new RegExp(`${prefix}/[^/]+/deactivate$`),
+          new RegExp(`${prefix}/[^/]+/archive$`),
+          new RegExp(`${prefix}/[^/]+/restore$`),
+          new RegExp(`${prefix}/[^/]+/versions/[^/]+/withdraw$`),
+          new RegExp('^/api/repo/[^/]+/[^/]+/governance/reset$')
         ]
       : [];
   return patterns.some(pattern => pattern.test(route));
@@ -2633,6 +2646,31 @@ function governanceMutationMetadata(req, action) {
       };
     case 'governance.exception.revoke':
       return { exceptionId: boundedId(req.params.exceptionId) };
+    case 'governance.policy.deactivate':
+    case 'governance.policy.archive': {
+      const expectedRevision = Number(body.expectedRevision);
+      return {
+        policyId: boundedId(req.params.policyId),
+        expectedRevision: Number.isSafeInteger(expectedRevision) && expectedRevision >= 0 ? expectedRevision : null
+      };
+    }
+    case 'governance.policy.restore':
+      return { policyId: boundedId(req.params.policyId) };
+    case 'governance.draft.discard': {
+      const expectedRevision = Number(body.expectedRevision);
+      return {
+        policyId: boundedId(req.params.policyId),
+        draftId: boundedId(req.params.draftId),
+        expectedRevision: Number.isSafeInteger(expectedRevision) && expectedRevision >= 0 ? expectedRevision : null
+      };
+    }
+    case 'governance.version.withdraw':
+      return { policyId: boundedId(req.params.policyId), versionId: boundedId(req.params.versionId) };
+    case 'governance.reset':
+      /* Whether the typed confirmation matched, not what was typed. */
+      return {
+        confirmed: cleanText(String(body.confirm || ''), 400).toLowerCase() === `${req.params.owner}/${req.params.repo}`.toLowerCase()
+      };
     case 'governance.policy.activate':
     case 'governance.policy.rollback': {
       const expectedRevision = Number(body.expectedRevision);
@@ -5219,6 +5257,85 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
       idempotencyKey: req.get('Idempotency-Key')
     });
     res.status(201).json({ activation });
+  } catch (error) { governanceFailure(res, error); }
+});
+
+/*
+ * The rest of a policy's life. Each route states its role twice on purpose:
+ * once here, where the request is refused before any work is done, and again
+ * in the service, which does not trust that it was only ever called from here.
+ */
+app.get('/api/repo/:owner/:repo/governance/archive', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const policies = await req.governance.service.listArchivedPolicies({
+      scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
+    });
+    res.json({ policies });
+  } catch (error) { governanceFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/governance/policies/:policyId/deactivate', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('activator'), governanceMutationContext('governance.policy.deactivate'), async (req, res) => {
+  try {
+    const deactivation = await req.governance.service.deactivatePolicy({
+      scope: req.governance.scope, authorization: req.governance.authorization,
+      policyId: req.params.policyId, input: req.body,
+      idempotencyKey: req.get('Idempotency-Key')
+    });
+    res.status(201).json({ deactivation });
+  } catch (error) { governanceFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/governance/policies/:policyId/archive', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), governanceMutationContext('governance.policy.archive'), async (req, res) => {
+  try {
+    const archive = await req.governance.service.archivePolicy({
+      scope: req.governance.scope, authorization: req.governance.authorization,
+      policyId: req.params.policyId, input: req.body,
+      idempotencyKey: req.get('Idempotency-Key')
+    });
+    res.status(201).json({ archive });
+  } catch (error) { governanceFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/governance/policies/:policyId/restore', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), governanceMutationContext('governance.policy.restore'), async (req, res) => {
+  try {
+    const restore = await req.governance.service.restorePolicy({
+      scope: req.governance.scope, authorization: req.governance.authorization,
+      policyId: req.params.policyId, input: req.body,
+      idempotencyKey: req.get('Idempotency-Key')
+    });
+    res.status(201).json({ restore });
+  } catch (error) { governanceFailure(res, error); }
+});
+
+app.delete('/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('author'), governanceMutationContext('governance.draft.discard'), async (req, res) => {
+  try {
+    const draft = await req.governance.service.discardDraft({
+      scope: req.governance.scope, authorization: req.governance.authorization,
+      policyId: req.params.policyId, draftId: req.params.draftId, input: req.body,
+      idempotencyKey: req.get('Idempotency-Key')
+    });
+    res.json({ draft });
+  } catch (error) { governanceFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('author'), governanceMutationContext('governance.version.withdraw'), async (req, res) => {
+  try {
+    const withdrawal = await req.governance.service.withdrawVersion({
+      scope: req.governance.scope, authorization: req.governance.authorization,
+      policyId: req.params.policyId, versionId: req.params.versionId, input: req.body,
+      idempotencyKey: req.get('Idempotency-Key')
+    });
+    res.status(201).json({ withdrawal });
+  } catch (error) { governanceFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/governance/reset', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), governanceMutationContext('governance.reset'), async (req, res) => {
+  try {
+    const reset = await req.governance.service.resetGovernance({
+      scope: req.governance.scope, authorization: req.governance.authorization,
+      input: req.body, idempotencyKey: req.get('Idempotency-Key')
+    });
+    res.status(201).json({ reset });
   } catch (error) { governanceFailure(res, error); }
 });
 

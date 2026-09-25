@@ -281,6 +281,9 @@ test('on a phone the card is a sheet over the page, not a strip inside the graph
   const card = page.locator('#neuralCard');
   await expect(card).toBeVisible();
   await expect(card).toHaveClass(/is-sheet/);
+  /* Measure where the sheet rests, not where its entrance starts: it slides
+   * up 24px as it opens, and a slow machine can read it mid-slide. */
+  await expect.poll(() => card.evaluate(el => el.getAnimations().filter(a => a.playState === 'running').length)).toBe(0);
   const box = await card.boundingBox();
   const viewport = page.viewportSize();
   expect(box.x).toBeGreaterThanOrEqual(0);

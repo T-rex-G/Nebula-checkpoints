@@ -187,3 +187,18 @@ for (const file of ['nebula-galaxy.js', 'nebula-mark-3d.js']) {
     'the mark must choose its resolution from a pixel budget rather than a fixed cap'
   );
 }
+
+/*
+ * Static files are cached for a week on the promise that their URL changes
+ * with their contents. The artwork modules were imported by bare path, so a
+ * phone kept drawing a stale galaxy -- still violet in the Obsidian preset --
+ * long after the deploy that changed it. The loader stamps them with the build.
+ */
+{
+  const loader = fs.readFileSync(path.join(publicRoot, 'nebula-visuals.js'), 'utf8');
+  assert(/dataset\.nvAssetVersion/.test(loader), 'the loader must read the build stamp from the document');
+  for (const name of MODULES) {
+    assert(new RegExp(`versioned\\('/${name.replace('.', '\\.')}'\\)`).test(loader),
+      `${name} must be imported with the build stamp, or a cached copy outlives the deploy`);
+  }
+}

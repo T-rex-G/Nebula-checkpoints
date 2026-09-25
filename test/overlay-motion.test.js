@@ -1786,10 +1786,15 @@ check('the overview artwork is shown whole, not cropped by its panel', () => {
   /* It is alive -- the Trust core was reported as dead while it held still --
      and it stops for a reader who has asked for stillness. */
   assert.ok(/\.ov-core-emblem \.oc-orbit\{animation:/.test(cssSource), 'the emblem\'s scanning orbit does not move');
-  assert.ok(/\.ov-core-glow::before\{[^}]*animation:/.test(cssSource), 'Nebula\'s aura does not turn');
+  /* The instrument moves; the ground under it is still and one hue. A turning
+     wheel of cyan, magenta and violet was reported twice as unprofessional. */
+  const aura = cssSource.match(/\.ov-core-glow::before\{([^}]*)\}/);
+  assert.ok(aura, 'the Trust core has no ground under its mark');
+  assert.ok(!/animation\s*:/.test(aura[1]), 'the Trust core\'s ground animates');
+  assert.ok(!/conic-gradient|34,\s*211,\s*238|217,\s*70,\s*239/.test(aura[1]), 'the Trust core\'s ground mixes colours');
   assert.ok(/\[data-motion="off"\] \.ov-core-emblem \*\{animation:none\}/.test(cssSource),
     'the emblem keeps moving with the product\'s motion switched off');
-  assert.ok(/prefers-reduced-motion:reduce\)\{\s*\.ov-core-glow::before,\.ov-core-emblem \*\{animation:none\}/.test(cssSource),
+  assert.ok(/prefers-reduced-motion:reduce\)\{\s*\.ov-core-emblem \*\{animation:none\}/.test(cssSource),
     'the emblem keeps moving for a reader who asked the system for reduced motion');
 });
 

@@ -146,7 +146,7 @@
           inside it, which the name computation flattens back to the same
           string.
         -->
-        <h1 id="alphaAccessTitle" class="lp-title">Enter the<br>Nebulaverse-X<br><em>test orbit</em></h1>
+        <h1 id="alphaAccessTitle" class="lp-title"><span class="lp-line" style="--i:0">Enter the</span> <span class="lp-line" style="--i:1">Nebulaverse-X</span> <span class="lp-line" style="--i:2"><em>test orbit</em></span></h1>
         <p class="lp-lede">Connect one sandbox repository, read its real health, and preview
           every change against GitHub, GitLab or Gitea before a single write reaches a provider.</p>
 
@@ -230,7 +230,34 @@
       product does today; the limits are the terms the gate already enforces.
     -->
     <section class="lp-more">
-      <div class="lp-sec">
+      <!-- The three providers the alpha works against, named plainly. -->
+      <div class="lp-providers">
+        <span class="lp-providers-k">Works against the real provider</span>
+        <ul class="lp-providers-list" aria-label="Supported providers">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>GitHub</li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21.4 15.7 10H8.3zM12 21.4 8.3 10H3.1zM3.1 10 2 13.4c-.1.3 0 .7.3.9L12 21.4zM3.1 10h5.2L6.1 3.2c-.1-.4-.6-.4-.7 0zM12 21.4 15.7 10h5.2zM20.9 10l1.1 3.4c.1.3 0 .7-.3.9L12 21.4zM20.9 10h-5.2l2.2-6.8c.1-.4.6-.4.7 0z"/></svg>GitLab</li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3.5 7.5h13v5.2a5.3 5.3 0 0 1-5.3 5.3H8.8a5.3 5.3 0 0 1-5.3-5.3zM16.5 9h1.7a2.6 2.6 0 0 1 0 5.2h-1.9M8 11.5l2 2 3-3.5"/></svg>Gitea</li>
+        </ul>
+      </div>
+      <!--
+        The product, shown rather than described: a faithful miniature of the
+        Neural command center -- the hub, the group panels and the strands in
+        each group's colour -- that settles flat as it scrolls into view.
+      -->
+      <section class="lp-show" aria-labelledby="lpShowTitle">
+        <div class="lp-show-head">
+          <p class="lp-sec-eyebrow">The Neural command center</p>
+          <h2 class="lp-show-title" id="lpShowTitle">Your repository, drawn as one living map</h2>
+          <p class="lp-show-lede">Branches, workflows, identities, sessions and leaked credentials, each wired to the
+            repository it belongs to &mdash; every signal the provider will vouch for, and nothing it will not.</p>
+        </div>
+        <figure class="lp-frame">
+          <div class="lp-frame-bar" aria-hidden="true"><i></i><i></i><i></i><span class="lp-frame-url">Neural · signal topology</span><span class="lp-frame-live">Live</span></div>
+          <div class="lp-frame-view"><svg class="lp-map" viewBox="0 0 960 540" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false"><defs><radialGradient id="lpOrbV" cx=".68" cy=".22" r=".95"><stop offset="0" class="lp-orb-a"/><stop offset=".5" class="lp-orb-b"/><stop offset="1" class="lp-orb-c"/></radialGradient></defs><circle class="lp-map-ring" cx="480" cy="270" r="78"/><circle class="lp-map-ring" cx="480" cy="270" r="118"/><circle class="lp-map-ring" cx="480" cy="270" r="164"/><g class="lp-map-strands"><path class="lp-map-strand" d="M248 135 C358 135 360 230 440 251" style="--c:#f3f5ff"/><path class="lp-map-strand" d="M248 165 C358 165 360 238 440 255" style="--c:#f3f5ff"/><path class="lp-map-strand" d="M248 267 C358 267 360 269 440 270" style="--c:#F43F6E"/><path class="lp-map-strand" d="M248 297 C358 297 360 278 440 274" style="--c:#ff8a5c"/><path class="lp-map-strand" d="M248 399 C358 399 360 309 440 288" style="--c:#61d8ff"/><path class="lp-map-strand" d="M248 429 C358 429 360 318 440 292" style="--c:#61d8ff"/><path class="lp-map-strand" d="M712 135 C602 135 600 230 520 251" style="--c:#63a8ff"/><path class="lp-map-strand" d="M712 165 C602 165 600 238 520 255" style="--c:#63a8ff"/><path class="lp-map-strand" d="M712 267 C602 267 600 269 520 270" style="--c:#55d7f4"/><path class="lp-map-strand" d="M712 297 C602 297 600 278 520 274" style="--c:#55d7f4"/><path class="lp-map-strand" d="M712 399 C602 399 600 309 520 288" style="--c:#F43F6E"/><path class="lp-map-strand" d="M712 429 C602 429 600 318 520 292" style="--c:#F43F6E"/></g><g class="lp-map-flows"><path class="lp-map-flow" d="M248 135 C358 135 360 230 440 251" style="--c:#f3f5ff;--d:2.20s;--o:0"/><path class="lp-map-flow" d="M248 165 C358 165 360 238 440 255" style="--c:#f3f5ff;--d:2.55s;--o:33"/><path class="lp-map-flow" d="M248 267 C358 267 360 269 440 270" style="--c:#F43F6E;--d:2.90s;--o:26"/><path class="lp-map-flow" d="M248 297 C358 297 360 278 440 274" style="--c:#ff8a5c;--d:3.25s;--o:19"/><path class="lp-map-flow" d="M248 399 C358 399 360 309 440 288" style="--c:#61d8ff;--d:3.60s;--o:12"/><path class="lp-map-flow" d="M248 429 C358 429 360 318 440 292" style="--c:#61d8ff;--d:2.20s;--o:5"/><path class="lp-map-flow" d="M712 135 C602 135 600 230 520 251" style="--c:#63a8ff;--d:2.55s;--o:38"/><path class="lp-map-flow" d="M712 165 C602 165 600 238 520 255" style="--c:#63a8ff;--d:2.90s;--o:31"/><path class="lp-map-flow" d="M712 267 C602 267 600 269 520 270" style="--c:#55d7f4;--d:3.25s;--o:24"/><path class="lp-map-flow" d="M712 297 C602 297 600 278 520 274" style="--c:#55d7f4;--d:3.60s;--o:17"/><path class="lp-map-flow" d="M712 399 C602 399 600 309 520 288" style="--c:#F43F6E;--d:2.20s;--o:10"/><path class="lp-map-flow" d="M712 429 C602 429 600 318 520 292" style="--c:#F43F6E;--d:2.55s;--o:3"/></g><g class="lp-map-panel" style="--c:#f3f5ff"><rect x="36" y="84" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="36" y="84" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="58" cy="103" r="9"/><text class="lp-map-h" x="76" y="107">IDENTITIES</text><text class="lp-map-count" x="250" y="107" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#ff8a5c"><rect x="36" y="216" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="36" y="216" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="58" cy="235" r="9"/><text class="lp-map-h" x="76" y="239">LEAKED CREDENTIALS</text><text class="lp-map-count" x="250" y="239" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#61d8ff"><rect x="36" y="348" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="36" y="348" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="58" cy="367" r="9"/><text class="lp-map-h" x="76" y="371">SESSIONS</text><text class="lp-map-count" x="250" y="371" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#63a8ff"><rect x="692" y="84" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="692" y="84" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="714" cy="103" r="9"/><text class="lp-map-h" x="732" y="107">BRANCHES</text><text class="lp-map-count" x="906" y="107" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#55d7f4"><rect x="692" y="216" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="692" y="216" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="714" cy="235" r="9"/><text class="lp-map-h" x="732" y="239">WORKFLOWS</text><text class="lp-map-count" x="906" y="239" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#F43F6E"><rect x="692" y="348" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="692" y="348" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="714" cy="367" r="9"/><text class="lp-map-h" x="732" y="371">VULNERABILITIES</text><text class="lp-map-count" x="906" y="371" text-anchor="end">2</text></g><g class="lp-map-node" style="--c:#f3f5ff"><text x="230" y="139" text-anchor="end">alpha-tester</text><circle cx="248" cy="135" r="9"/></g><g class="lp-map-node" style="--c:#f3f5ff"><text x="230" y="169" text-anchor="end">maya</text><circle cx="248" cy="165" r="9"/></g><g class="lp-map-node" style="--c:#ff8a5c"><text x="230" y="271" text-anchor="end">AWS key · settings.py</text><circle cx="248" cy="267" r="9"/><circle class="lp-map-sev lp-map-crit" cx="255" cy="260" r="3.2"/><circle class="lp-map-breathe" cx="248" cy="267" r="12"/></g><g class="lp-map-node" style="--c:#ff8a5c"><text x="230" y="301" text-anchor="end">GitHub token · release.sh</text><circle cx="248" cy="297" r="9"/><circle class="lp-map-sev lp-map-warn" cx="255" cy="290" r="3.2"/></g><g class="lp-map-node" style="--c:#61d8ff"><text x="230" y="403" text-anchor="end">Active session</text><circle cx="248" cy="399" r="9"/></g><g class="lp-map-node" style="--c:#61d8ff"><text x="230" y="433" text-anchor="end">Current session</text><circle cx="248" cy="429" r="9"/></g><g class="lp-map-node" style="--c:#63a8ff"><text x="730" y="139" text-anchor="start">main</text><circle cx="712" cy="135" r="9"/></g><g class="lp-map-node" style="--c:#63a8ff"><text x="730" y="169" text-anchor="start">release/2.4</text><circle cx="712" cy="165" r="9"/></g><g class="lp-map-node" style="--c:#55d7f4"><text x="730" y="271" text-anchor="start">Deploy production</text><circle cx="712" cy="267" r="9"/><circle class="lp-map-sev lp-map-warn" cx="719" cy="260" r="3.2"/></g><g class="lp-map-node" style="--c:#55d7f4"><text x="730" y="301" text-anchor="start">CodeQL</text><circle cx="712" cy="297" r="9"/></g><g class="lp-map-node" style="--c:#F43F6E"><text x="730" y="403" text-anchor="start">jsonwebtoken@8.5.1</text><circle cx="712" cy="399" r="9"/><circle class="lp-map-sev lp-map-crit" cx="719" cy="392" r="3.2"/><circle class="lp-map-breathe" cx="712" cy="399" r="12"/></g><g class="lp-map-node" style="--c:#F43F6E"><text x="730" y="433" text-anchor="start">lodash@4.17.15</text><circle cx="712" cy="429" r="9"/><circle class="lp-map-sev lp-map-warn" cx="719" cy="422" r="3.2"/></g><g class="lp-map-hub"><circle class="lp-map-halo" cx="480" cy="270" r="106"/><circle class="lp-map-orb" cx="480" cy="270" r="44"/><g transform="translate(447.67 242.68) scale(0.2277)"><path class="lp-map-deep" d="M79 25 L40 217 L106 116 Z"/><path class="lp-map-light" d="M79 25 L106 116 L171 112 Z"/><path class="lp-map-deep" d="M244 23 L178 124 L205 215 Z"/><path class="lp-map-light" d="M178 124 L113 128 L205 215 Z"/></g><g class="lp-map-arcs"><path d="M532 270 A52 52 0 0 1 460 318"/><path d="M428 270 A52 52 0 0 1 506 225"/></g><rect class="lp-map-pill" x="428" y="330" width="104" height="24" rx="8"/><text class="lp-map-name" x="480" y="346" text-anchor="middle">sandbox/demo</text></g></svg></div>
+          <figcaption class="lp-frame-cap">A repository with its identities, branches, workflows, sessions, vulnerabilities and leaked credentials, as the Neural view draws them.</figcaption>
+        </figure>
+      </section>
+      <div class="lp-sec lp-sec-wide">
         <div class="lp-sec-head">
           <p class="lp-sec-eyebrow">Inside the orbit</p>
           <h2 class="lp-sec-title">One repository, read honestly</h2>
@@ -238,26 +265,49 @@
             real provider behind it. Nothing here is a mock.</p>
         </div>
         <ul class="lp-caps">
-          <li class="lp-cap">
+          <li class="lp-cap lp-cap-lead card">
+            <div class="lp-cap-art lp-art-diff" aria-hidden="true">
+              <span class="lp-diff-h"><b>config/deploy.yml</b><i>preview</i></span>
+              <span class="lp-diff-l lp-diff-ctx">  environment: staging</span>
+              <span class="lp-diff-l lp-diff-del">-  replicas: 2</span>
+              <span class="lp-diff-l lp-diff-add">+  replicas: 3</span>
+              <span class="lp-diff-l lp-diff-add">+  healthcheck: /healthz</span>
+              <span class="lp-diff-f"><span class="lp-diff-btn">Approve change</span><span class="lp-diff-head">against live head a1c9f2e</span></span>
+            </div>
             <span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7M3 12h5M3 18h7"/><path d="M14 5l6 7-6 7"/></svg></span>
             <h3 class="lp-cap-t">Every write is previewed</h3>
             <p class="lp-cap-d">A change is rendered as a diff against the provider&rsquo;s live head
               before a byte is sent, so you approve the change itself rather than the intention
               behind it.</p>
           </li>
-          <li class="lp-cap">
+          <li class="lp-cap card">
+            <div class="lp-cap-art lp-art-paths" aria-hidden="true">
+              <span class="lp-path lp-path-ok">src/app.js<i>allowed</i></span>
+              <span class="lp-path lp-path-no">.github/workflows/deploy.yml<i>held</i></span>
+              <span class="lp-path lp-path-ok">docs/guide.md<i>allowed</i></span>
+            </div>
             <span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10.5" width="16" height="9.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg></span>
             <h3 class="lp-cap-t">Blocked work is not lost work</h3>
             <p class="lp-cap-d">A policy decides which paths a run may touch. When it refuses one, the
               work comes back intact with a safe way to land it, instead of on the floor.</p>
           </li>
-          <li class="lp-cap">
+          <li class="lp-cap card">
+            <div class="lp-cap-art lp-art-matrix" aria-hidden="true">
+              <span></span><b>GitHub</b><b>GitLab</b><b>Gitea</b>
+              <em>Push</em><i class="y"></i><i class="y"></i><i class="y"></i>
+              <em>LFS</em><i class="y"></i><i class="y"></i><i class="n"></i>
+              <em>Actions</em><i class="y"></i><i class="n"></i><i class="n"></i>
+            </div>
             <span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3.6v5c0 4.4-3.1 8.2-7.5 9.4-4.4-1.2-7.5-5-7.5-9.4v-5z"/><path d="M9 12.2l2.2 2.2L15.4 10"/></svg></span>
             <h3 class="lp-cap-t">Capabilities are earned, not declared</h3>
             <p class="lp-cap-d">What GitHub, GitLab and Gitea can each do here is established by a live
               run against that provider. A capability nothing has proved does not get a badge.</p>
           </li>
-          <li class="lp-cap">
+          <li class="lp-cap card">
+            <div class="lp-cap-art lp-art-pulse" aria-hidden="true">
+              <svg viewBox="0 0 240 64" preserveAspectRatio="none"><path class="lp-pulse-area" d="M0 50 L30 44 L55 47 L80 30 L105 36 L130 18 L160 26 L185 12 L210 20 L240 8 L240 64 L0 64Z"/><path class="lp-pulse-line" d="M0 50 L30 44 L55 47 L80 30 L105 36 L130 18 L160 26 L185 12 L210 20 L240 8"/></svg>
+              <span class="lp-pulse-k"><i></i>Live · github.com</span>
+            </div>
             <span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13.5h4l2.4-6.6 3.6 12 2.6-8.2 1.6 2.8H21"/></svg></span>
             <h3 class="lp-cap-t">Signals, not badges</h3>
             <p class="lp-cap-d">The overview reads the repository&rsquo;s own health and names the
@@ -267,6 +317,48 @@
         </ul>
       </div>
 
+      <!--
+        How it works, told at the pace of the scroll: the heading holds still
+        while the three moves pass it, and a rail fills as they do.
+      -->
+      <section class="lp-story" aria-labelledby="lpStoryTitle">
+        <div class="lp-story-rail">
+          <p class="lp-sec-eyebrow">How it works</p>
+          <h2 class="lp-sec-title" id="lpStoryTitle">From connection to proof in three moves</h2>
+          <p class="lp-sec-lede">Nothing reaches a provider until you have seen exactly what it will do.</p>
+          <div class="lp-story-progress" aria-hidden="true"><span></span></div>
+        </div>
+        <ol class="lp-story-steps">
+          <li class="lp-story-step card">
+            <span class="lp-story-n">01</span>
+            <h3 class="lp-story-t">Connect one sandbox</h3>
+            <p class="lp-story-d">Sign in with GitHub, GitLab or Gitea and choose a single test repository. The session holds its own credentials, sealed, and nothing else.</p>
+            <div class="lp-story-art lp-art-connect" aria-hidden="true"><span class="on">sandbox/demo</span><span>acme/website</span><span>acme/billing</span></div>
+          </li>
+          <li class="lp-story-step card">
+            <span class="lp-story-n">02</span>
+            <h3 class="lp-story-t">Understand what is there</h3>
+            <p class="lp-story-d">Trust score, live signals, leaked credentials &mdash; in history and archives too &mdash; and the map of everything wired to the repository.</p>
+            <div class="lp-story-art lp-art-rings" aria-hidden="true">
+              <svg viewBox="0 0 120 120"><circle class="t" cx="60" cy="60" r="46"/><circle class="v" cx="60" cy="60" r="46" pathLength="100"/><circle class="t" cx="60" cy="60" r="32"/><circle class="w" cx="60" cy="60" r="32" pathLength="100"/></svg>
+              <span><b>79</b>trust score</span>
+            </div>
+          </li>
+          <li class="lp-story-step card">
+            <span class="lp-story-n">03</span>
+            <h3 class="lp-story-t">Prove the next move</h3>
+            <p class="lp-story-d">Every write is previewed against the live head and checked by policy. Approve the change itself, or keep the work safe when a path is held.</p>
+            <div class="lp-story-art lp-art-prove" aria-hidden="true"><span class="k">Preview</span><span class="ok">3 files · policy passed</span><span class="go">Approve</span></div>
+          </li>
+        </ol>
+      </section>
+      <!-- The alpha in numbers. Each figure is what the build ships today. -->
+      <section class="lp-stats" aria-label="The alpha in numbers">
+        <div class="lp-stat"><span class="lp-stat-v" data-count="99">99</span><span class="lp-stat-k">secret detectors, through git history, archives and encodings</span></div>
+        <div class="lp-stat"><span class="lp-stat-v" data-count="43">43</span><span class="lp-stat-k">live credential verifiers, asked only with your say-so</span></div>
+        <div class="lp-stat"><span class="lp-stat-v" data-count="3">3</span><span class="lp-stat-k">providers: GitHub, GitLab and Gitea</span></div>
+        <div class="lp-stat"><span class="lp-stat-v" data-count="0">0</span><span class="lp-stat-k">writes that reach a provider without a preview</span></div>
+      </section>
       <div class="lp-sec">
         <div class="lp-sec-head">
           <p class="lp-sec-eyebrow">Before you enter</p>
@@ -297,6 +389,12 @@
         </ul>
       </div>
 
+      <!-- The close: one clear next step, back to the card at the top. -->
+      <section class="lp-cta" aria-labelledby="lpCtaTitle">
+        <h2 class="lp-cta-title" id="lpCtaTitle">Ready when your sandbox is.</h2>
+        <p class="lp-cta-lede">One repository, previewed end to end. Leave whenever you like; this browser forgets on your word.</p>
+        <button class="btn btn-primary lp-cta-btn" type="button" data-lp-jump>Request entry</button>
+      </section>
       <footer class="lp-foot">
         <span class="lp-foot-brand">
           <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>

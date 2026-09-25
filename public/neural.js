@@ -1118,27 +1118,53 @@
      * redraws the graph. */
     if (!obsidian()) {
       return isLight() ? {
-        theme: 'nebula-light', surface: '#ffffff', grid: 'rgba(49,46,129,.07)', ring: 'rgba(79,70,229,.2)',
+        theme: 'nebula-light', surface: '#ffffff', grid: 'rgba(76,29,149,.08)', ring: 'rgba(124,58,237,.18)',
         panel: 'rgba(255,255,255,.9)', panelEdge: .38, text: '#1e1b4b', muted: '#5b5f7a', row: 'rgba(49,46,129,.05)',
         ink: color => (luminanceOf(color) > .78 ? '#475569' : darken(color, .28)), glow: false,
-        field: '91,33,182', fieldBase: .12, fieldDot: .7, fieldLine: .26
+        field: '91,33,182', fieldBase: .12, fieldDot: .7, fieldLine: .26,
+        hub: {
+          halo: 'rgba(124,58,237,.2)', orb: ['#5b3fd0', '#2e1878', '#0f0830'], glow: 'rgba(124,58,237,.7)',
+          rim: 'rgba(167,139,250,.45)', rimOn: 'rgba(196,181,253,.8)', arc: 'rgba(167,139,250,.6)', arcOuter: '#a78bfa',
+          light: ['#d9ceff', '#8b74ff'], deep: ['#7a5cff', '#3a23a8'], label: 'rgba(91,33,182,.18)'
+        },
+        spine: '#7c3aed'
       } : {
-        theme: 'nebula-dark', surface: '#0e1026', grid: 'rgba(196,203,255,.07)', ring: 'rgba(129,140,248,.24)',
-        panel: 'rgba(11,13,34,.78)', panelEdge: .34, text: '#eef0ff', muted: '#9aa0c3', row: 'rgba(255,255,255,.035)',
+        theme: 'nebula-dark', surface: '#0e0a22', grid: 'rgba(196,181,253,.07)', ring: 'rgba(167,139,250,.22)',
+        panel: 'rgba(14,10,32,.8)', panelEdge: .34, text: '#eef0ff', muted: '#9aa0c3', row: 'rgba(255,255,255,.035)',
         ink: color => color, glow: true,
-        field: '196,181,253', fieldBase: .14, fieldDot: .92, fieldLine: .34
+        field: '196,181,253', fieldBase: .14, fieldDot: .92, fieldLine: .34,
+        hub: {
+          halo: 'rgba(124,58,237,.42)', orb: ['#5b3fd0', '#2e1878', '#0f0830'], glow: 'rgba(124,58,237,.7)',
+          rim: 'rgba(167,139,250,.45)', rimOn: 'rgba(196,181,253,.8)', arc: 'rgba(167,139,250,.6)', arcOuter: '#a78bfa',
+          light: ['#d9ceff', '#8b74ff'], deep: ['#7a5cff', '#3a23a8'], label: 'rgba(196,181,253,.3)'
+        },
+        spine: '#a78bfa'
       };
     }
     return isLight() ? {
       theme: 'obsidian-light', surface: '#fbfaf8', grid: 'rgba(41,37,36,.07)', ring: 'rgba(120,108,98,.22)',
       panel: 'rgba(255,255,255,.9)', panelEdge: .34, text: '#1c1917', muted: '#6b645d', row: 'rgba(41,37,36,.045)',
       ink: color => (luminanceOf(color) > .78 ? '#57534e' : darken(color, .3)), glow: false,
-      field: '41,37,36', fieldBase: .1, fieldDot: .62, fieldLine: .22
+      field: '41,37,36', fieldBase: .1, fieldDot: .62, fieldLine: .22,
+      /* Obsidian's hub is a stone: a graphite sphere with the mark cut in
+       * silver, lit white rather than violet. */
+      hub: {
+        halo: 'rgba(28,25,23,.1)', orb: ['#4a4b52', '#232428', '#0b0c0e'], glow: 'rgba(28,25,23,.28)',
+        rim: 'rgba(28,25,23,.28)', rimOn: 'rgba(28,25,23,.55)', arc: 'rgba(41,37,36,.45)', arcOuter: '#57534e',
+        light: ['#fafaf9', '#b5b0aa'], deep: ['#8a847e', '#35312d'], label: 'rgba(28,25,23,.14)'
+      },
+      spine: '#57534e'
     } : {
       theme: 'obsidian-dark', surface: '#0c0d10', grid: 'rgba(226,232,240,.055)', ring: 'rgba(203,213,225,.17)',
       panel: 'rgba(14,15,19,.84)', panelEdge: .3, text: '#eceef1', muted: '#9aa1ab', row: 'rgba(255,255,255,.04)',
       ink: color => color, glow: true,
-      field: '236,238,241', fieldBase: .12, fieldDot: .85, fieldLine: .27
+      field: '236,238,241', fieldBase: .12, fieldDot: .85, fieldLine: .27,
+      hub: {
+        halo: 'rgba(226,232,240,.12)', orb: ['#4a4b52', '#1f2024', '#0a0b0d'], glow: 'rgba(226,232,240,.18)',
+        rim: 'rgba(255,255,255,.2)', rimOn: 'rgba(255,255,255,.55)', arc: 'rgba(226,232,240,.5)', arcOuter: '#d4d4d8',
+        light: ['#fafaf9', '#b5b0aa'], deep: ['#8a847e', '#35312d'], label: 'rgba(255,255,255,.18)'
+      },
+      spine: '#d4d4d8'
     };
   }
 
@@ -1429,12 +1455,12 @@
       ctx.save();
       ctx.globalAlpha = focus && !focus.nodes.has(hub.id) ? .55 : 1;
       ctx.lineWidth = 2; ctx.lineCap = 'round';
-      ctx.strokeStyle = 'rgba(167,139,250,.6)';
+      ctx.strokeStyle = colors.hub.arc;
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.18, turn, turn + 1.2); ctx.stroke();
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.18, turn + Math.PI, turn + Math.PI + .8); ctx.stroke();
       const slow = now * .00012;
       ctx.lineWidth = 1.4;
-      ctx.strokeStyle = hexAlpha('#a78bfa', isLight() ? .3 : .4);
+      ctx.strokeStyle = hexAlpha(colors.hub.arcOuter, isLight() ? .3 : .4);
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.7, slow, slow + 1.1); ctx.stroke();
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.7, slow + Math.PI, slow + Math.PI + .6); ctx.stroke();
       ctx.restore();
@@ -1498,9 +1524,14 @@
     if (!motion) f.ripples.length = 0;
     else f.ripples = f.ripples.filter(r => now - r.at < FIELD.rippleLife);
     const settled = f.light === target && !f.ripples.length;
-    const drag = NVN.dragPlacement;
+    /* Keyed on the geometry the ground depends on -- the panels standing on
+     * it and the hub -- not on the graph's general version, which also moves
+     * for fonts, highlights and resizes that change nothing down here. */
+    const hubNode = NVN.nodes.find(n => n.type === 'repo' && n.visible);
+    let geometry = hubNode ? `${Math.round(hubNode.x)},${Math.round(hubNode.y)}` : '-';
+    for (const p of NVN.panels || []) geometry += `|${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.w)},${Math.round(p.h)}`;
     const sig = [NVN.width, NVN.height, NVN.dpr, NVN.zoom.toFixed(4), NVN.panX.toFixed(2), NVN.panY.toFixed(2),
-      colors.theme, NVN.version, drag ? `${Math.round(drag.x)},${Math.round(drag.y)}` : '',
+      colors.theme, geometry,
       f.light ? `${Math.round(f.px)},${Math.round(f.py)},${f.light.toFixed(3)}` : '', f.ripples.length].join('|');
     if (settled && sig === f.sig) return;
     f.sig = settled ? sig : '';
@@ -1530,7 +1561,6 @@
       if (r.r + reach < 0 || r.l - reach > W || r.b + reach < 0 || r.t - reach > H) continue;
       rects.push(r);
     }
-    const hubNode = NVN.nodes.find(n => n.type === 'repo' && n.visible);
     const hub = hubNode ? worldToScreen(hubNode.x, hubNode.y) : null;
     const hubR = HUB_R * z * 1.08, well = FIELD.well * z, wellReach = FIELD.wellReach * z;
     const focus = FIELD.focus, light = f.light;
@@ -2000,7 +2030,7 @@
       ctx.strokeStyle = colors.ink(color); ctx.lineWidth = width;
       ctx.stroke();
     };
-    const spineColor = colors.glow ? '#818CF8' : '#6366F1';
+    const spineColor = colors.spine;
     for (const reach of spine.reaches.values()) {
       run(reach.x, reach.from, reach.to, spineColor, reach.base * (focus ? .45 : colors.glow ? .78 : .6), 2.4, .16);
     }
@@ -2152,21 +2182,23 @@
     const active = (NVN.selected && NVN.selected.id === node.id) || (NVN.hover && NVN.hover.id === node.id);
     ctx.save();
     ctx.globalAlpha = dim ? .55 : 1;
-    /* One violet: the orb, its glow and its edge are the product's colour and
-     * nothing else -- the blue halo, the white highlight and the pale blue
-     * rim read as layers stacked on the mark rather than as the mark. */
+    /* One colour family per preset: the orb, its glow and its edge are the
+     * preset's -- Nebula's violet, Obsidian's graphite and silver -- and
+     * nothing else; a blue halo, a white highlight and a pale rim read as
+     * layers stacked on the mark rather than as the mark. */
+    const tone = colors.hub;
     const halo = ctx.createRadialGradient(x, y, r * .6, x, y, r * 2.6);
-    halo.addColorStop(0, isLight() ? 'rgba(124,58,237,.2)' : 'rgba(124,58,237,.42)');
-    halo.addColorStop(1, 'rgba(124,58,237,0)');
+    halo.addColorStop(0, tone.halo);
+    halo.addColorStop(1, hexAlpha(tone.halo, 0));
     ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, r * 2.6, 0, Math.PI * 2); ctx.fill();
-    /* The orb is the app icon's own ground -- a deep violet bloom -- so the
-     * mark on it can be the icon's violet plates rather than white on blue. */
+    /* The orb is the app icon's own ground, so the mark on it can be the
+     * icon's plates rather than white on blue. */
     const orb = ctx.createRadialGradient(x + r * .34, y - r * .5, r * .08, x, y, r * 1.05);
-    orb.addColorStop(0, '#5b3fd0'); orb.addColorStop(.5, '#2e1878'); orb.addColorStop(1, '#0f0830');
-    if (colors.glow) { ctx.shadowColor = 'rgba(124,58,237,.7)'; ctx.shadowBlur = active ? 40 : 26; }
+    orb.addColorStop(0, tone.orb[0]); orb.addColorStop(.5, tone.orb[1]); orb.addColorStop(1, tone.orb[2]);
+    if (colors.glow) { ctx.shadowColor = tone.glow; ctx.shadowBlur = active ? 40 : 26; }
     ctx.fillStyle = orb; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.lineWidth = active ? 2.2 : 1.4; ctx.strokeStyle = active ? 'rgba(196,181,253,.8)' : 'rgba(167,139,250,.45)'; ctx.stroke();
+    ctx.lineWidth = active ? 2.2 : 1.4; ctx.strokeStyle = active ? tone.rimOn : tone.rim; ctx.stroke();
     if (typeof Path2D === 'function') {
       if (!hubMarkPaths) hubMarkPaths = HUB_MARK.map(item => ({ path: new Path2D(item.d), tone: item.tone }));
       const size = r * 1.18, scale = size / 228;
@@ -2174,9 +2206,9 @@
       ctx.translate(x - 142 * scale, y - 120 * scale);
       ctx.scale(scale, scale);
       const light = ctx.createLinearGradient(40, 23, 244, 217);
-      light.addColorStop(0, '#d9ceff'); light.addColorStop(1, '#8b74ff');
+      light.addColorStop(0, tone.light[0]); light.addColorStop(1, tone.light[1]);
       const deep = ctx.createLinearGradient(244, 23, 40, 217);
-      deep.addColorStop(0, '#7a5cff'); deep.addColorStop(1, '#3a23a8');
+      deep.addColorStop(0, tone.deep[0]); deep.addColorStop(1, tone.deep[1]);
       for (const item of hubMarkPaths) {
         ctx.fillStyle = item.tone === 'light' ? light : deep;
         ctx.fill(item.path);
@@ -2191,7 +2223,7 @@
     const ly = NVN.layoutMode === 'stack' ? y - r - 30 : y + r + 30;
     roundRect(ctx, x - w / 2, ly - 14, w, 28, 10);
     ctx.fillStyle = isLight() ? 'rgba(255,255,255,.94)' : 'rgba(10,12,30,.9)'; ctx.fill();
-    ctx.lineWidth = 1; ctx.strokeStyle = isLight() ? 'rgba(91,33,182,.18)' : 'rgba(196,181,253,.3)'; ctx.stroke();
+    ctx.lineWidth = 1; ctx.strokeStyle = tone.label; ctx.stroke();
     ctx.fillStyle = colors.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(name, x, ly + .5);
     ctx.restore();

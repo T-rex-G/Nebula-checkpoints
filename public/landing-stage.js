@@ -96,8 +96,79 @@
         sections.unobserve(entry.target);
       });
     }, { threshold: 0.12 });
-    document.querySelectorAll('.lp-steps, .lp-sec').forEach(section => sections.observe(section));
+    document.querySelectorAll('.lp-steps, .lp-sec, .lp-show, .lp-story, .lp-stats, .lp-cta').forEach(section => sections.observe(section));
   }
+
+  /*
+   * The framed map animates its strands in SVG, which repaints every frame it
+   * moves; it runs only while it is on screen, so the scene above it -- and a
+   * phone's battery -- never pay for a picture nobody is looking at.
+   */
+  const show = document.querySelector('.lp-show');
+  if (show && typeof IntersectionObserver === 'function' && show.classList) {
+    new IntersectionObserver(entries => {
+      entries.forEach(entry => show.classList.toggle('is-onscreen', entry.isIntersecting));
+    }, { threshold: 0 }).observe(show);
+  }
+
+  /*
+   * The numbers count up once, the first time they are seen. The figure is
+   * in the markup from the start, so without script -- or with motion off --
+   * the reader gets the number, not a zero.
+   */
+  const stats = document.querySelector('.lp-stats');
+  if (stats && typeof IntersectionObserver === 'function' && typeof stats.querySelectorAll === 'function') {
+    const counter = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      counter.disconnect();
+      if (root.dataset.motion === 'off' || (reducedMotion && reducedMotion.matches)) return;
+      stats.querySelectorAll('[data-count]').forEach(el => {
+        const to = Number(el.dataset.count) || 0;
+        if (!to) return;
+        const start = global.performance.now();
+        const step = now => {
+          const t = Math.min(1, (now - start) / 1100);
+          el.textContent = String(Math.round(to * (1 - Math.pow(1 - t, 3))));
+          if (t < 1) global.requestAnimationFrame(step);
+        };
+        global.requestAnimationFrame(step);
+      });
+    }, { threshold: 0.35 });
+    counter.observe(stats);
+  }
+
+  /*
+   * The closing call returns the reader to the card at the top and puts them
+   * in its first control -- the invitation, or the way through when entry is
+   * open -- rather than leaving them to find it.
+   */
+  const jumps = typeof document.querySelectorAll === 'function' ? document.querySelectorAll('[data-lp-jump]') : [];
+  jumps.forEach(button => {
+    button.addEventListener('click', () => {
+      const target = document.querySelector('.lp-card');
+      if (!target) return;
+      const still = root.dataset.motion === 'off' || (reducedMotion && reducedMotion.matches);
+      target.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'center' });
+      const control = [...target.querySelectorAll('input, button')]
+        .find(el => !el.hidden && !el.closest('[hidden]') && !el.disabled);
+      if (control) global.setTimeout(() => control.focus({ preventScroll: true }), still ? 0 : 420);
+    });
+    /* A small pull toward a fine pointer: the button meets the hand. */
+    if (global.matchMedia && global.matchMedia('(hover:hover) and (pointer:fine)').matches) {
+      button.addEventListener('pointermove', event => {
+        if (root.dataset.motion === 'off' || (reducedMotion && reducedMotion.matches)) return;
+        const box = button.getBoundingClientRect();
+        const dx = (event.clientX - (box.left + box.width / 2)) / box.width;
+        const dy = (event.clientY - (box.top + box.height / 2)) / box.height;
+        button.style.setProperty('--mag-x', `${(dx * 8).toFixed(1)}px`);
+        button.style.setProperty('--mag-y', `${(dy * 6).toFixed(1)}px`);
+      });
+      button.addEventListener('pointerleave', () => {
+        button.style.removeProperty('--mag-x');
+        button.style.removeProperty('--mag-y');
+      });
+    }
+  });
 
   /*
    * WebGL can be absent for reasons that are none of the reader's business: a

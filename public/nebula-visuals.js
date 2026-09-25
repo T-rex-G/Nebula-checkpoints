@@ -22,9 +22,18 @@
 'use strict';
 
 (function nebulaVisuals(global) {
+  /*
+   * Stamped with the build like every other script. The server caches
+   * static files for a week on the promise that their URLs change when their
+   * contents do; these two were imported by bare path, so a phone kept
+   * running last week's galaxy -- violet in the Obsidian preset -- until its
+   * cache happened to expire.
+   */
+  const STAMP = (document.documentElement && document.documentElement.dataset.nvAssetVersion) || '';
+  const versioned = file => (STAMP ? `${file}?v=${encodeURIComponent(STAMP)}` : file);
   const MODULES = Object.freeze({
-    galaxy: '/nebula-galaxy.js',
-    mark: '/nebula-mark-3d.js'
+    galaxy: versioned('/nebula-galaxy.js'),
+    mark: versioned('/nebula-mark-3d.js')
   });
 
   const requested = new Map();

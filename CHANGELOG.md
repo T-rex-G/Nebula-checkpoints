@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Governance: Switch Off, Archive, Restore, Reset
+
+A policy could be created, reviewed, activated and rolled back, and nothing
+else: there was no way to switch one off, set one aside, throw away a draft,
+take back a version, or clear a repository and start again. Now there is, and
+the history stays append-only through all of it.
+
+- **Switch off** stops a policy being enforced at once; **Turn v*n* back on**
+  returns the version that was running, through the rollback workflow with a
+  fresh simulation.
+- **Archive** takes a policy out of the Digital Twin (switching it off first if
+  it is running) and frees its key; **Archived policies** lists them and
+  **Restore** brings one back, switched off.
+- **Discard** a draft and **Withdraw** a version that never ran; authors for
+  their own, administrators for anybody's.
+- **Reset governance** switches off and archives every policy in one
+  transaction, after step-up re-authentication and the repository name typed.
+  The ledger, exports, webhooks and notification settings are kept, and every
+  policy can be restored.
+- Five new ledger events (`policy.deactivated`, `policy.archived`,
+  `policy.restored`, `draft.discarded`, `version.withdrawn`) reach
+  notifications and webhooks. Control catalog **1.5.0** maps the six new
+  actions; 1.4.0 is unchanged.
+- Migration **028** admits `deactivate` in the activation history, makes policy
+  keys unique among live policies only, adds the append-only
+  `nv_governance_version_withdrawals` table, and widens the event-type limits.
+  `npm run test:governance-lifecycle` exercises all of it against PostgreSQL.
+- Reference: `docs/reference/governance-lifecycle.md`.
+
+### Security Surfaces Grouped Together
+
+Neural, Governance, Exposure and Safeguards now sit together under
+**Security** in the phone menu and the sidebar, in the same order in both.
+Safeguards had been nine rows away from the other three, between "Delete
+repository" and Settings. The phone menu is grouped into Repository, Security
+and Workspace, and Safeguards has its own lock icon instead of Governance's
+shield.
+
 ### Exposure: History, Encoded Credentials, Archives, and Many More Checks
 
 A credential deleted in the commit after the one that added it is still in the

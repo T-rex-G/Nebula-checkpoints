@@ -525,7 +525,7 @@ function translateDatabaseError(error) {
     if (/review_assignments.*version.*reviewer/i.test(constraint)) return new GovernanceError('This identity is already assigned to review the version', 'GOVERNANCE_REVIEW_ASSIGNMENT_EXISTS', 409);
     if (/policy_versions.*document_hash/i.test(constraint)) return new GovernanceError('An identical immutable policy version already exists', 'GOVERNANCE_VERSION_DUPLICATE', 409);
     if (/active_draft_per_author|policy_drafts.*policy.*authored/i.test(constraint)) return new GovernanceError('This author already has an active draft for the policy', 'GOVERNANCE_DRAFT_EXISTS', 409);
-    if (/policies.*scope_key.*policy_key/i.test(constraint)) return new GovernanceError('A policy with this key already exists in the repository scope', 'GOVERNANCE_POLICY_EXISTS', 409);
+    if (/policies.*(?:scope_key.*policy_key|live_key)/i.test(constraint)) return new GovernanceError('A policy with this key already exists in the repository scope', 'GOVERNANCE_POLICY_EXISTS', 409);
     return new GovernanceError('Governance record already exists', 'GOVERNANCE_CONFLICT', 409);
   }
   if (error && error.code === '23503') return new GovernanceError('Referenced governance record does not exist', 'GOVERNANCE_REFERENCE_INVALID', 409);
@@ -946,7 +946,8 @@ class GovernanceStore {
     const result = await client.query(
       `SELECT v.policy_id,v.version_id,v.version_number,v.authored_by_identity_key,v.authored_by_login,
               v.required_approvals,v.disallow_author_approval,p.scope_key,
-              EXISTS(SELECT 1 FROM nv_governance_activations a WHERE a.version_id=v.version_id) AS has_activation
+              EXISTS(SELECT 1 FROM nv_governance_activations a WHERE a.version_id=v.version_id) AS has_activation,
+              EXISTS(SELECT 1 FROM nv_governance_version_withdrawals w WHERE w.version_id=v.version_id) AS withdrawn
        FROM nv_governance_policy_versions v
        JOIN nv_governance_policies p ON p.policy_id=v.policy_id
        WHERE v.policy_id=$1 AND v.version_id=$2 AND p.scope_key=$3 AND p.archived_at IS NULL`,
@@ -1006,6 +1007,7 @@ class GovernanceStore {
       const rows = await this.reviewRows(client, versionId);
       const current = reviewResponse(version, rows.assignments, rows.decisions);
       if (version.has_activation) throw new GovernanceError('Review assignments are frozen after activation', 'GOVERNANCE_VERSION_FINALIZED', 409);
+      if (version.withdrawn) throw new GovernanceError('This version was withdrawn and can no longer be reviewed', 'GOVERNANCE_VERSION_WITHDRAWN', 409);
       if (current.terminal) throw new GovernanceError('The policy review is already final', 'GOVERNANCE_REVIEW_FINALIZED', 409, { status: current.status });
       if (version.disallow_author_approval && version.authored_by_identity_key === actor.identityKey) {
         throw new GovernanceError('The policy author cannot review this version', 'GOVERNANCE_AUTHOR_REVIEW_FORBIDDEN', 403);
@@ -1073,6 +1075,7 @@ class GovernanceStore {
       const rows = await this.reviewRows(client, versionId);
       const current = reviewResponse(version, rows.assignments, rows.decisions);
       if (version.has_activation) throw new GovernanceError('Review decisions are frozen after activation', 'GOVERNANCE_VERSION_FINALIZED', 409);
+      if (version.withdrawn) throw new GovernanceError('This version was withdrawn and can no longer be reviewed', 'GOVERNANCE_VERSION_WITHDRAWN', 409);
       if (current.terminal) throw new GovernanceError('The policy review is already final', 'GOVERNANCE_REVIEW_FINALIZED', 409, { status: current.status });
       if (version.disallow_author_approval && version.authored_by_identity_key === actor.identityKey) {
         throw new GovernanceError('The policy author cannot review this version', 'GOVERNANCE_AUTHOR_REVIEW_FORBIDDEN', 403);
@@ -1142,7 +1145,8 @@ class GovernanceStore {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`nv-governance-review:${versionId}`]);
       activationAuthorizationEvidenceOf(authorization, this.now());
       const found = await client.query(
-        `SELECT v.*,p.scope_key,h.active_version_id,h.revision,av.document_hash AS active_document_hash
+        `SELECT v.*,p.scope_key,h.active_version_id,h.revision,av.document_hash AS active_document_hash,
+                EXISTS(SELECT 1 FROM nv_governance_version_withdrawals w WHERE w.version_id=v.version_id) AS withdrawn
          FROM nv_governance_policy_versions v
          JOIN nv_governance_policies p ON p.policy_id=v.policy_id
          JOIN nv_governance_policy_heads h ON h.policy_id=p.policy_id
@@ -1158,6 +1162,7 @@ class GovernanceStore {
         throw new GovernanceError('Policy state changed; reload before activating', 'GOVERNANCE_REVISION_CONFLICT', 409, { expectedRevision, currentRevision });
       }
       if (String(state.active_version_id || '') === versionId) throw new GovernanceError('Policy version is already active', 'GOVERNANCE_VERSION_ALREADY_ACTIVE', 409);
+      if (state.withdrawn) throw new GovernanceError('This version was withdrawn and cannot be activated', 'GOVERNANCE_VERSION_WITHDRAWN', 409);
       if (simulation.scope.scopeKey !== scope.scopeKey || simulation.proposed.versionId !== versionId || simulation.proposed.documentHash !== state.document_hash) {
         throw new GovernanceError('Simulation evidence does not match the proposed policy version', 'GOVERNANCE_SIMULATION_MISMATCH', 409);
       }
@@ -1287,6 +1292,348 @@ class GovernanceStore {
         simulationHash: simulation.simulationHash,
         updatedAt: head.rows[0].updated_at
       };
+    });
+  }
+
+  /*
+   * The rest of a policy's life: switching it off, setting it aside, bringing
+   * it back, throwing away a draft, taking back a version, and clearing a
+   * repository. Every one of these appends to the ledger; none of them edits a
+   * record of something that already happened.
+   */
+  lifecycleReason(value, label) {
+    const reason = requiredText(value, label, 4000);
+    if (REVIEW_SENSITIVE_TEXT_RX.test(reason)) {
+      throw new GovernanceError(`${label} appears to contain sensitive credential material`, 'GOVERNANCE_SENSITIVE_TEXT', 400);
+    }
+    return reason;
+  }
+
+  async lockedPolicyHead(client, scope, policyId, { archived = false } = {}) {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`nv-governance:${policyId}`]);
+    const found = await client.query(
+      `SELECT p.policy_id,p.policy_key,p.name,p.archived_at,h.active_version_id,h.revision,
+              av.version_number AS active_version_number
+         FROM nv_governance_policies p
+         JOIN nv_governance_policy_heads h ON h.policy_id=p.policy_id
+         LEFT JOIN nv_governance_policy_versions av ON av.version_id=h.active_version_id
+        WHERE p.policy_id=$1 AND p.scope_key=$2 AND ${archived ? 'p.archived_at IS NOT NULL' : 'p.archived_at IS NULL'}
+        FOR UPDATE OF p,h`,
+      [policyId, scope.scopeKey]
+    );
+    if (!found.rows[0]) throw new GovernanceError(archived ? 'No archived policy with that id exists here' : 'Governance policy was not found', 'GOVERNANCE_POLICY_NOT_FOUND', 404);
+    return found.rows[0];
+  }
+
+  /* Switches off whatever version a locked head points at. The caller holds
+   * the active-set and policy locks and has checked the revision. */
+  async deactivateLocked(client, { scope, state, actor, reason, authorization, resetId = null }) {
+    const activationId = normalizeUuid(this.idFactory(), 'activation id');
+    const currentRevision = Number(state.revision || 0);
+    const resultingRevision = currentRevision + 1;
+    const createdAt = this.now().toISOString();
+    await client.query(
+      `INSERT INTO nv_governance_activations(
+        activation_id,policy_id,version_id,previous_version_id,action,expected_revision,resulting_revision,
+        actor_identity_key,actor_login,reason,created_at
+       ) VALUES($1,$2,$3,$3,'deactivate',$4,$5,$6,$7,$8,$9)`,
+      [activationId, state.policy_id, state.active_version_id, currentRevision, resultingRevision,
+       actor.identityKey, actor.login, reason, createdAt]
+    );
+    const head = await client.query(
+      `UPDATE nv_governance_policy_heads
+          SET active_version_id=NULL,revision=$1,updated_at=$2
+        WHERE policy_id=$3 AND revision=$4
+        RETURNING revision,updated_at`,
+      [resultingRevision, createdAt, state.policy_id, currentRevision]
+    );
+    if (!head.rowCount) throw new GovernanceError('Policy state changed while switching it off', 'GOVERNANCE_REVISION_CONFLICT', 409);
+    await this.appendAudit(client, {
+      policyId: state.policy_id, versionId: state.active_version_id, scopeKey: scope.scopeKey,
+      eventType: 'policy.deactivated', actor,
+      details: {
+        action: 'deactivate',
+        activationId,
+        previousVersionId: state.active_version_id,
+        versionNumber: Number(state.active_version_number || 0),
+        expectedRevision: currentRevision,
+        resultingRevision,
+        authorizationSource: authorization.source,
+        authorizationFetchedAt: authorization.fetchedAt,
+        authorizationExpiresAt: authorization.expiresAt,
+        ...(resetId ? { resetId } : {}),
+        reason: reason.slice(0, 1000)
+      }
+    });
+    return { activationId, previousVersionId: state.active_version_id, revision: resultingRevision, updatedAt: head.rows[0].updated_at };
+  }
+
+  async archiveLocked(client, { scope, state, actor, reason, resetId = null, deactivated }) {
+    const archivedAt = this.now().toISOString();
+    const updated = await client.query(
+      `UPDATE nv_governance_policies SET archived_at=$1
+        WHERE policy_id=$2 AND scope_key=$3 AND archived_at IS NULL
+        RETURNING archived_at`,
+      [archivedAt, state.policy_id, scope.scopeKey]
+    );
+    if (!updated.rowCount) throw new GovernanceError('Policy state changed while archiving it', 'GOVERNANCE_REVISION_CONFLICT', 409);
+    await this.appendAudit(client, {
+      policyId: state.policy_id, scopeKey: scope.scopeKey, eventType: 'policy.archived', actor,
+      details: {
+        action: 'archive',
+        policyKey: state.policy_key,
+        deactivated: !!deactivated,
+        ...(resetId ? { resetId } : {}),
+        reason: reason.slice(0, 1000)
+      }
+    });
+    return updated.rows[0].archived_at;
+  }
+
+  async deactivatePolicy(input = {}) {
+    const actor = actorOf(input.actor);
+    const policyId = normalizeUuid(input.policyId, 'policy id');
+    const scope = normalizePolicyScope(input.scope);
+    const expectedRevision = expectedRevisionOf(input.expectedRevision);
+    const reason = this.lifecycleReason(input.reason, 'Reason for switching the policy off');
+    const authorization = activationAuthorizationEvidenceOf(input.authorizationEvidence, this.now());
+    return this.idempotentTransaction({
+      idempotencyKey: input.idempotencyKey,
+      scopeKey: scope.scopeKey,
+      actorIdentityKey: actor.identityKey,
+      operation: 'governance.policy.deactivate',
+      request: { policyId, expectedRevision, reason }
+    }, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [activePolicySetLockKey(scope.scopeKey)]);
+      activationAuthorizationEvidenceOf(authorization, this.now());
+      const state = await this.lockedPolicyHead(client, scope, policyId);
+      const currentRevision = Number(state.revision || 0);
+      if (currentRevision !== expectedRevision) {
+        throw new GovernanceError('Policy state changed; reload before switching it off', 'GOVERNANCE_REVISION_CONFLICT', 409, { expectedRevision, currentRevision });
+      }
+      if (!state.active_version_id) throw new GovernanceError('The policy is already switched off', 'GOVERNANCE_POLICY_NOT_ACTIVE', 409);
+      const result = await this.deactivateLocked(client, { scope, state, actor, reason, authorization });
+      return { policyId, action: 'deactivate', ...result };
+    });
+  }
+
+  async archivePolicy(input = {}) {
+    const actor = actorOf(input.actor);
+    const policyId = normalizeUuid(input.policyId, 'policy id');
+    const scope = normalizePolicyScope(input.scope);
+    const expectedRevision = expectedRevisionOf(input.expectedRevision);
+    const reason = this.lifecycleReason(input.reason, 'Reason for archiving the policy');
+    const authorization = activationAuthorizationEvidenceOf(input.authorizationEvidence, this.now());
+    return this.idempotentTransaction({
+      idempotencyKey: input.idempotencyKey,
+      scopeKey: scope.scopeKey,
+      actorIdentityKey: actor.identityKey,
+      operation: 'governance.policy.archive',
+      request: { policyId, expectedRevision, reason }
+    }, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [activePolicySetLockKey(scope.scopeKey)]);
+      activationAuthorizationEvidenceOf(authorization, this.now());
+      const state = await this.lockedPolicyHead(client, scope, policyId);
+      const currentRevision = Number(state.revision || 0);
+      if (currentRevision !== expectedRevision) {
+        throw new GovernanceError('Policy state changed; reload before archiving it', 'GOVERNANCE_REVISION_CONFLICT', 409, { expectedRevision, currentRevision });
+      }
+      /* An archived policy never enforces anything, so a running one is
+       * switched off first, on the record, in the same transaction. */
+      const deactivation = state.active_version_id
+        ? await this.deactivateLocked(client, { scope, state, actor, reason, authorization })
+        : null;
+      const archivedAt = await this.archiveLocked(client, { scope, state, actor, reason, deactivated: !!deactivation });
+      return { policyId, archivedAt, deactivated: !!deactivation, activationId: deactivation ? deactivation.activationId : null };
+    });
+  }
+
+  async restorePolicy(input = {}) {
+    const actor = actorOf(input.actor);
+    const policyId = normalizeUuid(input.policyId, 'policy id');
+    const scope = normalizePolicyScope(input.scope);
+    const reason = this.lifecycleReason(input.reason, 'Reason for restoring the policy');
+    return this.idempotentTransaction({
+      idempotencyKey: input.idempotencyKey,
+      scopeKey: scope.scopeKey,
+      actorIdentityKey: actor.identityKey,
+      operation: 'governance.policy.restore',
+      request: { policyId, reason }
+    }, async client => {
+      const state = await this.lockedPolicyHead(client, scope, policyId, { archived: true });
+      const clash = await client.query(
+        `SELECT 1 FROM nv_governance_policies
+          WHERE scope_key=$1 AND policy_key=$2 AND archived_at IS NULL AND policy_id<>$3 LIMIT 1`,
+        [scope.scopeKey, state.policy_key, policyId]
+      );
+      if (clash.rows[0]) {
+        throw new GovernanceError('A current policy already uses this key; archive or rename it first', 'GOVERNANCE_POLICY_KEY_IN_USE', 409, { policyKey: state.policy_key });
+      }
+      await client.query(
+        'UPDATE nv_governance_policies SET archived_at=NULL WHERE policy_id=$1 AND scope_key=$2 AND archived_at IS NOT NULL',
+        [policyId, scope.scopeKey]
+      );
+      await this.appendAudit(client, {
+        policyId, scopeKey: scope.scopeKey, eventType: 'policy.restored', actor,
+        details: { action: 'restore', policyKey: state.policy_key, reason: reason.slice(0, 1000) }
+      });
+      /* It comes back switched off. Turning it on again goes through the
+       * rollback workflow, with a fresh simulation, like any other return. */
+      return { policyId, restored: true, active: false };
+    });
+  }
+
+  async listArchivedPolicies(input = {}) {
+    const scope = normalizePolicyScope(input.scope);
+    const capped = boundedListLimit(input.limit);
+    const result = await this.pool.query(
+      `SELECT p.policy_id,p.policy_key,p.name,p.description,p.created_at,p.archived_at,
+              (SELECT count(*) FROM nv_governance_policy_versions v WHERE v.policy_id=p.policy_id)::integer AS version_count,
+              EXISTS(SELECT 1 FROM nv_governance_policies live
+                      WHERE live.scope_key=p.scope_key AND live.policy_key=p.policy_key AND live.archived_at IS NULL) AS key_in_use
+         FROM nv_governance_policies p
+        WHERE p.scope_key=$1 AND p.archived_at IS NOT NULL
+        ORDER BY p.archived_at DESC,p.policy_id ASC
+        LIMIT $2`,
+      [scope.scopeKey, capped]
+    );
+    return result.rows.map(row => ({
+      policyId: row.policy_id,
+      policyKey: row.policy_key,
+      name: row.name,
+      description: row.description,
+      createdAt: row.created_at,
+      archivedAt: row.archived_at,
+      versionCount: Number(row.version_count || 0),
+      keyInUse: row.key_in_use === true
+    }));
+  }
+
+  async discardDraft(input = {}) {
+    const actor = actorOf(input.actor);
+    const policyId = normalizeUuid(input.policyId, 'policy id');
+    const draftId = normalizeUuid(input.draftId, 'policy draft id');
+    const scope = normalizePolicyScope(input.scope);
+    const expectedRevision = expectedRevisionOf(input.expectedRevision);
+    const allowOthers = input.allowOthers === true;
+    return this.idempotentTransaction({
+      idempotencyKey: input.idempotencyKey,
+      scopeKey: scope.scopeKey,
+      actorIdentityKey: actor.identityKey,
+      operation: 'governance.draft.discard',
+      request: { policyId, draftId, expectedRevision }
+    }, async client => {
+      const found = await client.query(
+        `SELECT d.draft_id,d.revision,d.document_hash,d.authored_by_identity_key
+           FROM nv_governance_policy_drafts d
+           JOIN nv_governance_policies p ON p.policy_id=d.policy_id
+          WHERE d.draft_id=$1 AND d.policy_id=$2 AND p.scope_key=$3 AND p.archived_at IS NULL
+          FOR UPDATE OF d`,
+        [draftId, policyId, scope.scopeKey]
+      );
+      const draft = found.rows[0];
+      if (!draft) throw new GovernanceError('Governance draft was not found', 'GOVERNANCE_DRAFT_NOT_FOUND', 404);
+      const own = draft.authored_by_identity_key === actor.identityKey;
+      if (!own && !allowOthers) {
+        throw new GovernanceError('Only the draft author or a repository administrator can discard this draft', 'GOVERNANCE_DRAFT_NOT_OWNED', 403);
+      }
+      if (Number(draft.revision) !== expectedRevision) {
+        throw new GovernanceError('Policy draft changed; reload before discarding it', 'GOVERNANCE_DRAFT_REVISION_CONFLICT', 409, {
+          expectedRevision, currentRevision: Number(draft.revision)
+        });
+      }
+      const removed = await client.query(
+        'DELETE FROM nv_governance_policy_drafts WHERE draft_id=$1 AND revision=$2',
+        [draftId, expectedRevision]
+      );
+      if (!removed.rowCount) throw new GovernanceError('Policy draft changed while discarding it', 'GOVERNANCE_DRAFT_REVISION_CONFLICT', 409);
+      await this.appendAudit(client, {
+        policyId, scopeKey: scope.scopeKey, eventType: 'draft.discarded', actor,
+        details: { draftId, revision: expectedRevision, documentHash: draft.document_hash, discardedByAuthor: own }
+      });
+      return { policyId, draftId, discarded: true };
+    });
+  }
+
+  async withdrawVersion(input = {}) {
+    const actor = actorOf(input.actor);
+    const policyId = normalizeUuid(input.policyId, 'policy id');
+    const versionId = normalizeUuid(input.versionId, 'policy version id');
+    const scope = normalizePolicyScope(input.scope);
+    const reason = this.lifecycleReason(input.reason, 'Reason for withdrawing the version');
+    const allowOthers = input.allowOthers === true;
+    return this.idempotentTransaction({
+      idempotencyKey: input.idempotencyKey,
+      scopeKey: scope.scopeKey,
+      actorIdentityKey: actor.identityKey,
+      operation: 'governance.version.withdraw',
+      request: { policyId, versionId, reason }
+    }, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`nv-governance:${policyId}`]);
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`nv-governance-review:${versionId}`]);
+      const version = await this.reviewVersionInScope(client, { policyId, versionId, scopeKey: scope.scopeKey });
+      if (version.withdrawn) throw new GovernanceError('This version was already withdrawn', 'GOVERNANCE_VERSION_WITHDRAWN', 409);
+      /* A version that ever ran is history, and history is what rollback reads.
+       * Only a version that never took effect can be taken back. */
+      if (version.has_activation) throw new GovernanceError('A version that has been active cannot be withdrawn', 'GOVERNANCE_VERSION_FINALIZED', 409);
+      if (version.authored_by_identity_key !== actor.identityKey && !allowOthers) {
+        throw new GovernanceError('Only the version author or a repository administrator can withdraw it', 'GOVERNANCE_VERSION_NOT_OWNED', 403);
+      }
+      await client.query(
+        `INSERT INTO nv_governance_version_withdrawals(version_id,policy_id,scope_key,actor_identity_key,created_at)
+         VALUES($1,$2,$3,$4,$5)`,
+        [versionId, policyId, scope.scopeKey, actor.identityKey, this.now().toISOString()]
+      );
+      await this.appendAudit(client, {
+        policyId, versionId, scopeKey: scope.scopeKey, eventType: 'version.withdrawn', actor,
+        details: { action: 'withdraw', versionNumber: Number(version.version_number), reason: reason.slice(0, 1000) }
+      });
+      return { policyId, versionId, withdrawn: true };
+    });
+  }
+
+  /*
+   * Clearing a repository: every live policy is switched off and archived, in
+   * one transaction, so the repository is either governed as before or not
+   * governed at all -- never half. The ledger, the signed exports, the
+   * webhooks and the notification settings are left exactly as they were,
+   * and every archived policy can be restored.
+   */
+  async resetGovernance(input = {}) {
+    const actor = actorOf(input.actor);
+    const scope = normalizePolicyScope(input.scope);
+    const reason = this.lifecycleReason(input.reason, 'Reason for resetting governance');
+    const authorization = activationAuthorizationEvidenceOf(input.authorizationEvidence, this.now());
+    const resetId = normalizeUuid(this.idFactory(), 'governance reset id');
+    return this.idempotentTransaction({
+      idempotencyKey: input.idempotencyKey,
+      scopeKey: scope.scopeKey,
+      actorIdentityKey: actor.identityKey,
+      operation: 'governance.reset',
+      request: { reason }
+    }, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [activePolicySetLockKey(scope.scopeKey)]);
+      activationAuthorizationEvidenceOf(authorization, this.now());
+      const live = await client.query(
+        `SELECT p.policy_id FROM nv_governance_policies p
+          WHERE p.scope_key=$1 AND p.archived_at IS NULL
+          ORDER BY p.policy_key ASC,p.policy_id ASC
+          LIMIT 501`,
+        [scope.scopeKey]
+      );
+      if (live.rows.length > 500) {
+        throw new GovernanceError('This repository has more policies than one reset can clear', 'GOVERNANCE_RESET_LIMIT_REACHED', 409, { maximum: 500 });
+      }
+      let deactivatedCount = 0;
+      for (const row of live.rows) {
+        const state = await this.lockedPolicyHead(client, scope, row.policy_id);
+        const deactivation = state.active_version_id
+          ? await this.deactivateLocked(client, { scope, state, actor, reason, authorization, resetId })
+          : null;
+        if (deactivation) deactivatedCount += 1;
+        await this.archiveLocked(client, { scope, state, actor, reason, resetId, deactivated: !!deactivation });
+      }
+      return { resetId, archivedCount: live.rows.length, deactivatedCount };
     });
   }
 
@@ -1896,11 +2243,20 @@ class GovernanceStore {
                 h.active_version_id,COALESCE(h.revision,0) AS revision,COALESCE(h.updated_at,p.created_at) AS updated_at,
                 av.version_number AS active_version_number,av.document_hash AS active_document_hash,
                 COALESCE(av.document->'enforcement'->>'mode','observe') AS active_enforcement_mode,
+                la.action AS last_activation_action,la.version_id AS last_activation_version_id,
+                lav.version_number AS last_activation_version_number,
                 count(*) OVER()::integer AS total_policy_count,
                 count(*) FILTER (WHERE h.active_version_id IS NOT NULL) OVER()::integer AS total_active_policy_count
            FROM nv_governance_policies p
            LEFT JOIN nv_governance_policy_heads h ON h.policy_id=p.policy_id
            LEFT JOIN nv_governance_policy_versions av ON av.policy_id=p.policy_id AND av.version_id=h.active_version_id
+           LEFT JOIN LATERAL (
+             SELECT a.action,a.version_id FROM nv_governance_activations a
+              WHERE a.policy_id=p.policy_id
+              ORDER BY a.resulting_revision DESC,a.created_at DESC,a.activation_id DESC
+              LIMIT 1
+           ) la ON true
+           LEFT JOIN nv_governance_policy_versions lav ON lav.policy_id=p.policy_id AND lav.version_id=la.version_id
           WHERE p.scope_key=$1 AND p.archived_at IS NULL
           ORDER BY p.policy_key ASC,p.policy_id ASC
           LIMIT $2`,
@@ -1913,6 +2269,9 @@ class GovernanceStore {
                 count(DISTINCT ap.approval_id) FILTER (WHERE ap.assignment_id IS NOT NULL AND ap.decision='reject')::integer AS rejection_count,
                 ae.simulation_hash,ae.scenario_set_hash,ae.result_hash AS simulation_result_hash,
                 ae.created_at AS simulation_evidence_created_at,
+                EXISTS(SELECT 1 FROM nv_governance_version_withdrawals w WHERE w.version_id=v.version_id) AS withdrawn,
+                EXISTS(SELECT 1 FROM nv_governance_activations act
+                        WHERE act.policy_id=v.policy_id AND act.version_id=v.version_id AND act.action IN ('activate','rollback')) AS previously_active,
                 count(*) OVER()::integer AS total_version_count
            FROM nv_governance_policy_versions v
            JOIN nv_governance_policies p ON p.policy_id=v.policy_id

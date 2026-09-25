@@ -8,7 +8,7 @@ for (const name of ['CONTROL_CATALOG', 'TASK_14_CONTROL_CATALOG', 'LEGACY_CONTRO
 const { CONTROL_CATALOG, TASK_14_CONTROL_CATALOG, LEGACY_CONTROL_CATALOG, normalizeControlRefs, deriveControlMapping, normalizeControlMapping } = controls;
 const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
 assert.strictEqual(CONTROL_CATALOG.id, 'nebulaverse-control-catalog');
-assert.strictEqual(CONTROL_CATALOG.version, '1.4.0');
+assert.strictEqual(CONTROL_CATALOG.version, '1.5.0');
 assert.strictEqual(TASK_14_CONTROL_CATALOG.version, '1.1.0');
 assert.strictEqual(LEGACY_CONTROL_CATALOG.id, 'nebulaverse-control-catalog');
 assert.strictEqual(LEGACY_CONTROL_CATALOG.version, '1.0.0');
@@ -158,7 +158,7 @@ for (const action of EXPOSURE_ACTIONS) {
  * policy approved against it never covered clearing anything.
  */
 {
-  const current = CONTROL_CATALOG;
+  const current = controls.TASK_21_CONTROL_CATALOG;
   const previous = controls.TASK_20_CONTROL_CATALOG;
   assert(previous && previous.version === '1.3.0', '1.3.0 must still be published');
   assert.notStrictEqual(current.hash, previous.hash);
@@ -168,7 +168,7 @@ for (const action of EXPOSURE_ACTIONS) {
   assert.deepStrictEqual([...before].filter(action => !after.has(action)), [], 'a revision may only add');
   for (const action of EXPOSURE_ACTIONS) assert(before.has(action), `1.3.0 still maps ${action}`);
 
-  assert.strictEqual(deriveControlMapping({ action: 'exposure.history.clear', policyEvaluations: [] }).status, 'mapped');
+  assert.strictEqual(deriveControlMapping({ action: 'exposure.history.clear', catalogVersion: '1.4.0', policyEvaluations: [] }).status, 'mapped');
   assert.strictEqual(
     deriveControlMapping({ action: 'exposure.history.clear', catalogVersion: '1.3.0', policyEvaluations: [] }).status,
     'unmapped',
@@ -178,6 +178,37 @@ for (const action of EXPOSURE_ACTIONS) {
   assert.strictEqual(actions['exposure.history.clear'].actorBinding, 'execution', 'a person clears their own record');
   assert.strictEqual(actions['exposure.history.clear'].risk, 'medium', 'irreversible, so not low');
   assert.deepStrictEqual(actions['exposure.history.clear'].operations, []);
+}
+
+/*
+ * 1.5.0 adds the governance lifecycle -- switching off, archiving, restoring,
+ * discarding, withdrawing and resetting -- and nothing else. 1.4.0 stays
+ * published, hashes what it hashed, and never heard of any of them.
+ */
+{
+  const LIFECYCLE = [
+    'governance.draft.discard', 'governance.policy.archive', 'governance.policy.deactivate',
+    'governance.policy.restore', 'governance.reset', 'governance.version.withdraw'
+  ];
+  const current = CONTROL_CATALOG;
+  const previous = controls.TASK_21_CONTROL_CATALOG;
+  assert(previous && previous.version === '1.4.0', '1.4.0 must still be published');
+  assert.notStrictEqual(current.hash, previous.hash);
+  const before = new Set(previous.actionMappings.map(item => item.action));
+  const after = new Set(current.actionMappings.map(item => item.action));
+  assert.deepStrictEqual([...after].filter(action => !before.has(action)).sort(), LIFECYCLE, '1.5.0 adds exactly the lifecycle actions');
+  assert.deepStrictEqual([...before].filter(action => !after.has(action)), [], 'a revision may only add');
+  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  for (const action of LIFECYCLE) {
+    assert.strictEqual(deriveControlMapping({ action, policyEvaluations: [] }).status, 'mapped');
+    assert.strictEqual(deriveControlMapping({ action, catalogVersion: '1.4.0', policyEvaluations: [] }).status, 'unmapped',
+      `a policy approved against 1.4.0 never covered ${action}`);
+    assert.strictEqual(actions[action].actorBinding, 'governance', `${action} binds to a governance role, not to whoever runs it`);
+    assert.deepStrictEqual(actions[action].operations, [], `${action} writes nothing to a provider`);
+  }
+  for (const action of ['governance.policy.deactivate', 'governance.policy.archive', 'governance.reset']) {
+    assert.strictEqual(actions[action].risk, 'critical', `${action} changes what is enforced`);
+  }
 }
 
 console.log('control mapping tests passed');

@@ -78,6 +78,18 @@ const MUTATION_ACTIONS = Object.freeze({
   'governance.exception.decide': defineAction('governance', 'critical', 'Approve or reject a time-bounded policy exception or waiver', [], null, 'governance'),
   'governance.exception.revoke': defineAction('governance', 'critical', 'Revoke an approved policy exception or waiver', [], null, 'governance'),
   /*
+   * The rest of a policy's life. Switching a policy off and archiving it are
+   * critical for the same reason activation is: they change what is enforced.
+   * Restoring and withdrawing change what can be enforced later; discarding a
+   * draft changes nothing anybody relies on yet.
+   */
+  'governance.policy.deactivate': defineAction('governance', 'critical', 'Switch off the active version of a repository governance policy', [], null, 'governance'),
+  'governance.policy.archive': defineAction('governance', 'critical', 'Archive a repository governance policy, switching it off first', [], null, 'governance'),
+  'governance.policy.restore': defineAction('governance', 'high', 'Restore an archived repository governance policy, switched off', [], null, 'governance'),
+  'governance.draft.discard': defineAction('governance', 'medium', 'Discard a repository governance policy draft', [], null, 'governance'),
+  'governance.version.withdraw': defineAction('governance', 'high', 'Withdraw a policy version that never took effect', [], null, 'governance'),
+  'governance.reset': defineAction('governance', 'critical', 'Switch off and archive every governance policy in a repository', [], null, 'governance'),
+  /*
    * Exposure scanning. None of these performs a provider mutation -- the
    * operations list is empty for every one -- but all of them are governed
    * actions: they read somebody's repository, use a credential found inside

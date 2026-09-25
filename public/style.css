@@ -2359,6 +2359,23 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .gov-timeline li:before{content:"";position:absolute;left:-5px;top:14px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
 .gov-timeline small,.gov-time,.gov-muted{font-size:.72rem;color:var(--muted)}
 .gov-empty,.gov-state{padding:32px;text-align:center;justify-items:center}
+/* The lifecycle row sits under the everyday actions, separated, so switching
+   a policy off is never the button beside "Inspect" a thumb lands on. */
+.gov-lifecycle-actions{padding-top:10px;border-top:1px solid var(--glass-border)}
+.gov-archived{padding:0}
+.gov-archived>summary{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;list-style:none;font-weight:600}
+.gov-archived>summary::-webkit-details-marker{display:none}
+.gov-archived>summary::before{content:"";width:8px;height:8px;border-right:2px solid var(--text2);border-bottom:2px solid var(--text2);transform:rotate(-45deg);transition:transform .16s var(--ease)}
+.gov-archived[open]>summary::before{transform:rotate(45deg)}
+.gov-archived>summary:focus-visible{outline:2px solid var(--focus);outline-offset:-2px;border-radius:inherit}
+.gov-archived>p,.gov-archived>.gov-list{margin:0 16px 14px}
+.gov-danger-zone{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  border-color:color-mix(in srgb,var(--red) 38%,var(--glass-border));
+  background:linear-gradient(135deg,color-mix(in srgb,var(--red) 7%,transparent),transparent 60%)}
+.gov-danger-copy{min-width:0;flex:1 1 320px}
+.gov-danger-copy h3{margin:0 0 4px;font-size:.98rem}
+.gov-danger-copy p{margin:0;color:var(--text2);font-size:.84rem;line-height:1.55;max-width:640px}
+.gov-reset-list{margin:8px 0 12px;padding-left:18px;color:var(--text2);line-height:1.6;font-size:.86rem}
 .gov-empty{display:grid;gap:9px}.gov-empty p,.gov-state p{max-width:590px;color:var(--text2);line-height:1.6}
 .gov-state-orb{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;background:rgba(139,92,246,.14);color:var(--accent2)}
 .gov-orb-mark{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.gov-state-orb.danger{background:rgba(244,63,110,.12);color:var(--red)}

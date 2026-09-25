@@ -47,7 +47,8 @@ function governanceTwinPayload(now = new Date()) {
     totals: { policies: 2, activePolicies: 1, versions: 2 },
     policies: [
       { policy_id: policyId, policy_key: 'alpha', name: 'Protected paths', description: 'Bounded write policy for release branches.', revision: 3, active_version_id: versionId, active_version_number: 2, active_document_hash: 'a'.repeat(64), active_enforcement_mode: 'warn', updated_at: earlier },
-      { policy_id: '20000000-0000-4000-8000-000000000002', policy_key: 'zeta', name: 'Upload security', description: '', revision: 2, active_version_id: null, updated_at: earlier }
+      { policy_id: '20000000-0000-4000-8000-000000000002', policy_key: 'zeta', name: 'Upload security', description: '', revision: 2, active_version_id: null, updated_at: earlier,
+        last_activation_action: 'deactivate', last_activation_version_id: '90000000-0000-4000-8000-000000000009', last_activation_version_number: 1 }
     ],
     versions: [
       { policy_id: policyId, version_id: versionId, version_number: 2, document_hash: 'a'.repeat(64), required_approvals: 1, assignment_count: 1, approval_count: 1, rejection_count: 0, created_at: earlier },
@@ -268,6 +269,14 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       }
       if (/\/governance\/webhooks$/.test(pathname) && method === 'GET') {
         return fulfill({ webhooks: [] });
+      }
+      /* One archived policy, so the archive section is drawn with content. */
+      if (/\/governance\/archive$/.test(pathname) && method === 'GET') {
+        return fulfill({ policies: [{
+          policyId: '80000000-0000-4000-8000-000000000008', policyKey: 'legacy-release',
+          name: 'Legacy release rules', description: '', createdAt: new Date(Date.now() - 86_400_000 * 9).toISOString(),
+          archivedAt: new Date(Date.now() - 86_400_000 * 2).toISOString(), versionCount: 3, keyInUse: false
+        }] });
       }
     }
     if (pathname === '/api/config') return fulfill({ oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, contentsMaxMb: 40, githubApp: { enabled: true, webhookConfigured: true } });

@@ -452,6 +452,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/reference/governance-lifecycle.md",
+      "lifecycle": "current",
+      "authority": "authored-feature-reference",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/release/EVIDENCE_INDEX.md",
       "lifecycle": "qualification",
       "authority": "release-qualification-record",

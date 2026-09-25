@@ -8,7 +8,8 @@ const STEP_UP_ACTIONS = new Set([
   'repository.delete',
   'branch.reset',
   'pull.merge',
-  'sessions.revoke-others'
+  'sessions.revoke-others',
+  'governance.reset'
 ]);
 const MERGE_METHODS = new Set(['merge', 'squash', 'rebase']);
 
@@ -176,6 +177,8 @@ function normalizeStepUpRequest(action, requestedScope, context = {}) {
       pullNumber,
       method
     };
+  } else if (normalizedAction === 'governance.reset') {
+    scope = { provider, owner: cleanRepoPart(source.owner, 'owner'), repo: cleanRepoPart(source.repo, 'repository') };
   } else if (normalizedAction === 'sessions.revoke-others') {
     const identityKey = String(context.identityKey || '');
     if (!identityKey) throw new SecurityTokenError('Active identity is required', 'STEP_UP_SCOPE_INVALID', 400);
@@ -350,6 +353,11 @@ function sensitiveOperationFor(request = {}) {
     return normalizeStepUpRequest('pull.merge', {
       owner: params.owner, repo: params.repo, pullNumber: params.num, method: body.method
     }, context);
+  }
+  /* Clearing a repository's governance re-authenticates first, like deleting
+     the repository does: one request switches off everything that protects it. */
+  if (method === 'POST' && /^\/api\/repo\/[^/]+\/[^/]+\/governance\/reset$/.test(path)) {
+    return normalizeStepUpRequest('governance.reset', { owner: params.owner, repo: params.repo }, context);
   }
   if (method === 'POST' && (path === '/api/security/revoke-others' || /^\/api\/repo\/[^/]+\/[^/]+\/emergency-manifest$/.test(path))) {
     return normalizeStepUpRequest('sessions.revoke-others', {}, context);

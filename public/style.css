@@ -2174,7 +2174,7 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
   border:1px solid transparent;background:transparent;color:var(--text2);text-align:left;
   font:inherit;font-size:.7rem;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
 .neural-chip .ng-icon{flex:none;width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
-  color:var(--node);background:color-mix(in srgb,var(--node) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--node) 45%,transparent)}
+  color:var(--node,#8b5cf6);background:color-mix(in srgb,var(--node,#8b5cf6) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--node,#8b5cf6) 45%,transparent)}
 .neural-chip .ng-icon svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .neural-chip .ng-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .neural-chip .ng-pip{flex:none;min-width:17px;height:17px;padding:0 4px;border-radius:99px;display:inline-flex;align-items:center;justify-content:center;
@@ -2183,8 +2183,8 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 .neural-chip .ng-pip.is-warning{background:#B45309}
 .neural-chip b{flex:none;font-family:var(--font-mono);font-size:.66rem;font-weight:700;color:var(--text)}
 .neural-chip small{flex:none;margin-left:-4px;font-family:var(--font-mono);font-size:.58rem;color:var(--muted)}
-.neural-chip:hover{color:var(--text);background:color-mix(in srgb,var(--node) 9%,transparent)}
-.neural-chip.is-on{color:var(--text);background:color-mix(in srgb,var(--node) 18%,transparent);border-color:color-mix(in srgb,var(--node) 60%,transparent)}
+.neural-chip:hover{color:var(--text);background:color-mix(in srgb,var(--node,#8b5cf6) 9%,transparent)}
+.neural-chip.is-on{color:var(--text);background:color-mix(in srgb,var(--node,#8b5cf6) 18%,transparent);border-color:color-mix(in srgb,var(--node,#8b5cf6) 60%,transparent)}
 .neural-chip:focus-visible,.neural-eye:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .neural-eye{width:30px;height:30px;border-radius:9px;border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;
   display:inline-flex;align-items:center;justify-content:center;padding:0;transition:color .15s,background .15s}
@@ -2193,7 +2193,7 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 .neural-group-row.is-hidden .neural-chip{opacity:.5}
 .neural-group-row.is-hidden .neural-chip .ng-icon{filter:grayscale(1)}
 .neural-group-row.is-hidden .neural-eye{color:var(--text2)}
-[data-theme="light"] .neural-chip .ng-icon{color:color-mix(in srgb,var(--node) 45%,#1e293b)}
+[data-theme="light"] .neural-chip .ng-icon{color:color-mix(in srgb,var(--node,#8b5cf6) 45%,#1e293b)}
 [data-theme="light"] .neural-eye:hover{background:rgba(49,46,129,.06)}
 [data-theme="light"] .neural-groups-tool{background:rgba(255,255,255,.7)}
 /* Beside the graph on a laptop the rail is narrow: the name keeps the room,
@@ -2216,7 +2216,7 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 @media(min-width:900px){
   .neural-stage.is-expanded.panel-open .neural-minimap{left:calc(var(--nv-panel-w) + 13px)}
 }
-[data-theme="light"] .neural-chip.is-on{background:color-mix(in srgb,var(--node) 16%,#fff)}
+[data-theme="light"] .neural-chip.is-on{background:color-mix(in srgb,var(--node,#8b5cf6) 16%,#fff)}
 
 /*
  * The node card. It opens beside the node it describes, joined to it by a line
@@ -2242,9 +2242,9 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 @keyframes neuralSheetIn{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
 .neural-card-head{position:sticky;top:0;z-index:1;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:11px;align-items:center;padding:14px 12px 10px 14px;
   background:inherit}
-.neural-card-icon{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:var(--node);
-  background:color-mix(in srgb,var(--node) 16%,transparent);border:1px solid color-mix(in srgb,var(--node) 40%,transparent)}
-[data-theme="light"] .neural-card-icon{color:color-mix(in srgb,var(--node) 72%,#1e1b4b)}
+.neural-card-icon{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:var(--node,#8b5cf6);
+  background:color-mix(in srgb,var(--node,#8b5cf6) 16%,transparent);border:1px solid color-mix(in srgb,var(--node,#8b5cf6) 40%,transparent)}
+[data-theme="light"] .neural-card-icon{color:color-mix(in srgb,var(--node,#8b5cf6) 72%,#1e1b4b)}
 .neural-card-icon svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .neural-card-kicker{display:block;font-family:var(--font-mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 .neural-card-title h3{margin:2px 0 0;font-size:.9rem;line-height:1.25;overflow-wrap:anywhere}
@@ -2273,10 +2273,10 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 .neural-card-links{list-style:none;margin:0;padding:0;display:grid;gap:4px}
 .neural-card-links button{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;align-items:center;text-align:left;padding:7px 8px;border-radius:10px;
   border:1px solid transparent;background:transparent;color:var(--text);font:inherit;cursor:pointer;transition:background .14s,border-color .14s}
-.neural-card-links button:hover{background:color-mix(in srgb,var(--node) 12%,transparent);border-color:color-mix(in srgb,var(--node) 35%,transparent)}
+.neural-card-links button:hover{background:color-mix(in srgb,var(--node,#8b5cf6) 12%,transparent);border-color:color-mix(in srgb,var(--node,#8b5cf6) 35%,transparent)}
 .neural-card-links button:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
-.neural-card-links i{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:var(--node);background:color-mix(in srgb,var(--node) 14%,transparent)}
-[data-theme="light"] .neural-card-links i{color:color-mix(in srgb,var(--node) 72%,#1e1b4b)}
+.neural-card-links i{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:var(--node,#8b5cf6);background:color-mix(in srgb,var(--node,#8b5cf6) 14%,transparent)}
+[data-theme="light"] .neural-card-links i{color:color-mix(in srgb,var(--node,#8b5cf6) 72%,#1e1b4b)}
 .neural-card-links i svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .neural-card-links b{display:block;font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .neural-card-links small{display:block;font-size:.6rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

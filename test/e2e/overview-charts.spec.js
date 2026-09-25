@@ -250,11 +250,28 @@ test('hovering the series names the day and the count under the pointer', async 
   test.skip((page.viewportSize() || {}).width < 900, 'a hover layer is a mouse affordance');
   await overview(page);
   const chart = page.locator('#wpFeed .wp-area');
+  const hover = page.locator('#wpFeed .wp-hover');
   await chart.scrollIntoViewIfNeeded();
-  const box = await chart.boundingBox();
-  await page.mouse.move(box.x + box.width - 4, box.y + box.height / 2);
-  await expect(page.locator('#wpFeed .wp-hover')).toHaveClass(/is-on/);
+  /*
+   * A gesture, measured where the chart is when the hand arrives. The card
+   * can still be settling -- a late re-render, a refit to its final width --
+   * and a chart drawn under a pointer that has stopped does not light until
+   * the pointer moves, for a reader as for this test. So the hand moves across
+   * the last day, as a reader's does, until the reading shows.
+   */
+  await expect(async () => {
+    const box = await chart.boundingBox();
+    await page.mouse.move(box.x + box.width - 40, box.y + box.height / 2);
+    await page.mouse.move(box.x + box.width - 4, box.y + box.height / 2, { steps: 3 });
+    /* Named in the failure: what the pointer is actually over. */
+    const under = await page.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit ? `${hit.tagName.toLowerCase()}.${String(hit.getAttribute('class') || '').replace(/\s+/g, '.')}` : 'nothing';
+    }, { x: box.x + box.width - 4, y: box.y + box.height / 2 });
+    await expect(hover, `the pointer is over ${under}`).toHaveClass(/is-on/, { timeout: 1000 });
+  }).toPass({ timeout: 15000 });
   await expect(page.locator('#wpFeed .wp-hover-text')).toHaveText(/^today · \d+$/);
+  const box = await chart.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y - 60);
-  await expect(page.locator('#wpFeed .wp-hover')).not.toHaveClass(/is-on/);
+  await expect(hover).not.toHaveClass(/is-on/);
 });

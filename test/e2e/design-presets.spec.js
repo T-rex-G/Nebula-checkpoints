@@ -214,7 +214,10 @@ test('a text field is focused on its own edge, not with a ring hung outside it',
      they sit in -- is the control's own, and is what lights. */
   const ring = await field.evaluate(node => {
     const style = getComputedStyle(node.closest('.lp-entry-row') || node);
-    return { offset: parseFloat(style.outlineOffset), width: parseFloat(style.outlineWidth), shadow: style.boxShadow };
+    /* An outline whose style is none draws nothing, whatever width it
+       reports: newer Chromium reports the initial 3px for it rather than 0. */
+    const drawn = style.outlineStyle !== 'none';
+    return { offset: drawn ? parseFloat(style.outlineOffset) : 0, width: drawn ? parseFloat(style.outlineWidth) : 0, shadow: style.boxShadow };
   });
   expect(ring.offset).toBe(0);
   expect(ring.width).toBeLessThanOrEqual(1.5);

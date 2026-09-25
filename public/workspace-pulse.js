@@ -863,6 +863,9 @@
       const name = index => (settings.labels && settings.labels[index] !== undefined ? settings.labels[index] : '');
       const show = index => {
         const at = points[index];
+        if (!at) return;
+        hover.classList.add('is-on');
+        chart.dataset.hover = String(index);
         rule.setAttribute('x1', at.x); rule.setAttribute('x2', at.x);
         ring.setAttribute('cx', at.x); ring.setAttribute('cy', at.y);
         const said = name(index);
@@ -873,17 +876,24 @@
         const top = Math.max(2, at.y - 36);
         plate.setAttribute('x', left); plate.setAttribute('y', top); plate.setAttribute('width', boxW);
         text.setAttribute('x', left + 9); text.setAttribute('y', top + 16);
-        hover.classList.add('is-on');
       };
-      chart.addEventListener('pointermove', event => {
+      const hide = () => {
+        hover.classList.remove('is-on');
+        delete chart.dataset.hover;
+      };
+      const follow = event => {
         if (event.pointerType && event.pointerType !== 'mouse') return;
         const box = chart.getBoundingClientRect();
         if (!box.width) return;
         const x = (event.clientX - box.left) * (width / box.width);
-        const index = Math.max(0, Math.min(points.length - 1, Math.round((x - padX) / step)));
-        show(index);
-      });
-      chart.addEventListener('pointerleave', () => hover.classList.remove('is-on'));
+        show(Math.max(0, Math.min(points.length - 1, Math.round((x - padX) / step))));
+      };
+      chart.addEventListener('pointerenter', follow);
+      chart.addEventListener('pointermove', follow);
+      chart.addEventListener('pointerleave', hide);
+      /* A refit replaces the chart under a pointer that may not move again;
+         the replacement is told which reading was showing (fittedArea). */
+      chart.addEventListener('wp-hover', event => show(event.detail));
     }
 
     if (settings.axis && settings.axis.length) {
@@ -918,8 +928,12 @@
         if (Math.abs(now - drawn) < 24) return;
         drawn = now;
         const next = areaChart(values, label, Object.assign({}, options, { width: now, reveal: false }));
+        const showing = chart.dataset.hover;
         chart.replaceWith(next);
         chart = next;
+        if (showing !== undefined && typeof CustomEvent === 'function') {
+          next.dispatchEvent(new CustomEvent('wp-hover', { detail: Number(showing) }));
+        }
       });
       watcher.observe(host);
     }

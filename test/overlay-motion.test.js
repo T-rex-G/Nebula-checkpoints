@@ -1702,9 +1702,11 @@ check('every artwork the shell mounts still has somewhere to mount', () => {
   const registry = appSource.match(/const NEBULA_VISUALS = Object\.freeze\(\{([\s\S]*?)\}\);/);
   assert.ok(registry, 'the visuals registry is gone');
   const mounts = [...registry[1].matchAll(/'#([\w-]+)'/g)].map(m => m[1]);
-  assert.ok(mounts.length >= 1, `the registry names ${mounts.length} mount points`);
-  /* The overview draws its emblem in the page; it mounts nothing. */
-  assert.ok(!mounts.includes('ovCoreArt'), 'the overview emblem is SVG in the page, not a WebGL mount');
+  assert.ok(mounts.length >= 2, `the registry names ${mounts.length} mount points`);
+  /* Nebula's Trust core is the dimensional mark; Obsidian keeps the SVG emblem. */
+  assert.ok(mounts.includes('ovCoreArt'), 'the overview no longer mounts the dimensional mark');
+  assert.ok(/kind === 'mark' && state\.settings\.design === 'obsidian'/.test(appSource),
+    'the mark is mounted in Obsidian, where the stage belongs to the emblem');
   mounts.forEach(id => {
     assert.ok(new RegExp(`id="${id}"`).test(htmlSource),
       `#${id} is named as an artwork mount but is not in the document`);
@@ -1771,13 +1773,24 @@ check('the overview artwork is shown whole, not cropped by its panel', () => {
     'the artwork ground has no height, so the mark has no room to be drawn in');
   assert.ok(/overflow\s*:\s*hidden/.test(combined),
     'the stage no longer clips, so this check has nothing to protect against');
-  /* The emblem fills that stage exactly -- not a corner of it -- and holds
-     still: the frame was reported as unprofessional while it spun. */
-  const ground = rules.filter(rule => eachSelector(rule).some(one => subject(one.selector) === '.ov-core-glow'))
+  /* The 3D mount, the aura and the SVG emblem each fill that stage exactly --
+     not a corner of it. */
+  const fills = selector => rules.filter(rule => eachSelector(rule).some(one => subject(one.selector) === selector))
     .map(rule => rule.body).join(';');
-  assert.ok(/inset\s*:\s*0/.test(ground), 'the emblem does not fill its stage');
-  assert.ok(!/animation\s*:/.test(ground), 'the emblem animates');
+  const mount = rules.filter(rule => /nebula-mark-3d/.test(rule.selector)).map(rule => rule.body).join(';');
+  assert.ok(/inset\s*:\s*0/.test(mount),
+    'the dimensional mark does not fill its stage, so it draws into part of the frame');
+  assert.ok(/inset\s*:\s*0/.test(fills('.ov-core-glow')), 'the aura does not fill its stage');
+  assert.ok(/inset\s*:\s*0/.test(fills('.ov-core-emblem')), 'the emblem does not fill its stage');
   assert.ok(/class="ov-core-emblem"/.test(htmlSource), 'the overview emblem is gone');
+  /* It is alive -- the Trust core was reported as dead while it held still --
+     and it stops for a reader who has asked for stillness. */
+  assert.ok(/\.ov-core-emblem \.oc-orbit\{animation:/.test(cssSource), 'the emblem\'s scanning orbit does not move');
+  assert.ok(/\.ov-core-glow::before\{[^}]*animation:/.test(cssSource), 'Nebula\'s aura does not turn');
+  assert.ok(/\[data-motion="off"\] \.ov-core-emblem \*\{animation:none\}/.test(cssSource),
+    'the emblem keeps moving with the product\'s motion switched off');
+  assert.ok(/prefers-reduced-motion:reduce\)\{\s*\.ov-core-glow::before,\.ov-core-emblem \*\{animation:none\}/.test(cssSource),
+    'the emblem keeps moving for a reader who asked the system for reduced motion');
 });
 
 /*

@@ -87,7 +87,8 @@ const DUAL_TARGET_MODULES = Object.freeze([
  * inline import map -- and an inline script means relaxing script-src.
  */
 const BROWSER_ES_MODULES = Object.freeze([
-  'public/nebula-galaxy.js'
+  'public/nebula-galaxy.js',
+  'public/nebula-mark-3d.js'
 ]);
 
 const RULES = Object.freeze({ 'no-undef': 'error' });

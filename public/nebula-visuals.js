@@ -23,7 +23,8 @@
 
 (function nebulaVisuals(global) {
   const MODULES = Object.freeze({
-    galaxy: '/nebula-galaxy.js'
+    galaxy: '/nebula-galaxy.js',
+    mark: '/nebula-mark-3d.js'
   });
 
   const requested = new Map();
@@ -85,6 +86,11 @@
     return global.matchMedia && global.matchMedia('(max-width: 700px)').matches ? 'low' : 'high';
   }
 
+  /* Which design preset the artwork is drawn for: Nebula's violets, or
+   * Obsidian's silver and graphite. */
+  function design() {
+    return document.documentElement.dataset.design === 'obsidian' ? 'obsidian' : 'nebula';
+  }
   function theme() {
     return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
   }
@@ -101,10 +107,11 @@
     try {
       if (!requested.has(kind)) requested.set(kind, import(MODULES[kind]));
       await requested.get(kind);
-      const tag = 'nebula-galaxy';
+      const tag = kind === 'galaxy' ? 'nebula-galaxy' : 'nebula-mark-3d';
       if (!global.customElements || !global.customElements.get(tag)) throw new Error(`${tag} did not define`);
       const element = document.createElement(tag);
       element.setAttribute('theme', theme());
+      element.setAttribute('design', design());
       if (kind === 'galaxy') element.setAttribute('density', density());
       host.appendChild(element);
       return true;
@@ -118,8 +125,9 @@
   /* Follows the theme toggle, for whichever pieces are already mounted. */
   function repaint() {
     const next = theme();
-    document.querySelectorAll('nebula-galaxy')
-      .forEach(element => element.setAttribute('theme', next));
+    const preset = design();
+    document.querySelectorAll('nebula-galaxy, nebula-mark-3d')
+      .forEach(element => { element.setAttribute('theme', next); element.setAttribute('design', preset); });
   }
 
   global.NebulaVisuals = Object.freeze({ mount, repaint, supportsWebGL });

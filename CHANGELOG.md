@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Two Design Presets: Nebula and Obsidian
+
+Obsidian replaced the violet Nebula look outright; the Trust core stood
+still; the landing bar drew a lit band under itself and a lit strip down each
+side; a grain sat over every surface; and on the graph the pager's "next"
+button filled in, the hub wore blue and white layers, and a dragged panel
+could not be put back from the full view.
+
+- **Nebula is back, and the default.** Violet glass over the nebula, with the
+  card system, buttons and type of this release. **Settings -> Design** offers
+  Nebula or Obsidian as two cards that each paint their preset; the choice is
+  remembered, restored before the first paint (no flash of the other one),
+  and follows the dark/light toggle within either. A preset or theme change
+  is revealed as a circle growing from the control that asked for it; with
+  motion off it is simply made. The page colour a phone paints around the
+  app, the light-mode waves, the landing ring and the repositories galaxy all
+  follow the preset.
+- **No grain.** Removed from the page, the shell and the graph's stage.
+- **A living Trust core.** Nebula mounts the turning dimensional mark over a
+  slow violet aura again. Obsidian's SVG instrument now moves: the dial turns,
+  a node scans the orbit, the mark floats and a specular sweep crosses its
+  plates. Where WebGL is unavailable Nebula shows the same instrument in
+  violet. Everything stops with motion off or reduced motion.
+- **Landing.** The bar has no ground at rest, so the bloom runs up behind it
+  unbroken; once the page scrolls it takes a full-width backdrop with a
+  hairline, so nothing reads through the brand. Obsidian's landing is lit in
+  white rather than cyan and violet, with a stone entry card and a platinum
+  ring.
+- **Fields focus on their own edge.** The accent border and a soft halo
+  replace the thick ring hung outside every text field.
+- **Graph.** The pager's "next" chevron no longer vanishes into a filled disc
+  (light palettes pass colours as `rgb()`, which the translucency helper
+  returned solid). The hub is the app icon -- violet plates on a deep violet
+  orb -- with no blue halo, white highlight or pale blue rim. A **Reset
+  layout** chip appears on the stage whenever a panel has been moved. The
+  node search is focused as one control.
+- **A living ground under the graph.** The dot grid is now a field on its own
+  canvas: it bends round the panels (and flows round one being dragged),
+  sinks toward the repository hub, lights and joins into a mesh under the
+  pointer, and ripples from a press or a keyboard selection. It draws nothing
+  while nothing moves, and keeps only its still shape with motion off.
+
 ### Obsidian and Quartz; a Full View That Fits Any Screen; Leaked Credentials on the Graph
 
 On an installed iPhone app the full view drew its search and status under the

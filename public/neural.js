@@ -186,6 +186,9 @@
     version: 0,
     fx: null,
     fxCtx: null,
+    field: null,
+    fieldCtx: null,
+    fieldState: { pointer: null, px: 0, py: 0, light: 0, ripples: [], sig: '' },
     staticKey: '',
     frameKey: '',
     lastDraw: 0,
@@ -817,6 +820,8 @@
     NVN.ctx = NVN.canvas.getContext('2d', { alpha: true });
     NVN.fx = document.getElementById('neuralFx');
     NVN.fxCtx = NVN.fx ? NVN.fx.getContext('2d', { alpha: true }) : null;
+    NVN.field = document.getElementById('neuralField');
+    NVN.fieldCtx = NVN.field ? NVN.field.getContext('2d', { alpha: true }) : null;
     bindUI();
     bindCanvas();
     NVN.resizeObserver = new ResizeObserver(() => resize());
@@ -890,6 +895,7 @@
     const w = Math.round(rect.width * NVN.dpr), h = Math.round(rect.height * NVN.dpr);
     if (NVN.canvas.width !== w || NVN.canvas.height !== h) { NVN.canvas.width = w; NVN.canvas.height = h; NVN.staticKey = ''; }
     if (NVN.fx && (NVN.fx.width !== w || NVN.fx.height !== h)) { NVN.fx.width = w; NVN.fx.height = h; }
+    if (NVN.field && (NVN.field.width !== w || NVN.field.height !== h)) { NVN.field.width = w; NVN.field.height = h; NVN.fieldState.sig = ''; }
     if (NVN.fitPending) fitGraph(false);
     /* A rotation or a resize that changes the stage's shape re-lays the
      * graph for it -- including every time the shape crosses from wide to
@@ -1104,18 +1110,35 @@
     return (.2126 * (v >> 16) + .7152 * ((v >> 8) & 255) + .0722 * (v & 255)) / 255;
   }
   function isLight() { return document.documentElement.dataset.theme === 'light'; }
+  function obsidian() { return document.documentElement.dataset.design === 'obsidian'; }
   function palette() {
-    /* Quartz and obsidian: the panels are the stone's own surface, frosted
-     * over the ground, and the ink is warm charcoal or cool ivory rather than
-     * the indigo of before. */
+    /* Two design presets. Nebula's panels are indigo glass with indigo ink;
+     * Obsidian's are the stone's own surface -- warm charcoal ink on quartz,
+     * cool ivory on obsidian. The theme key names both, so switching either
+     * redraws the graph. */
+    if (!obsidian()) {
+      return isLight() ? {
+        theme: 'nebula-light', surface: '#ffffff', grid: 'rgba(49,46,129,.07)', ring: 'rgba(79,70,229,.2)',
+        panel: 'rgba(255,255,255,.9)', panelEdge: .38, text: '#1e1b4b', muted: '#5b5f7a', row: 'rgba(49,46,129,.05)',
+        ink: color => (luminanceOf(color) > .78 ? '#475569' : darken(color, .28)), glow: false,
+        field: '91,33,182', fieldBase: .12, fieldDot: .7, fieldLine: .26
+      } : {
+        theme: 'nebula-dark', surface: '#0e1026', grid: 'rgba(196,203,255,.07)', ring: 'rgba(129,140,248,.24)',
+        panel: 'rgba(11,13,34,.78)', panelEdge: .34, text: '#eef0ff', muted: '#9aa0c3', row: 'rgba(255,255,255,.035)',
+        ink: color => color, glow: true,
+        field: '196,181,253', fieldBase: .14, fieldDot: .92, fieldLine: .34
+      };
+    }
     return isLight() ? {
-      theme: 'light', surface: '#fbfaf8', grid: 'rgba(41,37,36,.07)', ring: 'rgba(120,108,98,.22)',
+      theme: 'obsidian-light', surface: '#fbfaf8', grid: 'rgba(41,37,36,.07)', ring: 'rgba(120,108,98,.22)',
       panel: 'rgba(255,255,255,.9)', panelEdge: .34, text: '#1c1917', muted: '#6b645d', row: 'rgba(41,37,36,.045)',
-      ink: color => (luminanceOf(color) > .78 ? '#57534e' : darken(color, .3)), glow: false
+      ink: color => (luminanceOf(color) > .78 ? '#57534e' : darken(color, .3)), glow: false,
+      field: '41,37,36', fieldBase: .1, fieldDot: .62, fieldLine: .22
     } : {
-      theme: 'dark', surface: '#0c0d10', grid: 'rgba(226,232,240,.055)', ring: 'rgba(203,213,225,.17)',
+      theme: 'obsidian-dark', surface: '#0c0d10', grid: 'rgba(226,232,240,.055)', ring: 'rgba(203,213,225,.17)',
       panel: 'rgba(14,15,19,.84)', panelEdge: .3, text: '#eceef1', muted: '#9aa1ab', row: 'rgba(255,255,255,.04)',
-      ink: color => color, glow: true
+      ink: color => color, glow: true,
+      field: '236,238,241', fieldBase: .12, fieldDot: .85, fieldLine: .27
     };
   }
 
@@ -1321,6 +1344,9 @@
     const animated = state.settings.motion && !NVN.paused;
     const dirty = !NVN.fxCtx || moving || NVN.panning || !!NVN.draggingPanel || key !== NVN.staticKey;
     NVN.interacting = moving || NVN.panning || !!NVN.draggingPanel;
+    /* The ground keeps its own clock: it redraws when the camera or the layout
+     * changes or while its light or a ripple moves, and not otherwise. */
+    drawField(now, dt, colors);
     /* Nothing moved and nothing animates: the last frame is still right. */
     if (!dirty && !animated && NVN.frameKey === key) return;
     /* At rest, the signals run at half rate. */
@@ -1370,7 +1396,9 @@
   }
   function drawStatic(ctx, colors, focus, hub, view) {
     screenSpace(ctx);
-    drawBackdrop(ctx, colors);
+    /* The field canvas under this one carries the ground; without it the
+     * graph keeps its plain dot grid. */
+    if (!NVN.fieldCtx) drawBackdrop(ctx, colors);
     worldSpace(ctx);
     drawRings(ctx, colors, hub);
     drawPanels(ctx, colors, focus, view);
@@ -1401,16 +1429,199 @@
       ctx.save();
       ctx.globalAlpha = focus && !focus.nodes.has(hub.id) ? .55 : 1;
       ctx.lineWidth = 2; ctx.lineCap = 'round';
-      ctx.strokeStyle = 'rgba(147,197,253,.7)';
+      ctx.strokeStyle = 'rgba(167,139,250,.6)';
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.18, turn, turn + 1.2); ctx.stroke();
-      ctx.strokeStyle = 'rgba(196,181,253,.6)';
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.18, turn + Math.PI, turn + Math.PI + .8); ctx.stroke();
       const slow = now * .00012;
       ctx.lineWidth = 1.4;
-      ctx.strokeStyle = hexAlpha('#818cf8', isLight() ? .3 : .4);
+      ctx.strokeStyle = hexAlpha('#a78bfa', isLight() ? .3 : .4);
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.7, slow, slow + 1.1); ctx.stroke();
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.7, slow + Math.PI, slow + Math.PI + .6); ctx.stroke();
       ctx.restore();
+    }
+  }
+
+  /*
+   * The ground is a field, not a pattern -- after Angelo Libero's Surface
+   * Field, re-made for a graph.
+   *
+   * Its dots belong to the graph's world, so panning moves over them. They
+   * bend away from the panels standing on the ground, and flow round a panel
+   * while it is dragged; they sink toward the repository at the centre, the
+   * one mass in the picture. Under the pointer they brighten, swell and join
+   * into a fine orthogonal mesh, easing out of the hand's way; a press sends
+   * a ripple through them, and so does choosing a node from the keyboard.
+   *
+   * It is a canvas of its own under the graph, redrawn only when the camera
+   * or the layout changes, or while its light or a ripple is moving: a still
+   * graph under a still pointer costs nothing. With motion off, or where the
+   * system asks for reduced motion, the bends and the well stay and the light
+   * and the ripples do not.
+   */
+  const FIELD = Object.freeze({
+    gap: 28, focus: 210, push: 3.4, bend: 9, bendReach: 60, well: 13, wellReach: 240,
+    rippleSpeed: .52, rippleWidth: 36, ripplePush: 6.5, rippleLife: 1500, maxRipples: 4
+  });
+  const REDUCED_MOTION = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  function fieldMotion() {
+    return !!state.settings.motion && !(REDUCED_MOTION && REDUCED_MOTION.matches);
+  }
+  function fieldRipple(sx, sy) {
+    if (!NVN.fieldCtx || !fieldMotion() || !NVN.zoom) return;
+    const w = screenToWorld(sx, sy);
+    const ripples = NVN.fieldState.ripples;
+    ripples.push({ wx: w.x, wy: w.y, at: performance.now() });
+    if (ripples.length > FIELD.maxRipples) ripples.shift();
+  }
+  let fieldBuffers = { size: 0, x: null, y: null, lit: null };
+  function fieldArrays(size) {
+    if (fieldBuffers.size < size) {
+      fieldBuffers = { size, x: new Float32Array(size), y: new Float32Array(size), lit: new Float32Array(size) };
+    }
+    return fieldBuffers;
+  }
+  function drawField(now, dt, colors) {
+    const ctx = NVN.fieldCtx;
+    if (!ctx || !NVN.width || !NVN.height) return;
+    const f = NVN.fieldState;
+    const motion = fieldMotion();
+    /* The light rises quickly under the hand and fades slowly after it. */
+    const target = motion && f.pointer ? 1 : 0;
+    if (f.pointer) { f.px = f.pointer.x; f.py = f.pointer.y; }
+    /* Eased by the wall clock rather than the frame step, which the loop
+     * caps: on a device drawing few frames the light still settles on time. */
+    const elapsed = Math.min(500, Math.max(0, now - (f.at || now)));
+    f.at = now;
+    const ease = 1 - Math.exp(-(elapsed || dt) / (target ? 110 : 280));
+    f.light += (target - f.light) * ease;
+    if (Math.abs(target - f.light) < .004) f.light = target;
+    if (!motion) f.ripples.length = 0;
+    else f.ripples = f.ripples.filter(r => now - r.at < FIELD.rippleLife);
+    const settled = f.light === target && !f.ripples.length;
+    const drag = NVN.dragPlacement;
+    const sig = [NVN.width, NVN.height, NVN.dpr, NVN.zoom.toFixed(4), NVN.panX.toFixed(2), NVN.panY.toFixed(2),
+      colors.theme, NVN.version, drag ? `${Math.round(drag.x)},${Math.round(drag.y)}` : '',
+      f.light ? `${Math.round(f.px)},${Math.round(f.py)},${f.light.toFixed(3)}` : '', f.ripples.length].join('|');
+    if (settled && sig === f.sig) return;
+    f.sig = settled ? sig : '';
+    f.draws = (f.draws || 0) + 1;
+
+    const W = NVN.width, H = NVN.height, z = NVN.zoom;
+    ctx.setTransform(NVN.dpr, 0, 0, NVN.dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    /* Zoomed out, the grid doubles its pitch rather than thickening into a
+     * haze -- the surface is always there, never a texture. */
+    let gap = FIELD.gap;
+    while (gap * z < 13) gap *= 2;
+    const step = gap * z;
+    const origin = worldToScreen(0, 0);
+    const x0 = ((origin.x % step) + step) % step - step;
+    const y0 = ((origin.y % step) + step) % step - step;
+    const cols = Math.ceil((W - x0) / step) + 2, rows = Math.ceil((H - y0) / step) + 2;
+    const count = cols * rows;
+    const buf = fieldArrays(count);
+
+    /* The surfaces standing on the ground, in screen space. */
+    const reach = FIELD.bendReach * z, bend = FIELD.bend * z;
+    const rects = [];
+    for (const p of NVN.panels || []) {
+      const a = worldToScreen(p.x, p.y);
+      const r = { l: a.x, t: a.y, r: a.x + p.w * z, b: a.y + p.h * z };
+      if (r.r + reach < 0 || r.l - reach > W || r.b + reach < 0 || r.t - reach > H) continue;
+      rects.push(r);
+    }
+    const hubNode = NVN.nodes.find(n => n.type === 'repo' && n.visible);
+    const hub = hubNode ? worldToScreen(hubNode.x, hubNode.y) : null;
+    const hubR = HUB_R * z * 1.08, well = FIELD.well * z, wellReach = FIELD.wellReach * z;
+    const focus = FIELD.focus, light = f.light;
+    const ripples = f.ripples.map(r => {
+      const at = worldToScreen(r.wx, r.wy);
+      const age = (now - r.at) / FIELD.rippleLife;
+      return { x: at.x, y: at.y, radius: (now - r.at) * FIELD.rippleSpeed, fade: Math.pow(1 - age, 1.6) };
+    });
+
+    let anyLit = false;
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        const x = x0 + col * step, y = y0 + row * step;
+        let dx = 0, dy = 0, hidden = false;
+        for (const q of rects) {
+          if (x < q.l - reach || x > q.r + reach || y < q.t - reach || y > q.b + reach) continue;
+          const ex = x - Math.max(q.l, Math.min(x, q.r)), ey = y - Math.max(q.t, Math.min(y, q.b));
+          const d = Math.hypot(ex, ey);
+          if (d < 2) { hidden = true; break; }
+          if (d < reach) { const s = bend * (1 - d / reach) * (1 - d / reach) / d; dx += ex * s; dy += ey * s; }
+        }
+        if (!hidden && hub) {
+          const hx = hub.x - x, hy = hub.y - y, d = Math.hypot(hx, hy);
+          if (d < hubR) hidden = true;
+          else { const s = well * Math.exp(-(d * d) / (wellReach * wellReach)) / d; dx += hx * s; dy += hy * s; }
+        }
+        if (hidden) { buf.lit[i] = -1; continue; }
+        let lit = 0;
+        if (light) {
+          const px = x - f.px, py = y - f.py, d = Math.hypot(px, py);
+          if (d < focus) {
+            const t = 1 - d / focus;
+            lit = t * t * (3 - 2 * t) * light;
+            if (d > .5) { const s = FIELD.push * t * t * light / d; dx += px * s; dy += py * s; }
+          }
+        }
+        for (const r of ripples) {
+          const rx = x - r.x, ry = y - r.y, d = Math.hypot(rx, ry);
+          const off = (d - r.radius) / FIELD.rippleWidth;
+          if (off < -3 || off > 3) continue;
+          const band = Math.exp(-off * off) * r.fade;
+          lit = Math.max(lit, band * .85);
+          if (d > .5) { const s = FIELD.ripplePush * band / d; dx += rx * s; dy += ry * s; }
+        }
+        buf.x[i] = x + dx; buf.y[i] = y + dy; buf.lit[i] = lit;
+        if (lit > .03) anyLit = true;
+      }
+    }
+
+    /* The resting dots, in one colour, as squares: a field of a thousand
+     * costs a thousand rectangles and no state changes. */
+    const dot = clamp(1.1 * z, .7, 1.6);
+    ctx.fillStyle = colors.grid;
+    for (let i = 0; i < count; i++) {
+      if (buf.lit[i] < 0 || buf.lit[i] > .03) continue;
+      ctx.fillRect(buf.x[i] - dot / 2, buf.y[i] - dot / 2, dot, dot);
+    }
+    if (!anyLit) return;
+    /* The mesh and the lit dots, bucketed by strength so each level is one
+     * path and one fill. */
+    const LEVELS = 8;
+    const lines = Array.from({ length: LEVELS + 1 }, () => []);
+    const dots = Array.from({ length: LEVELS + 1 }, () => []);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col, lit = buf.lit[i];
+        if (lit <= .03) continue;
+        dots[Math.round(lit * LEVELS)].push(i);
+        if (col + 1 < cols && buf.lit[i + 1] > .03) lines[Math.round(Math.min(lit, buf.lit[i + 1]) * LEVELS)].push(i, i + 1);
+        if (row + 1 < rows && buf.lit[i + cols] > .03) lines[Math.round(Math.min(lit, buf.lit[i + cols]) * LEVELS)].push(i, i + cols);
+      }
+    }
+    ctx.lineWidth = .8;
+    for (let level = 1; level <= LEVELS; level++) {
+      const list = lines[level];
+      if (!list.length) continue;
+      ctx.strokeStyle = `rgba(${colors.field},${(level / LEVELS * colors.fieldLine).toFixed(3)})`;
+      ctx.beginPath();
+      for (let k = 0; k < list.length; k += 2) { ctx.moveTo(buf.x[list[k]], buf.y[list[k]]); ctx.lineTo(buf.x[list[k + 1]], buf.y[list[k + 1]]); }
+      ctx.stroke();
+    }
+    for (let level = 0; level <= LEVELS; level++) {
+      const list = dots[level];
+      if (!list.length) continue;
+      const strength = level / LEVELS;
+      ctx.fillStyle = `rgba(${colors.field},${(colors.fieldBase + (colors.fieldDot - colors.fieldBase) * strength).toFixed(3)})`;
+      const radius = dot * (.55 + strength * 1.05);
+      ctx.beginPath();
+      for (const i of list) { ctx.moveTo(buf.x[i] + radius, buf.y[i]); ctx.arc(buf.x[i], buf.y[i], radius, 0, Math.PI * 2); }
+      ctx.fill();
     }
   }
 
@@ -1450,6 +1661,11 @@
     ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
   function hexAlpha(hex, alpha) {
+    /* Ink can arrive as rgb() -- the light palettes darken a group's colour --
+     * and returning it unchanged painted a pager button solid in its own
+     * chevron's colour, so the chevron vanished into a filled disc. */
+    const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(String(hex));
+    if (rgb) return `rgba(${rgb[1]},${rgb[2]},${rgb[3]},${alpha})`;
     const h = String(hex).replace('#', '');
     if (!/^[0-9a-f]{3}([0-9a-f]{3})?$/i.test(h)) return hex;
     const v = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
@@ -1936,25 +2152,33 @@
     const active = (NVN.selected && NVN.selected.id === node.id) || (NVN.hover && NVN.hover.id === node.id);
     ctx.save();
     ctx.globalAlpha = dim ? .55 : 1;
-    const halo = ctx.createRadialGradient(x, y, r * .6, x, y, r * 3);
-    halo.addColorStop(0, isLight() ? 'rgba(99,102,241,.26)' : 'rgba(99,102,241,.55)');
-    halo.addColorStop(.45, isLight() ? 'rgba(59,130,246,.1)' : 'rgba(59,130,246,.18)');
-    halo.addColorStop(1, 'rgba(99,102,241,0)');
-    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, r * 3, 0, Math.PI * 2); ctx.fill();
-    const orb = ctx.createRadialGradient(x - r * .32, y - r * .38, r * .08, x, y, r);
-    orb.addColorStop(0, '#dbeafe'); orb.addColorStop(.28, '#60a5fa'); orb.addColorStop(.62, '#6d28d9'); orb.addColorStop(1, '#1e1b4b');
-    if (colors.glow) { ctx.shadowColor = 'rgba(96,165,250,.8)'; ctx.shadowBlur = active ? 44 : 30; }
+    /* One violet: the orb, its glow and its edge are the product's colour and
+     * nothing else -- the blue halo, the white highlight and the pale blue
+     * rim read as layers stacked on the mark rather than as the mark. */
+    const halo = ctx.createRadialGradient(x, y, r * .6, x, y, r * 2.6);
+    halo.addColorStop(0, isLight() ? 'rgba(124,58,237,.2)' : 'rgba(124,58,237,.42)');
+    halo.addColorStop(1, 'rgba(124,58,237,0)');
+    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, r * 2.6, 0, Math.PI * 2); ctx.fill();
+    /* The orb is the app icon's own ground -- a deep violet bloom -- so the
+     * mark on it can be the icon's violet plates rather than white on blue. */
+    const orb = ctx.createRadialGradient(x + r * .34, y - r * .5, r * .08, x, y, r * 1.05);
+    orb.addColorStop(0, '#5b3fd0'); orb.addColorStop(.5, '#2e1878'); orb.addColorStop(1, '#0f0830');
+    if (colors.glow) { ctx.shadowColor = 'rgba(124,58,237,.7)'; ctx.shadowBlur = active ? 40 : 26; }
     ctx.fillStyle = orb; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.lineWidth = active ? 2.4 : 1.6; ctx.strokeStyle = 'rgba(191,219,254,.75)'; ctx.stroke();
+    ctx.lineWidth = active ? 2.2 : 1.4; ctx.strokeStyle = active ? 'rgba(196,181,253,.8)' : 'rgba(167,139,250,.45)'; ctx.stroke();
     if (typeof Path2D === 'function') {
       if (!hubMarkPaths) hubMarkPaths = HUB_MARK.map(item => ({ path: new Path2D(item.d), tone: item.tone }));
       const size = r * 1.18, scale = size / 228;
       ctx.save();
       ctx.translate(x - 142 * scale, y - 120 * scale);
       ctx.scale(scale, scale);
+      const light = ctx.createLinearGradient(40, 23, 244, 217);
+      light.addColorStop(0, '#d9ceff'); light.addColorStop(1, '#8b74ff');
+      const deep = ctx.createLinearGradient(244, 23, 40, 217);
+      deep.addColorStop(0, '#7a5cff'); deep.addColorStop(1, '#3a23a8');
       for (const item of hubMarkPaths) {
-        ctx.fillStyle = item.tone === 'light' ? '#ffffff' : 'rgba(224,231,255,.72)';
+        ctx.fillStyle = item.tone === 'light' ? light : deep;
         ctx.fill(item.path);
       }
       ctx.restore();
@@ -1967,7 +2191,7 @@
     const ly = NVN.layoutMode === 'stack' ? y - r - 30 : y + r + 30;
     roundRect(ctx, x - w / 2, ly - 14, w, 28, 10);
     ctx.fillStyle = isLight() ? 'rgba(255,255,255,.94)' : 'rgba(10,12,30,.9)'; ctx.fill();
-    ctx.lineWidth = 1; ctx.strokeStyle = isLight() ? 'rgba(49,46,129,.18)' : 'rgba(191,219,254,.28)'; ctx.stroke();
+    ctx.lineWidth = 1; ctx.strokeStyle = isLight() ? 'rgba(91,33,182,.18)' : 'rgba(196,181,253,.3)'; ctx.stroke();
     ctx.fillStyle = colors.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(name, x, ly + .5);
     ctx.restore();
@@ -2026,6 +2250,9 @@
         NVN.panning = false; NVN.draggingPanel = null; NVN.dragPlacement = null; NVN.pointerStart = null;
         return;
       }
+      /* A press drops a ripple into the ground under the graph. */
+      NVN.fieldState.pointer = pos;
+      fieldRipple(pos.x, pos.y);
       const node = hitNode(pos.x, pos.y);
       const panelHit = node ? null : panelHitAt(pos.x, pos.y);
       NVN.pointerStart = {
@@ -2037,6 +2264,7 @@
     });
     c.addEventListener('pointermove', e => {
       const pos = pointerPos(e); NVN.lastPointer = pos;
+      NVN.fieldState.pointer = pos;
       if (pts.has(e.pointerId)) pts.set(e.pointerId, pos);
       if (twoFinger()) {
         /* Two fingers pinch to zoom and move together to pan. */
@@ -2077,10 +2305,12 @@
       c.style.cursor = hit || (panelHit && panelHit.kind !== 'body' && panelHit.kind !== 'header') ? 'pointer'
         : panelHit && panelHit.kind === 'header' ? 'move' : 'grab';
     });
-    c.addEventListener('pointerleave', () => { if (!NVN.pointerStart) NVN.hover = null; });
+    c.addEventListener('pointerleave', () => { NVN.fieldState.pointer = null; if (!NVN.pointerStart) NVN.hover = null; });
     const up = e => {
       try { c.releasePointerCapture(e.pointerId); } catch {}
       pts.delete(e.pointerId);
+      /* A finger lifted is a hand gone: the light fades after it. */
+      if (e.pointerType !== 'mouse' && !pts.size) NVN.fieldState.pointer = null;
       if (pts.size < 2) { pinchDist = 0; pinchMid = null; }
       const start = NVN.pointerStart;
       if (NVN.draggingPanel) {
@@ -2551,6 +2781,9 @@
       renderLegend();
     }
     renderCard(node, previous !== node);
+    /* Chosen from the keyboard, the node sends its own ripple through the
+     * ground -- the press that would have made one never happened. */
+    if (options.announce) { const at = worldToScreen(node.tx ?? node.x, node.ty ?? node.y); fieldRipple(at.x, at.y); }
     if (options.fly) flyToNode(node);
     if (options.announce) announceNode(node);
   }
@@ -2772,7 +3005,17 @@
   ];
   const EYE_OPEN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>';
   const EYE_SHUT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M9.9 5.8A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.9 3.7M6.1 7.4C3.8 9.1 2.5 12 2.5 12s3.5 6.5 9.5 6.5a9.6 9.6 0 0 0 4.2-.9"/></svg>';
+  /* The stage's own Reset layout: shown while this repository, mode and
+   * shape have panels the reader moved. */
+  function syncResetChip() {
+    const chip = document.getElementById('neuralResetLayout');
+    const stage = document.getElementById('neuralStage');
+    const moved = hasPlacements();
+    if (chip) chip.hidden = !moved;
+    if (stage) stage.classList.toggle('has-placements', moved);
+  }
   function renderLegend() {
+    syncResetChip();
     const host = document.getElementById('neuralLegend');
     if (!host) return;
     const stats = new Map();
@@ -3041,6 +3284,7 @@
     document.getElementById('neuralLiveBtn')?.addEventListener('click', liveConnectionFlow);
     document.getElementById('neuralRefreshBtn')?.addEventListener('click', () => load(true));
     document.getElementById('neuralFitBtn')?.addEventListener('click', () => fitGraph(true));
+    document.getElementById('neuralResetLayout')?.addEventListener('click', () => resetPlacements());
     wireStageExpansion();
     document.getElementById('neuralPlayBtn')?.addEventListener('click', togglePause);
     document.getElementById('neuralExplainBtn')?.addEventListener('click', explainFromSelected);

@@ -44,6 +44,10 @@
     let portrait = false;
     let needsPaint = true;
 
+    const NEBULA = [[0, 'rgba(144,114,225,0)'], [0.20, 'rgba(130,96,213,0.26)'], [0.48, 'rgba(109,64,207,0.46)'],
+      [0.72, 'rgba(112,132,213,0.32)'], [1, 'rgba(144,114,225,0)']];
+    const QUARTZ = [[0, 'rgba(176,166,158,0)'], [0.20, 'rgba(168,158,150,0.22)'], [0.48, 'rgba(148,134,150,0.30)'],
+      [0.72, 'rgba(190,176,172,0.24)'], [1, 'rgba(176,166,158,0)']];
     function light() { return doc.documentElement.dataset.theme === 'light'; }
     function suppressed() {
       return doc.documentElement.dataset.motion === 'off' || reduced.matches ||
@@ -64,13 +68,10 @@
       const gradient = portrait
         ? ctx.createLinearGradient(0, 0, 0, height)
         : ctx.createLinearGradient(0, 0, width, 0);
-      /* Quartz: ribbons of the stone's own grey-rose, with a trace of the
-       * product violet where they are deepest. */
-      gradient.addColorStop(0, 'rgba(176,166,158,0)');
-      gradient.addColorStop(0.20, 'rgba(168,158,150,0.22)');
-      gradient.addColorStop(0.48, 'rgba(148,134,150,0.30)');
-      gradient.addColorStop(0.72, 'rgba(190,176,172,0.24)');
-      gradient.addColorStop(1, 'rgba(176,166,158,0)');
+      /* Nebula: violet silk. Quartz (Obsidian's light): ribbons of the
+       * stone's own grey-rose, with a trace of violet where they are deepest. */
+      const stops = doc.documentElement.dataset.design === 'obsidian' ? QUARTZ : NEBULA;
+      stops.forEach(([at, colour]) => gradient.addColorStop(at, colour));
       ctx.strokeStyle = gradient;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -151,8 +152,9 @@
       }
       sync();
     }
-    const observer = new env.MutationObserver(resize);
-    observer.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-motion'] });
+    /* A theme or preset change repaints even a still ribbon: its colours are the preset's. */
+    const observer = new env.MutationObserver(() => { needsPaint = true; resize(); });
+    observer.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-motion', 'data-design'] });
     const sizeObserver = env.ResizeObserver ? new env.ResizeObserver(resize) : null;
     if (sizeObserver) sizeObserver.observe(canvas);
     env.addEventListener('resize', resize);

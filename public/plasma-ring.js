@@ -226,6 +226,24 @@ void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
       additive: false,
       centerOpacity: 0.16,
       rimPower: 1.9
+    }),
+    /*
+     * The Obsidian preset: platinum light over the stone, the product violet
+     * kept only at the far pole. The top stop stays short of white for the
+     * same reason as above -- additive sums reach white on their own.
+     */
+    'obsidian-dark': Object.freeze({
+      colors: ['#E4E4E7', '#C4C4CC', '#9A9AA5', '#6B6B76', '#7C5CF0'],
+      additive: true,
+      centerOpacity: 0.06,
+      rimPower: 2.2
+    }),
+    /* Quartz: the same geometry inked in graphite. */
+    'obsidian-light': Object.freeze({
+      colors: ['#57534E', '#44403C', '#36312D', '#1C1917', '#5B3FD0'],
+      additive: false,
+      centerOpacity: 0.12,
+      rimPower: 1.9
     })
   });
 

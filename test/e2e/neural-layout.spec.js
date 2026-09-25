@@ -24,7 +24,7 @@ async function openGraph(page, routes) {
   if (routes) await routes(page);
   await page.goto('/#/sandbox/demo@main/neural');
   await page.locator('#neuralCanvas').waitFor({ state: 'visible' });
-  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.nodes.filter(n => n.visible).length)).toBeGreaterThan(2);
+  await expect.poll(() => page.evaluate(() => (window.NebulaNeural ? window.NebulaNeural.state.nodes.filter(n => n.visible).length : 0))).toBeGreaterThan(2);
   await page.locator('#neuralStage').scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
 }
@@ -337,4 +337,60 @@ test('the stage\'s light follows the pointer', async ({ page }) => {
   await page.mouse.move(box.x + 120, box.y + 90);
   await expect.poll(() => page.locator('#neuralLight').evaluate(node => node.style.getPropertyValue('--nv-mx'))).toBe('120px');
   expect(await page.locator('#neuralLight').evaluate(node => node.style.getPropertyValue('--nv-my'))).toBe('90px');
+});
+
+/*
+ * Reported from a phone: after dragging panels about in the full view there
+ * was no way back from the stage itself -- Reset layout lived only in the
+ * groups rail, which is closed there. The stage now carries its own chip,
+ * shown only while something has been moved.
+ */
+test('after a drag the stage offers Reset layout itself, and it puts everything back', async ({ page }) => {
+  test.skip((page.viewportSize() || {}).width < 900, 'dragging panels is exercised with a mouse');
+  await openGraph(page);
+  await expand(page);
+  const chip = page.locator('#neuralResetLayout');
+  await expect(chip).toBeHidden();
+  const grip = await page.evaluate(() => {
+    const s = window.NebulaNeural.state;
+    const panel = s.panels[s.panels.length - 1];
+    const rect = s.canvas.getBoundingClientRect();
+    return {
+      type: panel.type, x0: panel.x,
+      x: rect.left + s.width / 2 + s.panX + (panel.x + panel.w / 2) * s.zoom,
+      y: rect.top + s.height / 2 + s.panY + (panel.y + 26) * s.zoom
+    };
+  });
+  await page.mouse.move(grip.x, grip.y);
+  await page.mouse.down();
+  await page.mouse.move(grip.x - 90, grip.y - 60, { steps: 10 });
+  await page.mouse.up();
+  await expect(chip).toBeVisible();
+  await chip.click();
+  await expect.poll(() => page.evaluate(type => window.NebulaNeural.state.panels.find(p => p.type === type).x, grip.type)).toBe(grip.x0);
+  await expect(chip).toBeHidden();
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('nv_neural_layout') || '{}'));
+  expect(Object.keys(stored)).toEqual([]);
+});
+
+/*
+ * The search is one control -- icon, field and clear button -- so it is
+ * focused as one. The field's own thick ring, hung a few pixels outside it,
+ * drew a box inside the box.
+ */
+test('the node search is focused as one control, with no ring inside it', async ({ page }) => {
+  await openGraph(page);
+  await expand(page);
+  const search = page.locator('#neuralSearch');
+  await search.focus();
+  await page.keyboard.type('ma');
+  const focus = await page.evaluate(() => {
+    const input = document.getElementById('neuralSearch');
+    const wrap = input.closest('.neural-search-wrap');
+    const own = getComputedStyle(input);
+    return { outline: own.outlineStyle, inputShadow: own.boxShadow, wrapShadow: getComputedStyle(wrap).boxShadow };
+  });
+  expect(focus.outline).toBe('none');
+  expect(focus.inputShadow).toBe('none');
+  expect(focus.wrapShadow).not.toBe('none');
 });

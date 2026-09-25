@@ -237,6 +237,7 @@ async function main() {
         await page.waitForTimeout(6000);
 
         const label = suffix => `${view.name}/${theme}/${suffix}`;
+        findings.push(...await coverageFindings(page, label('overview'), { tag: 'nebula-mark-3d', label: 'The dimensional brand mark' }));
         findings.push(...await axeFindings(page, label('overview')));
         findings.push(...await targetFindings(page, label('overview')));
         findings.push(...await focusFindings(page, label('overview')));

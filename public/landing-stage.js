@@ -59,6 +59,24 @@
     });
   }
 
+  /*
+   * The bar earns its ground by scrolling. At rest the page's bloom runs up
+   * behind the brand; once anything can pass underneath, the bar takes a
+   * full-width backdrop (CSS: .lp-nav.is-stuck). One passive listener, read
+   * once per frame.
+   */
+  const nav = document.querySelector('.lp-nav');
+  if (nav) {
+    let queued = false;
+    const syncNav = () => { queued = false; nav.classList.toggle('is-stuck', global.scrollY > 6); };
+    global.addEventListener('scroll', () => {
+      if (queued) return;
+      queued = true;
+      global.requestAnimationFrame(syncNav);
+    }, { passive: true });
+    syncNav();
+  }
+
   const canvas = document.getElementById('lpPortal');
   if (!canvas) return;
 
@@ -97,7 +115,8 @@
   }
   reachListeners.push(on => ring.setReaching(on));
 
-  const themeName = () => (root.dataset.theme === 'light' ? 'light' : 'dark');
+  const themeName = () => (root.dataset.design === 'obsidian' ? 'obsidian-' : '') +
+    (root.dataset.theme === 'light' ? 'light' : 'dark');
   ring.setTheme(themeName());
 
   /*
@@ -223,7 +242,7 @@
     new MutationObserver(() => {
       ring.setTheme(themeName());
       sync();
-    }).observe(root, { attributes: true, attributeFilter: ['data-motion', 'data-theme'] });
+    }).observe(root, { attributes: true, attributeFilter: ['data-motion', 'data-theme', 'data-design'] });
     if (gate) {
       new MutationObserver(sync).observe(gate, { attributes: true, attributeFilter: ['class', 'hidden'] });
     }

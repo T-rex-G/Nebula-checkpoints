@@ -58,11 +58,25 @@ assert.ok(fs.existsSync(path.join(assets, 'apple-touch-icon.png')), 'the touch i
  * drifted from the palette and left a strip of the previous background above
  * and below the app on a phone.
  */
-const PAGE_DARK = '#07080A';
-const PAGE_LIGHT = '#F4F2EE';
+const PAGE_DARK = '#06030F';
+const PAGE_LIGHT = '#F5F3FB';
 assert.equal(manifest.background_color.toUpperCase(), PAGE_DARK);
 assert.equal(manifest.theme_color.toUpperCase(), PAGE_DARK);
 assert.ok(html.includes(`content="${PAGE_DARK}"`), 'the dark theme colour is not the page colour');
 assert.ok(html.includes(`content="${PAGE_LIGHT}"`), 'the light theme colour is not the page colour');
+
+/*
+ * Obsidian is the second design preset. Its page colours are painted into the
+ * same meta tag at boot and on every switch, from one table in each script.
+ */
+const OBSIDIAN_DARK = '#07080A';
+const OBSIDIAN_LIGHT = '#F4F2EE';
+const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+const bootSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'theme-boot.js'), 'utf8');
+for (const [name, source] of [['app.js', appSource], ['theme-boot.js', bootSource]]) {
+  for (const colour of [PAGE_DARK, PAGE_LIGHT, OBSIDIAN_DARK, OBSIDIAN_LIGHT]) {
+    assert.ok(source.includes(`'${colour}'`), `${name} does not paint ${colour} for its preset`);
+  }
+}
 
 process.stdout.write('brand asset tests passed\n');

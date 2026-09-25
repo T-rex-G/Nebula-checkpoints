@@ -23,8 +23,7 @@
 
 (function nebulaVisuals(global) {
   const MODULES = Object.freeze({
-    galaxy: '/nebula-galaxy.js',
-    mark: '/nebula-mark-3d.js'
+    galaxy: '/nebula-galaxy.js'
   });
 
   const requested = new Map();
@@ -102,7 +101,7 @@
     try {
       if (!requested.has(kind)) requested.set(kind, import(MODULES[kind]));
       await requested.get(kind);
-      const tag = kind === 'galaxy' ? 'nebula-galaxy' : 'nebula-mark-3d';
+      const tag = 'nebula-galaxy';
       if (!global.customElements || !global.customElements.get(tag)) throw new Error(`${tag} did not define`);
       const element = document.createElement(tag);
       element.setAttribute('theme', theme());
@@ -119,7 +118,7 @@
   /* Follows the theme toggle, for whichever pieces are already mounted. */
   function repaint() {
     const next = theme();
-    document.querySelectorAll('nebula-galaxy, nebula-mark-3d')
+    document.querySelectorAll('nebula-galaxy')
       .forEach(element => element.setAttribute('theme', next));
   }
 

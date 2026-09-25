@@ -546,7 +546,15 @@ check('a raised surface is made of different glass than the one it covers', () =
     }
     return null;
   };
-  const card = blurOf('.card');
+  /*
+   * A resting card is a solid slab now, not frosted glass -- the translucent
+   * cards were reported as looking cheap -- so it blurs nothing: zero, and the
+   * surfaces above it still blur more the nearer they float.
+   */
+  const card = blurOf('.card') ?? 0;
+  const cardRule = rules.filter(rule => eachSelector(rule).some(one => one.selector.trim() === '.card')).map(rule => rule.body).join(';');
+  assert.ok(card > 0 || /background\s*:\s*var\(--surface-card\)/.test(cardRule),
+    'a resting card neither blurs nor is solid, so it is a translucent sheet with nothing behind it');
   const raised = blurOf('.sheet');
   const top = blurOf('.modal');
   [['.card', card], ['.sheet', raised], ['.modal', top]].forEach(([name, value]) => {
@@ -1694,7 +1702,9 @@ check('every artwork the shell mounts still has somewhere to mount', () => {
   const registry = appSource.match(/const NEBULA_VISUALS = Object\.freeze\(\{([\s\S]*?)\}\);/);
   assert.ok(registry, 'the visuals registry is gone');
   const mounts = [...registry[1].matchAll(/'#([\w-]+)'/g)].map(m => m[1]);
-  assert.ok(mounts.length >= 2, `the registry names ${mounts.length} mount points`);
+  assert.ok(mounts.length >= 1, `the registry names ${mounts.length} mount points`);
+  /* The overview draws its emblem in the page; it mounts nothing. */
+  assert.ok(!mounts.includes('ovCoreArt'), 'the overview emblem is SVG in the page, not a WebGL mount');
   mounts.forEach(id => {
     assert.ok(new RegExp(`id="${id}"`).test(htmlSource),
       `#${id} is named as an artwork mount but is not in the document`);
@@ -1761,11 +1771,13 @@ check('the overview artwork is shown whole, not cropped by its panel', () => {
     'the artwork ground has no height, so the mark has no room to be drawn in');
   assert.ok(/overflow\s*:\s*hidden/.test(combined),
     'the stage no longer clips, so this check has nothing to protect against');
-  /* The 3D mount fills that stage exactly -- not a corner of it. */
-  const mount = rules.filter(rule => /nebula-mark-3d/.test(rule.selector))
+  /* The emblem fills that stage exactly -- not a corner of it -- and holds
+     still: the frame was reported as unprofessional while it spun. */
+  const ground = rules.filter(rule => eachSelector(rule).some(one => subject(one.selector) === '.ov-core-glow'))
     .map(rule => rule.body).join(';');
-  assert.ok(/inset\s*:\s*0/.test(mount),
-    'the dimensional mark does not fill its stage, so it draws into part of the frame');
+  assert.ok(/inset\s*:\s*0/.test(ground), 'the emblem does not fill its stage');
+  assert.ok(!/animation\s*:/.test(ground), 'the emblem animates');
+  assert.ok(/class="ov-core-emblem"/.test(htmlSource), 'the overview emblem is gone');
 });
 
 /*

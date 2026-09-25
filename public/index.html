@@ -8,11 +8,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>__NV_PRODUCT_NAME__ — Git, from orbit</title>
 <meta name="description" content="Enterprise-grade web Git client for GitHub. PRs, issues, releases, staged commits — and pushes of any size via automatic Git LFS.">
-<meta name="theme-color" content="#06030F">
+<meta name="theme-color" content="#07080A">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#06030F">
-<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F5F3FB">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#07080A">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F4F2EE">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="__NV_PRODUCT_NAME__">
@@ -60,11 +60,11 @@
 <!--
   The mark, once, as a sprite.
 
-  Its geometry is the design's own: the four plates are the same triangles the
-  dimensional mark folds in nebula-mark-3d.js, so the flat mark and the one
-  that turns in the trust panel are the same shape rather than two drawings
-  that resemble each other. Defined once and referenced, so the gradients
-  cannot collide between instances.
+  Its geometry is the design's own: the four plates are the same triangles
+  the trust panel cuts as a faceted stone, so the flat mark and the one in
+  the panel are the same shape rather than two drawings that resemble each
+  other. Defined once and referenced, so the gradients cannot collide between
+  instances.
 -->
 <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
   <defs>
@@ -534,12 +534,35 @@
           </span>
         </p>
         <!--
-          The dimensional mark mounts here when the device can draw it. The
-          glow behind it is not a placeholder to be replaced: it is what the
-          panel looks like without WebGL, and it stays so the panel is never
-          an empty frame.
+          The core, drawn rather than animated: the product's mark cut as a
+          faceted stone -- obsidian in the dark theme, quartz in the light --
+          seated in an instrument's rings. Still, sharp at any resolution, and
+          the same on every device, with nothing to download and nothing that
+          needs a GPU.
         -->
-        <div class="ov-core-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"></span></div>
+        <div class="ov-core-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"><svg class="ov-core-emblem" viewBox="0 0 400 220" focusable="false">
+          <defs>
+            <linearGradient id="ocDeep" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="oc-deep-a"/><stop offset="1" class="oc-deep-b"/></linearGradient>
+            <linearGradient id="ocLight" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="oc-light-a"/><stop offset="1" class="oc-light-b"/></linearGradient>
+            <linearGradient id="ocEdge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="oc-edge-a"/><stop offset=".55" class="oc-edge-b"/><stop offset="1" class="oc-edge-c"/></linearGradient>
+            <linearGradient id="ocArc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="oc-arc-a"/><stop offset="1" class="oc-arc-b"/></linearGradient>
+            <radialGradient id="ocFloor" cx=".5" cy=".5" r=".5"><stop offset="0" class="oc-floor-a"/><stop offset="1" class="oc-floor-b"/></radialGradient>
+          </defs>
+          <ellipse class="oc-floor" cx="200" cy="168" rx="70" ry="10" fill="url(#ocFloor)"/>
+          <circle class="oc-ticks" cx="200" cy="110" r="96"/>
+          <circle class="oc-ring" cx="200" cy="110" r="80"/>
+          <circle class="oc-ring oc-ring-fine" cx="200" cy="110" r="60"/>
+          <path class="oc-arc" d="M131.4 50.3A92 92 0 0 1 247.8 31.6" stroke="url(#ocArc)"/>
+          <path class="oc-cardinal" d="M200 6v8M200 206v8M96 110h8M296 110h8"/>
+          <circle class="oc-node" cx="276.4" cy="54.6" r="3"/>
+          <g class="oc-mark" transform="translate(200 112) scale(.34) translate(-142 -120)">
+            <path d="M79 25 L40 217 L106 116 Z" fill="url(#ocDeep)"/>
+            <path d="M79 25 L106 116 L171 112 Z" fill="url(#ocLight)"/>
+            <path d="M244 23 L178 124 L205 215 Z" fill="url(#ocDeep)"/>
+            <path d="M178 124 L113 128 L205 215 Z" fill="url(#ocLight)"/>
+            <path class="oc-facets" d="M79 25 L40 217 L106 116 Z M79 25 L106 116 L171 112 Z M244 23 L178 124 L205 215 Z M178 124 L113 128 L205 215 Z" stroke="url(#ocEdge)"/>
+          </g>
+        </svg></span></div>
         <p class="ov-core-line">Secure by default. Proven by design.</p>
       </aside>
     </section>
@@ -977,6 +1000,7 @@
             </aside>
 
             <div class="card neural-stage" id="neuralStage">
+              <div class="neural-light" id="neuralLight" aria-hidden="true"></div>
               <canvas id="neuralCanvas" tabindex="0" aria-label="Interactive repository relationship graph. Arrow keys move between nodes, Page Up and Page Down page a group, Escape closes details, plus and minus zoom, F fits the graph."></canvas>
               <!-- What animates -- signals, breathing rings, the leader line -- above the graph, so the graph itself is redrawn only when it changes. -->
               <canvas class="neural-fx" id="neuralFx" aria-hidden="true"></canvas>

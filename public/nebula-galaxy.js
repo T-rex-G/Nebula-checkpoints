@@ -193,16 +193,22 @@ void main() {
   gl_FragColor = vec4(lit, alpha);
 }`;
 
+/*
+ * Silver on obsidian, graphite on quartz. The spiral was drawn in the
+ * product's violets and magentas, and on screens built from stone and one
+ * accent it read as the decoration of a template; in monochrome it reads the
+ * way a long-exposure photograph of a galaxy does.
+ */
 const PALETTE = {
   dark: {
-    core:  0xfff6ff, inner: 0xd8c4ff, mid: 0x8b5cf6,
-    deep:  0x5b2fd6, mag:   0xd946ef, crim: 0xe0218a,
-    exposure: 1.35
+    core:  0xffffff, inner: 0xe6e8ec, mid: 0xaab0ba,
+    deep:  0x5c626c, mag:   0xcfd3da, crim: 0x8b929d,
+    exposure: 1.15
   },
   light: {
-    core:  0x2e1065, inner: 0x7c3aed, mid: 0x6d28d9,
-    deep:  0x4c1d95, mag:   0xa21caf, crim: 0x9d174d,
-    exposure: 1.0
+    core:  0x1c1917, inner: 0x44403c, mid: 0x78716c,
+    deep:  0x57534e, mag:   0xa8a29e, crim: 0x8a817a,
+    exposure: 0.95
   }
 };
 

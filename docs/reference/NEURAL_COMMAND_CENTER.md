@@ -23,7 +23,7 @@ last time. When one column is clearly longer than the other, only groups
 without a natural side (releases, tags, pull requests, issues, external
 targets, scans, snapshots, safety controls, webhooks) cross over. On a tall stage -- a
 phone held upright, or a narrow window -- the panels stack in one column. One
-spine then leaves the hub at its lower rim and runs down beside them; each row
+spine then leaves the bottom of the hub on its centre line and runs down beside them; each row
 branches from it once, and a band in the group's colour marks where a group's
 rows leave it, so there are never more wires than rows. On the spine only a
 critical node's signal, or the selected node's, travels all the way to the
@@ -71,7 +71,22 @@ stage. `+`, `-` and the zoom buttons -- shown only in the full view -- zoom in
 steps; `F`, double-click or double-tap fits the graph. Held sideways, the
 tools wrap into a second column rather than running off the stage, and the
 minimap is drawn smaller in the full view and left out of the short stage on
-the page. With the canvas focused, the arrow
+the page.
+
+The full view fits itself to the screen it is on. It frames the graph in the
+part of the stage nothing covers -- measured from the status, the search, the
+tools and an open side panel, not assumed -- and re-frames it whenever the
+screen changes size: a window dragged wider, a browser's bars coming and
+going, a phone turned. Once the reader zooms or moves the graph, a resize
+leaves their view alone until they fit it again. On an installed iPhone app the
+full view keeps to the safe area: the status and search sit below the clock,
+the tools and minimap above the home bar, and the side panel's first mode
+below the status bar rather than cut by it.
+
+The graph refreshes itself every two minutes and after an action. Only the
+first load covers the stage with its "Mapping…" screen; a refresh keeps the
+graph, its strands and signals on screen, shows `SYNCING` in the status, and
+keeps the camera where the reader left it. With the canvas focused, the arrow
 keys move to the nearest node in that direction, Enter opens the card, and
 Page Down and Page Up turn the selected node's group (the selection keeps its
 row); each move is announced to screen readers. Selecting a node that is on
@@ -101,8 +116,12 @@ effects layer above it, which takes no pointer events, redraws only what
 animates (the signals on the strands, a critical node's breathing ring, the
 hub's arcs, the relationship dashes and the card's line), at half rate once
 the graph is at rest. Paused, or scrolled out of view, or in a hidden tab, the
-graph does not draw at all. The dark ground (navy, two faint clouds, a
-vignette) is CSS, painted once by the browser.
+graph does not draw at all. The ground is CSS, painted once by the browser:
+obsidian in the dark theme -- a black with a cool undertone, a soft light behind
+the hub, a trace of teal at one edge, a diagonal sheen and a vignette -- and
+quartz in the light theme, a warm milky white. A soft light follows the pointer
+across it and a fine grain gives it a surface; both are behind the canvas, so
+the graph is never redrawn for them, and the light stays put with motion off.
 
 ## Data sources
 
@@ -118,6 +137,7 @@ vignette) is CSS, painted once by the browser.
 | Signed snapshots | `nv_recovery_snapshots` in Neon |
 | Verified provider events | GitHub webhook → `nv_intelligence_events` |
 | Access posture | GitHub collaborators, deploy keys, and minimized webhook destination metadata |
+| Leaked credentials | Exposure findings (`/exposure/findings`), already masked by the server |
 | Recovery preview | Live refs/file manifest compared with a selected signed or local snapshot |
 | Evidence integrity | `nv_evidence_chain` |
 
@@ -292,11 +312,13 @@ after the documented compatibility window expires.
 - Sensitive Neural data is not available as stale cross-account browser cache.
 - Offline drafts and explicitly queued writes remain in the application's browser storage until sent or cleared.
 - Webhook records store minimized fields rather than complete raw GitHub payloads.
+- **Leaked credentials** come from the Exposure findings the server has already masked: the rule, the path as a screen may show it, the line, whether it is only in history (and the commit that introduced it), its status and the provider's answer if one was asked. The secret itself never reaches the browser. A finding the provider confirmed live, or of a critical kind, is critical; one the provider refused is quiet. **Open in Exposure** goes to the finding's full report.
+- Everything a repository says about itself -- branch names, commit messages, workflow names, webhook hosts, logins, reported paths -- is escaped wherever the graph writes HTML (the card, the groups list, the timeline and the connection explanation), and counts from a server response are coerced to numbers before they reach markup. A provider link is opened only when it is `https:`.
 
 ## Operating modes
 
 ### Security
-Actors, sessions, verified events, workflows, vulnerabilities, protected assets, and containment.
+Actors, sessions, verified events, workflows, vulnerabilities, leaked credentials, protected assets, and containment.
 
 ### Recovery
 Branches, tags, snapshots, releases, and recovery gaps.

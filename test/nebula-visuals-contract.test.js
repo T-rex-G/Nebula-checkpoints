@@ -25,7 +25,7 @@ const allowlist = new Set(
 );
 assert(allowlist.size >= 30, 'the vendor allowlist must be readable for this check to mean anything');
 
-const MODULES = ['nebula-galaxy.js', 'nebula-mark-3d.js'];
+const MODULES = ['nebula-galaxy.js'];
 
 for (const name of MODULES) {
   const source = fs.readFileSync(path.join(publicRoot, name), 'utf8');
@@ -128,7 +128,7 @@ for (const name of MODULES) {
   const worker = fs.readFileSync(path.join(publicRoot, 'sw.js'), 'utf8');
   assert(worker.includes('/nebula-visuals.js?v='), 'the worker must precache the artwork loader');
   const lists = worker.slice(0, worker.indexOf("addEventListener('install'"));
-  for (const heavy of ['three.module.min.js', 'nebula-galaxy.js', 'nebula-mark-3d.js']) {
+  for (const heavy of ['three.module.min.js', 'nebula-galaxy.js']) {
     assert(!lists.includes(heavy), `${heavy} must not be warmed on install; it is cached on first use`);
   }
 }
@@ -150,7 +150,7 @@ console.log('nebula visuals contract tests passed');
  * exactly that the animator never asks: a rendering test would need a GPU, and
  * the absent read is the whole defect.
  */
-for (const file of ['nebula-galaxy.js', 'nebula-mark-3d.js']) {
+for (const file of ['nebula-galaxy.js']) {
   const source = fs.readFileSync(path.join(publicRoot, file), 'utf8');
   /*
    * Counted, not merely present. The first version of this guard matched
@@ -171,19 +171,8 @@ for (const file of ['nebula-galaxy.js', 'nebula-mark-3d.js']) {
 }
 
 /*
- * And the mark must not be drawn below the screen's own resolution. The cap
- * was 1.6 for anything under 320px, so on a phone reporting devicePixelRatio 3
- * the mark rendered at about half native and was stretched -- reported as
- * looking low quality and not sharp.
+ * The overview's mark is no longer a WebGL scene: it is an SVG drawn in the
+ * page, so it is sharp at any resolution and costs no download. The module
+ * that drew it must not come back as dead weight in the served tree.
  */
-{
-  const source = fs.readFileSync(path.join(publicRoot, 'nebula-mark-3d.js'), 'utf8');
-  assert(
-    !/Math\.min\(w, h\) > 320 \? 2 : 1\.6/.test(source),
-    'the mark must not cap small renders below the display resolution'
-  );
-  assert(
-    /setPixelRatio/.test(source) && /budget/.test(source),
-    'the mark must choose its resolution from a pixel budget rather than a fixed cap'
-  );
-}
+assert(!fs.existsSync(path.join(publicRoot, 'nebula-mark-3d.js')), 'the retired WebGL mark is still served');

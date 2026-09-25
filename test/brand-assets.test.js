@@ -58,8 +58,8 @@ assert.ok(fs.existsSync(path.join(assets, 'apple-touch-icon.png')), 'the touch i
  * drifted from the palette and left a strip of the previous background above
  * and below the app on a phone.
  */
-const PAGE_DARK = '#06030F';
-const PAGE_LIGHT = '#F5F3FB';
+const PAGE_DARK = '#07080A';
+const PAGE_LIGHT = '#F4F2EE';
 assert.equal(manifest.background_color.toUpperCase(), PAGE_DARK);
 assert.equal(manifest.theme_color.toUpperCase(), PAGE_DARK);
 assert.ok(html.includes(`content="${PAGE_DARK}"`), 'the dark theme colour is not the page colour');

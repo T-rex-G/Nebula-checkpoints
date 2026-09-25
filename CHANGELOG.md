@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Obsidian and Quartz; a Full View That Fits Any Screen; Leaked Credentials on the Graph
+
+On an installed iPhone app the full view drew its search and status under the
+clock, and the side panel's first mode was cut in half; every refresh covered
+the graph with its loading screen, so the strands vanished each time; the
+spine left the hub off-centre; and credentials found by an Exposure scan were
+nowhere on the graph.
+
+- **Obsidian and Quartz.** Dark is obsidian: a near-black lit once from
+  above, with a fine grain, instead of the violet-black and its coloured
+  clouds; light is quartz, a warm milky stone with broad soft facets of light
+  and the faintest rose and aqua where it refracts. The violet stays the one
+  accent. Chrome colours, the manifest and the light-mode waves follow.
+- **Surfaces, not frosted glass.** Cards are solid slabs a step lighter than
+  the plate, edged by a hairline that is brighter along the top; under the
+  pointer the edge itself lights -- white on obsidian, pearlescent on quartz.
+  Buttons are solid (ivory on obsidian, charcoal on quartz) with no glow, the
+  headline is two inks rather than a colour, and the sidebar reads in
+  sentence case.
+- **A still Trust core.** The overview's spinning 3D mark and its animated
+  colour glow are replaced by an SVG instrument: hairline rings and ticks with
+  the product mark cut as a faceted stone at the centre. Nothing to download,
+  sharp at any size. The repositories galaxy is drawn in silver on obsidian
+  and graphite on quartz, without the haze behind it.
+- **A stage that answers the hand.** A soft light follows the pointer across
+  the graph's ground, with a fine grain, painted behind the canvas; the panels
+  catch a highlight along their top edge.
+- **Fits any screen.** The full view frames the graph in the part of the stage
+  nothing covers -- measured, not assumed -- and re-frames it when the screen
+  changes size, until the reader moves it. It keeps to the iPhone safe area.
+- **Quiet refresh.** Only the first load shows "Mapping…"; a refresh keeps
+  the graph and the reader's camera.
+- **Centred spine.** On a tall stage the spine leaves the bottom of the hub on
+  its centre line.
+- **Leaked credentials.** Findings from Exposure scans, including those only
+  in history, are a group on the graph under Access: masked path and line,
+  history and introducing commit, status and the provider's answer. Critical
+  when confirmed live; **Open in Exposure** goes to the report. The secret
+  never reaches the browser.
+- **Hardened markup.** Server counts are coerced to numbers before they reach
+  HTML, and a new browser test feeds hostile names through every surface.
+
 ### Neural: One Spine, Panels You Can Move, a Page That Scrolls
 
 On a phone the tall graph ran a ribbon of strands from below the hub, more

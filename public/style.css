@@ -53,18 +53,26 @@
  * decorative and large-text roles it was drawn for.
  */
 :root, [data-theme="dark"]{
-  --page:#06030f;
-  --bloom:radial-gradient(1300px 780px at 76% -6%, rgba(109,40,217,.34), transparent 62%),
-          radial-gradient(1000px 700px at 12% 108%, rgba(76,29,149,.26), transparent 62%);
-  --shell:#08051391; --shellSolid:#080513; --side:#06030f; --sb:rgba(155,135,255,.16);
+  /*
+   * Obsidian. Volcanic glass: a black with a cool, faintly green undertone
+   * rather than the violet-black of before, lit the way polished glass is --
+   * one cool sheen from above, a trace of the teal a real obsidian flake
+   * shows at its edge -- so the product's one accent, the violet, is the
+   * only colour on the page that asks to be looked at.
+   */
+  --page:#08090A;
+  /* One light, from above, the way a polished stone is lit on a table: no
+     coloured clouds. The grain is what makes the black read as material. */
+  --bloom:radial-gradient(1400px 620px at 50% -14%, rgba(255,255,255,.055), transparent 68%),
+          radial-gradient(900px 640px at 100% 110%, rgba(148,163,184,.035), transparent 64%);
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .055 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --shell:#0C0D0FE6; --shellSolid:#0C0D0F; --side:#090A0B; --sb:rgba(255,255,255,.07);
   /* The plate is opaque, so the ground behind it never reaches the workspace.
      This is the plate's own light: the same two sources as --bloom, redrawn
      inside it so the interior has depth instead of reading as one flat fill. */
-  --shellArt:radial-gradient(1150px 700px at 78% -12%, rgba(124,92,246,.20), transparent 60%),
-             radial-gradient(820px 620px at 6% 112%, rgba(76,29,149,.22), transparent 62%),
-             linear-gradient(168deg, rgba(146,124,255,.055), transparent 46%);
-  --railArt:linear-gradient(196deg, rgba(124,92,246,.14), transparent 38%),
-            radial-gradient(420px 300px at 0% 100%, rgba(76,29,149,.20), transparent 70%);
+  --shellArt:radial-gradient(1200px 520px at 50% -18%, rgba(255,255,255,.045), transparent 66%),
+             linear-gradient(180deg, rgba(255,255,255,.012), transparent 40%);
+  --railArt:linear-gradient(180deg, rgba(255,255,255,.018), transparent 42%);
   /*
    * Elevation that falls below the plate instead of haloing it. A 140px blur
    * offset 60px down still reaches ten pixels above the top edge, and against
@@ -74,30 +82,42 @@
    * plate already has a real border, and two rings a pixel apart read as one
    * thick muddy seam rather than as an edge.
    */
-  --shellShadow:0 48px 90px -40px rgba(6,2,20,.92);
-  --card:linear-gradient(155deg, rgba(146,124,255,.13), rgba(126,104,235,.05) 46%, rgba(255,255,255,.028));
-  --card2:rgba(20,14,44,.55); --cb:rgba(178,160,255,.17); --hair:rgba(255,255,255,.07);
-  --glass:blur(26px) saturate(1.5);
-  --cardShadow:0 22px 60px rgba(4,1,18,.5), inset 0 1px 0 rgba(255,255,255,.09);
-  --fg:#F5F3FF; --fg2:rgba(232,229,255,.62); --fg3:rgba(232,229,255,.42);
-  --lab:#B9A8F7; --mint:#34D399; --cyan:#22D3EE; --orange:#F59E0B; --mag:#D946EF;
+  --shellShadow:0 48px 90px -40px rgba(0,0,0,.9);
+  --card:linear-gradient(180deg, #131417 0%, #0F1012 100%);
+  --card2:rgba(18,19,22,.97); --cb:rgba(255,255,255,.075); --hair:rgba(255,255,255,.06);
+  --glass:blur(26px) saturate(1.3);
+  --cardShadow:inset 0 1px 0 rgba(255,255,255,.045), 0 1px 0 rgba(0,0,0,.55), 0 20px 44px -24px rgba(0,0,0,.85);
+  /*
+   * Surfaces are solid, not frosted. A card is a slab of the stone a step
+   * lighter than the plate it sits on; its edge is a hairline, with a brighter
+   * one along the top where the light falls, and under the pointer the edge
+   * itself catches the light -- white on obsidian, prismatic on quartz.
+   */
+  --surface-card:linear-gradient(180deg, #131417 0%, #0F1012 100%);
+  --surface-raised:#17181B;
+  --line:rgba(255,255,255,.075); --line-hi:rgba(255,255,255,.14); --edge-hi:rgba(255,255,255,.17);
+  --sheen-a:rgba(255,255,255,.42); --sheen-b:rgba(255,255,255,.12); --sheen-c:rgba(255,255,255,.03);
+  --btn-solid:#EDEDEF; --btn-solid-hover:#FFFFFF; --btn-solid-fg:#0B0B0C;
+  --fg:#EDEDEF; --fg2:rgba(237,237,239,.62); --fg3:rgba(237,237,239,.42);
+  --lab:#8E929B; --mint:#34D399; --cyan:#22D3EE; --orange:#F59E0B; --mag:#D946EF;
   --violet:#8B5CF6;
   --btnA:#4C1D95; --btnB:#7C3AED; --btnFg:#FFFFFF;
-  --btnGlow:0 18px 44px rgba(109,40,217,.55);
-  --field:rgba(255,255,255,.035); --fieldB:rgba(155,135,255,.16);
-  --navBg:linear-gradient(100deg, rgba(76,29,149,.42), rgba(30,20,70,.22));
-  --navB:rgba(139,92,246,.42);
-  --navGlow:0 0 0 1px rgba(139,92,246,.10), 0 16px 40px rgba(76,29,149,.28);
+  --btnGlow:0 14px 34px rgba(91,63,209,.34);
+  --field:rgba(255,255,255,.03); --fieldB:rgba(255,255,255,.1);
+  /* The current entry is lit like glass catching the light, not tinted. */
+  --navBg:linear-gradient(100deg, rgba(255,255,255,.075), rgba(255,255,255,.025));
+  --navB:rgba(255,255,255,.14);
+  --navGlow:inset 0 1px 0 rgba(255,255,255,.07), 0 14px 34px rgba(0,0,0,.4);
   --navHov:rgba(255,255,255,.035);
   --ttl:var(--fg); --ico:var(--fg2); --tabc:var(--fg3);
-  --artHalo:radial-gradient(closest-side, rgba(124,58,237,.42), transparent 72%);
-  --gxAura:radial-gradient(ellipse 58% 62% at 50% 48%, rgba(124,58,237,.30), rgba(76,29,149,.12) 55%, transparent 78%);
+  --artHalo:radial-gradient(closest-side, rgba(255,255,255,.07), transparent 72%);
+  --gxAura:none;
   --gxMask:radial-gradient(ellipse 74% 76% at 50% 50%, #000 58%, rgba(0,0,0,.55) 82%, transparent 100%);
   --gxBlend:normal; --gxFilter:brightness(1.1) saturate(1.05);
 
   /* The product's established names, resolved onto the design's. */
   --bg:var(--page); --text:var(--fg); --text2:var(--fg2);
-  --muted:rgba(232,229,255,.58);
+  --muted:rgba(237,237,239,.58);
   --focus:var(--cyan);
   --accent:var(--violet); --accent2:#A78BFA; --teal:var(--cyan);
   --green:var(--mint); --red:#F43F6E; --redDeep:#B4184A; --amber:var(--orange); --magenta:var(--mag);
@@ -138,36 +158,60 @@
  * for a near-black ground. Both modes now come from the same reference.
  */
 [data-theme="light"]{
-  --page:#F5F3FB;
-  --bloom:radial-gradient(1100px 640px at 88% -8%, rgba(167,139,250,.34), transparent 62%),
-          radial-gradient(900px 620px at 4% 104%, rgba(196,181,253,.30), transparent 62%);
-  --shell:#FFFFFF; --shellSolid:#FFFFFF; --side:#FFFFFF; --sb:rgba(20,14,50,.10);
-  --shellArt:radial-gradient(1000px 620px at 88% -12%, rgba(167,139,250,.20), transparent 60%),
-             radial-gradient(760px 560px at 2% 110%, rgba(196,181,253,.20), transparent 62%),
-             linear-gradient(168deg, rgba(255,255,255,.7), transparent 40%);
-  --railArt:linear-gradient(196deg, rgba(167,139,250,.13), transparent 40%),
-            radial-gradient(420px 300px at 0% 100%, rgba(196,181,253,.20), transparent 70%);
-  --shellShadow:0 40px 80px -36px rgba(38,26,90,.30);
-  --card:linear-gradient(155deg, rgba(255,255,255,.86), rgba(255,255,255,.58) 52%, rgba(238,233,255,.52));
-  --card2:rgba(255,255,255,.72); --cb:rgba(83,60,190,.14); --hair:rgba(20,14,50,.08);
-  --glass:blur(26px) saturate(1.6);
-  --cardShadow:0 18px 46px rgba(38,26,90,.10), inset 0 1px 0 rgba(255,255,255,.9);
-  --fg:#0B0A1F; --fg2:rgba(22,18,52,.64); --fg3:rgba(22,18,52,.46);
-  --lab:#6D28D9; --mint:#059669; --cyan:#0E9AB8; --orange:#EA580C; --mag:#C026D3;
+  /*
+   * Quartz. Milky stone rather than lavender paper: a warm, translucent white
+   * with the faint grey-rose of polished quartz where the light falls off,
+   * warm charcoal ink, and hairlines drawn in the stone's own shadow. The
+   * violet is kept for what it always meant -- the thing to press.
+   */
+  --page:#F2F0EB;
+  /*
+   * The stone itself: light passing through a polished quartz slab breaks
+   * into broad, soft facets -- bright bands at a shallow angle -- with the
+   * faintest rose and aqua where it refracts. Drawn once, still.
+   */
+  --bloom:linear-gradient(118deg, transparent 0 18%, rgba(255,255,255,.55) 26%, transparent 36%,
+            transparent 52%, rgba(255,255,255,.4) 61%, transparent 70%),
+          radial-gradient(900px 520px at 88% -8%, rgba(255,255,255,.95), transparent 62%),
+          radial-gradient(760px 520px at 6% 104%, rgba(232,214,220,.45), transparent 64%),
+          radial-gradient(640px 460px at 64% 70%, rgba(208,232,230,.28), transparent 70%);
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .11 0 0 0 0 .1 0 0 0 0 .09 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --shell:#FBFAF8; --shellSolid:#FBFAF8; --side:#FBFAF8; --sb:rgba(41,37,36,.09);
+  --shellArt:linear-gradient(122deg, transparent 0 30%, rgba(255,255,255,.7) 38%, transparent 47%,
+               transparent 62%, rgba(255,255,255,.5) 70%, transparent 78%),
+             radial-gradient(1000px 620px at 90% -12%, rgba(255,255,255,.9), transparent 60%),
+             radial-gradient(760px 560px at 2% 110%, rgba(232,214,220,.34), transparent 62%),
+             radial-gradient(620px 420px at 70% 80%, rgba(208,232,230,.22), transparent 70%);
+  --railArt:linear-gradient(180deg, rgba(255,255,255,.6), transparent 42%);
+  --shellShadow:0 40px 80px -36px rgba(41,37,36,.22);
+  --card:linear-gradient(180deg, #FFFFFF 0%, #FCFBF9 100%);
+  --card2:rgba(255,255,255,.97); --cb:rgba(28,25,23,.09); --hair:rgba(28,25,23,.075);
+  --glass:blur(26px) saturate(1.25);
+  --cardShadow:inset 0 1px 0 #fff, 0 1px 1px rgba(28,25,23,.045), 0 3px 8px -3px rgba(28,25,23,.06), 0 22px 40px -24px rgba(28,25,23,.18);
+  --surface-card:linear-gradient(180deg, #FFFFFF 0%, #FCFBF9 100%);
+  --surface-raised:#FFFFFF;
+  --line:rgba(28,25,23,.085); --line-hi:rgba(28,25,23,.15); --edge-hi:#FFFFFF;
+  /* Quartz refracts: the edge under the pointer takes a pearlescent rose,
+     violet and aqua rather than white. */
+  --sheen-a:rgba(176,160,255,.9); --sheen-b:rgba(255,186,210,.62); --sheen-c:rgba(150,228,232,.42);
+  --btn-solid:#1C1917; --btn-solid-hover:#2A2622; --btn-solid-fg:#FAFAF9;
+  --fg:#1C1917; --fg2:rgba(28,25,23,.64); --fg3:rgba(28,25,23,.46);
+  --lab:#78716C; --mint:#059669; --cyan:#0E9AB8; --orange:#EA580C; --mag:#C026D3;
   --violet:#6D28D9;
   --btnA:#4F1FC9; --btnB:#6D28D9; --btnFg:#FFFFFF;
   --btnGlow:0 16px 36px rgba(79,31,201,.28);
-  --field:#FFFFFF; --fieldB:rgba(20,14,50,.12);
-  --navBg:#F3F1FE; --navB:rgba(109,40,217,.16); --navGlow:none; --navHov:rgba(20,14,50,.035);
+  --field:#FFFFFF; --fieldB:rgba(41,37,36,.13);
+  --navBg:linear-gradient(100deg, #FFFFFF, #F6F3EF); --navB:rgba(41,37,36,.12);
+  --navGlow:0 1px 0 rgba(255,255,255,.9) inset, 0 8px 22px rgba(41,37,36,.07); --navHov:rgba(41,37,36,.035);
   --ttl:var(--fg); --ico:var(--fg2); --tabc:var(--fg3);
-  --artHalo:radial-gradient(closest-side, rgba(167,139,250,.30), transparent 72%);
-  --gxAura:radial-gradient(ellipse 60% 64% at 50% 48%, rgba(167,139,250,.26), rgba(196,181,253,.13) 52%, transparent 76%);
+  --artHalo:radial-gradient(closest-side, rgba(255,255,255,.7), transparent 72%);
+  --gxAura:none;
   --gxMask:radial-gradient(ellipse 64% 68% at 50% 50%, #000 36%, rgba(0,0,0,.34) 70%, transparent 92%);
   --gxBlend:normal; --gxFilter:saturate(1.12) contrast(1.03);
 
   /* The product's established names, resolved onto the design's. */
   --bg:var(--page); --text:var(--fg); --text2:var(--fg2);
-  --muted:rgba(22,18,52,.60);
+  --muted:rgba(28,25,23,.62);
   --focus:#4F1FC9;
   --accent:var(--violet); --accent2:#7C3AED; --teal:var(--cyan);
   --green:var(--mint); --red:#C81E4C; --redDeep:#96123A; --amber:var(--orange); --magenta:var(--mag);
@@ -196,7 +240,7 @@ html,body{height:100%}
 body{font-family:var(--font-body);color:var(--text);background:var(--page);
   -webkit-font-smoothing:antialiased;overflow-x:hidden;overflow-x:clip;
   -webkit-tap-highlight-color:transparent}
-body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:var(--bloom)}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:var(--grain),var(--bloom)}
 .mono,code,pre,.CodeMirror{font-family:var(--font-mono)}
 h1,h2,h3,.eyebrow{font-family:var(--font-display);letter-spacing:-0.011em}
 em{color:var(--teal);font-style:normal}
@@ -229,11 +273,11 @@ em{color:var(--teal);font-style:normal}
  * but they now drift in the design's own violets instead of the teal and
  * magenta that made light mode read as a different product.
  */
-#nebula{position:fixed;inset:0;z-index:-2;overflow:hidden;background:var(--bloom),var(--page);}
+#nebula{position:fixed;inset:0;z-index:-2;overflow:hidden;background:var(--grain),var(--bloom),var(--page);}
 /* A separate light-mode layer preserves the existing dark ground and shell.
    It is painted after the plate, but behind every control and content card. */
 #lightWaves{display:none;position:fixed;inset:0;width:100%;height:100%;z-index:-1;
-  pointer-events:none;contain:strict;opacity:.8}
+  pointer-events:none;contain:strict;opacity:.32}
 [data-theme="light"] #lightWaves{display:block}
 /*
  * The moving ground yields to a screen that draws its own artwork.
@@ -290,26 +334,23 @@ em{color:var(--teal);font-style:normal}
 
 .glass,.card{
   position:relative;overflow:hidden;border-radius:var(--radius);
-  background:linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 26%, transparent 52%), var(--glass-fill);
-  backdrop-filter:blur(var(--elev-1-blur)) saturate(150%);
-  -webkit-backdrop-filter:blur(var(--elev-1-blur)) saturate(150%);
-  border:1px solid var(--glass-border);
-  box-shadow:0 8px 40px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.25),
-    inset 0 1px 0 rgba(255,255,255,0.13), inset 0 -1px 0 rgba(0,0,0,0.18);
+  background:var(--surface-card);
+  border:1px solid var(--line);
+  box-shadow:var(--card-shadow);
 }
-[data-theme="light"] .glass,[data-theme="light"] .card{
-  background:linear-gradient(135deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.10) 26%, transparent 52%), var(--glass-fill);
-  backdrop-filter:blur(24px) saturate(150%);
-  -webkit-backdrop-filter:blur(24px) saturate(150%);
-  box-shadow:0 2px 6px rgba(20,20,60,0.06), 0 12px 48px rgba(20,20,60,0.13),
-    inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -1px 0 rgba(0,0,0,0.05);
-}
-.card::before{content:'';position:absolute;top:0;left:0;right:0;height:1.5px;z-index:3;pointer-events:none;
-  background:linear-gradient(90deg, rgba(255,255,255,0.12), rgba(255,255,255,0.75) 48%, rgba(255,255,255,0.12));}
-.card::after{content:'';position:absolute;inset:0;z-index:2;pointer-events:none;border-radius:inherit;
-  background:radial-gradient(480px circle at var(--mx,50%) var(--my,0%),
-    rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.04) 40%, transparent 64%);
-  opacity:0;transition:opacity .28s ease;}
+/* The light catches the top edge: a hairline brighter in the middle and gone
+   by the corners, not a bar across the whole card. */
+.card::before{content:'';position:absolute;top:0;left:14%;right:14%;height:1px;z-index:3;pointer-events:none;
+  background:linear-gradient(90deg, transparent, var(--edge-hi) 50%, transparent);}
+/* Under the pointer the edge itself lights up where the pointer is near it --
+   a ring one pixel wide, masked out of a soft light, so the face of the card
+   is never washed over. */
+.card::after{content:'';position:absolute;inset:0;z-index:2;pointer-events:none;border-radius:inherit;padding:1px;
+  background:radial-gradient(300px circle at var(--mx,50%) var(--my,0%),
+    var(--sheen-a), var(--sheen-b) 36%, var(--sheen-c) 58%, transparent 72%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity:0;transition:opacity .3s ease;}
 @media (hover:hover) and (pointer:fine){ .card:hover::after{opacity:1} }
 @media (hover:none){ .card.pressable:active{transform:scale(0.985)} }
 
@@ -370,7 +411,7 @@ em{color:var(--teal);font-style:normal}
  * ends, so no edge is ruled across the page at rest.
  */
 .lp-nav::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
-  background:linear-gradient(180deg,rgba(6,3,15,.82),rgba(6,3,15,.42) 62%,transparent)}
+  background:linear-gradient(180deg,rgba(7,8,10,.82),rgba(7,8,10,.42) 62%,transparent)}
 [data-theme="light"] .lp-nav::after{
   background:linear-gradient(180deg,rgba(245,243,251,.86),rgba(245,243,251,.46) 62%,transparent)}
 .lp-brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display);
@@ -606,13 +647,15 @@ em{color:var(--teal);font-style:normal}
   display:flex;align-items:center;justify-content:center;padding:0 4px}
 
 /* ---------------- controls ---------------- */
-.btn{font:inherit;font-weight:500;font-size:.87rem;color:var(--text);cursor:pointer;
-  border-radius:11px;padding:9px 15px;border:1px solid var(--glass-border);
-  background:rgba(255,255,255,0.06);backdrop-filter:blur(18px);
-  transition:transform .16s var(--ease), box-shadow .16s var(--ease), background .16s ease;
+.btn{font:inherit;font-weight:500;font-size:.87rem;letter-spacing:-.005em;color:var(--text);cursor:pointer;
+  border-radius:10px;padding:9px 15px;border:1px solid var(--line);
+  background:var(--surface-raised);box-shadow:inset 0 1px 0 rgba(255,255,255,.04), 0 1px 1px rgba(0,0,0,.25);
+  transition:background .16s ease, border-color .16s ease, box-shadow .16s ease, transform .12s var(--ease);
   min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:4px}
-.btn:hover{background:rgba(255,255,255,0.11);transform:translateY(-1px)}
-.btn:active{transform:translateY(0) scale(.98)}
+/* A control answers the pointer with its edge and fill, not by jumping. */
+.btn:hover{background:color-mix(in srgb, var(--surface-raised) 88%, var(--fg));border-color:var(--line-hi)}
+.btn:active{transform:scale(.985)}
+[data-theme="light"] .btn{box-shadow:inset 0 1px 0 #fff, 0 1px 2px rgba(28,25,23,.06)}
 /*
  * The primary button paints an opaque gradient, so it inherits a
  * backdrop-filter from .btn that nothing can ever be seen through. That is not
@@ -643,10 +686,9 @@ em{color:var(--teal);font-style:normal}
  * softer ambient one, both pulled in by a negative spread so they hug the
  * shape, and in the palette's deep violet rather than a bright accent halo.
  */
-.btn-primary{background:linear-gradient(135deg,var(--accent),#5a48f0);border-color:rgba(255,255,255,0.28);
-  backdrop-filter:none;-webkit-backdrop-filter:none;
-  box-shadow:0 2px 6px -1px rgba(76,29,149,.28), 0 6px 16px -6px rgba(76,29,149,.32),
-    inset 0 1px 0 rgba(255,255,255,0.35);color:#fff}
+.btn-primary{background:var(--btn-solid);border-color:transparent;
+  backdrop-filter:none;-webkit-backdrop-filter:none;font-weight:600;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35), 0 1px 2px rgba(0,0,0,.35);color:var(--btn-solid-fg)}
 /*
  * The same elevation, re-weighted for the light surface.
  *
@@ -663,12 +705,13 @@ em{color:var(--teal);font-style:normal}
  * one it only washes out the gradient's first few pixels.
  */
 [data-theme="light"] .btn-primary{
-  box-shadow:0 1px 2px -1px rgba(76,29,149,.20), 0 4px 10px -5px rgba(76,29,149,.18)}
-.btn-primary:hover{background:linear-gradient(135deg,var(--accent2),#6a58ff)}
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14), 0 1px 2px rgba(28,25,23,.2), 0 6px 14px -8px rgba(28,25,23,.35)}
+.btn-primary:hover{background:var(--btn-solid-hover);border-color:transparent}
 .btn-primary:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .btn-ghost{background:transparent}
-.btn-ghost:hover{background:rgba(255,255,255,0.08)}
+.btn-ghost{box-shadow:none}
+.btn-ghost:hover{background:color-mix(in srgb, transparent 92%, var(--fg))}
 /*
  * A refused control is no longer :disabled -- it keeps its place in the tab
  * order so that it can say why it is refused -- so the rules above stop
@@ -677,10 +720,10 @@ em{color:var(--teal);font-style:normal}
  */
 .btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed;transform:none}
 .btn[aria-disabled="true"]:hover,.btn[aria-disabled="true"]:active{
-  transform:none;background:rgba(255,255,255,0.06)}
+  transform:none;background:var(--surface-raised)}
 .btn-ghost[aria-disabled="true"]:hover,.btn-ghost[aria-disabled="true"]:active{background:transparent}
 .btn-primary[aria-disabled="true"]:hover,.btn-primary[aria-disabled="true"]:active{
-  background:linear-gradient(135deg,var(--accent),#5a48f0)}
+  background:var(--btn-solid)}
 .btn-block{width:100%;margin-top:14px}
 /*
  * Small buttons keep their label on one line, and are allowed to shrink to fit
@@ -837,7 +880,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .trust-evidence-mark{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.7;
   stroke-linecap:round;stroke-linejoin:round}
 .trust-evidence-stale,.trust-evidence-unavailable{color:var(--amber)}
-.trust-error-backdrop{position:fixed;inset:0;z-index:10020;display:grid;place-items:center;padding:18px;background:rgba(4,7,17,.74);backdrop-filter:blur(8px)}
+.trust-error-backdrop{position:fixed;inset:0;z-index:10020;display:grid;place-items:center;padding:18px;background:rgba(5,6,8,.74);backdrop-filter:blur(8px)}
 .trust-error-dialog{width:min(580px,100%);max-height:calc(100dvh - 36px);overflow:auto;padding:22px;border:1px solid var(--glass-border);border-radius:18px;background:var(--bg);box-shadow:0 26px 80px rgba(0,0,0,.45)}
 .trust-error-dialog h2{margin:0 0 18px;font-size:1.15rem}
 .trust-error-field{margin:0 0 14px}
@@ -1174,7 +1217,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
 /* mobile drawer + sheet + panels */
 .side-scrim,.sheet-scrim,.stage-scrim,.palette-scrim{position:fixed;inset:0;z-index:80;
-  background:rgba(5,5,15,0.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  background:rgba(5,6,8,0.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   animation:fadeIn .2s var(--ease) both}
 @keyframes fadeIn{from{opacity:0;backdrop-filter:blur(0px);-webkit-backdrop-filter:blur(0px)}
   to{opacity:1}}
@@ -1290,7 +1333,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
 /* modal / toasts */
 .scrim{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:18px;
-  background:rgba(5,5,15,0.4);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:fadeIn .2s var(--ease) both}
+  background:rgba(5,6,8,0.4);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:fadeIn .2s var(--ease) both}
 .modal{width:min(480px,100%);max-height:86dvh;overflow-y:auto;padding:22px;
   transform-origin:var(--nv-origin,50% 50%);animation:modalIn .3s var(--ease-settle) both}
 /*
@@ -1761,7 +1804,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
    ============================================================ */
 .tm-overlay{position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;gap:14px;
   padding:calc(16px + env(safe-area-inset-top,0px)) 18px calc(20px + env(safe-area-inset-bottom,0px));
-  background:rgba(7,7,18,.88);backdrop-filter:blur(18px);overflow-y:auto}
+  background:rgba(9,10,12,.88);backdrop-filter:blur(18px);overflow-y:auto}
 [data-theme="light"] .tm-overlay{background:rgba(238,240,251,.88)}
 .tm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .tm-title{font-weight:700;font-size:1.15rem;letter-spacing:-.01em}
@@ -1800,20 +1843,20 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
 
 /* v4.6.1 — sticky chrome */
-[data-theme="light"] .editor-bar{background:rgba(250,250,255,0.93)}
+[data-theme="light"] .editor-bar{background:rgba(251,250,248,0.93)}
 .editor-shell{overflow:clip}
 @supports not (overflow: clip){.editor-shell{overflow:hidden}}
 
 
 /* v4.8.1 */
-[data-theme="light"] .topbar{background:rgba(250,250,255,0.88)}
-[data-theme="light"] .find-bar{background:rgba(250,250,255,0.95)}
+[data-theme="light"] .topbar{background:rgba(251,250,248,0.88)}
+[data-theme="light"] .find-bar{background:rgba(251,250,248,0.95)}
 
 
 /* v4.8.2 — standalone status-bar backdrop: content never ghosts behind the clock */
 body::after{content:'';position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);
-  background:rgba(7,7,18,0.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:55;pointer-events:none}
-[data-theme="light"] body::after{background:rgba(250,250,255,0.85)}
+  background:rgba(7,8,10,0.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:55;pointer-events:none}
+[data-theme="light"] body::after{background:rgba(244,242,238,0.86)}
 
 /* v4.9.0 — About actions wrap cleanly inside the modal */
 .about-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;max-width:100%}
@@ -2059,18 +2102,46 @@ body.read-only .btn-primary{opacity:.55}
 .neural-swatch.normal{color:#22D3EE;background:#22D3EE}
 .neural-rail-action{margin-top:6px!important;justify-content:flex-start;padding-left:11px;min-height:36px}
 .neural-stage{position:relative;height:var(--neural-stage-h,620px);min-height:0;border-radius:18px;
-  /* The dark ground: deep navy lit from behind the hub, two faint clouds of
-   * the brand's indigo and cyan, and a vignette that keeps the eye in the
-   * middle -- enough depth to read as space, not enough to compete with a
-   * label. Painted once by the browser; the canvas draws only the graph. */
+  /* Obsidian: a black with a cool undertone, a soft light behind the hub, the
+   * trace of teal a polished flake shows at its edge, one diagonal sheen, and
+   * a vignette that keeps the eye in the middle. Painted once by the
+   * browser; the canvas draws only the graph. */
   background:
-    radial-gradient(ellipse 120% 95% at 50% 50%,transparent 45%,rgba(3,4,12,.62) 100%),
-    radial-gradient(circle at 50% 50%,rgba(79,70,229,.22),rgba(79,70,229,.07) 32%,transparent 58%),
-    radial-gradient(circle at 16% 82%,rgba(8,145,178,.12),transparent 42%),
-    radial-gradient(circle at 86% 14%,rgba(124,58,237,.11),transparent 40%),
-    linear-gradient(180deg,#080a1c 0%,#0a0c22 55%,#06070f 100%);
+    radial-gradient(ellipse 120% 95% at 50% 50%,transparent 45%,rgba(0,0,0,.58) 100%),
+    radial-gradient(circle at 50% 46%,rgba(186,196,214,.09),rgba(186,196,214,.025) 30%,transparent 56%),
+    radial-gradient(circle at 12% 88%,rgba(45,212,191,.055),transparent 40%),
+    radial-gradient(circle at 88% 10%,rgba(139,92,246,.045),transparent 38%),
+    linear-gradient(118deg,rgba(255,255,255,.03) 0%,transparent 34%),
+    linear-gradient(180deg,#0d0e11 0%,#0a0b0d 55%,#060708 100%);
   isolation:isolate;overflow:hidden}
-[data-theme="light"] .neural-stage{background:radial-gradient(circle at 50% 46%,rgba(104,87,255,.12),transparent 32%),radial-gradient(circle at 23% 70%,rgba(31,180,162,.09),transparent 25%),rgba(238,240,251,.36)}
+/*
+ * The stage answers the hand. A soft light follows the pointer across the
+ * glass -- the way a lamp moves over polished obsidian -- trailing a little
+ * behind it, and a fine grain gives the ground a surface rather than a flat
+ * fill. Both sit behind the canvas and are painted by the compositor; the
+ * graph is never redrawn for them. The light's position is a registered,
+ * non-inheriting property on an element with no children, so moving it
+ * restyles nothing else on the stage, and it can ease.
+ */
+@property --nv-mx{syntax:'<length-percentage>';inherits:false;initial-value:62%}
+@property --nv-my{syntax:'<length-percentage>';inherits:false;initial-value:18%}
+.neural-light{position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(540px circle at var(--nv-mx,62%) var(--nv-my,18%),rgba(226,232,240,.085),rgba(226,232,240,.022) 38%,transparent 62%);
+  transition:--nv-mx .55s var(--ease),--nv-my .55s var(--ease)}
+[data-theme="light"] .neural-light{background:radial-gradient(540px circle at var(--nv-mx,62%) var(--nv-my,18%),rgba(255,255,255,.78),rgba(255,255,255,.24) 40%,transparent 64%)}
+/* The card's hover glow would sit over the graph; the stage's own light
+ * replaces it, and the layer carries the grain instead. */
+.neural-stage::after{inset:0;z-index:0;opacity:.05;mix-blend-mode:overlay;transition:none;padding:0;-webkit-mask:none;mask:none;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+@media (hover:hover) and (pointer:fine){ .neural-stage:hover::after{opacity:.05} }
+[data-theme="light"] .neural-stage::after{opacity:.06;mix-blend-mode:multiply}
+@media(prefers-reduced-motion:reduce){.neural-light{transition:none}}
+[data-theme="light"] .neural-stage{background:
+    radial-gradient(ellipse 120% 95% at 50% 50%,transparent 55%,rgba(120,108,98,.10) 100%),
+    radial-gradient(circle at 50% 44%,rgba(255,255,255,.95),rgba(255,255,255,.4) 28%,transparent 54%),
+    radial-gradient(ellipse 70% 55% at 86% 8%,rgba(236,230,223,.7),transparent 60%),
+    radial-gradient(ellipse 65% 55% at 8% 92%,rgba(226,216,220,.5),transparent 60%),
+    linear-gradient(160deg,#fbfaf8 0%,#f3f0eb 100%)}
 #neuralCanvas{display:block;width:100%;height:100%;min-height:0;touch-action:none;cursor:grab;outline:none;position:relative;z-index:1}
 #neuralCanvas:active{cursor:grabbing}
 /* On the page, a finger scrolls the page past the graph; two fingers, or the
@@ -2078,7 +2149,7 @@ body.read-only .btn-primary{opacity:.55}
  * it and the page below it could not be reached. */
 .neural-stage:not(.is-expanded) #neuralCanvas{touch-action:pan-x pan-y}
 .neural-gesture-hint{position:absolute;z-index:6;left:50%;bottom:16px;transform:translateX(-50%);max-width:calc(100% - 32px);
-  padding:8px 14px;border-radius:99px;border:1px solid var(--glass-border);background:rgba(8,10,26,.88);backdrop-filter:blur(12px);
+  padding:8px 14px;border-radius:99px;border:1px solid var(--glass-border);background:rgba(12,13,16,.88);backdrop-filter:blur(12px);
   color:var(--text);font-size:.7rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;
   box-shadow:0 10px 30px rgba(0,0,0,.35);animation:neuralHintIn .2s var(--ease) both;transition:opacity .25s var(--ease)}
 .neural-gesture-hint[hidden]{display:none}
@@ -2087,12 +2158,12 @@ body.read-only .btn-primary{opacity:.55}
 @keyframes neuralHintIn{from{opacity:0;transform:translate(-50%,6px)}}
 .neural-fx{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
 .neural-stage-top{position:absolute;z-index:5;left:13px;right:13px;top:12px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;pointer-events:none}
-.neural-stream-state{display:grid;grid-template-columns:9px auto;align-items:center;column-gap:7px;padding:8px 10px;border:1px solid var(--glass-border);border-radius:11px;background:rgba(8,8,24,.63);backdrop-filter:blur(14px);pointer-events:auto}
+.neural-stream-state{display:grid;grid-template-columns:9px auto;align-items:center;column-gap:7px;padding:8px 10px;border:1px solid var(--glass-border);border-radius:11px;background:rgba(12,13,16,.66);backdrop-filter:blur(14px);pointer-events:auto}
 [data-theme="light"] .neural-stream-state{background:rgba(255,255,255,.65)}
 .neural-stream-state>span{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 10px var(--teal)}
 .neural-stream-state b{font-size:.62rem;letter-spacing:.12em}.neural-stream-state small{grid-column:2;color:var(--muted);font-size:.58rem;margin-top:2px}
 .neural-stream-state.paused>span{background:#F59E0B;box-shadow:0 0 10px #F59E0B}.neural-stream-state.paused b{color:#F59E0B}
-.neural-search-wrap{width:min(220px,42%);height:38px;display:flex;align-items:center;gap:7px;border:1px solid var(--glass-border);background:rgba(8,8,24,.63);backdrop-filter:blur(14px);border-radius:11px;padding:0 10px;pointer-events:auto}
+.neural-search-wrap{width:min(220px,42%);height:38px;display:flex;align-items:center;gap:7px;border:1px solid var(--glass-border);background:rgba(12,13,16,.66);backdrop-filter:blur(14px);border-radius:11px;padding:0 10px;pointer-events:auto}
 [data-theme="light"] .neural-search-wrap{background:rgba(255,255,255,.65)}
 .neural-search-wrap svg{fill:none;stroke:var(--muted);stroke-width:1.8;flex:none}.neural-search-wrap input{border:0;background:transparent;min-height:0;height:34px;padding:0;box-shadow:none;font-size:.7rem}
 .neural-stage-tools{position:absolute;z-index:5;right:13px;bottom:46px;display:grid;gap:6px}
@@ -2106,7 +2177,7 @@ body.read-only .btn-primary{opacity:.55}
 .neural-stage-tools{top:64px;bottom:13px;grid-auto-flow:column;grid-template-rows:repeat(auto-fill,38px);grid-auto-columns:38px;
   align-content:start;direction:rtl;pointer-events:none}
 .neural-stage-tools>*{direction:ltr;pointer-events:auto}
-.neural-tool{width:38px;height:38px;border:1px solid var(--glass-border);border-radius:11px;color:var(--text);background:rgba(8,8,24,.64);backdrop-filter:blur(14px);cursor:pointer;font-family:inherit;font-weight:600;font-size:.78rem;transition:.16s;
+.neural-tool{width:38px;height:38px;border:1px solid var(--glass-border);border-radius:11px;color:var(--text);background:rgba(12,13,16,.68);backdrop-filter:blur(14px);cursor:pointer;font-family:inherit;font-weight:600;font-size:.78rem;transition:.16s;
   /* The icons sat on the text baseline, 1.5px above the centre of their own
    * button, and the one text glyph among them centred differently again. */
   display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1}
@@ -2166,10 +2237,10 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 .neural-stage.is-expanded{--nv-panel-w:min(272px,82vw)}
 .neural-rail.is-docked{position:absolute;z-index:6;left:0;top:0;bottom:0;width:var(--nv-panel-w);
   margin:0;border-radius:0;border-top:0;border-bottom:0;border-left:0;
-  border-right:1px solid var(--glass-border);background:rgba(8,8,24,.86);backdrop-filter:blur(20px);
+  border-right:1px solid var(--glass-border);background:rgba(10,11,14,.9);backdrop-filter:blur(20px);
   overflow-y:auto;overscroll-behavior:contain;
   transform:translateX(-100%);opacity:0;pointer-events:none;transition:transform .22s var(--ease),opacity .22s var(--ease)}
-[data-theme="light"] .neural-rail.is-docked{background:rgba(250,250,255,.9)}
+[data-theme="light"] .neural-rail.is-docked{background:rgba(251,250,248,.94)}
 .neural-stage.is-expanded.panel-open .neural-rail.is-docked{transform:none;opacity:1;pointer-events:auto}
 /*
  * Docked, the rail is a tall panel rather than the cramped strip it is above
@@ -2249,7 +2320,7 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 }
 /* The minimap, bottom-left of the stage, clear of the tools on the right. */
 .neural-minimap{position:absolute;z-index:4;left:13px;bottom:13px;width:156px;height:108px;border-radius:12px;
-  border:1px solid var(--glass-border);background:rgba(8,10,26,.78);backdrop-filter:blur(12px);
+  border:1px solid var(--glass-border);background:rgba(12,13,16,.78);backdrop-filter:blur(12px);
   cursor:crosshair;touch-action:none;box-shadow:0 10px 30px rgba(0,0,0,.35);opacity:.84;transition:opacity .15s}
 .neural-minimap:hover{opacity:1}
 .neural-minimap[hidden]{display:none}
@@ -2266,10 +2337,10 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
  */
 .neural-card{position:absolute;z-index:7;width:min(312px,calc(100% - 24px));max-height:calc(100% - 74px);overflow:auto;overscroll-behavior:contain;
   border-radius:16px;border:1px solid color-mix(in srgb,var(--node,#8b5cf6) 38%,var(--glass-border));
-  background:linear-gradient(180deg,color-mix(in srgb,var(--node,#8b5cf6) 12%,rgba(14,15,36,.94)),rgba(12,13,32,.95) 42%);
-  box-shadow:0 18px 50px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.03) inset;backdrop-filter:blur(18px);color:var(--text)}
+  background:linear-gradient(180deg,color-mix(in srgb,var(--node,#8b5cf6) 11%,rgba(16,17,21,.95)),rgba(13,14,17,.96) 42%);
+  box-shadow:0 22px 56px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.07);backdrop-filter:blur(18px);color:var(--text)}
 .neural-card[hidden]{display:none}
-[data-theme="light"] .neural-card{background:linear-gradient(180deg,color-mix(in srgb,var(--node,#8b5cf6) 10%,#fff),#fff 42%);box-shadow:0 18px 44px rgba(30,27,75,.18)}
+[data-theme="light"] .neural-card{background:linear-gradient(180deg,color-mix(in srgb,var(--node,#8b5cf6) 9%,#fff),#fdfcfa 42%);box-shadow:0 18px 44px rgba(41,37,36,.14),inset 0 1px 0 #fff}
 .neural-card.is-entering{animation:neuralCardIn .2s var(--ease) both}
 @keyframes neuralCardIn{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:none}}
 [data-motion="off"] .neural-card.is-entering{animation:none}
@@ -2326,7 +2397,7 @@ body.neural-stage-expanded .nv-fab-dock{display:none!important}
 .neural-card-more{margin:6px 2px 0;font-size:.62rem;color:var(--muted)}
 .neural-card-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid var(--glass-border)}
 .neural-card-actions .btn{min-height:34px;font-size:.68rem}
-.neural-loading,.neural-empty{position:absolute;z-index:4;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:8px;background:radial-gradient(circle,rgba(14,12,38,.9),rgba(7,7,18,.75));padding:24px;color:var(--text)}
+.neural-loading,.neural-empty{position:absolute;z-index:4;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:8px;background:radial-gradient(circle,rgba(16,17,21,.9),rgba(8,9,11,.78));padding:24px;color:var(--text)}
 [data-theme="light"] .neural-loading,[data-theme="light"] .neural-empty{background:radial-gradient(circle,rgba(244,245,255,.92),rgba(234,237,249,.76))}
 .neural-loading span,.neural-empty span{font-size:.72rem;color:var(--muted)}
 .neural-loader-core{width:44px;height:44px;border-radius:50%;background:radial-gradient(circle,#fff 0 7%,#67E8F9 10%,#8B5CF6 35%,transparent 38%);box-shadow:0 0 28px rgba(139,92,246,.55);position:relative;animation:neuralCore 1.2s ease-in-out infinite alternate}
@@ -2418,6 +2489,36 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .neural-search-wrap{width:52%}
   .neural-event-strip{grid-template-columns:1fr}
   .neural-timeline-actions .btn{min-height:40px}
+}
+/*
+ * The full view covers the whole screen -- the page asks for
+ * viewport-fit=cover, so on an installed iPhone app that includes the strip
+ * under the clock and the home indicator. Its furniture keeps to the safe
+ * area: the status and search below the clock, where they had been drawn
+ * under the status bar's own backdrop and could not be seen; the tools clear
+ * of the home indicator; the rail's first mode below the clock rather than
+ * cut in half by it; and, held sideways, everything clear of the notch.
+ */
+.neural-stage.is-expanded{
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+  --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px)}
+.neural-stage.is-expanded .neural-stage-top{top:calc(12px + var(--sat));left:calc(13px + var(--sal));right:calc(13px + var(--sar))}
+.neural-stage.is-expanded .neural-stage-tools{top:calc(64px + var(--sat));bottom:calc(13px + var(--sab));right:calc(13px + var(--sar))}
+.neural-stage.is-expanded .neural-rail.is-docked{width:calc(var(--nv-panel-w) + var(--sal));
+  padding-top:calc(14px + var(--sat));padding-bottom:calc(14px + var(--sab));padding-left:calc(14px + var(--sal))}
+.neural-stage.is-expanded .neural-minimap{bottom:calc(13px + var(--sab));left:calc(13px + var(--sal))}
+.neural-stage.is-expanded .neural-gesture-hint{bottom:calc(16px + var(--sab))}
+.neural-stage.is-expanded .neural-card.is-docked{left:calc(8px + var(--sal))!important;right:calc(8px + var(--sar));bottom:calc(8px + var(--sab))}
+@media(min-width:900px){
+  .neural-stage.is-expanded.panel-open .neural-stage-top{left:calc(var(--nv-panel-w) + var(--sal) + 13px)}
+  .neural-stage.is-expanded.panel-open .neural-minimap{left:calc(var(--nv-panel-w) + var(--sal) + 13px)}
+}
+@media(max-width:560px){
+  .neural-stage.is-expanded .neural-stage-top{top:calc(9px + var(--sat));left:calc(9px + var(--sal));right:calc(9px + var(--sar))}
+  .neural-stage.is-expanded .neural-stage-tools{top:calc(58px + var(--sat));bottom:calc(10px + var(--sab));right:calc(9px + var(--sar))}
+}
+@media(orientation:landscape) and (max-height:520px){
+  .neural-stage.is-expanded .neural-minimap{bottom:calc(9px + var(--sab));left:calc(9px + var(--sal))}
 }
 
 /* ===== v5.3.0-alpha.2 — Optional GitHub App management ===== */
@@ -2586,11 +2687,12 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    ============================================================ */
 .gx-hero{padding:34px 0 6px;max-width:780px}
 .gx-eyebrow{display:flex;gap:10px;align-items:center;font-family:var(--font-display);
-  font-size:.66rem;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--lab);margin-bottom:16px}
+  font-size:.66rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--lab);margin-bottom:16px}
 .gx-eyebrow span[aria-hidden]{opacity:.45}
-.gx-title{font-family:var(--font-display);font-size:clamp(1.9rem,4.4vw,3.05rem);font-weight:700;
-  line-height:1.06;letter-spacing:-.026em;color:var(--text);margin-bottom:16px}
-.gx-title em{font-style:normal;color:var(--accent2)}
+.gx-title{font-family:var(--font-display);font-size:clamp(1.9rem,4.4vw,3.05rem);font-weight:650;
+  line-height:1.05;letter-spacing:-.034em;color:var(--text);margin-bottom:16px}
+/* Two inks, not a colour: the emphasis is the quieter tone. */
+.gx-title em{font-style:normal;color:var(--fg3)}
 .gx-lede{max-width:56ch;color:var(--text2);font-size:.95rem;line-height:1.62}
 .gx-hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
 
@@ -2669,23 +2771,21 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 [data-theme="light"] .ov-hero-hint kbd{background:rgba(20,14,50,.04)}
 @media (max-width:560px){ .ov-hero-hint{display:none} }
 
-.ov-core{position:relative;isolation:isolate;border:1px solid var(--glass-border);border-radius:20px;padding:20px;
-  background:var(--card-grad);box-shadow:var(--card-shadow);
-  backdrop-filter:blur(26px) saturate(1.5);-webkit-backdrop-filter:blur(26px) saturate(1.5);overflow:hidden}
+.ov-core{position:relative;isolation:isolate;border:1px solid var(--line);border-radius:20px;padding:20px;
+  background:var(--surface-card);box-shadow:var(--card-shadow);overflow:hidden}
 /*
  * The pointer light is two custom properties and one radial gradient. It moves
  * a background position, not a layer, so there is nothing to composite and
  * nothing to lay out; with no pointer, or with motion off, it simply never
  * updates and the panel is the same panel.
  */
-.ov-core::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;
-  background:radial-gradient(260px circle at var(--nv-px,70%) var(--nv-py,0%),
-    rgba(255,255,255,.09), transparent 64%);
+.ov-core::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;border-radius:inherit;padding:1px;
+  background:radial-gradient(300px circle at var(--nv-px,70%) var(--nv-py,0%),
+    var(--sheen-a), var(--sheen-b) 36%, var(--sheen-c) 58%, transparent 72%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
   opacity:0;transition:opacity .35s var(--ease)}
 @media (hover:hover) and (pointer:fine){.ov-core:hover::after{opacity:1}}
-[data-theme="light"] .ov-core::after{
-  background:radial-gradient(260px circle at var(--nv-px,70%) var(--nv-py,0%),
-    rgba(109,40,217,.09), transparent 64%)}
 @media (prefers-reduced-motion:reduce){.ov-core::after{transition:none}}
 [data-motion="off"] .ov-core::after{transition:none}
 
@@ -2706,13 +2806,41 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 /* The mark's stage: its own framed ground, tall enough to hold the whole mark
    rather than a crop of it. */
 .ov-core-art{position:relative;height:clamp(186px,22vw,224px);margin:16px 0 14px;
-  border-radius:14px;overflow:hidden;
-  background:radial-gradient(ellipse 62% 66% at 50% 50%, rgba(124,58,237,.34), rgba(76,29,149,.13) 55%, transparent 78%)}
-.ov-core-glow{position:absolute;inset:0;
-  background:conic-gradient(from 210deg at 50% 50%, rgba(139,92,246,.55), rgba(217,70,239,.32), rgba(34,211,238,.30), rgba(139,92,246,.55));
-  filter:blur(26px);opacity:.75;animation:ov-spin 26s linear infinite}
-@keyframes ov-spin{to{transform:rotate(1turn)}}
-[data-motion="off"] .ov-core-glow{animation:none}
+  border-radius:14px;overflow:hidden;border:1px solid var(--line);
+  background:var(--grain),radial-gradient(ellipse 70% 80% at 50% 40%, rgba(255,255,255,.045), transparent 70%),
+    linear-gradient(180deg,#0c0d0f,#09090b)}
+[data-theme="light"] .ov-core-art{
+  background:var(--grain),linear-gradient(118deg, transparent 0 22%, rgba(255,255,255,.8) 32%, transparent 44%),
+    radial-gradient(ellipse 70% 80% at 50% 36%, #fff, transparent 72%),linear-gradient(180deg,#f7f5f1,#efece6)}
+/*
+ * The still ground the panel always has: the emblem, drawn in SVG. Its
+ * colours are the theme's -- obsidian plates with a cool specular edge, or
+ * quartz plates, milky, with a prismatic one -- set here rather than in the
+ * markup so the theme toggle repaints it for free.
+ */
+.ov-core-glow{position:absolute;inset:0;display:grid;place-items:center}
+.ov-core-emblem{width:100%;height:100%;overflow:visible}
+.ov-core-emblem .oc-ticks{fill:none;stroke:rgba(255,255,255,.13);stroke-width:5;stroke-dasharray:1 4.027}
+.ov-core-emblem .oc-ring{fill:none;stroke:rgba(255,255,255,.1);stroke-width:1}
+.ov-core-emblem .oc-ring-fine{stroke:rgba(255,255,255,.07);stroke-dasharray:2 5}
+.ov-core-emblem .oc-arc{fill:none;stroke-width:1.5;stroke-linecap:round}
+.ov-core-emblem .oc-cardinal{fill:none;stroke:rgba(255,255,255,.22);stroke-width:1.2;stroke-linecap:round}
+.ov-core-emblem .oc-node{fill:var(--violet);stroke:rgba(139,92,246,.3);stroke-width:5}
+.ov-core-emblem .oc-facets{fill:none;stroke-width:3;stroke-linejoin:round}
+.ov-core-emblem .oc-deep-a{stop-color:#23252b}.ov-core-emblem .oc-deep-b{stop-color:#08090a}
+.ov-core-emblem .oc-light-a{stop-color:#61656f}.ov-core-emblem .oc-light-b{stop-color:#1a1c20}
+.ov-core-emblem .oc-edge-a{stop-color:rgba(255,255,255,.85)}.ov-core-emblem .oc-edge-b{stop-color:rgba(255,255,255,.14)}.ov-core-emblem .oc-edge-c{stop-color:rgba(255,255,255,.05)}
+.ov-core-emblem .oc-arc-a{stop-color:rgba(255,255,255,0)}.ov-core-emblem .oc-arc-b{stop-color:rgba(255,255,255,.55)}
+.ov-core-emblem .oc-floor-a{stop-color:rgba(0,0,0,.55)}.ov-core-emblem .oc-floor-b{stop-color:rgba(0,0,0,0)}
+[data-theme="light"] .ov-core-emblem .oc-ticks{stroke:rgba(28,25,23,.16)}
+[data-theme="light"] .ov-core-emblem .oc-ring{stroke:rgba(28,25,23,.11)}
+[data-theme="light"] .ov-core-emblem .oc-ring-fine{stroke:rgba(28,25,23,.08)}
+[data-theme="light"] .ov-core-emblem .oc-cardinal{stroke:rgba(28,25,23,.25)}
+[data-theme="light"] .ov-core-emblem .oc-deep-a{stop-color:#e4ded6}[data-theme="light"] .ov-core-emblem .oc-deep-b{stop-color:#c9c1b7}
+[data-theme="light"] .ov-core-emblem .oc-light-a{stop-color:#ffffff}[data-theme="light"] .ov-core-emblem .oc-light-b{stop-color:#ebe6df}
+[data-theme="light"] .ov-core-emblem .oc-edge-a{stop-color:rgba(186,170,255,.95)}[data-theme="light"] .ov-core-emblem .oc-edge-b{stop-color:rgba(255,190,212,.8)}[data-theme="light"] .ov-core-emblem .oc-edge-c{stop-color:rgba(150,226,230,.8)}
+[data-theme="light"] .ov-core-emblem .oc-arc-a{stop-color:rgba(28,25,23,0)}[data-theme="light"] .ov-core-emblem .oc-arc-b{stop-color:rgba(28,25,23,.4)}
+[data-theme="light"] .ov-core-emblem .oc-floor-a{stop-color:rgba(60,50,40,.22)}
 
 .ov-core-line{font-family:var(--font-display);font-size:.9rem;font-weight:600;color:var(--text);letter-spacing:-.008em;margin:0}
 
@@ -2871,7 +2999,6 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 }
 
 @media (prefers-reduced-motion:reduce){
-  .ov-core-glow{animation:none}
   .ov-live::before{animation:none}
 }
 
@@ -2939,9 +3066,9 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
      24px WCAG 2.5.8 target, and still the largest control on the screen. */
   width:48px;height:48px;padding:0;border-radius:16px;cursor:pointer;
   display:inline-flex;align-items:center;justify-content:center;
-  color:var(--btnFg);border:1px solid var(--navB);
-  background:linear-gradient(140deg, var(--btnB), var(--btnA));
-  box-shadow:var(--btnGlow), 0 0 0 1px rgba(255,255,255,.06) inset;
+  color:var(--btn-solid-fg);border:1px solid transparent;
+  background:var(--btn-solid);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3), 0 10px 26px -10px rgba(0,0,0,.6);
   transition:transform .18s var(--ease), box-shadow .18s var(--ease)}
 /* Open, the button turns its plus into a close mark -- the same control, so
    the way out is where the way in was. */
@@ -3015,7 +3142,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   body:has(#page-overview.active, #page-repos.active, #page-work.active) #shellPlate{
     display:block;position:fixed;inset:22px;z-index:-1;pointer-events:none;
     border-radius:24px;border:1px solid var(--sb);
-    background:var(--shellArt),var(--shellSolid);
+    background:var(--grain),var(--shellArt),var(--shellSolid);
     box-shadow:var(--shellShadow)}
 
   /* Inside the plate the sidebar is a region, not a card. */
@@ -3198,10 +3325,10 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .nv-rail-item:hover{background:var(--navHov)}
 .nv-rail-item:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .nv-rail-item[aria-current="page"]{background:var(--navBg);border-color:var(--navB);box-shadow:var(--navGlow)}
-.nv-rail-item[aria-current="page"] .nv-rail-i{color:var(--violet);opacity:1}
+.nv-rail-item[aria-current="page"] .nv-rail-i{color:var(--fg);opacity:1}
 .nv-rail-item[aria-current="page"] .nv-rail-t{color:var(--fg)}
-.nv-rail-t{font-family:var(--font-display);font-size:.72rem;font-weight:700;color:var(--ttl);
-  letter-spacing:.09em;text-transform:uppercase}
+.nv-rail-t{font-family:var(--font-body);font-size:.84rem;font-weight:600;color:var(--ttl);
+  letter-spacing:-.005em;text-transform:none}
 .nv-rail-d{display:block;font-size:.7rem;color:var(--muted)}
 .nv-rail-foot{display:grid;gap:10px;padding-top:14px;border-top:1px solid var(--hair)}
 .nv-rail-state,.nv-rail-user{display:flex;gap:9px;align-items:center;margin:0}
@@ -3554,7 +3681,6 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .gx-hero-art::before{content:'';position:absolute;inset:0;background:var(--gxAura);pointer-events:none}
 .gx-hero>:not(.gx-hero-art){position:relative;z-index:1}
 .ov-core-art{position:relative}
-.ov-core-art nebula-mark-3d{position:absolute;inset:0;z-index:1;pointer-events:none}
 /*
  * On a narrow screen the copy has nowhere to move, so the artwork does: it
  * lifts towards the corner and drops in weight. Decoration that competes with

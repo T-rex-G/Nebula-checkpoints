@@ -960,6 +960,10 @@
                 <button class="neural-mode" data-neural-mode="activity"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2.6M10.4 12h3.2M18.4 12H21"/><circle cx="8" cy="12" r="2.4"/><circle cx="16" cy="12" r="2.4"/></svg></span><div><b>Activity</b><small>Commits, PRs and CI</small></div></button>
               </div>
 
+              <!-- The groups on screen, each one a control that lights and frames it. -->
+              <div class="neural-panel-title neural-filter-title" id="neuralLegendTitle">Groups on screen</div>
+              <div class="neural-legend" id="neuralLegend" role="group" aria-labelledby="neuralLegendTitle" hidden></div>
+
               <div class="neural-panel-title neural-filter-title">Signal filters</div>
               <label class="neural-filter"><input type="checkbox" data-neural-filter="critical" checked><span class="neural-swatch critical" aria-hidden="true"></span>Critical</label>
               <label class="neural-filter"><input type="checkbox" data-neural-filter="warning" checked><span class="neural-swatch warning" aria-hidden="true"></span>Warning</label>
@@ -973,7 +977,7 @@
             </aside>
 
             <div class="card neural-stage" id="neuralStage">
-              <canvas id="neuralCanvas" tabindex="0" aria-label="Interactive repository relationship graph"></canvas>
+              <canvas id="neuralCanvas" tabindex="0" aria-label="Interactive repository relationship graph. Arrow keys move between nodes, Escape closes details, plus and minus zoom, F fits the graph."></canvas>
               <div class="neural-stage-top">
                 <div class="neural-stream-state"><span id="neuralStreamDot"></span><b id="neuralStreamLabel">LIVE TOPOLOGY</b><small id="neuralLastSync">Not synchronized</small></div>
                 <div class="neural-search-wrap">
@@ -985,13 +989,15 @@
                 <button class="neural-tool nt-expanded-only" id="neuralPanelBtn" type="button" aria-pressed="false" aria-controls="neuralRail" title="Modes and filters" aria-label="Modes and filters"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/></svg></button>
                 <button class="neural-tool" id="neuralExpandBtn" type="button" aria-pressed="false" title="Enlarge the graph" aria-label="Enlarge the graph"><svg class="nt-grow" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h5v5M20 4l-6 6M9 20H4v-5M4 20l6-6"/></svg><svg class="nt-shrink" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 9h-5V4M15 9l5-5M4 15h5v5M9 15l-5 5"/></svg></button>
                 <button class="neural-tool" id="neuralPlayBtn" title="Pause or resume animation" aria-label="Pause or resume animation"><svg class="nt-filled" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg></button>
+                <button class="neural-tool" id="neuralZoomInBtn" type="button" title="Zoom in" aria-label="Zoom in"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button class="neural-tool" id="neuralZoomOutBtn" type="button" title="Zoom out" aria-label="Zoom out"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
                 <button class="neural-tool" id="neuralFitBtn" title="Fit graph" aria-label="Fit graph"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
                 <button class="neural-tool" id="neuralExplainBtn" title="Explain a connection" aria-label="Explain a connection"><svg class="ico" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 3.5L5.5 13.4h5.2l-1.1 7.1 7.9-10.1h-5.3z"/></svg></button>
                 <button class="neural-tool" id="neuralDemoBtn" title="Inject a demonstration incident" aria-label="Inject a demonstration incident">✦</button>
               </div>
-              <div class="neural-legend">
-                <span><i class="repo"></i>Repository</span><span><i class="asset"></i>Protected asset</span><span><i class="threat"></i>Threat</span><span><i class="recovery"></i>Recovery</span>
-              </div>
+              <!-- Details for the selected node, placed beside it by neural.js. -->
+              <section class="neural-card" id="neuralCard" role="dialog" aria-modal="false" aria-labelledby="neuralCardTitle" hidden></section>
+              <p class="sr-only" id="neuralLive" role="status" aria-live="polite"></p>
               <div class="neural-loading" id="neuralLoading">
                 <div class="neural-loader-core"></div>
                 <strong>Mapping repository intelligence…</strong>
@@ -1002,14 +1008,6 @@
               </div>
             </div>
 
-            <aside class="card neural-inspector" id="neuralInspector">
-              <div class="neural-panel-title">Signal inspector</div>
-              <div id="neuralInspectorBody" class="neural-inspector-empty">
-                <div class="neural-inspector-orb"></div>
-                <strong>Select a node</strong>
-                <p>Inspect relationships, evidence, risk and available response actions.</p>
-              </div>
-            </aside>
           </section>
 
           <section class="card neural-timeline">

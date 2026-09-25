@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Neural: A Graph You Can Read, and Cards Where You Click
+
+The graph was glowing spheres on a starfield with letters for icons, labels
+only on hover, and details in a panel that on most screens sat below the
+graph, out of sight of the node that was pressed.
+
+- **Panels around a hub.** The repository is a hub carrying the product mark;
+  every group is a panel with its icon, name and count, one row per member,
+  critical first. Two columns either side of the hub on a wide stage, groups
+  keeping their side by meaning; one column beside a spine on a phone. A
+  panel shows six rows and folds the rest behind `+ n more`.
+- **Strands in the group's colour.** Each row is joined to the hub by a
+  glowing strand in its group's colour; a critical node's strand turns red and
+  carries a signal. Severity is also a ring colour and a rim badge on the row.
+  Every change of mode, filter or search moves the graph smoothly instead of
+  redrawing it.
+- **Cards where you click.** Pressing a row opens its card beside the panel,
+  joined to the row by a line, with its facts, connections (each one a button
+  that moves there) and actions. On a phone it is a sheet. The rest of the
+  graph dims to the node's neighbourhood and its links animate toward it.
+  Pressing a panel's header lights and frames the group. Dragging always moves
+  the stage; rows never leave their panels.
+- **Groups on screen.** Chips in the side panel list the groups with counts
+  and frame a group when pressed. Zoom buttons join the tools.
+- **Keyboard.** Arrow keys walk the graph, Enter opens the card, Escape closes
+  it, and every move is announced.
+
 ### Governance: Switch Off, Archive, Restore, Reset
 
 A policy could be created, reviewed, activated and rolled back, and nothing

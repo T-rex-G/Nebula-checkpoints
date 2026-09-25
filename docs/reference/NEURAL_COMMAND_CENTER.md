@@ -1,5 +1,50 @@
-# Nebulaverse-X Neural Command Center v5.2.2
+# Nebulaverse-X Neural Command Center v5.3
 The Neural Command Center is an operational graph built from repository, identity, policy, dependency, recovery, and verified event data. It is not a decorative background and it does not require an AI API.
+
+## Reading the graph
+
+The repository is the hub at the centre, drawn with the Nebulaverse-X mark.
+Every other node belongs to a group -- branches, workflows, identities,
+vulnerabilities and so on -- and each group is a panel: a header with the
+group's icon, name and count (`WORKFLOWS · 4`), then one row per member, its
+icon on a disc and its name beside it. Rows are ordered critical first, then
+warning, then by name. A panel shows six rows; a larger group shows five and a
+sixth row, `+ n more`, which opens the rest (and closes them again).
+
+On a wide stage the panels stand in two columns either side of the hub. Groups
+keep a side by meaning -- identities, credentials, sessions, protected assets,
+safeguards and recovery on the left; branches, commits, workflows, webhooks,
+packages and their advisories on the right -- so a group is found where it was
+last time. When one column is much longer than the other, only groups without a
+natural side (releases, tags, pull requests, issues, external targets, scans,
+snapshots, safety controls, integrations) cross over. On a tall stage -- a
+phone, or a narrow window -- the panels stack in one column beside a spine that
+runs down from the hub, one strand per row, like a ribbon.
+
+Each row is joined to the hub by a strand in its group's colour, so a column of
+strands reads as that group from across the stage; a critical node's strand
+turns red and carries a moving signal toward the hub. Severity is shown on the
+row as well as the strand: the disc's ring turns amber or red, and a badge sits
+on its rim -- a critical node also breathes, one expanding red ring.
+
+**Pressing a row** -- its icon or its name -- opens the node's card beside the
+panel, joined to the row by a line that follows it as the graph moves: what it
+is, its severity, the facts the graph holds about it, what it connects to, and
+the actions available for it. Every connection in the card is a button that
+moves to that node. The rest of the graph dims to the node's neighbourhood and
+the links into it animate. On a narrow stage the card docks along the bottom
+edge; on a phone it opens as a sheet over the page. Escape, the close button,
+or pressing empty ground closes it.
+
+**Pressing a panel's header**, or the same group's chip under **Groups on
+screen**, lights the group and frames it; pressing empty ground lets it go.
+
+Dragging -- from empty ground or from a row -- moves the stage; rows never
+leave their panels, so the layout stays the one the reader learned. The wheel
+or a pinch zooms; `+`, `-` and the zoom buttons zoom in steps; `F`,
+double-click or double-tap fits the graph. With the canvas focused, the arrow
+keys move to the nearest node in that direction and Enter opens the card, and
+each move is announced to screen readers.
 
 ## Data sources
 

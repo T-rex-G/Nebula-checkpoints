@@ -1230,6 +1230,11 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 [data-motion="off"] .sheet-item{transition:none}
 @media (prefers-reduced-motion:reduce){.sheet-item{transition:none}}
 .sheet-div{height:1px;background:var(--glass-border);margin:6px 4px}
+/* Each group of the menu says what it holds, so the four security entries read
+   as one set rather than four rows that happen to be adjacent. */
+.sheet-label{flex:none;margin:8px 14px 2px;font-family:var(--font-mono);font-size:10px;
+  letter-spacing:.17em;text-transform:uppercase;color:var(--text2)}
+.sheet-label:first-of-type{margin-top:0}
 
 .stage-panel{position:absolute;top:0;right:0;bottom:0;width:min(420px,94vw);
   display:flex;flex-direction:column;border-radius:16px 0 0 16px;
@@ -2973,6 +2978,17 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   body[data-rail="collapsed"] .nv-rail-collapse svg{transform:scaleX(-1)}
 }
 .nv-rail-nav{list-style:none;display:grid;gap:4px;margin:0;padding:0;flex:1;align-content:start}
+/* Only the last list stretches; the ones above it keep their own height so the
+   group label sits directly under the entries it follows. */
+.nv-rail-nav:not(:last-of-type){flex:none}
+.nv-rail-group{margin:6px 0 -12px 12px;font-family:var(--font-mono);font-size:10px;letter-spacing:.17em;
+  text-transform:uppercase;color:var(--lab)}
+@media (min-width:1140px){
+  /* Collapsed to icons, the name gives way to a rule: the grouping survives
+     without a word that no longer fits. */
+  body[data-rail="collapsed"] .nv-rail-group{height:1px;margin:4px 14px -12px;overflow:hidden;
+    color:transparent;background:var(--sb)}
+}
 /*
  * Icon, then title and subtitle -- the shape the reference gives every entry.
  * The glyph is decoration beside a real label, never the label itself, so the

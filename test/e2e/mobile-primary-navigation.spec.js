@@ -21,7 +21,7 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 test.use({ serviceWorkers: 'block' });
 test.skip(({ viewport }) => !viewport || viewport.width >= 1140, 'the rail draws itself above 1140px');
 
-const DESTINATIONS = ['overview', 'repos', 'neural', 'governance'];
+const DESTINATIONS = ['overview', 'repos', 'neural', 'governance', 'exposure'];
 
 async function signedIn(page) {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });

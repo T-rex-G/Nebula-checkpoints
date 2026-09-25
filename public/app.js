@@ -5452,12 +5452,12 @@ function paintRail(name) {
   rail.hidden = !RAIL_SCREENS.has(name);
   const activeTab = ($('.tabpane.active') || {}).id || '';
   /*
-   * Two of the workbench's tabs are destinations in their own right rather
+   * Three of the workbench's tabs are destinations in their own right rather
    * than views of the file it has open, and the rail offers them as such -- so
    * when one of them is what the reader is looking at, the rail marks that
    * entry rather than the workbench it technically sits inside.
    */
-  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance' };
+  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance', 'tab-exposure': 'exposure' };
   const shown = name === 'work' && promoted[activeTab] ? promoted[activeTab] : name;
   $$('.nv-rail-item').forEach(item => {
     const current = item.dataset.rail === shown;
@@ -5543,8 +5543,9 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   if (target === 'repos') return showPage('repos');
   if (!state.work) return toast('Open a repository first.', 'err');
   showPage('work');
-  if (target === 'neural' || target === 'governance') switchTab(target);
+  if (target === 'neural' || target === 'governance' || target === 'exposure') switchTab(target);
   else paintRail('work');
+  if (target === 'safeguards') openSafeguards();
 }));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {

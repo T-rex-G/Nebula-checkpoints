@@ -323,6 +323,35 @@
 
 
 /*
+ * Obsidian's accent is its own ink, not Nebula's violet. The accent tokens
+ * reach icons, step numbers, selection edges, live dots and progress fills
+ * across the product; left at violet they put Nebula's colour into every
+ * Obsidian screen, which read as a preset that had not finished switching.
+ * The few places the accent is a ground under a white glyph take the solid
+ * button's ink pair instead, so the glyph stays legible.
+ */
+[data-design="obsidian"]{--accent:#E4E4E7;--accent2:#D4D4D8;--teal:#C9CBD0;--violet:#E4E4E7}
+[data-design="obsidian"][data-theme="light"]{--accent:#292524;--accent2:#44403C;--teal:#57534E;--violet:#292524}
+[data-design="obsidian"] .tt-knob{background:linear-gradient(135deg,#FAFAFA,#A1A1AA);
+  box-shadow:0 2px 8px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.7)}
+[data-design="obsidian"][data-theme="light"] .tt-knob{background:linear-gradient(135deg,#FFFFFF,#E7E5E4);
+  box-shadow:0 1px 4px rgba(28,25,23,.28), inset 0 1px 0 #fff}
+[data-design="obsidian"] .avatar-btn{background:linear-gradient(135deg,rgba(255,255,255,.1),rgba(255,255,255,.03))}
+[data-design="obsidian"][data-theme="light"] .avatar-btn{background:linear-gradient(135deg,#FFFFFF,#F1EFEB)}
+[data-design="obsidian"] .nv-rail-avatar{color:var(--btn-solid-fg);background:var(--btn-solid)}
+[data-design="obsidian"] .design-choice[aria-checked="true"]::after{background-color:var(--btn-solid);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230B0B0C' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+[data-design="obsidian"][data-theme="light"] .design-choice[aria-checked="true"]::after{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+[data-design="obsidian"] .design-choice[aria-checked="true"]{box-shadow:0 0 0 1px var(--accent)}
+[data-design="obsidian"] .alpha-wake-state::before,
+[data-design="obsidian"] .ov-live::before{box-shadow:0 0 8px rgba(255,255,255,.35)}
+[data-design="obsidian"][data-theme="light"] .alpha-wake-state::before,
+[data-design="obsidian"][data-theme="light"] .ov-live::before{box-shadow:none}
+[data-design="obsidian"] .notif-unread{box-shadow:none}
+[data-design="obsidian"] input:focus,[data-design="obsidian"] select:focus,[data-design="obsidian"] textarea:focus{box-shadow:0 0 0 3px var(--field-halo)}
+
+/*
  * The design marks the current rail entry with a violet edge in light mode
  * rather than the dark mode's glow: on a white panel a soft shadow reads as
  * blur, not as selection.
@@ -495,8 +524,22 @@ em{color:var(--teal);font-style:normal}
  * is required: env() with no fallback makes the whole declaration invalid
  * where the variable is unsupported, which would drop the padding entirely.
  */
-.lp-nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
-  gap:16px;padding-block:28px;padding-top:calc(env(safe-area-inset-top,0px) + 28px)}
+/*
+ * Fixed, not sticky, and a layer of its own.
+ *
+ * Sticky resolves against the nearest scrollport on every frame of a scroll,
+ * and on a phone it was reported glitching and freezing on the way down: the
+ * bar is inside a page that clips its overflow and scrolls past a WebGL
+ * canvas, scroll-linked animations and an animated map, and WebKit repainted
+ * it late and in the wrong place under that load. A fixed bar is placed once
+ * against the viewport and composited on its own layer, so the scroll never
+ * has to move it. Its height is a fixed number, and the page reserves exactly
+ * that at the top (.lp's padding), so nothing jumps when it lifts off.
+ */
+.lp{--lp-nav-h:calc(env(safe-area-inset-top,0px) + 80px);padding-top:var(--lp-nav-h)}
+.lp-nav{position:fixed;top:0;left:0;right:0;z-index:40;display:flex;align-items:center;justify-content:space-between;
+  box-sizing:border-box;height:var(--lp-nav-h);gap:16px;padding-top:calc(env(safe-area-inset-top,0px) + 28px);padding-bottom:20px;
+  transform:translateZ(0);backface-visibility:hidden}
 /*
  * A gradient rather than a blur, and the reason is not taste.
  *
@@ -512,8 +555,8 @@ em{color:var(--teal);font-style:normal}
  * ends, so no edge is ruled across the page at rest.
  */
 .lp-nav::after{content:"";position:absolute;top:0;bottom:0;left:calc(50% - 50vw);right:calc(50% - 50vw);
-  z-index:-1;pointer-events:none;opacity:0;transition:opacity .3s ease;
-  background:linear-gradient(180deg,rgba(8,4,20,.97),rgba(8,4,20,.92));
+  z-index:-1;pointer-events:none;opacity:0;transition:opacity .18s linear;
+  background:#08041A;
   box-shadow:inset 0 -1px 0 rgba(178,160,255,.12),0 12px 32px -18px rgba(0,0,0,.6)}
 /*
  * The ground is earned by scrolling (landing-stage.js sets is-stuck). At rest
@@ -523,7 +566,7 @@ em{color:var(--teal);font-style:normal}
  */
 .lp-nav.is-stuck::after{opacity:1}
 [data-theme="light"] .lp-nav::after{
-  background:linear-gradient(180deg,rgba(247,245,252,.97),rgba(247,245,252,.92));
+  background:#F7F5FC;
   box-shadow:inset 0 -1px 0 rgba(83,60,190,.12),0 12px 30px -20px rgba(60,40,120,.25)}
 [data-motion="off"] .lp-nav::after{transition:none}
 .lp-brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display);
@@ -535,7 +578,7 @@ em{color:var(--teal);font-style:normal}
   font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--text2)}
 .lp-state-dot{width:6px;height:6px;border-radius:50%;background:var(--teal)}
 .lp-body{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);
-  grid-template-areas:"copy art" "entry art" "steps steps";align-items:start;
+  grid-template-areas:"copy art" "entry art" "steps steps";grid-template-rows:auto 1fr auto;align-items:start;
   column-gap:clamp(32px,5vw,68px);row-gap:28px;padding-top:36px;padding-bottom:24px}
 .lp-copy{grid-area:copy;min-width:0}
 .lp-eyebrow{margin:0 0 14px;font-family:var(--font-mono);font-size:.66rem;font-weight:600;
@@ -600,21 +643,72 @@ em{color:var(--teal);font-style:normal}
   .lp-drag-hint{display:none}
 }
 
-/* Entry belongs with the invitation copy, not over the plasma. */
-.alpha-access{width:min(620px,100%);margin:0;padding:24px;text-align:left}
-.lp-card{grid-area:entry;width:100%;justify-self:start;border-radius:18px;
-  background:linear-gradient(145deg,rgba(255,255,255,.035),transparent),rgba(12,9,29,.82);
-  border-color:rgba(255,255,255,.14);backdrop-filter:blur(var(--elev-1-blur));
-  -webkit-backdrop-filter:blur(var(--elev-1-blur));
-  box-shadow:0 12px 40px -20px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.09)}
-[data-theme="light"] .lp-card{background:rgba(255,255,255,.9);border-color:rgba(84,57,147,.14);
-  box-shadow:0 12px 40px -20px rgba(38,26,90,.2),inset 0 1px 0 #fff}
-.lp-card::before{background:linear-gradient(90deg,transparent,rgba(167,139,250,.4),transparent)}
-.alpha-open{display:grid;gap:12px}
+/*
+ * The entry, set as an action rather than a card.
+ *
+ * It was a panel -- border, plate, blur, a heading, a paragraph of rules, a
+ * status line, a labelled field, a checkbox and a full-width button -- and it
+ * read as a form to fill in before the page had said why. Product sites put
+ * their one action on one line: a field and its button sharing an edge, a
+ * quiet state beside it, small print under it. That is all this is. The
+ * plate is gone; the row is the only drawn shape, and it is opaque rather
+ * than blurred, so nothing behind it has to be re-sampled while the page
+ * scrolls.
+ */
+.alpha-access{width:min(560px,100%);margin:0;padding:0;text-align:left}
+.lp-card{grid-area:entry;width:100%;justify-self:start;display:grid;gap:12px}
+.lp-entry-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px}
+.alpha-access .eyebrow{margin:0;color:var(--text);font-family:var(--font-display);font-size:.9rem;font-weight:650;
+  letter-spacing:-.01em;text-transform:none}
+.lp-entry-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.lp-entry-row{position:relative;display:flex;align-items:center;gap:6px;min-height:56px;padding:6px 6px 6px 14px;
+  border-radius:15px;border:1px solid rgba(196,181,253,.22);
+  background:linear-gradient(180deg,rgba(24,17,52,.96),rgba(14,10,32,.96));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 18px 40px -22px rgba(76,29,149,.6);
+  transition:border-color .2s ease,box-shadow .2s ease}
+.lp-entry-row:not(:has(> input:not([hidden]))){display:none}
+.lp-entry-row:focus-within{border-color:rgba(196,181,253,.6);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 0 0 4px rgba(139,92,246,.16),0 18px 40px -22px rgba(76,29,149,.6)}
+.lp-entry-ico{width:18px;height:18px;flex:none;fill:none;stroke:var(--text2);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.lp-entry-row>input[type="password"]{flex:1 1 auto;width:auto;min-width:0;min-height:42px;height:42px;padding:0 6px;border:0;border-radius:9px;
+  background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;color:var(--text);font-size:.95rem;letter-spacing:.02em}
+.lp-entry-row>input::placeholder{color:var(--text2);opacity:.8;letter-spacing:0}
+/* The row is the control's edge and lights on focus (above); the bare field
+   inside it draws no second ring. */
+.lp-entry-row>input[type="password"]:focus,.lp-entry-row>input[type="password"]:focus-visible{border:0;outline:none;box-shadow:none}
+/* The terms box, drawn in the page's ink rather than the platform's white
+   square. The label around it is the target, so the box can be small. */
+.alpha-access .lp-entry-terms{margin-top:2px;gap:10px;min-height:0}
+.alpha-access .lp-entry-terms input[type="checkbox"]{-webkit-appearance:none;appearance:none;width:20px;height:20px;margin:1px 0 0;
+  border:1px solid var(--line-hi,rgba(255,255,255,.2));border-radius:6px;background:rgba(255,255,255,.04);cursor:pointer;
+  display:grid;place-items:center;transition:background-color .15s ease,border-color .15s ease}
+.alpha-access .lp-entry-terms input[type="checkbox"]::after{content:"";width:12px;height:12px;background:currentColor;color:#fff;opacity:0;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center/contain no-repeat}
+.alpha-access .lp-entry-terms input[type="checkbox"]:checked{background:var(--violet);border-color:var(--violet)}
+.alpha-access .lp-entry-terms input[type="checkbox"]:checked::after{opacity:1}
+.alpha-access .lp-entry-terms input[type="checkbox"]:focus-visible{outline:2px solid var(--field-focus,var(--accent));outline-offset:2px}
+[data-design="obsidian"] .alpha-access .lp-entry-terms input[type="checkbox"]:checked{background:var(--btn-solid);border-color:var(--btn-solid)}
+[data-design="obsidian"] .alpha-access .lp-entry-terms input[type="checkbox"]::after{color:var(--btn-solid-fg)}
+[data-theme="light"] .alpha-access .lp-entry-terms input[type="checkbox"]{background:#fff;border-color:rgba(38,26,90,.28)}
+.lp-entry-go{flex:none;min-height:44px;padding:0 18px 0 20px;border-radius:11px;font-size:.9rem;gap:8px;white-space:nowrap}
+.lp-entry-go::after{content:"";width:14px;height:14px;flex:none;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E") center/contain no-repeat;
+  transition:transform .2s var(--ease)}
+.lp-entry-go:hover::after{transform:translateX(3px)}
+.lp-entry-terms{font-size:.82rem;color:var(--text2)}
+.alpha-open{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px}
+.alpha-open .lp-entry-go{min-height:50px;padding:0 22px 0 24px}
 .alpha-open-note{margin:0;color:var(--text2);font-size:.83rem;line-height:1.55}
-.alpha-access .eyebrow{margin:0 0 10px;color:var(--teal);font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
 .alpha-access h1{margin:0;font-size:clamp(1.75rem,6vw,2.55rem);line-height:1.08;letter-spacing:-.025em}
-.alpha-access-rule{margin:0 0 10px;color:var(--text2);line-height:1.6;font-size:.82rem}
+.alpha-access-rule{margin:0;color:var(--text2);line-height:1.55;font-size:.76rem;max-width:34rem}
+[data-theme="light"] .lp-entry-row{border-color:rgba(84,57,147,.18);background:#fff;
+  box-shadow:0 1px 2px rgba(38,26,90,.06),0 16px 36px -22px rgba(76,29,149,.35)}
+[data-theme="light"] .lp-entry-row:focus-within{border-color:rgba(109,40,217,.5);
+  box-shadow:0 0 0 4px rgba(124,58,237,.12),0 16px 36px -22px rgba(76,29,149,.35)}
+[data-theme="light"] .alpha-access-rule,[data-theme="light"] .lp-entry-terms,
+[data-theme="light"] .alpha-open-note{color:rgba(22,18,52,.74)}
 /*
  * Darker than it needs to be against a plate, because the two eyebrows are not
  * on one: they sit on the shell's bloom, which this theme paints as a violet
@@ -625,7 +719,7 @@ em{color:var(--teal);font-style:normal}
  * as one thing down the page; on the card's own plate it simply reads darker.
  */
 [data-theme="light"] .lp-eyebrow,[data-theme="light"] .lp-sec-eyebrow,
-[data-theme="light"] .alpha-access .eyebrow,[data-theme="light"] .alpha-wake-state{color:#06505F}
+[data-theme="light"] .alpha-wake-state{color:#06505F}
 
 /* A shared, open rhythm connects entry to the rest of the page. */
 .lp-steps{grid-area:steps;list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
@@ -635,7 +729,9 @@ em{color:var(--teal);font-style:normal}
 .lp-step-n{grid-row:1/3;font-family:var(--font-mono);font-size:1.3rem;color:var(--accent2)}
 .lp-step-t{font-family:var(--font-display);font-size:1rem;font-weight:700;color:var(--text)}
 .lp-step-d{font-size:.78rem;color:var(--text2);line-height:1.5}
-.lp-more{position:relative;padding-top:72px;background:transparent;border:0}
+.lp-more{position:relative;padding-top:40px;background:transparent;border:0}
+/* Focus and in-page jumps land below the fixed bar, not under it. */
+html:has(#page-alpha-access.active){scroll-padding-top:calc(env(safe-area-inset-top,0px) + 96px)}
 .lp-sec{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(32px,6vw,80px)}
 .lp-more > * + *{margin-top:clamp(84px,11vw,148px)}
 .lp-sec-head{max-width:31rem;margin:0}
@@ -663,7 +759,7 @@ em{color:var(--teal);font-style:normal}
 .lp-foot-meta{display:inline-flex;flex-wrap:wrap;gap:8px 16px;font-family:var(--font-mono);font-size:.68rem;letter-spacing:.06em;color:var(--text2)}
 
 @media (max-width:939px){
-  .lp-body{grid-template-columns:minmax(0,1fr);grid-template-areas:"copy" "art" "entry" "steps";
+  .lp-body{grid-template-columns:minmax(0,1fr);grid-template-areas:"copy" "entry" "art" "steps";grid-template-rows:none;
     gap:24px;padding-top:20px;max-width:680px}
   .lp-title{font-size:clamp(2.3rem,7.5vw,3.7rem)}
   .lp-lede{font-size:.95rem}
@@ -694,7 +790,6 @@ em{color:var(--teal);font-style:normal}
    */
   .lp-nav{padding-bottom:20px}
   .lp-state{display:none}
-  .lp-card{padding:20px}
   .lp-caps{grid-template-columns:1fr;gap:22px}
   .lp-step-t{font-size:.83rem}
   .lp-step-d{font-size:.71rem}
@@ -706,9 +801,9 @@ em{color:var(--teal);font-style:normal}
  * invitation and read as a second, disabled input -- the reader's eye met two
  * fields where there is one.
  */
-.alpha-wake-state{display:inline-flex;align-items:center;gap:7px;margin:14px 0 16px;padding:0;
-  border:0;background:none;color:var(--text2);font-family:var(--font-mono);
-  font-size:.68rem;letter-spacing:.1em;text-transform:uppercase}
+.alpha-wake-state{display:inline-flex;align-items:center;gap:7px;margin:0;padding:3px 10px 3px 8px;
+  border:1px solid var(--line);border-radius:999px;background:none;color:var(--text2);font-family:var(--font-mono);
+  font-size:.64rem;letter-spacing:.1em;text-transform:uppercase}
 .alpha-wake-state::before{content:"";width:6px;height:6px;border-radius:50%;flex:none;
   background:var(--teal);box-shadow:0 0 10px rgba(34,211,238,.6)}
 .alpha-access .check{align-items:flex-start;line-height:1.45}
@@ -979,6 +1074,9 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .capability-experimental{color:#FCD34D}
 .capability-unavailable{color:var(--text2)}
 [hidden].trust-summary{display:none}
+/* The Neural view reads the same state in its own header; the bar would only
+   push the graph down. */
+.main-pane[data-tab="neural"]>.trust-summary{display:none}
 .trust-summary{padding:8px 10px;order:-1}
 .trust-detail{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
 /*
@@ -1032,7 +1130,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   .trust-summary[data-open="true"] .trust-detail{display:grid}
 }
 [aria-disabled="true"]{cursor:not-allowed}
-@media(max-width:700px){.alpha-access{width:100%;padding:22px}.alpha-access h1{max-width:12ch}}
+@media(max-width:700px){.alpha-access:not(.lp-entry){width:100%;padding:22px}.alpha-access h1{max-width:12ch}}
 @media(prefers-reduced-motion:reduce){#page-alpha-access.active{animation:none}}
 /*
  * The branch mark is drawn once beside the control rather than typed onto
@@ -2079,14 +2177,21 @@ body.read-only .btn-primary{opacity:.55}
  * viewport is what moved.
  */
 .neural-shell>*{min-width:0}
-.neural-head{padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:18px;overflow:visible}
-.neural-head h2{margin:5px 0 2px;font-size:1.18rem;letter-spacing:-.015em}
-.neural-head p{margin:0;color:var(--muted);font-size:.78rem;line-height:1.45}
+.neural-head{padding:2px 2px 4px;display:flex;align-items:center;justify-content:space-between;gap:18px;overflow:visible}
+.neural-head-copy{min-width:0}
+.neural-head h2{margin:4px 0 2px;font-family:var(--font-display);font-size:1.12rem;font-weight:650;letter-spacing:-.02em}
+.neural-head p{margin:0;color:var(--muted);font-size:.78rem;line-height:1.45;
+  /* One line: the title names the view; this only qualifies it. */
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.neural-head-copy{flex:1 1 auto}
+.neural-head-btn{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.neural-head-btn .ico{width:15px;height:15px;flex:none}
+.neural-head-btn .nh-short{display:none}
 .neural-kicker{font-size:.64rem;font-weight:700;letter-spacing:.16em;color:var(--teal);display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .neural-live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 0 rgba(34,211,238,.55);animation:neuralLive 1.8s infinite}
 @keyframes neuralLive{70%{box-shadow:0 0 0 8px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
 .neural-proto-badge{color:var(--accent2);border:1px solid rgba(167,139,250,.36);background:rgba(167,139,250,.1);padding:3px 7px;border-radius:99px;letter-spacing:.08em}
-.neural-head-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.neural-head-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:none}
 /*
  * Built like btn-primary, on the danger palette.
  *
@@ -2105,14 +2210,28 @@ body.read-only .btn-primary{opacity:.55}
   box-shadow:0 2px 6px -1px rgba(159,18,57,.30), 0 6px 16px -6px rgba(159,18,57,.34),
     inset 0 1px 0 rgba(255,255,255,0.28)}
 .neural-emergency-btn:hover{background:linear-gradient(135deg,var(--redDeep),var(--red))}
-.neural-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.neural-kpi{padding:14px 15px;min-height:98px;display:flex;flex-direction:column;justify-content:center}
-.neural-kpi-label{font-size:.66rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
-.neural-kpi strong{font-size:1.42rem;margin:5px 0 1px;letter-spacing:-.03em}
-.neural-kpi small{color:var(--muted);font-size:.67rem;line-height:1.35}
-.neural-kpi[data-level="critical"] strong{color:#FB7185;text-shadow:0 0 18px rgba(244,63,110,.25)}
-.neural-kpi[data-level="warning"] strong{color:#FCD34D}
-.neural-kpi[data-level="good"] strong{color:var(--teal)}
+/*
+ * One strip, four readings. They were four cards, each a slab with its own
+ * border and shadow and a 1.4rem figure, which made the summary taller than
+ * the reason to look at it and wrapped "Reference captured" across two lines
+ * on a phone. One card with hairlines between the cells says the same thing
+ * in a third of the height. The reading is in ink; its state is the dot
+ * beside the label, never the figure's own colour.
+ */
+.neural-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;padding:0;overflow:hidden}
+.neural-kpi{position:relative;padding:12px 16px;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:3px}
+.neural-kpi+.neural-kpi{border-left:1px solid var(--hair,var(--line))}
+.neural-kpi-label{display:flex;align-items:center;gap:7px;font-size:.62rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);white-space:nowrap}
+.neural-kpi-label::before{content:"";width:6px;height:6px;border-radius:50%;flex:none;background:var(--line-hi,rgba(255,255,255,.2))}
+.neural-kpi strong{font-family:var(--font-display);font-size:1.12rem;font-weight:650;letter-spacing:-.02em;color:var(--fg,var(--text));
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.neural-kpi small{color:var(--muted);font-size:.68rem;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.neural-kpi[data-level="critical"] .neural-kpi-label::before{background:#FB7185;box-shadow:0 0 8px rgba(251,113,133,.5)}
+.neural-kpi[data-level="warning"] .neural-kpi-label::before{background:#F2B75B}
+.neural-kpi[data-level="good"] .neural-kpi-label::before{background:#34D399}
+[data-theme="light"] .neural-kpi[data-level="critical"] .neural-kpi-label::before{background:#DC2626;box-shadow:none}
+[data-theme="light"] .neural-kpi[data-level="warning"] .neural-kpi-label::before{background:#B45309}
+[data-theme="light"] .neural-kpi[data-level="good"] .neural-kpi-label::before{background:#059669}
 .neural-workspace{display:grid;grid-template-columns:212px minmax(0,1fr);gap:12px;min-width:0;align-items:start;
   /* One height for the graph and the panel beside it: the panel scrolls rather
      than stretching the graph to its own length. */
@@ -2127,6 +2246,8 @@ body.read-only .btn-primary{opacity:.55}
   .neural-workspace{grid-template-columns:minmax(0,1fr)}
   .neural-rail{grid-column:1/-1}
   .neural-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .neural-kpi:nth-child(3){border-left:0}
+  .neural-kpi:nth-child(n+3){border-top:1px solid var(--hair,var(--line))}
 }
 .neural-rail{padding:14px;min-width:0;overflow:auto}
 .neural-panel-title{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.11em;color:var(--muted);margin-bottom:10px}
@@ -2583,12 +2704,18 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * columns at 1024px while the container rule had already put the rail on a
  * row of its own, which dropped the graph into the 190px rail column.) */
 @media(max-width:900px){
-  .neural-shell{padding-bottom:4px}.neural-head{align-items:flex-start;flex-direction:column;padding:15px}
-  /* One per row. Three of these labels do not share a phone's width, and a
-     row that cannot fit them is a row that widens the page instead. */
-  .neural-head-actions{width:100%;display:grid;grid-template-columns:1fr;gap:8px}
-  .neural-head-actions .btn{width:100%;overflow:hidden;text-overflow:ellipsis}
-  .neural-kpis{grid-template-columns:1fr 1fr}.neural-kpi{min-height:84px;padding:11px}.neural-kpi strong{font-size:1.15rem}
+  .neural-shell{padding-bottom:4px}.neural-head{align-items:stretch;flex-direction:column;gap:12px;padding:0}
+  .neural-head p{display:none}
+  /* One row of three compact controls with their short labels. The full
+     labels did not share a phone's width, and stacking them made three
+     full-width slabs taller than the summary under them. */
+  .neural-head-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .neural-head-actions .btn{width:100%;min-width:0;justify-content:center;padding:0 8px;overflow:hidden}
+  .neural-head-btn .nh-long{display:none}
+  .neural-head-btn .nh-short{display:inline;overflow:hidden;text-overflow:ellipsis}
+  .neural-kpis{grid-template-columns:1fr 1fr}.neural-kpi{padding:10px 12px}.neural-kpi strong{font-size:1rem}
+  .neural-kpi:nth-child(3){border-left:0}
+  .neural-kpi:nth-child(n+3){border-top:1px solid var(--hair,var(--line))}
   .neural-workspace{display:flex;flex-direction:column;min-height:0;align-items:stretch}.neural-rail{order:1;overflow:visible}.neural-workspace>.neural-rail{max-height:none}.neural-stage{order:2;min-height:520px}
   /*
    * Two columns, not a sideways scroll.
@@ -2609,7 +2736,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   #neuralCanvas{min-height:520px}.neural-event-strip{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media(max-width:560px){
-  .neural-kpis{grid-template-columns:1fr 1fr;gap:8px}.neural-kpi small{display:none}.neural-workspace{gap:9px}.neural-stage{min-height:470px;border-radius:15px}#neuralCanvas{min-height:470px}
+  .neural-kpis{grid-template-columns:1fr 1fr}.neural-kpi small{display:none}.neural-workspace{gap:9px}.neural-stage{min-height:470px;border-radius:15px}#neuralCanvas{min-height:470px}
   .neural-stage-top{left:9px;right:9px;top:9px}.neural-search-wrap{width:44%;padding:0 7px}.neural-stream-state{padding:7px}.neural-stream-state small{display:none}.neural-stage-tools{right:9px;top:58px;bottom:10px}
   .neural-event-strip{grid-template-columns:1fr 1fr}.neural-timeline-actions .btn{padding:5px 8px}.neural-proto-badge{display:none}
 }
@@ -2883,7 +3010,9 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * of the width with two empty columns after it.
  */
 @media (max-width:1180px){.gx-pulse-grid{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media (max-width:760px){.gx-pulse-grid{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:760px){.gx-pulse-grid{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}
+  /* Five readings over two columns leave one alone; it takes the row. */
+  .gx-pulse-cell:last-child:nth-child(odd){grid-column:1 / -1}}
 
 .gx-pulse-cell{background:var(--card-grad);border:1px solid var(--glass-border);border-radius:var(--radius);
   padding:15px 17px 14px;box-shadow:var(--card-shadow);backdrop-filter:blur(26px) saturate(1.5)}
@@ -2981,31 +3110,22 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   border-radius:14px;overflow:hidden;
   background:radial-gradient(ellipse 62% 66% at 50% 50%, rgba(124,58,237,.34), rgba(76,29,149,.13) 55%, transparent 78%)}
 /*
- * Three layers, one stage. The ground is one hue -- a still pool of violet
- * light under the mark, never a turning wheel of colours. Over it the
- * instrument: the dial turning, a node scanning the orbit. At its centre
- * Nebula mounts the dimensional mark (WebGL); where a device cannot draw
- * that, and always in Obsidian, the emblem's own SVG mark takes the centre,
- * floating, with a specular sweep crossing its plates. Everything moves on
- * the compositor, and the colours come from here rather than the markup, so
- * a preset or theme switch repaints them for free.
+ * Two layers, one stage, the same instrument in both presets. The ground is
+ * one hue -- a still pool of light under the mark, never a turning wheel of
+ * colours. Over it the instrument: the dial turning, the orbit's arc
+ * scanning with its node riding the arc's leading end, and at the centre the
+ * product's mark cut as a stone, floating, with a specular sweep crossing its
+ * plates. It is SVG throughout: sharp at any density, the same on every
+ * device, nothing to download and no GPU context to hold. Everything moves on
+ * the compositor, and the colours come from here rather than the markup, so a
+ * preset or theme switch repaints them for free.
  */
 .ov-core-glow{position:absolute;inset:0;pointer-events:none}
 .ov-core-glow::before{content:'';position:absolute;inset:0;
-  background:radial-gradient(ellipse 46% 58% at 50% 50%, rgba(139,92,246,.42), rgba(109,40,217,.16) 52%, transparent 78%)}
-[data-theme="light"] .ov-core-glow::before{background:radial-gradient(ellipse 46% 58% at 50% 50%, rgba(167,139,250,.32), rgba(196,181,253,.14) 52%, transparent 78%)}
+  background:radial-gradient(ellipse 34% 46% at 50% 52%, rgba(139,92,246,.30), rgba(109,40,217,.08) 56%, transparent 80%)}
+[data-theme="light"] .ov-core-glow::before{background:radial-gradient(ellipse 34% 46% at 50% 52%, rgba(167,139,250,.26), rgba(196,181,253,.10) 56%, transparent 80%)}
 .ov-core-emblem{position:absolute;inset:0;z-index:1;width:100%;height:100%;overflow:visible}
-.ov-core-art nebula-mark-3d{position:absolute;inset:0;z-index:2;pointer-events:none}
-/* The dimensional mark is the centre: the SVG mark and its floor step aside,
-   the dial and the orbit stay round it. */
-.ov-core-art[data-nebula-mounted="true"] .ov-core-emblem .oc-float,
-.ov-core-art[data-nebula-mounted="true"] .ov-core-emblem .oc-floor{display:none}
 [data-design="obsidian"] .ov-core-glow::before{display:none}
-/* The element sets its own inline display, so this has to win outright; app.js
-   also takes it out of the page when Obsidian is chosen. */
-[data-design="obsidian"] .ov-core-art nebula-mark-3d{display:none !important}
-[data-design="obsidian"] .ov-core-art[data-nebula-mounted="true"] .ov-core-emblem .oc-float,
-[data-design="obsidian"] .ov-core-art[data-nebula-mounted="true"] .ov-core-emblem .oc-floor{display:inline}
 .ov-core-emblem .oc-ticks,.ov-core-emblem .oc-orbit,.ov-core-emblem .oc-ring-fine{transform-box:view-box;transform-origin:200px 110px}
 .ov-core-emblem .oc-ticks{animation:oc-turn 140s linear infinite}
 .ov-core-emblem .oc-ring-fine{animation:oc-turn 90s linear infinite reverse}
@@ -3031,7 +3151,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .ov-core-emblem .oc-ring-fine{stroke:rgba(255,255,255,.07);stroke-dasharray:2 5}
 .ov-core-emblem .oc-arc{fill:none;stroke-width:1.5;stroke-linecap:round}
 .ov-core-emblem .oc-cardinal{fill:none;stroke:rgba(255,255,255,.22);stroke-width:1.2;stroke-linecap:round}
-.ov-core-emblem .oc-node{fill:var(--violet);stroke:rgba(139,92,246,.3);stroke-width:5}
+.ov-core-emblem .oc-node{fill:#EDEDEF;stroke:rgba(255,255,255,.28);stroke-width:5}
+[data-theme="light"] .ov-core-emblem .oc-node{fill:#1C1917;stroke:rgba(28,25,23,.22)}
 .ov-core-emblem .oc-facets{fill:none;stroke-width:3;stroke-linejoin:round}
 .ov-core-emblem .oc-deep-a{stop-color:#23252b}.ov-core-emblem .oc-deep-b{stop-color:#08090a}
 .ov-core-emblem .oc-light-a{stop-color:#61656f}.ov-core-emblem .oc-light-b{stop-color:#1a1c20}
@@ -3055,12 +3176,13 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 :root:not([data-design="obsidian"]) .ov-core-emblem .oc-light-b{stop-color:#7c3aed}
 :root:not([data-design="obsidian"]) .ov-core-emblem .oc-edge-a{stop-color:rgba(237,233,254,.95)}
 :root:not([data-design="obsidian"]) .ov-core-emblem .oc-edge-b{stop-color:rgba(196,181,253,.5)}
-:root:not([data-design="obsidian"]) .ov-core-emblem .oc-edge-c{stop-color:rgba(34,211,238,.35)}
+:root:not([data-design="obsidian"]) .ov-core-emblem .oc-edge-c{stop-color:rgba(167,139,250,.22)}
 :root:not([data-design="obsidian"]) .ov-core-emblem .oc-arc-b{stop-color:rgba(196,181,253,.8)}
 :root:not([data-design="obsidian"]) .ov-core-emblem .oc-ticks{stroke:rgba(196,181,253,.2)}
 :root:not([data-design="obsidian"]) .ov-core-emblem .oc-ring{stroke:rgba(167,139,250,.18)}
 :root:not([data-design="obsidian"]) .ov-core-emblem .oc-cardinal{stroke:rgba(196,181,253,.34)}
-:root:not([data-design="obsidian"]) .ov-core-emblem .oc-node{fill:#22d3ee;stroke:rgba(34,211,238,.35)}
+:root:not([data-design="obsidian"]) .ov-core-emblem .oc-node{fill:#EDE9FE;stroke:rgba(167,139,250,.5)}
+:root:not([data-design="obsidian"])[data-theme="light"] .ov-core-emblem .oc-node{fill:#6D28D9;stroke:rgba(109,40,217,.3)}
 :root:not([data-design="obsidian"]) .ov-core-emblem .oc-floor-a{stop-color:rgba(76,29,149,.55)}
 :root:not([data-design="obsidian"])[data-theme="light"] .ov-core-emblem .oc-ticks{stroke:rgba(91,33,182,.2)}
 :root:not([data-design="obsidian"])[data-theme="light"] .ov-core-emblem .oc-ring{stroke:rgba(91,33,182,.14)}
@@ -3223,9 +3345,14 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .ov-step-n{font-family:var(--font-mono);font-size:.7rem;color:var(--accent2);letter-spacing:.08em}
 .ov-step-t{font-family:var(--font-display);font-size:1rem;font-weight:700;color:var(--text);letter-spacing:-.012em}
 .ov-step-d{font-size:.78rem;color:var(--text2)}
+/* On a phone the three moves stay one row -- a number and a word each -- rather
+   than stacking into a card taller than the screen it introduces. */
 @media (max-width:700px){
-  .ov-steps li+li{border-left:0;border-top:1px solid var(--glass-border)}
-  .ov-steps li+li::before{left:50%;top:-6px;transform:translateX(-50%) rotate(135deg)}
+  .ov-steps{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .ov-steps li{padding:13px 10px 13px 14px;gap:3px}
+  .ov-steps li+li::before{left:-5px;width:9px;height:9px}
+  .ov-step-t{font-size:.86rem}
+  .ov-step-d{display:none}
 }
 
 @media (prefers-reduced-motion:reduce){
@@ -3582,39 +3709,72 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 /* ================= WORKSPACE PULSE ================= */
 /*
- * Charts for the overview. Status colours are the fixed four -- they are never
- * themed, and never carry meaning alone: every one ships beside a glyph and a
- * word. The single data series is the product violet, validated at >=3:1 on
- * this surface; the status set was validated the same way rather than eyeballed.
+ * Charts for the overview: one hue per preset.
+ *
+ * Every mark on this page measures how much -- a score out of a hundred, a
+ * share of one total, a count over time -- so every mark is drawn in one hue,
+ * stepped in lightness where it has to show an order. The gauges were painted
+ * by state (green, amber, red) and the ring by state too, which put three
+ * unrelated hues on one card, spent colour saying again what the figure and
+ * the word beside it already said, and read as a traffic light rather than an
+ * instrument. State is still on the page, where it belongs: as a glyph and a
+ * word beside each reading, and in colour only on that glyph.
+ *
+ * The steps were run through the palette validator for each preset and theme
+ * against the card surface (monotone lightness, a visible gap between steps,
+ * the faintest step clear of the surface, a single hue), not picked by eye.
+ *
+ *   --wp-series       the single series, and the gauge arcs
+ *   --wp-series-lo/hi the two ends of a series stroke, one hue, dark to light
+ *   --wp-step-1..3    the ordered ramp: strongest first, neutral last
+ *   --wp-glow         the bloom under an arc, in the series' own hue
+ *   --wp-good/...     status glyphs only, never a mark
  */
 :root, [data-theme="dark"]{
-  --wp-good:#0ca30c; --wp-warning:#fab219; --wp-critical:#d03b3b;
+  --wp-series:#9A77F7; --wp-series-lo:#7C5CF0; --wp-series-hi:#C4B5FD;
+  --wp-step-1:#C4B5FD; --wp-step-2:#8B5CF6; --wp-step-3:#5B5670;
+  --wp-glow:rgba(154,119,247,.5);
+  --wp-bar-1:#C4B5FD; --wp-bar-2:#A78BFA; --wp-bar-3:#8B5CF6; --wp-bar-4:#7C3AED; --wp-bar-5:#5B21B6;
+  --wp-good:#34D399; --wp-warning:#F2B75B; --wp-critical:#F87171;
   --wp-muted:rgba(232,229,255,.34);
   --wp-track:rgba(139,92,246,.16);
 }
 /*
- * The same two tokens for the light surface, which they never had.
+ * The light surface.
  *
  * --wp-muted was rgba(232,229,255,.34) in both themes -- a near-white ink,
- * correct over the dark card and invisible over the light one. It is not a
- * detail of one chart: it draws the area chart's axis, the bars, the gauge
- * arc, a donut's unknown state, the meter fill, .wp-fill-muted and the whole
- * radar web. On a white card at .34 behind the radar's own .2 opacity it
- * resolves to about seven percent white on white, so the rings and spokes
- * stopped being drawn at all and the polygon was left as a shape with no
- * scale behind it to be read against.
- *
- * Mirrored on --fg2, which flips correctly -- rgba(232,229,255,.62) dark to
- * rgba(22,18,52,.64) light -- so the muted ink takes the same ink at the same
- * alpha it always had. The track goes to the indigo the series is drawn in,
- * because a violet at .16 over white is a smudge rather than a track.
- *
- * The four status colours are deliberately absent: they are fixed, never
- * themed, and never carry meaning without a glyph and a word beside them.
+ * correct over the dark card and invisible over the light one. It draws the
+ * area chart's axis, the radar web and a donut's unknown state, so it is
+ * mirrored on --fg2, which flips correctly. The ramp flips its anchor too:
+ * on a dark card the strongest step is the lightest, on a light card the
+ * darkest.
  */
 [data-theme="light"]{
+  --wp-series:#6D28D9; --wp-series-lo:#5B21B6; --wp-series-hi:#8B5CF6;
+  --wp-step-1:#5B21B6; --wp-step-2:#8B5CF6; --wp-step-3:#B8B3C7;
+  --wp-glow:rgba(109,40,217,.22);
+  --wp-bar-1:#DDD6FE; --wp-bar-2:#A78BFA; --wp-bar-3:#8B5CF6; --wp-bar-4:#6D28D9; --wp-bar-5:#4C1D95;
+  --wp-good:#059669; --wp-warning:#B45309; --wp-critical:#DC2626;
   --wp-muted:rgba(22,18,52,.34);
   --wp-track:rgba(99,102,241,.15);
+}
+/* Obsidian draws its instruments in its own ink: ivory on the near-black,
+   stone on the quartz. No violet reaches a chart in this preset. */
+[data-design="obsidian"]{
+  --wp-series:#EDEDEF; --wp-series-lo:#9EA2AA; --wp-series-hi:#FFFFFF;
+  --wp-step-1:#EDEDEF; --wp-step-2:#9EA2AA; --wp-step-3:#50535A;
+  --wp-glow:rgba(255,255,255,.22);
+  --wp-bar-1:#EDEDEF; --wp-bar-2:#C9CBD0; --wp-bar-3:#9EA2AA; --wp-bar-4:#72767E; --wp-bar-5:#50535A;
+  --wp-muted:rgba(237,237,239,.34);
+  --wp-track:rgba(255,255,255,.08);
+}
+[data-design="obsidian"][data-theme="light"]{
+  --wp-series:#1C1917; --wp-series-lo:#78716C; --wp-series-hi:#1C1917;
+  --wp-step-1:#1C1917; --wp-step-2:#78716C; --wp-step-3:#B5AEA6;
+  --wp-glow:transparent;
+  --wp-bar-1:#D6D3D1; --wp-bar-2:#A8A29E; --wp-bar-3:#78716C; --wp-bar-4:#44403C; --wp-bar-5:#1C1917;
+  --wp-muted:rgba(28,25,23,.34);
+  --wp-track:rgba(28,25,23,.08);
 }
 /*
  * Reflows with the room available instead of holding two fixed columns, so
@@ -3638,9 +3798,14 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-stat-label{margin:0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg3)}
 
 /* The live reading, with the reference's pulsing dot. */
-.wp-live{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--mint);white-space:nowrap}
-.wp-live.wp-warning{color:var(--orange)}
-.wp-live.wp-critical{color:var(--wp-critical)}
+/* The state of the headline reading, as a quiet pill: the word in ink, the
+   colour only on the dot. */
+.wp-live{display:inline-flex;align-items:center;gap:8px;min-height:26px;padding:0 11px 0 9px;
+  border:1px solid var(--line,var(--cb));border-radius:999px;font-size:12px;color:var(--fg2);
+  white-space:nowrap;color-scheme:inherit}
+.wp-live .wp-dot{color:var(--wp-good)}
+.wp-live.wp-warning .wp-dot{color:var(--wp-warning)}
+.wp-live.wp-critical .wp-dot{color:var(--wp-critical)}
 .wp-dot{width:9px;height:9px;border-radius:50%;background:currentColor;flex:0 0 9px;animation:nbPulse 2.6s ease-in-out infinite}
 @keyframes nbPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.55;transform:scale(.82)}}
 
@@ -3668,8 +3833,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 /* The plot keeps its ratio, so a circle is a circle and a mark is the size it
    says it is. Nothing here needs sizing in screen units any more. */
 .wp-area-line{pointer-events:none}
-.wp-area-dot{fill:#22D3EE;fill-opacity:.55}
-.wp-area-head{fill:#22D3EE;stroke:var(--shellSolid);stroke-width:2}
+.wp-area-dot{fill:var(--wp-series-hi);fill-opacity:.55}
+.wp-area-head{fill:var(--wp-series-hi);stroke:var(--shellSolid);stroke-width:2}
 /* Text wears text tokens. A readout in the series colour turns the number
    into part of the mark, and then the mark has to carry two jobs. */
 .wp-area-value{fill:var(--fg);font-family:var(--font-mono);font-size:11px;font-weight:600}
@@ -3741,23 +3906,17 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-gauge{position:relative;flex:none;width:128px;height:128px}
 .wp-gauge-art{display:block;width:100%;height:100%;overflow:visible}
 .wp-gauge-track{stroke:var(--wp-track);stroke-width:9;fill:none}
-.wp-gauge-arc{stroke:var(--wp-muted);stroke-width:9;fill:none;
+.wp-gauge-arc{stroke:var(--wp-series);stroke-width:9;fill:none;
   /* From empty to the reading on first paint, so the figure and its arc arrive
      together rather than the number appearing over a finished shape. */
   animation:wp-sweep .85s var(--ease) both;
   /* The bloom takes the arc's own colour, so it reads as the mark being lit
      rather than as a grey shadow behind it -- and drop-shadow follows the
      alpha of the stroke, so the open quarter of the dial stays open. */
-  filter:drop-shadow(0 0 5px currentColor)}
-.wp-gauge[data-status="good"] .wp-gauge-arc{color:var(--wp-good)}
-.wp-gauge[data-status="warning"] .wp-gauge-arc{color:var(--wp-warning)}
-.wp-gauge[data-status="critical"] .wp-gauge-arc{color:var(--wp-critical)}
+  filter:drop-shadow(0 0 5px var(--wp-glow))}
 /* A glow is decoration, and decoration is the first thing to go when a reader
    has asked for less of it or the device cannot afford it. */
 @media (prefers-reduced-transparency:reduce){.wp-gauge-arc{filter:none}}
-.wp-gauge[data-status="good"] .wp-gauge-arc{stroke:var(--wp-good)}
-.wp-gauge[data-status="warning"] .wp-gauge-arc{stroke:var(--wp-warning)}
-.wp-gauge[data-status="critical"] .wp-gauge-arc{stroke:var(--wp-critical)}
 /* 245 is the dial's full sweep: 2πr at r=52, three quarters round. */
 @keyframes wp-sweep{from{stroke-dashoffset:245}to{stroke-dashoffset:0}}
 
@@ -3770,9 +3929,10 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 /* The per-signal dial. Same instrument, read at a glance rather than studied,
    so the stroke thins with the radius instead of scaling with it. */
-.wp-gauge-sm{width:52px;height:52px}
-.wp-gauge-sm .wp-gauge-track,.wp-gauge-sm .wp-gauge-arc{stroke-width:13}
-.wp-gauge-sm .wp-gauge-figure{font-size:16px;letter-spacing:-.01em}
+.wp-gauge-sm{width:56px;height:56px}
+.wp-gauge-sm .wp-gauge-track,.wp-gauge-sm .wp-gauge-arc{stroke-width:11}
+/* Sized for three digits: "100" has to sit inside the ring, not on it. */
+.wp-gauge-sm .wp-gauge-figure{font-size:14.5px;letter-spacing:-.02em}
 .wp-gauge-sm .wp-gauge-figure.wp-gauge-empty{font-size:14px}
 
 /* Part-to-whole on one circle. Each state is an arc offset by the shares before
@@ -3782,11 +3942,13 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-donut{display:block;width:100%;height:100%;overflow:visible}
 .wp-donut-track{stroke:var(--wp-track);stroke-width:11;fill:none}
 .wp-donut-arc{stroke-width:11;fill:none;transition:stroke-dasharray .5s var(--ease)}
-.wp-donut-arc[data-status="good"]{stroke:var(--wp-good)}
-.wp-donut-arc[data-status="warning"]{stroke:var(--wp-warning)}
-.wp-donut-arc[data-status="critical"]{stroke:var(--wp-critical)}
+/* Verified, experimental, unavailable: an order, so one hue stepped from the
+   strongest to the neutral end. */
+.wp-donut-arc[data-status="good"]{stroke:var(--wp-step-1)}
+.wp-donut-arc[data-status="warning"]{stroke:var(--wp-step-2)}
+.wp-donut-arc[data-status="critical"],
 .wp-donut-arc[data-status="muted"],
-.wp-donut-arc[data-status="unknown"]{stroke:var(--wp-muted)}
+.wp-donut-arc[data-status="unknown"]{stroke:var(--wp-step-3)}
 .wp-ring-core{position:absolute;inset:0;display:flex;flex-direction:column;
   align-items:center;justify-content:center;pointer-events:none;text-align:center}
 .wp-ring-figure{margin:0;font-family:var(--font-body);font-size:34px;line-height:1;
@@ -3804,10 +3966,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 /* Meter: severity in the fill, a lighter step of the same ramp in the track,
    so the state reads across the whole bar and not only where the fill ends. */
 .wp-meter{display:block;height:6px;margin-top:7px;border-radius:4px;background:var(--wp-track);overflow:hidden}
-.wp-meter-fill{display:block;height:100%;border-radius:4px;background:var(--wp-muted);transition:width .5s var(--ease)}
-.wp-meter[data-status="good"] .wp-meter-fill{background:var(--wp-good)}
-.wp-meter[data-status="warning"] .wp-meter-fill{background:var(--wp-warning)}
-.wp-meter[data-status="critical"] .wp-meter-fill{background:var(--wp-critical)}
+.wp-meter-fill{display:block;height:100%;border-radius:4px;background:var(--wp-series);transition:width .5s var(--ease)}
 .wp-meter[data-status="unknown"] .wp-meter-fill{background:transparent}
 
 .wp-mark{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;white-space:nowrap;color:var(--fg2)}
@@ -3819,9 +3978,9 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 .wp-stat-value{margin:2px 0 0;font-family:var(--font-body);font-size:34px;line-height:1.05;font-weight:600;color:var(--fg)}
 .wp-stat-value.wp-stat-empty{font-size:19px;font-weight:500;color:var(--fg2)}
-.wp-fill-good{fill:var(--wp-good);background:var(--wp-good);stroke:var(--wp-good)}
-.wp-fill-warning{fill:var(--wp-warning);background:var(--wp-warning);stroke:var(--wp-warning)}
-.wp-fill-muted{fill:var(--wp-muted);background:var(--wp-muted);stroke:var(--wp-muted)}
+.wp-fill-good{fill:var(--wp-step-1);background:var(--wp-step-1);stroke:var(--wp-step-1)}
+.wp-fill-warning{fill:var(--wp-step-2);background:var(--wp-step-2);stroke:var(--wp-step-2)}
+.wp-fill-muted{fill:var(--wp-step-3);background:var(--wp-step-3);stroke:var(--wp-step-3)}
 .wp-legend{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px 16px}
 .wp-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg2)}
 .wp-swatch{width:9px;height:9px;border-radius:3px;flex:none}
@@ -3834,11 +3993,11 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-bar-label{font-size:12px;color:var(--fg2);white-space:nowrap}
 .wp-bar-track{height:8px;border-radius:4px;background:var(--wp-track);overflow:hidden}
 .wp-bar-fill{display:block;height:100%;border-radius:4px;transition:width .5s var(--ease)}
-.wp-step-day{background:#c4b1fb}
-.wp-step-week{background:#a78bfa}
-.wp-step-month{background:#8b5cf6}
-.wp-step-quarter{background:#7c3aed}
-.wp-step-older{background:#5b21b6}
+.wp-step-day{background:var(--wp-bar-1)}
+.wp-step-week{background:var(--wp-bar-2)}
+.wp-step-month{background:var(--wp-bar-3)}
+.wp-step-quarter{background:var(--wp-bar-4)}
+.wp-step-older{background:var(--wp-bar-5)}
 .wp-bar-value{font-size:12px;color:var(--fg2);text-align:right;font-variant-numeric:tabular-nums}
 .wp-bar-value.wp-bar-peak{color:var(--fg);font-weight:600}
 
@@ -3987,11 +4146,17 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * came out as an almost colourless wash. It stays low enough that the stroke
  * still carries the shape -- the fill only has to say "inside".
  */
-.wp-radar-fill-from{stop-color:#8B5CF6;stop-opacity:.20}
-.wp-radar-fill-to{stop-color:#22D3EE;stop-opacity:.12}
+.wp-radar-fill-from{stop-color:var(--wp-series);stop-opacity:.20}
+.wp-radar-fill-to{stop-color:var(--wp-series-hi);stop-opacity:.12}
 [data-theme="light"] .wp-radar-fill-from{stop-opacity:.34}
 [data-theme="light"] .wp-radar-fill-to{stop-opacity:.22}
-.wp-radar-dot{fill:#22D3EE;stroke:var(--shellSolid);stroke-width:1.5}
+/* The series stroke and its fade, classed so the preset and the theme own
+   them: an attribute written when the chart was drawn would keep the colour
+   of whichever preset was on screen then. */
+.wp-stroke-from{stop-color:var(--wp-series-lo)}
+.wp-stroke-to{stop-color:var(--wp-series-hi)}
+.wp-fade-stop{stop-color:var(--wp-series)}
+.wp-radar-dot{fill:var(--wp-series-hi);stroke:var(--shellSolid);stroke-width:1.5}
 .wp-radar-label{fill:var(--fg2);font-family:var(--font-mono);font-size:9.5px;letter-spacing:.03em}
 .gx-pulse-radar{grid-column:1/-1}
 /* The short bounds line sits with the chart; the full sentence sits with the
@@ -4022,7 +4187,17 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   font-size:.64rem;font-weight:500;letter-spacing:.06em;color:var(--fg3)}
 /* The live end of the series. Its colour comes from the endpoint it sits
    under, so the two read as one mark rather than a dot inside a ring. */
-.wp-area-ping{fill:#22D3EE;pointer-events:none}
+.wp-area-ping{fill:var(--wp-series-hi);pointer-events:none}
+/* Hover: a hairline, a ring on the reading, and a small plate that names it.
+   Text in ink, not in the series colour. */
+.wp-area{cursor:crosshair}
+.wp-hover{opacity:0;transition:opacity .12s ease;pointer-events:none}
+.wp-hover.is-on{opacity:1}
+.wp-hover-rule{stroke:var(--fg3);stroke-width:1;stroke-dasharray:none}
+.wp-hover-dot{fill:var(--shellSolid);stroke:var(--wp-series-hi);stroke-width:2}
+.wp-hover-plate{fill:var(--shellSolid);stroke:var(--line-hi,var(--cb));stroke-width:1}
+.wp-hover-text{fill:var(--fg);font-family:var(--font-mono);font-size:11px;font-weight:500}
+[data-motion="off"] .wp-hover{transition:none}
 
 /* ---- Exposure ------------------------------------------------------- */
 
@@ -4547,9 +4722,9 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 /* ===== Obsidian preset: the component surfaces that are not tokens ===== */
 [data-design="obsidian"] #lightWaves{opacity:.32}
-[data-design="obsidian"] .lp-nav::after{background:linear-gradient(180deg,rgba(9,10,11,.97),rgba(9,10,11,.92));
+[data-design="obsidian"] .lp-nav::after{background:#090A0B;
   box-shadow:inset 0 -1px 0 rgba(255,255,255,.07),0 12px 32px -18px rgba(0,0,0,.7)}
-[data-design="obsidian"][data-theme="light"] .lp-nav::after{background:linear-gradient(180deg,rgba(246,244,240,.97),rgba(246,244,240,.92));
+[data-design="obsidian"][data-theme="light"] .lp-nav::after{background:#F6F4F0;
   box-shadow:inset 0 -1px 0 rgba(28,25,23,.08),0 12px 30px -20px rgba(28,25,23,.2)}
 [data-design="obsidian"] .tm-overlay{background:rgba(9,10,12,.88)}
 [data-design="obsidian"][data-theme="light"] .editor-bar{background:rgba(251,250,248,.93)}
@@ -4565,11 +4740,15 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 [data-design="obsidian"]:not([data-theme="light"]) .neural-tool{background:rgba(12,13,16,.68)}
 [data-design="obsidian"][data-theme="light"] .neural-stream-state,[data-design="obsidian"][data-theme="light"] .neural-search-wrap{background:rgba(255,255,255,.82);border-color:rgba(28,25,23,.1)}
 [data-design="obsidian"][data-theme="light"] .neural-tool{background:rgba(255,255,255,.86);border-color:rgba(28,25,23,.1);box-shadow:0 1px 2px rgba(28,25,23,.06)}
-/* The landing's entry card: a stone slab rather than violet glass. */
-[data-design="obsidian"] .lp-card{background:linear-gradient(180deg,#141518,#101113);border-color:rgba(255,255,255,.09);
-  box-shadow:0 30px 60px -30px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.06)}
-[data-design="obsidian"][data-theme="light"] .lp-card{background:#fff;border-color:rgba(28,25,23,.09);
-  box-shadow:0 24px 50px -28px rgba(41,37,36,.28),inset 0 1px 0 #fff}
+/* The landing's entry row: stone rather than violet. */
+[data-design="obsidian"] .lp-entry-row{border-color:rgba(255,255,255,.12);background:linear-gradient(180deg,#15161a,#0f1012);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 18px 40px -22px rgba(0,0,0,.8)}
+[data-design="obsidian"] .lp-entry-row:focus-within{border-color:rgba(255,255,255,.4);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 0 0 4px rgba(255,255,255,.07),0 18px 40px -22px rgba(0,0,0,.8)}
+[data-design="obsidian"][data-theme="light"] .lp-entry-row{border-color:rgba(28,25,23,.12);background:#fff;
+  box-shadow:0 1px 2px rgba(28,25,23,.06),0 16px 36px -22px rgba(41,37,36,.3)}
+[data-design="obsidian"][data-theme="light"] .lp-entry-row:focus-within{border-color:rgba(28,25,23,.42);
+  box-shadow:0 0 0 4px rgba(28,25,23,.07),0 16px 36px -22px rgba(41,37,36,.3)}
 [data-design="obsidian"] .neural-loading,[data-design="obsidian"] .neural-empty{background:radial-gradient(circle,rgba(16,17,21,.9),rgba(8,9,11,.78))}
 [data-design="obsidian"] .neural-stage{background:
     radial-gradient(ellipse 120% 95% at 50% 50%,transparent 45%,rgba(0,0,0,.58) 100%),
@@ -4582,6 +4761,12 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     radial-gradient(ellipse 70% 55% at 86% 8%,rgba(236,230,223,.7),transparent 60%),
     radial-gradient(ellipse 65% 55% at 8% 92%,rgba(226,216,220,.5),transparent 60%),
     linear-gradient(160deg,#fbfaf8 0%,#f3f0eb 100%)}
+/* Nebula's stage is framed the way Obsidian's is -- an instrument set into
+   the panel -- with the ground in the preset's violet. */
+:root:not([data-design="obsidian"]) .ov-core-art{border:1px solid rgba(167,139,250,.16);
+  background:radial-gradient(ellipse 70% 80% at 50% 42%, rgba(124,58,237,.16), transparent 70%),linear-gradient(180deg,#0e0920,#08051a)}
+:root:not([data-design="obsidian"])[data-theme="light"] .ov-core-art{border-color:rgba(109,40,217,.14);
+  background:radial-gradient(ellipse 70% 80% at 50% 40%, rgba(237,233,254,.9), transparent 72%),linear-gradient(180deg,#faf8ff,#f1ecfe)}
 [data-design="obsidian"] .ov-core-art{border:1px solid var(--line);
   background:radial-gradient(ellipse 70% 80% at 50% 40%, rgba(255,255,255,.045), transparent 70%),linear-gradient(180deg,#0c0d0f,#09090b)}
 [data-design="obsidian"][data-theme="light"] .ov-core-art{
@@ -4683,7 +4868,10 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .lp-map-node circle:not(.lp-map-sev):not(.lp-map-breathe){fill:#0e0a22;stroke:var(--c,#a78bfa);stroke-width:1.5}
 .lp-map-sev.lp-map-crit{fill:#f43f6e}.lp-map-sev.lp-map-warn{fill:#f59e0b}
 .lp-map-breathe{fill:none;stroke:#f43f6e;stroke-width:1.2;opacity:0;transform-box:fill-box;transform-origin:center}
-.lp-map-halo{fill:rgba(124,58,237,.18);filter:blur(18px)}
+/* A gradient, not a blur filter: a filter re-rasterises on every frame the
+   map moves, and on a phone that was the cost that made the scroll stutter. */
+.lp-map-halo{fill:url(#lpHaloG)}
+.lp-halo-a{stop-color:rgba(124,58,237,.32)}.lp-halo-b{stop-color:rgba(124,58,237,0)}
 .lp-map-orb{fill:url(#lpOrbV);stroke:rgba(167,139,250,.5);stroke-width:1.4}
 .lp-orb-a{stop-color:#5b3fd0}.lp-orb-b{stop-color:#2e1878}.lp-orb-c{stop-color:#0f0830}
 .lp-map-light{fill:#cfc2ff}.lp-map-deep{fill:#6d4ff0}
@@ -4695,6 +4883,13 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .lp-map-arcs{animation:oc-turn 11s linear infinite}
   .lp-map-breathe{animation:lp-breathe 2.4s ease-out infinite}
 }
+/* A touch screen scrolls the page with the finger that would otherwise be on
+   the map, and every moving stroke is a repaint of the whole picture under
+   that scroll. There the map holds its flows still and keeps only the two
+   breathing warnings, which are small and cheap. */
+@media (hover:none), (max-width:720px){
+  .lp-map-flow,.lp-map-arcs{animation:none}
+}
 @keyframes lp-flow{to{stroke-dashoffset:-64}}
 /* SVG strokes repaint on every frame they move, so the map moves only while
    it is on screen (landing-stage.js marks it); off screen it costs nothing. */
@@ -4703,7 +4898,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 [data-motion="off"] .lp-map-flow,[data-motion="off"] .lp-map-arcs,[data-motion="off"] .lp-map-breathe{animation:none}
 /* It settles flat as it scrolls in: a product revealed, not a picture placed. */
 @supports (animation-timeline: view()){
-  @media (prefers-reduced-motion:no-preference){
+  @media (prefers-reduced-motion:no-preference) and (hover:hover) and (pointer:fine){
     .lp-frame{animation:lp-tilt linear both;animation-timeline:view();animation-range:entry 0% cover 42%}
     @keyframes lp-tilt{from{transform:perspective(1600px) rotateX(24deg) scale(.92) translateY(30px);opacity:.35}
       to{transform:none;opacity:1}}
@@ -4712,7 +4907,39 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 [data-motion="off"] .lp-frame{animation:none}
 /* On a phone the whole map is too small to read, so the frame goes taller and
    the view closes in on the hub and the panels beside it. */
-@media (max-width:720px){ .lp-frame-view{aspect-ratio:1/1} .lp-frame{border-radius:16px} }
+/* A phone gets its own composition rather than a crop of the wide one: the
+   groups sit above and below the hub, wired to it from the edge that faces
+   it, so every panel is whole and every label is legible at the width. */
+.lp-map-tall{display:none}
+.lp-map-tall .lp-map-orb{fill:url(#lpOrbT)}
+.lp-map-tall .lp-map-halo{fill:url(#lpHaloT)}
+.lp-map-tall text{font-size:12.5px}
+.lp-map-tall .lp-map-h{font-size:9px;letter-spacing:.1em}
+.lp-map-tall .lp-map-count{font-size:9px}
+.lp-map-tall .lp-map-name{font-size:11px}
+@media (max-width:720px){
+  .lp-map-wide{display:none}
+  .lp-map-tall{display:block}
+  .lp-frame-view{aspect-ratio:3/4}
+  .lp-frame{border-radius:16px}
+}
+
+/* Three lines under the picture: what to read off it. */
+.lp-show-notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;max-width:1120px;margin:0;padding:0;list-style:none;text-align:left}
+.lp-show-notes li{display:grid;grid-template-columns:auto 1fr;column-gap:12px;row-gap:4px;align-content:start;padding:4px 22px}
+.lp-show-notes li+li{border-left:1px solid var(--hair)}
+.lp-show-notes svg{grid-row:1 / 3;width:18px;height:18px;margin-top:1px;fill:none;stroke:var(--accent2);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.lp-show-notes b{font-family:var(--font-display);font-size:.92rem;font-weight:650;color:var(--text);letter-spacing:-.01em}
+.lp-show-notes span{color:var(--text2);font-size:.82rem;line-height:1.55}
+@media (max-width:820px){
+  .lp-show-notes{grid-template-columns:minmax(0,1fr);gap:14px}
+  .lp-show-notes li{padding:0}
+  .lp-show-notes li+li{border-left:0;border-top:1px solid var(--hair);padding-top:14px}
+}
+/* Nothing on the landing is frosted. A backdrop filter re-samples what is
+   behind it on every frame that moves, and this page scrolls over a WebGL
+   ring and an animated map; the surfaces are opaque instead. */
+.lp .card,.lp .glass{backdrop-filter:none;-webkit-backdrop-filter:none}
 
 /* The capabilities, as a bento: one card leads, each carries its own picture. */
 .lp-sec.lp-sec-wide{grid-template-columns:minmax(0,1fr);gap:clamp(28px,4vw,44px)}
@@ -4783,7 +5010,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .lp-story-progress{position:relative;width:2px;height:120px;margin-top:30px;border-radius:2px;background:var(--hair);overflow:hidden}
 .lp-story-progress span{position:absolute;inset:0;background:linear-gradient(180deg,var(--accent),var(--accent2));transform-origin:50% 0;transform:scaleY(1)}
 @supports (animation-timeline: view()){
-  @media (prefers-reduced-motion:no-preference){
+  @media (prefers-reduced-motion:no-preference) and (hover:hover) and (pointer:fine){
     .lp-story-progress span{animation:lp-fill linear both;animation-timeline:--lp-story;animation-range:contain 0% contain 100%}
     @keyframes lp-fill{from{transform:scaleY(0)}to{transform:scaleY(1)}}
   }
@@ -4866,6 +5093,10 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 [data-theme="light"] .lp-map-node circle:not(.lp-map-sev):not(.lp-map-breathe){fill:#fff}
 [data-theme="light"] .lp-map-pill{fill:rgba(255,255,255,.96);stroke:rgba(91,33,182,.2)}
 [data-theme="light"] .lp-map-strand{stroke-opacity:.55}
+/* The identities group is drawn in near-white, which is the dark map's ink
+   and invisible on the light one; on light it takes a slate. */
+[data-theme="light"] .lp-map [style*="--c:#f3f5ff"]{--c:#64748b !important}
+[data-design="obsidian"][data-theme="light"] .lp-map [style*="--c:#f3f5ff"]{--c:#57534e !important}
 [data-theme="light"] .lp-cta{background:radial-gradient(ellipse 70% 90% at 50% 0%,rgba(167,139,250,.28),transparent 70%),rgba(255,255,255,.7)}
 [data-design="obsidian"] .lp-frame{background:linear-gradient(180deg,rgba(255,255,255,.03),transparent 30%),#0b0c0e;
   box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 50px 120px -50px rgba(0,0,0,.9)}
@@ -4875,7 +5106,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 [data-design="obsidian"] .lp-map-ring{stroke:rgba(203,213,225,.16)}
 [data-design="obsidian"] .lp-map-panel rect:first-child{fill:rgba(14,15,19,.9)}
 [data-design="obsidian"] .lp-map-node circle:not(.lp-map-sev):not(.lp-map-breathe){fill:#0c0d10}
-[data-design="obsidian"] .lp-map-halo{fill:rgba(226,232,240,.08)}
+[data-design="obsidian"] .lp-halo-a{stop-color:rgba(226,232,240,.12)}[data-design="obsidian"] .lp-halo-b{stop-color:rgba(226,232,240,0)}
 [data-design="obsidian"] .lp-map-orb{stroke:rgba(255,255,255,.22)}
 [data-design="obsidian"] .lp-orb-a{stop-color:#4a4b52}[data-design="obsidian"] .lp-orb-b{stop-color:#1f2024}[data-design="obsidian"] .lp-orb-c{stop-color:#0a0b0d}
 [data-design="obsidian"] .lp-map-light{fill:#f5f5f4}[data-design="obsidian"] .lp-map-deep{fill:#78716c}

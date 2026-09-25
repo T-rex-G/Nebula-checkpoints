@@ -789,14 +789,24 @@
     const protectedEl = document.getElementById('neuralProtectedCount'); if (protectedEl) protectedEl.textContent = String(protectedN + protectedBranches);
     const recovery = document.getElementById('neuralRecoveryState');
     const recoveryHint = document.getElementById('neuralRecoveryHint');
-    if (recovery) { recovery.textContent = hasSnapshot ? 'Reference captured' : 'Recovery gap'; const card = recovery.closest('.neural-kpi'); if (card) card.dataset.level = hasSnapshot ? 'good' : 'warning'; }
+    if (recovery) { recovery.textContent = hasSnapshot ? 'Captured' : 'Gap'; const card = recovery.closest('.neural-kpi'); if (card) card.dataset.level = hasSnapshot ? 'good' : 'warning'; }
     if (recoveryHint) recoveryHint.textContent = hasSnapshot ? `${latestSigned ? 'Signed' : 'Local'} snapshot ${timeAgoN(latestSigned ? latestSigned.createdAt : d.storedSnapshot.capturedAt)}` : 'Capture refs before an incident';
     document.body.classList.toggle('neural-emergency-active', !!(d.safety.readOnly && d.safety.freezeSync));
     NVN.emergency = !!(d.safety.readOnly && d.safety.freezeSync);
     const roBtn = document.getElementById('neuralReadOnlyBtn');
     if (roBtn) roBtn.textContent = d.safety.readOnly ? 'Disable read-only' : 'Enable read-only';
     const liveBtn = document.getElementById('neuralLiveBtn');
-    if (liveBtn) { liveBtn.disabled = !d.live.available; liveBtn.textContent = d.live.connected ? 'Disconnect verified live events' : 'Connect verified live events'; liveBtn.title = d.live.available ? '' : (d.live.reason || 'Neon and GitHub are required'); }
+    if (liveBtn) {
+      liveBtn.disabled = !d.live.available;
+      /* The control carries a full label and a short one for narrow widths;
+         both change together, and the icon beside them stays. */
+      const long = liveBtn.querySelector('.nh-long');
+      const short = liveBtn.querySelector('.nh-short');
+      const full = d.live.connected ? 'Disconnect verified live events' : 'Connect verified live events';
+      if (long) long.textContent = full; else liveBtn.textContent = full;
+      if (short) short.textContent = d.live.connected ? 'Disconnect' : 'Live events';
+      liveBtn.title = d.live.available ? '' : (d.live.reason || 'Neon and GitHub are required');
+    }
   }
 
   function updateVisibleCount() {

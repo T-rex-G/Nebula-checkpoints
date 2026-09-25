@@ -18,7 +18,7 @@ function trackHeavyRequests(page) {
   const seen = [];
   page.on('request', request => {
     const url = request.url();
-    if (/three\.(module|core)\.min\.js|nebula-(galaxy|mark-3d)\.js/.test(url)) seen.push(url);
+    if (/three\.(module|core)\.min\.js|nebula-galaxy\.js/.test(url)) seen.push(url);
   });
   return seen;
 }

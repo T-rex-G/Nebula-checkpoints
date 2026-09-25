@@ -394,3 +394,49 @@ test('the node search is focused as one control, with no ring inside it', async 
   expect(focus.inputShadow).toBe('none');
   expect(focus.wrapShadow).not.toBe('none');
 });
+
+/*
+ * The Neural view carries its own summary, so the workbench's repository trust
+ * bar stands aside while it is open and comes back with the other tabs. The
+ * header above the graph is one slim bar: its three controls share one row
+ * on a phone, and the four readings are one strip whose values stay on one
+ * line each, rather than four slabs with wrapped figures.
+ */
+test('the Neural view drops the trust bar and keeps its header to one compact band', async ({ page }) => {
+  await openGraph(page);
+  await expect(page.locator('#trustSummary')).toBeHidden();
+
+  const actions = await page.locator('.neural-head-actions .btn').evaluateAll(buttons =>
+    buttons.map(button => {
+      const box = button.getBoundingClientRect();
+      return { top: Math.round(box.top), height: box.height, fits: button.scrollWidth <= button.clientWidth + 1 };
+    }));
+  expect(actions).toHaveLength(3);
+  expect(new Set(actions.map(one => one.top)).size, 'the header controls wrap onto more than one row').toBe(1);
+  for (const one of actions) {
+    expect(one.fits, 'a header control clips its own label').toBe(true);
+    expect(one.height).toBeLessThanOrEqual(48);
+  }
+
+  const values = await page.locator('.neural-kpi strong').evaluateAll(nodes =>
+    nodes.map(node => ({
+      text: node.textContent,
+      lines: node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).fontSize),
+      whole: node.scrollWidth <= node.clientWidth + 1
+    })));
+  for (const one of values) {
+    expect(one.lines, `"${one.text}" wraps`).toBeLessThan(1.8);
+    expect(one.whole, `"${one.text}" is cut short`).toBe(true);
+  }
+  /* Its state is a dot by the label, never the figure's own colour. */
+  const inked = await page.locator('.neural-kpi strong').evaluateAll(nodes =>
+    new Set(nodes.map(node => getComputedStyle(node).color)).size);
+  expect(inked).toBe(1);
+
+  /* Back to the editor by whichever control this width offers: the tab strip
+     on a desk, the bottom bar on a phone. */
+  const tab = page.locator('.tab[data-tab="editor"]');
+  if (await tab.isVisible()) await tab.click();
+  else await page.locator('#bottomNav button[data-nav="editor"]').click();
+  await expect(page.locator('#trustSummary')).toBeVisible();
+});

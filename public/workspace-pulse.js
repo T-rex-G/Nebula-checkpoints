@@ -537,8 +537,8 @@
    * is labelled on the plot -- a number on every bar is noise.
    */
   /*
-   * The area the design draws across the bottom of the card: a violet-to-cyan
-   * stroke over an indigo fade, bled past the card's padding so the plot reads
+   * The area the design draws across the bottom of the card: a one-hue
+   * stroke, dark to light, over a fade of the same hue, bled past the card's padding so the plot reads
    * as the card's own surface rather than as a boxed widget sitting on it.
    *
    * Gradient ids are namespaced per card. Two cards with the same id would have
@@ -573,15 +573,16 @@
     const defs = svg('defs', {});
 
     const stroke = svg('linearGradient', { id: `${id}-s`, x1: 0, y1: 0, x2: 1, y2: 0 });
-    for (const [offset, color] of [['0%', '#8B5CF6'], ['55%', '#6366F1'], ['100%', '#22D3EE']]) {
-      stroke.appendChild(svg('stop', { offset, 'stop-color': color }));
-    }
+    /* One hue, dark to light along the series, so the latest end is the
+       brightest. The colours are the stylesheet's: see .wp-stroke-*. */
+    stroke.appendChild(svg('stop', { offset: '0%', class: 'wp-stroke-from' }));
+    stroke.appendChild(svg('stop', { offset: '100%', class: 'wp-stroke-to' }));
     defs.appendChild(stroke);
 
     const fill = svg('linearGradient', { id: `${id}-f`, x1: 0, y1: 0, x2: 0, y2: 1 });
-    fill.appendChild(svg('stop', { offset: '0%', 'stop-color': '#6366F1', 'stop-opacity': '.42' }));
-    fill.appendChild(svg('stop', { offset: '72%', 'stop-color': '#6366F1', 'stop-opacity': '.06' }));
-    fill.appendChild(svg('stop', { offset: '100%', 'stop-color': '#6366F1', 'stop-opacity': '0' }));
+    fill.appendChild(svg('stop', { offset: '0%', class: 'wp-fade-stop', 'stop-opacity': '.34' }));
+    fill.appendChild(svg('stop', { offset: '72%', class: 'wp-fade-stop', 'stop-opacity': '.05' }));
+    fill.appendChild(svg('stop', { offset: '100%', class: 'wp-fade-stop', 'stop-opacity': '0' }));
     defs.appendChild(fill);
 
     /*
@@ -708,8 +709,15 @@
    */
   function areaChart(values, label, options) {
     const settings = options || {};
-    const width = 380;
-    const plotH = 96;
+    /*
+     * Drawn at the width it will be shown at. A fixed 380-unit box scaled to
+     * a card three times that wide arrived with its axis labels at three
+     * times their size, its dots as coins and its stroke as a bar: every mark
+     * grew with the card. With the box matched to the card, a unit is a
+     * pixel, and the plot grows taller only in step and within bounds.
+     */
+    const width = Math.max(280, Math.min(1600, Math.round(settings.width || 380)));
+    const plotH = Math.round(Math.max(96, Math.min(176, width * 0.2)));
     const padX = 16;
     const padTop = 14;
     /* The band the x labels sit in is part of the box. A container sized to
@@ -758,7 +766,7 @@
      * most recent reading last. It is one animated presentation attribute on
      * one element, and it is skipped entirely when motion is off.
      */
-    if (motionAllowed() && points.length > 1) {
+    if (motionAllowed() && settings.reveal !== false && points.length > 1) {
       /*
        * Measured off the curve, not the chord. Summing the straight-line gaps
        * under-counts a curved path, and a dasharray shorter than the path it
@@ -835,6 +843,49 @@
       }
     }
 
+    /*
+     * The hover layer: a crosshair, a ring on the reading and a label that
+     * names the day and the count. The marks are hit by column, not by dot --
+     * a target the width of a day, the full height of the plot -- so a reader
+     * does not have to land on a 2-unit circle. It is a mouse affordance; the
+     * same numbers are in the table under the chart for every reader.
+     */
+    if (points.length > 1 && typeof chart.addEventListener === 'function') {
+      const hover = svg('g', { class: 'wp-hover', 'aria-hidden': 'true' });
+      const rule = svg('line', { class: 'wp-hover-rule', x1: 0, y1: padTop, x2: 0, y2: baseY });
+      const ring = svg('circle', { class: 'wp-hover-dot', cx: 0, cy: 0, r: 4.5 });
+      const tip = svg('g', { class: 'wp-hover-tip' });
+      const plate = svg('rect', { class: 'wp-hover-plate', x: 0, y: 0, width: 10, height: 24, rx: 7 });
+      const text = svg('text', { class: 'wp-hover-text', x: 0, y: 0 });
+      tip.append(plate, text);
+      hover.append(rule, ring, tip);
+      chart.appendChild(hover);
+      const name = index => (settings.labels && settings.labels[index] !== undefined ? settings.labels[index] : '');
+      const show = index => {
+        const at = points[index];
+        rule.setAttribute('x1', at.x); rule.setAttribute('x2', at.x);
+        ring.setAttribute('cx', at.x); ring.setAttribute('cy', at.y);
+        const said = name(index);
+        text.textContent = said ? `${said} \u00b7 ${values[index]}` : String(values[index]);
+        const textWidth = typeof text.getComputedTextLength === 'function' ? text.getComputedTextLength() : text.textContent.length * 6.4;
+        const boxW = Math.ceil(textWidth + 18);
+        const left = Math.max(2, Math.min(width - boxW - 2, at.x - boxW / 2));
+        const top = Math.max(2, at.y - 36);
+        plate.setAttribute('x', left); plate.setAttribute('y', top); plate.setAttribute('width', boxW);
+        text.setAttribute('x', left + 9); text.setAttribute('y', top + 16);
+        hover.classList.add('is-on');
+      };
+      chart.addEventListener('pointermove', event => {
+        if (event.pointerType && event.pointerType !== 'mouse') return;
+        const box = chart.getBoundingClientRect();
+        if (!box.width) return;
+        const x = (event.clientX - box.left) * (width / box.width);
+        const index = Math.max(0, Math.min(points.length - 1, Math.round((x - padX) / step)));
+        show(index);
+      });
+      chart.addEventListener('pointerleave', () => hover.classList.remove('is-on'));
+    }
+
     if (settings.axis && settings.axis.length) {
       for (const mark of settings.axis) {
         const text = svg('text', {
@@ -845,6 +896,32 @@
         text.textContent = mark.label;
         chart.appendChild(text);
       }
+    }
+    return chart;
+  }
+
+  /*
+   * An area chart that fits its card, and refits when the card changes width
+   * by more than a hair -- a rail collapsing, a window resized, a phone turned.
+   * The redraw replaces the chart in place and skips the draw-on reveal: the
+   * reader has already seen the line arrive once.
+   */
+  function fittedArea(host, values, label, options) {
+    const measure = () => Math.round(host.getBoundingClientRect ? host.getBoundingClientRect().width : 0) || 380;
+    let drawn = measure();
+    let chart = areaChart(values, label, Object.assign({}, options, { width: drawn }));
+    host.appendChild(chart);
+    if (typeof ResizeObserver === 'function') {
+      const watcher = new ResizeObserver(() => {
+        if (!chart.isConnected) { watcher.disconnect(); return; }
+        const now = measure();
+        if (Math.abs(now - drawn) < 24) return;
+        drawn = now;
+        const next = areaChart(values, label, Object.assign({}, options, { width: now, reveal: false }));
+        chart.replaceWith(next);
+        chart = next;
+      });
+      watcher.observe(host);
     }
     return chart;
   }
@@ -950,8 +1027,8 @@
     fill.appendChild(svg('stop', { offset: '100%', class: 'wp-radar-fill-to' }));
     defs.appendChild(fill);
     const stroke = svg('linearGradient', { id: `${id}-s`, x1: 0, y1: 0, x2: 1, y2: 1 });
-    stroke.appendChild(svg('stop', { offset: '0%', 'stop-color': '#8B5CF6' }));
-    stroke.appendChild(svg('stop', { offset: '100%', 'stop-color': '#22D3EE' }));
+    stroke.appendChild(svg('stop', { offset: '0%', class: 'wp-stroke-from' }));
+    stroke.appendChild(svg('stop', { offset: '100%', class: 'wp-stroke-to' }));
     defs.appendChild(stroke);
     chart.appendChild(defs);
 
@@ -1054,17 +1131,21 @@
      * and a tick under every one of them is a band of unreadable text that
      * tells the reader nothing the ends do not already say.
      */
-    host.appendChild(areaChart(
+    fittedArea(host,
       activity.series,
       `Repositories pushed, as a trailing ${activity.rollingDays}-day count over the last ${activity.windowDays} days.`,
       {
         headline: true,
+        labels: activity.series.map((_, index) => {
+          const back = activity.series.length - 1 - index;
+          return back === 0 ? 'today' : `${back}d ago`;
+        }),
         axis: [
           { index: 0, label: `${activity.windowDays}d ago` },
           { index: activity.series.length - 1, label: 'today' }
         ]
       }
-    ));
+    );
 
     if (activity.unknownCount > 0) {
       host.appendChild(element('p', 'wp-stat-note',
@@ -1241,17 +1322,18 @@
         `${current.repositories.length} repositor${current.repositories.length === 1 ? 'y' : 'ies'}`));
       stat.append(said, figure);
       host.appendChild(stat);
-      host.appendChild(areaChart(
+      fittedArea(host,
         bars.map(bar => bar.count),
         `Commits per day over the last ${current.days} days.`,
         {
           headline: true,
+          labels: bars.map(bar => bar.label),
           axis: [
             { index: 0, label: bars[0] ? bars[0].label : '' },
             { index: bars.length - 1, label: 'today' }
           ]
         }
-      ));
+      );
       /*
        * The rows are the evidence, not the headline.
        *

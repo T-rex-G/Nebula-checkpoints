@@ -3544,6 +3544,27 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   color: var(--text);
   line-height: 1.45;
 }
+/*
+ * How deep the next scan reads: a switch with its consequence written under
+ * it, because "include every commit" means nothing until you know a deleted
+ * credential is still in the history.
+ */
+.exposure-depth {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: color-mix(in oklab, var(--text) 3%, transparent);
+  cursor: pointer;
+}
+.exposure-depth input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.exposure-depth input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.exposure-depth-text { display: grid; gap: 2px; min-width: 0; }
+.exposure-depth-title { font-weight: 650; color: var(--text); font-size: .92rem; }
+.exposure-depth-hint { color: var(--muted); font-size: .84rem; line-height: 1.45; }
 .exposure-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .exposure-shell .btn { min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .exposure-proof-line[data-error="true"] { color: var(--warn, #b26a00); }
@@ -3703,13 +3724,76 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  */
 .exposure-section-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
 }
-.exposure-section-head .exposure-heading { margin-bottom: 6px; }
-.exposure-shell .exposure-expand-all { min-height: 36px; padding: 6px 12px; font-size: .85rem; }
+.exposure-section-head .exposure-heading { margin: 0; }
+/*
+ * The findings header is a title with its count and one quiet control. The
+ * numbers under it are chips in the severity colours rather than a sentence
+ * that wraps; the sentence is still there for a screen reader, which is told
+ * it once rather than twice.
+ */
+.exposure-findings-head { margin-bottom: 12px; }
+.exposure-findings-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.exposure-count {
+  min-width: 26px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: color-mix(in oklab, var(--text) 9%, transparent);
+}
+.exposure-expand-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent2, var(--accent));
+  font: inherit;
+  font-size: .84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.exposure-expand-all:hover { background: color-mix(in oklab, var(--accent) 12%, transparent); }
+.exposure-expand-all:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.exposure-expand-icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.exposure-expand-all[aria-expanded="true"] .exposure-expand-icon { transform: rotate(180deg); }
+.exposure-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
+.exposure-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--text) 6%, transparent);
+}
+.exposure-chip::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.exposure-chip[data-severity="critical"] { color: var(--danger, #c0392b); background: color-mix(in oklab, var(--danger, #c0392b) 12%, transparent); }
+.exposure-chip[data-severity="serious"] { color: var(--warn, #b26a00); background: color-mix(in oklab, var(--warn, #b26a00) 12%, transparent); }
+.exposure-chip-open { color: var(--text); }
+.exposure-chip-open::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
 .exposure-tally { margin: 0 0 14px; color: var(--muted); font-size: .9rem; line-height: 1.5; }
 .exposure-breakdown { margin: 0 0 14px; color: var(--muted); font-size: .9rem; line-height: 1.55; }
 
@@ -3747,12 +3831,28 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   grid-row: 2;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: .8rem;
+  line-height: 1.45;
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Wrapped, never cut: the end of a path is the file name and the line,
+     which is the part a reader came for. */
+  overflow-wrap: anywhere;
   min-width: 0;
 }
+/* Where a finding is, when that changes what to do. */
+.exposure-item-tags { grid-column: 2 / 3; grid-row: 3; display: flex; flex-wrap: wrap; gap: 6px; }
+.exposure-item-tags[hidden] { display: none; }
+.exposure-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 650;
+  line-height: 1.5;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--text) 7%, transparent);
+}
+.exposure-tag[data-kind="history"] { color: var(--accent2, var(--accent)); background: color-mix(in oklab, var(--accent) 14%, transparent); }
 .exposure-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -3870,7 +3970,17 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 
 @media (max-width: 560px) {
   .exposure-proof, .exposure-findings, .exposure-history { padding: 16px; }
-  .exposure-item-summary { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .exposure-item-status { grid-column: 2 / 3; grid-row: 3; }
+  /*
+   * On a phone the badge and the status share the top line, and the title
+   * and location take the full width under them. Beside the badge, the title
+   * wrapped after two words and the path was cut before its file name.
+   */
+  .exposure-disclosure > summary.exposure-item-summary { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 6px; }
+  .exposure-item-summary > .exposure-badge { grid-column: 1; grid-row: 1; }
+  .exposure-item-summary > .exposure-item-status { grid-column: 2; grid-row: 1; }
+  .exposure-disclosure > summary.exposure-item-summary::after { grid-column: 3; grid-row: 1; }
+  .exposure-item-summary > .exposure-item-title { grid-column: 1 / -1; grid-row: 2; }
+  .exposure-item-summary > .exposure-item-location { grid-column: 1 / -1; grid-row: 3; }
+  .exposure-item-summary > .exposure-item-tags { grid-column: 1 / -1; grid-row: 4; }
   .exposure-scan-counts { margin-left: 0; flex-basis: 100%; }
 }

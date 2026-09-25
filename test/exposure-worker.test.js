@@ -33,7 +33,7 @@ const path = require('path');
 const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
 const { SKIP_REASONS } = require('../src/exposure-reader');
 const { fingerprintFor, fingerprintKeyId } = require('../src/exposure-findings');
-const { RULES_VERSION } = require('../src/exposure-detection');
+const { RULES_VERSION, DETECTION_ENGINE_VERSION } = require('../src/exposure-detection');
 const { EXPOSURE_CONFIG_VERSION } = require('../src/exposure-store');
 const {
   DEFAULT_BUDGETS,
@@ -67,7 +67,7 @@ function fakeStore(overrides = {}) {
       refName: 'refs/heads/main',
       commitSha: COMMIT,
       rulesVersion: RULES_VERSION,
-      engineVersion: 1,
+      engineVersion: DETECTION_ENGINE_VERSION,
       fingerprintKeyVersion: 1,
       fingerprintKeyId: fingerprintKeyId(fingerprintKey),
       configVersion: EXPOSURE_CONFIG_VERSION,
@@ -1041,7 +1041,7 @@ function runnerFor(store, reader, options = {}) {
     'verifying must require an explicit confirmation'
   );
   const confirmAt = handler.indexOf("'use-this-credential'");
-  const readAt = handler.indexOf('exposureReader.readTree(');
+  const readAt = handler.indexOf('exposureReader.readFileAtCommit(');
   assert(
     confirmAt > 0 && readAt > confirmAt,
     'the confirmation must be checked before the repository is read, not after'
@@ -1052,7 +1052,7 @@ function runnerFor(store, reader, options = {}) {
    * handler re-reads the blob at the recorded commit and re-detects; a file
    * that changed yields no match and nothing is sent.
    */
-  assert(handler.includes('exposureReader.readBlob('), 'the blob is re-read');
+  assert(handler.includes('exposureReader.readFileAtCommit('), 'the file is re-read at the recorded commit');
   assert(handler.includes('detectInText('), 'and re-detected');
   assert(
     handler.includes('EXPOSURE_CANDIDATE_GONE'),
@@ -1101,6 +1101,10 @@ function runnerFor(store, reader, options = {}) {
     const reportHandler = server.slice(reportStart, server.indexOf('\n});', reportStart));
     assert(reportHandler.includes('scanReport('), 'a scan\'s report joins each observation to its finding');
     assert(reportHandler.includes('exposureFindingPayload('), 'and describes the finding the same way the list does');
+    const listStart = server.indexOf("app.get('/api/repo/:owner/:repo/exposure/findings',");
+    const listHandler = server.slice(listStart, server.indexOf('\n});', listStart));
+    assert(listHandler.includes('latestLocations('), 'the list says which line each finding was last seen on');
+    assert(/locations\[finding\.fingerprint\]/.test(listHandler), 'and describes each finding with those lines');
 
     /* A finding says which questions it can be asked. */
     assert(/verifiable: EXPOSURE_VERIFIABLE_RULES\.has\(finding\.rule\)/.test(server), 'verification is offered only where a verifier exists');
@@ -1110,6 +1114,13 @@ function runnerFor(store, reader, options = {}) {
     const requestStart = server.indexOf("app.post('/api/repo/:owner/:repo/exposure/scans',");
     const requestHandler = server.slice(requestStart, server.indexOf('\n});', requestStart));
     assert(requestHandler.includes('nudgeExposureWorker()'), 'requesting a scan starts the worker');
+    assert(/scanMode: req\.body && req\.body\.history === true \? 'history' : 'tree'/.test(requestHandler),
+      'history is read only when it is asked for, and only a literal true asks');
+    /* A finding is read back where it is: inside an archive, or at the commit
+       that added it -- through one reader function, in both routes that use a
+       credential. */
+    assert.strictEqual((server.match(/exposureReader\.readFileAtCommit\(/g) || []).length, 2);
+    assert(!/exposureReader\.readTree\(/.test(server), 'no route re-reads a tree by hand any more');
     assert(server.includes('createTransport: () => createGuardedSession({'), 'and each scan reads through a pinned connection pool');
   }
 
@@ -1132,7 +1143,7 @@ function runnerFor(store, reader, options = {}) {
     const confirmAt = probeHandler.indexOf("!== 'contact-this-project'");
     assert(confirmAt > 0, 'a probe requires an explicit confirmation');
     assert(
-      confirmAt < probeHandler.indexOf('readTree('),
+      confirmAt < probeHandler.indexOf('readFileAtCommit('),
       'and it is refused before the repository is read, not after'
     );
 
@@ -1146,7 +1157,7 @@ function runnerFor(store, reader, options = {}) {
       'only an anonymous key may be used to ask what the public can read'
     );
     assert(
-      probeHandler.indexOf("finding.rule !== 'supabase-anon-key'") < probeHandler.indexOf('readTree('),
+      probeHandler.indexOf("finding.rule !== 'supabase-anon-key'") < probeHandler.indexOf('readFileAtCommit('),
       'and that is decided before the file is read'
     );
 
@@ -1218,6 +1229,199 @@ function runnerFor(store, reader, options = {}) {
     'and the bytes leave the wrapper exactly once, through the one documented exit'
   );
 }
+
+  /* ---- History ------------------------------------------------------------ */
+
+  /*
+   * A history scan reads the tree, then every commit's changes oldest first.
+   * A credential a commit added and a later commit deleted is still in the
+   * repository, and is reported against the commit that introduced it, as
+   * not in the tree.
+   */
+  {
+    const sha = n => String(n).repeat(40).slice(0, 40);
+    const added = sha(1);
+    const deleted = sha(2);
+    const merge = sha(3);
+    const patchAdding = `@@ -1,2 +1,3 @@\n const a = 1;\n+const token = "${SECRET}";\n const b = 2;`;
+    const patchDeleting = `@@ -1,3 +1,2 @@\n const a = 1;\n-const token = "${SECRET}";\n const b = 2;`;
+    const historyReader = (files, changes, options = {}) => {
+      const reader = fakeReader(files, options);
+      reader.listCalls = [];
+      reader.changeCalls = [];
+      reader.listCommits = async input => {
+        reader.listCalls.push(input);
+        if (options.listError) throw options.listError;
+        return options.listing || {
+          commits: [
+            { sha: merge, committedAt: '2026-09-03T00:00:00.000Z', parents: 2 },
+            { sha: deleted, committedAt: '2026-09-02T00:00:00.000Z', parents: 1 },
+            { sha: added, committedAt: '2026-09-01T00:00:00.000Z', parents: 1 }
+          ],
+          truncated: false
+        };
+      };
+      reader.readCommitChanges = async input => {
+        reader.changeCalls.push(input.sha);
+        if (options.changeError && options.changeError.sha === input.sha) throw options.changeError.error;
+        return changes[input.sha] || { sha: input.sha, skip: SKIP_REASONS.UNREADABLE, files: [] };
+      };
+      return reader;
+    };
+    const changeSet = {
+      [added]: { sha: added, skip: null, committedAt: '2026-09-01T00:00:00.000Z', parents: 1, unsafePaths: 0, truncated: false,
+        files: [{ path: 'app/config.js', status: 'modified', blobSha: 'e'.repeat(40), hunks: require('../src/exposure-reader').parsePatch(patchAdding) }] },
+      [deleted]: { sha: deleted, skip: null, committedAt: '2026-09-02T00:00:00.000Z', parents: 1, unsafePaths: 0, truncated: false,
+        files: [{ path: 'app/config.js', status: 'modified', blobSha: 'f'.repeat(40), hunks: require('../src/exposure-reader').parsePatch(patchDeleting) }] }
+    };
+
+    const store = fakeStore();
+    store.scan = { ...store.scan, scanMode: 'history', historyBaseCommit: null };
+    const reader = historyReader({ 'app/config.js': 'const a = 1;\nconst b = 2;\n' }, changeSet);
+    const result = await runnerFor(store, reader).runOnce();
+    assert.strictEqual(result.state, 'complete');
+    assert.deepStrictEqual(reader.changeCalls, [added, deleted], 'oldest first, and a merge is not read twice');
+    assert.strictEqual(reader.listCalls[0].commitSha, COMMIT, 'history is read from the scan commit, never a ref');
+    assert.strictEqual(store.recorded.length, 1);
+    const [found] = store.recorded;
+    assert.strictEqual(found.inTree, false);
+    assert.strictEqual(found.introducedCommit, added);
+    assert.strictEqual(found.introducedAt, '2026-09-01T00:00:00.000Z');
+    assert.deepStrictEqual({ ...found.occurrences[0] }, { line: 2, column: 16 });
+    assert.strictEqual(found.commit, added, 'it can be read back at the commit that added it');
+    assert.strictEqual(store.finalized.commitsTotal, 3);
+    assert.strictEqual(store.finalized.commitsScanned, 3);
+    assert.strictEqual(store.finalized.commitsSkipped, 0);
+
+    /* In the tree as well: two sightings of one credential, one against the ceiling. */
+    const both = fakeStore();
+    both.scan = { ...both.scan, scanMode: 'history' };
+    const bothReader = historyReader({ 'app/config.js': `const a = 1;\nconst token = "${SECRET}";\n` }, changeSet);
+    await runnerFor(both, bothReader).runOnce();
+    assert.deepStrictEqual(both.recorded.map(item => item.inTree), [true, false]);
+    assert.strictEqual(new Set(both.recorded.map(item => item.fingerprint)).size, 1);
+
+    /* A tree scan reads no history at all. */
+    const plain = fakeStore();
+    const plainReader = historyReader({ 'README.md': 'hello\n' }, changeSet);
+    await runnerFor(plain, plainReader).runOnce();
+    assert.strictEqual(plainReader.listCalls.length, 0);
+    assert.strictEqual(plain.finalized.commitsTotal, null);
+
+    /* Incremental: an earlier complete history scan's commit is where reading stops. */
+    const again = fakeStore();
+    again.scan = { ...again.scan, scanMode: 'history', historyBaseCommit: deleted };
+    const againReader = historyReader({ 'README.md': 'hello\n' }, changeSet);
+    await runnerFor(again, againReader).runOnce();
+    assert.strictEqual(againReader.listCalls[0].stopAt, deleted);
+
+    /* The provider asking for fewer requests stops history, keeps what was read, and says so. */
+    const throttled = fakeStore();
+    throttled.scan = { ...throttled.scan, scanMode: 'history' };
+    const throttledReader = historyReader({ 'app/config.js': `k = "${SECRET}"\n` }, changeSet, {
+      changeError: { sha: deleted, error: Object.assign(new Error('slow down'), { code: 'EXPOSURE_RATE_LIMITED' }) }
+    });
+    const throttledResult = await runnerFor(throttled, throttledReader).runOnce();
+    assert.strictEqual(throttledResult.state, 'partial');
+    assert.strictEqual(throttled.finalized.skippedReason, 'rate-limited');
+    assert(throttled.recorded.some(item => item.inTree), 'the tree findings are kept');
+
+    /* A commit ceiling is partial coverage that names itself. */
+    const capped = fakeStore();
+    capped.scan = { ...capped.scan, scanMode: 'history' };
+    const cappedReader = historyReader({ 'README.md': 'x\n' }, changeSet, {
+      listing: { commits: [{ sha: added, committedAt: null, parents: 1 }], truncated: true }
+    });
+    await runnerFor(capped, cappedReader, { budgets: { maxCommits: 1 } }).runOnce();
+    assert.strictEqual(capped.finalized.skippedReason, 'commit-limit');
+    assert.strictEqual(cappedReader.listCalls[0].maxCommits, 1);
+
+    /* An unreadable commit is counted and makes the scan partial, not failed. */
+    const gap = fakeStore();
+    gap.scan = { ...gap.scan, scanMode: 'history' };
+    const gapReader = historyReader({ 'README.md': 'x\n' }, { [added]: changeSet[added] });
+    const gapResult = await runnerFor(gap, gapReader).runOnce();
+    assert.strictEqual(gapResult.state, 'partial');
+    assert.strictEqual(gap.finalized.commitsSkipped, 1);
+
+    /* A change sent without a patch is read from its blob, within its own ceiling. */
+    const patchless = fakeStore();
+    patchless.scan = { ...patchless.scan, scanMode: 'history' };
+    const bigFile = 'big/generated.json';
+    const patchlessReader = historyReader({ [bigFile]: `{"token":"${SECRET}"}` }, {
+      [added]: { sha: added, skip: null, committedAt: null, parents: 1, unsafePaths: 0, truncated: false,
+        files: [{ path: bigFile, status: 'added', blobSha: crypto.createHash('sha1').update(bigFile).digest('hex'), hunks: null }] }
+    }, { listing: { commits: [{ sha: added, committedAt: null, parents: 1 }], truncated: false } });
+    await runnerFor(patchless, patchlessReader).runOnce();
+    assert(patchless.recorded.some(item => item.inTree === false && item.path === bigFile));
+    const starved = fakeStore();
+    starved.scan = { ...starved.scan, scanMode: 'history' };
+    const starvedReader = historyReader({ 'README.md': 'x\n' }, {
+      [added]: { sha: added, skip: null, committedAt: null, parents: 1, unsafePaths: 0, truncated: false,
+        files: [{ path: bigFile, status: 'added', blobSha: 'a'.repeat(40), hunks: null }] }
+    }, { listing: { commits: [{ sha: added, committedAt: null, parents: 1 }], truncated: false } });
+    const starvedResult = await runnerFor(starved, starvedReader, { budgets: { maxHistoryBlobReads: 0 } }).runOnce();
+    assert.strictEqual(starvedResult.state, 'partial', 'a change nobody read is not a clean history');
+  }
+
+  /* ---- Archives in the tree ------------------------------------------------ */
+  {
+    const store = fakeStore();
+    const reader = fakeReader({ 'README.md': 'x\n' });
+    const baseTree = reader.readTree;
+    reader.readTree = async input => {
+      const tree = await baseTree(input);
+      return { ...tree, entries: [...tree.entries, { path: 'dist/app.zip', sha: 'd'.repeat(40), size: 2048, archive: 'zip' }] };
+    };
+    reader.archiveCalls = [];
+    reader.readArchive = async input => {
+      reader.archiveCalls.push(input.path);
+      return {
+        skip: null,
+        members: [{ path: 'dist/app.zip!/config/.env', text: `TOKEN=${SECRET}\n` }, { path: 'dist/app.zip!/README', text: 'hi' }],
+        named: [{ path: 'dist/app.zip!/keys/release.jks', sha: 'b'.repeat(64) }],
+        examined: 4, membersSkipped: 1, membersSkippedBinary: 1, truncated: false
+      };
+    };
+    const result = await runnerFor(store, reader).runOnce();
+    assert.deepStrictEqual(reader.archiveCalls, ['dist/app.zip']);
+    assert(!reader.blobCalls.some(call => call.path === 'dist/app.zip'), 'an archive is opened, not read as a blob');
+    assert.deepStrictEqual(store.recorded.map(item => [item.rule, item.path]).sort(), [
+      ['github-token', 'dist/app.zip!/config/.env'],
+      ['keystore-file', 'dist/app.zip!/keys/release.jks']
+    ]);
+    assert.strictEqual(store.finalized.archivesScanned, 1);
+    assert.strictEqual(store.finalized.archiveMembersScanned, 2);
+    assert.strictEqual(store.finalized.filesScanned, 2, 'the archive is one file read; its members are counted separately');
+    assert.strictEqual(result.state, 'partial', 'a member that was not read makes the scan partial');
+  }
+
+  /* No more than two archives are open at once, and none is skipped for it. */
+  {
+    const store = fakeStore();
+    const reader = fakeReader({ 'README.md': 'x\n' });
+    const baseTree = reader.readTree;
+    reader.readTree = async input => {
+      const tree = await baseTree(input);
+      const archives = Array.from({ length: 6 }, (_, index) => ({ path: `dist/a${index}.zip`, sha: String(index).repeat(40), size: 1024, archive: 'zip' }));
+      return { ...tree, entries: [...archives, ...tree.entries] };
+    };
+    let open = 0;
+    let peak = 0;
+    const opened = [];
+    reader.readArchive = async input => {
+      open += 1;
+      peak = Math.max(peak, open);
+      await new Promise(resolve => setImmediate(resolve));
+      open -= 1;
+      opened.push(input.path);
+      return { skip: null, members: [], named: [], examined: 0, membersSkipped: 0, membersSkippedBinary: 0, truncated: false };
+    };
+    await runnerFor(store, reader).runOnce();
+    assert(peak <= 2, `at most two archives in flight, saw ${peak}`);
+    assert.strictEqual(opened.length, 6);
+    assert.strictEqual(store.finalized.archivesScanned, 6);
+  }
 
   console.log('exposure worker tests passed');
 })().catch(error => {

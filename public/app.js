@@ -2621,7 +2621,11 @@ const EXPOSURE_SKIPPED_WORDS = {
   'unreadable-files': 'some files were not read',
   canceled: 'it was canceled',
   'transport-refused': 'the repository could not be read',
-  'authorization-revoked': 'the authorised session is no longer valid'
+  'authorization-revoked': 'the authorised session is no longer valid',
+  'finding-limit': 'the finding ceiling was reached',
+  'configuration-changed': 'the scanner was upgraded before this scan ran',
+  'commit-limit': 'the commit ceiling was reached, so the oldest history was not read',
+  'rate-limited': 'GitHub asked for fewer requests, so the history was not read to the end'
 };
 
 function exposureProofLine(scan) {
@@ -2630,7 +2634,9 @@ function exposureProofLine(scan) {
     return 'A scan is in progress. Nothing is proven until it finishes.';
   }
   if (scan.coverage === 'complete' && scan.state === 'complete') {
-    return 'This scan read the whole tree at the commit below and checked supported credential patterns. This is not a full application security audit.';
+    return scan.scanMode === 'history'
+      ? 'This scan read the whole tree at the commit below and every commit before it, and checked supported credential patterns. This is not a full application security audit.'
+      : 'This scan read the whole tree at the commit below and checked supported credential patterns. It did not read the history, where a deleted credential can still be. This is not a full application security audit.';
   }
   return 'This scan did not read the whole tree, so it cannot tell you the repository is clean.';
 }
@@ -2654,7 +2660,23 @@ function exposureBreakdownLine(scan) {
   if (unreached && !['queued', 'running'].includes(scan.state)) {
     parts.push(`${plural(unreached, 'file', 'files')} not reached before a limit.`);
   }
+  if (Number.isInteger(scan.archivesScanned) && scan.archivesScanned > 0) {
+    const inside = Number.isInteger(scan.archiveMembersScanned) ? scan.archiveMembersScanned : 0;
+    parts.push(`Opened ${plural(scan.archivesScanned, 'archive', 'archives')} and read ${plural(inside, 'file', 'files')} inside.`);
+  }
+  if (scan.scanMode === 'history' && Number.isInteger(scan.commitsTotal)) {
+    const readCommits = Number.isInteger(scan.commitsScanned) ? scan.commitsScanned : 0;
+    const since = scan.historyBaseCommit ? ` since the last full history scan (${String(scan.historyBaseCommit).slice(0, 7)})` : '';
+    parts.push(`Read ${readCommits} of ${plural(scan.commitsTotal, 'commit', 'commits')}${since}.`);
+    if (Number(scan.commitsSkipped) > 0) parts.push(`${plural(scan.commitsSkipped, 'commit', 'commits')} could not be read.`);
+  }
   return parts.join(' ');
+}
+
+/* Whether the next scan reads history. A per-viewer preference, so it is kept
+   in this browser only, and a blocked storage just means the default. */
+function exposureHistoryPreferred() {
+  try { return localStorage.getItem('nv_exposure_history') !== '0'; } catch { return true; }
 }
 
 /* The count by severity, and the one control that opens or closes them all. */
@@ -2668,17 +2690,39 @@ function renderExposureTally(current) {
     if ((finding.disposition || 'open') === 'open') open += 1;
   }
   const total = current.findings.length;
+  const severities = ['critical', 'serious', 'warning'].filter(key => counts[key]);
   if (tally) {
     tally.hidden = !total;
-    const parts = ['critical', 'serious', 'warning']
-      .filter(key => counts[key])
-      .map(key => `${counts[key]} ${key}`);
+    const parts = severities.map(key => `${counts[key]} ${key}`);
     tally.textContent = total ? `${total} ${total === 1 ? 'finding' : 'findings'}: ${parts.join(', ')}. ${open} still open.` : '';
+  }
+  const count = $('#exposureCount');
+  if (count) {
+    count.hidden = !total;
+    count.textContent = total ? String(total) : '';
+  }
+  const chips = $('#exposureChips');
+  if (chips) {
+    chips.hidden = !total;
+    chips.replaceChildren(...(total ? [
+      ...severities.map(key => {
+        const chip = document.createElement('span');
+        chip.className = 'exposure-chip';
+        chip.dataset.severity = key;
+        chip.textContent = `${counts[key]} ${key}`;
+        return chip;
+      }),
+      Object.assign(document.createElement('span'), {
+        className: 'exposure-chip exposure-chip-open',
+        textContent: `${open} open`
+      })
+    ] : []));
   }
   if (toggle) {
     toggle.hidden = !total;
     const allOpen = total > 0 && current.findings.every(finding => current.expanded.has(finding.fingerprint));
-    toggle.textContent = allOpen ? 'Collapse all' : 'Expand all';
+    const label = toggle.querySelector('.exposure-expand-label') || toggle;
+    label.textContent = allOpen ? 'Collapse all' : 'Expand all';
     toggle.setAttribute('aria-expanded', String(allOpen));
   }
 }
@@ -2788,7 +2832,7 @@ function exposureHistoryEntry(scan, current) {
   stateBadge.textContent = EXPOSURE_STATE_WORDS[scan.state] || scan.state;
   const ref = document.createElement('span');
   ref.className = 'exposure-scan-ref';
-  ref.textContent = `${exposureRefLabel(scan.refName)} @ ${String(scan.commitSha || '').slice(0, 7) || '—'}`;
+  ref.textContent = `${exposureRefLabel(scan.refName)} @ ${String(scan.commitSha || '').slice(0, 7) || '—'}${scan.scanMode === 'history' ? ' · with history' : ''}`;
   const counts = document.createElement('span');
   counts.className = 'exposure-scan-counts';
   counts.dataset.found = String(Number(scan.findingCount) > 0);
@@ -2964,6 +3008,18 @@ function renderExposure() {
   if (commitEl) commitEl.textContent = scan && scan.commitSha ? scan.commitSha.slice(0, 12) : '—';
   const filesEl = $('#exposureFiles');
   if (filesEl) filesEl.textContent = scan && Number.isFinite(scan.filesScanned) ? String(scan.filesScanned) : '—';
+  const commitsFact = $('#exposureCommitsFact');
+  const commitsEl = $('#exposureCommits');
+  if (commitsFact && commitsEl) {
+    const historyScan = Boolean(scan && scan.scanMode === 'history');
+    commitsFact.hidden = !historyScan;
+    commitsEl.textContent = historyScan && Number.isInteger(scan.commitsScanned) ? String(scan.commitsScanned) : '—';
+  }
+  const depth = $('#exposureHistoryToggle');
+  if (depth && !depth.dataset.ready) {
+    depth.checked = exposureHistoryPreferred();
+    depth.dataset.ready = 'true';
+  }
 
   const proof = $('#exposureProofLine');
   if (proof) {
@@ -3075,14 +3131,18 @@ function sortExposureFindings(findings) {
  * the handful of initialisms a reader expects in capitals. A label, not a
  * narration -- the sentence underneath is still the table's.
  */
-const EXPOSURE_INITIALISMS = new Set(['aws', 'api', 'url', 'ca', 'pgp', 'dsa', 'jwt', 'ci', 'ssh', 'id']);
+const EXPOSURE_INITIALISMS = new Set(['aws', 'api', 'url', 'ca', 'pgp', 'dsa', 'jwt', 'ci', 'ssh', 'id', 'ad']);
 /* Names a provider spells its own way. A label that reads "Github" or
    "Openai" looks like a scanner that does not know what it found. */
 const EXPOSURE_NAMES = {
   github: 'GitHub', gitlab: 'GitLab', oauth: 'OAuth', openai: 'OpenAI', huggingface: 'Hugging Face',
   digitalocean: 'DigitalOcean', hashicorp: 'HashiCorp', pypi: 'PyPI', npm: 'npm', jfrog: 'JFrog',
   circleci: 'CircleCI', planetscale: 'PlanetScale', flyio: 'Fly.io', sendgrid: 'SendGrid',
-  mailchimp: 'Mailchimp', easypost: 'EasyPost', putty: 'PuTTY', mongodb: 'MongoDB'
+  mailchimp: 'Mailchimp', easypost: 'EasyPost', putty: 'PuTTY', mongodb: 'MongoDB',
+  xai: 'xAI', openrouter: 'OpenRouter', langsmith: 'LangSmith', onepassword: '1Password',
+  launchdarkly: 'LaunchDarkly', sonarqube: 'SonarQube', nuget: 'NuGet', rubygems: 'RubyGems',
+  cratesio: 'crates.io', woocommerce: 'WooCommerce', npmrc: '.npmrc', sourcegraph: 'Sourcegraph',
+  bitbucket: 'Bitbucket', datadog: 'Datadog', hubspot: 'HubSpot', airtable: 'Airtable'
 };
 function exposureRuleLabel(rule) {
   const words = String(rule || 'credential').split('-').filter(Boolean);
@@ -3129,13 +3189,36 @@ function exposureFindingItem(finding, current, { interactive }) {
   location.className = 'exposure-item-location';
   const line = exposureFirstLine(finding);
   /* Never the raw path: a file can be named with a credential, and the
-     server says how to show one that is. */
-  location.textContent = `${finding.displayPath || 'a file'}${line && finding.displayPath === finding.path ? `:${line}` : ''}`;
+     server says how to show one that is -- withholding only that part, so
+     the line still belongs beside it. */
+  location.textContent = `${finding.displayPath || 'a file'}${line ? `:${line}` : ''}`;
+  /*
+   * Where it is, when that changes what to do: only in history (deleting it
+   * did not help), inside an archive, or written base64-encoded. Words, not
+   * icons, so they read the same to a screen reader.
+   */
+  const tags = [];
+  if (finding.inTree === false) {
+    const commit = /^[0-9a-f]{7,}$/.test(String(finding.introducedCommit || '')) ? ` · ${String(finding.introducedCommit).slice(0, 7)}` : '';
+    tags.push(['history', `Only in history${commit}`]);
+  }
+  if (String(finding.path || '').includes('!/')) tags.push(['archive', 'In an archive']);
+  if (finding.decodedFrom === 'base64') tags.push(['encoded', 'Base64-encoded']);
+  const tagRow = document.createElement('span');
+  tagRow.className = 'exposure-item-tags';
+  tagRow.hidden = !tags.length;
+  for (const [kind, words] of tags) {
+    const tag = document.createElement('span');
+    tag.className = 'exposure-tag';
+    tag.dataset.kind = kind;
+    tag.textContent = words;
+    tagRow.appendChild(tag);
+  }
   const status = document.createElement('span');
   status.className = 'exposure-item-status';
   status.dataset.disposition = finding.disposition || 'open';
   status.textContent = EXPOSURE_DISPOSITION_WORDS[finding.disposition || 'open'] || (finding.disposition || 'Open');
-  summary.append(badge, title, location, status);
+  summary.append(badge, title, location, status, tagRow);
   details.appendChild(summary);
 
   const bodyEl = document.createElement('div');
@@ -3582,9 +3665,11 @@ async function requestExposureScan() {
   current.loading = true;
   renderExposure();
   try {
+    const depth = $('#exposureHistoryToggle');
+    const history = depth ? depth.checked : exposureHistoryPreferred();
     const body = await api(`/api/repo/${wPath()}/exposure/scans`, {
       method: 'POST',
-      body: { ref: (state.work && state.work.branch) || 'HEAD' }
+      body: { ref: (state.work && state.work.branch) || 'HEAD', history }
     });
     if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
     current.scan = body && body.scan ? body.scan : null;
@@ -5110,6 +5195,12 @@ $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.ta
   if (clearBtn) clearBtn.addEventListener('click', () => { void clearExposureHistory(); });
   const moreBtn = $('#exposureHistoryMoreBtn');
   if (moreBtn) moreBtn.addEventListener('click', () => { void loadExposureHistory({ more: true }); });
+  const depth = $('#exposureHistoryToggle');
+  if (depth) {
+    depth.addEventListener('change', () => {
+      try { localStorage.setItem('nv_exposure_history', depth.checked ? '1' : '0'); } catch { /* the default stands */ }
+    });
+  }
   /*
    * `toggle` does not bubble, so these listen in the capture phase. They only
    * record what is open -- re-rendering from inside a toggle would rebuild

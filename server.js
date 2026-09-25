@@ -4645,6 +4645,9 @@ app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRe
       fingerprintKeyVersion: FINGERPRINT_KEY_VERSION,
       fingerprintKeyId: fingerprintKeyId(EXPOSURE_FINGERPRINT_KEY),
       configVersion: EXPOSURE_CONFIG_VERSION,
+      /* History is asked for, not assumed: it is many times the requests of a
+         tree read, against the reader's own provider allowance. */
+      scanMode: req.body && req.body.history === true ? 'history' : 'tree',
       idempotencyKey: cleanText(String(req.get('Idempotency-Key') || crypto.randomUUID()), 200)
     });
     nudgeExposureWorker();
@@ -4787,7 +4790,10 @@ app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alpha
     const identityKey = req.governance.actor.identityKey;
     const findings = await store.listFindings({
       scope, identityKey,
-      limit: Number.parseInt(String(req.query.limit || '50'), 10)
+      limit: Number.parseInt(String(req.query.limit || '50'), 10),
+      /* Findings from before a rules upgrade are shown until a scan under the
+         new rules finishes, and then not twice. */
+      currentGeneration: true
     });
     /*
      * And the latest answer of each kind, in one round trip rather than one
@@ -4796,12 +4802,16 @@ app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alpha
      * again would mean using somebody's credential a second time to redisplay
      * a fact already recorded.
      */
-    const answers = await store.latestAnswers({
-      scope, identityKey,
-      fingerprints: findings.map(finding => finding.fingerprint)
-    });
+    const fingerprints = findings.map(finding => finding.fingerprint);
+    const [answers, locations] = await Promise.all([
+      store.latestAnswers({ scope, identityKey, fingerprints }),
+      /* The line each was last seen on, so the list says where, not only what. */
+      store.latestLocations({ scope, identityKey, fingerprints })
+    ]);
     res.json({
-      findings: findings.map(exposureFindingPayload),
+      findings: findings.map(finding => exposureFindingPayload(
+        locations[finding.fingerprint] ? { ...finding, ...locations[finding.fingerprint] } : finding
+      )),
       verifications: Object.fromEntries(Object.entries(answers.verifications)
         .map(([fingerprint, item]) => [fingerprint, { ...item, narration: describeVerification(item) }])),
       probes: Object.fromEntries(Object.entries(answers.probes)
@@ -4830,7 +4840,12 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSe
           ...entry.finding,
           occurrences: entry.observation.occurrences,
           occurrenceCount: entry.observation.occurrenceCount,
-          truncated: entry.observation.truncated
+          truncated: entry.observation.truncated,
+          inTree: entry.observation.inTree,
+          introducedCommit: entry.observation.introducedCommit,
+          introducedAt: entry.observation.introducedAt,
+          historyCommits: entry.observation.historyCommits,
+          decodedFrom: entry.observation.decodedFrom
         })
       }))
     });
@@ -4891,16 +4906,15 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', provide
      * verifying a credential the repository no longer contains would be using
      * a secret nobody asked about.
      */
-    const tree = await exposureReader.readTree({
-      scope, commitSha: finding.commit, token: req.gh.token
+    /* The file as it stood at the finding's commit -- inside an archive when
+       the finding is, and at the commit that added it when it is only in
+       history. */
+    const blob = await exposureReader.readFileAtCommit({
+      scope, commitSha: finding.commit, path: finding.path, token: req.gh.token
     });
-    const entry = tree.entries.find(item => item.path === finding.path);
-    if (!entry) {
+    if (blob.skip === 'missing') {
       return res.status(409).json({ error: 'That file is no longer readable at that commit', code: 'EXPOSURE_CANDIDATE_GONE' });
     }
-    const blob = await exposureReader.readBlob({
-      scope, sha: entry.sha, path: entry.path, token: req.gh.token
-    });
     if (blob.skip || typeof blob.text !== 'string') {
       return res.status(409).json({ error: 'That file could not be read', code: 'EXPOSURE_CANDIDATE_GONE' });
     }
@@ -5036,16 +5050,15 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readabilit
       });
     }
 
-    const tree = await exposureReader.readTree({
-      scope, commitSha: finding.commit, token: req.gh.token
+    /* The file as it stood at the finding's commit -- inside an archive when
+       the finding is, and at the commit that added it when it is only in
+       history. */
+    const blob = await exposureReader.readFileAtCommit({
+      scope, commitSha: finding.commit, path: finding.path, token: req.gh.token
     });
-    const entry = tree.entries.find(item => item.path === finding.path);
-    if (!entry) {
+    if (blob.skip === 'missing') {
       return res.status(409).json({ error: 'That file is no longer readable at that commit', code: 'EXPOSURE_CANDIDATE_GONE' });
     }
-    const blob = await exposureReader.readBlob({
-      scope, sha: entry.sha, path: entry.path, token: req.gh.token
-    });
     if (blob.skip || typeof blob.text !== 'string') {
       return res.status(409).json({ error: 'That file could not be read', code: 'EXPOSURE_CANDIDATE_GONE' });
     }

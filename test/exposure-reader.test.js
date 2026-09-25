@@ -30,8 +30,13 @@ const {
   MAX_PATH_LENGTH,
   MAX_TREE_ENTRIES,
   SKIP_REASONS,
+  COMMIT_FILES_PAGE_SIZE,
+  COMMIT_PAGE_SIZE,
   classifyTreeEntry,
+  listCommits,
+  parsePatch,
   readBlob,
+  readCommitChanges,
   readTree,
   readerFor,
   resolveCommit
@@ -219,13 +224,29 @@ function blobEntry(entryPath, overrides = {}) {
       ['an image', blobEntry('public/logo.png'), SKIP_REASONS.BINARY],
       ['an image with an upper-case extension', blobEntry('public/Photo.JPEG'), SKIP_REASONS.BINARY],
       ['a font', blobEntry('fonts/inter.woff2'), SKIP_REASONS.BINARY],
-      ['an archive', blobEntry('dist/release.tar.gz'), SKIP_REASONS.BINARY],
-      ['a keystore', blobEntry('android/app/release.jks'), SKIP_REASONS.BINARY]
+      ['a keystore', blobEntry('android/app/release.jks'), SKIP_REASONS.BINARY],
+      /* An archive too large to open is over its own ceiling, not binary. */
+      ['an archive past its ceiling', blobEntry('dist/huge.zip', { size: 5 * 1024 * 1024 }), SKIP_REASONS.OVERSIZE],
+      ['a disk image', blobEntry('dist/installer.dmg'), SKIP_REASONS.BINARY]
     ];
     for (const [label, entry, expected] of cases) {
       assert.strictEqual(classifyTreeEntry(entry).skip, expected, label);
     }
     assert(cases.length >= 22, 'the entry table must stay exhaustive');
+
+    /*
+     * Archives are opened rather than skipped -- their files are one download
+     * away from anyone who can read the repository -- and say what kind they
+     * are, including one larger than an ordinary file may be.
+     */
+    for (const [archivePath, kind] of [
+      ['dist/release.tar.gz', 'tgz'], ['dist/release.tgz', 'tgz'], ['backup.tar', 'tar'], ['dump.sql.gz', 'gz'],
+      ['build/app.jar', 'zip'], ['deploy/site.war', 'zip'], ['docs/Spec.DOCX', 'zip'], ['wheel.whl', 'zip']
+    ]) {
+      const classified = classifyTreeEntry(blobEntry(archivePath, { size: 3 * 1024 * 1024 }));
+      assert.strictEqual(classified.skip, null, archivePath);
+      assert.strictEqual(classified.archive, kind, archivePath);
+    }
 
     /* A path that merely looks alarming is still a path. */
     for (const safe of ['a/gitignore', 'dot.git.js', 'a/..b/c.js', 'a/b..c', 'src/.env.example']) {
@@ -507,6 +528,172 @@ function blobEntry(entryPath, overrides = {}) {
       'a provider outage or limit is not a missing branch'
     );
   }
+}
+
+/* ---- History ------------------------------------------------------------ */
+
+/*
+ * History is read the same way as the tree: the provider's API, the guarded
+ * transport, the reader's token in a header, and nothing cloned. What comes
+ * back is a commit id, a date and a parent count for each commit -- no
+ * author, no message -- and for each commit the files it changed, reduced to
+ * the lines it added.
+ */
+{
+  const sha = index => index.toString(16).padStart(40, '0');
+  const listItem = (index, parents = 1) => ({
+    sha: sha(index),
+    commit: {
+      author: { name: 'Somebody', email: 'somebody@example.com', date: '2026-01-01T00:00:00Z' },
+      committer: { date: `2026-02-${String(1 + (index % 27)).padStart(2, '0')}T10:00:00Z` },
+      message: 'a message that is never kept'
+    },
+    parents: Array.from({ length: parents }, (_, n) => ({ sha: sha(900000 + n) }))
+  });
+  const page = items => ({ statusCode: 200, body: JSON.stringify(items) });
+
+  /* Pages until a short page, newest first, and nothing personal kept. */
+  const full = Array.from({ length: COMMIT_PAGE_SIZE }, (_, index) => listItem(index + 1));
+  const transport = transportReturning(page(full), page([listItem(101), listItem(102, 2)]));
+  const listing = await listCommits({ scope, commitSha: COMMIT, token: TOKEN, transport, maxCommits: 1000 });
+  assert.strictEqual(listing.commits.length, 102);
+  assert.strictEqual(listing.truncated, false);
+  assert.deepStrictEqual(Object.keys(listing.commits[0]).sort(), ['committedAt', 'parents', 'sha']);
+  assert.strictEqual(listing.commits[101].parents, 2, 'a merge is recognisable, so it is not scanned twice');
+  assert.strictEqual(listing.commits[0].committedAt, '2026-02-02T10:00:00.000Z', 'the committer date, not the author date');
+  assert.match(transport.calls[0].url, new RegExp(`/repos/Acme/Demo/commits\\?sha=${COMMIT}&per_page=${COMMIT_PAGE_SIZE}&page=1$`));
+  assert.match(transport.calls[1].url, /&page=2$/);
+  for (const call of transport.calls) {
+    assert.strictEqual(call.profile, PROFILES.PROVIDER_READ);
+    assert.strictEqual(call.method, 'GET');
+    assert.strictEqual(call.headers.authorization, `Bearer ${TOKEN}`);
+  }
+  assert(!JSON.stringify(listing).includes('Somebody') && !JSON.stringify(listing).includes('message'));
+
+  /* A ceiling is reported as truncated, never as a short history. */
+  const capped = await listCommits({ scope, commitSha: COMMIT, token: TOKEN, transport: transportReturning(page(full)), maxCommits: 10 });
+  assert.strictEqual(capped.commits.length, 10);
+  assert.strictEqual(capped.truncated, true);
+
+  /* An earlier complete history scan's commit is where reading stops. */
+  const incremental = await listCommits({
+    scope, commitSha: COMMIT, token: TOKEN, transport: transportReturning(page(full)), stopAt: sha(4)
+  });
+  assert.deepStrictEqual(incremental.commits.map(item => item.sha), [sha(1), sha(2), sha(3)]);
+  assert.strictEqual(incremental.reachedBase, true);
+
+  /* An empty repository has no history rather than an unreadable one. */
+  const empty = await listCommits({ scope, commitSha: COMMIT, token: TOKEN, transport: transportReturning({ statusCode: 409, body: '{}' }) });
+  assert.deepStrictEqual([...empty.commits], []);
+
+  /* A revoked session and a throttle stop history; other failures are errors, not an empty list. */
+  await assert.rejects(listCommits({ scope, commitSha: COMMIT, token: TOKEN, transport: transportReturning({ statusCode: 401, body: '{}' }) }),
+    error => error.code === 'EXPOSURE_AUTHORIZATION_REVOKED');
+  for (const statusCode of [403, 429]) {
+    await assert.rejects(listCommits({ scope, commitSha: COMMIT, token: TOKEN, transport: transportReturning({ statusCode, body: '{}' }) }),
+      error => error.code === 'EXPOSURE_RATE_LIMITED');
+  }
+  await assert.rejects(listCommits({ scope, commitSha: COMMIT, token: TOKEN, transport: transportReturning({ statusCode: 500, body: '{}' }) }),
+    error => error.code === 'EXPOSURE_HISTORY_UNAVAILABLE');
+  await assert.rejects(listCommits({ scope, commitSha: COMMIT, token: TOKEN, transport: transportReturning({ statusCode: 200, body: '{}' }) }),
+    error => error.code === 'EXPOSURE_HISTORY_INVALID');
+  await assert.rejects(listCommits({ scope, commitSha: 'main', token: TOKEN, transport: transportReturning(page([])) }),
+    error => error.code === 'EXPOSURE_COMMIT_INVALID', 'history is read from a commit, never a ref');
+}
+
+{
+  /* The new side of each hunk, with line numbers and which lines were added. */
+  const hunks = parsePatch([
+    '@@ -1,3 +1,4 @@',
+    ' keep',
+    '-old',
+    '+new one',
+    '+new two\r',
+    ' tail',
+    '\\ No newline at end of file',
+    '@@ -40,2 +41,1 @@',
+    ' context only',
+    '-removed'
+  ].join('\n'));
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(hunks)), [{ lines: [
+    { line: 1, text: 'keep', added: false },
+    { line: 2, text: 'new one', added: true },
+    { line: 3, text: 'new two', added: true },
+    { line: 4, text: 'tail', added: false }
+  ] }], 'a hunk that adds nothing is dropped; a carriage return is not part of the line');
+  assert.deepStrictEqual([...parsePatch(null)], []);
+  assert.deepStrictEqual([...parsePatch('+no header first')], []);
+}
+
+{
+  const COMMIT_B = 'b'.repeat(40);
+  const detail = (files, extra = {}) => ({ statusCode: 200, body: JSON.stringify({
+    sha: COMMIT_B, commit: { committer: { date: '2026-03-04T05:06:07Z' } }, parents: [{ sha: COMMIT }], files, ...extra
+  }) });
+  const file = (filename, overrides = {}) => ({
+    filename, status: 'modified', sha: 'e'.repeat(40), patch: '@@ -1 +1 @@\n-a\n+b', ...overrides
+  });
+
+  const transport = transportReturning(detail([
+    file('src/app.js'),
+    file('gone.txt', { status: 'removed' }),
+    file('../escape.txt'),
+    file('assets/logo.png', { patch: undefined }),
+    file('big.json', { patch: undefined, sha: null })
+  ]));
+  const changes = await readCommitChanges({ scope, sha: COMMIT_B, token: TOKEN, transport });
+  assert.strictEqual(changes.skip, null);
+  assert.strictEqual(changes.committedAt, '2026-03-04T05:06:07.000Z');
+  assert.strictEqual(changes.parents, 1);
+  assert.deepStrictEqual(changes.files.map(item => item.path), ['src/app.js', 'assets/logo.png', 'big.json'],
+    'a removed file has nothing new in it and an unsafe path is not described');
+  assert.strictEqual(changes.unsafePaths, 1);
+  assert.strictEqual(changes.files[0].hunks.length, 1);
+  assert.strictEqual(changes.files[1].hunks, null, 'no patch is reported as no patch, not as no changes');
+  assert.strictEqual(changes.files[1].blobSha, 'e'.repeat(40));
+  assert.strictEqual(changes.files[2].blobSha, null);
+  assert.match(transport.calls[0].url, new RegExp(`/commits/${COMMIT_B}\\?per_page=${COMMIT_FILES_PAGE_SIZE}&page=1$`));
+
+  /* A commit with more files than a page is read page by page. */
+  const many = Array.from({ length: COMMIT_FILES_PAGE_SIZE }, (_, index) => file(`f${index}.js`));
+  const paged = transportReturning(detail(many), detail([file('last.js')]));
+  const long = await readCommitChanges({ scope, sha: COMMIT_B, token: TOKEN, transport: paged });
+  assert.strictEqual(long.files.length, COMMIT_FILES_PAGE_SIZE + 1);
+  assert.strictEqual(paged.calls.length, 2);
+
+  /* One unreadable commit is one commit not read, not a failed scan. */
+  for (const answer of [{ statusCode: 404, body: '{}' }, { statusCode: 200, body: 'not json' }, new Error('too large')]) {
+    const unreadable = await readCommitChanges({ scope, sha: COMMIT_B, token: TOKEN, transport: transportReturning(answer) });
+    assert.strictEqual(unreadable.skip, SKIP_REASONS.UNREADABLE);
+  }
+  /* A revoked session and a throttle are not. */
+  await assert.rejects(readCommitChanges({ scope, sha: COMMIT_B, token: TOKEN, transport: transportReturning({ statusCode: 401, body: '{}' }) }),
+    error => error.code === 'EXPOSURE_AUTHORIZATION_REVOKED');
+  await assert.rejects(readCommitChanges({ scope, sha: COMMIT_B, token: TOKEN, transport: transportReturning({ statusCode: 403, body: '{}' }) }),
+    error => error.code === 'EXPOSURE_RATE_LIMITED');
+  /* And the token never comes back in what is returned. */
+  assert(!JSON.stringify(changes).includes(TOKEN));
+}
+
+{
+  /*
+   * UTF-16 text used to be refused as binary for its NULs and so was never
+   * scanned. With a byte-order mark either way round, or as little-endian
+   * ASCII without one, it is read as the text it is.
+   */
+  const plain = 'GITHUB_TOKEN=value\r\nsecond=line\r\n';
+  const little = Buffer.from(plain, 'utf16le');
+  const big = Buffer.from(plain, 'utf16le'); big.swap16();
+  const blob = bytes => ({ statusCode: 200, body: JSON.stringify({ encoding: 'base64', content: bytes.toString('base64') }) });
+  for (const bytes of [Buffer.concat([Buffer.from([0xff, 0xfe]), little]), Buffer.concat([Buffer.from([0xfe, 0xff]), big]), little]) {
+    const read = await readBlob({ scope, sha: 'e'.repeat(40), token: TOKEN, transport: transportReturning(blob(bytes)) });
+    assert.strictEqual(read.skip, null);
+    assert.strictEqual(read.text, plain);
+  }
+  /* A binary file with NULs is still binary. */
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  const refused = await readBlob({ scope, sha: 'e'.repeat(40), token: TOKEN, transport: transportReturning(blob(png)) });
+  assert.strictEqual(refused.skip, SKIP_REASONS.BINARY);
 }
 
   console.log('exposure reader tests passed');

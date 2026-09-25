@@ -181,9 +181,11 @@ function findingsFor(text, overrides = {}) {
 
   const [github] = findings.findings.filter(item => item.rule === 'github-token');
   assert.deepStrictEqual(Object.keys(github).sort(), [
-    'commit', 'engineVersion', 'fingerprint', 'fingerprintKeyVersion', 'occurrenceCount',
+    'commit', 'decodedFrom', 'engineVersion', 'fingerprint', 'fingerprintKeyVersion', 'occurrenceCount',
     'occurrences', 'path', 'placeholder', 'rule', 'rulesVersion', 'scope', 'truncated'
   ], 'the finding shape is closed: a field added here has to be considered for leakage');
+  /* Considered: it is `base64` or nothing, so it cannot carry what was decoded. */
+  assert.strictEqual(github.decodedFrom, null);
   assert(Object.isFrozen(github));
   assert.strictEqual(github.occurrenceCount, 2);
   assert.deepStrictEqual(github.occurrences.map(item => item.line), [1, 3]);

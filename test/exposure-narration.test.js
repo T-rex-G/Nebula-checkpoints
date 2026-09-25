@@ -43,9 +43,11 @@ const {
   NARRATION_VERSION,
   describeDisposition,
   describeFinding,
+  describeLocation,
   describeProbe,
   describeVerification,
-  narrationForRule
+  narrationForRule,
+  safeDisplayPath
 } = require('../src/exposure-narration');
 
 const finding = Object.freeze({
@@ -349,6 +351,105 @@ const finding = Object.freeze({
   assert(entry, 'the reference document must be registered in the manifest');
   assert.strictEqual(entry.lifecycle, 'current');
   assert.strictEqual(entry.releaseIncluded, true);
+}
+
+/* ---- Showing a path ----------------------------------------------------- */
+
+/*
+ * A path is shown as it is, because "where" is the half of a finding a reader
+ * acts on. Only a part that could itself be a credential is withheld. The old
+ * test withheld any name with twenty word characters in a row, which is most
+ * of an ordinary repository's test files and workflows.
+ */
+{
+  for (const ordinary of [
+    'test/anonymous-readability-probe.test.js',
+    '.github/workflows/public-alpha-alpha17.yml',
+    '.github/workflows/ci.yml',
+    'db/migrations/026_exposure_scan_history.sql',
+    'src/ExposureFindingsReportController.js',
+    'cache/351a023f-2c99-42a7-8c14-3fff04c0bbfa.json',
+    'release/nebulaverse-x-v5.3.0-alpha.17.0.zip'
+  ]) {
+    assert.strictEqual(safeDisplayPath(ordinary), ordinary, `${ordinary} is an ordinary name and is shown`);
+  }
+
+  /* Built from parts so no token is written in this file. */
+  const githubToken = ['gh', 'p_', 'aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5b'].join('');
+  const awsKeyId = ['AK', 'IA', 'Q3EGT5XRZ7W2PL4M'].join('');
+  const unnamedToken = ['k7Qm2Xp9', 'Lr4Tz8Vw'].join('');
+  /* Hyphenated into short pieces, so only a rule can recognise it. */
+  const slackToken = ['xo', 'xb-', '284619370452-', '573920184657-', 'qWkRmTzPvLxNcBhJdGfSaYeU'].join('');
+  const cases = [
+    /* Named by a rule: withheld, and the file keeps what kind of file it is. */
+    [`secrets/${githubToken}.txt`, 'secrets/‹hidden›.txt'],
+    [`keys/${awsKeyId}.pem`, 'keys/‹hidden›.pem'],
+    /* A directory can be the credential too. */
+    [`${githubToken}/config.json`, '‹hidden›/config.json'],
+    /* A token no rule names still has a token's shape. */
+    [`tmp/${unnamedToken}`, 'tmp/‹hidden›']
+  ];
+  for (const [raw, shown] of cases) {
+    const displayed = safeDisplayPath(raw);
+    assert.strictEqual(displayed, shown, `${shown} is what a reader sees`);
+    for (const secret of [githubToken, awsKeyId, unnamedToken, slackToken]) {
+      assert(!displayed.includes(secret), 'a withheld part never reaches the display');
+    }
+  }
+  assert.strictEqual(safeDisplayPath(''), 'an unnamed file');
+
+  /* The sentence names the line and says why part of the path is missing. */
+  const where = describeLocation({
+    path: `secrets/${githubToken}.txt`, occurrences: [{ line: 3, column: 1 }], occurrenceCount: 1
+  });
+  assert.strictEqual(
+    where,
+    'In secrets/‹hidden›.txt, at line 3. Part of the file\'s path is not shown, because it is itself credential-shaped.'
+  );
+  assert(!where.includes(githubToken));
+  assert.strictEqual(
+    describeLocation({ path: '.github/workflows/ci.yml', occurrences: [{ line: 57, column: 9 }], occurrenceCount: 1 }),
+    'In .github/workflows/ci.yml, at line 57.',
+    'an ordinary path is not followed by an explanation it does not need'
+  );
+}
+
+/* ---- Where, when it is not simply a line in a current file ----------------- */
+
+/*
+ * Three places change what a reader does. Only in history: deleting it did
+ * not help, and anyone with a clone can still read it. Inside an archive: a
+ * file they have to download and open. Base64: the line does not show the
+ * credential as written. Each is said, and dated from the stored text alone.
+ */
+{
+  const INTRODUCED = 'a1b2c3d'.padEnd(40, '0');
+  const pastOnly = describeLocation({
+    path: 'config/old.env', occurrences: [{ line: 3, column: 1 }], occurrenceCount: 1,
+    inTree: false, introducedCommit: INTRODUCED, introducedAt: '2026-09-01T10:00:00.000Z'
+  });
+  assert.match(pastOnly, /no longer in the current files, but it is still in the repository's history/);
+  assert.match(pastOnly, /added in commit a1b2c3d on 1 Sep 2026/);
+  assert.match(pastOnly, /Deleting it from the files did not remove it\./);
+
+  const stillHere = describeLocation({
+    path: 'src/a.js', occurrences: [{ line: 30, column: 1 }], occurrenceCount: 1,
+    inTree: true, introducedCommit: INTRODUCED, introducedAt: '2026-01-15T00:00:00.000Z'
+  });
+  assert.strictEqual(stillHere, 'In src/a.js, at line 30. It was first added in commit a1b2c3d on 15 Jan 2026.');
+
+  const inArchive = describeLocation({ path: 'dist/app.zip!/config/.env', occurrences: [{ line: 1, column: 1 }], occurrenceCount: 1 });
+  assert.match(inArchive, /inside the archive dist\/app\.zip, which anyone who can read the repository can download and open/);
+
+  const encoded = describeLocation({ path: 'k8s/secret.yaml', occurrences: [{ line: 7, column: 9 }], occurrenceCount: 1, decodedFrom: 'base64' });
+  assert.match(encoded, /base64-encoded, so the line shows an encoded run/);
+
+  /* A date that is not an ISO timestamp is left out rather than guessed. */
+  assert.strictEqual(
+    describeLocation({ path: 'a.js', occurrences: [{ line: 1, column: 1 }], occurrenceCount: 1, inTree: true, introducedCommit: INTRODUCED, introducedAt: 'yesterday' }),
+    'In a.js, at line 1. It was first added in commit a1b2c3d.'
+  );
+  assert.strictEqual(NARRATION_VERSION, 2);
 }
 
 console.log('exposure narration tests passed');

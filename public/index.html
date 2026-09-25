@@ -391,7 +391,8 @@
   <ul class="nv-rail-nav">
     <li><button type="button" class="nv-rail-item" data-rail="overview">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg>
-      <span class="nv-rail-t">Overview</span></button></li>
+      <span class="nv-rail-t">Overview</span>
+      <span class="nv-rail-d">Workspace pulse</span></button></li>
     <li><button type="button" class="nv-rail-item" data-rail="repos">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-28 12 12)"/></svg>
       <span class="nv-rail-t">Repositories</span>
@@ -1051,10 +1052,24 @@
                 <dt>Files read</dt>
                 <dd id="exposureFiles">—</dd>
               </div>
+              <div class="exposure-fact" id="exposureCommitsFact" hidden>
+                <dt>Commits read</dt>
+                <dd id="exposureCommits">—</dd>
+              </div>
             </dl>
             <p class="exposure-breakdown" id="exposureBreakdown" hidden></p>
             <p class="exposure-caveat" id="exposureCaveat" hidden></p>
             <p class="exposure-clear-warning" id="exposureClearWarning" role="alert" hidden></p>
+            <!-- How deep the next scan reads. The current files are always read;
+                 history is every commit's changes, which is where a credential
+                 somebody deleted is still readable. -->
+            <label class="exposure-depth" for="exposureHistoryToggle">
+              <input type="checkbox" id="exposureHistoryToggle" checked>
+              <span class="exposure-depth-text">
+                <span class="exposure-depth-title">Include every commit</span>
+                <span class="exposure-depth-hint">Also finds credentials that were deleted but are still in the history.</span>
+              </span>
+            </label>
             <div class="exposure-actions">
               <button class="btn" id="exposureScanBtn" type="button">Scan this branch</button>
               <button class="btn ghost" id="exposureCancelBtn" type="button" hidden>Cancel scan</button>
@@ -1064,11 +1079,19 @@
           </section>
 
           <section class="card exposure-findings" aria-labelledby="exposureFindingsHeading">
-            <div class="exposure-section-head">
-              <h2 id="exposureFindingsHeading" class="exposure-heading">Findings</h2>
-              <button class="btn ghost exposure-expand-all" id="exposureExpandAllBtn" type="button" aria-controls="exposureList" hidden>Expand all</button>
+            <div class="exposure-section-head exposure-findings-head">
+              <div class="exposure-findings-title">
+                <h2 id="exposureFindingsHeading" class="exposure-heading">Findings</h2>
+                <span class="exposure-count" id="exposureCount" aria-hidden="true" hidden></span>
+              </div>
+              <button class="exposure-expand-all" id="exposureExpandAllBtn" type="button" aria-controls="exposureList" aria-expanded="false" hidden>
+                <svg class="exposure-expand-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9l5-5 5 5"/><path d="M7 15l5 5 5-5"/></svg><span class="exposure-expand-label">Expand all</span>
+              </button>
             </div>
-            <p class="exposure-tally" id="exposureTally" hidden></p>
+            <!-- The sentence is what a screen reader hears; the chips are the same
+                 numbers for the eye, so they are hidden from it rather than read twice. -->
+            <p class="sr-only" id="exposureTally" hidden></p>
+            <div class="exposure-chips" id="exposureChips" aria-hidden="true" hidden></div>
             <p class="exposure-empty" id="exposureEmpty">Nothing to show yet.</p>
             <ul class="exposure-list" id="exposureList"></ul>
           </section>

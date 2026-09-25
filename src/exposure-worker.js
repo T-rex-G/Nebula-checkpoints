@@ -1,6 +1,8 @@
 'use strict';
 
-const { detectInPath, detectInText, RULES_VERSION, DETECTION_ENGINE_VERSION } = require('./exposure-detection');
+const { detectInHunks, detectInPath, detectInText, RULES_VERSION, DETECTION_ENGINE_VERSION } = require('./exposure-detection');
+const { archiveKind } = require('./exposure-archives');
+const { BINARY_EXTENSIONS, extensionOf } = require('./exposure-reader');
 const { buildFindings, fingerprintKeyId, FINGERPRINT_KEY_VERSION } = require('./exposure-findings');
 const { MAX_FINDINGS_PER_SCAN, EXPOSURE_CONFIG_VERSION } = require('./exposure-store');
 
@@ -53,7 +55,12 @@ const { MAX_FINDINGS_PER_SCAN, EXPOSURE_CONFIG_VERSION } = require('./exposure-s
  * rather than after it lands -- so which file the ceiling falls on no longer
  * depends on which reads happened to finish first.
  */
-const EXPOSURE_BUDGET_VERSION = 2;
+/*
+ * 3: history is read under a commit ceiling and a ceiling on the blobs read
+ * for changes the provider sent no patch for, archives are opened, and the
+ * wall clock is twice as long to fit both.
+ */
+const EXPOSURE_BUDGET_VERSION = 3;
 
 const DEFAULT_BUDGETS = Object.freeze({
   /* Files read per scan. The tree may hold more; this is what gets opened. */
@@ -62,8 +69,15 @@ const DEFAULT_BUDGETS = Object.freeze({
      cost more than one of many small ones. */
   maxBytes: 32 * 1024 * 1024,
   /* Wall clock, because this process also answers HTTP and a scan is the
-     slowest thing it does. */
-  maxWallClockMs: 4 * 60 * 1000,
+     slowest thing it does. History doubled what a scan reads, so it doubled. */
+  maxWallClockMs: 8 * 60 * 1000,
+  /* Commits whose changes a history scan reads, newest back. Past it the
+     scan is partial and says `commit-limit`. */
+  maxCommits: 1_000,
+  /* A change the provider sent without a patch -- too large, or binary -- is
+     read from its blob instead. Bounded separately, because a history of
+     large generated files would otherwise be a blob read per commit. */
+  maxHistoryBlobReads: 200,
   /* Findings buffered before a write. Bounded by what the store will take in
      one call. */
   flushEveryFindings: 100,
@@ -90,6 +104,7 @@ const DEFAULT_BUDGETS = Object.freeze({
 });
 
 const COMMIT_PATTERN = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
+const MAX_ARCHIVES_IN_FLIGHT = 2;
 /* The reader's word for a file that is not text, spelled once here rather than
    requiring the reader -- the worker receives a reader, it does not pick one. */
 const SKIP_BINARY = 'binary';
@@ -111,6 +126,8 @@ function budgetsFrom(input) {
      */
     maxBytes: boundedInteger(source.maxBytes, DEFAULT_BUDGETS.maxBytes, 1, 512 * 1024 * 1024),
     maxWallClockMs: boundedInteger(source.maxWallClockMs, DEFAULT_BUDGETS.maxWallClockMs, 0, 30 * 60 * 1000),
+    maxCommits: boundedInteger(source.maxCommits, DEFAULT_BUDGETS.maxCommits, 1, 100_000),
+    maxHistoryBlobReads: boundedInteger(source.maxHistoryBlobReads, DEFAULT_BUDGETS.maxHistoryBlobReads, 0, 10_000),
     flushEveryFindings: boundedInteger(
       source.flushEveryFindings, DEFAULT_BUDGETS.flushEveryFindings, 1, MAX_FINDINGS_PER_SCAN
     ),
@@ -219,11 +236,19 @@ function createExposureRunner(options = {}) {
     let skippedAny = false;
     let budgetReason = null;
     let pending = [];
-    let findingCount = 0;
+    /* Credentials, not sightings: one seen in the tree and in the commit that
+       added it is one credential against the ceiling. */
+    const seenFingerprints = new Set();
     /* What was not read, and why, so a report can say so in numbers. */
     let filesTotal = 0;
     let filesSkippedBinary = 0;
     let filesSkippedOther = 0;
+    let archivesScanned = 0;
+    let archiveMembersScanned = 0;
+    const history = scan.scanMode === 'history';
+    let commitsTotal = history ? 0 : null;
+    let commitsScanned = history ? 0 : null;
+    let commitsSkipped = history ? 0 : null;
     let lastCheckAt = 0;
     let dispatchedSinceCheck = 0;
 
@@ -271,17 +296,26 @@ function createExposureRunner(options = {}) {
       return true;
     }
 
-    /* Returns false when the finding ceiling stopped the scan. */
-    async function admit(detection, filePath) {
+    /*
+     * Returns false when the finding ceiling stopped the scan. `provenance`
+     * says where this sighting was: in the tree, or in the commit that added
+     * it -- which the store merges when a credential is both.
+     */
+    async function admit(detection, filePath, provenance, commit = commitSha) {
       const built = buildFindings({
-        detection, path: filePath, scope: scan.scope, commit: commitSha, hmacKey: fingerprintKey,
+        detection, path: filePath, scope: scan.scope, commit, hmacKey: fingerprintKey,
         keyVersion: scan.fingerprintKeyVersion
       });
-      const admitted = built.findings.slice(0, MAX_FINDINGS_PER_SCAN - findingCount);
-      pending.push(...admitted);
-      findingCount += admitted.length;
+      let limited = false;
+      for (const finding of built.findings) {
+        if (!seenFingerprints.has(finding.fingerprint)) {
+          if (seenFingerprints.size >= MAX_FINDINGS_PER_SCAN) { limited = true; break; }
+          seenFingerprints.add(finding.fingerprint);
+        }
+        pending.push(Object.freeze({ ...finding, ...provenance }));
+      }
       if (pending.length >= budgets.flushEveryFindings) await flush();
-      if (findingCount >= MAX_FINDINGS_PER_SCAN || admitted.length < built.findings.length) {
+      if (limited) {
         skippedAny = true;
         budgetReason = 'finding-limit';
         return false;
@@ -289,11 +323,39 @@ function createExposureRunner(options = {}) {
       return true;
     }
 
+    function outOfTime() {
+      return now() - startedAt >= budgets.maxWallClockMs;
+    }
+
     const connections = createTransport ? createTransport() : null;
     const transport = connections && typeof connections.request === 'function' ? connections.request : undefined;
     /* Reads already started when the scan stops. Each is wrapped so it can
        never reject unobserved; they are simply not looked at. */
     const inflight = [];
+    const canOpenArchives = typeof reader.readArchive === 'function';
+    const IN_TREE = Object.freeze({ inTree: true });
+
+    /*
+     * An archive's files, each scanned as a file of its own and located inside
+     * it; the credential containers in it found by name. Anything it could not
+     * read makes the scan partial, like a file in the tree would.
+     */
+    async function admitArchive(opened, provenance, commit) {
+      archivesScanned += 1;
+      if (opened.truncated || opened.membersSkipped) skippedAny = true;
+      for (const member of opened.members) {
+        archiveMembersScanned += 1;
+        bytesScanned += Buffer.byteLength(member.text, 'utf8');
+        const detection = detectInText({ text: member.text, path: member.path });
+        if (!detection.scanned || detection.truncated) skippedAny = true;
+        if (detection.candidates.length && !(await admit(detection, member.path, provenance, commit))) return false;
+      }
+      for (const named of opened.named) {
+        const detection = detectInPath({ path: named.path, sha: named.sha });
+        if (detection.candidates.length && !(await admit(detection, named.path, provenance, commit))) return false;
+      }
+      return true;
+    }
 
     try {
       await checkAccess();
@@ -318,7 +380,7 @@ function createExposureRunner(options = {}) {
         if (!item || !item.sha || !item.path) continue;
         const detection = detectInPath({ path: item.path, sha: item.sha });
         if (!detection.candidates.length) continue;
-        if (!(await admit(detection, item.path))) { stopped = true; break; }
+        if (!(await admit(detection, item.path, IN_TREE))) { stopped = true; break; }
       }
 
       /*
@@ -342,13 +404,23 @@ function createExposureRunner(options = {}) {
             dispatching = false;
             break;
           }
-          if (now() - startedAt >= budgets.maxWallClockMs) {
+          if (outOfTime()) {
             budgetReason = 'time-limit';
             skippedAny = true;
             dispatching = false;
             break;
           }
           const entry = entries[next];
+          /*
+           * An archive read holds its response, its bytes and what it inflates
+           * to at once -- tens of megabytes at the ceilings -- so no more than
+           * two are in flight on a service with half a gigabyte. The next one
+           * waits for an earlier read to be consumed; nothing is skipped.
+           */
+          if (entry.archive && canOpenArchives
+            && inflight.filter(item => item.entry.archive).length >= MAX_ARCHIVES_IN_FLIGHT) {
+            break;
+          }
           const declared = Number.isInteger(entry.size) && entry.size > 0 ? entry.size : 0;
           if (dispatchedBytes >= budgets.maxBytes || dispatchedBytes + declared > budgets.maxBytes) {
             budgetReason = 'byte-limit';
@@ -367,7 +439,9 @@ function createExposureRunner(options = {}) {
           dispatched += 1;
           dispatchedSinceCheck += 1;
           dispatchedBytes += declared;
-          const read = reader.readBlob({ scope: scan.scope, sha: entry.sha, path: entry.path, token, transport });
+          const read = entry.archive && canOpenArchives
+            ? reader.readArchive({ scope: scan.scope, sha: entry.sha, path: entry.path, token, transport })
+            : reader.readBlob({ scope: scan.scope, sha: entry.sha, path: entry.path, token, transport });
           inflight.push({ entry, settled: Promise.resolve(read).then(blob => ({ blob }), error => ({ error })) });
         }
       };
@@ -384,9 +458,14 @@ function createExposureRunner(options = {}) {
         const outcome = await settled;
         if (outcome.error) throw outcome.error;
         const blob = outcome.blob;
-        if (blob.skip || typeof blob.text !== 'string') {
+        if (entry.archive && canOpenArchives && !blob.skip && Array.isArray(blob.members)) {
+          /* An archive that opened counts as a file read; what is inside it
+             is counted separately, so the tree's numbers still add up. */
+          filesScanned += 1;
+          if (!(await admitArchive(blob, IN_TREE, commitSha))) { dispatching = false; break; }
+        } else if (blob.skip || typeof blob.text !== 'string') {
           skippedAny = true;
-          countSkip(blob.skip);
+          countSkip(entry.archive && !canOpenArchives ? SKIP_BINARY : blob.skip);
         } else {
           /*
            * Counted only when text was actually scanned, so a report's numbers
@@ -404,7 +483,7 @@ function createExposureRunner(options = {}) {
            * anything, so the probes are simply dropped and go out of scope with
            * this iteration.
            */
-          if (detection.candidates.length && !(await admit(detection, entry.path))) {
+          if (detection.candidates.length && !(await admit(detection, entry.path, IN_TREE))) {
             dispatching = false;
             break;
           }
@@ -413,10 +492,145 @@ function createExposureRunner(options = {}) {
       }
       /* Files the scan never started, because a ceiling came first. */
       if (next < entries.length) skippedAny = true;
+      inflight.length = 0;
+
+      /*
+       * History, after the tree: the current files are what a reader acts on
+       * first, so a scan that runs out of time has read those. Oldest commit
+       * first, so the first sighting of a credential is the commit that
+       * introduced it; each commit's changes read ahead with the same bounded
+       * concurrency and consumed in order.
+       */
+      const historyReadable = typeof reader.listCommits === 'function' && typeof reader.readCommitChanges === 'function';
+      if (history && historyReadable && budgetReason !== 'finding-limit' && !outOfTime()) {
+        await checkAccess();
+        let listing;
+        try {
+          listing = await reader.listCommits({
+            scope: scan.scope, commitSha, token, transport,
+            maxCommits: budgets.maxCommits, stopAt: scan.historyBaseCommit || ''
+          });
+        } catch (error) {
+          if (errorCode(error) !== 'EXPOSURE_RATE_LIMITED') throw error;
+          listing = null;
+          skippedAny = true;
+          budgetReason = budgetReason || 'rate-limited';
+        }
+        if (listing) {
+          if (listing.truncated) {
+            skippedAny = true;
+            budgetReason = budgetReason || 'commit-limit';
+          }
+          const commits = listing.commits.slice().reverse();
+          commitsTotal = commits.length;
+          let cursor = 0;
+          let historyDispatching = true;
+          let blobReads = 0;
+          const historyFill = async () => {
+            while (historyDispatching && inflight.length < budgets.readConcurrency && cursor < commits.length) {
+              if (outOfTime()) {
+                budgetReason = budgetReason || 'time-limit';
+                skippedAny = true;
+                historyDispatching = false;
+                break;
+              }
+              await checkAccessIfDue();
+              const item = commits[cursor];
+              cursor += 1;
+              dispatchedSinceCheck += 1;
+              /* A merge's changes are its parents' changes, already read. */
+              const read = item.parents > 1
+                ? Promise.resolve({ merge: true })
+                : reader.readCommitChanges({ scope: scan.scope, sha: item.sha, token, transport });
+              inflight.push({ entry: item, settled: Promise.resolve(read).then(blob => ({ blob }), error => ({ error })) });
+            }
+          };
+
+          /* A change the provider sent without a patch, read from its blob. */
+          const admitWholeFile = async (file, provenance, commit) => {
+            if (!file.blobSha) { skippedAny = true; return true; }
+            const kind = archiveKind(file.path);
+            const pathDetection = detectInPath({ path: file.path, sha: file.blobSha });
+            if (pathDetection.candidates.length) return admit(pathDetection, file.path, provenance, commit);
+            if (blobReads >= budgets.maxHistoryBlobReads) { skippedAny = true; return true; }
+            if (kind && canOpenArchives) {
+              blobReads += 1;
+              await checkAccessIfDue();
+              const opened = await reader.readArchive({ scope: scan.scope, sha: file.blobSha, path: file.path, token, transport });
+              if (opened.skip || !Array.isArray(opened.members)) { skippedAny = true; return true; }
+              return admitArchive(opened, provenance, commit);
+            }
+            /* Binary by name: nothing a text rule could read, in history or now. */
+            if (kind || BINARY_EXTENSIONS.has(extensionOf(file.path))) return true;
+            blobReads += 1;
+            await checkAccessIfDue();
+            const blob = await reader.readBlob({ scope: scan.scope, sha: file.blobSha, path: file.path, token, transport });
+            if (blob.skip === SKIP_BINARY) return true;
+            if (blob.skip || typeof blob.text !== 'string') { skippedAny = true; return true; }
+            bytesScanned += Buffer.byteLength(blob.text, 'utf8');
+            const detection = detectInText({ text: blob.text, path: file.path });
+            if (!detection.scanned || detection.truncated) skippedAny = true;
+            return detection.candidates.length ? admit(detection, file.path, provenance, commit) : true;
+          };
+
+          await historyFill();
+          while (inflight.length) {
+            await yieldToEventLoop();
+            const { entry: item, settled } = inflight.shift();
+            const outcome = await settled;
+            if (outcome.error) {
+              if (errorCode(outcome.error) === 'EXPOSURE_RATE_LIMITED') {
+                /* The provider asked us to stop. What was read is kept. */
+                skippedAny = true;
+                budgetReason = budgetReason || 'rate-limited';
+                historyDispatching = false;
+                inflight.length = 0;
+                break;
+              }
+              throw outcome.error;
+            }
+            const changes = outcome.blob;
+            if (changes.merge) { commitsScanned += 1; await historyFill(); continue; }
+            if (changes.skip) {
+              commitsSkipped += 1;
+              skippedAny = true;
+              await historyFill();
+              continue;
+            }
+            commitsScanned += 1;
+            if (changes.truncated || changes.unsafePaths) skippedAny = true;
+            const provenance = Object.freeze({
+              inTree: false, introducedCommit: changes.sha, introducedAt: changes.committedAt || null
+            });
+            let keepGoing = true;
+            for (const file of changes.files) {
+              if (Array.isArray(file.hunks)) {
+                const detection = detectInHunks({ hunks: file.hunks });
+                for (const hunk of file.hunks) {
+                  for (const line of hunk.lines) if (line.added) bytesScanned += Buffer.byteLength(line.text, 'utf8') + 1;
+                }
+                if (detection.truncated) skippedAny = true;
+                if (detection.candidates.length && !(await admit(detection, file.path, provenance, changes.sha))) {
+                  keepGoing = false;
+                  break;
+                }
+              } else if (!(await admitWholeFile(file, provenance, changes.sha))) {
+                keepGoing = false;
+                break;
+              }
+            }
+            if (!keepGoing) { historyDispatching = false; inflight.length = 0; break; }
+            await historyFill();
+          }
+          if (cursor < commits.length) skippedAny = true;
+        }
+      } else if (history && !historyReadable) {
+        skippedAny = true;
+      }
 
       await flush();
       await checkAccess();
-      if (now() - startedAt >= budgets.maxWallClockMs && next < entries.length) {
+      if (outOfTime() && next < entries.length) {
         skippedAny = true;
         budgetReason = budgetReason || 'time-limit';
       }
@@ -435,10 +649,16 @@ function createExposureRunner(options = {}) {
         bytesScanned,
         filesTotal,
         filesSkippedBinary,
-        filesSkippedOther
+        filesSkippedOther,
+        commitsTotal,
+        commitsScanned,
+        commitsSkipped,
+        archivesScanned,
+        archiveMembersScanned
       });
       return Object.freeze({
-        claimed: true, state: complete ? 'complete' : 'partial', filesScanned, bytesScanned
+        claimed: true, state: complete ? 'complete' : 'partial', filesScanned, bytesScanned,
+        ...(history ? { commitsScanned } : {})
       });
     } catch (error) {
       if (errorCode(error) === 'EXPOSURE_SCAN_NOT_OWNED') {

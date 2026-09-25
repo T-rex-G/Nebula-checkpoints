@@ -2,6 +2,8 @@
 
 const { REASONS: VERIFICATION_REASONS, VERIFICATION_STATES } = require('./credential-verification');
 const { REASONS: PROBE_REASONS, PROBE_STATES } = require('./anonymous-readability-probe');
+const { detectInText } = require('./exposure-detection');
+const { shannonEntropy } = require('./exposure-rules');
 
 /*
  * Saying what a finding means, in words, without a model.
@@ -38,7 +40,10 @@ const { REASONS: PROBE_REASONS, PROBE_STATES } = require('./anonymous-readabilit
  * a reader: changing them silently means two people reading the same finding a
  * month apart disagree about what they were told.
  */
-const NARRATION_VERSION = 1;
+/* 2: a location says when a credential is only in history, inside an archive,
+   or written base64-encoded, and withholds only the credential-shaped part of
+   a path. */
+const NARRATION_VERSION = 2;
 
 /* Severity is about the credential class, not about liveness. Whether a
    particular one still works is the verifier's answer and is reported
@@ -439,6 +444,161 @@ const RULE_NARRATION = Object.freeze({
     consequence: 'A database connection string with its password is in the repository. Anyone who can reach the host can connect as that user -- and managed databases are commonly reachable from the internet.',
     action: 'Change that user\'s password, check whether the host accepts connections from anywhere, and move the connection string into the deployment environment.'
   }),
+  'supabase-access-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Supabase personal access token is in the repository. It uses the Management API as you: anyone who has it can list every project your account can reach, read their service-role keys, change their settings and delete them.',
+    action: 'Revoke it in the Supabase dashboard under Account, Access Tokens now, then rotate the service-role keys of every project it could reach.'
+  }),
+  'azure-ad-client-secret': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Microsoft Entra ID application secret is in the repository. With the application\'s id and tenant -- usually in the same file -- anyone can sign in as that application and use every permission it was granted.',
+    action: 'Delete the secret under the app registration\'s Certificates & secrets now, create a new one, and review the application\'s sign-in logs.'
+  }),
+  'alibaba-access-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'An Alibaba Cloud AccessKey ID is in the repository. It is half of a pair: the secret that goes with it is usually a line or two away, and together they act as the account or RAM user that owns them.',
+    action: 'Disable the AccessKey pair in the RAM console, check for its secret nearby, and create a new pair kept in the deployment environment.'
+  }),
+  'heroku-api-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Heroku API key is in the repository. Anyone who has it can manage your apps as you: read their config vars -- which hold their own secrets -- deploy code and delete them.',
+    action: 'Regenerate the API key in Heroku account settings now, and rotate the config vars of any app the account can reach.'
+  }),
+  'tailscale-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Tailscale key is in the repository. An auth key adds new devices to your tailnet and an API key manages it, so anyone who has one can join your private network or change who else can.',
+    action: 'Revoke the key in the Tailscale admin console under Settings, Keys now, and remove any device you do not recognise.'
+  }),
+  'onepassword-service-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A 1Password service account token is in the repository. Anyone who has it can read every item in every vault the service account was granted -- which is to say, other secrets.',
+    action: 'Delete or rotate the service account token in 1Password now, and rotate the items in the vaults it could read.'
+  }),
+  'datadog-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Datadog key is in the repository. An API key submits data to your account and an application key reads it -- dashboards, logs and monitors included.',
+    action: 'Revoke the key under Organization Settings in Datadog, create a new one, and keep it in the deployment environment.'
+  }),
+  'bitbucket-app-password': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Bitbucket app password is in the repository. With the username it belongs to, anyone can use Bitbucket as that user with the permissions the password was given, which usually include reading and writing repositories.',
+    action: 'Revoke the app password in Bitbucket personal settings now, and review recent activity on the repositories it could reach.'
+  }),
+  'sonarqube-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A SonarQube or SonarCloud token is in the repository. Anyone who has it can read your projects\' analysis -- which includes source excerpts and the vulnerabilities found in them -- and, for a global token, administer the server.',
+    action: 'Revoke the token under My Account, Security, and create a new one kept in your CI\'s secrets.'
+  }),
+  'sourcegraph-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Sourcegraph access token is in the repository. Anyone who has it can search every repository its user can see, which on a company instance is often all of them.',
+    action: 'Delete the token in Sourcegraph user settings, Access tokens, now.'
+  }),
+  'octopus-deploy-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'An Octopus Deploy API key is in the repository. Anyone who has it can act as its user: read project variables, which hold deployment secrets, and start deployments.',
+    action: 'Revoke the key in the Octopus user\'s profile under API keys, and review recent deployments and variable changes.'
+  }),
+  'prefect-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Prefect Cloud API key is in the repository. Anyone who has it can read and run your workflows, and read the blocks that hold their credentials.',
+    action: 'Delete the key in Prefect Cloud under API keys and create a new one.'
+  }),
+  'launchdarkly-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A LaunchDarkly key is in the repository. An access token manages feature flags -- anyone can switch features on or off in production -- and a server-side SDK key reads every flag and segment.',
+    action: 'Reset the SDK key or delete the access token in LaunchDarkly account settings now.'
+  }),
+  'rubygems-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A RubyGems API key is in the repository. Anyone who has it can publish new versions of every gem you own, and everyone who installs them runs that code.',
+    action: 'Revoke the key on rubygems.org under Settings, API keys now, and check your gems for versions you did not publish.'
+  }),
+  'nuget-api-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'A NuGet API key is in the repository. Anyone who has it can push packages under your account, and everyone who installs them runs that code.',
+    action: 'Delete the key on nuget.org under API keys now, and check your packages for versions you did not push.'
+  }),
+  'cratesio-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A crates.io API token is in the repository. Anyone who has it can publish new versions of your crates, and everyone who depends on them builds that code.',
+    action: 'Revoke the token on crates.io under Account Settings, API Tokens now, and check your crates for versions you did not publish.'
+  }),
+  'clojars-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Clojars deploy token is in the repository. Anyone who has it can deploy new versions of your libraries, and everyone who depends on them runs that code.',
+    action: 'Disable the token on clojars.org under Deploy Tokens now, and check your groups for versions you did not deploy.'
+  }),
+  'docker-config-auth': Object.freeze({
+    severity: 'critical',
+    consequence: 'A container registry credential is in the repository, as the base64 `auth` field of a Docker config -- which is a username and password, only encoded. Anyone who has it can pull your private images and push over them.',
+    action: 'Change the password or revoke the token for that registry account now, and check the registry for images you did not push.'
+  }),
+  'npmrc-auth-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'An npm authentication token is in an .npmrc in the repository. Anyone who has it can publish as you to that registry, and everyone who installs your packages runs what they publish.',
+    action: 'Revoke the token with `npm token revoke` or on the registry\'s website now, and use an environment variable in .npmrc instead.'
+  }),
+  'xai-api-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'An xAI API key is in the repository. Anyone who has it can send requests billed to your team.',
+    action: 'Delete the key in the xAI console under API keys now, and review usage for the period it was exposed.'
+  }),
+  'openrouter-api-key': Object.freeze({
+    severity: 'critical',
+    consequence: 'An OpenRouter API key is in the repository. Anyone who has it can spend your credits on any model OpenRouter offers.',
+    action: 'Delete the key in OpenRouter under Keys now, and check your activity for requests you did not make.'
+  }),
+  'pinecone-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Pinecone API key is in the repository. Anyone who has it can read, overwrite and delete the vectors in your project\'s indexes -- often embeddings of private documents.',
+    action: 'Delete the key in the Pinecone console under API keys and create a new one.'
+  }),
+  'langsmith-api-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'A LangSmith API key is in the repository. Anyone who has it can read your traces, which record every prompt and response your application sent.',
+    action: 'Delete the key in LangSmith settings under API keys now.'
+  }),
+  'shippo-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Shippo API token is in the repository. A live token buys shipping labels on your account and reads your customers\' addresses.',
+    action: 'Regenerate the token in Shippo under Settings, API, and check for labels you did not buy.'
+  }),
+  'plaid-access-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Plaid access token is in the repository. With your Plaid client credentials it reads a linked person\'s bank accounts and transactions.',
+    action: 'Remove the Item with /item/remove or rotate it, and check how the token reached the repository -- access tokens belong server-side only.'
+  }),
+  'woocommerce-secret': Object.freeze({
+    severity: 'serious',
+    consequence: 'A WooCommerce REST API consumer secret is in the repository. With its consumer key, anyone can use your store\'s API with the key\'s permissions: orders, customers and products.',
+    action: 'Revoke the key under WooCommerce, Settings, Advanced, REST API, and create a new one.'
+  }),
+  'slack-app-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Slack app-level token is in the repository. Anyone who has it can open a Socket Mode connection as your app and receive the events it subscribes to, messages included.',
+    action: 'Revoke the token on the app\'s Basic Information page in Slack and generate a new one.'
+  }),
+  'discord-bot-token': Object.freeze({
+    severity: 'critical',
+    consequence: 'A Discord bot token is in the repository. Anyone who has it can log in as your bot in every server it has joined and do anything its permissions allow -- post, ban, read messages.',
+    action: 'Reset the token on the Developer Portal\'s Bot page now; the old one stops working at once.'
+  }),
+  'dropbox-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'A Dropbox access token is in the repository. Anyone who has it can read and change the files its app can reach until it expires.',
+    action: 'Revoke the token -- or the app\'s access -- in Dropbox, and check the account for files you did not change.'
+  }),
+  'asana-token': Object.freeze({
+    severity: 'serious',
+    consequence: 'An Asana personal access token is in the repository. Anyone who has it can read and change every task and project its user can see.',
+    action: 'Revoke the token in Asana under My Settings, Apps, Developer apps now.'
+  }),
+  'algolia-admin-key': Object.freeze({
+    severity: 'serious',
+    consequence: 'An Algolia admin or write API key is in the repository. Anyone who has it can overwrite or delete your search indexes and manage their settings.',
+    action: 'Regenerate the admin key or delete the write key in the Algolia dashboard under API Keys.'
+  }),
   'keystore-file': Object.freeze({
     severity: 'serious',
     consequence: 'A keystore file (PKCS#12, Java or BouncyCastle) is committed. It holds private keys and certificates -- often an app-signing or TLS key -- protected only by a password that can be attacked offline.',
@@ -549,36 +709,101 @@ function describeDisposition(disposition) {
  * its directory and its last segment is described rather than quoted whenever
  * the last segment looks like it might be a secret itself.
  */
-function describeLocation(finding) {
-  const occurrences = Array.isArray(finding.occurrences) ? finding.occurrences : [];
-  const count = Number.isInteger(finding.occurrenceCount) ? finding.occurrenceCount : occurrences.length;
-  const where = safeDisplayPath(text(finding.path));
-  if (!occurrences.length) return `In ${where}.`;
-  const first = occurrences[0];
-  const at = `line ${first.line}`;
-  if (count <= 1) return `In ${where}, at ${at}.`;
-  if (finding.truncated) {
-    return `In ${where}, in ${count} places. The first ${occurrences.length} are recorded, starting at ${at}.`;
-  }
-  return `In ${where}, in ${count} places, starting at ${at}.`;
+const MONTHS = Object.freeze(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
+
+/* A date as a reader says it, read from the stored UTC timestamp's own text --
+   no clock, no locale and no date arithmetic, so the sentence is the same
+   wherever and whenever it is read. */
+function spokenDate(value) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T/.exec(text(value));
+  if (!parts) return '';
+  const month = Number(parts[2]);
+  const day = Number(parts[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return '';
+  return `${day} ${MONTHS[month - 1]} ${parts[1]}`;
 }
 
 /*
- * A file name that is itself credential-shaped is described rather than
- * quoted. It is an unusual case and it is the only way a secret could reach a
- * sentence that is meant to be safe to read aloud, so it is handled rather
- * than reasoned about.
+ * Where it is, and what about where it is changes what to do: a credential
+ * only in history is still exposed to anyone with a clone, one written in
+ * base64 does not look like itself on the line it is on, and one inside an
+ * archive is in a file a reader has to download and open to see.
  */
+function describeLocation(finding) {
+  const occurrences = Array.isArray(finding.occurrences) ? finding.occurrences : [];
+  const count = Number.isInteger(finding.occurrenceCount) ? finding.occurrenceCount : occurrences.length;
+  const path = text(finding.path);
+  const where = safeDisplayPath(path);
+  const notes = [];
+  if (path && where !== path) notes.push(`Part of the file's path is not shown, because it is itself credential-shaped.`);
+  const archive = path.indexOf('!/');
+  if (archive > 0) {
+    notes.push(`That is a file inside the archive ${safeDisplayPath(path.slice(0, archive))}, which anyone who can read the repository can download and open.`);
+  }
+  if (text(finding.decodedFrom) === 'base64') {
+    notes.push('It is written base64-encoded, so the line shows an encoded run rather than the credential as it is used.');
+  }
+  const introduced = /^[0-9a-f]{40}$/.test(text(finding.introducedCommit)) ? text(finding.introducedCommit) : '';
+  if (introduced) {
+    const when = spokenDate(finding.introducedAt);
+    const added = `commit ${introduced.slice(0, 7)}${when ? ` on ${when}` : ''}`;
+    notes.push(finding.inTree === false
+      ? `It is no longer in the current files, but it is still in the repository's history: it was added in ${added}, and anyone with a clone can check that commit out and read it. Deleting it from the files did not remove it.`
+      : `It was first added in ${added}.`);
+  }
+  const tail = notes.length ? ` ${notes.join(' ')}` : '';
+  if (!occurrences.length) return `In ${where}.${tail}`;
+  const first = occurrences[0];
+  const at = `line ${first.line}`;
+  if (count <= 1) return `In ${where}, at ${at}.${tail}`;
+  if (finding.truncated) {
+    return `In ${where}, in ${count} places. The first ${occurrences.length} are recorded, starting at ${at}.${tail}`;
+  }
+  return `In ${where}, in ${count} places, starting at ${at}.${tail}`;
+}
+
+/*
+ * A path is shown as it is unless part of it could itself be a credential,
+ * and then only that part is withheld. It is the one way a secret could reach
+ * a sentence that is meant to be safe to read aloud, so it is decided by the
+ * same rules that find credentials in files -- and by a shape test for tokens
+ * no rule names -- rather than by length.
+ *
+ * Length was the old test, and it was wrong in the direction that matters to
+ * a reader: any name with twenty letters, digits, hyphens or underscores in a
+ * row was withheld, which is most test files and workflows in an ordinary
+ * repository (`anonymous-readability-probe.test.js`,
+ * `public-alpha-alpha17.yml`), so the finding could not say where it was.
+ */
+const HIDDEN_SEGMENT = '\u2039hidden\u203a';
+
+function credentialShapedSegment(segment) {
+  if (!segment) return false;
+  if (detectInText({ text: segment }).candidates.length) return true;
+  /*
+   * A token no rule names still looks like one: a long run with no word
+   * breaks, letters and digits mixed, and not much repetition. Words joined
+   * by hyphens, underscores or dots are split first, so a descriptive name is
+   * judged a word at a time and never reaches the length.
+   */
+  return segment.split(/[-_.\s]+/).some(piece => piece.length >= 16
+    && /[A-Za-z]/.test(piece) && /[0-9]/.test(piece)
+    && shannonEntropy(piece) >= 3);
+}
+
 function safeDisplayPath(filePath) {
   if (!filePath) return 'an unnamed file';
   const segments = filePath.split('/');
-  const name = segments.pop() || '';
-  const looksLikeCredential = name.length >= 20 && /[A-Za-z0-9_-]{20,}/.test(name.replace(/\.[a-z0-9]+$/i, ''));
-  if (!looksLikeCredential) return filePath;
-  const directory = segments.join('/');
-  return directory
-    ? `${directory}/ (a file whose name is not shown, because it is itself credential-shaped)`
-    : 'a file whose name is not shown, because it is itself credential-shaped';
+  const last = segments.length - 1;
+  return segments.map((segment, index) => {
+    if (!credentialShapedSegment(segment)) return segment;
+    /*
+     * A short alphabetic extension carries no secret and says what kind of
+     * file this is, so a file keeps it; anything else in the segment goes.
+     */
+    const extension = index === last ? (/\.[A-Za-z]{1,5}$/.exec(segment) || [''])[0] : '';
+    return `${HIDDEN_SEGMENT}${extension}`;
+  }).join('/');
 }
 
 /*

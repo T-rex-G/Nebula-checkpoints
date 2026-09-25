@@ -128,6 +128,21 @@ canvas, so the graph is never redrawn for it, and it stays put with motion off.
 The canvas palette follows the preset too, and the search is focused as one
 control: the ring goes round the whole box, not inside it.
 
+Over that ground lies the **field**, on a canvas of its own beneath the graph
+(after Angelo Libero's Surface Field, re-made for a graph). Its dots belong to
+the graph's world, so panning moves over them. They bend away from the panels
+standing on them -- and flow round a panel while it is dragged -- and sink
+toward the repository hub, the one mass in the picture; none is drawn under a
+panel or the hub. Under the pointer they brighten, swell and join into a fine
+orthogonal mesh, easing out of the hand's way; a press sends a ripple through
+them, and so does choosing a node from the keyboard. Zoomed out, the grid
+doubles its pitch rather than thickening into a haze. The field redraws only
+when the camera or the layout changes, or while its light or a ripple is
+moving -- a still graph under a still pointer draws nothing -- and its light
+is eased by the clock, so it settles on time on a device drawing few frames.
+With motion off, or where the system asks for reduced motion, the bends and
+the well stay and the light and the ripples do not.
+
 ## Data sources
 
 | Graph information | Source |

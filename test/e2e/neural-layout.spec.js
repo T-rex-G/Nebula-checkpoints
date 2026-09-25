@@ -24,7 +24,7 @@ async function openGraph(page, routes) {
   if (routes) await routes(page);
   await page.goto('/#/sandbox/demo@main/neural');
   await page.locator('#neuralCanvas').waitFor({ state: 'visible' });
-  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.nodes.filter(n => n.visible).length)).toBeGreaterThan(2);
+  await expect.poll(() => page.evaluate(() => (window.NebulaNeural ? window.NebulaNeural.state.nodes.filter(n => n.visible).length : 0))).toBeGreaterThan(2);
   await page.locator('#neuralStage').scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
 }

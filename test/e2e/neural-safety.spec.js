@@ -54,7 +54,7 @@ async function openHostileGraph(page) {
   }));
   await page.goto('/#/sandbox/demo@main/neural');
   await page.locator('#neuralCanvas').waitFor({ state: 'visible' });
-  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.nodes.filter(n => n.visible).length)).toBeGreaterThan(5);
+  await expect.poll(() => page.evaluate(() => (window.NebulaNeural ? window.NebulaNeural.state.nodes.filter(n => n.visible).length : 0))).toBeGreaterThan(5);
 }
 
 async function noScriptRan(page) {

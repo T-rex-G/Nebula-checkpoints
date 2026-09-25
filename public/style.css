@@ -2305,6 +2305,7 @@ body.read-only .btn-primary{opacity:.55}
 [data-theme="light"] .neural-gesture-hint{background:rgba(255,255,255,.94);box-shadow:0 10px 30px rgba(49,46,129,.14)}
 @keyframes neuralHintIn{from{opacity:0;transform:translate(-50%,6px)}}
 .neural-fx{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
+.neural-field{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
 .neural-stage-top{position:absolute;z-index:5;left:13px;right:13px;top:12px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;pointer-events:none}
 .neural-stream-state{display:grid;grid-template-columns:9px auto;align-items:center;column-gap:7px;padding:8px 10px;border:1px solid var(--glass-border);border-radius:11px;background:rgba(8,8,24,.63);backdrop-filter:blur(14px);pointer-events:auto}
 [data-theme="light"] .neural-stream-state{background:rgba(255,255,255,.65)}

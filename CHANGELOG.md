@@ -38,6 +38,11 @@ could not be put back from the full view.
   orb -- with no blue halo, white highlight or pale blue rim. A **Reset
   layout** chip appears on the stage whenever a panel has been moved. The
   node search is focused as one control.
+- **A living ground under the graph.** The dot grid is now a field on its own
+  canvas: it bends round the panels (and flows round one being dragged),
+  sinks toward the repository hub, lights and joins into a mesh under the
+  pointer, and ripples from a press or a keyboard selection. It draws nothing
+  while nothing moves, and keeps only its still shape with motion off.
 
 ### Obsidian and Quartz; a Full View That Fits Any Screen; Leaked Credentials on the Graph
 

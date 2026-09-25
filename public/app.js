@@ -17,7 +17,7 @@ const state = {
   staged: [],
   fileIndex: null,
   prState: 'open', issueState: 'open',
-  settings: { fontSize: 14, wrap: true, motion: true, editorTheme: 'material-ocean', editorFont: 'DM Mono' },
+  settings: { fontSize: 14, wrap: true, motion: true, editorTheme: 'material-ocean', editorFont: 'DM Mono', design: 'nebula' },
   governance: { digitalTwin: null, access: null, loading: false, error: '', simulation: null, verification: null, scopeKey: '', decisionPages: [], delivery: { notifications: { events: [] }, preferences: {}, exports: [], webhooks: [], error: '' } },
   /*
    * Limits start unknown, not at the self-hosted maxima. These three used to
@@ -799,7 +799,7 @@ document.addEventListener('pointerdown', event => {
 });
 
 /* Which screen owns which piece of the design's artwork. */
-const NEBULA_VISUALS = Object.freeze({ repos: ['galaxy', '#gxHeroArt'] });
+const NEBULA_VISUALS = Object.freeze({ overview: ['mark', '#ovCoreArt'], repos: ['galaxy', '#gxHeroArt'] });
 
 function showPage(name) {
   setTimeout(measureTopbar, 30);
@@ -881,7 +881,68 @@ function loadSettings() {
   } catch {}
   applySettings();
 }
+/*
+ * Two design presets, one product: Nebula (the default -- violet glass over
+ * the nebula) and Obsidian (stone: near-black or quartz). The theme toggle
+ * picks dark or light within either. Both are applied from the stored
+ * settings by theme-boot.js before the first paint, so a reload never
+ * flashes the other one.
+ */
+const DESIGNS = Object.freeze(['nebula', 'obsidian']);
+const THEME_COLOR = Object.freeze({
+  nebula: { dark: '#06030F', light: '#F5F3FB' },
+  obsidian: { dark: '#07080A', light: '#F4F2EE' }
+});
+function paintThemeColor() {
+  const root = document.documentElement;
+  const meta = document.querySelector('meta[name=theme-color]');
+  const preset = THEME_COLOR[root.dataset.design === 'obsidian' ? 'obsidian' : 'nebula'];
+  if (meta) meta.content = root.dataset.theme === 'light' ? preset.light : preset.dark;
+}
+/*
+ * A change of look is revealed rather than cut: the new one grows as a
+ * circle from the control that asked for it, drawn by the browser's own
+ * view transition on the compositor. Without the API, or with motion off,
+ * the change is simply made.
+ */
+function revealChange(change, origin) {
+  const reduce = !state.settings.motion || document.documentElement.dataset.motion === 'off' || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce || typeof document.startViewTransition !== 'function' || anyOverlayClosing()) { change(); return; }
+  const box = origin && origin.getBoundingClientRect ? origin.getBoundingClientRect() : null;
+  const x = box ? box.left + box.width / 2 : window.innerWidth / 2;
+  const y = box ? box.top + box.height / 2 : window.innerHeight / 2;
+  const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+  const root = document.documentElement;
+  root.classList.add('vt-reveal');
+  const transition = document.startViewTransition(change);
+  transition.ready.then(() => root.animate(
+    { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+    { duration: 560, easing: 'cubic-bezier(.16,1,.3,1)', pseudoElement: '::view-transition-new(root)' }
+  )).catch(() => {});
+  transition.finished.finally(() => root.classList.remove('vt-reveal')).catch(() => {});
+}
+function setDesign(next, origin) {
+  if (!DESIGNS.includes(next) || state.settings.design === next) return;
+  revealChange(() => {
+    state.settings.design = next;
+    applySettings();
+  }, origin);
+}
 function applySettings() {
+  if (!DESIGNS.includes(state.settings.design)) state.settings.design = 'nebula';
+  const root = document.documentElement;
+  const designChanged = root.dataset.design !== state.settings.design;
+  root.dataset.design = state.settings.design;
+  paintThemeColor();
+  if (designChanged) {
+    $$('[data-design-choice]').forEach(choice => {
+      const on = choice.dataset.designChoice === state.settings.design;
+      choice.setAttribute('aria-checked', String(on));
+      choice.tabIndex = on ? 0 : -1;
+    });
+    if (window.NebulaVisuals) window.NebulaVisuals.repaint();
+    if (state.settings.design === 'nebula' && _page === 'overview') mountNebulaVisual('mark', '#ovCoreArt');
+  }
   document.documentElement.style.setProperty('--ed-font', (state.settings.fontSize / 16) + 'rem');
   document.documentElement.style.setProperty('--ed-family', `'${state.settings.editorFont}', ui-monospace, monospace`);
   document.documentElement.dataset.motion = state.settings.motion ? 'on' : 'off';
@@ -896,19 +957,35 @@ function applySettings() {
   }
   try { localStorage.setItem('nv_settings', JSON.stringify(state.settings)); } catch {}
 }
-function toggleTheme() {
+function toggleTheme(origin) {
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = next;
-  const meta = document.querySelector('meta[name=theme-color]');
-  if (meta) meta.content = next === 'dark' ? '#07080A' : '#F4F2EE';
-  try { localStorage.setItem('nv_theme', next); } catch {}
-  $$('.theme-toggle').forEach(t => t.setAttribute('aria-checked', String(next === 'dark')));
-  /* The artwork has its own palettes; it follows the toggle like everything else. */
-  if (window.NebulaVisuals) window.NebulaVisuals.repaint();
+  revealChange(() => {
+    document.documentElement.dataset.theme = next;
+    paintThemeColor();
+    try { localStorage.setItem('nv_theme', next); } catch {}
+    $$('.theme-toggle').forEach(t => t.setAttribute('aria-checked', String(next === 'dark')));
+    /* The artwork has its own palettes; it follows the toggle like everything else. */
+    if (window.NebulaVisuals) window.NebulaVisuals.repaint();
+  }, origin);
 }
 document.addEventListener('click', e => {
   const t = e.target.closest('.theme-toggle');
-  if (t) toggleTheme();
+  if (t) toggleTheme(t);
+  const choice = e.target.closest('[data-design-choice]');
+  if (choice) setDesign(choice.dataset.designChoice, choice);
+});
+/* The Design choices are a radio group: the arrows move the choice, as they
+   do in any radio group, and the group is one tab stop. */
+document.addEventListener('keydown', e => {
+  const choice = e.target.closest && e.target.closest('[data-design-choice]');
+  if (!choice) return;
+  const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  const all = $$('[data-design-choice]');
+  const next = all[(all.indexOf(choice) + step + all.length) % all.length];
+  next.focus();
+  setDesign(next.dataset.designChoice, next);
 });
 $('#settingsBtnRepos').addEventListener('click', openSettings);
 $('#settingsBtnOv') && $('#settingsBtnOv').addEventListener('click', openSettings);
@@ -1089,6 +1166,16 @@ async function openSettings() {
     title: 'Settings',
     okText: 'Done',
     bodyHTML: `
+      <div class="set-group design-presets">
+        <div class="set-label" id="setDesignLabel">Design</div>
+        <div class="design-choices" role="radiogroup" aria-labelledby="setDesignLabel">
+          ${DESIGNS.map(name => `<button type="button" class="design-choice" role="radio" data-design-choice="${name}" aria-checked="${s.design === name}" tabindex="${s.design === name ? 0 : -1}">
+            <span class="design-swatch design-swatch-${name}" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="design-name">${name === 'nebula' ? 'Nebula' : 'Obsidian'}</span>
+            <span class="design-note">${name === 'nebula' ? 'Violet glass over the nebula' : 'Polished stone · quartz in light'}</span>
+          </button>`).join('')}
+        </div>
+      </div>
       <div class="set-row"><span>Interface theme</span>
         <button class="theme-toggle" type="button" role="switch" aria-checked="${dark}" aria-label="Toggle dark or light theme">
           <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
@@ -1906,6 +1993,8 @@ async function loadScannerPosture() {
 function mountNebulaVisual(kind, selector) {
   const host = $(selector);
   if (!host || !window.NebulaVisuals) return;
+  /* The turning mark is Nebula's; Obsidian's core is the SVG instrument. */
+  if (kind === 'mark' && state.settings.design === 'obsidian') return;
   window.NebulaVisuals.mount(kind, host);
 }
 

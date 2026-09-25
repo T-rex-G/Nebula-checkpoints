@@ -8,11 +8,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>__NV_PRODUCT_NAME__ — Git, from orbit</title>
 <meta name="description" content="Enterprise-grade web Git client for GitHub. PRs, issues, releases, staged commits — and pushes of any size via automatic Git LFS.">
-<meta name="theme-color" content="#07080A">
+<meta name="theme-color" content="#06030F">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#07080A">
-<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F4F2EE">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#06030F">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F5F3FB">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="__NV_PRODUCT_NAME__">
@@ -540,29 +540,36 @@
           the same on every device, with nothing to download and nothing that
           needs a GPU.
         -->
-        <div class="ov-core-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"><svg class="ov-core-emblem" viewBox="0 0 400 220" focusable="false">
+        <div class="ov-core-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"></span><svg class="ov-core-emblem" viewBox="0 0 400 220" focusable="false">
           <defs>
             <linearGradient id="ocDeep" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="oc-deep-a"/><stop offset="1" class="oc-deep-b"/></linearGradient>
             <linearGradient id="ocLight" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="oc-light-a"/><stop offset="1" class="oc-light-b"/></linearGradient>
             <linearGradient id="ocEdge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="oc-edge-a"/><stop offset=".55" class="oc-edge-b"/><stop offset="1" class="oc-edge-c"/></linearGradient>
             <linearGradient id="ocArc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="oc-arc-a"/><stop offset="1" class="oc-arc-b"/></linearGradient>
+            <linearGradient id="ocSweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="oc-sweep-a"/><stop offset=".5" class="oc-sweep-b"/><stop offset="1" class="oc-sweep-a"/></linearGradient>
             <radialGradient id="ocFloor" cx=".5" cy=".5" r=".5"><stop offset="0" class="oc-floor-a"/><stop offset="1" class="oc-floor-b"/></radialGradient>
+            <clipPath id="ocMarkClip"><path d="M79 25 L40 217 L106 116 Z M79 25 L106 116 L171 112 Z M244 23 L178 124 L205 215 Z M178 124 L113 128 L205 215 Z"/></clipPath>
           </defs>
           <ellipse class="oc-floor" cx="200" cy="168" rx="70" ry="10" fill="url(#ocFloor)"/>
           <circle class="oc-ticks" cx="200" cy="110" r="96"/>
           <circle class="oc-ring" cx="200" cy="110" r="80"/>
           <circle class="oc-ring oc-ring-fine" cx="200" cy="110" r="60"/>
-          <path class="oc-arc" d="M131.4 50.3A92 92 0 0 1 247.8 31.6" stroke="url(#ocArc)"/>
           <path class="oc-cardinal" d="M200 6v8M200 206v8M96 110h8M296 110h8"/>
-          <circle class="oc-node" cx="276.4" cy="54.6" r="3"/>
-          <g class="oc-mark" transform="translate(200 112) scale(.34) translate(-142 -120)">
-            <path d="M79 25 L40 217 L106 116 Z" fill="url(#ocDeep)"/>
-            <path d="M79 25 L106 116 L171 112 Z" fill="url(#ocLight)"/>
-            <path d="M244 23 L178 124 L205 215 Z" fill="url(#ocDeep)"/>
-            <path d="M178 124 L113 128 L205 215 Z" fill="url(#ocLight)"/>
-            <path class="oc-facets" d="M79 25 L40 217 L106 116 Z M79 25 L106 116 L171 112 Z M244 23 L178 124 L205 215 Z M178 124 L113 128 L205 215 Z" stroke="url(#ocEdge)"/>
+          <g class="oc-orbit">
+            <path class="oc-arc" d="M131.4 50.3A92 92 0 0 1 247.8 31.6" stroke="url(#ocArc)"/>
+            <circle class="oc-node" cx="276.4" cy="54.6" r="3"/>
           </g>
-        </svg></span></div>
+          <g class="oc-float">
+            <g class="oc-mark" transform="translate(200 112) scale(.34) translate(-142 -120)">
+              <path d="M79 25 L40 217 L106 116 Z" fill="url(#ocDeep)"/>
+              <path d="M79 25 L106 116 L171 112 Z" fill="url(#ocLight)"/>
+              <path d="M244 23 L178 124 L205 215 Z" fill="url(#ocDeep)"/>
+              <path d="M178 124 L113 128 L205 215 Z" fill="url(#ocLight)"/>
+              <g clip-path="url(#ocMarkClip)"><rect class="oc-sweep" x="-90" y="0" width="90" height="240" fill="url(#ocSweep)"/></g>
+              <path class="oc-facets" d="M79 25 L40 217 L106 116 Z M79 25 L106 116 L171 112 Z M244 23 L178 124 L205 215 Z M178 124 L113 128 L205 215 Z" stroke="url(#ocEdge)"/>
+            </g>
+          </g>
+        </svg></div>
         <p class="ov-core-line">Secure by default. Proven by design.</p>
       </aside>
     </section>
@@ -1025,6 +1032,8 @@
               </div>
               <!-- A passing note when a gesture scrolled the page instead of moving the graph. -->
               <div class="neural-gesture-hint" id="neuralGestureHint" aria-hidden="true" hidden></div>
+              <!-- On the stage itself once a panel has been moved: the way back is where the change was made. -->
+              <button class="neural-reset-chip" id="neuralResetLayout" type="button" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 12a7.2 7.2 0 1 0 2.1-5.1M4.8 6.2v5.1h5.1"/></svg>Reset layout</button>
               <!-- Details for the selected node, placed beside it by neural.js. -->
               <section class="neural-card" id="neuralCard" role="dialog" aria-modal="false" aria-labelledby="neuralCardTitle" hidden></section>
               <p class="sr-only" id="neuralLive" role="status" aria-live="polite"></p>

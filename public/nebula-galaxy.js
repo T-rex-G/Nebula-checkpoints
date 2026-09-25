@@ -194,26 +194,39 @@ void main() {
 }`;
 
 /*
- * Silver on obsidian, graphite on quartz. The spiral was drawn in the
- * product's violets and magentas, and on screens built from stone and one
- * accent it read as the decoration of a template; in monochrome it reads the
- * way a long-exposure photograph of a galaxy does.
+ * Per design preset. Nebula draws the spiral in the product's violets and
+ * magentas; Obsidian in silver on obsidian and graphite on quartz, the way a
+ * long-exposure photograph of a galaxy reads on a screen built from stone.
  */
 const PALETTE = {
-  dark: {
-    core:  0xffffff, inner: 0xe6e8ec, mid: 0xaab0ba,
-    deep:  0x5c626c, mag:   0xcfd3da, crim: 0x8b929d,
-    exposure: 1.15
+  nebula: {
+    dark: {
+      core:  0xfff6ff, inner: 0xd8c4ff, mid: 0x8b5cf6,
+      deep:  0x5b2fd6, mag:   0xd946ef, crim: 0xe0218a,
+      exposure: 1.35
+    },
+    light: {
+      core:  0x2e1065, inner: 0x7c3aed, mid: 0x6d28d9,
+      deep:  0x4c1d95, mag:   0xa21caf, crim: 0x9d174d,
+      exposure: 1.0
+    }
   },
-  light: {
-    core:  0x1c1917, inner: 0x44403c, mid: 0x78716c,
-    deep:  0x57534e, mag:   0xa8a29e, crim: 0x8a817a,
-    exposure: 0.95
+  obsidian: {
+    dark: {
+      core:  0xffffff, inner: 0xe6e8ec, mid: 0xaab0ba,
+      deep:  0x5c626c, mag:   0xcfd3da, crim: 0x8b929d,
+      exposure: 1.15
+    },
+    light: {
+      core:  0x1c1917, inner: 0x44403c, mid: 0x78716c,
+      deep:  0x57534e, mag:   0xa8a29e, crim: 0x8a817a,
+      exposure: 0.95
+    }
   }
 };
 
 class NebulaGalaxy extends HTMLElement {
-  static get observedAttributes() { return ['theme', 'density']; }
+  static get observedAttributes() { return ['theme', 'density', 'design']; }
 
   connectedCallback() {
     if (this._built) return;
@@ -305,7 +318,8 @@ class NebulaGalaxy extends HTMLElement {
   paint() {
     if (this._failed) return;
     const light = (this.getAttribute('theme') || 'dark') === 'light';
-    const p = PALETTE[light ? 'light' : 'dark'];
+    const preset = PALETTE[this.getAttribute('design') === 'obsidian' ? 'obsidian' : 'nebula'];
+    const p = preset[light ? 'light' : 'dark'];
     const u = this.uniforms;
     u.uLight.value = light ? 1 : 0;
     u.uExposure.value = p.exposure;

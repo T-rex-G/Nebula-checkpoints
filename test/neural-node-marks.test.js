@@ -63,4 +63,34 @@ assert(
   'the unguarded glyph branch must be gone'
 );
 
+/*
+ * The pager's "next" button painted as a filled disc with its chevron gone.
+ * The light palettes hand group colours over as rgb() strings, and the
+ * translucency helper returned anything it could not read as hex unchanged --
+ * so the button's "faint" fill was the chevron's own solid colour. Evaluated
+ * here from the source, so the check is on the function the page runs.
+ */
+const helper = source.match(/function hexAlpha\(hex, alpha\) \{[\s\S]*?\n  \}\n/);
+assert(helper, 'neural.js must define hexAlpha');
+const hexAlpha = new Function(`${helper[0]}; return hexAlpha;`)();
+assert.strictEqual(hexAlpha('rgb(76, 29, 149)', 0.1), 'rgba(76,29,149,0.1)', 'rgb() ink must take the requested alpha');
+assert.strictEqual(hexAlpha('rgba(10,20,30,.9)', 0.25), 'rgba(10,20,30,0.25)', 'rgba() ink must take the requested alpha');
+assert.strictEqual(hexAlpha('#8B5CF6', 0.5), 'rgba(139,92,246,0.5)');
+assert.strictEqual(hexAlpha('#abc', 1), 'rgba(170,187,204,1)');
+
+/*
+ * The repository hub is the product's violet mark. It was drawn under a blue
+ * halo, with a white highlight, a pale blue rim and a white-and-blue N -- read
+ * on a phone as layers stacked on the node. Nothing in it may be white or
+ * blue again.
+ */
+const hub = source.match(/function drawHub\([\s\S]*?\n  \}\n/);
+assert(hub, 'neural.js must define drawHub');
+const hubBody = hub[0].slice(0, hub[0].indexOf("The repository's name"));
+for (const banned of ['#ffffff', '#fff\'', '255,255,255', '224,231,255', '191,219,254', '96,165,250', '#818cf8', '#60a5fa', '#38bdf8']) {
+  assert(!hubBody.toLowerCase().includes(banned), `the hub still paints ${banned}`);
+}
+const arcs = source.slice(source.indexOf('if (hub) {'), source.indexOf('if (hub) {') + 900);
+assert(!/818cf8|60a5fa|38bdf8/i.test(arcs), 'the hub\'s turning arcs are still blue');
+
 console.log('neural node mark tests passed');

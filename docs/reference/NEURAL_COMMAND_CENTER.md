@@ -3,7 +3,8 @@ The Neural Command Center is an operational graph built from repository, identit
 
 ## Reading the graph
 
-The repository is the hub at the centre, drawn with the Nebulaverse-X mark.
+The repository is the hub at the centre, drawn as the Nebulaverse-X app icon:
+violet plates on a deep violet orb, with a violet halo and rim.
 Every other node belongs to a group -- branches, workflows, identities,
 vulnerabilities and so on -- and each group is a panel: a header with the
 group's icon and name and its count in a pill, then one row per member, its
@@ -60,8 +61,10 @@ Dragging from empty ground or from a row moves the stage; rows never leave
 their panels. **Dragging a panel by its header** moves the panel, its rows and
 their strands together. Where panels were put is remembered in this browser
 for that repository, mode and layout (two columns or one), and **Reset
-layout** under Groups on screen puts them back; signing out or switching
-account clears it with the rest of the repository's browser state.
+layout** puts them back -- under Groups on screen, and on the stage itself as
+a chip at the bottom while anything has been moved, so the full view has it
+without opening the rail. Signing out or switching account clears it with the
+rest of the repository's browser state.
 
 On the page, the graph does not trap scrolling: the wheel and a one-finger
 swipe scroll the page past it. Ctrl or Cmd with the wheel, a pinch, or two
@@ -116,12 +119,14 @@ effects layer above it, which takes no pointer events, redraws only what
 animates (the signals on the strands, a critical node's breathing ring, the
 hub's arcs, the relationship dashes and the card's line), at half rate once
 the graph is at rest. Paused, or scrolled out of view, or in a hidden tab, the
-graph does not draw at all. The ground is CSS, painted once by the browser:
-obsidian in the dark theme -- a black with a cool undertone, a soft light behind
-the hub, a trace of teal at one edge, a diagonal sheen and a vignette -- and
-quartz in the light theme, a warm milky white. A soft light follows the pointer
-across it and a fine grain gives it a surface; both are behind the canvas, so
-the graph is never redrawn for them, and the light stays put with motion off.
+graph does not draw at all. The ground is CSS, painted once by the browser,
+and follows the design preset: in Nebula, the violet deep of the nebula (a
+lavender field in light); in Obsidian, a black with a cool undertone, a soft
+light behind the hub, a diagonal sheen and a vignette, or quartz, a warm milky
+white, in light. A soft light follows the pointer across it; it is behind the
+canvas, so the graph is never redrawn for it, and it stays put with motion off.
+The canvas palette follows the preset too, and the search is focused as one
+control: the ring goes round the whole box, not inside it.
 
 ## Data sources
 

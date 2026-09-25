@@ -1104,16 +1104,29 @@
     return (.2126 * (v >> 16) + .7152 * ((v >> 8) & 255) + .0722 * (v & 255)) / 255;
   }
   function isLight() { return document.documentElement.dataset.theme === 'light'; }
+  function obsidian() { return document.documentElement.dataset.design === 'obsidian'; }
   function palette() {
-    /* Quartz and obsidian: the panels are the stone's own surface, frosted
-     * over the ground, and the ink is warm charcoal or cool ivory rather than
-     * the indigo of before. */
+    /* Two design presets. Nebula's panels are indigo glass with indigo ink;
+     * Obsidian's are the stone's own surface -- warm charcoal ink on quartz,
+     * cool ivory on obsidian. The theme key names both, so switching either
+     * redraws the graph. */
+    if (!obsidian()) {
+      return isLight() ? {
+        theme: 'nebula-light', surface: '#ffffff', grid: 'rgba(49,46,129,.07)', ring: 'rgba(79,70,229,.2)',
+        panel: 'rgba(255,255,255,.9)', panelEdge: .38, text: '#1e1b4b', muted: '#5b5f7a', row: 'rgba(49,46,129,.05)',
+        ink: color => (luminanceOf(color) > .78 ? '#475569' : darken(color, .28)), glow: false
+      } : {
+        theme: 'nebula-dark', surface: '#0e1026', grid: 'rgba(196,203,255,.07)', ring: 'rgba(129,140,248,.24)',
+        panel: 'rgba(11,13,34,.78)', panelEdge: .34, text: '#eef0ff', muted: '#9aa0c3', row: 'rgba(255,255,255,.035)',
+        ink: color => color, glow: true
+      };
+    }
     return isLight() ? {
-      theme: 'light', surface: '#fbfaf8', grid: 'rgba(41,37,36,.07)', ring: 'rgba(120,108,98,.22)',
+      theme: 'obsidian-light', surface: '#fbfaf8', grid: 'rgba(41,37,36,.07)', ring: 'rgba(120,108,98,.22)',
       panel: 'rgba(255,255,255,.9)', panelEdge: .34, text: '#1c1917', muted: '#6b645d', row: 'rgba(41,37,36,.045)',
       ink: color => (luminanceOf(color) > .78 ? '#57534e' : darken(color, .3)), glow: false
     } : {
-      theme: 'dark', surface: '#0c0d10', grid: 'rgba(226,232,240,.055)', ring: 'rgba(203,213,225,.17)',
+      theme: 'obsidian-dark', surface: '#0c0d10', grid: 'rgba(226,232,240,.055)', ring: 'rgba(203,213,225,.17)',
       panel: 'rgba(14,15,19,.84)', panelEdge: .3, text: '#eceef1', muted: '#9aa1ab', row: 'rgba(255,255,255,.04)',
       ink: color => color, glow: true
     };
@@ -1401,13 +1414,12 @@
       ctx.save();
       ctx.globalAlpha = focus && !focus.nodes.has(hub.id) ? .55 : 1;
       ctx.lineWidth = 2; ctx.lineCap = 'round';
-      ctx.strokeStyle = 'rgba(147,197,253,.7)';
+      ctx.strokeStyle = 'rgba(167,139,250,.6)';
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.18, turn, turn + 1.2); ctx.stroke();
-      ctx.strokeStyle = 'rgba(196,181,253,.6)';
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.18, turn + Math.PI, turn + Math.PI + .8); ctx.stroke();
       const slow = now * .00012;
       ctx.lineWidth = 1.4;
-      ctx.strokeStyle = hexAlpha('#818cf8', isLight() ? .3 : .4);
+      ctx.strokeStyle = hexAlpha('#a78bfa', isLight() ? .3 : .4);
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.7, slow, slow + 1.1); ctx.stroke();
       ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.7, slow + Math.PI, slow + Math.PI + .6); ctx.stroke();
       ctx.restore();
@@ -1450,6 +1462,11 @@
     ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
   function hexAlpha(hex, alpha) {
+    /* Ink can arrive as rgb() -- the light palettes darken a group's colour --
+     * and returning it unchanged painted a pager button solid in its own
+     * chevron's colour, so the chevron vanished into a filled disc. */
+    const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(String(hex));
+    if (rgb) return `rgba(${rgb[1]},${rgb[2]},${rgb[3]},${alpha})`;
     const h = String(hex).replace('#', '');
     if (!/^[0-9a-f]{3}([0-9a-f]{3})?$/i.test(h)) return hex;
     const v = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
@@ -1936,25 +1953,33 @@
     const active = (NVN.selected && NVN.selected.id === node.id) || (NVN.hover && NVN.hover.id === node.id);
     ctx.save();
     ctx.globalAlpha = dim ? .55 : 1;
-    const halo = ctx.createRadialGradient(x, y, r * .6, x, y, r * 3);
-    halo.addColorStop(0, isLight() ? 'rgba(99,102,241,.26)' : 'rgba(99,102,241,.55)');
-    halo.addColorStop(.45, isLight() ? 'rgba(59,130,246,.1)' : 'rgba(59,130,246,.18)');
-    halo.addColorStop(1, 'rgba(99,102,241,0)');
-    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, r * 3, 0, Math.PI * 2); ctx.fill();
-    const orb = ctx.createRadialGradient(x - r * .32, y - r * .38, r * .08, x, y, r);
-    orb.addColorStop(0, '#dbeafe'); orb.addColorStop(.28, '#60a5fa'); orb.addColorStop(.62, '#6d28d9'); orb.addColorStop(1, '#1e1b4b');
-    if (colors.glow) { ctx.shadowColor = 'rgba(96,165,250,.8)'; ctx.shadowBlur = active ? 44 : 30; }
+    /* One violet: the orb, its glow and its edge are the product's colour and
+     * nothing else -- the blue halo, the white highlight and the pale blue
+     * rim read as layers stacked on the mark rather than as the mark. */
+    const halo = ctx.createRadialGradient(x, y, r * .6, x, y, r * 2.6);
+    halo.addColorStop(0, isLight() ? 'rgba(124,58,237,.2)' : 'rgba(124,58,237,.42)');
+    halo.addColorStop(1, 'rgba(124,58,237,0)');
+    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, r * 2.6, 0, Math.PI * 2); ctx.fill();
+    /* The orb is the app icon's own ground -- a deep violet bloom -- so the
+     * mark on it can be the icon's violet plates rather than white on blue. */
+    const orb = ctx.createRadialGradient(x + r * .34, y - r * .5, r * .08, x, y, r * 1.05);
+    orb.addColorStop(0, '#5b3fd0'); orb.addColorStop(.5, '#2e1878'); orb.addColorStop(1, '#0f0830');
+    if (colors.glow) { ctx.shadowColor = 'rgba(124,58,237,.7)'; ctx.shadowBlur = active ? 40 : 26; }
     ctx.fillStyle = orb; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.lineWidth = active ? 2.4 : 1.6; ctx.strokeStyle = 'rgba(191,219,254,.75)'; ctx.stroke();
+    ctx.lineWidth = active ? 2.2 : 1.4; ctx.strokeStyle = active ? 'rgba(196,181,253,.8)' : 'rgba(167,139,250,.45)'; ctx.stroke();
     if (typeof Path2D === 'function') {
       if (!hubMarkPaths) hubMarkPaths = HUB_MARK.map(item => ({ path: new Path2D(item.d), tone: item.tone }));
       const size = r * 1.18, scale = size / 228;
       ctx.save();
       ctx.translate(x - 142 * scale, y - 120 * scale);
       ctx.scale(scale, scale);
+      const light = ctx.createLinearGradient(40, 23, 244, 217);
+      light.addColorStop(0, '#d9ceff'); light.addColorStop(1, '#8b74ff');
+      const deep = ctx.createLinearGradient(244, 23, 40, 217);
+      deep.addColorStop(0, '#7a5cff'); deep.addColorStop(1, '#3a23a8');
       for (const item of hubMarkPaths) {
-        ctx.fillStyle = item.tone === 'light' ? '#ffffff' : 'rgba(224,231,255,.72)';
+        ctx.fillStyle = item.tone === 'light' ? light : deep;
         ctx.fill(item.path);
       }
       ctx.restore();
@@ -1967,7 +1992,7 @@
     const ly = NVN.layoutMode === 'stack' ? y - r - 30 : y + r + 30;
     roundRect(ctx, x - w / 2, ly - 14, w, 28, 10);
     ctx.fillStyle = isLight() ? 'rgba(255,255,255,.94)' : 'rgba(10,12,30,.9)'; ctx.fill();
-    ctx.lineWidth = 1; ctx.strokeStyle = isLight() ? 'rgba(49,46,129,.18)' : 'rgba(191,219,254,.28)'; ctx.stroke();
+    ctx.lineWidth = 1; ctx.strokeStyle = isLight() ? 'rgba(91,33,182,.18)' : 'rgba(196,181,253,.3)'; ctx.stroke();
     ctx.fillStyle = colors.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(name, x, ly + .5);
     ctx.restore();
@@ -2772,7 +2797,17 @@
   ];
   const EYE_OPEN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>';
   const EYE_SHUT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M9.9 5.8A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.9 3.7M6.1 7.4C3.8 9.1 2.5 12 2.5 12s3.5 6.5 9.5 6.5a9.6 9.6 0 0 0 4.2-.9"/></svg>';
+  /* The stage's own Reset layout: shown while this repository, mode and
+   * shape have panels the reader moved. */
+  function syncResetChip() {
+    const chip = document.getElementById('neuralResetLayout');
+    const stage = document.getElementById('neuralStage');
+    const moved = hasPlacements();
+    if (chip) chip.hidden = !moved;
+    if (stage) stage.classList.toggle('has-placements', moved);
+  }
   function renderLegend() {
+    syncResetChip();
     const host = document.getElementById('neuralLegend');
     if (!host) return;
     const stats = new Map();
@@ -3041,6 +3076,7 @@
     document.getElementById('neuralLiveBtn')?.addEventListener('click', liveConnectionFlow);
     document.getElementById('neuralRefreshBtn')?.addEventListener('click', () => load(true));
     document.getElementById('neuralFitBtn')?.addEventListener('click', () => fitGraph(true));
+    document.getElementById('neuralResetLayout')?.addEventListener('click', () => resetPlacements());
     wireStageExpansion();
     document.getElementById('neuralPlayBtn')?.addEventListener('click', togglePause);
     document.getElementById('neuralExplainBtn')?.addEventListener('click', explainFromSelected);

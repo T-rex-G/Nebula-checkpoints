@@ -22,17 +22,21 @@
   try { stored = localStorage.getItem('nv_theme'); } catch (e) { stored = null; }
   if (stored === 'dark' || stored === 'light') root.dataset.theme = stored;
 
-  // The access gate appears before app.js restores Settings. Motion is a
-  // product-wide choice too, including the landing video and CSS entrances.
+  // The access gate appears before app.js restores Settings. Motion and the
+  // design preset are product-wide choices too, including the landing page.
+  var design = 'nebula';
   try {
     var settings = JSON.parse(localStorage.getItem('nv_settings'));
     if (settings && typeof settings.motion === 'boolean') {
       root.dataset.motion = settings.motion ? 'on' : 'off';
     }
+    if (settings && settings.design === 'obsidian') design = 'obsidian';
   } catch (e) { /* Missing, malformed or blocked storage keeps the defaults. */ }
+  root.dataset.design = design;
 
   var meta = document.querySelector('meta[name=theme-color]');
-  if (meta) meta.content = root.dataset.theme === 'light' ? '#F4F2EE' : '#07080A';
+  var light = root.dataset.theme === 'light';
+  if (meta) meta.content = design === 'obsidian' ? (light ? '#F4F2EE' : '#07080A') : (light ? '#F5F3FB' : '#06030F');
 
   /*
    * The switches report the theme they are actually in. They are markup, so

@@ -90,6 +90,15 @@ const hubBody = hub[0].slice(0, hub[0].indexOf("The repository's name"));
 for (const banned of ['#ffffff', '#fff\'', '255,255,255', '224,231,255', '191,219,254', '96,165,250', '#818cf8', '#60a5fa', '#38bdf8']) {
   assert(!hubBody.toLowerCase().includes(banned), `the hub still paints ${banned}`);
 }
+/* Its colours come from the preset's palette; Nebula's two (dark and light)
+ * are violet only. Obsidian's hub is graphite and silver by design. */
+const hubTones = [...source.matchAll(/hub: \{[\s\S]*?\n\s*\}/g)].map(match => match[0]);
+assert.strictEqual(hubTones.length, 4, 'every palette must say how its hub is drawn');
+for (const tone of hubTones.slice(0, 2)) {
+  for (const banned of ['#fff', '255,255,255', '224,231,255', '191,219,254', '96,165,250', '#818cf8', '#60a5fa', '#38bdf8']) {
+    assert(!tone.toLowerCase().includes(banned), `Nebula's hub still paints ${banned}`);
+  }
+}
 const arcs = source.slice(source.indexOf('if (hub) {'), source.indexOf('if (hub) {') + 900);
 assert(!/818cf8|60a5fa|38bdf8/i.test(arcs), 'the hub\'s turning arcs are still blue');
 

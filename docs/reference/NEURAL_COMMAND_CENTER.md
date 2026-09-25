@@ -3,8 +3,10 @@ The Neural Command Center is an operational graph built from repository, identit
 
 ## Reading the graph
 
-The repository is the hub at the centre, drawn as the Nebulaverse-X app icon:
-violet plates on a deep violet orb, with a violet halo and rim.
+The repository is the hub at the centre, drawn as the Nebulaverse-X app icon
+in the design preset's colours: violet plates on a deep violet orb with a
+violet halo and rim in Nebula, and a graphite sphere with the mark cut in
+silver, lit white, in Obsidian. Its turning arcs and the spine follow suit.
 Every other node belongs to a group -- branches, workflows, identities,
 vulnerabilities and so on -- and each group is a panel: a header with the
 group's icon and name and its count in a pill, then one row per member, its

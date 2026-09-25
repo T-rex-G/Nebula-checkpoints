@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### A Landing That Shows the Product; Presets Finished
+
+On a phone the Obsidian preset still showed Nebula's 3D mark in the Trust
+core and a violet galaxy on the repositories page; Nebula's Trust core sat
+on a spinning wheel of cyan, magenta and violet; the topology hub glowed
+violet in Obsidian; and Nebula's stage mixed several background colours.
+
+- **Landing.** Below the gate the page now shows the product rather than
+  describing it: the three providers named plainly; a framed miniature of
+  the Neural view -- hub, group panels and live strands in each group's
+  colour -- that settles flat as it scrolls into view and animates only
+  while on screen; the capabilities as a bento, each with a small live
+  picture (a previewed diff, held paths, the provider capability matrix, a
+  live signal); how it works as three moves passing a sticky heading with a
+  scroll-linked rail; the build's own numbers (99 detectors, 43 verifiers,
+  3 providers, 0 unpreviewed writes) counting up once; and a closing call
+  that returns to the entry card and puts the reader in its first control.
+  The headline rises line by line. Every width from 320px to wide displays
+  gets the whole page, both presets and both themes repaint it, and motion
+  off holds all of it still.
+- **Trust core.** Nebula's ground is a still pool of violet under the 3D mark
+  and the turning instrument. Choosing Obsidian takes the 3D mark out of
+  the page (its own inline style had kept it visible) and frees its GL
+  context; it mounts again if Nebula returns.
+- **Stale modules.** The galaxy and 3D mark are imported with the build
+  stamp. Imported by bare path they were cached for a week, so a phone kept
+  drawing last week's violet-only galaxy in Obsidian.
+- **Topology.** The hub, its arcs and the spine take the preset's colours --
+  graphite and silver in Obsidian. Nebula's stage and canvas palette are one
+  violet family, without the indigo and cyan clouds.
+- **CI.** The field keys its redraws on the geometry it depends on, so a
+  font load or a resize no longer redraws a still field.
+
 ### Two Design Presets: Nebula and Obsidian
 
 Obsidian replaced the violet Nebula look outright; the Trust core stood

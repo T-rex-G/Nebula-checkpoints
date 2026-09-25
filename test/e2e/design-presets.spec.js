@@ -126,16 +126,19 @@ test('the Trust core is alive in both presets, and still when motion is off', as
     return {
       aura: getComputedStyle(document.querySelector('#ovCoreArt .ov-core-glow'), '::before').animationName,
       auraShown: getComputedStyle(document.querySelector('#ovCoreArt .ov-core-glow'), '::before').display,
+      auraPaint: getComputedStyle(document.querySelector('#ovCoreArt .ov-core-glow'), '::before').backgroundImage,
       orbit: running(document.querySelector('#ovCoreArt .oc-orbit')),
       sweep: running(document.querySelector('#ovCoreArt .oc-sweep')),
       float: running(document.querySelector('#ovCoreArt .oc-float'))
     };
   });
-  /* Nebula: the aura turns behind the mark. */
+  /* Nebula: a still pool of violet under the mark -- no turning wheel of
+     colours, which was reported twice as unprofessional -- and the
+     instrument moving round it. */
   const nebula = await motion();
-  expect(nebula.aura).toBe('ov-spin');
+  expect(nebula.aura).toBe('none');
   expect(nebula.auraShown).not.toBe('none');
-  /* The emblem stands in where the dimensional mark cannot be drawn; it moves. */
+  expect(nebula.auraPaint).not.toMatch(/conic|34, 211, 238|217, 70, 239/);
   expect(nebula.orbit).toBe('oc-turn');
 
   await page.evaluate(() => { document.documentElement.dataset.design = 'obsidian'; });
@@ -150,6 +153,26 @@ test('the Trust core is alive in both presets, and still when motion is off', as
   expect(still.orbit).toBe('none');
   expect(still.sweep).toBe('none');
   expect(still.aura).toBe('none');
+});
+
+test('choosing Obsidian takes the dimensional mark out of the Trust core', async ({ page }) => {
+  await openOverview(page);
+  /* Stand in for a device that drew the mark: the element is what matters. */
+  await page.evaluate(() => {
+    const core = document.getElementById('ovCoreArt');
+    const mark = document.createElement('nebula-mark-3d');
+    mark.style.display = 'block';
+    core.appendChild(mark);
+    core.dataset.nebulaMounted = 'true';
+  });
+  await openSettings(page);
+  await page.getByRole('radio', { name: /Obsidian/ }).click();
+  await expect.poll(() => design(page)).toBe('obsidian');
+  const core = await page.evaluate(() => {
+    const art = document.getElementById('ovCoreArt');
+    return { marks: art.querySelectorAll('nebula-mark-3d').length, mounted: art.dataset.nebulaMounted || '', emblem: getComputedStyle(art.querySelector('.oc-float')).display };
+  });
+  expect(core).toEqual({ marks: 0, mounted: '', emblem: 'inline' });
 });
 
 test('the landing bar has no ground at rest, and a full-width one once the page scrolls', async ({ page }) => {

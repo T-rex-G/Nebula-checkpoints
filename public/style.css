@@ -637,7 +637,7 @@ em{color:var(--teal);font-style:normal}
 .lp-step-d{font-size:.78rem;color:var(--text2);line-height:1.5}
 .lp-more{position:relative;padding-top:72px;background:transparent;border:0}
 .lp-sec{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(32px,6vw,80px)}
-.lp-sec + .lp-sec{margin-top:100px}
+.lp-more > * + *{margin-top:clamp(84px,11vw,148px)}
 .lp-sec-head{max-width:31rem;margin:0}
 .lp-sec-eyebrow{margin:0 0 12px;font-family:var(--font-mono);font-size:.66rem;font-weight:600;
   letter-spacing:.15em;text-transform:uppercase;color:var(--teal)}
@@ -2259,16 +2259,15 @@ body.read-only .btn-primary{opacity:.55}
 .neural-swatch.normal{color:#22D3EE;background:#22D3EE}
 .neural-rail-action{margin-top:6px!important;justify-content:flex-start;padding-left:11px;min-height:36px}
 .neural-stage{position:relative;height:var(--neural-stage-h,620px);min-height:0;border-radius:18px;
-  /* Nebula's ground: deep navy lit from behind the hub, two faint clouds of
-   * the brand's indigo and cyan, and a vignette that keeps the eye in the
-   * middle. Obsidian replaces it below. Painted once by the browser; the
+  /* Nebula's ground is one colour: a violet-black, lit once from behind the
+   * hub in its own violet and darkened to the edges. Clouds of indigo, cyan
+   * and violet at the corners read as several backgrounds rather than one
+   * ground. Obsidian replaces it below. Painted once by the browser; the
    * canvas draws only the graph. */
   background:
-    radial-gradient(ellipse 120% 95% at 50% 50%,transparent 45%,rgba(3,4,12,.62) 100%),
-    radial-gradient(circle at 50% 50%,rgba(79,70,229,.22),rgba(79,70,229,.07) 32%,transparent 58%),
-    radial-gradient(circle at 16% 82%,rgba(8,145,178,.12),transparent 42%),
-    radial-gradient(circle at 86% 14%,rgba(124,58,237,.11),transparent 40%),
-    linear-gradient(180deg,#080a1c 0%,#0a0c22 55%,#06070f 100%);
+    radial-gradient(ellipse 120% 95% at 50% 50%,transparent 42%,rgba(4,2,12,.66) 100%),
+    radial-gradient(circle at 50% 48%,rgba(124,58,237,.2),rgba(124,58,237,.06) 34%,transparent 60%),
+    linear-gradient(180deg,#0c0820 0%,#0a0719 55%,#06040f 100%);
   isolation:isolate;overflow:hidden}
 /*
  * The stage answers the hand. A soft light follows the pointer across the
@@ -2289,7 +2288,10 @@ body.read-only .btn-primary{opacity:.55}
    own light, so the ring stays off it. */
 .neural-stage::after{display:none}
 @media(prefers-reduced-motion:reduce){.neural-light{transition:none}}
-[data-theme="light"] .neural-stage{background:radial-gradient(circle at 50% 46%,rgba(104,87,255,.12),transparent 32%),radial-gradient(circle at 23% 70%,rgba(31,180,162,.09),transparent 25%),rgba(238,240,251,.36)}
+[data-theme="light"] .neural-stage{background:
+  radial-gradient(ellipse 120% 95% at 50% 50%,transparent 50%,rgba(76,29,149,.06) 100%),
+  radial-gradient(circle at 50% 48%,rgba(139,92,246,.12),transparent 42%),
+  linear-gradient(180deg,#f6f3fe 0%,#f1edfc 100%)}
 #neuralCanvas{display:block;width:100%;height:100%;min-height:0;touch-action:none;cursor:grab;outline:none;position:relative;z-index:1}
 #neuralCanvas:active{cursor:grabbing}
 /* On the page, a finger scrolls the page past the graph; two fingers, or the
@@ -2979,26 +2981,31 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   border-radius:14px;overflow:hidden;
   background:radial-gradient(ellipse 62% 66% at 50% 50%, rgba(124,58,237,.34), rgba(76,29,149,.13) 55%, transparent 78%)}
 /*
- * Three layers, one stage. The glow is Nebula's aura: a slow conic turn,
- * blurred to light rather than drawn as colour. Over it Nebula mounts the
- * dimensional mark (WebGL); where a device cannot draw that, or in Obsidian,
- * the emblem below is the mark -- drawn in SVG and animated on the
- * compositor: a scanning orbit, the dial turning, the mark floating and a
- * specular sweep crossing its plates. Its colours come from here rather than
- * the markup, so a preset or theme switch repaints it for free.
+ * Three layers, one stage. The ground is one hue -- a still pool of violet
+ * light under the mark, never a turning wheel of colours. Over it the
+ * instrument: the dial turning, a node scanning the orbit. At its centre
+ * Nebula mounts the dimensional mark (WebGL); where a device cannot draw
+ * that, and always in Obsidian, the emblem's own SVG mark takes the centre,
+ * floating, with a specular sweep crossing its plates. Everything moves on
+ * the compositor, and the colours come from here rather than the markup, so
+ * a preset or theme switch repaints them for free.
  */
 .ov-core-glow{position:absolute;inset:0;pointer-events:none}
-.ov-core-glow::before{content:'';position:absolute;inset:-8%;
-  background:conic-gradient(from 210deg at 50% 50%, rgba(139,92,246,.55), rgba(217,70,239,.3), rgba(34,211,238,.28), rgba(139,92,246,.55));
-  filter:blur(28px);opacity:.72;animation:ov-spin 26s linear infinite}
-@keyframes ov-spin{to{transform:rotate(1turn)}}
-[data-theme="light"] .ov-core-glow::before{opacity:.42}
+.ov-core-glow::before{content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse 46% 58% at 50% 50%, rgba(139,92,246,.42), rgba(109,40,217,.16) 52%, transparent 78%)}
+[data-theme="light"] .ov-core-glow::before{background:radial-gradient(ellipse 46% 58% at 50% 50%, rgba(167,139,250,.32), rgba(196,181,253,.14) 52%, transparent 78%)}
 .ov-core-emblem{position:absolute;inset:0;z-index:1;width:100%;height:100%;overflow:visible}
 .ov-core-art nebula-mark-3d{position:absolute;inset:0;z-index:2;pointer-events:none}
-.ov-core-art[data-nebula-mounted="true"] .ov-core-emblem{display:none}
-[data-design="obsidian"] .ov-core-glow::before,
-[data-design="obsidian"] .ov-core-art nebula-mark-3d{display:none}
-[data-design="obsidian"] .ov-core-art[data-nebula-mounted="true"] .ov-core-emblem{display:block}
+/* The dimensional mark is the centre: the SVG mark and its floor step aside,
+   the dial and the orbit stay round it. */
+.ov-core-art[data-nebula-mounted="true"] .ov-core-emblem .oc-float,
+.ov-core-art[data-nebula-mounted="true"] .ov-core-emblem .oc-floor{display:none}
+[data-design="obsidian"] .ov-core-glow::before{display:none}
+/* The element sets its own inline display, so this has to win outright; app.js
+   also takes it out of the page when Obsidian is chosen. */
+[data-design="obsidian"] .ov-core-art nebula-mark-3d{display:none !important}
+[data-design="obsidian"] .ov-core-art[data-nebula-mounted="true"] .ov-core-emblem .oc-float,
+[data-design="obsidian"] .ov-core-art[data-nebula-mounted="true"] .ov-core-emblem .oc-floor{display:inline}
 .ov-core-emblem .oc-ticks,.ov-core-emblem .oc-orbit,.ov-core-emblem .oc-ring-fine{transform-box:view-box;transform-origin:200px 110px}
 .ov-core-emblem .oc-ticks{animation:oc-turn 140s linear infinite}
 .ov-core-emblem .oc-ring-fine{animation:oc-turn 90s linear infinite reverse}
@@ -3015,10 +3022,9 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .ov-core-emblem .oc-sweep-a{stop-color:rgba(255,255,255,0)}
 .ov-core-emblem .oc-sweep-b{stop-color:rgba(255,255,255,.3)}
 [data-theme="light"] .ov-core-emblem .oc-sweep-b{stop-color:rgba(255,255,255,.85)}
-[data-motion="off"] .ov-core-glow::before,
 [data-motion="off"] .ov-core-emblem *{animation:none}
 @media (prefers-reduced-motion:reduce){
-  .ov-core-glow::before,.ov-core-emblem *{animation:none}
+  .ov-core-emblem *{animation:none}
 }
 .ov-core-emblem .oc-ticks{fill:none;stroke:rgba(255,255,255,.13);stroke-width:5;stroke-dasharray:1 4.027}
 .ov-core-emblem .oc-ring{fill:none;stroke:rgba(255,255,255,.1);stroke-width:1}
@@ -4607,3 +4613,282 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 [data-design="obsidian"][data-theme="light"] .lp-glow{background:
   radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(255,255,255,.9),transparent 80%),
   radial-gradient(ellipse 48% 45% at 65% 65%,rgba(120,113,108,.08),transparent 80%)}
+
+/* ===================================================================== *
+ * Landing: shown rather than described.
+ *
+ * What premium product sites share (Linear, Raycast, Vercel): the real
+ * product framed and revealed as the page scrolls, one accent, depth from
+ * hairlines and luminance steps rather than colour, dense display type in
+ * generous space, a disciplined bento, and motion that tells the page's
+ * story at the pace of the reader's scroll. Everything here is driven by
+ * CSS -- scroll-linked where the browser supports it, revealed once where it
+ * does not -- and all of it holds still with motion off.
+ * ===================================================================== */
+.lp-line{display:block}
+@media (prefers-reduced-motion:no-preference){
+  .lp-line{animation:lp-rise .9s var(--ease) both;animation-delay:calc(120ms + var(--i,0) * 90ms)}
+  .lp-lede{animation:lp-rise .9s var(--ease) both;animation-delay:420ms}
+}
+@keyframes lp-rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+[data-motion="off"] .lp-line,[data-motion="off"] .lp-lede{animation:none}
+
+/* Providers, named plainly under the hero. */
+.lp-providers{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:14px 34px;
+  padding:22px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+.lp-providers-k{font-family:var(--font-mono);font-size:.64rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.lp-providers-list{display:flex;flex-wrap:wrap;gap:10px 30px;margin:0;padding:0;list-style:none}
+.lp-providers-list li{display:inline-flex;align-items:center;gap:9px;color:var(--text2);font-family:var(--font-display);
+  font-weight:600;font-size:.95rem;letter-spacing:-.01em;transition:color .2s ease}
+.lp-providers-list li:hover{color:var(--text)}
+.lp-providers-list svg{width:20px;height:20px;flex:none}
+
+/* The product, framed. */
+.lp-show{display:grid;gap:clamp(28px,4vw,48px);justify-items:center;text-align:center}
+.lp-show-head{max-width:44rem}
+.lp-show-title{margin:0;font-family:var(--font-display);font-weight:700;color:var(--text);
+  font-size:clamp(1.9rem,4.4vw,3.4rem);line-height:1.06;letter-spacing:-.045em;text-wrap:balance}
+.lp-show-lede{margin:18px auto 0;max-width:36rem;color:var(--text2);font-size:clamp(.95rem,1.4vw,1.05rem);line-height:1.65;text-wrap:pretty}
+.lp-frame{position:relative;width:100%;max-width:1120px;margin:0;border-radius:20px;overflow:hidden;
+  border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0) 30%),#0b0719;
+  box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 50px 120px -40px rgba(76,29,149,.55),0 30px 60px -30px rgba(0,0,0,.7);
+  transform-origin:50% 0%}
+.lp-frame::after{content:'';position:absolute;inset:-1px;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(180deg,rgba(196,181,253,.28),transparent 34%);padding:1px;
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+.lp-frame-bar{display:flex;align-items:center;gap:7px;height:40px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.06);
+  background:rgba(255,255,255,.02)}
+.lp-frame-bar i{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.14)}
+.lp-frame-url{margin-left:12px;font-family:var(--font-mono);font-size:.66rem;letter-spacing:.08em;color:rgba(226,232,240,.55)}
+.lp-frame-live{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:.62rem;
+  letter-spacing:.14em;text-transform:uppercase;color:#67e8f9}
+.lp-frame-live::before{content:'';width:6px;height:6px;border-radius:50%;background:#22d3ee;box-shadow:0 0 10px #22d3ee}
+.lp-frame-view{position:relative;aspect-ratio:16/9;
+  background:radial-gradient(circle at 50% 50%,rgba(124,58,237,.2),rgba(124,58,237,.05) 36%,transparent 62%),
+    radial-gradient(ellipse 120% 95% at 50% 50%,transparent 42%,rgba(4,2,12,.66) 100%),linear-gradient(180deg,#0c0820,#07051a)}
+.lp-map{position:absolute;inset:0;width:100%;height:100%;display:block}
+.lp-frame-cap{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+/* The map's own ink. Classes, not attributes, so the presets repaint it. */
+.lp-map text{font-family:var(--font-body);font-size:11.5px;fill:#e4e6f5}
+.lp-map .lp-map-h{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.14em;font-weight:600;fill:var(--c,#a78bfa)}
+.lp-map .lp-map-count{font-family:var(--font-mono);font-size:9.5px;fill:rgba(226,232,240,.5)}
+.lp-map .lp-map-name{font-weight:700;font-size:11px;fill:#f5f3ff}
+.lp-map-ring{fill:none;stroke:rgba(167,139,250,.2);stroke-dasharray:2 7}
+.lp-map-strand{fill:none;stroke:var(--c,#a78bfa);stroke-opacity:.5;stroke-width:1.4}
+.lp-map-flow{fill:none;stroke:var(--c,#a78bfa);stroke-width:2.2;stroke-linecap:round;stroke-dasharray:2 30;stroke-dashoffset:var(--o,0);opacity:.95}
+.lp-map-panel rect:first-child{fill:rgba(14,10,32,.86);stroke:color-mix(in srgb,var(--c,#a78bfa) 34%,transparent)}
+.lp-map-wash{fill:color-mix(in srgb,var(--c,#a78bfa) 7%,transparent);stroke:none}
+.lp-map-hico{fill:color-mix(in srgb,var(--c,#a78bfa) 16%,transparent);stroke:color-mix(in srgb,var(--c,#a78bfa) 60%,transparent)}
+.lp-map-node circle:not(.lp-map-sev):not(.lp-map-breathe){fill:#0e0a22;stroke:var(--c,#a78bfa);stroke-width:1.5}
+.lp-map-sev.lp-map-crit{fill:#f43f6e}.lp-map-sev.lp-map-warn{fill:#f59e0b}
+.lp-map-breathe{fill:none;stroke:#f43f6e;stroke-width:1.2;opacity:0;transform-box:fill-box;transform-origin:center}
+.lp-map-halo{fill:rgba(124,58,237,.18);filter:blur(18px)}
+.lp-map-orb{fill:url(#lpOrbV);stroke:rgba(167,139,250,.5);stroke-width:1.4}
+.lp-orb-a{stop-color:#5b3fd0}.lp-orb-b{stop-color:#2e1878}.lp-orb-c{stop-color:#0f0830}
+.lp-map-light{fill:#cfc2ff}.lp-map-deep{fill:#6d4ff0}
+.lp-map-arcs path{fill:none;stroke:rgba(167,139,250,.6);stroke-width:2;stroke-linecap:round}
+.lp-map-arcs{transform-box:view-box;transform-origin:480px 270px}
+.lp-map-pill{fill:rgba(10,8,26,.92);stroke:rgba(196,181,253,.3)}
+@media (prefers-reduced-motion:no-preference){
+  .lp-map-flow{animation:lp-flow var(--d,2.6s) linear infinite}
+  .lp-map-arcs{animation:oc-turn 11s linear infinite}
+  .lp-map-breathe{animation:lp-breathe 2.4s ease-out infinite}
+}
+@keyframes lp-flow{to{stroke-dashoffset:-64}}
+/* SVG strokes repaint on every frame they move, so the map moves only while
+   it is on screen (landing-stage.js marks it); off screen it costs nothing. */
+.lp-show:not(.is-onscreen) .lp-map *{animation-play-state:paused}
+@keyframes lp-breathe{0%{opacity:.8;transform:scale(1)}100%{opacity:0;transform:scale(1.9)}}
+[data-motion="off"] .lp-map-flow,[data-motion="off"] .lp-map-arcs,[data-motion="off"] .lp-map-breathe{animation:none}
+/* It settles flat as it scrolls in: a product revealed, not a picture placed. */
+@supports (animation-timeline: view()){
+  @media (prefers-reduced-motion:no-preference){
+    .lp-frame{animation:lp-tilt linear both;animation-timeline:view();animation-range:entry 0% cover 42%}
+    @keyframes lp-tilt{from{transform:perspective(1600px) rotateX(24deg) scale(.92) translateY(30px);opacity:.35}
+      to{transform:none;opacity:1}}
+  }
+}
+[data-motion="off"] .lp-frame{animation:none}
+/* On a phone the whole map is too small to read, so the frame goes taller and
+   the view closes in on the hub and the panels beside it. */
+@media (max-width:720px){ .lp-frame-view{aspect-ratio:1/1} .lp-frame{border-radius:16px} }
+
+/* The capabilities, as a bento: one card leads, each carries its own picture. */
+.lp-sec.lp-sec-wide{grid-template-columns:minmax(0,1fr);gap:clamp(28px,4vw,44px)}
+.lp-sec-wide .lp-sec-head{max-width:40rem}
+.lp-sec-wide .lp-caps{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.lp-sec-wide .lp-cap{border-bottom:0;padding:22px 22px 24px;border-radius:18px;border:1px solid var(--line);
+  display:flex;flex-direction:column;transition:transform .35s var(--ease),border-color .25s ease}
+.lp-sec-wide .lp-cap:hover{transform:translateY(-3px);border-color:var(--line-hi)}
+.lp-sec-wide .lp-cap-lead{grid-column:span 2;grid-row:span 2}
+.lp-cap-art{position:relative;z-index:1;margin:-4px -4px 22px;padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,.06);
+  background:rgba(8,6,20,.55);font-family:var(--font-mono);font-size:.7rem;color:var(--text2);min-height:112px}
+[data-theme="light"] .lp-cap-art{background:rgba(255,255,255,.65);border-color:rgba(76,29,149,.1)}
+.lp-cap-lead .lp-cap-art{min-height:236px;flex:1 1 auto;display:flex;flex-direction:column;gap:6px;font-size:.78rem}
+.lp-cap-lead .lp-cap-t{font-size:clamp(1.1rem,1.6vw,1.35rem);letter-spacing:-.02em}
+.lp-cap-lead .lp-cap-d{font-size:.9rem;max-width:40rem}
+.lp-diff-h{display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;margin-bottom:4px;border-bottom:1px solid var(--hair)}
+.lp-diff-h b{font-weight:600;color:var(--text)}
+.lp-diff-h i{font-style:normal;font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent2)}
+.lp-diff-l{display:block;padding:3px 8px;border-radius:6px;white-space:pre}
+.lp-diff-del{background:rgba(244,63,110,.1);color:#fda4af}
+.lp-diff-add{background:rgba(16,185,129,.1);color:#6ee7b7}
+[data-theme="light"] .lp-diff-del{color:#be123c}[data-theme="light"] .lp-diff-add{color:#047857}
+.lp-diff-f{margin-top:auto;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding-top:12px}
+.lp-diff-btn{padding:7px 12px;border-radius:9px;background:var(--btn-solid);color:var(--btn-solid-fg);font-family:var(--font-body);font-weight:600;font-size:.74rem}
+.lp-diff-head{color:var(--muted);font-size:.66rem}
+.lp-art-paths{display:grid;gap:7px;align-content:center}
+.lp-path{display:flex;justify-content:space-between;gap:10px;padding:6px 9px;border-radius:8px;background:rgba(255,255,255,.03);overflow:hidden}
+.lp-path i{font-style:normal;font-size:.6rem;letter-spacing:.12em;text-transform:uppercase}
+.lp-path-ok i{color:#34d399}.lp-path-no{outline:1px solid rgba(245,158,11,.35)}.lp-path-no i{color:#f59e0b}
+.lp-art-matrix{display:grid;grid-template-columns:auto repeat(3,1fr);gap:9px 10px;align-items:center;justify-items:center}
+.lp-art-matrix b{font-weight:600;font-size:.62rem;color:var(--text2)}
+.lp-art-matrix em{justify-self:start;font-style:normal;font-size:.64rem;color:var(--muted)}
+.lp-art-matrix i{width:14px;height:14px;border-radius:50%}
+.lp-art-matrix i.y{background:rgba(52,211,153,.18);box-shadow:inset 0 0 0 1.5px #34d399}
+.lp-art-matrix i.n{box-shadow:inset 0 0 0 1.5px rgba(148,163,184,.35)}
+.lp-art-pulse{display:flex;flex-direction:column;justify-content:flex-end;gap:10px}
+.lp-art-pulse svg{width:100%;height:64px;display:block}
+.lp-pulse-area{fill:color-mix(in srgb,var(--accent2) 16%,transparent)}
+.lp-pulse-line{fill:none;stroke:var(--accent2);stroke-width:2;stroke-linejoin:round;vector-effect:non-scaling-stroke;
+  stroke-dasharray:400;stroke-dashoffset:0}
+.lp-pulse-k{display:inline-flex;align-items:center;gap:7px;font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:#67e8f9}
+.lp-pulse-k i{width:6px;height:6px;border-radius:50%;background:#22d3ee}
+.lp-sec.lp-revealed .lp-pulse-line{animation:lp-draw 1.6s var(--ease) both}
+@keyframes lp-draw{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
+[data-motion="off"] .lp-pulse-line{animation:none}
+/* The last card closes the grid as a wide one, its picture beside its words. */
+@media (min-width:641px){
+  .lp-sec-wide .lp-cap:last-child{grid-column:1 / -1;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);
+    grid-template-rows:auto auto 1fr;column-gap:clamp(20px,3vw,40px);align-items:start}
+  .lp-sec-wide .lp-cap:last-child .lp-cap-art{grid-column:1;grid-row:1 / 4;margin:-4px 0 -4px -4px;height:100%}
+  .lp-sec-wide .lp-cap:last-child .lp-cap-art svg{height:88px}
+  .lp-sec-wide .lp-cap:last-child > :not(.lp-cap-art){grid-column:2}
+}
+@media (max-width:980px){
+  .lp-sec-wide .lp-caps{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lp-sec-wide .lp-cap-lead{grid-column:1 / -1;grid-row:auto}
+}
+@media (max-width:640px){
+  .lp-sec-wide .lp-caps{grid-template-columns:minmax(0,1fr)}
+  .lp-sec-wide .lp-cap-lead{grid-column:auto;grid-row:auto}
+  .lp-cap-lead .lp-cap-art{min-height:0}
+}
+
+/* How it works: the heading holds still while the moves pass it. */
+.lp-story{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:clamp(32px,6vw,88px);align-items:start;
+  view-timeline-name:--lp-story}
+.lp-story-rail{position:sticky;top:calc(env(safe-area-inset-top,0px) + 120px)}
+.lp-story-progress{position:relative;width:2px;height:120px;margin-top:30px;border-radius:2px;background:var(--hair);overflow:hidden}
+.lp-story-progress span{position:absolute;inset:0;background:linear-gradient(180deg,var(--accent),var(--accent2));transform-origin:50% 0;transform:scaleY(1)}
+@supports (animation-timeline: view()){
+  @media (prefers-reduced-motion:no-preference){
+    .lp-story-progress span{animation:lp-fill linear both;animation-timeline:--lp-story;animation-range:contain 0% contain 100%}
+    @keyframes lp-fill{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+  }
+}
+[data-motion="off"] .lp-story-progress span{animation:none;transform:scaleY(1)}
+.lp-story-steps{display:grid;gap:18px;margin:0;padding:0;list-style:none}
+.lp-story-step{padding:26px 26px 22px;border-radius:18px;border:1px solid var(--line);display:grid;gap:10px}
+.lp-story-n{font-family:var(--font-mono);font-size:.78rem;color:var(--accent2);letter-spacing:.08em}
+.lp-story-t{margin:0;font-family:var(--font-display);font-size:clamp(1.15rem,1.8vw,1.45rem);font-weight:700;letter-spacing:-.025em;color:var(--text)}
+.lp-story-d{margin:0;color:var(--text2);font-size:.9rem;line-height:1.65;max-width:40rem}
+.lp-story-art{margin-top:8px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.lp-art-connect span{padding:7px 12px;border-radius:999px;border:1px solid var(--line);font-family:var(--font-mono);font-size:.7rem;color:var(--text2)}
+.lp-art-connect span.on{border-color:var(--accent);color:var(--text);box-shadow:0 0 0 3px var(--field-halo)}
+.lp-art-rings{gap:16px}
+.lp-art-rings svg{width:74px;height:74px;transform:rotate(-90deg)}
+.lp-art-rings circle{fill:none;stroke-width:7}
+.lp-art-rings .t{stroke:var(--hair)}
+.lp-art-rings .v{stroke:var(--accent2);stroke-dasharray:79 100;stroke-linecap:round}
+.lp-art-rings .w{stroke:#22d3ee;stroke-dasharray:57 100;stroke-linecap:round}
+.lp-art-rings span{display:grid;font-size:.72rem;color:var(--muted);font-family:var(--font-mono)}
+.lp-art-rings b{font-family:var(--font-display);font-size:1.6rem;color:var(--text);letter-spacing:-.03em}
+.lp-art-prove span{padding:7px 12px;border-radius:10px;font-size:.74rem;font-family:var(--font-mono)}
+.lp-art-prove .k{color:var(--muted);border:1px solid var(--line)}
+.lp-art-prove .ok{color:#34d399;background:rgba(52,211,153,.1)}
+.lp-art-prove .go{background:var(--btn-solid);color:var(--btn-solid-fg);font-family:var(--font-body);font-weight:600}
+@media (max-width:900px){
+  .lp-story{grid-template-columns:minmax(0,1fr)}
+  .lp-story-rail{position:static}
+  .lp-story-progress{display:none}
+}
+
+/* The alpha in numbers. */
+.lp-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+.lp-stat{display:grid;gap:8px;align-content:start;padding:clamp(24px,3vw,36px) clamp(16px,2vw,28px)}
+.lp-stat + .lp-stat{border-left:1px solid var(--hair)}
+.lp-stat-v{font-family:var(--font-display);font-weight:700;font-size:clamp(2.4rem,5vw,3.8rem);line-height:1;letter-spacing:-.05em;
+  color:var(--text);font-variant-numeric:tabular-nums}
+.lp-stat-k{color:var(--text2);font-size:.84rem;line-height:1.5;max-width:18rem}
+@media (max-width:820px){
+  .lp-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lp-stat:nth-child(3){border-left:0}
+  .lp-stat:nth-child(n+3){border-top:1px solid var(--hair)}
+}
+
+/* The close. */
+.lp-cta{position:relative;display:grid;justify-items:center;text-align:center;gap:16px;
+  padding:clamp(48px,7vw,88px) clamp(20px,4vw,48px);border-radius:24px;border:1px solid var(--line);overflow:hidden;
+  background:radial-gradient(ellipse 70% 90% at 50% 0%,rgba(124,58,237,.28),transparent 70%),var(--surface-raised)}
+.lp-cta-title{margin:0;font-family:var(--font-display);font-weight:700;color:var(--text);
+  font-size:clamp(1.9rem,4.6vw,3.3rem);line-height:1.05;letter-spacing:-.045em;text-wrap:balance}
+.lp-cta-lede{margin:0;max-width:34rem;color:var(--text2);font-size:1rem;line-height:1.6}
+.lp-cta-btn{margin-top:10px;min-width:210px;min-height:48px;font-size:.95rem;
+  transform:translate(var(--mag-x,0),var(--mag-y,0));transition:transform .35s var(--ease),box-shadow .25s ease,background .25s ease}
+.lp-more .lp-show,.lp-more .lp-story,.lp-more .lp-stats,.lp-more .lp-cta{opacity:1}
+@media (prefers-reduced-motion:no-preference){
+  .lp-show.lp-revealed .lp-show-head,.lp-story.lp-revealed .lp-story-step,.lp-stats.lp-revealed .lp-stat,.lp-cta.lp-revealed > *{
+    animation:lp-rise .8s var(--ease) both}
+  .lp-story.lp-revealed .lp-story-step:nth-child(2),.lp-stats.lp-revealed .lp-stat:nth-child(2),.lp-cta.lp-revealed > :nth-child(2){animation-delay:90ms}
+  .lp-story.lp-revealed .lp-story-step:nth-child(3),.lp-stats.lp-revealed .lp-stat:nth-child(3),.lp-cta.lp-revealed > :nth-child(3){animation-delay:180ms}
+  .lp-stats.lp-revealed .lp-stat:nth-child(4){animation-delay:270ms}
+}
+[data-motion="off"] .lp-revealed *{animation:none}
+
+/* Large screens get room, not stretch: the column grows with the display. */
+@media (min-width:1600px){
+  .lp-nav,.lp-body,.lp-more{width:min(100%,1480px)}
+  .lp-title{font-size:clamp(3.85rem,3.6vw,4.6rem)}
+}
+
+/* Light theme and the Obsidian preset repaint the framed product. */
+[data-theme="light"] .lp-frame{background:linear-gradient(180deg,#fff,#f7f5fd);border-color:rgba(76,29,149,.12);
+  box-shadow:0 50px 100px -50px rgba(76,29,149,.35),0 20px 40px -24px rgba(28,25,60,.18)}
+[data-theme="light"] .lp-frame-bar{border-bottom-color:rgba(76,29,149,.08);background:rgba(76,29,149,.02)}
+[data-theme="light"] .lp-frame-bar i{background:rgba(76,29,149,.14)}
+[data-theme="light"] .lp-frame-url{color:rgba(30,27,75,.5)}
+[data-theme="light"] .lp-frame-view{background:radial-gradient(circle at 50% 50%,rgba(139,92,246,.12),transparent 44%),linear-gradient(180deg,#f6f3fe,#f1edfc)}
+[data-theme="light"] .lp-map text{fill:#1e1b4b}
+[data-theme="light"] .lp-map .lp-map-name{fill:#1e1b4b}
+[data-theme="light"] .lp-map-panel rect:first-child{fill:rgba(255,255,255,.92)}
+[data-theme="light"] .lp-map-node circle:not(.lp-map-sev):not(.lp-map-breathe){fill:#fff}
+[data-theme="light"] .lp-map-pill{fill:rgba(255,255,255,.96);stroke:rgba(91,33,182,.2)}
+[data-theme="light"] .lp-map-strand{stroke-opacity:.55}
+[data-theme="light"] .lp-cta{background:radial-gradient(ellipse 70% 90% at 50% 0%,rgba(167,139,250,.28),transparent 70%),rgba(255,255,255,.7)}
+[data-design="obsidian"] .lp-frame{background:linear-gradient(180deg,rgba(255,255,255,.03),transparent 30%),#0b0c0e;
+  box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 50px 120px -50px rgba(0,0,0,.9)}
+[data-design="obsidian"] .lp-frame::after{background:linear-gradient(180deg,rgba(255,255,255,.18),transparent 34%)}
+[data-design="obsidian"] .lp-frame-view{background:radial-gradient(circle at 50% 46%,rgba(186,196,214,.09),transparent 56%),
+  radial-gradient(ellipse 120% 95% at 50% 50%,transparent 45%,rgba(0,0,0,.58) 100%),linear-gradient(180deg,#0d0e11,#060708)}
+[data-design="obsidian"] .lp-map-ring{stroke:rgba(203,213,225,.16)}
+[data-design="obsidian"] .lp-map-panel rect:first-child{fill:rgba(14,15,19,.9)}
+[data-design="obsidian"] .lp-map-node circle:not(.lp-map-sev):not(.lp-map-breathe){fill:#0c0d10}
+[data-design="obsidian"] .lp-map-halo{fill:rgba(226,232,240,.08)}
+[data-design="obsidian"] .lp-map-orb{stroke:rgba(255,255,255,.22)}
+[data-design="obsidian"] .lp-orb-a{stop-color:#4a4b52}[data-design="obsidian"] .lp-orb-b{stop-color:#1f2024}[data-design="obsidian"] .lp-orb-c{stop-color:#0a0b0d}
+[data-design="obsidian"] .lp-map-light{fill:#f5f5f4}[data-design="obsidian"] .lp-map-deep{fill:#78716c}
+[data-design="obsidian"] .lp-map-arcs path{stroke:rgba(226,232,240,.5)}
+[data-design="obsidian"] .lp-map-pill{fill:rgba(12,13,16,.94);stroke:rgba(255,255,255,.16)}
+[data-design="obsidian"] .lp-cta{background:radial-gradient(ellipse 70% 90% at 50% 0%,rgba(255,255,255,.07),transparent 70%),var(--surface-raised)}
+[data-design="obsidian"] .lp-cap-art{background:rgba(255,255,255,.025)}
+[data-design="obsidian"][data-theme="light"] .lp-frame{background:#fff;border-color:rgba(28,25,23,.1);box-shadow:0 40px 90px -50px rgba(28,25,23,.35)}
+[data-design="obsidian"][data-theme="light"] .lp-frame-view{background:radial-gradient(circle at 50% 44%,#fff,transparent 56%),linear-gradient(180deg,#fbfaf8,#f1eee9)}
+[data-design="obsidian"][data-theme="light"] .lp-map text,[data-design="obsidian"][data-theme="light"] .lp-map .lp-map-name{fill:#1c1917}
+[data-design="obsidian"][data-theme="light"] .lp-map-panel rect:first-child{fill:#fff}
+[data-design="obsidian"][data-theme="light"] .lp-map-node circle:not(.lp-map-sev):not(.lp-map-breathe){fill:#fff}
+[data-design="obsidian"][data-theme="light"] .lp-map-ring{stroke:rgba(120,108,98,.22)}
+[data-design="obsidian"][data-theme="light"] .lp-map-pill{fill:#fff;stroke:rgba(28,25,23,.14)}
+[data-design="obsidian"][data-theme="light"] .lp-cap-art{background:#fff}
+[data-design="obsidian"][data-theme="light"] .lp-cta{background:radial-gradient(ellipse 70% 90% at 50% 0%,#fff,transparent 70%),#f7f5f1}

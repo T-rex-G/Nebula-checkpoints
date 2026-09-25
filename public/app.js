@@ -941,7 +941,16 @@ function applySettings() {
       choice.tabIndex = on ? 0 : -1;
     });
     if (window.NebulaVisuals) window.NebulaVisuals.repaint();
-    if (state.settings.design === 'nebula' && _page === 'overview') mountNebulaVisual('mark', '#ovCoreArt');
+    if (state.settings.design === 'obsidian') {
+      /* Obsidian's core is the SVG instrument. The mark sets its own inline
+       * display, so hiding it is not enough: it leaves the page, and its GL
+       * context with it, and mounts afresh if Nebula comes back. */
+      const core = $('#ovCoreArt');
+      if (core) {
+        core.querySelectorAll('nebula-mark-3d').forEach(mark => mark.remove());
+        delete core.dataset.nebulaMounted;
+      }
+    } else if (_page === 'overview') mountNebulaVisual('mark', '#ovCoreArt');
   }
   document.documentElement.style.setProperty('--ed-font', (state.settings.fontSize / 16) + 'rem');
   document.documentElement.style.setProperty('--ed-family', `'${state.settings.editorFont}', ui-monospace, monospace`);

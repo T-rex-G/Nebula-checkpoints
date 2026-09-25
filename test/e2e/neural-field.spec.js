@@ -110,10 +110,22 @@ test('a still field under a still pointer draws nothing', async ({ page }) => {
   const spots = await landmarks(page);
   await page.mouse.move(spots.ground.x, spots.ground.y, { steps: 4 });
   await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.fieldState.light)).toBe(1);
-  await page.waitForTimeout(200);
+  /*
+   * A field that redraws while still redraws in every window. One that is
+   * idle has windows with no draws at all -- though the stage may still take
+   * a single legitimate redraw as it settles (a pixel of resize after the
+   * full view opens), so the claim is a fully quiet window within a few,
+   * not the first one being quiet.
+   */
+  const drawsIn = async ms => {
+    const before = await page.evaluate(() => window.NebulaNeural.state.fieldState.draws);
+    await page.waitForTimeout(ms);
+    return (await page.evaluate(() => window.NebulaNeural.state.fieldState.draws)) - before;
+  };
+  const windows = [];
+  for (let i = 0; i < 4 && !windows.includes(0); i++) windows.push(await drawsIn(700));
+  expect(windows, `draws in each 700ms window of stillness: ${windows.join(', ')}`).toContain(0);
   const settled = await page.evaluate(() => window.NebulaNeural.state.fieldState.draws);
-  await page.waitForTimeout(700);
-  expect(await page.evaluate(() => window.NebulaNeural.state.fieldState.draws)).toBe(settled);
   /* Moving the hand redraws it. */
   await page.mouse.move(spots.ground.x + 30, spots.ground.y + 20, { steps: 3 });
   await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.fieldState.draws)).toBeGreaterThan(settled);

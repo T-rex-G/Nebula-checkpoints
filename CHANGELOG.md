@@ -58,6 +58,18 @@ did not.
   single-page app's catch-all page is not a leak, and never quoted. An
   unreachable site is an error, not a clean report. GitLab and Gitea get the
   site check; their repository audit says plainly that no reader exists yet.
+- **Landing.** Built to be worth the scroll, and every claim on it held
+  to the engine. The audit plays as the reader scrolls: a held frame shows
+  the branch being read, what an attacker would find with the grade held
+  at F 49, the fix handed over, and the next audit at A 100 -- the engine's
+  own figures for the project it depicts, and on a phone each move carries
+  its own snapshot. "Everything it checks, counted" gives 99 secret
+  detectors, 43 live verifiers, 33 audit rules and 15 site checks, with the
+  rules themselves passing beneath; a comparison row by row with what a scan
+  usually does; and the questions a careful reader asks before connecting
+  anything. `test/landing-claims.test.js` fails the build when a count, a
+  quoted rule title or the played audit drifts from the engine, and the
+  pixel-contrast guard now covers every new run of copy.
 
 ### One Hue per Instrument; a Landing Bar That Holds
 

@@ -7629,8 +7629,10 @@ app.get('/api/repo/:owner/:repo/access-surface', providerSessionAccess, alphaRep
 /*
  * The repository audit. Every rule and every decision about what to read is in
  * src/code-audit.js; this reads through the same guarded reader Exposure uses,
- * one connection pool per audit, and asks the package registries through the
- * guarded transport with HEAD. One audit per identity at a time: it reads up
+ * one connection pool per audit, asks the package registries through the
+ * guarded transport with HEAD, and asks OSV -- anonymously, through the
+ * advisory profile bound to that one host -- which of the installed versions
+ * have published advisories. One audit per identity at a time: it reads up
  * to a few hundred files, and a second click should not double that.
  */
 const auditsInFlight = new Set();
@@ -7651,7 +7653,8 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
       ref,
       token: req.gh.token,
       transport: input => session.request(input),
-      registryTransport: input => guardedFetch(input)
+      registryTransport: input => guardedFetch(input),
+      advisoryTransport: input => guardedFetch(input)
     });
     res.json({ ...result, auditedAt: new Date().toISOString() });
   } catch (e) { fail(res, e); }

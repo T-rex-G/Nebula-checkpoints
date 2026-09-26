@@ -4,20 +4,26 @@
  * The repository audit: what a code-level reviewer would flag in a quickly
  * built application, beyond the leaked credentials Exposure already finds.
  *
- * Four families, each a list of deterministic rules over files read through
+ * Five families, each a list of deterministic rules over files read through
  * the same guarded reader Exposure uses:
  *
  *   supply chain   code that fetches and runs something at install time, pipes
  *                  a remote script into a shell, decodes and executes a
- *                  payload, or ships local credentials off the machine;
- *   code           the handful of mistakes that turn into incidents -- SQL
- *                  built from input, HTML sinks fed variables, a CORS policy
- *                  that trusts every origin with credentials, secrets in
- *                  variables the bundler hands to the browser, webhooks that
- *                  never check who sent them, TLS verification switched off;
- *   dependencies   packages the manifest names that the public registry has
- *                  never heard of -- the names an assistant invents, which
- *                  anyone can later publish;
+ *                  payload, ships local credentials off the machine, or a
+ *                  workflow that hands its secrets to a stranger's code;
+ *   code           the mistakes that turn into incidents -- SQL built from
+ *                  input, HTML sinks fed variables, a CORS policy that trusts
+ *                  every origin with credentials, secrets in variables the
+ *                  bundler hands to the browser, webhooks that never check who
+ *                  sent them, TLS verification switched off, redirects, fetches
+ *                  and file paths taken from the request, and the database
+ *                  rules (Supabase row level security, Firebase security rules)
+ *                  that decide who can read and write everything;
+ *   secrets        credentials committed to the code, found by the same
+ *                  detector set Exposure runs and never repeated;
+ *   dependencies   packages the registry has never heard of, versions with a
+ *                  published vulnerability or listed as malicious in OSV,
+ *                  and names one keystroke from a popular package;
  *   hygiene        a committed .env, a .gitignore that would let one in, no
  *                  lockfile or two of them, open-ended versions, an unpinned
  *                  base image, TypeScript's strict mode off, no README, no
@@ -35,12 +41,16 @@
  */
 
 const crypto = require('crypto');
+const { detectInText } = require('./exposure-detection');
+const { RULE_NARRATION } = require('./exposure-narration');
+const POPULAR = require('./popular-packages');
 
 const CATEGORIES = Object.freeze([
-  Object.freeze({ id: 'supply-chain', label: 'Supply chain', weight: 0.3 }),
-  Object.freeze({ id: 'code', label: 'Code security', weight: 0.35 }),
+  Object.freeze({ id: 'supply-chain', label: 'Supply chain', weight: 0.25 }),
+  Object.freeze({ id: 'code', label: 'Code security', weight: 0.3 }),
+  Object.freeze({ id: 'secrets', label: 'Secrets', weight: 0.15 }),
   Object.freeze({ id: 'dependencies', label: 'Dependencies', weight: 0.15 }),
-  Object.freeze({ id: 'hygiene', label: 'Project hygiene', weight: 0.2 })
+  Object.freeze({ id: 'hygiene', label: 'Project hygiene', weight: 0.15 })
 ]);
 
 const SEVERITY_PENALTY = Object.freeze({ critical: 40, serious: 20, warning: 6 });
@@ -53,6 +63,9 @@ const LIMITS = Object.freeze({
   maxFileBytes: 512 * 1024,
   maxLineScan: 20000,
   maxPackages: 120,
+  maxAdvisoryQueries: 1200,
+  advisoryBatch: 250,
+  maxAdvisoryDetails: 160,
   readConcurrency: 8,
   lookupConcurrency: 6
 });
@@ -60,12 +73,15 @@ const LIMITS = Object.freeze({
 const JS_EXT = new Set(['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'vue', 'svelte', 'astro']);
 const PY_EXT = new Set(['py']);
 const SOURCE_EXT = new Set([...JS_EXT, ...PY_EXT, 'rb', 'php', 'go', 'java', 'kt', 'cs', 'rs', 'html', 'htm']);
-const SCRIPT_EXT = new Set(['sh', 'bash', 'zsh', 'ps1', 'yml', 'yaml', 'toml', 'json', 'cfg', 'ini', 'conf', 'env', 'txt']);
+const SCRIPT_EXT = new Set(['sh', 'bash', 'zsh', 'ps1', 'yml', 'yaml', 'toml', 'json', 'cfg', 'ini', 'conf', 'env', 'txt', 'sql', 'rules', 'properties', 'tf', 'tfvars']);
 const EXCLUDED_DIR = /(^|\/)(node_modules|vendor|bower_components|dist|build|out|\.next|\.nuxt|\.svelte-kit|\.output|coverage|\.venv|venv|__pycache__|\.git|target|Pods)\//;
 const EXCLUDED_FILE = /(\.min\.(js|css)|\.map|\.bundle\.js|\.chunk\.js)$/i;
 /* What inserted markup reads like when it came from outside the code. */
 const UNTRUSTED = /(location\.|\.hash\b|\.search\b|searchParams|\bparams\b|\bquery\b|\.value\b|\binput\w*|response|\.json\b|\bdata\.|\bmessage|\bcomment|\buser\w*|\busername|\bbody\b|\btitle\b|\bname\b|\bdescription|\bcontent\b|\bpayload|\bhtml\b|\bmarkup\b|\btext\b)/i;
 const LOCKFILES = Object.freeze(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'bun.lock', 'npm-shrinkwrap.json']);
+/* The lockfiles read for installed versions. The others are only noticed. */
+const READ_LOCKS = new Set(['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'poetry.lock', 'Pipfile.lock']);
+const FIREBASE_RULES = new Set(['firestore.rules', 'storage.rules', 'database.rules.json']);
 
 function extensionOf(filePath) {
   const base = String(filePath).split('/').pop();
@@ -95,8 +111,9 @@ function isTestPath(filePath) {
  */
 function auditPriority(filePath) {
   const base = baseName(filePath);
-  if (base === 'package.json' || base === 'requirements.txt' || base === 'pyproject.toml' || base === 'Pipfile' ||
-    base === 'setup.py' || base === '.gitignore' || base === 'tsconfig.json' || isDockerfile(filePath)) return 0;
+  if (base === 'package.json' || isRequirements(base) || base === 'pyproject.toml' || base === 'Pipfile' ||
+    base === 'setup.py' || base === '.gitignore' || base === 'tsconfig.json' || isDockerfile(filePath) || FIREBASE_RULES.has(base)) return 0;
+  if (READ_LOCKS.has(base) || (extensionOf(filePath) === 'sql' && /(^|\/)(supabase|migrations?|db|database|sql|schema)\//i.test(filePath))) return 1;
   if (/^\.github\/workflows\//.test(filePath) || base === 'Makefile' || /\.(sh|ps1)$/.test(base) || /^\.env/.test(base) ||
     /^(next|vite|nuxt|svelte|astro)\.config\./.test(base) || base === 'vercel.json' || base === 'netlify.toml' ||
     base === 'settings.py' || base === 'docker-compose.yml' || base === 'docker-compose.yaml') return 1;
@@ -111,7 +128,7 @@ function selectFiles(entries, limits = LIMITS) {
   const skipped = { excluded: 0, oversize: 0, budget: 0 };
   for (const entry of entries) {
     if (EXCLUDED_DIR.test(`${entry.path}`) || EXCLUDED_FILE.test(entry.path)) { skipped.excluded += 1; continue; }
-    if (LOCKFILES.includes(baseName(entry.path))) continue;
+    if (LOCKFILES.includes(baseName(entry.path)) && !READ_LOCKS.has(baseName(entry.path))) continue;
     const priority = auditPriority(entry.path);
     if (priority === null) continue;
     if (!Number.isInteger(entry.size) || entry.size > limits.maxFileBytes) { skipped.oversize += 1; continue; }
@@ -202,6 +219,37 @@ const RULES = Object.freeze({
   'SEC-013': { category: 'code', severity: 'serious', title: 'Debug mode is enabled in application configuration',
     why: 'Framework debug modes print stack traces, settings and sometimes an interactive console to anyone who triggers an error.',
     fix: 'Drive debug from an environment variable that defaults to off, and make sure production never sets it.' },
+  'SEC-014': { category: 'code', severity: 'critical', title: 'Row level security is switched off on a table',
+    why: 'With row level security disabled, the public anon key every visitor receives can read and change every row of the table through the auto-generated API.',
+    fix: 'Enable it (alter table ... enable row level security) and add policies that give each role only the rows it should see.' },
+  'SEC-015': { category: 'code', severity: 'serious', title: 'A table is created without row level security',
+    why: 'Supabase serves every table in the public schema through its REST API. Until row level security is enabled, anyone holding the public anon key can read and write the whole table.',
+    fix: 'Enable row level security in the same migration that creates the table, then write policies scoped to auth.uid() or to the roles that need access.' },
+  'SEC-016': { category: 'code', severity: 'serious', title: 'A policy lets anyone change a table',
+    why: 'A policy whose condition is simply true for insert, update, delete or all commands turns row level security on in name only: every caller it applies to can change every row.',
+    fix: 'Replace true with a condition tied to the caller, such as auth.uid() = user_id, and grant the policy only to the roles that need it.' },
+  'SEC-017': { category: 'code', severity: 'critical', title: 'Database rules let anyone write',
+    why: 'Firebase rules that allow writes unconditionally, or test-mode rules that allow everything until a date, let anyone with the public app config change or delete the data.',
+    fix: 'Require request.auth in every match block and check ownership, for example allow write: if request.auth != null && request.auth.uid == userId.' },
+  'SEC-018': { category: 'code', severity: 'serious', title: 'Database rules let anyone read everything',
+    why: 'A rule that allows reads on every document or path publishes the whole database to anyone with the public app config, which ships inside every client.',
+    fix: 'Scope public reads to the collections meant to be public, and require request.auth with an ownership check everywhere else.' },
+  'SEC-019': { category: 'code', severity: 'critical', title: 'The Supabase service-role key is used in browser code',
+    why: 'The service-role key bypasses every row level security policy. Code that runs in the browser ships whatever it references to every visitor.',
+    fix: 'Use the anon key in client code and keep the service-role key in server-only code (route handlers, server actions, edge functions). Rotate it if it was ever bundled.' },
+  'SEC-020': { category: 'code', severity: 'warning', title: 'A redirect goes wherever the request says',
+    why: 'Redirecting to a URL taken from the request lets anyone craft a link on your domain that lands on theirs -- the usual set-up for phishing and for stealing OAuth codes.',
+    fix: 'Redirect only to relative paths or to an allow-list of known destinations, and reject anything else.' },
+  'SEC-021': { category: 'code', severity: 'serious', title: 'The server fetches a URL taken from the request',
+    why: 'Server-side request forgery: a caller can make the server reach internal services, the cloud metadata endpoint and private networks that it can see and they cannot.',
+    fix: 'Accept an identifier rather than a URL, or check the URL against an allow-list of hosts and refuse private and link-local addresses after resolving the name.' },
+  'SEC-022': { category: 'code', severity: 'serious', title: 'A file path is taken from the request',
+    why: 'Path traversal: ../ in the value reaches files outside the intended folder -- configuration, keys, source code.',
+    fix: 'Resolve the path against a fixed base directory and refuse it unless it stays inside, or map identifiers to files instead of accepting names.' },
+
+  'SCR-001': { category: 'secrets', severity: 'critical', title: 'A credential is committed to the repository',
+    why: 'Anyone who can read the repository, or any fork, clone or backup of it, can use the credential. Deleting the file later does not remove it from history.',
+    fix: 'Revoke or rotate the credential with its provider first, then load it from an environment variable or a secret store at runtime. Exposure shows every place it appears, history included.' },
 
   'DEP-001': { category: 'dependencies', severity: 'serious', title: 'A dependency does not exist in the public registry',
     why: 'A package name the registry has never heard of is often one an assistant invented. Anyone can publish under that name later, and the next install will fetch their code.',
@@ -209,6 +257,18 @@ const RULES = Object.freeze({
   'DEP-002': { category: 'dependencies', severity: 'warning', title: 'A scoped dependency is not in the public registry',
     why: 'A scoped package missing from the public registry is either private (fine, if the registry is configured) or invented. If the scope is not yours, anyone who registers it controls what installs.',
     fix: 'Confirm the scope belongs to your organisation and the registry is configured in .npmrc; otherwise replace or remove the dependency.' },
+  'DEP-003': { category: 'dependencies', severity: 'serious', title: 'A dependency version has a published vulnerability',
+    why: 'The version in use is listed in OSV, the open vulnerability database that gathers GitHub, npm and PyPI advisories. Published vulnerabilities are the first thing automated attacks try.',
+    fix: 'Upgrade to the fixed version or later, regenerate the lockfile and run the tests. For a transitive dependency, upgrade the package that brings it in, or add an override.' },
+  'DEP-004': { category: 'dependencies', severity: 'warning', title: 'A dependency name is one keystroke from a popular package',
+    why: 'Typosquats copy a popular name with one letter changed, added or swapped and run their payload on install. A legitimate package can sit that close too, which is why this asks rather than accuses.',
+    fix: 'Check the name against the documentation of the package you meant. If it is a typo, replace it and treat every machine that installed it as exposed.' },
+  'DEP-005': { category: 'dependencies', severity: 'warning', title: 'A version range still allows a vulnerable release',
+    why: 'Nothing pins what installs, and the lowest version the range accepts has a published vulnerability -- a fresh install, an old cache or another package manager can still pick it.',
+    fix: 'Raise the floor of the range to the fixed version and commit a lockfile so every install resolves the same versions.' },
+  'DEP-006': { category: 'dependencies', severity: 'critical', title: 'A dependency is a known malicious package',
+    why: 'OSV lists this package as malicious: it was published to steal credentials, mine or open a backdoor, and it runs when it is installed.',
+    fix: 'Remove it, then treat every machine and CI runner that installed it as compromised: rotate the credentials they held and review what ran.' },
 
   'HYG-001': { category: 'hygiene', severity: 'critical', title: 'An environment file is committed',
     why: 'Anyone who can read the repository, now or in any fork or clone, can read what the file holds. Removing it later does not remove it from history.',
@@ -302,6 +362,8 @@ function inText(pattern, line) {
   return false;
 }
 const lexical = file => JS_EXT.has(file.ext) || PY_EXT.has(file.ext);
+/* A value read straight off an incoming request, in the frameworks that name it so. */
+const REQUEST_VALUE = '(req|request|ctx\\.request|ctx)\\.(query|body|params)\\b';
 
 /*
  * Every line-level rule: the files it applies to, and a test on one line.
@@ -442,6 +504,31 @@ const LINE_RULES = Object.freeze([
     applies: file => PY_EXT.has(file.ext) && !isTestPath(file.path),
     test: (line, file) => (file.base === 'settings.py' && /^\s*DEBUG\s*=\s*True\b/.test(line)) ||
       /\bapp\.run\s*\([^)]*debug\s*=\s*True/.test(line)
+  },
+  /*
+   * Request values handed straight to a redirect, an outbound fetch or the
+   * file system. Only the direct hand-off: a value that went through a check
+   * first is on another line, and guessing at data flow would flag the fix.
+   */
+  {
+    rule: 'SEC-020',
+    applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)),
+    test: line => inCode(new RegExp(`\\b(res|reply|ctx|response|NextResponse)\\.redirect\\s*\\(\\s*(\\d{3}\\s*,\\s*)?${REQUEST_VALUE}`), line) ||
+      inCode(/\bredirect\s*\(\s*request\.(args|form|values|GET|POST)\b/, line) ||
+      inCode(/\bredirect\s*\(\s*(searchParams|request\.args|req\.query)\.get\s*\(/, line)
+  },
+  {
+    rule: 'SEC-021',
+    applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)),
+    test: line => inCode(new RegExp(`\\b(fetch|axios(\\.(get|post|put|patch|delete|head|request))?|got(\\.(get|post))?|needle|superagent\\.(get|post)|https?\\.(get|request))\\s*\\(\\s*${REQUEST_VALUE}`), line) ||
+      inCode(/\b(requests|httpx)\.(get|post|put|patch|delete|head|request)\s*\(\s*request\.(args|form|values|json|GET|POST)\b/, line) ||
+      inCode(/\burlopen\s*\(\s*request\.(args|form|values|json|GET|POST)\b/, line)
+  },
+  {
+    rule: 'SEC-022',
+    applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)),
+    test: line => inCode(new RegExp(`\\b(res\\.(sendFile|download)|(fs|fsp|fs\\.promises)\\.(readFile|readFileSync|createReadStream|writeFile|writeFileSync|appendFile|unlink|unlinkSync|rm|rmSync))\\s*\\(\\s*(path\\.(join|resolve)\\s*\\(\\s*([^()]*?,\\s*)?)?${REQUEST_VALUE}`), line) ||
+      inCode(/\b(open|send_file|send_from_directory)\s*\(\s*(os\.path\.join\s*\(\s*([^()]*?,\s*)?)?request\.(args|form|values|GET|POST)\b/, line)
   }
 ]);
 
@@ -539,6 +626,237 @@ function fileRules(file) {
   return out;
 }
 
+/* ---- Database rules ---------------------------------------------------------- */
+
+/*
+ * SQL as statements, comments removed, each with the line it starts on.
+ * Quoted strings and dollar-quoted bodies (functions, DO blocks) are kept
+ * whole, so a semicolon inside one does not split the statement.
+ */
+function sqlStatements(text) {
+  const out = [];
+  let line = 1;
+  let startLine = 1;
+  let buffer = '';
+  const skip = (from, to) => {
+    for (let cursor = from; cursor < to; cursor += 1) if (text[cursor] === '\n') line += 1;
+  };
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '-' && text[index + 1] === '-') {
+      const end = text.indexOf('\n', index);
+      index = (end === -1 ? text.length : end) - 1;
+      continue;
+    }
+    if (char === '/' && text[index + 1] === '*') {
+      const end = text.indexOf('*/', index + 2);
+      const stop = end === -1 ? text.length : end + 2;
+      skip(index, stop);
+      index = stop - 1;
+      buffer += ' ';
+      continue;
+    }
+    const tag = char === '$' ? /^\$[A-Za-z_]*\$/.exec(text.slice(index, index + 40)) : null;
+    if (tag || char === "'") {
+      const close = tag ? tag[0] : "'";
+      const end = text.indexOf(close, index + close.length);
+      const stop = end === -1 ? text.length : end + close.length;
+      if (!buffer.trim()) startLine = line;
+      skip(index, stop);
+      buffer += tag ? ' $body$ ' : text.slice(index, stop);
+      index = stop - 1;
+      continue;
+    }
+    if (char === '\n') line += 1;
+    if (char === ';') {
+      if (buffer.trim()) out.push({ sql: buffer.replace(/\s+/g, ' ').trim(), line: startLine });
+      buffer = '';
+      continue;
+    }
+    if (!buffer.trim() && /\S/.test(char)) startLine = line;
+    buffer += char;
+  }
+  if (buffer.trim()) out.push({ sql: buffer.replace(/\s+/g, ' ').trim(), line: startLine });
+  return out;
+}
+
+const SQL_NAME = '((?:"[^"]+"|[A-Za-z_][\\w$]*)(?:\\s*\\.\\s*(?:"[^"]+"|[A-Za-z_][\\w$]*))?)';
+const SQL_CREATE = new RegExp(`^create\\s+(?:unlogged\\s+)?table\\s+(?:if\\s+not\\s+exists\\s+)?${SQL_NAME}`, 'i');
+const SQL_RLS = new RegExp(`^alter\\s+table\\s+(?:if\\s+exists\\s+)?(?:only\\s+)?${SQL_NAME}\\s+(enable|disable|force|no\\s+force)\\s+row\\s+level\\s+security`, 'i');
+const SQL_POLICY = new RegExp(`^create\\s+policy\\s+(?:"[^"]*"|\\S+)\\s+on\\s+${SQL_NAME}(.*)$`, 'i');
+
+function tableName(raw) {
+  const parts = raw.split('.').map(part => part.trim().replace(/^"|"$/g, '').toLowerCase());
+  return parts.length === 2 ? { schema: parts[0], name: parts[1] } : { schema: null, name: parts[0] };
+}
+
+/*
+ * Row level security across every migration, in the order they apply --
+ * migration files are named by timestamp, so path order is apply order. What
+ * matters is a table's final state: disabled in one migration and enabled in
+ * a later one is fixed; created and never enabled is open.
+ */
+function sqlFindings(files, supabase) {
+  const out = [];
+  const tables = new Map();
+  const ordered = files.filter(file => file.ext === 'sql' && !isTestPath(file.path)).sort((a, b) => a.path.localeCompare(b.path));
+  for (const file of ordered) {
+    for (const statement of sqlStatements(file.text)) {
+      const create = SQL_CREATE.exec(statement.sql);
+      if (create) {
+        const { schema, name } = tableName(create[1]);
+        const key = `${schema || 'public'}.${name}`;
+        if (!tables.has(key)) tables.set(key, { schema, created: { path: file.path, line: statement.line }, state: null });
+        continue;
+      }
+      const alter = SQL_RLS.exec(statement.sql);
+      if (alter) {
+        const { schema, name } = tableName(alter[1]);
+        const key = `${schema || 'public'}.${name}`;
+        const entry = tables.get(key) || { schema, created: null, state: null };
+        const action = alter[2].toLowerCase();
+        if (action === 'enable' || action === 'force') entry.state = { on: true };
+        if (action === 'disable') entry.state = { on: false, path: file.path, line: statement.line };
+        tables.set(key, entry);
+        continue;
+      }
+      const policy = SQL_POLICY.exec(statement.sql);
+      if (policy) {
+        const rest = policy[2];
+        const command = (/\bfor\s+(all|select|insert|update|delete)\b/i.exec(rest) || [null, 'all'])[1].toLowerCase();
+        const open = /\b(using|with\s+check)\s*\(\s*\(?\s*true\s*\)?\s*\)/i.test(rest);
+        if (open && command !== 'select') out.push({ rule: 'SEC-016', path: file.path, line: statement.line });
+      }
+    }
+  }
+  for (const entry of tables.values()) {
+    if (entry.state && entry.state.on === false) {
+      out.push({ rule: 'SEC-014', path: entry.state.path, line: entry.state.line });
+    } else if (supabase && entry.created && !entry.state && (entry.schema === null || entry.schema === 'public')) {
+      out.push({ rule: 'SEC-015', path: entry.created.path, line: entry.created.line });
+    }
+  }
+  return out;
+}
+
+/*
+ * Firebase security rules. A write allowed unconditionally anywhere, or the
+ * test-mode rule that allows everything until a date, is an open write. An
+ * unconditional read is reported only on the catch-all match, where it
+ * publishes the whole database; a public read of one collection is usually
+ * the point of that collection.
+ */
+function firebaseFindings(file) {
+  const out = [];
+  if (file.base === 'database.rules.json') {
+    const rules = parseJson(file.text.replace(/^\s*\/\/.*$/gm, ''));
+    const root = rules && rules.rules;
+    if (root && typeof root === 'object') {
+      if (root['.write'] === true || root['.write'] === 'true') out.push({ rule: 'SEC-017', line: keyLine(file.text, '.write') });
+      if (root['.read'] === true || root['.read'] === 'true') out.push({ rule: 'SEC-018', line: keyLine(file.text, '.read') });
+    }
+    return out;
+  }
+  const stack = [];
+  let depth = 0;
+  file.text.split('\n').forEach((raw, index) => {
+    const line = raw.replace(/\/\/.*$/, '');
+    const match = /\bmatch\s+(\S+)\s*\{/.exec(line);
+    if (match) stack.push({ path: match[1], depth: depth + 1 });
+    const allow = /\ballow\s+([a-z,\s]+?)\s*(?::\s*if\s+(.+?))?\s*;/i.exec(line);
+    if (allow) {
+      const operations = allow[1].split(',').map(part => part.trim().toLowerCase()).filter(Boolean);
+      const condition = (allow[2] || 'true').trim();
+      const always = /^true$/i.test(condition) || /^request\.time\s*<\s*timestamp\.date\s*\(/i.test(condition);
+      const writes = operations.some(operation => ['write', 'create', 'update', 'delete'].includes(operation));
+      const reads = operations.some(operation => ['read', 'get', 'list'].includes(operation));
+      const catchAll = stack.length > 0 && /\{\w+=\*\*\}/.test(stack[stack.length - 1].path) &&
+        stack.slice(0, -1).every(level => /\{(database|bucket)\}|\/documents$|\/o$/.test(level.path));
+      if (always && writes) out.push({ rule: 'SEC-017', line: index + 1 });
+      else if (always && reads && catchAll) out.push({ rule: 'SEC-018', line: index + 1 });
+    }
+    /* A match path's own wildcards are braces too; only the block's brace opens a level. */
+    const structural = match ? `${line.slice(0, match.index)}{${line.slice(match.index + match[0].length)}` : line;
+    for (const char of structural) {
+      if (char === '{') depth += 1;
+      if (char === '}') {
+        if (stack.length && stack[stack.length - 1].depth === depth) stack.pop();
+        depth -= 1;
+      }
+    }
+  });
+  return out;
+}
+
+/*
+ * Code that runs in the browser: a file that declares itself client code, a
+ * single-file component of a front-end framework, or anything served as-is
+ * from a public folder -- and not a server route that shares its folder.
+ */
+function clientFile(file) {
+  if (isTestPath(file.path) || !JS_EXT.has(file.ext)) return false;
+  if (/(^|\/)(api|server|functions|pages\/api)\//.test(file.path) || /\.server\.|(^|\/)\+server\./.test(file.path)) return false;
+  if (/^\s*(\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*\n\s*)*['"]use client['"]/.test(file.text)) return true;
+  if (/(^|\/)(public|static)\//.test(file.path)) return true;
+  return ['vue', 'svelte'].includes(file.ext);
+}
+
+function serviceRoleFindings(file) {
+  if (!clientFile(file)) return [];
+  const lines = file.text.split('\n');
+  const index = lines.findIndex(line => inCode(/\b[A-Za-z0-9_]*SERVICE_ROLE[A-Za-z0-9_]*\b|\bserviceRoleKey\b/, line));
+  return index < 0 ? [] : [{ rule: 'SEC-019', line: index + 1 }];
+}
+
+/* ---- Secrets ------------------------------------------------------------------ */
+
+/*
+ * What kind of credential, in words, from the narration Exposure keeps for
+ * each detector: its consequence opens by naming the thing.
+ */
+function credentialKind(rule) {
+  const narration = RULE_NARRATION[rule];
+  const match = narration && /^(?:An?|The) (.+?) (?:is|are|was|were) /.exec(narration.consequence);
+  const kind = match && match[1].length <= 48 ? match[1] : 'provider secret';
+  return kind.charAt(0).toUpperCase() + kind.slice(1);
+}
+
+/*
+ * Every credential in a file, as a detector name and a line. The detector
+ * hands back the matched text so Exposure can verify it; here nothing is kept
+ * but where it matched and what kind it is, and the candidate goes out of
+ * scope with this call.
+ */
+/*
+ * A connection string to the machine itself or to a CI service container --
+ * localhost, a loopback address, a compose service called db -- carries a
+ * throwaway password for a database nobody else can reach. Exposure still
+ * lists it; the audit does not grade an application on it.
+ */
+const LOCAL_URL = /@(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|host\.docker\.internal|postgres|postgresql|mysql|mariadb|mongo|mongodb|redis|db|database)(:\d+)?[/?\s'"`]|@(localhost|127\.0\.0\.1)$/i;
+const URL_RULES = new Set(['authenticated-url', 'database-url-password']);
+
+function secretFindings(file) {
+  /* Tests hold fixtures on purpose, and are not the application; Exposure reads them. */
+  if (isTestPath(file.path)) return [];
+  const out = [];
+  let lines = null;
+  for (const candidate of detectInText({ text: file.text }).candidates) {
+    const narration = RULE_NARRATION[candidate.rule];
+    const severity = narration ? narration.severity : 'serious';
+    const detail = { credential: credentialKind(candidate.rule) };
+    for (const occurrence of candidate.occurrences.slice(0, 3)) {
+      if (!Number.isInteger(occurrence.line)) continue;
+      if (URL_RULES.has(candidate.rule)) {
+        lines = lines || file.text.split('\n');
+        if (LOCAL_URL.test(lines[occurrence.line - 1] || '')) continue;
+      }
+      out.push({ rule: 'SCR-001', line: occurrence.line, severity, detail });
+    }
+  }
+  return out;
+}
+
 /* ---- Manifests --------------------------------------------------------------- */
 
 function parseJson(text) {
@@ -575,7 +893,9 @@ function packageJsonFindings(file) {
       if (section !== 'peerDependencies' && (version === '*' || version === '' || /^(latest|x|next)$/i.test(version) || /^>=?\s*[\d.]+$/.test(version))) {
         open.push(name);
       }
-      if (/^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i.test(name)) packages.push({ ecosystem: 'npm', name, path: file.path, line: keyLine(file.text, name) });
+      if (/^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i.test(name)) {
+        packages.push({ ecosystem: 'npm', name, path: file.path, line: keyLine(file.text, name), spec: version, dev: section === 'devDependencies' });
+      }
     }
   }
   if (open.length) out.push({ rule: 'HYG-005', line: keyLine(file.text, open[0]) });
@@ -587,10 +907,516 @@ function requirementsPackages(file) {
   file.text.split('\n').forEach((raw, index) => {
     const line = raw.replace(/#.*$/, '').trim();
     if (!line || line.startsWith('-') || /^(git\+|https?:|\.|\/)/.test(line) || line.includes('@ ')) return;
-    const match = /^([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(line);
-    if (match) packages.push({ ecosystem: 'pypi', name: match[1], path: file.path, line: index + 1 });
+    const match = /^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(\[[^\]]*\])?\s*([^;]*)/.exec(line);
+    if (match) packages.push({ ecosystem: 'pypi', name: match[1], path: file.path, line: index + 1, spec: match[3].trim(), dev: /dev|test/i.test(file.base) });
   });
   return packages;
+}
+const isRequirements = base => /^requirements([-_.][\w.-]+)?\.txt$/i.test(base);
+
+/* ---- Installed versions --------------------------------------------------------- */
+
+/*
+ * What the lockfiles say is installed: name, version, the line it is on, and
+ * whether only development tooling needs it. Each parser reads the format's
+ * stable shape and skips what it does not recognise -- an unparsed entry is
+ * a package not checked, which coverage reports, never a guess.
+ */
+function packageLockEntries(text) {
+  const lock = parseJson(text);
+  if (!lock || typeof lock !== 'object') return [];
+  const lines = new Map();
+  text.split('\n').forEach((line, index) => {
+    const key = /^\s*"((?:node_modules\/)[^"]+)"\s*:\s*\{/.exec(line);
+    if (key && !lines.has(key[1])) lines.set(key[1], index + 1);
+  });
+  const out = [];
+  if (lock.packages && typeof lock.packages === 'object') {
+    for (const [key, entry] of Object.entries(lock.packages)) {
+      if (!key || !entry || typeof entry !== 'object' || entry.link || typeof entry.version !== 'string') continue;
+      const name = typeof entry.name === 'string' && entry.name ? entry.name : key.slice(key.lastIndexOf('node_modules/') + 13);
+      out.push({ name, version: entry.version, line: lines.get(key) || 1, dev: Boolean(entry.dev), top: key === `node_modules/${name}` });
+    }
+    return out;
+  }
+  const walk = (dependencies, top) => {
+    for (const [name, entry] of Object.entries(dependencies || {})) {
+      if (!entry || typeof entry.version !== 'string' || /^(file|link|git|github|https?):/.test(entry.version)) continue;
+      out.push({ name, version: entry.version, line: keyLine(text, name), dev: Boolean(entry.dev), top });
+      if (entry.dependencies) walk(entry.dependencies, false);
+    }
+  };
+  walk(lock.dependencies, true);
+  return out;
+}
+
+function yarnLockEntries(text) {
+  const out = [];
+  const lines = text.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const header = /^"?((?:@[^@/\s"]+\/)?[^@\s",]+)@[^\n]*:\s*$/.exec(lines[index]);
+    if (!header) continue;
+    for (let cursor = index + 1; cursor < lines.length && /^\s/.test(lines[cursor]); cursor += 1) {
+      const version = /^\s+version:?\s+"?([^"\s]+)"?\s*$/.exec(lines[cursor]);
+      if (version) {
+        if (!/^0\.0\.0-use\.local$/.test(version[1])) out.push({ name: header[1], version: version[1], line: index + 1, dev: false, top: false });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function pnpmLockEntries(text) {
+  const out = [];
+  let inPackages = false;
+  text.split('\n').forEach((line, index) => {
+    if (/^\S/.test(line)) inPackages = /^packages:\s*$/.test(line);
+    if (!inPackages) return;
+    const entry = /^ {2}['"]?\/?((?:@[^@/\s'"]+\/)?[^@/\s'"(]+)[@/](\d[^:('"\s]*)(?:\([^:]*\))?['"]?:\s*$/.exec(line);
+    if (entry) out.push({ name: entry[1], version: entry[2], line: index + 1, dev: false, top: false });
+  });
+  return out;
+}
+
+function poetryLockEntries(text) {
+  const out = [];
+  const lines = text.split('\n');
+  lines.forEach((line, index) => {
+    if (!/^\[\[package\]\]\s*$/.test(line)) return;
+    let name = null;
+    let version = null;
+    let dev = false;
+    for (let cursor = index + 1; cursor < lines.length && !/^\[/.test(lines[cursor]); cursor += 1) {
+      const pair = /^(name|version|category)\s*=\s*"([^"]*)"/.exec(lines[cursor]);
+      if (!pair) continue;
+      if (pair[1] === 'name') name = pair[2];
+      if (pair[1] === 'version') version = pair[2];
+      if (pair[1] === 'category') dev = pair[2] === 'dev';
+    }
+    if (name && version) out.push({ name, version, line: index + 1, dev, top: false });
+  });
+  return out;
+}
+
+function pipfileLockEntries(text) {
+  const lock = parseJson(text);
+  const out = [];
+  for (const [section, dev] of [['default', false], ['develop', true]]) {
+    for (const [name, entry] of Object.entries((lock && lock[section]) || {})) {
+      const version = entry && /^==\s*([^\s,;]+)$/.exec(String(entry.version || ''));
+      if (version) out.push({ name, version: version[1], line: keyLine(text, name), dev, top: true });
+    }
+  }
+  return out;
+}
+
+const LOCK_PARSERS = Object.freeze({
+  'package-lock.json': ['npm', packageLockEntries],
+  'npm-shrinkwrap.json': ['npm', packageLockEntries],
+  'yarn.lock': ['npm', yarnLockEntries],
+  'pnpm-lock.yaml': ['npm', pnpmLockEntries],
+  'poetry.lock': ['pypi', poetryLockEntries],
+  'Pipfile.lock': ['pypi', pipfileLockEntries]
+});
+
+function nameKey(ecosystem, name) {
+  return ecosystem === 'pypi' ? normalizePypi(name) : String(name).toLowerCase();
+}
+
+/*
+ * Every package version worth asking about, most useful first: what the
+ * manifests declare, at the version the lockfile beside them installed; then
+ * what those bring in; then, for a manifest with no lockfile entry, an exact
+ * pin or the lowest version its range accepts -- marked as a range, because
+ * that is a statement about what could install, not what did.
+ */
+function dependencyInventory(files) {
+  const manifests = [];
+  const locks = [];
+  for (const file of files) {
+    if (typeof file.text !== 'string') continue;
+    const base = baseName(file.path);
+    const dir = dirName(file.path);
+    if (base === 'package.json') {
+      manifests.push({ dir, ecosystem: 'npm', packages: packageJsonFindings({ ...file, ext: 'json', base }).packages });
+    } else if (isRequirements(base)) {
+      manifests.push({ dir, ecosystem: 'pypi', packages: requirementsPackages(file) });
+    } else if (LOCK_PARSERS[base]) {
+      const [ecosystem, parse] = LOCK_PARSERS[base];
+      locks.push({ dir, ecosystem, path: file.path, entries: parse(file.text) });
+    }
+  }
+  const entries = [];
+  const installedDirect = new Set();
+  for (const manifest of manifests) {
+    const lock = locks.find(candidate => candidate.ecosystem === manifest.ecosystem && candidate.dir === manifest.dir) ||
+      locks.find(candidate => candidate.ecosystem === manifest.ecosystem && candidate.dir === '');
+    for (const declared of manifest.packages) {
+      const key = nameKey(manifest.ecosystem, declared.name);
+      const installed = lock && (lock.entries.find(entry => entry.top && nameKey(manifest.ecosystem, entry.name) === key) ||
+        lock.entries.find(entry => nameKey(manifest.ecosystem, entry.name) === key));
+      const base = { ecosystem: manifest.ecosystem, name: declared.name, path: declared.path, line: declared.line, direct: true, dev: Boolean(declared.dev) };
+      if (installed) {
+        entries.push({ ...base, version: installed.version, source: 'lock' });
+        installedDirect.add(advisoryKey({ ecosystem: manifest.ecosystem, name: declared.name, version: installed.version }));
+        continue;
+      }
+      const spec = String(declared.spec || '').trim();
+      const pinned = manifest.ecosystem === 'npm' ? /^=?v?(\d+\.\d+\.\d+(?:-[\w.]+)?)$/.exec(spec) : /^===?\s*([\w.!+-]+)$/.exec(spec);
+      if (pinned) { entries.push({ ...base, version: pinned[1], source: 'pin' }); continue; }
+      const floor = rangeFloor(spec, manifest.ecosystem);
+      if (floor) entries.push({ ...base, version: floor, source: 'range', range: spec });
+    }
+  }
+  for (const lock of locks) {
+    for (const entry of lock.entries) {
+      if (installedDirect.has(advisoryKey({ ecosystem: lock.ecosystem, name: entry.name, version: entry.version }))) continue;
+      entries.push({ ecosystem: lock.ecosystem, name: entry.name, version: entry.version, path: lock.path, line: entry.line, direct: false, dev: entry.dev, source: 'lock' });
+    }
+  }
+  const seen = new Set();
+  return entries.filter(entry => {
+    const key = `${advisoryKey(entry)}\0${entry.path}`;
+    if (seen.has(key) || !/^\d/.test(entry.version)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a, b) => Number(b.direct) - Number(a.direct));
+}
+
+function advisoryKey(entry) {
+  return `${entry.ecosystem}:${nameKey(entry.ecosystem, entry.name)}@${entry.version}`;
+}
+
+/* ---- Versions ------------------------------------------------------------------ */
+
+/*
+ * Ordering versions well enough to say which advisory range a version sits in
+ * and whether a fix is inside a declared range: numbers compare as numbers,
+ * a pre-release sorts before its release, build metadata is ignored.
+ */
+function versionTokens(version) {
+  return String(version).replace(/^v/i, '').replace(/\+.*$/, '').toLowerCase().match(/\d+|[a-z]+/g) || [];
+}
+function compareVersions(a, b) {
+  const left = versionTokens(a).map(token => (/^\d+$/.test(token) ? Number(token) : token));
+  const right = versionTokens(b).map(token => (/^\d+$/.test(token) ? Number(token) : token));
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const x = left[index];
+    const y = right[index];
+    if (x === undefined) return typeof y === 'string' && y !== 'post' ? 1 : -1;
+    if (y === undefined) return typeof x === 'string' && x !== 'post' ? -1 : 1;
+    if (x === y) continue;
+    if (typeof x === 'number' && typeof y === 'number') return x < y ? -1 : 1;
+    if (typeof x === 'number') return 1;
+    if (typeof y === 'number') return -1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+function padded(version) {
+  const parts = String(version).split('.');
+  while (parts.length < 3) parts.push('0');
+  return parts.join('.');
+}
+
+/* The lowest version a declared range accepts, or null when it has no floor. */
+function rangeFloor(spec, ecosystem) {
+  const text = String(spec || '').trim();
+  if (!text || /\|\||^[<*xX]|^latest$|^next$/.test(text)) return null;
+  const match = ecosystem === 'npm'
+    ? /^(?:\^|~|>=|=)?\s*v?(\d+(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?)/.exec(text)
+    : /^(?:>=|~=|==)\s*([\d]+(?:\.\d+)*)/.exec(text);
+  return match ? padded(match[1].replace(/\.[xX*]/g, '.0')) : null;
+}
+
+/* The first version a declared range refuses, or null when it has no ceiling. */
+function rangeCeiling(spec, ecosystem) {
+  const text = String(spec || '').trim();
+  const upper = /<\s*=?\s*v?([\d.]+)/.exec(text);
+  if (upper) return padded(upper[1]);
+  const numbers = (/(\d+)(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?/.exec(text) || []).slice(1).map(part => (part === undefined || /[xX*]/.test(part) ? null : Number(part)));
+  const [major, minor, patch] = numbers;
+  if (major === undefined || major === null) return null;
+  if (ecosystem === 'pypi') {
+    if (!text.startsWith('~=')) return null;
+    return patch !== null && patch !== undefined ? `${major}.${minor + 1}.0` : `${major + 1}.0.0`;
+  }
+  if (text.startsWith('^')) {
+    if (major > 0 || minor === null) return `${major + 1}.0.0`;
+    if (minor > 0 || patch === null) return `0.${minor + 1}.0`;
+    return `0.0.${patch + 1}`;
+  }
+  if (text.startsWith('~')) return minor === null ? `${major + 1}.0.0` : `${major}.${minor + 1}.0`;
+  if (minor === null) return `${major + 1}.0.0`;
+  if (patch === null) return `${major}.${minor + 1}.0`;
+  return null;
+}
+
+/* ---- Advisories ---------------------------------------------------------------- */
+
+/* CVSS v3 base score from its vector, the one number most advisories carry. */
+function cvss3(vector) {
+  const metrics = {};
+  for (const part of String(vector || '').split('/')) {
+    const [key, value] = part.split(':');
+    if (key && value) metrics[key] = value;
+  }
+  if (!/^CVSS:3/.test(String(vector))) return null;
+  const changed = metrics.S === 'C';
+  const AV = { N: 0.85, A: 0.62, L: 0.55, P: 0.2 }[metrics.AV];
+  const AC = { L: 0.77, H: 0.44 }[metrics.AC];
+  const PR = { N: 0.85, L: changed ? 0.68 : 0.62, H: changed ? 0.5 : 0.27 }[metrics.PR];
+  const UI = { N: 0.85, R: 0.62 }[metrics.UI];
+  const cia = value => ({ H: 0.56, L: 0.22, N: 0 }[value]);
+  const [C, I, A] = [cia(metrics.C), cia(metrics.I), cia(metrics.A)];
+  if ([AV, AC, PR, UI, C, I, A].some(value => value === undefined)) return null;
+  const iss = 1 - (1 - C) * (1 - I) * (1 - A);
+  const impact = changed ? 7.52 * (iss - 0.029) - 3.25 * Math.pow(iss - 0.02, 15) : 6.42 * iss;
+  if (impact <= 0) return 0;
+  const exploitability = 8.22 * AV * AC * PR * UI;
+  const raw = changed ? Math.min(1.08 * (impact + exploitability), 10) : Math.min(impact + exploitability, 10);
+  return Math.ceil(raw * 10 - 1e-9) / 10;
+}
+
+/*
+ * One advisory's severity in the audit's three words. GitHub's reviewed
+ * rating when the record carries it, else the CVSS v3 base score, else
+ * serious -- an advisory with no rating is still an advisory.
+ */
+function advisorySeverity(record) {
+  if (String(record.id).startsWith('MAL-')) return 'critical';
+  const rated = String((record.database_specific && record.database_specific.severity) || '').toUpperCase();
+  if (rated === 'CRITICAL') return 'critical';
+  if (rated === 'HIGH') return 'serious';
+  if (rated === 'MODERATE' || rated === 'MEDIUM' || rated === 'LOW') return 'warning';
+  const scores = (Array.isArray(record.severity) ? record.severity : [])
+    .filter(entry => entry && entry.type === 'CVSS_V3').map(entry => cvss3(entry.score)).filter(Number.isFinite);
+  if (scores.length) {
+    const top = Math.max(...scores);
+    return top >= 9 ? 'critical' : top >= 7 ? 'serious' : 'warning';
+  }
+  return 'serious';
+}
+
+/* The version that fixes this advisory for this version of this package. */
+function fixedVersion(record, entry) {
+  const key = nameKey(entry.ecosystem, entry.name);
+  const fixes = [];
+  let inRange = null;
+  for (const affected of Array.isArray(record.affected) ? record.affected : []) {
+    const pkg = affected && affected.package;
+    if (!pkg || nameKey(entry.ecosystem, pkg.name) !== key) continue;
+    for (const range of Array.isArray(affected.ranges) ? affected.ranges : []) {
+      if (!range || range.type === 'GIT') continue;
+      let introduced = '0';
+      for (const event of Array.isArray(range.events) ? range.events : []) {
+        if (event.introduced !== undefined) introduced = String(event.introduced);
+        if (event.fixed !== undefined) {
+          const fixed = String(event.fixed);
+          fixes.push(fixed);
+          if (!inRange && compareVersions(entry.version, introduced === '0' ? '0' : introduced) >= 0 && compareVersions(entry.version, fixed) < 0) inRange = fixed;
+        }
+      }
+    }
+  }
+  if (inRange) return inRange;
+  const later = fixes.filter(fix => compareVersions(fix, entry.version) > 0).sort(compareVersions);
+  return later[0] || null;
+}
+
+const ADVISORY_ID = /^[A-Za-z][A-Za-z0-9._-]{2,63}$/;
+const OSV = 'https://api.osv.dev/v1';
+const OSV_ECOSYSTEM = Object.freeze({ npm: 'npm', pypi: 'PyPI' });
+
+function plain(value, limit) {
+  const text = String(value || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
+}
+
+/*
+ * Which of these versions have published advisories. One anonymous batch
+ * query to OSV per few hundred packages through the guarded transport's
+ * advisory profile, then the records themselves for the advisories found,
+ * direct dependencies and malicious-package records first. A batch that
+ * fails leaves its packages unknown, and unknown is never a finding.
+ */
+async function lookupAdvisories(entries, transport, limits = LIMITS) {
+  const answers = new Map();
+  const unique = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const key = advisoryKey(entry);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(entry);
+  }
+  const asked = unique.slice(0, limits.maxAdvisoryQueries);
+  const idsByKey = new Map();
+  const headers = { 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'Nebulaverse-X-Audit/1.0' };
+  for (let start = 0; start < asked.length; start += limits.advisoryBatch) {
+    const batch = asked.slice(start, start + limits.advisoryBatch);
+    try {
+      const response = await transport({
+        url: `${OSV}/querybatch`, profile: 'advisory-query', method: 'POST', headers,
+        body: JSON.stringify({ queries: batch.map(entry => ({ package: { name: entry.name, ecosystem: OSV_ECOSYSTEM[entry.ecosystem] }, version: entry.version })) }),
+        maxResponseBytes: 256 * 1024
+      });
+      const body = Number(response && response.statusCode) === 200 ? parseJson(String(response.body || '')) : null;
+      if (!body || !Array.isArray(body.results) || body.results.length !== batch.length) throw new Error('unanswered');
+      batch.forEach((entry, index) => {
+        const result = body.results[index];
+        const ids = (result && Array.isArray(result.vulns) ? result.vulns : []).map(vuln => String(vuln && vuln.id)).filter(id => ADVISORY_ID.test(id));
+        idsByKey.set(advisoryKey(entry), ids);
+      });
+    } catch {
+      batch.forEach(entry => answers.set(advisoryKey(entry), 'unknown'));
+    }
+  }
+
+  /*
+   * Records are fetched a round at a time across packages -- every
+   * vulnerable package's first advisory, then every second one -- so a
+   * budget spent on one package with forty advisories does not leave the
+   * next one unrated.
+   */
+  const order = [];
+  const queued = new Set();
+  const rank = id => (id.startsWith('MAL-') ? 0 : id.startsWith('GHSA-') ? 1 : 2);
+  const lists = asked.map(entry => [...(idsByKey.get(advisoryKey(entry)) || [])].sort((a, b) => rank(a) - rank(b)));
+  for (let round = 0; lists.some(list => list.length > round); round += 1) {
+    for (const list of lists) {
+      const id = list[round];
+      if (id && !queued.has(id)) { queued.add(id); order.push(id); }
+    }
+  }
+  const records = new Map();
+  await boundedMap(order.slice(0, limits.maxAdvisoryDetails), limits.lookupConcurrency + 2, async id => {
+    try {
+      const response = await transport({ url: `${OSV}/vulns/${encodeURIComponent(id)}`, profile: 'advisory-query', method: 'GET', headers: { accept: 'application/json', 'user-agent': headers['user-agent'] }, maxResponseBytes: 256 * 1024 });
+      const record = Number(response && response.statusCode) === 200 ? parseJson(String(response.body || '')) : null;
+      if (record && record.id === id) records.set(id, record);
+    } catch { /* The id alone is still reported. */ }
+  });
+
+  for (const entry of asked) {
+    const key = advisoryKey(entry);
+    if (answers.has(key)) continue;
+    const ids = idsByKey.get(key) || [];
+    const covered = new Set();
+    const advisories = [];
+    for (const id of [...ids].sort((a, b) => rank(a) - rank(b))) {
+      if (covered.has(id)) continue;
+      const record = records.get(id);
+      const aliases = record && Array.isArray(record.aliases) ? record.aliases.map(String) : [];
+      aliases.forEach(alias => covered.add(alias));
+      covered.add(id);
+      const cve = aliases.find(alias => /^CVE-\d{4}-\d+$/.test(alias)) || null;
+      advisories.push(Object.freeze({
+        id,
+        cve,
+        /* Unrated when the record was not fetched: the id is still a fact, its severity is not. */
+        rated: Boolean(record),
+        severity: record ? advisorySeverity(record) : (id.startsWith('MAL-') ? 'critical' : null),
+        summary: record ? plain(record.summary || '', 140) : '',
+        fixed: record ? fixedVersion(record, entry) : null,
+        malicious: id.startsWith('MAL-')
+      }));
+    }
+    answers.set(key, Object.freeze({ advisories: Object.freeze(advisories) }));
+  }
+  return { answers, asked: asked.length, total: unique.length };
+}
+
+const SEVERITY_ORDER = Object.freeze({ critical: 0, serious: 1, warning: 2 });
+const worst = severities => severities.reduce((a, b) => (SEVERITY_ORDER[b] < SEVERITY_ORDER[a] ? b : a), 'warning');
+const softer = severity => (severity === 'critical' ? 'serious' : 'warning');
+
+/*
+ * One finding per vulnerable package version, at the line a reader would
+ * edit: the manifest for what they declared, the lockfile for what came
+ * with it. Tooling only a developer installs is one step less severe, and a
+ * range whose own floor is affected but which admits the fix is a warning
+ * about the floor rather than a claim about what is installed.
+ */
+function advisoryFindings(inventory, advisories) {
+  const out = [];
+  const status = { checked: 0, vulnerable: 0, malicious: 0, unknown: 0 };
+  for (const entry of inventory) {
+    const answer = advisories.get(advisoryKey(entry));
+    if (!answer) continue;
+    status.checked += 1;
+    if (answer === 'unknown') { status.unknown += 1; continue; }
+    if (!answer.advisories.length) continue;
+    const malicious = answer.advisories.filter(advisory => advisory.malicious);
+    const listed = (malicious.length ? malicious : answer.advisories).slice(0, 6);
+    /* Severity and the fix come from the advisories that were rated; an unrated one never raises either. */
+    const rated = answer.advisories.filter(advisory => advisory.rated !== false && advisory.severity);
+    const fixes = rated.map(advisory => advisory.fixed);
+    const fixed = rated.length && fixes.every(Boolean) ? fixes.sort(compareVersions)[fixes.length - 1] : null;
+    const detail = {
+      package: entry.name,
+      version: entry.version,
+      ecosystem: entry.ecosystem,
+      direct: entry.direct,
+      dev: entry.dev,
+      source: entry.source,
+      range: entry.range || null,
+      fixed,
+      unfixed: rated.some(advisory => !advisory.fixed),
+      advisories: listed.map(advisory => ({ id: advisory.id, cve: advisory.cve, severity: advisory.severity, summary: advisory.summary })),
+      more: Math.max(0, (malicious.length ? malicious : answer.advisories).length - listed.length)
+    };
+    if (malicious.length) {
+      status.malicious += 1;
+      out.push({ rule: 'DEP-006', path: entry.path, line: entry.line, severity: 'critical', detail });
+      continue;
+    }
+    status.vulnerable += 1;
+    let severity = rated.length ? worst(rated.map(advisory => advisory.severity)) : 'serious';
+    if (entry.dev) severity = softer(severity);
+    if (entry.source === 'range') {
+      const ceiling = rangeCeiling(entry.range, entry.ecosystem);
+      const fixable = fixed && (!ceiling || compareVersions(fixed, ceiling) < 0);
+      out.push(fixable ? { rule: 'DEP-005', path: entry.path, line: entry.line, severity: 'warning', detail } : { rule: 'DEP-003', path: entry.path, line: entry.line, severity, detail });
+      continue;
+    }
+    out.push({ rule: 'DEP-003', path: entry.path, line: entry.line, severity, detail });
+  }
+  return { out, status };
+}
+
+/* ---- Look-alike names ---------------------------------------------------------- */
+
+/* Optimal string alignment distance, stopping early past one edit. */
+function withinOneEdit(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  const rows = Array.from({ length: a.length + 1 }, (_, i) => [i, ...new Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j += 1) rows[0][j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      rows[i][j] = Math.min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) rows[i][j] = Math.min(rows[i][j], rows[i - 2][j - 2] + 1);
+    }
+  }
+  return rows[a.length][b.length] === 1;
+}
+
+const POPULAR_SETS = Object.freeze({
+  npm: Object.freeze(POPULAR.NPM.map(name => name.toLowerCase())),
+  pypi: Object.freeze(POPULAR.PYPI.map(normalizePypi))
+});
+
+/* A declared name one keystroke from a popular one, or the same letters with the separators moved. */
+function lookAlike(ecosystem, name) {
+  if (ecosystem === 'npm' && name.startsWith('@')) return null;
+  const candidate = nameKey(ecosystem, name);
+  const popular = POPULAR_SETS[ecosystem];
+  if (!popular || popular.includes(candidate) || candidate.length < 5) return null;
+  const squash = value => value.replace(/[-_.]/g, '');
+  return popular.find(target => target.length >= 5 && (withinOneEdit(candidate, target) || (squash(candidate) === squash(target)))) || null;
 }
 
 /* PEP 503: the name PyPI answers to. */
@@ -604,10 +1430,29 @@ function fingerprint(rule, filePath, ordinal) {
   return crypto.createHash('sha256').update(`${rule}\0${filePath}\0${ordinal}`).digest('hex').slice(0, 24);
 }
 
-function describe(rule, filePath, line, severityOverride) {
+/*
+ * The facts a finding adds to its rule, as one clause: which credential,
+ * which package and version, which advisories and the version that fixes
+ * them. Never a value from the code.
+ */
+function detailText(rule, detail) {
+  if (!detail) return '';
+  if (rule === 'SCR-001') return detail.credential;
+  if (rule === 'DEP-004') return `${detail.package} looks like ${detail.resembles}`;
+  if (detail.package) {
+    const ids = detail.advisories.map(advisory => advisory.cve || advisory.id).join(', ');
+    const version = detail.source === 'range' ? `${detail.range} (lowest accepted: ${detail.version})` : detail.version;
+    const fix = rule === 'DEP-006' ? '' : detail.fixed ? `; fixed in ${detail.fixed}` : detail.unfixed ? '; no fixed version published' : '';
+    return `${detail.package} ${version}${detail.direct ? '' : ', a transitive dependency'} -- ${ids}${detail.more ? ` and ${detail.more} more` : ''}${fix}`;
+  }
+  return '';
+}
+
+function describe(rule, filePath, line, severityOverride, detail) {
   const definition = RULES[rule];
   const severity = severityOverride || definition.severity;
   const where = filePath ? `${filePath}${line ? ` (line ${line})` : ''}` : 'this repository';
+  const facts = detailText(rule, detail);
   return {
     rule,
     category: definition.category,
@@ -617,12 +1462,13 @@ function describe(rule, filePath, line, severityOverride) {
     title: definition.title,
     why: definition.why,
     fix: definition.fix,
+    detail: detail || null,
     /*
      * A prompt a reader can paste into a coding assistant. Written from the
-     * rule and the location only, so it carries no code and asks for the fix
-     * to be proved rather than asserted.
+     * rule, the location and the facts above only, so it carries no code and
+     * asks for the fix to be proved rather than asserted.
      */
-    prompt: `In ${where}: ${definition.title.toLowerCase()}. ${definition.why} ${definition.fix} ` +
+    prompt: `In ${where}: ${definition.title.toLowerCase()}${facts ? ` (${facts})` : ''}. ${definition.why} ${definition.fix} ` +
       'Make the smallest change that fixes it, keep the existing behaviour otherwise, and add or update a test that fails before the fix and passes after.'
   };
 }
@@ -659,19 +1505,29 @@ function score(findings) {
  * and the same registry answers give the same result, which is what lets it be
  * tested without a provider.
  */
-function analyse({ files, paths, registry = new Map() }) {
+function analyse({ files, paths, registry = new Map(), advisories = new Map() }) {
   const raw = [];
   const packages = [];
+  const prepared = [];
   const allPaths = Array.isArray(paths) ? paths : files.map(file => file.path);
   const pathSet = new Set(allPaths);
   let usesEnvironment = false;
   let authRoute = null;
   let rateLimited = false;
   let packageJsonWithDependencies = null;
+  /* Supabase serves the public schema over its API, so a table there without row level security is open. */
+  const supabase = allPaths.some(filePath => /(^|\/)supabase\//.test(filePath)) ||
+    files.some(file => (baseName(file.path) === 'package.json' || isRequirements(baseName(file.path))) && /supabase/i.test(String(file.text || '')));
 
   for (const source of files) {
     const file = { ...source, ext: extensionOf(source.path), base: baseName(source.path) };
     if (typeof file.text !== 'string') continue;
+    /* A lockfile is read for installed versions only; its text is not code. */
+    if (READ_LOCKS.has(file.base)) continue;
+    prepared.push(file);
+    secretFindings(file).forEach(finding => raw.push({ ...finding, path: file.path }));
+    if (FIREBASE_RULES.has(file.base)) firebaseFindings(file).forEach(finding => raw.push({ ...finding, path: file.path }));
+    serviceRoleFindings(file).forEach(finding => raw.push({ ...finding, path: file.path }));
     if (/process\.env\.|import\.meta\.env\.|os\.environ|os\.getenv|getenv\s*\(|dotenv/.test(file.text) || /^\.env\.(example|sample|template)$/.test(file.base)) usesEnvironment = true;
     if (/(rateLimit|rate-limit|ratelimit|RateLimiter|slowDown|express-slow-down|@upstash\/ratelimit|flask_limiter|Limiter\s*\(|throttle)/i.test(file.text)) rateLimited = true;
     if (!authRoute && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)) && !isTestPath(file.path)) {
@@ -687,7 +1543,7 @@ function analyse({ files, paths, registry = new Map() }) {
       packages.push(...manifest.packages);
       if (manifest.hasDependencies && !packageJsonWithDependencies) packageJsonWithDependencies = file.path;
     }
-    if (file.base === 'requirements.txt') packages.push(...requirementsPackages(file));
+    if (isRequirements(file.base)) packages.push(...requirementsPackages(file));
     if (isDockerfile(file.path)) {
       const stages = new Set();
       file.text.split('\n').forEach((line, index) => {
@@ -742,6 +1598,17 @@ function analyse({ files, paths, registry = new Map() }) {
   const sourceCount = allPaths.filter(filePath => SOURCE_EXT.has(extensionOf(filePath)) && !EXCLUDED_DIR.test(filePath)).length;
   if (sourceCount >= 5 && !allPaths.some(filePath => isTestPath(filePath))) raw.push({ rule: 'HYG-009', path: null, line: null });
   if (authRoute && !rateLimited) raw.push({ rule: 'SEC-012', path: authRoute.path, line: authRoute.line });
+  raw.push(...sqlFindings(prepared, supabase));
+
+  /* Declared names one keystroke from a popular package. */
+  for (const entry of dedupePackages(packages)) {
+    const resembles = lookAlike(entry.ecosystem, entry.name);
+    if (resembles) raw.push({ rule: 'DEP-004', path: entry.path, line: entry.line, detail: { package: entry.name, resembles } });
+  }
+
+  /* Versions with published advisories. */
+  const vulnerabilities = advisoryFindings(dependencyInventory(files), advisories);
+  raw.push(...vulnerabilities.out);
 
   /* Dependencies the public registry answered for. Unknown is not missing. */
   const dependencyStatus = { checked: 0, missing: 0, unknown: 0 };
@@ -763,11 +1630,34 @@ function analyse({ files, paths, registry = new Map() }) {
     if (seen.has(key)) continue;
     seen.set(key, true);
     const ordinal = findings.filter(existing => existing.rule === item.rule && existing.path === (item.path || null)).length;
-    findings.push({ id: fingerprint(item.rule, item.path || '', ordinal), ...describe(item.rule, item.path, item.line, item.severity) });
+    findings.push({ id: fingerprint(item.rule, item.path || '', ordinal), ...describe(item.rule, item.path, item.line, item.severity, item.detail) });
   }
-  const order = { critical: 0, serious: 1, warning: 2 };
-  findings.sort((a, b) => order[a.severity] - order[b.severity] || String(a.path).localeCompare(String(b.path)) || (a.line || 0) - (b.line || 0));
-  return { findings, dependencyStatus, ...score(findings) };
+  findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || String(a.path).localeCompare(String(b.path)) || (a.line || 0) - (b.line || 0));
+  return { findings, dependencyStatus, advisoryStatus: vulnerabilities.status, priorities: priorities(findings), ...score(findings) };
+}
+
+/*
+ * What to fix first: the three findings that would most change the outcome,
+ * no two from the same rule, so the list reads as three different jobs.
+ * Severity first; among equals, the families an attacker reaches first -- a
+ * live credential or an open database before a code pattern, a code pattern
+ * before a dependency, anything before hygiene -- and a direct dependency
+ * before one that came with it.
+ */
+const REACH = Object.freeze({ secrets: 0, code: 1, 'supply-chain': 2, dependencies: 3, hygiene: 4 });
+function priorities(findings) {
+  const ranked = [...findings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
+    REACH[a.category] - REACH[b.category] ||
+    Number(Boolean(b.detail && b.detail.direct)) - Number(Boolean(a.detail && a.detail.direct)));
+  const out = [];
+  const rules = new Set();
+  for (const finding of ranked) {
+    if (rules.has(finding.rule)) continue;
+    rules.add(finding.rule);
+    out.push(finding.id);
+    if (out.length === 3) break;
+  }
+  return out;
 }
 
 function packageKey(entry) {
@@ -825,7 +1715,7 @@ async function lookupPackages(packages, transport, limits = LIMITS) {
  * The whole audit against a provider: resolve the ref once, list the tree at
  * that commit, read what fits the budget, ask the registries, analyse.
  */
-async function auditRepository({ reader, scope, ref, token, transport, registryTransport, limits = LIMITS }) {
+async function auditRepository({ reader, scope, ref, token, transport, registryTransport, advisoryTransport, limits = LIMITS }) {
   const resolved = await reader.resolveCommit({ scope, ref, token, transport });
   const tree = await reader.readTree({ scope, commitSha: resolved.commitSha, token, transport });
   const paths = [...tree.entries.map(entry => entry.path), ...tree.skipped.filter(entry => entry.path).map(entry => entry.path)];
@@ -840,10 +1730,16 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
   const packages = [];
   for (const file of files) {
     if (baseName(file.path) === 'package.json') packages.push(...packageJsonFindings({ ...file, ext: 'json', base: 'package.json' }).packages);
-    if (baseName(file.path) === 'requirements.txt') packages.push(...requirementsPackages(file));
+    if (isRequirements(baseName(file.path))) packages.push(...requirementsPackages(file));
   }
-  const registry = registryTransport ? await lookupPackages(packages, registryTransport, limits) : { answers: new Map(), asked: 0, total: 0 };
-  const result = analyse({ files, paths, registry: registry.answers });
+  const inventory = dependencyInventory(files);
+  /* The registries and the advisory database are asked at the same time: neither needs the other's answer. */
+  const [registry, advisories] = await Promise.all([
+    registryTransport ? lookupPackages(packages, registryTransport, limits) : { answers: new Map(), asked: 0, total: 0 },
+    advisoryTransport ? lookupAdvisories(inventory, advisoryTransport, limits) : { answers: new Map(), asked: 0, total: 0 }
+  ]);
+  const result = analyse({ files, paths, registry: registry.answers, advisories: advisories.answers });
+  const lockfiles = paths.filter(filePath => READ_LOCKS.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath));
   return {
     commitSha: resolved.commitSha,
     ref: resolved.ref,
@@ -855,7 +1751,21 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
       unreadable,
       skipped: selection.skipped,
       complete: !tree.truncated && selection.skipped.budget === 0 && unreadable === 0,
-      packages: { declared: registry.total, checked: result.dependencyStatus.checked, unknown: result.dependencyStatus.unknown, notChecked: Math.max(0, registry.total - registry.asked) }
+      packages: { declared: registry.total, checked: result.dependencyStatus.checked, unknown: result.dependencyStatus.unknown, notChecked: Math.max(0, registry.total - registry.asked) },
+      /*
+       * Versions asked about, and where they came from. A lockfile too large
+       * to read leaves declared ranges as the only evidence, and says so.
+       */
+      advisories: {
+        versions: advisories.total,
+        checked: result.advisoryStatus.checked,
+        unknown: result.advisoryStatus.unknown,
+        notChecked: Math.max(0, advisories.total - advisories.asked),
+        vulnerable: result.advisoryStatus.vulnerable,
+        malicious: result.advisoryStatus.malicious,
+        lockfiles: lockfiles.length,
+        lockfilesRead: files.filter(file => READ_LOCKS.has(baseName(file.path))).length
+      }
     },
     ...result
   };
@@ -863,5 +1773,6 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
 
 module.exports = Object.freeze({
   CATEGORIES, RULES, LIMITS, CRITICAL_CAP, SEVERITY_PENALTY,
-  analyse, auditRepository, selectFiles, lookupPackages, registryUrl, normalizePypi, gradeOf
+  analyse, auditRepository, selectFiles, lookupPackages, lookupAdvisories, dependencyInventory, registryUrl, normalizePypi, gradeOf,
+  compareVersions, rangeCeiling, rangeFloor, cvss3, sqlStatements
 });

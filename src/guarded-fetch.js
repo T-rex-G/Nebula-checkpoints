@@ -65,14 +65,23 @@ const PROFILES = Object.freeze({
    * recognise it, not the whole of a page. A compressed body is not
    * decompressed; it is reported as unread and the headers still arrive.
    */
-  SITE_PROBE: 'site-probe'
+  SITE_PROBE: 'site-probe',
+  /*
+   * A question to the public vulnerability database about packages a
+   * repository declares: a name, an ecosystem and a version, nothing else.
+   * It may POST, because OSV's batch query is a POST, and it may reach one
+   * host only -- the database -- so the profile cannot be borrowed to send a
+   * body anywhere else. It is anonymous: no credential, no cookie.
+   */
+  ADVISORY_QUERY: 'advisory-query'
 });
 
 const PROFILE_RULES = Object.freeze({
   [PROFILES.WEBHOOK]: Object.freeze({ methods: Object.freeze(['POST']), query: false, readsBody: false }),
   [PROFILES.PROVIDER_READ]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: true, readsBody: true }),
   [PROFILES.CREDENTIAL_VERIFY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true }),
-  [PROFILES.SITE_PROBE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: false, readsBody: true, headers: true, truncates: true })
+  [PROFILES.SITE_PROBE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: false, readsBody: true, headers: true, truncates: true }),
+  [PROFILES.ADVISORY_QUERY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true, hosts: Object.freeze(['api.osv.dev']) })
 });
 
 /* Response headers as a probe may see them: lower-cased names, bounded values. */
@@ -391,10 +400,14 @@ async function guardedFetch(input = {}) {
 
   const target = normalizeTarget(input.url, input.profile);
   assertCredentialNotInUrl(target, input.headers);
-  /* A site probe is anonymous by construction: it may carry no credential and no cookie. */
-  if (input.profile === PROFILES.SITE_PROBE && Object.keys(input.headers || {}).some(name =>
+  /* A site probe and an advisory query are anonymous by construction: no credential and no cookie. */
+  if ((input.profile === PROFILES.SITE_PROBE || input.profile === PROFILES.ADVISORY_QUERY) && Object.keys(input.headers || {}).some(name =>
     /^(?:authorization|proxy-authorization|cookie|private-token|x-api-key)$/i.test(name))) {
-    throw new GuardedFetchError('A site probe must be anonymous', 'GUARDED_FETCH_REFUSED');
+    throw new GuardedFetchError(input.profile === PROFILES.SITE_PROBE ? 'A site probe must be anonymous' : 'An advisory query must be anonymous', 'GUARDED_FETCH_REFUSED');
+  }
+  /* A profile bound to named hosts reaches those and nothing else. */
+  if (rule.hosts && !rule.hosts.includes(target.hostname)) {
+    throw new GuardedFetchError('This profile may not reach that host', 'GUARDED_FETCH_REFUSED');
   }
   const body = input.body == null ? null : String(input.body);
   const maxBytes = boundedInteger(input.maxResponseBytes, MAX_RESPONSE_BYTES, 1024,

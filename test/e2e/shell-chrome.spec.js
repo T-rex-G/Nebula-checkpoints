@@ -1188,12 +1188,12 @@ test.describe('destination names', () => {
 /*
  * The security surfaces are one set.
  *
- * Safeguards sat in the phone menu between "Delete repository" and Settings,
- * nine rows away from Neural, Governance and Exposure, so a reader who had
- * found one of the four had no reason to think the others existed. The menu
- * and the rail now group them, in one order, under one name. The guard is on
- * adjacency and order, not on styling: whatever the group looks like, the four
- * have to be the four entries under it.
+ * They sit together, in one order, under one name, in the phone menu and the
+ * desktop rail -- and every one of them is a page. Safeguards is not: it is a
+ * dialog about the repository, so it lives with the repository's options (the
+ * menu's Repository group, the top bar on a desktop) and opens where the
+ * reader is instead of pretending to be a destination. The guard is on
+ * adjacency and order, not on styling.
  */
 test('the security entries sit together, in the same order, in the menu and the rail', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
@@ -1202,22 +1202,99 @@ test('the security entries sit together, in the same order, in the menu and the 
 
   const groups = await page.evaluate(() => {
     const sheet = [...document.querySelectorAll('#sheet > .sheet-label, #sheet > .sheet-item')];
-    const at = sheet.findIndex(node => node.classList.contains('sheet-label') && node.textContent.trim() === 'Security');
-    const menu = [];
-    for (const node of sheet.slice(at + 1)) {
-      if (!node.classList.contains('sheet-item')) break;
-      menu.push(node.dataset.act);
-    }
+    const group = name => {
+      const at = sheet.findIndex(node => node.classList.contains('sheet-label') && node.textContent.trim() === name);
+      const items = [];
+      for (const node of sheet.slice(at + 1)) {
+        if (!node.classList.contains('sheet-item')) break;
+        items.push(node.dataset.act);
+      }
+      return items;
+    };
     const list = document.querySelector('#navRail [aria-labelledby="railSecurityLabel"]');
+    const safeguards = document.querySelector('.sheet-item[data-act="safeguards"]');
     return {
-      menu,
+      menu: group('Security'),
+      repository: group('Repository'),
       rail: list ? [...list.querySelectorAll('[data-rail]')].map(node => node.dataset.rail) : [],
-      railLabel: (document.getElementById('railSecurityLabel') || {}).textContent
+      railLabel: (document.getElementById('railSecurityLabel') || {}).textContent,
+      railSafeguards: document.querySelectorAll('#navRail [data-rail="safeguards"]').length,
+      safeguardsPopup: safeguards && safeguards.getAttribute('aria-haspopup')
     };
   });
 
-  const expected = ['neural', 'governance', 'exposure', 'safeguards'];
+  const expected = ['neural', 'governance', 'exposure', 'audit'];
   expect(groups.menu).toEqual(expected);
   expect(groups.rail).toEqual(expected);
   expect(groups.railLabel).toBe('Security');
+  /* Safeguards is an option on the repository, marked as opening a dialog, and never a rail destination. */
+  expect(groups.repository).toContain('safeguards');
+  expect(groups.safeguardsPopup).toBe('dialog');
+  expect(groups.railSafeguards).toBe(0);
+});
+
+test('the audit is reachable from the phone menu and carries its own mark', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor();
+  const entry = page.locator('.sheet-item[data-act="audit"]');
+  await expect(entry.locator('svg.nv-audit-mark')).toHaveCount(1);
+  const phone = await page.locator('#bottomNav').isVisible();
+  if (phone) {
+    await page.locator('#bottomNav button[data-nav="more"]').click();
+    await expect(entry).toBeVisible();
+    await entry.click();
+  } else {
+    await page.locator('#navRail [data-rail="audit"]').click();
+  }
+  await expect(page.locator('#tab-audit.active')).toBeVisible();
+  await expect(page.locator('#tab-audit .sec-mark-audit')).toBeVisible();
+});
+
+test('on a desktop the file list folds away and comes back, and remembers', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor();
+  const toggle = page.locator('#filesToggle');
+  if (!(await toggle.isVisible())) {
+    /* A phone has no side panel to fold: the files are their own screen there. */
+    await expect(toggle).toBeHidden();
+    return;
+  }
+  const side = page.locator('#side');
+  const width = async () => (await side.boundingBox() || { width: 0 }).width;
+  expect(await width()).toBeGreaterThan(150);
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+  await page.locator('#filesCollapse').click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(side).toHaveAttribute('inert', '');
+  await expect.poll(width).toBeLessThan(2);
+  await expect(toggle).toBeFocused();
+  expect(await page.evaluate(() => localStorage.getItem('nv_files_hidden'))).toBe('1');
+
+  /* The editor takes the room. */
+  const pane = await page.locator('#page-work .main-pane').boundingBox();
+  expect(pane.x).toBeLessThan(400);
+
+  await page.reload();
+  await page.locator('#page-work.active').waitFor();
+  await expect(page.locator('#filesToggle')).toHaveAttribute('aria-expanded', 'false');
+
+  await page.keyboard.press('Control+b');
+  await expect(page.locator('#filesToggle')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#side')).not.toHaveAttribute('inert', '');
+  await expect.poll(width).toBeGreaterThan(150);
+});
+
+test('safeguards open from the top bar on a desktop, as a dialog over the page', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor();
+  const control = page.locator('#safeguardsBtn');
+  if (!(await control.isVisible())) return;
+  await expect(control).toHaveAttribute('aria-haspopup', 'dialog');
+  await control.click();
+  await expect(page.getByRole('dialog').filter({ hasText: /safeguard|protect/i }).first()).toBeVisible();
+  await expect(page.locator('#page-work.active')).toBeVisible();
 });

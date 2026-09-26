@@ -410,13 +410,26 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     if (pathname === '/api/repo/sandbox/demo/code-audit' && method === 'GET') {
       state.audits = (state.audits || 0) + 1;
       const { analyse } = require('../../src/code-audit');
+      /* A remote database password, built in pieces so no scanner mistakes the fixture for a leak. */
+      const databaseUrl = ['postgres://app:', 'Tr0ub4dor-and-3', '@db.demo-prod.example.com:5432/app'].join('');
       const files = [
         { path: 'README.md', text: '# demo\n' },
-        { path: 'package.json', text: JSON.stringify({ name: 'demo', scripts: { build: 'vite build' }, dependencies: { react: '*' } }, null, 2) },
+        { path: 'package.json', text: JSON.stringify({ name: 'demo', scripts: { build: 'vite build' }, dependencies: { react: '*', lodash: '^4.17.0' }, devDependencies: { crossenv: '^1.0.0' } }, null, 2) },
+        { path: 'package-lock.json', text: JSON.stringify({ lockfileVersion: 3, packages: { '': { name: 'demo' }, 'node_modules/react': { version: '18.2.0' }, 'node_modules/lodash': { version: '4.17.15' }, 'node_modules/crossenv': { version: '1.0.0', dev: true } } }, null, 2) },
         { path: 'server.js', text: 'app.post("/api/login", handler);\napp.use(cors({ origin: true, credentials: true }));\n' },
+        { path: 'deploy/production.yml', text: `env:\n  DATABASE_URL: ${databaseUrl}\n` },
+        { path: 'supabase/migrations/20260101000000_init.sql', text: 'create table public.profiles (\n  id uuid primary key,\n  bio text\n);\n' },
         ...(state.audits === 1 ? [{ path: 'api/users.js', text: 'db.query(`SELECT * FROM users WHERE id = ${req.params.id}`);\n' }] : [])
       ];
-      const result = analyse({ files, paths: files.map(file => file.path) });
+      const advisories = new Map([
+        ['npm:react@18.2.0', { advisories: [] }],
+        ['npm:crossenv@1.0.0', { advisories: [] }],
+        ['npm:lodash@4.17.15', { advisories: [
+          { id: 'GHSA-35jh-r3h4-6jhm', cve: 'CVE-2021-23337', rated: true, severity: 'serious', summary: 'Command Injection in lodash', fixed: '4.17.21', malicious: false },
+          { id: 'GHSA-p6mc-m468-83gw', cve: 'CVE-2020-8203', rated: true, severity: 'serious', summary: 'Prototype Pollution in lodash', fixed: '4.17.19', malicious: false }
+        ] }]
+      ]);
+      const result = analyse({ files, paths: files.map(file => file.path), advisories });
       return fulfill({
         ...result,
         commitSha: HEAD_SHA,
@@ -425,7 +438,8 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         coverage: {
           treeTruncated: false, filesInTree: files.length, eligible: files.length - 1, read: files.length - 1, unreadable: 0,
           skipped: { excluded: 0, oversize: 0, budget: 0 }, complete: true,
-          packages: { declared: 1, checked: 1, unknown: 0, notChecked: 0 }
+          packages: { declared: 3, checked: 3, unknown: 0, notChecked: 0 },
+          advisories: { versions: 3, checked: 3, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1 }
         }
       });
     }

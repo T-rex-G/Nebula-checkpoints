@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+### An Audit That Finds What Scanners Miss; Reports That Speak in Shapes
+
+Reported: the scanner was missing from the phone's Security menu and had no
+mark of its own; its report and Exposure's read as walls of text and were
+not advanced enough to beat the scanners compared; the repository trust
+card still took room above every tool; Safeguards sat in the sidebar as if
+it were a page; the file list could not be put away on a desktop; the logo
+and Create repository button kept Nebula's violet in Obsidian; the landing's
+played audit opened on half a screen of nothing.
+
+- **Audit engine: 47 rules in five families.** New: **Secrets** -- every
+  credential the Exposure detectors recognise, named by kind and line and
+  never kept, local and CI-service connection strings aside. **Published
+  vulnerabilities** -- installed versions read from `package-lock.json`,
+  `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`, `poetry.lock` and
+  `Pipfile.lock` (transitive ones included), asked of OSV in batches through
+  a new guarded profile bound to `api.osv.dev`, each finding carrying its
+  advisories, CVEs, a severity from GitHub's rating or the CVSS v3 score, and
+  the version that clears them all; development-only tooling is one step less
+  severe, and a range whose floor is affected is a warning unless no version
+  it accepts is fixed. **Malicious packages** from OSV's `MAL-` records.
+  **Typosquats** -- a name one keystroke or a moved separator from a popular
+  npm or PyPI package. **Supabase** -- row level security switched off, a
+  public table never protected, and insert/update/delete policies that are
+  simply `true`, judged on each table's final state across migrations.
+  **Firebase** -- rules that let anyone write, test-mode rules, and reads open
+  on the whole database. **SSRF, open redirects and path traversal** handed
+  straight from the request, and the Supabase service-role key referenced in
+  browser code. Every audit names the three jobs to do first. This
+  repository's own audit found `qs 6.15.3` under Express, now 6.16.0.
+- **Reports.** The Audit opens with its mark, a score ring, the verdict in
+  a line, a severity tally and the evidence as four figures; then Fix first,
+  five family tiles with their own marks, and findings with a severity
+  filter, the credential's kind or the package's upgrade on the row, and
+  advisories linked to OSV inside. The site check draws the same ring and
+  headers as tiles. Exposure speaks the same language: its mark, evidence
+  as tiles, the history depth as a switch, severity stripes and dots. The
+  developer brief carries Fix first, credentials' kinds and advisories.
+- **Navigation.** Audit sits in Security in the rail and the phone menu, with
+  its mark. Safeguards is a repository option -- the menu's Repository group
+  and a top-bar button on a desktop -- and opens as the dialog it is. The
+  repository trust card shows only in the editor.
+- **Files.** On a desktop the file list folds away from its header, the top
+  bar or Ctrl/⌘+B, the editor takes the room, and the choice is remembered.
+- **Obsidian.** The logo and the Create repository button take the preset's
+  ivory and stone.
+- **Landing.** The played audit's first move starts level with its frame,
+  the frame draws the product's ring and five families, and the counts say
+  47 audit rules.
+
 ### Claims the Server Can Back; an Audit and a Site Check
 
 Reported: the overview stated things it had not read; the Experimental list

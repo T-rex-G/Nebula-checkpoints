@@ -752,6 +752,27 @@ function fakeRequestImpl(behaviour) {
     }), error => error.code === 'GUARDED_FETCH_RESPONSE_TOO_LARGE');
   }
 
+  /*
+   * The advisory query: GET or POST to the vulnerability database only,
+   * anonymous, no query string -- so it cannot be borrowed to send a body
+   * anywhere else.
+   */
+  {
+    const addresses = [{ address: '34.117.33.233', family: 4 }];
+    const ask = extra => guardedFetch({
+      url: 'https://api.osv.dev/v1/querybatch', profile: PROFILES.ADVISORY_QUERY, method: 'POST', addresses,
+      headers: { 'content-type': 'application/json' }, body: '{"queries":[]}',
+      requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, chunks: ['{"results":[]}'] }))),
+      ...extra
+    });
+    assert.strictEqual((await ask()).body, '{"results":[]}');
+    assert.strictEqual((await ask({ method: 'GET', url: 'https://api.osv.dev/v1/vulns/GHSA-xxxx', body: undefined })).statusCode, 200);
+    await assert.rejects(ask({ url: 'https://example.com/v1/querybatch' }), error => error.code === 'GUARDED_FETCH_REFUSED', 'one host only');
+    await assert.rejects(ask({ url: 'https://api.osv.dev/v1/query?x=1' }), error => error.code === 'GUARDED_FETCH_URL_INVALID');
+    await assert.rejects(ask({ headers: { Authorization: 'Bearer something-long-enough' } }), error => error.code === 'GUARDED_FETCH_REFUSED');
+    await assert.rejects(ask({ method: 'PUT' }), error => error.code === 'GUARDED_FETCH_METHOD_INVALID');
+  }
+
   console.log('guarded fetch tests passed');
 })().catch(error => {
   console.error(error && error.stack || error);

@@ -96,18 +96,29 @@ async function run(middleware, prepare) {
   return { result, fixture };
 }
 
-async function expectUnmet(label, probe, condition, middleware, prepare) {
-  await assert.rejects(
-    () => run(middleware, prepare),
-    error => {
-      const named = Boolean(error) && error.code === 'ALPHA17_PROVIDER_PROBE_FAILED' &&
-        error.message.includes(`provider probe ${probe} did not pass`) &&
-        new RegExp(`unmet: [^)]*\\b${condition}\\b`).test(error.message);
-      if (!named) console.error(`${label}: ${error && error.code} ${error && error.message}`);
-      return named;
-    },
-    label
-  );
+function namesCondition(label, probe, condition) {
+  return error => {
+    const named = Boolean(error) && error.code === 'ALPHA17_PROVIDER_PROBE_FAILED' &&
+      error.message.includes(`provider probe ${probe} did not pass`) &&
+      new RegExp(`unmet: [^)]*\\b${condition}\\b`).test(error.message);
+    if (!named) console.error(`${label}: ${error && error.code} ${error && error.message}`);
+    return named;
+  };
+}
+
+/*
+ * Each falsification runs against its own fixture, so they run side by side:
+ * a condition that never holds is only known after the observation backoff,
+ * and forty of those in a row would outlast the test matrix's program limit.
+ * A failure is caught the moment it happens and reported once all have run.
+ */
+const pending = [];
+function falsify(label, attempt, expectation) {
+  pending.push(assert.rejects(attempt, expectation, label).then(() => null, error => error));
+}
+
+function expectUnmet(label, probe, condition, middleware, prepare) {
+  falsify(label, () => run(middleware, prepare), namesCondition(label, probe, condition));
 }
 
 const BRANCH = `nvx-alpha17-${RUN_ID}-proof`;
@@ -154,23 +165,23 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
    * file and whose history still reaches the commit that added it -- so the
    * only condition that can fail is the one under test.
    */
-  await expectUnmet('a ref resolved to a commit other than the head', 'exposure-read', 'refResolved', async (request, pass, context, url) => {
+  expectUnmet('a ref resolved to a commit other than the head', 'exposure-read', 'refResolved', async (request, pass, context, url) => {
     if (!request.reader || !/\/commits\/[^/]+$/.test(request.pathname) || request.search.has('per_page')) return null;
     const detail = await context.fixture.fetch(url, { method: 'GET', headers: { accept: 'application/vnd.github+json' } });
     const parent = (await detail.json()).parents[0].sha;
     return new Response(parent, { status: 200, headers: { 'content-type': 'text/plain' } });
   });
-  await expectUnmet('a tree the reader is told was truncated', 'exposure-read', 'treeBound', async (request, pass) => {
+  expectUnmet('a tree the reader is told was truncated', 'exposure-read', 'treeBound', async (request, pass) => {
     if (!request.reader || !request.pathname.includes('/git/trees/')) return null;
     const listing = await (await pass()).json();
     return reply(200, { ...listing, truncated: true });
   });
-  await expectUnmet('a blob that reads back as other bytes', 'exposure-read', 'blobTextMatched', async (request, pass) => {
+  expectUnmet('a blob that reads back as other bytes', 'exposure-read', 'blobTextMatched', async (request, pass) => {
     if (!request.reader || !request.pathname.includes('/git/blobs/')) return null;
     const blob = await (await pass()).json();
     return reply(200, { ...blob, content: Buffer.from('other text\n').toString('base64') });
   });
-  await expectUnmet('a history that never shows the file being added', 'exposure-read', 'historyReached', async (request, pass) => {
+  expectUnmet('a history that never shows the file being added', 'exposure-read', 'historyReached', async (request, pass) => {
     if (!request.reader || !/\/commits\/[0-9a-f]{40}$/.test(request.pathname) || !request.search.has('per_page')) return null;
     const commit = await (await pass()).json();
     return reply(200, { ...commit, files: [] });
@@ -178,17 +189,17 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
 
   /* ---- file-rename ------------------------------------------------------- */
   const renamed = `${PREFIX}-tree/nested/inline.txt`;
-  await expectUnmet('a renamed path that carries a different object', 'file-rename', 'identityPreserved', async request => {
+  expectUnmet('a renamed path that carries a different object', 'file-rename', 'identityPreserved', async request => {
     if (request.method !== 'GET' || !request.pathname.endsWith(`/contents/${renamed}`)) return null;
     return reply(200, { content: Buffer.from('x').toString('base64'), sha: 'e'.repeat(40) });
   });
-  await expectUnmet('a source path still present after the rename', 'file-rename', 'sourceRemoved', async (request, pass, context) => {
+  expectUnmet('a source path still present after the rename', 'file-rename', 'sourceRemoved', async (request, pass, context) => {
     if (request.method === 'POST' && request.pathname.endsWith('/git/trees') &&
       ((request.body && request.body.tree) || []).some(entry => entry.path === renamed)) context.memo.renamed = true;
     if (!context.memo.renamed || request.method !== 'GET' || !request.pathname.endsWith(`/contents/${PREFIX}-batch-inline.txt`)) return null;
     return reply(200, { content: Buffer.from('still here').toString('base64'), sha: 'f'.repeat(40) });
   });
-  await expectUnmet('a rename committed onto a parent other than the observed head', 'file-rename', 'parentIsObservedHead', async (request, pass, context) => {
+  expectUnmet('a rename committed onto a parent other than the observed head', 'file-rename', 'parentIsObservedHead', async (request, pass, context) => {
     if (request.method === 'POST' && request.pathname.endsWith('/git/trees') &&
       ((request.body && request.body.tree) || []).some(entry => entry.path === renamed)) context.memo.renameTree = true;
     if (context.memo.renameTree && request.method === 'POST' && request.pathname.endsWith('/git/commits')) {
@@ -217,21 +228,21 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
   };
   const afterMoveListing = (request, context) => context.memo.moveCommit && request.method === 'GET' &&
     request.pathname.endsWith(`/git/trees/${context.memo.moveCommit}`) && !request.reader;
-  await expectUnmet('a moved file that lands under another identity', 'folder-move', 'identitiesPreserved', async (request, pass, context) => {
+  expectUnmet('a moved file that lands under another identity', 'folder-move', 'identitiesPreserved', async (request, pass, context) => {
     const tracked = await trackMove(request, pass, context);
     if (tracked) return tracked;
     if (!afterMoveListing(request, context)) return null;
     const listing = await (await pass()).json();
     return reply(200, { ...listing, tree: listing.tree.map(entry => (entry.path.startsWith(`${PREFIX}-moved/`) && entry.type === 'blob' ? { ...entry, sha: 'a'.repeat(40) } : entry)) });
   });
-  await expectUnmet('a folder that still holds a file after the move', 'folder-move', 'sourceEmptied', async (request, pass, context) => {
+  expectUnmet('a folder that still holds a file after the move', 'folder-move', 'sourceEmptied', async (request, pass, context) => {
     const tracked = await trackMove(request, pass, context);
     if (tracked) return tracked;
     if (!afterMoveListing(request, context)) return null;
     const listing = await (await pass()).json();
     return reply(200, { ...listing, tree: [...listing.tree, { path: `${PREFIX}-tree/left-behind.txt`, mode: '100644', type: 'blob', sha: 'b'.repeat(40) }] });
   });
-  await expectUnmet('a move committed onto a parent other than the observed head', 'folder-move', 'parentIsObservedHead', async (request, pass, context) => {
+  expectUnmet('a move committed onto a parent other than the observed head', 'folder-move', 'parentIsObservedHead', async (request, pass, context) => {
     const tracked = await trackMove(request, pass, context);
     if (tracked) return tracked;
     if (!context.memo.moveCommit || request.method !== 'GET' || !request.pathname.endsWith(`/git/commits/${context.memo.moveCommit}`)) return null;
@@ -241,70 +252,70 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
 
   /* ---- issue-write ------------------------------------------------------- */
   const issueDetail = request => request.method === 'GET' && /\/issues\/(1\d\d)$/.test(request.pathname);
-  await expectUnmet('an issue that reads back under another title', 'issue-write', 'createdReadBack', async (request, pass) => {
+  expectUnmet('an issue that reads back under another title', 'issue-write', 'createdReadBack', async (request, pass) => {
     if (!issueDetail(request)) return null;
     const issue = await (await pass()).json();
     return reply(200, { ...issue, title: 'someone else' });
   });
-  await expectUnmet('a comment that never appears', 'issue-write', 'commentReadBack', async request => (
+  expectUnmet('a comment that never appears', 'issue-write', 'commentReadBack', async request => (
     request.method === 'GET' && /\/issues\/\d+\/comments$/.test(request.pathname) ? reply(200, []) : null
   ));
-  await expectUnmet('a close that is acknowledged and not applied', 'issue-write', 'closedReadBack', async request => (
+  expectUnmet('a close that is acknowledged and not applied', 'issue-write', 'closedReadBack', async request => (
     request.method === 'PATCH' && /\/issues\/\d+$/.test(request.pathname) ? reply(200, { state: 'closed' }) : null
   ));
-  await expectUnmet('a read-only credential that can open an issue', 'issue-write', 'readOnlyRefused', async (request, pass, context, url, init) => {
+  expectUnmet('a read-only credential that can open an issue', 'issue-write', 'readOnlyRefused', async (request, pass, context, url, init) => {
     if (request.method !== 'POST' || !request.pathname.endsWith('/issues') || !request.authorization.includes(context.env.NV_ALPHA17_READ_ONLY_CREDENTIAL)) return null;
     return context.fixture.fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${context.env.NV_ALPHA17_MUTATION_CREDENTIAL}` } });
   });
 
   /* ---- pull-write -------------------------------------------------------- */
-  await expectUnmet('a pull request that reads back against another base', 'pull-write', 'createdReadBack', async (request, pass) => {
+  expectUnmet('a pull request that reads back against another base', 'pull-write', 'createdReadBack', async (request, pass) => {
     if (request.method !== 'GET' || !/\/pulls\/1\d\d$/.test(request.pathname)) return null;
     const pull = await (await pass()).json();
     return reply(200, { ...pull, base: { ...pull.base, ref: 'main' } });
   });
-  await expectUnmet('a review that is not recorded as a comment', 'pull-write', 'reviewRecorded', async request => (
+  expectUnmet('a review that is not recorded as a comment', 'pull-write', 'reviewRecorded', async request => (
     request.method === 'POST' && /\/pulls\/\d+\/reviews$/.test(request.pathname) ? reply(200, { id: 5, state: 'PENDING' }) : null
   ));
-  await expectUnmet('a merge accepted against a head the provider no longer has', 'pull-write', 'staleHeadRefused', async (request, pass, context, url, init) => {
+  expectUnmet('a merge accepted against a head the provider no longer has', 'pull-write', 'staleHeadRefused', async (request, pass, context, url, init) => {
     if (request.method !== 'PUT' || !request.pathname.endsWith('/merge')) return null;
     const { sha, ...rest } = request.body;
     void sha;
     return context.fixture.fetch(url, { ...init, body: JSON.stringify(rest) });
   });
-  await expectUnmet('a merge that reports a commit the base never reaches', 'pull-write', 'mergedIntoBase', async (request, pass) => {
+  expectUnmet('a merge that reports a commit the base never reaches', 'pull-write', 'mergedIntoBase', async (request, pass) => {
     if (request.method !== 'PUT' || !request.pathname.endsWith('/merge')) return null;
     const response = await pass();
     if (response.status !== 200) return response;
     return reply(200, { ...(await response.json()), sha: '7'.repeat(40) });
   });
-  await expectUnmet('a branch delete that is acknowledged and not applied', 'pull-write', 'refsRemoved', async request => (
+  expectUnmet('a branch delete that is acknowledged and not applied', 'pull-write', 'refsRemoved', async request => (
     request.method === 'DELETE' && request.pathname.endsWith(`/git/refs/heads/${BRANCH}-pr-head`) ? reply(204) : null
   ));
 
   /* ---- release-write ----------------------------------------------------- */
-  await expectUnmet('a release that reads back as a full release', 'release-write', 'createdReadBack', async (request, pass) => {
+  expectUnmet('a release that reads back as a full release', 'release-write', 'createdReadBack', async (request, pass) => {
     if (request.method !== 'GET' || !/\/releases\/1\d\d$/.test(request.pathname)) return null;
     const response = await pass();
     if (response.status !== 200) return response;
     return reply(200, { ...(await response.json()), prerelease: false });
   });
-  await expectUnmet('a tag created somewhere other than the target', 'release-write', 'tagAtTarget', async request => (
+  expectUnmet('a tag created somewhere other than the target', 'release-write', 'tagAtTarget', async request => (
     request.method === 'GET' && request.pathname.endsWith(`/git/ref/tags/${PREFIX}-release`) ? reply(200, { object: { sha: '6'.repeat(40) } }) : null
   ));
-  await expectUnmet('a tag delete that is acknowledged and not applied', 'release-write', 'cleanupAbsent', async request => (
+  expectUnmet('a tag delete that is acknowledged and not applied', 'release-write', 'cleanupAbsent', async request => (
     request.method === 'DELETE' && request.pathname.endsWith(`/git/refs/tags/${PREFIX}-release`) ? reply(204) : null
   ));
 
   /* ---- star-toggle ------------------------------------------------------- */
   const starPath = '/user/starred/fixture-owner/nvx-alpha17-github-qualification';
-  await expectUnmet('a star that is acknowledged and not set', 'star-toggle', 'starVisible', async request => (
+  expectUnmet('a star that is acknowledged and not set', 'star-toggle', 'starVisible', async request => (
     request.method === 'PUT' && request.pathname === starPath ? reply(204) : null
   ));
-  await expectUnmet('an unstar that is acknowledged and not applied', 'star-toggle', 'unstarVisible', async request => (
+  expectUnmet('an unstar that is acknowledged and not applied', 'star-toggle', 'unstarVisible', async request => (
     request.method === 'DELETE' && request.pathname === starPath ? reply(204) : null
   ));
-  await expectUnmet('a star the probe found and did not put back', 'star-toggle', 'initialStateRestored', async (request, pass, context) => {
+  expectUnmet('a star the probe found and did not put back', 'star-toggle', 'initialStateRestored', async (request, pass, context) => {
     if (request.method !== 'PUT' || request.pathname !== starPath) return null;
     context.memo.puts = (context.memo.puts || 0) + 1;
     return context.memo.puts === 2 ? reply(204) : null;
@@ -312,31 +323,31 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
 
   /* ---- code-search ------------------------------------------------------- */
   const searching = request => request.method === 'GET' && request.pathname === '/search/code';
-  await expectUnmet('a search that finds the fixture under another path', 'code-search', 'fixtureFound', async (request, pass) => {
+  expectUnmet('a search that finds the fixture under another path', 'code-search', 'fixtureFound', async (request, pass) => {
     if (!searching(request)) return null;
     const found = await (await pass()).json();
     return reply(200, { ...found, items: found.items.map(item => ({ ...item, path: 'elsewhere.md' })) });
   });
-  await expectUnmet('a search that answers from another repository', 'code-search', 'resultsScoped', async (request, pass) => {
+  expectUnmet('a search that answers from another repository', 'code-search', 'resultsScoped', async (request, pass) => {
     if (!searching(request)) return null;
     const found = await (await pass()).json();
     return reply(200, { ...found, items: [...found.items, { name: 'x.md', path: 'x.md', repository: { full_name: 'someone/else' } }] });
   });
-  await expectUnmet('a search that answers every query with the same list', 'code-search', 'absentDiscriminated', async request => (
+  expectUnmet('a search that answers every query with the same list', 'code-search', 'absentDiscriminated', async request => (
     searching(request)
       ? reply(200, { total_count: 1, items: [{ name: 'NVX_SEARCH_FIXTURE.md', path: 'NVX_SEARCH_FIXTURE.md', repository: { full_name: 'fixture-owner/nvx-alpha17-github-qualification' } }] })
       : null
   ));
 
   /* ---- workflow-rerun ---------------------------------------------------- */
-  await expectUnmet('a dispatched run that never finishes', 'workflow-rerun', 'dispatchedRunCompleted', async (request, pass) => {
+  expectUnmet('a dispatched run that never finishes', 'workflow-rerun', 'dispatchedRunCompleted', async (request, pass) => {
     if (request.method !== 'GET' || !/\/actions\/runs\/1\d\d$/.test(request.pathname)) return null;
     return reply(200, { ...(await (await pass()).json()), status: 'in_progress' });
   });
-  await expectUnmet('a re-run the provider refuses', 'workflow-rerun', 'rerunAccepted', async request => (
+  expectUnmet('a re-run the provider refuses', 'workflow-rerun', 'rerunAccepted', async request => (
     request.method === 'POST' && request.pathname.endsWith('/rerun') ? reply(403, { message: 'refused' }) : null
   ));
-  await expectUnmet('a re-run that is acknowledged and never starts', 'workflow-rerun', 'attemptAdvanced', async request => (
+  expectUnmet('a re-run that is acknowledged and never starts', 'workflow-rerun', 'attemptAdvanced', async request => (
     request.method === 'POST' && request.pathname.endsWith('/rerun') ? reply(201, {}) : null
   ));
 
@@ -379,42 +390,33 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     assert.strictEqual(merged.length, 1);
     assert.strictEqual(merged[0].state, 'merged');
 
-    const gitlabUnmet = async (label, probe, condition, middleware) => assert.rejects(
-      () => runGitlab(middleware),
-      error => {
-        const named = Boolean(error) && error.code === 'ALPHA17_PROVIDER_PROBE_FAILED' &&
-          error.message.includes(`provider probe ${probe} did not pass`) &&
-          new RegExp(`unmet: [^)]*\\b${condition}\\b`).test(error.message);
-        if (!named) console.error(`${label}: ${error && error.code} ${error && error.message}`);
-        return named;
-      },
-      label
-    );
-    await gitlabUnmet('a GitLab issue that reads back under another title', 'issue-write', 'createdReadBack', async (request, pass) => {
+    const gitlabUnmet = (label, probe, condition, middleware) =>
+      falsify(label, () => runGitlab(middleware), namesCondition(label, probe, condition));
+    gitlabUnmet('a GitLab issue that reads back under another title', 'issue-write', 'createdReadBack', async (request, pass) => {
       if (request.method !== 'GET' || !/\/issues\/1\d\d$/.test(request.pathname)) return null;
       return reply(200, { ...(await (await pass()).json()), title: 'someone else' });
     });
-    await gitlabUnmet('a GitLab close that is acknowledged and not applied', 'issue-write', 'closedReadBack', async request => (
+    gitlabUnmet('a GitLab close that is acknowledged and not applied', 'issue-write', 'closedReadBack', async request => (
       request.method === 'PUT' && /\/issues\/\d+$/.test(request.pathname) ? reply(200, { state: 'closed' }) : null
     ));
-    await gitlabUnmet('a read_api token that can open an issue', 'issue-write', 'readOnlyRefused', async (request, pass, context, url, init) => {
+    gitlabUnmet('a read_api token that can open an issue', 'issue-write', 'readOnlyRefused', async (request, pass, context, url, init) => {
       if (request.method !== 'POST' || !request.pathname.endsWith('/issues') || request.token !== context.env.NV_ALPHA17_READ_ONLY_CREDENTIAL) return null;
       return context.fixture.fetch(url, { ...init, headers: { ...init.headers, 'PRIVATE-TOKEN': context.env.NV_ALPHA17_MUTATION_CREDENTIAL } });
     });
-    await gitlabUnmet('a merge request that never finishes its mergeability check', 'pull-write', 'createdReadBack', async (request, pass) => {
+    gitlabUnmet('a merge request that never finishes its mergeability check', 'pull-write', 'createdReadBack', async (request, pass) => {
       if (request.method !== 'GET' || !/\/merge_requests\/1\d\d$/.test(request.pathname)) return null;
       return reply(200, { ...(await (await pass()).json()), detailed_merge_status: 'checking', sha: 'a'.repeat(40) });
     });
-    await gitlabUnmet('a review note that never appears', 'pull-write', 'reviewRecorded', async request => (
+    gitlabUnmet('a review note that never appears', 'pull-write', 'reviewRecorded', async request => (
       request.method === 'GET' && /\/merge_requests\/\d+\/notes$/.test(request.pathname) ? reply(200, []) : null
     ));
-    await gitlabUnmet('a GitLab merge accepted against a head it no longer has', 'pull-write', 'staleHeadRefused', async (request, pass, context, url, init) => {
+    gitlabUnmet('a GitLab merge accepted against a head it no longer has', 'pull-write', 'staleHeadRefused', async (request, pass, context, url, init) => {
       if (request.method !== 'PUT' || !request.pathname.endsWith('/merge')) return null;
       const { sha, ...rest } = request.body;
       void sha;
       return context.fixture.fetch(url, { ...init, body: JSON.stringify(rest) });
     });
-    await gitlabUnmet('a GitLab merge commit that is not the base and the source', 'pull-write', 'mergedIntoBase', async (request, pass) => {
+    gitlabUnmet('a GitLab merge commit that is not the base and the source', 'pull-write', 'mergedIntoBase', async (request, pass) => {
       if (request.method !== 'GET' || !/\/repository\/commits\/[0-9a-f]{40}$/.test(request.pathname)) return null;
       const response = await pass();
       if (response.status !== 200) return response;
@@ -502,6 +504,11 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
       assert(harness.includes(`exposureReader.${call}(`), `the exposure probe must call the reader's ${call}`);
     }
   }
+
+  const failures = (await Promise.all(pending)).filter(Boolean);
+  if (failures.length) throw failures.length === 1 ? failures[0] : new assert.AssertionError({
+    message: failures.map(failure => failure.message).join('\n')
+  });
 
   console.log('capability probe tests passed');
 })().catch(error => {

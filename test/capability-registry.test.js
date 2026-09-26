@@ -210,32 +210,41 @@ assert.deepStrictEqual(legacyCapsFor(document, {
     path.join(__dirname, '..', 'config', 'public-alpha-capabilities.json')
   );
   /*
-   * GitHub is Experimental: implemented and fixture-tested end to end, and not
-   * exercised by the live-provider harness. That is what Experimental means in
-   * this registry and it is the status `file.rename` already carries for the
-   * same reason.
+   * GitHub is Supported and Provider-verified. Detection, identity, storage and
+   * verification are the product's own and fixture-tested end to end; the one
+   * part that talks to the provider -- the reader -- is exercised by the
+   * live-provider harness through the product's own module. The reason says
+   * which evidence the claim rests on, as every claim here must.
    *
-   * Every exposure route opts in with `allowExperimental`, so the feature is
-   * usable while it is unproven. The controls that matter are elsewhere: a
-   * governance role on the one route that records a human decision, and an
-   * explicit typed confirmation on the one route that uses a discovered
-   * credential. A capability status says how well proven a feature is; it is a
-   * poor substitute for deciding who may do what.
+   * The controls that matter were never the status: a governance role on the
+   * one route that records a human decision, and an explicit typed
+   * confirmation on the one route that uses a discovered credential. A
+   * capability status says how well proven a feature is; it is a poor
+   * substitute for deciding who may do what.
    */
   {
     const github = resolveCapability(document, {
       provider: 'github', deployment: 'hosted-alpha', feature: 'exposure.scan'
     });
-    assert.strictEqual(github.status, 'Experimental');
-    assert.strictEqual(github.evidenceState, 'Inferred');
-    assert.match(github.reason, /live-provider harness/i, 'Experimental must say what evidence is missing');
-
+    assert.strictEqual(github.status, 'Supported');
+    assert.strictEqual(github.evidenceState, 'Provider-verified');
+    assert.match(github.reason, /live-provider harness/i, 'a claim must say what evidence it rests on');
     assertCapabilityAvailable(document, {
-      provider: 'github', deployment: 'hosted-alpha', feature: 'exposure.scan', allowExperimental: true
+      provider: 'github', deployment: 'hosted-alpha', feature: 'exposure.scan'
+    });
+
+    /* What is still Experimental still refuses a route that did not opt in. */
+    const liveEvents = resolveCapability(document, {
+      provider: 'github', deployment: 'hosted-alpha', feature: 'live-events'
+    });
+    assert.strictEqual(liveEvents.status, 'Experimental');
+    assert.match(liveEvents.reason, /Not provider-verified/, 'Experimental must say what evidence is missing');
+    assertCapabilityAvailable(document, {
+      provider: 'github', deployment: 'hosted-alpha', feature: 'live-events', allowExperimental: true
     });
     assert.throws(
       () => assertCapabilityAvailable(document, {
-        provider: 'github', deployment: 'hosted-alpha', feature: 'exposure.scan'
+        provider: 'github', deployment: 'hosted-alpha', feature: 'live-events'
       }),
       error => error instanceof CapabilityError,
       'an experimental capability must refuse a route that did not opt in'

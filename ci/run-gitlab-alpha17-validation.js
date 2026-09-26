@@ -328,7 +328,7 @@ function createGitlabClient({ env, fetchImpl }) {
     { key: 'issues-read', listPath: 'issues?state=all', detailPath: 'issues' }
   ]);
 
-  async function probeChecks({ branch, proofPath, proofFileSha }) {
+  async function probeChecks({ branch, prefix, proofPath, proofFileSha }) {
     const expectedSha = String(proofFileSha || '').toLowerCase();
     /* Converged, for the same read-after-write reason the GitHub tree was. */
     const tree = await observe(
@@ -349,7 +349,136 @@ function createGitlabClient({ env, fetchImpl }) {
 
     const collections = [];
     for (const collection of COLLECTION_READS) collections.push(await readCollection(collection));
-    return [treeRead, ...collections];
+    const earlier = [treeRead, ...collections];
+    /* Built on the reads above, so run only when they held -- the first broken condition is the one to name. */
+    if (earlier.some(check => check.status !== 'pass')) {
+      return [
+        ...earlier,
+        { key: 'issue-write', status: 'fail', statusClass: '2xx', createdReadBack: false, commentReadBack: false, closedReadBack: false, readOnlyRefused: false },
+        { key: 'pull-write', status: 'fail', statusClass: '2xx', createdReadBack: false, reviewRecorded: false, staleHeadRefused: false, mergedIntoBase: false, refsRemoved: false }
+      ];
+    }
+    const { defaultBranch } = await getRepository('mutation');
+    return [...earlier, await issueWriteCheck({ prefix }), await mergeRequestWriteCheck({ branch, prefix, defaultBranch })];
+  }
+
+  async function getJson(pathname, allowedStatuses = [200], credential = 'mutation') {
+    return requestJson(fetchImpl, api(`projects/${project}/${pathname}`), { headers: headers(credential), allowedStatuses });
+  }
+
+  async function sendJson(method, pathname, body, allowedStatuses, credential = 'mutation') {
+    return requestJson(fetchImpl, api(`projects/${project}/${pathname}`), { method, headers: headers(credential), body, allowedStatuses });
+  }
+
+  /*
+   * issues.write, through the product's GitLab requests: create with a
+   * description, a note, and a close by state event -- each read back -- and
+   * the read_api credential refused. GitLab can delete an issue only as an
+   * owner, which the project token is not, so the issue stays, closed.
+   */
+  async function issueWriteCheck({ prefix }) {
+    const title = `Nebulaverse-X alpha.17 issue ${prefix}`;
+    const note = `Nebulaverse-X alpha.17 note ${prefix}`;
+    const created = await sendJson('POST', 'issues', { title, description: 'Created and closed by the alpha.17 qualification run.' }, [201]);
+    const iid = Number(created.data.iid);
+    const read = await getJson(`issues/${iid}`);
+    const createdReadBack = Number(read.data.iid) === iid && read.data.title === title && read.data.state === 'opened';
+    await sendJson('POST', `issues/${iid}/notes`, { body: note }, [201]);
+    const notes = await observe(() => getJson(`issues/${iid}/notes`), response => Array.isArray(response.data) && response.data.some(item => item && item.body === note));
+    const commentReadBack = Array.isArray(notes.data) && notes.data.some(item => item && item.body === note);
+    await sendJson('PUT', `issues/${iid}`, { state_event: 'close' }, [200]);
+    const closed = await observe(() => getJson(`issues/${iid}`), response => response.data.state === 'closed');
+    const closedReadBack = closed.data.state === 'closed';
+    const refused = await sendJson('POST', 'issues', { title: `${title} (read-only)`, description: '' }, [201, 401, 403, 404], 'readOnly');
+    const readOnlyRefused = [401, 403, 404].includes(refused.status);
+    if (!readOnlyRefused && Number(refused.data && refused.data.iid) > 0) {
+      await sendJson('PUT', `issues/${Number(refused.data.iid)}`, { state_event: 'close' }, [200]);
+    }
+    return {
+      key: 'issue-write',
+      status: createdReadBack && commentReadBack && closedReadBack && readOnlyRefused ? 'pass' : 'fail',
+      statusClass: created.statusClass,
+      createdReadBack,
+      commentReadBack,
+      closedReadBack,
+      readOnlyRefused
+    };
+  }
+
+  /*
+   * pulls.write: a merge request between two disposable branches, a review
+   * note, a merge refused against a head the provider no longer has and one
+   * accepted against the head it reported. GitLab checks mergeability after
+   * the request is opened and refuses a merge until it has, so the probe
+   * waits for that verdict as the product's reader would.
+   */
+  async function mergeRequestWriteCheck({ branch, prefix, defaultBranch }) {
+    const headBranch = `${branch}-mr-head`;
+    const baseBranch = `${branch}-mr-base`;
+    const source = await getBranch(branch, 'mutation');
+    const defaultHead = await getBranch(defaultBranch, 'mutation');
+    await createBranch(headBranch, source.sha);
+    await createBranch(baseBranch, defaultHead.sha);
+    let createdReadBack = false;
+    let reviewRecorded = false;
+    let staleHeadRefused = false;
+    let mergedIntoBase = false;
+    let statusClassValue = '2xx';
+    try {
+      const title = `Nebulaverse-X alpha.17 merge request ${prefix}`;
+      const created = await sendJson('POST', 'merge_requests', {
+        title, source_branch: headBranch, target_branch: baseBranch, description: 'Opened and merged by the alpha.17 qualification run.'
+      }, [201]);
+      statusClassValue = created.statusClass;
+      const iid = Number(created.data.iid);
+      const ready = await observe(
+        () => getJson(`merge_requests/${iid}`),
+        response => ['mergeable'].includes(response.data.detailed_merge_status) || response.data.merge_status === 'can_be_merged'
+      );
+      const reportedHead = String(ready.data.sha || '').toLowerCase();
+      createdReadBack = Number(ready.data.iid) === iid && ready.data.state === 'opened' &&
+        ready.data.source_branch === headBranch && ready.data.target_branch === baseBranch && reportedHead === source.sha;
+      const reviewNote = `Nebulaverse-X alpha.17 review ${prefix}`;
+      await sendJson('POST', `merge_requests/${iid}/notes`, { body: reviewNote }, [201]);
+      const notes = await observe(() => getJson(`merge_requests/${iid}/notes`), response => Array.isArray(response.data) && response.data.some(item => item && item.body === reviewNote));
+      reviewRecorded = Array.isArray(notes.data) && notes.data.some(item => item && item.body === reviewNote);
+      const stale = await sendJson('PUT', `merge_requests/${iid}/merge`, { squash: false, sha: defaultHead.sha }, [200, 405, 406, 409]);
+      staleHeadRefused = stale.status === 409;
+      if (createdReadBack && staleHeadRefused) {
+        const merged = await sendJson('PUT', `merge_requests/${iid}/merge`, { squash: false, sha: reportedHead }, [200, 405, 406, 409]);
+        if (merged.status === 200 && merged.data.state === 'merged') {
+          const mergeSha = String(merged.data.merge_commit_sha || '').toLowerCase();
+          const landed = await observe(() => getBranch(baseBranch, 'mutation'), current => Boolean(current) && current.sha === (mergeSha || source.sha));
+          if (mergeSha && landed && landed.sha === mergeSha) {
+            const commit = await readCommit(mergeSha);
+            mergedIntoBase = commit.parentIds.length === 2 && commit.parentIds[0] === defaultHead.sha && commit.parentIds[1] === source.sha;
+          } else if (!mergeSha) {
+            /* A fast-forward project: no merge commit, and the base is now the source head. */
+            mergedIntoBase = Boolean(landed) && landed.sha === source.sha;
+          }
+        }
+      }
+    } finally {
+      for (const name of [headBranch, baseBranch]) {
+        if (await getBranch(name, 'mutation')) {
+          await requestJson(fetchImpl, api(`projects/${project}/repository/branches/${encodeURIComponent(name)}`), {
+            method: 'DELETE', headers: headers('mutation'), allowedStatuses: [204, 404]
+          });
+        }
+      }
+    }
+    const refsRemoved = !(await observe(() => getBranch(headBranch, 'mutation'), current => current === null)) &&
+      !(await observe(() => getBranch(baseBranch, 'mutation'), current => current === null));
+    return {
+      key: 'pull-write',
+      status: createdReadBack && reviewRecorded && staleHeadRefused && mergedIntoBase && refsRemoved ? 'pass' : 'fail',
+      statusClass: statusClassValue,
+      createdReadBack,
+      reviewRecorded,
+      staleHeadRefused,
+      mergedIntoBase,
+      refsRemoved
+    };
   }
 
   async function deleteBranch(branch, credential = 'mutation') {

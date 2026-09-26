@@ -359,6 +359,8 @@ function classifyProviderOperation(providerInput, apiPathInput, methodInput, tra
     }
     if (method === 'POST' && suffix === '/merge_requests') return 'pull.create';
     if (method === 'PUT' && /^\/merge_requests\/\d+\/merge$/.test(suffix)) return 'pull.merge';
+    /* A review on GitLab is a note on the merge request, or its approval. */
+    if (method === 'POST' && /^\/merge_requests\/\d+\/(?:notes|approve)$/.test(suffix)) return 'pull.review';
     if (method === 'POST' && suffix === '/issues') return 'issue.create';
     if (method === 'POST' && /^\/issues\/\d+\/notes$/.test(suffix)) return 'issue.comment';
     if (method === 'PUT' && /^\/issues\/\d+$/.test(suffix)) return 'issue.update';

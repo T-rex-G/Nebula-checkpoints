@@ -89,7 +89,14 @@ function laggingFetch(fetchImpl, lagReads) {
     }
     const response = await fetchImpl(url, init);
     if (method === 'GET') lastResponse.set(key, response.clone());
-    if (method === 'DELETE') deleteSeen = true;
+    /*
+     * The lag this models follows the proof file's delete. The capability
+     * probes delete things of their own before that -- a star, a release, the
+     * branches a pull request was merged between -- and those are not the
+     * mutation whose reads this is about.
+     */
+    const pathname = new URL(key).pathname;
+    if (method === 'DELETE' && (pathname.includes('/contents/') || pathname.includes('/repository/files/'))) deleteSeen = true;
     return response;
   };
 }
@@ -209,19 +216,30 @@ async function runOne(provider, runner, options = {}) {
   assert.deepStrictEqual(githubResult.capabilities, [
     'branches.read',
     'branches.write',
+    'exposure.scan',
     'file.batch',
     'file.delete',
     'file.read',
+    'file.rename',
     'file.write',
+    'folder.move',
+    'global-search',
     'issues.read',
+    'issues.write',
     'lfs',
     'native-push',
     'pulls.read',
+    'pulls.write',
     'rate.read',
     'releases.read',
+    'releases.write',
     'repository.read',
+    'search',
+    'stars.read',
+    'stars.write',
     'tree.read',
-    'workflows.read'
+    'workflows.read',
+    'workflows.rerun'
   ]);
 
   /*
@@ -288,9 +306,16 @@ async function runOne(provider, runner, options = {}) {
       `${result.provider} must claim exactly the capabilities its contract requires`
     );
   }
+  /*
+   * What the harness still does not prove, and must not claim: live events
+   * need a deployment the provider can deliver to; notifications are not
+   * served to the fine-grained credential the harness uses; and the
+   * credential is confined to one repository, so it can neither create nor
+   * delete one. The rest of this list was never a GitHub capability here.
+   */
   for (const unproven of [
-    'live-events', 'pulls.write', 'issues.write', 'releases.write',
-    'workflows.rerun', 'webhooks.read', 'webhooks.write', 'auth.app'
+    'live-events', 'notifications', 'repository.create', 'repository.delete',
+    'webhooks.read', 'webhooks.write', 'auth.app'
   ]) {
     assert(!githubResult.capabilities.includes(unproven), `provider harness must not claim ${unproven}`);
   }
@@ -692,7 +717,11 @@ async function runOne(provider, runner, options = {}) {
       now: () => new Date(NOW),
       fetchImpl: async (url, init = {}) => {
         const method = String((init && init.method) || 'GET').toUpperCase();
-        if (method === 'DELETE' && new URL(url).pathname.includes('/git/refs/heads/')) {
+        /* The run's own disposable branch -- not the two a pull-request probe
+           cuts and removes for itself, which are that probe's business. */
+        if (method === 'DELETE' && new URL(url).pathname.endsWith(
+          `/git/refs/heads/${encodeURIComponent(refusedCleanupEnvironment.NV_ALPHA17_BRANCH)}`
+        )) {
           branchDeleteSeen = true;
           return new Response(JSON.stringify({ message: 'refused' }), {
             status: 403,

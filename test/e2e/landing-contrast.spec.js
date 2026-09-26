@@ -34,6 +34,9 @@ const COPY = [
   '.alpha-access label', '.alpha-access .btn-primary',
   '.lp-sec-eyebrow', '.lp-sec-title', '.lp-sec-lede',
   '.lp-cap-t', '.lp-cap-d', '.lp-limit-b', '.lp-limit-d',
+  '.lp-play-n', '.lp-play-t', '.lp-play-d',
+  '.lp-check-v', '.lp-check-t', '.lp-check-d', '.lp-check-eg li',
+  '.lp-proof-k', '.lp-proof-them', '.lp-proof-us', '.lp-faq-item summary',
   '.lp-foot-brand', '.lp-foot-meta'
 ];
 

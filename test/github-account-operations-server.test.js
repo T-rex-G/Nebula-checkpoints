@@ -91,7 +91,7 @@ async function main() {
     assert.strictEqual(new URL(deletionOAuth.headers.get('location')).searchParams.get('scope'), 'repo delete_repo');
     const projected = await check('/api/account/capabilities', { headers: session() }, 200);
     assert.match(projected.response.headers.get('cache-control'), /no-store/);
-    for (const feature of ['repository.create', 'repository.delete', 'global-search', 'notifications']) {
+    for (const feature of ['repository.create', 'repository.delete', 'notifications']) {
       assert.strictEqual(projected.body.features[feature].status, 'Experimental');
     }
     assert(!JSON.stringify(projected.body).includes(account.token));

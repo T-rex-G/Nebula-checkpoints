@@ -93,12 +93,31 @@ async function waitReady(child, port) {
   }
 }
 
-const portA = 36000 + Math.floor(Math.random() * 300);
-const portB = portA + 1;
+/*
+ * Ports the operating system has just called free. A random pick from a fixed
+ * range landed inside the kernel's ephemeral range (32768-60999), where an
+ * outgoing connection from an earlier test can still hold it, and the instance
+ * then died on EADDRINUSE before the contract was ever asked.
+ */
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = require('net').createServer();
+    probe.unref();
+    probe.on('error', reject);
+    probe.listen(0, () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+let portA = 0;
+let portB = 0;
 let instanceA = null;
 let instanceB = null;
 
 (async () => {
+  portA = await freePort();
+  do { portB = await freePort(); } while (portB === portA);
   await withClient(ADMIN_URL, client => client.query(`CREATE DATABASE ${scratch}`));
   const databaseUrl = urlFor(scratch);
 
@@ -208,7 +227,8 @@ let instanceB = null;
 
     /* Without a database an instance still boots and serves, on its own. */
     {
-      const portC = portB + 1;
+      /* Its own free port: the one after portB is where the instances' database connections were just given theirs. */
+      const portC = await freePort();
       const solo = startInstance(portC, '');
       try {
         await waitReady(solo, portC);

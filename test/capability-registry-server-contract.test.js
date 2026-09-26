@@ -247,9 +247,20 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       const github = await githubProjection.json();
       assert.strictEqual(github.features['branches.write'].status, 'Supported');
       assert.strictEqual(github.features['branches.write'].evidenceState, 'Provider-verified');
-      for (const feature of ['file.rename', 'stars.read', 'stars.write']) {
+      /*
+       * Earned by the live-provider harness, each through the probe that walks
+       * its route -- and nothing the harness cannot reach is claimed with them.
+       */
+      for (const feature of [
+        'file.rename', 'folder.move', 'stars.read', 'stars.write', 'issues.write', 'pulls.write',
+        'releases.write', 'search', 'global-search', 'workflows.rerun', 'exposure.scan'
+      ]) {
+        assert.strictEqual(github.features[feature].status, 'Supported', `${feature} is provider-verified for GitHub`);
+        assert.strictEqual(github.features[feature].evidenceState, 'Provider-verified');
+      }
+      for (const feature of ['live-events', 'notifications', 'repository.create', 'repository.delete']) {
         assert.strictEqual(github.features[feature].status, 'Experimental', `${feature} must remain evidence-bounded for GitHub`);
-        assert.strictEqual(github.features[feature].evidenceState, 'Inferred');
+        assert.match(github.features[feature].reason, /Not provider-verified/);
       }
 
       const routeCases = [

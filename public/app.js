@@ -10,6 +10,7 @@ const NV_PRODUCT_NAME = 'Nebulaverse-X';
 
 const state = {
   me: null,
+  posture: null,
   uiEpoch: 0,
   repos: [], repoPage: 1, repoSort: 'pushed',
   work: null, file: null, cm: null,
@@ -1539,6 +1540,7 @@ async function boot() {
     /* After capabilities, so a deployment that refuses notifications is not
        asked; not awaited, so the marker never delays the first screen. */
     refreshUnread();
+    loadPosture();
     loadRepos(true);
     if (!(await restoreRoute())) showOverview();
   } catch (e) {
@@ -1615,10 +1617,12 @@ async function purgeLocalData(full) {
   // Invalidate before the first await: an old fetch may finish during cleanup.
   state.uiEpoch++;
   clearActivityFeed();
+  clearPosture();
   paintUnread([]);
   clearCsrfToken();
   clearGovernanceState();
   clearExposureState();
+  clearAuditState();
   await purgePrivateCaches();
   try { sessionStorage.clear(); } catch {}
   try {
@@ -1630,7 +1634,8 @@ async function purgeLocalData(full) {
     for (const k of Object.keys(localStorage)) {
       if (k.startsWith('nv_snap_') || k.startsWith('nv_incident_') ||
           k.startsWith('nv_draft:') || k.startsWith('nv_recent:') ||
-          k.startsWith('nv_offline_repos:') || k.startsWith('nv_neural_layout')) localStorage.removeItem(k);
+          k.startsWith('nv_offline_repos:') || k.startsWith('nv_neural_layout') ||
+          k.startsWith('nv_audit:')) localStorage.removeItem(k);
     }
   } catch {}
   /* Offline writes are not identity-bound in v5.2. Clearing them on any account
@@ -1814,6 +1819,7 @@ function showOverview() {
   paintCoreState();
   renderWorkspacePulse();
   loadScannerPosture();
+  loadPosture();
   loadActivityFeed();
   showPage('overview');
 }
@@ -1916,10 +1922,115 @@ function paintCoreState() {
     || (state.me && state.me.provider === 'github' ? 'github.com' : '');
   scope.textContent = authority || (state.me ? 'Connected' : 'Not connected');
   if (live) {
+    /*
+     * "Connected" rather than "Live": an identity proves a session, not that
+     * anything is being watched in real time, and this rail has no stream
+     * behind it that would earn the stronger word.
+     */
     const connected = !!state.me;
-    live.textContent = connected ? 'Live' : 'Offline';
+    live.textContent = connected ? 'Connected' : 'Not connected';
     live.classList.toggle('is-idle', !connected);
   }
+}
+
+/*
+ * The line under the core states the reading, not a slogan. It used to say
+ * "Secure by default. Proven by design." to every session, including one with
+ * a leaked key open and nothing scanned -- a claim this panel never checked.
+ */
+function paintCoreLine(pulse) {
+  const line = $('#ovCoreLine');
+  if (!line) return;
+  const trust = pulse && pulse.trust;
+  if (!state.me) { line.textContent = 'Sign in to measure this workspace.'; return; }
+  if (!trust || trust.score === null) { line.textContent = 'Measuring this workspace\u2026'; return; }
+  const attention = trust.attention
+    ? `${trust.attention} ${trust.attention === 1 ? 'signal needs' : 'signals need'} attention`
+    : 'every measured signal healthy';
+  line.textContent = `Grade ${trust.grade} \u00b7 ${trust.score}/100 \u00b7 ${attention}${trust.capped ? ' \u00b7 capped by a critical leak' : ''}.`;
+}
+
+/*
+ * Repositories with a recovery reference held in this browser. The account
+ * boundary purge removes every one of these keys, so this can only ever count
+ * the current identity's references.
+ */
+function localSnapshotKeys() {
+  const keys = new Set();
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('nv_snap_')) keys.add(key.slice('nv_snap_'.length).toLowerCase());
+    }
+  } catch { /* storage unavailable: no browser-held references to count */ }
+  return keys;
+}
+
+/*
+ * The workspace posture: the credential's real reach, the recovery points
+ * that exist, the leaked credentials still open, and whether the server's
+ * boundary is up. One request, re-read at most once a minute, and bound to
+ * the identity that asked -- a response for a previous account may never
+ * paint the next one's overview.
+ */
+const POSTURE_TTL_MS = 60 * 1000;
+let postureRequest = 0;
+let postureAt = 0;
+/* Anything that changes what the posture reports marks it for re-reading. */
+function invalidatePosture() { postureAt = 0; }
+function clearPosture() {
+  postureRequest++;
+  postureAt = 0;
+  state.posture = null;
+  paintBoundary(null);
+}
+async function loadPosture(force) {
+  if (!state.me) return;
+  if (!force && postureAt && Date.now() - postureAt < POSTURE_TTL_MS) return;
+  const request = ++postureRequest;
+  const epoch = state.uiEpoch;
+  const identity = state.me;
+  postureAt = Date.now();
+  try {
+    const posture = await api('/api/workspace/posture');
+    if (request !== postureRequest || epoch !== state.uiEpoch || identity !== state.me) return;
+    state.posture = posture && typeof posture === 'object' ? posture : null;
+    paintBoundary(state.posture ? state.posture.boundary : { state: 'unknown' });
+  } catch (error) {
+    if (request !== postureRequest || epoch !== state.uiEpoch || identity !== state.me) return;
+    postureAt = 0;
+    paintBoundary({ state: isOfflineError(error) ? 'offline' : 'unreachable' });
+  }
+  renderWorkspacePulse();
+}
+
+/*
+ * The rail's boundary line says what the server last reported. It was static
+ * markup that read "Boundary online" before a single request had been made,
+ * and kept saying it with the database down.
+ */
+const BOUNDARY_COPY = Object.freeze({
+  checking: ['Checking boundary', 'Waiting for the server\u2019s report'],
+  online: ['Boundary online', 'Server-owned controls active'],
+  local: ['Boundary online', 'Server controls active \u00b7 no database configured'],
+  degraded: ['Boundary degraded', 'The server database is unavailable'],
+  maintenance: ['Maintenance', 'The server is not accepting changes'],
+  offline: ['Offline', 'Changes queue until the network returns'],
+  unreachable: ['Boundary unreachable', 'The server did not report its state'],
+  unknown: ['Boundary unknown', 'The server\u2019s report could not be read']
+});
+function paintBoundary(boundary) {
+  const root = $('#navBoundary');
+  if (!root) return;
+  let key = 'checking';
+  if (boundary && boundary.maintenance) key = 'maintenance';
+  else if (boundary && boundary.state === 'online') key = boundary.database === 'not-configured' ? 'local' : 'online';
+  else if (boundary && BOUNDARY_COPY[boundary.state]) key = boundary.state;
+  const [title, detail] = BOUNDARY_COPY[key];
+  root.dataset.state = key;
+  const t = root.querySelector('.nv-rail-state-t');
+  const d = root.querySelector('.nv-rail-d');
+  if (t) t.textContent = title;
+  if (d) d.textContent = detail;
 }
 
 /*
@@ -2011,9 +2122,12 @@ function renderWorkspacePulse(repos) {
     features: capabilities && capabilities.features ? capabilities.features() : null,
     recoveryStatus: capabilities ? capabilities.decision('recovery').status : null,
     scanner: state.scanner,
-    identity: state.me
+    identity: state.me,
+    posture: state.posture,
+    localSnapshots: localSnapshotKeys()
   });
   renderOverviewPulse(list, pulse);
+  paintCoreLine(pulse);
   const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
   if (roots.trust || roots.signals || roots.activity) window.NebulaWorkspacePulse.render(roots, pulse);
 }
@@ -2050,13 +2164,13 @@ function pulseMeasures(list, pulse) {
       icon: 'trust', label: 'Trust score',
       value: trust && trust.score !== null && trust.score !== undefined ? trust.score : null,
       note: trust && trust.score !== null && trust.score !== undefined
-        ? `${trust.measuredCount} of ${trust.componentCount} measured`
+        ? `Grade ${trust.grade} \u00b7 ${trust.measuredCount} of ${trust.componentCount} measured`
         : 'Not measured'
     },
     {
-      icon: 'signals', label: 'Live signals',
+      icon: 'signals', label: 'Verified capabilities',
       value: signals && signals.measured ? signals.live : null,
-      note: signals && signals.measured ? `of ${signals.total} verified` : 'Not measured'
+      note: signals && signals.measured ? `of ${signals.total} this provider projects` : 'Not measured'
     },
     {
       icon: 'attention', label: 'Needs attention',
@@ -3568,6 +3682,7 @@ async function refreshExposureScan(current = exposureState()) {
     if (['queued', 'running'].includes(current.scan.state)) scheduleExposurePoll(current);
     else {
       announceExposure(`Scan ${EXPOSURE_STATE_WORDS[current.scan.state] || 'finished'}. Updating findings.`);
+      invalidatePosture();
       await loadExposure();
     }
   } catch (error) {
@@ -3617,6 +3732,7 @@ async function verifyExposureFinding(fingerprint) {
     });
     const verification = body && body.verification ? { ...body.verification, narration: body.narration } : null;
     if (verification) current.verifications[fingerprint] = verification;
+    invalidatePosture();
     if (body && body.finding) {
       current.findings = current.findings.map(item => (
         item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
@@ -3663,6 +3779,7 @@ async function acceptExposureRisk(fingerprint) {
       ));
     }
     current.error = '';
+    invalidatePosture();
     announceExposure('Recorded. The credential is still in the repository.');
   } catch (error) {
     /*
@@ -4667,6 +4784,139 @@ async function toggleProtect(p) {
   if (await setSafety({ protect: { repo: safetyKey(), path: p, on } }))
     toast(on ? `${p} is now protected` : `${p} unlocked`, 'ok');
 }
+/*
+ * The repository audit. One result per repository in memory, bound to the
+ * identity and branch it was taken for; a result for another repository or a
+ * previous session never paints this one. The comparison with the last audit
+ * keeps fingerprints only, and the account-boundary purge removes them.
+ */
+let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null };
+let auditRequest = 0;
+/*
+ * The deployed-site check sits beside it, bound to the repository rather than
+ * the branch: the address typed (or the repository's declared homepage) is
+ * remembered per repository as an origin, and the last check's fingerprints
+ * per origin, both under the audit prefix the account purge removes.
+ */
+let siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
+let siteRequest = 0;
+function auditKey() {
+  return state.work ? `${state.work.owner}/${state.work.repo}@${state.work.branch}` : '';
+}
+function siteKey() {
+  return state.work ? `${state.work.owner}/${state.work.repo}` : '';
+}
+function siteUrlStorageKey() {
+  return `${window.NebulaCodeAudit.STORE_PREFIX}site-url:${siteKey().toLowerCase()}`;
+}
+function freshSiteView() {
+  let remembered = '';
+  try { remembered = localStorage.getItem(siteUrlStorageKey()) || ''; } catch {}
+  const declared = state.work && state.work.homepage || '';
+  return { key: siteKey(), status: 'idle', url: remembered || declared, suggested: !remembered && Boolean(declared), result: null, diff: null, error: '' };
+}
+function clearAuditState() {
+  auditRequest++;
+  siteRequest++;
+  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null };
+  siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
+  const root = $('#auditRoot');
+  if (root) root.replaceChildren();
+}
+async function copyPrompt(text, control) {
+  try {
+    await navigator.clipboard.writeText(text);
+    if (control) { control.textContent = 'Copied'; setTimeout(() => { control.textContent = 'Copy fix prompt'; }, 1600); }
+  } catch { toast('The clipboard is not available here', 'err'); }
+}
+function paintAudit() {
+  const root = $('#auditRoot');
+  if (!root || !window.NebulaCodeAudit) return;
+  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null };
+  if (siteView.key !== siteKey()) siteView = freshSiteView();
+  const repository = window.NebulaCapabilityUI.decision('code-audit');
+  window.NebulaCodeAudit.render(root, {
+    ...auditView,
+    unavailable: repository.status === 'Supported' ? null : repository.reason,
+    site: window.NebulaCapabilityUI.decision('site-check').status === 'Supported' ? siteView : null
+  }, {
+    onSiteInput: value => { siteView.url = value; siteView.suggested = false; },
+    onSiteCheck: runSiteCheck,
+    onSiteCopyAll: async () => {
+      try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(siteView.result)); toast('Every site fix prompt copied', 'ok'); }
+      catch { toast('The clipboard is not available here', 'err'); }
+    },
+    onRun: runAudit,
+    onFilter: filter => { auditView.filter = filter; paintAudit(); },
+    onOpen: finding => openAuditFinding(finding),
+    onCopy: (finding, control) => copyPrompt(finding.prompt, control),
+    onCopyAll: async () => {
+      try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(auditView.result)); toast('Every fix prompt copied', 'ok'); }
+      catch { toast('The clipboard is not available here', 'err'); }
+    },
+    onExport: () => {
+      const result = auditView.result;
+      const site = siteView.result;
+      if (!result && !site) return;
+      const label = `${state.work.owner}/${state.work.repo} (${state.work.branch})`;
+      const day = String((result && result.auditedAt) || (site && site.checkedAt) || new Date().toISOString()).slice(0, 10);
+      dlFile(`${state.work.repo}-audit-${day}.md`, window.NebulaCodeAudit.brief(result, label, site), 'text/markdown');
+    }
+  });
+}
+async function runSiteCheck(address) {
+  if (!state.work || siteView.status === 'running') return;
+  const request = ++siteRequest;
+  const key = siteKey();
+  const epoch = state.uiEpoch;
+  siteView = { ...siteView, key, url: String(address || '').trim(), status: 'running', error: '' };
+  paintAudit();
+  try {
+    const result = await api(`/api/repo/${wPath()}/site-check?url=${encodeURIComponent(siteView.url)}`);
+    if (request !== siteRequest || epoch !== state.uiEpoch || key !== siteKey()) return;
+    try { localStorage.setItem(siteUrlStorageKey(), result.origin); } catch {}
+    const fingerprints = `site:${result.origin}`;
+    const previous = window.NebulaCodeAudit.readPrevious(fingerprints);
+    window.NebulaCodeAudit.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
+    siteView = { key, status: 'done', url: result.origin, suggested: false, result, diff: window.NebulaCodeAudit.diff(result, previous), error: '' };
+  } catch (error) {
+    if (request !== siteRequest || epoch !== state.uiEpoch || key !== siteKey()) return;
+    siteView = { ...siteView, status: 'error', error: error.message || 'The site could not be checked.' };
+  }
+  if ($('#tab-audit')?.classList.contains('active')) paintAudit();
+}
+async function runAudit() {
+  if (!state.work || auditView.status === 'running') return;
+  const request = ++auditRequest;
+  const key = auditKey();
+  const epoch = state.uiEpoch;
+  auditView = { ...auditView, key, status: 'running', error: '' };
+  paintAudit();
+  try {
+    const result = await api(`/api/repo/${wPath()}/code-audit?ref=${encodeURIComponent(state.work.branch)}`);
+    if (request !== auditRequest || epoch !== state.uiEpoch || key !== auditKey()) return;
+    const repoKey = `${state.work.owner}/${state.work.repo}`;
+    const previous = window.NebulaCodeAudit.readPrevious(repoKey);
+    window.NebulaCodeAudit.remember(repoKey, result);
+    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null };
+  } catch (error) {
+    if (request !== auditRequest || epoch !== state.uiEpoch || key !== auditKey()) return;
+    auditView = { ...auditView, status: 'error', error: error.message || 'The audit could not be completed.' };
+  }
+  if ($('#tab-audit')?.classList.contains('active')) paintAudit();
+}
+async function openAuditFinding(finding) {
+  if (!finding || !finding.path) return;
+  switchTab('editor');
+  await openFile(finding.path);
+  if (finding.line && state.cm) {
+    const line = Math.max(0, finding.line - 1);
+    state.cm.setCursor({ line, ch: 0 });
+    state.cm.scrollIntoView({ line, ch: 0 }, 120);
+    state.cm.focus();
+  }
+}
+
 async function snapshotFlow() {
   try {
     toast('Capturing recovery snapshot…', 'ok');
@@ -4674,6 +4924,7 @@ async function snapshotFlow() {
     try { signed = await api(`/api/repo/${wPath()}/signed-snapshot`, { method: 'POST', body: { manifest: true } }); } catch {}
     const snap = signed && signed.snapshot ? signed.snapshot : await api(`/api/repo/${wPath()}/refs-snapshot?manifest=1`);
     try { localStorage.setItem('nv_snap_' + safetyKey(), JSON.stringify(snap)); } catch {}
+    invalidatePosture();
     dlFile(`${snap.repo}-${snap.capturedAt.slice(0, 10)}.nvsnap.json`, JSON.stringify(snap, null, 2));
     await modal({
       title: 'Recovery snapshot captured', okText: 'Done',
@@ -5406,6 +5657,7 @@ function switchTab(name) {
   if (name === 'governance') loadGovernanceTwin();
   if (name === 'exposure') loadExposure();
   else clearTimeout(exposurePollTimer);
+  if (name === 'audit') paintAudit();
   if (name === 'neural') ensureNeural();
   else if (window.NebulaNeural) window.NebulaNeural.deactivate();
   if (name === 'editor' && state.cm) setTimeout(() => state.cm.refresh(), 30);
@@ -6510,7 +6762,12 @@ async function openPR(num) {
           try {
             const merged = await stepUpApi('pull.merge', {
               owner: state.work.owner, repo: state.work.repo, pullNumber: p.number, method: m
-            }, `/api/repo/${wPath()}/pulls/${p.number}/merge`, { method: 'PUT', body: { method: m } }, `${label} PR #${p.number}`);
+            }, `/api/repo/${wPath()}/pulls/${p.number}/merge`, {
+              method: 'PUT',
+              /* The head on screen is the head that merges; the server
+                 refuses the merge if the branch has moved since. */
+              body: p.headSha ? { method: m, expectedHeadSha: p.headSha } : { method: m }
+            }, `${label} PR #${p.number}`);
             if (!merged) return;
             if (p.base === state.work.branch) rememberHead(merged.sha, p.base);
             await refreshRepoMetadata().catch(() => {});

@@ -2,6 +2,75 @@
 
 ## Unreleased
 
+### Claims the Server Can Back; an Audit and a Site Check
+
+Reported: the overview stated things it had not read; the Experimental list
+needed approving or finishing; six vibe-code scanners did things this one
+did not.
+
+- **Overview.** Scored from what the server read, not what the browser
+  assumed. `/api/workspace/posture` reports the credential's kind, scopes
+  and expiry as the provider sent them, which repositories have a signed or
+  local snapshot, the open Exposure findings per repository from the latest
+  scan, and whether the database and maintenance mode are what the boundary
+  says. Six weighted components, a letter grade, and a cap at 49 while a
+  critical leak is open -- stated beside the score. "Live signals" is now
+  "Capabilities", counted from the registry; the sidebar boundary starts at
+  "Checking" and only says "online" after the server has answered.
+- **Capabilities earned.** Eleven GitHub capabilities and two GitLab ones
+  that were Experimental "because the harness had not exercised them" now
+  have probes that send the product's own requests and check the outcome
+  against an independent read: the exposure reader, rename, folder move,
+  issue, pull-request and release writes, stars, bounded and global search,
+  workflow re-run; GitLab issue and merge-request writes. Each probe
+  condition is falsified on its own. What the harness cannot reach stays
+  Experimental and says why.
+- **Found on the way.** Rename and folder move refuse an occupied
+  destination and land on the head they read; a merge carries the head the
+  reviewer saw and refuses a moved one; per-repository search refuses
+  scope-widening qualifiers; GitLab reviews are notes or approvals and
+  "request changes" is refused by name; workflow run ids must be numbers.
+- **Audit.** A new tab grades the branch A–F from four families -- supply
+  chain (install scripts that fetch or evaluate code, remote scripts piped
+  to a shell, decoded payloads executed, credential stores read and sent,
+  privileged workflows that check out pull-request code, untrusted event
+  text spliced into workflow scripts, third-party actions not pinned to a
+  commit), code security (SQL and command injection, scripting sinks fed
+  untrusted values, secrets shipped to the browser, unsigned webhooks,
+  credentialed wildcard CORS, disabled TLS checks, unverified tokens),
+  dependencies (packages that do not exist on npm or PyPI, asked through the
+  guarded transport; an unanswered lookup is unknown, never missing) and
+  hygiene. A call named inside a string is text, not code -- unless it sits
+  in a template's `${…}` or an f-string's `{…}`, which run -- so the audit
+  does not flag a message, a fixture or its own rules: this repository
+  audits A with every file read. It says how much of the branch it read;
+  every finding opens into its reason, its fix, the file at its line and a
+  prompt to hand to an assistant; the whole audit exports as a Markdown
+  developer brief; and the next audit names what is new and what was
+  resolved. Findings never quote the code.
+- **Deployed site.** The same tab checks the live site anonymously: at most
+  ten requests to the origin named (the repository's homepage is offered),
+  following up to three HTTPS redirects to the page a visitor lands on,
+  HTTPS on 443 to a public address, no credential and no cookie. Security
+  headers and their strength, cookie flags, credentialed CORS, version
+  banners, a security contact, and a served `.env`, `.git` or `.DS_Store` --
+  reported only when the body has the shape that file must have, so a
+  single-page app's catch-all page is not a leak, and never quoted. An
+  unreachable site is an error, not a clean report. GitLab and Gitea get the
+  site check; their repository audit says plainly that no reader exists yet.
+- **Landing.** Built to be worth the scroll, and every claim on it held
+  to the engine. The audit plays as the reader scrolls: a held frame shows
+  the branch being read, what an attacker would find with the grade held
+  at F 49, the fix handed over, and the next audit at A 100 -- the engine's
+  own figures for the project it depicts, and on a phone each move carries
+  its own snapshot. "Everything it checks, counted" gives 99 secret
+  detectors, 43 live verifiers, 33 audit rules and 15 site checks, with the
+  rules themselves passing beneath; a comparison row by row with what a scan
+  usually does; and the questions a careful reader asks before connecting
+  anything. `test/landing-claims.test.js` fails the build when a count, a
+  quoted rule title or the played audit drifts from the engine, and the
+  pixel-contrast guard now covers every new run of copy.
+
 ### One Hue per Instrument; a Landing Bar That Holds
 
 Reported: the overview's charts in green and yellow; the Trust core should

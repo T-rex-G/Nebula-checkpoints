@@ -55,14 +55,37 @@ const PROFILES = Object.freeze({
    * the query string outright is the half that cannot be forgotten at a call
    * site.
    */
-  CREDENTIAL_VERIFY: 'credential-verify'
+  CREDENTIAL_VERIFY: 'credential-verify',
+  /*
+   * An anonymous look at a deployed site, the way any visitor's browser sees
+   * it: GET or HEAD, no query string, no credential of any kind, and the
+   * response headers returned beside the status -- they are most of what a
+   * site check is about. The body is read only as far as the caller's bound
+   * and then cut, never refused: a probe needs the first bytes of a file to
+   * recognise it, not the whole of a page. A compressed body is not
+   * decompressed; it is reported as unread and the headers still arrive.
+   */
+  SITE_PROBE: 'site-probe'
 });
 
 const PROFILE_RULES = Object.freeze({
   [PROFILES.WEBHOOK]: Object.freeze({ methods: Object.freeze(['POST']), query: false, readsBody: false }),
   [PROFILES.PROVIDER_READ]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: true, readsBody: true }),
-  [PROFILES.CREDENTIAL_VERIFY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true })
+  [PROFILES.CREDENTIAL_VERIFY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true }),
+  [PROFILES.SITE_PROBE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: false, readsBody: true, headers: true, truncates: true })
 });
+
+/* Response headers as a probe may see them: lower-cased names, bounded values. */
+function boundedHeaders(raw) {
+  const out = {};
+  let count = 0;
+  for (const [name, value] of Object.entries(raw || {})) {
+    if (count++ >= 64) break;
+    const values = (Array.isArray(value) ? value : [value]).slice(0, 16).map(item => String(item).slice(0, 2048));
+    out[String(name).toLowerCase()] = name.toLowerCase() === 'set-cookie' ? values : values.join(', ');
+  }
+  return Object.freeze(out);
+}
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
 /* A recursive tree may exceed the default. Only repository reads opt into
@@ -368,6 +391,11 @@ async function guardedFetch(input = {}) {
 
   const target = normalizeTarget(input.url, input.profile);
   assertCredentialNotInUrl(target, input.headers);
+  /* A site probe is anonymous by construction: it may carry no credential and no cookie. */
+  if (input.profile === PROFILES.SITE_PROBE && Object.keys(input.headers || {}).some(name =>
+    /^(?:authorization|proxy-authorization|cookie|private-token|x-api-key)$/i.test(name))) {
+    throw new GuardedFetchError('A site probe must be anonymous', 'GUARDED_FETCH_REFUSED');
+  }
   const body = input.body == null ? null : String(input.body);
   const maxBytes = boundedInteger(input.maxResponseBytes, MAX_RESPONSE_BYTES, 1024,
     input.profile === PROFILES.PROVIDER_READ ? MAX_PROVIDER_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
@@ -476,9 +504,14 @@ async function guardedFetch(input = {}) {
       agent
     }, response => {
       const statusCode = Number(response.statusCode || 0);
+      const seen = rule.headers ? { headers: boundedHeaders(response.headers) } : {};
 
       if (rule.readsBody) {
         const encoding = String((response.headers || {})['content-encoding'] || '').trim().toLowerCase();
+        if (encoding && encoding !== 'identity' && rule.truncates) {
+          if (typeof response.destroy === 'function') response.destroy();
+          return finish(resolve, { statusCode, ...seen, body: '', bodyUnread: true });
+        }
         if (encoding && encoding !== 'identity') {
           if (typeof response.destroy === 'function') response.destroy();
           return finish(reject, new GuardedFetchError(
@@ -491,6 +524,11 @@ async function guardedFetch(input = {}) {
       const chunks = [];
       response.on('data', chunk => {
         received += chunk.length;
+        if (received > maxBytes && rule.truncates) {
+          chunks.push(Buffer.from(chunk).subarray(0, Math.max(0, chunk.length - (received - maxBytes))));
+          if (typeof response.destroy === 'function') response.destroy();
+          return finish(resolve, { statusCode, ...seen, body: Buffer.concat(chunks).toString('utf8'), truncated: true });
+        }
         if (received > maxBytes) {
           if (typeof response.destroy === 'function') response.destroy();
           return finish(reject, new GuardedFetchError(
@@ -501,7 +539,7 @@ async function guardedFetch(input = {}) {
         if (rule.readsBody) chunks.push(Buffer.from(chunk));
       });
       response.on('end', () => finish(resolve, rule.readsBody
-        ? { statusCode, body: Buffer.concat(chunks).toString('utf8') }
+        ? { statusCode, ...seen, body: Buffer.concat(chunks).toString('utf8') }
         : { statusCode }));
       response.on('error', error => finish(reject, new GuardedFetchError(
         'Outbound response failed', 'GUARDED_FETCH_TRANSPORT_FAILED', error && error.code

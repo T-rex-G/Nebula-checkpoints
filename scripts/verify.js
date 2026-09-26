@@ -105,7 +105,8 @@ for (const file of [
   'ci/verify-alpha17-authorization.js',
   'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js',
   'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
-  'public/app.js', 'public/governance-ui.js', 'public/neural.js'
+  'public/app.js', 'public/governance-ui.js', 'public/neural.js', 'public/code-audit-ui.js',
+  'src/code-audit.js', 'src/workspace-posture.js'
 ]) {
   new vm.Script(read(file), { filename: file });
 }

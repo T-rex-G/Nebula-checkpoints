@@ -77,13 +77,101 @@
     syncNav();
   }
 
+  const root = document.documentElement;
+  const reducedMotion = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)');
+  const still = () => root.dataset.motion === 'off' || Boolean(reducedMotion && reducedMotion.matches);
+
+  /*
+   * The audit, played. The move nearest the reading line is the one the
+   * frame shows: the middle of the view on a wide screen, and on a narrow
+   * one -- where the frame holds the top -- the middle of what is left under
+   * it. Listening only while the scene is on screen, one read per frame.
+   * Without script the frame rests on the findings, which is the move worth
+   * reading on its own.
+   */
+  const play = document.querySelector('.lp-play');
+  const playFrame = play && play.querySelector('.lp-play-frame');
+  if (play && playFrame && typeof IntersectionObserver === 'function') {
+    const steps = [...play.querySelectorAll('.lp-play-step')];
+    /* The narrow layout's snapshots: one copy of the frame per move, fixed at that move. */
+    steps.forEach(step => {
+      const snap = playFrame.cloneNode(true);
+      snap.classList.add('lp-play-snap');
+      snap.dataset.stage = step.dataset.stage;
+      step.appendChild(snap);
+    });
+    play.classList.add('is-cloned');
+    const count = playFrame.querySelector('.lp-au-count');
+    const total = count ? Number(count.textContent) || 0 : 0;
+    const stacked = global.matchMedia ? global.matchMedia('(max-width:939px)') : null;
+    let current = '';
+    let queued = false;
+    const countUp = () => {
+      if (!count || still()) return;
+      const start = global.performance.now();
+      const tick = now => {
+        const t = Math.min(1, (now - start) / 1400);
+        count.textContent = String(Math.round(total * (1 - Math.pow(1 - t, 3))));
+        if (t < 1 && current === 'read') global.requestAnimationFrame(tick);
+        else count.textContent = String(total);
+      };
+      global.requestAnimationFrame(tick);
+    };
+    const choose = () => {
+      queued = false;
+      const top = stacked && stacked.matches ? Math.max(0, playFrame.getBoundingClientRect().bottom) : 0;
+      const line = top + (global.innerHeight - top) / 2;
+      let best = null;
+      let distance = Infinity;
+      for (const step of steps) {
+        const box = step.getBoundingClientRect();
+        const gap = Math.abs((box.top + box.bottom) / 2 - line);
+        if (gap < distance) { distance = gap; best = step; }
+      }
+      if (!best || best.dataset.stage === current) return;
+      current = best.dataset.stage;
+      steps.forEach(step => step.classList.toggle('is-current', step === best));
+      playFrame.dataset.stage = current;
+      if (current === 'read') countUp();
+    };
+    const onScroll = () => {
+      if (queued) return;
+      queued = true;
+      global.requestAnimationFrame(choose);
+    };
+    new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          play.classList.add('is-playing');
+          global.addEventListener('scroll', onScroll, { passive: true });
+          global.addEventListener('resize', onScroll, { passive: true });
+          onScroll();
+        } else {
+          global.removeEventListener('scroll', onScroll);
+          global.removeEventListener('resize', onScroll);
+        }
+      });
+    }, { threshold: 0 }).observe(play);
+  }
+
+  /*
+   * The rules passing under the counts: the list is doubled so the loop
+   * meets itself, and it only moves while it is on screen.
+   */
+  const ticker = document.querySelector('.lp-ticker');
+  const track = ticker && ticker.querySelector('.lp-ticker-track');
+  if (ticker && track && typeof IntersectionObserver === 'function') {
+    [...track.children].forEach(node => track.appendChild(node.cloneNode(true)));
+    new IntersectionObserver(entries => {
+      entries.forEach(entry => ticker.classList.toggle('is-looping', entry.isIntersecting));
+    }, { threshold: 0 }).observe(ticker);
+  }
+
   const canvas = document.getElementById('lpPortal');
   if (!canvas) return;
 
   const gate = document.getElementById('page-alpha-access');
-  const reducedMotion = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)');
   const connection = global.navigator && global.navigator.connection;
-  const root = document.documentElement;
 
   // Content is visible by default, including without WebGL/JavaScript. Animate
   // each section once as it arrives; never take over the browser's scrolling.
@@ -96,7 +184,7 @@
         sections.unobserve(entry.target);
       });
     }, { threshold: 0.12 });
-    document.querySelectorAll('.lp-steps, .lp-sec, .lp-show, .lp-story, .lp-stats, .lp-cta').forEach(section => sections.observe(section));
+    document.querySelectorAll('.lp-steps, .lp-sec, .lp-play, .lp-show, .lp-checks, .lp-proof, .lp-story, .lp-faq, .lp-cta').forEach(section => sections.observe(section));
   }
 
   /*
@@ -116,7 +204,7 @@
    * in the markup from the start, so without script -- or with motion off --
    * the reader gets the number, not a zero.
    */
-  const stats = document.querySelector('.lp-stats');
+  const stats = document.querySelector('.lp-checks');
   if (stats && typeof IntersectionObserver === 'function' && typeof stats.querySelectorAll === 'function') {
     const counter = new IntersectionObserver(entries => {
       if (!entries.some(entry => entry.isIntersecting)) return;

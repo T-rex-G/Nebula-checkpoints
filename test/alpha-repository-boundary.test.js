@@ -1274,6 +1274,7 @@ ${logs}`
       default_branch: 'main',
       private: true,
       description: 'Production',
+      homepage: null,
       branches: [{ name: 'main', protected: true, sha: 'c'.repeat(40) }]
     });
     assert.notDeepStrictEqual(

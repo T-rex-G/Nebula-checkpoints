@@ -126,7 +126,8 @@ rejects('PUBLIC_ALPHA_PROVIDER_EVIDENCE_MISSING', ({ record }) => {
   delete record.providers.gitea['file.write'];
 });
 rejects('PUBLIC_ALPHA_EXPERIMENTAL_IN_GOLDEN_PATH', ({ record }) => {
-  record.goldenPathCapabilities.push('github:workflows.rerun');
+  /* Still Experimental: delivery needs a deployment the provider can reach. */
+  record.goldenPathCapabilities.push('github:live-events');
 });
 rejects('PUBLIC_ALPHA_UNAVAILABLE_ENABLED', ({ record }) => {
   record.observedEnabledCapabilities.push('gitea:workflows.read');

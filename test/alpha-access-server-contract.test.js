@@ -303,9 +303,11 @@ assert.deepStrictEqual(
 for (const provider of ['github', 'gitlab', 'gitea']) {
   const features = capabilityDocument.providers[provider]['hosted-alpha'];
   for (const feature of ['repository.create', 'repository.delete', 'global-search', 'notifications']) {
+    /* GitHub's global search is the scoped query the live harness proves; the rest it cannot reach. */
+    const github = feature === 'global-search' ? ['Supported', 'Provider-verified'] : ['Experimental', 'Deterministic'];
     assert.deepStrictEqual(
       features[feature].slice(0, 2),
-      provider === 'github' ? ['Experimental', 'Deterministic'] : ['Unavailable', 'Unavailable'],
+      provider === 'github' ? github : ['Unavailable', 'Unavailable'],
       `${provider} ${feature} must preserve its evidenced capability level without false provider parity`
     );
   }

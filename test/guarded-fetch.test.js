@@ -706,6 +706,52 @@ function fakeRequestImpl(behaviour) {
     session.close();
   }
 
+  /*
+   * The site probe: anonymous, headers returned, the body cut rather than
+   * refused, a compressed body reported unread -- and no other profile gains
+   * any of that.
+   */
+  {
+    const addresses = [{ address: '93.184.216.34', family: 4 }];
+    const probe = (behaviour, extra = {}) => guardedFetch({
+      url: 'https://site.example/.env', profile: PROFILES.SITE_PROBE, method: 'GET', addresses,
+      requestImpl: fakeRequestImpl(behaviour), maxResponseBytes: 1024, ...extra
+    });
+    const headers = { 'Content-Type': 'text/plain', 'Set-Cookie': ['a=1', 'b=2'], Server: 'x'.repeat(5000) };
+    const full = await probe(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, headers, chunks: ['KEY=value\n'] })));
+    assert.strictEqual(full.statusCode, 200);
+    assert.strictEqual(full.body, 'KEY=value\n');
+    assert.strictEqual(full.headers['content-type'], 'text/plain', 'header names are lower-cased');
+    assert.deepStrictEqual(full.headers['set-cookie'], ['a=1', 'b=2'], 'every cookie is kept apart');
+    assert.strictEqual(full.headers.server.length, 2048, 'header values are bounded');
+
+    const cut = await probe(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, chunks: ['x'.repeat(800), 'y'.repeat(800)] })));
+    assert.strictEqual(cut.truncated, true, 'a long body is cut at the bound, not refused');
+    assert.strictEqual(cut.body.length, 1024);
+
+    const packed = await probe(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, headers: { 'content-encoding': 'gzip', 'x-frame-options': 'DENY' }, chunks: ['\x1f\x8b'] })));
+    assert.strictEqual(packed.bodyUnread, true);
+    assert.strictEqual(packed.headers['x-frame-options'], 'DENY', 'the headers still arrive when the body is not read');
+
+    for (const name of ['Authorization', 'Cookie', 'X-Api-Key']) {
+      await assert.rejects(probe(() => {}, { headers: { [name]: 'something-long-enough' } }),
+        error => error.code === 'GUARDED_FETCH_REFUSED', `${name} must be refused on an anonymous probe`);
+    }
+    await assert.rejects(probe(() => {}, { url: 'https://site.example/?q=1' }), error => error.code === 'GUARDED_FETCH_URL_INVALID');
+    await assert.rejects(probe(() => {}, { method: 'POST' }), error => error.code === 'GUARDED_FETCH_METHOD_INVALID');
+
+    /* A provider read is unchanged: no headers, and an oversized body is still refused. */
+    const read = await guardedFetch({
+      url: 'https://provider.example/x', profile: PROFILES.PROVIDER_READ, method: 'GET', addresses,
+      requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, headers: { server: 'x' }, chunks: ['ok'] })))
+    });
+    assert.strictEqual(read.headers, undefined);
+    await assert.rejects(guardedFetch({
+      url: 'https://provider.example/x', profile: PROFILES.PROVIDER_READ, method: 'GET', addresses, maxResponseBytes: 1024,
+      requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, chunks: ['x'.repeat(2000)] })))
+    }), error => error.code === 'GUARDED_FETCH_RESPONSE_TOO_LARGE');
+  }
+
   console.log('guarded fetch tests passed');
 })().catch(error => {
   console.error(error && error.stack || error);

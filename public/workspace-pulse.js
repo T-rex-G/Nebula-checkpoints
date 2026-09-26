@@ -1,5 +1,5 @@
 /*
- * The workspace pulse: trust score, live signals, and activity.
+ * The workspace pulse: trust score, capabilities, and activity.
  *
  * The reference design shows "Trust Score 92" and "48 Live signals". Nothing
  * computed either, so shipping those numbers would have meant printing a
@@ -20,14 +20,41 @@
 (function workspacePulseModule(global) {
   const DAY = 86400000;
 
-  /* Weights sum to 1 across the measured set; unknown components renormalise. */
+  /*
+   * Weights sum to 1 across the measured set; unknown components renormalise.
+   *
+   * Leaked credentials carry the most weight because they are the one reading
+   * here that is an incident rather than a posture: a live key in a public
+   * tree is being used by somebody else today, whatever else is configured.
+   */
   const COMPONENTS = Object.freeze([
-    Object.freeze({ id: 'capabilities', label: 'Capabilities verified', weight: 0.25 }),
-    Object.freeze({ id: 'scanning', label: 'Upload scanning', weight: 0.2 }),
-    Object.freeze({ id: 'recovery', label: 'Recovery available', weight: 0.2 }),
-    Object.freeze({ id: 'authentication', label: 'Authentication strength', weight: 0.2 }),
-    Object.freeze({ id: 'visibility', label: 'Private by default', weight: 0.15 })
+    Object.freeze({ id: 'exposure', label: 'Leaked credentials', weight: 0.25 }),
+    Object.freeze({ id: 'capabilities', label: 'Verified capabilities', weight: 0.15 }),
+    Object.freeze({ id: 'scanning', label: 'Upload scanning', weight: 0.15 }),
+    Object.freeze({ id: 'recovery', label: 'Recovery points', weight: 0.15 }),
+    Object.freeze({ id: 'authentication', label: 'Credential reach', weight: 0.15 }),
+    Object.freeze({ id: 'visibility', label: 'Private repositories', weight: 0.15 })
   ]);
+
+  /*
+   * An open critical finding holds the score below this, however well the
+   * rest reads. Averaging let five healthy components outvote a leaked
+   * production key and print a reassuring number over an active incident.
+   */
+  const CRITICAL_CAP = 49;
+
+  const GRADES = Object.freeze([
+    Object.freeze({ grade: 'A', min: 90 }),
+    Object.freeze({ grade: 'B', min: 80 }),
+    Object.freeze({ grade: 'C', min: 70 }),
+    Object.freeze({ grade: 'D', min: 60 }),
+    Object.freeze({ grade: 'F', min: 0 })
+  ]);
+
+  function gradeOf(score) {
+    if (!Number.isFinite(score)) return null;
+    return GRADES.find(entry => score >= entry.min).grade;
+  }
 
   const ACTIVITY_BUCKETS = Object.freeze([
     Object.freeze({ id: 'day', label: 'Today', within: 1 }),
@@ -56,18 +83,45 @@
     return COMPONENTS.find(component => component.id === id);
   }
 
+  function plural(count, one, many) {
+    return `${count} ${count === 1 ? one : many}`;
+  }
+
+  /* owner/name, lower-cased: how every per-repository reading is matched. */
+  function repoKey(owner, name) {
+    return `${String(owner || '')}/${String(name || '')}`.toLowerCase();
+  }
+
+  function connectedKeys(repos) {
+    const keys = new Set();
+    for (const repo of Array.isArray(repos) ? repos : []) {
+      if (!repo) continue;
+      const owner = repo.owner && typeof repo.owner === 'object' ? repo.owner.login : repo.owner;
+      if (owner && repo.name) keys.add(repoKey(owner, repo.name));
+      else if (repo.full_name) keys.add(String(repo.full_name).toLowerCase());
+    }
+    return keys;
+  }
+
   /*
-   * Capability projection: how much of what this provider claims to offer is
-   * actually verified here. Experimental counts as half -- it is reachable but
-   * not evidenced, and rounding it up to "verified" would overstate the score.
+   * Capability projection: how much of what this provider offers is verified
+   * here. The denominator is what is offered -- a capability the provider does
+   * not have is a missing feature, not a weakness in this workspace -- and
+   * Experimental earns nothing: reachable is not the same as evidenced, and
+   * the old half credit is how the dial came to read 79 over a line that said
+   * 20 of 35.
    */
   function capabilityComponent(signals) {
     const component = componentById('capabilities');
     if (!signals || !signals.total) {
       return unknown(component, 'Capability projection has not loaded.');
     }
-    const credit = (signals.supported + (signals.experimental * 0.5)) / signals.total;
-    return measured(component, credit, `${signals.supported} of ${signals.total} verified for this provider.`);
+    const offered = signals.supported + signals.experimental;
+    if (!offered) return measured(component, 0, 'This provider offers none of the projected capabilities.');
+    const parts = [`${signals.supported} of ${offered} offered capabilities verified`];
+    if (signals.experimental) parts.push(`${signals.experimental} experimental`);
+    if (signals.unavailable) parts.push(`${signals.unavailable} not offered by this provider`);
+    return measured(component, signals.supported / offered, `${parts.join(' \u00b7 ')}.`);
   }
 
   function scanningComponent(scanner) {
@@ -81,33 +135,110 @@
       : measured(component, 0.7, 'Built-in signatures are active; no custom rules are configured.');
   }
 
-  function statusCredit(status) {
-    if (status === 'Supported') return 1;
-    if (status === 'Experimental') return 0.5;
-    return 0;
-  }
-
-  function recoveryComponent(recoveryStatus) {
-    const component = componentById('recovery');
-    if (!recoveryStatus) return unknown(component, 'Recovery capability has not loaded.');
-    const credit = statusCredit(recoveryStatus);
-    return measured(component, credit, credit === 1
-      ? 'Snapshots and restore are available here.'
-      : `Recovery is ${String(recoveryStatus).toLowerCase()} for this provider.`);
+  /*
+   * Leaked credentials, from this person's newest finished scan of each
+   * connected repository. Severity decides the reading; coverage bounds it --
+   * one clean repository out of thirty is not a clean workspace, and saying
+   * "healthy" over twenty-nine unread trees would be the score making a claim
+   * the scanner never made.
+   */
+  function exposureComponent(posture, repos) {
+    const component = componentById('exposure');
+    if (!posture || !posture.exposure) return unknown(component, 'The exposure summary has not loaded.');
+    if (!posture.exposure.available) {
+      return unknown(component, 'Exposure scanning needs the server database, so nothing has been scanned here.');
+    }
+    const keys = connectedKeys(repos);
+    const all = Array.isArray(posture.exposure.repositories) ? posture.exposure.repositories : [];
+    const scanned = keys.size ? all.filter(entry => keys.has(repoKey(entry.owner, entry.repo))) : all;
+    if (!scanned.length) {
+      return unknown(component, 'No connected repository has been scanned for leaked credentials yet.');
+    }
+    const open = { critical: 0, serious: 0, warning: 0 };
+    let partial = 0;
+    for (const entry of scanned) {
+      for (const severity of Object.keys(open)) {
+        const count = Math.floor(Number(entry.open && entry.open[severity]));
+        if (Number.isFinite(count) && count > 0) open[severity] += count;
+      }
+      if (entry.partial) partial += 1;
+    }
+    const total = open.critical + open.serious + open.warning;
+    const connected = keys.size || scanned.length;
+    const coverage = Math.min(1, scanned.length / connected);
+    const read = scanned.length === connected
+      ? (connected === 1 ? 'the connected repository was scanned' : `all ${connected} connected repositories scanned`)
+      : `${scanned.length} of ${connected} repositories scanned`;
+    const partialNote = partial ? `, ${plural(partial, 'scan', 'scans')} partial` : '';
+    if (total) {
+      const worst = open.critical ? 'critical' : open.serious ? 'serious' : 'warning';
+      const counts = ['critical', 'serious', 'warning']
+        .filter(severity => open[severity])
+        .map(severity => `${open[severity]} ${severity}`)
+        .join(', ');
+      const ratio = worst === 'critical' ? 0 : worst === 'serious' ? 0.4 : 0.75;
+      return Object.freeze({
+        ...measured(component, ratio, `${plural(total, 'leaked credential', 'leaked credentials')} still exposed (${counts}); ${read}${partialNote}.`),
+        open: Object.freeze(open)
+      });
+    }
+    return Object.freeze({
+      ...measured(component, 0.6 + (0.4 * coverage), `No open leaked credentials; ${read}${partialNote}.`),
+      open: Object.freeze(open)
+    });
   }
 
   /*
-   * An installation-scoped credential can be revoked and narrowed per
-   * repository; a personal token generally cannot. That is a real difference in
-   * blast radius, so it is a real difference in the score.
+   * Recovery points that exist, not recovery the provider could offer. The
+   * old reading was the capability alone, which let the overview print
+   * "healthy" beside a topology that said Gap for the same repository.
    */
-  function authenticationComponent(identity) {
+  function recoveryComponent(recoveryStatus, posture, repos, localSnapshots) {
+    const component = componentById('recovery');
+    if (!recoveryStatus) return unknown(component, 'Recovery capability has not loaded.');
+    if (recoveryStatus === 'Unavailable') return measured(component, 0, 'Recovery is not offered for this provider.');
+    const keys = connectedKeys(repos);
+    if (!keys.size) return unknown(component, 'No repositories have loaded.');
+    const local = localSnapshots instanceof Set ? localSnapshots : new Set();
+    const server = posture && posture.recovery && Array.isArray(posture.recovery.repositories)
+      ? posture.recovery.repositories : [];
+    if (!posture && !local.size) return unknown(component, 'Recovery points have not loaded.');
+    const serverKeys = new Set(server.map(entry => repoKey(entry.owner, entry.repo)));
+    let signed = 0;
+    let covered = 0;
+    for (const key of keys) {
+      if (serverKeys.has(key)) { signed += 1; covered += 1; }
+      else if (local.has(key)) covered += 1;
+    }
+    const parts = [keys.size === 1
+      ? (covered ? 'The connected repository has a recovery point' : 'The connected repository has no recovery point')
+      : `${covered} of ${keys.size} repositories have a recovery point`];
+    if (covered && signed < covered) parts.push(`${covered - signed} held only in this browser`);
+    if (posture && posture.recovery && posture.recovery.available === false) parts.push('signed snapshots need the server database');
+    return measured(component, covered / keys.size, `${parts.join('; ')}.`);
+  }
+
+  /*
+   * The credential's reach, as the provider reported it for the token that is
+   * signed in: its kind, its scopes and its expiry. An installation is scored
+   * from the identity alone when the posture has not loaded, because an
+   * installation is limited by construction; a token is not scored until its
+   * report arrives, because a guess is how every token came to be described as
+   * "broader scope" whatever it actually was.
+   */
+  function authenticationComponent(identity, posture) {
     const component = componentById('authentication');
     if (!identity) return unknown(component, 'Identity has not loaded.');
-    const app = !!(identity.installationId || identity.authMethod === 'github-app');
-    return app
-      ? measured(component, 1, 'Installation-scoped credential, revocable per repository.')
-      : measured(component, 0.5, 'Personal access token: broader scope, revoked as a whole.');
+    const credential = posture && posture.credential;
+    if (credential && typeof credential.detail === 'string') {
+      return Number.isFinite(credential.rating)
+        ? measured(component, credential.rating, credential.detail)
+        : unknown(component, credential.detail);
+    }
+    if (identity.installationId || identity.authMethod === 'github-app') {
+      return measured(component, 1, 'GitHub App installation: short-lived tokens, limited to the repositories the installation was given.');
+    }
+    return unknown(component, 'The credential\u2019s scopes and expiry have not loaded.');
   }
 
   function visibilityComponent(repos) {
@@ -200,25 +331,32 @@
     const now = Number.isFinite(input.now) ? input.now : Date.now();
     const signals = capabilitySignals(input.features);
     const components = Object.freeze([
+      exposureComponent(input.posture, input.repos),
       capabilityComponent(signals),
       scanningComponent(input.scanner),
-      recoveryComponent(input.recoveryStatus),
-      authenticationComponent(input.identity),
+      recoveryComponent(input.recoveryStatus, input.posture, input.repos, input.localSnapshots),
+      authenticationComponent(input.identity, input.posture),
       visibilityComponent(input.repos)
     ]);
 
     const known = components.filter(component => component.status !== 'unknown');
     const weight = known.reduce((total, component) => total + component.weight, 0);
-    const score = weight > 0
+    const mean = weight > 0
       ? Math.round((known.reduce((total, c) => total + (c.ratio * c.weight), 0) / weight) * 100)
       : null;
+    const exposure = components[0];
+    const capped = mean !== null && !!(exposure.open && exposure.open.critical) && mean > CRITICAL_CAP;
+    const score = capped ? CRITICAL_CAP : mean;
 
     return Object.freeze({
       trust: Object.freeze({
         score,
+        grade: gradeOf(score),
+        capped,
         status: score === null ? 'unknown' : ratioStatus(score / 100),
         measuredCount: known.length,
         componentCount: components.length,
+        attention: components.filter(c => c.status === 'warning' || c.status === 'critical').length,
         components
       }),
       signals: Object.freeze({
@@ -228,7 +366,7 @@
         breakdown: Object.freeze(signals ? [
           Object.freeze({ id: 'supported', label: 'Verified', count: signals.supported, status: 'good' }),
           Object.freeze({ id: 'experimental', label: 'Experimental', count: signals.experimental, status: 'warning' }),
-          Object.freeze({ id: 'unavailable', label: 'Unavailable', count: signals.unavailable, status: 'muted' })
+          Object.freeze({ id: 'unavailable', label: 'Not offered', count: signals.unavailable, status: 'muted' })
         ] : [])
       }),
       activity: activity(input.repos, now)
@@ -386,7 +524,7 @@
     return track;
   }
 
-  function numbersTable(caption, headings, rows) {
+  function numbersTable(caption, headings, rows, note) {
     const details = element('details', 'wp-numbers');
     details.appendChild(element('summary', null, 'Show the numbers'));
     const table = element('table');
@@ -411,6 +549,7 @@
     }
     table.append(head, body);
     details.appendChild(table);
+    if (note) details.appendChild(element('p', 'wp-numbers-note', note));
     return details;
   }
 
@@ -444,9 +583,24 @@
       caption: trust.score === null ? 'not measured' : 'out of 100'
     }));
     const readout = element('div', 'wp-dial-read');
+    if (trust.grade) {
+      /*
+       * The letter is the score read at a coarser grain, not a second
+       * measurement: the bands are fixed and printed in the table below, so a
+       * reader can check the one against the other.
+       */
+      const grade = element('p', `wp-grade wp-${trust.status}`);
+      grade.append(element('span', 'wp-grade-letter', trust.grade), element('span', 'wp-grade-word', 'grade'));
+      grade.setAttribute('aria-label', `Grade ${trust.grade}`);
+      readout.appendChild(grade);
+    }
     readout.appendChild(element('p', 'wp-hero-note', trust.score === null
       ? 'No signal has loaded yet.'
       : `From ${trust.measuredCount} of ${trust.componentCount} signals measured in this session.`));
+    if (trust.capped) {
+      readout.appendChild(element('p', 'wp-hero-note wp-cap-note',
+        'Held below 50 while a critical leaked credential is still exposed. Rotate it, or record that the provider rejects it, to lift the cap.'));
+    }
     dial.appendChild(readout);
     head.appendChild(dial);
     host.appendChild(head);
@@ -472,12 +626,16 @@
     host.appendChild(list);
     host.appendChild(numbersTable(
       'Trust score components',
-      ['Signal', 'Reading', 'State'],
+      ['Signal', 'Weight', 'Reading', 'State'],
       trust.components.map(component => [
         component.label,
+        `${Math.round(component.weight * 100)}%`,
         component.ratio === null ? 'not measured' : `${Math.round(component.ratio * 100)}%`,
         STATUS_WORD[component.status]
-      ])
+      ]),
+      `Weights renormalise across the signals measured. Grades: ${GRADES.map((entry, index) => (
+        index === GRADES.length - 1 ? `${entry.grade} below ${GRADES[index - 1].min}` : `${entry.grade} ${entry.min}+`
+      )).join(', ')}. An open critical leaked credential caps the score at ${CRITICAL_CAP}.`
     ));
   }
 
@@ -488,7 +646,7 @@
   function renderSignals(host, signals) {
     host.textContent = '';
     const head = element('div', 'wp-stat');
-    head.appendChild(element('span', 'wp-label', 'LIVE SIGNALS'));
+    head.appendChild(element('span', 'wp-label', 'CAPABILITIES'));
     /*
      * The count moves into the middle of the ring that measures it, so the
      * figure is not printed twice on one card. An absent reading has no ring to
@@ -1466,7 +1624,7 @@
   }
 
   global.NebulaWorkspacePulse = Object.freeze({
-    COMPONENTS, ACTIVITY_BUCKETS, model, render, renderActivityFeed,
+    COMPONENTS, ACTIVITY_BUCKETS, CRITICAL_CAP, gradeOf, model, render, renderActivityFeed,
     languageSpread, radarChart, RADAR_MIN_AXES
   });
 })(typeof globalThis === 'undefined' ? this : globalThis);

@@ -142,6 +142,8 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
      */
     clearExposureState: () => operations.push(['exposure']),
     clearActivityFeed: () => operations.push(['activity-feed']),
+    clearPosture: () => operations.push(['posture']),
+    clearAuditState: () => operations.push(['audit']),
     purgePrivateCaches: async () => {
       assert.strictEqual(state.uiEpoch, 1, 'invalidate pending UI responses before asynchronous cache cleanup');
       assert(operations.some(([kind]) => kind === 'activity-feed'),
@@ -196,6 +198,10 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     'the purge must clear the notification unread marker, or one session\'s count stays lit over the next');
   assert.deepStrictEqual(operations.find(([kind]) => kind === 'exposure'), ['exposure'],
     'the purge must clear exposure findings, or the next session sees what the previous one found');
+  assert.deepStrictEqual(operations.find(([kind]) => kind === 'audit'), ['audit'],
+    'the purge must clear the repository audit, or the next session sees the previous one\'s findings');
+  assert.deepStrictEqual(operations.find(([kind]) => kind === 'posture'), ['posture'],
+    'the purge must clear the workspace posture, or the next session is scored with the previous one\'s credential and leaks');
 }
 
 (async () => {

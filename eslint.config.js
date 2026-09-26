@@ -70,6 +70,7 @@ const VENDOR_GLOBALS = Object.freeze({
 /* Loaded through a script tag and also required by Node tests or the server. */
 const DUAL_TARGET_MODULES = Object.freeze([
   'public/light-waves.js',
+  'public/code-audit-ui.js',
   'public/archive-safety.js',
   'public/export-safety.js',
   'public/governance-ui.js',

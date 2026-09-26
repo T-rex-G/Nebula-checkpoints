@@ -37,15 +37,20 @@
           "Provider-verified",
           "Qualified controlled branch mutations."
         ],
+        "code-audit": [
+          "Supported",
+          "Deterministic",
+          "Deterministic rules over supply chain, code security, dependencies and project hygiene, each fixture-tested firing and staying quiet. Files are read through the Provider-verified exposure reader, package existence is asked of the public registries through the guarded transport, and an unreachable registry reads as unknown, never as missing. Findings name a place and never quote the code."
+        ],
         "dependency-audit": [
           "Supported",
           "Deterministic",
           "OSV unavailability is reported as incomplete, never clean."
         ],
         "exposure.scan": [
-          "Experimental",
-          "Inferred",
-          "Implemented and fixture-tested end to end -- detection, identity, storage, the bounded job, verification and the readability probe -- and not exercised by the alpha.17 live-provider harness. Every route is opt-in and accepting a finding's risk requires the capability to be Supported."
+          "Supported",
+          "Provider-verified",
+          "Detection, identity, storage, the bounded job, verification and the readability probe are fixture-tested end to end; the provider-facing reader is exercised by the alpha.17 live-provider harness -- ref resolution, the tree at that commit bound to a file the run wrote, its blob read back exactly, and history walked to the commit that added it."
         ],
         "file.batch": [
           "Supported",
@@ -63,9 +68,9 @@
           "Qualified bounded file reads."
         ],
         "file.rename": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: the blob is re-linked at the new path in one commit on the observed head, keeps its object identity, and leaves the old path empty. An occupied destination is refused rather than replaced."
         ],
         "file.write": [
           "Supported",
@@ -73,14 +78,14 @@
           "Qualified expected-head file writes."
         ],
         "folder.move": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: every file under the folder, nested ones included, is re-linked under the destination in one commit on the observed head with its object identity kept, and nothing remains at the source. An occupied destination path is refused."
         ],
         "global-search": [
-          "Experimental",
-          "Deterministic",
-          "GitHub code search respects connection access and server-enforced invitation repository scopes."
+          "Supported",
+          "Provider-verified",
+          "In the hosted alpha a code search is one scoped query per invitation repository, and that query is exercised by the alpha.17 live-provider harness: it finds the permanent search fixture, only in the target, and a word that exists nowhere finds nothing. Qualifiers that would widen the scope are refused."
         ],
         "governance": [
           "Supported",
@@ -93,9 +98,9 @@
           "Qualified issue list and detail reads, including absent-resource discrimination."
         ],
         "issues.write": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: an issue is created, commented on and closed, each read back from the provider, and the read-only credential is refused."
         ],
         "lfs": [
           "Supported",
@@ -105,7 +110,7 @@
         "live-events": [
           "Experimental",
           "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Implemented and fixture-tested: webhook connect, signature verification and the event stream. Not provider-verified, because delivery needs a deployment the provider can reach and the live-provider harness has no receiving endpoint."
         ],
         "native-push": [
           "Supported",
@@ -115,7 +120,7 @@
         "notifications": [
           "Experimental",
           "Deterministic",
-          "GitHub notifications respect invitation repository scopes and supported connection types."
+          "Scoped to invitation repositories and refused for connections GitHub will not serve: notifications are unavailable to fine-grained tokens and App installations. Not provider-verified, because the live-provider harness runs with a fine-grained credential by design."
         ],
         "pulls.read": [
           "Supported",
@@ -123,9 +128,9 @@
           "Qualified pull-request list and detail reads, including absent-resource discrimination."
         ],
         "pulls.write": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness on disposable branches: a pull request is opened, reviewed, refused a merge against a head it no longer has, and merged against the head it reported."
         ],
         "rate.read": [
           "Supported",
@@ -143,19 +148,19 @@
           "Qualified release list and detail reads, including absent-resource discrimination."
         ],
         "releases.write": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: a prerelease is published with its tag at the branch head it was cut from, read back, and removed with its tag."
         ],
         "repository.create": [
           "Experimental",
           "Deterministic",
-          "Personal repository creation with identity checks and provider readback; existing invitation scopes still apply."
+          "Personal repository creation with identity checks and provider readback; existing invitation scopes still apply. Not provider-verified, because the live-provider harness credential is confined to one disposable repository by design and cannot create one."
         ],
         "repository.delete": [
           "Experimental",
           "Deterministic",
-          "Repository deletion with exact confirmation, fresh step-up and provider administrator permission."
+          "Repository deletion with exact confirmation, fresh step-up and provider administrator permission. Not provider-verified, because the live-provider harness credential is confined to one disposable repository by design and must not be able to delete it."
         ],
         "repository.read": [
           "Supported",
@@ -163,19 +168,24 @@
           "Qualified golden-path repository reads."
         ],
         "search": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: the repository-scoped query finds the permanent search fixture, only in the target, and a word that exists nowhere finds nothing. Qualifiers that would widen the scope are refused."
+        ],
+        "site-check": [
+          "Supported",
+          "Deterministic",
+          "An anonymous look at a deployed site through the guarded transport: HTTPS on 443 to public addresses, no credential and no cookie, ten bounded requests including up to three redirects to the page. Security headers, cookies and served secrets are judged by fixture-tested rules; a file is reported as served only when its content has the shape that file must have, never quoted, and a site that cannot be reached is an error rather than a clean report."
         ],
         "stars.read": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: the account's star on the target is read, set, read, cleared and read, and left as it was found."
         ],
         "stars.write": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: the account's star on the target is read, set, read, cleared and read, and left as it was found."
         ],
         "tree.read": [
           "Supported",
@@ -193,9 +203,9 @@
           "Qualified workflow-run list and detail reads, including absent-resource discrimination."
         ],
         "workflows.rerun": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: a dispatched run of the fixture workflow is re-run once finished, and the provider reports its next attempt."
         ]
       }
     },
@@ -215,6 +225,11 @@
           "Supported",
           "Provider-verified",
           "Qualified controlled branch mutations."
+        ],
+        "code-audit": [
+          "Unavailable",
+          "Unavailable",
+          "No repository reader is implemented for this provider, and a guessed tree API would return nothing and look like a clean audit."
         ],
         "dependency-audit": [
           "Experimental",
@@ -272,9 +287,9 @@
           "Qualified issue list and detail reads."
         ],
         "issues.write": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: an issue is created, noted and closed by state event, each read back, and the read_api credential is refused."
         ],
         "lfs": [
           "Unavailable",
@@ -302,9 +317,9 @@
           "Qualified merge-request list and detail reads."
         ],
         "pulls.write": [
-          "Experimental",
-          "Inferred",
-          "Implemented, but not exercised by the alpha.17 live-provider harness."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness on disposable branches: a merge request is opened, reviewed by note, refused a merge against a head it no longer has, and merged against the head it reported. GitLab has no \"request changes\" review, and the product refuses one by name."
         ],
         "rate.read": [
           "Unavailable",
@@ -345,6 +360,11 @@
           "Unavailable",
           "Unavailable",
           "Cross-repository search is not qualified."
+        ],
+        "site-check": [
+          "Supported",
+          "Deterministic",
+          "An anonymous look at a deployed site through the guarded transport: HTTPS on 443 to public addresses, no credential and no cookie, ten bounded requests including up to three redirects to the page. Security headers, cookies and served secrets are judged by fixture-tested rules; a file is reported as served only when its content has the shape that file must have, never quoted, and a site that cannot be reached is an error rather than a clean report."
         ],
         "stars.read": [
           "Unavailable",
@@ -394,6 +414,11 @@
           "Unavailable",
           "Unavailable",
           "Branch mutation is not qualified for Gitea."
+        ],
+        "code-audit": [
+          "Unavailable",
+          "Unavailable",
+          "No repository reader is implemented for this provider, and a guessed tree API would return nothing and look like a clean audit."
         ],
         "dependency-audit": [
           "Experimental",
@@ -524,6 +549,11 @@
           "Unavailable",
           "Unavailable",
           "Search is not qualified."
+        ],
+        "site-check": [
+          "Supported",
+          "Deterministic",
+          "An anonymous look at a deployed site through the guarded transport: HTTPS on 443 to public addresses, no credential and no cookie, ten bounded requests including up to three redirects to the page. Security headers, cookies and served secrets are judged by fixture-tested rules; a file is reported as served only when its content has the shape that file must have, never quoted, and a site that cannot be reached is an error rather than a clean report."
         ],
         "stars.read": [
           "Unavailable",

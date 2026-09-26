@@ -1335,6 +1335,77 @@ async function claim(store, now = T0) {
       await store.clearHistory({ scope: deepScope, identityKey: OTHER_IDENTITY });
     }
 
+    /* ---- The workspace summary the overview scores ---------------------- */
+
+    /*
+     * The overview's leaked-credential reading. Counts and rule names only;
+     * the newest finished scan per repository decides the generation; only
+     * findings still exposed are counted -- `removed-from-tree` included,
+     * because it is still in history -- and nothing another identity scanned,
+     * nothing a failed scan saw, and nothing a person accepted is counted.
+     */
+    {
+      const clock = T0 + 5_000_000;
+      const alpha = Object.freeze({ ...scope, repo: 'PostureAlpha' });
+      const beta = Object.freeze({ ...scope, repo: 'PostureBeta' });
+      const gamma = Object.freeze({ ...scope, repo: 'PostureGamma' });
+      const finish = async (target, identity, key, at, findings, state = 'complete') => {
+        const requested = await store.requestScan(scanRequest({ scope: target, identityKey: identity, idempotencyKey: key, now: at }));
+        const held = await claim(store, at + 10);
+        assert.strictEqual(held.scan.scanId, requested.scan.scanId, 'the summary fixture must claim its own scan');
+        if (findings.length) {
+          await store.recordObservations({ scanId: held.scan.scanId, claimOwner: held.claimOwner, now: at + 20, findings });
+        }
+        await store.finalizeScan({
+          scanId: held.scan.scanId, claimOwner: held.claimOwner, now: at + 30,
+          state, coverage: state === 'complete' ? 'complete' : state === 'partial' ? 'partial' : 'unknown'
+        });
+        return held.scan.scanId;
+      };
+      await finish(alpha, IDENTITY, 'posture-00000001', clock, [
+        findingFixture('posture-a1', { rule: 'aws-access-key' }),
+        findingFixture('posture-a2', { rule: 'aws-access-key' }),
+        findingFixture('posture-a3', { rule: 'slack-webhook' }),
+        findingFixture('posture-a4', { rule: 'github-token' })
+      ]);
+      await store.acceptRisk({ scope: alpha, fingerprint: fingerprint('posture-a4'), identityKey: IDENTITY, actor: 'alice', now: clock + 100 });
+      await pool.query(
+        `UPDATE nv_exposure_findings SET disposition='removed-from-tree', disposition_at=$2
+          WHERE repo_name='PostureAlpha' AND fingerprint=$1`,
+        [fingerprint('posture-a3'), new Date(clock + 200)]
+      );
+      await finish(beta, IDENTITY, 'posture-00000002', clock + 1000, [], 'partial');
+      await finish(gamma, IDENTITY, 'posture-00000003', clock + 2000, [findingFixture('posture-g1')], 'failed');
+      await finish(gamma, OTHER_IDENTITY, 'posture-00000004', clock + 3000, [findingFixture('posture-g2')]);
+
+      const rows = await store.workspaceSummary({ provider: 'github', authority: 'github.com', identityKey: IDENTITY });
+      const mine = rows.filter(row => /^Posture/.test(row.repo));
+      assert.deepStrictEqual(
+        mine.map(row => [row.repo, row.state, row.rule, row.count]),
+        [
+          ['PostureAlpha', 'complete', 'aws-access-key', 2],
+          ['PostureAlpha', 'complete', 'slack-webhook', 1],
+          ['PostureBeta', 'partial', null, 0]
+        ],
+        'the summary counts exposed findings of each repository\'s newest finished scan, and nothing else'
+      );
+      for (const row of mine) {
+        assert.deepStrictEqual(Object.keys(row).sort(), ['count', 'finishedAt', 'owner', 'repo', 'rule', 'state'],
+          'a summary row carries counts and names, never a path or a placeholder');
+      }
+      const theirs = await store.workspaceSummary({ provider: 'github', authority: 'github.com', identityKey: OTHER_IDENTITY });
+      assert.deepStrictEqual(theirs.filter(row => /^Posture/.test(row.repo)).map(row => [row.repo, row.count]), [['PostureGamma', 1]],
+        'another identity sees its own scans and nobody else\'s');
+      assert.deepStrictEqual(
+        await store.workspaceSummary({ provider: 'github', authority: 'gitlab.com', identityKey: IDENTITY }), [],
+        'another provider authority is another workspace'
+      );
+      await assert.rejects(store.workspaceSummary({ provider: 'github', authority: 'github.com', identityKey: 'nope' }), /sha-256/);
+      for (const [target, identity] of [[alpha, IDENTITY], [beta, IDENTITY], [gamma, IDENTITY], [gamma, OTHER_IDENTITY]]) {
+        await store.clearHistory({ scope: target, identityKey: identity });
+      }
+    }
+
     /* ---- The attempt table holds no credential either ------------------- */
 
     /* ---- No row, anywhere, can carry a credential ----------------------- */

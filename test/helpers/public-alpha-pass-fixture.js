@@ -51,7 +51,16 @@ const PROVIDER_PROBES = Object.freeze({
       objectStored: true,
       deduplicatedOnRepeat: true,
       pointerCommitted: false
-    }
+    },
+    { key: 'exposure-read', status: 'pass', statusClass: '2xx', refResolved: true, treeBound: true, blobTextMatched: true, historyReached: true },
+    { key: 'file-rename', status: 'pass', statusClass: '2xx', parentIsObservedHead: true, identityPreserved: true, sourceRemoved: true },
+    { key: 'folder-move', status: 'pass', statusClass: '2xx', filesMoved: 2, parentIsObservedHead: true, identitiesPreserved: true, sourceEmptied: true },
+    { key: 'issue-write', status: 'pass', statusClass: '2xx', createdReadBack: true, commentReadBack: true, closedReadBack: true, readOnlyRefused: true },
+    { key: 'pull-write', status: 'pass', statusClass: '2xx', createdReadBack: true, reviewRecorded: true, staleHeadRefused: true, mergedIntoBase: true, refsRemoved: true },
+    { key: 'release-write', status: 'pass', statusClass: '2xx', createdReadBack: true, tagAtTarget: true, cleanupAbsent: true },
+    { key: 'star-toggle', status: 'pass', statusClass: '2xx', starVisible: true, unstarVisible: true, initialStateRestored: true },
+    { key: 'code-search', status: 'pass', statusClass: '2xx', fixtureFound: true, resultsScoped: true, absentDiscriminated: true },
+    { key: 'workflow-rerun', status: 'pass', statusClass: '2xx', dispatchedRunCompleted: true, rerunAccepted: true, attemptAdvanced: true }
   ],
   gitlab: [
     {
@@ -69,7 +78,9 @@ const PROVIDER_PROBES = Object.freeze({
       listed: 1,
       detailAgreed: true,
       absentDiscriminated: true
-    }))
+    })),
+    { key: 'issue-write', status: 'pass', statusClass: '2xx', createdReadBack: true, commentReadBack: true, closedReadBack: true, readOnlyRefused: true },
+    { key: 'pull-write', status: 'pass', statusClass: '2xx', createdReadBack: true, reviewRecorded: true, staleHeadRefused: true, mergedIntoBase: true, refsRemoved: true }
   ],
   gitea: []
 });

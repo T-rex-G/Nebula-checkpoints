@@ -147,8 +147,8 @@
           string.
         -->
         <h1 id="alphaAccessTitle" class="lp-title"><span class="lp-line" style="--i:0">Enter the</span> <span class="lp-line" style="--i:1">Nebulaverse-X</span> <span class="lp-line" style="--i:2"><em>test orbit</em></span></h1>
-        <p class="lp-lede">Connect one sandbox repository, read its real health, and preview
-          every change against GitHub, GitLab or Gitea before a single write reaches a provider.</p>
+        <p class="lp-lede">Connect one sandbox repository, audit what it ships and the site it runs as,
+          and preview every change against GitHub, GitLab or Gitea before a single write reaches a provider.</p>
 
       </div>
 
@@ -248,6 +248,94 @@
         </ul>
       </div>
       <!--
+        The audit, played at the pace of the scroll. The frame holds still
+        while four moves pass it and it shows each one: the branch being read,
+        what was found and the grade it earns, the fix handed over, and the
+        next audit proving it gone. Without script it rests on the findings,
+        which is the state worth reading. The words are the rules' own titles,
+        and a unit test holds every one to the engine.
+      -->
+      <section class="lp-play" aria-labelledby="lpPlayTitle">
+        <div class="lp-play-head">
+          <p class="lp-sec-eyebrow">Audit and site check</p>
+          <h2 class="lp-show-title" id="lpPlayTitle">Find it. Fix it. Prove it is gone.</h2>
+          <p class="lp-show-lede">What a reviewer and an attacker look at first &mdash; the code a branch ships, the
+            workflows that build it, the packages it names and the site it runs as &mdash; graded, explained and checked again.</p>
+        </div>
+        <div class="lp-play-body">
+          <ol class="lp-play-steps">
+            <li class="lp-play-step" data-stage="read">
+              <span class="lp-play-n">01</span>
+              <h3 class="lp-play-t">Read what ships</h3>
+              <p class="lp-play-d">The branch is read through the same reader that proves itself against GitHub,
+                judged file by file and dropped. The audit says how much of it was read, so a quiet report is never
+                mistaken for a clean one.</p>
+            </li>
+            <li class="lp-play-step" data-stage="find">
+              <span class="lp-play-n">02</span>
+              <h3 class="lp-play-t">Grade what an attacker would find</h3>
+              <p class="lp-play-d">Install scripts, workflows that hand CI secrets to strangers, injection sinks,
+                secrets shipped to the browser, packages that do not exist &mdash; and the deployed site's headers,
+                cookies and served files. One critical finding holds the grade below 50, and says so.</p>
+            </li>
+            <li class="lp-play-step" data-stage="fix">
+              <span class="lp-play-n">03</span>
+              <h3 class="lp-play-t">Hand over the fix</h3>
+              <p class="lp-play-d">Every finding opens into why it matters, how to fix it, the file at its line and a
+                prompt for your assistant &mdash; never the code itself. The whole audit exports as a developer brief.</p>
+            </li>
+            <li class="lp-play-step" data-stage="again">
+              <span class="lp-play-n">04</span>
+              <h3 class="lp-play-t">Prove it is gone</h3>
+              <p class="lp-play-d">Audit again and it names what is new and what was resolved since last time.
+                Deterministic rules, so the same branch gets the same answer.</p>
+            </li>
+          </ol>
+          <div class="lp-play-stick">
+            <figure class="lp-frame lp-play-frame" data-stage="find" aria-hidden="true">
+              <div class="lp-frame-bar"><i></i><i></i><i></i><span class="lp-frame-url">Audit · sandbox/demo @ main</span></div>
+              <div class="lp-au">
+                <div class="lp-au-top">
+                  <div class="lp-au-grade">
+                    <b class="lp-au-letter"><span data-only="read">&mdash;</span><span data-only="find fix">F</span><span data-only="again">A</span></b>
+                    <span class="lp-au-score"><span data-only="read">reading</span><span data-only="find fix">49/100</span><span data-only="again">100/100</span></span>
+                  </div>
+                  <div class="lp-au-read">
+                    <p class="lp-au-lede"><span data-only="read">Reading the branch and checking its packages…</span><span data-only="find fix">2 findings: 1 critical, 1 warning.</span><span data-only="again">No findings in what was read.</span></p>
+                    <p class="lp-au-cap" data-only="find fix">Held below 50 while a critical finding is open.</p>
+                    <p class="lp-au-diff" data-only="again">0 new findings, 2 resolved since the audit of 10:42.</p>
+                    <p class="lp-au-cov">Read <b class="lp-au-count">212</b> of 212 files at a1c9f2e · 38 of 38 packages checked.</p>
+                    <span class="lp-au-bar" data-only="read"><i></i></span>
+                  </div>
+                </div>
+                <ul class="lp-au-fams">
+                  <li data-family="supply-chain" style="--find:94%;--again:100%"><span>Supply chain</span><b><span data-only="read">&mdash;</span><span data-only="find fix">94</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="code" style="--find:60%;--again:100%"><span>Code security</span><b><span data-only="read">&mdash;</span><span data-only="find fix">60</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="dependencies" style="--find:100%;--again:100%"><span>Dependencies</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="hygiene" style="--find:100%;--again:100%"><span>Hygiene</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
+                </ul>
+                <ul class="lp-au-list" data-only="find fix">
+                  <li class="lp-au-item" data-sev="critical" data-rule="SEC-001">
+                    <span class="lp-au-pill">✕ Critical</span><span class="lp-au-title">A SQL statement is built by string interpolation</span>
+                    <span class="lp-au-where">SEC-001 · api/users.js:1</span>
+                    <span class="lp-au-open" data-only="fix">
+                      <span class="lp-au-why">Values spliced into SQL text are parsed as SQL.</span>
+                      <span class="lp-au-fix"><b>Fix:</b> Use parameterised queries or the query builder’s placeholders, and pass values separately from the statement text.</span>
+                      <span class="lp-au-prompt"><span data-prompt="SEC-001">In api/users.js (line 1): a sql statement is built by string interpolation. Values spliced into SQL text are parsed as SQL.</span><em>Copied</em></span>
+                    </span>
+                  </li>
+                  <li class="lp-au-item" data-sev="warning" data-rule="SUP-008">
+                    <span class="lp-au-pill">○ Warning</span><span class="lp-au-title">A third-party action is not pinned to a commit</span>
+                    <span class="lp-au-where">SUP-008 · .github/workflows/deploy.yml:7</span>
+                  </li>
+                </ul>
+              </div>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!--
         The product, shown rather than described: a faithful miniature of the
         Neural command center -- the hub, the group panels and the strands in
         each group's colour -- that settles flat as it scrolls into view.
@@ -271,6 +359,60 @@
           <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M13 3.5 5.5 13.2H12l-1 7.3 7.5-9.7H12z"/></svg><b>Live from the provider</b><span>Verified events arrive on the map as they happen.</span></li>
         </ul>
       </section>
+      <!--
+        Coverage, counted. Every figure is the engine's own count, and
+        test/landing-claims.test.js fails the build when the page and the
+        engine disagree -- the page cannot drift into a number it no longer
+        ships.
+      -->
+      <section class="lp-checks" aria-labelledby="lpChecksTitle">
+        <div class="lp-checks-head">
+          <p class="lp-sec-eyebrow">Coverage</p>
+          <h2 class="lp-show-title" id="lpChecksTitle">Everything it checks, counted</h2>
+          <p class="lp-show-lede">Each number is the engine's own, and the build fails if this page ever says otherwise.</p>
+        </div>
+        <ul class="lp-checks-grid">
+          <li class="lp-check">
+            <span class="lp-check-v" data-count="99" data-claim="secret-detectors">99</span>
+            <h3 class="lp-check-t">Secret detectors</h3>
+            <p class="lp-check-d">In files, in git history, inside archives and behind base64 or UTF-16 &mdash; each named by where it is, never by what it is.</p>
+            <ul class="lp-check-eg"><li>Cloud and database credentials</li><li>AI and payment API keys</li><li>Package-registry tokens</li><li>Private keys and webhook URLs</li></ul>
+          </li>
+          <li class="lp-check">
+            <span class="lp-check-v" data-count="43" data-claim="credential-verifiers">43</span>
+            <h3 class="lp-check-t">Live verifiers</h3>
+            <p class="lp-check-d">Ask the issuing service whether a leaked key still works &mdash; only when you ask, bound to you and that one finding, and answered live, not live or could not tell.</p>
+            <ul class="lp-check-eg"><li>GitHub, GitLab and Slack</li><li>OpenAI, Anthropic and Stripe</li><li>npm, Sentry and Datadog</li><li>Neon, Render and Netlify</li></ul>
+          </li>
+          <li class="lp-check">
+            <span class="lp-check-v" data-count="33" data-claim="audit-rules">33</span>
+            <h3 class="lp-check-t">Repository audit rules</h3>
+            <p class="lp-check-d">Supply chain, code security, dependencies and hygiene, each rule tested firing on the mistake and quiet on the safe way to write it.</p>
+            <ul class="lp-check-eg"><li>Install scripts and piped installers</li><li>Privileged and injectable workflows</li><li>Injection and scripting sinks</li><li>Packages that do not exist</li></ul>
+          </li>
+          <li class="lp-check">
+            <span class="lp-check-v" data-count="15" data-claim="site-rules">15</span>
+            <h3 class="lp-check-t">Deployed-site checks</h3>
+            <p class="lp-check-d">Anonymous and bounded: ten requests at most, no credential, no cookie, and nothing it reads is kept.</p>
+            <ul class="lp-check-eg"><li>Security headers and their strength</li><li>Cookie flags and credentialed CORS</li><li>Served .env, .git and .DS_Store</li><li>A published security contact</li></ul>
+          </li>
+        </ul>
+        <div class="lp-ticker" aria-hidden="true">
+          <div class="lp-ticker-track">
+            <span data-rule="SUP-001">SUP-001 · An install script fetches or evaluates code</span>
+            <span data-rule="SUP-007">SUP-007 · A privileged workflow checks out pull-request code</span>
+            <span data-rule="SUP-008">SUP-008 · A third-party action is not pinned to a commit</span>
+            <span data-rule="SEC-006">SEC-006 · A secret is placed in a variable the browser receives</span>
+            <span data-rule="SEC-007">SEC-007 · A webhook endpoint never verifies its sender</span>
+            <span data-rule="DEP-001">DEP-001 · A dependency does not exist in the public registry</span>
+            <span data-rule="WEB-002">WEB-002 · The Git repository is served publicly</span>
+            <span data-rule="WEB-005">WEB-005 · No Content-Security-Policy</span>
+            <span data-rule="WEB-010">WEB-010 · Any origin may make credentialed requests</span>
+            <span data-rule="HYG-001">HYG-001 · An environment file is committed</span>
+          </div>
+        </div>
+      </section>
+
       <div class="lp-sec lp-sec-wide">
         <div class="lp-sec-head">
           <p class="lp-sec-eyebrow">Inside the orbit</p>
@@ -332,6 +474,57 @@
       </div>
 
       <!--
+        What sets it apart, said as behaviour rather than adjectives: for each
+        thing a scan reports, what a scan usually does and what this one does.
+        Nothing on the left names anyone; everything on the right is a rule
+        the product enforces and a test holds.
+      -->
+      <section class="lp-proof" aria-labelledby="lpProofTitle">
+        <div class="lp-sec-head">
+          <p class="lp-sec-eyebrow">Shows its working</p>
+          <h2 class="lp-sec-title" id="lpProofTitle">A scanner tells you. This one shows you why to believe it.</h2>
+        </div>
+        <ul class="lp-proof-rows">
+          <li class="lp-proof-row lp-proof-cols" aria-hidden="true"><span></span><span>What a scan usually does</span><span>What Nebulaverse-X does</span></li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">A key in the code</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Flags a pattern.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Asks the issuing service whether it still works, only when you say so &mdash; and never tries one key's parts against another.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">A served .env</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Reports a 200 on the path.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Reports it only when the body has the shape of an environment file, so an app's catch-all page is not a leak.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">The grade</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Averages everything together.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Holds below 50 while a critical finding is open, and prints the reason beside the number.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">What was not read</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Silence.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>States how many files and packages it read, and what it skipped, before any finding.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">The secret itself</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Quoted in the report.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Never quoted and never stored. A finding names a file, a line and a rule.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">A write to the repository</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Sent.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Previewed as a diff against the live head and checked by policy first. <b data-claim="unpreviewed-writes">0</b> writes reach a provider without a preview.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">What each provider can do</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>A feature list.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Says what backs each one: Provider-verified only after a live run against that provider, Deterministic where tested rules decide, and Experimental, with the reason, where neither does yet.</p>
+          </li>
+        </ul>
+      </section>
+
+      <!--
         How it works, told at the pace of the scroll: the heading holds still
         while the three moves pass it, and a rail fills as they do.
       -->
@@ -366,13 +559,6 @@
           </li>
         </ol>
       </section>
-      <!-- The alpha in numbers. Each figure is what the build ships today. -->
-      <section class="lp-stats" aria-label="The alpha in numbers">
-        <div class="lp-stat"><span class="lp-stat-v" data-count="99">99</span><span class="lp-stat-k">secret detectors, through git history, archives and encodings</span></div>
-        <div class="lp-stat"><span class="lp-stat-v" data-count="43">43</span><span class="lp-stat-k">live credential verifiers, asked only with your say-so</span></div>
-        <div class="lp-stat"><span class="lp-stat-v" data-count="3">3</span><span class="lp-stat-k">providers: GitHub, GitLab and Gitea</span></div>
-        <div class="lp-stat"><span class="lp-stat-v" data-count="0">0</span><span class="lp-stat-k">writes that reach a provider without a preview</span></div>
-      </section>
       <div class="lp-sec">
         <div class="lp-sec-head">
           <p class="lp-sec-eyebrow">Before you enter</p>
@@ -402,6 +588,52 @@
           </li>
         </ul>
       </div>
+
+      <!-- The questions a careful reader asks before connecting anything. -->
+      <section class="lp-faq" aria-labelledby="lpFaqTitle">
+        <div class="lp-sec-head">
+          <p class="lp-sec-eyebrow">Questions</p>
+          <h2 class="lp-sec-title" id="lpFaqTitle">Before you connect anything</h2>
+        </div>
+        <div class="lp-faq-list">
+          <details class="lp-faq-item">
+            <summary>Does it keep my code or my secrets?</summary>
+            <p>No. Files are read, judged and dropped. A finding carries a path, a line and a rule &mdash; never the
+              content &mdash; and a leaked credential is shown by where it is, never by what it is. What this browser
+              holds can be cleared from inside the product, without asking anyone.</p>
+          </details>
+          <details class="lp-faq-item">
+            <summary>Will it write to my repository?</summary>
+            <p>Only a change you approve. Every write is rendered as a diff against the provider's live head and
+              checked by policy before it is sent; a merge carries the head you reviewed, and a head that has moved
+              since is refused.</p>
+          </details>
+          <details class="lp-faq-item">
+            <summary>What does "verified" mean for a leaked key?</summary>
+            <p>You asked, for that one finding, and the issuing service was asked whether the key still works. The
+              request is authorised separately, expires, and is bound to you, the repository, the commit, the finding
+              and the target. The answer is one of three: live, not live, or could not tell.</p>
+          </details>
+          <details class="lp-faq-item">
+            <summary>What does the site check send to my site?</summary>
+            <p>At most ten anonymous requests over HTTPS to the address you give: the page, following up to three
+              redirects, and six fixed paths such as <code>/.env</code> and <code>/.well-known/security.txt</code>.
+              No credential, no cookie, nothing from your session; bodies are cut after a few kilobytes and never kept.</p>
+          </details>
+          <details class="lp-faq-item">
+            <summary>Is the audit an AI?</summary>
+            <p>No. It is deterministic rules, each tested firing on the mistake and quiet on the safe way to write
+              it, so the same branch gets the same answer. The prompts it writes are for your assistant, to fix what
+              it found.</p>
+          </details>
+          <details class="lp-faq-item">
+            <summary>Which providers does it work with?</summary>
+            <p>GitHub, GitLab and Gitea. GitHub carries the most, including the repository audit; GitLab and Gitea
+              cover the core paths and the site check. Each capability says what backs it, and it is called
+              Provider-verified only after a live run against that provider proves it.</p>
+          </details>
+        </div>
+      </section>
 
       <!-- The close: one clear next step, back to the card at the top. -->
       <section class="lp-cta" aria-labelledby="lpCtaTitle">
@@ -537,10 +769,13 @@
   </ul>
 
   <div class="nv-rail-foot">
-    <p class="nv-rail-state" id="navBoundary">
+    <!-- Painted from the server's own report (/api/workspace/posture); it
+         says "checking" until that report arrives rather than claiming a
+         state nobody has asked about. -->
+    <p class="nv-rail-state" id="navBoundary" data-state="checking" aria-live="polite">
       <span class="nv-rail-dot" aria-hidden="true"></span>
-      <span><span class="nv-rail-state-t">Boundary online</span>
-        <span class="nv-rail-d">Server-owned controls active</span></span>
+      <span><span class="nv-rail-state-t">Checking boundary</span>
+        <span class="nv-rail-d">Waiting for the server&rsquo;s report</span></span>
     </p>
     <p class="nv-rail-user" id="navUser" hidden>
       <span class="nv-rail-avatar" id="navUserInitial" aria-hidden="true"></span>
@@ -640,7 +875,7 @@
         <p class="ov-core-head">
           <span id="ovCoreTitle">Trust core</span>
           <span class="ov-core-state">
-            <span class="ov-live" id="ovCoreLive">Live</span>
+            <span class="ov-live is-idle" id="ovCoreLive">Not connected</span>
             <span class="ov-core-dot" aria-hidden="true"></span>
             <span class="ov-core-scope" id="ovCoreScope">github.com</span>
           </span>
@@ -682,7 +917,7 @@
             </g>
           </g>
         </svg></div>
-        <p class="ov-core-line">Secure by default. Proven by design.</p>
+        <p class="ov-core-line" id="ovCoreLine" aria-live="polite">Measuring this workspace&hellip;</p>
       </aside>
     </section>
 
@@ -720,7 +955,7 @@
       </article>
       <div class="wp-column">
         <article class="card wp-card" id="wpSignals" aria-labelledby="wpSignalsTitle">
-          <h3 class="sr-only" id="wpSignalsTitle">Live signals</h3>
+          <h3 class="sr-only" id="wpSignalsTitle">Capabilities</h3>
           <div class="wp-body"></div>
         </article>
         <article class="card wp-card wp-card-activity" id="wpActivity" aria-labelledby="wpActivityTitle">
@@ -907,6 +1142,7 @@
         <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
         <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel">Governance</button>
         <button class="tab" data-feature="exposure.scan" data-allow-experimental="true" data-tab="exposure" id="exposureTabLabel">Exposure</button>
+        <button class="tab" data-feature="site-check" data-tab="audit" id="auditTabLabel">Audit</button>
       </nav>
 
       <!-- EDITOR -->
@@ -1193,12 +1429,28 @@
       </div>
 
       <!-- EXPOSURE -->
+      <!--
+        The repository audit: the supply-chain, code, dependency and hygiene
+        checks Exposure does not make. Drawn by code-audit-ui.js from the
+        server's result; the intro is here so the tab reads before it runs.
+      -->
+      <div class="tabpane" id="tab-audit" role="region" aria-labelledby="auditTabLabel">
+        <div class="exposure-shell audit-shell">
+          <header class="exposure-intro">
+            <p class="exposure-kicker">Repository security</p>
+            <h2>Audit</h2>
+            <p>What a reviewer and an attacker look at first: code that runs at install, workflows that hand CI secrets to strangers, injection and scripting sinks, secrets shipped to browsers, unsigned webhooks, packages that do not exist and project hygiene — then the deployed site, as any visitor’s browser sees it. Findings name a place and a fix, never the code; nothing read is kept.</p>
+          </header>
+          <div id="auditRoot" aria-live="polite"></div>
+        </div>
+      </div>
+
       <div class="tabpane" id="tab-exposure" role="region" aria-labelledby="exposureTabLabel">
         <div class="exposure-shell">
           <header class="exposure-intro">
             <p class="exposure-kicker">Repository security</p>
             <h2>Exposure</h2>
-            <p>Find exposed credentials in files on your selected GitHub branch. Hosted app URL scanning is not available yet.</p>
+            <p>Find exposed credentials in files on your selected GitHub branch. The deployed site itself is checked on the Audit tab.</p>
           </header>
           <!--
             The order is the argument. What was proven comes first, then how
@@ -1479,6 +1731,7 @@
 <script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/repo-sigil.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/code-audit-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/nebula-visuals.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/light-waves.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/trust-ui.js?v=__NV_ASSET_VERSION__"></script>

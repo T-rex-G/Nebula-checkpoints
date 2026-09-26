@@ -200,6 +200,10 @@ assert.deepStrictEqual(
 assert.strictEqual(parseProviderRepositoryTarget('github', '/user/repos'), null);
 assert.strictEqual(classifyProviderOperation('github', '/repos/Acme/Demo', 'DELETE'), 'repository.delete');
 assert.strictEqual(classifyProviderOperation('gitlab', '/projects/Acme%2FDemo/repository/files/a', 'PUT'), 'gitlab.file.write');
+/* A GitLab review is a merge-request note or its approval, and nothing else on the request. */
+assert.strictEqual(classifyProviderOperation('gitlab', '/projects/Acme%2FDemo/merge_requests/4/notes', 'POST'), 'pull.review');
+assert.strictEqual(classifyProviderOperation('gitlab', '/projects/Acme%2FDemo/merge_requests/4/approve', 'POST'), 'pull.review');
+assert.strictEqual(classifyProviderOperation('gitlab', '/projects/Acme%2FDemo/merge_requests/4/unapprove', 'POST'), null);
 assert.strictEqual(
   classifyProviderOperation('gitea', '/repos/Acme/Demo/contents/folder/a.txt', 'PUT'),
   'gitea.file.write'

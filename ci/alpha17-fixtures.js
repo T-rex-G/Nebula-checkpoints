@@ -33,6 +33,14 @@ function cloneBranch(branch) {
   };
 }
 
+/* The permanent GitLab fixtures, as the dispatch procedure describes them. */
+function giteaOrGitlabSeedIssues() {
+  return [{ id: 41, iid: 1, title: 'fixture issue', state: 'opened' }];
+}
+function giteaOrGitlabSeedMergeRequests() {
+  return [{ id: 155016530, iid: 1, title: 'fixture merge request', state: 'opened' }];
+}
+
 function createProviderFetchFixture(options = {}) {
   const provider = String(options.provider || '');
   const repository = String(options.repository || '');
@@ -65,8 +73,131 @@ function createProviderFetchFixture(options = {}) {
      * both.
      */
     blobs: new Map(),
-    trees: new Map()
+    trees: new Map(),
+    /*
+     * The collaboration surface the GitHub probes write to: issues, pull
+     * requests, releases and their tags, workflow runs, the account's stars
+     * and the code-search index. Each starts with the permanent fixture the
+     * real target carries, so the collection probes still read a seeded
+     * object, and each grows only through the endpoints that grow it on
+     * GitHub -- a probe cannot pass by writing somewhere GitHub would not.
+     */
+    clock: Date.parse('2026-09-26T12:00:00.000Z'),
+    nextNumber: 100,
+    issues: new Map([[11, { number: 11, title: 'fixture', body: 'Permanent issues.read fixture.', state: 'open', comments: [] }]]),
+    pulls: new Map([[7, {
+      number: 7, title: 'fixture', body: 'Permanent pulls.read fixture.', state: 'open', merged: false,
+      head: { ref: 'nvx-alpha17-fixture-pull', sha: '7'.repeat(40) }, base: { ref: defaultBranch }, reviews: []
+    }]]),
+    releases: new Map([[21, { id: 21, tag_name: 'fixture', name: 'fixture', target_commitish: defaultBranch, prerelease: false, draft: false }]]),
+    tags: new Map([['fixture', initialSha]]),
+    runs: new Map([[31, {
+      id: 31, workflow_id: 41, name: 'fixture', event: 'workflow_dispatch', status: 'completed', conclusion: 'success',
+      run_attempt: 1, created_at: '2026-08-01T00:00:00.000Z', reads: 0
+    }]]),
+    starred: false,
+    /* GitLab's issues and merge requests, keyed by the project-scoped iid. */
+    glIssues: new Map(giteaOrGitlabSeedIssues().map(issue => [issue.iid, { ...issue, notes: [] }])),
+    glMergeRequests: new Map(giteaOrGitlabSeedMergeRequests().map(request => [request.iid, {
+      ...request, source_branch: 'nvx-alpha17-fixture-merge', target_branch: defaultBranch,
+      sha: '5'.repeat(40), merge_commit_sha: null, checks: 1, notes: []
+    }])),
+    searchIndex: [{ path: 'NVX_SEARCH_FIXTURE.md', text: 'nvx-alpha17-search-fixture: permanent code search fixture.' }]
   };
+
+  function tick() {
+    state.clock += 1000;
+    return new Date(state.clock).toISOString();
+  }
+
+  /*
+   * A tree listing as GitHub gives it: blobs and the directories above them,
+   * each directory with an identity of its own that resolves to the subtree.
+   * Recursive lists every path; otherwise one level, which is what a path
+   * walk reads a segment at a time.
+   */
+  function subtreeSha(files, dir) {
+    const prefix = `${dir}/`;
+    const sub = new Map();
+    for (const [name, file] of files) if (name.startsWith(prefix)) sub.set(name.slice(prefix.length), file);
+    const sha = crypto.createHash('sha1')
+      .update([...sub.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, file]) => `${name}:${file.sha}`).join('\n'))
+      .digest('hex');
+    state.trees.set(sha, sub);
+    return sha;
+  }
+  function treeListing(files, recursive) {
+    const out = new Map();
+    for (const [name, file] of files) {
+      const parts = name.split('/');
+      if (!recursive && parts.length > 1) {
+        if (!out.has(parts[0])) out.set(parts[0], { path: parts[0], mode: '040000', type: 'tree', sha: subtreeSha(files, parts[0]) });
+        continue;
+      }
+      for (let index = 1; index < parts.length; index += 1) {
+        const dir = parts.slice(0, index).join('/');
+        if (!out.has(dir)) out.set(dir, { path: dir, mode: '040000', type: 'tree', sha: subtreeSha(files, dir) });
+      }
+      out.set(name, { path: name, mode: '100644', type: 'blob', sha: file.sha, size: file.content.length });
+    }
+    return [...out.values()].sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  function filesAt(key) {
+    if (state.branches.has(key)) return state.branches.get(key).files;
+    if (state.commits.has(key)) return state.commits.get(key).files;
+    if (state.trees.has(key)) return state.trees.get(key);
+    if (key === initialSha) return new Map();
+    return null;
+  }
+
+  /* What a commit changed against its first parent, as the commits API reports it. */
+  function commitChanges(commit) {
+    const before = (commit.parentIds[0] && filesAt(commit.parentIds[0])) || new Map();
+    const lines = content => content.toString('utf8').replace(/\n$/, '').split('\n');
+    const changes = [];
+    for (const [name, file] of commit.files) {
+      const prior = before.get(name);
+      if (prior && prior.sha === file.sha) continue;
+      const added = lines(file.content);
+      changes.push({
+        filename: name,
+        status: prior ? 'modified' : 'added',
+        sha: file.sha,
+        patch: prior
+          ? `@@ -1,${lines(prior.content).length} +1,${added.length} @@\n${lines(prior.content).map(line => `-${line}`).join('\n')}\n${added.map(line => `+${line}`).join('\n')}`
+          : `@@ -0,0 +1,${added.length} @@\n${added.map(line => `+${line}`).join('\n')}`
+      });
+    }
+    for (const [name, prior] of before) {
+      if (!commit.files.has(name)) changes.push({ filename: name, status: 'removed', sha: prior.sha });
+    }
+    return changes.sort((a, b) => a.filename.localeCompare(b.filename));
+  }
+
+  function commitView(commit) {
+    return {
+      sha: commit.id,
+      commit: { committer: { date: commit.date }, author: { date: commit.date } },
+      parents: commit.parentIds.filter(Boolean).map(id => ({ sha: id }))
+    };
+  }
+
+  /* Every ancestor, newest first -- all parents, not only the first. */
+  function history(fromSha) {
+    const out = [];
+    const seen = new Set();
+    const queue = [fromSha];
+    while (queue.length) {
+      const sha = queue.shift();
+      if (!sha || seen.has(sha) || !state.commits.has(sha)) continue;
+      seen.add(sha);
+      const commit = state.commits.get(sha);
+      out.push(commit);
+      queue.push(...commit.parentIds);
+    }
+    return out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }
 
   function nextSha(material) {
     state.counter += 1;
@@ -137,8 +268,8 @@ function createProviderFetchFixture(options = {}) {
    * listing, which proves only that the endpoint answered.
    */
   const giteaOrGitlabSeed = Object.freeze({
-    mergeRequests: [{ id: 155016530, iid: 1, title: 'fixture merge request', state: 'opened' }],
-    issues: [{ id: 41, iid: 1, title: 'fixture issue', state: 'opened' }]
+    mergeRequests: giteaOrGitlabSeedMergeRequests(),
+    issues: giteaOrGitlabSeedIssues()
   });
 
   function findSource(ref, { commitsAllowed = true } = {}) {
@@ -159,7 +290,12 @@ function createProviderFetchFixture(options = {}) {
     const branch = state.branches.get(branchName);
     if (!branch) return null;
     if (remove) branch.files.delete(filePath);
-    else branch.files.set(filePath, { content, sha: fileSha(content) });
+    else {
+      branch.files.set(filePath, { content, sha: fileSha(content) });
+      /* A file written through the contents API is an object like any other,
+         and a tree may name it by its identity -- a rename does exactly that. */
+      state.blobs.set(fileSha(content), Buffer.from(content));
+    }
     const parent = branch.sha;
     branch.sha = nextSha(`${branchName}:${filePath}:${remove ? 'delete' : 'write'}`);
     /*
@@ -178,6 +314,7 @@ function createProviderFetchFixture(options = {}) {
     state.commits.set(branch.sha, {
       id: branch.sha,
       parentIds: [parent],
+      date: tick(),
       path: filePath,
       /*
        * Every commit names a tree, and the tree is a snapshot rather than a
@@ -290,10 +427,52 @@ function createProviderFetchFixture(options = {}) {
       if (!state.lfsObjects.has(oid)) return json({ message: 'object not found' }, 404);
       return json({ oid, size: state.lfsObjects.get(oid) });
     }
+    /* The account's star on this repository: 204 when starred, 404 when not. */
+    if (parsed.pathname === `/user/starred/${repository}`) {
+      if (method === 'GET') return state.starred ? json(null, 204) : json({ message: 'not found' }, 404);
+      if (!canMutate(init)) return json({ message: 'forbidden' }, 403);
+      if (method === 'PUT') { state.starred = true; return json(null, 204); }
+      if (method === 'DELETE') { state.starred = false; return json(null, 204); }
+    }
+    /*
+     * Code search over the default branch's index. Qualifiers other than the
+     * repository are not modelled, and a query without the repository
+     * qualifier finds nothing here -- the fixture holds one repository.
+     */
+    if (parsed.pathname === '/search/code' && method === 'GET') {
+      const q = String(parsed.searchParams.get('q') || '');
+      const terms = q.split(/\s+/).filter(Boolean);
+      const scoped = terms.some(term => term.toLowerCase() === `repo:${repository}`.toLowerCase());
+      const words = terms.filter(term => !/^[a-z]+:/i.test(term));
+      const items = scoped && words.length
+        ? state.searchIndex.filter(entry => words.every(word => entry.text.includes(word))).map(entry => ({
+          name: entry.path.split('/').pop(), path: entry.path, repository: { full_name: repository }
+        }))
+        : [];
+      return json({ total_count: items.length, incomplete_results: false, items });
+    }
     if (!parsed.pathname.startsWith(base)) return json({ message: 'unknown repository' }, 404);
     if (method !== 'GET' && !canMutate(init)) return json({ message: 'forbidden' }, 403);
     if (parsed.pathname === base && method === 'GET') {
       return json({ full_name: repository, default_branch: defaultBranch });
+    }
+    /* GET /repos/:owner/:repo/branches/:branch, the branch with its head commit. */
+    const branchesPrefix = `${base}/branches/`;
+    if (parsed.pathname.startsWith(branchesPrefix) && method === 'GET') {
+      const name = decodeURIComponent(parsed.pathname.slice(branchesPrefix.length));
+      const branch = state.branches.get(name);
+      return branch ? json({ name, commit: { sha: branch.sha } }) : json({ message: 'Branch not found' }, 404);
+    }
+    const tagRefPrefix = `${base}/git/ref/tags/`;
+    if (parsed.pathname.startsWith(tagRefPrefix) && method === 'GET') {
+      const sha = state.tags.get(decodeURIComponent(parsed.pathname.slice(tagRefPrefix.length)));
+      return sha ? json({ object: { sha, type: 'commit' } }) : json({ message: 'not found' }, 404);
+    }
+    const tagDeletePrefix = `${base}/git/refs/tags/`;
+    if (parsed.pathname.startsWith(tagDeletePrefix) && method === 'DELETE') {
+      const tag = decodeURIComponent(parsed.pathname.slice(tagDeletePrefix.length));
+      if (!state.tags.delete(tag)) return json({ message: 'Reference does not exist' }, 422);
+      return json(null, 204);
     }
     const refPrefix = `${base}/git/ref/heads/`;
     if (parsed.pathname.startsWith(refPrefix) && method === 'GET') {
@@ -335,6 +514,34 @@ function createProviderFetchFixture(options = {}) {
       if (!bytes) return json({ message: 'not found' }, 404);
       return json({ sha, encoding: 'base64', content: bytes.toString('base64'), size: bytes.length });
     }
+    /*
+     * The commits API, which the exposure reader walks: a ref resolved to its
+     * sha on request, history newest first from a commit, and one commit with
+     * the files it changed and their patches.
+     */
+    if (parsed.pathname === `${base}/commits` && method === 'GET') {
+      const from = String(parsed.searchParams.get('sha') || '');
+      const start = state.branches.has(from) ? state.branches.get(from).sha : from;
+      const perPage = Math.max(1, Math.min(100, Number(parsed.searchParams.get('per_page') || 30)));
+      const page = Math.max(1, Number(parsed.searchParams.get('page') || 1));
+      const all = history(start);
+      if (!all.length && !state.commits.has(start) && start !== initialSha) return json({ message: 'not found' }, 404);
+      return json(all.slice((page - 1) * perPage, page * perPage).map(commitView));
+    }
+    const commitsApiPrefix = `${base}/commits/`;
+    if (parsed.pathname.startsWith(commitsApiPrefix) && method === 'GET') {
+      const ref = decodeURIComponent(parsed.pathname.slice(commitsApiPrefix.length));
+      const sha = state.branches.has(ref) ? state.branches.get(ref).sha : ref;
+      const commit = state.commits.get(sha);
+      if (!commit) return json({ message: 'not found' }, 404);
+      const accept = new Headers(init.headers || {}).get('accept') || '';
+      if (accept.includes('application/vnd.github.sha')) {
+        return new Response(commit.id, { status: 200, headers: { 'content-type': 'text/plain' } });
+      }
+      const perPage = Math.max(1, Math.min(300, Number(parsed.searchParams.get('per_page') || 300)));
+      const page = Math.max(1, Number(parsed.searchParams.get('page') || 1));
+      return json({ ...commitView(commit), files: commitChanges(commit).slice((page - 1) * perPage, page * perPage) });
+    }
     const commitPrefix = `${base}/git/commits/`;
     if (parsed.pathname.startsWith(commitPrefix) && method === 'GET') {
       const sha = decodeURIComponent(parsed.pathname.slice(commitPrefix.length));
@@ -355,6 +562,7 @@ function createProviderFetchFixture(options = {}) {
       state.commits.set(sha, {
         id: sha,
         parentIds,
+        date: tick(),
         path: null,
         treeSha: String(body.tree),
         files: snapshotFiles(files)
@@ -384,6 +592,7 @@ function createProviderFetchFixture(options = {}) {
         }
         const bytes = Buffer.from(String(entry.content ?? ''), 'utf8');
         files.set(entryPath, { content: bytes, sha: fileSha(bytes) });
+        state.blobs.set(fileSha(bytes), Buffer.from(bytes));
       }
       const sha = nextSha(`tree:${files.size}`);
       state.trees.set(sha, files);
@@ -412,41 +621,229 @@ function createProviderFetchFixture(options = {}) {
       return json({ ref: `refs/heads/${branchName}`, object: { sha: targetSha } });
     }
     /*
-     * One object in each collection, so the detail-agreement loop in the
-     * collection probes actually runs. An empty listing would satisfy that
-     * loop vacuously and the fixture would prove nothing about it.
+     * Issues. A pull request is not listed here: the real endpoint does list
+     * them, and the dispatch procedure says to expect it, but the probes do
+     * not depend on the difference and the fixture keeps the two apart.
      */
-    const collections = {
-      pulls: { items: [{ number: 7, title: 'fixture' }], key: 'number' },
-      issues: { items: [{ number: 11, title: 'fixture' }], key: 'number' },
-      releases: { items: [{ id: 21, tag_name: 'fixture' }], key: 'id' },
-      'actions/runs': { items: [{ id: 31, name: 'fixture' }], key: 'id', envelope: 'workflow_runs' }
-    };
-    for (const [name, collection] of Object.entries(collections)) {
-      const listPath = `${base}/${name}`;
-      if (parsed.pathname === listPath && method === 'GET') {
-        return json(collection.envelope
-          ? { total_count: collection.items.length, [collection.envelope]: collection.items }
-          : collection.items);
+    const issueMatch = /^\/issues\/(\d+)(\/comments)?$/.exec(parsed.pathname.slice(base.length));
+    if (parsed.pathname === `${base}/issues` && method === 'POST') {
+      const body = bodyOf(init);
+      if (!String(body.title || '').trim()) return json({ message: 'title is required' }, 422);
+      const number = state.nextNumber++;
+      const issue = { number, title: String(body.title), body: String(body.body || ''), state: 'open', comments: [] };
+      state.issues.set(number, issue);
+      return json({ number, title: issue.title, body: issue.body, state: issue.state }, 201);
+    }
+    if (issueMatch) {
+      const issue = state.issues.get(Number(issueMatch[1]));
+      if (!issue) return json({ message: 'not found' }, 404);
+      if (issueMatch[2]) {
+        if (method === 'GET') return json(issue.comments.map(comment => ({ ...comment })));
+        if (method === 'POST') {
+          const body = bodyOf(init);
+          if (!String(body.body || '').trim()) return json({ message: 'body is required' }, 422);
+          const comment = { id: state.nextNumber++, body: String(body.body) };
+          issue.comments.push(comment);
+          return json({ ...comment }, 201);
+        }
       }
-      if (parsed.pathname.startsWith(`${listPath}/`) && method === 'GET') {
-        const identifier = Number(parsed.pathname.slice(listPath.length + 1));
-        const item = collection.items.find(entry => entry[collection.key] === identifier);
-        return item ? json(item) : json({ message: 'not found' }, 404);
+      if (!issueMatch[2] && method === 'GET') return json({ number: issue.number, title: issue.title, body: issue.body, state: issue.state });
+      if (!issueMatch[2] && method === 'PATCH') {
+        const body = bodyOf(init);
+        if (body.state && !['open', 'closed'].includes(body.state)) return json({ message: 'invalid state' }, 422);
+        if (body.state) issue.state = body.state;
+        return json({ number: issue.number, title: issue.title, state: issue.state });
       }
     }
+    /*
+     * Pull requests. The head's identity is read from the branch at the time
+     * of asking, because that is what makes the merge precondition mean
+     * anything: GitHub refuses a merge whose `sha` is not the head it has now.
+     */
+    const pullView = pull => {
+      const head = state.branches.get(pull.head.ref);
+      const baseBranch = state.branches.get(pull.base.ref);
+      return {
+        number: pull.number, title: pull.title, body: pull.body, state: pull.state, merged: pull.merged,
+        head: { ref: pull.head.ref, sha: head && !pull.merged ? head.sha : pull.head.sha },
+        base: { ref: pull.base.ref, sha: baseBranch ? baseBranch.sha : null }
+      };
+    };
+    const pullMatch = /^\/pulls\/(\d+)(\/merge|\/reviews|\/files)?$/.exec(parsed.pathname.slice(base.length));
+    if (parsed.pathname === `${base}/pulls` && method === 'POST') {
+      const body = bodyOf(init);
+      const head = state.branches.get(String(body.head || ''));
+      const baseBranch = state.branches.get(String(body.base || ''));
+      if (!head || !baseBranch) return json({ message: 'Validation Failed' }, 422);
+      if (head.sha === baseBranch.sha) return json({ message: 'No commits between base and head' }, 422);
+      const number = state.nextNumber++;
+      state.pulls.set(number, {
+        number, title: String(body.title || ''), body: String(body.body || ''), state: 'open', merged: false,
+        head: { ref: String(body.head), sha: head.sha }, base: { ref: String(body.base) }, reviews: []
+      });
+      return json(pullView(state.pulls.get(number)), 201);
+    }
+    if (pullMatch) {
+      const pull = state.pulls.get(Number(pullMatch[1]));
+      if (!pull) return json({ message: 'not found' }, 404);
+      if (pullMatch[2] === '/reviews' && method === 'POST') {
+        const body = bodyOf(init);
+        const event = String(body.event || '');
+        if (!['COMMENT', 'APPROVE', 'REQUEST_CHANGES'].includes(event)) return json({ message: 'invalid event' }, 422);
+        if (event === 'COMMENT' && !String(body.body || '').trim()) return json({ message: 'body is required for a comment review' }, 422);
+        const review = { id: state.nextNumber++, state: event === 'COMMENT' ? 'COMMENTED' : event === 'APPROVE' ? 'APPROVED' : 'CHANGES_REQUESTED' };
+        pull.reviews.push(review);
+        return json({ ...review });
+      }
+      if (pullMatch[2] === '/merge' && method === 'PUT') {
+        if (pull.merged || pull.state !== 'open') return json({ message: 'Pull Request is not mergeable' }, 405);
+        const head = state.branches.get(pull.head.ref);
+        const baseBranch = state.branches.get(pull.base.ref);
+        if (!head || !baseBranch) return json({ message: 'not found' }, 404);
+        const body = bodyOf(init);
+        if (body.sha && String(body.sha) !== head.sha) {
+          return json({ message: 'Head branch was modified. Review and try the merge again.' }, 409);
+        }
+        const files = snapshotFiles(baseBranch.files);
+        for (const [name, file] of head.files) files.set(name, { content: Buffer.from(file.content), sha: file.sha });
+        const sha = nextSha(`merge:${pull.number}`);
+        const treeSha = nextSha('merge:tree');
+        state.trees.set(treeSha, snapshotFiles(files));
+        state.commits.set(sha, { id: sha, parentIds: [baseBranch.sha, head.sha], date: tick(), path: null, treeSha, files: snapshotFiles(files) });
+        pull.head.sha = head.sha;
+        baseBranch.sha = sha;
+        baseBranch.files = snapshotFiles(files);
+        pull.merged = true;
+        pull.state = 'closed';
+        return json({ sha, merged: true, message: 'Pull Request successfully merged' });
+      }
+      /* The files a pull request changes: its head against its base. */
+      if (pullMatch[2] === '/files' && method === 'GET') {
+        const head = state.branches.get(pull.head.ref);
+        const baseBranch = state.branches.get(pull.base.ref);
+        if (!head || !baseBranch) return json([]);
+        const changed = [];
+        for (const [name, file] of head.files) {
+          const prior = baseBranch.files.get(name);
+          if (!prior || prior.sha !== file.sha) changed.push({ filename: name, status: prior ? 'modified' : 'added', additions: 1, deletions: prior ? 1 : 0, patch: '' });
+        }
+        return json(changed);
+      }
+      if (!pullMatch[2] && method === 'GET') return json(pullView(pull));
+    }
+    if (parsed.pathname === `${base}/pulls` && method === 'GET') {
+      return json([...state.pulls.values()].filter(pull => pull.number === 7 || parsed.searchParams.get('state') === 'all' || pull.state === 'open').map(pullView));
+    }
+    if (parsed.pathname === `${base}/issues` && method === 'GET') {
+      return json([...state.issues.values()].map(issue => ({ number: issue.number, title: issue.title, state: issue.state })));
+    }
+    /*
+     * Releases. Publishing one that is not a draft creates its tag at the
+     * target, as GitHub does, so a probe that removes the release and leaves
+     * the tag leaves something behind -- and the fixture can see it.
+     */
+    const releaseMatch = /^\/releases\/(\d+)$/.exec(parsed.pathname.slice(base.length));
+    if (parsed.pathname === `${base}/releases` && method === 'POST') {
+      const body = bodyOf(init);
+      const tag = String(body.tag_name || '');
+      if (!tag || [...state.releases.values()].some(release => release.tag_name === tag)) return json({ message: 'Validation Failed' }, 422);
+      const target = String(body.target_commitish || defaultBranch);
+      const branch = state.branches.get(target);
+      if (!state.tags.has(tag)) {
+        if (!branch) return json({ message: 'Validation Failed' }, 422);
+        if (!body.draft) state.tags.set(tag, branch.sha);
+      }
+      const id = state.nextNumber++;
+      const release = {
+        id, tag_name: tag, name: String(body.name || tag), target_commitish: target,
+        prerelease: body.prerelease === true, draft: body.draft === true
+      };
+      state.releases.set(id, release);
+      return json({ ...release }, 201);
+    }
+    if (releaseMatch) {
+      const id = Number(releaseMatch[1]);
+      const release = state.releases.get(id);
+      if (!release) return json({ message: 'not found' }, 404);
+      if (method === 'GET') return json({ ...release });
+      if (method === 'DELETE') { state.releases.delete(id); return json(null, 204); }
+    }
+    if (parsed.pathname === `${base}/releases` && method === 'GET') {
+      return json([...state.releases.values()].filter(release => !release.draft).map(release => ({ ...release })));
+    }
+    /*
+     * Workflow runs. A dispatched run is queued, then running, then complete
+     * as it is read; a run can be re-run only once it is complete and while it
+     * is younger than thirty days, which is why the permanent fixture run
+     * cannot be the one a probe re-runs.
+     */
+    const runView = run => ({
+      id: run.id, workflow_id: run.workflow_id, name: run.name, event: run.event, status: run.status,
+      conclusion: run.conclusion, run_attempt: run.run_attempt, created_at: run.created_at
+    });
+    const advance = run => {
+      run.reads += 1;
+      if (run.status === 'queued') run.status = 'in_progress';
+      else if (run.status === 'in_progress') { run.status = 'completed'; run.conclusion = 'success'; }
+      return run;
+    };
+    const dispatchMatch = /^\/actions\/workflows\/(\d+)\/(dispatches|runs)$/.exec(parsed.pathname.slice(base.length));
+    if (dispatchMatch) {
+      const workflowId = Number(dispatchMatch[1]);
+      if (![...state.runs.values()].some(run => run.workflow_id === workflowId)) return json({ message: 'not found' }, 404);
+      if (dispatchMatch[2] === 'dispatches' && method === 'POST') {
+        const body = bodyOf(init);
+        if (!state.branches.has(String(body.ref || ''))) return json({ message: 'No ref found' }, 422);
+        const id = state.nextNumber++;
+        state.runs.set(id, {
+          id, workflow_id: workflowId, name: 'fixture', event: 'workflow_dispatch', status: 'queued', conclusion: null,
+          run_attempt: 1, created_at: tick(), reads: 0
+        });
+        return json(null, 204);
+      }
+      if (dispatchMatch[2] === 'runs' && method === 'GET') {
+        const event = parsed.searchParams.get('event');
+        const runs = [...state.runs.values()]
+          .filter(run => run.workflow_id === workflowId && (!event || run.event === event))
+          .sort((a, b) => b.id - a.id);
+        return json({ total_count: runs.length, workflow_runs: runs.map(runView) });
+      }
+    }
+    const runMatch = /^\/actions\/runs\/(\d+)(\/rerun)?$/.exec(parsed.pathname.slice(base.length));
+    if (runMatch) {
+      const run = state.runs.get(Number(runMatch[1]));
+      if (!run) return json({ message: 'not found' }, 404);
+      if (runMatch[2] && method === 'POST') {
+        if (run.status !== 'completed') return json({ message: 'This workflow is already running' }, 403);
+        if (state.clock - Date.parse(run.created_at) > 30 * 86400000) {
+          return json({ message: 'Unable to re-run this workflow run because it was created over a month ago' }, 403);
+        }
+        run.run_attempt += 1;
+        run.status = 'queued';
+        run.conclusion = null;
+        return json({}, 201);
+      }
+      if (!runMatch[2] && method === 'GET') return json(runView(run.id === 31 ? run : advance(run)));
+    }
+    if (parsed.pathname === `${base}/actions/runs` && method === 'GET') {
+      const runs = [...state.runs.values()].sort((a, b) => b.id - a.id).map(runView);
+      return json({ total_count: runs.length, workflow_runs: runs });
+    }
+    /*
+     * A tree by branch, commit or tree identity, as GitHub resolves any
+     * tree-ish: recursive lists every path and the directories above them, and
+     * without it one level, whose directories carry the identity of their own
+     * subtree -- which is what a path walk reads a segment at a time.
+     */
     const treePrefix = `${base}/git/trees/`;
     if (parsed.pathname.startsWith(treePrefix) && method === 'GET') {
-      const branch = state.branches.get(decodeURIComponent(parsed.pathname.slice(treePrefix.length)));
-      if (!branch) return json({ message: 'not found' }, 404);
+      const key = decodeURIComponent(parsed.pathname.slice(treePrefix.length));
+      const files = filesAt(key);
+      if (!files) return json({ message: 'not found' }, 404);
       return json({
-        sha: branch.sha,
+        sha: key,
         truncated: false,
-        tree: [...branch.files.entries()].map(([name, file]) => ({
-          path: name,
-          type: 'blob',
-          sha: file.sha
-        }))
+        tree: treeListing(files, parsed.searchParams.has('recursive'))
       });
     }
     const contentPrefix = `${base}/contents/`;
@@ -529,14 +926,110 @@ function createProviderFetchFixture(options = {}) {
      * Merge requests and issues. The detail path takes `iid`, the
      * project-scoped internal id -- `id` is global to the instance and would
      * not resolve here, which is exactly the mistake the client must not make.
+     *
+     * Both are writable, as GitLab's are. A new merge request reports its
+     * mergeability as still being checked on the first read, and refuses a
+     * merge until it has been -- which is why a client has to wait for it --
+     * and a merge whose `sha` is not the source branch's head is refused with
+     * 409, which is the precondition the product sends.
      */
-    for (const [segment, seeded] of [['merge_requests', giteaOrGitlabSeed.mergeRequests], ['issues', giteaOrGitlabSeed.issues]]) {
-      if (parsed.pathname === `${base}/${segment}` && method === 'GET') return json(seeded);
-      const detailPrefix = `${base}/${segment}/`;
-      if (parsed.pathname.startsWith(detailPrefix) && method === 'GET') {
-        const iid = Number(decodeURIComponent(parsed.pathname.slice(detailPrefix.length)));
-        const found = seeded.find(item => item.iid === iid);
-        return found ? json(found) : json({ message: '404 Not found' }, 404);
+    const suffix = parsed.pathname.slice(base.length);
+    const issueView = issue => ({ id: issue.iid + 1000, iid: issue.iid, title: issue.title, description: issue.description || '', state: issue.state });
+    if (suffix === '/issues' && method === 'POST') {
+      const body = bodyOf(init);
+      if (!String(body.title || '').trim()) return json({ message: 'title is missing' }, 400);
+      const iid = state.nextNumber++;
+      state.glIssues.set(iid, { iid, title: String(body.title), description: String(body.description || ''), state: 'opened', notes: [] });
+      return json(issueView(state.glIssues.get(iid)), 201);
+    }
+    if (suffix.startsWith('/issues') && method === 'GET' && (suffix === '/issues' || suffix.startsWith('/issues?'))) {
+      return json([...state.glIssues.values()].map(issueView));
+    }
+    const glIssueMatch = /^\/issues\/(\d+)(\/notes)?$/.exec(suffix);
+    if (glIssueMatch) {
+      const issue = state.glIssues.get(Number(glIssueMatch[1]));
+      if (!issue) return json({ message: '404 Not found' }, 404);
+      if (glIssueMatch[2]) {
+        if (method === 'GET') return json(issue.notes.map(note => ({ ...note })));
+        if (method === 'POST') {
+          const body = bodyOf(init);
+          if (!String(body.body || '').trim()) return json({ message: 'body is missing' }, 400);
+          const note = { id: state.nextNumber++, body: String(body.body) };
+          issue.notes.push(note);
+          return json({ ...note }, 201);
+        }
+      }
+      if (!glIssueMatch[2] && method === 'GET') return json(issueView(issue));
+      if (!glIssueMatch[2] && method === 'PUT') {
+        const body = bodyOf(init);
+        if (body.state_event === 'close') issue.state = 'closed';
+        else if (body.state_event === 'reopen') issue.state = 'opened';
+        return json(issueView(issue));
+      }
+    }
+    const requestView = request => {
+      const source = state.branches.get(request.source_branch);
+      return {
+        id: request.iid + 2000, iid: request.iid, title: request.title, state: request.state,
+        source_branch: request.source_branch, target_branch: request.target_branch,
+        sha: source && request.state !== 'merged' ? source.sha : request.sha,
+        merge_commit_sha: request.merge_commit_sha,
+        detailed_merge_status: request.state === 'merged' ? 'not_open' : request.checks >= 1 ? 'mergeable' : 'checking'
+      };
+    };
+    if (suffix === '/merge_requests' && method === 'POST') {
+      const body = bodyOf(init);
+      const source = state.branches.get(String(body.source_branch || ''));
+      const target = state.branches.get(String(body.target_branch || ''));
+      if (!source || !target) return json({ message: 'Invalid branch' }, 400);
+      if (source.sha === target.sha) return json({ message: 'Source branch has no changes' }, 409);
+      const iid = state.nextNumber++;
+      state.glMergeRequests.set(iid, {
+        iid, title: String(body.title || ''), state: 'opened', source_branch: String(body.source_branch),
+        target_branch: String(body.target_branch), sha: source.sha, merge_commit_sha: null, checks: 0, notes: []
+      });
+      return json(requestView(state.glMergeRequests.get(iid)), 201);
+    }
+    if (method === 'GET' && (suffix === '/merge_requests' || suffix.startsWith('/merge_requests?'))) {
+      return json([...state.glMergeRequests.values()].map(requestView));
+    }
+    const glRequestMatch = /^\/merge_requests\/(\d+)(\/notes|\/merge)?$/.exec(suffix);
+    if (glRequestMatch) {
+      const request = state.glMergeRequests.get(Number(glRequestMatch[1]));
+      if (!request) return json({ message: '404 Not found' }, 404);
+      if (glRequestMatch[2] === '/notes') {
+        if (method === 'GET') return json(request.notes.map(note => ({ ...note })));
+        if (method === 'POST') {
+          const body = bodyOf(init);
+          if (!String(body.body || '').trim()) return json({ message: 'body is missing' }, 400);
+          const note = { id: state.nextNumber++, body: String(body.body) };
+          request.notes.push(note);
+          return json({ ...note }, 201);
+        }
+      }
+      if (glRequestMatch[2] === '/merge' && method === 'PUT') {
+        if (request.state !== 'opened' || request.checks < 1) return json({ message: '405 Method Not Allowed' }, 405);
+        const source = state.branches.get(request.source_branch);
+        const target = state.branches.get(request.target_branch);
+        if (!source || !target) return json({ message: '404 Not found' }, 404);
+        const body = bodyOf(init);
+        if (body.sha && String(body.sha) !== source.sha) return json({ message: 'SHA does not match HEAD of source branch' }, 409);
+        const files = snapshotFiles(target.files);
+        for (const [name, file] of source.files) files.set(name, { content: Buffer.from(file.content), sha: file.sha });
+        const sha = nextSha(`gitlab-merge:${request.iid}`);
+        state.commits.set(sha, { id: sha, parentIds: [target.sha, source.sha], date: tick(), path: null, treeSha: nextSha('gitlab-merge:tree'), files: snapshotFiles(files) });
+        target.sha = sha;
+        target.files = snapshotFiles(files);
+        target.tip = { id: sha, parentIds: state.commits.get(sha).parentIds, message: `Merge branch '${request.source_branch}'` };
+        request.sha = source.sha;
+        request.merge_commit_sha = sha;
+        request.state = 'merged';
+        return json(requestView(request));
+      }
+      if (!glRequestMatch[2] && method === 'GET') {
+        const view = requestView(request);
+        request.checks += 1;
+        return json(view);
       }
     }
     /*
@@ -549,6 +1042,10 @@ function createProviderFetchFixture(options = {}) {
       const ref = decodeURIComponent(parsed.pathname.slice(commitPrefix.length));
       const branch = state.branches.get(ref)
         || [...state.branches.values()].find(candidate => candidate.sha === ref);
+      if ((!branch || !branch.tip) && state.commits.has(ref)) {
+        const commit = state.commits.get(ref);
+        return json({ id: commit.id, parent_ids: commit.parentIds, message: '', title: '' });
+      }
       if (!branch || !branch.tip) return json({ message: 'not found' }, 404);
       return json({
         id: branch.tip.id,

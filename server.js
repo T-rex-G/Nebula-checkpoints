@@ -147,7 +147,9 @@ const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
-const { PROFILES: GUARDED_PROFILES, createGuardedSession } = require('./src/guarded-fetch');
+const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = require('./src/guarded-fetch');
+const { auditRepository } = require('./src/code-audit');
+const { checkSite, declaredSite } = require('./src/site-check');
 const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
 
@@ -165,6 +167,8 @@ const {
 } = require('./src/anonymous-readability-probe');
 const exposureReader = require('./src/exposure-reader');
 const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('./src/exposure-store');
+const { createPostureReader } = require('./src/workspace-posture');
+const { normalizePolicyScope } = require('./src/governance-model');
 const {
   createSnapshotSignatures,
   loadSnapshotSigningConfig
@@ -4183,6 +4187,30 @@ app.get('/api/rate', auth, capabilityAccess('rate.read', { allowExperimental: tr
   } catch (e) { fail(res, e); }
 });
 
+/*
+ * What the overview scores, read rather than assumed. Every decision lives in
+ * src/workspace-posture.js; this passes it the transports and stores it reads.
+ */
+let _postureReader = null;
+function postureReader() {
+  if (!_postureReader) {
+    _postureReader = createPostureReader({
+      gh, glFetch, dbReady, pool, identityKey, normalizePolicyScope,
+      exposureStore: () => exposureService(),
+      severityOf: exposureSeverityOf,
+      databaseConfigured: Boolean(DB_URL),
+      maintenance: MAINTENANCE_MODE,
+      hostedAlpha: HOSTING_PROFILE === 'hosted-alpha'
+    });
+  }
+  return _postureReader;
+}
+
+app.get('/api/workspace/posture', providerSessionAccess, auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try { res.json(await postureReader().read(req.gh)); } catch (e) { fail(res, e); }
+});
+
 async function governanceRepositoryFacts(req) {
   let info;
   let branches;
@@ -5415,6 +5443,7 @@ app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, 
     res.json({
       full_name: info.full_name, default_branch: info.default_branch,
       private: info.private, description: info.description,
+      homepage: declaredSite(info.homepage || info.website),
       branches: normalizeProviderBranches(req.gh.provider || 'github', branches)
     });
   } catch (e) { fail(res, e); }
@@ -5719,15 +5748,26 @@ app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepository
     from = requireRepoPath(from, 'source path');
     to = requireRepoPath(to, 'destination path');
     branch = requireBranchName(branch);
-    const dir = from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : '';
-    const listing = await gh(req.gh, `${R(req)}/contents/${encodePath(dir)}?ref=${encodeURIComponent(branch)}`);
-    const entry = (Array.isArray(listing) ? listing : [listing]).find(i => i.path === from);
+    if (from === to) return res.status(400).json({ error: 'Destination equals source' });
+    /*
+     * The source is found in the tree of the head this request observed, and
+     * that head is the one the commit must land on. A directory listing capped
+     * at a thousand entries could not find a file past the thousandth, and a
+     * lookup against one head followed by a commit against a newer one would
+     * re-link content the branch had already moved past.
+     */
+    const ref = await gh(req.gh, `${R(req)}/git/ref/heads/${encodeURIComponent(branch)}`);
+    const observedHead = ref.object.sha;
+    assertExpectedHead(expectedHeadSha, observedHead);
+    const head = await gh(req.gh, `${R(req)}/git/commits/${observedHead}`);
+    const entry = await gitTreeEntryByPath(req.gh, req.params.owner, req.params.repo, head.tree.sha, from);
     if (!entry) return res.status(404).json({ error: 'Source file not found' });
+    if (entry.type === 'tree') return res.status(400).json({ error: `${from} is a folder. Use folder move to move it.`, code: 'SOURCE_IS_FOLDER' });
     const commit = await commitTree(req.gh, req.params.owner, req.params.repo, branch,
       message || `Rename ${from} → ${to} via ${PRODUCT_NAME}`, [
         { path: to, sha: entry.sha, preserveFrom: from },
         { path: from, sha: null, preserveFrom: from }
-      ], expectedHeadSha);
+      ], observedHead, { mustNotExist: [to] });
     res.json({ ok: true, commit });
   } catch (e) { fail(res, e); }
 });
@@ -5934,10 +5974,21 @@ app.post('/api/repo/:owner/:repo/reset', providerSessionAccess, alphaRepositoryA
 /* ================= SEARCH ================= */
 app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('search', { allowExperimental: true }), auth, async (req, res) => {
   try {
-    const q = req.query.q || '';
-    const out = await gh(req.gh,
-      `/search/code?q=${encodeURIComponent(`${q} repo:${req.params.owner}/${req.params.repo}`)}&per_page=30`);
-    res.json((out.items || []).map(i => ({ name: i.name, path: i.path })));
+    /*
+     * The repository is the server's to name. The query used to be the
+     * reader's text with " repo:owner/name" appended, and GitHub ORs repeated
+     * repo qualifiers -- so "x repo:someone/else" searched a repository this
+     * route was never asked about, outside any invitation scope. The shared
+     * guard refuses qualifiers and boolean operators, and the results are held
+     * to the one repository as well, in case the provider's parser ever reads a
+     * query differently from ours.
+     */
+    const repository = `${req.params.owner}/${req.params.repo}`;
+    const query = scopedCodeQuery(req.query.q, repository);
+    const out = await gh(req.gh, `/search/code?q=${encodeURIComponent(query)}&per_page=30`);
+    res.json((out.items || [])
+      .filter(i => String(i.repository && i.repository.full_name || '').toLowerCase() === repository.toLowerCase())
+      .map(i => ({ name: i.name, path: i.path })));
   } catch (e) { fail(res, e); }
 });
 
@@ -6007,6 +6058,7 @@ app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaReposit
         draft: !!m.draft, merged: m.state === 'merged',
         mergeable: m.merge_status === 'can_be_merged', mergeable_state: m.merge_status,
         user: m.author && m.author.username, head: m.source_branch, base: m.target_branch,
+        headSha: /^[0-9a-f]{40}$/i.test(String(m.sha || '')) ? String(m.sha).toLowerCase() : null,
         additions: files.reduce((t, f) => t + f.additions, 0), deletions: files.reduce((t, f) => t + f.deletions, 0),
         changed_files: files.length, files
       });
@@ -6019,6 +6071,7 @@ app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaReposit
       number: p.number, title: p.title, body: p.body, state: p.state, draft: p.draft,
       merged: p.merged, mergeable: p.mergeable, mergeable_state: p.mergeable_state,
       user: p.user && p.user.login, head: p.head.ref, base: p.base.ref,
+      headSha: /^[0-9a-f]{40}$/i.test(String(p.head && p.head.sha || '')) ? String(p.head.sha).toLowerCase() : null,
       additions: p.additions, deletions: p.deletions, changed_files: p.changed_files,
       files: files.map(f => ({ filename: f.filename, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch }))
     });
@@ -6043,16 +6096,41 @@ app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryA
 app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.merge'), async (req, res) => {
   try {
     const method = ['merge', 'squash', 'rebase'].includes(req.body && req.body.method) ? req.body.method : 'merge';
+    /*
+     * The head the reviewer looked at is the head that merges. Without it a
+     * merge confirmed against one set of commits would take whatever had been
+     * pushed to the branch since -- reviewed or not. Both providers take the
+     * head as a precondition and refuse the merge when it has moved.
+     */
+    const expected = String(req.body && req.body.expectedHeadSha || '').trim().toLowerCase();
+    if (expected && !/^[0-9a-f]{40}$/.test(expected)) {
+      return res.status(400).json({ error: 'expectedHeadSha must be a 40-character commit SHA', code: 'INVALID_EXPECTED_HEAD' });
+    }
+    const headMoved = () => Object.assign(new Error('The pull request gained commits since it was reviewed. Reload it and review the new head before merging.'), {
+      status: 409, code: 'PULL_HEAD_CHANGED'
+    });
     await enforceProtectedPullMerge(req, req.params.num);
     if (req.gh.provider === 'gitlab') {
-      const out2 = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/merge`, {
-        method: 'PUT', body: { squash: method === 'squash' }
-      });
+      let out2;
+      try {
+        out2 = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/merge`, {
+          method: 'PUT', body: { squash: method === 'squash', ...(expected ? { sha: expected } : {}) }
+        });
+      } catch (error) {
+        if (expected && error.status === 409) throw headMoved();
+        throw error;
+      }
       return res.json({ ok: true, sha: out2.merge_commit_sha || out2.sha, message: 'merged' });
     }
-    const out = await gh(req.gh, `${R(req)}/pulls/${req.params.num}/merge`, {
-      method: 'PUT', body: { merge_method: method }
-    });
+    let out;
+    try {
+      out = await gh(req.gh, `${R(req)}/pulls/${req.params.num}/merge`, {
+        method: 'PUT', body: { merge_method: method, ...(expected ? { sha: expected } : {}) }
+      });
+    } catch (error) {
+      if (expected && error.status === 409) throw headMoved();
+      throw error;
+    }
     res.json({ ok: true, sha: out.sha, message: out.message });
   } catch (e) { fail(res, e); }
 });
@@ -6172,14 +6250,39 @@ app.delete('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepository
 app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.review'), async (req, res) => {
   try {
     const event = ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'].includes(req.body && req.body.event) ? req.body.event : 'COMMENT';
+    const text = String((req.body && req.body.body) || '');
+    if (!/^\d{1,10}$/.test(String(req.params.num))) return res.status(400).json({ error: 'Invalid pull request number', code: 'PULL_NUMBER_INVALID' });
+    /*
+     * GitLab has no review object. A comment is a note on the merge request
+     * and an approval is its approval -- the two things a reviewer here can
+     * mean -- and "request changes" has no counterpart in its API, so it is
+     * refused by name rather than quietly recorded as a comment.
+     */
+    if (req.gh.provider === 'gitlab') {
+      if (event === 'REQUEST_CHANGES') {
+        return res.status(409).json({
+          error: 'GitLab has no "request changes" review. Leave a comment instead, or withhold approval.',
+          code: 'REVIEW_EVENT_UNSUPPORTED'
+        });
+      }
+      if (event === 'COMMENT') {
+        if (!text.trim()) return res.status(400).json({ error: 'A comment review needs a body', code: 'REVIEW_BODY_REQUIRED' });
+        await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/notes`, { method: 'POST', body: { body: text } });
+      } else {
+        await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/approve`, { method: 'POST' });
+        if (text.trim()) await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/notes`, { method: 'POST', body: { body: text } });
+      }
+      return res.json({ ok: true });
+    }
     await gh(req.gh, `${R(req)}/pulls/${req.params.num}/reviews`, {
-      method: 'POST', body: { event, body: (req.body && req.body.body) || '' }
+      method: 'POST', body: { event, body: text }
     });
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
 app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
+    if (!/^\d{1,20}$/.test(String(req.params.runId))) return res.status(400).json({ error: 'Invalid workflow run id', code: 'WORKFLOW_RUN_INVALID' });
     const out = await gh(req.gh, `${R(req)}/actions/runs/${req.params.runId}/jobs?per_page=20`);
     res.json((out.jobs || []).map(jb => ({
       name: jb.name, status: jb.status, conclusion: jb.conclusion,
@@ -6189,6 +6292,8 @@ app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alp
 });
 app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.rerun', { allowExperimental: true }), auth, mutationContext('workflow.rerun'), async (req, res) => {
   try {
+    /* A run id is a number; anything else would be a path segment. */
+    if (!/^\d{1,20}$/.test(String(req.params.runId))) return res.status(400).json({ error: 'Invalid workflow run id', code: 'WORKFLOW_RUN_INVALID' });
     await gh(req.gh, `${R(req)}/actions/runs/${req.params.runId}/rerun`, { method: 'POST' });
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
@@ -6655,18 +6760,62 @@ async function gitTreeEntryByPath(token, owner, repo, rootTreeSha, repoPath, cac
   return null;
 }
 
-async function commitTree(token, owner, repo, branch, message, treeEntries, expectedHeadSha = '') {
+/*
+ * A destination that already holds something is refused rather than
+ * replaced. A rename or a folder move names a new path; a tree entry for a
+ * path that exists is an overwrite, and git accepts it without a word -- so
+ * renaming a.txt onto b.txt used to replace b.txt in the same commit that
+ * removed a.txt, and the only trace was a diff nobody had asked to see.
+ *
+ * A parent that is a file is refused for the same reason: the provider
+ * rejects the tree, and the reader should hear which path was in the way
+ * rather than a 422 from the Git Data API. A path this same commit removes is
+ * not in the way.
+ */
+function destinationExistsError(target, parent) {
+  return Object.assign(new Error(parent
+    ? `${parent} is a file, so ${target} cannot be created under it.`
+    : `${target} already exists. Choose another name, or delete it first.`), {
+    status: 409, code: 'DESTINATION_EXISTS'
+  });
+}
+async function assertPathsFree(token, owner, repo, rootTreeSha, existing, complete, targets, removed) {
+  const cache = new Map();
+  const lookup = async target => (complete ? existing.get(target) || null
+    : await gitTreeEntryByPath(token, owner, repo, rootTreeSha, target, cache));
+  for (const target of targets) {
+    const parts = target.split('/');
+    for (let index = 1; index < parts.length; index += 1) {
+      const parent = parts.slice(0, index).join('/');
+      if (removed.has(parent)) continue;
+      const found = await lookup(parent);
+      if (found && found.type !== 'tree') throw destinationExistsError(target, parent);
+      if (!found) break;
+    }
+    if (removed.has(target)) continue;
+    if (await lookup(target)) throw destinationExistsError(target);
+  }
+}
+
+async function commitTree(token, owner, repo, branch, message, treeEntries, expectedHeadSha = '', options = {}) {
   const ref = await gh(token, `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
   const parentSha = ref.object.sha;
   assertExpectedHead(expectedHeadSha, parentSha);
   const parent = await gh(token, `/repos/${owner}/${repo}/git/commits/${parentSha}`);
   let existing = new Map();
   let baseTreeTruncated = false;
+  let baseTreeRead = false;
   try {
     const base = await gh(token, `/repos/${owner}/${repo}/git/trees/${parent.tree.sha}?recursive=1`);
     existing = new Map((base.tree || []).map(entry => [entry.path, entry]));
     baseTreeTruncated = !!base.truncated;
+    baseTreeRead = true;
   } catch {}
+  const mustNotExist = Array.isArray(options.mustNotExist) ? options.mustNotExist : [];
+  if (mustNotExist.length) {
+    const removed = new Set(treeEntries.filter(entry => entry.sha === null).map(entry => entry.path));
+    await assertPathsFree(token, owner, repo, parent.tree.sha, existing, baseTreeRead && !baseTreeTruncated, mustNotExist, removed);
+  }
   if (baseTreeTruncated) {
     const treeCache = new Map();
     for (const entry of treeEntries) {
@@ -6725,15 +6874,23 @@ app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaReposito
     if (inside.length > 800) return res.status(413).json({ error: `Folder has ${inside.length} files — over the 800-file move limit` });
     const entries = [];
     const affectedPaths = [];
+    const destinations = [];
     for (const e of inside) {
       const rest = e.path.slice(src.length);
       const destinationPath = dst + rest;
       affectedPaths.push(e.path, destinationPath);
+      destinations.push(destinationPath);
       entries.push({ path: destinationPath, mode: e.mode, type: e.type, sha: e.sha, forceMode: true });
       entries.push({ path: e.path, mode: e.mode, type: e.type, sha: null, forceMode: true });
     }
     enforceProtectedPaths(req, affectedPaths);
-    const commit = await commitTree(req.gh, owner, repo, branch, message || `Move ${src} -> ${dst}`, entries, expectedHeadSha);
+    /*
+     * Moving into a folder that already exists merges into it; moving onto a
+     * file that exists would replace it, and is refused. The head the files
+     * were listed from is the head the commit has to land on.
+     */
+    assertExpectedHead(expectedHeadSha, ref.object.sha);
+    const commit = await commitTree(req.gh, owner, repo, branch, message || `Move ${src} -> ${dst}`, entries, ref.object.sha, { mustNotExist: destinations });
     res.json({ ok: true, commit, moved: inside.length });
   } catch (e) { fail(res, e); }
 });
@@ -7467,6 +7624,66 @@ app.get('/api/repo/:owner/:repo/access-surface', providerSessionAccess, alphaRep
     res.setHeader('Cache-Control', 'no-store');
     res.json(surface);
   } catch (e) { fail(res, e); }
+});
+
+/*
+ * The repository audit. Every rule and every decision about what to read is in
+ * src/code-audit.js; this reads through the same guarded reader Exposure uses,
+ * one connection pool per audit, and asks the package registries through the
+ * guarded transport with HEAD. One audit per identity at a time: it reads up
+ * to a few hundred files, and a second click should not double that.
+ */
+const auditsInFlight = new Set();
+app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const who = identityKey(req.gh);
+  if (auditsInFlight.has(who)) {
+    return res.status(429).json({ error: 'An audit is already running for this session. Wait for it to finish.', code: 'AUDIT_IN_PROGRESS' });
+  }
+  const ref = String(req.query.ref || '').trim();
+  if (!ref) return res.status(400).json({ error: 'ref is required', code: 'AUDIT_REF_REQUIRED' });
+  auditsInFlight.add(who);
+  const session = createGuardedSession({ profile: GUARDED_PROFILES.PROVIDER_READ, maxSockets: 8 });
+  try {
+    const result = await auditRepository({
+      reader: exposureReader,
+      scope: { provider: 'github', owner: req.params.owner, repo: req.params.repo },
+      ref,
+      token: req.gh.token,
+      transport: input => session.request(input),
+      registryTransport: input => guardedFetch(input)
+    });
+    res.json({ ...result, auditedAt: new Date().toISOString() });
+  } catch (e) { fail(res, e); }
+  finally {
+    session.close();
+    auditsInFlight.delete(who);
+  }
+});
+
+/*
+ * The deployed site, anonymously. Ten bounded requests through the guarded
+ * transport's anonymous site profile; every rule is in src/site-check.js. One
+ * check per identity at a time and at most one every fifteen seconds, so the
+ * control cannot be leaned on to hammer somebody's site.
+ */
+const siteChecksInFlight = new Set();
+const siteCheckLast = new Map();
+app.get('/api/repo/:owner/:repo/site-check', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('site-check'), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const who = identityKey(req.gh);
+  const last = siteCheckLast.get(who) || 0;
+  if (siteChecksInFlight.has(who) || Date.now() - last < 15000) {
+    res.setHeader('Retry-After', '15');
+    return res.status(429).json({ error: 'A site check ran moments ago. Wait a few seconds and try again.', code: 'SITE_CHECK_THROTTLED' });
+  }
+  siteChecksInFlight.add(who);
+  siteCheckLast.set(who, Date.now());
+  if (siteCheckLast.size > 5000) siteCheckLast.delete(siteCheckLast.keys().next().value);
+  try {
+    res.json({ ...(await checkSite({ url: req.query.url, transport: input => guardedFetch(input) })), checkedAt: new Date().toISOString() });
+  } catch (e) { fail(res, e); }
+  finally { siteChecksInFlight.delete(who); }
 });
 
 app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit', { allowExperimental: true }), auth, async (req, res) => {

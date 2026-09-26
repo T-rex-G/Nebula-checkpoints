@@ -147,7 +147,9 @@ const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
-const { PROFILES: GUARDED_PROFILES, createGuardedSession } = require('./src/guarded-fetch');
+const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = require('./src/guarded-fetch');
+const { auditRepository } = require('./src/code-audit');
+const { checkSite, declaredSite } = require('./src/site-check');
 const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
 
@@ -5441,6 +5443,7 @@ app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, 
     res.json({
       full_name: info.full_name, default_branch: info.default_branch,
       private: info.private, description: info.description,
+      homepage: declaredSite(info.homepage || info.website),
       branches: normalizeProviderBranches(req.gh.provider || 'github', branches)
     });
   } catch (e) { fail(res, e); }
@@ -7621,6 +7624,66 @@ app.get('/api/repo/:owner/:repo/access-surface', providerSessionAccess, alphaRep
     res.setHeader('Cache-Control', 'no-store');
     res.json(surface);
   } catch (e) { fail(res, e); }
+});
+
+/*
+ * The repository audit. Every rule and every decision about what to read is in
+ * src/code-audit.js; this reads through the same guarded reader Exposure uses,
+ * one connection pool per audit, and asks the package registries through the
+ * guarded transport with HEAD. One audit per identity at a time: it reads up
+ * to a few hundred files, and a second click should not double that.
+ */
+const auditsInFlight = new Set();
+app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const who = identityKey(req.gh);
+  if (auditsInFlight.has(who)) {
+    return res.status(429).json({ error: 'An audit is already running for this session. Wait for it to finish.', code: 'AUDIT_IN_PROGRESS' });
+  }
+  const ref = String(req.query.ref || '').trim();
+  if (!ref) return res.status(400).json({ error: 'ref is required', code: 'AUDIT_REF_REQUIRED' });
+  auditsInFlight.add(who);
+  const session = createGuardedSession({ profile: GUARDED_PROFILES.PROVIDER_READ, maxSockets: 8 });
+  try {
+    const result = await auditRepository({
+      reader: exposureReader,
+      scope: { provider: 'github', owner: req.params.owner, repo: req.params.repo },
+      ref,
+      token: req.gh.token,
+      transport: input => session.request(input),
+      registryTransport: input => guardedFetch(input)
+    });
+    res.json({ ...result, auditedAt: new Date().toISOString() });
+  } catch (e) { fail(res, e); }
+  finally {
+    session.close();
+    auditsInFlight.delete(who);
+  }
+});
+
+/*
+ * The deployed site, anonymously. Ten bounded requests through the guarded
+ * transport's anonymous site profile; every rule is in src/site-check.js. One
+ * check per identity at a time and at most one every fifteen seconds, so the
+ * control cannot be leaned on to hammer somebody's site.
+ */
+const siteChecksInFlight = new Set();
+const siteCheckLast = new Map();
+app.get('/api/repo/:owner/:repo/site-check', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('site-check'), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const who = identityKey(req.gh);
+  const last = siteCheckLast.get(who) || 0;
+  if (siteChecksInFlight.has(who) || Date.now() - last < 15000) {
+    res.setHeader('Retry-After', '15');
+    return res.status(429).json({ error: 'A site check ran moments ago. Wait a few seconds and try again.', code: 'SITE_CHECK_THROTTLED' });
+  }
+  siteChecksInFlight.add(who);
+  siteCheckLast.set(who, Date.now());
+  if (siteCheckLast.size > 5000) siteCheckLast.delete(siteCheckLast.keys().next().value);
+  try {
+    res.json({ ...(await checkSite({ url: req.query.url, transport: input => guardedFetch(input) })), checkedAt: new Date().toISOString() });
+  } catch (e) { fail(res, e); }
+  finally { siteChecksInFlight.delete(who); }
 });
 
 app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit', { allowExperimental: true }), auth, async (req, res) => {

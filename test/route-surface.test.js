@@ -176,8 +176,18 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * summaries and the boundary state are all in `src/workspace-posture.js`,
  * tested there, and the exposure query is in the store, tested against a real
  * database.
+ *
+ * 167 to 168 adds the repository audit. The handler opens a guarded read
+ * session, calls one function and closes the session; which files are read,
+ * every rule, the registry lookups and the scoring are in
+ * `src/code-audit.js` and tested there rule by rule.
+ *
+ * 168 to 169 adds the anonymous site check. The handler throttles per
+ * identity and calls one function; the requests, the rules and the scoring are
+ * in `src/site-check.js`, and the anonymous transport profile it uses is in
+ * `src/guarded-fetch.js`, each tested where it lives.
  */
-const SERVER_ROUTE_CEILING = 167;
+const SERVER_ROUTE_CEILING = 169;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

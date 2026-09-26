@@ -393,12 +393,71 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       if (scenario.repositoryState === 'error') return fulfill(publicError('REPOSITORY_TEMPORARILY_UNAVAILABLE', 'The sandbox repository could not be opened.', {
         nextAction: 'Retry opening the allowlisted sandbox repository.'
       }), 503);
-      return fulfill({ full_name: 'sandbox/demo', private: true, default_branch: 'main', branches: [{ name: 'main', protected: false, sha: HEAD_SHA }] });
+      return fulfill({ full_name: 'sandbox/demo', private: true, default_branch: 'main', homepage: 'https://demo.example.com', branches: [{ name: 'main', protected: false, sha: HEAD_SHA }] });
     }
     if (pathname === '/api/repo/sandbox/demo/tree') return fulfill([]);
     if (pathname === '/api/repo/sandbox/demo/files') return fulfill({ files: [] });
     if (pathname === '/api/repo/sandbox/demo/file' && method === 'GET') {
       return fulfill({ path: url.searchParams.get('path') || 'alpha-proof.txt', sha: 'c'.repeat(40), size: 0, content: '', binary: false });
+    }
+    /*
+     * The repository audit, computed by the real engine over a small flawed
+     * project, so the screen is tested against the shape the server returns
+     * rather than a hand-written approximation of it. The second audit of a
+     * session finds the SQL fixed, so the comparison with the last one has
+     * something to say.
+     */
+    if (pathname === '/api/repo/sandbox/demo/code-audit' && method === 'GET') {
+      state.audits = (state.audits || 0) + 1;
+      const { analyse } = require('../../src/code-audit');
+      const files = [
+        { path: 'README.md', text: '# demo\n' },
+        { path: 'package.json', text: JSON.stringify({ name: 'demo', scripts: { build: 'vite build' }, dependencies: { react: '*' } }, null, 2) },
+        { path: 'server.js', text: 'app.post("/api/login", handler);\napp.use(cors({ origin: true, credentials: true }));\n' },
+        ...(state.audits === 1 ? [{ path: 'api/users.js', text: 'db.query(`SELECT * FROM users WHERE id = ${req.params.id}`);\n' }] : [])
+      ];
+      const result = analyse({ files, paths: files.map(file => file.path) });
+      return fulfill({
+        ...result,
+        commitSha: HEAD_SHA,
+        ref: 'main',
+        auditedAt: new Date().toISOString(),
+        coverage: {
+          treeTruncated: false, filesInTree: files.length, eligible: files.length - 1, read: files.length - 1, unreadable: 0,
+          skipped: { excluded: 0, oversize: 0, budget: 0 }, complete: true,
+          packages: { declared: 1, checked: 1, unknown: 0, notChecked: 0 }
+        }
+      });
+    }
+    /*
+     * The deployed-site check, by the real rules over a modelled site: the
+     * first check finds a bare site serving its .env; by the second the
+     * headers are sent, the file is gone, and / redirects to the app.
+     */
+    if (pathname === '/api/repo/sandbox/demo/site-check' && method === 'GET') {
+      const { checkSite } = require('../../src/site-check');
+      state.siteChecks = (state.siteChecks || 0) + 1;
+      const fixed = state.siteChecks > 1;
+      const headers = fixed ? {
+        'content-type': 'text/html',
+        'strict-transport-security': 'max-age=31536000; includeSubDomains',
+        'content-security-policy': "default-src 'self'; frame-ancestors 'self'",
+        'x-content-type-options': 'nosniff',
+        'referrer-policy': 'strict-origin-when-cross-origin'
+      } : { 'content-type': 'text/html', 'x-powered-by': 'Express', 'set-cookie': ['sid=x; Path=/'] };
+      const transport = async input => {
+        const path = new URL(input.url).pathname;
+        if (path === '/' && fixed) return { statusCode: 302, headers: { location: '/app' }, body: '' };
+        if (path === '/' || path === '/app') return { statusCode: 200, headers, body: '<!doctype html><html></html>' };
+        if (path === '/.env' && !fixed) return { statusCode: 200, headers: { 'content-type': 'text/plain' }, body: 'SECRET_KEY=x\n' };
+        if (path === '/.well-known/security.txt' && fixed) return { statusCode: 200, headers: { 'content-type': 'text/plain' }, body: 'Contact: mailto:security@example.com\n' };
+        return { statusCode: 404, headers: {}, body: '' };
+      };
+      try {
+        return fulfill({ ...(await checkSite({ url: url.searchParams.get('url'), transport })), checkedAt: new Date().toISOString() });
+      } catch (error) {
+        return fulfill({ error: error.message, code: error.code }, error.status || 400);
+      }
     }
     if (pathname === '/api/repo/sandbox/demo/star') return fulfill({ starred: false });
     if (pathname === '/api/repo/sandbox/demo/live-events/status') {

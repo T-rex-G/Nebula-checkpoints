@@ -46,12 +46,12 @@ mutations remain blocked.
 
 ## GitHub — evidence-bounded alpha subset
 
-Counted from the capability registry: 31 Supported, 4 Experimental, 0 Unavailable. Of those, 26 carry
+Counted from the capability registry: 33 Supported, 4 Experimental, 0 Unavailable. Of those, 26 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; access-surface analysis; dependency audit; recovery; governance; upload security |
+| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; repository audit; site check; access-surface analysis; dependency audit; recovery; governance; upload security |
 | Experimental | repository create/delete; notifications; live events |
 | Unavailable | none at the provider level; connection permissions and invitation scopes still apply |
 
@@ -122,16 +122,31 @@ storage and verification are deterministic.
 Access-surface, dependency-audit, recovery, governance, and upload-security
 decisions use `Deterministic` evidence.
 
+The repository audit and the site check are `Deterministic` too, and every
+rule is fixture-tested firing and staying quiet. The audit reads the branch
+through the same Provider-verified reader as exposure scanning -- files are read,
+judged and dropped, and findings name a path and a line, never the code -- and
+asks the public npm and PyPI registries whether each declared package exists,
+reading an unanswered lookup as unknown rather than missing. Its grade is held
+below 50 while a critical finding is open, and it states how much of the
+branch it read. The site check makes at most ten anonymous requests to the
+origin a user names -- following up to three HTTPS redirects to the page a
+visitor actually lands on -- through the guarded transport's site profile: HTTPS on
+443 to a public address, no credential and no cookie, bodies cut after a few
+kilobytes. A path is reported as served only when what came back has the shape
+that file must have, so a single-page app's catch-all page is not a leaked
+`.env`, and a site that cannot be reached is an error, not a clean report.
+
 ## GitLab — registry-qualified subset
 
-Counted from the capability registry: 12 Supported, 3 Experimental, 20 Unavailable. Of those, 11 carry
+Counted from the capability registry: 13 Supported, 3 Experimental, 21 Unavailable. Of those, 11 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; merge-request and issue writes; upload security |
+| Supported | repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; merge-request and issue writes; site check; upload security |
 | Experimental | dependency audit; read-only recovery comparison; governance views |
-| Unavailable | repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning, which has no repository reader for this provider |
+| Unavailable | repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning and repository audit, which have no repository reader for this provider |
 
 Repository read, branch read/write, bounded file read/write/delete, the recursive
 tree read, and the merge-request and issue list/detail reads use
@@ -150,21 +165,28 @@ has finished checking that it can be. GitLab has no review object, so a comment
 review is a note and an approval is its approval; "request changes" has no
 counterpart in its API and is refused by name.
 
+The site check is `Deterministic` and the same as GitHub's, since it reads the
+deployed site rather than the repository; the repository audit is unavailable
+until a GitLab reader exists, and the screen says so rather than showing an
+empty result.
+
 ## Gitea — registry-qualified subset
 
-Counted from the capability registry: 6 Supported, 4 Experimental, 25 Unavailable. Of those, 5 carry
+Counted from the capability registry: 7 Supported, 4 Experimental, 26 Unavailable. Of those, 5 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository and branch reads; bounded file read/write/delete; upload security |
+| Supported | repository and branch reads; bounded file read/write/delete; site check; upload security |
 | Experimental | tree read; dependency audit; read-only recovery comparison; governance views |
-| Unavailable | repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning, which has no repository reader for this provider |
+| Unavailable | repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning and repository audit, which have no repository reader for this provider |
 
 Repository read, branch read, and bounded file read/write/delete use
 `Provider-verified` evidence. Upload security, dependency audit, recovery, and
 governance use `Deterministic` evidence; the latter three remain experimental.
-Tree read remains `Experimental` + `Inferred`. Gitea batch mutation remains
+The site check is `Deterministic` and the same as GitHub's, since it reads the
+deployed site rather than the repository. Tree read remains `Experimental` +
+`Inferred`. Gitea batch mutation remains
 unavailable because only single-file Contents API write and delete received
 provider qualification.
 

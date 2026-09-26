@@ -1622,6 +1622,7 @@ async function purgeLocalData(full) {
   clearCsrfToken();
   clearGovernanceState();
   clearExposureState();
+  clearAuditState();
   await purgePrivateCaches();
   try { sessionStorage.clear(); } catch {}
   try {
@@ -1633,7 +1634,8 @@ async function purgeLocalData(full) {
     for (const k of Object.keys(localStorage)) {
       if (k.startsWith('nv_snap_') || k.startsWith('nv_incident_') ||
           k.startsWith('nv_draft:') || k.startsWith('nv_recent:') ||
-          k.startsWith('nv_offline_repos:') || k.startsWith('nv_neural_layout')) localStorage.removeItem(k);
+          k.startsWith('nv_offline_repos:') || k.startsWith('nv_neural_layout') ||
+          k.startsWith('nv_audit:')) localStorage.removeItem(k);
     }
   } catch {}
   /* Offline writes are not identity-bound in v5.2. Clearing them on any account
@@ -4782,6 +4784,139 @@ async function toggleProtect(p) {
   if (await setSafety({ protect: { repo: safetyKey(), path: p, on } }))
     toast(on ? `${p} is now protected` : `${p} unlocked`, 'ok');
 }
+/*
+ * The repository audit. One result per repository in memory, bound to the
+ * identity and branch it was taken for; a result for another repository or a
+ * previous session never paints this one. The comparison with the last audit
+ * keeps fingerprints only, and the account-boundary purge removes them.
+ */
+let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null };
+let auditRequest = 0;
+/*
+ * The deployed-site check sits beside it, bound to the repository rather than
+ * the branch: the address typed (or the repository's declared homepage) is
+ * remembered per repository as an origin, and the last check's fingerprints
+ * per origin, both under the audit prefix the account purge removes.
+ */
+let siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
+let siteRequest = 0;
+function auditKey() {
+  return state.work ? `${state.work.owner}/${state.work.repo}@${state.work.branch}` : '';
+}
+function siteKey() {
+  return state.work ? `${state.work.owner}/${state.work.repo}` : '';
+}
+function siteUrlStorageKey() {
+  return `${window.NebulaCodeAudit.STORE_PREFIX}site-url:${siteKey().toLowerCase()}`;
+}
+function freshSiteView() {
+  let remembered = '';
+  try { remembered = localStorage.getItem(siteUrlStorageKey()) || ''; } catch {}
+  const declared = state.work && state.work.homepage || '';
+  return { key: siteKey(), status: 'idle', url: remembered || declared, suggested: !remembered && Boolean(declared), result: null, diff: null, error: '' };
+}
+function clearAuditState() {
+  auditRequest++;
+  siteRequest++;
+  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null };
+  siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
+  const root = $('#auditRoot');
+  if (root) root.replaceChildren();
+}
+async function copyPrompt(text, control) {
+  try {
+    await navigator.clipboard.writeText(text);
+    if (control) { control.textContent = 'Copied'; setTimeout(() => { control.textContent = 'Copy fix prompt'; }, 1600); }
+  } catch { toast('The clipboard is not available here', 'err'); }
+}
+function paintAudit() {
+  const root = $('#auditRoot');
+  if (!root || !window.NebulaCodeAudit) return;
+  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null };
+  if (siteView.key !== siteKey()) siteView = freshSiteView();
+  const repository = window.NebulaCapabilityUI.decision('code-audit');
+  window.NebulaCodeAudit.render(root, {
+    ...auditView,
+    unavailable: repository.status === 'Supported' ? null : repository.reason,
+    site: window.NebulaCapabilityUI.decision('site-check').status === 'Supported' ? siteView : null
+  }, {
+    onSiteInput: value => { siteView.url = value; siteView.suggested = false; },
+    onSiteCheck: runSiteCheck,
+    onSiteCopyAll: async () => {
+      try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(siteView.result)); toast('Every site fix prompt copied', 'ok'); }
+      catch { toast('The clipboard is not available here', 'err'); }
+    },
+    onRun: runAudit,
+    onFilter: filter => { auditView.filter = filter; paintAudit(); },
+    onOpen: finding => openAuditFinding(finding),
+    onCopy: (finding, control) => copyPrompt(finding.prompt, control),
+    onCopyAll: async () => {
+      try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(auditView.result)); toast('Every fix prompt copied', 'ok'); }
+      catch { toast('The clipboard is not available here', 'err'); }
+    },
+    onExport: () => {
+      const result = auditView.result;
+      const site = siteView.result;
+      if (!result && !site) return;
+      const label = `${state.work.owner}/${state.work.repo} (${state.work.branch})`;
+      const day = String((result && result.auditedAt) || (site && site.checkedAt) || new Date().toISOString()).slice(0, 10);
+      dlFile(`${state.work.repo}-audit-${day}.md`, window.NebulaCodeAudit.brief(result, label, site), 'text/markdown');
+    }
+  });
+}
+async function runSiteCheck(address) {
+  if (!state.work || siteView.status === 'running') return;
+  const request = ++siteRequest;
+  const key = siteKey();
+  const epoch = state.uiEpoch;
+  siteView = { ...siteView, key, url: String(address || '').trim(), status: 'running', error: '' };
+  paintAudit();
+  try {
+    const result = await api(`/api/repo/${wPath()}/site-check?url=${encodeURIComponent(siteView.url)}`);
+    if (request !== siteRequest || epoch !== state.uiEpoch || key !== siteKey()) return;
+    try { localStorage.setItem(siteUrlStorageKey(), result.origin); } catch {}
+    const fingerprints = `site:${result.origin}`;
+    const previous = window.NebulaCodeAudit.readPrevious(fingerprints);
+    window.NebulaCodeAudit.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
+    siteView = { key, status: 'done', url: result.origin, suggested: false, result, diff: window.NebulaCodeAudit.diff(result, previous), error: '' };
+  } catch (error) {
+    if (request !== siteRequest || epoch !== state.uiEpoch || key !== siteKey()) return;
+    siteView = { ...siteView, status: 'error', error: error.message || 'The site could not be checked.' };
+  }
+  if ($('#tab-audit')?.classList.contains('active')) paintAudit();
+}
+async function runAudit() {
+  if (!state.work || auditView.status === 'running') return;
+  const request = ++auditRequest;
+  const key = auditKey();
+  const epoch = state.uiEpoch;
+  auditView = { ...auditView, key, status: 'running', error: '' };
+  paintAudit();
+  try {
+    const result = await api(`/api/repo/${wPath()}/code-audit?ref=${encodeURIComponent(state.work.branch)}`);
+    if (request !== auditRequest || epoch !== state.uiEpoch || key !== auditKey()) return;
+    const repoKey = `${state.work.owner}/${state.work.repo}`;
+    const previous = window.NebulaCodeAudit.readPrevious(repoKey);
+    window.NebulaCodeAudit.remember(repoKey, result);
+    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null };
+  } catch (error) {
+    if (request !== auditRequest || epoch !== state.uiEpoch || key !== auditKey()) return;
+    auditView = { ...auditView, status: 'error', error: error.message || 'The audit could not be completed.' };
+  }
+  if ($('#tab-audit')?.classList.contains('active')) paintAudit();
+}
+async function openAuditFinding(finding) {
+  if (!finding || !finding.path) return;
+  switchTab('editor');
+  await openFile(finding.path);
+  if (finding.line && state.cm) {
+    const line = Math.max(0, finding.line - 1);
+    state.cm.setCursor({ line, ch: 0 });
+    state.cm.scrollIntoView({ line, ch: 0 }, 120);
+    state.cm.focus();
+  }
+}
+
 async function snapshotFlow() {
   try {
     toast('Capturing recovery snapshot…', 'ok');
@@ -5522,6 +5657,7 @@ function switchTab(name) {
   if (name === 'governance') loadGovernanceTwin();
   if (name === 'exposure') loadExposure();
   else clearTimeout(exposurePollTimer);
+  if (name === 'audit') paintAudit();
   if (name === 'neural') ensureNeural();
   else if (window.NebulaNeural) window.NebulaNeural.deactivate();
   if (name === 'editor' && state.cm) setTimeout(() => state.cm.refresh(), 30);

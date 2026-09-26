@@ -910,6 +910,7 @@
         <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
         <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel">Governance</button>
         <button class="tab" data-feature="exposure.scan" data-allow-experimental="true" data-tab="exposure" id="exposureTabLabel">Exposure</button>
+        <button class="tab" data-feature="site-check" data-tab="audit" id="auditTabLabel">Audit</button>
       </nav>
 
       <!-- EDITOR -->
@@ -1196,12 +1197,28 @@
       </div>
 
       <!-- EXPOSURE -->
+      <!--
+        The repository audit: the supply-chain, code, dependency and hygiene
+        checks Exposure does not make. Drawn by code-audit-ui.js from the
+        server's result; the intro is here so the tab reads before it runs.
+      -->
+      <div class="tabpane" id="tab-audit" role="region" aria-labelledby="auditTabLabel">
+        <div class="exposure-shell audit-shell">
+          <header class="exposure-intro">
+            <p class="exposure-kicker">Repository security</p>
+            <h2>Audit</h2>
+            <p>What a reviewer and an attacker look at first: code that runs at install, workflows that hand CI secrets to strangers, injection and scripting sinks, secrets shipped to browsers, unsigned webhooks, packages that do not exist and project hygiene — then the deployed site, as any visitor’s browser sees it. Findings name a place and a fix, never the code; nothing read is kept.</p>
+          </header>
+          <div id="auditRoot" aria-live="polite"></div>
+        </div>
+      </div>
+
       <div class="tabpane" id="tab-exposure" role="region" aria-labelledby="exposureTabLabel">
         <div class="exposure-shell">
           <header class="exposure-intro">
             <p class="exposure-kicker">Repository security</p>
             <h2>Exposure</h2>
-            <p>Find exposed credentials in files on your selected GitHub branch. Hosted app URL scanning is not available yet.</p>
+            <p>Find exposed credentials in files on your selected GitHub branch. The deployed site itself is checked on the Audit tab.</p>
           </header>
           <!--
             The order is the argument. What was proven comes first, then how
@@ -1482,6 +1499,7 @@
 <script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/repo-sigil.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/code-audit-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/nebula-visuals.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/light-waves.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/trust-ui.js?v=__NV_ASSET_VERSION__"></script>

@@ -95,19 +95,19 @@ for (const provider of ['GitHub', 'GitLab', 'Gitea']) assert(capabilities.includ
 
 const providerMappings = {
   'GitHub — evidence-bounded alpha subset': [
-    ['Supported', 'repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; access-surface analysis; dependency audit; recovery; governance; upload security'],
+    ['Supported', 'repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; repository audit; site check; access-surface analysis; dependency audit; recovery; governance; upload security'],
     ['Experimental', 'repository create/delete; notifications; live events'],
     ['Unavailable', 'none at the provider level; connection permissions and invitation scopes still apply']
   ],
   'GitLab — registry-qualified subset': [
-    ['Supported', 'repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; merge-request and issue writes; upload security'],
+    ['Supported', 'repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; merge-request and issue writes; site check; upload security'],
     ['Experimental', 'dependency audit; read-only recovery comparison; governance views'],
-    ['Unavailable', 'repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning, which has no repository reader for this provider']
+    ['Unavailable', 'repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning and repository audit, which have no repository reader for this provider']
   ],
   'Gitea — registry-qualified subset': [
-    ['Supported', 'repository and branch reads; bounded file read/write/delete; upload security'],
+    ['Supported', 'repository and branch reads; bounded file read/write/delete; site check; upload security'],
     ['Experimental', 'tree read; dependency audit; read-only recovery comparison; governance views'],
-    ['Unavailable', 'repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning, which has no repository reader for this provider']
+    ['Unavailable', 'repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning and repository audit, which have no repository reader for this provider']
   ]
 };
 /*

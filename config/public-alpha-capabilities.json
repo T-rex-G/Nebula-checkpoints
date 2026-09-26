@@ -37,6 +37,11 @@
           "Provider-verified",
           "Qualified controlled branch mutations."
         ],
+        "code-audit": [
+          "Supported",
+          "Deterministic",
+          "Deterministic rules over supply chain, code security, dependencies and project hygiene, each fixture-tested firing and staying quiet. Files are read through the Provider-verified exposure reader, package existence is asked of the public registries through the guarded transport, and an unreachable registry reads as unknown, never as missing. Findings name a place and never quote the code."
+        ],
         "dependency-audit": [
           "Supported",
           "Deterministic",
@@ -167,6 +172,11 @@
           "Provider-verified",
           "Exercised by the alpha.17 live-provider harness: the repository-scoped query finds the permanent search fixture, only in the target, and a word that exists nowhere finds nothing. Qualifiers that would widen the scope are refused."
         ],
+        "site-check": [
+          "Supported",
+          "Deterministic",
+          "An anonymous look at a deployed site through the guarded transport: HTTPS on 443 to public addresses, no credential and no cookie, ten bounded requests including up to three redirects to the page. Security headers, cookies and served secrets are judged by fixture-tested rules; a file is reported as served only when its content has the shape that file must have, never quoted, and a site that cannot be reached is an error rather than a clean report."
+        ],
         "stars.read": [
           "Supported",
           "Provider-verified",
@@ -215,6 +225,11 @@
           "Supported",
           "Provider-verified",
           "Qualified controlled branch mutations."
+        ],
+        "code-audit": [
+          "Unavailable",
+          "Unavailable",
+          "No repository reader is implemented for this provider, and a guessed tree API would return nothing and look like a clean audit."
         ],
         "dependency-audit": [
           "Experimental",
@@ -346,6 +361,11 @@
           "Unavailable",
           "Cross-repository search is not qualified."
         ],
+        "site-check": [
+          "Supported",
+          "Deterministic",
+          "An anonymous look at a deployed site through the guarded transport: HTTPS on 443 to public addresses, no credential and no cookie, ten bounded requests including up to three redirects to the page. Security headers, cookies and served secrets are judged by fixture-tested rules; a file is reported as served only when its content has the shape that file must have, never quoted, and a site that cannot be reached is an error rather than a clean report."
+        ],
         "stars.read": [
           "Unavailable",
           "Unavailable",
@@ -394,6 +414,11 @@
           "Unavailable",
           "Unavailable",
           "Branch mutation is not qualified for Gitea."
+        ],
+        "code-audit": [
+          "Unavailable",
+          "Unavailable",
+          "No repository reader is implemented for this provider, and a guessed tree API would return nothing and look like a clean audit."
         ],
         "dependency-audit": [
           "Experimental",
@@ -524,6 +549,11 @@
           "Unavailable",
           "Unavailable",
           "Search is not qualified."
+        ],
+        "site-check": [
+          "Supported",
+          "Deterministic",
+          "An anonymous look at a deployed site through the guarded transport: HTTPS on 443 to public addresses, no credential and no cookie, ten bounded requests including up to three redirects to the page. Security headers, cookies and served secrets are judged by fixture-tested rules; a file is reported as served only when its content has the shape that file must have, never quoted, and a site that cannot be reached is an error rather than a clean report."
         ],
         "stars.read": [
           "Unavailable",

@@ -4348,8 +4348,138 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 @media (max-width: 640px) {
   .exposure-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/*
+ * The repository audit. It borrows the Exposure screen's shell and item
+ * stripes, and adds the three things Exposure does not have: a grade, the
+ * four families it is built from, and a finding that opens into its reason,
+ * its fix and a prompt to copy. State rides a glyph and a word; colour is the
+ * second signal, never the only one.
+ */
+.audit-summary { padding: 24px; min-width: 0; overflow-wrap: anywhere; }
+.audit-grade-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: start; margin-bottom: 18px; }
+.audit-grade {
+  display: grid; place-items: center; align-content: center; gap: 2px;
+  width: 104px; height: 104px; border-radius: 22px;
+  border: 1px solid var(--glass-border);
+  background: color-mix(in oklab, var(--text) 4%, transparent);
+  box-shadow: inset 0 0 0 4px color-mix(in oklab, var(--text) 3%, transparent);
+}
+.audit-grade-letter { font-family: var(--font-body); font-size: 46px; line-height: 1; font-weight: 650; letter-spacing: -.03em; color: var(--text); }
+.audit-grade-score { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.audit-grade-A, .audit-grade-B { border-color: color-mix(in oklab, var(--ok, #2e7d32) 45%, var(--glass-border)); }
+.audit-grade-C, .audit-grade-D { border-color: color-mix(in oklab, var(--warn, #b26a00) 55%, var(--glass-border)); }
+.audit-grade-F { border-color: color-mix(in oklab, var(--danger, #c0392b) 60%, var(--glass-border)); }
+.audit-grade-read { min-width: 0; display: grid; gap: 8px; }
+.audit-lede { margin: 0; color: var(--text); line-height: 1.5; font-weight: 550; }
+.audit-error { color: var(--warn, #b26a00); }
+.audit-cap { margin: 0; color: var(--text); line-height: 1.45; padding-left: 10px; border-left: 2px solid var(--danger, #c0392b); }
+.audit-coverage, .audit-diff { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
+.audit-diff { color: var(--text); }
+.audit-shell .exposure-caveat { margin: 0; }
+#auditRoot { display: grid; gap: 16px; min-width: 0; }
+#auditRoot > .card { margin: 0; }
+
+.audit-categories { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.audit-category { min-width: 0; }
+.audit-category-btn {
+  width: 100%; min-height: 100%; display: grid; gap: 6px; text-align: left; padding: 14px 14px 16px;
+  border-radius: 14px; border: 1px solid var(--glass-border); background: var(--card, transparent);
+  color: var(--text); cursor: pointer; position: relative; overflow: hidden; font: inherit;
+  transition: border-color .18s var(--ease, ease), transform .18s var(--ease, ease);
+}
+.audit-category-btn:hover { border-color: color-mix(in oklab, var(--text) 30%, var(--glass-border)); }
+.audit-category-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.audit-category-btn[aria-pressed="true"] { border-color: var(--accent); }
+.audit-category-label { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.audit-category-score { font-size: 1.9rem; line-height: 1; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.audit-category-counts { font-size: .8rem; color: var(--muted); white-space: pre-wrap; }
+.audit-category-meter { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: color-mix(in oklab, var(--text) 8%, transparent); }
+.audit-category-meter::after { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--audit-fill, 0%); background: var(--wp-series, var(--accent)); }
+
+.audit-item { overflow: hidden; }
+.audit-details > summary { list-style: none; }
+.audit-details > summary::-webkit-details-marker { display: none; }
+.audit-summary-row {
+  position: relative; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 14px 40px 14px 16px; cursor: pointer; min-width: 0;
+}
+/* Pinned to the row's corner, so a title that wraps never strands it on a line of its own. */
+.audit-summary-row::after {
+  content: '\203A'; position: absolute; right: 16px; top: 50%; margin-top: -.6em; line-height: 1.2;
+  color: var(--muted); transition: transform .18s var(--ease, ease);
+}
+.audit-details[open] .audit-summary-row::after { transform: rotate(90deg); }
+.audit-summary-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.audit-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px;
+  border: 1px solid var(--glass-border); font-size: .76rem; font-weight: 600; color: var(--text); white-space: nowrap;
+}
+.audit-pill-critical .audit-pill-glyph { color: var(--danger, #c0392b); }
+.audit-pill-serious .audit-pill-glyph { color: var(--warn, #b26a00); }
+.audit-pill-warning .audit-pill-glyph { color: var(--muted); }
+.audit-new { font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: color-mix(in oklab, var(--accent) 16%, transparent); color: var(--text); }
+.audit-body { padding: 0 16px 16px; display: grid; gap: 8px; justify-items: start; }
+.audit-body p { margin: 0; }
+.audit-rule { font-family: var(--font-mono); font-size: .76rem; color: var(--muted); margin-right: 10px; }
+.audit-location {
+  font-family: var(--font-mono); font-size: .8rem; color: var(--text); background: none; border: 0; padding: 0;
+  text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--text) 35%, transparent); text-underline-offset: 3px; cursor: pointer; overflow-wrap: anywhere; text-align: left;
+}
+.audit-location:hover { text-decoration-color: currentColor; }
+.audit-location:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.audit-location-static { font-size: .84rem; color: var(--muted); }
+
+/*
+ * The deployed-site card: an address, then the same grade and finding
+ * language as the repository audit, and a checklist of the headers a
+ * browser enforces -- each marked by a glyph and a word, not colour alone.
+ */
+.audit-site { padding: 24px; min-width: 0; overflow-wrap: anywhere; display: grid; gap: 16px; }
+.audit-site > .exposure-heading { margin-bottom: 0; }
+.audit-site-lede { font-weight: 450; color: var(--muted); font-size: .92rem; }
+.audit-site-form { display: grid; gap: 8px; }
+.audit-site-label { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.audit-site-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
+.audit-site-field .audit-site-input { width: 100%; min-width: 0; min-height: 44px; font-family: var(--font-mono); font-size: .9rem; }
+.audit-site-field .btn { min-height: 44px; white-space: nowrap; }
+.audit-site-hint { margin: 0; font-size: .8rem; color: var(--muted); }
+.audit-site .audit-grade-row { margin-bottom: 0; }
+.audit-site .exposure-actions { margin: 0; }
+.audit-headers { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.audit-header {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 2px; align-items: baseline;
+  padding: 10px 12px; border-radius: 12px; border: 1px solid var(--glass-border); min-width: 0;
+}
+.audit-header-glyph { grid-row: span 2; font-weight: 700; color: var(--muted); }
+.audit-header[data-present="true"] .audit-header-glyph { color: var(--ok, #2e7d32); }
+.audit-header[data-present="false"] .audit-header-glyph { color: var(--warn, #b26a00); }
+.audit-header-name { font-family: var(--font-mono); font-size: .78rem; color: var(--text); overflow-wrap: anywhere; }
+.audit-header-state { font-size: .74rem; color: var(--muted); }
+.audit-site .audit-list { margin: 0; }
+.audit-unavailable .audit-coverage { max-width: 70ch; }
+
+@media (max-width: 760px) {
+  .audit-categories { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .audit-headers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .audit-site { padding: 18px; }
+  .audit-site-field { grid-template-columns: 1fr; }
+  .audit-headers { grid-template-columns: 1fr; gap: 6px; }
+  .audit-header { grid-template-columns: auto minmax(0, 1fr) auto; padding: 8px 12px; }
+  .audit-header-glyph { grid-row: auto; }
+  .audit-summary { padding: 18px; }
+  .audit-grade-row { grid-template-columns: 1fr; gap: 14px; }
+  .audit-grade { width: 88px; height: 88px; }
+  .audit-grade-letter { font-size: 38px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .audit-category-btn, .audit-summary-row::after { transition: none; }
+}
+
 @media (max-width: 480px) {
   .exposure-shell { padding: 12px; gap: 12px; }
+  #auditRoot { gap: 12px; }
   .exposure-proof, .exposure-findings { padding: 18px; }
   .exposure-heading { line-height: 1.35; }
   .exposure-proof-line { font-size: .92rem; }

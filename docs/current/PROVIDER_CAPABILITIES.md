@@ -46,18 +46,22 @@ mutations remain blocked.
 
 ## GitHub — evidence-bounded alpha subset
 
-Counted from the capability registry: 20 Supported, 15 Experimental, 0 Unavailable. Of those, 15 carry
+Counted from the capability registry: 31 Supported, 4 Experimental, 0 Unavailable. Of those, 26 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; single-commit batch; native push; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; access-surface analysis; dependency audit; recovery; governance; upload security |
-| Experimental | repository create/delete; global search; notifications; file rename; pull-request and issue writes; workflow rerun; release write; bounded search; star read/write; Git LFS; folder move; live events; exposure scanning, whose routes are opt-in and whose risk acceptance stays closed until the capability is Supported |
+| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; access-surface analysis; dependency audit; recovery; governance; upload security |
+| Experimental | repository create/delete; notifications; live events |
 | Unavailable | none at the provider level; connection permissions and invitation scopes still apply |
 
-Repository creation/deletion, global search, and notifications are usable
-experimental operations with deterministic coverage, not new live-provider
-qualification claims. Creation verifies the personal account identity and reads
+Repository creation/deletion and notifications are usable experimental
+operations with deterministic coverage, not live-provider qualification claims,
+and each says why: the harness credential is confined to one disposable
+repository, so it can neither create nor delete one, and GitHub does not serve
+notifications to the fine-grained credential the harness uses. Live events need
+a deployment the provider can deliver webhooks to, which the harness does not
+have. Creation verifies the personal account identity and reads
 the resulting repository back by name and ID. An existing restricted invitation
 must already authorize the exact new repository name; creation never expands
 its scope. With invitations off, the normal connected account can create in its
@@ -91,27 +95,60 @@ pair is proven as one chain: the identity the provider returns for uploaded
 bytes must be the hash git itself gives them, and that identity is then spent
 in a tree whose commit descends from the head the run read, lands both of its
 paths, and refuses a ref move back to its parent. The hosted size ceiling on
-native push is a deployment bound, not a capability limit. Access-surface, dependency-audit, recovery,
-governance, and upload-security decisions use `Deterministic` evidence. Other
-implemented workbench operations remain `Experimental` + `Inferred` until a
-live harness exercises their exact proof contract.
+native push is a deployment bound, not a capability limit.
+
+The workbench operations are proven through the product's own requests, each
+checked against something read independently rather than the provider's
+acknowledgement. A rename re-links the blob at its new path in one commit on
+the observed head and keeps its object identity; a folder move does the same
+for every file under the folder, nested ones included, and leaves nothing at
+the source. Both refuse a destination that already holds something rather than
+replacing it. An issue is created, commented on and closed, each read back, and
+the read-only credential is refused. A pull request is opened between two
+disposable branches, reviewed, refused a merge against a head it no longer has
+and merged against the head it reported -- the pinned head the product now
+sends so a merge confirmed against one set of commits cannot take another. A
+prerelease is published with its tag at the branch head and removed with it.
+The account's star is set, cleared and left as it was found. The scoped code
+query finds the permanent search fixture, only in the target, and a word that
+exists nowhere finds nothing; qualifiers that would widen the scope are
+refused, which is also what makes the hosted-alpha global search the same
+query. A dispatched workflow run is re-run once finished and reported at its
+next attempt. Exposure scanning's reader -- the product's own module -- resolves
+the ref, lists the tree bound to a file the run wrote, reads that blob back
+exactly and walks history to the commit that added it; detection, identity,
+storage and verification are deterministic.
+
+Access-surface, dependency-audit, recovery, governance, and upload-security
+decisions use `Deterministic` evidence.
 
 ## GitLab — registry-qualified subset
 
-Counted from the capability registry: 10 Supported, 5 Experimental, 20 Unavailable. Of those, 9 carry
+Counted from the capability registry: 12 Supported, 3 Experimental, 20 Unavailable. Of those, 11 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; upload security |
-| Experimental | merge-request and issue writes; dependency audit; read-only recovery comparison; governance views |
+| Supported | repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; merge-request and issue writes; upload security |
+| Experimental | dependency audit; read-only recovery comparison; governance views |
 | Unavailable | repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning, which has no repository reader for this provider |
 
 Repository read, branch read/write, bounded file read/write/delete, the recursive
 tree read, and the merge-request and issue list/detail reads use
 `Provider-verified` evidence. Upload security, dependency audit, recovery, and
-governance use `Deterministic` evidence; the latter three remain experimental.
-Merge-request and issue WRITES remain `Experimental` + `Inferred`.
+governance use `Deterministic` evidence; the latter three remain experimental,
+because their provider coverage is genuinely narrower: recovery here compares
+and previews but does not restore, and governance shows policy without enforcing
+it on provider mutations.
+
+Merge-request and issue writes use `Provider-verified` evidence, through the
+product's own GitLab requests: an issue is created, noted and closed by state
+event, each read back, and the `read_api` credential is refused; a merge request
+between two disposable branches is reviewed by note, refused a merge against a
+head it no longer has, and merged against the head it reported, after GitLab
+has finished checking that it can be. GitLab has no review object, so a comment
+review is a note and an approval is its approval; "request changes" has no
+counterpart in its API and is refused by name.
 
 ## Gitea — registry-qualified subset
 

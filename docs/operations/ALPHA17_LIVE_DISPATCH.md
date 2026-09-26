@@ -28,7 +28,8 @@ Shared by every provider:
 | --- | --- |
 | Disposable target repository, `nvx-alpha17-` prefix | `T-rex-G/nvx-alpha17-github-qualification`, private, `main` at a real commit |
 | Actions, pulls, issues and releases reachable on that target | All four answer, and all four carry a permanent fixture — see below |
-| Mutation credential permissions | Metadata read, Contents read and write, Actions read, Issues read, Pull requests read |
+| Code search fixture on the default branch | `NVX_SEARCH_FIXTURE.md` containing the word `nvx-alpha17-search-fixture` — see below |
+| Mutation credential permissions | Repository: Metadata read, Contents read and write, Actions read and write, Issues read and write, Pull requests read and write. Account: Starring read and write |
 | Read-only credential permissions | Metadata read, Contents read. **No write of any kind** |
 | `ALPHA17_GITHUB_REPOSITORY` variable | Confirm — set to the target's `owner/name` |
 | `ALPHA17_GITHUB_MUTATION_CREDENTIAL` secret | Confirm |
@@ -43,7 +44,7 @@ operator setting.
 | --- | --- |
 | Disposable target project, `nvx-alpha17-` prefix | `T-rex-G/nvx-alpha17-gitlab-qualification`, private, `main` at a real commit |
 | Merge requests and issues reachable on that project | Both answer, and both carry a permanent fixture — see below |
-| Mutation credential scope | `api` |
+| Mutation credential scope | `api` — already covers the issue and merge-request writes the leg now proves |
 | Read-only credential scope | `read_api`. **No `api` scope of any kind** |
 | `ALPHA17_GITLAB_REPOSITORY` variable | Confirm — set to the project's `namespace/name`, not its numeric id |
 | `ALPHA17_GITLAB_MUTATION_CREDENTIAL` secret | Confirm |
@@ -93,7 +94,8 @@ GitHub's target carries four permanent objects, each labelled in its own body:
 | Issue, open | `issues.read` detail agreement |
 | Pull request, open, from `nvx-alpha17-fixture-pull` | `pulls.read` detail agreement |
 | Release, published — not a draft, `GET /releases` does not list drafts | `releases.read` detail agreement |
-| One dispatched run of the fixture workflow | `workflows.read` detail agreement |
+| One dispatched run of the fixture workflow | `workflows.read` detail agreement; `workflows.rerun` dispatches the same workflow again and re-runs that new run |
+| `NVX_SEARCH_FIXTURE.md` on the default branch, containing `nvx-alpha17-search-fixture` | `search` and `global-search`: GitHub indexes only the default branch, so the probe cannot search for anything the run itself writes |
 
 GitLab's target carries two:
 
@@ -134,7 +136,25 @@ someone to hold it in their head. An empty listing now fails the run outright.
 So the fixtures are permanent, and GitHub's workflow one is
 `workflow_dispatch` only — on `push` it would fire on every proof branch the
 qualification creates and deletes, and the targets are meant to be inert
-between runs. GitLab has no equivalent fixture because it has no workflow
+between runs. Keep it short: the re-run probe dispatches it, waits about three
+minutes for that run to finish, and fails naming `dispatchedRunCompleted` if it
+has not. A run can only be re-run for thirty days, which is why the probe never
+re-runs the permanent one.
+
+### What a GitHub run leaves behind, on purpose
+
+GitHub offers no way to delete an issue or a pull request over REST, so each
+run leaves one closed issue and one merged pull request, both titled with the
+run they came from. The pull request was merged between two disposable branches
+cut for it — one from the run's branch, one from the default head — and both are
+deleted before the probe reports, with `refsRemoved` recording that they are
+gone; the default branch is never touched. The release and its tag are deleted
+and read back as absent. The account's star is put back the way it was found.
+The dispatched workflow run stays, with two attempts.
+
+GitLab leaves the same two: a closed issue and a merged merge request, both
+titled with their run, the merge request's two disposable branches deleted. A
+project access token cannot delete an issue; only an owner can. GitLab has no equivalent fixture because it has no workflow
 probe, but the same rule applies to its project: if you add CI there, keep it
 off `push`.
 
@@ -201,7 +221,9 @@ passes, and run 64 did exactly that. Both artifacts bind to the same
 
 Every provider runs the same mutation sequence on a disposable branch it creates
 and removes, then whatever probes its own contract adds. GitHub records
-seventeen checks, GitLab fourteen.
+twenty-nine checks for twenty-six capabilities, GitLab sixteen for eleven.
+Run 65's seventeen GitHub and fourteen GitLab checks predate the write probes
+below.
 
 Shared by both:
 
@@ -216,11 +238,26 @@ GitHub only:
 
 - provider rate-limit ceiling and remaining budget
 - release and workflow-run list/detail agreement
+- the push chain (object identity, single-commit batch) and the LFS store
+- the capability probes, each through the product's own requests: the
+  exposure reader against the run's branch; a rename and a folder move that
+  keep object identity on the observed head; an issue created, commented on,
+  closed and refused to the read-only credential; a pull request reviewed,
+  refused a merge against a stale head and merged against the reported one; a
+  prerelease and its tag published and removed; the account's star set and
+  restored; the scoped code search against its fixture; a workflow re-run
 
 Both, over their own objects:
 
 - pull-request (merge-request) and issue list/detail agreement with
   absent-identifier discrimination
+- an issue created, commented on (a note on GitLab) and closed, each read back,
+  and refused to the read-only credential
+- a pull request (merge request) between two disposable branches, reviewed,
+  refused a merge against a stale head and merged against the reported one;
+  both branches are deleted and read back as gone. On GitLab the probe waits
+  for the mergeability check to finish first, so the project must not require a
+  pipeline to merge
 
 ### The concurrency proof, and why it is two checks
 

@@ -45,7 +45,27 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
      * different host, authenticates differently, and stores bytes outside the
      * git tree entirely -- so a passing blob proof says nothing about it.
      */
-    lfs: ['lfs-object-upload']
+    lfs: ['lfs-object-upload'],
+    /*
+     * Everything the registry called Experimental with the reason
+     * "implemented, but not exercised by the alpha.17 live-provider harness".
+     * Each is exercised now through the product's own requests, and each
+     * claim rests on the probe that walks exactly its route. The two star
+     * capabilities share one probe because the product reads a star through
+     * the same endpoint it sets one, and neither proof means anything alone.
+     */
+    'exposure.scan': ['exposure-read'],
+    'file.rename': ['file-rename'],
+    'folder.move': ['folder-move'],
+    'issues.write': ['issue-write'],
+    'pulls.write': ['pull-write'],
+    'releases.write': ['release-write'],
+    'stars.read': ['star-toggle'],
+    'stars.write': ['star-toggle'],
+    search: ['code-search'],
+    /* In the hosted alpha, the same scoped query once per invitation repository. */
+    'global-search': ['code-search'],
+    'workflows.rerun': ['workflow-rerun']
   },
   gitlab: {
     'repository.read': ['repository-read'],
@@ -65,7 +85,14 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
     'branches.write': ['disposable-branch-create', 'cleanup-absence'],
     'file.read': ['utf8-readback'],
     'file.write': ['expected-head-write', 'conditional-update', 'stale-head', 'permission-denial'],
-    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
+    'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence'],
+    /*
+     * The same write proofs GitHub carries, through GitLab's own requests: an
+     * issue by state event and note, a merge request reviewed by note and
+     * merged against a pinned head between two disposable branches.
+     */
+    'issues.write': ['issue-write'],
+    'pulls.write': ['pull-write']
   },
   /*
    * Gitea's entry is back, and with it the declaration-before-evidence order
@@ -261,6 +288,73 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
         deduplicatedOnRepeat: true,
         pointerCommitted: false
       }
+    },
+    /*
+     * The exposure reader, the product's own module, run against the branch:
+     *
+     *   refResolved      the ref resolves to the head the branch reports;
+     *   treeBound        the tree at that commit names the proof file under
+     *                    the identity the contents API gave it;
+     *   blobTextMatched  that blob reads back as the exact proof text;
+     *   historyReached   walking history reaches the commit that added the
+     *                    file, with the proof line as an added line -- the
+     *                    line a history scan would report a leak on.
+     */
+    {
+      key: 'exposure-read',
+      fields: { status: 'pass', statusClass: '2xx', refResolved: true, treeBound: true, blobTextMatched: true, historyReached: true }
+    },
+    /*
+     * A rename re-links the blob at the new path in one commit on the
+     * observed head. identityPreserved is the proof it was re-linked and not
+     * re-uploaded or altered; sourceRemoved that it moved rather than copied.
+     */
+    {
+      key: 'file-rename',
+      fields: { status: 'pass', statusClass: '2xx', parentIsObservedHead: true, identityPreserved: true, sourceRemoved: true }
+    },
+    {
+      key: 'folder-move',
+      fields: {
+        status: 'pass', statusClass: '2xx', filesMoved: '$positive-integer',
+        parentIsObservedHead: true, identitiesPreserved: true, sourceEmptied: true
+      }
+    },
+    /* Created, commented and closed, each read back; the read-only credential refused. */
+    {
+      key: 'issue-write',
+      fields: { status: 'pass', statusClass: '2xx', createdReadBack: true, commentReadBack: true, closedReadBack: true, readOnlyRefused: true }
+    },
+    /*
+     * Opened and reviewed, then merged with a pinned head: the provider
+     * refuses the merge against a head it no longer has and accepts it
+     * against the head it reported, onto a disposable base -- and both
+     * disposable branches are gone afterwards.
+     */
+    {
+      key: 'pull-write',
+      fields: {
+        status: 'pass', statusClass: '2xx', createdReadBack: true, reviewRecorded: true,
+        staleHeadRefused: true, mergedIntoBase: true, refsRemoved: true
+      }
+    },
+    {
+      key: 'release-write',
+      fields: { status: 'pass', statusClass: '2xx', createdReadBack: true, tagAtTarget: true, cleanupAbsent: true }
+    },
+    {
+      key: 'star-toggle',
+      fields: { status: 'pass', statusClass: '2xx', starVisible: true, unstarVisible: true, initialStateRestored: true }
+    },
+    /* The scoped query finds the permanent fixture, only in the target, and a word that exists nowhere finds nothing. */
+    {
+      key: 'code-search',
+      fields: { status: 'pass', statusClass: '2xx', fixtureFound: true, resultsScoped: true, absentDiscriminated: true }
+    },
+    /* A dispatched run, finished, re-run through the product's request, reported at its next attempt. */
+    {
+      key: 'workflow-rerun',
+      fields: { status: 'pass', statusClass: '2xx', dispatchedRunCompleted: true, rerunAccepted: true, attemptAdvanced: true }
     }
   ],
   gitlab: [
@@ -294,7 +388,18 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
         detailAgreed: true,
         absentDiscriminated: true
       }
-    }))
+    })),
+    {
+      key: 'issue-write',
+      fields: { status: 'pass', statusClass: '2xx', createdReadBack: true, commentReadBack: true, closedReadBack: true, readOnlyRefused: true }
+    },
+    {
+      key: 'pull-write',
+      fields: {
+        status: 'pass', statusClass: '2xx', createdReadBack: true, reviewRecorded: true,
+        staleHeadRefused: true, mergedIntoBase: true, refsRemoved: true
+      }
+    }
   ],
   gitea: []
 });

@@ -6626,7 +6626,12 @@ async function openPR(num) {
           try {
             const merged = await stepUpApi('pull.merge', {
               owner: state.work.owner, repo: state.work.repo, pullNumber: p.number, method: m
-            }, `/api/repo/${wPath()}/pulls/${p.number}/merge`, { method: 'PUT', body: { method: m } }, `${label} PR #${p.number}`);
+            }, `/api/repo/${wPath()}/pulls/${p.number}/merge`, {
+              method: 'PUT',
+              /* The head on screen is the head that merges; the server
+                 refuses the merge if the branch has moved since. */
+              body: p.headSha ? { method: m, expectedHeadSha: p.headSha } : { method: m }
+            }, `${label} PR #${p.number}`);
             if (!merged) return;
             if (p.base === state.work.branch) rememberHead(merged.sha, p.base);
             await refreshRepoMetadata().catch(() => {});

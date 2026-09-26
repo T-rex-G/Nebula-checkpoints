@@ -333,7 +333,14 @@ async function runProviderProbes({ provider, client, target, proofPath, readback
   if (typeof client.probeChecks !== 'function') {
     fail('provider client does not implement the probes its contract requires', 'ALPHA17_PROVIDER_INVALID');
   }
-  const probes = await client.probeChecks({ branch: target.branch, prefix: target.prefix, proofPath, proofFileSha: readback.sha });
+  const probes = await client.probeChecks({
+    branch: target.branch,
+    prefix: target.prefix,
+    proofPath,
+    proofFileSha: readback.sha,
+    /* Already verified byte for byte against what was written. */
+    proofText: Buffer.from(readback.content).toString('utf8')
+  });
   if (!Array.isArray(probes) || probes.length !== expected.length) {
     fail('provider probes do not match the provider proof contract', 'ALPHA17_PROVIDER_PROBE_INVALID');
   }

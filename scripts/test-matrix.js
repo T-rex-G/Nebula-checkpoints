@@ -29,7 +29,16 @@ try {
   const summary = `${report.counts.total} test programs: ${report.counts.passed} passed, ${report.counts.blocked} blocked, ${report.counts.failed} failed`;
   process.stdout.write(`${summary}\nreportHash=${report.reportHash}\n`);
   for (const test of report.tests.filter(item => item.status !== 'pass')) {
-    process.stdout.write(`${test.status.toUpperCase()} ${test.path}${test.blockedModule ? ` (${test.blockedModule})` : ''}\n`);
+    /*
+     * How it ended, never what it printed: the report keeps output as hashes
+     * only, and a bare file name left a failing candidate run with nothing to
+     * diagnose from.
+     */
+    const ended = test.blockedModule ? test.blockedModule
+      : test.timedOut ? `timed out after ${test.durationMs} ms`
+        : test.signal ? `killed by ${test.signal} after ${test.durationMs} ms`
+          : `exit ${test.exitCode} after ${test.durationMs} ms`;
+    process.stdout.write(`${test.status.toUpperCase()} ${test.path} (${ended})\n`);
   }
   if (args.report) {
     const target = path.resolve(args.report);

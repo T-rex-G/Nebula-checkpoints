@@ -1,9 +1,10 @@
 'use strict';
 
 /*
- * The Audit tab: a grade that rests on what was read, the four families it is
- * built from, findings that open into their reason, fix and prompt, a brief
- * to export, and the comparison with the last audit of the same repository.
+ * The Audit tab: a grade that rests on what was read, the three jobs to do
+ * first, the five families it is built from, findings that open into their
+ * reason, fix, advisories and prompt, a brief to export, and the comparison
+ * with the last audit of the same repository.
  */
 
 const { test, expect } = require('@playwright/test');
@@ -29,17 +30,50 @@ test('an audit grades the branch, names what it read and explains every finding'
   /* A critical SQL finding holds the grade below 50 and says so. */
   await expect(pane.locator('.audit-grade')).toHaveAttribute('aria-label', /^Grade F, \d{1,2} out of 100$/);
   await expect(pane).toContainText('Held below 50 while a critical finding is open.');
-  await expect(pane).toContainText(/Read \d+ of \d+ files it audits at a{7}/);
+  await expect(pane.locator('.audit-verdict').first()).toHaveText('1 critical issue to fix');
+  /* The evidence as figures, the sentence behind them as the strip's name. */
+  const evidence = pane.locator('.audit-evidence');
+  await expect(evidence).toHaveAttribute('aria-label', /^Read \d+ of \d+ files it audits at a{7} · 3 of 3 packages checked against their registry · 3 of 3 package versions checked against OSV\.$/);
+  await expect(evidence).toContainText('3 versions');
 
-  /* Four families, each with its own reading. */
+  /* Three jobs first, no two from the same rule; the first opens its finding. */
+  const first = pane.getByRole('list').filter({ has: page.locator('.audit-first-item') }).locator('.audit-first-btn');
+  await expect(first).toHaveCount(3);
+  await expect(first.nth(0)).toContainText('A SQL statement is built by string interpolation');
+  await first.nth(0).click();
+  await expect(pane.locator('details[open]', { hasText: 'A SQL statement is built' })).toHaveCount(1);
+  await expect(pane.locator('.audit-item', { hasText: 'A SQL statement is built' }).locator('summary')).toBeFocused();
+
+  /* Five families, each with its own reading. */
   const families = pane.getByRole('list', { name: 'Audit families' }).getByRole('button');
-  await expect(families).toHaveCount(4);
+  await expect(families).toHaveCount(5);
   await expect(families.nth(1)).toContainText('Code security');
+  await expect(families.nth(2)).toContainText('Secrets');
+
+  /* A committed credential is named by its kind, never shown. */
+  const secret = pane.locator('.audit-item', { hasText: 'A credential is committed to the repository' });
+  await expect(secret).toContainText('Database connection string with its password');
+  await expect(pane).not.toContainText('Tr0ub4dor');
+
+  /* A vulnerable version opens into its advisories, each linked to OSV, and the version that fixes them. */
+  const vulnerable = pane.locator('.audit-item', { hasText: 'A dependency version has a published vulnerability' });
+  await expect(vulnerable).toContainText('lodash 4.17.15 → 4.17.21');
+  await vulnerable.locator('summary').click();
+  await expect(vulnerable.getByRole('link', { name: /GHSA-35jh-r3h4-6jhm/ })).toHaveAttribute('href', 'https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm');
+  await expect(vulnerable).toContainText('CVE-2021-23337');
+  await expect(pane.locator('.audit-item', { hasText: 'one keystroke from a popular package' })).toContainText('crossenv ≈ cross-env');
+
+  /* Severity narrows the list, and All brings it back. */
+  const severity = pane.getByRole('group', { name: 'Show by severity' });
+  await severity.getByRole('button', { name: /^Critical/ }).click();
+  await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(1);
+  await severity.getByRole('button', { name: /^All/ }).click();
+  await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(8);
 
   /* A finding opens into its reason, its fix and a prompt, and never quotes the code. */
   const sql = pane.locator('.audit-item', { hasText: 'A SQL statement is built by string interpolation' });
   await expect(sql).toHaveAttribute('data-severity', 'critical');
-  await sql.locator('summary').click();
+  /* Already open: Fix first opened it. */
   await expect(sql).toContainText('Use parameterised queries');
   await expect(sql.getByRole('button', { name: 'Open api/users.js:1' })).toBeVisible();
   await expect(sql.getByRole('button', { name: 'Copy fix prompt' })).toBeVisible();
@@ -48,8 +82,8 @@ test('an audit grades the branch, names what it read and explains every finding'
   /* Filtering by a family shows only its findings, and can be undone. */
   await pane.getByRole('button', { name: /Project hygiene/ }).click();
   await expect(pane.getByRole('heading', { name: 'Findings — Project hygiene' })).toBeVisible();
-  /* Open-ended versions and no lockfile: the two hygiene findings the project has. */
-  await expect(pane.locator('.audit-item')).toHaveCount(2);
+  /* Open-ended versions: the one hygiene finding the project has, now that it commits a lockfile. */
+  await expect(pane.locator('.audit-item')).toHaveCount(1);
   await expect(pane.locator('.audit-item', { hasText: 'SQL' })).toHaveCount(0);
   await pane.getByRole('button', { name: 'Show all' }).click();
   await expect(pane.getByRole('heading', { name: 'Findings', exact: true })).toBeVisible();
@@ -62,7 +96,10 @@ test('an audit grades the branch, names what it read and explains every finding'
   const text = require('fs').readFileSync(await file.path(), 'utf8');
   expect(text).toContain('# Security audit: sandbox/demo (main)');
   expect(text).toContain('A SQL statement is built by string interpolation');
+  expect(text).toContain('**Fix first:**');
+  expect(text).toContain('- **Advisories:** GHSA-35jh-r3h4-6jhm (CVE-2021-23337), GHSA-p6mc-m468-83gw (CVE-2020-8203)');
   expect(text).not.toContain('SELECT * FROM users');
+  expect(text).not.toContain('Tr0ub4dor');
 
   /* The next audit compares itself with this one: the SQL is fixed, nothing is new. */
   await pane.getByRole('button', { name: 'Audit again' }).click();

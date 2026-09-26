@@ -51,6 +51,27 @@ const ui = require('../public/code-audit-ui');
   assert.strictEqual(ui.allPrompts(null), '');
   assert.match(ui.allPrompts(site), /^1\. On the deployed site \(\/\.env\): /);
 
+  /* What a finding adds to its rule travels with it: the credential's kind, the advisories, the fix first. */
+  const token = `gh${'p'}_${'B'.repeat(36)}`;
+  const richFiles = [
+    { path: 'scripts/release.sh', text: `export GITHUB_TOKEN=${token}\n` },
+    { path: 'package.json', text: JSON.stringify({ dependencies: { lodash: '4.17.15' } }, null, 2) }
+  ];
+  const rich = {
+    ...analyse({ files: richFiles, paths: richFiles.map(file => file.path), advisories: new Map([['npm:lodash@4.17.15', { advisories: [
+      { id: 'GHSA-35jh-r3h4-6jhm', cve: 'CVE-2021-23337', rated: true, severity: 'serious', summary: 'Command Injection in lodash', fixed: '4.17.21', malicious: false }
+    ] }]]) }),
+    commitSha: 'd'.repeat(40),
+    coverage: { read: 2, eligible: 2, packages: {}, advisories: { versions: 1, checked: 1, unknown: 0, notChecked: 0, lockfiles: 1, lockfilesRead: 0 }, skipped: {} }
+  };
+  const richBrief = ui.brief(rich, 'sandbox/demo (main)', null);
+  assert.match(richBrief, /\*\*Fix first:\*\*\n\n1\. A credential is committed to the repository — `scripts\/release\.sh:1`/);
+  assert.match(richBrief, /- \*\*Credential:\*\* GitHub access token/);
+  assert.match(richBrief, /- \*\*Package:\*\* lodash 4\.17\.15\n- \*\*Fixed in:\*\* 4\.17\.21\n- \*\*Advisories:\*\* GHSA-35jh-r3h4-6jhm \(CVE-2021-23337\)/);
+  assert.match(richBrief, /1 of 1 package versions checked against OSV/);
+  assert.match(richBrief, /a lockfile was not read \(over 512 KB or past the budget\), so declared ranges stood in for installed versions/);
+  assert(!richBrief.includes(token), 'the credential is never in the brief');
+
   /* The comparison: identities only, new and resolved. */
   assert.strictEqual(ui.diff(result, null), null);
   const changed = ui.diff(result, { at: '2026-09-25T00:00:00.000Z', ids: [result.findings[0].id, 'f'.repeat(24)] });

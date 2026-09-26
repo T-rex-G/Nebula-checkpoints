@@ -55,7 +55,7 @@
     "@fontsource/ibm-plex-mono": "5.3.0",
     "codemirror": "5.65.16",
     "dompurify": "3.4.13",
-    "express": "4.22.2",
+    "express": "4.22.3",
     "marked": "15.0.12",
     "pg": "8.22.0",
     "three": "0.185.1"

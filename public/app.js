@@ -2515,6 +2515,53 @@ function fillBranchSelect(sel, names, selected, withGlyph) {
     sel.appendChild(o);
   });
 }
+/*
+ * The files card on a desk can step aside for the tool beside it. It is a
+ * viewer's preference, not repository data, so it lives in this browser and
+ * outlives the repository that was open. On a phone the files are a drawer
+ * already and none of this applies; the card is made inert only while it is
+ * out of sight on a desk, so a hidden tree is never reachable by Tab.
+ */
+const FILES_HIDDEN_KEY = 'nv_files_hidden';
+let filesHidden = false;
+try { filesHidden = localStorage.getItem(FILES_HIDDEN_KEY) === '1'; } catch {}
+function applyFilesHidden() {
+  const workspace = $('#page-work .workspace');
+  const side = $('#side');
+  if (!workspace || !side) return;
+  const hidden = filesHidden && !isMobile();
+  workspace.classList.toggle('files-hidden', hidden);
+  if (hidden) side.setAttribute('inert', '');
+  else side.removeAttribute('inert');
+  const label = hidden ? 'Show files' : 'Hide files';
+  const toggle = $('#filesToggle');
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', String(!hidden));
+    toggle.setAttribute('aria-label', label);
+    toggle.title = `${label} (Ctrl+B)`;
+  }
+}
+function setFilesHidden(hidden) {
+  const returning = document.activeElement && $('#side') && $('#side').contains(document.activeElement);
+  filesHidden = Boolean(hidden);
+  try { localStorage.setItem(FILES_HIDDEN_KEY, filesHidden ? '1' : '0'); } catch {}
+  applyFilesHidden();
+  /* Focus inside a card that has just gone inert would be lost; hand it to the control that brings it back. */
+  if (filesHidden && returning) $('#filesToggle')?.focus({ preventScroll: true });
+}
+$('#filesToggle')?.addEventListener('click', () => setFilesHidden(!filesHidden));
+$('#filesCollapse')?.addEventListener('click', () => setFilesHidden(true));
+document.addEventListener('keydown', event => {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || String(event.key).toLowerCase() !== 'b') return;
+  if (!$('#page-work')?.classList.contains('active') || isMobile()) return;
+  if (event.target && event.target.closest && event.target.closest('.CodeMirror, textarea, [contenteditable="true"]')) return;
+  event.preventDefault();
+  setFilesHidden(!filesHidden);
+});
+window.addEventListener('resize', applyFilesHidden);
+applyFilesHidden();
+$('#safeguardsBtn')?.addEventListener('click', () => runCapabilityAction('recovery', () => openSafeguards()));
+
 $('#syncBtn').addEventListener('click', async () => {
   if (!state.work.repo) return;
   hapt();
@@ -4790,7 +4837,7 @@ async function toggleProtect(p) {
  * previous session never paints this one. The comparison with the last audit
  * keeps fingerprints only, and the account-boundary purge removes them.
  */
-let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null };
+let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null };
 let auditRequest = 0;
 /*
  * The deployed-site check sits beside it, bound to the repository rather than
@@ -4818,7 +4865,7 @@ function freshSiteView() {
 function clearAuditState() {
   auditRequest++;
   siteRequest++;
-  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null };
+  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null };
   siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
   const root = $('#auditRoot');
   if (root) root.replaceChildren();
@@ -4826,13 +4873,18 @@ function clearAuditState() {
 async function copyPrompt(text, control) {
   try {
     await navigator.clipboard.writeText(text);
-    if (control) { control.textContent = 'Copied'; setTimeout(() => { control.textContent = 'Copy fix prompt'; }, 1600); }
+    const label = control && (control.querySelector('.audit-btn-label') || control);
+    if (label) {
+      label.textContent = 'Copied';
+      control.dataset.copied = 'true';
+      setTimeout(() => { label.textContent = 'Copy fix prompt'; delete control.dataset.copied; }, 1600);
+    }
   } catch { toast('The clipboard is not available here', 'err'); }
 }
 function paintAudit() {
   const root = $('#auditRoot');
   if (!root || !window.NebulaCodeAudit) return;
-  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null };
+  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null, severity: null };
   if (siteView.key !== siteKey()) siteView = freshSiteView();
   const repository = window.NebulaCapabilityUI.decision('code-audit');
   window.NebulaCodeAudit.render(root, {
@@ -4847,7 +4899,8 @@ function paintAudit() {
       catch { toast('The clipboard is not available here', 'err'); }
     },
     onRun: runAudit,
-    onFilter: filter => { auditView.filter = filter; paintAudit(); },
+    onFilter: filter => { auditView.filter = filter; auditView.severity = null; paintAudit(); },
+    onSeverity: severity => { auditView.severity = severity; paintAudit(); },
     onOpen: finding => openAuditFinding(finding),
     onCopy: (finding, control) => copyPrompt(finding.prompt, control),
     onCopyAll: async () => {
@@ -4898,7 +4951,7 @@ async function runAudit() {
     const repoKey = `${state.work.owner}/${state.work.repo}`;
     const previous = window.NebulaCodeAudit.readPrevious(repoKey);
     window.NebulaCodeAudit.remember(repoKey, result);
-    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null };
+    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null, severity: null };
   } catch (error) {
     if (request !== auditRequest || epoch !== state.uiEpoch || key !== auditKey()) return;
     auditView = { ...auditView, status: 'error', error: error.message || 'The audit could not be completed.' };
@@ -5761,7 +5814,7 @@ $('#sheet').addEventListener('click', e => {
   runCapabilityAction(item.dataset.feature, () => {
     closeSheet();
     const act = item.dataset.act;
-    if (['pulls', 'issues', 'releases', 'compare', 'actions', 'neural', 'governance', 'exposure'].includes(act)) switchTab(act);
+    if (['pulls', 'issues', 'releases', 'compare', 'actions', 'neural', 'governance', 'exposure', 'audit'].includes(act)) switchTab(act);
     else if (act === 'palette') openPalette();
     else if (act === 'zip') downloadZip();
     else if (act === 'branches') openBranchManager();
@@ -5800,6 +5853,7 @@ const COMMANDS = [
    */
   { label: 'Governance', kind: 'view', feature: 'governance', allowExperimental: true, run: () => switchTab('governance') },
   { label: 'Exposure', kind: 'view', feature: 'exposure.scan', allowExperimental: true, run: () => switchTab('exposure') },
+  { label: 'Audit — code and site scanner', kind: 'view', feature: 'site-check', run: () => switchTab('audit') },
   { label: 'Manage branches', kind: 'action', feature: 'branches.write', run: () => openBranchManager() },
   { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', allowExperimental: true, run: () => toggleStar() },
   { label: 'Open the Time Machine', kind: 'action', feature: 'recovery', run: () => openTimeMachine() },
@@ -5935,12 +5989,12 @@ function paintRail(name) {
   rail.hidden = !RAIL_SCREENS.has(name);
   const activeTab = ($('.tabpane.active') || {}).id || '';
   /*
-   * Three of the workbench's tabs are destinations in their own right rather
+   * Four of the workbench's tabs are destinations in their own right rather
    * than views of the file it has open, and the rail offers them as such -- so
    * when one of them is what the reader is looking at, the rail marks that
    * entry rather than the workbench it technically sits inside.
    */
-  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance', 'tab-exposure': 'exposure' };
+  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance', 'tab-exposure': 'exposure', 'tab-audit': 'audit' };
   const shown = name === 'work' && promoted[activeTab] ? promoted[activeTab] : name;
   $$('.nv-rail-item').forEach(item => {
     const current = item.dataset.rail === shown;
@@ -6026,9 +6080,8 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   if (target === 'repos') return showPage('repos');
   if (!state.work) return toast('Open a repository first.', 'err');
   showPage('work');
-  if (target === 'neural' || target === 'governance' || target === 'exposure') switchTab(target);
+  if (['neural', 'governance', 'exposure', 'audit'].includes(target)) switchTab(target);
   else paintRail('work');
-  if (target === 'safeguards') openSafeguards();
 }));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));
 $('#paletteInput').addEventListener('keydown', e => {

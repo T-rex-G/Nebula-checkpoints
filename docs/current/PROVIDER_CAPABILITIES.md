@@ -127,9 +127,15 @@ rule is fixture-tested firing and staying quiet. The audit reads the branch
 through the same Provider-verified reader as exposure scanning -- files are read,
 judged and dropped, and findings name a path and a line, never the code -- and
 asks the public npm and PyPI registries whether each declared package exists,
-reading an unanswered lookup as unknown rather than missing. Its grade is held
-below 50 while a critical finding is open, and it states how much of the
-branch it read. The site check makes at most ten anonymous requests to the
+reading an unanswered lookup as unknown rather than missing. It asks OSV --
+anonymously, through the guarded transport's advisory profile, which can reach
+`api.osv.dev` and nothing else -- which installed versions (from the lockfile,
+or a declared range's floor, marked as such) have a published or malicious-
+package advisory. It reports credentials with the same detectors as exposure
+scanning, keeping only the detector's name and the line, and reads Supabase
+migrations and Firebase rules for tables and paths anyone can read or write.
+Its grade is held below 50 while a critical finding is open, and it states how
+much of the branch, how many packages and how many versions it checked. The site check makes at most ten anonymous requests to the
 origin a user names -- following up to three HTTPS redirects to the page a
 visitor actually lands on -- through the guarded transport's site profile: HTTPS on
 443 to a public address, no credential and no cookie, bodies cut after a few

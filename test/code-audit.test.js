@@ -11,7 +11,7 @@ const assert = require('assert');
 const audit = require('../src/code-audit');
 
 function run(files, extra = {}) {
-  return audit.analyse({ files, paths: extra.paths || files.map(file => file.path), registry: extra.registry });
+  return audit.analyse({ files, paths: extra.paths || files.map(file => file.path), registry: extra.registry, advisories: extra.advisories });
 }
 function rules(result) {
   return result.findings.map(finding => `${finding.rule}@${finding.path || '-'}:${finding.line || '-'}`).sort();
@@ -206,6 +206,218 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   assert.strictEqual(audit.registryUrl({ ecosystem: 'pypi', name: 'Requests_Toolbelt' }), 'https://pypi.org/pypi/requests-toolbelt/json');
 }
 
+/* ---- Requests handed to a redirect, a fetch or the file system ------------------- */
+{
+  fires('open redirect', [...BASE, { path: 'src/auth.js', text: 'app.get("/done", (req, res) => res.redirect(req.query.next));\n' }], ['SEC-020']);
+  fires('flask open redirect', [...BASE, { path: 'app.py', text: 'return redirect(request.args.get("next"))\n' }], ['SEC-020']);
+  quiet('fixed redirect', [...BASE, { path: 'src/auth.js', text: 'res.redirect(safeNext(req.query.next) || "/");\nres.redirect("/home");\n' }], ['SEC-020']);
+
+  fires('request-forged fetch', [...BASE, { path: 'src/proxy.js', text: 'const upstream = await fetch(req.query.url);\n' }], ['SEC-021']);
+  fires('python request forgery', [...BASE, { path: 'app.py', text: 'r = requests.get(request.args["u"], timeout=5)\n' }], ['SEC-021']);
+  quiet('fetch of a known host', [...BASE, { path: 'src/proxy.js', text: 'const upstream = await fetch(`https://api.example.test/items/${encodeURIComponent(req.query.id)}`);\n' }], ['SEC-021']);
+
+  fires('path from the request', [...BASE, { path: 'src/files.js', text: 'res.sendFile(path.join(__dirname, "uploads", req.params.name));\n' }], ['SEC-022']);
+  fires('python path from the request', [...BASE, { path: 'app.py', text: 'return send_file(os.path.join(BASE, request.args["f"]))\n' }], ['SEC-022']);
+  quiet('path reduced to a name', [...BASE, { path: 'src/files.js', text: 'res.sendFile(path.join(UPLOADS, path.basename(String(req.params.name))));\n' }], ['SEC-022']);
+  quiet('said in a string', [...BASE, { path: 'src/doc.js', text: 'const hint = "never write res.redirect(req.query.next) or fetch(req.query.url)";\n' }], ['SEC-020', 'SEC-021']);
+}
+
+/* ---- Database rules: Supabase row level security and Firebase ------------------- */
+{
+  const supabase = { path: 'package.json', text: JSON.stringify({ dependencies: { '@supabase/supabase-js': '^2.45.0' } }, null, 2) };
+  const migration = [
+    '-- profiles; this comment mentions create table fake (id int);',
+    'create table public.profiles (',
+    '  id uuid primary key,',
+    "  bio text default 'a; b'",
+    ');',
+    'create table if not exists "orders" (id bigint);',
+    'alter table orders enable row level security;',
+    'create table notes (id int);',
+    'alter table notes enable row level security;',
+    'alter table notes disable row level security;',
+    'create policy "anyone writes" on orders for insert with check (true);',
+    'create policy "anyone reads" on orders for select using (true);',
+    'create function f() returns void as $$ begin perform 1; end; $$ language plpgsql;',
+    'create table private.audit_log (id int);'
+  ].join('\n');
+  const result = fires('open tables', [...BASE, supabase, { path: 'supabase/migrations/20240101000000_init.sql', text: migration }], ['SEC-014', 'SEC-015', 'SEC-016']);
+  const at = rule => result.findings.filter(item => item.rule === rule).map(item => item.line);
+  assert.deepStrictEqual(at('SEC-015'), [2], 'profiles is created in public and never protected; orders is protected; a private schema is not served');
+  assert.deepStrictEqual(at('SEC-014'), [10], 'notes ends up disabled');
+  assert.deepStrictEqual(at('SEC-016'), [11], 'an open insert policy; a public read policy is often the point');
+  assert.strictEqual(result.findings.find(item => item.rule === 'SEC-014').severity, 'critical');
+
+  /* A later migration that fixes an earlier one is fixed. */
+  quiet('fixed later', [...BASE, supabase,
+    { path: 'supabase/migrations/20240101_a.sql', text: 'create table profiles (id int);\nalter table profiles disable row level security;\n' },
+    { path: 'supabase/migrations/20240202_b.sql', text: 'alter table public.profiles enable row level security;\n' }], ['SEC-014', 'SEC-015']);
+  /* Without Supabase, a table without row level security is how most databases work. */
+  quiet('plain postgres', [...BASE, { path: 'db/schema.sql', text: 'create table users (id int);\n' }], ['SEC-015']);
+
+  const firestore = [
+    "rules_version = '2';",
+    'service cloud.firestore {',
+    '  match /databases/{database}/documents {',
+    '    match /products/{id} {',
+    '      allow read: if true;',
+    '    }',
+    '    match /{document=**} {',
+    '      allow read, write: if request.time < timestamp.date(2030, 1, 1);',
+    '    }',
+    '  }',
+    '}'
+  ].join('\n');
+  const rules = fires('test-mode rules', [...BASE, { path: 'firestore.rules', text: firestore }], ['SEC-017']);
+  assert.deepStrictEqual(rules.findings.filter(item => item.rule === 'SEC-017').map(item => item.line), [8]);
+  assert(!rules.findings.some(item => item.rule === 'SEC-018'), 'a public product catalogue is not a leak');
+  const everything = fires('catch-all read', [...BASE, { path: 'firestore.rules', text: firestore.replace('allow read, write: if request.time < timestamp.date(2030, 1, 1);', 'allow read: if true;\n      allow write: if request.auth != null;') }], ['SEC-018']);
+  assert(!everything.findings.some(item => item.rule === 'SEC-017'));
+  quiet('owner-only rules', [...BASE, { path: 'firestore.rules', text: 'service cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{uid} {\n      allow read, write: if request.auth != null && request.auth.uid == uid;\n    }\n  }\n}\n' }], ['SEC-017', 'SEC-018']);
+  fires('realtime database open', [...BASE, { path: 'database.rules.json', text: '{\n  "rules": {\n    ".read": true,\n    ".write": true\n  }\n}\n' }], ['SEC-017', 'SEC-018']);
+  quiet('realtime database closed', [...BASE, { path: 'database.rules.json', text: '{ "rules": { ".read": "auth != null", ".write": false } }' }], ['SEC-017', 'SEC-018']);
+
+  fires('service role in a client component', [...BASE, { path: 'app/dashboard/page.tsx', text: '"use client";\nconst admin = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY);\n' }], ['SEC-019']);
+  quiet('service role on the server', [...BASE, { path: 'app/api/admin/route.ts', text: '"use client";\nconst admin = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY);\n' },
+    { path: 'lib/admin.ts', text: 'const admin = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY);\n' }], ['SEC-019']);
+}
+
+/* ---- Secrets ------------------------------------------------------------------- */
+{
+  const token = `gh${'p'}_${'A'.repeat(36)}`;
+  const result = fires('committed token', [...BASE, { path: 'scripts/release.sh', text: `#!/bin/sh\nexport GITHUB_TOKEN=${token}\n` }], ['SCR-001']);
+  const finding = result.findings.find(item => item.rule === 'SCR-001');
+  assert.strictEqual(finding.line, 2);
+  assert.strictEqual(finding.category, 'secrets');
+  assert.strictEqual(finding.severity, 'critical');
+  assert.strictEqual(finding.detail.credential, 'GitHub access token');
+  assert(!JSON.stringify(result).includes(token), 'the credential never leaves the audit');
+  assert.match(finding.prompt, /\(GitHub access token\)/);
+  assert.strictEqual(result.categories.find(category => category.id === 'secrets').score, 60);
+  quiet('placeholder', [...BASE, { path: '.env.example', text: 'GITHUB_TOKEN=\nSTRIPE_KEY=your-key-here\n' }], ['SCR-001']);
+  quiet('a fixture in a test', [...BASE, { path: 'test/release.test.js', text: `const token = '${token}';\n` }], ['SCR-001']);
+  const local = ['postgresql://postgres:', 'postgres@localhost:5432/app'].join('');
+  const remote = ['postgresql://app:', 'Sup3rS3cretPassw0rd@db.example.com:5432/app'].join('');
+  quiet('a local database', [...BASE, { path: '.github/workflows/ci.yml', text: `env:\n  DATABASE_URL: ${local}\n` }], ['SCR-001']);
+  fires('a remote database', [...BASE, { path: 'deploy/config.yml', text: `env:\n  DATABASE_URL: ${remote}\n` }], ['SCR-001']);
+}
+
+/* ---- Published vulnerabilities and look-alike names ------------------------------ */
+{
+  const manifest = { path: 'package.json', text: JSON.stringify({
+    dependencies: { lodash: '^4.17.0', axios: '^1.6.0', crossenv: '^1.0.0', 'left-pad': '1.3.0', 'event-stream': '3.3.6' },
+    devDependencies: { minimist: '^1.2.0' }
+  }, null, 2) };
+  const lock = { path: 'package-lock.json', text: JSON.stringify({
+    lockfileVersion: 3,
+    packages: {
+      '': { name: 'app' },
+      'node_modules/lodash': { version: '4.17.15' },
+      'node_modules/axios': { version: '1.7.4' },
+      'node_modules/crossenv': { version: '1.0.0' },
+      'node_modules/minimist': { version: '1.2.5', dev: true },
+      'node_modules/follow-redirects': { version: '1.15.5' },
+      'node_modules/linked': { link: true }
+    }
+  }, null, 2) };
+  const inventory = audit.dependencyInventory([manifest, lock]);
+  const summary = inventory.map(entry => `${entry.name}@${entry.version}:${entry.source}:${entry.direct ? 'direct' : 'transitive'}${entry.dev ? ':dev' : ''}`).sort();
+  assert.deepStrictEqual(summary, [
+    'axios@1.7.4:lock:direct', 'crossenv@1.0.0:lock:direct', 'event-stream@3.3.6:pin:direct', 'follow-redirects@1.15.5:lock:transitive',
+    'left-pad@1.3.0:pin:direct', 'lodash@4.17.15:lock:direct', 'minimist@1.2.5:lock:direct:dev'
+  ], 'installed versions from the lockfile, exact pins when it has none, what came with them');
+  assert(inventory.slice(0, 6).every(entry => entry.direct), 'declared packages are asked about first');
+
+  const advisories = new Map([
+    ['npm:lodash@4.17.15', { advisories: [{ id: 'GHSA-35jh-r3h4-6jhm', cve: 'CVE-2021-23337', severity: 'serious', summary: 'Command injection in template', fixed: '4.17.21', malicious: false },
+      { id: 'GHSA-p6mc-m468-83gw', cve: 'CVE-2020-8203', severity: 'serious', summary: 'Prototype pollution', fixed: '4.17.19', malicious: false }] }],
+    ['npm:axios@1.7.4', { advisories: [] }],
+    ['npm:minimist@1.2.5', { advisories: [{ id: 'GHSA-xvch-5gv4-984h', cve: 'CVE-2021-44906', severity: 'critical', summary: 'Prototype pollution', fixed: '1.2.6', malicious: false }] }],
+    ['npm:follow-redirects@1.15.5', { advisories: [{ id: 'GHSA-cxjh-pqwp-8mfp', cve: null, severity: 'warning', summary: '', fixed: '1.15.6', malicious: false }] }],
+    ['npm:event-stream@3.3.6', { advisories: [{ id: 'MAL-2018-1', cve: null, severity: 'critical', summary: 'Malicious code in event-stream', fixed: null, malicious: true }] }],
+    ['npm:left-pad@1.3.0', 'unknown']
+  ]);
+  const result = run([...BASE.filter(file => file.path !== 'package-lock.json'), manifest, lock], { advisories });
+  const deps = result.findings.filter(item => item.category === 'dependencies');
+  const lodash = deps.find(item => item.detail && item.detail.package === 'lodash');
+  assert.strictEqual(lodash.rule, 'DEP-003');
+  assert.strictEqual(lodash.path, 'package.json', 'a declared package is reported where it is declared');
+  assert.strictEqual(lodash.detail.fixed, '4.17.21', 'the version that clears every advisory');
+  assert.match(lodash.prompt, /lodash 4\.17\.15 -- CVE-2021-23337, CVE-2020-8203; fixed in 4\.17\.21/);
+  assert.strictEqual(deps.find(item => item.detail && item.detail.package === 'minimist').severity, 'serious', 'development tooling is one step less severe');
+  const transitive = deps.find(item => item.detail && item.detail.package === 'follow-redirects');
+  assert.strictEqual(transitive.path, 'package-lock.json');
+  assert.strictEqual(transitive.line, lock.text.split('\n').findIndex(line => line.includes('"node_modules/follow-redirects"')) + 1);
+  assert.strictEqual(deps.find(item => item.rule === 'DEP-006').severity, 'critical');
+  assert.deepStrictEqual(deps.filter(item => item.rule === 'DEP-004').map(item => item.detail), [{ package: 'crossenv', resembles: 'cross-env' }]);
+  assert.deepStrictEqual(result.advisoryStatus, { checked: 6, vulnerable: 3, malicious: 1, unknown: 1 }, 'a version with no answer is not counted as checked');
+  assert.strictEqual(result.priorities.length, 3);
+  assert.strictEqual(result.findings.find(item => item.id === result.priorities[0]).rule, 'DEP-006', 'a known-malicious package is the first job');
+
+  /* A range whose floor is affected: a warning when the fix is inside the range, the advisory's own severity when it is not. */
+  const ranged = { path: 'package.json', text: JSON.stringify({ dependencies: { lodash: '^4.17.0', 'old-lib': '~1.2.0' } }, null, 2) };
+  const floors = new Map([
+    ['npm:lodash@4.17.0', { advisories: [{ id: 'GHSA-a', cve: null, severity: 'critical', summary: '', fixed: '4.17.21', malicious: false }] }],
+    ['npm:old-lib@1.2.0', { advisories: [{ id: 'GHSA-b', cve: null, severity: 'critical', summary: '', fixed: '2.0.0', malicious: false }] }]
+  ]);
+  const floorResult = run([{ path: 'README.md', text: '#' }, ranged], { advisories: floors });
+  const byPackage = name => floorResult.findings.find(item => item.detail && item.detail.package === name);
+  assert.strictEqual(byPackage('lodash').rule, 'DEP-005');
+  assert.strictEqual(byPackage('lodash').severity, 'warning');
+  assert.strictEqual(byPackage('old-lib').rule, 'DEP-003');
+  assert.strictEqual(byPackage('old-lib').severity, 'critical', 'no version the range accepts is fixed');
+
+  quiet('popular names', [...BASE, { path: 'package.json', text: JSON.stringify({ dependencies: { 'cross-env': '^7.0.3', react: '^18.0.0', preact: '^10.0.0', '@types/node': '^20.0.0' } }) }], ['DEP-004']);
+  fires('python look-alike', [...BASE, { path: 'requirements.txt', text: 'python3-dateutil==2.8.2\n' }], ['DEP-004']);
+
+  /* Other lockfile formats. */
+  const yarn = audit.dependencyInventory([
+    { path: 'package.json', text: JSON.stringify({ dependencies: { '@babel/core': '^7.0.0' } }) },
+    { path: 'yarn.lock', text: '"@babel/core@^7.0.0", "@babel/core@^7.12.3":\n  version "7.24.0"\n\nms@2.1.2:\n  version "2.1.2"\n' }
+  ]);
+  assert.deepStrictEqual(yarn.map(entry => `${entry.name}@${entry.version}`), ['@babel/core@7.24.0', 'ms@2.1.2']);
+  const pnpm = audit.dependencyInventory([{ path: 'pnpm-lock.yaml', text: "lockfileVersion: '9.0'\npackages:\n  lodash@4.17.21:\n    resolution: {}\n  '@scope/pkg@1.0.0(react@18.0.0)':\n    resolution: {}\n" }]);
+  assert.deepStrictEqual(pnpm.map(entry => `${entry.name}@${entry.version}`), ['lodash@4.17.21', '@scope/pkg@1.0.0']);
+  const poetry = audit.dependencyInventory([{ path: 'poetry.lock', text: '[[package]]\nname = "django"\nversion = "3.2.0"\n\n[[package]]\nname = "pytest"\nversion = "7.0.0"\ncategory = "dev"\n' }]);
+  assert.deepStrictEqual(poetry.map(entry => `${entry.name}@${entry.version}${entry.dev ? ':dev' : ''}`), ['django@3.2.0', 'pytest@7.0.0:dev']);
+}
+
+/* ---- The advisory lookup ------------------------------------------------------------ */
+(async () => {
+  const calls = [];
+  const transport = async input => {
+    calls.push(input);
+    if (input.url.endsWith('/querybatch')) {
+      const queries = JSON.parse(input.body).queries;
+      return { statusCode: 200, body: JSON.stringify({ results: queries.map(query => (query.package.name === 'lodash' ? { vulns: [{ id: 'PYSEC-ignored-alias' }, { id: 'GHSA-35jh-r3h4-6jhm' }] } : {})) }) };
+    }
+    if (input.url.endsWith('/GHSA-35jh-r3h4-6jhm')) {
+      return { statusCode: 200, body: JSON.stringify({
+        id: 'GHSA-35jh-r3h4-6jhm', aliases: ['CVE-2021-23337', 'PYSEC-ignored-alias'], summary: 'Command Injection in lodash\u0000',
+        severity: [{ type: 'CVSS_V3', score: 'CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H' }],
+        affected: [{ package: { ecosystem: 'npm', name: 'lodash' }, ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '4.17.21' }] }] }]
+      }) };
+    }
+    return { statusCode: 404, body: '' };
+  };
+  const entries = [{ ecosystem: 'npm', name: 'lodash', version: '4.17.15' }, { ecosystem: 'npm', name: 'react', version: '18.2.0' }];
+  const { answers, asked } = await audit.lookupAdvisories(entries, transport);
+  assert.strictEqual(asked, 2);
+  const lodash = answers.get('npm:lodash@4.17.15');
+  assert.deepStrictEqual(lodash.advisories.map(advisory => [advisory.id, advisory.cve, advisory.severity, advisory.fixed]), [['GHSA-35jh-r3h4-6jhm', 'CVE-2021-23337', 'serious', '4.17.21']],
+    'an alias of an advisory already listed is not listed twice; CVSS 7.2 is serious');
+  assert.strictEqual(lodash.advisories[0].summary, 'Command Injection in lodash');
+  assert.deepStrictEqual(answers.get('npm:react@18.2.0').advisories, []);
+  assert(calls.every(input => input.profile === 'advisory-query' && !input.headers.authorization), 'anonymous, through the advisory profile');
+  assert.strictEqual(calls.filter(input => input.method === 'POST').length, 1);
+
+  const down = await audit.lookupAdvisories(entries, async () => { throw new Error('offline'); });
+  assert.strictEqual(down.answers.get('npm:lodash@4.17.15'), 'unknown', 'an unreachable database leaves the version unknown');
+})().catch(error => {
+  console.error(error && error.stack || error);
+  process.exitCode = 1;
+});
+
 /* ---- Hygiene ------------------------------------------------------------------ */
 {
   const committed = fires('committed env', [{ path: 'README.md', text: '#' }, { path: '.env', text: 'X=1\n' }, { path: 'app.js', text: 'process.env.X\n' }], ['HYG-001', 'HYG-002']);
@@ -267,10 +479,10 @@ const paths = files => [...BASE, ...files].map(file => file.path);
     { path: 'logo.png', size: 10 }, { path: 'package-lock.json', size: 10 }
   ].map(entry => ({ ...entry, sha: 'a'.repeat(40) }));
   const selection = audit.selectFiles(entries);
-  assert.deepStrictEqual(selection.selected.map(entry => entry.path), ['package.json', 'src/app.ts'], 'manifests first, then source; vendored, built and minified code is not the application');
+  assert.deepStrictEqual(selection.selected.map(entry => entry.path), ['package.json', 'package-lock.json', 'src/app.ts'], 'manifests first, then the lockfile, then source; vendored, built and minified code is not the application');
   assert.deepStrictEqual(selection.skipped, { excluded: 3, oversize: 1, budget: 0 });
   const tight = audit.selectFiles(entries, { ...audit.LIMITS, maxFiles: 1 });
-  assert.strictEqual(tight.skipped.budget, 1, 'what the budget left unread is counted, so coverage can say so');
+  assert.strictEqual(tight.skipped.budget, 2, 'what the budget left unread is counted, so coverage can say so');
 }
 
 /* ---- The whole audit against a reader and a registry ------------------------------ */
@@ -303,7 +515,7 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   const result = await audit.auditRepository({ reader, scope: { provider: 'github', owner: 'a', repo: 'b' }, ref: 'main', token: 't', transport: null, registryTransport });
   assert.strictEqual(result.commitSha, 'c'.repeat(40));
   assert.deepStrictEqual(result.findings.map(item => item.rule).sort(), ['DEP-001', 'SEC-012']);
-  assert.strictEqual(result.coverage.read, 3, 'the README and the lockfile are looked for, not read');
+  assert.strictEqual(result.coverage.read, 4, 'the README is looked for, not read; the lockfile is read for versions');
   assert.strictEqual(result.coverage.complete, true);
   assert.deepStrictEqual(result.coverage.packages, { declared: 2, checked: 2, unknown: 0, notChecked: 0 });
   assert(asked.every(input => input.method === 'HEAD' && input.profile === 'provider-read'), 'registries are asked with HEAD through the guarded profile');
@@ -313,6 +525,20 @@ const paths = files => [...BASE, ...files].map(file => file.path);
     registryTransport: async () => { throw new Error('down'); } });
   assert(!offline.findings.some(item => item.category === 'dependencies'));
   assert.strictEqual(offline.coverage.packages.unknown, 2);
+
+  /* With the advisory database: the declared ranges are asked about, and the answer is reported against the manifest. */
+  const advisoryTransport = async input => {
+    if (input.url.endsWith('/querybatch')) {
+      return { statusCode: 200, body: JSON.stringify({ results: JSON.parse(input.body).queries.map(query => (query.package.name === 'express' ? { vulns: [{ id: 'GHSA-qw6h-vgh9-j6wx' }] } : {})) }) };
+    }
+    return { statusCode: 200, body: JSON.stringify({ id: 'GHSA-qw6h-vgh9-j6wx', aliases: ['CVE-2024-43796'], summary: 'express vulnerable to XSS via response.redirect()', database_specific: { severity: 'LOW' },
+      affected: [{ package: { ecosystem: 'npm', name: 'express' }, ranges: [{ type: 'ECOSYSTEM', events: [{ introduced: '0' }, { fixed: '4.20.0' }] }] }] }) };
+  };
+  const advised = await audit.auditRepository({ reader, scope: { provider: 'github', owner: 'a', repo: 'b' }, ref: 'main', token: 't', transport: null, registryTransport, advisoryTransport });
+  const express = advised.findings.find(item => item.detail && item.detail.package === 'express');
+  assert.strictEqual(express.rule, 'DEP-005', 'the lowest version ^4.19.0 accepts is affected; 4.20.0 is inside the range');
+  assert.strictEqual(express.detail.range, '^4.19.0');
+  assert.deepStrictEqual(advised.coverage.advisories, { versions: 2, checked: 2, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1 });
 
   console.log('code audit tests passed');
 })().catch(error => {

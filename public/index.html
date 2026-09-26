@@ -537,10 +537,13 @@
   </ul>
 
   <div class="nv-rail-foot">
-    <p class="nv-rail-state" id="navBoundary">
+    <!-- Painted from the server's own report (/api/workspace/posture); it
+         says "checking" until that report arrives rather than claiming a
+         state nobody has asked about. -->
+    <p class="nv-rail-state" id="navBoundary" data-state="checking" aria-live="polite">
       <span class="nv-rail-dot" aria-hidden="true"></span>
-      <span><span class="nv-rail-state-t">Boundary online</span>
-        <span class="nv-rail-d">Server-owned controls active</span></span>
+      <span><span class="nv-rail-state-t">Checking boundary</span>
+        <span class="nv-rail-d">Waiting for the server&rsquo;s report</span></span>
     </p>
     <p class="nv-rail-user" id="navUser" hidden>
       <span class="nv-rail-avatar" id="navUserInitial" aria-hidden="true"></span>
@@ -640,7 +643,7 @@
         <p class="ov-core-head">
           <span id="ovCoreTitle">Trust core</span>
           <span class="ov-core-state">
-            <span class="ov-live" id="ovCoreLive">Live</span>
+            <span class="ov-live is-idle" id="ovCoreLive">Not connected</span>
             <span class="ov-core-dot" aria-hidden="true"></span>
             <span class="ov-core-scope" id="ovCoreScope">github.com</span>
           </span>
@@ -682,7 +685,7 @@
             </g>
           </g>
         </svg></div>
-        <p class="ov-core-line">Secure by default. Proven by design.</p>
+        <p class="ov-core-line" id="ovCoreLine" aria-live="polite">Measuring this workspace&hellip;</p>
       </aside>
     </section>
 
@@ -720,7 +723,7 @@
       </article>
       <div class="wp-column">
         <article class="card wp-card" id="wpSignals" aria-labelledby="wpSignalsTitle">
-          <h3 class="sr-only" id="wpSignalsTitle">Live signals</h3>
+          <h3 class="sr-only" id="wpSignalsTitle">Capabilities</h3>
           <div class="wp-body"></div>
         </article>
         <article class="card wp-card wp-card-activity" id="wpActivity" aria-labelledby="wpActivityTitle">

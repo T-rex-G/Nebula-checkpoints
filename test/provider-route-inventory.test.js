@@ -25,6 +25,7 @@ const reviewedExemptions = Object.freeze({
   'POST /api/alpha/providers/disconnect-all': 'Owned alpha credential-lifecycle cleanup, independent of repository feature capability.',
   'POST /api/alpha/delete': 'Owned alpha deletion lifecycle after verified provider cleanup.',
   'GET /api/me': 'Provider identity bootstrap required before repository capability projection.',
+  'GET /api/workspace/posture': 'Workspace posture: the session credential\'s own kind, scopes and expiry, and this identity\'s persisted recovery and exposure summaries.',
   'GET /api/safety': 'Local repository-scoped safety-state read.',
   'POST /api/safety': 'Local repository-scoped safety-state update.',
   'GET /api/repo/:owner/:repo/intelligence/events': 'Local persisted intelligence-event read.',

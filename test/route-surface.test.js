@@ -170,8 +170,14 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * service; every decision -- what may be switched off, whether a key is free,
  * whose draft it is, what a reset touches -- is in `src/governance-api.js` and
  * `src/governance-store.js`, and is tested against a real database.
+ *
+ * 166 to 167 adds the workspace posture read the overview scores. The handler
+ * is one call: the credential classification, the recovery and exposure
+ * summaries and the boundary state are all in `src/workspace-posture.js`,
+ * tested there, and the exposure query is in the store, tested against a real
+ * database.
  */
-const SERVER_ROUTE_CEILING = 166;
+const SERVER_ROUTE_CEILING = 167;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

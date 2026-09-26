@@ -136,7 +136,8 @@ const VALID = Object.freeze({
    * that cannot be read and a feed that is empty look identical if nobody ever
    * renders both.
    */
-  activityState: new Set(['normal', 'quiet', 'partial', 'unreadable'])
+  activityState: new Set(['normal', 'quiet', 'partial', 'unreadable']),
+  postureState: new Set(['clean', 'critical-leak'])
 });
 
 function normalizedScenario(input = {}) {
@@ -158,7 +159,8 @@ function normalizedScenario(input = {}) {
     cleanup: input.cleanup || 'verified',
     trust: input.trust || 'settled',
     governance: input.governance || 'unavailable',
-    activityState: input.activityState || 'normal'
+    activityState: input.activityState || 'normal',
+    postureState: input.postureState || 'clean'
   };
   for (const [key, values] of Object.entries(VALID)) {
     if (!values.has(scenario[key])) throw new TypeError(`Unsupported public-alpha fixture ${key}: ${scenario[key]}`);
@@ -309,6 +311,30 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       yara: { configured: false, required: false, binary: 'yara', rulesPath: '', timeoutSeconds: 5 },
       note: 'Built-in bounded signatures are active.'
     });
+    /*
+     * The overview's posture read: what the credential can reach, which
+     * repositories have a recovery point, which leaked credentials are still
+     * open, and whether the server's boundary is up. `postureState` selects a
+     * workspace with an open critical leak, so the cap can be seen on screen.
+     */
+    if (pathname === '/api/workspace/posture') {
+      const leaked = scenario.postureState === 'critical-leak';
+      return fulfill({
+        credential: {
+          kind: 'fine-grained', rating: 0.9, scopes: [], expiresAt: '2026-12-31T00:00:00.000Z',
+          detail: 'Fine-grained token limited to the repositories chosen for it, expiring 2026-12-31.'
+        },
+        recovery: { available: true, repositories: [{ owner: 'sandbox', repo: 'demo', latestAt: new Date(Date.now() - 86400000).toISOString(), points: 1 }] },
+        exposure: {
+          available: true,
+          repositories: [{
+            owner: 'sandbox', repo: 'demo', scannedAt: new Date(Date.now() - 3600000).toISOString(), partial: false,
+            open: { critical: leaked ? 1 : 0, serious: 0, warning: 0 }
+          }]
+        },
+        boundary: { state: 'online', database: 'ready', maintenance: false }
+      });
+    }
     if (pathname === '/api/github-app/status') return fulfill({ enabled: true, webhookConfigured: true, connections: [] });
     if (pathname === '/api/repos') {
       if (method === 'POST') return fulfill({ id: 12, full_name: 'sandbox/demo', default_branch: 'main', verified: true }, 201);

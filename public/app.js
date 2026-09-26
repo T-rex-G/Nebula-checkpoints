@@ -10,6 +10,7 @@ const NV_PRODUCT_NAME = 'Nebulaverse-X';
 
 const state = {
   me: null,
+  posture: null,
   uiEpoch: 0,
   repos: [], repoPage: 1, repoSort: 'pushed',
   work: null, file: null, cm: null,
@@ -1539,6 +1540,7 @@ async function boot() {
     /* After capabilities, so a deployment that refuses notifications is not
        asked; not awaited, so the marker never delays the first screen. */
     refreshUnread();
+    loadPosture();
     loadRepos(true);
     if (!(await restoreRoute())) showOverview();
   } catch (e) {
@@ -1615,6 +1617,7 @@ async function purgeLocalData(full) {
   // Invalidate before the first await: an old fetch may finish during cleanup.
   state.uiEpoch++;
   clearActivityFeed();
+  clearPosture();
   paintUnread([]);
   clearCsrfToken();
   clearGovernanceState();
@@ -1814,6 +1817,7 @@ function showOverview() {
   paintCoreState();
   renderWorkspacePulse();
   loadScannerPosture();
+  loadPosture();
   loadActivityFeed();
   showPage('overview');
 }
@@ -1916,10 +1920,115 @@ function paintCoreState() {
     || (state.me && state.me.provider === 'github' ? 'github.com' : '');
   scope.textContent = authority || (state.me ? 'Connected' : 'Not connected');
   if (live) {
+    /*
+     * "Connected" rather than "Live": an identity proves a session, not that
+     * anything is being watched in real time, and this rail has no stream
+     * behind it that would earn the stronger word.
+     */
     const connected = !!state.me;
-    live.textContent = connected ? 'Live' : 'Offline';
+    live.textContent = connected ? 'Connected' : 'Not connected';
     live.classList.toggle('is-idle', !connected);
   }
+}
+
+/*
+ * The line under the core states the reading, not a slogan. It used to say
+ * "Secure by default. Proven by design." to every session, including one with
+ * a leaked key open and nothing scanned -- a claim this panel never checked.
+ */
+function paintCoreLine(pulse) {
+  const line = $('#ovCoreLine');
+  if (!line) return;
+  const trust = pulse && pulse.trust;
+  if (!state.me) { line.textContent = 'Sign in to measure this workspace.'; return; }
+  if (!trust || trust.score === null) { line.textContent = 'Measuring this workspace\u2026'; return; }
+  const attention = trust.attention
+    ? `${trust.attention} ${trust.attention === 1 ? 'signal needs' : 'signals need'} attention`
+    : 'every measured signal healthy';
+  line.textContent = `Grade ${trust.grade} \u00b7 ${trust.score}/100 \u00b7 ${attention}${trust.capped ? ' \u00b7 capped by a critical leak' : ''}.`;
+}
+
+/*
+ * Repositories with a recovery reference held in this browser. The account
+ * boundary purge removes every one of these keys, so this can only ever count
+ * the current identity's references.
+ */
+function localSnapshotKeys() {
+  const keys = new Set();
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('nv_snap_')) keys.add(key.slice('nv_snap_'.length).toLowerCase());
+    }
+  } catch { /* storage unavailable: no browser-held references to count */ }
+  return keys;
+}
+
+/*
+ * The workspace posture: the credential's real reach, the recovery points
+ * that exist, the leaked credentials still open, and whether the server's
+ * boundary is up. One request, re-read at most once a minute, and bound to
+ * the identity that asked -- a response for a previous account may never
+ * paint the next one's overview.
+ */
+const POSTURE_TTL_MS = 60 * 1000;
+let postureRequest = 0;
+let postureAt = 0;
+/* Anything that changes what the posture reports marks it for re-reading. */
+function invalidatePosture() { postureAt = 0; }
+function clearPosture() {
+  postureRequest++;
+  postureAt = 0;
+  state.posture = null;
+  paintBoundary(null);
+}
+async function loadPosture(force) {
+  if (!state.me) return;
+  if (!force && postureAt && Date.now() - postureAt < POSTURE_TTL_MS) return;
+  const request = ++postureRequest;
+  const epoch = state.uiEpoch;
+  const identity = state.me;
+  postureAt = Date.now();
+  try {
+    const posture = await api('/api/workspace/posture');
+    if (request !== postureRequest || epoch !== state.uiEpoch || identity !== state.me) return;
+    state.posture = posture && typeof posture === 'object' ? posture : null;
+    paintBoundary(state.posture ? state.posture.boundary : { state: 'unknown' });
+  } catch (error) {
+    if (request !== postureRequest || epoch !== state.uiEpoch || identity !== state.me) return;
+    postureAt = 0;
+    paintBoundary({ state: isOfflineError(error) ? 'offline' : 'unreachable' });
+  }
+  renderWorkspacePulse();
+}
+
+/*
+ * The rail's boundary line says what the server last reported. It was static
+ * markup that read "Boundary online" before a single request had been made,
+ * and kept saying it with the database down.
+ */
+const BOUNDARY_COPY = Object.freeze({
+  checking: ['Checking boundary', 'Waiting for the server\u2019s report'],
+  online: ['Boundary online', 'Server-owned controls active'],
+  local: ['Boundary online', 'Server controls active \u00b7 no database configured'],
+  degraded: ['Boundary degraded', 'The server database is unavailable'],
+  maintenance: ['Maintenance', 'The server is not accepting changes'],
+  offline: ['Offline', 'Changes queue until the network returns'],
+  unreachable: ['Boundary unreachable', 'The server did not report its state'],
+  unknown: ['Boundary unknown', 'The server\u2019s report could not be read']
+});
+function paintBoundary(boundary) {
+  const root = $('#navBoundary');
+  if (!root) return;
+  let key = 'checking';
+  if (boundary && boundary.maintenance) key = 'maintenance';
+  else if (boundary && boundary.state === 'online') key = boundary.database === 'not-configured' ? 'local' : 'online';
+  else if (boundary && BOUNDARY_COPY[boundary.state]) key = boundary.state;
+  const [title, detail] = BOUNDARY_COPY[key];
+  root.dataset.state = key;
+  const t = root.querySelector('.nv-rail-state-t');
+  const d = root.querySelector('.nv-rail-d');
+  if (t) t.textContent = title;
+  if (d) d.textContent = detail;
 }
 
 /*
@@ -2011,9 +2120,12 @@ function renderWorkspacePulse(repos) {
     features: capabilities && capabilities.features ? capabilities.features() : null,
     recoveryStatus: capabilities ? capabilities.decision('recovery').status : null,
     scanner: state.scanner,
-    identity: state.me
+    identity: state.me,
+    posture: state.posture,
+    localSnapshots: localSnapshotKeys()
   });
   renderOverviewPulse(list, pulse);
+  paintCoreLine(pulse);
   const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
   if (roots.trust || roots.signals || roots.activity) window.NebulaWorkspacePulse.render(roots, pulse);
 }
@@ -2050,13 +2162,13 @@ function pulseMeasures(list, pulse) {
       icon: 'trust', label: 'Trust score',
       value: trust && trust.score !== null && trust.score !== undefined ? trust.score : null,
       note: trust && trust.score !== null && trust.score !== undefined
-        ? `${trust.measuredCount} of ${trust.componentCount} measured`
+        ? `Grade ${trust.grade} \u00b7 ${trust.measuredCount} of ${trust.componentCount} measured`
         : 'Not measured'
     },
     {
-      icon: 'signals', label: 'Live signals',
+      icon: 'signals', label: 'Verified capabilities',
       value: signals && signals.measured ? signals.live : null,
-      note: signals && signals.measured ? `of ${signals.total} verified` : 'Not measured'
+      note: signals && signals.measured ? `of ${signals.total} this provider projects` : 'Not measured'
     },
     {
       icon: 'attention', label: 'Needs attention',
@@ -3568,6 +3680,7 @@ async function refreshExposureScan(current = exposureState()) {
     if (['queued', 'running'].includes(current.scan.state)) scheduleExposurePoll(current);
     else {
       announceExposure(`Scan ${EXPOSURE_STATE_WORDS[current.scan.state] || 'finished'}. Updating findings.`);
+      invalidatePosture();
       await loadExposure();
     }
   } catch (error) {
@@ -3617,6 +3730,7 @@ async function verifyExposureFinding(fingerprint) {
     });
     const verification = body && body.verification ? { ...body.verification, narration: body.narration } : null;
     if (verification) current.verifications[fingerprint] = verification;
+    invalidatePosture();
     if (body && body.finding) {
       current.findings = current.findings.map(item => (
         item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
@@ -3663,6 +3777,7 @@ async function acceptExposureRisk(fingerprint) {
       ));
     }
     current.error = '';
+    invalidatePosture();
     announceExposure('Recorded. The credential is still in the repository.');
   } catch (error) {
     /*
@@ -4674,6 +4789,7 @@ async function snapshotFlow() {
     try { signed = await api(`/api/repo/${wPath()}/signed-snapshot`, { method: 'POST', body: { manifest: true } }); } catch {}
     const snap = signed && signed.snapshot ? signed.snapshot : await api(`/api/repo/${wPath()}/refs-snapshot?manifest=1`);
     try { localStorage.setItem('nv_snap_' + safetyKey(), JSON.stringify(snap)); } catch {}
+    invalidatePosture();
     dlFile(`${snap.repo}-${snap.capturedAt.slice(0, 10)}.nvsnap.json`, JSON.stringify(snap, null, 2));
     await modal({
       title: 'Recovery snapshot captured', okText: 'Done',

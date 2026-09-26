@@ -165,6 +165,8 @@ const {
 } = require('./src/anonymous-readability-probe');
 const exposureReader = require('./src/exposure-reader');
 const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('./src/exposure-store');
+const { createPostureReader } = require('./src/workspace-posture');
+const { normalizePolicyScope } = require('./src/governance-model');
 const {
   createSnapshotSignatures,
   loadSnapshotSigningConfig
@@ -4181,6 +4183,30 @@ app.get('/api/rate', auth, capabilityAccess('rate.read', { allowExperimental: tr
     const r = await gh(req.gh, '/rate_limit');
     res.json({ remaining: r.resources.core.remaining, limit: r.resources.core.limit, reset: r.resources.core.reset });
   } catch (e) { fail(res, e); }
+});
+
+/*
+ * What the overview scores, read rather than assumed. Every decision lives in
+ * src/workspace-posture.js; this passes it the transports and stores it reads.
+ */
+let _postureReader = null;
+function postureReader() {
+  if (!_postureReader) {
+    _postureReader = createPostureReader({
+      gh, glFetch, dbReady, pool, identityKey, normalizePolicyScope,
+      exposureStore: () => exposureService(),
+      severityOf: exposureSeverityOf,
+      databaseConfigured: Boolean(DB_URL),
+      maintenance: MAINTENANCE_MODE,
+      hostedAlpha: HOSTING_PROFILE === 'hosted-alpha'
+    });
+  }
+  return _postureReader;
+}
+
+app.get('/api/workspace/posture', providerSessionAccess, auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try { res.json(await postureReader().read(req.gh)); } catch (e) { fail(res, e); }
 });
 
 async function governanceRepositoryFacts(req) {

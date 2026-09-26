@@ -44,11 +44,21 @@ test('a signed-in session lands on the overview and reports a trust score it can
    * shown beside its inputs can be checked.
    */
   for (const label of [
-    'Capabilities verified', 'Upload scanning', 'Recovery available',
-    'Authentication strength', 'Private by default'
+    'Leaked credentials', 'Verified capabilities', 'Upload scanning', 'Recovery points',
+    'Credential reach', 'Private repositories'
   ]) {
     await expect(trust).toContainText(label);
   }
+
+  /*
+   * Each reading comes from the posture the server reported, not from what
+   * the provider could offer: the credential is described as the token it
+   * is, and recovery counts the recovery point that exists.
+   */
+  await expect(trust).toContainText('Fine-grained token limited to the repositories chosen for it');
+  await expect(trust).toContainText('The connected repository has a recovery point');
+  await expect(trust).toContainText('No open leaked credentials; the connected repository was scanned');
+  await expect(trust.locator('.wp-grade')).toHaveAttribute('aria-label', /^Grade [A-F]$/);
 
   /*
    * State never rides on colour alone: each component carries a word for its
@@ -61,11 +71,40 @@ test('a signed-in session lands on the overview and reports a trust score it can
   await numbers.getByText('Show the numbers').click();
   await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
 
-  const signals = page.getByRole('article', { name: 'Live signals' });
+  const signals = page.getByRole('article', { name: 'Capabilities' });
   await expect(signals).toBeVisible();
   await expect(signals).toContainText('Verified');
+  await expect(signals).toContainText('CAPABILITIES');
+
+  /* Nothing on the overview claims more than the session established. */
+  await expect(page.locator('#ovCoreLive')).toHaveText('Connected');
+  await expect(page.locator('#ovCoreLine')).toHaveText(/^Grade [A-F] \u00b7 \d{1,3}\/100 \u00b7 /);
+  await expect(page.locator('#navBoundary')).toHaveAttribute('data-state', 'online');
+  await expect(page.locator('#navBoundary')).toContainText('Boundary online');
+  await expect(page.locator('#ovPulseGrid')).toContainText('Verified capabilities');
+  await expect(page.locator('#ovPulseGrid')).not.toContainText('Live signals');
 
   await expect(page.getByRole('article', { name: 'Repository activity' })).toBeVisible();
+});
+
+test('an open critical leak caps the score and says why', async ({ page }) => {
+  await mockPublicAlphaApi(page, {
+    access: 'required', ready: 'ready', provider: 'github', repositoryState: 'current', postureState: 'critical-leak'
+  });
+  await page.goto('/');
+  await ui.secretField(page, 'One-time invitation').fill('fixture-invitation');
+  await ui.checkbox(page, /I accept/).check();
+  await ui.button(ui.screen(page, 'access'), 'Continue').click();
+  await ui.secretField(page, 'GitHub Personal Access Token').fill('fixture-provider-credential');
+  await ui.button(ui.screen(page, 'login'), 'Enter orbit').click();
+
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  await expect(trust).toContainText('1 leaked credential still exposed (1 critical)');
+  await expect(trust).toContainText('Held below 50 while a critical leaked credential is still exposed');
+  const figure = Number((await trust.locator('.wp-dial .wp-gauge-figure').first().textContent()).trim());
+  expect(figure).toBeLessThanOrEqual(49);
+  await expect(trust.locator('.wp-grade')).toHaveAttribute('aria-label', 'Grade F');
+  await expect(page.locator('#ovCoreLine')).toContainText('capped by a critical leak');
 });
 
 test('the overview never invents a figure it could not measure', async ({ page }) => {

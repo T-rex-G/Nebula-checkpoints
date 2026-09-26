@@ -3692,6 +3692,15 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .nv-rail-state-t{display:block;font-size:.76rem;font-weight:600;color:var(--fg2)}
 .nv-rail-dot{width:7px;height:7px;border-radius:50%;background:var(--mint);flex:none;
   box-shadow:0 0 0 3px rgba(52,211,153,.14)}
+/* The dot follows the server's report. Until one arrives it is a hollow ring:
+   a green dot before any request was made is the claim this line used to
+   make on its own. The word beside it always carries the state. */
+.nv-rail-state[data-state="checking"] .nv-rail-dot,
+.nv-rail-state[data-state="unknown"] .nv-rail-dot{background:transparent;box-shadow:inset 0 0 0 1.5px var(--muted)}
+.nv-rail-state[data-state="degraded"] .nv-rail-dot,
+.nv-rail-state[data-state="maintenance"] .nv-rail-dot,
+.nv-rail-state[data-state="offline"] .nv-rail-dot{background:var(--amber);box-shadow:0 0 0 3px color-mix(in oklab,var(--amber) 18%,transparent)}
+.nv-rail-state[data-state="unreachable"] .nv-rail-dot{background:var(--red);box-shadow:0 0 0 3px color-mix(in oklab,var(--red) 18%,transparent)}
 .nv-rail-avatar{width:26px;height:26px;border-radius:9px;flex:none;display:grid;place-items:center;
   font-family:var(--font-display);font-size:.72rem;font-weight:700;color:var(--btnFg);
   background:linear-gradient(140deg,var(--btnB),var(--btnA))}
@@ -3956,6 +3965,16 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-ring-unit{font-size:10.5px;color:var(--fg3);letter-spacing:.04em}
 
 .wp-hero-note,.wp-stat-note{margin:6px 0 0;font-size:12.5px;color:var(--fg2);line-height:1.5}
+/* The score read at a coarser grain. The letter is ink; the state rides the
+   thin rule beside it, never the glyph, so the letter reads in any colour
+   vision and in forced colours. */
+.wp-grade{display:inline-flex;align-items:baseline;gap:7px;margin:0 0 4px;padding-left:10px;
+  border-left:2px solid var(--wp-good)}
+.wp-grade.wp-warning{border-left-color:var(--wp-warning)}
+.wp-grade.wp-critical{border-left-color:var(--wp-critical)}
+.wp-grade-letter{font-family:var(--font-body);font-size:26px;font-weight:600;line-height:1;color:var(--fg);letter-spacing:-.01em}
+.wp-grade-word{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg3)}
+.wp-cap-note{color:var(--fg)}
 .wp-components{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:14px}
 .wp-component{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:14px}
 .wp-component-text{min-width:0}
@@ -4010,6 +4029,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-numbers thead th{color:var(--fg3);font-weight:500;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
 .wp-numbers tbody th{color:var(--fg);font-weight:500}
 .wp-numbers td:last-child,.wp-numbers th:last-child{padding-right:0}
+.wp-numbers-note{margin:8px 0 0;font-size:11.5px;line-height:1.5;color:var(--fg3)}
 
 @media (max-width:900px){
   .wp-grid{grid-template-columns:1fr}

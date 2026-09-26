@@ -1365,6 +1365,55 @@ class ExposureStore {
     return findingFromRow(found.rows[0] || null);
   }
 
+  /*
+   * What the overview may say about every repository this person has scanned
+   * at one provider: the newest finished scan of each, and the findings still
+   * exposed under that scan's generation, counted by rule.
+   *
+   * "Still exposed" is `open` and `removed-from-tree`. The second is a
+   * credential no longer in the tree but still in history, reachable from any
+   * clone, and the findings screen deliberately never reads it as resolved --
+   * so neither does the score. Counts and rule names only: no path, no
+   * placeholder, nothing a repository chose.
+   */
+  async workspaceSummary(input = {}) {
+    const provider = requireText(input.provider, 'Scan provider', 40);
+    const authority = requireText(input.authority, 'Scan authority', 255);
+    const identityKey = requireDigest(input.identityKey, 'Summary identity');
+    const found = await this.#query(
+      `WITH latest AS (
+         SELECT DISTINCT ON (lower(owner_login), lower(repo_name))
+                owner_login, repo_name, state, finished_at,
+                rules_version, engine_version, fingerprint_key_version
+           FROM nv_exposure_scans
+          WHERE provider=$1 AND authority=$2 AND identity_key=$3
+            AND state IN ('complete', 'partial')
+          ORDER BY lower(owner_login), lower(repo_name), finished_at DESC, scan_id DESC
+          LIMIT $4)
+       SELECT latest.owner_login AS owner, latest.repo_name AS repo,
+              latest.state, latest.finished_at, finding.rule, count(finding.rule) AS open_count
+         FROM latest
+         LEFT JOIN nv_exposure_findings AS finding
+           ON finding.provider=$1 AND finding.authority=$2 AND finding.identity_key=$3
+          AND finding.owner_login=latest.owner_login AND finding.repo_name=latest.repo_name
+          AND finding.disposition IN ('open', 'removed-from-tree')
+          AND (finding.rules_version, finding.engine_version, finding.fingerprint_key_version)
+            = (latest.rules_version, latest.engine_version, latest.fingerprint_key_version)
+        GROUP BY latest.owner_login, latest.repo_name, latest.state, latest.finished_at, finding.rule
+        ORDER BY latest.owner_login, latest.repo_name, finding.rule`,
+      [provider, authority, identityKey, MAX_LIST_LIMIT * 5],
+      'summarise the workspace'
+    );
+    return Object.freeze(found.rows.map(row => Object.freeze({
+      owner: row.owner,
+      repo: row.repo,
+      state: row.state,
+      finishedAt: row.finished_at ? new Date(row.finished_at).toISOString() : null,
+      rule: row.rule || null,
+      count: Number(row.open_count) || 0
+    })));
+  }
+
   async listFindings(input = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Finding identity');

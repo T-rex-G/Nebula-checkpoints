@@ -63,7 +63,7 @@ const ENTRIES = Object.freeze([
     format: 'absolute URL',
     summary: 'Accepted in place of PUBLIC_BASE_URL. Render sets it automatically.' },
   { name: 'NV_SECURITY_CONTACT', group: 'server', requirement: 'optional', fallback: "the repository's private advisory form",
-    format: 'mailto: or https: URI',
+    format: 'an email address, or a mailto: or https: URI',
     summary: 'The Contact line of /.well-known/security.txt (RFC 9116): where a researcher reports a vulnerability in this deployment.' },
   { name: 'NV_MAINTENANCE_MODE', group: 'server', requirement: 'optional', fallback: 'off',
     format: "'1', 'true', 'on' or 'yes' to enable",

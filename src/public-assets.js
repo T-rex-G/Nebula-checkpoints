@@ -216,6 +216,39 @@ function stripHtmlComments(source) {
   return String(source).replace(/^[ \t]*<!--(?:(?!-->)[\s\S])*-->[ \t]*\r?\n|<!--(?:(?!-->)[\s\S])*-->/gm, '');
 }
 
+/*
+ * If-None-Match uses the weak comparison (RFC 9110, 13.1.2): `W/` is ignored,
+ * a list matches if any member does, and `*` matches any current asset. A
+ * proxy that compresses a response -- Render's does -- weakens its ETag, so
+ * a browser sends back `W/"..."`; a strict equality check never answered 304.
+ */
+function etagMatches(header, etag) {
+  if (!header || !etag) return false;
+  const opaque = tag => String(tag).trim().replace(/^W\//, '');
+  const target = opaque(etag);
+  return String(header).split(',').some(candidate => {
+    const tag = candidate.trim();
+    return tag === '*' || opaque(tag) === target;
+  });
+}
+
+/*
+ * The Contact line of security.txt (RFC 9116) must be a URI. A bare address
+ * -- what an operator naturally types -- becomes a mailto: URI; anything that
+ * is neither mailto: nor https:, or that carries whitespace, falls back to
+ * the repository's private advisory form rather than publishing a line a
+ * researcher's tooling would reject.
+ */
+const SECURITY_CONTACT_FALLBACK = 'https://github.com/T-rex-G/Nebula-checkpoints/security/advisories/new';
+const EMAIL = /^[^\s@:/]+@[^\s@:/]+\.[^\s@:/]+$/;
+function securityContact(value) {
+  const v = String(value || '').trim();
+  if (EMAIL.test(v)) return `mailto:${v}`;
+  if (/^mailto:/i.test(v) && EMAIL.test(v.slice(7))) return v;
+  if (/^https:\/\/[^\s]+$/i.test(v)) return v;
+  return SECURITY_CONTACT_FALLBACK;
+}
+
 const TYPES = Object.freeze({ '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' });
 
 /* A classic script must still compile; a module is proven by the test suite instead. */
@@ -253,4 +286,4 @@ function buildPublicAssets(publicDir) {
   return assets;
 }
 
-module.exports = Object.freeze({ stripJsComments, stripCssComments, stripHtmlComments, buildPublicAssets });
+module.exports = Object.freeze({ stripJsComments, stripCssComments, stripHtmlComments, buildPublicAssets, etagMatches, securityContact });

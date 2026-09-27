@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Revalidation Through the Host's Proxy; a Contact Line That Is Always a URI
+
+Found on the live deployment after the last release.
+
+- **Assets revalidate.** Render's proxy compresses responses and weakens
+  their ETag, so a browser asked again with `W/"..."` and the server, which
+  compared tags strictly, sent the whole asset every time. `If-None-Match`
+  now uses the weak comparison RFC 9110 requires, lists and `*` included,
+  and answers `304`.
+- **security.txt.** `NV_SECURITY_CONTACT` accepts a plain email address and
+  publishes it as a `mailto:` URI, as RFC 9116 requires. A value that is
+  neither an address, `mailto:` nor `https:` -- or that would write a
+  second line into the file -- falls back to the repository's private
+  advisory form.
+
 ### Standards, Waivers and Exports; Safeguards Read the Provider; a Harder Host
 
 Reported: Safeguards showed three dots, sat under Repository rather than

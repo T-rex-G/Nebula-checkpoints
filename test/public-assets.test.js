@@ -11,7 +11,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { stripJsComments, stripCssComments, stripHtmlComments, buildPublicAssets } = require('../src/public-assets');
+const { stripJsComments, stripCssComments, stripHtmlComments, buildPublicAssets, etagMatches, securityContact } = require('../src/public-assets');
 
 let acorn;
 try { acorn = require('acorn'); } catch { acorn = require(require.resolve('acorn', { paths: [path.dirname(require.resolve('eslint'))] })); }
@@ -88,6 +88,34 @@ for (const name of fs.readdirSync(root).filter(file => file.endsWith('.js'))) {
   assert.match(app.etag, /^"[\w-]{27}"$/);
   assert(app.body.length < fs.statSync(path.join(root, 'app.js')).size);
   assert(!assets.has('/vendor/marked/15.0.12/marked.min.js'), 'vendor files are served as published');
+}
+
+/* ---- Revalidation through a compressing proxy ---------------------------------------------- */
+{
+  const etag = '"abc123"';
+  assert.strictEqual(etagMatches('"abc123"', etag), true);
+  assert.strictEqual(etagMatches('W/"abc123"', etag), true, 'a proxy that compresses weakens the tag; If-None-Match compares weakly');
+  assert.strictEqual(etagMatches('"zzz", W/"abc123"', etag), true, 'any member of a list');
+  assert.strictEqual(etagMatches('*', etag), true);
+  assert.strictEqual(etagMatches('"abc1234"', etag), false);
+  assert.strictEqual(etagMatches('W/"other"', etag), false);
+  assert.strictEqual(etagMatches('', etag), false);
+  assert.strictEqual(etagMatches(undefined, etag), false);
+}
+
+/* ---- security.txt Contact is always a URI ---------------------------------------------------- */
+{
+  const fallback = 'https://github.com/T-rex-G/Nebula-checkpoints/security/advisories/new';
+  const address = ['security', 'example.org'].join('@');
+  assert.strictEqual(securityContact(address), `mailto:${address}`, 'a bare address becomes a mailto: URI');
+  assert.strictEqual(securityContact(`  ${address}  `), `mailto:${address}`);
+  assert.strictEqual(securityContact(`mailto:${address}`), `mailto:${address}`);
+  assert.strictEqual(securityContact('https://example.org/report'), 'https://example.org/report');
+  assert.strictEqual(securityContact(''), fallback);
+  assert.strictEqual(securityContact(undefined), fallback);
+  assert.strictEqual(securityContact('http://example.org/report'), fallback, 'not over plain http');
+  assert.strictEqual(securityContact(`${address}\nExpires: 1970-01-01T00:00:00Z`), fallback, 'no second line can be written into the file');
+  assert.strictEqual(securityContact('javascript:alert(1)'), fallback);
 }
 
 console.log('public asset tests passed');

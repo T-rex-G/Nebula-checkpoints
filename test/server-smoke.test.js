@@ -103,6 +103,8 @@ async function waitForServer() {
     const etag = script.headers.get('etag');
     assert(etag, 'the served script has a validator');
     assert.strictEqual((await request('/app.js', { headers: { 'If-None-Match': etag } })).status, 304);
+    /* Render's proxy compresses and weakens the tag; the browser sends it back as W/"...". */
+    assert.strictEqual((await request('/app.js', { headers: { 'If-None-Match': `W/${etag}` } })).status, 304);
     const sheet = await (await request('/style.css')).text();
     assert(!sheet.includes('/*'), 'the stylesheet is served without comments');
     const worker = await (await request('/sw.js')).text();

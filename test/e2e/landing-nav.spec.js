@@ -127,7 +127,18 @@ test('with motion off the promise is simply there', async ({ page }) => {
  * which sits exactly on it.
  */
 test('the horizon passes under the steps, and each number sits on its title', async ({ page }) => {
+  /*
+   * The settled layout, not a frame of the reveal: the row arrives with a
+   * short rise from translateY(18px), and a box read mid-rise is up to 18px
+   * lower than where it rests -- which read as the rim crowding the row on a
+   * runner that happened to measure during it. Less motion means no rise;
+   * any other finite animation is waited out.
+   */
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await open(page);
+  await page.evaluate(() => Promise.all(document.getAnimations()
+    .filter(animation => animation.effect && animation.effect.getTiming().iterations !== Infinity)
+    .map(animation => animation.finished.catch(() => null))));
   const placed = await page.evaluate(() => {
     const horizon = document.querySelector('.lp-horizon');
     const apex = horizon.getBoundingClientRect().top + parseFloat(getComputedStyle(horizon, '::before').top);

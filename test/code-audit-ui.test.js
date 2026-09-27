@@ -72,6 +72,66 @@ const ui = require('../public/code-audit-ui');
   assert.match(richBrief, /a lockfile was not read \(over 512 KB or past the budget\), so declared ranges stood in for installed versions/);
   assert(!richBrief.includes(token), 'the credential is never in the brief');
 
+  /* Each finding is filed under its CWE and OWASP category in the brief. */
+  assert.match(both, /- \*\*Standards:\*\* CWE-89 \(SQL Injection\) · OWASP A03:2021 Injection/);
+
+  /* A waiver travels with the brief, the SARIF and the CSV -- listed, with its reason, never scored. */
+  const waivedFiles = [
+    { path: 'src/nonce.js', text: 'const token = Math.random(); // nv-audit-ignore SEC-005 -- display nonce | not a secret\n' },
+    { path: 'api/users.js', text: 'db.query(`SELECT * FROM users WHERE id = ${req.params.id}`);\n' },
+    { path: '=cmd|calc!A1.js', text: 'const sessionToken = Math.random();\n' }
+  ];
+  const waivedResult = { ...analyse({ files: waivedFiles, paths: waivedFiles.map(file => file.path) }), commitSha: 'e'.repeat(40), ref: 'main',
+    coverage: { read: 3, eligible: 3, packages: {}, skipped: {} } };
+  assert.strictEqual(waivedResult.suppressed.length, 1);
+  const waivedBrief = ui.brief(waivedResult, 'sandbox/demo (main)', null);
+  assert.match(waivedBrief, /## Waived in code\n\nNot scored\./);
+  assert.match(waivedBrief, /\| SEC-005 \| .+ \| `src\/nonce\.js:1` \| display nonce \\\| not a secret \|/, 'a pipe in the reason cannot break the table');
+
+  /* SARIF 2.1.0: rules once each, tagged with their CWE; results at file and line; a waiver as an in-source suppression. */
+  const report = JSON.parse(ui.sarif(waivedResult, site, { ref: 'main', repositoryUri: 'https://github.com/sandbox/demo', version: '1.2.3' }));
+  assert.strictEqual(report.version, '2.1.0');
+  assert.strictEqual(report.runs.length, 2, 'one run for the repository, one for the site');
+  const [repoRun, siteRun] = report.runs;
+  assert.strictEqual(repoRun.tool.driver.name, 'Nebulaverse-X Audit');
+  const ruleIds = repoRun.tool.driver.rules.map(rule => rule.id);
+  assert.strictEqual(new Set(ruleIds).size, ruleIds.length, 'each rule is described once');
+  const sqlRule = repoRun.tool.driver.rules.find(rule => rule.id === 'SEC-001');
+  assert(sqlRule.properties.tags.includes('external/cwe/cwe-89'));
+  assert(sqlRule.properties.tags.includes('owasp-a03-2021'));
+  assert.strictEqual(sqlRule.properties['security-severity'], '9.5');
+  assert.strictEqual(sqlRule.helpUri, 'https://cwe.mitre.org/data/definitions/89.html');
+  const sqlResult = repoRun.results.find(item => item.ruleId === 'SEC-001');
+  assert.strictEqual(sqlResult.level, 'error');
+  assert.deepStrictEqual(sqlResult.locations[0].physicalLocation.region, { startLine: 1 });
+  assert.strictEqual(sqlResult.locations[0].physicalLocation.artifactLocation.uri, 'api/users.js');
+  assert.strictEqual(repoRun.tool.driver.rules[sqlResult.ruleIndex].id, 'SEC-001', 'ruleIndex points at its rule');
+  assert(sqlResult.partialFingerprints['nebulaverseFinding/v1']);
+  const waivedSarif = repoRun.results.filter(item => item.suppressions);
+  assert.strictEqual(waivedSarif.length, 1);
+  assert.deepStrictEqual(waivedSarif[0].suppressions, [{ kind: 'inSource', justification: 'display nonce | not a secret' }]);
+  assert.deepStrictEqual(repoRun.versionControlProvenance, [{ repositoryUri: 'https://github.com/sandbox/demo', revisionId: 'e'.repeat(40), branch: 'main' }]);
+  assert.strictEqual(repoRun.tool.driver.semanticVersion, '1.2.3');
+  const envResult = siteRun.results.find(item => item.ruleId === 'WEB-001');
+  assert.strictEqual(envResult.locations[0].logicalLocations[0].fullyQualifiedName, 'https://demo.example.com /.env');
+  const sarifText = ui.sarif(waivedResult, site);
+  assert(!/SELECT \* FROM|canary-value|SECRET_KEY/.test(sarifText), 'SARIF never carries what was read');
+  assert.strictEqual(JSON.parse(ui.sarif(null, site)).runs.length, 1);
+
+  /* CSV: a header, a row per finding, waived rows marked, and nothing a spreadsheet would run. */
+  const table = ui.csv(waivedResult, site, null);
+  const rows = table.trim().split('\r\n');
+  assert.strictEqual(rows[0], 'Source,Status,Severity,Rule,Title,Family,CWE,OWASP,Location,Line,Reason waived,Fix');
+  assert.strictEqual(rows.length, 1 + waivedResult.findings.length + waivedResult.suppressed.length + site.findings.length);
+  assert(rows.some(row => row.startsWith('repository,waived,serious,SEC-005,')));
+  assert(rows.some(row => row.includes(",'=cmd|calc!A1.js,")), 'a cell that opens with = is defused');
+  assert(!rows.some(row => /,=|^=/.test(row)), 'no cell opens with =');
+  assert(table.endsWith('\r\n'));
+  assert(!/SELECT \* FROM|canary-value|SECRET_KEY/.test(table), 'the CSV never carries what was read');
+  const quoted = ui.csv({ findings: [{ id: 'x', rule: 'SEC-001', severity: 'critical', title: 'Say "hi", then go', category: 'code', path: 'a.js', line: 2, fix: 'line one\nline two' }], categories: [] }, null, null);
+  assert(quoted.includes('"Say ""hi"", then go"'), 'quotes are doubled inside a quoted cell');
+  assert(quoted.includes('"line one\nline two"'));
+
   /* The comparison: identities only, new and resolved. */
   assert.strictEqual(ui.diff(result, null), null);
   const changed = ui.diff(result, { at: '2026-09-25T00:00:00.000Z', ids: [result.findings[0].id, 'f'.repeat(24)] });

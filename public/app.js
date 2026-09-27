@@ -4837,7 +4837,7 @@ async function toggleProtect(p) {
  * previous session never paints this one. The comparison with the last audit
  * keeps fingerprints only, and the account-boundary purge removes them.
  */
-let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null };
+let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
 let auditRequest = 0;
 /*
  * The deployed-site check sits beside it, bound to the repository rather than
@@ -4865,7 +4865,7 @@ function freshSiteView() {
 function clearAuditState() {
   auditRequest++;
   siteRequest++;
-  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null };
+  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
   siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
   const root = $('#auditRoot');
   if (root) root.replaceChildren();
@@ -4884,7 +4884,7 @@ async function copyPrompt(text, control) {
 function paintAudit() {
   const root = $('#auditRoot');
   if (!root || !window.NebulaCodeAudit) return;
-  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null, severity: null };
+  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
   if (siteView.key !== siteKey()) siteView = freshSiteView();
   const repository = window.NebulaCapabilityUI.decision('code-audit');
   window.NebulaCodeAudit.render(root, {
@@ -4894,26 +4894,37 @@ function paintAudit() {
   }, {
     onSiteInput: value => { siteView.url = value; siteView.suggested = false; },
     onSiteCheck: runSiteCheck,
+    onSiteExpand: () => paintAudit(),
     onSiteCopyAll: async () => {
       try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(siteView.result)); toast('Every site fix prompt copied', 'ok'); }
       catch { toast('The clipboard is not available here', 'err'); }
     },
     onRun: runAudit,
-    onFilter: filter => { auditView.filter = filter; auditView.severity = null; paintAudit(); },
-    onSeverity: severity => { auditView.severity = severity; paintAudit(); },
+    onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
+    onOwasp: owasp => { auditView.owasp = owasp; auditView.severity = null; auditView.limit = 0; paintAudit(); },
+    onSeverity: severity => { auditView.severity = severity; auditView.limit = 0; paintAudit(); },
+    onQuery: query => { auditView.query = String(query || '').slice(0, 120); auditView.limit = 0; paintAudit(); },
+    onMore: limit => { auditView.limit = limit; paintAudit(); },
     onOpen: finding => openAuditFinding(finding),
     onCopy: (finding, control) => copyPrompt(finding.prompt, control),
     onCopyAll: async () => {
       try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(auditView.result)); toast('Every fix prompt copied', 'ok'); }
       catch { toast('The clipboard is not available here', 'err'); }
     },
-    onExport: () => {
+    onExport: kind => {
       const result = auditView.result;
       const site = siteView.result;
       if (!result && !site) return;
       const label = `${state.work.owner}/${state.work.repo} (${state.work.branch})`;
       const day = String((result && result.auditedAt) || (site && site.checkedAt) || new Date().toISOString()).slice(0, 10);
-      dlFile(`${state.work.repo}-audit-${day}.md`, window.NebulaCodeAudit.brief(result, label, site), 'text/markdown');
+      const base = `${state.work.repo}-audit-${day}`;
+      if (kind === 'sarif') {
+        const provider = (state.me && state.me.provider) || 'github';
+        const repositoryUri = provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '';
+        return dlFile(`${base}.sarif`, window.NebulaCodeAudit.sarif(result, site, { ref: state.work.branch, repositoryUri }), 'application/sarif+json');
+      }
+      if (kind === 'csv') return dlFile(`${base}.csv`, window.NebulaCodeAudit.csv(result, site, auditView.diff), 'text/csv');
+      dlFile(`${base}.md`, window.NebulaCodeAudit.brief(result, label, site), 'text/markdown');
     }
   });
 }
@@ -4951,7 +4962,7 @@ async function runAudit() {
     const repoKey = `${state.work.owner}/${state.work.repo}`;
     const previous = window.NebulaCodeAudit.readPrevious(repoKey);
     window.NebulaCodeAudit.remember(repoKey, result);
-    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null, severity: null };
+    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
   } catch (error) {
     if (request !== auditRequest || epoch !== state.uiEpoch || key !== auditKey()) return;
     auditView = { ...auditView, status: 'error', error: error.message || 'The audit could not be completed.' };

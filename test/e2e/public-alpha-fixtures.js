@@ -477,7 +477,8 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       const headers = fixed ? {
         'content-type': 'text/html',
         'strict-transport-security': 'max-age=31536000; includeSubDomains',
-        'content-security-policy': "default-src 'self'; frame-ancestors 'self'",
+        'content-security-policy': "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
+        'cross-origin-opener-policy': 'same-origin',
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'strict-origin-when-cross-origin'
       } : { 'content-type': 'text/html', 'x-powered-by': 'Express', 'set-cookie': ['sid=x; Path=/'] };

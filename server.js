@@ -5873,17 +5873,19 @@ app.post('/api/repo/:owner/:repo/batch', providerSessionAccess, alphaRepositoryA
 /* ================= COMMITS ================= */
 app.get('/api/repo/:owner/:repo/commits', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
   try {
+    /* One page of 25 in one shape for every provider: the list pages by the count it receives. */
+    const page = Math.max(1, Math.min(1000, parseInt(req.query.page || '1', 10) || 1));
     if (req.gh.provider === 'gitlab') {
-      const qp = new URLSearchParams({ ref_name: req.query.ref || '', per_page: '30' });
+      const qp = new URLSearchParams({ ref_name: req.query.ref || '', per_page: '25', page: String(page) });
       if (req.query.path) qp.set('path', req.query.path);
       const list = await glFetch(req.gh, `/projects/${glId(req)}/repository/commits?${qp}`);
       return res.json(list.map(c => ({
         sha: c.id, message: c.message,
-        author: { name: c.author_name, date: c.authored_date, avatar: null },
-        html_url: c.web_url
+        author: c.author_name || '?',
+        avatar: null,
+        date: c.authored_date
       })));
     }
-    const page = parseInt(req.query.page || '1', 10);
     const pathFilter = req.query.path ? `&path=${encodeURIComponent(req.query.path)}` : '';
     const commits = await gh(req.gh,
       `${R(req)}/commits?sha=${encodeURIComponent(req.query.ref)}&per_page=25&page=${page}${pathFilter}`);

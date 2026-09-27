@@ -206,7 +206,7 @@ for (const [id, feature] of Object.entries({
 }
 assert(app.includes('data-rerun data-feature="workflows.rerun" data-allow-experimental="true"'),
   'dynamic workflow rerun must declare its experimental capability');
-assert(app.includes("NebulaCapabilityUI.apply($('#modalBody'))"),
+assert(app.includes("NebulaCapabilityUI.apply(root)"),
   'dynamic safeguard controls must receive capability state');
 assert(app.includes('NebulaCapabilityUI.apply(acts)'),
   'dynamic workflow controls must receive capability state');

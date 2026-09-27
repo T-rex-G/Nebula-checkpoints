@@ -73,7 +73,7 @@ const ui = require('../public/code-audit-ui');
   assert(!richBrief.includes(token), 'the credential is never in the brief');
 
   /* Each finding is filed under its CWE and OWASP category in the brief. */
-  assert.match(both, /- \*\*Standards:\*\* CWE-89 \(SQL Injection\) · OWASP A03:2021 Injection/);
+  assert.match(both, /- \*\*Standards:\*\* CWE-89 \(SQL Injection\) · OWASP A05:2025 Injection · CWE Top 25 \(2025\) #2/);
 
   /* A waiver travels with the brief, the SARIF and the CSV -- listed, with its reason, never scored. */
   const waivedFiles = [
@@ -98,7 +98,10 @@ const ui = require('../public/code-audit-ui');
   assert.strictEqual(new Set(ruleIds).size, ruleIds.length, 'each rule is described once');
   const sqlRule = repoRun.tool.driver.rules.find(rule => rule.id === 'SEC-001');
   assert(sqlRule.properties.tags.includes('external/cwe/cwe-89'));
-  assert(sqlRule.properties.tags.includes('owasp-a03-2021'));
+  assert(sqlRule.properties.tags.includes('owasp-a05-2025'));
+  assert(sqlRule.properties.tags.includes('cwe-top25-2025'), 'a Top 25 weakness is tagged so a dashboard can filter by it');
+  assert.strictEqual(sqlRule.properties['cwe-top25-2025-rank'], 2);
+  assert.strictEqual(sqlRule.properties['owasp-basis'], 'cwe');
   assert.strictEqual(sqlRule.properties['security-severity'], '9.5');
   assert.strictEqual(sqlRule.helpUri, 'https://cwe.mitre.org/data/definitions/89.html');
   const sqlResult = repoRun.results.find(item => item.ruleId === 'SEC-001');
@@ -121,7 +124,8 @@ const ui = require('../public/code-audit-ui');
   /* CSV: a header, a row per finding, waived rows marked, and nothing a spreadsheet would run. */
   const table = ui.csv(waivedResult, site, null);
   const rows = table.trim().split('\r\n');
-  assert.strictEqual(rows[0], 'Source,Status,Severity,Rule,Title,Family,CWE,OWASP,Location,Line,Reason waived,Fix');
+  assert.strictEqual(rows[0], 'Source,Status,Severity,Rule,Title,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reason waived,Fix');
+  assert(rows.some(row => row.includes(',CWE-89,#2,A05:2025,')), 'the rank and the 2025 category travel with the row');
   assert.strictEqual(rows.length, 1 + waivedResult.findings.length + waivedResult.suppressed.length + site.findings.length);
   assert(rows.some(row => row.startsWith('repository,waived,serious,SEC-005,')));
   assert(rows.some(row => row.includes(",'=cmd|calc!A1.js,")), 'a cell that opens with = is defused');

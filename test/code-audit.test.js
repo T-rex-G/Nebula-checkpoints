@@ -485,7 +485,7 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   const { MAPPED_RULES, standardsFor } = require('../src/security-standards');
   const unmapped = Object.keys(audit.RULES).filter(rule => !MAPPED_RULES.includes(rule));
   assert.deepStrictEqual(unmapped, [], 'every audit rule sits under a CWE, so a team can file it');
-  assert.deepStrictEqual(standardsFor('SEC-001'), { cwe: 'CWE-89', cweName: 'SQL Injection', owasp: 'A03:2021', owaspName: 'Injection' });
+  assert.deepStrictEqual(standardsFor('SEC-001'), { cwe: 'CWE-89', cweName: 'SQL Injection', owasp: 'A05:2025', owaspName: 'Injection', owaspBasis: 'cwe', top25: { rank: 2, year: 2025 } });
   const mapped = run([...BASE, { path: 'api/users.js', text: 'db.query(`SELECT * FROM users WHERE id = ${id}`);\n' }]);
   assert.strictEqual(mapped.findings[0].standards.cwe, 'CWE-89');
 

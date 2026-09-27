@@ -429,8 +429,8 @@ em{color:var(--teal);font-style:normal}
 /*
  * The moving ground yields to a screen that draws its own artwork.
  *
- * The repositories screen mounts the galaxy and the landing mounts the plasma
- * portal. Both are full-bleed and moving already, and running the waves
+ * The repositories screen mounts the galaxy and the landing mounts the vortex.
+ * Both are full-bleed and moving already, and running the waves
  * underneath put two independent animations at two unrelated speeds on one
  * screen: they read as interference rather than as depth, because on each of
  * those screens the artwork is the subject and the ground was arguing with it.
@@ -525,11 +525,9 @@ em{color:var(--teal);font-style:normal}
  * it, which is also what makes the landing and the workspace the same room.
  */
 .lp{position:relative;isolation:isolate;overflow-x:clip;background:
-  radial-gradient(ellipse 720px 800px at 83% 350px,rgba(34,211,238,.07),transparent 72%),
-  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(124,58,237,.13),transparent 75%)}
+  radial-gradient(ellipse 1100px 760px at 76% -8%,rgba(124,58,237,.12),transparent 70%)}
 [data-theme="light"] .lp{background:
-  radial-gradient(ellipse 720px 800px at 83% 350px,rgba(14,154,184,.07),transparent 72%),
-  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(124,58,237,.07),transparent 75%)}
+  radial-gradient(ellipse 1100px 760px at 76% -8%,rgba(124,58,237,.06),transparent 70%)}
 .lp-hero{position:relative;overflow:hidden}
 .lp-nav,.lp-body,.lp-more{width:min(100%,1352px);margin-inline:auto;padding-inline:clamp(20px,5vw,56px)}
 /*
@@ -554,9 +552,9 @@ em{color:var(--teal);font-style:normal}
  * has to move it. Its height is a fixed number, and the page reserves exactly
  * that at the top (.lp's padding), so nothing jumps when it lifts off.
  */
-.lp{--lp-nav-h:calc(env(safe-area-inset-top,0px) + 80px);padding-top:var(--lp-nav-h)}
+.lp{--lp-nav-h:calc(env(safe-area-inset-top,0px) + 68px);padding-top:var(--lp-nav-h)}
 .lp-nav{position:fixed;top:0;left:0;right:0;z-index:40;display:flex;align-items:center;justify-content:space-between;
-  box-sizing:border-box;height:var(--lp-nav-h);gap:16px;padding-top:calc(env(safe-area-inset-top,0px) + 28px);padding-bottom:20px;
+  box-sizing:border-box;height:var(--lp-nav-h);gap:16px;padding-top:calc(env(safe-area-inset-top,0px) + 14px);padding-bottom:14px;
   transform:translateZ(0);backface-visibility:hidden}
 /*
  * A gradient rather than a blur, and the reason is not taste.
@@ -619,30 +617,30 @@ em{color:var(--teal);font-style:normal}
 [data-theme="light"] .lp-state{color:rgba(22,18,52,.78)}
 
 /* The artwork owns its hit area. No content layer covers the canvas. */
-.lp-art{grid-area:art;position:relative;align-self:center;min-width:0;aspect-ratio:1/1.12}
-.lp-stage{position:absolute;inset:0 0 36px;isolation:isolate;pointer-events:none}
+/*
+ * Square, but never taller than the screen leaves room for: on a laptop the
+ * art set the height of the hero and pushed the path under it half past the
+ * fold. The vortex frames itself to whatever box it is given.
+ */
+.lp-art{grid-area:art;position:relative;align-self:center;justify-self:end;width:100%;min-width:0;aspect-ratio:1/1;
+  max-height:max(420px,calc(100svh - var(--lp-nav-h) - 200px))}
+/*
+ * The vortex is larger than its box, the way a particle tornado sits in a
+ * hero: the stage reaches up behind the fixed bar, out toward the page's
+ * edge and down into the horizon, the scene runs past even that, and the
+ * scene feathers its own canvas on every side (in the shader, not with a CSS
+ * mask) so the form dissolves rather than being cut. The left edge stays on
+ * the column, so nothing of the scene reaches
+ * under the entry's controls. On a phone it keeps clear of the small print
+ * above it. There is no light box behind it: the scene is its own light.
+ */
+.lp-stage{position:absolute;inset:calc(-1 * var(--lp-bleed-top,64px)) calc(-1 * var(--lp-bleed-x,72px)) -44px 0;
+  isolation:isolate;pointer-events:none}
 .lp-portal{position:absolute;inset:0;width:100%;height:100%;display:block;
   pointer-events:auto;touch-action:pan-y pinch-zoom;cursor:grab;
   opacity:0;transition:opacity .7s var(--ease)}
 .lp-portal:active{cursor:grabbing}
 .lp-portal.is-live{opacity:1}
-/*
- * Masked, and inset outward past the stage. Both light sources are wider than
- * the box that carries them -- the violet one is centred at 65% 65% and still
- * has colour left at 100% -- so the element's own rectangle cut them off and
- * the plasma appeared to sit inside a lit panel with visible corners. The
- * radial mask is what removes the rectangle for good: --gx/--gy follow the
- * pointer, so any fixed set of stops is only ever one gesture away from
- * reaching an edge again.
- */
-.lp-glow{position:absolute;inset:-14%;--gx:50%;--gy:50%;pointer-events:none;
-  background:radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(34,211,238,.16),transparent 80%),
-    radial-gradient(ellipse 48% 45% at 65% 65%,rgba(124,58,237,.15),transparent 80%);
-  -webkit-mask-image:radial-gradient(closest-side at 50% 50%,#000 54%,rgba(0,0,0,0) 100%);
-  mask-image:radial-gradient(closest-side at 50% 50%,#000 54%,rgba(0,0,0,0) 100%)}
-[data-theme="light"] .lp-glow{background:
-  radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(14,154,184,.12),transparent 80%),
-  radial-gradient(ellipse 48% 45% at 65% 65%,rgba(124,58,237,.08),transparent 80%)}
 .lp-art-note{position:absolute;bottom:0;inset-inline:0;text-align:center;margin:0;
   color:var(--text2);font-size:.75rem;letter-spacing:.02em;pointer-events:none}
 .lp-art.is-static .lp-drag-hint,[data-motion="off"] .lp-drag-hint{display:none}
@@ -749,7 +747,7 @@ em{color:var(--teal);font-style:normal}
 .lp-step-d{font-size:.78rem;color:var(--text2);line-height:1.5}
 .lp-more{position:relative;padding-top:40px;background:transparent;border:0}
 /* Focus and in-page jumps land below the fixed bar, not under it. */
-html:has(#page-alpha-access.active){scroll-padding-top:calc(env(safe-area-inset-top,0px) + 96px)}
+html:has(#page-alpha-access.active){scroll-padding-top:calc(env(safe-area-inset-top,0px) + 88px)}
 .lp-sec{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(32px,6vw,80px)}
 .lp-more > * + *{margin-top:clamp(84px,11vw,148px)}
 .lp-sec-head{max-width:31rem;margin:0}
@@ -782,7 +780,7 @@ html:has(#page-alpha-access.active){scroll-padding-top:calc(env(safe-area-inset-
   .lp-title{font-size:clamp(2.3rem,7.5vw,3.7rem)}
   .lp-lede{font-size:.95rem}
   .lp-art{width:100%;max-width:520px;justify-self:center;aspect-ratio:1.18}
-  .lp-stage{inset:-16px 0 28px}
+  .lp-stage{inset:-4px calc(-1 * clamp(20px,5vw,56px)) 28px}
   .lp-more{padding-top:40px;max-width:680px}
   .lp-sec{grid-template-columns:minmax(0,1fr);gap:28px}
   .lp-sec + .lp-sec{margin-top:64px}
@@ -806,7 +804,7 @@ html:has(#page-alpha-access.active){scroll-padding-top:calc(env(safe-area-inset-
    * control sat under the clock. Making the bar tighter on a small screen is a
    * question about the bottom edge; the top edge is not this rule's to answer.
    */
-  .lp-nav{padding-bottom:20px}
+  .lp-nav{padding-bottom:10px}
   .lp-state{display:none}
   .lp-caps{grid-template-columns:1fr;gap:22px}
   .lp-step-t{font-size:.83rem}
@@ -5418,20 +5416,12 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .neural-search-wrap:focus-within{border-color:rgba(167,139,250,.7);box-shadow:0 0 0 3px rgba(139,92,246,.22)}
 [data-design="obsidian"] .neural-search-wrap:focus-within{border-color:rgba(255,255,255,.34);box-shadow:0 0 0 3px rgba(255,255,255,.08)}
 [data-design="obsidian"][data-theme="light"] .neural-search-wrap:focus-within{border-color:rgba(28,25,23,.3);box-shadow:0 0 0 3px rgba(28,25,23,.07)}
-/* Obsidian's landing: the same room lit by white light instead of cyan and
-   violet -- a cool haze behind the platinum ring, nothing tinted. */
+/* Obsidian's landing: the same light from above the vortex's crown, white
+   instead of violet -- nothing tinted, and nothing behind the form itself. */
 [data-design="obsidian"] .lp{background:
-  radial-gradient(ellipse 720px 800px at 83% 350px,rgba(255,255,255,.035),transparent 72%),
-  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(180,180,200,.05),transparent 75%)}
+  radial-gradient(ellipse 1100px 760px at 76% -8%,rgba(200,200,215,.06),transparent 70%)}
 [data-design="obsidian"][data-theme="light"] .lp{background:
-  radial-gradient(ellipse 720px 800px at 83% 350px,rgba(255,255,255,.7),transparent 72%),
-  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(120,113,108,.06),transparent 75%)}
-[data-design="obsidian"] .lp-glow{background:
-  radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(255,255,255,.08),transparent 80%),
-  radial-gradient(ellipse 48% 45% at 65% 65%,rgba(167,139,250,.05),transparent 80%)}
-[data-design="obsidian"][data-theme="light"] .lp-glow{background:
-  radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(255,255,255,.9),transparent 80%),
-  radial-gradient(ellipse 48% 45% at 65% 65%,rgba(120,113,108,.08),transparent 80%)}
+  radial-gradient(ellipse 1100px 760px at 76% -8%,rgba(255,255,255,.75),transparent 70%)}
 
 /* ===================================================================== *
  * Landing: shown rather than described.
@@ -6246,3 +6236,260 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 
 /* An opened detail or run comes to rest below the fixed top bar, not under it. */
 .detail,.run-jobs,.run-item{scroll-margin-top:calc(var(--topbar-h) + env(safe-area-inset-top,0px) + 16px);scroll-margin-bottom:calc(var(--bnav-h) + 24px + env(safe-area-inset-bottom,0px))}
+
+/* A weakness in the 2025 CWE Top 25 says so, in the warm tone the tally uses for serious. */
+.audit-std-chip.audit-std-top25 {
+  color: var(--text);
+  background: color-mix(in oklab, var(--sev-serious, #F97316) 12%, transparent);
+  border-color: color-mix(in oklab, var(--sev-serious, #F97316) 34%, var(--rp-line));
+}
+.audit-std-chip.audit-std-top25:hover { border-color: var(--sev-serious, #F97316); }
+
+/* ============================================================
+   Landing, 2026 pass
+   ------------------------------------------------------------
+   A compact bar that carries the page's sections, a theme control
+   drawn as one icon turning into the other, and a quieter, more
+   deliberate type: display headings set lighter and larger in a
+   metallic gradient, eyebrows between hairlines, a dot field and
+   column rules behind the hero with a horizon of light under it,
+   and one sentence lit a word at a time as it is read.
+
+   Every heading keeps a real `color`: the gradient's darker end,
+   so anything measuring contrast from the computed colour measures
+   the worst part of the glyph, not an average.
+   ============================================================ */
+.lp{
+  --lp-hi:#FFFFFF; --lp-lo:#BDB6DE;
+  --lp-em-a:#D8CCFF; --lp-em-b:#7DD3FC; --lp-em:#C4B5FD;
+  --lp-hair:rgba(196,181,253,.16); --lp-col:rgba(196,181,253,.07);
+  --lp-dot:rgba(214,206,255,.15);
+  --lp-rim:rgba(196,181,253,.6); --lp-rim-glow:rgba(124,58,237,.34); --lp-rim-cyan:rgba(34,211,238,.18);
+  --lp-cta-bg:#F5F3FF; --lp-cta-fg:#120B2E; --lp-link:rgba(232,229,255,.8);
+}
+[data-theme="light"] .lp{
+  --lp-hi:#120B2E; --lp-lo:#463E6E;
+  --lp-em-a:#6D28D9; --lp-em-b:#0E7490; --lp-em:#0E7490;
+  --lp-hair:rgba(83,60,190,.16); --lp-col:rgba(83,60,190,.07);
+  --lp-dot:rgba(60,40,140,.14);
+  --lp-rim:rgba(109,40,217,.42); --lp-rim-glow:rgba(124,58,237,.16); --lp-rim-cyan:rgba(14,154,184,.12);
+  --lp-cta-bg:#120B2E; --lp-cta-fg:#FFFFFF; --lp-link:rgba(22,18,52,.8);
+}
+[data-design="obsidian"] .lp{
+  --lp-hi:#FAFAFA; --lp-lo:#A1A1AA;
+  --lp-em-a:#F4F4F5; --lp-em-b:#A1A1AA; --lp-em:#A1A1AA;
+  --lp-hair:rgba(255,255,255,.12); --lp-col:rgba(255,255,255,.06); --lp-dot:rgba(255,255,255,.12);
+  --lp-rim:rgba(255,255,255,.45); --lp-rim-glow:rgba(255,255,255,.1); --lp-rim-cyan:rgba(255,255,255,.05);
+  --lp-cta-bg:#FAFAFA; --lp-cta-fg:#09090B; --lp-link:rgba(250,250,250,.78);
+}
+[data-design="obsidian"][data-theme="light"] .lp{
+  --lp-hi:#09090B; --lp-lo:#52525B;
+  --lp-em-a:#27272A; --lp-em-b:#71717A; --lp-em:#71717A;
+  --lp-hair:rgba(0,0,0,.1); --lp-col:rgba(0,0,0,.05); --lp-dot:rgba(0,0,0,.1);
+  --lp-rim:rgba(0,0,0,.28); --lp-rim-glow:rgba(0,0,0,.06); --lp-rim-cyan:rgba(0,0,0,.03);
+  --lp-cta-bg:#09090B; --lp-cta-fg:#FAFAFA; --lp-link:rgba(9,9,11,.76);
+}
+
+/* ---- The bar ------------------------------------------------------------ */
+.lp-nav{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);column-gap:20px}
+.lp-brand{justify-self:start;font-size:.97rem;font-weight:650;gap:10px}
+.lp-brand .nv-mark{width:24px;height:24px;flex-basis:24px}
+.lp-nav-end{justify-self:end;gap:10px}
+.lp-links{position:relative;display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;
+  border:1px solid var(--lp-hair);background:color-mix(in oklab,var(--text) 3%,transparent)}
+.lp-link{position:relative;z-index:1;height:32px;padding:0 15px;border:0;border-radius:999px;background:none;cursor:pointer;
+  font:500 .84rem/1 var(--font-body);letter-spacing:-.005em;color:var(--lp-link);transition:color .2s ease}
+.lp-link:hover,.lp-link[aria-current]{color:var(--text)}
+.lp-link:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.lp-links-ink{position:absolute;top:4px;bottom:4px;left:0;width:var(--ink-w,0);transform:translateX(var(--ink-x,0));
+  border-radius:999px;background:color-mix(in oklab,var(--text) 10%,transparent);
+  box-shadow:inset 0 1px 0 color-mix(in oklab,var(--text) 10%,transparent);opacity:0;
+  transition:transform .45s var(--ease),width .45s var(--ease),opacity .25s ease}
+.lp-links-ink.is-on{opacity:1}
+.lp-state{padding:5px 10px;border:1px solid var(--lp-hair);border-radius:999px;font-size:.6rem;letter-spacing:.12em}
+.lp-state-dot{box-shadow:0 0 0 3px color-mix(in oklab,var(--teal) 22%,transparent)}
+@media (prefers-reduced-motion:no-preference){
+  .lp-state-dot{animation:lp-beacon 2.6s ease-in-out infinite}
+}
+@keyframes lp-beacon{50%{box-shadow:0 0 0 6px color-mix(in oklab,var(--teal) 0%,transparent)}}
+[data-motion="off"] .lp-state-dot,[data-motion="off"] .lp-links-ink{animation:none;transition:none}
+
+/*
+ * The theme control: one icon, the one for the theme in use, turning into
+ * the other. Scoped to the landing bar; the switches inside the application
+ * keep their own form.
+ */
+.lp-nav .theme-toggle{width:38px;min-width:38px;height:38px;min-height:38px;padding:0;display:grid;place-items:center;
+  justify-content:center;align-content:center;
+  border-radius:12px;border:1px solid var(--lp-hair);background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;
+  color:var(--text);transition:background-color .2s ease,border-color .2s ease}
+.lp-nav .theme-toggle:hover{background:color-mix(in oklab,var(--text) 7%,transparent);border-color:color-mix(in oklab,var(--text) 22%,transparent)}
+.lp-nav .theme-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lp-nav .theme-toggle .tt-knob{display:none}
+.lp-nav .theme-toggle .tt-ico{grid-area:1/1;margin:0;width:17px;height:17px;color:currentColor;opacity:1;stroke-width:1.8;
+  transition:transform .5s var(--ease),opacity .3s ease}
+[data-theme="dark"] .lp-nav .theme-toggle .tt-sun{opacity:0;transform:rotate(-90deg) scale(.4)}
+[data-theme="dark"] .lp-nav .theme-toggle .tt-moon{opacity:1;transform:none}
+[data-theme="light"] .lp-nav .theme-toggle .tt-moon{opacity:0;transform:rotate(90deg) scale(.4)}
+[data-theme="light"] .lp-nav .theme-toggle .tt-sun{opacity:1;transform:none}
+[data-motion="off"] .lp-nav .theme-toggle .tt-ico{transition:none}
+
+/* The one action, inverted against the page, with an arrow that leans in. */
+.lp-nav-cta{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 14px 0 16px;border:0;border-radius:12px;cursor:pointer;
+  background:var(--lp-cta-bg);color:var(--lp-cta-fg);font:600 .86rem/1 var(--font-body);letter-spacing:-.01em;white-space:nowrap;
+  box-shadow:0 1px 0 rgba(255,255,255,.35) inset,0 8px 22px -12px var(--lp-rim-glow);transition:transform .2s var(--ease),box-shadow .2s ease}
+.lp-nav-cta::after{content:"";width:14px;height:14px;flex:none;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E") center/contain no-repeat;
+  transition:transform .25s var(--ease)}
+.lp-nav-cta:hover{transform:translateY(-1px)}
+.lp-nav-cta:hover::after{transform:translateX(3px)}
+.lp-nav-cta:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[data-motion="off"] .lp-nav-cta,[data-motion="off"] .lp-nav-cta::after{transition:none}
+
+/* The ground once the page scrolls: the same opaque scrim, with a hairline of light along its foot. */
+.lp-nav::before{content:"";position:absolute;left:calc(50% - 50vw);right:calc(50% - 50vw);bottom:0;height:1px;z-index:-1;pointer-events:none;
+  background:linear-gradient(90deg,transparent,var(--lp-rim) 30%,var(--lp-rim) 70%,transparent);opacity:0;transition:opacity .25s linear}
+.lp-nav.is-stuck::before{opacity:.5}
+
+@media (max-width:1180px){ .lp-state{display:none} }
+@media (max-width:939px){
+  .lp{--lp-nav-h:calc(env(safe-area-inset-top,0px) + 60px)}
+  .lp-nav{grid-template-columns:minmax(0,1fr) auto;column-gap:12px}
+  .lp-links{display:none}
+  .lp-nav-end{gap:8px}
+}
+@media (max-width:480px){
+  .lp{--lp-nav-h:calc(env(safe-area-inset-top,0px) + 58px)}
+  .lp-brand{font-size:.92rem;gap:8px}
+  .lp-brand .nv-mark{width:22px;height:22px;flex-basis:22px}
+  .lp-nav .theme-toggle{width:36px;min-width:36px;height:36px;min-height:36px;border-radius:11px}
+  .lp-nav-cta{height:36px;padding:0 12px 0 14px;border-radius:11px;font-size:.84rem}
+}
+
+/* ---- Type ----------------------------------------------------------------- */
+.lp-title,.lp-show-title,.lp-sec-title,.lp-cta-title{font-weight:560;color:var(--lp-lo)}
+.lp-title .lp-line,.lp-show-title,.lp-sec-title,.lp-cta-title{
+  background:linear-gradient(180deg,var(--lp-hi) 18%,var(--lp-lo) 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.lp-title{font-size:clamp(2.6rem,5vw,4.4rem);line-height:1.02;letter-spacing:-.045em}
+.lp-title .lp-line{display:inline-block;padding-bottom:.06em}
+.lp-title em,.lp-title .lp-line:has(em){background:linear-gradient(100deg,var(--lp-em-a) 10%,var(--lp-em-b) 90%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:var(--lp-em)}
+.lp-title em{font-weight:500;padding-right:.08em}
+.lp-show-title{font-size:clamp(2rem,4.2vw,3.4rem);line-height:1.06;letter-spacing:-.04em}
+.lp-sec-title{font-size:clamp(1.75rem,3.2vw,2.6rem);line-height:1.1;letter-spacing:-.035em}
+.lp-cta-title{font-size:clamp(2.2rem,5vw,4rem);line-height:1.04;letter-spacing:-.045em}
+.lp-check-v{font-weight:450;letter-spacing:-.06em;color:var(--lp-lo);
+  background:linear-gradient(180deg,var(--lp-hi) 25%,var(--lp-lo) 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.lp-lede{font-size:1.06rem;line-height:1.62;max-width:33rem}
+
+/* Eyebrows sit between hairlines, the way an instrument labels a dial. */
+.lp-sec-eyebrow,.lp-eyebrow{display:inline-flex;align-items:center;gap:12px;letter-spacing:.18em}
+.lp-sec-eyebrow::before,.lp-eyebrow::before{content:"";width:28px;height:1px;flex:none;background:linear-gradient(90deg,transparent,currentColor)}
+:is(.lp-play-head,.lp-show-head,.lp-checks-head,.lp-statement) .lp-sec-eyebrow::after{content:"";width:28px;height:1px;flex:none;
+  background:linear-gradient(90deg,currentColor,transparent)}
+
+/* ---- The hero's room ---------------------------------------------------------- */
+.lp-hero{isolation:isolate}
+/* A dot field and six column rules, strongest behind the artwork and gone before the edges. */
+/*
+ * The dot field and column rules belong to the artwork's side of the hero.
+ * Spread across the whole width, a rule ran through the headline, the lede
+ * and the entry line -- faint, but a line through a word reads as a defect,
+ * not a texture. The second mask keeps the copy column on plain ground.
+ */
+.lp-hero::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(circle,var(--lp-dot) 1px,transparent 1.5px) 0 0/22px 22px,
+    linear-gradient(90deg,var(--lp-col) 1px,transparent 1px) 0 0/calc(100% / 6) 100%;
+  -webkit-mask-image:radial-gradient(ellipse 62% 70% at 72% 42%,#000 10%,rgba(0,0,0,.35) 55%,transparent 82%),
+    linear-gradient(90deg,transparent 42%,#000 54%);
+  -webkit-mask-composite:source-in;
+  mask-image:radial-gradient(ellipse 62% 70% at 72% 42%,#000 10%,rgba(0,0,0,.35) 55%,transparent 82%),
+    linear-gradient(90deg,transparent 42%,#000 54%);
+  mask-composite:intersect}
+/*
+ * A horizon of light: the rim of a very large disc rising under the fold.
+ * It lives in a strip of its own that fades to nothing at its foot, so the
+ * rim and its glow thin away before the hero ends instead of being cut off
+ * by it.
+ */
+.lp{--lp-horizon-h:280px;--lp-rim-top:130px}
+.lp-horizon{position:absolute;left:0;right:0;bottom:0;height:var(--lp-horizon-h);z-index:-1;pointer-events:none;overflow:hidden;
+  -webkit-mask-image:linear-gradient(180deg,#000 50%,transparent 100%);mask-image:linear-gradient(180deg,#000 50%,transparent 100%)}
+.lp-horizon::before{content:"";position:absolute;left:50%;top:var(--lp-rim-top);width:max(1700px,150vw);height:1400px;
+  transform:translateX(-50%);border-radius:50%;
+  background:linear-gradient(180deg,color-mix(in oklab,var(--page) 70%,transparent),transparent 150px);
+  box-shadow:0 -1px 0 0 var(--lp-rim),0 -28px 90px -24px var(--lp-rim-glow),inset 0 24px 70px -30px var(--lp-rim-cyan)}
+.lp-steps{position:relative}
+/*
+ * The rim passes under the steps, never through them. Its highest point is
+ * --lp-horizon-h - --lp-rim-top above the hero's foot, so the body keeps that
+ * much room below the last row plus clear air -- one sum from the same two
+ * numbers the rim is drawn from, so moving the rim cannot bring it back
+ * through the text. It was drawn through the row at every width: the arc
+ * crossed "01" and "03" on a desktop and ran into the dividers on a phone.
+ */
+.lp-body{padding-bottom:calc(var(--lp-horizon-h) - var(--lp-rim-top) + 36px)}
+/* A step's number and its title share a baseline; the line under it sits
+   under the title, not under the number. */
+.lp-step{align-items:baseline}
+.lp-step-n{grid-row:1;line-height:1}
+.lp-step-d{grid-column:2}
+
+/* ---- The statement ---------------------------------------------------------- */
+.lp-statement{display:grid;justify-items:center;gap:22px;text-align:center;max-width:62rem;margin-inline:auto}
+.lp-statement-text{margin:0;font-family:var(--font-display);font-weight:520;font-size:clamp(1.55rem,3.3vw,2.7rem);
+  line-height:1.22;letter-spacing:-.032em;color:var(--text);text-wrap:balance}
+.lp-statement-text.is-lighting .lp-word-lit{opacity:.22;transition:opacity .35s ease}
+.lp-statement-text.is-lighting .lp-word-lit.is-lit{opacity:1}
+[data-motion="off"] .lp-statement-text .lp-word-lit{opacity:1;transition:none}
+@media (prefers-reduced-motion:reduce){ .lp-statement-text .lp-word-lit{opacity:1;transition:none} }
+
+/* ---- Buttons across the page: an arrow that leans in, a lift on hover. ---- */
+.lp-cta-btn{border-radius:14px;padding-inline:26px 22px;gap:10px}
+.lp-cta-btn::after{content:"";width:15px;height:15px;flex:none;background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E") center/contain no-repeat;
+  transition:transform .25s var(--ease)}
+.lp-cta-btn:hover::after{transform:translateX(3px)}
+
+/* ---- Phones ------------------------------------------------------------------- */
+@media (max-width:939px){
+  .lp-title{font-size:clamp(2.35rem,9.6vw,3.6rem)}
+  /* One column on a phone: the copy and the art share it, so the field is
+     dots alone -- no rule can cross a word -- and it gathers around the art. */
+  .lp-hero::before{background:radial-gradient(circle,var(--lp-dot) 1px,transparent 1.5px) 0 0/18px 18px;
+    -webkit-mask-image:radial-gradient(ellipse 90% 60% at 50% 70%,#000 10%,rgba(0,0,0,.3) 55%,transparent 85%);
+    mask-image:radial-gradient(ellipse 90% 60% at 50% 70%,#000 10%,rgba(0,0,0,.3) 55%,transparent 85%)}
+  .lp{--lp-horizon-h:190px;--lp-rim-top:120px}
+  .lp-horizon::before{width:max(1100px,300vw)}
+  .lp-step-d{grid-column:auto}
+  .lp-steps{padding-top:8px}
+  .lp-statement-text{font-size:clamp(1.4rem,6.4vw,2rem);line-height:1.26;text-wrap:pretty}
+}
+@media (max-width:480px){
+  .lp-eyebrow{font-size:.6rem;letter-spacing:.14em;gap:10px}
+  .lp-eyebrow::before{width:18px}
+  .lp-lede{font-size:.98rem;line-height:1.6}
+  .lp-sec-eyebrow::before,:is(.lp-play-head,.lp-show-head,.lp-checks-head,.lp-statement) .lp-sec-eyebrow::after{width:18px}
+}
+
+/*
+ * Safeguards as a section of the workbench. The same parts as the panel it
+ * replaces, given a page's room: wider gutters, the locked list at its full
+ * length, and the recovery tools under a heading of their own.
+ */
+.sg-page { gap: 14px; }
+.sg-page .sg-posture { padding: 18px 20px; border-radius: 18px; }
+.sg-page .sg-card { padding: 18px 20px; gap: 12px; border-radius: 18px; }
+.sg-page .sg-locked { max-height: none; }
+.sg-actions { display: grid; gap: 10px; }
+.sg-tools-head { padding: 0 2px; }
+.sg-shell .sec-hero { margin-bottom: 14px; }
+@media (max-width: 760px) {
+  .sg-page .sg-posture { grid-template-columns: auto minmax(0, 1fr); padding: 14px; }
+  .sg-page .sg-posture .sg-stats { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sg-page .sg-card { padding: 14px; }
+}

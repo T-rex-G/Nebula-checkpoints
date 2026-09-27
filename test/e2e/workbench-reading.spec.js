@@ -149,18 +149,45 @@ test('the editor scrolls a long file and its last line clears the navigation', a
   await openRepository(page, 'editor');
   await page.evaluate(path => openFile(path), LONG_FILE);
   await expect(page.locator('.CodeMirror')).toBeVisible();
-  await page.evaluate(() => {
-    const cm = document.querySelector('.CodeMirror').CodeMirror;
-    cm.scrollIntoView({ line: cm.lineCount() - 1, ch: 0 });
-  });
+  /*
+   * Two ways a reader reaches the end, each repeated on every look: the
+   * editor refreshes itself just after a file opens and re-measures its lines
+   * when the web font arrives, and a gesture made before either lands short.
+   */
+  await page.evaluate(() => document.fonts && document.fonts.ready);
   const last = page.locator('.CodeMirror-code > div:last-child');
-  await expect(last).toContainText(`line ${LONG_FILE_LINES}`);
   /* What a finger on the last line touches is the line, not the bottom navigation or the action button over it. */
-  await expect.poll(() => last.evaluate(line => {
+  const reachable = () => last.evaluate(line => {
     const box = line.getBoundingClientRect();
+    const nav = document.getElementById('bottomNav');
+    const floor = nav && nav.getClientRects().length ? nav.getBoundingClientRect().top : innerHeight;
     const hit = document.elementFromPoint(Math.min(innerWidth - 4, box.left + 40), box.top + box.height / 2);
-    return !!hit && line.contains(hit);
-  })).toBe(true);
+    return box.bottom <= floor && !!hit && line.contains(hit);
+  });
+  /* Dragged to the end: the room after the last line lifts it clear. */
+  await expect.poll(async () => {
+    await page.evaluate(() => { const scroller = document.querySelector('.CodeMirror-scroll'); scroller.scrollTop = scroller.scrollHeight; });
+    return reachable();
+  }).toBe(true);
+  await expect(last).toContainText(`line ${LONG_FILE_LINES}`);
+  /*
+   * The cursor sent to the end the way a search hit or a jump to a line sends
+   * it -- focus stays where it was, so nothing scrolls the page for it: it
+   * stops above the navigation, not under it.
+   */
+  await page.evaluate(() => { document.querySelector('.CodeMirror-scroll').scrollTop = 0; window.scrollTo(0, 0); });
+  await expect.poll(async () => {
+    await page.evaluate(() => { const cm = document.querySelector('.CodeMirror').CodeMirror; cm.setCursor(cm.lineCount() - 1, 0); });
+    return page.evaluate(() => {
+      const cm = document.querySelector('.CodeMirror').CodeMirror;
+      const at = cm.cursorCoords(null, 'window');
+      /* Above the navigation, not in whatever strip of screen happens to be left beneath it. */
+      const nav = document.getElementById('bottomNav');
+      const floor = nav && nav.getClientRects().length ? nav.getBoundingClientRect().top : innerHeight;
+      const hit = document.elementFromPoint(Math.max(4, at.left + 2), (at.top + at.bottom) / 2);
+      return at.bottom <= floor && !!hit && !!hit.closest('.CodeMirror');
+    });
+  }).toBe(true);
 });
 
 test('each tab keeps its own place in a long list', async ({ page }) => {

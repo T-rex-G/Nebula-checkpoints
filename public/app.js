@@ -509,6 +509,13 @@ function closeModal(v) {
   modalGeneration++;
   closeOverlay($('#scrim'));
   if (modalResolve) { modalResolve(v); modalResolve = null; }
+  /*
+   * A dialog just finished is a reader between actions, not one reading down
+   * the page: the floating actions come back, wherever the page is scrolled.
+   * Without this, an action opened from the foot of a long section left the
+   * dock withdrawn behind the bottom navigation until the reader scrolled up.
+   */
+  if (typeof setFloatingActionRetracted === 'function') { setFloatingActionRetracted(false); _fabScrollY = Math.max(0, window.scrollY); }
   const restore = modalReturnFocus;
   modalReturnFocus = null;
   const generation = modalGeneration;
@@ -5463,8 +5470,26 @@ function sgRulesHTML(rules) {
     ? `<a class="sg-link" href="${esc(rules.settingsUrl)}" target="_blank" rel="noopener noreferrer">Branch settings ${sgSvg('out', 'sg-ico sg-ico-sm')}</a>` : '';
   return `<ul class="sg-rules">${rows}</ul>${partial}<div class="sg-card-foot"><span class="sg-muted">${rules.sources.length ? esc(rules.sources.join(' · ')) : rules.protected ? 'Protected' : 'No rule covers this branch'}</span>${link}</div>`;
 }
-async function openSafeguards() {
+/*
+ * Safeguards is a section of the workbench, not a dialog over it: a reader
+ * working through Audit and Exposure reaches it the same way, its address is
+ * a place Back returns to, and changing a lock redraws it in place rather
+ * than closing and reopening a window. Every entry point lands here.
+ */
+function openSafeguards() {
+  if (!state.work) return toast('Open a repository first.', 'err');
+  if (_page !== 'work') showPage('work');
+  switchTab('safeguards');
+}
+let safeguardsRender = 0;
+async function renderSafeguards() {
+  const root = $('#safeguardsRoot');
+  if (!root || !state.work) return;
+  const generation = ++safeguardsRender;
+  const owns = () => generation === safeguardsRender && root.isConnected;
+  if (!root.children.length) root.innerHTML = '<div class="skeleton" style="height:120px"></div>';
   await refreshSafety();
+  if (!owns()) return;
   const sf = state.safety || {};
   const global = sf.globalControls !== false;
   const prot = protectedList();
@@ -5483,9 +5508,9 @@ async function openSafeguards() {
     { id: 'sgEvidence', feature: 'governance', experimental: true, icon: 'evidence', title: 'Export evidence', sub: 'Signed, verifiable package' }
   ].map(tile => `<button type="button" class="sg-tile" id="${tile.id}" data-feature="${tile.feature}"${tile.experimental ? ' data-allow-experimental="true"' : ''}>
       ${sgSvg(tile.icon, 'sg-ico sg-tile-ico')}<span class="sg-tile-title">${tile.title}</span><span class="sg-tile-sub">${esc(tile.sub)}</span></button>`).join('');
-  await modal({
-    title: 'Safeguards', okText: 'Done', wide: true, cancel: false, autofocus: false,
-    bodyHTML: `<div class="sg">
+  /* Focus survives a redraw: the control the reader just used is the one that has it afterwards. */
+  const focusedId = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id || document.activeElement.dataset.preset : '';
+  root.innerHTML = `<div class="sg sg-page">
       <section class="sg-posture" data-tone="part" aria-live="polite">
         <span class="sg-posture-mark">${sgSvg('scan', 'sg-ico')}</span>
         <div class="sg-posture-read"><p class="sg-posture-word" id="sgPostureWord">Reading…</p>
@@ -5498,18 +5523,19 @@ async function openSafeguards() {
       </section>
       <div class="sg-grid">
         <section class="sg-card" aria-labelledby="sgLocalHead">
-          <h4 class="sg-card-head" id="sgLocalHead">${sgSvg('lock')}In Nebulaverse-X</h4>
+          <h3 class="sg-card-head" id="sgLocalHead">${sgSvg('lock')}In Nebulaverse-X</h3>
           ${switchRow('sgReadOnly', sf.readOnly, 'Read-only mode', 'Refuse every commit, upload, delete, merge and reset.')}
           ${switchRow('sgFreeze', sf.freezeSync, 'Freeze scheduled sync', 'Pause queued and automatic syncs; manual sync still works.')}
           ${global ? '' : '<p class="sg-note">Set by the deployment in the hosted alpha; protected paths below are yours to change.</p>'}
         </section>
         <section class="sg-card" aria-labelledby="sgProviderHead" id="sgProvider">
-          <h4 class="sg-card-head" id="sgProviderHead">${sgSvg('branch')}On ${esc(providerName)} · <span class="mono">${esc(state.work.branch)}</span></h4>
+          <div class="sg-card-row"><h3 class="sg-card-head" id="sgProviderHead">${sgSvg('branch')}On ${esc(providerName)} · <span class="mono">${esc(state.work.branch)}</span></h3>
+            <button type="button" class="btn btn-ghost small" id="sgRulesRefresh">Read again</button></div>
           <div id="sgRules">${sgRulesHTML(null)}</div>
         </section>
       </div>
       <section class="sg-card sg-paths" aria-labelledby="sgPathsHead">
-        <div class="sg-card-row"><h4 class="sg-card-head" id="sgPathsHead">${sgSvg('lock')}Locked paths <span class="sg-count">${prot.length}</span></h4><span class="sg-muted" id="sgFilesNote"></span></div>
+        <div class="sg-card-row"><h3 class="sg-card-head" id="sgPathsHead">${sgSvg('lock')}Locked paths <span class="sg-count">${prot.length}</span></h3><span class="sg-muted" id="sgFilesNote"></span></div>
         <p class="sg-muted sg-lede">Nebulaverse-X refuses to change these, on the server, until they are unlocked.</p>
         <div class="sg-presets" role="group" aria-label="Lock a common set">${SAFEGUARD_PRESETS.map((preset, index) => {
           const done = preset.patterns.every(pattern => prot.includes(pattern));
@@ -5521,82 +5547,91 @@ async function openSafeguards() {
           ? `<ul class="sg-locked">${prot.map((pattern, index) => `<li class="sg-lock-row"><span class="mono sg-lock-pattern">${esc(pattern)}</span><span class="sg-lock-n" data-lock-n="${index}"></span><button type="button" class="btn btn-ghost small sg-unlock" data-unlock="${index}" aria-label="Unlock ${esc(pattern)}">Unlock</button></li>`).join('')}</ul>`
           : '<p class="sg-empty">Nothing locked yet. Start with a preset, or lock a file from its menu in the tree.</p>'}
       </section>
-      <section class="sg-actions" aria-label="Recovery and evidence"><div class="sg-tiles">${tiles}</div></section>
-    </div>`,
-    onOpen: () => {
-      const body = $('#modalBody');
-      if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
-      const bind = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
-      const ro = $('#sgReadOnly'), fz = $('#sgFreeze');
-      if (ro) ro.addEventListener('change', async () => { if (!(await setSafety({ readOnly: ro.checked }))) ro.checked = !ro.checked; });
-      if (fz) fz.addEventListener('change', async () => { if (!(await setSafety({ freezeSync: fz.checked }))) fz.checked = !fz.checked; });
-      bind('sgSnap', () => { closeModal(false); snapshotFlow(); });
-      bind('sgActivity', () => { closeModal(false); exportActivityFlow(); });
-      bind('sgRecover', () => { closeModal(false); recoveryFlow(); });
-      bind('sgScan', () => { closeModal(false); securityScanFlow(); });
-      bind('sgEvidence', () => { closeModal(false); exportEvidenceFlow(); });
-      const lock = async patterns => {
-        const repo = safetyKey();
-        for (const pattern of patterns) {
-          if (protectedList().includes(pattern)) continue;
-          if (!(await setSafety({ protect: { repo, path: pattern, on: true } }))) return false;
-        }
-        return true;
-      };
-      bind('sgAddProtect', async () => {
-        const input = $('#sgProtectPattern'); const pattern = input && input.value.trim().replace(/^\/+/, '');
-        if (!pattern) return toast('Enter a file, folder or wildcard pattern', 'err');
-        if (await lock([pattern])) { toast(`${pattern} locked`, 'ok'); closeModal(false); openSafeguards(); }
-      });
-      const input = $('#sgProtectPattern');
-      if (input) input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); $('#sgAddProtect').click(); } });
-      body.querySelectorAll('[data-preset]').forEach(control => control.addEventListener('click', async () => {
-        const preset = SAFEGUARD_PRESETS[Number(control.dataset.preset)];
-        if (!preset) return;
-        control.disabled = true;
-        if (await lock(preset.patterns)) { toast(`${preset.label} locked`, 'ok'); closeModal(false); openSafeguards(); }
-        else control.disabled = false;
-      }));
-      body.querySelectorAll('[data-unlock]').forEach(control => control.addEventListener('click', async () => {
-        const pattern = prot[Number(control.dataset.unlock)];
-        if (!pattern) return;
-        control.disabled = true;
-        if (await setSafety({ protect: { repo: safetyKey(), path: pattern, on: false } })) { closeModal(false); openSafeguards(); }
-        else control.disabled = false;
-      }));
-      const owns = modalOwner();
-      /* How much each preset and lock would cover, once the file list is in hand. */
-      sgFileIndex().then(files => {
-        if (!owns() || !Array.isArray(files)) return;
-        const note = $('#sgFilesNote');
-        if (note) note.textContent = `${files.length.toLocaleString()} files on ${state.work.branch}`;
-        SAFEGUARD_PRESETS.forEach((preset, index) => {
-          const slot = body.querySelector(`[data-preset-n="${index}"]`);
-          if (slot) slot.textContent = String(sgMatchCount(preset.patterns, files));
-        });
-        prot.forEach((pattern, index) => {
-          const slot = body.querySelector(`[data-lock-n="${index}"]`);
-          if (!slot) return;
-          const n = sgMatchCount([pattern], files);
-          slot.textContent = n === 1 ? '1 file' : `${n} files`;
-          slot.dataset.zero = n ? 'false' : 'true';
-        });
-      });
-      /* The provider's rules, and the posture they decide. */
-      sgBranchRules(false).then(rules => {
-        if (!owns()) return;
-        const host = $('#sgRules');
-        if (host) host.innerHTML = sgRulesHTML(rules);
-        const stat = $('#sgStatRules');
-        if (stat) stat.textContent = rules && !rules.error ? `${rules.enforced} of ${rules.controls.length}` : '—';
-        const posture = sgPosture(rules, sf, prot.length, snapshotAt);
-        const section = body.querySelector('.sg-posture');
-        if (section) section.dataset.tone = posture.tone;
-        const word = $('#sgPostureWord');
-        if (word) word.textContent = posture.word;
-      });
+      <section class="sg-actions" aria-labelledby="sgToolsHead">
+        <h3 class="sg-card-head sg-tools-head" id="sgToolsHead">${sgSvg('recover')}Recovery and evidence</h3>
+        <div class="sg-tiles">${tiles}</div>
+      </section>
+    </div>`;
+  /* Bound in the same turn as the markup: no control is ever on screen without its handler. */
+  if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply(root);
+  const bind = (id, fn) => { const el = root.querySelector('#' + id); if (el) el.addEventListener('click', fn); };
+  const ro = root.querySelector('#sgReadOnly'), fz = root.querySelector('#sgFreeze');
+  if (ro) ro.addEventListener('change', async () => { if (!(await setSafety({ readOnly: ro.checked }))) ro.checked = !ro.checked; });
+  if (fz) fz.addEventListener('change', async () => { if (!(await setSafety({ freezeSync: fz.checked }))) fz.checked = !fz.checked; });
+  bind('sgSnap', () => snapshotFlow());
+  bind('sgActivity', () => exportActivityFlow());
+  bind('sgRecover', () => recoveryFlow());
+  bind('sgScan', () => securityScanFlow());
+  bind('sgEvidence', () => exportEvidenceFlow());
+  const lock = async patterns => {
+    const repo = safetyKey();
+    for (const pattern of patterns) {
+      if (protectedList().includes(pattern)) continue;
+      if (!(await setSafety({ protect: { repo, path: pattern, on: true } }))) return false;
     }
+    return true;
+  };
+  bind('sgAddProtect', async () => {
+    const input = root.querySelector('#sgProtectPattern'); const pattern = input && input.value.trim().replace(/^\/+/, '');
+    if (!pattern) return toast('Enter a file, folder or wildcard pattern', 'err');
+    if (await lock([pattern])) { toast(`${pattern} locked`, 'ok'); renderSafeguards(); }
   });
+  const input = root.querySelector('#sgProtectPattern');
+  if (input) input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); root.querySelector('#sgAddProtect').click(); } });
+  root.querySelectorAll('[data-preset]').forEach(control => control.addEventListener('click', async () => {
+    const preset = SAFEGUARD_PRESETS[Number(control.dataset.preset)];
+    if (!preset) return;
+    control.disabled = true;
+    if (await lock(preset.patterns)) { toast(`${preset.label} locked`, 'ok'); renderSafeguards(); }
+    else control.disabled = false;
+  }));
+  root.querySelectorAll('[data-unlock]').forEach(control => control.addEventListener('click', async () => {
+    const pattern = prot[Number(control.dataset.unlock)];
+    if (!pattern) return;
+    control.disabled = true;
+    if (await setSafety({ protect: { repo: safetyKey(), path: pattern, on: false } })) { toast(`${pattern} unlocked`, 'ok'); renderSafeguards(); }
+    else control.disabled = false;
+  }));
+  if (focusedId) {
+    const again = root.querySelector(`#${CSS.escape(focusedId)}`) || root.querySelector(`[data-preset="${CSS.escape(focusedId)}"]`) || root.querySelector('#sgProtectPattern');
+    if (again && !again.disabled) again.focus({ preventScroll: true });
+  }
+  /* How much each preset and lock would cover, once the file list is in hand. */
+  sgFileIndex().then(files => {
+    if (!owns() || !Array.isArray(files)) return;
+    const note = root.querySelector('#sgFilesNote');
+    if (note) note.textContent = `${files.length.toLocaleString()} files on ${state.work.branch}`;
+    SAFEGUARD_PRESETS.forEach((preset, index) => {
+      const slot = root.querySelector(`[data-preset-n="${index}"]`);
+      if (slot) slot.textContent = String(sgMatchCount(preset.patterns, files));
+    });
+    prot.forEach((pattern, index) => {
+      const slot = root.querySelector(`[data-lock-n="${index}"]`);
+      if (!slot) return;
+      const n = sgMatchCount([pattern], files);
+      slot.textContent = n === 1 ? '1 file' : `${n} files`;
+      slot.dataset.zero = n ? 'false' : 'true';
+    });
+  });
+  /* The provider's rules, and the posture they decide. */
+  const paintRules = rules => {
+    if (!owns()) return;
+    const host = root.querySelector('#sgRules');
+    if (host) host.innerHTML = sgRulesHTML(rules);
+    const stat = root.querySelector('#sgStatRules');
+    if (stat) stat.textContent = rules && !rules.error ? `${rules.enforced} of ${rules.controls.length}` : '—';
+    const posture = sgPosture(rules, sf, prot.length, snapshotAt);
+    const section = root.querySelector('.sg-posture');
+    if (section) section.dataset.tone = posture.tone;
+    const word = root.querySelector('#sgPostureWord');
+    if (word) word.textContent = posture.word;
+  };
+  bind('sgRulesRefresh', () => {
+    const host = root.querySelector('#sgRules');
+    if (host) host.innerHTML = sgRulesHTML(null);
+    sgBranchRules(true).then(paintRules);
+  });
+  sgBranchRules(false).then(paintRules);
 }
 async function moveFolderFlow(dirPath) {
   const ok = await modal({
@@ -5712,6 +5747,15 @@ function ensureCM() {
     value: '', lineNumbers: true, theme: state.settings.editorTheme,
     lineWrapping: !!state.settings.wrap, viewportMargin: 50
   });
+  /*
+   * On a phone the editor runs down behind the bottom navigation until the
+   * page is scrolled to its end, and CodeMirror only knows its own box: a
+   * cursor moved to the last line, a search hit or a jump to a line landed
+   * under the navigation, where it could not be seen or tapped. After any
+   * cursor move, a cursor that sits under the navigation is scrolled clear
+   * of it, inside the editor.
+   */
+  state.cm.on('cursorActivity', cm => requestAnimationFrame(() => keepCursorClearOfNav(cm)));
   state.cm.on('change', () => {
     if (state.file && !state.file.binary && !state.file._loading) {
       state.file.dirty = true;
@@ -5722,6 +5766,17 @@ function ensureCM() {
     }
   });
   return state.cm;
+}
+
+function keepCursorClearOfNav(cm) {
+  const nav = $('#bottomNav');
+  /* offsetParent is always null for a fixed element; a laid-out box is the test. */
+  if (!nav || !nav.getClientRects().length) return;
+  const limit = nav.getBoundingClientRect().top - 12;
+  const cursor = cm.cursorCoords(null, 'window');
+  if (cursor.bottom <= limit) return;
+  const info = cm.getScrollInfo();
+  cm.scrollTo(null, Math.min(info.height - info.clientHeight, info.top + (cursor.bottom - limit)));
 }
 
 async function openFile(p) {
@@ -6152,6 +6207,7 @@ function switchTab(name) {
   if (name === 'exposure') loadExposure();
   else clearTimeout(exposurePollTimer);
   if (name === 'audit') paintAudit();
+  if (name === 'safeguards') renderSafeguards();
   if (name === 'neural') ensureNeural();
   else if (window.NebulaNeural) window.NebulaNeural.deactivate();
   if (name === 'editor' && state.cm) setTimeout(() => state.cm.refresh(), 30);
@@ -6255,14 +6311,13 @@ $('#sheet').addEventListener('click', e => {
   runCapabilityAction(item.dataset.feature, () => {
     closeSheet();
     const act = item.dataset.act;
-    if (['pulls', 'issues', 'releases', 'compare', 'actions', 'neural', 'governance', 'exposure', 'audit'].includes(act)) switchTab(act);
+    if (['pulls', 'issues', 'releases', 'compare', 'actions', 'neural', 'governance', 'exposure', 'audit', 'safeguards'].includes(act)) switchTab(act);
     else if (act === 'palette') openPalette();
     else if (act === 'zip') downloadZip();
     else if (act === 'branches') openBranchManager();
     else if (act === 'delrepo') deleteRepoFlow();
     else if (act === 'theme') toggleTheme();
     else if (act === 'settings') openSettings();
-    else if (act === 'safeguards') openSafeguards();
   }, { allowExperimental: item.dataset.allowExperimental === 'true' });
 });
 
@@ -6461,12 +6516,12 @@ function paintRail(name) {
   rail.hidden = !RAIL_SCREENS.has(name);
   const activeTab = ($('.tabpane.active') || {}).id || '';
   /*
-   * Four of the workbench's tabs are destinations in their own right rather
+   * Five of the workbench's tabs are destinations in their own right rather
    * than views of the file it has open, and the rail offers them as such -- so
    * when one of them is what the reader is looking at, the rail marks that
    * entry rather than the workbench it technically sits inside.
    */
-  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance', 'tab-exposure': 'exposure', 'tab-audit': 'audit' };
+  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance', 'tab-exposure': 'exposure', 'tab-audit': 'audit', 'tab-safeguards': 'safeguards' };
   const shown = name === 'work' && promoted[activeTab] ? promoted[activeTab] : name;
   $$('.nv-rail-item').forEach(item => {
     const current = item.dataset.rail === shown;
@@ -6589,15 +6644,10 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   const target = item.dataset.rail;
   closeNavMenu();
   if (target === 'overview') return showOverview();
-  /* Safeguards is a dialog over the page it is opened from, not a destination. */
-  if (target === 'safeguards') {
-    if (!state.work) return toast('Open a repository first.', 'err');
-    return runCapabilityAction('recovery', () => openSafeguards());
-  }
   if (target === 'repos') return showPage('repos');
   if (!state.work) return toast('Open a repository first.', 'err');
   showPage('work');
-  if (['neural', 'governance', 'exposure', 'audit'].includes(target)) switchTab(target);
+  if (['neural', 'governance', 'exposure', 'audit', 'safeguards'].includes(target)) switchTab(target);
   else paintRail('work');
 }));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));

@@ -1,9 +1,9 @@
-/* The landing scene: a portal that is allowed to fail without taking the page. */
+/* The landing scene: a vortex that is allowed to fail without taking the page. */
 'use strict';
 
 (function landingStage(global) {
   /*
-   * The signature moment: the portal answers the gate.
+   * The signature moment: the vortex answers the gate.
    *
    * Reaching for the invitation is the one action this page exists for, so
    * the scene leans in while the reader is in the card and settles back when
@@ -16,8 +16,9 @@
    * flinch once per tab stop.
    *
    * The class is carried for CSS as it always was, and now also handed to the
-   * ring, which raises its wave and opens its centre. The moment reaches the
-   * geometry rather than stopping at a transform over it.
+   * vortex, which draws its waist in, spins faster and keeps its scan passing.
+   * The moment reaches the geometry rather than stopping at a transform over
+   * it.
    */
   const lp = document.querySelector('.lp');
   const card = document.querySelector('.lp-card');
@@ -80,6 +81,113 @@
   const root = document.documentElement;
   const reducedMotion = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)');
   const still = () => root.dataset.motion === 'off' || Boolean(reducedMotion && reducedMotion.matches);
+
+  /*
+   * The bar's section links. A tap scrolls to the section's heading (the
+   * page reserves the bar's height as scroll padding, so it lands below it);
+   * the section being read is marked, and a pill of ink slides under its
+   * link. The section being read is the last one whose heading has passed
+   * the upper third of the view.
+   */
+  const links = nav && typeof nav.querySelectorAll === 'function' ? [...nav.querySelectorAll('[data-lp-goto]')] : [];
+  const ink = nav && nav.querySelector ? nav.querySelector('.lp-links-ink') : null;
+  if (links.length) {
+    const targets = links.map(link => document.getElementById(link.dataset.lpGoto));
+    links.forEach((link, index) => link.addEventListener('click', () => {
+      const target = targets[index];
+      if (!target) return;
+      target.scrollIntoView({ behavior: still() ? 'auto' : 'smooth', block: 'start' });
+    }));
+    let active = -1;
+    let queued = false;
+    const place = () => {
+      queued = false;
+      const line = global.innerHeight / 3;
+      let current = -1;
+      targets.forEach((target, index) => { if (target && target.getBoundingClientRect().top <= line) current = index; });
+      /* Past the last section's end, nothing on the bar is being read. */
+      const last = targets[targets.length - 1];
+      const section = last && last.closest ? last.closest('section') : null;
+      if (section && section.getBoundingClientRect().bottom < line) current = -1;
+      if (current === active) return;
+      active = current;
+      links.forEach((link, index) => {
+        if (index === current) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+      });
+      if (!ink) return;
+      if (current < 0) { ink.classList.remove('is-on'); return; }
+      ink.style.setProperty('--ink-x', `${links[current].offsetLeft}px`);
+      ink.style.setProperty('--ink-w', `${links[current].offsetWidth}px`);
+      ink.classList.add('is-on');
+    };
+    const request = () => {
+      if (queued) return;
+      queued = true;
+      global.requestAnimationFrame(place);
+    };
+    global.addEventListener('scroll', request, { passive: true });
+    global.addEventListener('resize', () => { active = -2; request(); }, { passive: true });
+    place();
+  }
+
+  /*
+   * A sentence lit a word at a time as it is read: each word brightens as
+   * the paragraph climbs from the lower edge of the view to its upper third.
+   * The words stay in the paragraph as its own text, so a screen reader and
+   * a copy both get the sentence; with motion off it is simply lit.
+   */
+  const lit = document.querySelector ? document.querySelector('[data-lp-lit]') : null;
+  if (lit && typeof lit.querySelectorAll === 'function' && !still()) {
+    const words = [];
+    const walker = document.createTreeWalker(lit, NodeFilter.SHOW_TEXT);
+    const texts = [];
+    let node;
+    while ((node = walker.nextNode())) texts.push(node);
+    texts.forEach(text => {
+      const parts = text.nodeValue.split(/(\s+)/);
+      const fragment = document.createDocumentFragment();
+      parts.forEach(part => {
+        if (!part) return;
+        if (/^\s+$/.test(part)) { fragment.appendChild(document.createTextNode(part)); return; }
+        const word = document.createElement('span');
+        word.className = 'lp-word-lit';
+        word.textContent = part;
+        words.push(word);
+        fragment.appendChild(word);
+      });
+      text.parentNode.replaceChild(fragment, text);
+    });
+    lit.classList.add('is-lighting');
+    let shown = -1;
+    let queued = false;
+    const light = () => {
+      queued = false;
+      const box = lit.getBoundingClientRect();
+      const start = global.innerHeight * 0.9;
+      const end = global.innerHeight * 0.35;
+      const progress = Math.max(0, Math.min(1, (start - box.top) / Math.max(1, (start - end) + box.height * 0.5)));
+      const count = still() ? words.length : Math.round(progress * words.length);
+      if (count === shown) return;
+      shown = count;
+      words.forEach((word, index) => word.classList.toggle('is-lit', index < count));
+    };
+    const request = () => {
+      if (queued) return;
+      queued = true;
+      global.requestAnimationFrame(light);
+    };
+    if (typeof IntersectionObserver === 'function') {
+      new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) { global.addEventListener('scroll', request, { passive: true }); request(); }
+          else global.removeEventListener('scroll', request);
+        });
+      }, { threshold: 0 }).observe(lit);
+    } else {
+      words.forEach(word => word.classList.add('is-lit'));
+    }
+  }
 
   /*
    * The audit, played. The move nearest the reading line is the one the
@@ -261,84 +369,24 @@
   /*
    * WebGL can be absent for reasons that are none of the reader's business: a
    * blocklisted driver, a headless build, a browser with it switched off. The
-   * stage keeps its own ground and veil, so losing the ring costs the picture
+   * stage keeps its own ground and veil, so losing the vortex costs the picture
    * a subject and nothing else -- the page is never a black box waiting for a
    * context that is not coming.
    */
   // The canvas owns an unobstructed box and handles pointer capture itself.
-  const ring = global.NebulaPlasmaRing && global.NebulaPlasmaRing.create(canvas);
-  if (!ring) {
+  const scene = global.NebulaVortex && global.NebulaVortex.create(canvas, {
+    preset: (canvas.dataset && canvas.dataset.vortex) || 'column'
+  });
+  if (!scene) {
     canvas.hidden = true;
     if (art) art.hidden = true;
     return;
   }
-  reachListeners.push(on => ring.setReaching(on));
+  reachListeners.push(on => scene.setReaching(on));
 
   const themeName = () => (root.dataset.design === 'obsidian' ? 'obsidian-' : '') +
     (root.dataset.theme === 'light' ? 'light' : 'dark');
-  ring.setTheme(themeName());
-
-  /*
-   * The bloom follows the pointer, eased.
-   *
-   * Written straight from pointermove it snaps, because a mouse reports in
-   * jumps and a gradient has no transition of its own to smooth them --
-   * stop positions are not animatable properties. One exponential approach
-   * per frame, on the same clock as the ring, and the light and the bulge
-   * arrive together rather than one chasing the other.
-   *
-   * Only where a pointer can hover: a finger has no resting position to
-   * follow, and a phone should not be running a loop to move a gradient it
-   * cannot address.
-   */
-  const glow = document.querySelector('.lp-glow');
-  let stopGlow = () => {};
-  if (glow && ring.interactive()) {
-    const rest = { x: 50, y: 50 };
-    const at = { x: rest.x, y: rest.y };
-    const want = { x: rest.x, y: rest.y };
-    let glowRaf = 0;
-    let glowLast = 0;
-
-    const step = now => {
-      if (!ring.isRunning()) { glowRaf = 0; return; }
-      const dt = Math.min((now - glowLast) / 1000, 0.05);
-      glowLast = now;
-      const k = 1 - Math.exp(-dt * 4.5);
-      at.x += (want.x - at.x) * k;
-      at.y += (want.y - at.y) * k;
-      glow.style.setProperty('--gx', at.x.toFixed(2) + '%');
-      glow.style.setProperty('--gy', at.y.toFixed(2) + '%');
-      if (Math.abs(want.x - at.x) < 0.05 && Math.abs(want.y - at.y) < 0.05) {
-        glowRaf = 0;
-        return;
-      }
-      glowRaf = global.requestAnimationFrame(step);
-    };
-    const nudge = () => {
-      if (glowRaf || !ring.isRunning()) return;
-      glowLast = global.performance ? global.performance.now() : Date.now();
-      glowRaf = global.requestAnimationFrame(step);
-    };
-
-    stopGlow = () => {
-      if (glowRaf) global.cancelAnimationFrame(glowRaf);
-      glowRaf = 0;
-    };
-    const hero = art || document.querySelector('.lp-hero') || document;
-    hero.addEventListener('pointermove', event => {
-      if (!ring.isRunning()) return;
-      const rect = (hero.getBoundingClientRect ? hero : document.documentElement).getBoundingClientRect();
-      want.x = ((event.clientX - rect.left) / (rect.width || 1)) * 100;
-      want.y = ((event.clientY - rect.top) / (rect.height || 1)) * 100;
-      nudge();
-    }, { passive: true });
-    hero.addEventListener('pointerleave', () => {
-      want.x = rest.x;
-      want.y = rest.y;
-      nudge();
-    }, { passive: true });
-  }
+  scene.setTheme(themeName());
 
   let intersecting = typeof IntersectionObserver !== 'function';
   let revealed = false;
@@ -368,18 +416,17 @@
   function sync() {
     if (art) art.classList.toggle('is-static', !eligible());
     if (eligible()) {
-      ring.start();
+      scene.start();
       reveal();
       return;
     }
-    ring.stop();
-    stopGlow();
+    scene.stop();
     /*
-     * Still, not gone. A reader who asked for less motion gets the portal as
+     * Still, not gone. A reader who asked for less motion gets the vortex as
      * a held frame -- the picture without the movement -- which is what the
      * poster used to be, drawn rather than downloaded.
      */
-    ring.renderStill();
+    scene.renderStill();
     reveal();
   }
 
@@ -399,7 +446,7 @@
      them live rather than reading them once at load. */
   if (typeof MutationObserver === 'function') {
     new MutationObserver(() => {
-      ring.setTheme(themeName());
+      scene.setTheme(themeName());
       sync();
     }).observe(root, { attributes: true, attributeFilter: ['data-motion', 'data-theme', 'data-design'] });
     if (gate) {

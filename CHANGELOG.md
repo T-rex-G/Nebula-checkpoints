@@ -2,6 +2,164 @@
 
 ## Unreleased
 
+### A Vortex for the Landing, and a First Screen Without Defects
+
+Reported: the landing's drag-to-turn plasma sphere was to be replaced by a
+particle tornado, with variants that can be tuned, used the way the best
+examples use it. On the first version: it did not make the most of the
+variants' design and motion; a green bubble of light from the old design
+was still behind it; and the "01 Connect / 02 Understand / 03 Prove" row was
+misplaced.
+
+- **The scene, particle-first.** `public/vortex.js` replaces
+  `public/plasma-ring.js`, written for this page. A surface of revolution --
+  crown, waist and base, each with its own radius -- is made visible by up to
+  16,000 motes riding its spiral up the form, packed tight at the waist and
+  scattering into a cloud as it flares. Faint strands of both hands give it
+  a lattice. A few comets with halos and fading tails race the strands, and
+  the motes they pass flare and ripple outward before settling. A sparse
+  field of dust drifts around the whole form. Every few seconds a band of
+  light passes from base to crown, the way an audit passes over a
+  repository.
+- **Large, and it bleeds.** The scene reaches up behind the fixed bar, out
+  toward the page's edge and down into the horizon, and it runs past its
+  box, with the canvas feathered on every side. Its left edge stays on the
+  art column, so nothing of it reaches under the entry. On a phone it spans
+  the screen's width and keeps clear of the small print above it.
+- **It answers the reader.** A pointer over the form parts the motes. A drag
+  turns and tilts it with inertia, and a vertical swipe on a phone still
+  scrolls. Reaching for the invitation draws the waist in, speeds the spin
+  and keeps the pass running. With motion off, reduced motion, a metered
+  connection, a hidden tab or the scene off screen, it is held as one frame.
+- **Variants.** Five shapes are chosen by `data-vortex` on the canvas:
+  - `column` (the landing's): a tall column pinched above a base that
+    flares into a ground of light;
+  - `hourglass`: two cones meeting at a point;
+  - `spire`;
+  - `funnel`;
+  - `chalice`.
+
+  Every field of a shape -- radii, where the waist sits, flare, twist, how
+  many strands run the other way, spin, flow, direction, sway, tilt, zoom,
+  rise -- can be passed to `NebulaVortex.create()` or `setShape()`. Anything
+  out of range is clamped. Each theme has its own palette:
+  - Nebula dark: teal to violet, with warm comets.
+  - Nebula light: an ink stipple.
+  - Obsidian: platinum.
+  - Quartz: graphite.
+- **The old light is gone.** The pointer-following cyan and violet disc
+  behind the sphere, its script, its rules and the cyan ellipse the landing
+  painted behind the art column have all been removed. One soft light falls
+  from above the crown instead.
+- **Light on any machine.** Where WebGL would be drawn in software -- a
+  blocklisted driver, no GPU, a headless runner -- the scene runs lite:
+  - no multisampling;
+  - one device pixel per CSS pixel;
+  - the lightest mesh;
+  - thirty frames a second.
+
+  The browser refusing `failIfMajorPerformanceCaveat` is one signal. Since
+  headless Chromium does not refuse, the renderer's own name is read as
+  well. A GPU that cannot hold the frame rate is stepped down one tier at a
+  time, and never back up in the same visit. The canvas's edges fade in the
+  shader rather than through a CSS mask, which made the compositor blend the
+  canvas a second time every frame. In a software renderer the page now
+  keeps its full frame rate beside the scene, where the ring it replaced held
+  it at about 17 frames a second.
+- **The row under the hero.** The horizon's rim was drawn through the steps
+  row: across "01" and "03" on a desktop, and into the dividers on a phone.
+  The body now keeps room below the row from the same two numbers the rim is
+  drawn from, so the rim passes 36px under it at every width. Each number
+  sits on its title's baseline, with its line under the title. The art is
+  held to the height the screen leaves room for, so at 1280x800, 1366x768,
+  1440x900, 1536x864 and 1920x1080 the whole row is on the first screen,
+  and the art's right edge lines up with the bar's. The hero's column rules
+  no longer run through the headline and lede. On a phone the field is
+  dots alone.
+- **Tests.**
+  - The unit guards run the module:
+    - every tier is under the 65,536-vertex `UNSIGNED_SHORT` index limit;
+    - every preset and palette is complete;
+    - a wild shape is clamped;
+    - the markup's shape reaches the factory;
+    - the old ring and the old light are gone, with no pointer-driven work
+      left on the page.
+  - The browser specs drive the vortex, and they check:
+    - nothing is painted behind the scene and no mask sits over it;
+    - the outermost pixels on every side of the canvas carry nothing;
+    - the horizon passes under the steps with each number on its title's
+      baseline.
+
+### Safeguards Is a Section; Standards of 2025; A Landing Worth Its First Screen
+
+Reported: Safeguards should be a section rather than a pop-up; the audit
+cited the OWASP Top 10 of 2021 when the 2025 edition is current; the
+landing page's top bar was too big, its theme switch did not belong on a
+modern page, and the page as a whole was to reach the level of the best
+security products' sites.
+
+- **Safeguards is a section.** It has its own tab in the Security group,
+  its own address (`#/owner/repo@branch/safeguards`) that Back returns to,
+  and the sidebar, the phone menu, the top bar and the palette all go
+  there. A lock, a preset or an unlock redraws it in place and keeps focus
+  where it was; the provider's rules can be read again on demand. The
+  floating actions come back whenever a dialog closes, so an action
+  started from the foot of a long section does not leave them withdrawn.
+- **OWASP Top 10:2025 and the 2025 CWE Top 25.** Every audit and site rule
+  is filed under the 2025 edition, and each placement can be checked: a
+  rule filed by OWASP's own mapping has its CWE on that category's
+  published list (the lists are in `src/security-standards.js`, and a
+  test proves every placement against them); missing or weak security
+  headers are filed under A02 because A02's text names them; the few CWEs
+  on no 2025 list are filed by the category's scope and say so. Server-side
+  request forgery now sits under Broken Access Control and published
+  vulnerabilities under Software Supply Chain Failures, as 2025 has them.
+  Row level security switched off is Missing Authorization (CWE-862), a
+  policy that lets everyone through is Incorrect Authorization (CWE-863).
+  A finding whose weakness is in the 2025 CWE Top 25 carries its rank; the
+  map, the links, the brief, SARIF (`cwe-top25-2025` tag, rank and basis
+  as properties) and CSV (a rank column) all use 2025. Results saved
+  before this still link to their 2021 pages.
+- **The landing bar.** One short row -- 68px on a desktop, 58px on a
+  phone, the status-bar inset added on top -- with the page's sections
+  (Audit, Map, Coverage, Proof, FAQ) as links that land each heading
+  below the bar and mark the one being read with a sliding pill; the
+  theme as a single icon that turns into the other; and the way in as a
+  button that returns the reader to the entry and puts them in it.
+- **The landing's look.** Display headings set lighter and larger in a
+  metallic gradient (each keeps a real colour, the gradient's darker end,
+  so contrast is measured on its worst part); eyebrows between hairlines;
+  a dot field and column rules behind the hero with a horizon of light
+  rising under the fold; arrows that lean in on the buttons; and a single
+  sentence under the providers that lights a word at a time as it is
+  read, and is simply there with motion off. Studied against the best
+  security products' pages for their principles, not their branding.
+- **The editor on a phone.** A cursor sent down the file -- a search hit,
+  a jump to a line, typing on the last row -- landed behind the bottom
+  navigation, because the editor only knows its own box and that box runs
+  under the navigation until the page is scrolled to its end. After any
+  cursor move, a cursor under the navigation is now scrolled clear of it.
+- **Tests.** `test/security-standards.test.js` (new) proves every
+  placement against OWASP's lists; `test/e2e/landing-nav.spec.js` (new)
+  covers the bar, the section links, the theme icon and the lit sentence;
+  the contrast guard now also blanks gradient-painted headings and covers
+  the new copy; the Safeguards and shell specs expect a section.
+
+### Revalidation Through the Host's Proxy; a Contact Line That Is Always a URI
+
+Found on the live deployment after the last release.
+
+- **Assets revalidate.** Render's proxy compresses responses and weakens
+  their ETag, so a browser asked again with `W/"..."` and the server, which
+  compared tags strictly, sent the whole asset every time. `If-None-Match`
+  now uses the weak comparison RFC 9110 requires, lists and `*` included,
+  and answers `304`.
+- **security.txt.** `NV_SECURITY_CONTACT` accepts a plain email address and
+  publishes it as a `mailto:` URI, as RFC 9116 requires. A value that is
+  neither an address, `mailto:` nor `https:` -- or that would write a
+  second line into the file -- falls back to the repository's private
+  advisory form.
+
 ### Standards, Waivers and Exports; Safeguards Read the Provider; a Harder Host
 
 Reported: Safeguards showed three dots, sat under Repository rather than

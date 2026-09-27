@@ -2,27 +2,67 @@
 
 /*
  * Where each rule sits in the vocabularies a security team already reports
- * in: the CWE weakness it is an instance of, and the OWASP Top 10 (2021)
- * category that weakness belongs to. Findings carry both, the SARIF export
- * tags results with them, and a rule without an entry fails the audit's own
- * test -- a finding a team cannot file under anything is a finding that gets
- * argued about instead of fixed.
+ * in: the CWE weakness it is an instance of, the OWASP Top 10:2025 category
+ * that weakness belongs to, and its rank in the 2025 CWE Top 25 Most
+ * Dangerous Software Weaknesses when it has one. Findings carry all three,
+ * the SARIF export tags results with them, and a rule without an entry fails
+ * the audit's own test -- a finding a team cannot file under anything is a
+ * finding that gets argued about instead of fixed.
+ *
+ * How a category is chosen, so any placement can be checked:
+ *
+ *   'cwe'   OWASP's own mapping. Each 2025 category publishes the CWEs it
+ *           covers (OWASP_2025_CWES below, copied from the category pages);
+ *           the rule's CWE is on that list. The test suite proves it.
+ *   'text'  OWASP's own words. A02:2025 names the case outright -- "the
+ *           server does not send security headers or directives, or they
+ *           are not set to secure values" -- so a missing or weak security
+ *           header is filed there, whichever list its CWE appears on.
+ *   'scope' The CWE is on no 2025 list, so the category is the one whose
+ *           description covers the rule. Few rules need it, and each says so.
  *
  * `owasp` is null where no Top 10 category honestly applies (a missing README
  * is a maintainability weakness, not an application risk).
+ *
+ * Sources: https://top10.owasp.org/2025/ (the categories and their mapped
+ * CWEs) and https://cwe.mitre.org/top25/archive/2025/2025_cwe_top25.html
+ * (published 15 December 2025).
  */
 
-const OWASP_2021 = Object.freeze({
+const OWASP_EDITION = '2025';
+
+const OWASP_2025 = Object.freeze({
   A01: 'Broken Access Control',
-  A02: 'Cryptographic Failures',
-  A03: 'Injection',
-  A04: 'Insecure Design',
-  A05: 'Security Misconfiguration',
-  A06: 'Vulnerable and Outdated Components',
-  A07: 'Identification and Authentication Failures',
-  A08: 'Software and Data Integrity Failures',
-  A09: 'Security Logging and Monitoring Failures',
-  A10: 'Server-Side Request Forgery'
+  A02: 'Security Misconfiguration',
+  A03: 'Software Supply Chain Failures',
+  A04: 'Cryptographic Failures',
+  A05: 'Injection',
+  A06: 'Insecure Design',
+  A07: 'Authentication Failures',
+  A08: 'Software or Data Integrity Failures',
+  A09: 'Security Logging and Alerting Failures',
+  A10: 'Mishandling of Exceptional Conditions'
+});
+
+/* Each category's "List of Mapped CWEs", as OWASP publishes it. */
+const OWASP_2025_CWES = Object.freeze({
+  A01: Object.freeze([22, 23, 36, 59, 61, 65, 200, 201, 219, 276, 281, 282, 283, 284, 285, 352, 359, 377, 379, 402, 424, 425, 441, 497, 538, 540, 548, 552, 566, 601, 615, 639, 668, 732, 749, 862, 863, 918, 922, 1275]),
+  A02: Object.freeze([5, 11, 13, 15, 16, 260, 315, 489, 526, 547, 611, 614, 776, 942, 1004, 1174]),
+  A03: Object.freeze([447, 1035, 1104, 1329, 1357, 1395]),
+  A04: Object.freeze([261, 296, 319, 320, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 331, 332, 334, 335, 336, 337, 338, 340, 342, 347, 523, 757, 759, 760, 780, 916, 1240, 1241]),
+  A05: Object.freeze([20, 74, 76, 77, 78, 79, 80, 83, 86, 88, 89, 90, 91, 93, 94, 95, 96, 97, 98, 99, 103, 104, 112, 113, 114, 115, 116, 129, 159, 470, 493, 500, 564, 610, 643, 644, 917]),
+  A06: Object.freeze([73, 183, 256, 266, 269, 286, 311, 312, 313, 316, 362, 382, 419, 434, 436, 444, 451, 454, 472, 501, 522, 525, 539, 598, 602, 628, 642, 646, 653, 656, 657, 676, 693, 799, 807, 841, 1021, 1022, 1125]),
+  A07: Object.freeze([258, 259, 287, 288, 289, 290, 291, 293, 294, 295, 297, 298, 299, 300, 302, 303, 304, 305, 306, 307, 308, 309, 346, 350, 384, 521, 613, 620, 640, 798, 940, 941, 1390, 1391, 1392, 1393]),
+  A08: Object.freeze([345, 353, 426, 427, 494, 502, 506, 509, 565, 784, 829, 830, 915, 926]),
+  A09: Object.freeze([117, 221, 223, 532, 778]),
+  A10: Object.freeze([209, 215, 234, 235, 248, 252, 274, 280, 369, 390, 391, 394, 396, 397, 460, 476, 478, 484, 550, 636, 703, 754, 755, 756])
+});
+
+/* The 2025 CWE Top 25, by CWE number. */
+const CWE_TOP25_2025 = Object.freeze({
+  79: 1, 89: 2, 352: 3, 862: 4, 787: 5, 22: 6, 416: 7, 125: 8, 78: 9, 94: 10,
+  120: 11, 434: 12, 476: 13, 121: 14, 502: 15, 122: 16, 863: 17, 20: 18, 284: 19, 200: 20,
+  306: 21, 918: 22, 77: 23, 639: 24, 770: 25
 });
 
 const CWE_NAMES = Object.freeze({
@@ -31,11 +71,9 @@ const CWE_NAMES = Object.freeze({
   79: 'Cross-site Scripting',
   89: 'SQL Injection',
   95: 'Eval Injection',
-  200: 'Exposure of Sensitive Information',
-  201: 'Insertion of Sensitive Information Into Sent Data',
+  200: 'Exposure of Sensitive Information to an Unauthorized Actor',
   250: 'Execution with Unnecessary Privileges',
   284: 'Improper Access Control',
-  285: 'Improper Authorization',
   295: 'Improper Certificate Validation',
   307: 'Excessive Authentication Attempts',
   311: 'Missing Encryption of Sensitive Data',
@@ -47,9 +85,9 @@ const CWE_NAMES = Object.freeze({
   353: 'Missing Support for Integrity Check',
   489: 'Active Debug Code',
   494: 'Download of Code Without Integrity Check',
+  497: 'Exposure of Sensitive System Information',
   502: 'Deserialization of Untrusted Data',
   506: 'Embedded Malicious Code',
-  522: 'Insufficiently Protected Credentials',
   527: 'Exposure of Version-Control Repository',
   538: 'Sensitive Information in an Externally-Accessible File',
   601: 'Open Redirect',
@@ -59,6 +97,8 @@ const CWE_NAMES = Object.freeze({
   732: 'Incorrect Permission Assignment for Critical Resource',
   798: 'Use of Hard-coded Credentials',
   829: 'Inclusion of Functionality from Untrusted Control Sphere',
+  862: 'Missing Authorization',
+  863: 'Incorrect Authorization',
   916: 'Password Hash With Insufficient Computational Effort',
   918: 'Server-Side Request Forgery',
   942: 'Permissive Cross-domain Policy',
@@ -69,44 +109,67 @@ const CWE_NAMES = Object.freeze({
   1395: 'Dependency on Vulnerable Third-Party Component'
 });
 
+/*
+ * rule: [CWE, OWASP 2025 category, basis]. The basis is 'cwe' unless stated;
+ * see the header for what each basis means.
+ */
 const MAP = Object.freeze({
+  /* Supply chain in the repository's own scripts and workflows. */
   'SUP-001': [829, 'A08'], 'SUP-002': [494, 'A08'], 'SUP-003': [506, 'A08'], 'SUP-004': [506, 'A08'],
-  'SUP-005': [201, 'A08'], 'SUP-006': [829, 'A08'], 'SUP-007': [829, 'A08'], 'SUP-008': [829, 'A08'],
-  'SUP-009': [78, 'A03'],
-  'SEC-001': [89, 'A03'], 'SEC-002': [79, 'A03'], 'SEC-003': [942, 'A05'], 'SEC-004': [1004, 'A05'],
-  'SEC-005': [338, 'A02'], 'SEC-006': [200, 'A01'], 'SEC-007': [345, 'A08'], 'SEC-008': [295, 'A07'],
-  'SEC-009': [347, 'A02'], 'SEC-010': [95, 'A03'], 'SEC-011': [78, 'A03'], 'SEC-012': [307, 'A07'],
-  'SEC-013': [489, 'A05'], 'SEC-014': [284, 'A01'], 'SEC-015': [284, 'A01'], 'SEC-016': [285, 'A01'],
-  'SEC-017': [284, 'A01'], 'SEC-018': [284, 'A01'], 'SEC-019': [522, 'A07'], 'SEC-020': [601, 'A01'],
-  'SEC-021': [918, 'A10'], 'SEC-022': [22, 'A01'], 'SEC-023': [916, 'A02'], 'SEC-024': [502, 'A08'],
-  'SEC-025': [321, 'A02'],
+  'SUP-005': [506, 'A08'], 'SUP-006': [829, 'A08'], 'SUP-007': [829, 'A08'], 'SUP-008': [829, 'A08'],
+  'SUP-009': [78, 'A05'],
+  /* Code. */
+  'SEC-001': [89, 'A05'], 'SEC-002': [79, 'A05'], 'SEC-003': [942, 'A02'], 'SEC-004': [1004, 'A02'],
+  'SEC-005': [338, 'A04'], 'SEC-006': [200, 'A01'], 'SEC-007': [345, 'A08'], 'SEC-008': [295, 'A07'],
+  'SEC-009': [347, 'A04'], 'SEC-010': [95, 'A05'], 'SEC-011': [78, 'A05'], 'SEC-012': [307, 'A07'],
+  'SEC-013': [489, 'A02'],
+  /* Row level security switched off or never enabled: no authorization check at all. */
+  'SEC-014': [862, 'A01'], 'SEC-015': [862, 'A01'],
+  /* A policy or rule that exists but lets everyone through: the check decides wrongly. */
+  'SEC-016': [863, 'A01'], 'SEC-017': [863, 'A01'], 'SEC-018': [863, 'A01'],
+  'SEC-019': [200, 'A01'], 'SEC-020': [601, 'A01'], 'SEC-021': [918, 'A01'], 'SEC-022': [22, 'A01'],
+  'SEC-023': [916, 'A04'], 'SEC-024': [502, 'A08'], 'SEC-025': [321, 'A04'],
+  /* Secrets. */
   'SCR-001': [798, 'A07'],
-  'DEP-001': [1357, 'A08'], 'DEP-002': [1357, 'A08'], 'DEP-003': [1395, 'A06'], 'DEP-004': [1357, 'A08'],
-  'DEP-005': [1395, 'A06'], 'DEP-006': [506, 'A08'],
-  'IAC-001': [250, 'A05'], 'IAC-002': [494, 'A08'], 'IAC-003': [798, 'A07'], 'IAC-004': [732, 'A01'],
-  'IAC-005': [732, 'A01'], 'IAC-006': [284, 'A05'], 'IAC-007': [311, 'A02'], 'IAC-008': [284, 'A05'],
-  'IAC-009': [250, 'A05'], 'IAC-010': [250, 'A05'],
-  'HYG-001': [538, 'A01'], 'HYG-002': [538, 'A05'], 'HYG-003': [1357, 'A08'], 'HYG-004': [1357, 'A08'],
-  'HYG-005': [1357, 'A06'], 'HYG-006': [1357, 'A08'], 'HYG-007': [710, null], 'HYG-008': [1059, null],
+  /* Dependencies: A03:2025 is the old "Vulnerable and Outdated Components", widened. */
+  'DEP-001': [1357, 'A03'], 'DEP-002': [1357, 'A03'], 'DEP-003': [1395, 'A03'], 'DEP-004': [1357, 'A03'],
+  'DEP-005': [1395, 'A03'], 'DEP-006': [506, 'A08'],
+  /* Infrastructure. CWE-250 is on no 2025 list; running with more privilege than needed is a hardening failure (A02). */
+  'IAC-001': [250, 'A02', 'scope'], 'IAC-002': [494, 'A08'], 'IAC-003': [798, 'A07'], 'IAC-004': [732, 'A01'],
+  'IAC-005': [732, 'A01'], 'IAC-006': [284, 'A01'], 'IAC-007': [311, 'A06'], 'IAC-008': [284, 'A01'],
+  'IAC-009': [250, 'A02', 'scope'], 'IAC-010': [250, 'A02', 'scope'],
+  /* Hygiene. */
+  'HYG-001': [538, 'A01'], 'HYG-002': [538, 'A01'], 'HYG-003': [1357, 'A03'], 'HYG-004': [1357, 'A03'],
+  'HYG-005': [1357, 'A03'], 'HYG-006': [1357, 'A03'], 'HYG-007': [710, null], 'HYG-008': [1059, null],
   'HYG-009': [710, null],
-  'WEB-001': [538, 'A05'], 'WEB-002': [527, 'A05'], 'WEB-003': [319, 'A05'], 'WEB-004': [319, 'A05'],
-  'WEB-005': [693, 'A05'], 'WEB-006': [693, 'A05'], 'WEB-007': [1021, 'A05'], 'WEB-008': [693, 'A05'],
-  'WEB-009': [200, 'A05'], 'WEB-010': [942, 'A05'], 'WEB-011': [614, 'A05'], 'WEB-012': [1004, 'A05'],
-  'WEB-013': [200, 'A05'], 'WEB-014': [1059, null], 'WEB-015': [538, 'A05'], 'WEB-016': [693, 'A05'],
-  'WEB-017': [693, 'A05'], 'WEB-018': [319, 'A02'], 'WEB-019': [353, 'A08']
+  /* The site check. Security headers are filed by A02's own text. */
+  'WEB-001': [538, 'A01'],
+  /* CWE-527 is on no 2025 list; its parent, CWE-538, is A01. */
+  'WEB-002': [527, 'A01', 'scope'],
+  'WEB-003': [319, 'A02', 'text'], 'WEB-004': [319, 'A02', 'text'], 'WEB-005': [693, 'A02', 'text'],
+  'WEB-006': [693, 'A02', 'text'], 'WEB-007': [1021, 'A02', 'text'], 'WEB-008': [693, 'A02', 'text'],
+  'WEB-009': [200, 'A02', 'text'], 'WEB-010': [942, 'A02'], 'WEB-011': [614, 'A02'], 'WEB-012': [1004, 'A02'],
+  'WEB-013': [497, 'A01'], 'WEB-014': [1059, null], 'WEB-015': [538, 'A01'], 'WEB-016': [693, 'A02', 'text'],
+  'WEB-017': [693, 'A02', 'text'], 'WEB-018': [319, 'A04'], 'WEB-019': [353, 'A08']
 });
 
-/* The CWE and OWASP labels for one rule, or null when the rule is not mapped. */
+/* The labels for one rule, or null when the rule is not mapped. */
 function standardsFor(rule) {
   const entry = MAP[rule];
   if (!entry) return null;
-  const [cwe, owasp] = entry;
+  const [cwe, owasp, basis = 'cwe'] = entry;
+  const rank = CWE_TOP25_2025[cwe] || null;
   return Object.freeze({
     cwe: `CWE-${cwe}`,
     cweName: CWE_NAMES[cwe] || null,
-    owasp: owasp ? `${owasp}:2021` : null,
-    owaspName: owasp ? OWASP_2021[owasp] : null
+    owasp: owasp ? `${owasp}:${OWASP_EDITION}` : null,
+    owaspName: owasp ? OWASP_2025[owasp] : null,
+    owaspBasis: owasp ? basis : null,
+    top25: rank ? Object.freeze({ rank, year: 2025 }) : null
   });
 }
 
-module.exports = Object.freeze({ standardsFor, OWASP_2021, CWE_NAMES, MAPPED_RULES: Object.freeze(Object.keys(MAP)) });
+module.exports = Object.freeze({
+  standardsFor, OWASP_EDITION, OWASP_2025, OWASP_2025_CWES, CWE_TOP25_2025, CWE_NAMES,
+  MAP, MAPPED_RULES: Object.freeze(Object.keys(MAP))
+});

@@ -151,7 +151,7 @@ const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = requi
 const { auditRepository } = require('./src/code-audit');
 const { checkSite, declaredSite } = require('./src/site-check');
 const { readBranchProtection } = require('./src/branch-protection');
-const { buildPublicAssets, stripHtmlComments, stripJsComments } = require('./src/public-assets');
+const { buildPublicAssets, etagMatches, securityContact, stripHtmlComments, stripJsComments } = require('./src/public-assets');
 const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
 
@@ -745,7 +745,7 @@ function publicOrigin(req) {
   return /^https:\/\//.test(configured) ? configured : `${req.protocol}://${req.get('host')}`;
 }
 app.get('/.well-known/security.txt', (req, res) => {
-  const contact = String(process.env.NV_SECURITY_CONTACT || 'https://github.com/T-rex-G/Nebula-checkpoints/security/advisories/new').trim();
+  const contact = securityContact(process.env.NV_SECURITY_CONTACT);
   const expires = new Date(Date.now() + 182 * 24 * 60 * 60 * 1000);
   expires.setUTCHours(0, 0, 0, 0);
   res.setHeader('Cache-Control', 'public, max-age=86400');
@@ -914,7 +914,7 @@ app.use((req, res, next) => {
   res.setHeader('Content-Type', asset.type);
   res.setHeader('Cache-Control', 'public, max-age=604800'); // safe: URLs are version-stamped
   res.setHeader('ETag', asset.etag);
-  if (req.headers['if-none-match'] === asset.etag) return res.status(304).end();
+  if (etagMatches(req.headers['if-none-match'], asset.etag)) return res.status(304).end();
   res.setHeader('Content-Length', String(asset.body.length));
   return res.end(req.method === 'HEAD' ? undefined : asset.body);
 });

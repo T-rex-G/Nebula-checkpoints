@@ -28,7 +28,8 @@ test.use({ serviceWorkers: 'block' });
 
 /* Every run of copy on the landing page, and nothing that is not copy. */
 const COPY = [
-  '.lp-brand', '.lp-state', '.lp-eyebrow', '.lp-title', '.lp-lede',
+  '.lp-brand', '.lp-state', '.lp-link', '.lp-nav-cta', '.lp-eyebrow', '.lp-title', '.lp-lede',
+  '.lp-statement-text', '.lp-show-title', '.lp-cta-title',
   '.lp-step-t', '.lp-step-d',
   '.alpha-access .eyebrow', '.alpha-access-rule', '.alpha-wake-state',
   '.alpha-access label', '.alpha-access .btn-primary',
@@ -45,8 +46,8 @@ async function measure(page, selectors) {
     /*
      * A held frame, not a moving one: a guard needs the same answer every
      * run. The caller stands the scene down before calling this, which leaves
-     * the portal drawn at time zero -- the same picture every time -- and the
-     * copy has at most a few percent of the scene behind it by design, so the
+     * the vortex held on a single frame -- one picture for every read -- and
+     * the copy has at most a few percent of the scene behind it by design, so the
      * difference a moving frame could make is far smaller than the headroom
      * anyway.
      */
@@ -82,8 +83,20 @@ async function measure(page, selectors) {
      */
     const style = document.createElement('style');
     style.id = 'nv-contrast-probe';
-    style.textContent = sels.map(s => `${s},${s} *`).join(',') + '{color:transparent!important}';
+    style.textContent = sels.map(s => `${s},${s} *`).join(',') + '{color:transparent!important;-webkit-text-fill-color:transparent!important}';
     document.head.appendChild(style);
+    /*
+     * A heading drawn in a gradient paints its glyphs with its background,
+     * clipped to the text, so a transparent colour leaves them standing.
+     * Only those elements lose their background: a button's plate is the
+     * ground its label is measured against and has to stay.
+     */
+    for (const sel of sels) {
+      document.querySelectorAll(`${sel},${sel} *`).forEach(el => {
+        const cs = getComputedStyle(el);
+        if (cs.backgroundClip === 'text' || cs.webkitBackgroundClip === 'text') el.style.setProperty('background-image', 'none', 'important');
+      });
+    }
     return out;
   }, selectors);
 
@@ -150,11 +163,11 @@ for (const theme of ['dark', 'light']) {
     await page.goto('/');
 
     /*
-     * Stand the scene down before measuring. The portal draws itself, so
-     * there is no poster to wait for -- what there is instead is a frame at
-     * time zero, which is reached by turning motion off and letting the
-     * module settle. Without this the sample is taken from whichever frame
-     * the GPU happened to be on.
+     * Stand the scene down before measuring. The vortex draws itself, so
+     * there is no poster to wait for -- what there is instead is a held
+     * frame, which is reached by turning motion off and letting the module
+     * settle. Without this the sample is taken from whichever frame the GPU
+     * happened to be on.
      */
     await page.evaluate(() => { document.documentElement.dataset.motion = 'off'; });
     await page.evaluate(() => new Promise(resolve =>

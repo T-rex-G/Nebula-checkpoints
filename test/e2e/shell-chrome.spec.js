@@ -1226,7 +1226,8 @@ test('the security entries sit together, in the same order, in the menu and the 
   expect(groups.rail).toEqual(expected);
   expect(groups.railLabel).toBe('Security');
   expect(groups.repository).not.toContain('safeguards');
-  expect(groups.safeguardsPopup).toBe('dialog');
+  /* A section like the others, not a dialog over the page. */
+  expect(groups.safeguardsPopup).toBeNull();
   expect(groups.railSafeguards).toBe(1);
   await expect(page.locator('.sheet-item[data-act="safeguards"]')).toHaveText('Safeguards');
 });
@@ -1261,11 +1262,12 @@ test('the navigation drawer closes from its own button, by swipe, and by Escape'
   await rail.dispatchEvent('touchend', { touches: [] });
   await expect(page.locator('body')).not.toHaveClass(/nav-open/);
 
-  /* Safeguards opens from the drawer as a dialog, over the page. */
+  /* Safeguards opens from the drawer as its own section, and the drawer marks it. */
   await opener.click();
   await rail.locator('[data-rail="safeguards"]').click();
   await expect(page.locator('body')).not.toHaveClass(/nav-open/);
-  await expect(page.getByRole('dialog').filter({ hasText: /Safeguards/ }).first()).toBeVisible();
+  await expect(page.locator('#tab-safeguards')).toBeVisible();
+  await expect(rail.locator('[data-rail="safeguards"]')).toHaveAttribute('aria-current', 'page');
 });
 
 test('the audit is reachable from the phone menu and carries its own mark', async ({ page }) => {
@@ -1322,14 +1324,16 @@ test('on a desktop the file list folds away and comes back, and remembers', asyn
   await expect.poll(width).toBeGreaterThan(150);
 });
 
-test('safeguards open from the top bar on a desktop, as a dialog over the page', async ({ page }) => {
+test('safeguards open from the top bar on a desktop, as their own section', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/#/sandbox/demo@main/files');
   await page.locator('#page-work.active').waitFor();
   const control = page.locator('#safeguardsBtn');
   if (!(await control.isVisible())) return;
-  await expect(control).toHaveAttribute('aria-haspopup', 'dialog');
+  await expect(control).not.toHaveAttribute('aria-haspopup', /.+/);
   await control.click();
-  await expect(page.getByRole('dialog').filter({ hasText: /safeguard|protect/i }).first()).toBeVisible();
-  await expect(page.locator('#page-work.active')).toBeVisible();
+  await expect(page.locator('#tab-safeguards')).toBeVisible();
+  await expect(page.locator('#tab-safeguards .sg-posture')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/safeguards$/);
 });

@@ -7,7 +7,7 @@ test.use({ serviceWorkers: 'block' });
 
 async function openScene(page) {
   await page.addInitScript(() => {
-    window.__plasma = {};
+    window.__scene = {};
     const proto = window.WebGLRenderingContext.prototype;
     const get = proto.getUniformLocation;
     const set = proto.uniform1f;
@@ -18,7 +18,7 @@ async function openScene(page) {
       return location;
     };
     proto.uniform1f = function (location, value) {
-      if (this.canvas.id === 'lpPortal') window.__plasma[names.get(location)] = value;
+      if (this.canvas.id === 'lpPortal') window.__scene[names.get(location)] = value;
       return set.call(this, location, value);
     };
   });
@@ -30,7 +30,7 @@ async function openScene(page) {
   return portal;
 }
 
-const uniform = (page, name) => page.evaluate(key => window.__plasma[key], name);
+const uniform = (page, name) => page.evaluate(key => window.__scene[key], name);
 
 test('the canvas is unobstructed and the desktop entry card belongs below the copy', async ({ page, isMobile }) => {
   const portal = await openScene(page);
@@ -47,7 +47,7 @@ test('the canvas is unobstructed and the desktop entry card belongs below the co
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('hover deformation recovers after missing the sphere, and leaves with the pointer', async ({ page }) => {
+test('the motes part for a pointer over the vortex, recover after a miss, and settle when it leaves', async ({ page }) => {
   const portal = await openScene(page);
   const b = await portal.boundingBox();
   await page.mouse.move(b.x + 2, b.y + 2);
@@ -72,19 +72,17 @@ test('drag rotates real geometry, but stopped motion ignores further gestures', 
   await page.evaluate(() => { document.documentElement.dataset.motion = 'off'; });
   await page.waitForTimeout(150);
   const held = await uniform(page, 'uCamYaw');
-  const glow = await page.locator('.lp-glow').getAttribute('style');
   await page.mouse.down();
   await page.mouse.move(b.x + 10, b.y + 10, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(200);
   expect(await uniform(page, 'uCamYaw')).toBe(held);
-  expect(await page.locator('.lp-glow').getAttribute('style')).toBe(glow);
   await page.evaluate(() => { document.documentElement.dataset.motion = 'on'; });
   await page.waitForTimeout(300);
   expect(await uniform(page, 'uCamYaw')).toBeCloseTo(held, 5);
 });
 
-test('touch can turn the sphere while a vertical swipe still scrolls the page', async ({ page, isMobile }) => {
+test('touch can turn the vortex while a vertical swipe still scrolls the page', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch gesture regression runs in the touch-enabled mobile project.');
   const portal = await openScene(page);
   const b = await portal.boundingBox();
@@ -196,7 +194,15 @@ test('the theme control stays reachable once the visitor has scrolled', async ({
  * rule that writes the top edge back down -- a shorthand, a reset, a tighter
  * mobile block -- lands under this number.
  */
-const CLEARANCE = 28;
+/*
+ * The bar is compact now -- 58px on a phone, the inset added on top -- so
+ * its own breathing room above the brand is 14px rather than 28. What the
+ * number guards is unchanged: the top padding survives to the phone. The
+ * clearance of a real status bar is the inset itself, added in calc() and
+ * held there by the stylesheet checks in overlay-motion.test.js; a later
+ * rule that wrote the edge back down to a flat value lands under this line.
+ */
+const CLEARANCE = 12;
 test('the bar reserves the status-bar strip on a phone, not just a sticky position', async ({ page }) => {
   const width = page.viewportSize().width;
   test.skip(width > 900, 'no status bar is drawn over the page at this width');
@@ -221,35 +227,32 @@ test('the bar reserves the status-bar strip on a phone, not just a sticky positi
 });
 
 /*
- * The plasma is a light in the room, not an object in a lit panel. Both of the
- * glow's sources are wider than the box that carries them -- the violet one is
- * centred at 65% 65% and still has colour at 100% -- so the element's own
- * rectangle cut them off and drew corners around the artwork. The mask is what
- * removes the rectangle for good, because --gx/--gy follow the pointer and any
- * fixed set of stops is one gesture away from reaching an edge again.
+ * The vortex is its own light. The sphere it replaced sat on a disc of cyan
+ * and violet that followed the pointer, and behind the vortex that disc read
+ * as a green bubble around the waist. Nothing is painted behind the scene
+ * now, and the scene itself runs past its box and is feathered away on every
+ * side, so there is no edge -- of a panel or of the canvas -- to see.
  */
-test('the glow fades out on every side instead of ending at a rectangle', async ({ page }) => {
-  await openScene(page);
-  const glow = page.locator('.lp-glow');
-  const mask = await glow.evaluate(el => {
+test('the vortex stands in the page with no light box behind it and no mask over it', async ({ page }) => {
+  const portal = await openScene(page);
+  await expect(page.locator('.lp-glow')).toHaveCount(0);
+  const stage = page.locator('.lp-stage');
+  expect(await stage.evaluate(el => [...el.children].map(child => child.id))).toEqual(['lpPortal']);
+  expect(await stage.evaluate(el => getComputedStyle(el).backgroundImage)).toBe('none');
+  /*
+   * The edges fade inside the scene, not through a CSS mask on the canvas: a
+   * mask makes the compositor blend the canvas again on every frame, and on
+   * a software renderer that pass cost as much as the scene. The fade itself
+   * is read back from the buffer in landing-scene.spec.js.
+   */
+  const mask = await portal.evaluate(el => {
     const style = getComputedStyle(el);
-    return style.maskImage && style.maskImage !== 'none' ? style.maskImage : style.webkitMaskImage;
+    return [style.maskImage || 'none', style.webkitMaskImage || 'none'];
   });
-  expect(mask).toMatch(/radial-gradient/);
-  /* The light also has to reach past the stage, or the mask would merely round
-     off a rectangle that still ends inside the artwork. */
-  const [glowBox, stageBox] = await Promise.all([
-    glow.boundingBox(), page.locator('.lp-stage').boundingBox()
-  ]);
-  expect(glowBox.width).toBeGreaterThan(stageBox.width);
-  expect(glowBox.height).toBeGreaterThan(stageBox.height);
-  /* Driven to a corner, the way a pointer drives it, it still has no edge. */
-  await glow.evaluate(el => { el.style.setProperty('--gx', '4%'); el.style.setProperty('--gy', '96%'); });
-  const held = await glow.evaluate(el => {
-    const style = getComputedStyle(el);
-    return style.maskImage && style.maskImage !== 'none' ? style.maskImage : style.webkitMaskImage;
-  });
-  expect(held).toMatch(/radial-gradient/);
+  expect(mask).toEqual(['none', 'none']);
+  /* And the paint behind the landing carries no cyan disc for the scene to sit on. */
+  const ground = await page.locator('.lp').evaluate(el => getComputedStyle(el).backgroundImage);
+  expect(ground).not.toMatch(/34,\s*211,\s*238/);
 });
 
 /*

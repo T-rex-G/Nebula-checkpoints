@@ -78,7 +78,8 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(sql).toContainText('Use parameterised queries');
   /* Filed under its weakness and its OWASP category, each linked to the definition. */
   await expect(sql.getByRole('link', { name: 'CWE-89' })).toHaveAttribute('href', 'https://cwe.mitre.org/data/definitions/89.html');
-  await expect(sql.getByRole('link', { name: 'OWASP A03' })).toHaveAttribute('href', 'https://owasp.org/Top10/A03_2021-Injection/');
+  await expect(sql.getByRole('link', { name: 'OWASP A05' })).toHaveAttribute('href', 'https://top10.owasp.org/2025/A05_2025-Injection/');
+  await expect(sql.getByRole('link', { name: 'Top 25 #2' })).toHaveAttribute('href', 'https://cwe.mitre.org/top25/archive/2025/2025_cwe_top25.html');
   await expect(sql.getByRole('button', { name: 'Open api/users.js:1' })).toBeVisible();
   await expect(sql.getByRole('button', { name: 'Copy fix prompt' })).toBeVisible();
   await expect(pane).not.toContainText('SELECT * FROM users');
@@ -86,9 +87,10 @@ test('an audit grades the branch, names what it read and explains every finding'
   /* The OWASP map is a filter too, and says clear where nothing sits. */
   const owasp = pane.getByRole('list', { name: 'OWASP Top 10 categories' }).getByRole('button');
   await expect(owasp).toHaveCount(10);
-  await expect(owasp.filter({ hasText: 'A10' })).toHaveAccessibleName(/^A10 SSRF: /);
-  await pane.getByRole('button', { name: /^A03 Injection: \d+ findings?$/ }).click();
-  await expect(pane.getByRole('heading', { name: 'Findings — OWASP A03 Injection' })).toBeVisible();
+  await expect(owasp.filter({ hasText: 'A10' })).toHaveAccessibleName(/^A10 Exceptional conditions: /);
+  await expect(owasp.filter({ hasText: 'A03' })).toHaveAccessibleName(/^A03 Supply chain: /);
+  await pane.getByRole('button', { name: /^A05 Injection: \d+ findings?$/ }).click();
+  await expect(pane.getByRole('heading', { name: 'Findings — OWASP A05 Injection' })).toBeVisible();
   await expect(pane.locator('.audit-findings .audit-item', { hasText: 'A SQL statement is built' })).toHaveCount(1);
   await pane.getByRole('button', { name: 'Show all' }).click();
 
@@ -132,7 +134,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   expect(text).toContain('- **Advisories:** GHSA-35jh-r3h4-6jhm (CVE-2021-23337), GHSA-p6mc-m468-83gw (CVE-2020-8203)');
   expect(text).not.toContain('SELECT * FROM users');
   expect(text).not.toContain('Tr0ub4dor');
-  expect(text).toContain('- **Standards:** CWE-89 (SQL Injection) · OWASP A03:2021 Injection');
+  expect(text).toContain('- **Standards:** CWE-89 (SQL Injection) · OWASP A05:2025 Injection · CWE Top 25 (2025) #2');
 
   /* SARIF for a code-scanning dashboard, CSV for a spreadsheet; neither carries what was read. */
   await exportButton.click();
@@ -148,7 +150,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   const csvDownload = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Export CSV' }).click();
   const csvText = require('fs').readFileSync(await (await csvDownload).path(), 'utf8');
-  expect(csvText.split('\r\n')[0]).toBe('Source,Status,Severity,Rule,Title,Family,CWE,OWASP,Location,Line,Reason waived,Fix');
+  expect(csvText.split('\r\n')[0]).toBe('Source,Status,Severity,Rule,Title,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reason waived,Fix');
   expect(csvText).toContain('SEC-001');
   expect(csvText).not.toContain('Tr0ub4dor');
 

@@ -92,6 +92,22 @@ async function waitForServer() {
     assert.strictEqual(robots.status, 200);
     assert.match(await robots.text(), /^Disallow: \/api\/$/m);
 
+    /* The maintainers' commentary stays in the source: the page, scripts and stylesheet are served without it. */
+    const page = await (await request('/')).text();
+    assert(!page.includes('<!--'), 'the page is served without comments');
+    const script = await request('/app.js');
+    assert.strictEqual(script.status, 200);
+    assert.match(script.headers.get('content-type'), /^application\/javascript/);
+    const scriptBody = await script.text();
+    assert(!/^\s*\/\*|^\s*\/\//m.test(scriptBody), 'no comment lines in the served script');
+    const etag = script.headers.get('etag');
+    assert(etag, 'the served script has a validator');
+    assert.strictEqual((await request('/app.js', { headers: { 'If-None-Match': etag } })).status, 304);
+    const sheet = await (await request('/style.css')).text();
+    assert(!sheet.includes('/*'), 'the stylesheet is served without comments');
+    const worker = await (await request('/sw.js')).text();
+    assert(!/^\s*\/\*|^\s*\/\//m.test(worker), 'the service worker is served without comments');
+
     /* A file that is not there is not there: no shell page at 200 for a dotfile or a file name. */
     for (const missing of ['/.env', '/.git/HEAD', '/.git/config', '/package.json', '/server.js', '/backup.zip']) {
       const response = await request(missing);

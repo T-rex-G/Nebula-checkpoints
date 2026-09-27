@@ -5346,7 +5346,7 @@ async function recoveryFlow() {
     await modal({
       title: `Recovery complete — ${okN}/${out.report.length}`, okText: 'Done',
       bodyHTML: `<div style="max-height:40vh;overflow-y:auto">${out.report.map(r =>
-        `<p class="hint" style="margin:2px 0"><span class="mono">${esc(r.name)}</span> — ${r.ok ? r.action : 'failed: ' + esc(r.error || '')}</p>`).join('')}</div>`
+        `<p class="hint" style="margin:2px 0"><span class="mono">${esc(r.name)}</span> — ${r.ok ? esc(r.action) : 'failed: ' + esc(r.error || '')}</p>`).join('')}</div>`
     });
     loadTree('', $('#tree'), true);
   } catch (e) { toast(e.message, 'err'); }
@@ -5968,7 +5968,7 @@ $('#fileHistoryBtn').addEventListener('click', async () => {
     if (!ownsModal()) return;
     $('#modalBody').innerHTML = commits.length ? commits.map(c => `
       <div class="comment">
-        <div class="comment-head"><span class="mono commit-sha">${c.sha.slice(0, 7)}</span><span>${esc(c.author)}</span><span>${timeAgo(c.date)}</span></div>
+        <div class="comment-head"><span class="mono commit-sha">${esc(String(c.sha || '').slice(0, 7))}</span><span>${esc(c.author)}</span><span>${timeAgo(c.date)}</span></div>
         <div class="comment-body">${esc(c.message.split('\n')[0])}</div>
       </div>`).join('') : '<p class="hint">No history found for this path.</p>';
   } catch (e) { if (ownsModal()) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
@@ -6374,7 +6374,7 @@ function renderPalette(q) {
     el.id = `pal-option-${i}`;
     el.setAttribute('role', 'option');
     el.setAttribute('aria-selected', i === palSel ? 'true' : 'false');
-    el.innerHTML = `<span class="${it.kind === 'file' ? 'mono' : ''}"></span><span class="pal-kind">${it.kind}</span>`;
+    el.innerHTML = `<span class="${it.kind === 'file' ? 'mono' : ''}"></span><span class="pal-kind">${esc(it.kind)}</span>`;
     el.querySelector('span').textContent = it.label;
     if (it.feature) el.dataset.feature = it.feature;
     if (it.allowExperimental) el.dataset.allowExperimental = 'true';
@@ -7111,7 +7111,7 @@ async function loadCommits(reset) {
           ${c.avatar ? `<img class="commit-avatar" src="${escAttr(c.avatar)}" alt="">` : ''}
           <span class="commit-msg"></span>
         </div>
-        <div class="commit-meta"><span></span><span class="mono commit-sha">${c.sha.slice(0, 7)}</span><span>${timeAgo(c.date)}</span></div>
+        <div class="commit-meta"><span></span><span class="mono commit-sha">${esc(String(c.sha || '').slice(0, 7))}</span><span>${timeAgo(c.date)}</span></div>
         <div class="commit-diff"></div>`;
       el.querySelector('.commit-msg').textContent = c.message.split('\n')[0];
       el.querySelector('.commit-meta span').textContent = c.author;
@@ -7158,8 +7158,8 @@ function renderDiffFiles(host, files) {
     df.innerHTML = `
       <div class="diff-file-head mono">
         <span></span>
-        <span class="diff-adds">+${f.additions}</span><span class="diff-dels">−${f.deletions}</span>
-        <span style="margin-left:auto;color:var(--muted)">${f.status}</span>
+        <span class="diff-adds">+${Number(f.additions) || 0}</span><span class="diff-dels">−${Number(f.deletions) || 0}</span>
+        <span style="margin-left:auto;color:var(--muted)">${esc(f.status)}</span>
       </div>
       ${f.patch ? '<div class="diff-patch mono"></div>' : ''}`;
     df.querySelector('.diff-file-head span').textContent = f.filename;
@@ -7225,7 +7225,7 @@ async function loadPRs() {
       const st = p.merged ? ['merged', 'state-merged'] : p.draft ? ['draft', 'state-draft'] : p.state === 'open' ? ['open', 'state-open'] : ['closed', 'state-closed'];
       el.innerHTML = `
         <div class="li-head"><span class="state-pill ${st[1]}">${st[0]}</span><span class="li-title"></span></div>
-        <div class="li-meta"><span>#${p.number}</span><span></span><span class="mono">${esc(p.head)} → ${esc(p.base)}</span><span>${timeAgo(p.updated_at)}</span></div>`;
+        <div class="li-meta"><span>#${Number(p.number) || 0}</span><span></span><span class="mono">${esc(p.head)} → ${esc(p.base)}</span><span>${timeAgo(p.updated_at)}</span></div>`;
       el.querySelector('.li-title').textContent = p.title;
       el.querySelector('.li-meta span:nth-child(2)').textContent = p.user || '';
       el.addEventListener('click', () => openPR(p.number));
@@ -7248,7 +7248,7 @@ async function openPR(num) {
         <button class="btn btn-ghost small" id="prCloseDetail" aria-label="Close">${META_ICON.close}</button>
       </div>
       <div class="detail-meta">
-        <span>#${p.number} by ${esc(p.user || '')}</span>
+        <span>#${Number(p.number) || 0} by ${esc(p.user || '')}</span>
         <span class="mono">${esc(p.head)} → ${esc(p.base)}</span>
         <span class="diff-adds">+${p.additions}</span><span class="diff-dels">−${p.deletions}</span>
         <span>${p.changed_files} files</span>
@@ -7271,7 +7271,7 @@ async function openPR(num) {
         b.textContent = label;
         b.addEventListener('click', async () => {
           const sure = await modal({ title: label,
-            bodyHTML: `<p style="font-size:.9rem;line-height:1.5">${label} PR #${p.number} <b class="mono">${esc(p.head)}</b> into <b class="mono">${esc(p.base)}</b>?</p>`,
+            bodyHTML: `<p style="font-size:.9rem;line-height:1.5">${label} PR #${Number(p.number) || 0} <b class="mono">${esc(p.head)}</b> into <b class="mono">${esc(p.base)}</b>?</p>`,
             okText: label });
           if (!sure) return;
           try {
@@ -7401,13 +7401,13 @@ async function loadIssues() {
       el.style.animationDelay = Math.min(i * 40, 360) + 'ms';
       el.innerHTML = `
         <div class="li-head">
-          <span class="state-pill ${it.state === 'open' ? 'state-open' : 'state-closed'}">${it.state}</span>
+          <span class="state-pill ${it.state === 'open' ? 'state-open' : 'state-closed'}">${esc(it.state)}</span>
           <span class="li-title"></span>
         </div>
         <div class="li-meta">
-          <span>#${it.number}</span><span></span>
+          <span>#${Number(it.number) || 0}</span><span></span>
           ${it.labels.map(l => { const color = safeHexColor(l.color); return `<span class="label-pill" style="border-color:#${color}88;color:#${color}">${esc(l.name)}</span>`; }).join('')}
-          <span>${META_ICON.comments} ${it.comments}</span><span>${timeAgo(it.updated_at)}</span>
+          <span>${META_ICON.comments} ${Number(it.comments) || 0}</span><span>${timeAgo(it.updated_at)}</span>
         </div>`;
       el.querySelector('.li-title').textContent = it.title;
       el.querySelector('.li-meta span:nth-child(2)').textContent = it.user || '';
@@ -7425,11 +7425,11 @@ async function openIssue(num) {
     const i = await api(`/api/repo/${wPath()}/issues/${num}`);
     box.innerHTML = `
       <div class="detail-head">
-        <span class="state-pill ${i.state === 'open' ? 'state-open' : 'state-closed'}">${i.state}</span>
+        <span class="state-pill ${i.state === 'open' ? 'state-open' : 'state-closed'}">${esc(i.state)}</span>
         <span class="detail-title"></span>
         <button class="btn btn-ghost small" id="issCloseDetail" aria-label="Close">${META_ICON.close}</button>
       </div>
-      <div class="detail-meta"><span>#${i.number} by ${esc(i.user || '')}</span><span>${timeAgo(i.created_at)}</span></div>
+      <div class="detail-meta"><span>#${Number(i.number) || 0} by ${esc(i.user || '')}</span><span>${timeAgo(i.created_at)}</span></div>
       <div class="detail-body" id="issBody" hidden></div>
       <div id="issComments"></div>
       <label class="field-label" for="issNewComment">Add a comment</label>

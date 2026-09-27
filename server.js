@@ -151,6 +151,7 @@ const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = requi
 const { auditRepository } = require('./src/code-audit');
 const { checkSite, declaredSite } = require('./src/site-check');
 const { readBranchProtection } = require('./src/branch-protection');
+const { buildPublicAssets, stripHtmlComments, stripJsComments } = require('./src/public-assets');
 const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
 
@@ -866,8 +867,14 @@ app.get('/vendor/*', async (req, res) => {
 /* GitHub sends the exact bytes used to calculate X-Hub-Signature-256. */
 app.post('/hooks/github/:hookId', express.raw({ type: 'application/json', limit: '2mb' }), receiveGithubWebhook);
 app.use(express.json({ limit: '30mb' }));
-const INDEX_TEMPLATE = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
-const SW_TEMPLATE = fs.readFileSync(path.join(__dirname, 'public', 'sw.js'), 'utf8');
+/*
+ * The page, the service worker and the first-party scripts and stylesheets are
+ * served without their source comments (src/public-assets.js): the commentary
+ * is for maintainers, not for every visitor's download.
+ */
+const INDEX_TEMPLATE = stripHtmlComments(fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8'));
+const SW_TEMPLATE = (source => { try { return stripJsComments(source); } catch { return source; } })(fs.readFileSync(path.join(__dirname, 'public', 'sw.js'), 'utf8'));
+const PUBLIC_ASSETS = buildPublicAssets(path.join(__dirname, 'public'));
 function renderReleaseTemplate(template) {
   return template
     .replaceAll('__NV_PRODUCT_NAME__', PRODUCT_NAME)
@@ -900,6 +907,17 @@ app.use('/api', (req, res, next) => {
   });
 });
 
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const asset = PUBLIC_ASSETS.get(req.path);
+  if (!asset || req.path === '/sw.js') return next();
+  res.setHeader('Content-Type', asset.type);
+  res.setHeader('Cache-Control', 'public, max-age=604800'); // safe: URLs are version-stamped
+  res.setHeader('ETag', asset.etag);
+  if (req.headers['if-none-match'] === asset.etag) return res.status(304).end();
+  res.setHeader('Content-Length', String(asset.body.length));
+  return res.end(req.method === 'HEAD' ? undefined : asset.body);
+});
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');

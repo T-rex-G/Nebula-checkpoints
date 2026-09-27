@@ -76,6 +76,52 @@ the hosted deployment was to be checked for security at every scale.
 - **Dialogs.** A reused dialog opens at its top; a panel with nothing to
   confirm has only Done and does not raise a phone's keyboard.
 
+### What the Host Serves; Reading a Medium Repository
+
+Reported: the deployment's served JavaScript, CSS and HTML were to be read
+as an attacker would, for defects and for comments that should not be
+there; and a medium repository, like this one, was to be read end to end,
+the editor, a workflow's CI and every long list, on a desktop and a phone.
+
+- **Served assets carry no comments.** The page, stylesheet and every
+  first-party script are served without their source comments, which
+  explained how defences work and which test guards what -- about 270 KB of
+  every first load. Nothing else changes: the unit suite tokenises each
+  script before and after with a real parser and requires the two streams
+  to be identical, and a classic script that would not compile is served as
+  written. Stripped assets carry a strong ETag and answer `304`.
+- **Provider text is inert.** Every field a provider sends into markup --
+  run events, commit ids, file statuses, counts, states and numbers -- is
+  escaped or coerced to a number. Pull request and issue descriptions,
+  comments and release notes are rendered as Markdown and sanitised: no
+  script, frame, form, `<style>` or inline style survives, and links open
+  in a new tab without an opener. A Markdown file's preview follows the
+  same rules, so a file's `<style>` cannot restyle the workbench.
+- **GitLab.** A file with any character outside Latin-1 failed to open:
+  the server decoded it and the editor decoded it again. It now answers in
+  Base64, as GitHub and Gitea do. Commits page like the other providers.
+- **Actions.** A run opens from its header only, so a tap on a step, a
+  selection or a scroll no longer closes it under the reader. Jobs are
+  disclosures: the failed or running ones open, the rest fold to one line
+  with their step count and failures, and each step says its state in
+  words. Opening a run brings it into view, and a run opened once is not
+  fetched again.
+- **Commits.** Tapping or selecting inside a diff no longer closes it; a
+  long patch scrolls inside its own box.
+- **Pull requests and issues.** The detail opens directly under the row
+  that asked for it and scrolls into view below the top bar, instead of
+  above a long list and out of sight.
+- **Command palette.** Files are ranked by how well they match -- the
+  name, then its start, then a folder, then letters in order -- and a query
+  lists thirty rather than fourteen, so `app` finds `public/app.js` first
+  in a repository of hundreds of files.
+- **Phone.** The editor's last lines scroll clear of the bottom navigation
+  and the action button. Each tab keeps its own place in a long list, as
+  the panes already did on a wider screen, instead of opening mid-list at
+  the last tab's offset.
+- **Continuous integration.** The single-worker browser suite now has 45
+  minutes rather than 30; it was being cancelled while still passing.
+
 ### An Audit That Finds What Scanners Miss; Reports That Speak in Shapes
 
 Reported: the scanner was missing from the phone's Security menu and had no

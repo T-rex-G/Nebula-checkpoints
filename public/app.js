@@ -5801,6 +5801,21 @@ async function openFile(p) {
 function closeFile() {
   setTimeout(saveRoute, 0); state.file = null; $('#editorShell').hidden = true; $('#editorEmpty').hidden = false; }
 
+/*
+ * Markdown a provider sends -- a pull request's description, an issue, a
+ * comment, release notes -- rendered the way the file preview renders it:
+ * parsed by marked, then sanitised by DOMPurify with forms, frames and
+ * embeds forbidden. Links open in a new tab without an opener. Without the
+ * renderer the text is shown as text, line breaks kept.
+ */
+const MD_SANITIZE = Object.freeze({ USE_PROFILES: { html: true }, FORBID_TAGS: ['form', 'iframe', 'object', 'embed', 'style'], FORBID_ATTR: ['srcdoc', 'style'] });
+function renderMarkdownInto(el, source) {
+  el.classList.add('md-body');
+  const text = String(source || '');
+  if (!window.DOMPurify || !window.marked) { el.textContent = text; el.classList.add('md-plain'); return; }
+  el.innerHTML = DOMPurify.sanitize(marked.parse(text), MD_SANITIZE);
+  el.querySelectorAll('a[href]').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; });
+}
 $('#mdPreviewBtn').addEventListener('click', () => {
   const pv = $('#mdPreview');
   const showing = !pv.hidden;
@@ -5814,12 +5829,9 @@ $('#mdPreviewBtn').addEventListener('click', () => {
       toast('Secure Markdown renderer is unavailable; showing plain text.', 'err');
       return;
     }
-    const html = marked.parse(source);
-    pv.innerHTML = DOMPurify.sanitize(html, {
-      USE_PROFILES: { html: true },
-      FORBID_TAGS: ['form', 'iframe', 'object', 'embed'],
-      FORBID_ATTR: ['srcdoc']
-    });
+    /* The same rules as provider text: a file's <style> or inline style would restyle the workbench around it. */
+    pv.innerHTML = DOMPurify.sanitize(marked.parse(source), MD_SANITIZE);
+    pv.querySelectorAll('a[href]').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; });
   }
   else setTimeout(() => state.cm.refresh(), 30);
 });
@@ -6086,6 +6098,14 @@ function ensureNeural() {
   _neuralLoad.then(nn => { if (nn && currentTab() === 'neural') nn.activate(); })
     .catch(e => toast(e.message, 'err'));
 }
+/*
+ * On a phone the document scrolls, not the pane, so a tab change kept the
+ * last tab's offset and dropped the reader into the middle of the next list.
+ * Each tab of each repository keeps its own offset instead, as the panes do
+ * on a wider screen.
+ */
+const tabScroll = new Map();
+const tabScrollKey = name => `${state.work ? `${state.work.owner}/${state.work.repo}@${state.work.branch}` : ''}:${name}`;
 function switchTab(name) {
   const tab = $$('.tab').find(candidate => candidate.dataset.tab === name);
   const previousTab = currentTab();
@@ -6103,8 +6123,12 @@ function switchTab(name) {
   if (tabCapability && !runCapabilityAction(tabCapability, () => {}, {
     allowExperimental: tab.dataset.allowExperimental === 'true'
   })) return;
+  const doc = document.scrollingElement;
+  const moving = previousTab !== name && doc;
+  if (moving) tabScroll.set(tabScrollKey(previousTab), doc.scrollTop);
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.tabpane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  if (moving) doc.scrollTop = tabScroll.get(tabScrollKey(name)) || 0;
   /*
    * The pane knows which tab it holds, so chrome that belongs to some tabs and
    * not others -- the repository trust bar is the workbench's, and the Neural
@@ -6337,11 +6361,42 @@ function fuzzy(q, s) {
   for (const ch of s) { if (ch === q[i]) i++; if (i === q.length) return true; }
   return q.length === 0;
 }
+/*
+ * How well a query names a path: the file's own name before its folders, a
+ * run of the query before scattered letters, the start of a word before its
+ * middle, and a short path before a long one. -1 when it does not match.
+ */
+function fuzzyScore(q, s) {
+  const query = String(q || '').toLowerCase();
+  const text = String(s || '').toLowerCase();
+  if (!query) return 0;
+  const base = text.slice(text.lastIndexOf('/') + 1);
+  let score = -1;
+  if (base === query) score = 1000;
+  else if (base.startsWith(query)) score = 800;
+  else if (base.includes(query)) score = 650;
+  else if (text.startsWith(query) || text.includes(`/${query}`)) score = 520;
+  else if (text.includes(query)) score = 420;
+  else {
+    /* Letters in order: fewer, shorter gaps score higher. */
+    let at = -1; let gaps = 0;
+    for (const ch of query) {
+      const next = text.indexOf(ch, at + 1);
+      if (next === -1) return -1;
+      if (at !== -1 && next > at + 1) gaps += Math.min(8, next - at - 1);
+      at = next;
+    }
+    score = 200 - gaps * 4;
+  }
+  return score - Math.min(60, text.length / 4);
+}
 function renderPalette(q) {
   const host = $('#paletteList');
   const cmds = COMMANDS.filter(c => fuzzy(q, c.label));
-  const files = (state.fileIndex || []).filter(p => fuzzy(q, p)).slice(0, 14)
-    .map(p => ({ label: p, kind: 'file', run: () => openFile(p) }));
+  const files = (state.fileIndex || [])
+    .map(p => [p, fuzzyScore(q, p)]).filter(([, score]) => score > -1)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, q ? 30 : 14)
+    .map(([p]) => ({ label: p, kind: 'file', run: () => openFile(p) }));
   const recents = q ? [] : getRecents().filter(p => (state.fileIndex || []).includes(p) || !state.fileIndex)
     .map(p => ({ label: p, kind: 'recent', run: () => openFile(p) }));
   palItems = q ? [...files, ...cmds.slice(0, 6)] : [...recents.slice(0, 5), ...cmds, ...files.slice(0, 6)];
@@ -7115,7 +7170,12 @@ async function loadCommits(reset) {
         <div class="commit-diff"></div>`;
       el.querySelector('.commit-msg').textContent = c.message.split('\n')[0];
       el.querySelector('.commit-meta span').textContent = c.author;
-      el.addEventListener('click', () => toggleDiff(el, c.sha));
+      /* The row opens and closes the diff; a tap, a selection or a sideways scroll inside the diff is reading it. */
+      el.addEventListener('click', event => {
+        if (event.target.closest('.commit-diff')) return;
+        if (String(window.getSelection && window.getSelection()).length) return;
+        toggleDiff(el, c.sha);
+      });
       host.appendChild(el);
     });
     $('#moreCommitsBtn').hidden = commits.length < 25;
@@ -7207,9 +7267,31 @@ $('#prState').addEventListener('click', e => {
   state.prState = b.dataset.v;
   loadPRs();
 });
+/*
+ * A detail opens directly under the row it belongs to, rather than after the
+ * whole list: from the thirtieth pull request the reader used to land at the
+ * bottom of the page with the detail half off screen and the list behind
+ * them. A reload parks it back after the list first, so clearing the list
+ * never takes the detail's element with it.
+ */
+function parkDetail(box, host) {
+  box.hidden = true;
+  if (host.contains(box)) host.after(box);
+}
+function placeDetail(box, anchor) {
+  if (anchor && anchor.isConnected) anchor.after(box);
+  box.hidden = false;
+}
+function revealDetail(box) {
+  /* Its head is what the reader needs first: a detail taller than the screen starts at its top, a short one just comes into view. */
+  requestAnimationFrame(() => {
+    const tall = box.getBoundingClientRect().height > window.innerHeight * 0.6;
+    box.scrollIntoView({ behavior: state.settings.motion === false ? 'auto' : 'smooth', block: tall ? 'start' : 'nearest' });
+  });
+}
 async function loadPRs() {
   const host = $('#prList');
-  $('#prDetail').hidden = true;
+  parkDetail($('#prDetail'), host);
   host.innerHTML = '<div class="skeleton" style="height:66px"></div>'.repeat(3);
   try {
     const prs = await apiCached(`/api/repo/${wPath()}/pulls?state=${state.prState}`);
@@ -7228,16 +7310,16 @@ async function loadPRs() {
         <div class="li-meta"><span>#${Number(p.number) || 0}</span><span></span><span class="mono">${esc(p.head)} → ${esc(p.base)}</span><span>${timeAgo(p.updated_at)}</span></div>`;
       el.querySelector('.li-title').textContent = p.title;
       el.querySelector('.li-meta span:nth-child(2)').textContent = p.user || '';
-      el.addEventListener('click', () => openPR(p.number));
+      el.addEventListener('click', () => openPR(p.number, el));
       host.appendChild(el);
     });
   } catch (e) { host.innerHTML = ''; toast(e.message, 'err'); }
 }
-async function openPR(num) {
+async function openPR(num, anchor) {
   const box = $('#prDetail');
-  box.hidden = false;
+  placeDetail(box, anchor);
   box.innerHTML = '<div class="skeleton" style="height:120px"></div>';
-  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  revealDetail(box);
   try {
     const p = await api(`/api/repo/${wPath()}/pulls/${num}`);
     const st = p.merged ? ['merged', 'state-merged'] : p.draft ? ['draft', 'state-draft'] : p.state === 'open' ? ['open', 'state-open'] : ['closed', 'state-closed'];
@@ -7250,8 +7332,8 @@ async function openPR(num) {
       <div class="detail-meta">
         <span>#${Number(p.number) || 0} by ${esc(p.user || '')}</span>
         <span class="mono">${esc(p.head)} → ${esc(p.base)}</span>
-        <span class="diff-adds">+${p.additions}</span><span class="diff-dels">−${p.deletions}</span>
-        <span>${p.changed_files} files</span>
+        <span class="diff-adds">+${Number(p.additions) || 0}</span><span class="diff-dels">−${Number(p.deletions) || 0}</span>
+        <span>${Number(p.changed_files) || 0} files</span>
       </div>
       <div class="detail-body" id="prBody" hidden></div>
       <div class="detail-actions" id="prActions"></div>
@@ -7261,8 +7343,9 @@ async function openPR(num) {
       <textarea id="prNewComment" placeholder="Write a comment…"></textarea>
       <div class="detail-actions"><button class="btn btn-primary small" id="prCommentBtn">Comment ✦</button></div>`;
     box.querySelector('.detail-title').textContent = p.title;
-    if (p.body) { $('#prBody').hidden = false; $('#prBody').textContent = p.body; }
+    if (p.body) { $('#prBody').hidden = false; renderMarkdownInto($('#prBody'), p.body); }
     $('#prCloseDetail').addEventListener('click', () => { box.hidden = true; });
+    revealDetail(box);
     if (p.state === 'open' && !p.draft) {
       const act = $('#prActions');
       [['merge', 'Merge'], ['squash', 'Squash & merge'], ['rebase', 'Rebase & merge']].forEach(([m, label]) => {
@@ -7345,7 +7428,7 @@ async function loadPRComments(num) {
       el.className = 'comment';
       el.innerHTML = `<div class="comment-head">${c.avatar ? `<img src="${escAttr(c.avatar)}" alt="">` : ''}<span>${esc(c.user || '')}</span><span>${timeAgo(c.created_at)}</span></div>
         <div class="comment-body"></div>`;
-      el.querySelector('.comment-body').textContent = c.body || '';
+      renderMarkdownInto(el.querySelector('.comment-body'), c.body || '');
       host.appendChild(el);
     });
   } catch {}
@@ -7386,7 +7469,7 @@ $('#issueState').addEventListener('click', e => {
 });
 async function loadIssues() {
   const host = $('#issueList');
-  $('#issueDetail').hidden = true;
+  parkDetail($('#issueDetail'), host);
   host.innerHTML = '<div class="skeleton" style="height:66px"></div>'.repeat(3);
   try {
     const issues = await apiCached(`/api/repo/${wPath()}/issues?state=${state.issueState}`);
@@ -7411,16 +7494,16 @@ async function loadIssues() {
         </div>`;
       el.querySelector('.li-title').textContent = it.title;
       el.querySelector('.li-meta span:nth-child(2)').textContent = it.user || '';
-      el.addEventListener('click', () => openIssue(it.number));
+      el.addEventListener('click', () => openIssue(it.number, el));
       host.appendChild(el);
     });
   } catch (e) { host.innerHTML = ''; toast(e.message, 'err'); }
 }
-async function openIssue(num) {
+async function openIssue(num, anchor) {
   const box = $('#issueDetail');
-  box.hidden = false;
+  placeDetail(box, anchor);
   box.innerHTML = '<div class="skeleton" style="height:120px"></div>';
-  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  revealDetail(box);
   try {
     const i = await api(`/api/repo/${wPath()}/issues/${num}`);
     box.innerHTML = `
@@ -7439,17 +7522,18 @@ async function openIssue(num) {
         <button class="btn btn-ghost small" id="issToggleBtn">${i.state === 'open' ? 'Close issue' : 'Reopen issue'}</button>
       </div>`;
     box.querySelector('.detail-title').textContent = i.title;
-    if (i.body) { $('#issBody').hidden = false; $('#issBody').textContent = i.body; }
+    if (i.body) { $('#issBody').hidden = false; renderMarkdownInto($('#issBody'), i.body); }
     const ch = $('#issComments');
     i.comments.forEach(c => {
       const el = document.createElement('div');
       el.className = 'comment';
       el.innerHTML = `<div class="comment-head">${c.avatar ? `<img src="${escAttr(c.avatar)}" alt="">` : ''}<span>${esc(c.user || '')}</span><span>${timeAgo(c.created_at)}</span></div>
         <div class="comment-body"></div>`;
-      el.querySelector('.comment-body').textContent = c.body || '';
+      renderMarkdownInto(el.querySelector('.comment-body'), c.body || '');
       ch.appendChild(el);
     });
     $('#issCloseDetail').addEventListener('click', () => { box.hidden = true; });
+    revealDetail(box);
     $('#issCommentBtn').addEventListener('click', async () => {
       const body = $('#issNewComment').value.trim();
       if (!body) return;
@@ -7510,7 +7594,7 @@ async function loadReleases() {
           ${r.assets.length ? `<span>${r.assets.length} asset${r.assets.length > 1 ? 's' : ''}</span>` : ''}</div>
         ${r.body ? '<div class="detail-body rel-body"></div>' : ''}`;
       el.querySelector('.li-title').textContent = r.name || r.tag;
-      if (r.body) el.querySelector('.rel-body').textContent = r.body.slice(0, 400);
+      if (r.body) renderMarkdownInto(el.querySelector('.rel-body'), r.body.length > 1200 ? `${r.body.slice(0, 1200)}…` : r.body);
       host.appendChild(el);
     });
   } catch (e) { host.innerHTML = ''; toast(e.message, 'err'); }
@@ -7548,8 +7632,8 @@ $('#cmpGo').addEventListener('click', async () => {
     const c = await api(`/api/repo/${wPath()}/compare?base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`);
     host.innerHTML = `
       <div class="cmp-stats">
-        <span><b>${c.ahead_by}</b> ahead</span>
-        <span><b>${c.behind_by}</b> behind</span>
+        <span><b>${Number(c.ahead_by) || 0}</b> ahead</span>
+        <span><b>${Number(c.behind_by) || 0}</b> behind</span>
         <span><b>${c.files.length}</b> files changed</span>
         <span class="mono" style="color:var(--teal)">${esc(head)} vs ${esc(base)}</span>
       </div>
@@ -8238,61 +8322,90 @@ async function loadActions() {
       host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.actions}</div><p>No workflow runs yet.<br>Add a workflow under <span class="mono">.github/workflows/</span> to light up CI.</p></div>`;
       return;
     }
+    const tone = item => item.status !== 'completed' ? 'running' : item.conclusion === 'success' ? 'success' : item.conclusion === 'failure' ? 'failure' : 'neutral';
+    const word = item => item.status !== 'completed' ? String(item.status || 'queued').replace('_', ' ') : (item.conclusion || 'done');
     runs.forEach((r, i) => {
+      /*
+       * A run is a card with one toggle, its header. Everything that opens
+       * under it -- the jobs, their steps, the actions -- is for reading, so a
+       * tap there, a selection or a scroll never closes the run under the
+       * reader. Jobs are disclosures of their own: the failed ones open, the
+       * rest fold to one line, so a run of eight jobs is eight lines, not a
+       * hundred and twenty.
+       */
       const el = document.createElement('div');
-      el.className = 'card list-item pressable';
+      el.className = 'card list-item run-item';
       el.style.animationDelay = Math.min(i * 40, 360) + 'ms';
-      const cls = r.status !== 'completed' ? 'running' : r.conclusion === 'success' ? 'success' : r.conclusion === 'failure' ? 'failure' : 'neutral';
-      const label = r.status !== 'completed' ? r.status.replace('_', ' ') : (r.conclusion || 'done');
-      el.innerHTML = `
-        <div class="li-head">
-          <span class="run-status"><span class="run-dot ${cls}"></span></span>
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'run-toggle';
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.innerHTML = `
+        <span class="li-head">
+          <span class="run-status"><span class="run-dot ${tone(r)}"></span></span>
           <span class="li-title"></span>
-          <span class="badge">${label}</span>
-        </div>
-        <div class="li-meta"><span>#${r.number}</span><span class="mono">${esc(r.branch || '')}</span>
-          <span>${esc(r.event)}</span><span class="mono commit-sha">${(r.sha || '').slice(0, 7)}</span><span>${timeAgo(r.created_at)}</span></div>`;
-      el.querySelector('.li-title').textContent = r.name || 'workflow';
+          <span class="badge">${esc(word(r))}</span>
+          <svg class="run-chev" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </span>
+        <span class="li-meta"><span>#${Number(r.number) || 0}</span><span class="mono">${esc(r.branch || '')}</span>
+          <span>${esc(r.event)}</span><span class="mono commit-sha">${esc(String(r.sha || '').slice(0, 7))}</span><span>${timeAgo(r.created_at)}</span></span>`;
+      toggle.querySelector('.li-title').textContent = r.name || 'workflow';
       const jobsBox = document.createElement('div');
-      jobsBox.style.display = 'none';
-      el.appendChild(jobsBox);
-      el.addEventListener('click', async () => {
-        const open = jobsBox.style.display !== 'none';
-        jobsBox.style.display = open ? 'none' : 'block';
-        if (open || jobsBox.dataset.loaded) return;
+      jobsBox.className = 'run-jobs';
+      jobsBox.hidden = true;
+      jobsBox.id = `runJobs${Number(r.id) || i}`;
+      toggle.setAttribute('aria-controls', jobsBox.id);
+      el.append(toggle, jobsBox);
+      toggle.addEventListener('click', async () => {
+        const open = !jobsBox.hidden;
+        jobsBox.hidden = open;
+        toggle.setAttribute('aria-expanded', String(!open));
+        el.classList.toggle('open', !open);
+        if (open || jobsBox.dataset.loaded) { if (!open) revealDetail(jobsBox); return; }
         jobsBox.innerHTML = '<div class="skeleton" style="height:44px;margin-top:10px"></div>';
         try {
           const jobs = await api(`/api/repo/${wPath()}/actions/${r.id}/jobs`);
           jobsBox.dataset.loaded = '1';
           jobsBox.innerHTML = '';
+          if (!jobs.length) jobsBox.innerHTML = '<p class="hint">This run reported no jobs.</p>';
           jobs.forEach(jb => {
-            const jc = jb.status !== 'completed' ? 'running' : jb.conclusion === 'success' ? 'success' : jb.conclusion === 'failure' ? 'failure' : 'neutral';
-            const jd = document.createElement('div');
-            jd.style.marginTop = '10px';
-            jd.innerHTML = `<div class="li-head" style="font-size:.82rem"><span class="run-dot ${jc}"></span><b></b></div>`;
-            jd.querySelector('b').textContent = jb.name;
-            jb.steps.forEach(st => {
-              const sc = st.status !== 'completed' ? 'running' : st.conclusion === 'success' ? 'success' : st.conclusion === 'failure' ? 'failure' : 'neutral';
-              const sr = document.createElement('div');
+            const job = document.createElement('details');
+            job.className = 'run-job';
+            job.dataset.state = tone(jb);
+            if (tone(jb) === 'failure' || tone(jb) === 'running') job.open = true;
+            const steps = jb.steps || [];
+            const failedSteps = steps.filter(st => tone(st) === 'failure').length;
+            job.innerHTML = `<summary class="run-job-head"><span class="run-dot ${tone(jb)}"></span><b></b>
+              <span class="run-job-word">${esc(word(jb))}</span><span class="run-job-n">${steps.length} step${steps.length === 1 ? '' : 's'}${failedSteps ? ` · ${failedSteps} failed` : ''}</span></summary>`;
+            job.querySelector('b').textContent = jb.name;
+            const list = document.createElement('ol');
+            list.className = 'run-steps';
+            steps.forEach(st => {
+              const sr = document.createElement('li');
               sr.className = 'step-row';
-              sr.innerHTML = `<span class="run-dot ${sc}" style="width:7px;height:7px"></span><span></span>`;
-              sr.querySelector('span:last-child').textContent = st.name;
-              jd.appendChild(sr);
+              sr.dataset.state = tone(st);
+              sr.innerHTML = `<span class="run-dot ${tone(st)}"></span><span class="step-name"></span><span class="step-word">${esc(word(st))}</span>`;
+              sr.querySelector('.step-name').textContent = st.name;
+              list.appendChild(sr);
             });
-            jobsBox.appendChild(jd);
+            job.appendChild(list);
+            jobsBox.appendChild(job);
           });
           const acts = document.createElement('div');
           acts.className = 'detail-actions';
           acts.innerHTML = `<button class="btn btn-ghost small" data-rerun data-feature="workflows.rerun" data-allow-experimental="true">Re-run</button>
-            <button class="btn btn-ghost small" data-open>Open on GitHub</button>`;
+            <button class="btn btn-ghost small" data-open>Open on the provider</button>`;
           if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply(acts);
-          acts.querySelector('[data-rerun]').addEventListener('click', async e2 => {
-            e2.stopPropagation();
+          acts.querySelector('[data-rerun]').addEventListener('click', async () => {
             try { await api(`/api/repo/${wPath()}/actions/${r.id}/rerun`, { method: 'POST' }); toast('Re-run requested ✦', 'ok'); }
             catch (e3) { toast(e3.message, 'err'); }
           });
-          acts.querySelector('[data-open]').addEventListener('click', e2 => { e2.stopPropagation(); window.open(r.html_url, '_blank', 'noopener'); });
+          /* Only a web address leaves the app; anything else a provider sends is not followed. */
+          const openButton = acts.querySelector('[data-open]');
+          if (/^https:\/\//i.test(String(r.html_url || ''))) openButton.addEventListener('click', () => window.open(r.html_url, '_blank', 'noopener'));
+          else openButton.hidden = true;
           jobsBox.appendChild(acts);
+          revealDetail(jobsBox);
         } catch (e4) { jobsBox.innerHTML = `<p class="hint">⚠ ${esc(e4.message)}</p>`; }
       });
       host.appendChild(el);

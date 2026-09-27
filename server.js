@@ -5622,7 +5622,8 @@ app.get('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepositoryAcc
     if (req.gh.provider === 'gitlab') {
       const f = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(requestedPath)}?ref=${encodeURIComponent(req.query.ref)}`);
       if (f.size > MB) return res.json({ tooLarge: true, name: f.file_name, path: requestedPath, sha: f.blob_id, size: f.size });
-      return res.json({ name: f.file_name, path: requestedPath, sha: f.blob_id, size: f.size, content: Buffer.from(f.content || '', 'base64').toString('utf8') });
+      /* Base64, as GitHub and Gitea answer: the editor decodes one shape, and decoding here broke every GitLab file with a non-Latin-1 character. */
+      return res.json({ name: f.file_name, path: requestedPath, sha: f.blob_id, size: f.size, content: f.content || '', encoding: 'base64' });
     }
     const meta = await gh(req.gh,
       `${R(req)}/contents/${encodePath(requestedPath)}?ref=${encodeURIComponent(req.query.ref)}`);

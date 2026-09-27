@@ -7,7 +7,7 @@ test.use({ serviceWorkers: 'block' });
 
 async function openScene(page) {
   await page.addInitScript(() => {
-    window.__plasma = {};
+    window.__scene = {};
     const proto = window.WebGLRenderingContext.prototype;
     const get = proto.getUniformLocation;
     const set = proto.uniform1f;
@@ -18,7 +18,7 @@ async function openScene(page) {
       return location;
     };
     proto.uniform1f = function (location, value) {
-      if (this.canvas.id === 'lpPortal') window.__plasma[names.get(location)] = value;
+      if (this.canvas.id === 'lpPortal') window.__scene[names.get(location)] = value;
       return set.call(this, location, value);
     };
   });
@@ -30,7 +30,7 @@ async function openScene(page) {
   return portal;
 }
 
-const uniform = (page, name) => page.evaluate(key => window.__plasma[key], name);
+const uniform = (page, name) => page.evaluate(key => window.__scene[key], name);
 
 test('the canvas is unobstructed and the desktop entry card belongs below the copy', async ({ page, isMobile }) => {
   const portal = await openScene(page);
@@ -47,7 +47,7 @@ test('the canvas is unobstructed and the desktop entry card belongs below the co
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('hover deformation recovers after missing the sphere, and leaves with the pointer', async ({ page }) => {
+test('the strands part for a pointer over the vortex, recover after a miss, and settle when it leaves', async ({ page }) => {
   const portal = await openScene(page);
   const b = await portal.boundingBox();
   await page.mouse.move(b.x + 2, b.y + 2);
@@ -84,7 +84,7 @@ test('drag rotates real geometry, but stopped motion ignores further gestures', 
   expect(await uniform(page, 'uCamYaw')).toBeCloseTo(held, 5);
 });
 
-test('touch can turn the sphere while a vertical swipe still scrolls the page', async ({ page, isMobile }) => {
+test('touch can turn the vortex while a vertical swipe still scrolls the page', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch gesture regression runs in the touch-enabled mobile project.');
   const portal = await openScene(page);
   const b = await portal.boundingBox();
@@ -229,7 +229,7 @@ test('the bar reserves the status-bar strip on a phone, not just a sticky positi
 });
 
 /*
- * The plasma is a light in the room, not an object in a lit panel. Both of the
+ * The vortex is a light in the room, not an object in a lit panel. Both of the
  * glow's sources are wider than the box that carries them -- the violet one is
  * centred at 65% 65% and still has colour at 100% -- so the element's own
  * rectangle cut them off and drew corners around the artwork. The mask is what

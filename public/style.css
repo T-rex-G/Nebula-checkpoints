@@ -429,8 +429,8 @@ em{color:var(--teal);font-style:normal}
 /*
  * The moving ground yields to a screen that draws its own artwork.
  *
- * The repositories screen mounts the galaxy and the landing mounts the plasma
- * portal. Both are full-bleed and moving already, and running the waves
+ * The repositories screen mounts the galaxy and the landing mounts the vortex.
+ * Both are full-bleed and moving already, and running the waves
  * underneath put two independent animations at two unrelated speeds on one
  * screen: they read as interference rather than as depth, because on each of
  * those screens the artwork is the subject and the ground was arguing with it.
@@ -630,7 +630,7 @@ em{color:var(--teal);font-style:normal}
  * Masked, and inset outward past the stage. Both light sources are wider than
  * the box that carries them -- the violet one is centred at 65% 65% and still
  * has colour left at 100% -- so the element's own rectangle cut them off and
- * the plasma appeared to sit inside a lit panel with visible corners. The
+ * the vortex appeared to sit inside a lit panel with visible corners. The
  * radial mask is what removes the rectangle for good: --gx/--gy follow the
  * pointer, so any fixed set of stops is only ever one gesture away from
  * reaching an edge again.

@@ -1,9 +1,9 @@
-/* The landing scene: a portal that is allowed to fail without taking the page. */
+/* The landing scene: a vortex that is allowed to fail without taking the page. */
 'use strict';
 
 (function landingStage(global) {
   /*
-   * The signature moment: the portal answers the gate.
+   * The signature moment: the vortex answers the gate.
    *
    * Reaching for the invitation is the one action this page exists for, so
    * the scene leans in while the reader is in the card and settles back when
@@ -16,8 +16,9 @@
    * flinch once per tab stop.
    *
    * The class is carried for CSS as it always was, and now also handed to the
-   * ring, which raises its wave and opens its centre. The moment reaches the
-   * geometry rather than stopping at a transform over it.
+   * vortex, which draws its waist in, spins faster and keeps its scan passing.
+   * The moment reaches the geometry rather than stopping at a transform over
+   * it.
    */
   const lp = document.querySelector('.lp');
   const card = document.querySelector('.lp-card');
@@ -368,22 +369,24 @@
   /*
    * WebGL can be absent for reasons that are none of the reader's business: a
    * blocklisted driver, a headless build, a browser with it switched off. The
-   * stage keeps its own ground and veil, so losing the ring costs the picture
+   * stage keeps its own ground and veil, so losing the vortex costs the picture
    * a subject and nothing else -- the page is never a black box waiting for a
    * context that is not coming.
    */
   // The canvas owns an unobstructed box and handles pointer capture itself.
-  const ring = global.NebulaPlasmaRing && global.NebulaPlasmaRing.create(canvas);
-  if (!ring) {
+  const scene = global.NebulaVortex && global.NebulaVortex.create(canvas, {
+    preset: (canvas.dataset && canvas.dataset.vortex) || 'hourglass'
+  });
+  if (!scene) {
     canvas.hidden = true;
     if (art) art.hidden = true;
     return;
   }
-  reachListeners.push(on => ring.setReaching(on));
+  reachListeners.push(on => scene.setReaching(on));
 
   const themeName = () => (root.dataset.design === 'obsidian' ? 'obsidian-' : '') +
     (root.dataset.theme === 'light' ? 'light' : 'dark');
-  ring.setTheme(themeName());
+  scene.setTheme(themeName());
 
   /*
    * The bloom follows the pointer, eased.
@@ -391,8 +394,8 @@
    * Written straight from pointermove it snaps, because a mouse reports in
    * jumps and a gradient has no transition of its own to smooth them --
    * stop positions are not animatable properties. One exponential approach
-   * per frame, on the same clock as the ring, and the light and the bulge
-   * arrive together rather than one chasing the other.
+   * per frame, on the same clock as the vortex, and the light and the parting
+   * of the strands arrive together rather than one chasing the other.
    *
    * Only where a pointer can hover: a finger has no resting position to
    * follow, and a phone should not be running a loop to move a gradient it
@@ -400,7 +403,7 @@
    */
   const glow = document.querySelector('.lp-glow');
   let stopGlow = () => {};
-  if (glow && ring.interactive()) {
+  if (glow && scene.interactive()) {
     const rest = { x: 50, y: 50 };
     const at = { x: rest.x, y: rest.y };
     const want = { x: rest.x, y: rest.y };
@@ -408,7 +411,7 @@
     let glowLast = 0;
 
     const step = now => {
-      if (!ring.isRunning()) { glowRaf = 0; return; }
+      if (!scene.isRunning()) { glowRaf = 0; return; }
       const dt = Math.min((now - glowLast) / 1000, 0.05);
       glowLast = now;
       const k = 1 - Math.exp(-dt * 4.5);
@@ -423,7 +426,7 @@
       glowRaf = global.requestAnimationFrame(step);
     };
     const nudge = () => {
-      if (glowRaf || !ring.isRunning()) return;
+      if (glowRaf || !scene.isRunning()) return;
       glowLast = global.performance ? global.performance.now() : Date.now();
       glowRaf = global.requestAnimationFrame(step);
     };
@@ -434,7 +437,7 @@
     };
     const hero = art || document.querySelector('.lp-hero') || document;
     hero.addEventListener('pointermove', event => {
-      if (!ring.isRunning()) return;
+      if (!scene.isRunning()) return;
       const rect = (hero.getBoundingClientRect ? hero : document.documentElement).getBoundingClientRect();
       want.x = ((event.clientX - rect.left) / (rect.width || 1)) * 100;
       want.y = ((event.clientY - rect.top) / (rect.height || 1)) * 100;
@@ -475,18 +478,18 @@
   function sync() {
     if (art) art.classList.toggle('is-static', !eligible());
     if (eligible()) {
-      ring.start();
+      scene.start();
       reveal();
       return;
     }
-    ring.stop();
+    scene.stop();
     stopGlow();
     /*
-     * Still, not gone. A reader who asked for less motion gets the portal as
+     * Still, not gone. A reader who asked for less motion gets the vortex as
      * a held frame -- the picture without the movement -- which is what the
      * poster used to be, drawn rather than downloaded.
      */
-    ring.renderStill();
+    scene.renderStill();
     reveal();
   }
 
@@ -506,7 +509,7 @@
      them live rather than reading them once at load. */
   if (typeof MutationObserver === 'function') {
     new MutationObserver(() => {
-      ring.setTheme(themeName());
+      scene.setTheme(themeName());
       sync();
     }).observe(root, { attributes: true, attributeFilter: ['data-motion', 'data-theme', 'data-design'] });
     if (gate) {

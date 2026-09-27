@@ -691,49 +691,106 @@ check('the landing scene draws itself rather than shipping a picture', () => {
     'nothing brings the canvas back, so the scene is held at zero opacity forever');
 
   /*
-   * The ring script has to be in the document before the script that drives
-   * it, or the driver finds no factory and hides the canvas on every load.
-   */
-  /*
+   * The vortex script has to be in the document before the script that
+   * drives it, or the driver finds no factory and hides the canvas on every
+   * load.
+   *
    * Matched as a <script> tag, not as a filename. Reading the first mention
-   * of "plasma-ring.js" anywhere in the source finds the comment above the
-   * canvas, which sits a thousand lines earlier than either tag and so
-   * reports the right order whatever the tags actually do -- this guard was
-   * written that way, and swapping the two tags walked straight through it.
+   * of the file anywhere in the source finds a comment instead, which sits a
+   * thousand lines earlier than either tag and so reports the right order
+   * whatever the tags actually do -- this guard was written that way once,
+   * and swapping the two tags walked straight through it.
    */
   const tagAt = name => htmlSource.indexOf(`<script src="/${name}?v=`);
-  const ringAt = tagAt('plasma-ring.js');
+  const sceneAt = tagAt('vortex.js');
   const stageAt = tagAt('landing-stage.js');
-  assert.ok(ringAt !== -1, 'the ring script is not in the document');
+  assert.ok(sceneAt !== -1, 'the vortex script is not in the document');
   assert.ok(stageAt !== -1, 'the landing-stage script is not in the document');
-  assert.ok(ringAt < stageAt,
-    'landing-stage.js is parsed before plasma-ring.js, so the factory is never there when it looks');
+  assert.ok(sceneAt < stageAt,
+    'landing-stage.js is parsed before vortex.js, so the factory is never there when it looks');
+  assert.ok(!fs.existsSync(path.join(root, 'public/plasma-ring.js')) && tagAt('plasma-ring.js') === -1,
+    'the plasma ring is back beside the vortex, so the landing ships two scenes and draws one');
+  const shape = (tag[0].match(/data-vortex="([^"]*)"/) || [])[1];
+  assert.ok(shape && Object.prototype.hasOwnProperty.call(loadVortex().PRESETS, shape),
+    `the canvas names a vortex shape the module does not have: ${shape}`);
 });
+
+/*
+ * The module, run rather than read. It closes over globalThis and touches no
+ * DOM until create() is called, so a bare context is enough to reach its
+ * tables and the arithmetic that sizes the mesh.
+ */
+function loadVortex() {
+  const sandbox = {};
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/vortex.js'), 'utf8'), sandbox, { filename: 'public/vortex.js' });
+  return sandbox.NebulaVortex;
+}
 
 /*
  * The vertex count is a cliff, not a slope.
  *
- * Indices are UNSIGNED_SHORT, so the grid may hold 65536 vertices and not one
- * more. Past that the indices wrap to the start of the buffer and the ring
- * draws a garbled subset of itself -- it does not throw, warn, or fail to
- * compile. The density ladder in the module must stay below the cliff on its
- * own, and the clamp in build() is the belt behind it.
+ * Indices are UNSIGNED_SHORT, so the strand mesh may hold 65536 vertices and
+ * not one more. Past that the indices wrap to the start of the buffer and the
+ * lattice draws a garbled subset of itself -- it does not throw, warn, or fail
+ * to compile. Every tier must stay under the cliff on its own; the refusal in
+ * build() is the belt behind it.
  */
-check('the ring cannot ask for more vertices than its index type can address', () => {
-  const ringSource = fs.readFileSync(path.join(root, 'public/plasma-ring.js'), 'utf8');
-  assert.ok(/UNSIGNED_SHORT/.test(ringSource),
+check('the vortex cannot ask for more vertices than its index type can address', () => {
+  const source = fs.readFileSync(path.join(root, 'public/vortex.js'), 'utf8');
+  assert.ok(/UNSIGNED_SHORT/.test(source),
     'the index type changed; this guard is measuring a limit that no longer applies');
-  const max = Number((ringSource.match(/DENSITY_MAX\s*=\s*(\d+)/) || [])[1]);
-  assert.ok(max > 0, 'DENSITY_MAX is gone, so nothing caps the grid');
-  /* The same expressions build() uses to turn a density into a grid. */
-  const vertices = d => Math.round(d * 2.5) * Math.round(d * 1.8);
-  assert.ok(vertices(max) <= 65536,
-    `density ${max} asks for ${vertices(max)} vertices; UNSIGNED_SHORT indices wrap at 65536`);
-  const ladder = [...ringSource.matchAll(/return\s+(\d+);/g)].map(m => Number(m[1]));
-  ladder.filter(value => value > 24 && value <= 400).forEach(value => {
-    assert.ok(vertices(value) <= 65536,
-      `a density rung of ${value} asks for ${vertices(value)} vertices, past the index limit`);
+  const vortex = loadVortex();
+  assert.strictEqual(vortex.VERTEX_LIMIT, 65536);
+  assert.ok(vortex.TIERS.length >= 2, 'the budget no longer steps down for a small screen');
+  vortex.TIERS.forEach(tier => {
+    const vertices = vortex.strandVertices(tier);
+    assert.strictEqual(vertices, tier.strands * (tier.segments + 1),
+      'strandVertices() no longer counts what build() lays out');
+    assert.ok(vertices <= vortex.VERTEX_LIMIT,
+      `a tier of ${tier.strands} strands x ${tier.segments} segments asks for ${vertices} vertices, past the index limit`);
   });
+  /* Smaller boxes get smaller meshes, never larger ones. */
+  const counts = vortex.TIERS.map(tier => tier.strands * (tier.segments + 1) + tier.dust);
+  counts.slice(1).forEach((count, i) => assert.ok(count > counts[i], 'a smaller screen is given a heavier scene'));
+  assert.ok(/if \(vertices > VERTEX_LIMIT\) \{ res\.indexCount = 0; return; \}/.test(source),
+    'build() no longer refuses a mesh past the limit');
+});
+
+/*
+ * Every shape a page can name is one the module can draw, and anything else a
+ * caller passes is held to the ranges the shader was written for. The themes
+ * are the four the driver asks for by name; a missing one falls back to dark
+ * rather than to nothing, but the fall-back is a defect, not a feature.
+ */
+check('every vortex preset and theme is complete, and a shape is clamped rather than trusted', () => {
+  const vortex = loadVortex();
+  const keys = Object.keys(vortex.PRESETS.hourglass);
+  ['hourglass', 'funnel', 'spire', 'chalice'].forEach(name => {
+    const preset = vortex.PRESETS[name];
+    assert.ok(preset, `the ${name} preset is gone`);
+    assert.deepStrictEqual(Object.keys(preset).sort(), keys.slice().sort(), `${name} does not carry every shape field`);
+    assert.deepStrictEqual({ ...vortex.resolveShape(name) }, { ...preset },
+      `${name} is not drawn as written: a field lies outside the range the shader accepts`);
+  });
+  ['dark', 'light', 'obsidian-dark', 'obsidian-light'].forEach(name => {
+    const theme = vortex.THEMES[name];
+    assert.ok(theme, `the ${name} palette is gone`);
+    ['top', 'waist', 'bottom', 'hot', 'accent', 'dust'].forEach(key =>
+      assert.ok(/^#[0-9a-f]{6}$/i.test(theme[key]), `${name}.${key} is not a colour the module can parse`));
+    assert.strictEqual(typeof theme.additive, 'boolean');
+    /* Light grounds composite normally: adding light to white only washes out. */
+    assert.strictEqual(theme.additive, !/light/.test(name), `${name} blends the wrong way for its ground`);
+  });
+  const wild = vortex.resolveShape('hourglass', { top: 99, waist: -4, waistAt: 7, twist: 'x', direction: 'sideways', flow: Infinity });
+  assert.strictEqual(wild.top, 1.6);
+  assert.strictEqual(wild.waist, 0);
+  assert.strictEqual(wild.waistAt, 0.98);
+  assert.strictEqual(wild.twist, vortex.PRESETS.hourglass.twist, 'a non-number replaced the preset value');
+  assert.strictEqual(wild.direction, vortex.PRESETS.hourglass.direction);
+  assert.strictEqual(wild.flow, vortex.PRESETS.hourglass.flow, 'an infinite rate was accepted');
+  assert.deepStrictEqual({ ...vortex.resolveShape('no-such-shape') }, { ...vortex.PRESETS.hourglass });
+  assert.strictEqual(vortex.resolveShape({ waistAt: 0.3 }).waistAt, 0.3, 'a shape object is not honoured on its own');
 });
 
 /*
@@ -746,13 +803,13 @@ check('the ring cannot ask for more vertices than its index type can address', (
  * file for the regex to find. So the module is compiled against a stub
  * document and actually run.
  *
- * The actor changed from a <video> to the ring, and nothing else did: the
+ * The actor changed from a <video> to a WebGL scene, and nothing else did: the
  * eligibility rules are the same rules, so these are the same checks with
  * start() and stop() where play() and pause() used to be.
  */
 function runLandingStage(options) {
   const settings = options || {};
-  const calls = { start: 0, stop: 0, still: 0, theme: [], reaching: [] };
+  const calls = { start: 0, stop: 0, still: 0, theme: [], reaching: [], created: [] };
   let running = false;
   const ring = {
     renderStill() { calls.still += 1; },
@@ -772,6 +829,7 @@ function runLandingStage(options) {
    */
   const canvas = {
     hidden: false,
+    dataset: settings.vortex ? { vortex: settings.vortex } : {},
     drawnAtReveal: null,
     classList: {
       names: new Set(),
@@ -871,7 +929,9 @@ function runLandingStage(options) {
       this.observe = (target, options) =>
         mutations.set(target, { cb, filter: (options && options.attributeFilter) || null });
     },
-    NebulaPlasmaRing: settings.noWebgl ? { create: () => null } : { create: () => ring }
+    NebulaVortex: settings.noWebgl ? { create: () => null } : {
+      create: (el, options) => { calls.created.push({ el, options }); return ring; }
+    }
   };
   sandbox.globalThis = sandbox;
   vm.runInNewContext(fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8'), sandbox, { filename: 'public/landing-stage.js' });
@@ -941,11 +1001,24 @@ check('the scene is revealed only once something has actually been drawn', () =>
   assert.ok(live.canvas.classList.contains('is-live'), 'a running scene is left invisible');
 });
 
+/*
+ * The shape is chosen in the markup, where a designer can change it without
+ * touching the module, and an unmarked canvas still gets the default.
+ */
+check('the vortex is created on the landing canvas with the shape the markup names', () => {
+  const named = runLandingStage({ vortex: 'funnel' });
+  assert.strictEqual(named.calls.created.length, 1, 'the factory was not asked for exactly one scene');
+  assert.strictEqual(named.calls.created[0].el, named.canvas, 'the scene was created on something other than the landing canvas');
+  assert.strictEqual(named.calls.created[0].options.preset, 'funnel', 'data-vortex never reaches the factory');
+  const plain = runLandingStage({});
+  assert.strictEqual(plain.calls.created[0].options.preset, 'hourglass', 'an unmarked canvas is given no shape');
+});
+
 check('a build without WebGL loses the subject and keeps the page', () => {
   const run = runLandingStage({ noWebgl: true });
   assert.strictEqual(run.canvas.hidden, true,
     'a canvas that can never draw is left in the layout as a transparent hole');
-  assert.strictEqual(run.calls.start, 0, 'something drove a ring that was never created');
+  assert.strictEqual(run.calls.start, 0, 'something drove a scene that was never created');
 });
 
 check('the scene stops when the reader is no longer looking at it', () => {
@@ -1279,7 +1352,7 @@ check('the moving ground yields where the galaxy is drawn', () => {
 
 /*
  * The landing owes the same yield, for the same reason and with the same
- * mechanism: it mounts the plasma portal, so the waves there were a second
+ * mechanism: it mounts the vortex, so the waves there were a second
  * full-bleed animation -- running as a column of violet verticals straight
  * through the copy on the one screen whose whole job is to be read once.
  *

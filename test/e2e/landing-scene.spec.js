@@ -17,7 +17,7 @@ const scale = transform => {
  * only place that can answer either: the WebGL context.
  *
  * The video this replaced published its own answer -- `paused` -- and these
- * guards read it. The ring has no such property reachable from the page, and
+ * guards read it. The vortex has no such property reachable from the page, and
  * giving it one would be a test-only API on a production module. Two instruments
  * stand in, both installed from the test side and neither visible to the page.
  *
@@ -28,11 +28,11 @@ const scale = transform => {
  * canvas cannot be taken out of the picture for comparison; and the canvas is
  * transparent, so a photograph of it is really a photograph of the bloom and
  * the ground behind it, which move on their own. Counting draws and reading
- * pixels measures the ring and nothing else.
+ * pixels measures the vortex and nothing else.
  */
 async function instrument(page) {
   await page.addInitScript(() => {
-    window.__ringDraws = 0;
+    window.__sceneDraws = 0;
     /*
      * preserveDrawingBuffer, forced from here. Without it readPixels is only
      * defined inside the frame that drew, which a test cannot be inside. The
@@ -50,14 +50,14 @@ async function instrument(page) {
     if (!proto) return;
     const drawElements = proto.drawElements;
     proto.drawElements = function (...args) {
-      if (this.canvas && this.canvas.id === 'lpPortal') window.__ringDraws += 1;
+      if (this.canvas && this.canvas.id === 'lpPortal') window.__sceneDraws += 1;
       return drawElements.apply(this, args);
     };
   });
 }
 
 /*
- * Frames the ring drew in a window of time.
+ * Frames the vortex drew in a window of time.
  *
  * A held scene draws only when something asks it to redraw: zero on a quiet
  * page, and one or two just after a state change, because standing the scene
@@ -67,9 +67,9 @@ async function instrument(page) {
 const HELD = 6;  /* more than settling has ever needed */
 
 async function draws(page, ms) {
-  const before = await page.evaluate(() => window.__ringDraws || 0);
+  const before = await page.evaluate(() => window.__sceneDraws || 0);
   await page.waitForTimeout(ms || 600);
-  const after = await page.evaluate(() => window.__ringDraws || 0);
+  const after = await page.evaluate(() => window.__sceneDraws || 0);
   return after - before;
 }
 
@@ -93,7 +93,7 @@ async function running(page) {
 }
 
 /*
- * How much of the canvas the ring actually covered. A transparent canvas
+ * How much of the canvas the vortex actually covered. A transparent canvas
  * satisfies every measurement of size and opacity there is, so this is the
  * one that fails when the scene is a hole rather than a picture.
  */
@@ -125,10 +125,10 @@ async function litPixels(page) {
  * the canvas by design, which the unit guards cover; these guards are about
  * what a scene does once it exists, so they say so and stand down.
  */
-async function ringOrSkip(page) {
+async function sceneOrSkip(page) {
   const ok = await page.evaluate(() => {
     const canvas = document.getElementById('lpPortal');
-    return !!canvas && !canvas.hidden && !!window.NebulaPlasmaRing;
+    return !!canvas && !canvas.hidden && !!window.NebulaVortex;
   });
   test.skip(!ok, 'This build has no WebGL; the no-WebGL path is covered by the unit guards.');
 }
@@ -139,7 +139,7 @@ test('a reader who asked for less motion still gets the scene, held still', asyn
   await instrument(page);
   await mockPublicAlphaApi(page, { access: 'required', ready: 'ready' });
   await page.goto('/');
-  await ringOrSkip(page);
+  await sceneOrSkip(page);
 
   /*
    * The claim the poster used to carry, now carried by the scene itself: a
@@ -212,7 +212,7 @@ test('resizing a stopped scene redraws its held frame without starting a loop', 
   await instrument(page);
   await mockPublicAlphaApi(page, { access: 'required', ready: 'ready' });
   await page.goto('/');
-  await ringOrSkip(page);
+  await sceneOrSkip(page);
   expect(await litPixels(page)).toBeGreaterThan(500);
   await page.setViewportSize({ width: 820, height: 780 });
   await expect.poll(() => litPixels(page)).toBeGreaterThan(500);
@@ -287,7 +287,7 @@ test('the real Settings motion switch stays off at the landing gate after reload
   await page.reload();
   await expect(ui.screen(page, 'access')).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-motion', 'off');
-  await ringOrSkip(page);
+  await sceneOrSkip(page);
   await page.locator('#alphaInviteInput').click();
   await expect(page.locator('#lpPortal')).toBeVisible();
   await expect(page.locator('#lpPortal')).toHaveClass(/is-live/);
@@ -303,7 +303,7 @@ test('the scene follows live OS motion and stands down behind the gate', async (
   await instrument(page);
   await mockPublicAlphaApi(page, { access: 'required' });
   await page.goto('/');
-  await ringOrSkip(page);
+  await sceneOrSkip(page);
   const portal = page.locator('#lpPortal');
 
   await page.locator('#alphaInviteInput').click();

@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+### A Vortex for the Landing
+
+Reported: the landing's drag-to-turn plasma sphere was to be replaced by a
+particle tornado -- a vortex of glowing strands, like the hero a reader
+had seen elsewhere -- with variants that can be tuned, made to the
+standard of the best work of its kind.
+
+- **The scene.** `public/vortex.js` replaces `public/plasma-ring.js` (and
+  the attribution that came with it: this one is written for this page).
+  A surface of revolution -- a crown, a waist and a base, each with its
+  own radius -- is traced by a few hundred strands spiralling around the
+  axis; where they converge at the waist the light sums to its brightest,
+  and toward the rims it thins to nothing, so the form never ends at a
+  line. Thousands of motes ride the strands up the form, a few comets whip
+  round faster than the strands they follow, the axis bends slowly and
+  the waist breathes. Every few seconds a band of light passes from base
+  to crown, the way an audit passes over a repository.
+- **It answers the reader.** A pointer over the form parts the strands
+  around it; a drag turns it and tilts the view, with inertia, and a
+  vertical swipe on a phone still scrolls the page. Reaching for the
+  invitation draws the waist in, speeds the spin and keeps the pass
+  running. With motion off, reduced motion, a metered connection, a hidden
+  tab or the scene off screen, it is held as one frame rather than taken
+  away.
+- **Variants.** Four shapes -- `hourglass` (the default), `funnel`,
+  `spire` and `chalice` -- chosen by `data-vortex` on the canvas, and every
+  field of a shape (radii, where the waist sits, flare, twist, how many
+  strands run the other way, spin, flow, direction, sway, tilt) can be
+  passed to `NebulaVortex.create()` or `setShape()`; anything out of range
+  is clamped to what the shader was written for. Each of the four themes
+  has its own palette: teal to violet with a white-hot neck on Nebula
+  dark, an ink drawing on Nebula light, platinum on Obsidian and graphite
+  on Quartz. Dark grounds add light; light grounds composite normally.
+- **Framed from what is drawn.** The visible part of the form is
+  projected once per box and per shape, and the scene is scaled and
+  centred to its real bounds, so a funnel with its weight at the top sits
+  as well as an hourglass. The mesh is sized by the smaller edge of the
+  box (three tiers, the largest 24,640 vertices, under the 65,536 an
+  `UNSIGNED_SHORT` index can address), and a lost WebGL context is rebuilt
+  when the browser gives it back.
+- **Tests.** The unit guards run the module rather than read it: every
+  tier under the index limit, every preset and palette complete, a wild
+  shape clamped, the shape the markup names reaching the factory, and the
+  old ring gone from the build. The browser specs for the scene -- drawn
+  when held, no loop when stopped, the pointer, the drag, the touch
+  scroll -- now drive the vortex.
+
 ### Safeguards Is a Section; Standards of 2025; A Landing Worth Its First Screen
 
 Reported: Safeguards should be a section rather than a pop-up; the audit

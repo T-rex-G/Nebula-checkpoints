@@ -46,8 +46,8 @@ async function measure(page, selectors) {
     /*
      * A held frame, not a moving one: a guard needs the same answer every
      * run. The caller stands the scene down before calling this, which leaves
-     * the portal drawn at time zero -- the same picture every time -- and the
-     * copy has at most a few percent of the scene behind it by design, so the
+     * the vortex held on a single frame -- one picture for every read -- and
+     * the copy has at most a few percent of the scene behind it by design, so the
      * difference a moving frame could make is far smaller than the headroom
      * anyway.
      */
@@ -163,11 +163,11 @@ for (const theme of ['dark', 'light']) {
     await page.goto('/');
 
     /*
-     * Stand the scene down before measuring. The portal draws itself, so
-     * there is no poster to wait for -- what there is instead is a frame at
-     * time zero, which is reached by turning motion off and letting the
-     * module settle. Without this the sample is taken from whichever frame
-     * the GPU happened to be on.
+     * Stand the scene down before measuring. The vortex draws itself, so
+     * there is no poster to wait for -- what there is instead is a held
+     * frame, which is reached by turning motion off and letting the module
+     * settle. Without this the sample is taken from whichever frame the GPU
+     * happened to be on.
      */
     await page.evaluate(() => { document.documentElement.dataset.motion = 'off'; });
     await page.evaluate(() => new Promise(resolve =>

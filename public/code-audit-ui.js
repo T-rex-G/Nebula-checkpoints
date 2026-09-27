@@ -35,22 +35,45 @@
     hygiene: 'M7 4h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9 3.5h6M9 12.5l2.1 2.1 4-4.3'
   });
   /*
-   * The OWASP Top 10 (2021), in the short words a tile has room for, and the
-   * page on owasp.org each links to.
+   * The OWASP Top 10:2025, in the short words a tile has room for, and the
+   * page on top10.owasp.org each links to. A result saved before the 2025
+   * edition still carries 2021 labels; its chips link to the 2021 pages, and
+   * the map, which is 2025's, counts only 2025 placements.
    */
+  const OWASP_EDITION = '2025';
   const OWASP = Object.freeze([
-    ['A01', 'Access control', 'A01_2021-Broken_Access_Control'],
-    ['A02', 'Cryptography', 'A02_2021-Cryptographic_Failures'],
-    ['A03', 'Injection', 'A03_2021-Injection'],
-    ['A04', 'Insecure design', 'A04_2021-Insecure_Design'],
-    ['A05', 'Misconfiguration', 'A05_2021-Security_Misconfiguration'],
-    ['A06', 'Outdated components', 'A06_2021-Vulnerable_and_Outdated_Components'],
-    ['A07', 'Authentication', 'A07_2021-Identification_and_Authentication_Failures'],
-    ['A08', 'Integrity', 'A08_2021-Software_and_Data_Integrity_Failures'],
-    ['A09', 'Logging', 'A09_2021-Security_Logging_and_Monitoring_Failures'],
-    ['A10', 'SSRF', 'A10_2021-Server-Side_Request_Forgery_%28SSRF%29']
+    ['A01', 'Access control', 'A01_2025-Broken_Access_Control'],
+    ['A02', 'Misconfiguration', 'A02_2025-Security_Misconfiguration'],
+    ['A03', 'Supply chain', 'A03_2025-Software_Supply_Chain_Failures'],
+    ['A04', 'Cryptography', 'A04_2025-Cryptographic_Failures'],
+    ['A05', 'Injection', 'A05_2025-Injection'],
+    ['A06', 'Insecure design', 'A06_2025-Insecure_Design'],
+    ['A07', 'Authentication', 'A07_2025-Authentication_Failures'],
+    ['A08', 'Integrity', 'A08_2025-Software_or_Data_Integrity_Failures'],
+    ['A09', 'Logging & alerting', 'A09_2025-Security_Logging_and_Alerting_Failures'],
+    ['A10', 'Exceptional conditions', 'A10_2025-Mishandling_of_Exceptional_Conditions']
   ]);
-  const OWASP_SLUG = Object.freeze(Object.fromEntries(OWASP.map(([id, , slug]) => [id, slug])));
+  const OWASP_URL = Object.freeze({
+    2025: Object.freeze(Object.fromEntries(OWASP.map(([id, , slug]) => [id, `https://top10.owasp.org/2025/${slug}/`]))),
+    2021: Object.freeze({
+      A01: 'A01_2021-Broken_Access_Control', A02: 'A02_2021-Cryptographic_Failures', A03: 'A03_2021-Injection',
+      A04: 'A04_2021-Insecure_Design', A05: 'A05_2021-Security_Misconfiguration', A06: 'A06_2021-Vulnerable_and_Outdated_Components',
+      A07: 'A07_2021-Identification_and_Authentication_Failures', A08: 'A08_2021-Software_and_Data_Integrity_Failures',
+      A09: 'A09_2021-Security_Logging_and_Monitoring_Failures', A10: 'A10_2021-Server-Side_Request_Forgery_%28SSRF%29'
+    })
+  });
+  const owaspUrl = (id, year) => {
+    const table = OWASP_URL[year];
+    if (!table || !table[id]) return null;
+    return year === '2021' ? `https://owasp.org/Top10/${table[id]}/` : table[id];
+  };
+  /* Why a finding sits in its category, in a line a tooltip has room for. */
+  const OWASP_BASIS = Object.freeze({
+    cwe: cwe => `OWASP maps ${cwe} to this category`,
+    text: () => 'A02 names missing or weak security headers outright',
+    scope: cwe => `${cwe} is on no 2025 list; filed by the category's scope`
+  });
+  const TOP25_URL = 'https://cwe.mitre.org/top25/archive/2025/2025_cwe_top25.html';
   /* What a finding list shows at once; the rest is a click away. */
   const PAGE = 40;
   const SITE_FOLD = 5;
@@ -574,15 +597,17 @@
     const card = element('section', 'card audit-owasp');
     card.setAttribute('aria-labelledby', 'auditOwaspHeading');
     const head = element('div', 'audit-owasp-head');
-    const heading = element('h2', 'audit-kicker', 'OWASP Top 10 · 2021');
+    const heading = element('h2', 'audit-kicker', `OWASP Top 10 · ${OWASP_EDITION}`);
     heading.id = 'auditOwaspHeading';
     const cwes = new Set(result.findings.map(finding => finding.standards && finding.standards.cwe).filter(Boolean));
-    head.append(heading, element('span', 'audit-owasp-cwe', `${plural(cwes.size, 'CWE', 'CWEs')} across ${plural(result.findings.length, 'finding', 'findings')}`));
+    const top25 = result.findings.filter(finding => finding.standards && finding.standards.top25).length;
+    head.append(heading, element('span', 'audit-owasp-cwe', `${plural(cwes.size, 'CWE', 'CWEs')} across ${plural(result.findings.length, 'finding', 'findings')}`
+      + (top25 ? ` · ${plural(top25, 'finding', 'findings')} in the CWE Top 25` : '')));
     card.appendChild(head);
     const list = element('ul', 'audit-owasp-grid');
     list.setAttribute('aria-label', 'OWASP Top 10 categories');
     for (const [id, word] of OWASP) {
-      const under = result.findings.filter(finding => finding.standards && finding.standards.owasp === `${id}:2021`);
+      const under = result.findings.filter(finding => finding.standards && finding.standards.owasp === `${id}:${OWASP_EDITION}`);
       const counts = severityCounts(under);
       const worst = ORDER.find(severity => counts[severity]) || 'clear';
       const item = element('li', 'audit-owasp-item');
@@ -613,14 +638,25 @@
       cwe.title = standards.cweName ? `${standards.cwe}: ${standards.cweName}` : standards.cwe;
       wrap.appendChild(cwe);
     }
-    const owaspId = /^(A\d{2}):2021$/.exec(standards.owasp || '');
-    if (owaspId && OWASP_SLUG[owaspId[1]]) {
+    const owaspId = /^(A\d{2}):(2021|2025)$/.exec(standards.owasp || '');
+    const owaspHref = owaspId && owaspUrl(owaspId[1], owaspId[2]);
+    if (owaspHref) {
       const owasp = element('a', 'audit-std-chip audit-std-owasp', `OWASP ${owaspId[1]}`);
-      owasp.href = `https://owasp.org/Top10/${OWASP_SLUG[owaspId[1]]}/`;
+      owasp.href = owaspHref;
       owasp.target = '_blank';
       owasp.rel = 'noopener noreferrer';
-      owasp.title = `${standards.owasp} ${standards.owaspName}`;
+      const basis = OWASP_BASIS[standards.owaspBasis];
+      owasp.title = `${standards.owasp} ${standards.owaspName}${basis ? ` — ${basis(standards.cwe)}` : ''}`;
       wrap.appendChild(owasp);
+    }
+    const rank = standards.top25 && Number(standards.top25.rank);
+    if (rank >= 1 && rank <= 25) {
+      const top = element('a', 'audit-std-chip audit-std-top25', `Top 25 #${rank}`);
+      top.href = TOP25_URL;
+      top.target = '_blank';
+      top.rel = 'noopener noreferrer';
+      top.title = `${standards.cwe} is number ${rank} in the 2025 CWE Top 25 Most Dangerous Software Weaknesses`;
+      wrap.appendChild(top);
     }
     return wrap.childNodes.length ? wrap : null;
   }
@@ -759,7 +795,7 @@
     titleWrap.appendChild(title);
     const families = new Map(result.categories.map(category => [category.id, category.label]));
     const inScope = result.findings.filter(finding => (!view.filter || finding.category === view.filter)
-      && (!view.owasp || (finding.standards && finding.standards.owasp === `${view.owasp}:2021`)));
+      && (!view.owasp || (finding.standards && finding.standards.owasp === `${view.owasp}:${OWASP_EDITION}`)));
     const count = element('span', 'exposure-count', String(inScope.length));
     count.setAttribute('aria-hidden', 'true');
     titleWrap.appendChild(count);
@@ -1088,7 +1124,8 @@
       const standards = finding.standards;
       if (standards) {
         lines.push(`- **Standards:** ${[standards.cwe && `${standards.cwe}${standards.cweName ? ` (${standards.cweName})` : ''}`,
-          standards.owasp && `OWASP ${standards.owasp} ${standards.owaspName}`].filter(Boolean).join(' · ')}`);
+          standards.owasp && `OWASP ${standards.owasp} ${standards.owaspName}`,
+          standards.top25 && `CWE Top 25 (2025) #${standards.top25.rank}`].filter(Boolean).join(' · ')}`);
       }
       const detail = finding.detail;
       if (detail && finding.rule === 'SCR-001') lines.push(`- **Credential:** ${detail.credential}`);
@@ -1180,7 +1217,8 @@
     for (const finding of findings) {
       if (rules.has(finding.rule)) continue;
       const standards = finding.standards || {};
-      const tags = ['security', finding.category, standards.cwe && `external/cwe/${standards.cwe.toLowerCase()}`, standards.owasp && `owasp-${standards.owasp.replace(':', '-').toLowerCase()}`].filter(Boolean);
+      const tags = ['security', finding.category, standards.cwe && `external/cwe/${standards.cwe.toLowerCase()}`,
+        standards.owasp && `owasp-${standards.owasp.replace(':', '-').toLowerCase()}`, standards.top25 && 'cwe-top25-2025'].filter(Boolean);
       rules.set(finding.rule, {
         id: finding.rule,
         name: finding.rule.replace('-', ''),
@@ -1189,7 +1227,11 @@
         help: { text: finding.fix, markdown: `**Fix.** ${finding.fix}` },
         ...(standards.cwe ? { helpUri: `https://cwe.mitre.org/data/definitions/${standards.cwe.slice(4)}.html` } : {}),
         defaultConfiguration: { level: SARIF_LEVEL[finding.severity] },
-        properties: { tags, precision: 'high', 'problem.severity': finding.severity === 'warning' ? 'warning' : 'error', 'security-severity': SECURITY_SEVERITY[finding.severity] }
+        properties: {
+          tags, precision: 'high', 'problem.severity': finding.severity === 'warning' ? 'warning' : 'error', 'security-severity': SECURITY_SEVERITY[finding.severity],
+          ...(standards.owaspBasis ? { 'owasp-basis': standards.owaspBasis } : {}),
+          ...(standards.top25 ? { 'cwe-top25-2025-rank': standards.top25.rank } : {})
+        }
       });
     }
     return [...rules.values()];
@@ -1265,10 +1307,11 @@
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
   function csv(result, site, changes) {
-    const rows = [['Source', 'Status', 'Severity', 'Rule', 'Title', 'Family', 'CWE', 'OWASP', 'Location', 'Line', 'Reason waived', 'Fix']];
+    const rows = [['Source', 'Status', 'Severity', 'Rule', 'Title', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Reason waived', 'Fix']];
     const row = (source, status, finding, family) => {
       const standards = finding.standards || {};
-      rows.push([source, status, finding.severity, finding.rule, finding.title, family || '', standards.cwe || '', standards.owasp || '',
+      rows.push([source, status, finding.severity, finding.rule, finding.title, family || '', standards.cwe || '',
+        standards.top25 ? `#${standards.top25.rank}` : '', standards.owasp || '',
         finding.path || finding.where || 'whole repository', finding.line || '',
         finding.suppression ? finding.suppression.reason || '' : '', finding.fix]);
     };
@@ -1307,7 +1350,7 @@
         help: { text: 'Revoke the credential with its issuer, replace it, then remove it from the repository and its history.' },
         helpUri: 'https://cwe.mitre.org/data/definitions/798.html',
         defaultConfiguration: { level: SARIF_LEVEL[row.severity] || 'error' },
-        properties: { tags: ['security', 'secret', 'external/cwe/cwe-798', 'owasp-a07-2021'], precision: 'high', 'security-severity': SECURITY_SEVERITY[row.severity] || '7.5' }
+        properties: { tags: ['security', 'secret', 'external/cwe/cwe-798', 'owasp-a07-2025'], precision: 'high', 'security-severity': SECURITY_SEVERITY[row.severity] || '7.5' }
       });
     }
     const results = rows.map(row => {

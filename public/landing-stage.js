@@ -82,6 +82,113 @@
   const still = () => root.dataset.motion === 'off' || Boolean(reducedMotion && reducedMotion.matches);
 
   /*
+   * The bar's section links. A tap scrolls to the section's heading (the
+   * page reserves the bar's height as scroll padding, so it lands below it);
+   * the section being read is marked, and a pill of ink slides under its
+   * link. The section being read is the last one whose heading has passed
+   * the upper third of the view.
+   */
+  const links = nav && typeof nav.querySelectorAll === 'function' ? [...nav.querySelectorAll('[data-lp-goto]')] : [];
+  const ink = nav && nav.querySelector ? nav.querySelector('.lp-links-ink') : null;
+  if (links.length) {
+    const targets = links.map(link => document.getElementById(link.dataset.lpGoto));
+    links.forEach((link, index) => link.addEventListener('click', () => {
+      const target = targets[index];
+      if (!target) return;
+      target.scrollIntoView({ behavior: still() ? 'auto' : 'smooth', block: 'start' });
+    }));
+    let active = -1;
+    let queued = false;
+    const place = () => {
+      queued = false;
+      const line = global.innerHeight / 3;
+      let current = -1;
+      targets.forEach((target, index) => { if (target && target.getBoundingClientRect().top <= line) current = index; });
+      /* Past the last section's end, nothing on the bar is being read. */
+      const last = targets[targets.length - 1];
+      const section = last && last.closest ? last.closest('section') : null;
+      if (section && section.getBoundingClientRect().bottom < line) current = -1;
+      if (current === active) return;
+      active = current;
+      links.forEach((link, index) => {
+        if (index === current) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+      });
+      if (!ink) return;
+      if (current < 0) { ink.classList.remove('is-on'); return; }
+      ink.style.setProperty('--ink-x', `${links[current].offsetLeft}px`);
+      ink.style.setProperty('--ink-w', `${links[current].offsetWidth}px`);
+      ink.classList.add('is-on');
+    };
+    const request = () => {
+      if (queued) return;
+      queued = true;
+      global.requestAnimationFrame(place);
+    };
+    global.addEventListener('scroll', request, { passive: true });
+    global.addEventListener('resize', () => { active = -2; request(); }, { passive: true });
+    place();
+  }
+
+  /*
+   * A sentence lit a word at a time as it is read: each word brightens as
+   * the paragraph climbs from the lower edge of the view to its upper third.
+   * The words stay in the paragraph as its own text, so a screen reader and
+   * a copy both get the sentence; with motion off it is simply lit.
+   */
+  const lit = document.querySelector ? document.querySelector('[data-lp-lit]') : null;
+  if (lit && typeof lit.querySelectorAll === 'function' && !still()) {
+    const words = [];
+    const walker = document.createTreeWalker(lit, NodeFilter.SHOW_TEXT);
+    const texts = [];
+    let node;
+    while ((node = walker.nextNode())) texts.push(node);
+    texts.forEach(text => {
+      const parts = text.nodeValue.split(/(\s+)/);
+      const fragment = document.createDocumentFragment();
+      parts.forEach(part => {
+        if (!part) return;
+        if (/^\s+$/.test(part)) { fragment.appendChild(document.createTextNode(part)); return; }
+        const word = document.createElement('span');
+        word.className = 'lp-word-lit';
+        word.textContent = part;
+        words.push(word);
+        fragment.appendChild(word);
+      });
+      text.parentNode.replaceChild(fragment, text);
+    });
+    lit.classList.add('is-lighting');
+    let shown = -1;
+    let queued = false;
+    const light = () => {
+      queued = false;
+      const box = lit.getBoundingClientRect();
+      const start = global.innerHeight * 0.9;
+      const end = global.innerHeight * 0.35;
+      const progress = Math.max(0, Math.min(1, (start - box.top) / Math.max(1, (start - end) + box.height * 0.5)));
+      const count = still() ? words.length : Math.round(progress * words.length);
+      if (count === shown) return;
+      shown = count;
+      words.forEach((word, index) => word.classList.toggle('is-lit', index < count));
+    };
+    const request = () => {
+      if (queued) return;
+      queued = true;
+      global.requestAnimationFrame(light);
+    };
+    if (typeof IntersectionObserver === 'function') {
+      new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) { global.addEventListener('scroll', request, { passive: true }); request(); }
+          else global.removeEventListener('scroll', request);
+        });
+      }, { threshold: 0 }).observe(lit);
+    } else {
+      words.forEach(word => word.classList.add('is-lit'));
+    }
+  }
+
+  /*
    * The audit, played. The move nearest the reading line is the one the
    * frame shows: the middle of the view on a wide screen, and on a narrow
    * one -- where the frame holds the top -- the middle of what is left under

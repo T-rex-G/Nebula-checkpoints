@@ -28,7 +28,8 @@ test.use({ serviceWorkers: 'block' });
 
 /* Every run of copy on the landing page, and nothing that is not copy. */
 const COPY = [
-  '.lp-brand', '.lp-state', '.lp-eyebrow', '.lp-title', '.lp-lede',
+  '.lp-brand', '.lp-state', '.lp-link', '.lp-nav-cta', '.lp-eyebrow', '.lp-title', '.lp-lede',
+  '.lp-statement-text', '.lp-show-title', '.lp-cta-title',
   '.lp-step-t', '.lp-step-d',
   '.alpha-access .eyebrow', '.alpha-access-rule', '.alpha-wake-state',
   '.alpha-access label', '.alpha-access .btn-primary',
@@ -82,8 +83,20 @@ async function measure(page, selectors) {
      */
     const style = document.createElement('style');
     style.id = 'nv-contrast-probe';
-    style.textContent = sels.map(s => `${s},${s} *`).join(',') + '{color:transparent!important}';
+    style.textContent = sels.map(s => `${s},${s} *`).join(',') + '{color:transparent!important;-webkit-text-fill-color:transparent!important}';
     document.head.appendChild(style);
+    /*
+     * A heading drawn in a gradient paints its glyphs with its background,
+     * clipped to the text, so a transparent colour leaves them standing.
+     * Only those elements lose their background: a button's plate is the
+     * ground its label is measured against and has to stay.
+     */
+    for (const sel of sels) {
+      document.querySelectorAll(`${sel},${sel} *`).forEach(el => {
+        const cs = getComputedStyle(el);
+        if (cs.backgroundClip === 'text' || cs.webkitBackgroundClip === 'text') el.style.setProperty('background-image', 'none', 'important');
+      });
+    }
     return out;
   }, selectors);
 

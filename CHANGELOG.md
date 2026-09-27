@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+### Safeguards Is a Section; Standards of 2025; A Landing Worth Its First Screen
+
+Reported: Safeguards should be a section rather than a pop-up; the audit
+cited the OWASP Top 10 of 2021 when the 2025 edition is current; the
+landing page's top bar was too big, its theme switch did not belong on a
+modern page, and the page as a whole was to reach the level of the best
+security products' sites.
+
+- **Safeguards is a section.** It has its own tab in the Security group,
+  its own address (`#/owner/repo@branch/safeguards`) that Back returns to,
+  and the sidebar, the phone menu, the top bar and the palette all go
+  there. A lock, a preset or an unlock redraws it in place and keeps focus
+  where it was; the provider's rules can be read again on demand. The
+  floating actions come back whenever a dialog closes, so an action
+  started from the foot of a long section does not leave them withdrawn.
+- **OWASP Top 10:2025 and the 2025 CWE Top 25.** Every audit and site rule
+  is filed under the 2025 edition, and each placement can be checked: a
+  rule filed by OWASP's own mapping has its CWE on that category's
+  published list (the lists are in `src/security-standards.js`, and a
+  test proves every placement against them); missing or weak security
+  headers are filed under A02 because A02's text names them; the few CWEs
+  on no 2025 list are filed by the category's scope and say so. Server-side
+  request forgery now sits under Broken Access Control and published
+  vulnerabilities under Software Supply Chain Failures, as 2025 has them.
+  Row level security switched off is Missing Authorization (CWE-862), a
+  policy that lets everyone through is Incorrect Authorization (CWE-863).
+  A finding whose weakness is in the 2025 CWE Top 25 carries its rank; the
+  map, the links, the brief, SARIF (`cwe-top25-2025` tag, rank and basis
+  as properties) and CSV (a rank column) all use 2025. Results saved
+  before this still link to their 2021 pages.
+- **The landing bar.** One short row -- 68px on a desktop, 58px on a
+  phone, the status-bar inset added on top -- with the page's sections
+  (Audit, Map, Coverage, Proof, FAQ) as links that land each heading
+  below the bar and mark the one being read with a sliding pill; the
+  theme as a single icon that turns into the other; and the way in as a
+  button that returns the reader to the entry and puts them in it.
+- **The landing's look.** Display headings set lighter and larger in a
+  metallic gradient (each keeps a real colour, the gradient's darker end,
+  so contrast is measured on its worst part); eyebrows between hairlines;
+  a dot field and column rules behind the hero with a horizon of light
+  rising under the fold; arrows that lean in on the buttons; and a single
+  sentence under the providers that lights a word at a time as it is
+  read, and is simply there with motion off. Studied against the best
+  security products' pages for their principles, not their branding.
+- **Tests.** `test/security-standards.test.js` (new) proves every
+  placement against OWASP's lists; `test/e2e/landing-nav.spec.js` (new)
+  covers the bar, the section links, the theme icon and the lit sentence;
+  the contrast guard now also blanks gradient-painted headings and covers
+  the new copy; the Safeguards and shell specs expect a section.
+
 ### Revalidation Through the Host's Proxy; a Contact Line That Is Always a URI
 
 Found on the live deployment after the last release.

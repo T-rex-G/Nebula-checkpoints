@@ -42,13 +42,18 @@ assert(expiryBlock.includes('alphaBootStarted = false;'),
 assert(expiryBlock.indexOf('await purgeLocalData(true)') < expiryBlock.indexOf('alphaBootStarted = false;'),
   'private browser state must be purged before app restart is re-enabled');
 
-const safeguardsStart = app.indexOf('async function openSafeguards()');
+const safeguardsStart = app.indexOf('async function renderSafeguards()');
 const safeguardsEnd = app.indexOf('\nasync function moveFolderFlow', safeguardsStart);
 const safeguardsBlock = app.slice(safeguardsStart, safeguardsEnd);
 assert(app.includes("if (typeof onOpen === 'function') onOpen($('#modalBody'));"),
   'modal controls must support synchronous open-time binding');
-assert(safeguardsBlock.includes('onOpen: () => {'),
-  'Safeguards controls must bind as part of modal rendering');
+/* Safeguards is a section now: its controls are bound in the same turn the markup is written. */
+const drawn = safeguardsBlock.indexOf('root.innerHTML = `<div class="sg sg-page">');
+const bound = safeguardsBlock.indexOf("NebulaCapabilityUI.apply(root)");
+assert(safeguardsStart !== -1 && drawn !== -1 && bound > drawn,
+  'Safeguards controls must bind as part of rendering the section');
+assert(!safeguardsBlock.slice(drawn, bound).includes('await '),
+  'nothing may be awaited between drawing the Safeguards controls and binding them');
 assert(!safeguardsBlock.includes('setTimeout(() => {'),
   'Safeguards must not expose clickable controls before their handlers are bound');
 

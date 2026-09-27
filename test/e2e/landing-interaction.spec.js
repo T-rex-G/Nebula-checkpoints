@@ -196,7 +196,15 @@ test('the theme control stays reachable once the visitor has scrolled', async ({
  * rule that writes the top edge back down -- a shorthand, a reset, a tighter
  * mobile block -- lands under this number.
  */
-const CLEARANCE = 28;
+/*
+ * The bar is compact now -- 58px on a phone, the inset added on top -- so
+ * its own breathing room above the brand is 14px rather than 28. What the
+ * number guards is unchanged: the top padding survives to the phone. The
+ * clearance of a real status bar is the inset itself, added in calc() and
+ * held there by the stylesheet checks in overlay-motion.test.js; a later
+ * rule that wrote the edge back down to a flat value lands under this line.
+ */
+const CLEARANCE = 12;
 test('the bar reserves the status-bar strip on a phone, not just a sticky position', async ({ page }) => {
   const width = page.viewportSize().width;
   test.skip(width > 900, 'no status bar is drawn over the page at this width');

@@ -120,6 +120,20 @@
         <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
         <span class="lp-word">__NV_PRODUCT_NAME__</span>
       </span>
+      <!--
+        The page's own sections, one tap away. Buttons rather than #anchors:
+        the address belongs to the workbench's router, and a fragment written
+        here would be read as a route. landing-stage.js scrolls to the section
+        and marks the one being read.
+      -->
+      <nav class="lp-links" aria-label="On this page">
+        <button type="button" class="lp-link" data-lp-goto="lpPlayTitle">Audit</button>
+        <button type="button" class="lp-link" data-lp-goto="lpShowTitle">Map</button>
+        <button type="button" class="lp-link" data-lp-goto="lpChecksTitle">Coverage</button>
+        <button type="button" class="lp-link" data-lp-goto="lpProofTitle">Proof</button>
+        <button type="button" class="lp-link" data-lp-goto="lpFaqTitle">FAQ</button>
+        <span class="lp-links-ink" aria-hidden="true"></span>
+      </nav>
       <span class="lp-nav-end">
         <span class="lp-state"><span class="lp-state-dot" aria-hidden="true"></span>Controlled alpha</span>
         <!--
@@ -127,13 +141,15 @@
           .theme-toggle at module scope, so this control rides the mechanism
           the rest of the product already uses rather than a second one. A
           visitor whose stored theme is light had no way to change it before
-          the gate: the only other switch is inside the application.
+          the gate: the only other switch is inside the application. Drawn
+          here as one icon that turns into the other, not a slider.
         -->
         <button class="theme-toggle" type="button" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
-          <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
-          <svg class="tt-ico tt-moon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg>
+          <svg class="tt-ico tt-sun" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
+          <svg class="tt-ico tt-moon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg>
           <span class="tt-knob"></span>
         </button>
+        <button class="lp-nav-cta" type="button" data-lp-jump aria-label="Enter the alpha">Enter</button>
       </span>
     </header>
 
@@ -231,6 +247,7 @@
         </li>
       </ol>
     </div>
+    <div class="lp-horizon" aria-hidden="true"></div>
     </div><!-- /.lp-hero -->
 
     <!--
@@ -249,6 +266,15 @@
           <li><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3.5 7.5h13v5.2a5.3 5.3 0 0 1-5.3 5.3H8.8a5.3 5.3 0 0 1-5.3-5.3zM16.5 9h1.7a2.6 2.6 0 0 1 0 5.2h-1.9M8 11.5l2 2 3-3.5"/></svg>Gitea</li>
         </ul>
       </div>
+      <!--
+        The promise in one sentence, lit a word at a time as it is read. The
+        sentence is in the markup whole; without script, or with motion off,
+        it is simply there. Every clause is something the product does.
+      -->
+      <section class="lp-statement" aria-labelledby="lpStatementTitle">
+        <p class="lp-sec-eyebrow" id="lpStatementTitle">Why it exists</p>
+        <p class="lp-statement-text" data-lp-lit>Most scanners hand you a list and leave the arguing to you. This one reads the branch you ship, files every finding under the names your team already reports in &mdash; OWASP Top&nbsp;10:2025 and the CWE Top&nbsp;25 &mdash; says how much it read, and proves the fix is gone.</p>
+      </section>
       <!--
         The audit, played at the pace of the scroll. The frame holds still
         while four moves pass it and it shows each one: the branch being read,
@@ -391,7 +417,7 @@
           <li class="lp-check">
             <span class="lp-check-v" data-count="60" data-claim="audit-rules">60</span>
             <h3 class="lp-check-t">Repository audit rules</h3>
-            <p class="lp-check-d">Supply chain, code, secrets, dependencies, infrastructure and hygiene &mdash; each rule mapped to its CWE and OWASP category, and tested firing on the mistake and quiet on the safe way to write it.</p>
+            <p class="lp-check-d">Supply chain, code, secrets, dependencies, infrastructure and hygiene &mdash; each rule filed under its CWE, its OWASP Top&nbsp;10:2025 category and, where it has one, its 2025 CWE Top&nbsp;25 rank, and tested firing on the mistake and quiet on the safe way to write it.</p>
             <ul class="lp-check-eg"><li>Published advisories and malicious packages, from OSV</li><li>Supabase row level security and Firebase rules</li><li>Dockerfiles, Terraform and Kubernetes manifests</li><li>Injection, SSRF, deserialization and path traversal</li></ul>
           </li>
           <li class="lp-check">
@@ -757,7 +783,7 @@
     it is allowed to do, what it has leaked, what a reviewer or an attacker
     would find in its code and on its site, and the switches that stop it.
     They sit together so a reader looking for one finds the others beside it.
-    Safeguards opens over the page it is chosen from, and says so.
+    Safeguards is a section like the others, with its own address.
   -->
   <p class="nv-rail-group" id="railSecurityLabel">Security</p>
   <ul class="nv-rail-nav" aria-labelledby="railSecurityLabel">
@@ -777,7 +803,7 @@
       <svg class="nv-rail-i nv-audit-mark" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.2V5.6A1.6 1.6 0 0 1 5.6 4h2.6M15.8 4h2.6A1.6 1.6 0 0 1 20 5.6v2.6M20 15.8v2.6a1.6 1.6 0 0 1-1.6 1.6h-2.6M8.2 20H5.6A1.6 1.6 0 0 1 4 18.4v-2.6"/><path d="M12 7.3l3.9 1.6v2.8c0 2.3-1.6 4.2-3.9 5-2.3-.8-3.9-2.7-3.9-5V8.9z"/><path d="M10.4 11.9l1.1 1.1 2.1-2.3"/></svg>
       <span class="nv-rail-t">Audit</span>
       <span class="nv-rail-d">Code and site scanner</span></button></li>
-    <li><button type="button" class="nv-rail-item" data-feature="recovery" data-rail="safeguards" aria-haspopup="dialog">
+    <li><button type="button" class="nv-rail-item" data-feature="recovery" data-rail="safeguards">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg>
       <span class="nv-rail-t">Safeguards</span>
       <span class="nv-rail-d">Lockdown and protection</span></button></li>
@@ -1106,7 +1132,7 @@
       <button class="btn btn-ghost icon-btn hide-sm" id="settingsBtnWork" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button class="btn btn-ghost icon-btn hide-sm" id="paletteBtn" title="Command palette (Ctrl+K)" aria-label="Command palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg></button>
       <button class="btn btn-ghost icon-btn hide-sm" id="filesToggle" type="button" title="Hide files" aria-label="Hide files" aria-controls="side" aria-expanded="true"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.6"/><path d="M9.5 4.5v15"/><path class="files-toggle-chev" d="M15.6 9.6L13.2 12l2.4 2.4"/></svg></button>
-      <button class="btn btn-ghost icon-btn hide-sm" id="safeguardsBtn" type="button" data-feature="recovery" title="Safeguards" aria-label="Safeguards" aria-haspopup="dialog"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg></button>
+      <button class="btn btn-ghost icon-btn hide-sm" id="safeguardsBtn" type="button" data-feature="recovery" title="Safeguards" aria-label="Safeguards"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg></button>
       <button class="btn btn-ghost icon-btn" id="syncBtn" title="Refresh repo" aria-label="Refresh repo"><svg class="ico" width="17" height="17" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1M20.5 3.5v4h-4"/></svg></button>
       <span class="ro-chip" id="roChip" hidden title="Read-only mode"><svg class="ro-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span class="ro-word">READ-ONLY</span></span><span class="ro-chip freeze" id="freezeChip" hidden title="Sync frozen"><svg class="ro-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/></svg><span class="ro-word">SYNC FROZEN</span></span><span class="shield-chip" id="branchShield" hidden title="This branch is protected"><svg class="ico" width="13" height="13" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg></span><span class="branch-pick"><svg class="branch-pick-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6.2" r="2.2"/><circle cx="17" cy="6.2" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M7 8.4v1.2a3 3 0 0 0 3 3h4a3 3 0 0 0 3-3V8.4M12 12.6v3.2"/></svg><select id="branchSelect" class="branch-select" title="Branch" aria-label="Repository branch"></select></span>
       <button class="btn btn-ghost icon-btn staged-btn" id="stagedBtn" title="Staged changes" aria-label="Staged changes">
@@ -1170,6 +1196,7 @@
         <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel">Governance</button>
         <button class="tab" data-feature="exposure.scan" data-allow-experimental="true" data-tab="exposure" id="exposureTabLabel">Exposure</button>
         <button class="tab" data-feature="site-check" data-tab="audit" id="auditTabLabel">Audit</button>
+        <button class="tab" data-feature="recovery" data-tab="safeguards" id="safeguardsTabLabel">Safeguards</button>
         </span>
       </nav>
 
@@ -1476,6 +1503,26 @@
         </div>
       </div>
 
+      <!--
+        Safeguards: this app's own switches beside the rules the provider
+        enforces on the branch, the paths nothing may change, and the way
+        back. Drawn by renderSafeguards() each time the tab is opened, from
+        the server's safety state and the provider's rules.
+      -->
+      <div class="tabpane" id="tab-safeguards" role="region" aria-labelledby="safeguardsTabLabel">
+        <div class="exposure-shell sg-shell">
+          <header class="exposure-intro sec-hero">
+            <span class="sec-mark sec-mark-safeguards" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg></span>
+            <div class="sec-hero-text">
+              <p class="exposure-kicker">Repository security</p>
+              <h2>Safeguards</h2>
+              <p>What stands between a mistake and this repository: the app's own switches, the rules the provider enforces on the branch, the paths nothing may change, and the way back.</p>
+            </div>
+          </header>
+          <div id="safeguardsRoot"></div>
+        </div>
+      </div>
+
       <div class="tabpane" id="tab-exposure" role="region" aria-labelledby="exposureTabLabel">
         <div class="exposure-shell">
           <header class="exposure-intro sec-hero">
@@ -1644,7 +1691,7 @@
     <button class="sheet-item" data-feature="governance" data-allow-experimental="true" data-act="governance"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg><span>Governance</span></button>
     <button class="sheet-item" data-feature="exposure.scan" data-allow-experimental="true" data-act="exposure"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg><span>Exposure</span></button>
     <button class="sheet-item" data-feature="site-check" data-act="audit"><svg class="ico nv-audit-mark" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.2V5.6A1.6 1.6 0 0 1 5.6 4h2.6M15.8 4h2.6A1.6 1.6 0 0 1 20 5.6v2.6M20 15.8v2.6a1.6 1.6 0 0 1-1.6 1.6h-2.6M8.2 20H5.6A1.6 1.6 0 0 1 4 18.4v-2.6"/><path d="M12 7.3l3.9 1.6v2.8c0 2.3-1.6 4.2-3.9 5-2.3-.8-3.9-2.7-3.9-5V8.9z"/><path d="M10.4 11.9l1.1 1.1 2.1-2.3"/></svg><span>Audit</span></button>
-    <button class="sheet-item" data-feature="recovery" data-act="safeguards" aria-haspopup="dialog"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg><span>Safeguards</span></button>
+    <button class="sheet-item" data-feature="recovery" data-act="safeguards"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg><span>Safeguards</span></button>
     <div class="sheet-div"></div>
     <p class="sheet-label">Workspace</p>
     <button class="sheet-item" data-act="palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg><span>Command palette</span></button>

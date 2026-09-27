@@ -5474,14 +5474,15 @@ async function openSafeguards() {
       <span class="sg-switch-text"><span class="sg-switch-title">${title}</span><span class="sg-switch-sub">${text}</span></span>
       <input type="checkbox" role="switch" class="sg-switch" id="${id}" ${on ? 'checked' : ''} ${global ? '' : 'disabled'}>
     </label>`;
+  /* Each tile names the capability that gates it, so the capability layer can disable it like any other control. */
   const tiles = [
-    ['sgSnap', 'snapshot', 'Emergency snapshot', snapshotAt ? `Last ${timeAgo(snapshotAt)}` : 'None taken yet', 'recovery', false],
-    ['sgRecover', 'recover', 'Disaster recovery', 'Preview, then restore refs', 'recovery', false],
-    ['sgScan', 'scan', 'Security scan', 'Dependencies and upload gate', 'dependency-audit', true],
-    ['sgActivity', 'activity', 'Export activity', 'Commits, PRs, issues, releases', 'governance', true],
-    ['sgEvidence', 'evidence', 'Export evidence', 'Signed, verifiable package', 'governance', true]
-  ].map(([id, iconName, title, sub, feature, experimental]) => `<button type="button" class="sg-tile" id="${id}" data-feature="${feature}"${experimental ? ' data-allow-experimental="true"' : ''}>
-      ${sgSvg(iconName, 'sg-ico sg-tile-ico')}<span class="sg-tile-title">${title}</span><span class="sg-tile-sub">${esc(sub)}</span></button>`).join('');
+    { id: 'sgSnap', feature: 'recovery', experimental: false, icon: 'snapshot', title: 'Emergency snapshot', sub: snapshotAt ? `Last ${timeAgo(snapshotAt)}` : 'None taken yet' },
+    { id: 'sgRecover', feature: 'recovery', experimental: false, icon: 'recover', title: 'Disaster recovery', sub: 'Preview, then restore refs' },
+    { id: 'sgScan', feature: 'dependency-audit', experimental: true, icon: 'scan', title: 'Security scan', sub: 'Dependencies and upload gate' },
+    { id: 'sgActivity', feature: 'governance', experimental: true, icon: 'activity', title: 'Export activity', sub: 'Commits, PRs, issues, releases' },
+    { id: 'sgEvidence', feature: 'governance', experimental: true, icon: 'evidence', title: 'Export evidence', sub: 'Signed, verifiable package' }
+  ].map(tile => `<button type="button" class="sg-tile" id="${tile.id}" data-feature="${tile.feature}"${tile.experimental ? ' data-allow-experimental="true"' : ''}>
+      ${sgSvg(tile.icon, 'sg-ico sg-tile-ico')}<span class="sg-tile-title">${tile.title}</span><span class="sg-tile-sub">${esc(tile.sub)}</span></button>`).join('');
   await modal({
     title: 'Safeguards', okText: 'Done', wide: true, cancel: false, autofocus: false,
     bodyHTML: `<div class="sg">
@@ -5522,8 +5523,9 @@ async function openSafeguards() {
       </section>
       <section class="sg-actions" aria-label="Recovery and evidence"><div class="sg-tiles">${tiles}</div></section>
     </div>`,
-    onOpen: body => {
-      if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply(body);
+    onOpen: () => {
+      const body = $('#modalBody');
+      if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
       const bind = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
       const ro = $('#sgReadOnly'), fz = $('#sgFreeze');
       if (ro) ro.addEventListener('change', async () => { if (!(await setSafety({ readOnly: ro.checked }))) ro.checked = !ro.checked; });

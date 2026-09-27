@@ -6178,6 +6178,13 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
   .gov-overview { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 520px) {
-  .gov-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; }
-  .gov-flow-stage:not(:last-child)::after { display: none; }
+  /* Four across, the count and its word: the pipeline stays one glance on a phone. */
+  .gov-flow { gap: 4px; padding: 8px; border-radius: 16px; }
+  .gov-flow-stage { justify-items: center; text-align: center; padding: 10px 4px; gap: 3px; }
+  .gov-flow-stage:not(:last-child)::after { top: 24px; right: -5px; width: 6px; }
+  .gov-flow-mark { width: 26px; height: 26px; border-radius: 9px; margin-bottom: 2px; }
+  .gov-flow-mark svg { width: 15px; height: 15px; }
+  .gov-flow-n { font-size: 1.3rem; }
+  .gov-flow-label { font-size: .72rem; line-height: 1.2; }
+  .gov-flow-sub { display: none; }
 }

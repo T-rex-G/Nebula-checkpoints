@@ -2,6 +2,79 @@
 
 ## Unreleased
 
+### Standards, Waivers and Exports; Safeguards Read the Provider; a Harder Host
+
+Reported: Safeguards showed three dots, sat under Repository rather than
+Security and had left the sidebar; the sidebar had no way to close it; the
+Audit's severity cards broke on a phone; Audit, Exposure, Safeguards and
+Governance were not yet at the level of the tools they compete with; and
+the hosted deployment was to be checked for security at every scale.
+
+- **Navigation.** Safeguards is back in the sidebar and the phone's menu,
+  under Security, with no ellipsis. The drawer has a close button, closes
+  on a swipe or Escape, and opens and closes on a spring. Back and Forward
+  move between tabs; an address pasted or edited while a repository is open
+  is followed in place. The tab strip wraps as two groups, so the security
+  tools move to a second row together instead of stranding one tab.
+- **Audit engine: 60 rules in six families.** New **Infrastructure** family:
+  Dockerfiles that run as root, fetch with `ADD` and no checksum, or bake a
+  secret into `ENV`/`ARG`; Terraform buckets with public ACLs, security
+  groups open to the internet on administration and database ports,
+  encryption switched off and databases published to the internet;
+  Kubernetes and Compose workloads that are privileged, share the host's
+  network or process space, or run as root; and workflow tokens granted
+  `write-all`. Also new: fast hashes used for passwords, unsafe
+  deserialization (`pickle`, `yaml.load` without a safe loader and their
+  kin) and signing keys written into code. Every finding is filed under its
+  **CWE** and **OWASP Top 10 (2021)** category. A finding can be waived in
+  the code with `nv-audit-ignore RULE -- reason` on its line or the one
+  above; the waiver must name the rule, is listed with its reason and is not
+  scored.
+- **Audit screen.** An OWASP Top 10 map beside the families, each tile a
+  filter; CWE and OWASP links on every finding; a search over rule, file and
+  weakness that keeps its focus while typing; long lists shown a page at a
+  time; waivers listed with their reasons. **Export** offers the Markdown
+  brief, **SARIF 2.1.0** for GitHub code scanning and other dashboards
+  (waivers as in-source suppressions, rules tagged with their CWE and a
+  security severity) and **CSV**, with any cell a spreadsheet would run as a
+  formula defused. On a phone the severity tally is three equal cells and
+  the site card lays out like the summary.
+- **Site check: 19 rules.** New: no cross-origin opener isolation; a CSP
+  without `base-uri` or a closed `object-src`; `http://` resources on an
+  HTTPS page; third-party scripts loaded without Subresource Integrity. The
+  header tiles cover eight headers, say what each does, and show when CSP
+  `frame-ancestors` does the job of a missing `X-Frame-Options`.
+- **Exposure.** Findings narrow by severity, status (open, no longer works,
+  accepted, removed) and place (tree, history only, archive, encoded), and
+  by words; export as CSV or SARIF carries the displayable path and the
+  status, never the credential or the raw path.
+- **Safeguards.** A wide panel: the posture in three figures; this app's
+  read-only and sync-freeze switches beside **the rules the provider
+  enforces** on the branch -- pull-request review, required checks, force
+  pushes, deletion, signed commits, linear history, conversation resolution
+  and administrator bypass -- read from GitHub classic protection and
+  rulesets, GitLab and Gitea (`GET /api/repo/:owner/:repo/branch-protection`,
+  read-only; a detail the reader cannot see is shown as unknown, never as
+  on); locked paths with presets that count the files each would cover; and
+  the recovery tools as tiles. In the hosted alpha the global switches are
+  shown as the deployment's rather than bouncing, and a safety change
+  answers with the same repository-filtered view as the read. The browser
+  now reads `**/` as the server does, so `**/.env*` covers a root `.env`.
+- **Governance.** The lifecycle as a pipeline -- drafts, in review,
+  approved, active -- with the stage holding work lit; enforcement by mode
+  and recent decisions by outcome as proportions, each in words as well.
+- **Hosted deployment.** Added `X-Frame-Options: DENY`,
+  `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`,
+  `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies`, a complete
+  `Permissions-Policy`, and `frame-src`, `manifest-src` and (in production)
+  `upgrade-insecure-requests` in the CSP. `/.well-known/security.txt`
+  (RFC 9116, contact from `NV_SECURITY_CONTACT` or the repository's
+  advisory form) and `robots.txt` keeping the API out of indexes. Dotfiles
+  and file-shaped paths now answer 404 instead of the app shell, so a probe
+  for `/.env` or `/.git/HEAD` no longer reads as a hit.
+- **Dialogs.** A reused dialog opens at its top; a panel with nothing to
+  confirm has only Done and does not raise a phone's keyboard.
+
 ### An Audit That Finds What Scanners Miss; Reports That Speak in Shapes
 
 Reported: the scanner was missing from the phone's Security menu and had no

@@ -133,7 +133,7 @@
     ['sarif', ICON.sarif, 'SARIF 2.1.0', 'For GitHub code scanning and other dashboards', 'Export SARIF'],
     ['csv', ICON.table, 'CSV', 'For a spreadsheet or a tracker import', 'Export CSV']
   ]);
-  function exportMenu(onExport, key) {
+  function exportMenu(onExport, key, kinds) {
     const wrap = element('div', 'audit-export');
     const trigger = keyed(button('', 'btn btn-ghost audit-tool audit-export-btn'), key);
     trigger.append(icon(ICON.download), element('span', 'audit-btn-label', 'Export'), icon(ICON.chevron, 'audit-ico audit-export-chev'));
@@ -144,7 +144,7 @@
     const menu = element('div', 'audit-export-menu');
     menu.setAttribute('role', 'menu');
     menu.hidden = true;
-    const items = EXPORTS.map(([kind, path, word, hint, name]) => {
+    const items = EXPORTS.filter(([kind]) => !kinds || kinds.includes(kind)).map(([kind, path, word, hint, name]) => {
       const item = button('', 'audit-export-item', () => { close(); onExport(kind); });
       item.setAttribute('role', 'menuitem');
       item.setAttribute('aria-label', name);
@@ -1281,11 +1281,62 @@
     return `${rows.map(cells => cells.map(csvCell).join(',')).join('\r\n')}\r\n`;
   }
 
+  /*
+   * Exposure findings as CSV and SARIF. The rows arrive already made safe by
+   * the caller: a rule, a displayable path (never the raw one, which can be
+   * named with the credential), a line, a status. Nothing here could carry a
+   * secret because nothing here is given one.
+   */
+  const EXPOSURE_COLUMNS = ['Severity', 'Credential', 'Rule', 'Location', 'Line', 'Status', 'Where', 'Introduced in', 'Provider says', 'Fingerprint'];
+  function exposureCsv(rows) {
+    const lines = [EXPOSURE_COLUMNS, ...rows.map(row => [row.severity, row.label, row.rule, row.where, row.line || '', row.status,
+      [row.inTree === false ? 'history only' : 'tree', row.archive ? 'archive' : '', row.encoded ? 'base64' : ''].filter(Boolean).join(' + '),
+      row.commit || '', row.verified || '', row.fingerprint])];
+    return `${lines.map(cells => cells.map(csvCell).join(',')).join('\r\n')}\r\n`;
+  }
+  function exposureSarif(rows, meta = {}) {
+    const rules = [];
+    const index = new Map();
+    for (const row of rows) {
+      if (index.has(row.rule)) continue;
+      index.set(row.rule, rules.length);
+      rules.push({
+        id: row.rule,
+        name: row.label,
+        shortDescription: { text: `${row.label} committed to the repository` },
+        help: { text: 'Revoke the credential with its issuer, replace it, then remove it from the repository and its history.' },
+        helpUri: 'https://cwe.mitre.org/data/definitions/798.html',
+        defaultConfiguration: { level: SARIF_LEVEL[row.severity] || 'error' },
+        properties: { tags: ['security', 'secret', 'external/cwe/cwe-798', 'owasp-a07-2021'], precision: 'high', 'security-severity': SECURITY_SEVERITY[row.severity] || '7.5' }
+      });
+    }
+    const results = rows.map(row => {
+      const result = {
+        ruleId: row.rule,
+        ruleIndex: index.get(row.rule),
+        level: SARIF_LEVEL[row.severity] || 'error',
+        message: { text: `${row.label} in ${row.where}${row.inTree === false ? ', only in history' : ''}.` },
+        locations: [{ physicalLocation: { artifactLocation: { uri: row.where, uriBaseId: 'SRCROOT' }, ...(row.line ? { region: { startLine: row.line } } : {}) } }],
+        partialFingerprints: { 'nebulaverseExposure/v1': row.fingerprint },
+        properties: { severity: row.severity, status: row.status, inTree: row.inTree !== false, ...(row.commit ? { introducedIn: row.commit } : {}), ...(row.verified ? { providerSays: row.verified } : {}) }
+      };
+      if (row.status === 'accepted-risk') result.suppressions = [{ kind: 'external', justification: row.acceptedBy ? `Risk accepted by ${row.acceptedBy}` : 'Risk accepted' }];
+      return result;
+    });
+    return JSON.stringify({ $schema: 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0', runs: [{
+      tool: { driver: { name: 'Nebulaverse-X Exposure', informationUri: meta.informationUri || 'https://github.com/T-rex-G/Nebula-checkpoints', rules } },
+      automationDetails: { id: `nebulaverse-exposure/${meta.ref || 'branch'}/` },
+      ...(meta.repositoryUri && meta.commitSha ? { versionControlProvenance: [{ repositoryUri: meta.repositoryUri, revisionId: meta.commitSha, ...(meta.ref ? { branch: meta.ref } : {}) }] } : {}),
+      originalUriBaseIds: { SRCROOT: { uri: 'file:///' } },
+      results
+    }] }, null, 2);
+  }
+
   function allPrompts(result) {
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, brief, sarif, csv, allPrompts, diff, readPrevious, remember, storageKey });
+  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, brief, sarif, csv, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaCodeAudit;

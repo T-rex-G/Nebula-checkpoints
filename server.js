@@ -3060,9 +3060,15 @@ function alphaStepUpRepositoryAccess(req, res, next) {
   }
 }
 
+/*
+ * The safety state a reader may see. `globalControls` says whether read-only
+ * and the sync freeze can be changed from here: a hosted alpha scopes every
+ * change to a repository and refuses the global switches, so the Safeguards
+ * panel shows them as the deployment's rather than as switches that bounce.
+ */
 function alphaSafetyView(req, state) {
   const view = defaultSafety(state);
-  if (!ALPHA_CONFIG.enabled) return view;
+  if (!ALPHA_CONFIG.enabled) return { ...view, globalControls: true };
   const protectedRepositories = {};
   for (const [repository, patterns] of Object.entries(view.protected)) {
     const match = String(repository).match(/^([^/\s]+)\/([^/\s]+)$/);
@@ -3073,7 +3079,7 @@ function alphaSafetyView(req, state) {
       }
     } catch {}
   }
-  return { ...view, protected: protectedRepositories };
+  return { ...view, protected: protectedRepositories, globalControls: false };
 }
 
 function alphaSafetyMutationAccess(req, res, next) {
@@ -6970,7 +6976,8 @@ app.post('/api/safety', providerSessionAccess, alphaSafetyMutationAccess, accoun
       actor: retainedActor(req), repository: relatedRepo, readOnly: cur.readOnly, freezeSync: cur.freezeSync,
       protectedCount: Object.values(cur.protected).reduce((n, x) => n + x.length, 0), changedAt: new Date().toISOString()
     }).catch(() => {});
-    res.json(req.effectiveSafety);
+    /* The same view the read gives: no other repository's protected paths come back from a change to this one. */
+    res.json(alphaSafetyView(req, req.effectiveSafety));
   } catch (e) { fail(res, e); }
 });
 

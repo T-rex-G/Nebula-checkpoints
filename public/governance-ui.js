@@ -131,6 +131,69 @@
     return `<div class="gov-summary-grid" aria-label="Governance summary">${items.map(([label, value, sub]) => `
       <article class="card gov-metric"><span>${escapeHtml(label)}</span><strong>${value}</strong><small>${escapeHtml(sub)}</small></article>`).join('')}</div>`;
   }
+  /*
+   * Where the work is, as a pipeline: drafts become immutable versions, a
+   * version is reviewed, simulated, and only then activated. Each stage shows
+   * how many items sit in it, and the first stage holding work is lit, so a
+   * reader sees at a glance what is waiting and on whom.
+   */
+  const STAGE_ICON = Object.freeze({
+    draft: '<path d="M5 19.5l1-4.2L15.8 5.5a2 2 0 0 1 2.8 0l.4.4a2 2 0 0 1 0 2.8L9.2 18.5z"/><path d="M13.8 7.5l3 3"/>',
+    review: '<path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+    ready: '<path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9 12l2.1 2.1 4-4.3"/>',
+    active: '<path d="M13 3.5L5.5 13.2H12l-1 7.3 7.5-9.7H12z"/>'
+  });
+  function renderLifecycle(twin) {
+    const proposed = asObject(twin.proposed);
+    const versions = asArray(proposed.versions);
+    const pending = versions.filter(version => asObject(version.review).status === 'pending').length;
+    const ready = versions.filter(version => asObject(version.activationReadiness).eligible === true || asObject(version.review).status === 'approved').length;
+    const stages = [
+      ['draft', 'Drafts', count(proposed.draftCount), 'being written'],
+      ['review', 'In review', pending, 'awaiting approval'],
+      ['ready', 'Approved', ready, 'simulate, then activate'],
+      ['active', 'Active', count(asObject(twin.current).activePolicyCount), 'enforcing now']
+    ];
+    const lit = stages.findIndex(([, , n], index) => n > 0 && index < 3);
+    return `<ol class="gov-flow" aria-label="Policy lifecycle">${stages.map(([id, label, n, sub], index) => `
+      <li class="gov-flow-stage" data-stage="${id}" data-state="${index === lit ? 'work' : n ? 'held' : 'empty'}">
+        <span class="gov-flow-mark" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false">${STAGE_ICON[id]}</svg></span>
+        <span class="gov-flow-n">${n}</span><span class="gov-flow-label">${escapeHtml(label)}</span><span class="gov-flow-sub">${escapeHtml(sub)}</span>
+      </li>`).join('')}</ol>`;
+  }
+
+  /*
+   * How the running policies bite, and what they decided. Two bars, each a
+   * proportion with its counts in words beside it: the active policies by
+   * enforcement mode, and the recent runtime decisions by outcome.
+   */
+  function proportionBar(label, parts) {
+    const total = parts.reduce((sum, [, , n]) => sum + n, 0);
+    const words = parts.filter(([, , n]) => n).map(([, word, n]) => `${n} ${word}`).join(', ');
+    return `<div class="gov-bar-block"><div class="gov-bar-head"><span>${escapeHtml(label)}</span><b>${total}</b></div>
+      <div class="gov-bar" role="img" aria-label="${escapeAttr(`${label}: ${total ? words : 'none'}`)}">${total ? parts.filter(([, , n]) => n).map(([tone, , n]) => `<i data-tone="${tone}" style="flex:${n}"></i>`).join('') : '<i data-tone="none" style="flex:1"></i>'}</div>
+      <ul class="gov-bar-legend">${parts.map(([tone, word, n]) => `<li data-tone="${tone}"><span class="gov-dot" aria-hidden="true"></span>${escapeHtml(word)} <b>${n}</b></li>`).join('')}</ul></div>`;
+  }
+  function renderEnforcement(twin) {
+    const policies = asArray(asObject(twin.current).policies);
+    const modes = { observe: 0, warn: 0, block: 0 };
+    for (const policy of policies) {
+      const active = asObject(policy.active);
+      if (!active.versionId) continue;
+      const mode = String(active.enforcementMode || 'observe');
+      modes[mode === 'enforce' ? 'block' : mode in modes ? mode : 'observe'] += 1;
+    }
+    const outcomes = { allow: 0, warn: 0, block: 0 };
+    for (const decision of asArray(asObject(twin.history).decisions)) {
+      const outcome = String(decision.enforcementOutcome || 'allow');
+      outcomes[outcome in outcomes ? outcome : 'allow'] += 1;
+    }
+    return `<div class="card gov-enforce" aria-label="Enforcement">
+      ${proportionBar('Active policies by mode', [['observe', 'observe', modes.observe], ['warn', 'warn', modes.warn], ['block', 'block', modes.block]])}
+      ${proportionBar('Recent decisions', [['allow', 'allowed', outcomes.allow], ['warn', 'warned', outcomes.warn], ['block', 'blocked', outcomes.block]])}
+    </div>`;
+  }
+
   function renderPolicies(twin, access) {
     const policies = asArray(asObject(twin.current).policies);
     if (!policies.length) return renderEmpty(access);
@@ -259,6 +322,7 @@
       ${access.evidence.status !== 'current' ? `<div class="gov-banner danger" role="alert"><strong>Authorization evidence ${escapeHtml(access.evidence.status)}</strong><span>Governance actions are disabled until repository permissions are refreshed.</span></div>` : ''}
       <div class="gov-access-line"><span>Signed in as <b>${escapeHtml(access.actor.login || 'unknown')}</b></span><span>${escapeHtml(access.execution.kind === 'installation' ? 'GitHub App execution · human governance actor' : human(access.execution.authMethod || 'user session'))}</span></div>
       ${renderSummary(twin)}
+      ${noPolicies ? '' : `<div class="gov-overview">${renderLifecycle(twin)}${renderEnforcement(twin)}</div>`}
       ${noPolicies ? renderEmpty(access, asArray(input.archived).length) : renderPolicies(twin, access)}
       ${renderDrafts(twin, access)}
       ${renderProposed(twin, access, input.simulation)}

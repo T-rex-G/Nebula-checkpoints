@@ -1147,7 +1147,14 @@
         </div>
       </section>
       <div class="sr-only" id="a11yStatus" role="status" aria-live="polite" aria-label="Workspace updates" aria-atomic="true"></div>
+      <!--
+        Two groups that wrap as wholes: the repository's own sections, then the
+        security tools. When the pane is too narrow for one row, the security
+        group moves down together rather than leaving one or two tabs alone
+        on a second line.
+      -->
       <nav class="tabs glass" id="deskTabs" aria-label="Repository sections">
+        <span class="tab-group">
         <button class="tab active" data-tab="editor">Editor</button>
         <button class="tab" data-tab="upload" data-feature="native-push" data-allow-experimental="true">Push files</button>
         <button class="tab" data-tab="commits">Commits</button>
@@ -1156,10 +1163,13 @@
         <button class="tab" data-feature="releases.read" data-allow-experimental="true" data-tab="releases">Releases</button>
         <button class="tab" data-feature="workflows.read" data-allow-experimental="true" data-tab="actions">Actions</button>
         <button class="tab" data-feature="recovery" data-allow-experimental="true" data-tab="compare">Compare</button>
+        </span>
+        <span class="tab-group tab-group-security" role="group" aria-label="Security">
         <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
         <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel">Governance</button>
         <button class="tab" data-feature="exposure.scan" data-allow-experimental="true" data-tab="exposure" id="exposureTabLabel">Exposure</button>
         <button class="tab" data-feature="site-check" data-tab="audit" id="auditTabLabel">Audit</button>
+        </span>
       </nav>
 
       <!-- EDITOR -->
@@ -1542,6 +1552,8 @@
                  numbers for the eye, so they are hidden from it rather than read twice. -->
             <p class="sr-only" id="exposureTally" hidden></p>
             <div class="exposure-chips" id="exposureChips" aria-hidden="true" hidden></div>
+            <!-- Filters, search and export, drawn by the script once there are findings. -->
+            <div class="exposure-tools" id="exposureTools" hidden></div>
             <p class="exposure-empty" id="exposureEmpty">Nothing to show yet.</p>
             <ul class="exposure-list" id="exposureList"></ul>
           </section>

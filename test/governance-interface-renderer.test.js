@@ -38,6 +38,12 @@ const twin = {
 const reader = { schemaVersion: 1, repository: { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo' }, actor: { login: 'alice' }, execution: { kind: 'user', authMethod: 'oauth' }, capabilities: { read: true, author: false, review: false, activate: false, administer: false }, evidence: { status: 'current', expiresAt: '2099-07-23T00:40:00.000Z' } };
 const html = ui.renderGovernanceInterface({ digitalTwin: twin, access: reader });
 assert(html.includes('Policy Digital Twin'));
+/* The lifecycle: one draft being written, one version in review, none approved, one active; the first stage with work is lit. */
+assert.deepStrictEqual([...html.matchAll(/data-stage="(\w+)" data-state="(\w+)">[\s\S]*?<span class="gov-flow-n">(\d+)<\/span>/g)].map(match => match.slice(1)),
+  [['draft', 'work', '1'], ['review', 'held', '1'], ['ready', 'empty', '0'], ['active', 'held', '1']]);
+/* How the running policy bites and what it decided, in words as well as bars. */
+assert(html.includes('aria-label="Active policies by mode: 1 warn"'));
+assert(html.includes('aria-label="Recent decisions: 1 warned"'));
 assert(html.includes('Partial evidence'));
 assert(html.includes('Active policies') && html.includes('<strong>1</strong>'));
 assert(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));

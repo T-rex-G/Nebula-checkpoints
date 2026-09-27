@@ -721,10 +721,6 @@
     <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
     <span class="nv-rail-brand">__NV_PRODUCT_NAME__</span>
     <span class="nv-rail-sub">Trust operations</span>
-    <!-- Only drawn when the rail is a drawer: standing chrome is not dismissed. -->
-    <button type="button" class="nv-rail-close" id="navClose" aria-label="Close navigation" title="Close">
-      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
-    </button>
   </div>
 
   <!--
@@ -736,6 +732,11 @@
     <span class="nv-rail-section-t">Workspace</span>
     <button type="button" class="nv-rail-collapse" id="railCollapse"
       aria-expanded="true" aria-controls="navRail" aria-label="Collapse the sidebar">
+      <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 7l-5 5 5 5"/><path d="M19 7l-5 5 5 5"/></svg>
+    </button>
+    <!-- The drawer's way out, in the same place and shape as the desktop control
+         it stands in for: standing chrome narrows, a drawer is put away. -->
+    <button type="button" class="nv-rail-collapse nv-rail-close" id="navClose" aria-label="Close navigation" title="Close">
       <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 7l-5 5 5 5"/><path d="M19 7l-5 5 5 5"/></svg>
     </button>
   </div>

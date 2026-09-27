@@ -11,8 +11,9 @@ Governance were not yet at the level of the tools they compete with; and
 the hosted deployment was to be checked for security at every scale.
 
 - **Navigation.** Safeguards is back in the sidebar and the phone's menu,
-  under Security, with no ellipsis. The drawer has a close button, closes
-  on a swipe or Escape, and opens and closes on a spring. Back and Forward
+  under Security, with no ellipsis. The drawer closes from the same « control,
+  in the same place, as the desktop sidebar's collapse button, or on a swipe
+  or Escape, and opens and closes on a spring. Back and Forward
   move between tabs; an address pasted or edited while a repository is open
   is followed in place. The tab strip wraps as two groups, so the security
   tools move to a second row together instead of stranding one tab.

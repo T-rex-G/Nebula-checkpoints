@@ -2,6 +2,126 @@
 
 ## Unreleased
 
+### Standards, Waivers and Exports; Safeguards Read the Provider; a Harder Host
+
+Reported: Safeguards showed three dots, sat under Repository rather than
+Security and had left the sidebar; the sidebar had no way to close it; the
+Audit's severity cards broke on a phone; Audit, Exposure, Safeguards and
+Governance were not yet at the level of the tools they compete with; and
+the hosted deployment was to be checked for security at every scale.
+
+- **Navigation.** Safeguards is back in the sidebar and the phone's menu,
+  under Security, with no ellipsis. The drawer closes from the same « control,
+  in the same place, as the desktop sidebar's collapse button, or on a swipe
+  or Escape, and opens and closes on a spring. Back and Forward
+  move between tabs; an address pasted or edited while a repository is open
+  is followed in place. The tab strip wraps as two groups, so the security
+  tools move to a second row together instead of stranding one tab.
+- **Audit engine: 60 rules in six families.** New **Infrastructure** family:
+  Dockerfiles that run as root, fetch with `ADD` and no checksum, or bake a
+  secret into `ENV`/`ARG`; Terraform buckets with public ACLs, security
+  groups open to the internet on administration and database ports,
+  encryption switched off and databases published to the internet;
+  Kubernetes and Compose workloads that are privileged, share the host's
+  network or process space, or run as root; and workflow tokens granted
+  `write-all`. Also new: fast hashes used for passwords, unsafe
+  deserialization (`pickle`, `yaml.load` without a safe loader and their
+  kin) and signing keys written into code. Every finding is filed under its
+  **CWE** and **OWASP Top 10 (2021)** category. A finding can be waived in
+  the code with `nv-audit-ignore RULE -- reason` on its line or the one
+  above; the waiver must name the rule, is listed with its reason and is not
+  scored.
+- **Audit screen.** An OWASP Top 10 map beside the families, each tile a
+  filter; CWE and OWASP links on every finding; a search over rule, file and
+  weakness that keeps its focus while typing; long lists shown a page at a
+  time; waivers listed with their reasons. **Export** offers the Markdown
+  brief, **SARIF 2.1.0** for GitHub code scanning and other dashboards
+  (waivers as in-source suppressions, rules tagged with their CWE and a
+  security severity) and **CSV**, with any cell a spreadsheet would run as a
+  formula defused. On a phone the severity tally is three equal cells and
+  the site card lays out like the summary.
+- **Site check: 19 rules.** New: no cross-origin opener isolation; a CSP
+  without `base-uri` or a closed `object-src`; `http://` resources on an
+  HTTPS page; third-party scripts loaded without Subresource Integrity. The
+  header tiles cover eight headers, say what each does, and show when CSP
+  `frame-ancestors` does the job of a missing `X-Frame-Options`.
+- **Exposure.** Findings narrow by severity, status (open, no longer works,
+  accepted, removed) and place (tree, history only, archive, encoded), and
+  by words; export as CSV or SARIF carries the displayable path and the
+  status, never the credential or the raw path.
+- **Safeguards.** A wide panel: the posture in three figures; this app's
+  read-only and sync-freeze switches beside **the rules the provider
+  enforces** on the branch -- pull-request review, required checks, force
+  pushes, deletion, signed commits, linear history, conversation resolution
+  and administrator bypass -- read from GitHub classic protection and
+  rulesets, GitLab and Gitea (`GET /api/repo/:owner/:repo/branch-protection`,
+  read-only; a detail the reader cannot see is shown as unknown, never as
+  on); locked paths with presets that count the files each would cover; and
+  the recovery tools as tiles. In the hosted alpha the global switches are
+  shown as the deployment's rather than bouncing, and a safety change
+  answers with the same repository-filtered view as the read. The browser
+  now reads `**/` as the server does, so `**/.env*` covers a root `.env`.
+- **Governance.** The lifecycle as a pipeline -- drafts, in review,
+  approved, active -- with the stage holding work lit; enforcement by mode
+  and recent decisions by outcome as proportions, each in words as well.
+- **Hosted deployment.** Added `X-Frame-Options: DENY`,
+  `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`,
+  `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies`, a complete
+  `Permissions-Policy`, and `frame-src`, `manifest-src` and (in production)
+  `upgrade-insecure-requests` in the CSP. `/.well-known/security.txt`
+  (RFC 9116, contact from `NV_SECURITY_CONTACT` or the repository's
+  advisory form) and `robots.txt` keeping the API out of indexes. Dotfiles
+  and file-shaped paths now answer 404 instead of the app shell, so a probe
+  for `/.env` or `/.git/HEAD` no longer reads as a hit.
+- **Dialogs.** A reused dialog opens at its top; a panel with nothing to
+  confirm has only Done and does not raise a phone's keyboard.
+
+### What the Host Serves; Reading a Medium Repository
+
+Reported: the deployment's served JavaScript, CSS and HTML were to be read
+as an attacker would, for defects and for comments that should not be
+there; and a medium repository, like this one, was to be read end to end,
+the editor, a workflow's CI and every long list, on a desktop and a phone.
+
+- **Served assets carry no comments.** The page, stylesheet and every
+  first-party script are served without their source comments, which
+  explained how defences work and which test guards what -- about 270 KB of
+  every first load. Nothing else changes: the unit suite tokenises each
+  script before and after with a real parser and requires the two streams
+  to be identical, and a classic script that would not compile is served as
+  written. Stripped assets carry a strong ETag and answer `304`.
+- **Provider text is inert.** Every field a provider sends into markup --
+  run events, commit ids, file statuses, counts, states and numbers -- is
+  escaped or coerced to a number. Pull request and issue descriptions,
+  comments and release notes are rendered as Markdown and sanitised: no
+  script, frame, form, `<style>` or inline style survives, and links open
+  in a new tab without an opener. A Markdown file's preview follows the
+  same rules, so a file's `<style>` cannot restyle the workbench.
+- **GitLab.** A file with any character outside Latin-1 failed to open:
+  the server decoded it and the editor decoded it again. It now answers in
+  Base64, as GitHub and Gitea do. Commits page like the other providers.
+- **Actions.** A run opens from its header only, so a tap on a step, a
+  selection or a scroll no longer closes it under the reader. Jobs are
+  disclosures: the failed or running ones open, the rest fold to one line
+  with their step count and failures, and each step says its state in
+  words. Opening a run brings it into view, and a run opened once is not
+  fetched again.
+- **Commits.** Tapping or selecting inside a diff no longer closes it; a
+  long patch scrolls inside its own box.
+- **Pull requests and issues.** The detail opens directly under the row
+  that asked for it and scrolls into view below the top bar, instead of
+  above a long list and out of sight.
+- **Command palette.** Files are ranked by how well they match -- the
+  name, then its start, then a folder, then letters in order -- and a query
+  lists thirty rather than fourteen, so `app` finds `public/app.js` first
+  in a repository of hundreds of files.
+- **Phone.** The editor's last lines scroll clear of the bottom navigation
+  and the action button. Each tab keeps its own place in a long list, as
+  the panes already did on a wider screen, instead of opening mid-list at
+  the last tab's offset.
+- **Continuous integration.** The single-worker browser suite now has 45
+  minutes rather than 30; it was being cancelled while still passing.
+
 ### An Audit That Finds What Scanners Miss; Reports That Speak in Shapes
 
 Reported: the scanner was missing from the phone's Security menu and had no

@@ -15,7 +15,11 @@ jobs:
     # handful of specs cancelled the job mid-suite rather than failing a test.
     # 30 matches the window the candidate browser suite is given and leaves
     # room for the suite to grow without a hang going unnoticed for hours.
-    timeout-minutes: 30
+    # By PR #60 main finished in 29m, and the Safeguards, routing, Exposure
+    # filter and Audit export specs took the single-worker suite past 30: the
+    # job was cancelled mid-suite with every test passing in the sharded
+    # browser matrix. 45 restores the margin; a hang still ends the job.
+    timeout-minutes: 45
     # Every other gate reads the migrations as text, so PostgreSQL never got a
     # say in whether this release's schema can exist. 015_alpha_privacy shipped
     # in a green candidate while being impossible to apply. Version 17 matches

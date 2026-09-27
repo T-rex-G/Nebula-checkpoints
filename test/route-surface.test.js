@@ -186,8 +186,19 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * identity and calls one function; the requests, the rules and the scoring are
  * in `src/site-check.js`, and the anonymous transport profile it uses is in
  * `src/guarded-fetch.js`, each tested where it lives.
+ *
+ * 169 to 171 adds `/.well-known/security.txt` and `/robots.txt`. Both are
+ * static text built from configuration: the security contact a researcher
+ * needs, with an expiry the RFC requires, and a crawler rule that keeps the
+ * API out of indexes. Neither touches a session, a provider or a store.
+ *
+ * 171 to 172 adds the provider's branch rules for the Safeguards panel. The
+ * handler binds a reader to the open repository and calls one function; which
+ * provider paths are read, how classic protection and rulesets combine, and
+ * why a hidden detail is unknown rather than on are in
+ * `src/branch-protection.js`, tested there provider by provider.
  */
-const SERVER_ROUTE_CEILING = 169;
+const SERVER_ROUTE_CEILING = 172;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

@@ -299,7 +299,25 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       });
     }
     if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') return fulfill(capabilityProjection(scenario.provider, scenario.authMethod));
-    if (pathname === '/api/safety') return fulfill({ readOnly: false, freezeSync: false, protected: {} });
+    /*
+     * The safety state as the hosted alpha answers it: repository-scoped
+     * locks that change, global switches that belong to the deployment.
+     */
+    if (pathname === '/api/safety') {
+      state.safety = state.safety || { readOnly: false, freezeSync: false, protected: {}, globalControls: false };
+      if (method === 'POST') {
+        const body = request.postDataJSON() || {};
+        if (typeof body.readOnly === 'boolean' || typeof body.freezeSync === 'boolean') {
+          return fulfill({ error: 'Global safety changes require an unscoped deployment', code: 'ALPHA_REPOSITORY_SCOPE_REQUIRED' }, 403);
+        }
+        if (body.protect && body.protect.repo && body.protect.path) {
+          const list = new Set(state.safety.protected[body.protect.repo] || []);
+          if (body.protect.on === false) list.delete(body.protect.path); else list.add(body.protect.path);
+          if (list.size) state.safety.protected[body.protect.repo] = [...list].sort(); else delete state.safety.protected[body.protect.repo];
+        }
+      }
+      return fulfill(state.safety);
+    }
     /*
      * The overview asks for this once it is on screen, so every fixture that
      * reaches the overview needs it. Without it the request fell through to
@@ -396,7 +414,9 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       return fulfill({ full_name: 'sandbox/demo', private: true, default_branch: 'main', homepage: 'https://demo.example.com', branches: [{ name: 'main', protected: false, sha: HEAD_SHA }] });
     }
     if (pathname === '/api/repo/sandbox/demo/tree') return fulfill([]);
-    if (pathname === '/api/repo/sandbox/demo/files') return fulfill({ files: [] });
+    if (pathname === '/api/repo/sandbox/demo/files') {
+      return fulfill({ files: scenario.files || ['README.md', '.env.example', '.github/workflows/ci.yml', '.github/workflows/deploy.yml', 'package.json', 'package-lock.json', 'src/app.js'] });
+    }
     if (pathname === '/api/repo/sandbox/demo/file' && method === 'GET') {
       return fulfill({ path: url.searchParams.get('path') || 'alpha-proof.txt', sha: 'c'.repeat(40), size: 0, content: '', binary: false });
     }
@@ -444,6 +464,28 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       });
     }
     /*
+     * The provider's branch rules, read by the real module from the JSON
+     * GitHub answers with for a reader without administration access: the
+     * summary and a ruleset, the classic details hidden.
+     */
+    if (pathname === '/api/repo/sandbox/demo/branch-protection' && method === 'GET') {
+      const { readBranchProtection } = require('../../src/branch-protection');
+      const routes = {
+        '': { default_branch: 'main' },
+        '/branches/main': { protected: true, protection: { required_status_checks: { contexts: ['ci'] } } },
+        '/rules/branches/main': [
+          { type: 'pull_request', ruleset_id: 3, parameters: { required_approving_review_count: 1 } },
+          { type: 'non_fast_forward', ruleset_id: 3 },
+          { type: 'deletion', ruleset_id: 3 }
+        ]
+      };
+      const read = async apiPath => {
+        if (apiPath in routes) return routes[apiPath];
+        throw Object.assign(new Error('Not Found'), { status: apiPath.endsWith('/protection') ? 403 : 404 });
+      };
+      return fulfill(await readBranchProtection({ provider: 'github', owner: 'sandbox', repo: 'demo', branch: url.searchParams.get('branch') || '', read, webBase: 'https://github.com' }));
+    }
+    /*
      * The deployed-site check, by the real rules over a modelled site: the
      * first check finds a bare site serving its .env; by the second the
      * headers are sent, the file is gone, and / redirects to the app.
@@ -455,7 +497,8 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       const headers = fixed ? {
         'content-type': 'text/html',
         'strict-transport-security': 'max-age=31536000; includeSubDomains',
-        'content-security-policy': "default-src 'self'; frame-ancestors 'self'",
+        'content-security-policy': "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
+        'cross-origin-opener-policy': 'same-origin',
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'strict-origin-when-cross-origin'
       } : { 'content-type': 'text/html', 'x-powered-by': 'Express', 'set-cookie': ['sid=x; Path=/'] };

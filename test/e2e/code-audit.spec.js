@@ -2,9 +2,10 @@
 
 /*
  * The Audit tab: a grade that rests on what was read, the three jobs to do
- * first, the five families it is built from, findings that open into their
- * reason, fix, advisories and prompt, a brief to export, and the comparison
- * with the last audit of the same repository.
+ * first, the six families it is built from and the OWASP Top 10 map of the
+ * same findings, findings that open into their reason, fix, advisories, CWE
+ * and prompt, a search over them, a brief, SARIF and CSV to export, and the
+ * comparison with the last audit of the same repository.
  */
 
 const { test, expect } = require('@playwright/test');
@@ -44,9 +45,9 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('details[open]', { hasText: 'A SQL statement is built' })).toHaveCount(1);
   await expect(pane.locator('.audit-item', { hasText: 'A SQL statement is built' }).locator('summary')).toBeFocused();
 
-  /* Five families, each with its own reading. */
+  /* Six families, each with its own reading. */
   const families = pane.getByRole('list', { name: 'Audit families' }).getByRole('button');
-  await expect(families).toHaveCount(5);
+  await expect(families).toHaveCount(6);
   await expect(families.nth(1)).toContainText('Code security');
   await expect(families.nth(2)).toContainText('Secrets');
 
@@ -75,9 +76,31 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(sql).toHaveAttribute('data-severity', 'critical');
   /* Already open: Fix first opened it. */
   await expect(sql).toContainText('Use parameterised queries');
+  /* Filed under its weakness and its OWASP category, each linked to the definition. */
+  await expect(sql.getByRole('link', { name: 'CWE-89' })).toHaveAttribute('href', 'https://cwe.mitre.org/data/definitions/89.html');
+  await expect(sql.getByRole('link', { name: 'OWASP A03' })).toHaveAttribute('href', 'https://owasp.org/Top10/A03_2021-Injection/');
   await expect(sql.getByRole('button', { name: 'Open api/users.js:1' })).toBeVisible();
   await expect(sql.getByRole('button', { name: 'Copy fix prompt' })).toBeVisible();
   await expect(pane).not.toContainText('SELECT * FROM users');
+
+  /* The OWASP map is a filter too, and says clear where nothing sits. */
+  const owasp = pane.getByRole('list', { name: 'OWASP Top 10 categories' }).getByRole('button');
+  await expect(owasp).toHaveCount(10);
+  await expect(owasp.filter({ hasText: 'A10' })).toHaveAccessibleName(/^A10 SSRF: /);
+  await pane.getByRole('button', { name: /^A03 Injection: \d+ findings?$/ }).click();
+  await expect(pane.getByRole('heading', { name: 'Findings — OWASP A03 Injection' })).toBeVisible();
+  await expect(pane.locator('.audit-findings .audit-item', { hasText: 'A SQL statement is built' })).toHaveCount(1);
+  await pane.getByRole('button', { name: 'Show all' }).click();
+
+  /* The search narrows by rule, file or weakness, keeps focus while typing, and says when nothing matches. */
+  const search = pane.getByRole('searchbox', { name: 'Search findings' });
+  await search.fill('cwe-89');
+  await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(1);
+  await expect(search).toBeFocused();
+  await search.fill('no-such-thing');
+  await expect(pane.locator('.audit-findings')).toContainText('Nothing matches “no-such-thing”.');
+  await search.press('Escape');
+  await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(8);
 
   /* Filtering by a family shows only its findings, and can be undone. */
   await pane.getByRole('button', { name: /Project hygiene/ }).click();
@@ -89,8 +112,17 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.getByRole('heading', { name: 'Findings', exact: true })).toBeVisible();
 
   /* The developer brief is a Markdown download of the same words. */
+  const exportButton = pane.locator('.audit-summary').getByRole('button', { name: 'Export', exact: true });
+  await exportButton.click();
+  await expect(exportButton).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('menuitem')).toHaveCount(3);
+  await expect(page.getByRole('menuitem', { name: 'Export developer brief' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(exportButton).toHaveAttribute('aria-expanded', 'false');
+  await expect(exportButton).toBeFocused();
+  await exportButton.click();
   const download = page.waitForEvent('download');
-  await pane.getByRole('button', { name: 'Export developer brief' }).click();
+  await page.getByRole('menuitem', { name: 'Export developer brief' }).click();
   const file = await download;
   expect(file.suggestedFilename()).toMatch(/^demo-audit-\d{4}-\d{2}-\d{2}\.md$/);
   const text = require('fs').readFileSync(await file.path(), 'utf8');
@@ -100,6 +132,25 @@ test('an audit grades the branch, names what it read and explains every finding'
   expect(text).toContain('- **Advisories:** GHSA-35jh-r3h4-6jhm (CVE-2021-23337), GHSA-p6mc-m468-83gw (CVE-2020-8203)');
   expect(text).not.toContain('SELECT * FROM users');
   expect(text).not.toContain('Tr0ub4dor');
+  expect(text).toContain('- **Standards:** CWE-89 (SQL Injection) · OWASP A03:2021 Injection');
+
+  /* SARIF for a code-scanning dashboard, CSV for a spreadsheet; neither carries what was read. */
+  await exportButton.click();
+  const sarifDownload = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Export SARIF' }).click();
+  const sarifFile = await sarifDownload;
+  expect(sarifFile.suggestedFilename()).toMatch(/^demo-audit-\d{4}-\d{2}-\d{2}\.sarif$/);
+  const sarif = JSON.parse(require('fs').readFileSync(await sarifFile.path(), 'utf8'));
+  expect(sarif.version).toBe('2.1.0');
+  expect(sarif.runs[0].results.some(result => result.ruleId === 'SEC-001')).toBe(true);
+  expect(JSON.stringify(sarif)).not.toContain('Tr0ub4dor');
+  await exportButton.click();
+  const csvDownload = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Export CSV' }).click();
+  const csvText = require('fs').readFileSync(await (await csvDownload).path(), 'utf8');
+  expect(csvText.split('\r\n')[0]).toBe('Source,Status,Severity,Rule,Title,Family,CWE,OWASP,Location,Line,Reason waived,Fix');
+  expect(csvText).toContain('SEC-001');
+  expect(csvText).not.toContain('Tr0ub4dor');
 
   /* The next audit compares itself with this one: the SQL is fixed, nothing is new. */
   await pane.getByRole('button', { name: 'Audit again' }).click();
@@ -131,7 +182,7 @@ test('the deployed site is checked anonymously, and the next check shows what wa
 
   /* The headers a browser enforces, each marked sent or not, and never by colour alone. */
   const headers = site.getByRole('list', { name: 'Security headers' }).getByRole('listitem');
-  await expect(headers).toHaveCount(6);
+  await expect(headers).toHaveCount(8);
   await expect(headers.filter({ hasText: 'Strict-Transport-Security' })).toContainText('not sent');
 
   /* A served .env is named by its path and never quoted. */
@@ -153,7 +204,8 @@ test('the deployed site is checked anonymously, and the next check shows what wa
   await pane.getByRole('button', { name: 'Audit this branch' }).click();
   await expect(pane.locator('.audit-summary .audit-grade')).toHaveAttribute('aria-label', /^Grade F/);
   const download = page.waitForEvent('download');
-  await pane.getByRole('button', { name: 'Export developer brief' }).click();
+  await pane.locator('.audit-summary').getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Export developer brief' }).click();
   const text = require('fs').readFileSync(await (await download).path(), 'utf8');
   expect(text).toContain('# Deployed site: https://demo.example.com');
   expect(text).toContain('An environment file is served publicly');
@@ -162,7 +214,10 @@ test('the deployed site is checked anonymously, and the next check shows what wa
   /* Fixed: the headers are sent and the file is gone. */
   await site.getByRole('button', { name: 'Check again' }).click();
   await expect(site.locator('.audit-grade')).toHaveAttribute('aria-label', 'Site grade A, 100 out of 100');
-  await expect(site).toContainText('Nothing found on https://demo.example.com.');
+  await expect(site.locator('.audit-verdict')).toHaveText('Nothing found');
+  await expect(site.locator('.audit-origin')).toHaveText('demo.example.com');
+  /* X-Frame-Options is not sent, but CSP frame-ancestors does its job, and the tile says so. */
+  await expect(headers.filter({ hasText: 'X-Frame-Options' })).toContainText('via CSP');
   await expect(site).toContainText('the page answered 200 after 1 redirect.');
   await expect(site).toContainText(/0 new findings, \d+ resolved since the check of/);
   await expect(site.locator('.audit-item')).toHaveCount(0);
@@ -182,5 +237,6 @@ test('where the provider has no repository reader, the audit says so and the sit
   const site = pane.locator('.audit-site');
   await site.getByRole('button', { name: 'Check site' }).click();
   await expect(site.locator('.audit-grade')).toHaveAttribute('aria-label', /^Site grade F/);
-  await expect(site.getByRole('button', { name: 'Export developer brief' })).toBeVisible();
+  await site.getByRole('button', { name: 'Export', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Export developer brief' })).toBeVisible();
 });

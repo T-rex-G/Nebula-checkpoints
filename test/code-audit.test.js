@@ -418,6 +418,94 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   process.exitCode = 1;
 });
 
+/* ---- Infrastructure: containers, Terraform, Kubernetes, workflow tokens ---------- */
+{
+  const root = fires('root container, remote add, baked secret', [...BASE, { path: 'Dockerfile', text: 'FROM node:20.11.1\nADD https://example.test/tool.tgz /opt/\nENV API_TOKEN=abc123\nENV NODE_ENV=production\nCMD ["node", "app.js"]\n' }],
+    ['IAC-001', 'IAC-002', 'IAC-003']);
+  assert.deepStrictEqual(root.findings.filter(item => item.category === 'infrastructure').map(item => `${item.rule}:${item.line}`).sort(), ['IAC-001:1', 'IAC-002:2', 'IAC-003:3']);
+  quiet('unprivileged image', [...BASE, { path: 'Dockerfile', text: 'FROM node:20.11.1 AS build\nRUN npm ci\nFROM node:20.11.1\nRUN useradd -r app\nUSER app\nENV API_TOKEN=${API_TOKEN}\nARG NPM_TOKEN\nADD --checksum=sha256:abc https://example.test/x /x\n' }], ['IAC-001', 'IAC-002', 'IAC-003']);
+  quiet('distroless nonroot', [...BASE, { path: 'Dockerfile', text: 'FROM gcr.io/distroless/nodejs20-debian12:nonroot\nCOPY app /app\n' }], ['IAC-001']);
+  fires('root after all', [...BASE, { path: 'Dockerfile', text: 'FROM node:20.11.1\nUSER app\nUSER root\n' }], ['IAC-001']);
+
+  const tf = [
+    'resource "aws_s3_bucket_acl" "logs" {',
+    '  acl = "public-read-write"',
+    '}',
+    'resource "aws_security_group" "web" {',
+    '  ingress {',
+    '    from_port   = 5432',
+    '    to_port     = 5432',
+    '    protocol    = "tcp"',
+    '    cidr_blocks = ["0.0.0.0/0"]',
+    '  }',
+    '  ingress {',
+    '    from_port   = 443',
+    '    to_port     = 443',
+    '    protocol    = "tcp"',
+    '    cidr_blocks = ["0.0.0.0/0"]',
+    '  }',
+    '}',
+    'resource "aws_db_instance" "main" {',
+    '  publicly_accessible = true',
+    '  storage_encrypted   = false',
+    '}'
+  ].join('\n');
+  const infra = fires('terraform', [...BASE, { path: 'infra/main.tf', text: tf }], ['IAC-005', 'IAC-006', 'IAC-007', 'IAC-008']);
+  assert.strictEqual(infra.findings.find(item => item.rule === 'IAC-005').severity, 'critical', 'public-read-write lets anyone overwrite');
+  assert.deepStrictEqual(infra.findings.filter(item => item.rule === 'IAC-006').map(item => item.line), [5], 'the database port, not the web port');
+  quiet('private infrastructure', [...BASE, { path: 'infra/main.tf', text: 'resource "aws_s3_bucket_acl" "a" {\n  acl = "private"\n}\nresource "aws_security_group" "s" {\n  ingress {\n    from_port = 443\n    to_port = 443\n    protocol = "tcp"\n    cidr_blocks = ["0.0.0.0/0"]\n  }\n  ingress {\n    from_port = 22\n    to_port = 22\n    protocol = "tcp"\n    cidr_blocks = ["10.0.0.0/8"]\n  }\n}\nresource "aws_db_instance" "d" {\n  publicly_accessible = false\n  storage_encrypted = true\n}\n' }],
+    ['IAC-005', 'IAC-006', 'IAC-007', 'IAC-008']);
+
+  const k8s = 'apiVersion: apps/v1\nkind: Deployment\nspec:\n  template:\n    spec:\n      hostNetwork: true\n      containers:\n        - name: api\n          securityContext:\n            privileged: true\n            allowPrivilegeEscalation: true\n';
+  fires('privileged workload', [...BASE, { path: 'deploy/api.yaml', text: k8s }], ['IAC-009', 'IAC-010']);
+  quiet('restricted workload', [...BASE, { path: 'deploy/api.yaml', text: 'apiVersion: apps/v1\nkind: Deployment\nspec:\n  template:\n    spec:\n      containers:\n        - name: api\n          securityContext:\n            runAsNonRoot: true\n            runAsUser: 10001\n            allowPrivilegeEscalation: false\n' }], ['IAC-009', 'IAC-010']);
+  quiet('an ordinary config file', [...BASE, { path: 'config/app.yml', text: 'privileged_users: 3\nhost: example.test\n' }], ['IAC-009']);
+
+  fires('write-all token', [...BASE, { path: '.github/workflows/release.yml', text: 'on: push\npermissions: write-all\njobs:\n  r:\n    runs-on: ubuntu-latest\n' }], ['IAC-004']);
+  quiet('least-privilege token', [...BASE, { path: '.github/workflows/release.yml', text: 'on: push\npermissions:\n  contents: read\njobs:\n  r:\n    runs-on: ubuntu-latest\n' }], ['IAC-004']);
+}
+
+/* ---- Password hashing, deserialization and signing keys -------------------------- */
+{
+  fires('fast password hash', [...BASE, { path: 'src/users.js', text: 'const digest = crypto.createHash("sha256").update(password).digest("hex");\n' }], ['SEC-023']);
+  fires('python fast password hash', [...BASE, { path: 'users.py', text: 'hashed = hashlib.md5(password.encode()).hexdigest()\n' }], ['SEC-023']);
+  quiet('a checksum', [...BASE, { path: 'src/files.js', text: 'const etag = crypto.createHash("sha256").update(body).digest("hex");\n' }], ['SEC-023']);
+
+  fires('unpickling', [...BASE, { path: 'worker.py', text: 'job = pickle.loads(message.body)\nconf = yaml.load(stream)\n' }], ['SEC-024']);
+  quiet('safe loading', [...BASE, { path: 'worker.py', text: 'conf = yaml.load(stream, Loader=yaml.SafeLoader)\nconf = yaml.safe_load(stream)\njob = json.loads(body)\n' }], ['SEC-024']);
+
+  fires('signing key in code', [...BASE, { path: 'src/auth.js', text: 'const token = jwt.sign({ sub: user.id }, "change-me-please");\n' }], ['SEC-025']);
+  fires('django key in settings', [...BASE, { path: 'app/settings.py', text: 'SECRET_KEY = "django-insecure-0123456789abcdef"\n' }], ['SEC-025']);
+  quiet('key from the environment', [...BASE, { path: 'src/auth.js', text: 'const token = jwt.sign({ sub: user.id }, process.env.JWT_SECRET);\n' },
+    { path: 'app/settings.py', text: 'SECRET_KEY = os.environ["SECRET_KEY"]\n' }], ['SEC-025']);
+}
+
+/* ---- Standards and waivers ---------------------------------------------------------- */
+{
+  const { MAPPED_RULES, standardsFor } = require('../src/security-standards');
+  const unmapped = Object.keys(audit.RULES).filter(rule => !MAPPED_RULES.includes(rule));
+  assert.deepStrictEqual(unmapped, [], 'every audit rule sits under a CWE, so a team can file it');
+  assert.deepStrictEqual(standardsFor('SEC-001'), { cwe: 'CWE-89', cweName: 'SQL Injection', owasp: 'A03:2021', owaspName: 'Injection' });
+  const mapped = run([...BASE, { path: 'api/users.js', text: 'db.query(`SELECT * FROM users WHERE id = ${id}`);\n' }]);
+  assert.strictEqual(mapped.findings[0].standards.cwe, 'CWE-89');
+
+  /* A waiver names the rule, sits on the line or the one above, and keeps the finding visible. */
+  const waived = run([...BASE, { path: 'src/nonce.js', text: [
+    '// nv-audit-ignore SEC-005 -- a display nonce, not a secret',
+    'const token = Math.random();',
+    'const resetToken = Math.random(); // nv-audit-ignore SEC-001',
+    '// nv-audit-ignore',
+    'const sessionToken = Math.random();',
+    'const otp = Math.random(); # nv-audit-ignore SEC-002, SEC-005: fixture for the demo'
+  ].join('\n') }]);
+  assert.deepStrictEqual(waived.findings.filter(item => item.rule === 'SEC-005').map(item => item.line), [3, 5], 'the wrong rule, or no rule, waives nothing');
+  assert.deepStrictEqual(waived.suppressed.map(item => [item.line, item.suppression.reason]), [[2, 'a display nonce, not a secret'], [6, 'fixture for the demo']]);
+  const onlyWaived = run([...BASE, { path: 'src/nonce.js', text: 'const token = Math.random(); // nv-audit-ignore SEC-005 -- display only\n' }]);
+  const clean = run([...BASE, { path: 'src/nonce.js', text: 'const label = "nonce";\n' }]);
+  assert.strictEqual(onlyWaived.score, clean.score, 'a waived finding is not scored');
+  assert.strictEqual(onlyWaived.findings.filter(item => item.rule === 'SEC-005').length, 0);
+}
+
 /* ---- Hygiene ------------------------------------------------------------------ */
 {
   const committed = fires('committed env', [{ path: 'README.md', text: '#' }, { path: '.env', text: 'X=1\n' }, { path: 'app.js', text: 'process.env.X\n' }], ['HYG-001', 'HYG-002']);

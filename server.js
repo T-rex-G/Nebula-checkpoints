@@ -150,6 +150,8 @@ const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./sr
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = require('./src/guarded-fetch');
 const { auditRepository } = require('./src/code-audit');
 const { checkSite, declaredSite } = require('./src/site-check');
+const { readBranchProtection } = require('./src/branch-protection');
+const { buildPublicAssets, stripHtmlComments, stripJsComments } = require('./src/public-assets');
 const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
 
@@ -479,11 +481,28 @@ app.use((req, res, next) => {
   });
   next();
 });
-/* security headers */
+/*
+ * Security headers. The CSP's frame-ancestors is what modern browsers obey;
+ * X-Frame-Options says the same to the ones that predate it. The page opens
+ * nothing it needs to talk back to, so it keeps a browsing context group of
+ * its own (COOP), serves nothing another origin may embed (CORP), and asks
+ * for its own agent cluster. Every powerful feature the product never uses
+ * is switched off rather than left to a default.
+ */
+const PERMISSIONS_POLICY = [
+  'accelerometer=()', 'autoplay=()', 'bluetooth=()', 'browsing-topics=()', 'camera=()', 'display-capture=()',
+  'geolocation=()', 'gyroscope=()', 'hid=()', 'magnetometer=()', 'microphone=()', 'midi=()', 'payment=()',
+  'publickey-credentials-get=()', 'serial=()', 'usb=()', 'xr-spatial-tracking=()'
+].join(', ');
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Origin-Agent-Cluster', '?1');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   if (process.env.NODE_ENV === 'production') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   res.setHeader('Content-Security-Policy', [
     "default-src 'self'",
@@ -497,7 +516,10 @@ app.use((req, res, next) => {
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
-    "frame-ancestors 'none'"
+    "frame-src 'none'",
+    "manifest-src 'self'",
+    "frame-ancestors 'none'",
+    ...(process.env.NODE_ENV === 'production' ? ['upgrade-insecure-requests'] : [])
   ].join('; '));
   next();
 });
@@ -712,6 +734,34 @@ app.get('/readyz', async (req, res) => {
     });
   }
 });
+/*
+ * Where to report a vulnerability (RFC 9116), and what crawlers may index.
+ * The contact defaults to the repository's private advisory form and can be
+ * pointed elsewhere; Expires is always six months out, so the file never
+ * lapses into a stale promise.
+ */
+function publicOrigin(req) {
+  const configured = String(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
+  return /^https:\/\//.test(configured) ? configured : `${req.protocol}://${req.get('host')}`;
+}
+app.get('/.well-known/security.txt', (req, res) => {
+  const contact = String(process.env.NV_SECURITY_CONTACT || 'https://github.com/T-rex-G/Nebula-checkpoints/security/advisories/new').trim();
+  const expires = new Date(Date.now() + 182 * 24 * 60 * 60 * 1000);
+  expires.setUTCHours(0, 0, 0, 0);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.type('text/plain').send([
+    `Contact: ${contact}`,
+    `Expires: ${expires.toISOString()}`,
+    'Preferred-Languages: en',
+    `Canonical: ${publicOrigin(req)}/.well-known/security.txt`,
+    ''
+  ].join('\n'));
+});
+app.get('/robots.txt', (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.type('text/plain').send('User-agent: *\nAllow: /$\nDisallow: /api/\n');
+});
+
 /* iOS requests these at the root by convention when adding to home screen */
 for (const alias of ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
   app.get(alias, (req, res) => res.sendFile(path.join(__dirname, 'public', 'assets', 'apple-touch-icon.png')));
@@ -817,8 +867,14 @@ app.get('/vendor/*', async (req, res) => {
 /* GitHub sends the exact bytes used to calculate X-Hub-Signature-256. */
 app.post('/hooks/github/:hookId', express.raw({ type: 'application/json', limit: '2mb' }), receiveGithubWebhook);
 app.use(express.json({ limit: '30mb' }));
-const INDEX_TEMPLATE = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
-const SW_TEMPLATE = fs.readFileSync(path.join(__dirname, 'public', 'sw.js'), 'utf8');
+/*
+ * The page, the service worker and the first-party scripts and stylesheets are
+ * served without their source comments (src/public-assets.js): the commentary
+ * is for maintainers, not for every visitor's download.
+ */
+const INDEX_TEMPLATE = stripHtmlComments(fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8'));
+const SW_TEMPLATE = (source => { try { return stripJsComments(source); } catch { return source; } })(fs.readFileSync(path.join(__dirname, 'public', 'sw.js'), 'utf8'));
+const PUBLIC_ASSETS = buildPublicAssets(path.join(__dirname, 'public'));
 function renderReleaseTemplate(template) {
   return template
     .replaceAll('__NV_PRODUCT_NAME__', PRODUCT_NAME)
@@ -851,6 +907,17 @@ app.use('/api', (req, res, next) => {
   });
 });
 
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const asset = PUBLIC_ASSETS.get(req.path);
+  if (!asset || req.path === '/sw.js') return next();
+  res.setHeader('Content-Type', asset.type);
+  res.setHeader('Cache-Control', 'public, max-age=604800'); // safe: URLs are version-stamped
+  res.setHeader('ETag', asset.etag);
+  if (req.headers['if-none-match'] === asset.etag) return res.status(304).end();
+  res.setHeader('Content-Length', String(asset.body.length));
+  return res.end(req.method === 'HEAD' ? undefined : asset.body);
+});
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
     if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
@@ -3011,9 +3078,15 @@ function alphaStepUpRepositoryAccess(req, res, next) {
   }
 }
 
+/*
+ * The safety state a reader may see. `globalControls` says whether read-only
+ * and the sync freeze can be changed from here: a hosted alpha scopes every
+ * change to a repository and refuses the global switches, so the Safeguards
+ * panel shows them as the deployment's rather than as switches that bounce.
+ */
 function alphaSafetyView(req, state) {
   const view = defaultSafety(state);
-  if (!ALPHA_CONFIG.enabled) return view;
+  if (!ALPHA_CONFIG.enabled) return { ...view, globalControls: true };
   const protectedRepositories = {};
   for (const [repository, patterns] of Object.entries(view.protected)) {
     const match = String(repository).match(/^([^/\s]+)\/([^/\s]+)$/);
@@ -3024,7 +3097,7 @@ function alphaSafetyView(req, state) {
       }
     } catch {}
   }
-  return { ...view, protected: protectedRepositories };
+  return { ...view, protected: protectedRepositories, globalControls: false };
 }
 
 function alphaSafetyMutationAccess(req, res, next) {
@@ -5549,7 +5622,8 @@ app.get('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepositoryAcc
     if (req.gh.provider === 'gitlab') {
       const f = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(requestedPath)}?ref=${encodeURIComponent(req.query.ref)}`);
       if (f.size > MB) return res.json({ tooLarge: true, name: f.file_name, path: requestedPath, sha: f.blob_id, size: f.size });
-      return res.json({ name: f.file_name, path: requestedPath, sha: f.blob_id, size: f.size, content: Buffer.from(f.content || '', 'base64').toString('utf8') });
+      /* Base64, as GitHub and Gitea answer: the editor decodes one shape, and decoding here broke every GitLab file with a non-Latin-1 character. */
+      return res.json({ name: f.file_name, path: requestedPath, sha: f.blob_id, size: f.size, content: f.content || '', encoding: 'base64' });
     }
     const meta = await gh(req.gh,
       `${R(req)}/contents/${encodePath(requestedPath)}?ref=${encodeURIComponent(req.query.ref)}`);
@@ -5800,17 +5874,19 @@ app.post('/api/repo/:owner/:repo/batch', providerSessionAccess, alphaRepositoryA
 /* ================= COMMITS ================= */
 app.get('/api/repo/:owner/:repo/commits', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
   try {
+    /* One page of 25 in one shape for every provider: the list pages by the count it receives. */
+    const page = Math.max(1, Math.min(1000, parseInt(req.query.page || '1', 10) || 1));
     if (req.gh.provider === 'gitlab') {
-      const qp = new URLSearchParams({ ref_name: req.query.ref || '', per_page: '30' });
+      const qp = new URLSearchParams({ ref_name: req.query.ref || '', per_page: '25', page: String(page) });
       if (req.query.path) qp.set('path', req.query.path);
       const list = await glFetch(req.gh, `/projects/${glId(req)}/repository/commits?${qp}`);
       return res.json(list.map(c => ({
         sha: c.id, message: c.message,
-        author: { name: c.author_name, date: c.authored_date, avatar: null },
-        html_url: c.web_url
+        author: c.author_name || '?',
+        avatar: null,
+        date: c.authored_date
       })));
     }
-    const page = parseInt(req.query.page || '1', 10);
     const pathFilter = req.query.path ? `&path=${encodeURIComponent(req.query.path)}` : '';
     const commits = await gh(req.gh,
       `${R(req)}/commits?sha=${encodeURIComponent(req.query.ref)}&per_page=25&page=${page}${pathFilter}`);
@@ -6921,7 +6997,8 @@ app.post('/api/safety', providerSessionAccess, alphaSafetyMutationAccess, accoun
       actor: retainedActor(req), repository: relatedRepo, readOnly: cur.readOnly, freezeSync: cur.freezeSync,
       protectedCount: Object.values(cur.protected).reduce((n, x) => n + x.length, 0), changedAt: new Date().toISOString()
     }).catch(() => {});
-    res.json(req.effectiveSafety);
+    /* The same view the read gives: no other repository's protected paths come back from a change to this one. */
+    res.json(alphaSafetyView(req, req.effectiveSafety));
   } catch (e) { fail(res, e); }
 });
 
@@ -7689,6 +7766,24 @@ app.get('/api/repo/:owner/:repo/site-check', providerSessionAccess, alphaReposit
   finally { siteChecksInFlight.delete(who); }
 });
 
+/*
+ * What the provider enforces on a branch, beside Nebulaverse-X's own
+ * safeguards. Read-only: every path and every judgement is in
+ * src/branch-protection.js; this binds its reader to the open repository.
+ */
+app.get('/api/repo/:owner/:repo/branch-protection', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const provider = req.gh.provider || 'github';
+    const branch = req.query.branch ? requireBranchName(String(req.query.branch)) : '';
+    const read = provider === 'gitlab'
+      ? apiPath => glFetch(req.gh, `/projects/${glId(req)}${apiPath}`)
+      : apiPath => gh(req.gh, `${R(req)}${apiPath}`);
+    const webBase = provider === 'github' ? 'https://github.com' : provider === 'gitlab' ? (req.gh.baseUrl || 'https://gitlab.com') : req.gh.baseUrl;
+    res.json(await readBranchProtection({ provider, owner: req.params.owner, repo: req.params.repo, branch, read, webBase }));
+  } catch (e) { fail(res, e); }
+});
+
 app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const branch = req.query.ref || '';
@@ -8256,6 +8351,16 @@ app.get('/api/version', (req, res) => res.json({
 }));
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+  /*
+   * The page is served for a route, not for a file. A path with a dot segment
+   * or an extension that the static server did not find is a file that does
+   * not exist -- /.env, /.git/HEAD, /package.json -- and answering it with the
+   * app's own page at 200 reads, to every scanner, as the file being there.
+   */
+  if (/(^|\/)\.[^/]*|\.[a-z0-9]{1,8}$/i.test(req.path)) {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(404).type('text/plain').send('Not found\n');
+  }
   res.setHeader('Cache-Control', 'no-cache');
   res.type('html').send(renderReleaseTemplate(INDEX_TEMPLATE));
 });

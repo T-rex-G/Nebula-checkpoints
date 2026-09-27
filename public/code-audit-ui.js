@@ -3,8 +3,9 @@
  *
  * The order is the argument, as it is on the Exposure screen: the grade and
  * how much of the repository it rests on come first, then the three jobs to
- * do first, then the five families the grade was built from, then every
- * finding. A findings list alone invites the reading "nothing here, so
+ * do first, then the six families the grade was built from and the OWASP
+ * Top 10 map of the same findings, then every finding, searchable, each
+ * filed under its CWE. A findings list alone invites the reading "nothing here, so
  * nothing is wrong", which a partial read does not support.
  *
  * The screen talks in shapes before words -- a ring for the score, a tile per
@@ -30,8 +31,31 @@
     code: 'M8.5 7l-5 5 5 5M15.5 7l5 5-5 5M13.4 4.5l-2.8 15',
     secrets: 'M8 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM11.5 12h9M17.5 12v3M14.5 12v2.2',
     dependencies: 'M6 3.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4zM18 3.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4zM12 15.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4zM7 8l4 7.8M17 8l-4 7.8M8.2 6h7.6',
+    infrastructure: 'M4 5.5h16v5H4zM4 13.5h16v5H4zM7.5 8h.1M7.5 16h.1M11 8h5.5M11 16h5.5',
     hygiene: 'M7 4h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9 3.5h6M9 12.5l2.1 2.1 4-4.3'
   });
+  /*
+   * The OWASP Top 10 (2021), in the short words a tile has room for, and the
+   * page on owasp.org each links to.
+   */
+  const OWASP = Object.freeze([
+    ['A01', 'Access control', 'A01_2021-Broken_Access_Control'],
+    ['A02', 'Cryptography', 'A02_2021-Cryptographic_Failures'],
+    ['A03', 'Injection', 'A03_2021-Injection'],
+    ['A04', 'Insecure design', 'A04_2021-Insecure_Design'],
+    ['A05', 'Misconfiguration', 'A05_2021-Security_Misconfiguration'],
+    ['A06', 'Outdated components', 'A06_2021-Vulnerable_and_Outdated_Components'],
+    ['A07', 'Authentication', 'A07_2021-Identification_and_Authentication_Failures'],
+    ['A08', 'Integrity', 'A08_2021-Software_and_Data_Integrity_Failures'],
+    ['A09', 'Logging', 'A09_2021-Security_Logging_and_Monitoring_Failures'],
+    ['A10', 'SSRF', 'A10_2021-Server-Side_Request_Forgery_%28SSRF%29']
+  ]);
+  const OWASP_SLUG = Object.freeze(Object.fromEntries(OWASP.map(([id, , slug]) => [id, slug])));
+  /* What a finding list shows at once; the rest is a click away. */
+  const PAGE = 40;
+  const SITE_FOLD = 5;
+  /* Site results the reader unfolded, by origin and time, so a redraw keeps them open. */
+  const expandedSites = new Set();
   const ICON = Object.freeze({
     download: 'M12 4v11M7 10.5l5 5 5-5M5 20h14',
     copy: 'M9 9h9.5a1.5 1.5 0 0 1 1.5 1.5V20a1.5 1.5 0 0 1-1.5 1.5H9A1.5 1.5 0 0 1 7.5 20v-9.5A1.5 1.5 0 0 1 9 9zM16.5 9V5.5A1.5 1.5 0 0 0 15 4H5.5A1.5 1.5 0 0 0 4 5.5V15a1.5 1.5 0 0 0 1.5 1.5H7.5',
@@ -43,7 +67,13 @@
     globe: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM3.5 12h17M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z',
     arrow: 'M5 12h13M13 6.5l5.5 5.5-5.5 5.5',
     link: 'M14 4h6v6M20 4l-8.5 8.5M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
-    check: 'M5 12.5l4.2 4.2L19 7'
+    check: 'M5 12.5l4.2 4.2L19 7',
+    search: 'M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.3 15.3L20 20',
+    chevron: 'M7 10l5 5 5-5',
+    waive: 'M12 3.3l7.2 3v5.3c0 4.3-3 7.9-7.2 9.4-4.2-1.5-7.2-5.1-7.2-9.4V6.3zM9 12h6',
+    markdown: 'M4 6h16v12H4zM7 15V9l2.5 3L12 9v6M16 9v6M14.2 13.2L16 15l1.8-1.8',
+    table: 'M4 5h16v14H4zM4 10h16M4 14.5h16M10 5v14',
+    sarif: 'M8 4H6a2 2 0 0 0-2 2v4l-1.5 2L4 14v4a2 2 0 0 0 2 2h2M16 4h2a2 2 0 0 1 2 2v4l1.5 2-1.5 2v4a2 2 0 0 1-2 2h-2M9 12h6'
   });
   const STORE_PREFIX = 'nv_audit:';
   const SVG = 'http://www.w3.org/2000/svg';
@@ -80,6 +110,118 @@
     node.title = name;
     return node;
   }
+  /*
+   * A control that survives a redraw: the render puts focus back on the
+   * control with the same key, so a keyboard reader filtering the list is not
+   * thrown back to the top of the page on every press.
+   */
+  function keyed(node, key) {
+    node.dataset.key = key;
+    return node;
+  }
+
+  /*
+   * The export menu: the brief to read, SARIF for a code-scanning dashboard,
+   * CSV for a spreadsheet. A button that opens a small menu; Escape, a click
+   * elsewhere or a choice closes it. While open the menu lives on the body:
+   * a card's blur makes it the frame a fixed child is placed in, and its edge
+   * would cut the menu off.
+   */
+  let closeOpenMenu = null;
+  const EXPORTS = Object.freeze([
+    ['brief', ICON.markdown, 'Developer brief', 'Markdown for a person or an assistant', 'Export developer brief'],
+    ['sarif', ICON.sarif, 'SARIF 2.1.0', 'For GitHub code scanning and other dashboards', 'Export SARIF'],
+    ['csv', ICON.table, 'CSV', 'For a spreadsheet or a tracker import', 'Export CSV']
+  ]);
+  function exportMenu(onExport, key, kinds) {
+    const wrap = element('div', 'audit-export');
+    const trigger = keyed(button('', 'btn btn-ghost audit-tool audit-export-btn'), key);
+    trigger.append(icon(ICON.download), element('span', 'audit-btn-label', 'Export'), icon(ICON.chevron, 'audit-ico audit-export-chev'));
+    trigger.setAttribute('aria-haspopup', 'menu');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-label', 'Export');
+    trigger.title = 'Export';
+    const menu = element('div', 'audit-export-menu');
+    menu.setAttribute('role', 'menu');
+    menu.hidden = true;
+    const items = EXPORTS.filter(([kind]) => !kinds || kinds.includes(kind)).map(([kind, path, word, hint, name]) => {
+      const item = button('', 'audit-export-item', () => { close(); onExport(kind); });
+      item.setAttribute('role', 'menuitem');
+      item.setAttribute('aria-label', name);
+      item.tabIndex = -1;
+      const text = element('span', 'audit-export-text');
+      text.append(element('span', 'audit-export-word', word), element('span', 'audit-export-hint', hint));
+      item.append(icon(path), text);
+      menu.appendChild(item);
+      return item;
+    });
+    const outside = event => { if (!wrap.contains(event.target) && !menu.contains(event.target)) close(); };
+    /* A scroll carries the menu with its button; once the button is off screen, the menu goes. */
+    let frame = 0;
+    const follow = () => {
+      if (frame) return;
+      frame = global.requestAnimationFrame(() => {
+        frame = 0;
+        if (menu.hidden) return;
+        const box = trigger.getBoundingClientRect();
+        if (!trigger.isConnected || box.bottom < 0 || box.top > global.innerHeight) close();
+        else place();
+      });
+    };
+    /*
+     * Placed against the viewport, not the card, so no card's clipping cuts
+     * it off: under the button when there is room, above it when there is
+     * not, and kept inside the screen's width.
+     */
+    function place() {
+      const box = trigger.getBoundingClientRect();
+      const width = Math.min(290, global.innerWidth - 24);
+      menu.style.width = `${width}px`;
+      menu.style.left = `${Math.max(12, Math.min(box.left, global.innerWidth - width - 12))}px`;
+      const below = global.innerHeight - box.bottom;
+      const height = menu.offsetHeight || 190;
+      menu.style.top = below < height + 16 && box.top > height + 16 ? `${box.top - height - 6}px` : `${box.bottom + 6}px`;
+    }
+    function close(returnFocus) {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      wrap.appendChild(menu);
+      if (closeOpenMenu === close) closeOpenMenu = null;
+      trigger.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('pointerdown', outside, true);
+      global.removeEventListener('resize', follow);
+      global.removeEventListener('scroll', follow, true);
+      if (returnFocus) trigger.focus();
+    }
+    function open() {
+      if (closeOpenMenu) closeOpenMenu();
+      closeOpenMenu = close;
+      document.body.appendChild(menu);
+      menu.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+      place();
+      document.addEventListener('pointerdown', outside, true);
+      global.addEventListener('resize', follow);
+      global.addEventListener('scroll', follow, true);
+      items[0].focus({ preventScroll: true });
+    }
+    trigger.addEventListener('click', () => (menu.hidden ? open() : close()));
+    const keys = event => {
+      if (menu.hidden) return;
+      const at = items.indexOf(document.activeElement);
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true); }
+      else if (event.key === 'ArrowDown') { event.preventDefault(); items[(at + 1) % items.length].focus(); }
+      else if (event.key === 'ArrowUp') { event.preventDefault(); items[(at - 1 + items.length) % items.length].focus(); }
+      else if (event.key === 'Home') { event.preventDefault(); items[0].focus(); }
+      else if (event.key === 'End') { event.preventDefault(); items[items.length - 1].focus(); }
+      else if (event.key === 'Tab') close();
+    };
+    wrap.addEventListener('keydown', keys);
+    menu.addEventListener('keydown', keys);
+    wrap.append(trigger, menu);
+    return wrap;
+  }
+
   function plural(count, one, many) {
     return `${count} ${count === 1 ? one : many}`;
   }
@@ -294,6 +436,8 @@
         notes.appendChild(element('p', 'audit-diff',
           `${plural(view.diff.newIds.size, 'new finding', 'new findings')}, ${view.diff.resolved} resolved${since}.`));
       }
+      const waived = (result.suppressed || []).length;
+      if (waived) notes.appendChild(element('p', 'audit-waived-note', `${plural(waived, 'finding', 'findings')} waived in code, listed below and not scored.`));
       if (notes.childNodes.length) read.appendChild(notes);
     }
     layout.appendChild(read);
@@ -311,8 +455,8 @@
     run.disabled = status === 'running';
     actions.appendChild(run);
     if (result) {
-      actions.appendChild(iconButton(ICON.download, 'Brief', 'Export developer brief', 'btn btn-ghost audit-tool', handlers.onExport));
-      if (result.findings.length) actions.appendChild(iconButton(ICON.copy, 'Prompts', 'Copy all fix prompts', 'btn btn-ghost audit-tool', handlers.onCopyAll));
+      actions.appendChild(exportMenu(handlers.onExport, 'export'));
+      if (result.findings.length) actions.appendChild(keyed(iconButton(ICON.copy, 'Prompts', 'Copy all fix prompts', 'btn btn-ghost audit-tool', handlers.onCopyAll), 'prompts'));
     }
     card.appendChild(actions);
     host.appendChild(card);
@@ -385,7 +529,7 @@
     list.setAttribute('aria-label', 'Audit families');
     for (const category of result.categories) {
       const item = element('li', 'audit-category');
-      const control = button('', 'audit-category-btn', () => handlers.onFilter(view.filter === category.id ? null : category.id));
+      const control = keyed(button('', 'audit-category-btn', () => handlers.onFilter(view.filter === category.id ? null : category.id)), `family:${category.id}`);
       control.setAttribute('aria-pressed', view.filter === category.id ? 'true' : 'false');
       const status = category.counts.critical ? 'critical' : category.counts.serious ? 'serious' : category.counts.warning ? 'warning' : 'clear';
       control.dataset.status = status;
@@ -416,7 +560,86 @@
     host.appendChild(list);
   }
 
+  /* ---- Standards ------------------------------------------------------------ */
+
+  /*
+   * The same findings on the OWASP Top 10: a tile per category, lit by the
+   * worst finding under it, each a filter. The engine files every rule under
+   * a CWE; a category with nothing under it says clear rather than going
+   * blank, because an empty tile reads as "not checked".
+   */
+  function renderStandards(host, view, handlers) {
+    const result = view.result;
+    if (!result || !result.findings.some(finding => finding.standards)) return;
+    const card = element('section', 'card audit-owasp');
+    card.setAttribute('aria-labelledby', 'auditOwaspHeading');
+    const head = element('div', 'audit-owasp-head');
+    const heading = element('h2', 'audit-kicker', 'OWASP Top 10 · 2021');
+    heading.id = 'auditOwaspHeading';
+    const cwes = new Set(result.findings.map(finding => finding.standards && finding.standards.cwe).filter(Boolean));
+    head.append(heading, element('span', 'audit-owasp-cwe', `${plural(cwes.size, 'CWE', 'CWEs')} across ${plural(result.findings.length, 'finding', 'findings')}`));
+    card.appendChild(head);
+    const list = element('ul', 'audit-owasp-grid');
+    list.setAttribute('aria-label', 'OWASP Top 10 categories');
+    for (const [id, word] of OWASP) {
+      const under = result.findings.filter(finding => finding.standards && finding.standards.owasp === `${id}:2021`);
+      const counts = severityCounts(under);
+      const worst = ORDER.find(severity => counts[severity]) || 'clear';
+      const item = element('li', 'audit-owasp-item');
+      const control = keyed(button('', 'audit-owasp-btn', () => handlers.onOwasp && handlers.onOwasp(view.owasp === id ? null : id)), `owasp:${id}`);
+      control.dataset.status = worst;
+      control.setAttribute('aria-pressed', view.owasp === id ? 'true' : 'false');
+      control.setAttribute('aria-label', `${id} ${word}: ${under.length ? plural(under.length, 'finding', 'findings') : 'clear'}`);
+      control.disabled = !under.length && view.owasp !== id;
+      control.append(element('span', 'audit-owasp-id', id), element('span', 'audit-owasp-word', word),
+        element('span', 'audit-owasp-n', under.length ? String(under.length) : '✓'));
+      item.appendChild(control);
+      list.appendChild(item);
+    }
+    card.appendChild(list);
+    host.appendChild(card);
+  }
+
+  /* A finding's CWE and OWASP category, each a link to its definition. */
+  function standardsChips(standards) {
+    if (!standards) return null;
+    const wrap = element('span', 'audit-std');
+    const cweNumber = /^CWE-(\d{1,5})$/.exec(standards.cwe || '');
+    if (cweNumber) {
+      const cwe = element('a', 'audit-std-chip', standards.cwe);
+      cwe.href = `https://cwe.mitre.org/data/definitions/${cweNumber[1]}.html`;
+      cwe.target = '_blank';
+      cwe.rel = 'noopener noreferrer';
+      cwe.title = standards.cweName ? `${standards.cwe}: ${standards.cweName}` : standards.cwe;
+      wrap.appendChild(cwe);
+    }
+    const owaspId = /^(A\d{2}):2021$/.exec(standards.owasp || '');
+    if (owaspId && OWASP_SLUG[owaspId[1]]) {
+      const owasp = element('a', 'audit-std-chip audit-std-owasp', `OWASP ${owaspId[1]}`);
+      owasp.href = `https://owasp.org/Top10/${OWASP_SLUG[owaspId[1]]}/`;
+      owasp.target = '_blank';
+      owasp.rel = 'noopener noreferrer';
+      owasp.title = `${standards.owasp} ${standards.owaspName}`;
+      wrap.appendChild(owasp);
+    }
+    return wrap.childNodes.length ? wrap : null;
+  }
+
   /* ---- Findings ------------------------------------------------------------- */
+
+  /* Every word a reader might search a finding by. */
+  function searchText(finding, families) {
+    const standards = finding.standards || {};
+    return [finding.title, finding.rule, finding.where || location(finding), families && families.get(finding.category),
+      standards.cwe, standards.cweName, standards.owasp, standards.owaspName, detailChip(finding), SEVERITY[finding.severity].word]
+      .filter(Boolean).join(' ').toLowerCase();
+  }
+  function matches(finding, query, families) {
+    const terms = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return true;
+    const text = searchText(finding, families);
+    return terms.every(term => text.includes(term));
+  }
 
   function osvLink(id) {
     if (!ADVISORY_ID.test(String(id))) return element('span', 'audit-adv-id', String(id));
@@ -507,6 +730,8 @@
       } else {
         where.appendChild(element('span', 'audit-location-static', finding.where || location(finding)));
       }
+      const chips = standardsChips(finding.standards);
+      if (chips) where.appendChild(chips);
       foot.appendChild(where);
       const copy = button('', 'btn btn-ghost small audit-copy', event => handlers.onCopy(finding, event.currentTarget));
       copy.append(icon(ICON.copy), element('span', 'audit-btn-label', 'Copy fix prompt'));
@@ -527,25 +752,30 @@
     const head = element('div', 'exposure-section-head audit-findings-head');
     const titleWrap = element('div', 'exposure-findings-title');
     const familyLabel = view.filter ? (result.categories.find(category => category.id === view.filter) || {}).label : '';
-    const title = element('h2', 'exposure-heading', familyLabel ? `Findings — ${familyLabel}` : 'Findings');
+    const owaspLabel = view.owasp ? `OWASP ${view.owasp} ${(OWASP.find(([id]) => id === view.owasp) || [])[1] || ''}`.trim() : '';
+    const scope = [familyLabel, owaspLabel].filter(Boolean).join(' · ');
+    const title = element('h2', 'exposure-heading', scope ? `Findings — ${scope}` : 'Findings');
     title.id = 'auditFindingsHeading';
     titleWrap.appendChild(title);
-    const inFamily = result.findings.filter(finding => !view.filter || finding.category === view.filter);
-    const count = element('span', 'exposure-count', String(inFamily.length));
+    const families = new Map(result.categories.map(category => [category.id, category.label]));
+    const inScope = result.findings.filter(finding => (!view.filter || finding.category === view.filter)
+      && (!view.owasp || (finding.standards && finding.standards.owasp === `${view.owasp}:2021`)));
+    const count = element('span', 'exposure-count', String(inScope.length));
     count.setAttribute('aria-hidden', 'true');
     titleWrap.appendChild(count);
     head.appendChild(titleWrap);
-    if (view.filter) head.appendChild(button('Show all', 'btn btn-ghost small', () => handlers.onFilter(null)));
+    if (view.filter || view.owasp) head.appendChild(keyed(button('Show all', 'btn btn-ghost small', () => handlers.onFilter(null)), 'show-all'));
     card.appendChild(head);
 
-    /* Severity is a second filter over the family one, as a segmented control. */
-    if (inFamily.length) {
-      const counts = severityCounts(inFamily);
+    /* Severity is a second filter over the family one, as a segmented control; the search narrows both. */
+    if (inScope.length) {
+      const tools = element('div', 'audit-find-tools');
+      const counts = severityCounts(inScope);
       const segments = element('div', 'audit-segments');
       segments.setAttribute('role', 'group');
       segments.setAttribute('aria-label', 'Show by severity');
       const segment = (value, text, total) => {
-        const control = button('', 'audit-segment', () => handlers.onSeverity && handlers.onSeverity(value));
+        const control = keyed(button('', 'audit-segment', () => handlers.onSeverity && handlers.onSeverity(value)), `severity:${value || 'all'}`);
         control.setAttribute('aria-pressed', (view.severity || null) === value ? 'true' : 'false');
         if (value) {
           control.dataset.severity = value;
@@ -555,20 +785,77 @@
         control.disabled = Boolean(value) && !total;
         return control;
       };
-      segments.appendChild(segment(null, 'All', inFamily.length));
+      segments.appendChild(segment(null, 'All', inScope.length));
       for (const severity of ORDER) segments.appendChild(segment(severity, SEVERITY[severity].word, counts[severity]));
-      card.appendChild(segments);
+      tools.appendChild(segments);
+      if (inScope.length > 3 || view.query) {
+        const search = element('label', 'audit-search');
+        search.append(icon(ICON.search));
+        const input = keyed(element('input', 'audit-search-input'), 'search');
+        input.type = 'search';
+        input.placeholder = 'Search rule, file, CWE…';
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        input.value = view.query || '';
+        input.setAttribute('aria-label', 'Search findings');
+        let timer = 0;
+        input.addEventListener('input', () => {
+          global.clearTimeout(timer);
+          timer = global.setTimeout(() => handlers.onQuery && handlers.onQuery(input.value), 140);
+        });
+        input.addEventListener('keydown', event => {
+          if (event.key === 'Escape' && input.value) { event.preventDefault(); input.value = ''; handlers.onQuery && handlers.onQuery(''); }
+        });
+        search.appendChild(input);
+        tools.appendChild(search);
+      }
+      card.appendChild(tools);
     }
 
-    const shown = inFamily.filter(finding => !view.severity || finding.severity === view.severity);
+    const shown = inScope.filter(finding => (!view.severity || finding.severity === view.severity) && matches(finding, view.query, families));
     if (!shown.length) {
-      card.appendChild(element('p', 'exposure-empty audit-empty', view.filter ? 'Nothing found in this family, in what was read.' : 'Nothing found, in what was read.'));
-      host.appendChild(card);
-      return;
+      const empty = view.query
+        ? `Nothing matches “${String(view.query).trim()}”.`
+        : view.filter || view.owasp ? 'Nothing found here, in what was read.' : 'Nothing found, in what was read.';
+      card.appendChild(element('p', 'exposure-empty audit-empty', empty));
+    } else {
+      const limit = Math.max(PAGE, Number(view.limit) || PAGE);
+      card.appendChild(findingList(shown.slice(0, limit), view.diff, handlers, families));
+      if (shown.length > limit) {
+        const more = keyed(button('', 'btn btn-ghost audit-more', () => handlers.onMore && handlers.onMore(limit + PAGE)), 'more');
+        more.append(element('span', null, `Show ${Math.min(PAGE, shown.length - limit)} more`), element('span', 'audit-more-of', `${limit} of ${shown.length}`));
+        card.appendChild(more);
+      }
     }
-    const families = new Map(result.categories.map(category => [category.id, category.label]));
-    card.appendChild(findingList(shown, view.diff, handlers, families));
+    const waived = result.suppressed || [];
+    if (waived.length) card.appendChild(waivedList(waived));
     host.appendChild(card);
+  }
+
+  /*
+   * What the repository waived in its own code, with the reason it wrote.
+   * Listed, never scored, never hidden: a waiver is a decision somebody made,
+   * and a reviewer should be able to read every one of them.
+   */
+  function waivedList(waived) {
+    const wrap = element('details', 'audit-waived');
+    const summary = element('summary', 'audit-waived-head');
+    summary.append(icon(ICON.waive), element('span', 'audit-waived-title', 'Waived in code'), element('span', 'exposure-count', String(waived.length)));
+    wrap.appendChild(summary);
+    const list = element('ul', 'audit-waived-list');
+    for (const finding of waived) {
+      const item = element('li', 'audit-waived-item');
+      item.dataset.severity = finding.severity;
+      const top = element('span', 'audit-waived-top');
+      top.append(icon(SEVERITY[finding.severity].icon), element('span', 'audit-waived-name', finding.title));
+      const meta = element('span', 'audit-waived-meta');
+      meta.append(element('span', 'audit-rule', finding.rule), element('span', 'audit-row-where', location(finding)));
+      const reason = finding.suppression && finding.suppression.reason;
+      item.append(top, meta, element('span', `audit-waived-reason${reason ? '' : ' audit-waived-bare'}`, reason ? `“${reason}”` : 'No reason given'));
+      list.appendChild(item);
+    }
+    wrap.appendChild(list);
+    return wrap;
   }
 
   /* Where the provider has no repository reader, the audit says so rather than showing an empty -- and therefore clean -- result. */
@@ -592,7 +879,20 @@
     'x-frame-options': 'X-Frame-Options',
     'x-content-type-options': 'X-Content-Type-Options',
     'referrer-policy': 'Referrer-Policy',
-    'permissions-policy': 'Permissions-Policy'
+    'permissions-policy': 'Permissions-Policy',
+    'cross-origin-opener-policy': 'Cross-Origin-Opener-Policy',
+    'cross-origin-resource-policy': 'Cross-Origin-Resource-Policy'
+  });
+  /* A header's job in three words, under its name on the tile. */
+  const HEADER_JOBS = Object.freeze({
+    'strict-transport-security': 'HTTPS only',
+    'content-security-policy': 'Script sources',
+    'x-frame-options': 'No framing',
+    'x-content-type-options': 'No sniffing',
+    'referrer-policy': 'Leaks no URLs',
+    'permissions-policy': 'Device features',
+    'cross-origin-opener-policy': 'Window isolation',
+    'cross-origin-resource-policy': 'Resource isolation'
   });
 
   /*
@@ -659,17 +959,20 @@
       row.appendChild(ring(result, 'done', `Site grade ${result.grade}, ${result.score} out of 100`, fresh ? 0 : null));
       const read = element('div', 'audit-grade-read');
       const total = result.findings.length;
-      read.appendChild(element('p', 'audit-verdict audit-verdict-sm', total
-        ? `${plural(total, 'finding', 'findings')} on ${result.origin}.`
-        : `Nothing found on ${result.origin}.`));
-      if (total) read.appendChild(severityTally(result.findings));
-      if (result.capped) read.appendChild(element('p', 'audit-cap', 'Held below 50 while a critical finding is open.'));
-      read.appendChild(element('p', 'audit-coverage', siteCoverage(result)));
+      const origin = element('span', 'audit-origin');
+      origin.append(icon(ICON.globe), element('span', null, result.origin.replace(/^https:\/\//, '')));
+      origin.title = result.origin;
+      read.append(origin, element('p', 'audit-verdict audit-verdict-sm', total ? verdict(result, 'done') : 'Nothing found'));
+      read.appendChild(severityTally(result.findings));
+      const notes = element('div', 'audit-notes');
+      if (result.capped) notes.appendChild(element('p', 'audit-cap', 'Held below 50 while a critical finding is open.'));
       if (site.diff) {
         const since = site.diff.previousAt ? ` since the check of ${new Date(site.diff.previousAt).toLocaleString()}` : '';
-        read.appendChild(element('p', 'audit-diff',
+        notes.appendChild(element('p', 'audit-diff',
           `${plural(site.diff.newIds.size, 'new finding', 'new findings')}, ${site.diff.resolved} resolved${since}.`));
       }
+      notes.appendChild(element('p', 'audit-coverage', siteCoverage(result)));
+      read.appendChild(notes);
       row.appendChild(read);
       card.appendChild(row);
 
@@ -677,19 +980,44 @@
       headers.setAttribute('aria-label', 'Security headers');
       for (const header of result.headers || []) {
         const item = element('li', 'audit-header');
-        item.dataset.present = header.present ? 'true' : 'false';
-        item.append(element('span', 'audit-header-glyph', header.present ? '✓' : '✕'),
-          element('span', 'audit-header-name', HEADER_NAMES[header.name] || header.name),
-          element('span', 'audit-header-state', header.present ? 'sent' : 'not sent'));
+        const covered = !header.present && header.via;
+        item.dataset.present = header.present || covered ? 'true' : 'false';
+        if (covered) item.dataset.via = 'true';
+        const text = element('span', 'audit-header-text');
+        text.append(element('span', 'audit-header-name', HEADER_NAMES[header.name] || header.name),
+          element('span', 'audit-header-job', HEADER_JOBS[header.name] || ''));
+        const state = header.present ? 'sent' : covered ? `via ${header.via === 'content-security-policy' ? 'CSP' : header.via}` : 'not sent';
+        item.append(element('span', 'audit-header-glyph', header.present || covered ? '✓' : '✕'), text, element('span', 'audit-header-state', state));
+        if (covered) item.title = `Not sent, but ${HEADER_NAMES[header.via] || header.via} does its job`;
         headers.appendChild(item);
       }
       card.appendChild(headers);
 
-      const actions = element('div', 'audit-actions');
-      if (total) actions.appendChild(iconButton(ICON.copy, 'Prompts', 'Copy all fix prompts', 'btn btn-ghost audit-tool', handlers.onSiteCopyAll));
-      if (handlers.onExport && !site.hasRepositoryResult) actions.appendChild(iconButton(ICON.download, 'Brief', 'Export developer brief', 'btn btn-ghost audit-tool', handlers.onExport));
-      if (actions.childNodes.length) card.appendChild(actions);
-      if (total) card.appendChild(findingList(result.findings, site.diff, { onCopy: handlers.onCopy }));
+      const exportable = handlers.onExport && !site.hasRepositoryResult;
+      if (total || exportable) {
+        const listHead = element('div', 'audit-site-list-head');
+        const listTitle = element('h3', 'audit-site-list-title', 'Findings');
+        const listCount = element('span', 'exposure-count', String(total));
+        listCount.setAttribute('aria-hidden', 'true');
+        const titleWrap = element('div', 'exposure-findings-title');
+        titleWrap.append(listTitle, listCount);
+        const actions = element('div', 'audit-actions');
+        if (total) actions.appendChild(keyed(iconButton(ICON.copy, 'Prompts', 'Copy all fix prompts', 'btn btn-ghost audit-tool', handlers.onSiteCopyAll), 'site-prompts'));
+        if (exportable) actions.appendChild(exportMenu(handlers.onExport, 'site-export'));
+        listHead.append(titleWrap, actions);
+        card.appendChild(listHead);
+      }
+      if (total) {
+        /* The worst first; past five, the rest fold behind one button so the page stays readable. */
+        const siteId = `${result.origin}|${result.checkedAt}`;
+        const all = expandedSites.has(siteId) || total <= SITE_FOLD;
+        card.appendChild(findingList(all ? result.findings : result.findings.slice(0, SITE_FOLD), site.diff, { onCopy: handlers.onCopy }));
+        if (!all) {
+          const more = keyed(button('', 'btn btn-ghost audit-more', () => { expandedSites.add(siteId); handlers.onSiteExpand && handlers.onSiteExpand(); }), 'site-more');
+          more.append(element('span', null, `Show ${total - SITE_FOLD} more`), element('span', 'audit-more-of', `${SITE_FOLD} of ${total}`));
+          card.appendChild(more);
+        }
+      }
     }
     host.appendChild(card);
   }
@@ -702,7 +1030,15 @@
   function render(root, view, handlers) {
     if (!root) return;
     const open = new Set([...root.querySelectorAll('details[open][data-finding-id]')].map(node => node.dataset.findingId));
+    const waivedOpen = Boolean(root.querySelector('details.audit-waived[open]'));
     const previous = drawn.get(root) || null;
+    const active = root.contains(document.activeElement) ? document.activeElement : null;
+    const focus = active && active.dataset.key ? {
+      key: active.dataset.key,
+      start: typeof active.selectionStart === 'number' ? active.selectionStart : null,
+      end: typeof active.selectionEnd === 'number' ? active.selectionEnd : null
+    } : null;
+    if (closeOpenMenu) closeOpenMenu();
     root.replaceChildren();
     if (view.unavailable) {
       renderUnavailable(root, view.unavailable);
@@ -710,12 +1046,23 @@
       renderSummary(root, view, handlers, previous);
       renderPriorities(root, view, handlers, root);
       renderCategories(root, view, handlers);
+      renderStandards(root, view, handlers);
       renderFindings(root, view, handlers);
     }
     if (view.site) renderSite(root, { ...view.site, hasRepositoryResult: Boolean(view.result) }, handlers, previous);
     for (const id of open) {
       const details = root.querySelector(`details[data-finding-id="${CSS.escape(id)}"]`);
       if (details) details.open = true;
+    }
+    if (waivedOpen) { const waived = root.querySelector('details.audit-waived'); if (waived) waived.open = true; }
+    if (focus) {
+      const again = root.querySelector(`[data-key="${CSS.escape(focus.key)}"]`);
+      if (again && !again.disabled) {
+        again.focus({ preventScroll: true });
+        if (focus.start !== null && typeof again.setSelectionRange === 'function') {
+          try { again.setSelectionRange(focus.start, focus.end); } catch { /* not a text field */ }
+        }
+      }
     }
     drawn.set(root, {
       id: view.result ? resultId(view.result) : null,
@@ -738,6 +1085,11 @@
         `- **Rule:** ${finding.rule}`,
         `- **Where:** ${place(finding)}`
       );
+      const standards = finding.standards;
+      if (standards) {
+        lines.push(`- **Standards:** ${[standards.cwe && `${standards.cwe}${standards.cweName ? ` (${standards.cweName})` : ''}`,
+          standards.owasp && `OWASP ${standards.owasp} ${standards.owaspName}`].filter(Boolean).join(' · ')}`);
+      }
       const detail = finding.detail;
       if (detail && finding.rule === 'SCR-001') lines.push(`- **Credential:** ${detail.credential}`);
       if (detail && finding.rule === 'DEP-004') lines.push(`- **Looks like:** ${detail.resembles}`);
@@ -782,6 +1134,12 @@
       }
       if (!result.findings.length) lines.push('No findings in what was read.', '');
       findingSection(result.findings, lines, '', finding => finding.path ? `\`${location(finding)}\`` : 'whole repository');
+      const waived = result.suppressed || [];
+      if (waived.length) {
+        lines.push('## Waived in code', '', 'Not scored. Each was waived by an `nv-audit-ignore` comment naming its rule.', '',
+          '| Rule | Finding | Where | Reason |', '| --- | --- | --- | --- |',
+          ...waived.map(finding => `| ${finding.rule} | ${cell(finding.title)} | \`${location(finding)}\` | ${cell((finding.suppression && finding.suppression.reason) || 'none given')} |`), '');
+      }
     }
     if (site) {
       lines.push(
@@ -801,11 +1159,184 @@
     return lines.filter((line, index, all) => !(line === '' && all[index - 1] === '')).join('\n');
   }
 
+  /* A Markdown table cell: pipes escaped, one line. */
+  function cell(text) {
+    return String(text || '').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
+  }
+
+  /*
+   * SARIF 2.1.0, the format code-scanning dashboards read. One run per
+   * source: the repository, with each result at its file and line, and the
+   * deployed site, with each result at its logical place (a header, a path).
+   * Waived findings travel as results with an in-source suppression, so a
+   * dashboard shows them as dismissed rather than losing them. Rules carry
+   * their CWE and OWASP tags and a security-severity GitHub sorts by.
+   */
+  const SARIF_LEVEL = Object.freeze({ critical: 'error', serious: 'error', warning: 'warning' });
+  const SECURITY_SEVERITY = Object.freeze({ critical: '9.5', serious: '7.5', warning: '4.0' });
+
+  function sarifRules(findings) {
+    const rules = new Map();
+    for (const finding of findings) {
+      if (rules.has(finding.rule)) continue;
+      const standards = finding.standards || {};
+      const tags = ['security', finding.category, standards.cwe && `external/cwe/${standards.cwe.toLowerCase()}`, standards.owasp && `owasp-${standards.owasp.replace(':', '-').toLowerCase()}`].filter(Boolean);
+      rules.set(finding.rule, {
+        id: finding.rule,
+        name: finding.rule.replace('-', ''),
+        shortDescription: { text: finding.title },
+        fullDescription: { text: finding.why },
+        help: { text: finding.fix, markdown: `**Fix.** ${finding.fix}` },
+        ...(standards.cwe ? { helpUri: `https://cwe.mitre.org/data/definitions/${standards.cwe.slice(4)}.html` } : {}),
+        defaultConfiguration: { level: SARIF_LEVEL[finding.severity] },
+        properties: { tags, precision: 'high', 'problem.severity': finding.severity === 'warning' ? 'warning' : 'error', 'security-severity': SECURITY_SEVERITY[finding.severity] }
+      });
+    }
+    return [...rules.values()];
+  }
+
+  function sarifResult(finding, ruleIndex, place, suppression) {
+    const result = {
+      ruleId: finding.rule,
+      ruleIndex,
+      level: SARIF_LEVEL[finding.severity],
+      message: { text: `${finding.title}. ${finding.why}` },
+      ...place,
+      partialFingerprints: { 'nebulaverseFinding/v1': finding.id || `${finding.rule}:${finding.where || location(finding)}` },
+      properties: { severity: finding.severity, family: finding.category || 'site' }
+    };
+    if (suppression) result.suppressions = [{ kind: 'inSource', justification: suppression.reason || 'Waived in code without a reason.' }];
+    return result;
+  }
+
+  function sarif(result, site, meta = {}) {
+    const driver = rules => ({
+      driver: {
+        name: 'Nebulaverse-X Audit',
+        informationUri: meta.informationUri || 'https://github.com/T-rex-G/Nebula-checkpoints',
+        ...(meta.version ? { semanticVersion: meta.version } : {}),
+        rules
+      }
+    });
+    const runs = [];
+    if (result) {
+      const all = [...result.findings, ...(result.suppressed || [])];
+      const rules = sarifRules(all);
+      const index = new Map(rules.map((rule, at) => [rule.id, at]));
+      const place = finding => finding.path ? {
+        locations: [{ physicalLocation: { artifactLocation: { uri: finding.path, uriBaseId: 'SRCROOT' }, ...(finding.line ? { region: { startLine: finding.line } } : {}) } }]
+      } : {};
+      runs.push({
+        tool: driver(rules),
+        automationDetails: { id: `nebulaverse-audit/${meta.ref || result.ref || 'branch'}/` },
+        ...(meta.repositoryUri ? { versionControlProvenance: [{ repositoryUri: meta.repositoryUri, revisionId: result.commitSha, ...(result.ref ? { branch: result.ref } : {}) }] } : {}),
+        originalUriBaseIds: { SRCROOT: { uri: 'file:///' } },
+        results: [
+          ...result.findings.map(finding => sarifResult(finding, index.get(finding.rule), place(finding))),
+          ...(result.suppressed || []).map(finding => sarifResult(finding, index.get(finding.rule), place(finding), finding.suppression))
+        ],
+        properties: { grade: result.grade, score: result.score, capped: Boolean(result.capped) }
+      });
+    }
+    if (site) {
+      const rules = sarifRules(site.findings);
+      const index = new Map(rules.map((rule, at) => [rule.id, at]));
+      runs.push({
+        tool: driver(rules),
+        automationDetails: { id: `nebulaverse-site/${site.origin}/` },
+        results: site.findings.map(finding => sarifResult(finding, index.get(finding.rule), {
+          locations: [{ logicalLocations: [{ name: finding.where, fullyQualifiedName: `${site.origin} ${finding.where}`, kind: 'resource' }] }]
+        })),
+        properties: { origin: site.origin, grade: site.grade, score: site.score, capped: Boolean(site.capped) }
+      });
+    }
+    return JSON.stringify({ $schema: 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0', runs }, null, 2);
+  }
+
+  /*
+   * CSV, one finding a row. A cell that opens with =, +, -, @ or a control
+   * character is prefixed with an apostrophe: a path or a title from a
+   * repository is somebody else's text, and a spreadsheet must not run it
+   * as a formula.
+   */
+  function csvCell(value) {
+    let text = value === null || value === undefined ? '' : String(value);
+    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+  function csv(result, site, changes) {
+    const rows = [['Source', 'Status', 'Severity', 'Rule', 'Title', 'Family', 'CWE', 'OWASP', 'Location', 'Line', 'Reason waived', 'Fix']];
+    const row = (source, status, finding, family) => {
+      const standards = finding.standards || {};
+      rows.push([source, status, finding.severity, finding.rule, finding.title, family || '', standards.cwe || '', standards.owasp || '',
+        finding.path || finding.where || 'whole repository', finding.line || '',
+        finding.suppression ? finding.suppression.reason || '' : '', finding.fix]);
+    };
+    if (result) {
+      const families = new Map((result.categories || []).map(category => [category.id, category.label]));
+      for (const finding of result.findings) row('repository', changes && changes.newIds.has(finding.id) ? 'new' : 'open', finding, families.get(finding.category));
+      for (const finding of result.suppressed || []) row('repository', 'waived', finding, families.get(finding.category));
+    }
+    if (site) for (const finding of site.findings) row(site.origin, 'open', finding, 'Deployed site');
+    return `${rows.map(cells => cells.map(csvCell).join(',')).join('\r\n')}\r\n`;
+  }
+
+  /*
+   * Exposure findings as CSV and SARIF. The rows arrive already made safe by
+   * the caller: a rule, a displayable path (never the raw one, which can be
+   * named with the credential), a line, a status. Nothing here could carry a
+   * secret because nothing here is given one.
+   */
+  const EXPOSURE_COLUMNS = ['Severity', 'Credential', 'Rule', 'Location', 'Line', 'Status', 'Where', 'Introduced in', 'Provider says', 'Fingerprint'];
+  function exposureCsv(rows) {
+    const lines = [EXPOSURE_COLUMNS, ...rows.map(row => [row.severity, row.label, row.rule, row.where, row.line || '', row.status,
+      [row.inTree === false ? 'history only' : 'tree', row.archive ? 'archive' : '', row.encoded ? 'base64' : ''].filter(Boolean).join(' + '),
+      row.commit || '', row.verified || '', row.fingerprint])];
+    return `${lines.map(cells => cells.map(csvCell).join(',')).join('\r\n')}\r\n`;
+  }
+  function exposureSarif(rows, meta = {}) {
+    const rules = [];
+    const index = new Map();
+    for (const row of rows) {
+      if (index.has(row.rule)) continue;
+      index.set(row.rule, rules.length);
+      rules.push({
+        id: row.rule,
+        name: row.label,
+        shortDescription: { text: `${row.label} committed to the repository` },
+        help: { text: 'Revoke the credential with its issuer, replace it, then remove it from the repository and its history.' },
+        helpUri: 'https://cwe.mitre.org/data/definitions/798.html',
+        defaultConfiguration: { level: SARIF_LEVEL[row.severity] || 'error' },
+        properties: { tags: ['security', 'secret', 'external/cwe/cwe-798', 'owasp-a07-2021'], precision: 'high', 'security-severity': SECURITY_SEVERITY[row.severity] || '7.5' }
+      });
+    }
+    const results = rows.map(row => {
+      const result = {
+        ruleId: row.rule,
+        ruleIndex: index.get(row.rule),
+        level: SARIF_LEVEL[row.severity] || 'error',
+        message: { text: `${row.label} in ${row.where}${row.inTree === false ? ', only in history' : ''}.` },
+        locations: [{ physicalLocation: { artifactLocation: { uri: row.where, uriBaseId: 'SRCROOT' }, ...(row.line ? { region: { startLine: row.line } } : {}) } }],
+        partialFingerprints: { 'nebulaverseExposure/v1': row.fingerprint },
+        properties: { severity: row.severity, status: row.status, inTree: row.inTree !== false, ...(row.commit ? { introducedIn: row.commit } : {}), ...(row.verified ? { providerSays: row.verified } : {}) }
+      };
+      if (row.status === 'accepted-risk') result.suppressions = [{ kind: 'external', justification: row.acceptedBy ? `Risk accepted by ${row.acceptedBy}` : 'Risk accepted' }];
+      return result;
+    });
+    return JSON.stringify({ $schema: 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0', runs: [{
+      tool: { driver: { name: 'Nebulaverse-X Exposure', informationUri: meta.informationUri || 'https://github.com/T-rex-G/Nebula-checkpoints', rules } },
+      automationDetails: { id: `nebulaverse-exposure/${meta.ref || 'branch'}/` },
+      ...(meta.repositoryUri && meta.commitSha ? { versionControlProvenance: [{ repositoryUri: meta.repositoryUri, revisionId: meta.commitSha, ...(meta.ref ? { branch: meta.ref } : {}) }] } : {}),
+      originalUriBaseIds: { SRCROOT: { uri: 'file:///' } },
+      results
+    }] }, null, 2);
+  }
+
   function allPrompts(result) {
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, brief, allPrompts, diff, readPrevious, remember, storageKey });
+  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, brief, sarif, csv, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaCodeAudit;

@@ -20,6 +20,7 @@
 
 const crypto = require('crypto');
 const { gradeOf } = require('./code-audit');
+const { standardsFor } = require('./security-standards');
 
 const RULES = Object.freeze({
   'WEB-001': { severity: 'critical', title: 'An environment file is served publicly',
@@ -66,7 +67,19 @@ const RULES = Object.freeze({
     fix: 'Publish /.well-known/security.txt with a Contact and an Expires line (RFC 9116).' },
   'WEB-015': { severity: 'warning', title: 'A macOS folder index is served',
     why: 'A .DS_Store file lists the names of files in the directory, including ones that are not linked anywhere.',
-    fix: 'Delete .DS_Store files from the deployment and deny dot-files at the server.' }
+    fix: 'Delete .DS_Store files from the deployment and deny dot-files at the server.' },
+  'WEB-016': { severity: 'warning', title: 'The page does not isolate its browsing context',
+    why: 'Without Cross-Origin-Opener-Policy, a window this page opens -- or one that opened it -- keeps a handle to it, which is how tab-nabbing and cross-site leak attacks reach a signed-in page.',
+    fix: 'Send "Cross-Origin-Opener-Policy: same-origin" (or same-origin-allow-popups if the site relies on popups such as an OAuth window).' },
+  'WEB-017': { severity: 'warning', title: 'The Content-Security-Policy leaves base URLs or plugins open',
+    why: 'A policy without base-uri lets injected markup re-point every relative script to another host, and one that does not rule out object and embed lets a plugin run script the policy never listed.',
+    fix: 'Add "base-uri \u2019none\u2019" (or \u2019self\u2019) and "object-src \u2019none\u2019" to the policy.' },
+  'WEB-018': { severity: 'serious', title: 'The page loads resources over plain HTTP',
+    why: 'Anything fetched over HTTP from an HTTPS page can be read and replaced on the network. Scripts and frames loaded that way are blocked by browsers, which breaks the page; images and media are shown with the padlock taken away.',
+    fix: 'Load every script, stylesheet, frame and asset over https://, and add "upgrade-insecure-requests" to the Content-Security-Policy.' },
+  'WEB-019': { severity: 'warning', title: 'A third-party script loads without an integrity check',
+    why: 'A script from another origin runs with the page\u2019s full authority. Without a Subresource Integrity hash, whoever controls that host -- or compromises it -- controls the page.',
+    fix: 'Add integrity="sha384-..." and crossorigin="anonymous" to third-party script tags, or serve the script from your own origin.' }
 });
 
 const PROBES = Object.freeze([
@@ -149,6 +162,48 @@ function headerFindings(headers) {
   const origin = get('access-control-allow-origin').trim();
   if ((origin === '*' || origin === 'null') && /true/i.test(get('access-control-allow-credentials'))) out.push({ rule: 'WEB-010', where: 'Access-Control-Allow-Origin' });
   if (/\d/.test(get('server')) || get('x-powered-by')) out.push({ rule: 'WEB-013', where: get('x-powered-by') ? 'X-Powered-By' : 'Server' });
+  if (!/same-origin/i.test(get('cross-origin-opener-policy'))) out.push({ rule: 'WEB-016', where: 'Cross-Origin-Opener-Policy' });
+  if (csp) {
+    const directive = name => ((new RegExp(`(?:^|;)\\s*${name}\\s+([^;]*)`, 'i').exec(csp) || [])[1] || null);
+    const objects = directive('object-src') || directive('default-src');
+    const baseOpen = directive('base-uri') === null;
+    const pluginsOpen = objects === null || !/'none'|'self'/i.test(objects) || /\*|https?:/i.test(objects);
+    if (baseOpen || pluginsOpen) out.push({ rule: 'WEB-017', where: 'Content-Security-Policy' });
+  }
+  return out;
+}
+
+/*
+ * What the page itself asks the browser to load, read from the markup the
+ * check already has: a script, frame, stylesheet or asset over plain HTTP,
+ * and a script from another origin with no integrity hash. Only the first
+ * such tag of each kind is named, by its host, never its full address.
+ */
+function markupFindings(body, origin) {
+  const out = [];
+  const html = String(body || '');
+  if (!html) return out;
+  const self = new URL(origin).host;
+  const tags = [...html.matchAll(/<(script|iframe|link|img|source|video|audio)\b([^>]*)>/gi)];
+  let insecure = null;
+  let unsigned = null;
+  for (const [, tag, attributes] of tags) {
+    const src = (/\b(?:src|href)\s*=\s*["']([^"']+)["']/i.exec(attributes) || [])[1] || '';
+    if (tag.toLowerCase() === 'link' && !/\brel\s*=\s*["'][^"']*(stylesheet|preload|modulepreload|icon)/i.test(attributes)) continue;
+    if (/^http:\/\//i.test(src) && !insecure) insecure = src;
+    if (tag.toLowerCase() === 'script' && /^(https:)?\/\//i.test(src) && !unsigned) {
+      try {
+        const host = new URL(src, origin).host;
+        if (host !== self && !/\bintegrity\s*=\s*["']sha(256|384|512)-/i.test(attributes)) unsigned = host;
+      } catch { /* not an address */ }
+    }
+  }
+  if (insecure) {
+    let host = 'an http:// address';
+    try { host = new URL(insecure).host; } catch { /* keep the generic name */ }
+    out.push({ rule: 'WEB-018', where: `http://${host}` });
+  }
+  if (unsigned) out.push({ rule: 'WEB-019', where: `<script src> from ${unsigned}` });
   return out;
 }
 
@@ -163,6 +218,7 @@ function describe(rule, where) {
     title: definition.title,
     why: definition.why,
     fix: definition.fix,
+    standards: standardsFor(rule),
     prompt: `On the deployed site (${where}): ${definition.title.toLowerCase()}. ${definition.why} ${definition.fix} ` +
       'Make the change in the hosting or server configuration this repository controls, and verify it by requesting the page and reading the response headers.'
   };
@@ -214,7 +270,8 @@ async function checkSite({ url, transport }) {
     pathname = next.pathname || '/';
     redirects += 1;
   }
-  const raw = [...headerFindings(page.headers || {}), ...cookieFindings(cookies)];
+  const raw = [...headerFindings(page.headers || {}), ...cookieFindings(cookies),
+    ...(looksLikeHtml(page) ? markupFindings(page.body, origin) : [])];
 
   const served = new Set();
   for (const probe of PROBES) {
@@ -264,8 +321,18 @@ async function checkSite({ url, transport }) {
     grade: gradeOf(score),
     capped: critical && mean > CRITICAL_CAP,
     findings,
-    headers: Object.freeze(['strict-transport-security', 'content-security-policy', 'x-frame-options', 'x-content-type-options', 'referrer-policy', 'permissions-policy']
-      .map(name => ({ name, present: Boolean(headersSeen[name]) })))
+    /*
+     * The headers a browser enforces, each sent or not. X-Frame-Options is
+     * the old spelling of CSP frame-ancestors; a page that sends the newer
+     * one is protected, and says so rather than showing a missing header.
+     */
+    headers: Object.freeze(['strict-transport-security', 'content-security-policy', 'x-frame-options', 'x-content-type-options', 'referrer-policy', 'permissions-policy', 'cross-origin-opener-policy', 'cross-origin-resource-policy']
+      .map(name => {
+        const present = Boolean(headersSeen[name]);
+        const via = !present && name === 'x-frame-options' && /frame-ancestors/i.test(String(headersSeen['content-security-policy'] || ''))
+          ? 'content-security-policy' : null;
+        return Object.freeze({ name, present, via });
+      }))
   };
 }
 

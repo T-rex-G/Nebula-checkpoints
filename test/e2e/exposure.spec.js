@@ -394,6 +394,66 @@ test('a finding says when it is only in history, inside an archive, or encoded',
   await expect(page.locator('.exposure-disclosure[data-fingerprint="' + 'd'.repeat(64) + '"] .exposure-item-tags')).toBeHidden();
 });
 
+test('findings narrow by severity, status, place and words, and export without the credential', async ({ page }) => {
+  const history = finding({
+    fingerprint: 'a'.repeat(64), path: 'config/old.env', displayPath: 'config/old.env', inTree: false,
+    introducedCommit: 'a1b2c3d'.padEnd(40, '0'), narration: { ...finding().narration, severity: 'warning' }
+  });
+  const archived = finding({ fingerprint: 'b'.repeat(64), path: 'dist/app.zip!/config/.env', displayPath: 'dist/app.zip!/config/.env' });
+  const accepted = finding({ fingerprint: 'c'.repeat(64), rule: 'stripe-live-key', path: 'billing/keys.js', displayPath: 'billing/keys.js', disposition: 'accepted-risk', dispositionBy: 'alice' });
+  const plain = finding({ fingerprint: 'd'.repeat(64), path: `app/${SECRET}.js`, displayPath: 'app/[withheld].js', inTree: true });
+  await mockExposure(page, { findings: [history, archived, accepted, plain] });
+  await openExposure(page);
+  const items = page.locator('#exposureList > .exposure-item');
+  await expect(items).toHaveCount(4);
+  const tools = page.locator('#exposureTools');
+  await expect(tools).toBeVisible();
+
+  await tools.getByRole('group', { name: 'Show by severity' }).getByRole('button', { name: /^Warning/ }).click();
+  await expect(items).toHaveCount(1);
+  await expect(page.locator('#exposureShown')).toHaveText('1 of 4 shown');
+  await tools.getByRole('group', { name: 'Show by severity' }).getByRole('button', { name: /^All/ }).click();
+
+  await page.locator('#exposureWhereFilter').selectOption('archive');
+  await expect(items).toHaveCount(1);
+  await expect(items.first()).toContainText('dist/app.zip!/config/.env');
+  await page.locator('#exposureWhereFilter').selectOption('all');
+
+  await page.locator('#exposureStatusFilter').selectOption('accepted-risk');
+  await expect(items).toHaveCount(1);
+  await expect(items.first()).toContainText('Stripe live key');
+  await page.locator('#exposureResetFilters').click();
+  await expect(items).toHaveCount(4);
+
+  const search = page.getByRole('searchbox', { name: 'Search findings' });
+  await search.fill('stripe');
+  await expect(items).toHaveCount(1);
+  await search.fill('nothing-like-this');
+  await expect(page.locator('#exposureEmpty')).toHaveText('No findings match these filters.');
+  await page.locator('#exposureResetFilters').click();
+  await expect(items).toHaveCount(4);
+  await expect(search).toHaveValue('');
+
+  /* Export carries the displayable path and the status, never the credential or the raw path. */
+  await tools.getByRole('button', { name: 'Export', exact: true }).click();
+  const csvDownload = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Export CSV' }).click();
+  const csv = require('fs').readFileSync(await (await csvDownload).path(), 'utf8');
+  expect(csv.split('\r\n')[0]).toBe('Severity,Credential,Rule,Location,Line,Status,Where,Introduced in,Provider says,Fingerprint');
+  expect(csv).toContain('app/[withheld].js');
+  expect(csv).toContain('accepted-risk');
+  expect(csv).toContain('history only');
+  expect(csv).not.toContain(SECRET);
+  await tools.getByRole('button', { name: 'Export', exact: true }).click();
+  const sarifDownload = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Export SARIF' }).click();
+  const sarifText = require('fs').readFileSync(await (await sarifDownload).path(), 'utf8');
+  const sarif = JSON.parse(sarifText);
+  expect(sarif.runs[0].results).toHaveLength(4);
+  expect(sarif.runs[0].results.find(result => result.ruleId === 'stripe-live-key').suppressions[0].justification).toBe('Risk accepted by alice');
+  expect(sarifText).not.toContain(SECRET);
+});
+
 test('failed scan startup explains a next step without provider details', async ({ page }) => {
   const state = await mockExposure(page);
   state.scanError = 'EXPOSURE_READ_FAILED';

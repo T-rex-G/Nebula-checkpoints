@@ -1435,9 +1435,11 @@ ${logs}`
       headers: { cookie: combinedCookie('A', 'provider-github') }
     });
     assert.strictEqual(safety.status, 200);
-    assert.deepStrictEqual((await json(safety)).protected, {
+    const safetyBody = await json(safety);
+    assert.deepStrictEqual(safetyBody.protected, {
       'Acme/Demo': ['allowed.txt']
     }, 'safety aggregate must not disclose protected-path metadata for disallowed repositories');
+    assert.strictEqual(safetyBody.globalControls, false, 'the hosted alpha says its global switches are not changeable here');
 
     const safetyMutationBaseline = {
       session: events('session.write'),

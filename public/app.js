@@ -474,14 +474,19 @@ function modalOwner() {
   return () => generation === modalGeneration && epoch === state.uiEpoch &&
     identity === state.me && overlayOpen($('#scrim'));
 }
-function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = null }) {
+function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = null, wide = false, cancel = true, autofocus = true }) {
   modalGeneration++;
   if (modalResolve) { modalResolve(false); modalResolve = null; }
   return new Promise(resolve => {
     modalResolve = resolve;
     modalReturnFocus = document.activeElement;
     $('#modalTitle').textContent = title;
+    $('#modal').classList.toggle('modal-wide', Boolean(wide));
+    /* A panel with nothing to confirm has nothing to cancel either: one way out, Done. */
+    $('#modalCancel').hidden = cancel === false;
     $('#modalBody').innerHTML = bodyHTML;
+    /* The dialog element is reused: a new one starts at its top, not where the last was left. */
+    $('#modal').scrollTop = 0;
     const ok = $('#modalOk');
     ok.textContent = okText;
     ok.classList.toggle('danger', danger);
@@ -491,8 +496,9 @@ function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = n
        the right place rather than correcting on the second. */
     anchorOverlayOrigin($('#modal'), modalReturnFocus);
     if (typeof onOpen === 'function') onOpen($('#modalBody'));
-    const fi = $('#modalBody input:not([disabled]), #modalBody textarea:not([disabled]), #modalBody select:not([disabled])');
-    const initialFocus = fi || $('#modalCancel');
+    /* A panel of controls opens on its way out rather than in a text field, so a phone does not raise its keyboard. */
+    const fi = autofocus ? $('#modalBody input:not([disabled]), #modalBody textarea:not([disabled]), #modalBody select:not([disabled])') : null;
+    const initialFocus = fi || (cancel === false ? $('#modalClose') || $('#modalOk') : $('#modalCancel'));
     if (initialFocus) setTimeout(() => {
       const scrim = $('#scrim');
       if (ownsModal() && initialFocus.isConnected && !scrim.contains(document.activeElement)) initialFocus.focus({ preventScroll: true });
@@ -846,16 +852,60 @@ function showPage(name) {
     paintFloatingAction(name);
   }));
 }
-function saveRoute() {
+/*
+ * The address follows the workbench. A tab change is a step the reader can
+ * take back, so it is pushed; everything else (a file opening, the branch
+ * settling) replaces the current entry. While an address is being applied
+ * nothing is pushed, or Back would walk into the step it just took.
+ */
+let routeApplying = false;
+function saveRoute(push = false) {
   if (_page !== 'work' || !state.work || !state.work.repo) return;
   const h = `#/${encodeURIComponent(state.work.owner)}/${encodeURIComponent(state.work.repo)}` +
     `@${encodeURIComponent(state.work.branch)}/${currentTab()}` +
     (state.file && state.file.path ? '/' + encodeURIComponent(state.file.path) : '');
-  history.replaceState(null, '', h);
+  if (h === location.hash) return;
+  if (push && !routeApplying) history.pushState(null, '', h);
+  else history.replaceState(null, '', h);
+  lastAppliedRoute = h;
 }
+/*
+ * Back, Forward, a pasted link or an edited address: the same repository
+ * moves to the branch, tab and file it names; another repository opens.
+ */
+let lastAppliedRoute = '';
+async function applyRoute() {
+  const hash = location.hash;
+  if (hash === lastAppliedRoute) return;
+  const m = /^#\/([^/]+)\/([^/@]+)@([^/]+)\/([a-z]+)(?:\/(.+))?$/.exec(hash);
+  if (!m) return;
+  lastAppliedRoute = hash;
+  routeApplying = true;
+  try {
+    const owner = decodeURIComponent(m[1]), repo = decodeURIComponent(m[2]);
+    const same = _page === 'work' && state.work && String(state.work.owner).toLowerCase() === owner.toLowerCase()
+      && String(state.work.repo).toLowerCase() === repo.toLowerCase();
+    if (!same) { await restoreRoute(); return; }
+    const branch = decodeURIComponent(m[3]);
+    const select = $('#branchSelect');
+    if (branch && branch !== state.work.branch && select && [...select.options].some(option => option.value === branch)) {
+      select.value = branch;
+      select.dispatchEvent(new Event('change'));
+    }
+    if (m[4] !== currentTab()) switchTab(m[4]);
+    const file = m[5] ? decodeURIComponent(m[5]) : '';
+    if (file && (!state.file || state.file.path !== file)) await openFile(file);
+  } catch { /* a stale or foreign address leaves the workbench as it was */ }
+  finally { routeApplying = false; }
+}
+window.addEventListener('popstate', () => { void applyRoute(); });
+window.addEventListener('hashchange', () => { void applyRoute(); });
 async function restoreRoute() {
   const m = /^#\/([^/]+)\/([^/@]+)@([^/]+)\/([a-z]+)(?:\/(.+))?$/.exec(location.hash);
   if (!m) return false;
+  lastAppliedRoute = location.hash;
+  const wasApplying = routeApplying;
+  routeApplying = true;
   try {
     await openRepo(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
     const br = decodeURIComponent(m[3]);
@@ -869,6 +919,7 @@ async function restoreRoute() {
     if (m[5]) openFile(decodeURIComponent(m[5]));
     return true;
   } catch { return false; }
+  finally { routeApplying = wasApplying; }
 }
 
 /* ---------------- theme & settings ---------------- */
@@ -2815,7 +2866,9 @@ function freshExposureState(scopeKey = '') {
     /* The history, newest first, with a cursor for the next page. */
     history: [], historyLoading: false, historyDone: false, historyError: '',
     /* Which history entries are open, and each one's report once fetched. */
-    openScans: new Set(), reports: {}
+    openScans: new Set(), reports: {},
+    /* What the list is narrowed to: a severity, a status, where it sits, and words. */
+    view: { severity: null, status: 'all', where: 'all', query: '' }
   };
 }
 
@@ -3328,6 +3381,13 @@ function renderExposure() {
   const empty = $('#exposureEmpty');
   if (!list || !empty) return;
   list.textContent = '';
+  const shown = exposureFiltered(current);
+  renderExposureTools(current, shown.length);
+  if (current.findings.length && !shown.length) {
+    empty.hidden = false;
+    empty.textContent = 'No findings match these filters.';
+    return;
+  }
   if (!current.findings.length) {
     /*
      * The empty state depends on the coverage, which is the whole point of
@@ -3349,9 +3409,179 @@ function renderExposure() {
    * reader sees without scrolling -- and the order does not change between
    * visits, which is what lets somebody find their place again.
    */
-  for (const finding of sortExposureFindings(current.findings)) {
+  for (const finding of sortExposureFindings(shown)) {
     list.appendChild(exposureFindingItem(finding, current, { interactive: true }));
   }
+}
+
+/*
+ * The findings toolbar: severity segments, a status and a place filter, a
+ * search, and export. Built once and updated in place, so a poll that
+ * re-renders the list never takes the cursor out of the search box.
+ */
+const EXPOSURE_WHERE = Object.freeze([['all', 'Anywhere'], ['tree', 'In the tree'], ['history', 'Only in history'], ['archive', 'In an archive'], ['encoded', 'Encoded']]);
+const EXPOSURE_STATUSES = Object.freeze([['all', 'Any status'], ['open', 'Open'], ['credential-rejected', 'No longer works'], ['accepted-risk', 'Accepted'], ['removed-from-tree', 'Removed from tree']]);
+function exposureWhereOf(finding) {
+  return {
+    tree: finding.inTree !== false,
+    history: finding.inTree === false,
+    archive: String(finding.path || '').includes('!/'),
+    encoded: finding.decodedFrom === 'base64'
+  };
+}
+function exposureMatches(finding, view) {
+  if (view.severity && exposureSeverity(finding) !== view.severity) return false;
+  if (view.status !== 'all' && (finding.disposition || 'open') !== view.status) return false;
+  if (view.where !== 'all' && !exposureWhereOf(finding)[view.where]) return false;
+  const terms = String(view.query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return true;
+  const text = [exposureRuleLabel(finding.rule), finding.rule, finding.displayPath, EXPOSURE_SEVERITY_WORDS[exposureSeverity(finding)],
+    EXPOSURE_DISPOSITION_WORDS[finding.disposition || 'open']].filter(Boolean).join(' ').toLowerCase();
+  return terms.every(term => text.includes(term));
+}
+function exposureFiltered(current) {
+  return current.findings.filter(finding => exposureMatches(finding, current.view));
+}
+/* Rows safe to hand to an export: the displayable path, never the raw one. */
+function exposureExportRows(findings, current) {
+  return sortExposureFindings(findings).map(finding => {
+    const verification = current.verifications[finding.fingerprint];
+    const where = exposureWhereOf(finding);
+    return {
+      severity: exposureSeverity(finding), label: exposureRuleLabel(finding.rule), rule: String(finding.rule || 'credential'),
+      where: finding.displayPath || 'a file', line: exposureFirstLine(finding), status: finding.disposition || 'open',
+      inTree: finding.inTree !== false, archive: where.archive, encoded: where.encoded,
+      commit: /^[0-9a-f]{7,40}$/.test(String(finding.introducedCommit || '')) ? String(finding.introducedCommit).slice(0, 12) : '',
+      verified: verification ? verification.state : '', fingerprint: finding.fingerprint || '',
+      acceptedBy: finding.disposition === 'accepted-risk' ? finding.dispositionBy || '' : ''
+    };
+  });
+}
+function exportExposure(kind) {
+  const current = exposureState();
+  const shown = exposureFiltered(current);
+  if (!shown.length || !window.NebulaCodeAudit) return;
+  const rows = exposureExportRows(shown, current);
+  const day = new Date().toISOString().slice(0, 10);
+  const base = `${state.work.repo}-exposure-${day}`;
+  if (kind === 'sarif') {
+    const provider = (state.me && state.me.provider) || 'github';
+    const scan = current.scan || {};
+    dlFile(`${base}.sarif`, window.NebulaCodeAudit.exposureSarif(rows, {
+      ref: state.work.branch, commitSha: scan.commitSha,
+      repositoryUri: provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : ''
+    }), 'application/sarif+json');
+  } else {
+    dlFile(`${base}.csv`, window.NebulaCodeAudit.exposureCsv(rows), 'text/csv');
+  }
+  announceExposure(`${rows.length} ${rows.length === 1 ? 'finding' : 'findings'} exported.`);
+}
+function ensureExposureTools() {
+  const host = $('#exposureTools');
+  if (!host || host.dataset.ready) return host;
+  host.dataset.ready = 'true';
+  const current = () => exposureState();
+  const segments = document.createElement('div');
+  segments.className = 'audit-segments exposure-segments';
+  segments.setAttribute('role', 'group');
+  segments.setAttribute('aria-label', 'Show by severity');
+  for (const [value, word] of [[null, 'All'], ['critical', 'Critical'], ['serious', 'Serious'], ['warning', 'Warning']]) {
+    const control = document.createElement('button');
+    control.type = 'button';
+    control.className = 'audit-segment';
+    control.dataset.severity = value || '';
+    control.dataset.value = value || 'all';
+    const text = document.createElement('span');
+    text.textContent = word;
+    const n = document.createElement('span');
+    n.className = 'audit-segment-n';
+    control.append(text, n);
+    control.addEventListener('click', () => { current().view.severity = value; renderExposure(); });
+    segments.appendChild(control);
+  }
+  const select = (id, label, options, key) => {
+    const wrap = document.createElement('label');
+    wrap.className = 'exposure-select';
+    const sr = document.createElement('span');
+    sr.className = 'sr-only';
+    sr.textContent = label;
+    const control = document.createElement('select');
+    control.id = id;
+    for (const [value, word] of options) control.add(new Option(word, value));
+    control.addEventListener('change', () => { current().view[key] = control.value; renderExposure(); });
+    wrap.append(sr, control);
+    return wrap;
+  };
+  const search = document.createElement('label');
+  search.className = 'audit-search exposure-search';
+  search.innerHTML = '<svg class="audit-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.3 15.3L20 20"/></svg>';
+  const input = document.createElement('input');
+  input.type = 'search';
+  input.id = 'exposureSearch';
+  input.className = 'audit-search-input';
+  input.placeholder = 'Search credential or file…';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.setAttribute('aria-label', 'Search findings');
+  let timer = 0;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { current().view.query = input.value.slice(0, 120); renderExposure(); }, 140);
+  });
+  search.appendChild(input);
+  const row = document.createElement('div');
+  row.className = 'exposure-tools-row';
+  row.append(select('exposureStatusFilter', 'Status', EXPOSURE_STATUSES, 'status'), select('exposureWhereFilter', 'Where', EXPOSURE_WHERE, 'where'), search);
+  const tail = document.createElement('div');
+  tail.className = 'exposure-tools-tail';
+  const shown = document.createElement('span');
+  shown.className = 'exposure-shown';
+  shown.id = 'exposureShown';
+  shown.setAttribute('aria-live', 'polite');
+  const reset = document.createElement('button');
+  reset.type = 'button';
+  reset.className = 'btn btn-ghost small exposure-reset';
+  reset.id = 'exposureResetFilters';
+  reset.textContent = 'Clear filters';
+  reset.addEventListener('click', () => {
+    Object.assign(current().view, { severity: null, status: 'all', where: 'all', query: '' });
+    input.value = '';
+    renderExposure();
+  });
+  tail.append(shown, reset);
+  if (window.NebulaCodeAudit && window.NebulaCodeAudit.exportMenu) tail.appendChild(window.NebulaCodeAudit.exportMenu(exportExposure, 'exposure-export', ['csv', 'sarif']));
+  host.append(segments, row, tail);
+  return host;
+}
+function renderExposureTools(current, shownCount) {
+  const host = ensureExposureTools();
+  if (!host) return;
+  const total = current.findings.length;
+  host.hidden = !total;
+  if (!total) return;
+  const view = current.view;
+  const counts = { critical: 0, serious: 0, warning: 0 };
+  for (const finding of current.findings) counts[exposureSeverity(finding)] += 1;
+  host.querySelectorAll('.exposure-segments .audit-segment').forEach(control => {
+    const value = control.dataset.value === 'all' ? null : control.dataset.value;
+    control.setAttribute('aria-pressed', String((view.severity || null) === value));
+    const n = value ? counts[value] : total;
+    control.querySelector('.audit-segment-n').textContent = String(n);
+    control.disabled = Boolean(value) && !n && view.severity !== value;
+  });
+  const status = $('#exposureStatusFilter');
+  if (status && status.value !== view.status) status.value = view.status;
+  const where = $('#exposureWhereFilter');
+  if (where && where.value !== view.where) where.value = view.where;
+  const search = $('#exposureSearch');
+  if (search && document.activeElement !== search && search.value !== view.query) search.value = view.query;
+  const narrowed = Boolean(view.severity || view.status !== 'all' || view.where !== 'all' || view.query);
+  const shown = $('#exposureShown');
+  if (shown) shown.textContent = narrowed ? `${shownCount} of ${total} shown` : `${total} ${total === 1 ? 'finding' : 'findings'}`;
+  const reset = $('#exposureResetFilters');
+  if (reset) reset.hidden = !narrowed;
+  const exportBtn = host.querySelector('.audit-export-btn');
+  if (exportBtn) exportBtn.disabled = !shownCount;
 }
 
 const EXPOSURE_SEVERITY_RANK = { critical: 0, serious: 1, warning: 2 };
@@ -4789,7 +5019,10 @@ function protectedPatternMatch(pattern, value) {
   let rx = '^';
   for (let i = 0; i < p.length; i++) {
     const c = p[i];
-    if (c === '*') { if (p[i + 1] === '*') { i++; rx += '.*'; } else rx += '[^/]*'; }
+    if (c === '*') {
+      /* As the server reads it: `**/` is zero or more folders, so `**/.env*` covers the root `.env` too. */
+      if (p[i + 1] === '*') { i++; if (p[i + 1] === '/') { i++; rx += '(?:.*/)?'; } else rx += '.*'; } else rx += '[^/]*';
+    }
     else if (c === '?') rx += '[^/]';
     else rx += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
@@ -4837,7 +5070,7 @@ async function toggleProtect(p) {
  * previous session never paints this one. The comparison with the last audit
  * keeps fingerprints only, and the account-boundary purge removes them.
  */
-let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null };
+let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
 let auditRequest = 0;
 /*
  * The deployed-site check sits beside it, bound to the repository rather than
@@ -4865,7 +5098,7 @@ function freshSiteView() {
 function clearAuditState() {
   auditRequest++;
   siteRequest++;
-  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null };
+  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
   siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
   const root = $('#auditRoot');
   if (root) root.replaceChildren();
@@ -4884,7 +5117,7 @@ async function copyPrompt(text, control) {
 function paintAudit() {
   const root = $('#auditRoot');
   if (!root || !window.NebulaCodeAudit) return;
-  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null, severity: null };
+  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
   if (siteView.key !== siteKey()) siteView = freshSiteView();
   const repository = window.NebulaCapabilityUI.decision('code-audit');
   window.NebulaCodeAudit.render(root, {
@@ -4894,26 +5127,37 @@ function paintAudit() {
   }, {
     onSiteInput: value => { siteView.url = value; siteView.suggested = false; },
     onSiteCheck: runSiteCheck,
+    onSiteExpand: () => paintAudit(),
     onSiteCopyAll: async () => {
       try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(siteView.result)); toast('Every site fix prompt copied', 'ok'); }
       catch { toast('The clipboard is not available here', 'err'); }
     },
     onRun: runAudit,
-    onFilter: filter => { auditView.filter = filter; auditView.severity = null; paintAudit(); },
-    onSeverity: severity => { auditView.severity = severity; paintAudit(); },
+    onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
+    onOwasp: owasp => { auditView.owasp = owasp; auditView.severity = null; auditView.limit = 0; paintAudit(); },
+    onSeverity: severity => { auditView.severity = severity; auditView.limit = 0; paintAudit(); },
+    onQuery: query => { auditView.query = String(query || '').slice(0, 120); auditView.limit = 0; paintAudit(); },
+    onMore: limit => { auditView.limit = limit; paintAudit(); },
     onOpen: finding => openAuditFinding(finding),
     onCopy: (finding, control) => copyPrompt(finding.prompt, control),
     onCopyAll: async () => {
       try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(auditView.result)); toast('Every fix prompt copied', 'ok'); }
       catch { toast('The clipboard is not available here', 'err'); }
     },
-    onExport: () => {
+    onExport: kind => {
       const result = auditView.result;
       const site = siteView.result;
       if (!result && !site) return;
       const label = `${state.work.owner}/${state.work.repo} (${state.work.branch})`;
       const day = String((result && result.auditedAt) || (site && site.checkedAt) || new Date().toISOString()).slice(0, 10);
-      dlFile(`${state.work.repo}-audit-${day}.md`, window.NebulaCodeAudit.brief(result, label, site), 'text/markdown');
+      const base = `${state.work.repo}-audit-${day}`;
+      if (kind === 'sarif') {
+        const provider = (state.me && state.me.provider) || 'github';
+        const repositoryUri = provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '';
+        return dlFile(`${base}.sarif`, window.NebulaCodeAudit.sarif(result, site, { ref: state.work.branch, repositoryUri }), 'application/sarif+json');
+      }
+      if (kind === 'csv') return dlFile(`${base}.csv`, window.NebulaCodeAudit.csv(result, site, auditView.diff), 'text/csv');
+      dlFile(`${base}.md`, window.NebulaCodeAudit.brief(result, label, site), 'text/markdown');
     }
   });
 }
@@ -4951,7 +5195,7 @@ async function runAudit() {
     const repoKey = `${state.work.owner}/${state.work.repo}`;
     const previous = window.NebulaCodeAudit.readPrevious(repoKey);
     window.NebulaCodeAudit.remember(repoKey, result);
-    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null, severity: null };
+    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
   } catch (error) {
     if (request !== auditRequest || epoch !== state.uiEpoch || key !== auditKey()) return;
     auditView = { ...auditView, status: 'error', error: error.message || 'The audit could not be completed.' };
@@ -5102,7 +5346,7 @@ async function recoveryFlow() {
     await modal({
       title: `Recovery complete — ${okN}/${out.report.length}`, okText: 'Done',
       bodyHTML: `<div style="max-height:40vh;overflow-y:auto">${out.report.map(r =>
-        `<p class="hint" style="margin:2px 0"><span class="mono">${esc(r.name)}</span> — ${r.ok ? r.action : 'failed: ' + esc(r.error || '')}</p>`).join('')}</div>`
+        `<p class="hint" style="margin:2px 0"><span class="mono">${esc(r.name)}</span> — ${r.ok ? esc(r.action) : 'failed: ' + esc(r.error || '')}</p>`).join('')}</div>`
     });
     loadTree('', $('#tree'), true);
   } catch (e) { toast(e.message, 'err'); }
@@ -5135,50 +5379,222 @@ async function securityScanFlow() {
     });
   } catch (e) { toast(e.message, 'err'); }
 }
+/*
+ * Safeguards: what stands between a mistake and the repository, in one place.
+ *
+ * Three layers, read top to bottom as a reviewer would: the posture in three
+ * figures; this app's own switches beside the rules the provider enforces for
+ * every client; the paths this app refuses to change, with one-tap presets
+ * that say how many files each would cover; and the recovery tools. The
+ * provider's rules are read, never written -- the link goes to the provider's
+ * own settings page, where changing them belongs.
+ */
+const SAFEGUARD_PRESETS = Object.freeze([
+  { label: 'CI workflows', patterns: ['.github/workflows/**'] },
+  { label: 'Environment files', patterns: ['**/.env*'] },
+  { label: 'Keys and certificates', patterns: ['**/*.pem', '**/*.key'] },
+  { label: 'Lockfiles', patterns: ['**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/poetry.lock', '**/Cargo.lock', '**/go.sum'] },
+  { label: 'Migrations', patterns: ['**/migrations/**'] },
+  { label: 'Infrastructure', patterns: ['**/*.tf', '**/Dockerfile', '**/docker-compose*.yml'] },
+  { label: 'Code owners', patterns: ['**/CODEOWNERS'] }
+]);
+const SG_ICON = Object.freeze({
+  on: '<path d="M5 12.5l4.2 4.2L19 7"/>',
+  off: '<path d="M7 7l10 10M17 7L7 17"/>',
+  unknown: '<path d="M9.2 9.3a2.9 2.9 0 1 1 3.9 2.7c-.7.3-1.1.9-1.1 1.6v.6M12 17.2v.1"/>',
+  snapshot: '<path d="M4 8.5h3l1.6-2.5h6.8L17 8.5h3v10.5H4z"/><circle cx="12" cy="13.3" r="3.3"/>',
+  recover: '<path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v5h5"/><path d="M12 8v4.5l3 1.8"/>',
+  scan: '<path d="M12 3.3l7.2 3v5.3c0 4.3-3 7.9-7.2 9.4-4.2-1.5-7.2-5.1-7.2-9.4V6.3z"/><path d="M9.3 12l2 2 3.5-3.8"/>',
+  activity: '<path d="M3.5 12h4l2.5-6 4 12 2.5-6h4"/>',
+  evidence: '<path d="M7 3.5h6.5L18 8v12.5H7z"/><path d="M13.5 3.5V8H18M9.5 13l1.8 1.8 3.4-3.6"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/>',
+  branch: '<circle cx="6.5" cy="5.5" r="2.2"/><circle cx="6.5" cy="18.5" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 7.7v8.6M17.5 10.7c0 3.3-3 4.3-8.8 5.4"/>',
+  out: '<path d="M14 4h6v6M20 4l-8.5 8.5M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'
+});
+const sgSvg = (name, cls = 'sg-ico') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${SG_ICON[name]}</svg>`;
+let branchRulesCache = { key: '', at: 0, value: null };
+
+async function sgFileIndex() {
+  if (Array.isArray(state.fileIndex)) return state.fileIndex;
+  try {
+    const out = await api(`/api/repo/${wPath()}/files?ref=${encodeURIComponent(state.work.branch)}`);
+    state.fileIndex = out.files;
+  } catch { return null; }
+  return state.fileIndex;
+}
+function sgMatchCount(patterns, files) {
+  if (!Array.isArray(files)) return null;
+  return files.filter(file => patterns.some(pattern => protectedPatternMatch(pattern, file))).length;
+}
+function sgLastSnapshot() {
+  try {
+    const snap = JSON.parse(localStorage.getItem('nv_snap_' + safetyKey()) || 'null');
+    return snap && snap.capturedAt ? snap.capturedAt : null;
+  } catch { return null; }
+}
+async function sgBranchRules(force) {
+  const key = `${safetyKey()}@${state.work.branch}`;
+  if (!force && branchRulesCache.key === key && Date.now() - branchRulesCache.at < 60000) return branchRulesCache.value;
+  const value = await api(`/api/repo/${wPath()}/branch-protection?branch=${encodeURIComponent(state.work.branch)}`)
+    .catch(error => ({ error: error.message || 'The provider did not answer.' }));
+  branchRulesCache = { key, at: Date.now(), value };
+  return value;
+}
+function sgPosture(rules, safety, protectedCount, snapshotAt) {
+  if (rules && !rules.error) {
+    const on = id => (rules.controls.find(control => control.id === id) || {}).state === 'on';
+    if (!rules.protected) return { tone: 'open', word: 'Unprotected branch' };
+    if (on('review') && on('force-push') && on('deletion')) {
+      return protectedCount && snapshotAt ? { tone: 'good', word: 'Guarded' } : { tone: 'part', word: 'Mostly guarded' };
+    }
+    return { tone: 'part', word: 'Partly guarded' };
+  }
+  return { tone: 'part', word: 'Branch rules unread' };
+}
+function sgRulesHTML(rules) {
+  if (!rules) return '<p class="sg-muted sg-loading">Reading the provider’s rules…</p>';
+  if (rules.error) return `<p class="sg-muted">${esc(rules.error)}</p>`;
+  const rows = rules.controls.map(control => `<li class="sg-rule" data-state="${control.state === 'on' ? 'on' : control.state === 'off' ? 'off' : 'unknown'}">
+      <span class="sg-rule-glyph">${sgSvg(control.state === 'on' ? 'on' : control.state === 'off' ? 'off' : 'unknown')}</span>
+      <span class="sg-rule-text"><span class="sg-rule-name">${esc(control.label)}</span>${control.detail && !/administration access/.test(control.detail) ? `<span class="sg-rule-detail">${esc(control.detail)}</span>` : ''}</span>
+    </li>`).join('');
+  const partial = rules.access === 'partial' ? '<p class="sg-note">Some rules need administration access to read; those show a question mark, never a tick.</p>' : '';
+  const link = rules.settingsUrl && /^https:\/\//.test(rules.settingsUrl)
+    ? `<a class="sg-link" href="${esc(rules.settingsUrl)}" target="_blank" rel="noopener noreferrer">Branch settings ${sgSvg('out', 'sg-ico sg-ico-sm')}</a>` : '';
+  return `<ul class="sg-rules">${rows}</ul>${partial}<div class="sg-card-foot"><span class="sg-muted">${rules.sources.length ? esc(rules.sources.join(' · ')) : rules.protected ? 'Protected' : 'No rule covers this branch'}</span>${link}</div>`;
+}
 async function openSafeguards() {
   await refreshSafety();
-  const sf = state.safety;
+  const sf = state.safety || {};
+  const global = sf.globalControls !== false;
   const prot = protectedList();
+  const snapshotAt = sgLastSnapshot();
+  const providerName = { github: 'GitHub', gitlab: 'GitLab', gitea: 'Gitea' }[(state.me && state.me.provider) || 'github'] || 'the provider';
+  const switchRow = (id, on, title, text) => `<label class="sg-switch-row${global ? '' : ' is-managed'}">
+      <span class="sg-switch-text"><span class="sg-switch-title">${title}</span><span class="sg-switch-sub">${text}</span></span>
+      <input type="checkbox" role="switch" class="sg-switch" id="${id}" ${on ? 'checked' : ''} ${global ? '' : 'disabled'}>
+    </label>`;
+  /* Each tile names the capability that gates it, so the capability layer can disable it like any other control. */
+  const tiles = [
+    { id: 'sgSnap', feature: 'recovery', experimental: false, icon: 'snapshot', title: 'Emergency snapshot', sub: snapshotAt ? `Last ${timeAgo(snapshotAt)}` : 'None taken yet' },
+    { id: 'sgRecover', feature: 'recovery', experimental: false, icon: 'recover', title: 'Disaster recovery', sub: 'Preview, then restore refs' },
+    { id: 'sgScan', feature: 'dependency-audit', experimental: true, icon: 'scan', title: 'Security scan', sub: 'Dependencies and upload gate' },
+    { id: 'sgActivity', feature: 'governance', experimental: true, icon: 'activity', title: 'Export activity', sub: 'Commits, PRs, issues, releases' },
+    { id: 'sgEvidence', feature: 'governance', experimental: true, icon: 'evidence', title: 'Export evidence', sub: 'Signed, verifiable package' }
+  ].map(tile => `<button type="button" class="sg-tile" id="${tile.id}" data-feature="${tile.feature}"${tile.experimental ? ' data-allow-experimental="true"' : ''}>
+      ${sgSvg(tile.icon, 'sg-ico sg-tile-ico')}<span class="sg-tile-title">${tile.title}</span><span class="sg-tile-sub">${esc(tile.sub)}</span></button>`).join('');
   await modal({
-    title: 'Safeguards', okText: 'Done',
-    bodyHTML: `
-      <label class="check"><input type="checkbox" id="sgReadOnly" ${sf.readOnly ? 'checked' : ''}> Read-only mode — block every write</label>
-      <p class="hint" style="margin:2px 0 10px">Enforced on the server: commits, uploads, deletes, merges and resets are refused while this is on.</p>
-      <label class="check"><input type="checkbox" id="sgFreeze" ${sf.freezeSync ? 'checked' : ''}> Freeze scheduled synchronization</label>
-      <p class="hint" style="margin:2px 0 10px">Pauses background queue flushing and auto-sync on reconnect. Manual sync still works.</p>
-      <div class="set-label">Repository safety</div>
-      <div class="about-actions">
-        <button class="btn btn-ghost small" id="sgSnap" data-feature="recovery">Emergency snapshot</button>
-        <button class="btn btn-ghost small" id="sgRecover" data-feature="recovery">Disaster recovery…</button>
-        <button class="btn btn-ghost small" id="sgActivity" data-feature="governance" data-allow-experimental="true">Export activity</button>
-        <button class="btn btn-ghost small" id="sgScan" data-feature="dependency-audit" data-allow-experimental="true">Security scan</button>
-        <button class="btn btn-ghost small" id="sgEvidence" data-feature="governance" data-allow-experimental="true">Export evidence</button>
+    title: 'Safeguards', okText: 'Done', wide: true, cancel: false, autofocus: false,
+    bodyHTML: `<div class="sg">
+      <section class="sg-posture" data-tone="part" aria-live="polite">
+        <span class="sg-posture-mark">${sgSvg('scan', 'sg-ico')}</span>
+        <div class="sg-posture-read"><p class="sg-posture-word" id="sgPostureWord">Reading…</p>
+          <p class="sg-posture-sub"><span class="mono">${esc(safetyKey())}</span> · <span class="mono">${esc(state.work.branch)}</span></p></div>
+        <dl class="sg-stats">
+          <div><dt>Branch rules</dt><dd id="sgStatRules">…</dd></div>
+          <div><dt>Locked paths</dt><dd>${prot.length}</dd></div>
+          <div><dt>Snapshot</dt><dd>${snapshotAt ? esc(timeAgo(snapshotAt)) : 'Never'}</dd></div>
+        </dl>
+      </section>
+      <div class="sg-grid">
+        <section class="sg-card" aria-labelledby="sgLocalHead">
+          <h4 class="sg-card-head" id="sgLocalHead">${sgSvg('lock')}In Nebulaverse-X</h4>
+          ${switchRow('sgReadOnly', sf.readOnly, 'Read-only mode', 'Refuse every commit, upload, delete, merge and reset.')}
+          ${switchRow('sgFreeze', sf.freezeSync, 'Freeze scheduled sync', 'Pause queued and automatic syncs; manual sync still works.')}
+          ${global ? '' : '<p class="sg-note">Set by the deployment in the hosted alpha; protected paths below are yours to change.</p>'}
+        </section>
+        <section class="sg-card" aria-labelledby="sgProviderHead" id="sgProvider">
+          <h4 class="sg-card-head" id="sgProviderHead">${sgSvg('branch')}On ${esc(providerName)} · <span class="mono">${esc(state.work.branch)}</span></h4>
+          <div id="sgRules">${sgRulesHTML(null)}</div>
+        </section>
       </div>
-      <div class="set-label" style="margin-top:12px">Protected files, folders and patterns ${prot.length ? `(${prot.length})` : ''}</div>
-      <div style="display:flex;gap:6px;margin:6px 0 10px"><input id="sgProtectPattern" type="text" placeholder="e.g. .github/workflows/**" autocomplete="off" spellcheck="false" style="flex:1"><button class="btn btn-ghost small" id="sgAddProtect">Protect</button></div>
-      ${prot.length
-        ? prot.map(p => `<p class="hint" style="margin:3px 0"><span class="mono">${esc(p)}</span> <button class="btn btn-ghost small" data-unprot="${esc(p)}">Unlock</button></p>`).join('')
-        : '<p class="hint">None yet — protect a file from the tree or add a folder/wildcard pattern above.</p>'}`,
+      <section class="sg-card sg-paths" aria-labelledby="sgPathsHead">
+        <div class="sg-card-row"><h4 class="sg-card-head" id="sgPathsHead">${sgSvg('lock')}Locked paths <span class="sg-count">${prot.length}</span></h4><span class="sg-muted" id="sgFilesNote"></span></div>
+        <p class="sg-muted sg-lede">Nebulaverse-X refuses to change these, on the server, until they are unlocked.</p>
+        <div class="sg-presets" role="group" aria-label="Lock a common set">${SAFEGUARD_PRESETS.map((preset, index) => {
+          const done = preset.patterns.every(pattern => prot.includes(pattern));
+          return `<button type="button" class="sg-preset" data-preset="${index}" ${done ? 'disabled aria-pressed="true"' : 'aria-pressed="false"'} title="${esc(preset.patterns.join('  '))}">
+            ${sgSvg(done ? 'on' : 'lock', 'sg-ico sg-ico-sm')}<span>${esc(preset.label)}</span><span class="sg-preset-n" data-preset-n="${index}"></span></button>`;
+        }).join('')}</div>
+        <div class="sg-add"><input id="sgProtectPattern" type="text" placeholder="A file, folder or pattern, e.g. config/**" autocomplete="off" spellcheck="false" aria-label="Path or pattern to lock"><button type="button" class="btn btn-ghost small" id="sgAddProtect">Lock</button></div>
+        ${prot.length
+          ? `<ul class="sg-locked">${prot.map((pattern, index) => `<li class="sg-lock-row"><span class="mono sg-lock-pattern">${esc(pattern)}</span><span class="sg-lock-n" data-lock-n="${index}"></span><button type="button" class="btn btn-ghost small sg-unlock" data-unlock="${index}" aria-label="Unlock ${esc(pattern)}">Unlock</button></li>`).join('')}</ul>`
+          : '<p class="sg-empty">Nothing locked yet. Start with a preset, or lock a file from its menu in the tree.</p>'}
+      </section>
+      <section class="sg-actions" aria-label="Recovery and evidence"><div class="sg-tiles">${tiles}</div></section>
+    </div>`,
     onOpen: () => {
+      const body = $('#modalBody');
       if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
       const bind = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
       const ro = $('#sgReadOnly'), fz = $('#sgFreeze');
-      if (ro) ro.addEventListener('change', () => setSafety({ readOnly: ro.checked }));
-      if (fz) fz.addEventListener('change', () => setSafety({ freezeSync: fz.checked }));
+      if (ro) ro.addEventListener('change', async () => { if (!(await setSafety({ readOnly: ro.checked }))) ro.checked = !ro.checked; });
+      if (fz) fz.addEventListener('change', async () => { if (!(await setSafety({ freezeSync: fz.checked }))) fz.checked = !fz.checked; });
       bind('sgSnap', () => { closeModal(false); snapshotFlow(); });
       bind('sgActivity', () => { closeModal(false); exportActivityFlow(); });
       bind('sgRecover', () => { closeModal(false); recoveryFlow(); });
       bind('sgScan', () => { closeModal(false); securityScanFlow(); });
       bind('sgEvidence', () => { closeModal(false); exportEvidenceFlow(); });
+      const lock = async patterns => {
+        const repo = safetyKey();
+        for (const pattern of patterns) {
+          if (protectedList().includes(pattern)) continue;
+          if (!(await setSafety({ protect: { repo, path: pattern, on: true } }))) return false;
+        }
+        return true;
+      };
       bind('sgAddProtect', async () => {
         const input = $('#sgProtectPattern'); const pattern = input && input.value.trim().replace(/^\/+/, '');
         if (!pattern) return toast('Enter a file, folder or wildcard pattern', 'err');
-        if (await setSafety({ protect: { repo: safetyKey(), path: pattern, on: true } })) { toast(`${pattern} protected`, 'ok'); closeModal(false); openSafeguards(); }
+        if (await lock([pattern])) { toast(`${pattern} locked`, 'ok'); closeModal(false); openSafeguards(); }
       });
-      $$('#modalBody [data-unprot]').forEach(b => b.addEventListener('click', async () => {
-        await setSafety({ protect: { repo: safetyKey(), path: b.dataset.unprot, on: false } });
-        b.closest('p').remove();
+      const input = $('#sgProtectPattern');
+      if (input) input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); $('#sgAddProtect').click(); } });
+      body.querySelectorAll('[data-preset]').forEach(control => control.addEventListener('click', async () => {
+        const preset = SAFEGUARD_PRESETS[Number(control.dataset.preset)];
+        if (!preset) return;
+        control.disabled = true;
+        if (await lock(preset.patterns)) { toast(`${preset.label} locked`, 'ok'); closeModal(false); openSafeguards(); }
+        else control.disabled = false;
       }));
+      body.querySelectorAll('[data-unlock]').forEach(control => control.addEventListener('click', async () => {
+        const pattern = prot[Number(control.dataset.unlock)];
+        if (!pattern) return;
+        control.disabled = true;
+        if (await setSafety({ protect: { repo: safetyKey(), path: pattern, on: false } })) { closeModal(false); openSafeguards(); }
+        else control.disabled = false;
+      }));
+      const owns = modalOwner();
+      /* How much each preset and lock would cover, once the file list is in hand. */
+      sgFileIndex().then(files => {
+        if (!owns() || !Array.isArray(files)) return;
+        const note = $('#sgFilesNote');
+        if (note) note.textContent = `${files.length.toLocaleString()} files on ${state.work.branch}`;
+        SAFEGUARD_PRESETS.forEach((preset, index) => {
+          const slot = body.querySelector(`[data-preset-n="${index}"]`);
+          if (slot) slot.textContent = String(sgMatchCount(preset.patterns, files));
+        });
+        prot.forEach((pattern, index) => {
+          const slot = body.querySelector(`[data-lock-n="${index}"]`);
+          if (!slot) return;
+          const n = sgMatchCount([pattern], files);
+          slot.textContent = n === 1 ? '1 file' : `${n} files`;
+          slot.dataset.zero = n ? 'false' : 'true';
+        });
+      });
+      /* The provider's rules, and the posture they decide. */
+      sgBranchRules(false).then(rules => {
+        if (!owns()) return;
+        const host = $('#sgRules');
+        if (host) host.innerHTML = sgRulesHTML(rules);
+        const stat = $('#sgStatRules');
+        if (stat) stat.textContent = rules && !rules.error ? `${rules.enforced} of ${rules.controls.length}` : '—';
+        const posture = sgPosture(rules, sf, prot.length, snapshotAt);
+        const section = body.querySelector('.sg-posture');
+        if (section) section.dataset.tone = posture.tone;
+        const word = $('#sgPostureWord');
+        if (word) word.textContent = posture.word;
+      });
     }
   });
 }
@@ -5385,6 +5801,21 @@ async function openFile(p) {
 function closeFile() {
   setTimeout(saveRoute, 0); state.file = null; $('#editorShell').hidden = true; $('#editorEmpty').hidden = false; }
 
+/*
+ * Markdown a provider sends -- a pull request's description, an issue, a
+ * comment, release notes -- rendered the way the file preview renders it:
+ * parsed by marked, then sanitised by DOMPurify with forms, frames and
+ * embeds forbidden. Links open in a new tab without an opener. Without the
+ * renderer the text is shown as text, line breaks kept.
+ */
+const MD_SANITIZE = Object.freeze({ USE_PROFILES: { html: true }, FORBID_TAGS: ['form', 'iframe', 'object', 'embed', 'style'], FORBID_ATTR: ['srcdoc', 'style'] });
+function renderMarkdownInto(el, source) {
+  el.classList.add('md-body');
+  const text = String(source || '');
+  if (!window.DOMPurify || !window.marked) { el.textContent = text; el.classList.add('md-plain'); return; }
+  el.innerHTML = DOMPurify.sanitize(marked.parse(text), MD_SANITIZE);
+  el.querySelectorAll('a[href]').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; });
+}
 $('#mdPreviewBtn').addEventListener('click', () => {
   const pv = $('#mdPreview');
   const showing = !pv.hidden;
@@ -5398,12 +5829,9 @@ $('#mdPreviewBtn').addEventListener('click', () => {
       toast('Secure Markdown renderer is unavailable; showing plain text.', 'err');
       return;
     }
-    const html = marked.parse(source);
-    pv.innerHTML = DOMPurify.sanitize(html, {
-      USE_PROFILES: { html: true },
-      FORBID_TAGS: ['form', 'iframe', 'object', 'embed'],
-      FORBID_ATTR: ['srcdoc']
-    });
+    /* The same rules as provider text: a file's <style> or inline style would restyle the workbench around it. */
+    pv.innerHTML = DOMPurify.sanitize(marked.parse(source), MD_SANITIZE);
+    pv.querySelectorAll('a[href]').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; });
   }
   else setTimeout(() => state.cm.refresh(), 30);
 });
@@ -5552,7 +5980,7 @@ $('#fileHistoryBtn').addEventListener('click', async () => {
     if (!ownsModal()) return;
     $('#modalBody').innerHTML = commits.length ? commits.map(c => `
       <div class="comment">
-        <div class="comment-head"><span class="mono commit-sha">${c.sha.slice(0, 7)}</span><span>${esc(c.author)}</span><span>${timeAgo(c.date)}</span></div>
+        <div class="comment-head"><span class="mono commit-sha">${esc(String(c.sha || '').slice(0, 7))}</span><span>${esc(c.author)}</span><span>${timeAgo(c.date)}</span></div>
         <div class="comment-body">${esc(c.message.split('\n')[0])}</div>
       </div>`).join('') : '<p class="hint">No history found for this path.</p>';
   } catch (e) { if (ownsModal()) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
@@ -5670,8 +6098,17 @@ function ensureNeural() {
   _neuralLoad.then(nn => { if (nn && currentTab() === 'neural') nn.activate(); })
     .catch(e => toast(e.message, 'err'));
 }
+/*
+ * On a phone the document scrolls, not the pane, so a tab change kept the
+ * last tab's offset and dropped the reader into the middle of the next list.
+ * Each tab of each repository keeps its own offset instead, as the panes do
+ * on a wider screen.
+ */
+const tabScroll = new Map();
+const tabScrollKey = name => `${state.work ? `${state.work.owner}/${state.work.repo}@${state.work.branch}` : ''}:${name}`;
 function switchTab(name) {
   const tab = $$('.tab').find(candidate => candidate.dataset.tab === name);
+  const previousTab = currentTab();
   /*
    * A name that matches no tab leaves the workbench exactly as it was.
    *
@@ -5686,8 +6123,12 @@ function switchTab(name) {
   if (tabCapability && !runCapabilityAction(tabCapability, () => {}, {
     allowExperimental: tab.dataset.allowExperimental === 'true'
   })) return;
+  const doc = document.scrollingElement;
+  const moving = previousTab !== name && doc;
+  if (moving) tabScroll.set(tabScrollKey(previousTab), doc.scrollTop);
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.tabpane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  if (moving) doc.scrollTop = tabScroll.get(tabScrollKey(name)) || 0;
   /*
    * The pane knows which tab it holds, so chrome that belongs to some tabs and
    * not others -- the repository trust bar is the workbench's, and the Neural
@@ -5714,7 +6155,7 @@ function switchTab(name) {
   if (name === 'neural') ensureNeural();
   else if (window.NebulaNeural) window.NebulaNeural.deactivate();
   if (name === 'editor' && state.cm) setTimeout(() => state.cm.refresh(), 30);
-  saveRoute();
+  saveRoute(previousTab !== name);
 }
 $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
 
@@ -5920,11 +6361,42 @@ function fuzzy(q, s) {
   for (const ch of s) { if (ch === q[i]) i++; if (i === q.length) return true; }
   return q.length === 0;
 }
+/*
+ * How well a query names a path: the file's own name before its folders, a
+ * run of the query before scattered letters, the start of a word before its
+ * middle, and a short path before a long one. -1 when it does not match.
+ */
+function fuzzyScore(q, s) {
+  const query = String(q || '').toLowerCase();
+  const text = String(s || '').toLowerCase();
+  if (!query) return 0;
+  const base = text.slice(text.lastIndexOf('/') + 1);
+  let score = -1;
+  if (base === query) score = 1000;
+  else if (base.startsWith(query)) score = 800;
+  else if (base.includes(query)) score = 650;
+  else if (text.startsWith(query) || text.includes(`/${query}`)) score = 520;
+  else if (text.includes(query)) score = 420;
+  else {
+    /* Letters in order: fewer, shorter gaps score higher. */
+    let at = -1; let gaps = 0;
+    for (const ch of query) {
+      const next = text.indexOf(ch, at + 1);
+      if (next === -1) return -1;
+      if (at !== -1 && next > at + 1) gaps += Math.min(8, next - at - 1);
+      at = next;
+    }
+    score = 200 - gaps * 4;
+  }
+  return score - Math.min(60, text.length / 4);
+}
 function renderPalette(q) {
   const host = $('#paletteList');
   const cmds = COMMANDS.filter(c => fuzzy(q, c.label));
-  const files = (state.fileIndex || []).filter(p => fuzzy(q, p)).slice(0, 14)
-    .map(p => ({ label: p, kind: 'file', run: () => openFile(p) }));
+  const files = (state.fileIndex || [])
+    .map(p => [p, fuzzyScore(q, p)]).filter(([, score]) => score > -1)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, q ? 30 : 14)
+    .map(([p]) => ({ label: p, kind: 'file', run: () => openFile(p) }));
   const recents = q ? [] : getRecents().filter(p => (state.fileIndex || []).includes(p) || !state.fileIndex)
     .map(p => ({ label: p, kind: 'recent', run: () => openFile(p) }));
   palItems = q ? [...files, ...cmds.slice(0, 6)] : [...recents.slice(0, 5), ...cmds, ...files.slice(0, 6)];
@@ -5957,7 +6429,7 @@ function renderPalette(q) {
     el.id = `pal-option-${i}`;
     el.setAttribute('role', 'option');
     el.setAttribute('aria-selected', i === palSel ? 'true' : 'false');
-    el.innerHTML = `<span class="${it.kind === 'file' ? 'mono' : ''}"></span><span class="pal-kind">${it.kind}</span>`;
+    el.innerHTML = `<span class="${it.kind === 'file' ? 'mono' : ''}"></span><span class="pal-kind">${esc(it.kind)}</span>`;
     el.querySelector('span').textContent = it.label;
     if (it.feature) el.dataset.feature = it.feature;
     if (it.allowExperimental) el.dataset.allowExperimental = 'true';
@@ -6064,6 +6536,46 @@ $$('.nav-menu-btn').forEach(button => button.addEventListener('click', () => {
   setNavMenu(!navMenuOpen(), button);
 }));
 $('#navScrim') && $('#navScrim').addEventListener('click', closeNavMenu);
+$('#navClose') && $('#navClose').addEventListener('click', closeNavMenu);
+/*
+ * A drawer follows the finger that closes it. A horizontal drag to the left
+ * moves the rail with the touch; let go past a third of its width, or with a
+ * quick flick, and it closes; otherwise it springs back. A vertical drag is
+ * the list scrolling and is left alone.
+ */
+(function drawerSwipe() {
+  const rail = $('#navRail');
+  if (!rail) return;
+  let start = null;
+  rail.addEventListener('touchstart', event => {
+    if (!navMenuOpen() || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    start = { x: touch.clientX, y: touch.clientY, t: Date.now(), dx: 0, horizontal: null };
+  }, { passive: true });
+  rail.addEventListener('touchmove', event => {
+    if (!start) return;
+    const touch = event.touches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (start.horizontal === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) start.horizontal = Math.abs(dx) > Math.abs(dy);
+    if (!start.horizontal) return;
+    start.dx = Math.min(0, dx);
+    rail.classList.add('is-dragging');
+    rail.style.transform = `translateX(${start.dx}px)`;
+  }, { passive: true });
+  const end = () => {
+    if (!start) return;
+    const { dx, t, horizontal } = start;
+    start = null;
+    rail.classList.remove('is-dragging');
+    rail.style.transform = '';
+    if (!horizontal) return;
+    const fast = Math.abs(dx) / Math.max(1, Date.now() - t) > 0.5;
+    if (-dx > rail.getBoundingClientRect().width / 3 || (fast && dx < -24)) closeNavMenu();
+  };
+  rail.addEventListener('touchend', end);
+  rail.addEventListener('touchcancel', end);
+})();
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && navMenuOpen()) { event.preventDefault(); closeNavMenu(); }
 });
@@ -6077,6 +6589,11 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   const target = item.dataset.rail;
   closeNavMenu();
   if (target === 'overview') return showOverview();
+  /* Safeguards is a dialog over the page it is opened from, not a destination. */
+  if (target === 'safeguards') {
+    if (!state.work) return toast('Open a repository first.', 'err');
+    return runCapabilityAction('recovery', () => openSafeguards());
+  }
   if (target === 'repos') return showPage('repos');
   if (!state.work) return toast('Open a repository first.', 'err');
   showPage('work');
@@ -6649,11 +7166,16 @@ async function loadCommits(reset) {
           ${c.avatar ? `<img class="commit-avatar" src="${escAttr(c.avatar)}" alt="">` : ''}
           <span class="commit-msg"></span>
         </div>
-        <div class="commit-meta"><span></span><span class="mono commit-sha">${c.sha.slice(0, 7)}</span><span>${timeAgo(c.date)}</span></div>
+        <div class="commit-meta"><span></span><span class="mono commit-sha">${esc(String(c.sha || '').slice(0, 7))}</span><span>${timeAgo(c.date)}</span></div>
         <div class="commit-diff"></div>`;
       el.querySelector('.commit-msg').textContent = c.message.split('\n')[0];
       el.querySelector('.commit-meta span').textContent = c.author;
-      el.addEventListener('click', () => toggleDiff(el, c.sha));
+      /* The row opens and closes the diff; a tap, a selection or a sideways scroll inside the diff is reading it. */
+      el.addEventListener('click', event => {
+        if (event.target.closest('.commit-diff')) return;
+        if (String(window.getSelection && window.getSelection()).length) return;
+        toggleDiff(el, c.sha);
+      });
       host.appendChild(el);
     });
     $('#moreCommitsBtn').hidden = commits.length < 25;
@@ -6696,8 +7218,8 @@ function renderDiffFiles(host, files) {
     df.innerHTML = `
       <div class="diff-file-head mono">
         <span></span>
-        <span class="diff-adds">+${f.additions}</span><span class="diff-dels">−${f.deletions}</span>
-        <span style="margin-left:auto;color:var(--muted)">${f.status}</span>
+        <span class="diff-adds">+${Number(f.additions) || 0}</span><span class="diff-dels">−${Number(f.deletions) || 0}</span>
+        <span style="margin-left:auto;color:var(--muted)">${esc(f.status)}</span>
       </div>
       ${f.patch ? '<div class="diff-patch mono"></div>' : ''}`;
     df.querySelector('.diff-file-head span').textContent = f.filename;
@@ -6745,9 +7267,31 @@ $('#prState').addEventListener('click', e => {
   state.prState = b.dataset.v;
   loadPRs();
 });
+/*
+ * A detail opens directly under the row it belongs to, rather than after the
+ * whole list: from the thirtieth pull request the reader used to land at the
+ * bottom of the page with the detail half off screen and the list behind
+ * them. A reload parks it back after the list first, so clearing the list
+ * never takes the detail's element with it.
+ */
+function parkDetail(box, host) {
+  box.hidden = true;
+  if (host.contains(box)) host.after(box);
+}
+function placeDetail(box, anchor) {
+  if (anchor && anchor.isConnected) anchor.after(box);
+  box.hidden = false;
+}
+function revealDetail(box) {
+  /* Its head is what the reader needs first: a detail taller than the screen starts at its top, a short one just comes into view. */
+  requestAnimationFrame(() => {
+    const tall = box.getBoundingClientRect().height > window.innerHeight * 0.6;
+    box.scrollIntoView({ behavior: state.settings.motion === false ? 'auto' : 'smooth', block: tall ? 'start' : 'nearest' });
+  });
+}
 async function loadPRs() {
   const host = $('#prList');
-  $('#prDetail').hidden = true;
+  parkDetail($('#prDetail'), host);
   host.innerHTML = '<div class="skeleton" style="height:66px"></div>'.repeat(3);
   try {
     const prs = await apiCached(`/api/repo/${wPath()}/pulls?state=${state.prState}`);
@@ -6763,19 +7307,19 @@ async function loadPRs() {
       const st = p.merged ? ['merged', 'state-merged'] : p.draft ? ['draft', 'state-draft'] : p.state === 'open' ? ['open', 'state-open'] : ['closed', 'state-closed'];
       el.innerHTML = `
         <div class="li-head"><span class="state-pill ${st[1]}">${st[0]}</span><span class="li-title"></span></div>
-        <div class="li-meta"><span>#${p.number}</span><span></span><span class="mono">${esc(p.head)} → ${esc(p.base)}</span><span>${timeAgo(p.updated_at)}</span></div>`;
+        <div class="li-meta"><span>#${Number(p.number) || 0}</span><span></span><span class="mono">${esc(p.head)} → ${esc(p.base)}</span><span>${timeAgo(p.updated_at)}</span></div>`;
       el.querySelector('.li-title').textContent = p.title;
       el.querySelector('.li-meta span:nth-child(2)').textContent = p.user || '';
-      el.addEventListener('click', () => openPR(p.number));
+      el.addEventListener('click', () => openPR(p.number, el));
       host.appendChild(el);
     });
   } catch (e) { host.innerHTML = ''; toast(e.message, 'err'); }
 }
-async function openPR(num) {
+async function openPR(num, anchor) {
   const box = $('#prDetail');
-  box.hidden = false;
+  placeDetail(box, anchor);
   box.innerHTML = '<div class="skeleton" style="height:120px"></div>';
-  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  revealDetail(box);
   try {
     const p = await api(`/api/repo/${wPath()}/pulls/${num}`);
     const st = p.merged ? ['merged', 'state-merged'] : p.draft ? ['draft', 'state-draft'] : p.state === 'open' ? ['open', 'state-open'] : ['closed', 'state-closed'];
@@ -6786,10 +7330,10 @@ async function openPR(num) {
         <button class="btn btn-ghost small" id="prCloseDetail" aria-label="Close">${META_ICON.close}</button>
       </div>
       <div class="detail-meta">
-        <span>#${p.number} by ${esc(p.user || '')}</span>
+        <span>#${Number(p.number) || 0} by ${esc(p.user || '')}</span>
         <span class="mono">${esc(p.head)} → ${esc(p.base)}</span>
-        <span class="diff-adds">+${p.additions}</span><span class="diff-dels">−${p.deletions}</span>
-        <span>${p.changed_files} files</span>
+        <span class="diff-adds">+${Number(p.additions) || 0}</span><span class="diff-dels">−${Number(p.deletions) || 0}</span>
+        <span>${Number(p.changed_files) || 0} files</span>
       </div>
       <div class="detail-body" id="prBody" hidden></div>
       <div class="detail-actions" id="prActions"></div>
@@ -6799,8 +7343,9 @@ async function openPR(num) {
       <textarea id="prNewComment" placeholder="Write a comment…"></textarea>
       <div class="detail-actions"><button class="btn btn-primary small" id="prCommentBtn">Comment ✦</button></div>`;
     box.querySelector('.detail-title').textContent = p.title;
-    if (p.body) { $('#prBody').hidden = false; $('#prBody').textContent = p.body; }
+    if (p.body) { $('#prBody').hidden = false; renderMarkdownInto($('#prBody'), p.body); }
     $('#prCloseDetail').addEventListener('click', () => { box.hidden = true; });
+    revealDetail(box);
     if (p.state === 'open' && !p.draft) {
       const act = $('#prActions');
       [['merge', 'Merge'], ['squash', 'Squash & merge'], ['rebase', 'Rebase & merge']].forEach(([m, label]) => {
@@ -6809,7 +7354,7 @@ async function openPR(num) {
         b.textContent = label;
         b.addEventListener('click', async () => {
           const sure = await modal({ title: label,
-            bodyHTML: `<p style="font-size:.9rem;line-height:1.5">${label} PR #${p.number} <b class="mono">${esc(p.head)}</b> into <b class="mono">${esc(p.base)}</b>?</p>`,
+            bodyHTML: `<p style="font-size:.9rem;line-height:1.5">${label} PR #${Number(p.number) || 0} <b class="mono">${esc(p.head)}</b> into <b class="mono">${esc(p.base)}</b>?</p>`,
             okText: label });
           if (!sure) return;
           try {
@@ -6883,7 +7428,7 @@ async function loadPRComments(num) {
       el.className = 'comment';
       el.innerHTML = `<div class="comment-head">${c.avatar ? `<img src="${escAttr(c.avatar)}" alt="">` : ''}<span>${esc(c.user || '')}</span><span>${timeAgo(c.created_at)}</span></div>
         <div class="comment-body"></div>`;
-      el.querySelector('.comment-body').textContent = c.body || '';
+      renderMarkdownInto(el.querySelector('.comment-body'), c.body || '');
       host.appendChild(el);
     });
   } catch {}
@@ -6924,7 +7469,7 @@ $('#issueState').addEventListener('click', e => {
 });
 async function loadIssues() {
   const host = $('#issueList');
-  $('#issueDetail').hidden = true;
+  parkDetail($('#issueDetail'), host);
   host.innerHTML = '<div class="skeleton" style="height:66px"></div>'.repeat(3);
   try {
     const issues = await apiCached(`/api/repo/${wPath()}/issues?state=${state.issueState}`);
@@ -6939,35 +7484,35 @@ async function loadIssues() {
       el.style.animationDelay = Math.min(i * 40, 360) + 'ms';
       el.innerHTML = `
         <div class="li-head">
-          <span class="state-pill ${it.state === 'open' ? 'state-open' : 'state-closed'}">${it.state}</span>
+          <span class="state-pill ${it.state === 'open' ? 'state-open' : 'state-closed'}">${esc(it.state)}</span>
           <span class="li-title"></span>
         </div>
         <div class="li-meta">
-          <span>#${it.number}</span><span></span>
+          <span>#${Number(it.number) || 0}</span><span></span>
           ${it.labels.map(l => { const color = safeHexColor(l.color); return `<span class="label-pill" style="border-color:#${color}88;color:#${color}">${esc(l.name)}</span>`; }).join('')}
-          <span>${META_ICON.comments} ${it.comments}</span><span>${timeAgo(it.updated_at)}</span>
+          <span>${META_ICON.comments} ${Number(it.comments) || 0}</span><span>${timeAgo(it.updated_at)}</span>
         </div>`;
       el.querySelector('.li-title').textContent = it.title;
       el.querySelector('.li-meta span:nth-child(2)').textContent = it.user || '';
-      el.addEventListener('click', () => openIssue(it.number));
+      el.addEventListener('click', () => openIssue(it.number, el));
       host.appendChild(el);
     });
   } catch (e) { host.innerHTML = ''; toast(e.message, 'err'); }
 }
-async function openIssue(num) {
+async function openIssue(num, anchor) {
   const box = $('#issueDetail');
-  box.hidden = false;
+  placeDetail(box, anchor);
   box.innerHTML = '<div class="skeleton" style="height:120px"></div>';
-  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  revealDetail(box);
   try {
     const i = await api(`/api/repo/${wPath()}/issues/${num}`);
     box.innerHTML = `
       <div class="detail-head">
-        <span class="state-pill ${i.state === 'open' ? 'state-open' : 'state-closed'}">${i.state}</span>
+        <span class="state-pill ${i.state === 'open' ? 'state-open' : 'state-closed'}">${esc(i.state)}</span>
         <span class="detail-title"></span>
         <button class="btn btn-ghost small" id="issCloseDetail" aria-label="Close">${META_ICON.close}</button>
       </div>
-      <div class="detail-meta"><span>#${i.number} by ${esc(i.user || '')}</span><span>${timeAgo(i.created_at)}</span></div>
+      <div class="detail-meta"><span>#${Number(i.number) || 0} by ${esc(i.user || '')}</span><span>${timeAgo(i.created_at)}</span></div>
       <div class="detail-body" id="issBody" hidden></div>
       <div id="issComments"></div>
       <label class="field-label" for="issNewComment">Add a comment</label>
@@ -6977,17 +7522,18 @@ async function openIssue(num) {
         <button class="btn btn-ghost small" id="issToggleBtn">${i.state === 'open' ? 'Close issue' : 'Reopen issue'}</button>
       </div>`;
     box.querySelector('.detail-title').textContent = i.title;
-    if (i.body) { $('#issBody').hidden = false; $('#issBody').textContent = i.body; }
+    if (i.body) { $('#issBody').hidden = false; renderMarkdownInto($('#issBody'), i.body); }
     const ch = $('#issComments');
     i.comments.forEach(c => {
       const el = document.createElement('div');
       el.className = 'comment';
       el.innerHTML = `<div class="comment-head">${c.avatar ? `<img src="${escAttr(c.avatar)}" alt="">` : ''}<span>${esc(c.user || '')}</span><span>${timeAgo(c.created_at)}</span></div>
         <div class="comment-body"></div>`;
-      el.querySelector('.comment-body').textContent = c.body || '';
+      renderMarkdownInto(el.querySelector('.comment-body'), c.body || '');
       ch.appendChild(el);
     });
     $('#issCloseDetail').addEventListener('click', () => { box.hidden = true; });
+    revealDetail(box);
     $('#issCommentBtn').addEventListener('click', async () => {
       const body = $('#issNewComment').value.trim();
       if (!body) return;
@@ -7048,7 +7594,7 @@ async function loadReleases() {
           ${r.assets.length ? `<span>${r.assets.length} asset${r.assets.length > 1 ? 's' : ''}</span>` : ''}</div>
         ${r.body ? '<div class="detail-body rel-body"></div>' : ''}`;
       el.querySelector('.li-title').textContent = r.name || r.tag;
-      if (r.body) el.querySelector('.rel-body').textContent = r.body.slice(0, 400);
+      if (r.body) renderMarkdownInto(el.querySelector('.rel-body'), r.body.length > 1200 ? `${r.body.slice(0, 1200)}…` : r.body);
       host.appendChild(el);
     });
   } catch (e) { host.innerHTML = ''; toast(e.message, 'err'); }
@@ -7086,8 +7632,8 @@ $('#cmpGo').addEventListener('click', async () => {
     const c = await api(`/api/repo/${wPath()}/compare?base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`);
     host.innerHTML = `
       <div class="cmp-stats">
-        <span><b>${c.ahead_by}</b> ahead</span>
-        <span><b>${c.behind_by}</b> behind</span>
+        <span><b>${Number(c.ahead_by) || 0}</b> ahead</span>
+        <span><b>${Number(c.behind_by) || 0}</b> behind</span>
         <span><b>${c.files.length}</b> files changed</span>
         <span class="mono" style="color:var(--teal)">${esc(head)} vs ${esc(base)}</span>
       </div>
@@ -7776,61 +8322,90 @@ async function loadActions() {
       host.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.actions}</div><p>No workflow runs yet.<br>Add a workflow under <span class="mono">.github/workflows/</span> to light up CI.</p></div>`;
       return;
     }
+    const tone = item => item.status !== 'completed' ? 'running' : item.conclusion === 'success' ? 'success' : item.conclusion === 'failure' ? 'failure' : 'neutral';
+    const word = item => item.status !== 'completed' ? String(item.status || 'queued').replace('_', ' ') : (item.conclusion || 'done');
     runs.forEach((r, i) => {
+      /*
+       * A run is a card with one toggle, its header. Everything that opens
+       * under it -- the jobs, their steps, the actions -- is for reading, so a
+       * tap there, a selection or a scroll never closes the run under the
+       * reader. Jobs are disclosures of their own: the failed ones open, the
+       * rest fold to one line, so a run of eight jobs is eight lines, not a
+       * hundred and twenty.
+       */
       const el = document.createElement('div');
-      el.className = 'card list-item pressable';
+      el.className = 'card list-item run-item';
       el.style.animationDelay = Math.min(i * 40, 360) + 'ms';
-      const cls = r.status !== 'completed' ? 'running' : r.conclusion === 'success' ? 'success' : r.conclusion === 'failure' ? 'failure' : 'neutral';
-      const label = r.status !== 'completed' ? r.status.replace('_', ' ') : (r.conclusion || 'done');
-      el.innerHTML = `
-        <div class="li-head">
-          <span class="run-status"><span class="run-dot ${cls}"></span></span>
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'run-toggle';
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.innerHTML = `
+        <span class="li-head">
+          <span class="run-status"><span class="run-dot ${tone(r)}"></span></span>
           <span class="li-title"></span>
-          <span class="badge">${label}</span>
-        </div>
-        <div class="li-meta"><span>#${r.number}</span><span class="mono">${esc(r.branch || '')}</span>
-          <span>${esc(r.event)}</span><span class="mono commit-sha">${(r.sha || '').slice(0, 7)}</span><span>${timeAgo(r.created_at)}</span></div>`;
-      el.querySelector('.li-title').textContent = r.name || 'workflow';
+          <span class="badge">${esc(word(r))}</span>
+          <svg class="run-chev" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </span>
+        <span class="li-meta"><span>#${Number(r.number) || 0}</span><span class="mono">${esc(r.branch || '')}</span>
+          <span>${esc(r.event)}</span><span class="mono commit-sha">${esc(String(r.sha || '').slice(0, 7))}</span><span>${timeAgo(r.created_at)}</span></span>`;
+      toggle.querySelector('.li-title').textContent = r.name || 'workflow';
       const jobsBox = document.createElement('div');
-      jobsBox.style.display = 'none';
-      el.appendChild(jobsBox);
-      el.addEventListener('click', async () => {
-        const open = jobsBox.style.display !== 'none';
-        jobsBox.style.display = open ? 'none' : 'block';
-        if (open || jobsBox.dataset.loaded) return;
+      jobsBox.className = 'run-jobs';
+      jobsBox.hidden = true;
+      jobsBox.id = `runJobs${Number(r.id) || i}`;
+      toggle.setAttribute('aria-controls', jobsBox.id);
+      el.append(toggle, jobsBox);
+      toggle.addEventListener('click', async () => {
+        const open = !jobsBox.hidden;
+        jobsBox.hidden = open;
+        toggle.setAttribute('aria-expanded', String(!open));
+        el.classList.toggle('open', !open);
+        if (open || jobsBox.dataset.loaded) { if (!open) revealDetail(jobsBox); return; }
         jobsBox.innerHTML = '<div class="skeleton" style="height:44px;margin-top:10px"></div>';
         try {
           const jobs = await api(`/api/repo/${wPath()}/actions/${r.id}/jobs`);
           jobsBox.dataset.loaded = '1';
           jobsBox.innerHTML = '';
+          if (!jobs.length) jobsBox.innerHTML = '<p class="hint">This run reported no jobs.</p>';
           jobs.forEach(jb => {
-            const jc = jb.status !== 'completed' ? 'running' : jb.conclusion === 'success' ? 'success' : jb.conclusion === 'failure' ? 'failure' : 'neutral';
-            const jd = document.createElement('div');
-            jd.style.marginTop = '10px';
-            jd.innerHTML = `<div class="li-head" style="font-size:.82rem"><span class="run-dot ${jc}"></span><b></b></div>`;
-            jd.querySelector('b').textContent = jb.name;
-            jb.steps.forEach(st => {
-              const sc = st.status !== 'completed' ? 'running' : st.conclusion === 'success' ? 'success' : st.conclusion === 'failure' ? 'failure' : 'neutral';
-              const sr = document.createElement('div');
+            const job = document.createElement('details');
+            job.className = 'run-job';
+            job.dataset.state = tone(jb);
+            if (tone(jb) === 'failure' || tone(jb) === 'running') job.open = true;
+            const steps = jb.steps || [];
+            const failedSteps = steps.filter(st => tone(st) === 'failure').length;
+            job.innerHTML = `<summary class="run-job-head"><span class="run-dot ${tone(jb)}"></span><b></b>
+              <span class="run-job-word">${esc(word(jb))}</span><span class="run-job-n">${steps.length} step${steps.length === 1 ? '' : 's'}${failedSteps ? ` · ${failedSteps} failed` : ''}</span></summary>`;
+            job.querySelector('b').textContent = jb.name;
+            const list = document.createElement('ol');
+            list.className = 'run-steps';
+            steps.forEach(st => {
+              const sr = document.createElement('li');
               sr.className = 'step-row';
-              sr.innerHTML = `<span class="run-dot ${sc}" style="width:7px;height:7px"></span><span></span>`;
-              sr.querySelector('span:last-child').textContent = st.name;
-              jd.appendChild(sr);
+              sr.dataset.state = tone(st);
+              sr.innerHTML = `<span class="run-dot ${tone(st)}"></span><span class="step-name"></span><span class="step-word">${esc(word(st))}</span>`;
+              sr.querySelector('.step-name').textContent = st.name;
+              list.appendChild(sr);
             });
-            jobsBox.appendChild(jd);
+            job.appendChild(list);
+            jobsBox.appendChild(job);
           });
           const acts = document.createElement('div');
           acts.className = 'detail-actions';
           acts.innerHTML = `<button class="btn btn-ghost small" data-rerun data-feature="workflows.rerun" data-allow-experimental="true">Re-run</button>
-            <button class="btn btn-ghost small" data-open>Open on GitHub</button>`;
+            <button class="btn btn-ghost small" data-open>Open on the provider</button>`;
           if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply(acts);
-          acts.querySelector('[data-rerun]').addEventListener('click', async e2 => {
-            e2.stopPropagation();
+          acts.querySelector('[data-rerun]').addEventListener('click', async () => {
             try { await api(`/api/repo/${wPath()}/actions/${r.id}/rerun`, { method: 'POST' }); toast('Re-run requested ✦', 'ok'); }
             catch (e3) { toast(e3.message, 'err'); }
           });
-          acts.querySelector('[data-open]').addEventListener('click', e2 => { e2.stopPropagation(); window.open(r.html_url, '_blank', 'noopener'); });
+          /* Only a web address leaves the app; anything else a provider sends is not followed. */
+          const openButton = acts.querySelector('[data-open]');
+          if (/^https:\/\//i.test(String(r.html_url || ''))) openButton.addEventListener('click', () => window.open(r.html_url, '_blank', 'noopener'));
+          else openButton.hidden = true;
           jobsBox.appendChild(acts);
+          revealDetail(jobsBox);
         } catch (e4) { jobsBox.innerHTML = `<p class="hint">⚠ ${esc(e4.message)}</p>`; }
       });
       host.appendChild(el);

@@ -13,19 +13,20 @@ const { checkSite, declaredSite, siteOrigin } = require('../src/site-check');
 const GOOD_HEADERS = Object.freeze({
   'content-type': 'text/html; charset=utf-8',
   'strict-transport-security': 'max-age=31536000; includeSubDomains',
-  'content-security-policy': "default-src 'self'; script-src 'self' 'nonce-abc'; frame-ancestors 'self'",
+  'content-security-policy': "default-src 'self'; script-src 'self' 'nonce-abc'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'",
+  'cross-origin-opener-policy': 'same-origin',
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'strict-origin-when-cross-origin',
   'set-cookie': ['session=x; Path=/; Secure; HttpOnly; SameSite=Lax']
 });
 
-function site({ headers = GOOD_HEADERS, files = {}, spa = false, down = false } = {}) {
+function site({ headers = GOOD_HEADERS, files = {}, spa = false, down = false, page = '<!doctype html><html></html>' } = {}) {
   const seen = [];
   const transport = async input => {
     seen.push(input);
     if (down) throw Object.assign(new Error('unreachable'), { code: 'GUARDED_FETCH_TRANSPORT_FAILED' });
     const path = new URL(input.url).pathname;
-    if (path === '/') return { statusCode: 200, headers, body: '<!doctype html><html></html>' };
+    if (path === '/') return { statusCode: 200, headers, body: page };
     if (Object.prototype.hasOwnProperty.call(files, path)) return { statusCode: 200, headers: { 'content-type': 'text/plain' }, body: files[path] };
     if (spa) return { statusCode: 200, headers: { 'content-type': 'text/html' }, body: '<!doctype html><html><body>app</body></html>' };
     return { statusCode: 404, headers: {}, body: 'not found' };
@@ -35,6 +36,40 @@ function site({ headers = GOOD_HEADERS, files = {}, spa = false, down = false } 
 const rules = result => result.findings.map(finding => finding.rule).sort();
 
 (async () => {
+  /* A policy that leaves base URLs or plugins open, a page that is not isolated, what the markup loads. */
+  {
+    const loose = { ...GOOD_HEADERS, 'content-security-policy': "default-src *; script-src 'self' 'nonce-abc'" };
+    const { transport } = site({ headers: loose, files: { '/.well-known/security.txt': 'Contact: mailto:s@example.com\n' } });
+    const result = await checkSite({ url: 'https://loose.example.com', transport });
+    assert(rules(result).includes('WEB-017'), 'no base-uri and objects from anywhere');
+    const isolated = await checkSite({ url: 'https://ok.example.com', transport: site({ files: { '/.well-known/security.txt': 'Contact: mailto:s@example.com\n' } }).transport });
+    assert(!rules(isolated).includes('WEB-016') && !rules(isolated).includes('WEB-017'));
+    const unisolated = { ...GOOD_HEADERS };
+    delete unisolated['cross-origin-opener-policy'];
+    assert(rules(await checkSite({ url: 'https://o.example.com', transport: site({ headers: unisolated }).transport })).includes('WEB-016'));
+
+    const page = [
+      '<!doctype html><html><head>',
+      '<link rel="stylesheet" href="http://cdn.example.net/site.css">',
+      '<script src="https://cdn.thirdparty.test/lib.js"></script>',
+      '<script src="https://cdn.signed.test/lib.js" integrity="sha384-abc" crossorigin="anonymous"></script>',
+      '<script src="/app.js"></script><a href="http://example.org/">a link is not a load</a>',
+      '</head></html>'
+    ].join('');
+    const markup = await checkSite({ url: 'https://m.example.com', transport: site({ page, files: { '/.well-known/security.txt': 'Contact: mailto:s@example.com\n' } }).transport });
+    const byRule = Object.fromEntries(markup.findings.map(finding => [finding.rule, finding]));
+    assert.strictEqual(byRule['WEB-018'].where, 'http://cdn.example.net', 'named by host, never the full address');
+    assert.strictEqual(byRule['WEB-019'].where, '<script src> from cdn.thirdparty.test');
+    const clean = '<!doctype html><script src="/app.js"></script><script src="https://cdn.signed.test/x.js" integrity="sha512-z"></script><a href="http://x.test">x</a>';
+    const quiet = await checkSite({ url: 'https://q.example.com', transport: site({ page: clean, files: { '/.well-known/security.txt': 'Contact: mailto:s@example.com\n' } }).transport });
+    assert(!rules(quiet).includes('WEB-018') && !rules(quiet).includes('WEB-019'));
+
+    /* X-Frame-Options is covered by frame-ancestors, and the tile says so. */
+    const tile = isolated.headers.find(header => header.name === 'x-frame-options');
+    assert.deepStrictEqual({ present: tile.present, via: tile.via }, { present: false, via: 'content-security-policy' });
+    assert.strictEqual(isolated.headers.length, 8);
+  }
+
   /* The origin, and nothing else, is what gets checked. */
   assert.strictEqual(siteOrigin('https://App.Example.com/some/page?x=1#y'), 'https://app.example.com');
   for (const bad of ['http://app.example.com', 'ftp://x', 'https://user:pw@app.example.com', 'https://app.example.com:8443', 'not a url']) {
@@ -67,9 +102,13 @@ const rules = result => result.findings.map(finding => finding.rule).sort();
   {
     const { transport } = site({ headers: { 'content-type': 'text/html', server: 'nginx/1.18.0', 'x-powered-by': 'Express' } });
     const result = await checkSite({ url: 'https://bare.example.com', transport });
-    assert.deepStrictEqual(rules(result), ['WEB-003', 'WEB-005', 'WEB-007', 'WEB-008', 'WEB-009', 'WEB-013', 'WEB-014']);
+    assert.deepStrictEqual(rules(result), ['WEB-003', 'WEB-005', 'WEB-007', 'WEB-008', 'WEB-009', 'WEB-013', 'WEB-014', 'WEB-016']);
+    const cwes = Object.fromEntries(result.findings.map(finding => [finding.rule, finding.standards && finding.standards.cwe]));
+    assert.strictEqual(cwes['WEB-005'], 'CWE-693', 'every site finding carries its CWE');
+    assert(result.findings.every(finding => finding.standards), 'every site rule is mapped');
     assert.deepStrictEqual(result.headers.filter(header => !header.present).map(header => header.name),
-      ['strict-transport-security', 'content-security-policy', 'x-frame-options', 'x-content-type-options', 'referrer-policy', 'permissions-policy']);
+      ['strict-transport-security', 'content-security-policy', 'x-frame-options', 'x-content-type-options', 'referrer-policy', 'permissions-policy',
+        'cross-origin-opener-policy', 'cross-origin-resource-policy']);
   }
 
   /* Weak versions of present headers. */
@@ -83,7 +122,7 @@ const rules = result => result.findings.map(finding => finding.rule).sort();
       'set-cookie': ['session=x; Path=/', 'prefs=y; Secure']
     } });
     const result = await checkSite({ url: 'https://weak.example.com', transport });
-    assert.deepStrictEqual(rules(result), ['WEB-004', 'WEB-006', 'WEB-007', 'WEB-010', 'WEB-011', 'WEB-012', 'WEB-014']);
+    assert.deepStrictEqual(rules(result), ['WEB-004', 'WEB-006', 'WEB-007', 'WEB-010', 'WEB-011', 'WEB-012', 'WEB-014', 'WEB-017']);
     const cookie = result.findings.find(finding => finding.rule === 'WEB-011');
     assert.strictEqual(cookie.where, 'Set-Cookie: session', 'a cookie is named, its value never repeated');
     assert(!JSON.stringify(result).includes('session=x'));

@@ -201,7 +201,7 @@ for (const [id, feature] of Object.entries({
   sgScan: 'dependency-audit',
   sgEvidence: 'governance'
 })) {
-  assert(app.includes(`id="${id}" data-feature="${feature}"`),
+  assert(app.includes(`id="${id}" data-feature="${feature}"`) || app.includes(`{ id: '${id}', feature: '${feature}',`),
     `dynamic safeguard #${id} must map to ${feature}`);
 }
 assert(app.includes('data-rerun data-feature="workflows.rerun" data-allow-experimental="true"'),

@@ -751,7 +751,7 @@ check('the vortex cannot ask for more vertices than its index type can address',
       `a tier of ${tier.strands} strands x ${tier.segments} segments asks for ${vertices} vertices, past the index limit`);
   });
   /* Smaller boxes get smaller meshes, never larger ones. */
-  const counts = vortex.TIERS.map(tier => tier.strands * (tier.segments + 1) + tier.dust);
+  const counts = vortex.TIERS.map(tier => tier.strands * (tier.segments + 1) + tier.motes + tier.field);
   counts.slice(1).forEach((count, i) => assert.ok(count > counts[i], 'a smaller screen is given a heavier scene'));
   assert.ok(/if \(vertices > VERTEX_LIMIT\) \{ res\.indexCount = 0; return; \}/.test(source),
     'build() no longer refuses a mesh past the limit');
@@ -765,8 +765,8 @@ check('the vortex cannot ask for more vertices than its index type can address',
  */
 check('every vortex preset and theme is complete, and a shape is clamped rather than trusted', () => {
   const vortex = loadVortex();
-  const keys = Object.keys(vortex.PRESETS.hourglass);
-  ['hourglass', 'funnel', 'spire', 'chalice'].forEach(name => {
+  const keys = Object.keys(vortex.RANGES).concat('direction');
+  ['column', 'hourglass', 'spire', 'funnel', 'chalice'].forEach(name => {
     const preset = vortex.PRESETS[name];
     assert.ok(preset, `the ${name} preset is gone`);
     assert.deepStrictEqual(Object.keys(preset).sort(), keys.slice().sort(), `${name} does not carry every shape field`);
@@ -783,13 +783,14 @@ check('every vortex preset and theme is complete, and a shape is clamped rather 
     assert.strictEqual(theme.additive, !/light/.test(name), `${name} blends the wrong way for its ground`);
   });
   const wild = vortex.resolveShape('hourglass', { top: 99, waist: -4, waistAt: 7, twist: 'x', direction: 'sideways', flow: Infinity });
-  assert.strictEqual(wild.top, 1.6);
+  assert.strictEqual(wild.top, vortex.RANGES.top[1]);
   assert.strictEqual(wild.waist, 0);
   assert.strictEqual(wild.waistAt, 0.98);
   assert.strictEqual(wild.twist, vortex.PRESETS.hourglass.twist, 'a non-number replaced the preset value');
   assert.strictEqual(wild.direction, vortex.PRESETS.hourglass.direction);
   assert.strictEqual(wild.flow, vortex.PRESETS.hourglass.flow, 'an infinite rate was accepted');
-  assert.deepStrictEqual({ ...vortex.resolveShape('no-such-shape') }, { ...vortex.PRESETS.hourglass });
+  assert.deepStrictEqual({ ...vortex.resolveShape('no-such-shape') }, { ...vortex.PRESETS.column },
+    'an unknown shape does not fall back to the landing default');
   assert.strictEqual(vortex.resolveShape({ waistAt: 0.3 }).waistAt, 0.3, 'a shape object is not honoured on its own');
 });
 
@@ -866,7 +867,6 @@ function runLandingStage(options) {
       contains(n) { return this.names.has(n); }
     }
   };
-  const glow = { style: { props: {}, setProperty(k, v) { this.props[k] = v; } } };
   const hero = {
     addEventListener(name, fn) { (hostListeners[name] = hostListeners[name] || []).push(fn); },
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 500 })
@@ -880,7 +880,6 @@ function runLandingStage(options) {
     querySelector: selector => {
       if (selector === '.lp') return settings.noStage ? null : lp;
       if (selector === '.lp-card') return settings.noStage ? null : card;
-      if (selector === '.lp-glow') return settings.noGlow ? null : glow;
       if (selector === '.lp-hero') return hero;
       return null;
     },
@@ -943,7 +942,7 @@ function runLandingStage(options) {
     watch.cb();
   };
   return {
-    calls, ring, canvas, glow,
+    calls, ring, canvas,
     motion: value => {
       documentStub.documentElement.dataset.motion = value ? 'on' : 'off';
       mutate(documentStub.documentElement, 'data-motion');
@@ -1011,7 +1010,7 @@ check('the vortex is created on the landing canvas with the shape the markup nam
   assert.strictEqual(named.calls.created[0].el, named.canvas, 'the scene was created on something other than the landing canvas');
   assert.strictEqual(named.calls.created[0].options.preset, 'funnel', 'data-vortex never reaches the factory');
   const plain = runLandingStage({});
-  assert.strictEqual(plain.calls.created[0].options.preset, 'hourglass', 'an unmarked canvas is given no shape');
+  assert.strictEqual(plain.calls.created[0].options.preset, 'column', 'an unmarked canvas is given no shape');
 });
 
 check('a build without WebGL loses the subject and keeps the page', () => {
@@ -1122,66 +1121,35 @@ check('the scene follows the theme rather than reading it once at load', () => {
  * while the light is still travelling and gives the frame back once it has
  * arrived.
  */
-check('the bloom eases toward the pointer and stops once it is there', () => {
+/*
+ * The landing's light is the scene's own. A pointer-following disc of cyan
+ * and violet sat behind the old sphere, and it outlived the sphere: behind
+ * the vortex it read as a green bubble around the waist -- a stain of the
+ * previous design, not part of this one. The layer, its script and its
+ * rules are gone, and so is the ellipse the landing painted behind the art
+ * column. What remains is one soft light falling from above the crown.
+ */
+check('no light box sits behind the vortex, and nothing moves one', () => {
+  assert.ok(!/lp-glow/.test(htmlSource), 'the landing markup still carries the old bloom layer');
+  assert.ok(!/\.lp-glow\b/.test(cssSource), 'the stylesheet still styles the old bloom layer');
+  const stage = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
+  assert.ok(!/--gx|--gy|lp-glow/.test(stage), 'the landing script still drives a pointer-following light');
+  const lpRules = rules.filter(rule => eachSelector(rule).some(one => /(^|\s)\.lp$/.test(one.selector.trim())));
+  /* The paint only: the same rule also carries colour tokens for the copy. */
+  const painted = lpRules.map(rule => (rule.body.match(/background(?:-image)?\s*:[^;]*/g) || []).join(' ')).join(' ');
+  assert.ok(/radial-gradient/.test(painted), 'the landing lost its light from above as well as the disc');
+  assert.ok(!/34\s*,\s*211\s*,\s*238/.test(painted),
+    'the landing still paints a cyan disc behind the art column');
+  assert.ok(!/at\s+83%\s+350px/.test(painted),
+    'the landing still paints a light centred on the old sphere');
+
+  /* And no pointer anywhere schedules a frame of its own on this page. */
   const run = runLandingStage({});
   run.enter();
-  /*
-   * Run to a standstill rather than for a fixed count. The loop ends itself
-   * when it is close enough, so "how many frames" is a property of the easing
-   * constant and asserting it would break on any tuning of the feel; that the
-   * loop ends at all, under the pointer, is the contract.
-   */
-  const settle = limit => {
-    let frames = 0;
-    while (run.pending() && frames < (limit || 600)) { run.pump(1); frames += 1; }
-    return frames;
-  };
-
+  const queued = run.pending();
   run.point(900, 400);
-  assert.ok(run.pending() > 0, 'nothing was scheduled, so the bloom never moves');
-  const frames = settle();
-  const x = parseFloat(run.glow.style.props['--gx']);
-  const y = parseFloat(run.glow.style.props['--gy']);
-  assert.ok(Math.abs(x - 90) < 0.5, `the bloom settled at ${x}% rather than under the pointer at 90%`);
-  assert.ok(Math.abs(y - 80) < 0.5, `the bloom settled at ${y}% rather than under the pointer at 80%`);
-  assert.strictEqual(run.pending(), 0,
-    'the bloom keeps asking for frames after it has arrived, which is a loop that never ends');
-
-  /*
-   * Eased, not written straight through. A handler that assigns the pointer
-   * position directly would satisfy every assertion above on its first frame,
-   * and snap in the browser -- gradient stop positions carry no transition of
-   * their own to smooth it.
-   */
-  assert.ok(frames > 5, `the bloom arrived in ${frames} frames, which is a jump rather than a glide`);
-
   run.depart();
-  settle();
-  assert.ok(Math.abs(parseFloat(run.glow.style.props['--gx']) - 50) < 0.5,
-    'the bloom does not return to rest when the pointer leaves the scene');
-});
-
-check('stopping motion stops the bloom too, including a frame already queued', () => {
-  for (const boundary of ['motion', 'reduced', 'saveData', 'visibility', 'gate']) {
-    const run = runLandingStage({});
-    run.enter();
-    run.point(900, 400);
-    run.pump(2);
-    run[boundary](['reduced', 'saveData'].includes(boundary));
-    const held = { ...run.glow.style.props };
-    run.point(100, 100);
-    run.pump(10);
-    assert.deepStrictEqual(run.glow.style.props, held, boundary + ' left the bloom moving');
-  }
-});
-
-check('a pointer that cannot hover gets no bloom loop at all', () => {
-  const run = runLandingStage({ interactive: false });
-  run.point(900, 400);
-  assert.strictEqual(run.pending(), 0,
-    'a phone is running an animation loop to move a gradient no finger can address');
-  assert.strictEqual(run.glow.style.props['--gx'], undefined,
-    'the bloom was moved on a device with no pointer to follow');
+  assert.strictEqual(run.pending(), queued, 'a pointer over the hero schedules work outside the scene');
 });
 
 /*

@@ -116,3 +116,47 @@ test('with motion off the promise is simply there', async ({ page }) => {
   await expect(words).toHaveCount(0);
   await expect(page.locator('.lp-statement-text')).toHaveCSS('opacity', '1');
 });
+
+/*
+ * The path under the hero -- 01 Connect, 02 Understand, 03 Prove -- is read as
+ * one row, so it has to look like one. Two defects were photographed there:
+ * the horizon's rim was drawn straight through the row (across "01" and "03"
+ * on a desktop, into the dividers on a phone), and each number sat lower than
+ * its title because it spanned two grid rows. The rim's highest point is where
+ * it can first touch the row; the baseline is found with a zero-height probe,
+ * which sits exactly on it.
+ */
+test('the horizon passes under the steps, and each number sits on its title', async ({ page }) => {
+  await open(page);
+  const placed = await page.evaluate(() => {
+    const horizon = document.querySelector('.lp-horizon');
+    const apex = horizon.getBoundingClientRect().top + parseFloat(getComputedStyle(horizon, '::before').top);
+    const steps = document.querySelector('.lp-steps').getBoundingClientRect();
+    const baseline = el => {
+      const probe = document.createElement('span');
+      probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+      el.appendChild(probe);
+      const y = probe.getBoundingClientRect().top;
+      probe.remove();
+      return y;
+    };
+    return {
+      clear: apex - steps.bottom,
+      rows: [...document.querySelectorAll('.lp-step')].map(step => ({
+        number: baseline(step.querySelector('.lp-step-n')),
+        title: baseline(step.querySelector('.lp-step-t')),
+        titleLeft: step.querySelector('.lp-step-t').getBoundingClientRect().left,
+        lineLeft: step.querySelector('.lp-step-d').getBoundingClientRect().left
+      }))
+    };
+  });
+  expect(placed.clear).toBeGreaterThanOrEqual(24);
+  expect(placed.rows).toHaveLength(3);
+  const phone = page.viewportSize().width < 940;
+  placed.rows.forEach(row => {
+    /* On a phone the number stands above its title; beside it, it shares the line. */
+    if (!phone) expect(Math.abs(row.number - row.title)).toBeLessThan(1);
+    else expect(row.number).toBeLessThan(row.title);
+    expect(Math.abs(row.lineLeft - row.titleLeft)).toBeLessThan(1);
+  });
+});

@@ -2,52 +2,77 @@
 
 ## Unreleased
 
-### A Vortex for the Landing
+### A Vortex for the Landing, and a First Screen Without Defects
 
 Reported: the landing's drag-to-turn plasma sphere was to be replaced by a
-particle tornado -- a vortex of glowing strands, like the hero a reader
-had seen elsewhere -- with variants that can be tuned, made to the
-standard of the best work of its kind.
+particle tornado, with variants that can be tuned, used the way the best
+examples use it. On the first version: it did not make the most of the
+variants' design and motion; a green bubble of light from the old design
+was still behind it; and the "01 Connect / 02 Understand / 03 Prove" row was
+misplaced.
 
-- **The scene.** `public/vortex.js` replaces `public/plasma-ring.js` (and
-  the attribution that came with it: this one is written for this page).
-  A surface of revolution -- a crown, a waist and a base, each with its
-  own radius -- is traced by a few hundred strands spiralling around the
-  axis; where they converge at the waist the light sums to its brightest,
-  and toward the rims it thins to nothing, so the form never ends at a
-  line. Thousands of motes ride the strands up the form, a few comets whip
-  round faster than the strands they follow, the axis bends slowly and
-  the waist breathes. Every few seconds a band of light passes from base
-  to crown, the way an audit passes over a repository.
-- **It answers the reader.** A pointer over the form parts the strands
-  around it; a drag turns it and tilts the view, with inertia, and a
-  vertical swipe on a phone still scrolls the page. Reaching for the
-  invitation draws the waist in, speeds the spin and keeps the pass
-  running. With motion off, reduced motion, a metered connection, a hidden
-  tab or the scene off screen, it is held as one frame rather than taken
-  away.
-- **Variants.** Four shapes -- `hourglass` (the default), `funnel`,
-  `spire` and `chalice` -- chosen by `data-vortex` on the canvas, and every
-  field of a shape (radii, where the waist sits, flare, twist, how many
-  strands run the other way, spin, flow, direction, sway, tilt) can be
-  passed to `NebulaVortex.create()` or `setShape()`; anything out of range
-  is clamped to what the shader was written for. Each of the four themes
-  has its own palette: teal to violet with a white-hot neck on Nebula
-  dark, an ink drawing on Nebula light, platinum on Obsidian and graphite
-  on Quartz. Dark grounds add light; light grounds composite normally.
-- **Framed from what is drawn.** The visible part of the form is
-  projected once per box and per shape, and the scene is scaled and
-  centred to its real bounds, so a funnel with its weight at the top sits
-  as well as an hourglass. The mesh is sized by the smaller edge of the
-  box (three tiers, the largest 24,640 vertices, under the 65,536 an
-  `UNSIGNED_SHORT` index can address), and a lost WebGL context is rebuilt
-  when the browser gives it back.
-- **Tests.** The unit guards run the module rather than read it: every
-  tier under the index limit, every preset and palette complete, a wild
-  shape clamped, the shape the markup names reaching the factory, and the
-  old ring gone from the build. The browser specs for the scene -- drawn
-  when held, no loop when stopped, the pointer, the drag, the touch
-  scroll -- now drive the vortex.
+- **The scene, particle-first.** `public/vortex.js` replaces
+  `public/plasma-ring.js`, written for this page. A surface of revolution --
+  crown, waist and base, each with its own radius -- is made visible by up to
+  16,000 motes riding its spiral up the form, packed tight at the waist and
+  scattering into a cloud as it flares. Faint strands of both hands give it
+  a lattice. A few comets with halos and fading tails race the strands, and
+  the motes they pass flare and ripple outward before settling. A sparse
+  field of dust drifts around the whole form. Every few seconds a band of
+  light passes from base to crown, the way an audit passes over a
+  repository.
+- **Large, and it bleeds.** The scene reaches up behind the fixed bar, out
+  toward the page's edge and down into the horizon, and it runs past its
+  box, with the canvas feathered on every side. Its left edge stays on the
+  art column, so nothing of it reaches under the entry. On a phone it spans
+  the screen's width and keeps clear of the small print above it.
+- **It answers the reader.** A pointer over the form parts the motes. A drag
+  turns and tilts it with inertia, and a vertical swipe on a phone still
+  scrolls. Reaching for the invitation draws the waist in, speeds the spin
+  and keeps the pass running. With motion off, reduced motion, a metered
+  connection, a hidden tab or the scene off screen, it is held as one frame.
+- **Variants.** Five shapes are chosen by `data-vortex` on the canvas:
+  - `column` (the landing's): a tall column pinched above a base that
+    flares into a ground of light;
+  - `hourglass`: two cones meeting at a point;
+  - `spire`;
+  - `funnel`;
+  - `chalice`.
+
+  Every field of a shape -- radii, where the waist sits, flare, twist, how
+  many strands run the other way, spin, flow, direction, sway, tilt, zoom,
+  rise -- can be passed to `NebulaVortex.create()` or `setShape()`. Anything
+  out of range is clamped. Each theme has its own palette:
+  - Nebula dark: teal to violet, with warm comets.
+  - Nebula light: an ink stipple.
+  - Obsidian: platinum.
+  - Quartz: graphite.
+- **The old light is gone.** The pointer-following cyan and violet disc
+  behind the sphere, its script, its rules and the cyan ellipse the landing
+  painted behind the art column have all been removed. One soft light falls
+  from above the crown instead.
+- **The row under the hero.** The horizon's rim was drawn through the steps
+  row: across "01" and "03" on a desktop, and into the dividers on a phone.
+  The body now keeps room below the row from the same two numbers the rim is
+  drawn from, so the rim passes 36px under it at every width. Each number
+  sits on its title's baseline, with its line under the title. The art is
+  held to the height the screen leaves room for, so at 1280x800, 1366x768,
+  1440x900, 1536x864 and 1920x1080 the whole row is on the first screen,
+  and the art's right edge lines up with the bar's. The hero's column rules
+  no longer run through the headline and lede. On a phone the field is
+  dots alone.
+- **Tests.**
+  - The unit guards run the module:
+    - every tier is under the 65,536-vertex `UNSIGNED_SHORT` index limit;
+    - every preset and palette is complete;
+    - a wild shape is clamped;
+    - the markup's shape reaches the factory;
+    - the old ring and the old light are gone, with no pointer-driven work
+      left on the page.
+  - The browser specs drive the vortex, and they check:
+    - nothing is painted behind the scene and its canvas is feathered;
+    - the horizon passes under the steps with each number on its title's
+      baseline.
 
 ### Safeguards Is a Section; Standards of 2025; A Landing Worth Its First Screen
 

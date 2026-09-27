@@ -375,7 +375,7 @@
    */
   // The canvas owns an unobstructed box and handles pointer capture itself.
   const scene = global.NebulaVortex && global.NebulaVortex.create(canvas, {
-    preset: (canvas.dataset && canvas.dataset.vortex) || 'hourglass'
+    preset: (canvas.dataset && canvas.dataset.vortex) || 'column'
   });
   if (!scene) {
     canvas.hidden = true;
@@ -387,68 +387,6 @@
   const themeName = () => (root.dataset.design === 'obsidian' ? 'obsidian-' : '') +
     (root.dataset.theme === 'light' ? 'light' : 'dark');
   scene.setTheme(themeName());
-
-  /*
-   * The bloom follows the pointer, eased.
-   *
-   * Written straight from pointermove it snaps, because a mouse reports in
-   * jumps and a gradient has no transition of its own to smooth them --
-   * stop positions are not animatable properties. One exponential approach
-   * per frame, on the same clock as the vortex, and the light and the parting
-   * of the strands arrive together rather than one chasing the other.
-   *
-   * Only where a pointer can hover: a finger has no resting position to
-   * follow, and a phone should not be running a loop to move a gradient it
-   * cannot address.
-   */
-  const glow = document.querySelector('.lp-glow');
-  let stopGlow = () => {};
-  if (glow && scene.interactive()) {
-    const rest = { x: 50, y: 50 };
-    const at = { x: rest.x, y: rest.y };
-    const want = { x: rest.x, y: rest.y };
-    let glowRaf = 0;
-    let glowLast = 0;
-
-    const step = now => {
-      if (!scene.isRunning()) { glowRaf = 0; return; }
-      const dt = Math.min((now - glowLast) / 1000, 0.05);
-      glowLast = now;
-      const k = 1 - Math.exp(-dt * 4.5);
-      at.x += (want.x - at.x) * k;
-      at.y += (want.y - at.y) * k;
-      glow.style.setProperty('--gx', at.x.toFixed(2) + '%');
-      glow.style.setProperty('--gy', at.y.toFixed(2) + '%');
-      if (Math.abs(want.x - at.x) < 0.05 && Math.abs(want.y - at.y) < 0.05) {
-        glowRaf = 0;
-        return;
-      }
-      glowRaf = global.requestAnimationFrame(step);
-    };
-    const nudge = () => {
-      if (glowRaf || !scene.isRunning()) return;
-      glowLast = global.performance ? global.performance.now() : Date.now();
-      glowRaf = global.requestAnimationFrame(step);
-    };
-
-    stopGlow = () => {
-      if (glowRaf) global.cancelAnimationFrame(glowRaf);
-      glowRaf = 0;
-    };
-    const hero = art || document.querySelector('.lp-hero') || document;
-    hero.addEventListener('pointermove', event => {
-      if (!scene.isRunning()) return;
-      const rect = (hero.getBoundingClientRect ? hero : document.documentElement).getBoundingClientRect();
-      want.x = ((event.clientX - rect.left) / (rect.width || 1)) * 100;
-      want.y = ((event.clientY - rect.top) / (rect.height || 1)) * 100;
-      nudge();
-    }, { passive: true });
-    hero.addEventListener('pointerleave', () => {
-      want.x = rest.x;
-      want.y = rest.y;
-      nudge();
-    }, { passive: true });
-  }
 
   let intersecting = typeof IntersectionObserver !== 'function';
   let revealed = false;
@@ -483,7 +421,6 @@
       return;
     }
     scene.stop();
-    stopGlow();
     /*
      * Still, not gone. A reader who asked for less motion gets the vortex as
      * a held frame -- the picture without the movement -- which is what the

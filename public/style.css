@@ -525,11 +525,9 @@ em{color:var(--teal);font-style:normal}
  * it, which is also what makes the landing and the workspace the same room.
  */
 .lp{position:relative;isolation:isolate;overflow-x:clip;background:
-  radial-gradient(ellipse 720px 800px at 83% 350px,rgba(34,211,238,.07),transparent 72%),
-  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(124,58,237,.13),transparent 75%)}
+  radial-gradient(ellipse 1100px 760px at 76% -8%,rgba(124,58,237,.12),transparent 70%)}
 [data-theme="light"] .lp{background:
-  radial-gradient(ellipse 720px 800px at 83% 350px,rgba(14,154,184,.07),transparent 72%),
-  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(124,58,237,.07),transparent 75%)}
+  radial-gradient(ellipse 1100px 760px at 76% -8%,rgba(124,58,237,.06),transparent 70%)}
 .lp-hero{position:relative;overflow:hidden}
 .lp-nav,.lp-body,.lp-more{width:min(100%,1352px);margin-inline:auto;padding-inline:clamp(20px,5vw,56px)}
 /*
@@ -619,30 +617,35 @@ em{color:var(--teal);font-style:normal}
 [data-theme="light"] .lp-state{color:rgba(22,18,52,.78)}
 
 /* The artwork owns its hit area. No content layer covers the canvas. */
-.lp-art{grid-area:art;position:relative;align-self:center;min-width:0;aspect-ratio:1/1.12}
-.lp-stage{position:absolute;inset:0 0 36px;isolation:isolate;pointer-events:none}
+/*
+ * Square, but never taller than the screen leaves room for: on a laptop the
+ * art set the height of the hero and pushed the path under it half past the
+ * fold. The vortex frames itself to whatever box it is given.
+ */
+.lp-art{grid-area:art;position:relative;align-self:center;justify-self:end;width:100%;min-width:0;aspect-ratio:1/1;
+  max-height:max(420px,calc(100svh - var(--lp-nav-h) - 200px))}
+/*
+ * The vortex is larger than its box, the way a particle tornado sits in a
+ * hero: the stage reaches up behind the fixed bar, out toward the page's
+ * edge and down into the horizon, the scene runs past even that, and the
+ * canvas is feathered on every side so the form dissolves rather than being
+ * cut. The left edge stays on the column, so nothing of the scene reaches
+ * under the entry's controls. On a phone it keeps clear of the small print
+ * above it. There is no light box behind it: the scene is its own light.
+ */
+.lp-stage{position:absolute;inset:calc(-1 * var(--lp-bleed-top,64px)) calc(-1 * var(--lp-bleed-x,72px)) -44px 0;
+  isolation:isolate;pointer-events:none}
 .lp-portal{position:absolute;inset:0;width:100%;height:100%;display:block;
   pointer-events:auto;touch-action:pan-y pinch-zoom;cursor:grab;
+  -webkit-mask-image:linear-gradient(to right,transparent,#000 8%,#000 86%,transparent),
+    linear-gradient(to bottom,transparent,#000 7%,#000 86%,transparent);
+  -webkit-mask-composite:source-in;
+  mask-image:linear-gradient(to right,transparent,#000 8%,#000 86%,transparent),
+    linear-gradient(to bottom,transparent,#000 7%,#000 86%,transparent);
+  mask-composite:intersect;
   opacity:0;transition:opacity .7s var(--ease)}
 .lp-portal:active{cursor:grabbing}
 .lp-portal.is-live{opacity:1}
-/*
- * Masked, and inset outward past the stage. Both light sources are wider than
- * the box that carries them -- the violet one is centred at 65% 65% and still
- * has colour left at 100% -- so the element's own rectangle cut them off and
- * the vortex appeared to sit inside a lit panel with visible corners. The
- * radial mask is what removes the rectangle for good: --gx/--gy follow the
- * pointer, so any fixed set of stops is only ever one gesture away from
- * reaching an edge again.
- */
-.lp-glow{position:absolute;inset:-14%;--gx:50%;--gy:50%;pointer-events:none;
-  background:radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(34,211,238,.16),transparent 80%),
-    radial-gradient(ellipse 48% 45% at 65% 65%,rgba(124,58,237,.15),transparent 80%);
-  -webkit-mask-image:radial-gradient(closest-side at 50% 50%,#000 54%,rgba(0,0,0,0) 100%);
-  mask-image:radial-gradient(closest-side at 50% 50%,#000 54%,rgba(0,0,0,0) 100%)}
-[data-theme="light"] .lp-glow{background:
-  radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(14,154,184,.12),transparent 80%),
-  radial-gradient(ellipse 48% 45% at 65% 65%,rgba(124,58,237,.08),transparent 80%)}
 .lp-art-note{position:absolute;bottom:0;inset-inline:0;text-align:center;margin:0;
   color:var(--text2);font-size:.75rem;letter-spacing:.02em;pointer-events:none}
 .lp-art.is-static .lp-drag-hint,[data-motion="off"] .lp-drag-hint{display:none}
@@ -782,7 +785,7 @@ html:has(#page-alpha-access.active){scroll-padding-top:calc(env(safe-area-inset-
   .lp-title{font-size:clamp(2.3rem,7.5vw,3.7rem)}
   .lp-lede{font-size:.95rem}
   .lp-art{width:100%;max-width:520px;justify-self:center;aspect-ratio:1.18}
-  .lp-stage{inset:-16px 0 28px}
+  .lp-stage{inset:-4px calc(-1 * clamp(20px,5vw,56px)) 28px}
   .lp-more{padding-top:40px;max-width:680px}
   .lp-sec{grid-template-columns:minmax(0,1fr);gap:28px}
   .lp-sec + .lp-sec{margin-top:64px}
@@ -5418,20 +5421,12 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .neural-search-wrap:focus-within{border-color:rgba(167,139,250,.7);box-shadow:0 0 0 3px rgba(139,92,246,.22)}
 [data-design="obsidian"] .neural-search-wrap:focus-within{border-color:rgba(255,255,255,.34);box-shadow:0 0 0 3px rgba(255,255,255,.08)}
 [data-design="obsidian"][data-theme="light"] .neural-search-wrap:focus-within{border-color:rgba(28,25,23,.3);box-shadow:0 0 0 3px rgba(28,25,23,.07)}
-/* Obsidian's landing: the same room lit by white light instead of cyan and
-   violet -- a cool haze behind the platinum ring, nothing tinted. */
+/* Obsidian's landing: the same light from above the vortex's crown, white
+   instead of violet -- nothing tinted, and nothing behind the form itself. */
 [data-design="obsidian"] .lp{background:
-  radial-gradient(ellipse 720px 800px at 83% 350px,rgba(255,255,255,.035),transparent 72%),
-  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(180,180,200,.05),transparent 75%)}
+  radial-gradient(ellipse 1100px 760px at 76% -8%,rgba(200,200,215,.06),transparent 70%)}
 [data-design="obsidian"][data-theme="light"] .lp{background:
-  radial-gradient(ellipse 720px 800px at 83% 350px,rgba(255,255,255,.7),transparent 72%),
-  radial-gradient(ellipse 900px 1050px at 95% 420px,rgba(120,113,108,.06),transparent 75%)}
-[data-design="obsidian"] .lp-glow{background:
-  radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(255,255,255,.08),transparent 80%),
-  radial-gradient(ellipse 48% 45% at 65% 65%,rgba(167,139,250,.05),transparent 80%)}
-[data-design="obsidian"][data-theme="light"] .lp-glow{background:
-  radial-gradient(ellipse 45% 45% at var(--gx) var(--gy),rgba(255,255,255,.9),transparent 80%),
-  radial-gradient(ellipse 48% 45% at 65% 65%,rgba(120,113,108,.08),transparent 80%)}
+  radial-gradient(ellipse 1100px 760px at 76% -8%,rgba(255,255,255,.75),transparent 70%)}
 
 /* ===================================================================== *
  * Landing: shown rather than described.
@@ -6403,25 +6398,50 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 /* ---- The hero's room ---------------------------------------------------------- */
 .lp-hero{isolation:isolate}
 /* A dot field and six column rules, strongest behind the artwork and gone before the edges. */
+/*
+ * The dot field and column rules belong to the artwork's side of the hero.
+ * Spread across the whole width, a rule ran through the headline, the lede
+ * and the entry line -- faint, but a line through a word reads as a defect,
+ * not a texture. The second mask keeps the copy column on plain ground.
+ */
 .lp-hero::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
   background:
     radial-gradient(circle,var(--lp-dot) 1px,transparent 1.5px) 0 0/22px 22px,
     linear-gradient(90deg,var(--lp-col) 1px,transparent 1px) 0 0/calc(100% / 6) 100%;
-  -webkit-mask-image:radial-gradient(ellipse 62% 70% at 72% 42%,#000 10%,rgba(0,0,0,.35) 55%,transparent 82%);
-  mask-image:radial-gradient(ellipse 62% 70% at 72% 42%,#000 10%,rgba(0,0,0,.35) 55%,transparent 82%)}
+  -webkit-mask-image:radial-gradient(ellipse 62% 70% at 72% 42%,#000 10%,rgba(0,0,0,.35) 55%,transparent 82%),
+    linear-gradient(90deg,transparent 42%,#000 54%);
+  -webkit-mask-composite:source-in;
+  mask-image:radial-gradient(ellipse 62% 70% at 72% 42%,#000 10%,rgba(0,0,0,.35) 55%,transparent 82%),
+    linear-gradient(90deg,transparent 42%,#000 54%);
+  mask-composite:intersect}
 /*
  * A horizon of light: the rim of a very large disc rising under the fold.
  * It lives in a strip of its own that fades to nothing at its foot, so the
  * rim and its glow thin away before the hero ends instead of being cut off
  * by it.
  */
-.lp-horizon{position:absolute;left:0;right:0;bottom:0;height:280px;z-index:-1;pointer-events:none;overflow:hidden;
+.lp{--lp-horizon-h:280px;--lp-rim-top:130px}
+.lp-horizon{position:absolute;left:0;right:0;bottom:0;height:var(--lp-horizon-h);z-index:-1;pointer-events:none;overflow:hidden;
   -webkit-mask-image:linear-gradient(180deg,#000 50%,transparent 100%);mask-image:linear-gradient(180deg,#000 50%,transparent 100%)}
-.lp-horizon::before{content:"";position:absolute;left:50%;top:130px;width:max(1700px,150vw);height:1400px;
+.lp-horizon::before{content:"";position:absolute;left:50%;top:var(--lp-rim-top);width:max(1700px,150vw);height:1400px;
   transform:translateX(-50%);border-radius:50%;
   background:linear-gradient(180deg,color-mix(in oklab,var(--page) 70%,transparent),transparent 150px);
   box-shadow:0 -1px 0 0 var(--lp-rim),0 -28px 90px -24px var(--lp-rim-glow),inset 0 24px 70px -30px var(--lp-rim-cyan)}
 .lp-steps{position:relative}
+/*
+ * The rim passes under the steps, never through them. Its highest point is
+ * --lp-horizon-h - --lp-rim-top above the hero's foot, so the body keeps that
+ * much room below the last row plus clear air -- one sum from the same two
+ * numbers the rim is drawn from, so moving the rim cannot bring it back
+ * through the text. It was drawn through the row at every width: the arc
+ * crossed "01" and "03" on a desktop and ran into the dividers on a phone.
+ */
+.lp-body{padding-bottom:calc(var(--lp-horizon-h) - var(--lp-rim-top) + 36px)}
+/* A step's number and its title share a baseline; the line under it sits
+   under the title, not under the number. */
+.lp-step{align-items:baseline}
+.lp-step-n{grid-row:1;line-height:1}
+.lp-step-d{grid-column:2}
 
 /* ---- The statement ---------------------------------------------------------- */
 .lp-statement{display:grid;justify-items:center;gap:22px;text-align:center;max-width:62rem;margin-inline:auto}
@@ -6443,12 +6463,15 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 /* ---- Phones ------------------------------------------------------------------- */
 @media (max-width:939px){
   .lp-title{font-size:clamp(2.35rem,9.6vw,3.6rem)}
-  .lp-hero::before{-webkit-mask-image:radial-gradient(ellipse 90% 60% at 50% 70%,#000 10%,rgba(0,0,0,.3) 55%,transparent 85%);
-    mask-image:radial-gradient(ellipse 90% 60% at 50% 70%,#000 10%,rgba(0,0,0,.3) 55%,transparent 85%);
-    background-size:18px 18px,calc(100% / 4) 100%}
-  .lp-body{padding-bottom:72px}
-  .lp-horizon{height:190px}
-  .lp-horizon::before{top:120px;width:max(1100px,300vw)}
+  /* One column on a phone: the copy and the art share it, so the field is
+     dots alone -- no rule can cross a word -- and it gathers around the art. */
+  .lp-hero::before{background:radial-gradient(circle,var(--lp-dot) 1px,transparent 1.5px) 0 0/18px 18px;
+    -webkit-mask-image:radial-gradient(ellipse 90% 60% at 50% 70%,#000 10%,rgba(0,0,0,.3) 55%,transparent 85%);
+    mask-image:radial-gradient(ellipse 90% 60% at 50% 70%,#000 10%,rgba(0,0,0,.3) 55%,transparent 85%)}
+  .lp{--lp-horizon-h:190px;--lp-rim-top:120px}
+  .lp-horizon::before{width:max(1100px,300vw)}
+  .lp-step-d{grid-column:auto}
+  .lp-steps{padding-top:8px}
   .lp-statement-text{font-size:clamp(1.4rem,6.4vw,2rem);line-height:1.26;text-wrap:pretty}
 }
 @media (max-width:480px){

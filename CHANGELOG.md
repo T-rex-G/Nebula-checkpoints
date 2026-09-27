@@ -46,6 +46,11 @@ security products' sites.
   sentence under the providers that lights a word at a time as it is
   read, and is simply there with motion off. Studied against the best
   security products' pages for their principles, not their branding.
+- **The editor on a phone.** A cursor sent down the file -- a search hit,
+  a jump to a line, typing on the last row -- landed behind the bottom
+  navigation, because the editor only knows its own box and that box runs
+  under the navigation until the page is scrolled to its end. After any
+  cursor move, a cursor under the navigation is now scrolled clear of it.
 - **Tests.** `test/security-standards.test.js` (new) proves every
   placement against OWASP's lists; `test/e2e/landing-nav.spec.js` (new)
   covers the bar, the section links, the theme icon and the lit sentence;

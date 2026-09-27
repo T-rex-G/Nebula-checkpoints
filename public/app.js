@@ -5747,6 +5747,15 @@ function ensureCM() {
     value: '', lineNumbers: true, theme: state.settings.editorTheme,
     lineWrapping: !!state.settings.wrap, viewportMargin: 50
   });
+  /*
+   * On a phone the editor runs down behind the bottom navigation until the
+   * page is scrolled to its end, and CodeMirror only knows its own box: a
+   * cursor moved to the last line, a search hit or a jump to a line landed
+   * under the navigation, where it could not be seen or tapped. After any
+   * cursor move, a cursor that sits under the navigation is scrolled clear
+   * of it, inside the editor.
+   */
+  state.cm.on('cursorActivity', cm => requestAnimationFrame(() => keepCursorClearOfNav(cm)));
   state.cm.on('change', () => {
     if (state.file && !state.file.binary && !state.file._loading) {
       state.file.dirty = true;
@@ -5757,6 +5766,17 @@ function ensureCM() {
     }
   });
   return state.cm;
+}
+
+function keepCursorClearOfNav(cm) {
+  const nav = $('#bottomNav');
+  /* offsetParent is always null for a fixed element; a laid-out box is the test. */
+  if (!nav || !nav.getClientRects().length) return;
+  const limit = nav.getBoundingClientRect().top - 12;
+  const cursor = cm.cursorCoords(null, 'window');
+  if (cursor.bottom <= limit) return;
+  const info = cm.getScrollInfo();
+  cm.scrollTo(null, Math.min(info.height - info.clientHeight, info.top + (cursor.bottom - limit)));
 }
 
 async function openFile(p) {

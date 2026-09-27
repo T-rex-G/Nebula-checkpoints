@@ -3510,11 +3510,27 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     position:fixed;left:0;top:0;bottom:0;height:100dvh;
     width:min(84vw,320px);z-index:95;overflow-y:auto;overscroll-behavior:contain;
     padding:calc(16px + env(safe-area-inset-top,0px)) 14px calc(16px + env(safe-area-inset-bottom,0px));
-    background:var(--shellSolid);border-right:1px solid var(--sb);
-    animation:navDrawerIn .22s var(--ease) both}
-  @keyframes navDrawerIn{from{transform:translateX(-100%)}to{transform:none}}
-  body.nav-closing .nv-rail{animation:navDrawerOut .22s var(--ease) both}
-  @keyframes navDrawerOut{to{transform:translateX(-100%)}}
+    background:var(--railArt),var(--shellSolid);border-right:1px solid var(--sb);
+    border-radius:0 24px 24px 0;
+    box-shadow:24px 0 60px -24px rgba(0,0,0,.55),inset -1px 0 0 rgba(255,255,255,.04);
+    animation:navDrawerIn .42s cubic-bezier(.22,1,.36,1) both;will-change:transform}
+  @keyframes navDrawerIn{from{transform:translateX(-104%);opacity:.6}to{transform:none;opacity:1}}
+  body.nav-closing .nv-rail{animation:navDrawerOut .28s cubic-bezier(.55,0,.75,.2) both}
+  @keyframes navDrawerOut{to{transform:translateX(-104%);opacity:.6}}
+  /* The finger holds the drawer while it drags; letting go springs it back or away. */
+  body.nav-open .nv-rail.is-dragging{animation:none;transition:none}
+  body.nav-open .nv-rail:not(.is-dragging){transition:transform .32s cubic-bezier(.22,1,.36,1)}
+  /* The entries arrive just after the panel, one after another, then stay put. */
+  body.nav-open:not(.nav-closing) .nv-rail-nav > li,
+  body.nav-open:not(.nav-closing) .nv-rail-group{animation:navItemIn .44s cubic-bezier(.22,1,.36,1) both}
+  body.nav-open .nv-rail-nav > li:nth-child(1){animation-delay:.06s}
+  body.nav-open .nv-rail-nav > li:nth-child(2){animation-delay:.1s}
+  body.nav-open .nv-rail-nav > li:nth-child(3){animation-delay:.14s}
+  body.nav-open .nv-rail-nav > li:nth-child(4){animation-delay:.18s}
+  body.nav-open .nv-rail-nav > li:nth-child(5){animation-delay:.22s}
+  body.nav-open .nv-rail-group{animation-delay:.08s}
+  @keyframes navItemIn{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}
+  body.nav-open .nv-rail-close,body.nav-closing .nv-rail-close{display:inline-flex}
   /* The collapse control narrows a rail that is permanently on screen. A
      drawer is dismissed instead, so it would do nothing here. */
   body.nav-open .nv-rail-section,
@@ -3522,8 +3538,22 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 }
 @media (max-width:1139px) and (prefers-reduced-motion:reduce){
   body.nav-open .nv-rail,
-  body.nav-closing .nv-rail{animation:none}
+  body.nav-closing .nv-rail,
+  body.nav-open .nv-rail-nav > li,
+  body.nav-open .nv-rail-group{animation:none}
 }
+[data-motion="off"] body.nav-open .nv-rail-nav > li,
+[data-motion="off"] body.nav-open .nv-rail-group{animation:none}
+/* The drawer's own close control: round, quiet, and it turns as it is pointed at. */
+.nv-rail-close{display:none;margin-left:auto;align-self:center;width:38px;height:38px;flex:none;
+  align-items:center;justify-content:center;border-radius:50%;border:1px solid var(--sb);
+  background:color-mix(in oklab,var(--text) 5%,transparent);color:var(--text2);cursor:pointer;
+  transition:background .2s ease,color .2s ease,transform .3s cubic-bezier(.22,1,.36,1)}
+.nv-rail-close svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round}
+.nv-rail-close:hover{background:color-mix(in oklab,var(--text) 10%,transparent);color:var(--text);transform:rotate(90deg)}
+.nv-rail-close:active{transform:rotate(90deg) scale(.92)}
+.nv-rail-close:focus-visible{outline:2px solid var(--focus,var(--accent));outline-offset:2px}
+[data-motion="off"] .nv-rail-close{transition:none}
 /*
  * The shell.
  *
@@ -3637,7 +3667,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .nv-rail{transition:width .34s cubic-bezier(.4,0,.2,1),padding .34s ease}
   .nv-fab-dock{left:auto}
 }
-.nv-rail-head{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center}
+.nv-rail-head{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;align-items:center}
+.nv-rail-head .nv-rail-close{grid-column:3;grid-row:1 / span 2}
 /*
  * The mark belongs to the whole two-line block, not to the first line of it.
  * Left in automatic flow it took row 1 only, so align-items:center centred it
@@ -5671,7 +5702,7 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .lp-au-bar{display:block;height:3px;border-radius:3px;background:var(--au-line);overflow:hidden}
 .lp-au-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));transform-origin:0 50%}
 
-.lp-au-fams{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.lp-au-fams{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
 .lp-au-fams li{position:relative;display:grid;gap:5px;padding:10px 10px 12px;border-radius:13px;border:1px solid var(--au-line);
   background:var(--au-soft);overflow:hidden;min-width:0}
 .lp-au-fams li > span{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;color:var(--au-dim);font-weight:600;

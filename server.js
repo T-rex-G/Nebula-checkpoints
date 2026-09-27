@@ -150,6 +150,7 @@ const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./sr
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = require('./src/guarded-fetch');
 const { auditRepository } = require('./src/code-audit');
 const { checkSite, declaredSite } = require('./src/site-check');
+const { readBranchProtection } = require('./src/branch-protection');
 const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
 
@@ -479,11 +480,28 @@ app.use((req, res, next) => {
   });
   next();
 });
-/* security headers */
+/*
+ * Security headers. The CSP's frame-ancestors is what modern browsers obey;
+ * X-Frame-Options says the same to the ones that predate it. The page opens
+ * nothing it needs to talk back to, so it keeps a browsing context group of
+ * its own (COOP), serves nothing another origin may embed (CORP), and asks
+ * for its own agent cluster. Every powerful feature the product never uses
+ * is switched off rather than left to a default.
+ */
+const PERMISSIONS_POLICY = [
+  'accelerometer=()', 'autoplay=()', 'bluetooth=()', 'browsing-topics=()', 'camera=()', 'display-capture=()',
+  'geolocation=()', 'gyroscope=()', 'hid=()', 'magnetometer=()', 'microphone=()', 'midi=()', 'payment=()',
+  'publickey-credentials-get=()', 'serial=()', 'usb=()', 'xr-spatial-tracking=()'
+].join(', ');
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Origin-Agent-Cluster', '?1');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   if (process.env.NODE_ENV === 'production') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   res.setHeader('Content-Security-Policy', [
     "default-src 'self'",
@@ -497,7 +515,10 @@ app.use((req, res, next) => {
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
-    "frame-ancestors 'none'"
+    "frame-src 'none'",
+    "manifest-src 'self'",
+    "frame-ancestors 'none'",
+    ...(process.env.NODE_ENV === 'production' ? ['upgrade-insecure-requests'] : [])
   ].join('; '));
   next();
 });
@@ -712,6 +733,34 @@ app.get('/readyz', async (req, res) => {
     });
   }
 });
+/*
+ * Where to report a vulnerability (RFC 9116), and what crawlers may index.
+ * The contact defaults to the repository's private advisory form and can be
+ * pointed elsewhere; Expires is always six months out, so the file never
+ * lapses into a stale promise.
+ */
+function publicOrigin(req) {
+  const configured = String(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
+  return /^https:\/\//.test(configured) ? configured : `${req.protocol}://${req.get('host')}`;
+}
+app.get('/.well-known/security.txt', (req, res) => {
+  const contact = String(process.env.NV_SECURITY_CONTACT || 'https://github.com/T-rex-G/Nebula-checkpoints/security/advisories/new').trim();
+  const expires = new Date(Date.now() + 182 * 24 * 60 * 60 * 1000);
+  expires.setUTCHours(0, 0, 0, 0);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.type('text/plain').send([
+    `Contact: ${contact}`,
+    `Expires: ${expires.toISOString()}`,
+    'Preferred-Languages: en',
+    `Canonical: ${publicOrigin(req)}/.well-known/security.txt`,
+    ''
+  ].join('\n'));
+});
+app.get('/robots.txt', (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.type('text/plain').send('User-agent: *\nAllow: /$\nDisallow: /api/\n');
+});
+
 /* iOS requests these at the root by convention when adding to home screen */
 for (const alias of ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
   app.get(alias, (req, res) => res.sendFile(path.join(__dirname, 'public', 'assets', 'apple-touch-icon.png')));
@@ -7689,6 +7738,24 @@ app.get('/api/repo/:owner/:repo/site-check', providerSessionAccess, alphaReposit
   finally { siteChecksInFlight.delete(who); }
 });
 
+/*
+ * What the provider enforces on a branch, beside Nebulaverse-X's own
+ * safeguards. Read-only: every path and every judgement is in
+ * src/branch-protection.js; this binds its reader to the open repository.
+ */
+app.get('/api/repo/:owner/:repo/branch-protection', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const provider = req.gh.provider || 'github';
+    const branch = req.query.branch ? requireBranchName(String(req.query.branch)) : '';
+    const read = provider === 'gitlab'
+      ? apiPath => glFetch(req.gh, `/projects/${glId(req)}${apiPath}`)
+      : apiPath => gh(req.gh, `${R(req)}${apiPath}`);
+    const webBase = provider === 'github' ? 'https://github.com' : provider === 'gitlab' ? (req.gh.baseUrl || 'https://gitlab.com') : req.gh.baseUrl;
+    res.json(await readBranchProtection({ provider, owner: req.params.owner, repo: req.params.repo, branch, read, webBase }));
+  } catch (e) { fail(res, e); }
+});
+
 app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const branch = req.query.ref || '';
@@ -8256,6 +8323,16 @@ app.get('/api/version', (req, res) => res.json({
 }));
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+  /*
+   * The page is served for a route, not for a file. A path with a dot segment
+   * or an extension that the static server did not find is a file that does
+   * not exist -- /.env, /.git/HEAD, /package.json -- and answering it with the
+   * app's own page at 200 reads, to every scanner, as the file being there.
+   */
+  if (/(^|\/)\.[^/]*|\.[a-z0-9]{1,8}$/i.test(req.path)) {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(404).type('text/plain').send('Not found\n');
+  }
   res.setHeader('Cache-Control', 'no-cache');
   res.type('html').send(renderReleaseTemplate(INDEX_TEMPLATE));
 });

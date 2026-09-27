@@ -315,6 +315,7 @@
                   <li data-family="code" style="--find:60%;--again:100%"><span>Code security</span><b><span data-only="read">&mdash;</span><span data-only="find fix">60</span><span data-only="again">100</span></b><i></i></li>
                   <li data-family="secrets" style="--find:100%;--again:100%"><span>Secrets</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
                   <li data-family="dependencies" style="--find:100%;--again:100%"><span>Dependencies</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="infrastructure" style="--find:100%;--again:100%"><span>Infrastructure</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
                   <li data-family="hygiene" style="--find:100%;--again:100%"><span>Hygiene</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
                 </ul>
                 <ul class="lp-au-list" data-only="find fix">
@@ -388,16 +389,16 @@
             <ul class="lp-check-eg"><li>GitHub, GitLab and Slack</li><li>OpenAI, Anthropic and Stripe</li><li>npm, Sentry and Datadog</li><li>Neon, Render and Netlify</li></ul>
           </li>
           <li class="lp-check">
-            <span class="lp-check-v" data-count="47" data-claim="audit-rules">47</span>
+            <span class="lp-check-v" data-count="60" data-claim="audit-rules">60</span>
             <h3 class="lp-check-t">Repository audit rules</h3>
-            <p class="lp-check-d">Supply chain, code, secrets, dependencies and hygiene, each rule tested firing on the mistake and quiet on the safe way to write it.</p>
-            <ul class="lp-check-eg"><li>Published advisories and malicious packages, from OSV</li><li>Supabase row level security and Firebase rules</li><li>Privileged and injectable workflows</li><li>Injection, SSRF and path traversal</li></ul>
+            <p class="lp-check-d">Supply chain, code, secrets, dependencies, infrastructure and hygiene &mdash; each rule mapped to its CWE and OWASP category, and tested firing on the mistake and quiet on the safe way to write it.</p>
+            <ul class="lp-check-eg"><li>Published advisories and malicious packages, from OSV</li><li>Supabase row level security and Firebase rules</li><li>Dockerfiles, Terraform and Kubernetes manifests</li><li>Injection, SSRF, deserialization and path traversal</li></ul>
           </li>
           <li class="lp-check">
-            <span class="lp-check-v" data-count="15" data-claim="site-rules">15</span>
+            <span class="lp-check-v" data-count="19" data-claim="site-rules">19</span>
             <h3 class="lp-check-t">Deployed-site checks</h3>
             <p class="lp-check-d">Anonymous and bounded: ten requests at most, no credential, no cookie, and nothing it reads is kept.</p>
-            <ul class="lp-check-eg"><li>Security headers and their strength</li><li>Cookie flags and credentialed CORS</li><li>Served .env, .git and .DS_Store</li><li>A published security contact</li></ul>
+            <ul class="lp-check-eg"><li>Security headers and their strength</li><li>Cookie flags and credentialed CORS</li><li>Served .env, .git and .DS_Store</li><li>Mixed content and unpinned third-party scripts</li></ul>
           </li>
         </ul>
         <div class="lp-ticker" aria-hidden="true">
@@ -720,6 +721,10 @@
     <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
     <span class="nv-rail-brand">__NV_PRODUCT_NAME__</span>
     <span class="nv-rail-sub">Trust operations</span>
+    <!-- Only drawn when the rail is a drawer: standing chrome is not dismissed. -->
+    <button type="button" class="nv-rail-close" id="navClose" aria-label="Close navigation" title="Close">
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+    </button>
   </div>
 
   <!--
@@ -747,12 +752,11 @@
   </ul>
 
   <!--
-    The four places that answer "is this repository safe": what it touches,
-    what it is allowed to do, what it has leaked, and what a reviewer or an
-    attacker would find in its code and on its site. They sit together so a
-    reader looking for one finds the others beside it. Safeguards is a dialog
-    over the repository, not a place, so it is offered where the repository's
-    own actions are rather than here.
+    The places that answer "is this repository safe": what it touches, what
+    it is allowed to do, what it has leaked, what a reviewer or an attacker
+    would find in its code and on its site, and the switches that stop it.
+    They sit together so a reader looking for one finds the others beside it.
+    Safeguards opens over the page it is chosen from, and says so.
   -->
   <p class="nv-rail-group" id="railSecurityLabel">Security</p>
   <ul class="nv-rail-nav" aria-labelledby="railSecurityLabel">
@@ -772,6 +776,10 @@
       <svg class="nv-rail-i nv-audit-mark" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.2V5.6A1.6 1.6 0 0 1 5.6 4h2.6M15.8 4h2.6A1.6 1.6 0 0 1 20 5.6v2.6M20 15.8v2.6a1.6 1.6 0 0 1-1.6 1.6h-2.6M8.2 20H5.6A1.6 1.6 0 0 1 4 18.4v-2.6"/><path d="M12 7.3l3.9 1.6v2.8c0 2.3-1.6 4.2-3.9 5-2.3-.8-3.9-2.7-3.9-5V8.9z"/><path d="M10.4 11.9l1.1 1.1 2.1-2.3"/></svg>
       <span class="nv-rail-t">Audit</span>
       <span class="nv-rail-d">Code and site scanner</span></button></li>
+    <li><button type="button" class="nv-rail-item" data-feature="recovery" data-rail="safeguards" aria-haspopup="dialog">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg>
+      <span class="nv-rail-t">Safeguards</span>
+      <span class="nv-rail-d">Lockdown and protection</span></button></li>
   </ul>
 
   <div class="nv-rail-foot">
@@ -1615,7 +1623,6 @@
     <button class="sheet-item" data-feature="workflows.read" data-allow-experimental="true" data-act="actions"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M10 8.6l5.6 3.4L10 15.4z"/></svg><span>Actions (CI)</span></button>
     <button class="sheet-item" data-feature="recovery" data-allow-experimental="true" data-act="compare"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M8 3.5v17M8 3.5L4.5 7M8 3.5L11.5 7M16 20.5v-17M16 20.5L12.5 17M16 20.5l3.5-3.5"/></svg><span>Compare branches</span></button>
     <button class="sheet-item" data-feature="branches.write" data-act="branches"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg><span>Manage branches</span></button>
-    <button class="sheet-item" data-feature="recovery" data-act="safeguards" aria-haspopup="dialog"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg><span>Safeguards…</span></button>
     <button class="sheet-item" data-feature="repository.read" data-act="zip"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5v11M6.5 9l5.5 5.5L17.5 9M4 20.5h16"/></svg><span>Download repo (.zip)</span></button>
     <button class="sheet-item danger" data-feature="repository.delete" data-allow-experimental="true" data-act="delrepo"><svg class="ico" width="19" height="19" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg><span>Delete repository…</span></button>
     <div class="sheet-div"></div>
@@ -1624,6 +1631,7 @@
     <button class="sheet-item" data-feature="governance" data-allow-experimental="true" data-act="governance"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg><span>Governance</span></button>
     <button class="sheet-item" data-feature="exposure.scan" data-allow-experimental="true" data-act="exposure"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg><span>Exposure</span></button>
     <button class="sheet-item" data-feature="site-check" data-act="audit"><svg class="ico nv-audit-mark" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.2V5.6A1.6 1.6 0 0 1 5.6 4h2.6M15.8 4h2.6A1.6 1.6 0 0 1 20 5.6v2.6M20 15.8v2.6a1.6 1.6 0 0 1-1.6 1.6h-2.6M8.2 20H5.6A1.6 1.6 0 0 1 4 18.4v-2.6"/><path d="M12 7.3l3.9 1.6v2.8c0 2.3-1.6 4.2-3.9 5-2.3-.8-3.9-2.7-3.9-5V8.9z"/><path d="M10.4 11.9l1.1 1.1 2.1-2.3"/></svg><span>Audit</span></button>
+    <button class="sheet-item" data-feature="recovery" data-act="safeguards" aria-haspopup="dialog"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg><span>Safeguards</span></button>
     <div class="sheet-div"></div>
     <p class="sheet-label">Workspace</p>
     <button class="sheet-item" data-act="palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg><span>Command palette</span></button>

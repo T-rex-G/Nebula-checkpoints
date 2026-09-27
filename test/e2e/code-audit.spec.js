@@ -2,7 +2,7 @@
 
 /*
  * The Audit tab: a grade that rests on what was read, the three jobs to do
- * first, the five families it is built from, findings that open into their
+ * first, the six families it is built from, findings that open into their
  * reason, fix, advisories and prompt, a brief to export, and the comparison
  * with the last audit of the same repository.
  */
@@ -44,9 +44,9 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('details[open]', { hasText: 'A SQL statement is built' })).toHaveCount(1);
   await expect(pane.locator('.audit-item', { hasText: 'A SQL statement is built' }).locator('summary')).toBeFocused();
 
-  /* Five families, each with its own reading. */
+  /* Six families, each with its own reading. */
   const families = pane.getByRole('list', { name: 'Audit families' }).getByRole('button');
-  await expect(families).toHaveCount(5);
+  await expect(families).toHaveCount(6);
   await expect(families.nth(1)).toContainText('Code security');
   await expect(families.nth(2)).toContainText('Secrets');
 

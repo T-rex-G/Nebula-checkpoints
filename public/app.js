@@ -6064,6 +6064,46 @@ $$('.nav-menu-btn').forEach(button => button.addEventListener('click', () => {
   setNavMenu(!navMenuOpen(), button);
 }));
 $('#navScrim') && $('#navScrim').addEventListener('click', closeNavMenu);
+$('#navClose') && $('#navClose').addEventListener('click', closeNavMenu);
+/*
+ * A drawer follows the finger that closes it. A horizontal drag to the left
+ * moves the rail with the touch; let go past a third of its width, or with a
+ * quick flick, and it closes; otherwise it springs back. A vertical drag is
+ * the list scrolling and is left alone.
+ */
+(function drawerSwipe() {
+  const rail = $('#navRail');
+  if (!rail) return;
+  let start = null;
+  rail.addEventListener('touchstart', event => {
+    if (!navMenuOpen() || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    start = { x: touch.clientX, y: touch.clientY, t: Date.now(), dx: 0, horizontal: null };
+  }, { passive: true });
+  rail.addEventListener('touchmove', event => {
+    if (!start) return;
+    const touch = event.touches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (start.horizontal === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) start.horizontal = Math.abs(dx) > Math.abs(dy);
+    if (!start.horizontal) return;
+    start.dx = Math.min(0, dx);
+    rail.classList.add('is-dragging');
+    rail.style.transform = `translateX(${start.dx}px)`;
+  }, { passive: true });
+  const end = () => {
+    if (!start) return;
+    const { dx, t, horizontal } = start;
+    start = null;
+    rail.classList.remove('is-dragging');
+    rail.style.transform = '';
+    if (!horizontal) return;
+    const fast = Math.abs(dx) / Math.max(1, Date.now() - t) > 0.5;
+    if (-dx > rail.getBoundingClientRect().width / 3 || (fast && dx < -24)) closeNavMenu();
+  };
+  rail.addEventListener('touchend', end);
+  rail.addEventListener('touchcancel', end);
+})();
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && navMenuOpen()) { event.preventDefault(); closeNavMenu(); }
 });
@@ -6077,6 +6117,11 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   const target = item.dataset.rail;
   closeNavMenu();
   if (target === 'overview') return showOverview();
+  /* Safeguards is a dialog over the page it is opened from, not a destination. */
+  if (target === 'safeguards') {
+    if (!state.work) return toast('Open a repository first.', 'err');
+    return runCapabilityAction('recovery', () => openSafeguards());
+  }
   if (target === 'repos') return showPage('repos');
   if (!state.work) return toast('Open a repository first.', 'err');
   showPage('work');

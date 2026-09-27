@@ -1189,11 +1189,9 @@ test.describe('destination names', () => {
  * The security surfaces are one set.
  *
  * They sit together, in one order, under one name, in the phone menu and the
- * desktop rail -- and every one of them is a page. Safeguards is not: it is a
- * dialog about the repository, so it lives with the repository's options (the
- * menu's Repository group, the top bar on a desktop) and opens where the
- * reader is instead of pretending to be a destination. The guard is on
- * adjacency and order, not on styling.
+ * desktop rail. Safeguards is among them and says it opens a dialog, and its
+ * label carries no ellipsis -- a reader took the three dots for a glitch. The
+ * guard is on adjacency and order, not on styling.
  */
 test('the security entries sit together, in the same order, in the menu and the rail', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
@@ -1223,14 +1221,51 @@ test('the security entries sit together, in the same order, in the menu and the 
     };
   });
 
-  const expected = ['neural', 'governance', 'exposure', 'audit'];
+  const expected = ['neural', 'governance', 'exposure', 'audit', 'safeguards'];
   expect(groups.menu).toEqual(expected);
   expect(groups.rail).toEqual(expected);
   expect(groups.railLabel).toBe('Security');
-  /* Safeguards is an option on the repository, marked as opening a dialog, and never a rail destination. */
-  expect(groups.repository).toContain('safeguards');
+  expect(groups.repository).not.toContain('safeguards');
   expect(groups.safeguardsPopup).toBe('dialog');
-  expect(groups.railSafeguards).toBe(0);
+  expect(groups.railSafeguards).toBe(1);
+  await expect(page.locator('.sheet-item[data-act="safeguards"]')).toHaveText('Safeguards');
+});
+
+test('the navigation drawer closes from its own button, by swipe, and by Escape', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor();
+  const opener = page.locator('#page-work .nav-menu-btn');
+  if (!(await opener.isVisible())) {
+    /* On a wide screen the rail is standing chrome, and nothing dismisses it. */
+    await expect(page.locator('#navClose')).toBeHidden();
+    return;
+  }
+  const rail = page.locator('#navRail');
+  await opener.click();
+  await expect(page.locator('body')).toHaveClass(/nav-open/);
+  const close = page.locator('#navClose');
+  await expect(close).toBeVisible();
+  await expect(close).toHaveAccessibleName('Close navigation');
+  await close.click();
+  await expect(page.locator('body')).not.toHaveClass(/nav-open/);
+  await expect(opener).toBeFocused();
+
+  /* A drag to the left carries the drawer away. */
+  await opener.click();
+  await expect(page.locator('body')).toHaveClass(/nav-open/);
+  const box = await rail.boundingBox();
+  const y = box.y + box.height / 2;
+  await rail.dispatchEvent('touchstart', { touches: [{ identifier: 1, clientX: box.x + box.width - 40, clientY: y }] });
+  await rail.dispatchEvent('touchmove', { touches: [{ identifier: 1, clientX: box.x + 20, clientY: y + 4 }] });
+  await rail.dispatchEvent('touchend', { touches: [] });
+  await expect(page.locator('body')).not.toHaveClass(/nav-open/);
+
+  /* Safeguards opens from the drawer as a dialog, over the page. */
+  await opener.click();
+  await rail.locator('[data-rail="safeguards"]').click();
+  await expect(page.locator('body')).not.toHaveClass(/nav-open/);
+  await expect(page.getByRole('dialog').filter({ hasText: /Safeguards/ }).first()).toBeVisible();
 });
 
 test('the audit is reachable from the phone menu and carries its own mark', async ({ page }) => {

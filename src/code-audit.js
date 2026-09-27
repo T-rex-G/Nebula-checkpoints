@@ -4,7 +4,7 @@
  * The repository audit: what a code-level reviewer would flag in a quickly
  * built application, beyond the leaked credentials Exposure already finds.
  *
- * Five families, each a list of deterministic rules over files read through
+ * Six families, each a list of deterministic rules over files read through
  * the same guarded reader Exposure uses:
  *
  *   supply chain   code that fetches and runs something at install time, pipes
@@ -24,6 +24,11 @@
  *   dependencies   packages the registry has never heard of, versions with a
  *                  published vulnerability or listed as malicious in OSV,
  *                  and names one keystroke from a popular package;
+ *   infrastructure containers that run as root, pull files from URLs or
+ *                  bake secrets in; Terraform that makes a bucket public,
+ *                  opens an admin port to the internet or stores data
+ *                  unencrypted; Kubernetes workloads that run privileged;
+ *                  workflows that hand their token write access to everything;
  *   hygiene        a committed .env, a .gitignore that would let one in, no
  *                  lockfile or two of them, open-ended versions, an unpinned
  *                  base image, TypeScript's strict mode off, no README, no
@@ -44,13 +49,15 @@ const crypto = require('crypto');
 const { detectInText } = require('./exposure-detection');
 const { RULE_NARRATION } = require('./exposure-narration');
 const POPULAR = require('./popular-packages');
+const { standardsFor } = require('./security-standards');
 
 const CATEGORIES = Object.freeze([
-  Object.freeze({ id: 'supply-chain', label: 'Supply chain', weight: 0.25 }),
+  Object.freeze({ id: 'supply-chain', label: 'Supply chain', weight: 0.2 }),
   Object.freeze({ id: 'code', label: 'Code security', weight: 0.3 }),
   Object.freeze({ id: 'secrets', label: 'Secrets', weight: 0.15 }),
   Object.freeze({ id: 'dependencies', label: 'Dependencies', weight: 0.15 }),
-  Object.freeze({ id: 'hygiene', label: 'Project hygiene', weight: 0.15 })
+  Object.freeze({ id: 'infrastructure', label: 'Infrastructure', weight: 0.1 }),
+  Object.freeze({ id: 'hygiene', label: 'Project hygiene', weight: 0.1 })
 ]);
 
 const SEVERITY_PENALTY = Object.freeze({ critical: 40, serious: 20, warning: 6 });
@@ -246,6 +253,47 @@ const RULES = Object.freeze({
   'SEC-022': { category: 'code', severity: 'serious', title: 'A file path is taken from the request',
     why: 'Path traversal: ../ in the value reaches files outside the intended folder -- configuration, keys, source code.',
     fix: 'Resolve the path against a fixed base directory and refuse it unless it stays inside, or map identifiers to files instead of accepting names.' },
+
+  'SEC-023': { category: 'code', severity: 'serious', title: 'Passwords are hashed with a fast hash',
+    why: 'MD5 and the SHA family are built to be fast, so a stolen table of password hashes can be guessed at billions of attempts a second on one graphics card.',
+    fix: 'Hash passwords with a slow, salted password hash -- argon2id, scrypt or bcrypt -- through a maintained library, and rehash existing ones on next login.' },
+  'SEC-024': { category: 'code', severity: 'serious', title: 'Untrusted data is deserialized into objects',
+    why: 'pickle, marshal, yaml.load without the safe loader and node-serialize rebuild arbitrary objects from their input, and building the object runs code: whoever controls the bytes controls the process.',
+    fix: 'Parse data with a data-only format -- json.loads, yaml.safe_load, JSON.parse -- and validate it against a schema. Never unpickle anything that crossed a network or a user\u2019s hands.' },
+  'SEC-025': { category: 'code', severity: 'serious', title: 'A signing secret is written into the code',
+    why: 'A JWT or session signing key in the source lets anyone who reads the repository mint tokens and sessions the application will trust as its own.',
+    fix: 'Load the key from the environment or a secret manager, rotate it (every token signed with the old one becomes invalid), and keep it out of version control.' },
+
+  'IAC-001': { category: 'infrastructure', severity: 'warning', title: 'The container runs as root',
+    why: 'Without a USER instruction the process inside the image runs as root, so a bug that gives an attacker the process gives them root in the container and a far shorter path out of it.',
+    fix: 'Create an unprivileged user in the image and switch to it with USER before the entrypoint, or start from a nonroot base image.' },
+  'IAC-002': { category: 'infrastructure', severity: 'serious', title: 'The image adds a file straight from a URL',
+    why: 'ADD with a URL downloads whatever the server returns at build time with no integrity check, and bakes it into every container.',
+    fix: 'Download with curl in a RUN step and verify a pinned checksum, or use ADD --checksum=sha256:... so a changed file fails the build.' },
+  'IAC-003': { category: 'infrastructure', severity: 'serious', title: 'A secret is baked into the container image',
+    why: 'ENV and ARG values are stored in the image\u2019s layers and history; anyone who can pull the image can read them with docker history.',
+    fix: 'Pass secrets at run time (environment or mounted secret) or with BuildKit --mount=type=secret during the build, and rotate the value that was baked in.' },
+  'IAC-004': { category: 'infrastructure', severity: 'serious', title: 'A workflow gives its token write access to everything',
+    why: 'permissions: write-all hands every step -- including third-party actions -- a token that can push code, change releases and edit workflows.',
+    fix: 'Declare the least permissions the job needs (for example contents: read) at the workflow or job level.' },
+  'IAC-005': { category: 'infrastructure', severity: 'critical', title: 'A storage bucket is public',
+    why: 'A public-read ACL lets anyone on the internet list and download the bucket\u2019s objects; public-read-write lets them upload and overwrite them too.',
+    fix: 'Make the bucket private, enable the account-level public access block, and serve public files through a CDN with signed URLs if they must be reachable.' },
+  'IAC-006': { category: 'infrastructure', severity: 'serious', title: 'An admin or database port is open to the internet',
+    why: 'A security group that lets 0.0.0.0/0 reach SSH, RDP or a database port puts the service in front of every scanner on the internet.',
+    fix: 'Restrict the rule to known addresses or a VPN, or reach the host through a bastion or a managed session service instead.' },
+  'IAC-007': { category: 'infrastructure', severity: 'warning', title: 'Data is stored without encryption at rest',
+    why: 'An unencrypted volume, snapshot or database can be read by anyone who gets a copy of the storage, which is how many cloud leaks happen.',
+    fix: 'Set encrypted = true (or storage_encrypted = true) and use a managed key.' },
+  'IAC-008': { category: 'infrastructure', severity: 'serious', title: 'A database accepts connections from the internet',
+    why: 'publicly_accessible = true gives the database a public address, so its password is the only thing between it and the internet.',
+    fix: 'Set publicly_accessible = false and reach the database from inside the network or through a proxy.' },
+  'IAC-009': { category: 'infrastructure', severity: 'serious', title: 'A container runs privileged or shares the host',
+    why: 'A privileged container, or one on the host\u2019s network, process or IPC namespace, can reach the node itself -- escaping it takes one bug, not a chain.',
+    fix: 'Remove privileged: true and the host namespaces, and grant only the specific capabilities the workload needs.' },
+  'IAC-010': { category: 'infrastructure', severity: 'warning', title: 'A container may run as root or escalate privileges',
+    why: 'runAsUser: 0 or allowPrivilegeEscalation: true lets the process gain root inside the container, which widens what any compromise of it can do.',
+    fix: 'Set runAsNonRoot: true, a non-zero runAsUser, and allowPrivilegeEscalation: false in the securityContext.' },
 
   'SCR-001': { category: 'secrets', severity: 'critical', title: 'A credential is committed to the repository',
     why: 'Anyone who can read the repository, or any fork, clone or backup of it, can use the credential. Deleting the file later does not remove it from history.',
@@ -529,6 +577,30 @@ const LINE_RULES = Object.freeze([
     applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)),
     test: line => inCode(new RegExp(`\\b(res\\.(sendFile|download)|(fs|fsp|fs\\.promises)\\.(readFile|readFileSync|createReadStream|writeFile|writeFileSync|appendFile|unlink|unlinkSync|rm|rmSync))\\s*\\(\\s*(path\\.(join|resolve)\\s*\\(\\s*([^()]*?,\\s*)?)?${REQUEST_VALUE}`), line) ||
       inCode(/\b(open|send_file|send_from_directory)\s*\(\s*(os\.path\.join\s*\(\s*([^()]*?,\s*)?)?request\.(args|form|values|GET|POST)\b/, line)
+  },
+  {
+    /* A general-purpose hash applied to something the line calls a password. */
+    rule: 'SEC-023',
+    applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)),
+    test: line => /passw/i.test(line) && (
+      inCode(/\bcreateHash\s*\(\s*['"](md5|sha1|sha224|sha256|sha384|sha512)['"]/i, line) ||
+      inCode(/\bhashlib\.(md5|sha1|sha224|sha256|sha384|sha512)\s*\(/, line) ||
+      inCode(/\b(md5|sha1|sha256)\s*\(\s*[\w.]*passw/i, line))
+  },
+  {
+    rule: 'SEC-024',
+    applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext) || file.ext === 'php'),
+    test: (line, file) => (lexical(file) ? inCode : (pattern, text) => pattern.test(text))(
+      /\b(pickle|cPickle|_pickle|marshal|shelve|dill)\.loads?\s*\(|\byaml\.unsafe_load\s*\(|\bjsonpickle\.decode\s*\(|\bunserialize\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)|\b(serialize|nodeSerialize)\.unserialize\s*\(/, line) ||
+      (inCode(/\byaml\.load\s*\(/, line) && !/Loader\s*=\s*(yaml\.)?(Safe|CSafe|Base)Loader/.test(line))
+  },
+  {
+    rule: 'SEC-025',
+    applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)),
+    test: (line, file) => inCode(/\bjwt\.(sign|verify|encode)\s*\(\s*[^,]+,\s*['"][^'"]{4,}['"]/, line) ||
+      (PY_EXT.has(file.ext) && (/^\s*SECRET_KEY\s*=\s*['"][^'"]{8,}['"]/.test(line) ||
+        /\bapp\.(secret_key|config\[\s*['"](SECRET_KEY|JWT_SECRET_KEY)['"]\s*\])\s*=\s*['"][^'"]{4,}['"]/.test(line))) ||
+      inCode(/\b(secret|secretOrPrivateKey)\s*:\s*['"][^'"]{8,}['"]/, line) && /\b(session|jwt|cookie|express-session|passport)\b/i.test(line)
   }
 ]);
 
@@ -547,6 +619,9 @@ const HEAD_CHECKOUT = /^\s*(-\s+)?ref\s*:.*\$\{\{\s*(github\.event\.pull_request
 
 function workflowFindings(file) {
   const out = [];
+  file.text.split('\n').forEach((line, index) => {
+    if (/^\s*permissions\s*:\s*['"]?write-all['"]?\s*(#.*)?$/.test(line)) out.push({ rule: 'IAC-004', line: index + 1 });
+  });
   const privileged = PRIVILEGED_TRIGGER.test(file.text);
   let block = null;
   file.text.split('\n').forEach((line, index) => {
@@ -854,6 +929,109 @@ function secretFindings(file) {
       out.push({ rule: 'SCR-001', line: occurrence.line, severity, detail });
     }
   }
+  return out;
+}
+
+/* ---- Infrastructure -------------------------------------------------------------- */
+
+/*
+ * A Dockerfile's final stage: does it drop root, does it pull files straight
+ * from the network, does it bake a secret into a layer. Earlier build stages
+ * are thrown away, so only the stage that ships is held to the USER rule.
+ */
+function dockerfileFindings(file) {
+  const out = [];
+  const lines = file.text.split('\n');
+  let finalFrom = 0;
+  let user = null;
+  let nonrootBase = false;
+  lines.forEach((raw, index) => {
+    const line = raw.replace(/\s+#.*$/, '');
+    const from = /^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)/i.exec(line);
+    if (from) {
+      finalFrom = index + 1;
+      user = null;
+      nonrootBase = /nonroot|rootless|chainguard|distroless.*:nonroot/i.test(from[1]);
+      return;
+    }
+    const setUser = /^\s*USER\s+(\S+)/i.exec(line);
+    if (setUser) user = { name: setUser[1].toLowerCase(), line: index + 1 };
+    if (/^\s*ADD\s+(?!.*--checksum=)(?:--\S+\s+)*https?:\/\//i.test(line)) out.push({ rule: 'IAC-002', line: index + 1 });
+    const secret = /^\s*(ENV|ARG)\s+([A-Za-z_][\w]*)(?:\s*=\s*|\s+)(\S+)/i.exec(line);
+    if (secret && /(SECRET|PASSWORD|PASSWD|TOKEN|API_?KEY|PRIVATE_KEY|ACCESS_KEY|CLIENT_SECRET)/i.test(secret[2]) &&
+      !/^["']?\$|^["']?$/.test(secret[3]) && !/^(true|false|0|1)$/i.test(secret[3])) out.push({ rule: 'IAC-003', line: index + 1 });
+  });
+  if (finalFrom && !nonrootBase && (!user || /^(root|0)(:|$)/.test(user.name))) {
+    out.push({ rule: 'IAC-001', line: user ? user.line : finalFrom });
+  }
+  return out;
+}
+
+/* The blocks of an HCL file, each with the line it opens on and its text. */
+function hclBlocks(text, name) {
+  const out = [];
+  const opener = new RegExp(`(^|\\n)\\s*${name}\\s*(=\\s*)?\\{`, 'g');
+  for (const match of text.matchAll(opener)) {
+    const start = match.index + match[0].length;
+    let depth = 1;
+    let index = start;
+    while (index < text.length && depth > 0) {
+      if (text[index] === '{') depth += 1;
+      else if (text[index] === '}') depth -= 1;
+      index += 1;
+    }
+    out.push({ body: text.slice(start, index - 1), line: lineOf(text, match.index + match[1].length) });
+  }
+  return out;
+}
+
+const ADMIN_PORTS = new Set([22, 23, 3389, 5900, 3306, 5432, 1433, 1521, 6379, 11211, 27017, 9200, 5601, 2375, 2376]);
+
+/*
+ * Terraform, read as text: public bucket ACLs, admin and database ports open
+ * to the whole internet, storage that is not encrypted, and databases given a
+ * public address. Variables are not resolved -- a literal is judged, a
+ * reference is left alone.
+ */
+function terraformFindings(file) {
+  const out = [];
+  const text = file.text;
+  text.split('\n').forEach((line, index) => {
+    const acl = /^\s*acl\s*=\s*"(public-read-write|public-read|authenticated-read)"/.exec(line);
+    if (acl) out.push({ rule: 'IAC-005', line: index + 1, severity: acl[1] === 'public-read-write' ? 'critical' : 'serious' });
+    if (/^\s*(encrypted|storage_encrypted|encrypt_at_rest|enable_encryption)\s*=\s*false\b/.test(line)) out.push({ rule: 'IAC-007', line: index + 1 });
+    if (/^\s*publicly_accessible\s*=\s*true\b/.test(line)) out.push({ rule: 'IAC-008', line: index + 1 });
+  });
+  for (const block of [...hclBlocks(text, 'ingress'), ...hclBlocks(text, 'resource\\s+"aws_(vpc_)?security_group_(ingress_)?rule"\\s+"[^"]+"')]) {
+    if (!/cidr_(blocks|ipv4|ipv6)\s*=\s*\[?\s*"(0\.0\.0\.0\/0|::\/0)"/.test(block.body)) continue;
+    if (/\btype\s*=\s*"egress"/.test(block.body)) continue;
+    const from = Number((/from_port\s*=\s*(\d+)/.exec(block.body) || [])[1]);
+    const to = Number((/to_port\s*=\s*(\d+)/.exec(block.body) || [])[1] || from);
+    const protocol = (/protocol\s*=\s*"([^"]+)"/.exec(block.body) || [])[1] || 'tcp';
+    const everything = protocol === '-1' || protocol === 'all' || (from === 0 && to >= 65535);
+    const hit = everything || [...ADMIN_PORTS].some(port => port >= from && port <= to);
+    if (Number.isFinite(from) && hit) out.push({ rule: 'IAC-006', line: block.line });
+  }
+  return out;
+}
+
+/*
+ * Kubernetes manifests and Compose files: a container that is privileged or
+ * shares the node's network, process or IPC namespace, and one allowed to run
+ * as root or to escalate. Workflows are read by their own rules.
+ */
+function manifestFindings(file) {
+  const out = [];
+  if (!/\b(apiVersion|kind|services|containers|securityContext|privileged)\s*:/.test(file.text)) return out;
+  file.text.split('\n').forEach((line, index) => {
+    const bare = line.replace(/\s+#.*$/, '');
+    if (/^\s*(-\s+)?(privileged|hostNetwork|hostPID|hostIPC)\s*:\s*true\b/.test(bare) || /^\s*network_mode\s*:\s*["']?host["']?\s*$/.test(bare)) {
+      out.push({ rule: 'IAC-009', line: index + 1 });
+    }
+    if (/^\s*(-\s+)?(allowPrivilegeEscalation\s*:\s*true|runAsUser\s*:\s*0|runAsNonRoot\s*:\s*false)\b/.test(bare)) {
+      out.push({ rule: 'IAC-010', line: index + 1 });
+    }
+  });
   return out;
 }
 
@@ -1463,6 +1641,7 @@ function describe(rule, filePath, line, severityOverride, detail) {
     why: definition.why,
     fix: definition.fix,
     detail: detail || null,
+    standards: standardsFor(rule),
     /*
      * A prompt a reader can paste into a coding assistant. Written from the
      * rule, the location and the facts above only, so it carries no code and
@@ -1544,6 +1723,9 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map() })
       if (manifest.hasDependencies && !packageJsonWithDependencies) packageJsonWithDependencies = file.path;
     }
     if (isRequirements(file.base)) packages.push(...requirementsPackages(file));
+    if (isDockerfile(file.path)) raw.push(...dockerfileFindings(file).map(finding => ({ ...finding, path: file.path })));
+    if (file.ext === 'tf') raw.push(...terraformFindings(file).map(finding => ({ ...finding, path: file.path })));
+    if ((file.ext === 'yml' || file.ext === 'yaml') && !WORKFLOW.test(file.path)) raw.push(...manifestFindings(file).map(finding => ({ ...finding, path: file.path })));
     if (isDockerfile(file.path)) {
       const stages = new Set();
       file.text.split('\n').forEach((line, index) => {
@@ -1625,15 +1807,52 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map() })
   /* One finding per rule and location, with an identity stable across runs. */
   const seen = new Map();
   const findings = [];
+  const suppressed = [];
+  const linesByPath = new Map();
+  const linesOf = filePath => {
+    if (!linesByPath.has(filePath)) {
+      const source = files.find(file => file.path === filePath);
+      linesByPath.set(filePath, source && typeof source.text === 'string' ? source.text.split('\n') : null);
+    }
+    return linesByPath.get(filePath);
+  };
   for (const item of raw) {
     const key = `${item.rule}\0${item.path || ''}\0${item.line || ''}`;
     if (seen.has(key)) continue;
     seen.set(key, true);
     const ordinal = findings.filter(existing => existing.rule === item.rule && existing.path === (item.path || null)).length;
-    findings.push({ id: fingerprint(item.rule, item.path || '', ordinal), ...describe(item.rule, item.path, item.line, item.severity, item.detail) });
+    const finding = { id: fingerprint(item.rule, item.path || '', ordinal), ...describe(item.rule, item.path, item.line, item.severity, item.detail) };
+    const waiver = item.path && item.line ? suppression(linesOf(item.path), item.line, item.rule) : null;
+    if (waiver) suppressed.push({ ...finding, suppression: waiver });
+    else findings.push(finding);
   }
   findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || String(a.path).localeCompare(String(b.path)) || (a.line || 0) - (b.line || 0));
-  return { findings, dependencyStatus, advisoryStatus: vulnerabilities.status, priorities: priorities(findings), ...score(findings) };
+  return { findings, suppressed, dependencyStatus, advisoryStatus: vulnerabilities.status, priorities: priorities(findings), ...score(findings) };
+}
+
+/*
+ * A finding a team has looked at and decided about, recorded where the code
+ * is: a comment on the line or the line above naming the rule, and ideally
+ * why --
+ *
+ *   // nv-audit-ignore SEC-005 -- the token is a display nonce, not a secret
+ *   # nv-audit-ignore SEC-024: the pickle comes from our own signed cache
+ *
+ * A directive must name the rule it waives; a bare "ignore everything" is not
+ * honoured, so a suppression can never hide the next, different mistake on
+ * the same line. Waived findings are not scored and are still reported, with
+ * their reason, so nothing disappears silently.
+ */
+const WAIVER = /nv-audit-ignore\s+([A-Z]{3}-\d{3}(?:\s*,\s*[A-Z]{3}-\d{3})*)(?:\s*(?:--|:|\u2014)\s*([^*\n]{1,200}?))?\s*(?:\*\/|-->)?\s*$/;
+function suppression(lines, line, rule) {
+  if (!lines) return null;
+  for (const index of [line - 1, line - 2]) {
+    const match = WAIVER.exec(lines[index] || '');
+    if (!match) continue;
+    const rules = match[1].split(',').map(part => part.trim());
+    if (rules.includes(rule)) return Object.freeze({ reason: match[2] ? match[2].trim() : null, line: index + 1 });
+  }
+  return null;
 }
 
 /*

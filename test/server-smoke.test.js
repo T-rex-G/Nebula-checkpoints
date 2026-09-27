@@ -68,6 +68,40 @@ async function waitForServer() {
     const csp = health.headers.get('content-security-policy') || '';
     assert.match(csp, /object-src 'none'/);
     assert.match(csp, /base-uri 'none'/);
+    assert.match(csp, /frame-ancestors 'none'/);
+    assert.match(csp, /frame-src 'none'/);
+    /* The same refusals for the browsers that predate CSP, and the isolation modern ones offer. */
+    assert.strictEqual(health.headers.get('x-frame-options'), 'DENY');
+    assert.strictEqual(health.headers.get('cross-origin-opener-policy'), 'same-origin');
+    assert.strictEqual(health.headers.get('cross-origin-resource-policy'), 'same-origin');
+    assert.strictEqual(health.headers.get('x-permitted-cross-domain-policies'), 'none');
+    for (const feature of ['camera=()', 'microphone=()', 'geolocation=()', 'payment=()', 'usb=()', 'browsing-topics=()']) {
+      assert((health.headers.get('permissions-policy') || '').includes(feature), `${feature} is switched off`);
+    }
+
+    /* Where to report a vulnerability, and what crawlers may index. */
+    const securityTxt = await request('/.well-known/security.txt');
+    assert.strictEqual(securityTxt.status, 200);
+    assert.match(securityTxt.headers.get('content-type') || '', /^text\/plain/);
+    const securityBody = await securityTxt.text();
+    assert.match(securityBody, /^Contact: https:\/\//m);
+    const expires = /^Expires: (.+)$/m.exec(securityBody);
+    assert(expires && Date.parse(expires[1]) > Date.now() + 90 * 86400000, 'security.txt never lapses');
+    assert.match(securityBody, /^Canonical: .+\/\.well-known\/security\.txt$/m);
+    const robots = await request('/robots.txt');
+    assert.strictEqual(robots.status, 200);
+    assert.match(await robots.text(), /^Disallow: \/api\/$/m);
+
+    /* A file that is not there is not there: no shell page at 200 for a dotfile or a file name. */
+    for (const missing of ['/.env', '/.git/HEAD', '/.git/config', '/package.json', '/server.js', '/backup.zip']) {
+      const response = await request(missing);
+      assert.strictEqual(response.status, 404, `${missing} must be a 404`);
+      assert(!/html/i.test(response.headers.get('content-type') || ''), `${missing} must not answer with the app`);
+    }
+    /* A route is still the app. */
+    const route = await request('/workspace/anything');
+    assert.strictEqual(route.status, 200);
+    assert.match(route.headers.get('content-type') || '', /html/);
 
     const ready = await request('/readyz');
     assert.strictEqual(ready.status, 200);
@@ -223,8 +257,8 @@ async function waitForServer() {
       '/gfonts/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap'
     ]) {
       /*
-       * Unmatched paths fall through to the application shell, so the removal
-       * shows as the absence of font or stylesheet bytes rather than as a 404.
+       * The removal shows as the absence of font or stylesheet bytes: a file
+       * path is a 404 and an extensionless one falls through to the shell.
        * The second path is the exact query the old allowlist accepted, so this
        * fails if the proxy is ever restored.
        */

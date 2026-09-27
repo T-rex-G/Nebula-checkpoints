@@ -444,6 +444,28 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       });
     }
     /*
+     * The provider's branch rules, read by the real module from the JSON
+     * GitHub answers with for a reader without administration access: the
+     * summary and a ruleset, the classic details hidden.
+     */
+    if (pathname === '/api/repo/sandbox/demo/branch-protection' && method === 'GET') {
+      const { readBranchProtection } = require('../../src/branch-protection');
+      const routes = {
+        '': { default_branch: 'main' },
+        '/branches/main': { protected: true, protection: { required_status_checks: { contexts: ['ci'] } } },
+        '/rules/branches/main': [
+          { type: 'pull_request', ruleset_id: 3, parameters: { required_approving_review_count: 1 } },
+          { type: 'non_fast_forward', ruleset_id: 3 },
+          { type: 'deletion', ruleset_id: 3 }
+        ]
+      };
+      const read = async apiPath => {
+        if (apiPath in routes) return routes[apiPath];
+        throw Object.assign(new Error('Not Found'), { status: apiPath.endsWith('/protection') ? 403 : 404 });
+      };
+      return fulfill(await readBranchProtection({ provider: 'github', owner: 'sandbox', repo: 'demo', branch: url.searchParams.get('branch') || '', read, webBase: 'https://github.com' }));
+    }
+    /*
      * The deployed-site check, by the real rules over a modelled site: the
      * first check finds a bare site serving its .env; by the second the
      * headers are sent, the file is gone, and / redirects to the app.

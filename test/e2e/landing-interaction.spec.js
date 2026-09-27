@@ -233,17 +233,23 @@ test('the bar reserves the status-bar strip on a phone, not just a sticky positi
  * now, and the scene itself runs past its box and is feathered away on every
  * side, so there is no edge -- of a panel or of the canvas -- to see.
  */
-test('the vortex stands in the page with no light box behind it and no edge around it', async ({ page }) => {
+test('the vortex stands in the page with no light box behind it and no mask over it', async ({ page }) => {
   const portal = await openScene(page);
   await expect(page.locator('.lp-glow')).toHaveCount(0);
   const stage = page.locator('.lp-stage');
   expect(await stage.evaluate(el => [...el.children].map(child => child.id))).toEqual(['lpPortal']);
   expect(await stage.evaluate(el => getComputedStyle(el).backgroundImage)).toBe('none');
+  /*
+   * The edges fade inside the scene, not through a CSS mask on the canvas: a
+   * mask makes the compositor blend the canvas again on every frame, and on
+   * a software renderer that pass cost as much as the scene. The fade itself
+   * is read back from the buffer in landing-scene.spec.js.
+   */
   const mask = await portal.evaluate(el => {
     const style = getComputedStyle(el);
-    return style.maskImage && style.maskImage !== 'none' ? style.maskImage : style.webkitMaskImage;
+    return [style.maskImage || 'none', style.webkitMaskImage || 'none'];
   });
-  expect((mask.match(/linear-gradient/g) || []).length).toBe(2);
+  expect(mask).toEqual(['none', 'none']);
   /* And the paint behind the landing carries no cyan disc for the scene to sit on. */
   const ground = await page.locator('.lp').evaluate(el => getComputedStyle(el).backgroundImage);
   expect(ground).not.toMatch(/34,\s*211,\s*238/);

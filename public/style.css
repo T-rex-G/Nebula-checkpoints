@@ -628,8 +628,9 @@ em{color:var(--teal);font-style:normal}
  * The vortex is larger than its box, the way a particle tornado sits in a
  * hero: the stage reaches up behind the fixed bar, out toward the page's
  * edge and down into the horizon, the scene runs past even that, and the
- * canvas is feathered on every side so the form dissolves rather than being
- * cut. The left edge stays on the column, so nothing of the scene reaches
+ * scene feathers its own canvas on every side (in the shader, not with a CSS
+ * mask) so the form dissolves rather than being cut. The left edge stays on
+ * the column, so nothing of the scene reaches
  * under the entry's controls. On a phone it keeps clear of the small print
  * above it. There is no light box behind it: the scene is its own light.
  */
@@ -637,12 +638,6 @@ em{color:var(--teal);font-style:normal}
   isolation:isolate;pointer-events:none}
 .lp-portal{position:absolute;inset:0;width:100%;height:100%;display:block;
   pointer-events:auto;touch-action:pan-y pinch-zoom;cursor:grab;
-  -webkit-mask-image:linear-gradient(to right,transparent,#000 8%,#000 86%,transparent),
-    linear-gradient(to bottom,transparent,#000 7%,#000 86%,transparent);
-  -webkit-mask-composite:source-in;
-  mask-image:linear-gradient(to right,transparent,#000 8%,#000 86%,transparent),
-    linear-gradient(to bottom,transparent,#000 7%,#000 86%,transparent);
-  mask-composite:intersect;
   opacity:0;transition:opacity .7s var(--ease)}
 .lp-portal:active{cursor:grabbing}
 .lp-portal.is-live{opacity:1}

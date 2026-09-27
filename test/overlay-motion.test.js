@@ -792,6 +792,14 @@ check('every vortex preset and theme is complete, and a shape is clamped rather 
   assert.deepStrictEqual({ ...vortex.resolveShape('no-such-shape') }, { ...vortex.PRESETS.column },
     'an unknown shape does not fall back to the landing default');
   assert.strictEqual(vortex.resolveShape({ waistAt: 0.3 }).waistAt, 0.3, 'a shape object is not honoured on its own');
+  /* The canvas fades in the scene; every side fades, and none past its middle. */
+  ['left', 'right', 'top', 'bottom'].forEach(side => {
+    const f = vortex.FEATHER[side];
+    assert.ok(f > 0 && f < 0.45, `the ${side} edge of the scene does not fade, or fades past its middle`);
+  });
+  const source = fs.readFileSync(path.join(root, 'public/vortex.js'), 'utf8');
+  assert.ok(/failIfMajorPerformanceCaveat/.test(source) && /swiftshader/i.test(source),
+    'the scene no longer asks whether it would be drawn in software, so a runner without a GPU pays for multisampling');
 });
 
 /*

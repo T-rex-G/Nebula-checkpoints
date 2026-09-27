@@ -51,6 +51,21 @@ misplaced.
   behind the sphere, its script, its rules and the cyan ellipse the landing
   painted behind the art column have all been removed. One soft light falls
   from above the crown instead.
+- **Light on any machine.** Where WebGL would be drawn in software -- a
+  blocklisted driver, no GPU, a headless runner -- the scene runs lite:
+  - no multisampling;
+  - one device pixel per CSS pixel;
+  - the lightest mesh;
+  - thirty frames a second.
+
+  The browser refusing `failIfMajorPerformanceCaveat` is one signal. Since
+  headless Chromium does not refuse, the renderer's own name is read as
+  well. A GPU that cannot hold the frame rate is stepped down one tier at a
+  time, and never back up in the same visit. The canvas's edges fade in the
+  shader rather than through a CSS mask, which made the compositor blend the
+  canvas a second time every frame. In a software renderer the page now
+  keeps its full frame rate beside the scene, where the ring it replaced held
+  it at about 17 frames a second.
 - **The row under the hero.** The horizon's rim was drawn through the steps
   row: across "01" and "03" on a desktop, and into the dividers on a phone.
   The body now keeps room below the row from the same two numbers the rim is
@@ -70,7 +85,8 @@ misplaced.
     - the old ring and the old light are gone, with no pointer-driven work
       left on the page.
   - The browser specs drive the vortex, and they check:
-    - nothing is painted behind the scene and its canvas is feathered;
+    - nothing is painted behind the scene and no mask sits over it;
+    - the outermost pixels on every side of the canvas carry nothing;
     - the horizon passes under the steps with each number on its title's
       baseline.
 

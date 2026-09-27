@@ -207,6 +207,38 @@ test('the scene leans in while the reader is in the card and settles when they l
   ).toBeLessThan(1.01);
 });
 
+/*
+ * The scene runs past its box, so its canvas has four edges the form crosses.
+ * They are faded in the scene itself -- read back here from the buffer, the
+ * only place that can say what was drawn: the outermost pixels on every side
+ * carry nothing, while the form inside is plainly lit.
+ */
+test('the scene fades to nothing at every edge of its canvas', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await instrument(page);
+  await mockPublicAlphaApi(page, { access: 'required', ready: 'ready' });
+  await page.goto('/');
+  await sceneOrSkip(page);
+  await expect(page.locator('#lpPortal')).toHaveClass(/is-live/);
+  const alpha = await page.evaluate(() => {
+    const canvas = document.getElementById('lpPortal');
+    const gl = canvas.getContext('webgl');
+    const w = canvas.width;
+    const h = canvas.height;
+    const buf = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    const at = (x, y) => buf[(y * w + x) * 4 + 3];
+    let border = 0;
+    for (let x = 0; x < w; x += 1) border = Math.max(border, at(x, 0), at(x, h - 1));
+    for (let y = 0; y < h; y += 1) border = Math.max(border, at(0, y), at(w - 1, y));
+    let inside = 0;
+    for (let i = 3; i < buf.length; i += 4) inside = Math.max(inside, buf[i]);
+    return { border, inside };
+  });
+  expect(alpha.inside).toBeGreaterThan(64);
+  expect(alpha.border).toBeLessThanOrEqual(2);
+});
+
 test('resizing a stopped scene redraws its held frame without starting a loop', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await instrument(page);

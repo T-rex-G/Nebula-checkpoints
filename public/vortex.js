@@ -356,10 +356,13 @@ void main() {
       vec4 c = uComets[i];
       if (c.w < 0.5) continue;
       float along = (v - c.x) * -uFlowDir;
+      /* Most motes are nowhere near a given comet: leave before any exp(). */
+      if (along < -0.02 || along > 0.3) continue;
       float da = angle - c.y;
       da -= TAU * floor(da / TAU + 0.5);
       float across = da * c.z;
-      float g = exp(-(across * across) / 0.0036) * exp(-max(along, 0.0) * 14.0) * step(-0.02, along);
+      if (abs(across) > 0.2) continue;
+      float g = exp(-(across * across) / 0.0036) * exp(-max(along, 0.0) * 14.0);
       wake += g * (0.6 + 0.4 * cos(along * 110.0 - uTime * 5.0));
     }
     wake = min(wake, 1.5);
@@ -396,28 +399,52 @@ void main() {
 }
 `;
 
-  /* Premultiplied, so one shader serves both the additive and normal blends. */
-  const LINE_FRAG = `
+  /*
+   * The canvas's own edges fade here, in the scene, rather than through a CSS
+   * mask on the element. A mask makes the compositor draw the canvas into an
+   * offscreen layer and blend it again on every frame; on a software
+   * renderer that second pass cost as much as the scene. The edges are in
+   * uEdge, as fractions of the buffer: left, right, top, bottom.
+   */
+  const FRAG_HEAD = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
+uniform vec2 uView;
+uniform vec4 uEdge;
 varying vec3  vCol;
 varying float vAlpha;
-void main() { gl_FragColor = vec4(vCol * vAlpha, vAlpha); }
+float edgeFade() {
+  vec2 p = gl_FragCoord.xy / uView;
+  return smoothstep(0.0, uEdge.x, p.x) * smoothstep(0.0, uEdge.y, 1.0 - p.x)
+    * smoothstep(0.0, uEdge.w, p.y) * smoothstep(0.0, uEdge.z, 1.0 - p.y);
+}
+`;
+
+  /* Premultiplied, so one shader serves both the additive and normal blends. */
+  const LINE_FRAG = `${FRAG_HEAD}
+void main() {
+  float a = vAlpha * edgeFade();
+  gl_FragColor = vec4(vCol * a, a);
+}
 `;
 
   /* A crisp mote, or -- for a comet's head -- a hot core inside a wide halo. */
-  const POINT_FRAG = `
-precision mediump float;
-varying vec3  vCol;
-varying float vAlpha;
+  const POINT_FRAG = `${FRAG_HEAD}
 varying float vGlow;
 void main() {
   float d = length(gl_PointCoord - 0.5) * 2.0;
   float disc = 1.0 - smoothstep(0.55, 1.0, d);
   float halo = exp(-d * d * 28.0) + 0.32 * exp(-d * d * 4.0);
-  float a = mix(disc, halo * (1.0 - smoothstep(0.85, 1.0, d)), vGlow) * vAlpha;
+  float a = mix(disc, halo * (1.0 - smoothstep(0.85, 1.0, d)), vGlow) * vAlpha * edgeFade();
   gl_FragColor = vec4(vCol * a, a);
 }
 `;
+
+  /* How far in from each edge the canvas fades, as a fraction of its size. */
+  const FEATHER = Object.freeze({ left: 0.08, right: 0.14, top: 0.07, bottom: 0.14 });
 
   function parseColor(input) {
     let h = String(input || '').trim().replace('#', '');
@@ -462,6 +489,30 @@ void main() {
     return program;
   }
 
+  /*
+   * Whether WebGL would be drawn in software. Asked of a throwaway canvas,
+   * because the answer decides how the real context is created (with or
+   * without multisampling) and a canvas keeps the first context it is given.
+   * Not every browser refuses failIfMajorPerformanceCaveat for a software
+   * rasteriser -- headless Chromium hands one over -- so the renderer's own
+   * name is read as well.
+   */
+  function softwareRenderer(doc) {
+    if (!doc || typeof doc.createElement !== 'function') return false;
+    try {
+      const probe = doc.createElement('canvas');
+      const g = probe.getContext('webgl', { failIfMajorPerformanceCaveat: true });
+      if (!g) return true;
+      const info = g.getExtension('WEBGL_debug_renderer_info');
+      const renderer = String(g.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : g.RENDERER) || '');
+      const lose = g.getExtension('WEBGL_lose_context');
+      if (lose) lose.loseContext();
+      return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer);
+    } catch {
+      return false;
+    }
+  }
+
   /* A preset name, a shape object, or both: options win over the preset. */
   function resolveShape(preset, overrides) {
     const base = typeof preset === 'string' && PRESETS[preset] ? PRESETS[preset] : PRESETS.column;
@@ -484,13 +535,30 @@ void main() {
   function create(canvas, options = {}) {
     if (!canvas || typeof canvas.getContext !== 'function') return null;
 
+    /*
+     * Asked for first with failIfMajorPerformanceCaveat, which the browser
+     * refuses when it would draw in software -- a blocklisted driver, no GPU,
+     * a headless runner. There the scene runs lite: no multisampling (which a
+     * software rasteriser pays for four times over), one device pixel per CSS
+     * pixel, the lightest mesh and thirty frames a second. The picture is the
+     * same form; the machine keeps its time for the page.
+     */
+    const base = { alpha: true, premultipliedAlpha: true, depth: false };
     let gl = null;
-    try {
-      gl = canvas.getContext('webgl', {
-        alpha: true, antialias: true, premultipliedAlpha: true, depth: false
-      });
-    } catch { gl = null; }
+    let lite = options.lite === true || (options.lite !== false && softwareRenderer(canvas.ownerDocument));
+    if (!lite) {
+      try {
+        gl = canvas.getContext('webgl', Object.assign({ antialias: true, failIfMajorPerformanceCaveat: true }, base));
+      } catch { gl = null; }
+      if (!gl) lite = true;
+    }
+    if (!gl) {
+      try { gl = canvas.getContext('webgl', Object.assign({ antialias: false }, base)); } catch { gl = null; }
+    }
     if (!gl) return null;
+    const feather = Object.assign({}, FEATHER, options.feather || {});
+    const edges = new Float32Array(['left', 'right', 'top', 'bottom']
+      .map(side => Math.max(0.001, Math.min(0.45, Number(feather[side]) || 0.001))));
 
     const host = options.host || canvas;
     let shape = resolveShape(options.preset, options);
@@ -508,7 +576,7 @@ void main() {
     const SHARED = ['uRes', 'uFocal', 'uDist', 'uCamYaw', 'uCamPitch', 'uTilt', 'uTime', 'uSpin',
       'uTop', 'uWaist', 'uWaistAt', 'uBottom', 'uFlare', 'uTwist', 'uSway', 'uPointer', 'uRepel',
       'uHoverActive', 'uHot', 'uFlowDir', 'uScan', 'uLift', 'uFlowClock',
-      'uColTop', 'uColWaist', 'uColBottom'];
+      'uColTop', 'uColWaist', 'uColBottom', 'uView', 'uEdge'];
 
     function init() {
       const strands = link(gl, STRAND_VERT, LINE_FRAG);
@@ -652,7 +720,7 @@ void main() {
     let last = 0;
 
     function resize() {
-      dpr = Math.min(global.devicePixelRatio || 1, DPR_CAP);
+      dpr = lite ? 1 : Math.min(global.devicePixelRatio || 1, DPR_CAP);
       cssW = canvas.clientWidth || host.clientWidth || 1;
       cssH = canvas.clientHeight || host.clientHeight || 1;
       const w = Math.max(1, Math.round(cssW * dpr));
@@ -664,9 +732,30 @@ void main() {
       gl.viewport(0, 0, w, h);
     }
 
+    /*
+     * The budget: the box's size picks a tier, and the device may lower it.
+     * A software renderer starts at the lightest; a GPU that cannot hold the
+     * frame rate is stepped down one tier at a time, and never back up in the
+     * same visit -- a scene that alternates between two budgets flickers.
+     */
+    let tierCap = lite ? 0 : TIERS.length - 1;
+    const pace = { ema: 16, frames: 0, slow: 0 };
     function tierFor() {
       const edge = Math.min(cssW, cssH) || 1;
-      return TIERS.find(tier => edge < tier.upTo) || TIERS[TIERS.length - 1];
+      const index = TIERS.findIndex(tier => edge < tier.upTo);
+      return TIERS[Math.min(index === -1 ? TIERS.length - 1 : index, tierCap)];
+    }
+    function pacing(interval) {
+      if (tierCap === 0) return;
+      pace.ema += (interval - pace.ema) * 0.1;
+      pace.frames += 1;
+      if (pace.frames < 45) return;
+      pace.slow = pace.ema > 42 ? pace.slow + 1 : 0;
+      if (pace.slow < 30) return;
+      tierCap -= 1;
+      pace.ema = 16;
+      pace.frames = 0;
+      pace.slow = 0;
     }
 
     function radiusAt(v, waist) {
@@ -793,6 +882,8 @@ void main() {
     }
 
     function setShared(u, focal) {
+      gl.uniform2f(u.uView, canvas.width, canvas.height);
+      gl.uniform4fv(u.uEdge, edges);
       gl.uniform1f(u.uLift, fit.lift);
       gl.uniform1f(u.uFlowClock, flowClock);
       gl.uniform2f(u.uRes, canvas.width, canvas.height);
@@ -912,7 +1003,11 @@ void main() {
     function frame(now) {
       if (!running) return;
       raf = global.requestAnimationFrame(frame);
-      const dt = Math.min((now - last) / 1000, 0.05);
+      const interval = now - last;
+      /* Lite holds thirty frames a second; the display may offer more. */
+      if (lite && interval < 31) return;
+      pacing(interval);
+      const dt = Math.min(interval / 1000, 0.05);
       last = now;
       draw(dt);
     }
@@ -1046,6 +1141,8 @@ void main() {
         if (!running) this.renderStill();
       },
       shape() { return shape; },
+      /* Whether this device is drawing the lite scene, and the budget it is on. */
+      budget() { return { lite, tier: TIERS.indexOf(tierFor()) }; },
       setReaching(on) { reachingTarget = on ? 1 : 0; },
       interactive() { return true; },
       destroy() {
@@ -1071,6 +1168,6 @@ void main() {
   }
 
   global.NebulaVortex = Object.freeze({
-    create, THEMES, PRESETS, RANGES, TIERS, VERTEX_LIMIT, strandVertices, resolveShape
+    create, THEMES, PRESETS, RANGES, TIERS, FEATHER, VERTEX_LIMIT, strandVertices, resolveShape
   });
 })(typeof globalThis === 'undefined' ? this : globalThis);

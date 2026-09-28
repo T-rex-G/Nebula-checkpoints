@@ -59,11 +59,11 @@ test('the numbers are the build\'s own, and arrive whole', async ({ page }) => {
   await checks.scrollIntoViewIfNeeded();
   const values = checks.locator('.lp-check-v');
   /* test/landing-claims.test.js holds each of these to the engine's own count. */
-  await expect(values).toHaveText(['99', '43', '60', '19'], { timeout: 5000 });
+  await expect(values).toHaveText(['99', '43', '76', '19'], { timeout: 5000 });
   /* The figures are in the markup, not produced by the count: without script
      a reader still gets them. */
-  expect(await values.evaluateAll(els => els.map(el => el.dataset.count))).toEqual(['99', '43', '60', '19']);
-  await expect(checks.getByRole('heading', { level: 3 })).toHaveText(['Secret detectors', 'Live verifiers', 'Repository audit rules', 'Deployed-site checks']);
+  expect(await values.evaluateAll(els => els.map(el => el.dataset.count))).toEqual(['99', '43', '76', '19']);
+  await expect(checks.getByRole('heading', { level: 3 })).toHaveText(['Secret detectors', 'Live verifiers', 'Uranus audit rules', 'Deployed-site checks']);
 });
 
 /*

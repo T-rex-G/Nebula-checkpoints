@@ -16,6 +16,7 @@ test.use({ serviceWorkers: 'block' });
 async function chooseFromRail(page, target) {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/');
+  await expect(page.locator('#page-overview')).toBeVisible();
   const item = page.locator(`.nv-rail-item[data-rail="${target}"]`);
   if (!(await item.isVisible())) await page.locator('.page.active .nav-menu-btn').click();
   await item.click();

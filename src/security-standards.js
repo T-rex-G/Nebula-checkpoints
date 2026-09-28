@@ -70,11 +70,14 @@ const CWE_NAMES = Object.freeze({
   78: 'OS Command Injection',
   79: 'Cross-site Scripting',
   89: 'SQL Injection',
+  94: 'Code Injection',
   95: 'Eval Injection',
   200: 'Exposure of Sensitive Information to an Unauthorized Actor',
+  209: 'Error Message Containing Sensitive Information',
   250: 'Execution with Unnecessary Privileges',
   284: 'Improper Access Control',
   295: 'Improper Certificate Validation',
+  306: 'Missing Authentication for Critical Function',
   307: 'Excessive Authentication Attempts',
   311: 'Missing Encryption of Sensitive Data',
   319: 'Cleartext Transmission of Sensitive Information',
@@ -90,8 +93,10 @@ const CWE_NAMES = Object.freeze({
   506: 'Embedded Malicious Code',
   527: 'Exposure of Version-Control Repository',
   538: 'Sensitive Information in an Externally-Accessible File',
+  546: 'Suspicious Comment',
   601: 'Open Redirect',
   614: 'Sensitive Cookie Without Secure Attribute',
+  639: 'Authorization Bypass Through User-Controlled Key',
   693: 'Protection Mechanism Failure',
   710: 'Improper Adherence to Coding Standards',
   732: 'Incorrect Permission Assignment for Critical Resource',
@@ -99,14 +104,20 @@ const CWE_NAMES = Object.freeze({
   829: 'Inclusion of Functionality from Untrusted Control Sphere',
   862: 'Missing Authorization',
   863: 'Incorrect Authorization',
+  915: 'Improperly Controlled Modification of Dynamically-Determined Object Attributes',
   916: 'Password Hash With Insufficient Computational Effort',
   918: 'Server-Side Request Forgery',
   942: 'Permissive Cross-domain Policy',
+  943: 'Improper Neutralization of Special Elements in Data Query Logic',
   1004: 'Sensitive Cookie Without HttpOnly',
   1021: 'Improper Restriction of Rendered UI Layers',
   1059: 'Insufficient Technical Documentation',
+  1321: 'Prototype Pollution',
+  1333: 'Inefficient Regular Expression Complexity',
   1357: 'Reliance on Insufficiently Trustworthy Component',
-  1395: 'Dependency on Vulnerable Third-Party Component'
+  1395: 'Dependency on Vulnerable Third-Party Component',
+  1426: 'Improper Validation of Generative AI Output',
+  1427: 'Improper Neutralization of Input Used for LLM Prompting'
 });
 
 /*
@@ -129,6 +140,18 @@ const MAP = Object.freeze({
   'SEC-016': [863, 'A01'], 'SEC-017': [863, 'A01'], 'SEC-018': [863, 'A01'],
   'SEC-019': [200, 'A01'], 'SEC-020': [601, 'A01'], 'SEC-021': [918, 'A01'], 'SEC-022': [22, 'A01'],
   'SEC-023': [916, 'A04'], 'SEC-024': [502, 'A08'], 'SEC-025': [321, 'A04'],
+  /*
+   * Regular-expression complexity, prototype pollution, NoSQL operators and
+   * the two language-model weaknesses have CWEs on no 2025 list; each is
+   * filed where its description sits. Prototype pollution's parent, CWE-915,
+   * is on A08's list, and mass assignment is filed under it directly.
+   */
+  'SEC-026': [1333, 'A05', 'scope'], 'SEC-027': [1321, 'A08', 'scope'], 'SEC-028': [915, 'A08'], 'SEC-029': [943, 'A05', 'scope'],
+  'SEC-030': [94, 'A05'], 'SEC-031': [209, 'A10'], 'SEC-032': [546, null], 'SEC-033': [79, 'A05'],
+  /* Access: no authorization, a key the caller chooses, no authentication for a critical function. */
+  'ACC-001': [862, 'A01'], 'ACC-002': [639, 'A01'], 'ACC-003': [306, 'A07'], 'ACC-004': [862, 'A01'], 'ACC-005': [306, 'A07'],
+  /* Language models. */
+  'AI-001': [1426, 'A05', 'scope'], 'AI-002': [1427, 'A05', 'scope'], 'AI-003': [200, 'A01'],
   /* Secrets. */
   'SCR-001': [798, 'A07'],
   /* Dependencies: A03:2025 is the old "Vulnerable and Outdated Components", widened. */

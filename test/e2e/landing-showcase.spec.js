@@ -59,11 +59,11 @@ test('the numbers are the build\'s own, and arrive whole', async ({ page }) => {
   await checks.scrollIntoViewIfNeeded();
   const values = checks.locator('.lp-check-v');
   /* test/landing-claims.test.js holds each of these to the engine's own count. */
-  await expect(values).toHaveText(['99', '43', '60', '19'], { timeout: 5000 });
+  await expect(values).toHaveText(['99', '43', '76', '19'], { timeout: 5000 });
   /* The figures are in the markup, not produced by the count: without script
      a reader still gets them. */
-  expect(await values.evaluateAll(els => els.map(el => el.dataset.count))).toEqual(['99', '43', '60', '19']);
-  await expect(checks.getByRole('heading', { level: 3 })).toHaveText(['Secret detectors', 'Live verifiers', 'Repository audit rules', 'Deployed-site checks']);
+  expect(await values.evaluateAll(els => els.map(el => el.dataset.count))).toEqual(['99', '43', '76', '19']);
+  await expect(checks.getByRole('heading', { level: 3 })).toHaveText(['Secret detectors', 'Live verifiers', 'Uranus audit rules', 'Deployed-site checks']);
 });
 
 /*
@@ -105,7 +105,7 @@ test('the audit plays at the pace of the scroll', async ({ page }, info) => {
   /* Scrolling back plays it backwards: the stage follows the reader, not a timer. */
   await steps.nth(1).evaluate(el => el.scrollIntoView({ block: 'center' }));
   await expect(frame).toHaveAttribute('data-stage', 'find');
-  await expect(frame.locator('.lp-au-cap')).toHaveText('Held below 50 while a critical finding is open.');
+  await expect(frame.locator('.lp-au-cap')).toHaveText('Held below 50 while a confirmed critical finding is open.');
   await expect(play).not.toContainText('SELECT *');
 });
 

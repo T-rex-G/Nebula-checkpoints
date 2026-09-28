@@ -63,12 +63,18 @@ const workflow = pin => [
   'on: push', 'jobs:', '  deploy:', '    runs-on: ubuntu-latest', '    steps:',
   '      - uses: actions/checkout@v4', `      - uses: someone/deploy-action@${pin}`, ''
 ].join('\n');
-const query = ['db.query(`SELECT * FROM users WHERE id = ', '$', '{req.params.id}`);\n'].join('');
+/* A real handler, so Uranus follows the route parameter into the statement and confirms it. */
+const query = [
+  "app.get('/users/:id', async (req, res) => {\n",
+  '  const rows = await db.query(`SELECT * FROM users WHERE id = ', '$', '{req.params.id}`);\n',
+  '  res.json(rows);\n',
+  '});\n'
+].join('');
 const before = audit.analyse({ files: [...base,
   { path: 'api/users.js', text: query },
   { path: '.github/workflows/deploy.yml', text: workflow('v2') }] });
 const after = audit.analyse({ files: [...base,
-  { path: 'api/users.js', text: 'db.query("SELECT * FROM users WHERE id = $1", [id]);\n' },
+  { path: 'api/users.js', text: "app.get('/users/:id', async (req, res) => {\n  const rows = await db.query('SELECT * FROM users WHERE id = $1', [req.params.id]);\n  res.json(rows);\n});\n" },
   { path: '.github/workflows/deploy.yml', text: workflow('0123456789abcdef0123456789abcdef01234567') }] });
 
 for (const [severity, rule, title, where] of items.map(match => match.slice(1))) {
@@ -87,7 +93,7 @@ const shown = only => {
 };
 assert.deepStrictEqual(shown('find fix'), { letter: before.grade, score: `${before.score}/100` });
 assert.strictEqual(before.capped, true, 'the scene says the grade is held below 50, so the cap must be what holds it');
-assert.match(html, /<p class="lp-au-cap" data-only="find fix">Held below 50 while a critical finding is open\.<\/p>/);
+assert.match(html, /<p class="lp-au-cap" data-only="find fix">Held below 50 while a confirmed critical finding is open\.<\/p>/);
 assert.match(html, new RegExp(`<span data-only="find fix">${before.findings.length} findings: 1 critical, 1 warning\\.</span>`));
 assert.deepStrictEqual(shown('again'), { letter: after.grade, score: `${after.score}/100` });
 assert.strictEqual(after.findings.length, 0);

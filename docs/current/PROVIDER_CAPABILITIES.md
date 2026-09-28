@@ -134,8 +134,18 @@ or a declared range's floor, marked as such) have a published or malicious-
 package advisory. It reports credentials with the same detectors as exposure
 scanning, keeping only the detector's name and the line, and reads Supabase
 migrations and Firebase rules for tables and paths anyone can read or write.
-Its grade is held below 50 while a critical finding is open, and it states how
-much of the branch, how many packages and how many versions it checked. The site check makes at most ten anonymous requests to the
+Its engine, Uranus, follows values through JavaScript, TypeScript and Python --
+from a route parameter, a request body, a message or a model's reply, across
+helpers and files, to a query, a command, a request, a path or markup -- and
+maps every endpoint and server action with the guard in front of it. A finding
+is `confirmed` when the file states it or the whole path was traced, and `to
+confirm` when one decisive fact is out of reach; a lead names that fact and the
+local check that settles it, weighs half, and is exported to SARIF as a note to
+review. The grade is held below 50 only while a confirmed critical finding is
+open, and the result carries a coverage ledger -- each class of attack traced,
+pattern-checked, absent or not assessed -- so a clean list is never read as a
+clean repository. It states how much of the branch, how many packages and how
+many versions it checked. The site check makes at most ten anonymous requests to the
 origin a user names -- following up to three HTTPS redirects to the page a
 visitor actually lands on -- through the guarded transport's site profile: HTTPS on
 443 to a public address, no credential and no cookie, bodies cut after a few

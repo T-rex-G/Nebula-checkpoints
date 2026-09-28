@@ -78,7 +78,8 @@ const ui = require('../public/code-audit-ui');
   /* A waiver travels with the brief, the SARIF and the CSV -- listed, with its reason, never scored. */
   const waivedFiles = [
     { path: 'src/nonce.js', text: 'const token = Math.random(); // nv-audit-ignore SEC-005 -- display nonce | not a secret\n' },
-    { path: 'api/users.js', text: 'db.query(`SELECT * FROM users WHERE id = ${req.params.id}`);\n' },
+    { path: 'api/users.js', text: "app.get('/u/:id', async (req, res) => {\n  await db.query(`SELECT * FROM users WHERE id = ${req.params.id}`);\n});\n" },
+    { path: 'api/legacy.js', text: 'db.query(`SELECT * FROM logs WHERE day = ${day}`);\n' },
     { path: '=cmd|calc!A1.js', text: 'const sessionToken = Math.random();\n' }
   ];
   const waivedResult = { ...analyse({ files: waivedFiles, paths: waivedFiles.map(file => file.path) }), commitSha: 'e'.repeat(40), ref: 'main',
@@ -86,6 +87,13 @@ const ui = require('../public/code-audit-ui');
   assert.strictEqual(waivedResult.suppressed.length, 1);
   const waivedBrief = ui.brief(waivedResult, 'sandbox/demo (main)', null);
   assert.match(waivedBrief, /## Waived in code\n\nNot scored\./);
+  /* Each finding says how sure it is; a traced one carries its route and path, a lead the check that settles it. */
+  assert.match(waivedBrief, /- \*\*Verdict:\*\* confirmed \(path traced\)\n- \*\*Rule:\*\* SEC-001\n- \*\*Where:\*\* `api\/users\.js:2`\n- \*\*Reached through:\*\* `GET \/u\/:id` — open to anyone\n- \*\*Traced path:\*\* Enters `api\/users\.js:2` \(.+\) → Reaches `api\/users\.js:2` \(used in .+\)/);
+  assert.match(waivedBrief, /- \*\*Verdict:\*\* to confirm \(pattern only\)/);
+  assert.match(waivedBrief, /\*\*What is unknown\.\*\* .+\n\n\*\*How to confirm\.\*\* /);
+  assert.match(waivedBrief, /## Coverage\n\n\| Class \| Status \| What was read \|/);
+  assert.match(waivedBrief, /\| Business logic \| Not assessed \|/);
+  assert.match(waivedBrief, /by Uranus 2\.0\.0\.\n\d+ confirmed, \d+ to confirm\./);
   assert.match(waivedBrief, /\| SEC-005 \| .+ \| `src\/nonce\.js:1` \| display nonce \\\| not a secret \|/, 'a pipe in the reason cannot break the table');
 
   /* SARIF 2.1.0: rules once each, tagged with their CWE; results at file and line; a waiver as an in-source suppression. */
@@ -93,7 +101,7 @@ const ui = require('../public/code-audit-ui');
   assert.strictEqual(report.version, '2.1.0');
   assert.strictEqual(report.runs.length, 2, 'one run for the repository, one for the site');
   const [repoRun, siteRun] = report.runs;
-  assert.strictEqual(repoRun.tool.driver.name, 'Nebulaverse-X Audit');
+  assert.strictEqual(repoRun.tool.driver.name, 'Nebulaverse-X Uranus');
   const ruleIds = repoRun.tool.driver.rules.map(rule => rule.id);
   assert.strictEqual(new Set(ruleIds).size, ruleIds.length, 'each rule is described once');
   const sqlRule = repoRun.tool.driver.rules.find(rule => rule.id === 'SEC-001');
@@ -104,10 +112,23 @@ const ui = require('../public/code-audit-ui');
   assert.strictEqual(sqlRule.properties['owasp-basis'], 'cwe');
   assert.strictEqual(sqlRule.properties['security-severity'], '9.5');
   assert.strictEqual(sqlRule.helpUri, 'https://cwe.mitre.org/data/definitions/89.html');
-  const sqlResult = repoRun.results.find(item => item.ruleId === 'SEC-001');
+  const sqlResult = repoRun.results.find(item => item.ruleId === 'SEC-001' && item.locations[0].physicalLocation.artifactLocation.uri === 'api/users.js');
   assert.strictEqual(sqlResult.level, 'error');
-  assert.deepStrictEqual(sqlResult.locations[0].physicalLocation.region, { startLine: 1 });
-  assert.strictEqual(sqlResult.locations[0].physicalLocation.artifactLocation.uri, 'api/users.js');
+  assert.deepStrictEqual(sqlResult.locations[0].physicalLocation.region, { startLine: 2 });
+  assert.strictEqual(sqlResult.properties.verdict, 'confirmed');
+  assert.strictEqual(sqlResult.properties.evidence, 'traced');
+  assert.deepStrictEqual(sqlResult.properties.reach, { method: 'GET', route: '/u/:id', auth: 'open' });
+  /* The traced path travels as a code flow a dashboard can step through: where the value entered, where it was used. */
+  assert.deepStrictEqual(sqlResult.codeFlows[0].threadFlows[0].locations.map(step => [step.kinds[0], step.location.physicalLocation.region.startLine]), [['source', 2], ['sink', 2]]);
+  /* A lead is a note to review, never an error that fails a build, and says how to confirm it. */
+  const lead = repoRun.results.find(item => item.ruleId === 'SEC-001' && item.locations[0].physicalLocation.artifactLocation.uri === 'api/legacy.js');
+  assert.strictEqual(lead.level, 'note');
+  assert.strictEqual(lead.kind, 'review');
+  assert.strictEqual(lead.properties.verdict, 'needs-validation');
+  assert(lead.properties.howToConfirm.length > 20);
+  assert(!lead.codeFlows);
+  assert.strictEqual(repoRun.properties.engine, 'Uranus 2.0.0');
+  assert(repoRun.properties.coverage.some(entry => entry.class === 'logic' && entry.status === 'not-assessed'));
   assert.strictEqual(repoRun.tool.driver.rules[sqlResult.ruleIndex].id, 'SEC-001', 'ruleIndex points at its rule');
   assert(sqlResult.partialFingerprints['nebulaverseFinding/v1']);
   const waivedSarif = repoRun.results.filter(item => item.suppressions);
@@ -124,10 +145,12 @@ const ui = require('../public/code-audit-ui');
   /* CSV: a header, a row per finding, waived rows marked, and nothing a spreadsheet would run. */
   const table = ui.csv(waivedResult, site, null);
   const rows = table.trim().split('\r\n');
-  assert.strictEqual(rows[0], 'Source,Status,Severity,Rule,Title,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reason waived,Fix');
+  assert.strictEqual(rows[0], 'Source,Status,Severity,Verdict,Rule,Title,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reached through,How to confirm,Reason waived,Fix');
   assert(rows.some(row => row.includes(',CWE-89,#2,A05:2025,')), 'the rank and the 2025 category travel with the row');
+  assert(rows.some(row => row.startsWith('repository,open,critical,confirmed,SEC-001,') && row.includes(',api/users.js,2,GET /u/:id (open),,')), 'a confirmed finding carries its route and no check');
+  assert(rows.some(row => row.startsWith('repository,open,critical,to confirm,SEC-001,') && row.includes(',api/legacy.js,1,,')), 'a lead says it is one');
   assert.strictEqual(rows.length, 1 + waivedResult.findings.length + waivedResult.suppressed.length + site.findings.length);
-  assert(rows.some(row => row.startsWith('repository,waived,serious,SEC-005,')));
+  assert(rows.some(row => row.startsWith('repository,waived,serious,confirmed,SEC-005,')));
   assert(rows.some(row => row.includes(",'=cmd|calc!A1.js,")), 'a cell that opens with = is defused');
   assert(!rows.some(row => /,=|^=/.test(row)), 'no cell opens with =');
   assert(table.endsWith('\r\n'));

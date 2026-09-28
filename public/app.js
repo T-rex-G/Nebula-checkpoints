@@ -1804,7 +1804,14 @@ async function loadRepos(reset) {
     renderWorkspacePulse([]);
   }
 }
-const LOCK_SVG = '<svg class="lock-ico" width="13" height="13" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+/*
+ * Who can see a repository, as a sigil in the card's corner: a keyhole
+ * shield for private, an open orbit for public, drawn in the preset's own
+ * tones rather than a filled amber or green pill. The word travels for a
+ * screen reader and in the tooltip.
+ */
+const REPO_VIS_PRIVATE = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2l7 2.9v5.3c0 4.3-2.9 7.9-7 9.4-4.1-1.5-7-5.1-7-9.4V6.1z"/><circle cx="12" cy="10.6" r="1.9"/><path d="M12 12.5v3.2"/></svg>';
+const REPO_VIS_PUBLIC = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3.1"/><ellipse cx="12" cy="12" rx="9" ry="4.2" transform="rotate(-28 12 12)"/><circle cx="19.2" cy="8.3" r="1.1" class="repo-vis-moon"/></svg>';
 function repoCard(r) {
   const el = document.createElement('div');
   el.className = 'card repo-card pressable';
@@ -1814,8 +1821,8 @@ function repoCard(r) {
   el.innerHTML = `
     <div class="repo-head">
       <span class="repo-sigil-slot"></span>
-      <h3>${r.private ? LOCK_SVG : ''}<span class="repo-name"></span>
-        <span class="repo-badge ${r.private ? 'repo-badge-private' : 'repo-badge-healthy'}">${r.private ? 'Private' : 'Public'}</span></h3>
+      <h3><span class="repo-name"></span></h3>
+      <span class="repo-vis" data-visibility="${r.private ? 'private' : 'public'}" title="${r.private ? 'Private repository' : 'Public repository'}">${r.private ? REPO_VIS_PRIVATE : REPO_VIS_PUBLIC}<span class="sr-only">${r.private ? 'Private' : 'Public'}</span></span>
     </div>
     <p class="desc"></p>
     <div class="repo-meta">
@@ -2542,7 +2549,198 @@ async function openRepo(owner, repo) {
       presentError(error);
     });
     api(`/api/repo/${owner}/${repo}/star`).then(x => { state.work.starred = x.starred; }).catch(() => {});
+    rememberRepository(owner, repo);
   } catch (e) { presentError(e); showPage('repos'); }
+}
+
+/*
+ * A security tool chosen before a repository is: rather than refusing, it
+ * asks which one, and lands in the tool. Recent repositories first, then the
+ * rest, filtered as the reader types; the keyboard moves through the list
+ * and Enter opens. The recent list is names only, under the nv_recent:
+ * prefix the account-boundary purge removes.
+ */
+const PICK_TOOLS = Object.freeze({
+  neural: Object.freeze({ title: 'Neural', lede: 'The repository as a live graph of its files, people, access and risks.' }),
+  governance: Object.freeze({ title: 'Governance', lede: 'Policies, simulations and reviews, rehearsed on a digital twin before they apply.' }),
+  exposure: Object.freeze({ title: 'Exposure', lede: 'Credentials committed to a branch and its history, checked live on request.' }),
+  audit: Object.freeze({ title: 'Audit', lede: 'Uranus maps every endpoint and follows what a caller sends to what uses it.' }),
+  safeguards: Object.freeze({ title: 'Safeguards', lede: 'Read-only mode, locked paths, branch rules and recovery.' })
+});
+const RECENT_REPOSITORIES = 'nv_recent:repositories';
+const REPO_PART = /^[\w.-]+(\/[\w.-]+)*$/;
+function recentRepositories() {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_REPOSITORIES) || '[]');
+    return (Array.isArray(list) ? list : [])
+      .filter(item => item && typeof item.owner === 'string' && typeof item.name === 'string' && REPO_PART.test(item.owner) && REPO_PART.test(item.name))
+      .slice(0, 5);
+  } catch { return []; }
+}
+function rememberRepository(owner, name) {
+  try {
+    const rest = recentRepositories().filter(item => !(item.owner === owner && item.name === name));
+    localStorage.setItem(RECENT_REPOSITORIES, JSON.stringify([{ owner, name }, ...rest].slice(0, 5)));
+  } catch { /* private mode: no recent list, and nothing is lost */ }
+}
+const PICK_GLOBE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM3.5 12h17M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg>';
+const PICK_LOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 10.8h11v9.2h-11zM8.8 10.8V8.2a3.2 3.2 0 0 1 6.4 0v2.6"/></svg>';
+let pickPage = 0;
+let pickMore = false;
+async function pickRepository(target) {
+  const tool = PICK_TOOLS[target];
+  if (!tool) return;
+  const railMark = document.querySelector(`.nv-rail-item[data-rail="${target}"] .nv-rail-i`);
+  let highlighted = null;
+  let chosen = null;
+  const ok = await modal({
+    title: 'Choose a repository',
+    okText: `Open ${tool.title}`,
+    autofocus: !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches),
+    bodyHTML: `<div class="rp-pick" data-tool="${esc(target)}">
+        <div class="rp-pick-tool"><span class="rp-pick-mark">${railMark ? railMark.outerHTML : ''}</span>
+          <span class="rp-pick-tool-text"><span class="rp-pick-tool-name">${esc(tool.title)}</span><span class="rp-pick-tool-lede">${esc(tool.lede)}</span></span></div>
+        <label class="rp-pick-search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.3 15.3L20 20"/></svg>
+          <input id="rpPickQuery" type="search" role="combobox" aria-expanded="true" aria-controls="rpPickList" aria-autocomplete="list" placeholder="Search repositories" autocomplete="off" spellcheck="false" aria-label="Search repositories"></label>
+        <div class="rp-pick-list" id="rpPickList" role="listbox" aria-label="Repositories"></div>
+        <div class="rp-pick-foot" id="rpPickFoot"></div>
+      </div>`,
+    onOpen: body => {
+      const input = body.querySelector('#rpPickQuery');
+      const listEl = body.querySelector('#rpPickList');
+      const foot = body.querySelector('#rpPickFoot');
+      const ownsPicker = modalOwner();
+      let options = [];
+      let loading = false;
+      let failed = '';
+      const choose = option => { if (!option) return; chosen = option.repo; closeModal(true); };
+      const light = index => {
+        options.forEach((option, at) => option.el.setAttribute('aria-selected', at === index ? 'true' : 'false'));
+        highlighted = options[index] ? options[index].repo : null;
+        if (options[index]) {
+          input.setAttribute('aria-activedescendant', options[index].el.id);
+          options[index].el.scrollIntoView({ block: 'nearest' });
+        } else input.removeAttribute('aria-activedescendant');
+        $('#modalOk').disabled = !highlighted;
+      };
+      const row = (repo, id) => {
+        const el = document.createElement('div');
+        el.className = 'rp-pick-item';
+        el.id = id;
+        el.setAttribute('role', 'option');
+        const sigil = document.createElement('span');
+        sigil.className = 'rp-pick-sigil';
+        if (window.NebulaRepoSigil) { const mark = window.NebulaRepoSigil.render(`${repo.owner}/${repo.name}`); if (mark) sigil.appendChild(mark); }
+        const text = document.createElement('span');
+        text.className = 'rp-pick-text';
+        const name = document.createElement('span');
+        name.className = 'rp-pick-name';
+        const owner = document.createElement('span');
+        owner.className = 'rp-pick-owner';
+        owner.textContent = `${repo.owner}/`;
+        name.append(owner, document.createTextNode(repo.name));
+        const meta = document.createElement('span');
+        meta.className = 'rp-pick-meta';
+        meta.textContent = [repo.description, repo.pushed_at ? `updated ${timeAgo(repo.pushed_at)}` : ''].filter(Boolean).join(' · ') || 'Recently opened';
+        text.append(name, meta);
+        const vis = document.createElement('span');
+        vis.className = 'rp-pick-vis';
+        vis.dataset.visibility = repo.private === true ? 'private' : repo.private === false ? 'public' : 'unknown';
+        if (repo.private !== undefined) {
+          vis.innerHTML = repo.private ? PICK_LOCK : PICK_GLOBE;
+          vis.title = repo.private ? 'Private' : 'Public';
+          const word = document.createElement('span');
+          word.className = 'sr-only';
+          word.textContent = repo.private ? 'Private' : 'Public';
+          vis.appendChild(word);
+        }
+        el.append(sigil, text, vis);
+        return el;
+      };
+      const paint = () => {
+        if (!ownsPicker()) return;
+        const terms = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+        const loaded = state.repos.map(repo => ({ owner: repo.owner, name: repo.name, description: repo.description, private: repo.private, pushed_at: repo.pushed_at }));
+        const byName = new Map(loaded.map(repo => [`${repo.owner}/${repo.name}`, repo]));
+        const matches = repo => terms.every(term => `${repo.owner}/${repo.name} ${repo.description || ''}`.toLowerCase().includes(term));
+        const recent = recentRepositories().map(item => byName.get(`${item.owner}/${item.name}`) || item).filter(matches);
+        const recentKeys = new Set(recent.map(repo => `${repo.owner}/${repo.name}`));
+        const rest = loaded.filter(repo => !recentKeys.has(`${repo.owner}/${repo.name}`) && matches(repo));
+        listEl.replaceChildren();
+        options = [];
+        const group = (label, repos) => {
+          if (!repos.length) return;
+          const head = document.createElement('div');
+          head.className = 'rp-pick-group';
+          head.setAttribute('role', 'presentation');
+          head.textContent = label;
+          listEl.appendChild(head);
+          for (const repo of repos) {
+            const el = row(repo, `rpPick-${options.length}`);
+            const index = options.length;
+            el.addEventListener('mousemove', () => { if (highlighted !== repo) light(index); });
+            el.addEventListener('click', () => choose({ repo }));
+            listEl.appendChild(el);
+            options.push({ el, repo });
+          }
+        };
+        group(terms.length ? 'Matches' : 'Recent', recent);
+        group(terms.length ? (recent.length ? 'More matches' : 'Matches') : 'All repositories', rest);
+        if (loading && !loaded.length) {
+          for (let index = 0; index < 4; index += 1) { const ghost = document.createElement('div'); ghost.className = 'rp-pick-ghost'; listEl.appendChild(ghost); }
+        } else if (!options.length) {
+          const empty = document.createElement('p');
+          empty.className = 'rp-pick-empty';
+          empty.textContent = failed || (terms.length ? `No repository matches “${input.value.trim()}”${pickMore ? ' in those loaded' : ''}.` : 'No repositories yet.');
+          listEl.appendChild(empty);
+        }
+        foot.replaceChildren();
+        const count = document.createElement('span');
+        count.textContent = loaded.length ? `${loaded.length} ${loaded.length === 1 ? 'repository' : 'repositories'} loaded` : '';
+        foot.appendChild(count);
+        if (pickMore && !loading) {
+          const more = document.createElement('button');
+          more.type = 'button';
+          more.className = 'btn btn-ghost small';
+          more.textContent = 'Load more';
+          more.addEventListener('click', () => load());
+          foot.appendChild(more);
+        }
+        light(options.length ? 0 : -1);
+      };
+      const load = async () => {
+        loading = true; failed = ''; paint();
+        try {
+          const batch = await api(`/api/repos?page=${pickPage + 1}&sort=${state.repoSort}`);
+          if (!ownsPicker()) return;
+          pickPage += 1;
+          const known = new Set(state.repos.map(repo => repo.full_name));
+          state.repos.push(...batch.filter(repo => !known.has(repo.full_name)));
+          pickMore = batch.length >= 30;
+        } catch (error) {
+          failed = error && error.message ? `Repositories could not be listed: ${error.message}` : 'Repositories could not be listed.';
+        }
+        loading = false;
+        paint();
+      };
+      input.addEventListener('input', paint);
+      input.addEventListener('keydown', event => {
+        const at = options.findIndex(option => option.repo === highlighted);
+        if (event.key === 'ArrowDown') { event.preventDefault(); light(Math.min(options.length - 1, at + 1)); }
+        else if (event.key === 'ArrowUp') { event.preventDefault(); light(Math.max(0, at - 1)); }
+        else if (event.key === 'Home' && options.length) { event.preventDefault(); light(0); }
+        else if (event.key === 'End' && options.length) { event.preventDefault(); light(options.length - 1); }
+        else if (event.key === 'Enter') { event.preventDefault(); choose(options[at]); }
+      });
+      if (!state.repos.length) { pickPage = 0; load(); }
+      else { pickPage = state.repoPage; pickMore = state.repos.length >= state.repoPage * 30; paint(); }
+    }
+  });
+  $('#modalOk').disabled = false;
+  const repo = chosen || (ok ? highlighted : null);
+  if (!repo) return;
+  await openRepo(repo.owner, repo.name);
+  if (state.work && state.work.owner === repo.owner && state.work.repo === repo.name) switchTab(target);
 }
 async function refreshRepoMetadata() {
   if (!state.work || !state.work.owner || !state.work.repo) return null;
@@ -3013,16 +3211,11 @@ function renderExposureTally(current) {
     chips.hidden = !total;
     chips.replaceChildren(...(total ? [
       ...severities.map(key => {
-        const chip = document.createElement('span');
-        chip.className = 'exposure-chip';
+        const chip = nvChip(key, key, { glyph: NV_GLYPH[key], count: counts[key], className: 'nv-chip-lg exposure-chip', beam: key === 'critical' });
         chip.dataset.severity = key;
-        chip.textContent = `${counts[key]} ${key}`;
         return chip;
       }),
-      Object.assign(document.createElement('span'), {
-        className: 'exposure-chip exposure-chip-open',
-        textContent: `${open} open`
-      })
+      nvChip('pending', 'open', { glyph: NV_GLYPH.pending, count: open, className: 'nv-chip-lg exposure-chip exposure-chip-open' })
     ] : []));
   }
   if (toggle) {
@@ -3133,10 +3326,11 @@ function exposureHistoryEntry(scan, current) {
   const ago = document.createElement('span');
   ago.className = 'exposure-scan-ago';
   ago.textContent = timeAgo(scan.createdAt);
-  const stateBadge = document.createElement('span');
-  stateBadge.className = 'exposure-scan-state';
+  const settled = scan.state === 'complete';
+  const running = scan.state === 'queued' || scan.state === 'running';
+  const stateBadge = nvChip(settled ? 'neutral' : running ? 'info' : 'warning', EXPOSURE_STATE_WORDS[scan.state] || scan.state,
+    { glyph: settled ? NV_GLYPH.check : running ? NV_GLYPH.pending : NV_GLYPH.warning, className: 'exposure-scan-state', beam: running });
   stateBadge.dataset.state = scan.state;
-  stateBadge.textContent = EXPOSURE_STATE_WORDS[scan.state] || scan.state;
   const ref = document.createElement('span');
   ref.className = 'exposure-scan-ref';
   ref.textContent = `${exposureRefLabel(scan.refName)} @ ${String(scan.commitSha || '').slice(0, 7) || '—'}${scan.scanMode === 'history' ? ' · with history' : ''}`;
@@ -3295,11 +3489,55 @@ async function clearExposureHistory() {
   }
 }
 
+/*
+ * While a scan runs: a radar of dots, each lit as the sweep passes it, the
+ * way a dot-matrix display draws motion. It says "working" and nothing more;
+ * the facts beside it say how far the scan has read. Held still without
+ * motion.
+ */
+function exposureRadar() {
+  const wrap = document.createElement('div');
+  wrap.className = 'exposure-radar';
+  wrap.setAttribute('aria-hidden', 'true');
+  const sweep = document.createElement('span');
+  sweep.className = 'exposure-radar-sweep';
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 120 120');
+  svg.setAttribute('class', 'exposure-radar-art');
+  for (const [radius, size] of [[13, 1.9], [25, 1.75], [37, 1.6], [49, 1.45]]) {
+    const count = Math.round((Math.PI * 2 * radius) / 8.2);
+    for (let index = 0; index < count; index += 1) {
+      const turn = index / count;
+      const angle = turn * Math.PI * 2 - Math.PI / 2;
+      const dot = document.createElementNS(NS, 'circle');
+      dot.setAttribute('cx', (60 + Math.cos(angle) * radius).toFixed(1));
+      dot.setAttribute('cy', (60 + Math.sin(angle) * radius).toFixed(1));
+      dot.setAttribute('r', String(size));
+      dot.style.setProperty('--turn', turn.toFixed(3));
+      svg.appendChild(dot);
+    }
+  }
+  const core = document.createElementNS(NS, 'circle');
+  core.setAttribute('cx', '60');
+  core.setAttribute('cy', '60');
+  core.setAttribute('r', '3');
+  core.setAttribute('class', 'exposure-radar-core');
+  svg.appendChild(core);
+  wrap.append(sweep, svg);
+  return wrap;
+}
+
 function renderExposure() {
   const pane = $('#tab-exposure');
   if (!pane) return;
   const current = exposureState();
   const scan = current.scan;
+  const proofCard = pane.querySelector('.exposure-proof');
+  if (proofCard) {
+    if (!proofCard.querySelector('.exposure-radar')) proofCard.appendChild(exposureRadar());
+    proofCard.dataset.scanning = String(Boolean(scan && (scan.state === 'queued' || scan.state === 'running')));
+  }
 
   const stateEl = $('#exposureState');
   const coverageEl = $('#exposureCoverage');
@@ -3592,6 +3830,56 @@ function renderExposureTools(current, shownCount) {
 }
 
 const EXPOSURE_SEVERITY_RANK = { critical: 0, serious: 1, warning: 2 };
+/*
+ * Orbit, the status language the security screens share: an outlined chip,
+ * the tone on its edge and its glyph, the words in ink, a beam round the
+ * edge for the few the eye should go to first. The styles are in style.css.
+ */
+const NV_GLYPH = Object.freeze({
+  critical: 'M8.6 3.5h6.8l5.1 5.1v6.8l-5.1 5.1H8.6l-5.1-5.1V8.6zM9.4 9.4l5.2 5.2M14.6 9.4l-5.2 5.2',
+  serious: 'M12 4l9 15.5H3zM12 10v4.2M12 16.9v.1',
+  warning: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 11v5M12 7.9v.1',
+  open: 'M12 5.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z',
+  check: 'M5 12.5l4.2 4.2L19 7',
+  shield: 'M12 3.3l7.2 3v5.3c0 4.3-3 7.9-7.2 9.4-4.2-1.5-7.2-5.1-7.2-9.4V6.3zM9.3 12l2 2 3.5-3.8',
+  history: 'M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.2h3.2M12 8v4.3l2.8 1.7',
+  archive: 'M4 7.5h16v3H4zM5.5 10.5V19h13v-8.5M10 14h4',
+  encoded: 'M8.5 7l-5 5 5 5M15.5 7l5 5-5 5',
+  off: 'M7 7l10 10M17 7L7 17',
+  pending: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.5V12l3 2'
+});
+function nvChip(tone, word, { glyph, count, beam, className } = {}) {
+  const chip = document.createElement('span');
+  chip.className = `nv-chip${className ? ` ${className}` : ''}`;
+  chip.dataset.tone = tone;
+  if (beam) chip.dataset.beam = 'on';
+  if (glyph) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', glyph);
+    svg.appendChild(path);
+    chip.appendChild(svg);
+  }
+  if (count !== undefined) {
+    const number = document.createElement('b');
+    number.textContent = String(count);
+    chip.appendChild(number);
+    if (word) chip.appendChild(document.createTextNode(' '));
+  }
+  if (word) {
+    const text = document.createElement('span');
+    text.textContent = word;
+    chip.appendChild(text);
+  }
+  return chip;
+}
+/* What a finding's disposition looks like as a chip: only an open one asks for work. */
+const EXPOSURE_DISPOSITION_TONE = Object.freeze({
+  open: ['serious', 'open'], 'credential-rejected': ['good', 'check'], 'accepted-risk': ['info', 'shield'], 'removed-from-tree': ['neutral', 'history']
+});
 const EXPOSURE_SEVERITY_WORDS = { critical: 'Critical', serious: 'Serious', warning: 'Warning' };
 const EXPOSURE_DISPOSITION_WORDS = {
   open: 'Open', 'credential-rejected': 'No longer works', 'accepted-risk': 'Accepted', 'removed-from-tree': 'Removed from tree'
@@ -3662,10 +3950,9 @@ function exposureFindingItem(finding, current, { interactive }) {
 
   const summary = document.createElement('summary');
   summary.className = 'exposure-item-summary';
-  const badge = document.createElement('span');
-  badge.className = 'exposure-badge';
-  badge.dataset.severity = exposureSeverity(finding);
-  badge.textContent = EXPOSURE_SEVERITY_WORDS[exposureSeverity(finding)];
+  const severity = exposureSeverity(finding);
+  const badge = nvChip(severity, EXPOSURE_SEVERITY_WORDS[severity], { glyph: NV_GLYPH[severity], className: 'exposure-badge' });
+  badge.dataset.severity = severity;
   const title = document.createElement('span');
   title.className = 'exposure-item-title';
   title.textContent = exposureRuleLabel(finding.rule);
@@ -3692,16 +3979,14 @@ function exposureFindingItem(finding, current, { interactive }) {
   tagRow.className = 'exposure-item-tags';
   tagRow.hidden = !tags.length;
   for (const [kind, words] of tags) {
-    const tag = document.createElement('span');
-    tag.className = 'exposure-tag';
+    const tag = nvChip(kind === 'history' ? 'info' : 'neutral', words, { glyph: NV_GLYPH[kind], className: 'exposure-tag' });
     tag.dataset.kind = kind;
-    tag.textContent = words;
     tagRow.appendChild(tag);
   }
-  const status = document.createElement('span');
-  status.className = 'exposure-item-status';
-  status.dataset.disposition = finding.disposition || 'open';
-  status.textContent = EXPOSURE_DISPOSITION_WORDS[finding.disposition || 'open'] || (finding.disposition || 'Open');
+  const disposition = finding.disposition || 'open';
+  const [statusTone, statusGlyph] = EXPOSURE_DISPOSITION_TONE[disposition] || ['neutral', 'open'];
+  const status = nvChip(statusTone, EXPOSURE_DISPOSITION_WORDS[disposition] || disposition, { glyph: NV_GLYPH[statusGlyph], className: 'exposure-item-status' });
+  status.dataset.disposition = disposition;
   summary.append(badge, title, location, status, tagRow);
   details.appendChild(summary);
 
@@ -5077,7 +5362,7 @@ async function toggleProtect(p) {
  * previous session never paints this one. The comparison with the last audit
  * keeps fingerprints only, and the account-boundary purge removes them.
  */
-let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
+let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
 let auditRequest = 0;
 /*
  * The deployed-site check sits beside it, bound to the repository rather than
@@ -5105,7 +5390,7 @@ function freshSiteView() {
 function clearAuditState() {
   auditRequest++;
   siteRequest++;
-  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
+  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
   siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
   const root = $('#auditRoot');
   if (root) root.replaceChildren();
@@ -5124,7 +5409,7 @@ async function copyPrompt(text, control) {
 function paintAudit() {
   const root = $('#auditRoot');
   if (!root || !window.NebulaCodeAudit) return;
-  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
+  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
   if (siteView.key !== siteKey()) siteView = freshSiteView();
   const repository = window.NebulaCapabilityUI.decision('code-audit');
   window.NebulaCodeAudit.render(root, {
@@ -5140,9 +5425,10 @@ function paintAudit() {
       catch { toast('The clipboard is not available here', 'err'); }
     },
     onRun: runAudit,
-    onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
-    onOwasp: owasp => { auditView.owasp = owasp; auditView.severity = null; auditView.limit = 0; paintAudit(); },
+    onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.verdict = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
+    onOwasp: owasp => { auditView.owasp = owasp; auditView.severity = null; auditView.verdict = null; auditView.limit = 0; paintAudit(); },
     onSeverity: severity => { auditView.severity = severity; auditView.limit = 0; paintAudit(); },
+    onVerdict: verdict => { auditView.verdict = verdict; auditView.limit = 0; paintAudit(); },
     onQuery: query => { auditView.query = String(query || '').slice(0, 120); auditView.limit = 0; paintAudit(); },
     onMore: limit => { auditView.limit = limit; paintAudit(); },
     onOpen: finding => openAuditFinding(finding),
@@ -5202,7 +5488,7 @@ async function runAudit() {
     const repoKey = `${state.work.owner}/${state.work.repo}`;
     const previous = window.NebulaCodeAudit.readPrevious(repoKey);
     window.NebulaCodeAudit.remember(repoKey, result);
-    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null, severity: null, owasp: null, query: '', limit: 0 };
+    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
   } catch (error) {
     if (request !== auditRequest || epoch !== state.uiEpoch || key !== auditKey()) return;
     auditView = { ...auditView, status: 'error', error: error.message || 'The audit could not be completed.' };
@@ -5477,7 +5763,7 @@ function sgRulesHTML(rules) {
  * than closing and reopening a window. Every entry point lands here.
  */
 function openSafeguards() {
-  if (!state.work) return toast('Open a repository first.', 'err');
+  if (!state.work) return pickRepository('safeguards');
   if (_page !== 'work') showPage('work');
   switchTab('safeguards');
 }
@@ -6645,7 +6931,7 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   closeNavMenu();
   if (target === 'overview') return showOverview();
   if (target === 'repos') return showPage('repos');
-  if (!state.work) return toast('Open a repository first.', 'err');
+  if (!state.work) return PICK_TOOLS[target] ? pickRepository(target) : toast('Open a repository first.', 'err');
   showPage('work');
   if (['neural', 'governance', 'exposure', 'audit', 'safeguards'].includes(target)) switchTab(target);
   else paintRail('work');

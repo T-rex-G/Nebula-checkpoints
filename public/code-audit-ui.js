@@ -1,16 +1,19 @@
 /*
- * The repository audit, drawn.
+ * The repository audit, drawn: what Uranus, the audit engine, found.
  *
  * The order is the argument, as it is on the Exposure screen: the grade and
  * how much of the repository it rests on come first, then the three jobs to
- * do first, then the six families the grade was built from and the OWASP
- * Top 10 map of the same findings, then every finding, searchable, each
- * filed under its CWE. A findings list alone invites the reading "nothing here, so
- * nothing is wrong", which a partial read does not support.
+ * do first, then the families the grade was built from, the endpoints a
+ * caller can reach, what was looked at and how closely, what is already in
+ * place, and the OWASP Top 10 map of the same findings; then every finding,
+ * searchable, each filed under its CWE, each saying whether it is confirmed
+ * or still to confirm and, when Uranus traced it, the path it took. A
+ * findings list alone invites the reading "nothing here, so nothing is
+ * wrong", which a partial read does not support.
  *
  * The screen talks in shapes before words -- a ring for the score, a tile per
- * family, a stripe and an icon per severity -- and every shape carries its
- * word as well, so nothing is said by colour alone.
+ * family, an outlined chip per status -- and every shape carries its word as
+ * well, so nothing is said by colour alone.
  *
  * Everything is built with textContent. The audit's words are the rules' own,
  * paths come from a repository and advisory summaries from a public database,
@@ -25,6 +28,36 @@
     warning: Object.freeze({ glyph: '○', word: 'Warning', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 11v5M12 7.9v.1' })
   });
   const ORDER = Object.freeze(['critical', 'serious', 'warning']);
+  /*
+   * How sure a finding is, as Uranus says it: confirmed when the file states
+   * it or the whole path was traced, to confirm when the pattern is there and
+   * one decisive fact is not. A result from before Uranus carries no verdict
+   * and reads as confirmed, which is what it was presented as then.
+   */
+  const VERDICT = Object.freeze({
+    confirmed: Object.freeze({ word: 'Confirmed', tone: 'info', icon: 'M12 3.3l7.2 3v5.3c0 4.3-3 7.9-7.2 9.4-4.2-1.5-7.2-5.1-7.2-9.4V6.3zM9.3 12l2 2 3.5-3.8' }),
+    'needs-validation': Object.freeze({ word: 'To confirm', tone: 'pending', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM9.7 9.7a2.4 2.4 0 1 1 3.3 2.2c-.7.3-1 .8-1 1.4v.5M12 16.6v.1' })
+  });
+  const verdictOf = finding => (finding && finding.verdict === 'needs-validation' ? 'needs-validation' : 'confirmed');
+  /* Who can reach the line a traced value entered on. */
+  const LOCK = 'M6.5 10.8h11v9.2h-11zM8.8 10.8V8.2a3.2 3.2 0 0 1 6.4 0v2.6';
+  const REACH = Object.freeze({
+    open: Object.freeze({ word: 'Open to anyone', tone: 'critical', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM3.5 12h17M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z' }),
+    guarded: Object.freeze({ word: 'After sign-in', tone: 'neutral', icon: LOCK }),
+    unknown: Object.freeze({ word: 'Guard to confirm', tone: 'pending', icon: LOCK }),
+    platform: Object.freeze({ word: 'Platform-guarded', tone: 'neutral', icon: LOCK })
+  });
+  const LEDGER_STATUS = Object.freeze({
+    covered: Object.freeze({ word: 'Checked', tone: 'good', icon: 'M5 12.5l4.2 4.2L19 7' }),
+    traced: Object.freeze({ word: 'Traced', tone: 'good', icon: 'M5 6.5h4a3 3 0 0 1 3 3v5a3 3 0 0 0 3 3h4M17 15.5l2 2-2 2M4.5 6.5h.1' }),
+    mapped: Object.freeze({ word: 'Mapped', tone: 'good', icon: 'M5 5h5a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h11M16 14l3 3-3 3' }),
+    partial: Object.freeze({ word: 'Partly traced', tone: 'warning', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17V3.5z' }),
+    patterns: Object.freeze({ word: 'Patterns only', tone: 'pending', icon: 'M4 7h16M4 12h10M4 17h6' }),
+    'not-applicable': Object.freeze({ word: 'Nothing to check', tone: 'neutral', icon: 'M6 12h12' }),
+    'not-assessed': Object.freeze({ word: 'Not assessed', tone: 'pending', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM9.7 9.7a2.4 2.4 0 1 1 3.3 2.2c-.7.3-1 .8-1 1.4v.5M12 16.6v.1' })
+  });
+  /* The classes Uranus follows values through, as opposed to checking files for. */
+  const TRACED_CLASSES = new Set(['injection', 'requests', 'browser', 'objects', 'ai']);
   /* One drawn mark per family, so the tiles read before their labels do. */
   const FAMILY_ICON = Object.freeze({
     'supply-chain': 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9',
@@ -32,7 +65,8 @@
     secrets: 'M8 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM11.5 12h9M17.5 12v3M14.5 12v2.2',
     dependencies: 'M6 3.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4zM18 3.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4zM12 15.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4zM7 8l4 7.8M17 8l-4 7.8M8.2 6h7.6',
     infrastructure: 'M4 5.5h16v5H4zM4 13.5h16v5H4zM7.5 8h.1M7.5 16h.1M11 8h5.5M11 16h5.5',
-    hygiene: 'M7 4h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9 3.5h6M9 12.5l2.1 2.1 4-4.3'
+    hygiene: 'M7 4h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9 3.5h6M9 12.5l2.1 2.1 4-4.3',
+    access: 'M8 11V8a4 4 0 0 1 8 0v3M6 11h12v9.5H6zM12 14.6v2.6'
   });
   /*
    * The OWASP Top 10:2025, in the short words a tile has room for, and the
@@ -96,7 +130,11 @@
     waive: 'M12 3.3l7.2 3v5.3c0 4.3-3 7.9-7.2 9.4-4.2-1.5-7.2-5.1-7.2-9.4V6.3zM9 12h6',
     markdown: 'M4 6h16v12H4zM7 15V9l2.5 3L12 9v6M16 9v6M14.2 13.2L16 15l1.8-1.8',
     table: 'M4 5h16v14H4zM4 10h16M4 14.5h16M10 5v14',
-    sarif: 'M8 4H6a2 2 0 0 0-2 2v4l-1.5 2L4 14v4a2 2 0 0 0 2 2h2M16 4h2a2 2 0 0 1 2 2v4l1.5 2-1.5 2v4a2 2 0 0 1-2 2h-2M9 12h6'
+    sarif: 'M8 4H6a2 2 0 0 0-2 2v4l-1.5 2L4 14v4a2 2 0 0 0 2 2h2M16 4h2a2 2 0 0 1 2 2v4l1.5 2-1.5 2v4a2 2 0 0 1-2 2h-2M9 12h6',
+    route: 'M5 5h5a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h11M16 14l3 3-3 3',
+    lock: LOCK,
+    write: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+    spark: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6'
   });
   const STORE_PREFIX = 'nv_audit:';
   const SVG = 'http://www.w3.org/2000/svg';
@@ -141,6 +179,129 @@
   function keyed(node, key) {
     node.dataset.key = key;
     return node;
+  }
+
+  /*
+   * A status as an outline: the tone on its edge and its glyph, the words in
+   * ink. `beam` sends light round the edge, for the few statuses the eye
+   * should go to first.
+   */
+  function chip(tone, word, options = {}) {
+    const node = element('span', `nv-chip${options.large ? ' nv-chip-lg' : ''}${options.className ? ` ${options.className}` : ''}`);
+    node.dataset.tone = tone;
+    if (options.beam) node.dataset.beam = 'on';
+    if (options.zero) node.dataset.zero = 'true';
+    if (options.glyph) node.appendChild(icon(options.glyph));
+    if (options.count !== undefined) node.appendChild(element('b', null, String(options.count)));
+    /* A space the flex layout ignores, so the chip reads "3 serious" to a screen reader and a copy. */
+    if (options.count !== undefined && word) node.appendChild(document.createTextNode(' '));
+    if (word) node.appendChild(element('span', null, word));
+    if (options.title) node.title = options.title;
+    return node;
+  }
+  function severityChip(severity, options = {}) {
+    return chip(severity, SEVERITY[severity].word, { glyph: SEVERITY[severity].icon, ...options });
+  }
+  function verdictChip(finding, options = {}) {
+    const verdict = VERDICT[verdictOf(finding)];
+    return chip(verdict.tone, verdict.word, { glyph: verdict.icon, className: 'audit-verdict-chip', ...options });
+  }
+  function reachChip(reach) {
+    if (!reach || !REACH[reach.auth]) return null;
+    const entry = REACH[reach.auth];
+    const where = reach.route ? `${reach.method} ${reach.route}` : reach.method === 'ACTION' ? 'a server action' : 'this endpoint';
+    return chip(entry.tone, entry.word, { glyph: entry.icon, className: 'audit-reach', title: `Reached through ${where}` });
+  }
+
+  /*
+   * Uranus's mark: a planet turned on its side, its ring near upright. Drawn
+   * as line art so it takes the colour it sits on.
+   */
+  function uranusMark(className = 'audit-ico uranus-mark') {
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    svg.setAttribute('class', className);
+    const planet = document.createElementNS(SVG, 'circle');
+    planet.setAttribute('cx', '12');
+    planet.setAttribute('cy', '12');
+    planet.setAttribute('r', '5.2');
+    const band = document.createElementNS(SVG, 'path');
+    band.setAttribute('d', 'M7.4 10.4c3 1.2 6.2 1.2 9.2 0');
+    const ring = document.createElementNS(SVG, 'ellipse');
+    ring.setAttribute('cx', '12');
+    ring.setAttribute('cy', '12');
+    ring.setAttribute('rx', '10.4');
+    ring.setAttribute('ry', '2.5');
+    ring.setAttribute('transform', 'rotate(-76 12 12)');
+    svg.append(planet, band, ring);
+    return svg;
+  }
+
+  /*
+   * While Uranus reads: a planet of dots lit from one side, so it reads as a
+   * sphere, with bands of light running pole to pole the way the planet
+   * turns, and its near-upright ring of dots lit one after another. The
+   * ring's far side is hidden where the planet stands in front of it. It
+   * says "working" and nothing more -- the audit is one request, and the
+   * screen does not invent the progress it cannot see. Held still without
+   * motion.
+   */
+  function uranusLoader() {
+    const wrap = element('div', 'uranus-loader');
+    wrap.setAttribute('aria-hidden', 'true');
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 120 120');
+    svg.setAttribute('class', 'uranus-loader-art');
+    const radius = 31;
+    const light = [-0.52, -0.58, 0.63];
+    const planet = document.createElementNS(SVG, 'g');
+    planet.setAttribute('class', 'uranus-loader-planet');
+    const step = 6.2;
+    for (let row = -5; row <= 5; row += 1) {
+      for (let col = -5; col <= 5; col += 1) {
+        const x = col * step;
+        const y = row * step;
+        const d = Math.hypot(x, y);
+        if (d > radius) continue;
+        const nx = x / radius;
+        const ny = y / radius;
+        const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+        const lit = Math.max(0, nx * light[0] + ny * light[1] + nz * light[2]);
+        const dot = document.createElementNS(SVG, 'circle');
+        dot.setAttribute('cx', (60 + x).toFixed(1));
+        dot.setAttribute('cy', (60 + y).toFixed(1));
+        dot.setAttribute('r', (0.95 + lit * 1.25).toFixed(2));
+        dot.style.setProperty('--lit', (0.34 + lit * 0.66).toFixed(2));
+        dot.style.setProperty('--col', String(col + 5));
+        planet.appendChild(dot);
+      }
+    }
+    const ring = document.createElementNS(SVG, 'g');
+    ring.setAttribute('class', 'uranus-loader-ring');
+    const tilt = -76 * Math.PI / 180;
+    const count = 34;
+    for (let index = 0; index < count; index += 1) {
+      const angle = (index / count) * Math.PI * 2;
+      const lx = Math.cos(angle) * 55;
+      const ly = Math.sin(angle) * 12.5;
+      const x = lx * Math.cos(tilt) - ly * Math.sin(tilt);
+      const y = lx * Math.sin(tilt) + ly * Math.cos(tilt);
+      const behind = Math.sin(angle) < 0;
+      /* The planet hides the far half of the ring where it stands in front of it. */
+      if (behind && Math.hypot(x, y) < radius + 2) continue;
+      const dot = document.createElementNS(SVG, 'circle');
+      dot.setAttribute('cx', (60 + x).toFixed(1));
+      dot.setAttribute('cy', (60 + y).toFixed(1));
+      dot.setAttribute('r', behind ? '1.25' : '1.7');
+      dot.style.setProperty('--i', String(index));
+      if (behind) dot.setAttribute('class', 'is-back');
+      ring.appendChild(dot);
+    }
+    svg.append(planet, ring);
+    wrap.appendChild(svg);
+    return wrap;
   }
 
   /*
@@ -342,6 +503,11 @@
       strip.appendChild(item);
     };
     add(ICON.file, 'Files', `${coverage.read} of ${coverage.eligible}`, 'Files read of the files the audit reads');
+    const surface = result.surface && result.surface.counts;
+    if (surface) {
+      const reached = surface.endpoints + surface.actions;
+      add(ICON.route, 'Endpoints', reached ? `${reached} mapped` : 'None found', 'Endpoints and server actions a caller can reach, each with the guard in front of it');
+    }
     const packages = coverage.packages || {};
     add(ICON.box, 'Registry', packages.declared ? `${packages.checked} of ${packages.declared}` : 'None declared', 'Declared packages the public registry answered for');
     const advisories = coverage.advisories || {};
@@ -391,14 +557,29 @@
     return wrap;
   }
 
+  /* The headline counts what is confirmed; a lead to confirm is named as one, never as an issue. */
   function verdict(result, status) {
     if (status === 'running') return 'Auditing this branch…';
     if (!result) return 'Not audited yet';
-    const counts = severityCounts(result.findings);
+    const confirmed = result.findings.filter(finding => verdictOf(finding) === 'confirmed');
+    const counts = severityCounts(confirmed);
+    const leads = result.findings.length - confirmed.length;
     if (counts.critical) return `${plural(counts.critical, 'critical issue', 'critical issues')} to fix`;
     if (counts.serious) return `${plural(counts.serious, 'serious issue', 'serious issues')} to fix`;
     if (counts.warning) return `${plural(counts.warning, 'warning', 'warnings')}, nothing serious`;
+    if (leads) return `${plural(leads, 'lead', 'leads')} to confirm, nothing confirmed`;
     return 'Nothing found in what was read';
+  }
+
+  /* Confirmed against to confirm, for a result that carries verdicts. */
+  function verdictSplit(findings) {
+    const leads = findings.filter(finding => verdictOf(finding) === 'needs-validation').length;
+    if (!findings.length) return null;
+    const row = element('div', 'audit-split');
+    row.setAttribute('aria-label', `${findings.length - leads} confirmed, ${leads} to confirm`);
+    row.append(chip(VERDICT.confirmed.tone, 'confirmed', { glyph: VERDICT.confirmed.icon, count: findings.length - leads, zero: findings.length === leads }),
+      chip(VERDICT['needs-validation'].tone, 'to confirm', { glyph: VERDICT['needs-validation'].icon, count: leads, zero: !leads }));
+    return row;
   }
 
   function severityTally(findings) {
@@ -409,14 +590,40 @@
       const item = element('li', 'audit-tally-item');
       item.dataset.severity = severity;
       item.dataset.zero = counts[severity] ? 'false' : 'true';
-      item.append(icon(SEVERITY[severity].icon), element('span', 'audit-tally-n', String(counts[severity])), element('span', 'audit-tally-w', SEVERITY[severity].word));
+      item.appendChild(severityChip(severity, { count: counts[severity], large: true, zero: !counts[severity], beam: severity === 'critical' && counts.critical > 0 }));
       list.appendChild(item);
     }
     return list;
   }
 
   /* What the audit reads, for the moment before it has read anything. */
-  const SCOPE = Object.freeze(['Install scripts', 'CI workflows', 'Injection & XSS', 'Committed secrets', 'OSV advisories', 'Malicious packages', 'Typosquats', 'Supabase RLS', 'Firebase rules', 'Hygiene']);
+  const SCOPE = Object.freeze(['Traced injection', 'Endpoint access', 'SSRF & redirects', 'AI output', 'Committed secrets', 'OSV advisories', 'Malicious packages', 'CI workflows', 'Supabase RLS', 'Firebase rules', 'Infrastructure', 'Hygiene']);
+
+  /* The ring's place while Uranus reads. */
+  function scanning() {
+    const wrap = element('div', 'audit-grade audit-grade-scan');
+    wrap.setAttribute('role', 'img');
+    wrap.setAttribute('aria-label', 'Auditing');
+    wrap.dataset.running = 'true';
+    wrap.appendChild(uranusLoader());
+    return wrap;
+  }
+
+  /* Which engine read the branch, and how far it followed values. */
+  function engineLine(result) {
+    const engine = result.engine;
+    if (!engine || !engine.traced) return null;
+    const traced = engine.traced;
+    const files = (traced.javascript || 0) + (traced.python || 0);
+    const parts = [`${plural(files, 'file', 'files')} traced`];
+    if (traced.functions) parts.push(`${plural(traced.functions, 'helper', 'helpers')} summarised`);
+    parts.push(`${plural((traced.endpoints || 0) + (traced.actions || 0), 'entry point', 'entry points')} mapped`);
+    if (traced.flows) parts.push(`${plural(traced.flows, 'path', 'paths')} to a sink${traced.crossFile ? `, ${traced.crossFile} across files` : ''}`);
+    if (traced.failed) parts.push(`${plural(traced.failed, 'file', 'files')} it could not follow`);
+    const line = element('p', 'audit-engine-line');
+    line.append(uranusMark('audit-ico uranus-mark'), element('strong', null, `${engine.name} ${String(engine.version || '').replace(/\.0$/, '')}`), element('span', null, parts.join(' · ')));
+    return line;
+  }
 
   function renderSummary(host, view, handlers, previous) {
     const card = element('section', 'card audit-summary');
@@ -427,7 +634,7 @@
     const layout = element('div', 'audit-grade-row');
     const label = result ? `Grade ${result.grade}, ${result.score} out of 100` : status === 'running' ? 'Auditing' : 'Not audited';
     const fresh = result && (!previous || previous.id !== resultId(result));
-    layout.appendChild(ring(result, status, label, fresh ? 0 : null));
+    layout.appendChild(status === 'running' ? scanning() : ring(result, status, label, fresh ? 0 : null));
 
     const read = element('div', 'audit-grade-read');
     const head = element('div', 'audit-summary-head');
@@ -444,7 +651,7 @@
       read.appendChild(error);
     }
     if (status === 'running') {
-      read.appendChild(element('p', 'audit-lede audit-muted', 'Reading files, asking the registries and OSV.'));
+      read.appendChild(element('p', 'audit-lede audit-muted', 'Uranus is mapping the endpoints, following each value a caller sends to what uses it, and asking the registries and OSV.'));
     } else if (!result) {
       const scope = element('ul', 'audit-scope');
       scope.setAttribute('aria-label', 'What the audit checks');
@@ -452,8 +659,10 @@
       read.appendChild(scope);
     } else {
       read.appendChild(severityTally(result.findings));
+      const split = result.engine ? verdictSplit(result.findings) : null;
+      if (split) read.appendChild(split);
       const notes = element('div', 'audit-notes');
-      if (result.capped) notes.appendChild(element('p', 'audit-cap', 'Held below 50 while a critical finding is open.'));
+      if (result.capped) notes.appendChild(element('p', 'audit-cap', 'Held below 50 while a confirmed critical finding is open.'));
       if (view.diff) {
         const since = view.diff.previousAt ? ` since the audit of ${new Date(view.diff.previousAt).toLocaleString()}` : '';
         notes.appendChild(element('p', 'audit-diff',
@@ -468,6 +677,8 @@
 
     if (result && status !== 'running') {
       card.appendChild(evidence(result));
+      const engine = engineLine(result);
+      if (engine) card.appendChild(engine);
       const caveat = coverageCaveat(result);
       if (caveat) card.appendChild(element('p', 'exposure-caveat', caveat));
     }
@@ -519,13 +730,20 @@
       const item = element('li', 'audit-first-item');
       item.dataset.severity = finding.severity;
       const control = button('', 'audit-first-btn', () => focusFinding(root, finding.id));
-      control.setAttribute('aria-label', `${index + 1}. ${SEVERITY[finding.severity].word}: ${finding.title}, ${location(finding)}`);
+      const toConfirm = verdictOf(finding) === 'needs-validation';
+      control.setAttribute('aria-label', `${index + 1}. ${SEVERITY[finding.severity].word}${toConfirm ? ', to confirm' : ''}: ${finding.title}, ${location(finding)}`);
       const rank = element('span', 'audit-first-rank', String(index + 1));
+      const tags = element('span', 'audit-first-tags');
+      tags.appendChild(severityChip(finding.severity, { beam: finding.severity === 'critical' && !toConfirm }));
       const body = element('span', 'audit-first-body');
       body.append(element('span', 'audit-first-title', finding.title), element('span', 'audit-first-where', location(finding)));
-      const chip = detailChip(finding);
-      if (chip) body.appendChild(element('span', 'audit-first-chip', chip));
-      control.append(rank, icon(SEVERITY[finding.severity].icon, 'audit-ico audit-first-sev'), body, icon(ICON.arrow, 'audit-ico audit-first-go'));
+      const extra = element('span', 'audit-first-extra');
+      const detail = detailChip(finding);
+      if (detail) extra.appendChild(element('span', 'audit-first-chip', detail));
+      if (toConfirm) extra.appendChild(verdictChip(finding));
+      else if (finding.reach && finding.reach.auth === 'open') extra.appendChild(reachChip(finding.reach));
+      if (extra.childNodes.length) body.appendChild(extra);
+      control.append(rank, tags, body, icon(ICON.arrow, 'audit-ico audit-first-go'));
       item.appendChild(control);
       list.appendChild(item);
     });
@@ -563,16 +781,17 @@
       score.append(document.createTextNode(String(category.score)), element('span', 'audit-category-of', '/100'));
       const counts = element('span', 'audit-category-counts');
       if (status === 'clear') {
-        counts.append(icon(ICON.check, 'audit-ico audit-category-clear'), element('span', null, 'Clear'));
+        counts.appendChild(chip('good', 'Clear', { glyph: ICON.check, className: 'audit-category-ok' }));
       } else {
         for (const severity of ORDER) {
           if (!category.counts[severity]) continue;
-          const count = element('span', 'audit-category-count');
+          const count = chip(severity, severity, { glyph: SEVERITY[severity].icon, count: category.counts[severity], className: 'audit-category-count' });
           count.dataset.severity = severity;
-          count.append(icon(SEVERITY[severity].icon), element('span', null, `${category.counts[severity]} ${severity}`));
           counts.appendChild(count);
         }
       }
+      const leads = category.toConfirm ? ORDER.reduce((total, severity) => total + (category.toConfirm[severity] || 0), 0) : 0;
+      if (leads) counts.appendChild(element('span', 'audit-category-leads', `${leads} to confirm`));
       const meter = element('span', 'audit-category-meter');
       meter.setAttribute('aria-hidden', 'true');
       meter.style.setProperty('--audit-fill', `${category.score}%`);
@@ -580,7 +799,198 @@
       item.appendChild(control);
       list.appendChild(item);
     }
-    host.appendChild(list);
+    const families = element('div', 'audit-families');
+    families.appendChild(list);
+    host.appendChild(families);
+  }
+
+  /* ---- Attack surface ------------------------------------------------------- */
+
+  /* An endpoint's guard, in the endpoint list's words. */
+  const ENDPOINT_AUTH = Object.freeze({
+    guarded: Object.freeze({ word: 'Signed in', tone: 'neutral', icon: LOCK }),
+    open: Object.freeze({ word: 'Open', tone: 'warning', icon: REACH.open.icon }),
+    unknown: Object.freeze({ word: 'Guard to confirm', tone: 'pending', icon: LOCK }),
+    platform: Object.freeze({ word: 'Platform', tone: 'neutral', icon: LOCK })
+  });
+  const FRAMEWORK_NAME = Object.freeze({
+    express: 'Express', fastify: 'Fastify', koa: 'Koa', hono: 'Hono', next: 'Next.js', 'next-pages': 'Next.js',
+    'server-action': 'Server action', sveltekit: 'SvelteKit', remix: 'Remix', 'supabase-edge': 'Edge function',
+    serverless: 'Serverless', flask: 'Flask', fastapi: 'FastAPI', django: 'Django'
+  });
+  const SURFACE_FOLD = 6;
+  /* Surfaces the reader unfolded, by result, so a redraw keeps them open. */
+  const expandedSurfaces = new Set();
+  /* What needs a look first: open and writing, then a guard to confirm, then open, then the rest. */
+  const surfaceRank = entry => (entry.auth === 'open' && entry.mutation && !entry.publicByDesign ? 0
+    : entry.auth === 'unknown' ? 1 : entry.auth === 'open' && !entry.publicByDesign ? 2 : entry.auth === 'open' ? 3 : 4);
+
+  function renderSurface(host, view, handlers) {
+    const result = view.result;
+    const surface = result && result.surface;
+    if (!surface || !surface.counts) return;
+    const counts = surface.counts;
+    const total = counts.endpoints + counts.actions;
+    if (!total) return;
+    const card = element('section', 'card audit-surface');
+    card.setAttribute('aria-labelledby', 'auditSurfaceHeading');
+    const head = element('div', 'audit-card-head');
+    const titles = element('div', 'audit-card-titles');
+    const heading = element('h2', 'audit-kicker', 'Attack surface');
+    heading.id = 'auditSurfaceHeading';
+    titles.append(heading, element('p', 'audit-card-lede', 'Every endpoint and server action a caller can reach, and what stands in front of it.'));
+    head.appendChild(titles);
+    card.appendChild(head);
+
+    const stats = element('div', 'audit-surface-stats');
+    stats.setAttribute('role', 'list');
+    const stat = (node) => { node.setAttribute('role', 'listitem'); stats.appendChild(node); };
+    stat(chip('neutral', counts.endpoints === 1 ? 'endpoint' : 'endpoints', { glyph: ICON.route, count: counts.endpoints, large: true }));
+    if (counts.actions) stat(chip('neutral', counts.actions === 1 ? 'server action' : 'server actions', { glyph: ICON.spark, count: counts.actions, large: true }));
+    stat(chip('neutral', 'signed in', { glyph: LOCK, count: counts.guarded, large: true, zero: !counts.guarded }));
+    stat(chip('warning', 'open', { glyph: REACH.open.icon, count: counts.open, large: true, zero: !counts.open }));
+    if (counts.unknown) stat(chip('pending', 'guard to confirm', { glyph: LOCK, count: counts.unknown, large: true }));
+    stat(chip('neutral', counts.mutating === 1 ? 'writes data' : 'write data', { glyph: ICON.write, count: counts.mutating, large: true, zero: !counts.mutating }));
+    card.appendChild(stats);
+
+    if (Array.isArray(surface.globalGuards) && surface.globalGuards.length) {
+      const guards = element('p', 'audit-surface-guards');
+      guards.append(icon(ICON.shield), element('span', null, 'Guarded across the app by '));
+      surface.globalGuards.slice(0, 4).forEach((guard, index) => {
+        if (index) guards.appendChild(document.createTextNode(index === surface.globalGuards.length - 1 || index === 3 ? ' and ' : ', '));
+        if (guard.path && handlers.onOpen) {
+          const open = button('', 'audit-inline-file', () => handlers.onOpen({ path: guard.path, line: null }));
+          open.textContent = guard.path;
+          open.setAttribute('aria-label', `Open ${guard.path}`);
+          guards.appendChild(open);
+        } else guards.appendChild(element('code', null, guard.path || 'a shared guard'));
+      });
+      guards.appendChild(document.createTextNode('.'));
+      card.appendChild(guards);
+    }
+
+    const entries = [...(surface.endpoints || [])].sort((a, b) => surfaceRank(a) - surfaceRank(b));
+    if (entries.length) {
+      const id = resultId(result);
+      const all = expandedSurfaces.has(id) || entries.length <= SURFACE_FOLD + 1;
+      const list = element('ul', 'audit-routes');
+      list.setAttribute('aria-label', 'Endpoints');
+      entries.forEach((entry, index) => {
+        const item = element('li', 'audit-route');
+        if (!all && index >= SURFACE_FOLD) item.hidden = true;
+        const method = element('span', 'audit-route-method', entry.action ? 'ACTION' : String(entry.method || 'ANY'));
+        const where = element('span', 'audit-route-main');
+        where.append(element('span', 'audit-route-path', entry.route || (entry.action ? 'Server action' : '—')));
+        const meta = element('span', 'audit-route-meta');
+        if (FRAMEWORK_NAME[entry.framework]) meta.appendChild(element('span', 'audit-route-fw', FRAMEWORK_NAME[entry.framework]));
+        if (entry.path && handlers.onOpen) {
+          const open = button('', 'audit-inline-file', () => handlers.onOpen(entry));
+          open.textContent = location(entry);
+          open.setAttribute('aria-label', `Open ${location(entry)}`);
+          meta.appendChild(open);
+        } else if (entry.path) meta.appendChild(element('span', 'audit-route-file', location(entry)));
+        where.appendChild(meta);
+        const tags = element('span', 'audit-route-tags');
+        const auth = entry.auth === 'open' && entry.publicByDesign ? { word: 'Public by design', tone: 'neutral', icon: REACH.open.icon } : ENDPOINT_AUTH[entry.auth] || ENDPOINT_AUTH.unknown;
+        tags.appendChild(chip(auth.tone, auth.word, { glyph: auth.icon, beam: entry.auth === 'open' && entry.mutation && !entry.publicByDesign }));
+        if (entry.mutation) tags.appendChild(chip('neutral', 'Writes', { glyph: ICON.write }));
+        if (entry.admin) tags.appendChild(chip('serious', 'Admin', { glyph: ICON.shield }));
+        item.append(method, where, tags);
+        list.appendChild(item);
+      });
+      card.appendChild(list);
+      if (!all) {
+        const more = keyed(button('', 'btn btn-ghost audit-more', event => {
+          expandedSurfaces.add(id);
+          for (const row of list.querySelectorAll('.audit-route[hidden]')) row.hidden = false;
+          event.currentTarget.remove();
+        }), 'surface-more');
+        more.append(element('span', null, `Show all ${entries.length}`), element('span', 'audit-more-of', `${SURFACE_FOLD} of ${entries.length}`));
+        card.appendChild(more);
+      }
+      if (surface.truncated) card.appendChild(element('p', 'audit-coverage', `The first ${entries.length} are listed; the counts above include every one.`));
+    }
+    host.appendChild(card);
+  }
+
+  /* ---- Coverage and controls ---------------------------------------------- */
+
+  /*
+   * What was looked at, and how closely: each class of attack traced, only
+   * pattern-checked, not present, or out of reach for rules. Next to it,
+   * what the repository already does right. A clean findings list means
+   * little without the first, and a reviewer weighs the second.
+   */
+  function ledgerStatus(entry) {
+    if (entry.status === 'covered' && TRACED_CLASSES.has(entry.id)) return 'traced';
+    if (entry.status === 'covered' && entry.id === 'access') return 'mapped';
+    return LEDGER_STATUS[entry.status] ? entry.status : 'not-assessed';
+  }
+  function renderCoverage(host, view, handlers) {
+    const result = view.result;
+    if (!result || !Array.isArray(result.ledger) || !result.ledger.length) return;
+
+    const card = element('section', 'card audit-ledger');
+    card.setAttribute('aria-labelledby', 'auditLedgerHeading');
+    const head = element('div', 'audit-card-head');
+    const titles = element('div', 'audit-card-titles');
+    const heading = element('h2', 'audit-kicker', 'Coverage');
+    heading.id = 'auditLedgerHeading';
+    titles.append(heading, element('p', 'audit-card-lede', 'What this read looked at, and how closely. Nothing reported is not the same as clear.'));
+    head.appendChild(titles);
+    card.appendChild(head);
+    const list = element('ul', 'audit-ledger-list');
+    for (const entry of result.ledger) {
+      const status = LEDGER_STATUS[ledgerStatus(entry)];
+      const item = element('li', 'audit-ledger-item');
+      item.dataset.status = ledgerStatus(entry);
+      const mark = element('span', 'audit-ledger-mark');
+      mark.dataset.tone = status.tone;
+      mark.appendChild(icon(status.icon));
+      const text = element('span', 'audit-ledger-text');
+      const top = element('span', 'audit-ledger-top');
+      top.append(element('span', 'audit-ledger-name', entry.label), chip(status.tone, status.word, { className: 'audit-ledger-chip' }));
+      text.append(top, element('span', 'audit-ledger-detail', entry.detail || ''));
+      const found = [];
+      if (entry.confirmed) found.push(`${entry.confirmed} confirmed`);
+      if (entry.toConfirm) found.push(`${entry.toConfirm} to confirm`);
+      if (found.length) text.appendChild(element('span', 'audit-ledger-found', found.join(' · ')));
+      item.append(mark, text);
+      list.appendChild(item);
+    }
+    card.appendChild(list);
+    host.appendChild(card);
+
+    const side = element('section', 'card audit-controls');
+    side.setAttribute('aria-labelledby', 'auditControlsHeading');
+    const sideHead = element('div', 'audit-card-titles');
+    const sideHeading = element('h2', 'audit-kicker', 'Already in place');
+    sideHeading.id = 'auditControlsHeading';
+    sideHead.append(sideHeading, element('p', 'audit-card-lede', 'Defences the read recognised, each with where it was first seen.'));
+    side.appendChild(sideHead);
+    const controlsFound = Array.isArray(result.controls) ? result.controls : [];
+    if (!controlsFound.length) {
+      side.appendChild(element('p', 'audit-controls-none', 'None recognised. The read knows the common libraries and settings by name, so a defence of your own may still be there.'));
+    } else {
+      const items = element('ul', 'audit-controls-list');
+      for (const control of controlsFound) {
+        const item = element('li', 'audit-control');
+        const mark = element('span', 'audit-control-mark');
+        mark.appendChild(icon(ICON.check));
+        const text = element('span', 'audit-control-text');
+        text.appendChild(element('span', 'audit-control-name', control.label));
+        if (control.path && handlers.onOpen) {
+          const open = button('', 'audit-inline-file', () => handlers.onOpen({ path: control.path, line: null }));
+          open.textContent = control.path;
+          open.setAttribute('aria-label', `Open ${control.path}`);
+          text.appendChild(open);
+        } else text.appendChild(element('span', 'audit-control-where', control.path || 'Across the repository'));
+        item.append(mark, text);
+        items.appendChild(item);
+      }
+      side.appendChild(items);
+    }
+    host.appendChild(side);
   }
 
   /* ---- Standards ------------------------------------------------------------ */
@@ -666,8 +1076,10 @@
   /* Every word a reader might search a finding by. */
   function searchText(finding, families) {
     const standards = finding.standards || {};
+    const reach = finding.reach && REACH[finding.reach.auth];
     return [finding.title, finding.rule, finding.where || location(finding), families && families.get(finding.category),
-      standards.cwe, standards.cweName, standards.owasp, standards.owaspName, detailChip(finding), SEVERITY[finding.severity].word]
+      standards.cwe, standards.cweName, standards.owasp, standards.owaspName, detailChip(finding), SEVERITY[finding.severity].word,
+      VERDICT[verdictOf(finding)].word, reach && reach.word, finding.reach && finding.reach.route]
       .filter(Boolean).join(' ').toLowerCase();
   }
   function matches(finding, query, families) {
@@ -716,6 +1128,67 @@
     return wrap;
   }
 
+  /* Who reaches the line: the method, the route and the guard in front of it. */
+  function reachLine(reach) {
+    const line = element('p', 'audit-reach-line');
+    const entry = REACH[reach.auth];
+    const through = reach.route ? `${reach.method} ${reach.route}` : reach.method === 'ACTION' ? 'a server action' : 'an endpoint';
+    line.append(icon(ICON.route), element('span', null, 'Reached through '), element('code', 'audit-reach-route', through));
+    if (FRAMEWORK_NAME[reach.framework]) line.appendChild(element('span', 'audit-reach-fw', FRAMEWORK_NAME[reach.framework]));
+    if (entry) line.appendChild(chip(entry.tone, entry.word, { glyph: entry.icon }));
+    return line;
+  }
+
+  /*
+   * The path Uranus followed, step by step: where the value entered, what it
+   * passed through, the line that used it. Places and words only -- no step
+   * carries the code it points at.
+   */
+  const STEP_ROLE = Object.freeze({ entrypoint: 'Enters', propagation: 'Passes', sink: 'Reaches' });
+  function traceView(finding, handlers) {
+    const wrap = element('div', 'audit-trace');
+    const head = element('p', 'audit-trace-head');
+    head.append(icon(ICON.route), element('span', null, finding.source ? `Traced from a ${finding.source}` : 'Traced path'));
+    wrap.appendChild(head);
+    const list = element('ol', 'audit-trace-list');
+    const steps = finding.trace.slice(0, 12);
+    steps.forEach((step, index) => {
+      const item = element('li', 'audit-trace-step');
+      item.dataset.role = step.role || 'propagation';
+      const role = element('span', 'audit-trace-role', STEP_ROLE[step.role] || 'Passes');
+      const note = String(step.note || '');
+      const text = element('span', 'audit-trace-note', note.charAt(0).toUpperCase() + note.slice(1));
+      const place = step.line ? `${step.path}:${step.line}` : step.path;
+      let where;
+      if (step.path && handlers.onOpen) {
+        where = button('', 'audit-inline-file', () => handlers.onOpen({ path: step.path, line: step.line }));
+        where.textContent = place;
+        where.setAttribute('aria-label', `Open ${place}, step ${index + 1} of the traced path`);
+      } else where = element('span', 'audit-trace-where', place || '');
+      item.append(role, text, where);
+      list.appendChild(item);
+    });
+    wrap.appendChild(list);
+    if (finding.trace.length > steps.length) wrap.appendChild(element('p', 'audit-coverage', `and ${finding.trace.length - steps.length} more steps`));
+    return wrap;
+  }
+
+  /* For a lead: the one fact the read could not settle, and the local check that settles it. */
+  function validation(finding) {
+    const wrap = element('div', 'audit-validate');
+    if (finding.blocker) {
+      const unknown = element('div', 'audit-validate-part');
+      unknown.append(element('span', 'audit-validate-label', 'What is unknown'), element('p', null, finding.blocker));
+      wrap.appendChild(unknown);
+    }
+    if (finding.check) {
+      const check = element('div', 'audit-validate-part');
+      check.append(element('span', 'audit-validate-label', 'How to confirm'), element('p', null, finding.check));
+      wrap.appendChild(check);
+    }
+    return wrap;
+  }
+
   /*
    * One finding: a row that says how bad, what and where, opened into its
    * reason, its fix, the advisories behind it and a prompt. A repository
@@ -730,8 +1203,9 @@
       const details = element('details', 'audit-details');
       if (finding.id) details.dataset.findingId = finding.id;
       const summary = element('summary', 'audit-summary-row');
-      const pill = element('span', `audit-pill audit-pill-${finding.severity}`);
-      pill.append(icon(SEVERITY[finding.severity].icon, 'audit-ico audit-pill-glyph'), element('span', null, SEVERITY[finding.severity].word));
+      const toConfirm = verdictOf(finding) === 'needs-validation';
+      if (toConfirm) item.dataset.verdict = 'needs-validation';
+      const pill = severityChip(finding.severity, { className: `audit-pill audit-pill-${finding.severity}` });
       const main = element('span', 'audit-row-main');
       main.appendChild(element('span', 'exposure-item-title', finding.title));
       const sub = element('span', 'audit-row-sub');
@@ -740,17 +1214,24 @@
       if (family) sub.appendChild(element('span', 'audit-row-family', family));
       main.appendChild(sub);
       summary.append(pill, main);
-      const chip = detailChip(finding);
-      if (chip) {
-        const tag = element('span', 'audit-row-chip', chip);
-        tag.title = chip;
-        summary.appendChild(tag);
+      const tags = element('span', 'audit-row-tags');
+      const detail = detailChip(finding);
+      if (detail) {
+        const tag = element('span', 'audit-row-chip', detail);
+        tag.title = detail;
+        tags.appendChild(tag);
       }
-      if (changes && changes.newIds.has(finding.id)) summary.appendChild(element('span', 'audit-new', 'New'));
+      if (toConfirm) tags.appendChild(verdictChip(finding));
+      else if (finding.reach && finding.reach.auth === 'open') tags.appendChild(reachChip(finding.reach));
+      if (changes && changes.newIds.has(finding.id)) tags.appendChild(chip('info', 'New', { className: 'audit-new', beam: true }));
+      if (tags.childNodes.length) summary.appendChild(tags);
       details.appendChild(summary);
 
       const body = element('div', 'audit-body');
       body.appendChild(element('p', 'exposure-item-consequence', finding.why));
+      if (finding.reach) body.appendChild(reachLine(finding.reach));
+      if (finding.trace && finding.trace.length) body.appendChild(traceView(finding, handlers));
+      if (toConfirm && (finding.blocker || finding.check)) body.appendChild(validation(finding));
       if (finding.detail && finding.detail.package && Array.isArray(finding.detail.advisories)) body.appendChild(advisoryList(finding.detail));
       const fix = element('div', 'exposure-item-action audit-fix');
       fix.append(element('span', 'audit-fix-label', 'Fix'), element('p', null, finding.fix));
@@ -824,6 +1305,25 @@
       segments.appendChild(segment(null, 'All', inScope.length));
       for (const severity of ORDER) segments.appendChild(segment(severity, SEVERITY[severity].word, counts[severity]));
       tools.appendChild(segments);
+      const leads = inScope.filter(finding => verdictOf(finding) === 'needs-validation').length;
+      if (leads || view.verdict) {
+        const verdicts = element('div', 'audit-segments audit-verdicts');
+        verdicts.setAttribute('role', 'group');
+        verdicts.setAttribute('aria-label', 'Show by verdict');
+        const option = (value, text, total) => {
+          const control = keyed(button('', 'audit-segment', () => handlers.onVerdict && handlers.onVerdict(value)), `verdict:${value || 'all'}`);
+          control.setAttribute('aria-pressed', (view.verdict || null) === value ? 'true' : 'false');
+          if (value) {
+            control.dataset.verdict = value;
+            control.append(icon(VERDICT[value].icon));
+          }
+          control.append(element('span', null, text), element('span', 'audit-segment-n', String(total)));
+          control.disabled = Boolean(value) && !total && view.verdict !== value;
+          return control;
+        };
+        verdicts.append(option(null, 'Any', inScope.length), option('confirmed', 'Confirmed', inScope.length - leads), option('needs-validation', 'To confirm', leads));
+        tools.appendChild(verdicts);
+      }
       if (inScope.length > 3 || view.query) {
         const search = element('label', 'audit-search');
         search.append(icon(ICON.search));
@@ -848,7 +1348,8 @@
       card.appendChild(tools);
     }
 
-    const shown = inScope.filter(finding => (!view.severity || finding.severity === view.severity) && matches(finding, view.query, families));
+    const shown = inScope.filter(finding => (!view.severity || finding.severity === view.severity)
+      && (!view.verdict || verdictOf(finding) === view.verdict) && matches(finding, view.query, families));
     if (!shown.length) {
       const empty = view.query
         ? `Nothing matches “${String(view.query).trim()}”.`
@@ -1063,9 +1564,28 @@
    * result it has not drawn before.
    */
   const drawn = new WeakMap();
+  /*
+   * The findings the reader opened, kept per screen while a filter hides
+   * them, so narrowing the list and widening it again does not fold what
+   * they were reading.
+   */
+  const openFindings = new WeakMap();
+  function openSet(root) {
+    let ids = openFindings.get(root);
+    if (ids) return ids;
+    ids = new Set([...root.querySelectorAll('details[open][data-finding-id]')].map(node => node.dataset.findingId));
+    root.addEventListener('toggle', event => {
+      const details = event.target;
+      if (!details || details.tagName !== 'DETAILS' || !details.dataset.findingId) return;
+      if (details.open) ids.add(details.dataset.findingId);
+      else ids.delete(details.dataset.findingId);
+    }, true);
+    openFindings.set(root, ids);
+    return ids;
+  }
   function render(root, view, handlers) {
     if (!root) return;
-    const open = new Set([...root.querySelectorAll('details[open][data-finding-id]')].map(node => node.dataset.findingId));
+    const open = openSet(root);
     const waivedOpen = Boolean(root.querySelector('details.audit-waived[open]'));
     const previous = drawn.get(root) || null;
     const active = root.contains(document.activeElement) ? document.activeElement : null;
@@ -1082,11 +1602,13 @@
       renderSummary(root, view, handlers, previous);
       renderPriorities(root, view, handlers, root);
       renderCategories(root, view, handlers);
+      renderSurface(root, view, handlers);
+      renderCoverage(root, view, handlers);
       renderStandards(root, view, handlers);
       renderFindings(root, view, handlers);
     }
     if (view.site) renderSite(root, { ...view.site, hasRepositoryResult: Boolean(view.result) }, handlers, previous);
-    for (const id of open) {
+    for (const id of [...open]) {
       const details = root.querySelector(`details[data-finding-id="${CSS.escape(id)}"]`);
       if (details) details.open = true;
     }
@@ -1118,9 +1640,17 @@
         `## ${prefix}${index + 1}. ${finding.title}`,
         '',
         `- **Severity:** ${finding.severity}`,
+        ...(finding.verdict ? [`- **Verdict:** ${VERDICT[verdictOf(finding)].word.toLowerCase()}${finding.evidence ? ` (${EVIDENCE_WORD[finding.evidence] || finding.evidence})` : ''}`] : []),
         `- **Rule:** ${finding.rule}`,
         `- **Where:** ${place(finding)}`
       );
+      if (finding.reach) {
+        const reach = REACH[finding.reach.auth];
+        lines.push(`- **Reached through:** ${finding.reach.route ? `\`${finding.reach.method} ${finding.reach.route}\`` : 'a server action'}${reach ? ` — ${reach.word.toLowerCase()}` : ''}`);
+      }
+      if (Array.isArray(finding.trace) && finding.trace.length) {
+        lines.push(`- **Traced path:** ${finding.trace.map(step => `${STEP_ROLE[step.role] || 'Passes'} \`${step.line ? `${step.path}:${step.line}` : step.path}\` (${step.note})`).join(' → ')}`);
+      }
       const standards = finding.standards;
       if (standards) {
         lines.push(`- **Standards:** ${[standards.cwe && `${standards.cwe}${standards.cweName ? ` (${standards.cweName})` : ''}`,
@@ -1135,10 +1665,12 @@
         if (detail.fixed) lines.push(`- **Fixed in:** ${detail.fixed}`);
         lines.push(`- **Advisories:** ${detail.advisories.map(advisory => `${advisory.id}${advisory.cve ? ` (${advisory.cve})` : ''}`).join(', ')}${detail.more ? ` and ${detail.more} more` : ''}`);
       }
+      lines.push('', finding.why, '');
+      if (verdictOf(finding) === 'needs-validation') {
+        if (finding.blocker) lines.push(`**What is unknown.** ${finding.blocker}`, '');
+        if (finding.check) lines.push(`**How to confirm.** ${finding.check}`, '');
+      }
       lines.push(
-        '',
-        finding.why,
-        '',
         `**Fix.** ${finding.fix}`,
         '',
         '```text',
@@ -1149,12 +1681,17 @@
     });
   }
 
+  const EVIDENCE_WORD = Object.freeze({ traced: 'path traced', surface: 'endpoint map', fact: 'stated in the file', pattern: 'pattern only' });
+
   function brief(result, repoLabel, site) {
     const lines = [`# Security audit: ${repoLabel}`, ''];
     if (result) {
+      const leads = result.findings.filter(finding => verdictOf(finding) === 'needs-validation').length;
+      const engine = result.engine && result.engine.traced ? result.engine : null;
       lines.push(
-        `Grade **${result.grade}** — ${result.score}/100${result.capped ? ' (held below 50 by a critical finding)' : ''}.`,
-        `Commit \`${result.commitSha}\`, audited ${result.auditedAt || new Date().toISOString()}.`,
+        `Grade **${result.grade}** — ${result.score}/100${result.capped ? ' (held below 50 by a confirmed critical finding)' : ''}.`,
+        `Commit \`${result.commitSha}\`, audited ${result.auditedAt || new Date().toISOString()}${engine ? ` by ${engine.name} ${engine.version}` : ''}.`,
+        ...(engine ? [`${result.findings.length - leads} confirmed, ${leads} to confirm. A finding to confirm weighs half and names the check that settles it.`] : []),
         '',
         coverageLine(result),
         coverageCaveat(result),
@@ -1164,6 +1701,17 @@
         ...result.categories.map(category => `| ${category.label} | ${category.score} | ${category.counts.critical} | ${category.counts.serious} | ${category.counts.warning} |`),
         ''
       );
+      if (Array.isArray(result.ledger) && result.ledger.length) {
+        lines.push('## Coverage', '', '| Class | Status | What was read |', '| --- | --- | --- |',
+          ...result.ledger.map(entry => `| ${entry.label} | ${LEDGER_STATUS[ledgerStatus(entry)].word} | ${cell(entry.detail)} |`), '');
+      }
+      if (result.surface && result.surface.counts && (result.surface.counts.endpoints + result.surface.counts.actions)) {
+        const counts = result.surface.counts;
+        lines.push(`**Attack surface:** ${plural(counts.endpoints, 'endpoint', 'endpoints')}${counts.actions ? ` and ${plural(counts.actions, 'server action', 'server actions')}` : ''}; ${counts.guarded} signed in, ${counts.open} open${counts.unknown ? `, ${counts.unknown} behind a guard to confirm` : ''}; ${counts.mutating} write data.`, '');
+      }
+      if (Array.isArray(result.controls) && result.controls.length) {
+        lines.push('**Already in place:**', '', ...result.controls.map(control => `- ${control.label}${control.path ? ` (\`${control.path}\`)` : ''}`), '');
+      }
       const byId = new Map(result.findings.map(finding => [finding.id, finding]));
       const first = (result.priorities || []).map(id => byId.get(id)).filter(Boolean);
       if (first.length) {
@@ -1237,15 +1785,34 @@
     return [...rules.values()];
   }
 
+  /* A traced path as a SARIF code flow, which code-scanning dashboards draw step by step. */
+  function sarifFlow(trace) {
+    return [{ threadFlows: [{ locations: trace.map(step => ({
+      location: {
+        physicalLocation: { artifactLocation: { uri: step.path, uriBaseId: 'SRCROOT' }, ...(step.line ? { region: { startLine: step.line } } : {}) },
+        message: { text: step.note || STEP_ROLE[step.role] || 'step' }
+      },
+      kinds: [step.role === 'entrypoint' ? 'source' : step.role === 'sink' ? 'sink' : 'pass-through']
+    })) }] }];
+  }
   function sarifResult(finding, ruleIndex, place, suppression) {
+    const toConfirm = verdictOf(finding) === 'needs-validation';
     const result = {
       ruleId: finding.rule,
       ruleIndex,
-      level: SARIF_LEVEL[finding.severity],
-      message: { text: `${finding.title}. ${finding.why}` },
+      /* A lead is a note, not an error: a dashboard should not fail a build on something unconfirmed. */
+      level: toConfirm ? 'note' : SARIF_LEVEL[finding.severity],
+      ...(toConfirm ? { kind: 'review' } : {}),
+      message: { text: `${finding.title}. ${finding.why}${toConfirm && finding.blocker ? ` To confirm: ${finding.blocker}` : ''}` },
       ...place,
+      ...(Array.isArray(finding.trace) && finding.trace.length && place.locations && place.locations[0].physicalLocation ? { codeFlows: sarifFlow(finding.trace) } : {}),
       partialFingerprints: { 'nebulaverseFinding/v1': finding.id || `${finding.rule}:${finding.where || location(finding)}` },
-      properties: { severity: finding.severity, family: finding.category || 'site' }
+      properties: {
+        severity: finding.severity, family: finding.category || 'site',
+        ...(finding.verdict ? { verdict: verdictOf(finding), evidence: finding.evidence || null } : {}),
+        ...(finding.reach ? { reach: { method: finding.reach.method, route: finding.reach.route, auth: finding.reach.auth } } : {}),
+        ...(toConfirm && finding.check ? { howToConfirm: finding.check } : {})
+      }
     };
     if (suppression) result.suppressions = [{ kind: 'inSource', justification: suppression.reason || 'Waived in code without a reason.' }];
     return result;
@@ -1254,7 +1821,7 @@
   function sarif(result, site, meta = {}) {
     const driver = rules => ({
       driver: {
-        name: 'Nebulaverse-X Audit',
+        name: 'Nebulaverse-X Uranus',
         informationUri: meta.informationUri || 'https://github.com/T-rex-G/Nebula-checkpoints',
         ...(meta.version ? { semanticVersion: meta.version } : {}),
         rules
@@ -1277,7 +1844,11 @@
           ...result.findings.map(finding => sarifResult(finding, index.get(finding.rule), place(finding))),
           ...(result.suppressed || []).map(finding => sarifResult(finding, index.get(finding.rule), place(finding), finding.suppression))
         ],
-        properties: { grade: result.grade, score: result.score, capped: Boolean(result.capped) }
+        properties: {
+          grade: result.grade, score: result.score, capped: Boolean(result.capped),
+          ...(result.engine ? { engine: `${result.engine.name} ${result.engine.version}`, traced: result.engine.traced || null } : {}),
+          ...(Array.isArray(result.ledger) ? { coverage: result.ledger.map(entry => ({ class: entry.id, status: entry.status })) } : {})
+        }
       });
     }
     if (site) {
@@ -1307,12 +1878,14 @@
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
   function csv(result, site, changes) {
-    const rows = [['Source', 'Status', 'Severity', 'Rule', 'Title', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Reason waived', 'Fix']];
+    const rows = [['Source', 'Status', 'Severity', 'Verdict', 'Rule', 'Title', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Reached through', 'How to confirm', 'Reason waived', 'Fix']];
     const row = (source, status, finding, family) => {
       const standards = finding.standards || {};
-      rows.push([source, status, finding.severity, finding.rule, finding.title, family || '', standards.cwe || '',
+      const reach = finding.reach ? `${finding.reach.route ? `${finding.reach.method} ${finding.reach.route}` : 'server action'} (${finding.reach.auth})` : '';
+      rows.push([source, status, finding.severity, verdictOf(finding) === 'needs-validation' ? 'to confirm' : 'confirmed', finding.rule, finding.title, family || '', standards.cwe || '',
         standards.top25 ? `#${standards.top25.rank}` : '', standards.owasp || '',
-        finding.path || finding.where || 'whole repository', finding.line || '',
+        finding.path || finding.where || 'whole repository', finding.line || '', reach,
+        verdictOf(finding) === 'needs-validation' ? finding.check || '' : '',
         finding.suppression ? finding.suppression.reason || '' : '', finding.fix]);
     };
     if (result) {

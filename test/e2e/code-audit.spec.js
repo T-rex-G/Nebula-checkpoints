@@ -2,10 +2,12 @@
 
 /*
  * The Audit tab: a grade that rests on what was read, the three jobs to do
- * first, the six families it is built from and the OWASP Top 10 map of the
- * same findings, findings that open into their reason, fix, advisories, CWE
- * and prompt, a search over them, a brief, SARIF and CSV to export, and the
- * comparison with the last audit of the same repository.
+ * first, the seven families it is built from, the endpoints a caller can
+ * reach, what was covered and what is already in place, the OWASP Top 10 map
+ * of the same findings, findings that say whether they are confirmed and open
+ * into their reason, traced path, fix, advisories, CWE and prompt, a search
+ * over them, a brief, SARIF and CSV to export, and the comparison with the
+ * last audit of the same repository.
  */
 
 const { test, expect } = require('@playwright/test');
@@ -28,10 +30,14 @@ test('an audit grades the branch, names what it read and explains every finding'
 
   await pane.getByRole('button', { name: 'Audit this branch' }).click();
 
-  /* A critical SQL finding holds the grade below 50 and says so. */
+  /* A traced, confirmed critical SQL finding holds the grade below 50 and says so. */
   await expect(pane.locator('.audit-grade')).toHaveAttribute('aria-label', /^Grade F, \d{1,2} out of 100$/);
-  await expect(pane).toContainText('Held below 50 while a critical finding is open.');
+  await expect(pane).toContainText('Held below 50 while a confirmed critical finding is open.');
   await expect(pane.locator('.audit-verdict').first()).toHaveText('1 critical issue to fix');
+  /* Confirmed findings are counted apart from leads to confirm, and the engine says how far it followed values. */
+  await expect(pane.locator('.audit-split')).toHaveAttribute('aria-label', '7 confirmed, 4 to confirm');
+  await expect(pane.locator('.audit-engine-line')).toContainText('Uranus 2.0');
+  await expect(pane.locator('.audit-engine-line')).toContainText('3 entry points mapped');
   /* The evidence as figures, the sentence behind them as the strip's name. */
   const evidence = pane.locator('.audit-evidence');
   await expect(evidence).toHaveAttribute('aria-label', /^Read \d+ of \d+ files it audits at a{7} · 3 of 3 packages checked against their registry · 3 of 3 package versions checked against OSV\.$/);
@@ -45,11 +51,26 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('details[open]', { hasText: 'A SQL statement is built' })).toHaveCount(1);
   await expect(pane.locator('.audit-item', { hasText: 'A SQL statement is built' }).locator('summary')).toBeFocused();
 
-  /* Six families, each with its own reading. */
+  /* Seven families, each with its own reading. */
   const families = pane.getByRole('list', { name: 'Audit families' }).getByRole('button');
-  await expect(families).toHaveCount(6);
+  await expect(families).toHaveCount(7);
   await expect(families.nth(1)).toContainText('Code security');
-  await expect(families.nth(2)).toContainText('Secrets');
+  await expect(families.nth(2)).toContainText('Access control');
+  await expect(families.nth(3)).toContainText('Secrets');
+
+  /* The attack surface: every endpoint, the guard in front of it, the open write first. */
+  const routes = pane.getByRole('list', { name: 'Endpoints' }).getByRole('listitem');
+  await expect(routes).toHaveCount(3);
+  await expect(routes.first()).toContainText('POST');
+  await expect(routes.first()).toContainText('/users');
+  await expect(routes.first()).toContainText('Open');
+  await expect(routes.filter({ hasText: '/users/:id' })).toContainText('Signed in');
+
+  /* Coverage says what was traced and what no rule can judge; the controls say what is already right. */
+  const ledger = pane.locator('.audit-ledger');
+  await expect(ledger.locator('.audit-ledger-item', { hasText: 'Injection' })).toContainText('Traced');
+  await expect(ledger.locator('.audit-ledger-item', { hasText: 'Business logic' })).toContainText('Not assessed');
+  await expect(pane.locator('.audit-controls')).toContainText('A committed lockfile');
 
   /* A committed credential is named by its kind, never shown. */
   const secret = pane.locator('.audit-item', { hasText: 'A credential is committed to the repository' });
@@ -69,7 +90,18 @@ test('an audit grades the branch, names what it read and explains every finding'
   await severity.getByRole('button', { name: /^Critical/ }).click();
   await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(1);
   await severity.getByRole('button', { name: /^All/ }).click();
-  await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(8);
+  await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(11);
+
+  /* The verdict narrows it too: the leads, each with what is unknown and how to confirm it. */
+  const verdicts = pane.getByRole('group', { name: 'Show by verdict' });
+  await verdicts.getByRole('button', { name: /^To confirm/ }).click();
+  await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(4);
+  const lead = pane.locator('.audit-item', { hasText: 'A request body is written to the database' });
+  await lead.locator('summary').click();
+  await expect(lead).toContainText('What is unknown');
+  await expect(lead).toContainText('How to confirm');
+  await verdicts.getByRole('button', { name: /^Any/ }).click();
+  await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(11);
 
   /* A finding opens into its reason, its fix and a prompt, and never quotes the code. */
   const sql = pane.locator('.audit-item', { hasText: 'A SQL statement is built by string interpolation' });
@@ -80,7 +112,12 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(sql.getByRole('link', { name: 'CWE-89' })).toHaveAttribute('href', 'https://cwe.mitre.org/data/definitions/89.html');
   await expect(sql.getByRole('link', { name: 'OWASP A05' })).toHaveAttribute('href', 'https://top10.owasp.org/2025/A05_2025-Injection/');
   await expect(sql.getByRole('link', { name: 'Top 25 #2' })).toHaveAttribute('href', 'https://cwe.mitre.org/top25/archive/2025/2025_cwe_top25.html');
-  await expect(sql.getByRole('button', { name: 'Open api/users.js:1' })).toBeVisible();
+  await expect(sql.getByRole('button', { name: 'Open api/users.js:4', exact: true })).toBeVisible();
+  /* Reached through its route, behind a sign-in, and traced from where the value enters to the query. */
+  await expect(sql.locator('.audit-reach-line')).toContainText('GET /users/:id');
+  await expect(sql.locator('.audit-reach-line')).toContainText('After sign-in');
+  await expect(sql.locator('.audit-trace-step')).toHaveCount(2);
+  await expect(sql.getByRole('button', { name: 'Open api/users.js:4, step 1 of the traced path' })).toBeVisible();
   await expect(sql.getByRole('button', { name: 'Copy fix prompt' })).toBeVisible();
   await expect(pane).not.toContainText('SELECT * FROM users');
 
@@ -102,7 +139,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   await search.fill('no-such-thing');
   await expect(pane.locator('.audit-findings')).toContainText('Nothing matches “no-such-thing”.');
   await search.press('Escape');
-  await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(8);
+  await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(11);
 
   /* Filtering by a family shows only its findings, and can be undone. */
   await pane.getByRole('button', { name: /Project hygiene/ }).click();
@@ -144,13 +181,15 @@ test('an audit grades the branch, names what it read and explains every finding'
   expect(sarifFile.suggestedFilename()).toMatch(/^demo-audit-\d{4}-\d{2}-\d{2}\.sarif$/);
   const sarif = JSON.parse(require('fs').readFileSync(await sarifFile.path(), 'utf8'));
   expect(sarif.version).toBe('2.1.0');
-  expect(sarif.runs[0].results.some(result => result.ruleId === 'SEC-001')).toBe(true);
+  const sqlResult = sarif.runs[0].results.find(result => result.ruleId === 'SEC-001');
+  expect(sqlResult.codeFlows[0].threadFlows[0].locations).toHaveLength(2);
+  expect(sqlResult.properties.verdict).toBe('confirmed');
   expect(JSON.stringify(sarif)).not.toContain('Tr0ub4dor');
   await exportButton.click();
   const csvDownload = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Export CSV' }).click();
   const csvText = require('fs').readFileSync(await (await csvDownload).path(), 'utf8');
-  expect(csvText.split('\r\n')[0]).toBe('Source,Status,Severity,Rule,Title,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reason waived,Fix');
+  expect(csvText.split('\r\n')[0]).toBe('Source,Status,Severity,Verdict,Rule,Title,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reached through,How to confirm,Reason waived,Fix');
   expect(csvText).toContain('SEC-001');
   expect(csvText).not.toContain('Tr0ub4dor');
 

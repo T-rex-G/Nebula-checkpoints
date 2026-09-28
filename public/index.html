@@ -331,28 +331,29 @@
                   </div>
                   <div class="lp-au-read">
                     <p class="lp-au-lede"><span data-only="read">Reading the branch and checking its packages…</span><span data-only="find fix">2 findings: 1 critical, 1 warning.</span><span data-only="again">No findings in what was read.</span></p>
-                    <p class="lp-au-cap" data-only="find fix">Held below 50 while a critical finding is open.</p>
+                    <p class="lp-au-cap" data-only="find fix">Held below 50 while a confirmed critical finding is open.</p>
                     <p class="lp-au-diff" data-only="again">0 new findings, 2 resolved since the audit of 10:42.</p>
                     <p class="lp-au-cov">Read <b class="lp-au-count">212</b> of 212 files at a1c9f2e · 38 of 38 packages checked against OSV.</p>
                     <span class="lp-au-bar" data-only="read"><i></i></span>
                   </div>
                 </div>
                 <ul class="lp-au-fams">
-                  <li data-family="supply-chain" style="--find:94%;--again:100%"><span>Supply chain</span><b><span data-only="read">&mdash;</span><span data-only="find fix">94</span><span data-only="again">100</span></b><i></i></li>
-                  <li data-family="code" style="--find:60%;--again:100%"><span>Code security</span><b><span data-only="read">&mdash;</span><span data-only="find fix">60</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="supply-chain" style="--find:94%;--again:100%"><span>Supply</span><b><span data-only="read">&mdash;</span><span data-only="find fix">94</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="code" style="--find:60%;--again:100%"><span>Code</span><b><span data-only="read">&mdash;</span><span data-only="find fix">60</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="access" style="--find:100%;--again:100%"><span>Access</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
                   <li data-family="secrets" style="--find:100%;--again:100%"><span>Secrets</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
-                  <li data-family="dependencies" style="--find:100%;--again:100%"><span>Dependencies</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
-                  <li data-family="infrastructure" style="--find:100%;--again:100%"><span>Infrastructure</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="dependencies" style="--find:100%;--again:100%"><span>Packages</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="infrastructure" style="--find:100%;--again:100%"><span>Infra</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
                   <li data-family="hygiene" style="--find:100%;--again:100%"><span>Hygiene</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
                 </ul>
                 <ul class="lp-au-list" data-only="find fix">
                   <li class="lp-au-item" data-sev="critical" data-rule="SEC-001">
                     <span class="lp-au-pill">✕ Critical</span><span class="lp-au-title">A SQL statement is built by string interpolation</span>
-                    <span class="lp-au-where">SEC-001 · api/users.js:1</span>
+                    <span class="lp-au-where">SEC-001 · api/users.js:2</span>
                     <span class="lp-au-open" data-only="fix">
                       <span class="lp-au-why">Values spliced into SQL text are parsed as SQL.</span>
                       <span class="lp-au-fix"><b>Fix:</b> Use parameterised queries or the query builder’s placeholders, and pass values separately from the statement text.</span>
-                      <span class="lp-au-prompt"><span data-prompt="SEC-001">In api/users.js (line 1): a sql statement is built by string interpolation. Values spliced into SQL text are parsed as SQL.</span><em>Copied</em></span>
+                      <span class="lp-au-prompt"><span data-prompt="SEC-001">In api/users.js (line 2): a sql statement is built by string interpolation. Values spliced into SQL text are parsed as SQL.</span><em>Copied</em></span>
                     </span>
                   </li>
                   <li class="lp-au-item" data-sev="warning" data-rule="SUP-008">
@@ -416,10 +417,10 @@
             <ul class="lp-check-eg"><li>GitHub, GitLab and Slack</li><li>OpenAI, Anthropic and Stripe</li><li>npm, Sentry and Datadog</li><li>Neon, Render and Netlify</li></ul>
           </li>
           <li class="lp-check">
-            <span class="lp-check-v" data-count="60" data-claim="audit-rules">60</span>
-            <h3 class="lp-check-t">Repository audit rules</h3>
-            <p class="lp-check-d">Supply chain, code, secrets, dependencies, infrastructure and hygiene &mdash; each rule filed under its CWE, its OWASP Top&nbsp;10:2025 category and, where it has one, its 2025 CWE Top&nbsp;25 rank, and tested firing on the mistake and quiet on the safe way to write it.</p>
-            <ul class="lp-check-eg"><li>Published advisories and malicious packages, from OSV</li><li>Supabase row level security and Firebase rules</li><li>Dockerfiles, Terraform and Kubernetes manifests</li><li>Injection, SSRF, deserialization and path traversal</li></ul>
+            <span class="lp-check-v" data-count="76" data-claim="audit-rules">76</span>
+            <h3 class="lp-check-t">Uranus audit rules</h3>
+            <p class="lp-check-d">Uranus follows what a caller sends through variables, helpers and imports to the call that misuses it, maps every endpoint and what guards it, and says of each finding whether it is confirmed or still to confirm &mdash; filed under its CWE, its OWASP Top&nbsp;10:2025 category and its 2025 CWE Top&nbsp;25 rank.</p>
+            <ul class="lp-check-eg"><li>Traced injection, SSRF, path traversal and XSS</li><li>Endpoints with no authorization, and records fetched by any id</li><li>Model replies executed, and prompts built from user text</li><li>Supabase row level security, OSV advisories and malicious packages</li></ul>
           </li>
           <li class="lp-check">
             <span class="lp-check-v" data-count="19" data-claim="site-rules">19</span>
@@ -530,7 +531,7 @@
           <li class="lp-proof-row">
             <h3 class="lp-proof-k">The grade</h3>
             <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Averages everything together.</p>
-            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Holds below 50 while a critical finding is open, and prints the reason beside the number.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Holds below 50 while a confirmed critical finding is open, weighs a lead to confirm at half, and prints the reason beside the number.</p>
           </li>
           <li class="lp-proof-row">
             <h3 class="lp-proof-k">What was not read</h3>
@@ -801,9 +802,9 @@
       <span class="nv-rail-t">Exposure</span>
       <span class="nv-rail-d">Leaked credentials</span></button></li>
     <li><button type="button" class="nv-rail-item" data-feature="site-check" data-rail="audit">
-      <svg class="nv-rail-i nv-audit-mark" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.2V5.6A1.6 1.6 0 0 1 5.6 4h2.6M15.8 4h2.6A1.6 1.6 0 0 1 20 5.6v2.6M20 15.8v2.6a1.6 1.6 0 0 1-1.6 1.6h-2.6M8.2 20H5.6A1.6 1.6 0 0 1 4 18.4v-2.6"/><path d="M12 7.3l3.9 1.6v2.8c0 2.3-1.6 4.2-3.9 5-2.3-.8-3.9-2.7-3.9-5V8.9z"/><path d="M10.4 11.9l1.1 1.1 2.1-2.3"/></svg>
+      <svg class="nv-rail-i nv-audit-mark" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg>
       <span class="nv-rail-t">Audit</span>
-      <span class="nv-rail-d">Code and site scanner</span></button></li>
+      <span class="nv-rail-d">Uranus engine</span></button></li>
     <li><button type="button" class="nv-rail-item" data-feature="recovery" data-rail="safeguards">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg>
       <span class="nv-rail-t">Safeguards</span>
@@ -1126,7 +1127,7 @@
     <button class="topbar-brand" id="backBtn" type="button" title="Back to repositories" aria-label="Back to repositories">
       <span class="back-chev">‹</span>
       <span id="workRepoName" class="mono repo-name-trunc"></span>
-      <span class="badge" id="workPrivateBadge" hidden>private</span>
+      <span class="badge repo-vis-badge" id="workPrivateBadge" hidden title="Private repository"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2l7 2.9v5.3c0 4.3-2.9 7.9-7 9.4-4.1-1.5-7-5.1-7-9.4V6.1z"/><circle cx="12" cy="10.6" r="1.9"/><path d="M12 12.5v3.2"/></svg><span>Private</span></span>
     </button>
     <div class="topbar-actions">
       <span class="rate mono hide-sm" id="rateChip" title="GitHub API calls remaining this hour" hidden><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M13 2.5L4.5 13.5H11L10 21.5l8.5-11H12l1-8z"/></svg><span id="rateVal"></span></span>
@@ -1493,11 +1494,11 @@
       <div class="tabpane" id="tab-audit" role="region" aria-labelledby="auditTabLabel">
         <div class="exposure-shell audit-shell">
           <header class="exposure-intro sec-hero">
-            <span class="sec-mark sec-mark-audit" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8.2V5.6A1.6 1.6 0 0 1 5.6 4h2.6M15.8 4h2.6A1.6 1.6 0 0 1 20 5.6v2.6M20 15.8v2.6a1.6 1.6 0 0 1-1.6 1.6h-2.6M8.2 20H5.6A1.6 1.6 0 0 1 4 18.4v-2.6"/><path d="M12 7.3l3.9 1.6v2.8c0 2.3-1.6 4.2-3.9 5-2.3-.8-3.9-2.7-3.9-5V8.9z"/><path d="M10.4 11.9l1.1 1.1 2.1-2.3"/></svg></span>
+            <span class="sec-mark sec-mark-audit" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg></span>
             <div class="sec-hero-text">
               <p class="exposure-kicker">Repository security</p>
               <h2>Audit</h2>
-              <p>Code, secrets, dependencies, database rules and the live site. One grade, the fixes in order, never the code.</p>
+              <p>Uranus maps every endpoint, follows what a caller sends to what uses it, and reads secrets, packages, database rules and the live site. One grade, confirmed findings kept apart from leads, never the code.</p>
             </div>
           </header>
           <div id="auditRoot" aria-live="polite"></div>
@@ -1691,7 +1692,7 @@
     <button class="sheet-item" data-feature="access-surface" data-act="neural"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="7" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="18" cy="18" r="1.7"/><circle cx="6" cy="18" r="1.7"/><path d="M7 8.3l3.2 2.3M14 10.2l3.4-2.8M14 13.5l2.7 3M9.9 13.6l-2.7 3"/></svg><span>Neural</span></button>
     <button class="sheet-item" data-feature="governance" data-allow-experimental="true" data-act="governance"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg><span>Governance</span></button>
     <button class="sheet-item" data-feature="exposure.scan" data-allow-experimental="true" data-act="exposure"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg><span>Exposure</span></button>
-    <button class="sheet-item" data-feature="site-check" data-act="audit"><svg class="ico nv-audit-mark" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.2V5.6A1.6 1.6 0 0 1 5.6 4h2.6M15.8 4h2.6A1.6 1.6 0 0 1 20 5.6v2.6M20 15.8v2.6a1.6 1.6 0 0 1-1.6 1.6h-2.6M8.2 20H5.6A1.6 1.6 0 0 1 4 18.4v-2.6"/><path d="M12 7.3l3.9 1.6v2.8c0 2.3-1.6 4.2-3.9 5-2.3-.8-3.9-2.7-3.9-5V8.9z"/><path d="M10.4 11.9l1.1 1.1 2.1-2.3"/></svg><span>Audit</span></button>
+    <button class="sheet-item" data-feature="site-check" data-act="audit"><svg class="ico nv-audit-mark" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg><span>Audit</span></button>
     <button class="sheet-item" data-feature="recovery" data-act="safeguards"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg><span>Safeguards</span></button>
     <div class="sheet-div"></div>
     <p class="sheet-label">Workspace</p>

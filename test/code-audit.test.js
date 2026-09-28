@@ -534,8 +534,22 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   assert.strictEqual(clean.grade, 'A');
   assert.strictEqual(clean.capped, false);
 
-  const critical = run([...BASE, { path: 'api/users.js', text: 'db.query(`SELECT * FROM users WHERE id = ${id}`);\n' }]);
-  assert(critical.score <= audit.CRITICAL_CAP, 'a critical finding holds the grade below the cap');
+  /* A statement built from a value nobody traced is a lead: it weighs half and caps nothing. */
+  const pattern = run([...BASE, { path: 'api/users.js', text: 'db.query(`SELECT * FROM users WHERE id = ${id}`);\n' }]);
+  const lead = pattern.findings.find(item => item.rule === 'SEC-001');
+  assert.strictEqual(lead.verdict, 'needs-validation');
+  assert.strictEqual(lead.evidence, 'pattern');
+  assert(lead.blocker && lead.check, 'a finding to confirm says what is unknown and how to settle it');
+  assert.strictEqual(pattern.capped, false, 'an untraced pattern does not cap the grade');
+
+  /* The same statement with the value traced from the request is confirmed, and caps it. */
+  const critical = run([...BASE, { path: 'api/users.js', text: "app.get('/users/:id', async (req, res) => {\n  const id = req.params.id;\n  await db.query(`SELECT * FROM users WHERE id = ${id}`);\n});\n" }]);
+  const confirmed = critical.findings.find(item => item.rule === 'SEC-001');
+  assert.strictEqual(confirmed.verdict, 'confirmed');
+  assert.strictEqual(confirmed.evidence, 'traced');
+  assert.deepStrictEqual(confirmed.trace.map(step => [step.role, step.line]), [['entrypoint', 2], ['sink', 3]]);
+  assert.deepStrictEqual(confirmed.reach, { method: 'GET', route: '/users/:id', auth: 'open', framework: 'express' });
+  assert(critical.score <= audit.CRITICAL_CAP, 'a confirmed critical finding holds the grade below the cap');
   assert.strictEqual(critical.grade, 'F');
   assert.strictEqual(critical.capped, true);
 

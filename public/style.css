@@ -5807,7 +5807,7 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .lp-au-bar{display:block;height:3px;border-radius:3px;background:var(--au-line);overflow:hidden}
 .lp-au-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));transform-origin:0 50%}
 
-.lp-au-fams{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.lp-au-fams{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:7px}
 .lp-au-fams li{position:relative;display:grid;gap:5px;padding:10px 10px 12px;border-radius:13px;border:1px solid var(--au-line);
   background:var(--au-soft);overflow:hidden;min-width:0}
 .lp-au-fams li > span{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;color:var(--au-dim);font-weight:600;
@@ -6492,4 +6492,535 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
   .sg-page .sg-posture { grid-template-columns: auto minmax(0, 1fr); padding: 14px; }
   .sg-page .sg-posture .sg-stats { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .sg-page .sg-card { padding: 14px; }
+}
+
+/* ==========================================================================
+ * Orbit: the status language of the security screens.
+ *
+ * What stood here were filled pills -- a red, an amber, a cyan and a green
+ * tile behind every count, stripe and badge -- which read as a traffic light
+ * on Nebula's violet and as spilled paint on Obsidian's black. A status is
+ * now an outline: a hairline in the status's tone, its glyph in that tone,
+ * its words in ink, and the faintest wash behind them. Where a status needs
+ * the eye -- a critical, a verdict, the job to do first -- a beam of light
+ * travels its outline. Surfaces stay the preset's own; the tone is only ever
+ * the edge and the mark, so a page of findings reads as one calm instrument.
+ *
+ * Each preset tunes the tones to its ground: saturated on Nebula's violet,
+ * metallic and desaturated on Obsidian, deep inks on the two light grounds.
+ * The same five words everywhere -- critical, serious, warning, good, and
+ * pending for what is still to confirm -- and never colour alone: every chip
+ * carries its glyph and its word.
+ * ========================================================================== */
+@property --nv-beam { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+:root, [data-theme="dark"] {
+  --st-critical: #FB7185; --st-serious: #FBBF24; --st-warning: #7DD3FC; --st-good: #6EE7B7;
+  --st-info: #C4B5FD; --st-pending: #CBD5E1; --st-beam: #FFFFFF;
+  --st-wash: 7%; --st-edge: 40%;
+}
+[data-theme="light"] {
+  --st-critical: #BE123C; --st-serious: #B45309; --st-warning: #0369A1; --st-good: #047857;
+  --st-info: #6D28D9; --st-pending: #475569; --st-beam: #FFFFFF;
+  --st-wash: 6%; --st-edge: 34%;
+}
+[data-design="obsidian"] {
+  --st-critical: #F2A7A7; --st-serious: #E8CC92; --st-warning: #A9C4DF; --st-good: #A8D5BE;
+  --st-info: #D4D4D8; --st-pending: #A1A1AA; --st-beam: #FFFFFF;
+  --st-wash: 5%; --st-edge: 36%;
+}
+[data-design="obsidian"][data-theme="light"] {
+  --st-critical: #9F1239; --st-serious: #8A5A12; --st-warning: #1E4E7A; --st-good: #276749;
+  --st-info: #292524; --st-pending: #57534E; --st-beam: #FFFFFF;
+  --st-wash: 5%; --st-edge: 30%;
+}
+/* The reports' own severity names now resolve onto the preset's tones. */
+:root, [data-theme], [data-design] {
+  --sev-critical: var(--st-critical); --sev-serious: var(--st-serious); --sev-warning: var(--st-warning); --sev-ok: var(--st-good);
+}
+
+/* ---- The chip ------------------------------------------------------------ */
+.nv-chip {
+  --tone: var(--st-pending);
+  position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 6px; flex: none;
+  min-height: 24px; padding: 2px 10px 2px 8px; border-radius: 999px; max-width: 100%;
+  font-size: .72rem; font-weight: 600; letter-spacing: .005em; line-height: 1.2; color: var(--text); white-space: nowrap;
+  background: color-mix(in oklab, var(--tone) var(--st-wash), transparent);
+  border: 1px solid color-mix(in oklab, var(--tone) var(--st-edge), transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, #FFFFFF 6%, transparent);
+}
+.nv-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.nv-chip svg, .nv-chip .audit-ico { width: 13px; height: 13px; flex: none; color: var(--tone); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.nv-chip b { font-weight: 750; font-variant-numeric: tabular-nums; }
+.nv-chip[data-tone="critical"] { --tone: var(--st-critical); }
+.nv-chip[data-tone="serious"] { --tone: var(--st-serious); }
+.nv-chip[data-tone="warning"] { --tone: var(--st-warning); }
+.nv-chip[data-tone="good"] { --tone: var(--st-good); }
+.nv-chip[data-tone="info"] { --tone: var(--st-info); }
+.nv-chip[data-tone="pending"] { --tone: var(--st-pending); border-style: dashed; }
+.nv-chip[data-tone="neutral"] { --tone: var(--text); --st-edge: 16%; --st-wash: 3%; }
+.nv-chip[data-zero="true"] { opacity: .55; }
+.nv-chip-lg { min-height: 32px; padding: 4px 13px 4px 10px; gap: 7px; font-size: .8rem; border-radius: 11px; }
+.nv-chip-lg svg { width: 15px; height: 15px; }
+.nv-chip-lg b { font-size: .98rem; }
+/* The beam: a short arc of light running the outline. */
+.nv-chip::after {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none; z-index: -1;
+  background: conic-gradient(from var(--nv-beam), transparent 0 64%, color-mix(in oklab, var(--tone) 55%, var(--st-beam)) 78%, color-mix(in oklab, var(--tone) 70%, transparent) 86%, transparent 94%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude;
+  opacity: 0; transition: opacity .3s var(--ease, ease);
+}
+.nv-chip[data-beam="on"]::after, :is(a, button, summary, .audit-summary-row, .exposure-item-summary):hover .nv-chip::after, .nv-chip:hover::after {
+  opacity: 1; animation: nv-beam 3.6s linear infinite;
+}
+.nv-chip[data-tone="critical"][data-beam="on"]::after { animation-duration: 2.8s; }
+@keyframes nv-beam { to { --nv-beam: 360deg; } }
+[data-motion="off"] .nv-chip::after { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .nv-chip::after { animation: none !important; } }
+/* Without motion the beam is a still gleam on the upper edge. */
+[data-motion="off"] .nv-chip[data-beam="on"]::after { --nv-beam: 300deg; }
+@media (prefers-reduced-motion: reduce) { .nv-chip[data-beam="on"]::after { --nv-beam: 300deg; } }
+
+/* ---- Audit, in Orbit -------------------------------------------------------
+ * Tiles and rows are neutral slabs; the status is the chip on them. Colour
+ * marks where the eye should go, it does not fill the surface. */
+.audit-tally-item { display: block; padding: 0; border: 0; background: none; border-radius: 0; }
+.audit-tally-item[data-zero="true"] { opacity: 1; }
+.audit-split { display: flex; flex-wrap: wrap; gap: 6px; }
+.audit-cap { border-left-color: color-mix(in oklab, var(--st-critical) 70%, transparent); }
+.audit-notes .audit-diff { border-left-color: color-mix(in oklab, var(--st-info) 60%, transparent); }
+.audit-evidence:has(> :nth-child(5)) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.audit-engine-line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: .8rem; line-height: 1.45; color: var(--muted); }
+.audit-engine-line strong { color: var(--text); font-weight: 650; letter-spacing: .01em; }
+.audit-engine-line .uranus-mark { width: 18px; height: 18px; color: var(--text); stroke-width: 1.5; }
+.uranus-mark { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The Uranus loader: a planet of dots, a band of light pole to pole, a ring of dots lit in turn. */
+.audit-grade-scan { --ring: var(--st-info); }
+.uranus-loader { position: absolute; inset: -4px; display: grid; place-items: center; pointer-events: none; }
+.uranus-loader-art { width: 100%; height: 100%; overflow: visible; }
+.uranus-loader-planet circle { fill: var(--text); opacity: calc(var(--lit, .5) * .9); animation: uranus-turn 3.2s ease-in-out infinite; animation-delay: calc(var(--col, 0) * -160ms); }
+.uranus-loader-ring circle { fill: var(--ring); opacity: .26; transform-box: fill-box; transform-origin: center; animation: uranus-orbit 2.6s linear infinite; animation-delay: calc(var(--i, 0) * -76.5ms); }
+.uranus-loader-ring circle.is-back { fill-opacity: .55; }
+/* Bands of light cross the disc as it turns; the lit side stays lit. */
+@keyframes uranus-turn { 0%, 100% { opacity: calc(var(--lit, .5) * .55); } 50% { opacity: calc(.25 + var(--lit, .5) * .75); } }
+@keyframes uranus-orbit { 0% { opacity: 1; transform: scale(1.7); } 22% { opacity: .5; transform: scale(1.15); } 40%, 100% { opacity: .22; transform: scale(1); } }
+[data-motion="off"] .uranus-loader-planet circle, [data-motion="off"] .uranus-loader-ring circle { animation: none; }
+[data-motion="off"] .uranus-loader-ring circle { opacity: .5; }
+@media (prefers-reduced-motion: reduce) {
+  .uranus-loader-planet circle, .uranus-loader-ring circle { animation: none; }
+  .uranus-loader-ring circle { opacity: .5; }
+}
+
+/* Fix first: neutral cards, the status in chips. */
+.audit-first-btn { background: var(--rp-tile); border-color: var(--rp-line); grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto 1fr; align-items: center; }
+.audit-first-btn:hover { border-color: color-mix(in oklab, var(--sev) 42%, var(--rp-line)); background: var(--rp-tile-hover); }
+.audit-first-rank { background: transparent; border: 1px solid var(--rp-line); color: var(--muted); font-family: var(--font-mono); font-size: .74rem; }
+.audit-first-tags { grid-row: 1; grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.audit-first-body { grid-column: 1 / -1; grid-row: 2; margin-top: 4px; align-self: start; }
+.audit-first-chip { background: transparent; border: 1px solid var(--rp-line); color: var(--muted); font-family: var(--font-mono); font-weight: 550; }
+.audit-first-extra { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; min-width: 0; }
+.audit-first-extra .audit-first-chip { justify-self: auto; }
+
+/* Families: a neutral tile each; the worst status is a chip, the meter a hairline. */
+.audit-families { container: families / inline-size; min-width: 0; }
+.audit-families .audit-categories { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container families (min-width: 560px) {
+  .audit-families .audit-categories { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .audit-families .audit-category { grid-column: span 3; }
+  .audit-families .audit-category:nth-child(n+5):nth-last-child(-n+3) { grid-column: span 4; }
+  .audit-families .audit-category:last-child:nth-child(odd) { grid-column: span 4; }
+}
+@container families (min-width: 920px) {
+  .audit-families .audit-categories { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .audit-families .audit-category, .audit-families .audit-category:nth-child(n+5):nth-last-child(-n+3), .audit-families .audit-category:last-child:nth-child(odd) { grid-column: auto; }
+}
+.audit-category-btn { background: var(--rp-tile); padding: 13px 12px 17px; gap: 9px; }
+.audit-category-btn:hover { border-color: color-mix(in oklab, var(--text) 22%, var(--rp-line)); background: var(--rp-tile-hover); }
+.audit-category-btn[aria-pressed="true"] { border-color: color-mix(in oklab, var(--text) 45%, transparent); box-shadow: 0 0 0 1px color-mix(in oklab, var(--text) 45%, transparent) inset; }
+.audit-category-ico { color: var(--text); background: transparent; border: 1px solid var(--rp-line); padding: 5px; width: 28px; height: 28px; border-radius: 9px; }
+.audit-category-label { text-transform: none; letter-spacing: 0; font-size: .8rem; font-weight: 600; color: var(--muted); overflow-wrap: normal; word-break: normal; hyphens: none; }
+.audit-category-counts { gap: 5px; }
+.audit-category-counts .nv-chip { min-height: 22px; padding: 1px 8px 1px 6px; font-size: .68rem; gap: 4px; }
+.audit-category-counts .nv-chip svg { width: 12px; height: 12px; }
+.audit-category-leads { flex-basis: 100%; font-size: .72rem; color: var(--muted); }
+.audit-category-meter { background: color-mix(in oklab, var(--text) 7%, transparent); height: 2px; }
+.audit-category-meter::after { background: color-mix(in oklab, var(--tone) 75%, var(--text)); }
+
+/* Cards of their own: attack surface, coverage, controls. */
+.audit-surface, .audit-ledger, .audit-controls { padding: 18px 20px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.audit-card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 14px; }
+.audit-card-titles { display: grid; gap: 4px; min-width: 0; }
+.audit-card-lede { margin: 0; font-size: .85rem; color: var(--muted); line-height: 1.45; max-width: 70ch; }
+.audit-surface-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.audit-surface-guards { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: .84rem; color: var(--muted); line-height: 1.5; }
+.audit-surface-guards .audit-ico { width: 15px; height: 15px; color: var(--st-good); }
+.audit-inline-file {
+  font: inherit; font-family: var(--font-mono); font-size: .76rem; color: var(--text); background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
+  text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--text) 30%, transparent); text-underline-offset: 3px; overflow-wrap: anywhere;
+}
+.audit-inline-file:hover { text-decoration-color: currentColor; }
+.audit-inline-file:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.audit-routes { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--rp-line); border-radius: 14px; overflow: hidden; }
+.audit-route { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; padding: 11px 14px; border-top: 1px solid var(--rp-line); min-width: 0; }
+.audit-route:first-child { border-top: 0; }
+.audit-route[hidden] { display: none; }
+.audit-route:hover { background: var(--rp-tile); }
+.audit-route-method { justify-self: start; font-family: var(--font-mono); font-size: .68rem; font-weight: 700; letter-spacing: .05em; color: var(--text); padding: 2px 7px; border-radius: 6px; border: 1px solid var(--rp-line); }
+.audit-route-main { display: grid; gap: 3px; min-width: 0; }
+.audit-route-path { font-family: var(--font-mono); font-size: .84rem; color: var(--text); overflow-wrap: anywhere; line-height: 1.35; }
+.audit-route-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; font-size: .74rem; color: var(--muted); min-width: 0; }
+.audit-route-meta .audit-inline-file { color: var(--muted); font-size: .72rem; }
+.audit-route-tags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.audit-surface .audit-more { margin-top: 0; }
+
+.audit-ledger-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
+.audit-ledger-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 12px 0; border-top: 1px solid var(--rp-line); min-width: 0; }
+.audit-ledger-item:nth-child(-n+2) { border-top: 0; padding-top: 2px; }
+.audit-ledger-mark { --tone: var(--muted); width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; color: var(--tone); border: 1px solid color-mix(in oklab, var(--tone) 42%, transparent); }
+.audit-ledger-mark .audit-ico { width: 15px; height: 15px; }
+.audit-ledger-mark[data-tone="good"] { --tone: var(--st-good); }
+.audit-ledger-mark[data-tone="warning"] { --tone: var(--st-warning); }
+.audit-ledger-mark[data-tone="pending"] { --tone: var(--st-pending); border-style: dashed; }
+.audit-ledger-mark[data-tone="neutral"] { --tone: var(--muted); }
+.audit-ledger-text { display: grid; gap: 4px; min-width: 0; }
+.audit-ledger-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; min-width: 0; }
+.audit-ledger-name { font-weight: 650; font-size: .9rem; color: var(--text); }
+.audit-ledger-detail { font-size: .8rem; color: var(--muted); line-height: 1.45; }
+.audit-ledger-found { font-size: .76rem; color: var(--text); font-variant-numeric: tabular-nums; }
+
+.audit-controls-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 8px; }
+.audit-control { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 11px 12px; border-radius: 12px; border: 1px solid var(--rp-line); background: var(--rp-tile); min-width: 0; }
+.audit-control-mark { width: 24px; height: 24px; border-radius: 999px; display: grid; place-items: center; color: var(--st-good); border: 1px solid color-mix(in oklab, var(--st-good) 45%, transparent); }
+.audit-control-mark .audit-ico { width: 13px; height: 13px; stroke-width: 2.2; }
+.audit-control-text { display: grid; gap: 2px; min-width: 0; }
+.audit-control-name { font-size: .86rem; font-weight: 600; line-height: 1.3; color: var(--text); }
+.audit-control-where { font-size: .74rem; color: var(--muted); }
+.audit-control .audit-inline-file { font-size: .72rem; color: var(--muted); }
+.audit-controls-none { margin: 0; font-size: .85rem; color: var(--muted); line-height: 1.5; padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--rp-line); }
+
+/* The OWASP map: neutral tiles, a count chip where findings sit, words whole. */
+.audit-owasp-btn { background: var(--rp-tile); }
+.audit-owasp-btn:hover:not(:disabled) { border-color: color-mix(in oklab, var(--tone) 42%, var(--rp-line)); background: var(--rp-tile-hover); }
+.audit-owasp-btn[aria-pressed="true"] { border-color: color-mix(in oklab, var(--text) 45%, transparent); box-shadow: 0 0 0 1px color-mix(in oklab, var(--text) 45%, transparent) inset; }
+.audit-owasp-id { color: var(--muted); }
+.audit-owasp-btn { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-content: start; row-gap: 6px; }
+.audit-owasp-id { grid-column: 1; grid-row: 1; align-self: center; }
+.audit-owasp-n { grid-column: 2; grid-row: 1; align-self: center; }
+.audit-owasp-word { grid-column: 1 / -1; grid-row: 2; overflow-wrap: normal; word-break: normal; hyphens: none; }
+.audit-owasp-n { background: color-mix(in oklab, var(--tone) var(--st-wash), transparent); border: 1px solid color-mix(in oklab, var(--tone) var(--st-edge), transparent); color: var(--text); border-radius: 999px; min-width: 30px; height: 26px; }
+.audit-owasp-btn[data-status="clear"] .audit-owasp-n { border: 0; color: var(--st-good); }
+.audit-std-chip { background: transparent; border-color: var(--rp-line); color: var(--muted); }
+.audit-std-chip:hover { border-color: color-mix(in oklab, var(--text) 40%, transparent); color: var(--text); }
+
+/* Findings: neutral rows; severity, verdict and reach as chips. */
+.audit-item::before { display: none; }
+.audit-summary-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+.nv-chip.audit-pill { min-width: 92px; justify-content: flex-start; }
+.audit-row-tags { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
+.audit-row-chip { background: transparent; color: var(--muted); font-family: var(--font-mono); font-weight: 550; font-size: .72rem; }
+.nv-chip.audit-new { text-transform: none; letter-spacing: .01em; }
+.audit-verdicts .audit-segment[data-verdict="confirmed"] .audit-ico { color: var(--st-info); }
+.audit-verdicts .audit-segment[data-verdict="needs-validation"] .audit-ico { color: var(--st-pending); }
+.audit-segment[data-severity="critical"] .audit-ico { color: var(--st-critical); }
+.audit-segment[data-severity="serious"] .audit-ico { color: var(--st-serious); }
+.audit-segment[data-severity="warning"] .audit-ico { color: var(--st-warning); }
+.audit-fix { background: var(--rp-tile); border-color: var(--rp-line); }
+.audit-fix-label { color: var(--st-good); }
+.audit-reach-line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: .84rem; color: var(--muted); }
+.audit-reach-line > .audit-ico { width: 15px; height: 15px; }
+.audit-reach-route { font-family: var(--font-mono); font-size: .78rem; color: var(--text); padding: 1px 7px; border-radius: 6px; background: var(--rp-tile); border: 1px solid var(--rp-line); overflow-wrap: anywhere; }
+.audit-reach-fw { font-size: .76rem; color: var(--muted); }
+.audit-trace { display: grid; gap: 6px; padding: 12px 14px 8px; border-radius: 12px; border: 1px solid var(--rp-line); background: var(--rp-tile); }
+.audit-trace-head { margin: 0; display: flex; align-items: center; gap: 8px; font-size: .7rem; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.audit-trace-head .audit-ico { width: 14px; height: 14px; }
+.audit-trace-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.audit-trace-step { position: relative; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline; padding: 7px 0 7px 24px; min-width: 0; }
+.audit-trace-step::before { content: ''; position: absolute; left: 3px; top: 12px; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--st-pending); background: var(--page, var(--bg)); box-sizing: border-box; }
+.audit-trace-step::after { content: ''; position: absolute; left: 7px; top: 23px; bottom: -10px; width: 1px; background: color-mix(in oklab, var(--text) 16%, transparent); }
+.audit-trace-step:last-child::after { display: none; }
+.audit-trace-step[data-role="entrypoint"]::before { border-color: var(--st-info); }
+.audit-trace-step[data-role="sink"]::before { border-color: var(--sev); background: var(--sev); }
+.audit-trace-role { font-size: .66rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.audit-trace-note { font-size: .84rem; color: var(--text); line-height: 1.4; min-width: 0; }
+.audit-trace-where { font-family: var(--font-mono); font-size: .74rem; color: var(--muted); }
+.audit-trace .audit-coverage { padding-left: 24px; font-size: .78rem; }
+.audit-validate { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.audit-validate-part { display: grid; gap: 6px; align-content: start; padding: 12px 14px; border-radius: 12px; border: 1px dashed color-mix(in oklab, var(--st-pending) 42%, transparent); }
+.audit-validate-label { font-size: .68rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.audit-validate-part p { color: var(--text); line-height: 1.5; font-size: .88rem; }
+
+/* The site card: an outlined mark and outlined header glyphs. */
+.audit-site-mark { color: var(--text); background: transparent; border-color: var(--rp-line); }
+.audit-header[data-present="true"] .audit-header-glyph, .audit-header[data-present="false"] .audit-header-glyph, .audit-header[data-via="true"] .audit-header-glyph { background: transparent; border: 1px solid currentColor; }
+.audit-header[data-present="true"] .audit-header-glyph { color: var(--st-good); }
+.audit-header[data-present="false"] .audit-header-glyph, .audit-header[data-present="false"] .audit-header-state { color: var(--st-serious); }
+.audit-header[data-via="true"] .audit-header-glyph, .audit-header[data-via="true"] .audit-header-state { color: var(--st-info); }
+.audit-header[data-present="false"] { border-color: color-mix(in oklab, var(--st-serious) 24%, var(--rp-line)); }
+.audit-export-item .audit-ico { color: var(--text); }
+
+@media (max-width: 760px) {
+  .audit-first-btn { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; }
+  .audit-first-tags { grid-column: 2; grid-row: 1; }
+  .audit-first-body { grid-column: 2 / -1; grid-row: 2; margin-top: 2px; }
+  .audit-first-go { grid-column: 3; grid-row: 1; }
+  .audit-evidence:has(> :nth-child(5)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .audit-evidence-item:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .audit-ledger-list { grid-template-columns: minmax(0, 1fr); }
+  .audit-ledger-item:nth-child(2) { border-top: 1px solid var(--rp-line); padding-top: 12px; }
+  .audit-validate { grid-template-columns: minmax(0, 1fr); }
+  .audit-summary-row { grid-template-columns: auto minmax(0, 1fr); }
+  .audit-row-tags { grid-column: 2; justify-content: flex-start; }
+  .audit-route { grid-template-columns: auto minmax(0, 1fr); }
+  .audit-route-tags { grid-column: 2; justify-content: flex-start; }
+}
+@media (max-width: 480px) {
+  .audit-surface, .audit-ledger, .audit-controls { padding: 16px; }
+  .audit-tally { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .audit-tally-item { display: block; padding: 0; min-width: 0; }
+  .audit-tally-item .nv-chip { width: 100%; justify-content: center; padding-inline: 6px; gap: 5px; font-size: .74rem; }
+  .audit-summary .audit-split { grid-area: split; margin-top: 8px; }
+  .audit-summary .audit-grade-row { grid-template-areas: "ring head" "ring verdict" "more more" "tally tally" "split split" "notes notes"; }
+  .nv-chip.audit-pill { min-width: 0; justify-self: start; }
+  .audit-row-tags { grid-column: 1; }
+  .audit-trace-step { grid-template-columns: minmax(0, 1fr); }
+  .audit-route { padding: 10px 12px; column-gap: 10px; }
+  .audit-controls-list { grid-template-columns: minmax(0, 1fr); }
+  .audit-surface-stats .nv-chip-lg { min-height: 30px; padding: 3px 11px 3px 9px; font-size: .76rem; }
+}
+.audit-std-chip.audit-std-top25 { background: transparent; color: var(--text); border-color: color-mix(in oklab, var(--st-serious) 40%, transparent); }
+.audit-std-chip.audit-std-top25:hover { border-color: color-mix(in oklab, var(--st-serious) 75%, transparent); }
+
+/* ---- Exposure, in Orbit ---------------------------------------------------- */
+.exposure-chips { gap: 8px; }
+.exposure-chip.nv-chip::before, .exposure-badge.nv-chip::before { content: none; }
+.exposure-badge.nv-chip { justify-self: start; min-width: 92px; padding: 2px 10px 2px 8px; font-size: .72rem; border-radius: 999px; letter-spacing: .005em; }
+.exposure-item-status.nv-chip { font-size: .72rem; white-space: nowrap; }
+.exposure-tag.nv-chip { min-height: 22px; font-size: .7rem; padding: 1px 9px 1px 7px; }
+.exposure-list > .exposure-item:not(.audit-item)::before { display: none; }
+.exposure-scan-state.nv-chip { font-size: .72rem; padding: 2px 10px 2px 8px; }
+/* The scan's facts: a dot in the tone of what it means, the word in ink. */
+#exposureState, #exposureCoverage { color: var(--text); }
+#exposureState::before, #exposureCoverage::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--st-pending); }
+#exposureState[data-state="complete"]::before, #exposureCoverage[data-coverage="complete"]::before { background: var(--st-good); box-shadow: none; }
+#exposureState[data-state="queued"]::before, #exposureState[data-state="running"]::before { background: var(--st-info); box-shadow: 0 0 0 3px color-mix(in oklab, var(--st-info) 22%, transparent); animation: nv-pulse 1.6s ease-in-out infinite; }
+#exposureState[data-state="partial"]::before, #exposureState[data-state="canceled"]::before, #exposureCoverage[data-coverage="partial"]::before { background: var(--st-warning); box-shadow: none; }
+#exposureState[data-state="failed"]::before { background: var(--st-serious); box-shadow: none; }
+#exposureCoverage[data-coverage="unknown"], #exposureState[data-state="none"] { color: var(--muted); }
+@keyframes nv-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in oklab, var(--st-info) 0%, transparent); } }
+[data-motion="off"] #exposureState::before { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { #exposureState::before { animation: none !important; } }
+.exposure-proof-line[data-error="true"] { color: var(--st-serious); }
+/* What the provider and the project answered: a hairline in the answer's tone, not a filled box. */
+.exposure-item-liveness, .exposure-item-readability {
+  --tone: var(--st-pending); padding: 9px 12px; border-radius: 10px; background: color-mix(in oklab, var(--tone) 5%, transparent);
+  border: 1px solid color-mix(in oklab, var(--tone) 28%, transparent); border-left: 2px solid var(--tone);
+}
+.exposure-item-liveness[data-state="verified"], .exposure-item-readability[data-state="readable"] { --tone: var(--st-critical); background: color-mix(in oklab, var(--st-critical) 6%, transparent); }
+.exposure-item-liveness[data-state="rejected"] { --tone: var(--st-good); background: color-mix(in oklab, var(--st-good) 5%, transparent); }
+.exposure-item-readability[data-state="denied"] { --tone: var(--st-warning); }
+.exposure-item-action { background: var(--rp-tile); border-color: var(--rp-line); border-left: 2px solid var(--st-good); }
+.exposure-list .audit-fix { background: var(--rp-tile); }
+.exposure-verify-armed { border-color: var(--st-critical); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--st-critical) 45%, transparent); }
+.sec-mark-exposure, .sec-mark-audit { position: relative; }
+.exposure-accept-armed { border-color: var(--st-serious); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--st-serious) 45%, transparent); }
+.exposure-clear-armed { border-color: var(--st-critical); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--st-critical) 45%, transparent); }
+.exposure-clear-warning { background: color-mix(in oklab, var(--st-critical) 5%, transparent); border: 1px solid color-mix(in oklab, var(--st-critical) 28%, transparent); border-left: 2px solid var(--st-critical); }
+.exposure-caveat { background: color-mix(in oklab, var(--st-warning) 5%, transparent); border: 1px solid color-mix(in oklab, var(--st-warning) 26%, transparent); border-left: 2px solid var(--st-warning); }
+/* The Exposure radar: shown only while a scan runs. */
+.exposure-proof { position: relative; }
+.exposure-radar { --ring: var(--st-info); position: absolute; top: 20px; right: 20px; width: 92px; height: 92px; border-radius: 50%; display: none; pointer-events: none; }
+.exposure-proof[data-scanning="true"] .exposure-radar { display: block; }
+.exposure-proof[data-scanning="true"] > .exposure-heading, .exposure-proof[data-scanning="true"] > .exposure-proof-line { padding-right: 108px; }
+.exposure-radar::before { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 1px solid color-mix(in oklab, var(--ring) 26%, transparent); }
+.exposure-radar-sweep {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 70%, color-mix(in oklab, var(--ring) 10%, transparent) 84%, color-mix(in oklab, var(--ring) 42%, transparent) 99.4%, color-mix(in oklab, var(--ring) 90%, transparent) 100%);
+  animation: exposure-sweep 2.4s linear infinite;
+}
+.exposure-radar-art { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.exposure-radar-art circle { fill: var(--ring); opacity: .2; transform-box: fill-box; transform-origin: center; animation: exposure-blip 2.4s linear infinite; animation-delay: calc((var(--turn, 0) - 1) * 2.4s); }
+.exposure-radar-art .exposure-radar-core { opacity: .9; animation: none; }
+@keyframes exposure-sweep { to { transform: rotate(360deg); } }
+@keyframes exposure-blip { 0% { opacity: 1; transform: scale(1.55); } 18% { opacity: .55; transform: scale(1.15); } 45%, 100% { opacity: .2; transform: scale(1); } }
+[data-motion="off"] .exposure-radar-sweep, [data-motion="off"] .exposure-radar-art circle { animation: none; }
+[data-motion="off"] .exposure-radar-sweep { transform: rotate(40deg); }
+@media (prefers-reduced-motion: reduce) {
+  .exposure-radar-sweep, .exposure-radar-art circle { animation: none; }
+  .exposure-radar-sweep { transform: rotate(40deg); }
+}
+@media (max-width: 480px) {
+  .exposure-radar { top: 16px; right: 16px; width: 64px; height: 64px; }
+  .exposure-proof[data-scanning="true"] > .exposure-heading, .exposure-proof[data-scanning="true"] > .exposure-proof-line { padding-right: 76px; }
+}
+
+/* ---- Safeguards, in Orbit -------------------------------------------------- */
+.sg-posture { --tone: var(--st-pending); border-color: var(--rp-line); background: var(--rp-tile); }
+.sg-posture[data-tone="good"] { --tone: var(--st-good); }
+.sg-posture[data-tone="part"] { --tone: var(--st-serious); }
+.sg-posture[data-tone="open"] { --tone: var(--st-critical); }
+.sg-posture-mark { position: relative; isolation: isolate; color: var(--tone); background: color-mix(in oklab, var(--tone) var(--st-wash), transparent); border: 1px solid color-mix(in oklab, var(--tone) var(--st-edge), transparent); }
+.sg-posture[data-tone="open"] .sg-posture-mark::after {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
+  background: conic-gradient(from var(--nv-beam), transparent 0 64%, color-mix(in oklab, var(--tone) 55%, var(--st-beam)) 80%, transparent 94%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude;
+  animation: nv-beam 3s linear infinite;
+}
+[data-motion="off"] .sg-posture-mark::after { animation: none; --nv-beam: 300deg; }
+@media (prefers-reduced-motion: reduce) { .sg-posture-mark::after { animation: none !important; --nv-beam: 300deg; } }
+.sg-stats { gap: 4px 8px; }
+.sg-stats div { padding: 6px 12px; border-radius: 10px; border: 1px solid var(--rp-line); background: color-mix(in oklab, var(--bg) 40%, transparent); }
+.sg-rule-glyph { border-radius: 999px; }
+.sg-rule[data-state="on"] .sg-rule-glyph { color: var(--st-good); background: transparent; box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--st-good) 50%, transparent); }
+.sg-rule[data-state="off"] .sg-rule-glyph { color: var(--st-serious); background: transparent; box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--st-serious) 50%, transparent); }
+.sg-rule[data-state="unknown"] .sg-rule-glyph { color: var(--muted); background: transparent; box-shadow: inset 0 0 0 1px var(--rp-line); border: 1px dashed transparent; }
+/* A switch that is on: an outlined track in its tone, the knob in the tone. */
+.sg-switch:checked { background: color-mix(in oklab, var(--st-serious) 16%, transparent); border-color: color-mix(in oklab, var(--st-serious) 60%, transparent); }
+.sg-switch:checked::after { background: var(--st-serious); box-shadow: 0 0 0 3px color-mix(in oklab, var(--st-serious) 16%, transparent); }
+#sgFreeze:checked { background: color-mix(in oklab, var(--st-info) 16%, transparent); border-color: color-mix(in oklab, var(--st-info) 60%, transparent); }
+#sgFreeze:checked::after { background: var(--st-info); box-shadow: 0 0 0 3px color-mix(in oklab, var(--st-info) 16%, transparent); }
+.sg-preset:hover:not(:disabled) { border-color: color-mix(in oklab, var(--text) 32%, var(--rp-line)); }
+.sg-preset[aria-pressed="true"] .sg-ico { color: var(--st-good); }
+.sg-lock-n[data-zero="true"] { color: var(--st-warning); }
+.sg-tile:hover:not(:disabled) { border-color: color-mix(in oklab, var(--text) 26%, var(--rp-line)); background: var(--rp-tile-hover); }
+.sg-tile-ico { color: var(--text); width: 30px; height: 30px; padding: 6px; border-radius: 9px; border: 1px solid var(--rp-line); }
+.sg-count { background: transparent; border: 1px solid var(--rp-line); }
+#exposureState[data-state], #exposureCoverage[data-coverage] { color: var(--text); }
+#exposureState[data-state="none"], #exposureCoverage[data-coverage="unknown"] { color: var(--muted); }
+.exposure-item-summary > .exposure-item-status.nv-chip, .exposure-item-summary > .exposure-badge.nv-chip { justify-self: start; }
+
+/* ==========================================================================
+ * Obsidian: the last of Nebula's violet.
+ *
+ * Selection, glow and focus in the app still wore violet grounds written as
+ * literals rather than tokens -- the active tab, the provider switch on the
+ * sign-in card, the mark's halo, the bottom bar's current item, the palette's
+ * selection, the Neural modes and tools. Obsidian's selection is a ghost of
+ * its own ink: a faint ground, a hairline edge, a soft white (or stone) glow.
+ * ========================================================================== */
+[data-design="obsidian"] {
+  --ghost: rgba(255,255,255,.07); --ghost-2: rgba(255,255,255,.11); --ghost-edge: rgba(255,255,255,.2); --ghost-glow: rgba(255,255,255,.14);
+}
+[data-design="obsidian"][data-theme="light"] {
+  --ghost: rgba(28,25,23,.05); --ghost-2: rgba(28,25,23,.08); --ghost-edge: rgba(28,25,23,.18); --ghost-glow: rgba(28,25,23,.16);
+  /* The card edge light: pearl and stone, no longer a violet iridescence. */
+  --sheen-a: rgba(255,255,255,.98); --sheen-b: rgba(231,226,220,.8); --sheen-c: rgba(214,211,206,.5);
+}
+[data-design="obsidian"] .nv-logo-lg { filter: drop-shadow(0 0 28px var(--ghost-glow)); }
+[data-design="obsidian"][data-theme="light"] .nv-logo-lg { filter: drop-shadow(0 12px 22px rgba(28,25,23,.16)); }
+[data-design="obsidian"] .brand-mark svg { filter: drop-shadow(0 0 18px var(--ghost-glow)); }
+[data-design="obsidian"] .seg-btn.active, [data-design="obsidian"] .tab.active {
+  background: var(--ghost-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--ghost-edge);
+}
+[data-design="obsidian"] .tab:hover:not(.active) { background: var(--ghost); }
+[data-design="obsidian"] .bottomnav button.active { color: var(--text); background: var(--ghost-2); box-shadow: inset 0 0 0 1px var(--ghost-edge); }
+[data-design="obsidian"] .pal-item.sel, [data-design="obsidian"] .pal-item:hover { background: var(--ghost-2); }
+[data-design="obsidian"][data-theme="light"] .sheet-close { background: var(--ghost); }
+[data-design="obsidian"][data-theme="light"] .sheet-close:hover, [data-design="obsidian"][data-theme="light"] .sheet-item:hover { background: var(--ghost-2); }
+[data-design="obsidian"][data-theme="light"] .sheet-item:active { background: rgba(28,25,23,.11); }
+[data-design="obsidian"][data-theme="light"] .sheet, [data-design="obsidian"][data-theme="light"] .palette, [data-design="obsidian"][data-theme="light"] .nv-fab-menu {
+  box-shadow: 0 16px 52px rgba(28,25,23,.16), 0 3px 10px rgba(28,25,23,.08), inset 0 1.5px 0 rgba(255,255,255,.9);
+}
+[data-design="obsidian"][data-theme="light"] .modal { box-shadow: 0 30px 80px rgba(28,25,23,.22), 0 4px 14px rgba(28,25,23,.1), inset 0 1.5px 0 rgba(255,255,255,.9); }
+[data-design="obsidian"] .sheet-item .ico { color: var(--text); }
+[data-design="obsidian"] input:focus, [data-design="obsidian"] select:focus, [data-design="obsidian"] textarea:focus { box-shadow: 0 0 0 3px var(--field-halo); }
+[data-design="obsidian"] .empty-mark { filter: drop-shadow(0 0 10px var(--ghost-glow)); }
+[data-design="obsidian"] .dropzone { border-color: var(--ghost-edge); }
+[data-design="obsidian"] .dz-ring { border-color: var(--ghost-edge); box-shadow: 0 0 22px var(--ghost), inset 0 0 12px var(--ghost); }
+[data-design="obsidian"] .uq-fill { box-shadow: 0 0 10px var(--ghost-glow); }
+[data-design="obsidian"] .state-merged { background: var(--ghost); color: var(--text); border-color: var(--ghost-edge); }
+[data-design="obsidian"] .notif-unread { box-shadow: 0 0 8px var(--ghost-glow); }
+[data-design="obsidian"] .fb-btn.on { background: var(--ghost-2); border-color: var(--ghost-edge); }
+[data-design="obsidian"] .acct-row.active { background: var(--ghost); border-color: var(--ghost-edge); }
+[data-design="obsidian"] .tm-scrub input[type=range]::-webkit-slider-runnable-track { background: linear-gradient(90deg, var(--ghost-2), var(--accent) var(--tmfill, 0%), var(--ghost) var(--tmfill, 0%)); }
+[data-design="obsidian"] .tm-scrub input[type=range]::-webkit-slider-thumb { box-shadow: 0 0 12px var(--ghost-glow); }
+[data-design="obsidian"] #neuralTimeline::-webkit-slider-thumb, [data-design="obsidian"] #neuralTimeline::-moz-range-thumb { box-shadow: 0 0 10px var(--ghost-glow); }
+[data-design="obsidian"] .neural-proto-badge { color: var(--text); border-color: var(--ghost-edge); background: var(--ghost); }
+[data-design="obsidian"] .neural-mode.active { background: var(--ghost-2); border-color: var(--ghost-edge); box-shadow: none; }
+[data-design="obsidian"] .neural-mode.active > span { background: var(--ghost-2); box-shadow: 0 0 14px var(--ghost); }
+[data-design="obsidian"] .neural-tool:hover, [data-design="obsidian"] .neural-groups-tool:hover { background: var(--ghost-2); border-color: var(--ghost-edge); }
+[data-design="obsidian"] .neural-loader-core { background: radial-gradient(circle, #fff 0 7%, #D4D4D8 12%, #71717A 35%, transparent 38%); }
+[data-design="obsidian"] .neural-loader-core::before, [data-design="obsidian"] .neural-loader-core::after { border-color: var(--ghost-edge); }
+[data-design="obsidian"] .neural-report-banner { background: linear-gradient(135deg, color-mix(in oklab, var(--st-critical) 8%, transparent), transparent); border-color: color-mix(in oklab, var(--st-critical) 30%, transparent); }
+[data-design="obsidian"] .gov-facts > div { background: var(--ghost); }
+[data-design="obsidian"] .gov-timeline li { border-left-color: var(--ghost-edge); background: var(--ghost); }
+[data-design="obsidian"] .gov-state-orb { background: var(--ghost-2); color: var(--text); }
+
+/* ---- Repository cards: who can see it, as a sigil in the corner ------------ */
+:root, [data-theme="dark"] { --vis-private: #C4B5FD; --vis-public: #6EE7B7; }
+[data-theme="light"] { --vis-private: #6D28D9; --vis-public: #047857; }
+[data-design="obsidian"] { --vis-private: #E4E4E7; --vis-public: #A8D5BE; }
+[data-design="obsidian"][data-theme="light"] { --vis-private: #292524; --vis-public: #276749; }
+.repo-head { position: relative; padding-right: 40px; }
+.repo-vis {
+  --tone: var(--vis-public); position: absolute; top: -4px; right: -4px; width: 32px; height: 32px; border-radius: 11px;
+  display: grid; place-items: center; isolation: isolate; color: var(--tone);
+  background: color-mix(in oklab, var(--tone) 7%, transparent);
+  border: 1px solid color-mix(in oklab, var(--tone) 32%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, #FFFFFF 8%, transparent);
+}
+.repo-vis[data-visibility="private"] { --tone: var(--vis-private); }
+.repo-vis svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.repo-vis .repo-vis-moon { fill: currentColor; stroke: none; }
+.repo-vis::after {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none; z-index: -1; opacity: 0;
+  background: conic-gradient(from var(--nv-beam), transparent 0 62%, color-mix(in oklab, var(--tone) 60%, var(--st-beam)) 80%, transparent 94%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude;
+  transition: opacity .3s var(--ease, ease);
+}
+.repo-card:hover .repo-vis::after, .repo-card:focus-visible .repo-vis::after { opacity: 1; animation: nv-beam 3.2s linear infinite; }
+[data-motion="off"] .repo-vis::after { animation: none !important; --nv-beam: 300deg; }
+@media (prefers-reduced-motion: reduce) { .repo-vis::after { animation: none !important; --nv-beam: 300deg; } }
+.repo-vis-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; color: var(--text); border-color: color-mix(in oklab, var(--vis-private) 38%, transparent); background: color-mix(in oklab, var(--vis-private) 6%, transparent); }
+.repo-vis-badge[hidden] { display: none; }
+.repo-vis-badge svg { width: 12px; height: 12px; fill: none; stroke: var(--vis-private); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- The repository picker ------------------------------------------------- */
+.rp-pick { display: grid; gap: 12px; min-width: 0; }
+.rp-pick-tool { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; padding: 12px; border-radius: 14px; border: 1px solid var(--rp-line); background: var(--rp-tile); }
+.rp-pick-mark { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: var(--text); border: 1px solid var(--rp-line); background: color-mix(in oklab, var(--text) 4%, transparent); }
+.rp-pick-mark svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.rp-pick-tool-text { display: grid; gap: 2px; min-width: 0; }
+.rp-pick-tool-name { font-weight: 700; font-size: .95rem; color: var(--text); }
+.rp-pick-tool-lede { font-size: .8rem; color: var(--muted); line-height: 1.4; }
+.rp-pick-search { position: relative; display: flex; align-items: center; }
+.rp-pick-search svg { position: absolute; left: 12px; width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-width: 1.9; stroke-linecap: round; pointer-events: none; }
+.rp-pick-search input { width: 100%; min-height: 44px; padding: 8px 12px 8px 38px; border-radius: 12px; font-size: .92rem; }
+.rp-pick-list { display: grid; gap: 2px; max-height: min(46vh, 380px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: 0 -2px; }
+.rp-pick-group { padding: 8px 10px 4px; font-size: .68rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.rp-pick-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 10px; border-radius: 12px; cursor: pointer; border: 1px solid transparent; }
+.rp-pick-item[aria-selected="true"] { background: var(--rp-tile-hover); border-color: var(--rp-line); }
+.rp-pick-sigil { width: 30px; height: 30px; display: grid; place-items: center; line-height: 0; }
+.rp-pick-sigil > * { max-width: 30px; max-height: 30px; }
+.rp-pick-text { display: grid; gap: 2px; min-width: 0; }
+.rp-pick-name { font-weight: 650; font-size: .9rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-pick-owner { color: var(--muted); font-weight: 500; }
+.rp-pick-meta { font-size: .76rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-pick-vis { --tone: var(--vis-public); width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center; color: var(--tone); border: 1px solid color-mix(in oklab, var(--tone) 30%, transparent); }
+.rp-pick-vis[data-visibility="private"] { --tone: var(--vis-private); }
+.rp-pick-vis[data-visibility="unknown"] { border-color: transparent; }
+.rp-pick-vis svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.rp-pick-ghost { height: 50px; border-radius: 12px; background: linear-gradient(90deg, var(--rp-tile), var(--rp-tile-hover), var(--rp-tile)); background-size: 200% 100%; animation: rp-ghost 1.4s ease-in-out infinite; }
+@keyframes rp-ghost { to { background-position: -200% 0; } }
+[data-motion="off"] .rp-pick-ghost { animation: none; }
+@media (prefers-reduced-motion: reduce) { .rp-pick-ghost { animation: none; } }
+.rp-pick-empty { margin: 0; padding: 18px 12px; text-align: center; font-size: .86rem; color: var(--muted); border-radius: 12px; border: 1px dashed var(--rp-line); }
+.rp-pick-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 32px; font-size: .76rem; color: var(--muted); }
+.rp-pick-foot:empty { display: none; }
+/* Obsidian draws the repository sigil in its own metal: the facets keep their light and shade, not Nebula's hues. */
+[data-design="obsidian"] .repo-sigil > * { filter: grayscale(1) brightness(1.18) contrast(1.05); }
+[data-design="obsidian"][data-theme="light"] .repo-sigil > * { filter: grayscale(1) brightness(.62) contrast(1.35); }
+/* The search fields' glyph sits in the padding the global input rule would otherwise take back. */
+.audit-search input.audit-search-input, .rp-pick-search input[type=search] { padding-left: 38px; }
+@media (max-width: 480px) {
+  .audit-segments.audit-verdicts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* A finding on a phone: its chips on one line above the title, never centred against a tall one. */
+  .audit-summary-row { grid-template-columns: auto minmax(0, 1fr); row-gap: 8px; align-items: start; }
+  .audit-summary-row > .audit-pill { grid-column: 1; grid-row: 1; }
+  .audit-summary-row > .audit-row-tags { grid-column: 2; grid-row: 1; justify-content: flex-start; }
+  .audit-summary-row > .audit-row-main { grid-column: 1 / -1; grid-row: 2; }
+  .audit-row-sub { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .audit-row-family::before { content: none; }
 }

@@ -432,6 +432,27 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       const { analyse } = require('../../src/code-audit');
       /* A remote database password, built in pieces so no scanner mistakes the fixture for a leak. */
       const databaseUrl = ['postgres://app:', 'Tr0ub4dor-and-3', '@db.demo-prod.example.com:5432/app'].join('');
+      /*
+       * An Express router: a read behind a sign-in whose SQL splices the id
+       * (parameterised by the second audit), and a write nobody guards.
+       */
+      const query = state.audits === 1
+        ? 'db.query(`SELECT * FROM users WHERE id = ${req.params.id}`)'
+        : "db.query('SELECT * FROM users WHERE id = $1', [req.params.id])";
+      const usersRouter = [
+        "const express = require('express');",
+        'const router = express.Router();',
+        "router.get('/users/:id', requireAuth, async (req, res) => {",
+        `  const rows = await ${query};`,
+        '  res.json(rows);',
+        '});',
+        "router.post('/users', async (req, res) => {",
+        '  const user = await User.create(req.body);',
+        '  res.json(user);',
+        '});',
+        'module.exports = router;',
+        ''
+      ].join('\n');
       const files = [
         { path: 'README.md', text: '# demo\n' },
         { path: 'package.json', text: JSON.stringify({ name: 'demo', scripts: { build: 'vite build' }, dependencies: { react: '*', lodash: '^4.17.0' }, devDependencies: { crossenv: '^1.0.0' } }, null, 2) },
@@ -439,7 +460,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         { path: 'server.js', text: 'app.post("/api/login", handler);\napp.use(cors({ origin: true, credentials: true }));\n' },
         { path: 'deploy/production.yml', text: `env:\n  DATABASE_URL: ${databaseUrl}\n` },
         { path: 'supabase/migrations/20260101000000_init.sql', text: 'create table public.profiles (\n  id uuid primary key,\n  bio text\n);\n' },
-        ...(state.audits === 1 ? [{ path: 'api/users.js', text: 'db.query(`SELECT * FROM users WHERE id = ${req.params.id}`);\n' }] : [])
+        { path: 'api/users.js', text: usersRouter }
       ];
       const advisories = new Map([
         ['npm:react@18.2.0', { advisories: [] }],

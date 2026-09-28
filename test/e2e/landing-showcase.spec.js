@@ -105,7 +105,7 @@ test('the audit plays at the pace of the scroll', async ({ page }, info) => {
   /* Scrolling back plays it backwards: the stage follows the reader, not a timer. */
   await steps.nth(1).evaluate(el => el.scrollIntoView({ block: 'center' }));
   await expect(frame).toHaveAttribute('data-stage', 'find');
-  await expect(frame.locator('.lp-au-cap')).toHaveText('Held below 50 while a critical finding is open.');
+  await expect(frame.locator('.lp-au-cap')).toHaveText('Held below 50 while a confirmed critical finding is open.');
   await expect(play).not.toContainText('SELECT *');
 });
 

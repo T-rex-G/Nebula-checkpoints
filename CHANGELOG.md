@@ -2,6 +2,104 @@
 
 ## Unreleased
 
+### Uranus, and the Security Screens in One Status Language
+
+Reported: Audit, Exposure and Safeguards still used filled red, amber and
+green buttons that sat badly on the Nebula and Obsidian presets; Obsidian
+kept Nebula's violet behind the sign-in mark, on the provider switch and on
+the phone's bottom bar; the security items in the sidebar refused with "Open
+a repository first"; and repository cards wore filled Private and Public
+pills. The audit engine was to be named Uranus and strengthened past pattern
+matching, after the Cloudflare vulnerability-harness write-up and its
+security-audit skill.
+
+- **Uranus, the audit engine.** `src/uranus-lex.js`, `src/uranus-flow.js` and
+  `src/uranus-surface.js` follow values through JavaScript, TypeScript, JSX
+  and Python:
+  - sources are route parameters, request bodies, form and search values,
+    browser messages and language-model replies;
+  - it follows them across closures, helpers, relative and aliased imports
+    and Python modules;
+  - sinks are SQL, commands, `eval`, outbound requests, file paths,
+    redirects, markup, templates, regular expressions, NoSQL filters, merges,
+    record writes, deserialisers and prompts;
+  - it knows Express, Fastify, Koa, Hono, NestJS, Next.js (route handlers,
+    pages API, server actions), SvelteKit, Remix, Supabase edge functions,
+    Lambda, Flask, FastAPI and Django.
+
+  Sanitisers and allow-list checks end a path. A weak test on the way leaves
+  it to confirm.
+- **Verdicts, as the harness keeps them.** Every finding is `confirmed` when
+  the file states it or the whole path was traced, or `to confirm` when one
+  decisive fact is out of reach.
+  - A lead says what is unknown and the local check that settles it. It
+    weighs half.
+  - Only a confirmed critical holds the grade below 50.
+  - A traced finding carries its path (enters, passes, reaches) and the route
+    and guard that reach it, as places and words only, never code.
+- **Access control, as its own family.** Every endpoint and server action is
+  mapped with the guard in front of it: middleware, decorators, global guards
+  (`middleware.ts`, mounted routers, Django `MIDDLEWARE`, FastAPI
+  dependencies, NestJS global guards) and Supabase `verify_jwt`. Sixteen new
+  rules bring the total to 76:
+  - open writes, records fetched by the caller's id, and open admin endpoints;
+  - server actions and edge functions without a verified caller;
+  - model output reaching code, markup or queries, user text in system
+    prompts, and model keys in the browser;
+  - ReDoS, prototype pollution, mass assignment, NoSQL operators, template
+    injection, leaked stack traces, security TODOs and responses that render
+    as HTML.
+- **The report.** The summary now shows:
+  - the verdict split and an engine line;
+  - an endpoint count in the evidence strip;
+  - the Uranus mark in the hero, the rail and the menu.
+
+  New cards:
+  - Attack surface: every endpoint, the open writes first.
+  - Coverage: each class of attack traced, pattern-checked, absent, or out of
+    reach for rules. Business logic is said to be not assessed, never clear.
+  - Already in place: the defences the read recognised, each with where it was
+    seen.
+
+  Findings filter by verdict as well as severity. An opened finding stays
+  open while a filter hides it.
+
+  Exports now carry the new detail:
+  - the brief carries verdict, route, traced path and how to confirm;
+  - SARIF carries traced paths as code flows and leads as notes to review
+    that never fail a build;
+  - CSV gains Verdict, Reached through and How to confirm.
+- **One status language: Orbit.** Statuses are outlined chips with a glyph and
+  a word, toned per preset from `--st-*` tokens. The few the eye should go to
+  first carry a beam of light round their edge, held still without motion.
+  The filled pills and tiles are gone from:
+  - Audit;
+  - Exposure: severity, status, place, tally and scan state, and the
+    provider's and project's answers as hairline notes;
+  - Safeguards: the posture, branch rules, switches and tools.
+- **Loaders.** While Uranus reads, a dot-matrix planet lit from one side
+  turns under its ring of dots. While Exposure scans, a radar lights each dot
+  as its sweep passes.
+- **Choose a repository.** A security tool picked from the sidebar before a
+  repository is open now asks which one:
+  - recent repositories first, then a search;
+  - arrow keys, Home, End and Enter to choose;
+  - it lands in the tool that was chosen.
+
+  The recent list is names only, under the `nv_recent:` prefix the account
+  boundary purge removes.
+- **Repository cards.** Who can see a repository is a sigil in the card's
+  corner, a keyhole shield or an orbit, in the preset's own tones. The
+  workspace's "private" badge follows.
+- **Obsidian, without violet.** A probe of every element's computed colours on
+  each screen found the remaining violet, and all of it is gone. Selection,
+  focus and glow now use a ghost of the preset's own ink:
+  - the sign-in mark's halo and the provider switch;
+  - the active tab and the bottom bar's current item;
+  - the palette, sheets and dialogs;
+  - the Neural modes and tools;
+  - the Quartz card edges and the repository sigils.
+
 ### A Vortex for the Landing, and a First Screen Without Defects
 
 Reported: the landing's drag-to-turn plasma sphere was to be replaced by a

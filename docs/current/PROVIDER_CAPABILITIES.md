@@ -186,7 +186,25 @@ API, by the guarded transport's provider-query profile (POST, to
 `api.github.com/graphql` and nothing else, each path a query variable), and
 checked against every per-file rule on the analysis worker a batch at a time,
 each batch's text dropped before the next is read. Coverage states how many
-files were traced and how many were checked against the rules alone. The site check makes at most ten anonymous requests to the
+files were traced and how many were checked against the rules alone.
+
+Any repository the signed-in account can read is opened, audited and scanned
+the same way, not only its own: a pasted address or owner/name opens it. Where
+the provider reports that the account cannot push, it opens read-only -- every
+control that would change it, and everything its collaborators share, is put
+away, and the provider refuses them regardless. GitHub answers the
+collaborator-permission question only to people who can push; for anyone else
+the resolver asks the repository itself, and a public one grants the reader
+level everyone has on it, recorded with the source `github.repository.public`
+(`gitlab.project.public` for a public GitLab project the account is not a
+member of). Only the routes whose data is the reader's own accept it -- their
+audits, kept audits and watch, and their exposure scans, all keyed by identity
+-- and everything a repository's collaborators share, its governance above
+all, refuses it. Checking a credential, probing readability and accepting an
+exception stay with administrators, so reading a public repository never
+lends anyone else's credentials to a test.
+
+The site check makes at most ten anonymous requests to the
 origin a user names -- following up to three HTTPS redirects to the page a
 visitor actually lands on -- through the guarded transport's site profile: HTTPS on
 443 to a public address, no credential and no cookie, bodies cut after a few

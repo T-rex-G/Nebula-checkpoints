@@ -1837,6 +1837,7 @@ async function loadRepos(reset) {
     if (!state.repos.length) grid.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.repos}</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>`;
     renderGalaxyPulse(state.repos);
     renderWorkspacePulse();
+    paintRepoOpenAny();
   } catch (e) {
     toast(e.message, 'err');
     grid.innerHTML = '';
@@ -1903,9 +1904,42 @@ $('#newRepoBtnRepos') && $('#newRepoBtnRepos').addEventListener('click', createR
  * something its label did not say. The inventory filters, and searching inside
  * a repository stays the workbench's job.
  */
+function paintRepoOpenAny() {
+  const input = $('#repoFilter');
+  const card = $('#repoOpenAny');
+  const hint = $('#repoOpenAnyHint');
+  if (!input || !card || !hint) return;
+  const reference = repositoryReference(input.value);
+  const listed = reference && !reference.wrongHost && state.repos.some(repo =>
+    `${repo.owner}/${repo.name}`.toLowerCase() === `${reference.owner}/${reference.name}`.toLowerCase());
+  card.hidden = !reference || Boolean(reference.wrongHost) || listed;
+  hint.hidden = !(reference && reference.wrongHost);
+  hint.textContent = reference && reference.wrongHost ? `That address is on ${reference.wrongHost}; this session reads repositories on ${sessionHost()}.` : '';
+  if (card.hidden) return;
+  $('#repoOpenAnyName').textContent = `${reference.owner}/${reference.name}`;
+  $('#repoOpenAnySub').textContent = `Open from ${sessionHost()} — read-only unless you can push to it`;
+  $('#repoOpenAnyBtn').dataset.owner = reference.owner;
+  $('#repoOpenAnyBtn').dataset.name = reference.name;
+}
 $('#repoFilter').addEventListener('input', e => {
-  const q = e.target.value.toLowerCase();
+  const reference = repositoryReference(e.target.value);
+  /* An address names one repository: the list narrows to it when it is listed, and the card above the list opens it when it is not. */
+  const q = reference && reference.kind === 'address' ? `${reference.owner}/${reference.name}`.toLowerCase() : e.target.value.toLowerCase();
   $$('#repoGrid .repo-card').forEach(c => { c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+  paintRepoOpenAny();
+});
+$('#repoFilter').addEventListener('keydown', event => {
+  if (event.key !== 'Enter' || $('#repoOpenAny').hidden) return;
+  event.preventDefault();
+  $('#repoOpenAnyBtn').click();
+});
+$('#repoOpenAnyBtn').addEventListener('click', async event => {
+  const { owner, name } = event.currentTarget.dataset;
+  if (!owner || !name) return;
+  $('#repoFilter').value = '';
+  $$('#repoGrid .repo-card').forEach(c => { c.style.display = ''; });
+  paintRepoOpenAny();
+  await openRepo(owner, name);
 });
 /*
  * The brand mark leads to the overview, which is the design's authenticated
@@ -2596,6 +2630,8 @@ async function openRepo(owner, repo) {
   repoName.replaceChildren(ownerPart, document.createTextNode(repo));
   repoName.title = `${owner}/${repo}`;
   $('#workPrivateBadge').hidden = true;
+  $('#workVisitorBadge').hidden = true;
+  document.body.classList.remove('repo-visitor');
   $('#tree').innerHTML = '<div class="skeleton" style="height:200px"></div>';
   closeFile();
   state.staged = []; renderStagedCount();
@@ -2614,8 +2650,22 @@ async function openRepo(owner, repo) {
   try {
     if (answer.error) throw answer.error;
     const info = answer.info;
-    state.work = { owner, repo, branch: info.default_branch, ...info };
+    /* The provider's spelling of the name, so a pasted "Owner/Repo" and a listed "owner/repo" are one repository everywhere a key is made of it. */
+    const canonical = String(info.full_name || '').split('/');
+    const named = canonical.length >= 2 && canonical.join('/').toLowerCase() === `${owner}/${repo}`.toLowerCase();
+    if (named) {
+      owner = canonical.slice(0, -1).join('/');
+      repo = canonical[canonical.length - 1];
+      ownerPart.textContent = `${owner}/`;
+      repoName.replaceChildren(ownerPart, document.createTextNode(repo));
+      repoName.title = `${owner}/${repo}`;
+    }
+    const visitor = repositoryVisitor(info.permission);
+    state.work = { owner, repo, branch: info.default_branch, ...info, visitor };
     $('#workPrivateBadge').hidden = !info.private;
+    $('#workVisitorBadge').hidden = !visitor;
+    document.body.classList.toggle('repo-visitor', visitor);
+    if (state.cm) state.cm.setOption('readOnly', visitor);
     const names = info.branches.map(b => b.name);
     fillBranchSelect($('#branchSelect'), names, info.default_branch, true);
     fillBranchSelect($('#cmpBase'), names, info.default_branch);
@@ -2638,7 +2688,7 @@ async function openRepo(owner, repo) {
     });
     const work = state.work;
     api(`/api/repo/${owner}/${repo}/star`).then(x => { if (state.work === work) work.starred = x.starred; }).catch(() => {});
-    rememberRepository(owner, repo);
+    rememberRepository(owner, repo, visitor);
     return true;
   } catch (e) { presentError(e); showPage('repos'); return false; }
 }
@@ -2664,20 +2714,70 @@ function recentRepositories() {
     const list = JSON.parse(localStorage.getItem(RECENT_REPOSITORIES) || '[]');
     return (Array.isArray(list) ? list : [])
       .filter(item => item && typeof item.owner === 'string' && typeof item.name === 'string' && REPO_PART.test(item.owner) && REPO_PART.test(item.name))
+      .map(item => (item.visitor === true ? { owner: item.owner, name: item.name, visitor: true } : { owner: item.owner, name: item.name }))
       .slice(0, 5);
   } catch { return []; }
 }
-function rememberRepository(owner, name) {
+/* Somebody else's repository is remembered as such, so a picker for the reader's own leaves it out. */
+function rememberRepository(owner, name, visitor = false) {
   try {
-    const rest = recentRepositories().filter(item => !(item.owner === owner && item.name === name));
-    localStorage.setItem(RECENT_REPOSITORIES, JSON.stringify([{ owner, name }, ...rest].slice(0, 5)));
+    const rest = recentRepositories().filter(item => `${item.owner}/${item.name}`.toLowerCase() !== `${owner}/${name}`.toLowerCase());
+    localStorage.setItem(RECENT_REPOSITORIES, JSON.stringify([visitor ? { owner, name, visitor: true } : { owner, name }, ...rest].slice(0, 5)));
   } catch { /* private mode: no recent list, and nothing is lost */ }
 }
+/*
+ * A repository named the way people paste one: owner/name, any web address
+ * inside it on the signed-in provider's host (a file, a branch, an issue), or
+ * a clone address. Anything else is no reference and nothing is requested for
+ * it; an address on another host says so, because this session can only read
+ * through the provider it is signed in to.
+ */
+function sessionHost() {
+  const provider = (state.me && state.me.provider) || 'github';
+  if (provider === 'github') return 'github.com';
+  try { return new URL((state.me && state.me.baseUrl) || 'https://gitlab.com').hostname.toLowerCase(); }
+  catch { return provider === 'gitlab' ? 'gitlab.com' : ''; }
+}
+function repositoryReference(text) {
+  const raw = String(text || '').trim();
+  if (!raw || raw.length > 400 || /\s/.test(raw)) return null;
+  const host = sessionHost();
+  let path;
+  let kind = 'address';
+  const clone = /^(?:ssh:\/\/)?git@([^:/\s]+)[:/](.+)$/i.exec(raw);
+  if (clone) {
+    if (clone[1].toLowerCase() !== host) return { wrongHost: clone[1].toLowerCase() };
+    path = clone[2];
+  } else if (/^https?:\/\//i.test(raw) || /^(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+\//i.test(raw)) {
+    let url;
+    try { url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`); } catch { return null; }
+    const found = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (found !== host) return { wrongHost: found };
+    path = url.pathname;
+  } else {
+    if (raw.split('/').length !== 2) return null;
+    path = raw;
+    kind = 'name';
+  }
+  let parts = decodeURIComponent(path).replace(/\.git\/?$/i, '').split('/').filter(Boolean);
+  /* GitLab ends the project path where its own pages begin, at "-"; GitHub's owner and name are the first two parts. */
+  if ((state.me && state.me.provider) === 'gitlab') { const end = parts.indexOf('-'); if (end >= 0) parts = parts.slice(0, end); }
+  else parts = parts.slice(0, 2);
+  if (parts.length < 2) return null;
+  const name = parts[parts.length - 1];
+  const owner = parts.slice(0, -1).join('/');
+  if (!REPO_PART.test(owner) || !REPO_PART.test(name) || /^\.+$/.test(name)) return null;
+  return { owner, name, kind };
+}
+/* A repository somebody else owns, open read-only: nothing here offers to change it. */
+const VISITOR_TABS = new Set(['upload', 'governance', 'safeguards']);
+function visitingRepository() { return Boolean(state.work && state.work.visitor); }
+function repositoryVisitor(permission) { return ['read', 'triage', 'none'].includes(permission); }
 const PICK_GLOBE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM3.5 12h17M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg>';
 const PICK_LOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 10.8h11v9.2h-11zM8.8 10.8V8.2a3.2 3.2 0 0 1 6.4 0v2.6"/></svg>';
 let pickPage = 0;
 let pickMore = false;
-async function pickRepository(target) {
+async function pickRepository(target, pickOptions = {}) {
   const tool = PICK_TOOLS[target];
   if (!tool) return;
   const railMark = document.querySelector(`.nv-rail-item[data-rail="${target}"] .nv-rail-i`);
@@ -2691,7 +2791,7 @@ async function pickRepository(target) {
         <div class="rp-pick-tool"><span class="rp-pick-mark">${railMark ? railMark.outerHTML : ''}</span>
           <span class="rp-pick-tool-text"><span class="rp-pick-tool-name">${esc(tool.title)}</span><span class="rp-pick-tool-lede">${esc(tool.lede)}</span></span></div>
         <label class="rp-pick-search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.3 15.3L20 20"/></svg>
-          <input id="rpPickQuery" type="search" role="combobox" aria-expanded="true" aria-controls="rpPickList" aria-autocomplete="list" placeholder="Search repositories" autocomplete="off" spellcheck="false" aria-label="Search repositories"></label>
+          <input id="rpPickQuery" type="search" role="combobox" aria-expanded="true" aria-controls="rpPickList" aria-autocomplete="list" placeholder="${pickOptions.own ? 'Search your repositories' : 'Search, or paste any public repository'}" autocomplete="off" spellcheck="false" aria-label="${pickOptions.own ? 'Search your repositories' : 'Search repositories, or paste any public repository address'}"></label>
         <div class="rp-pick-list" id="rpPickList" role="listbox" aria-label="Repositories"></div>
         <div class="rp-pick-foot" id="rpPickFoot"></div>
       </div>`,
@@ -2731,7 +2831,9 @@ async function pickRepository(target) {
         name.append(owner, document.createTextNode(repo.name));
         const meta = document.createElement('span');
         meta.className = 'rp-pick-meta';
-        meta.textContent = [repo.description, repo.pushed_at ? `updated ${timeAgo(repo.pushed_at)}` : ''].filter(Boolean).join(' · ') || 'Recently opened';
+        meta.textContent = repo.any ? `${sessionHost()} · read-only unless you can push to it`
+          : [repo.description, repo.pushed_at ? `updated ${timeAgo(repo.pushed_at)}` : ''].filter(Boolean).join(' · ') || 'Recently opened';
+        if (repo.any) el.classList.add('rp-pick-any');
         text.append(name, meta);
         const vis = document.createElement('span');
         vis.className = 'rp-pick-vis';
@@ -2753,9 +2855,14 @@ async function pickRepository(target) {
         const loaded = state.repos.map(repo => ({ owner: repo.owner, name: repo.name, description: repo.description, private: repo.private, pushed_at: repo.pushed_at }));
         const byName = new Map(loaded.map(repo => [`${repo.owner}/${repo.name}`, repo]));
         const matches = repo => terms.every(term => `${repo.owner}/${repo.name} ${repo.description || ''}`.toLowerCase().includes(term));
-        const recent = recentRepositories().map(item => byName.get(`${item.owner}/${item.name}`) || item).filter(matches);
+        const recent = recentRepositories().filter(item => !(pickOptions.own && item.visitor))
+          .map(item => byName.get(`${item.owner}/${item.name}`) || item).filter(matches);
         const recentKeys = new Set(recent.map(repo => `${repo.owner}/${repo.name}`));
         const rest = loaded.filter(repo => !recentKeys.has(`${repo.owner}/${repo.name}`) && matches(repo));
+        /* A pasted address or owner/name that is not one of the listed repositories opens any repository the account can read. */
+        const reference = pickOptions.own ? null : repositoryReference(input.value);
+        const listed = reference && !reference.wrongHost
+          && [...recent, ...rest, ...loaded].find(repo => `${repo.owner}/${repo.name}`.toLowerCase() === `${reference.owner}/${reference.name}`.toLowerCase());
         listEl.replaceChildren();
         options = [];
         const group = (label, repos) => {
@@ -2774,14 +2881,22 @@ async function pickRepository(target) {
             options.push({ el, repo });
           }
         };
-        group(terms.length ? 'Matches' : 'Recent', recent);
-        group(terms.length ? (recent.length ? 'More matches' : 'Matches') : 'All repositories', rest);
+        /* An address names one repository and is all that is listed; a typed owner/name is also a search, so the matches come first. */
+        const address = reference && !reference.wrongHost && reference.kind === 'address';
+        if (address) group('Any repository', [listed || { owner: reference.owner, name: reference.name, any: true }]);
+        else {
+          group(terms.length ? 'Matches' : 'Recent', recent);
+          group(terms.length ? (recent.length ? 'More matches' : 'Matches') : 'All repositories', rest);
+          if (reference && !reference.wrongHost && !listed) group('Any repository', [{ owner: reference.owner, name: reference.name, any: true }]);
+        }
         if (loading && !loaded.length) {
           for (let index = 0; index < 4; index += 1) { const ghost = document.createElement('div'); ghost.className = 'rp-pick-ghost'; listEl.appendChild(ghost); }
         } else if (!options.length) {
           const empty = document.createElement('p');
           empty.className = 'rp-pick-empty';
-          empty.textContent = failed || (terms.length ? `No repository matches “${input.value.trim()}”${pickMore ? ' in those loaded' : ''}.` : 'No repositories yet.');
+          empty.textContent = failed || (reference && reference.wrongHost
+            ? `That address is on ${reference.wrongHost}; this session reads repositories on ${sessionHost()}.`
+            : terms.length ? `No repository matches “${input.value.trim()}”${pickMore ? ' in those loaded' : ''}.` : 'No repositories yet.');
           listEl.appendChild(empty);
         }
         foot.replaceChildren();
@@ -4191,6 +4306,19 @@ function exposureFindingBody(item, finding, current, interactive) {
    * within one -- because a screen with several armed buttons on it makes
    * the next click ambiguous, and one of these two clicks is irreversible.
    */
+  /*
+   * Somebody else's repository: the finding is shown, and nothing here
+   * touches the credential or records an exception. Testing a credential
+   * needs its owner's permission, and an exception is its owners' decision;
+   * the server refuses both regardless of what is offered.
+   */
+  if (interactive && visitingRepository() && (finding.disposition || 'open') === 'open') {
+    const note = document.createElement('p');
+    note.className = 'exposure-item-visitor';
+    note.textContent = 'Checking whether it still works, and accepting it as intended, are left to the people who can push to this repository.';
+    item.appendChild(note);
+    return;
+  }
   if (interactive && (finding.disposition || 'open') === 'open') {
     const actions = document.createElement('div');
     actions.className = 'exposure-item-actions';
@@ -5214,9 +5342,12 @@ async function refreshRate() {
 function markEmptyRepository(bare) {
   const pick = $('.editor-empty-pick');
   const empty = $('.editor-empty-bare');
+  const visiting = $('.editor-empty-visitor');
   if (!pick || !empty) return;
   pick.hidden = bare;
-  empty.hidden = !bare;
+  /* Somebody else's repository is not the reader's to fill: it is told what there is, not what to add. */
+  empty.hidden = !bare || visitingRepository();
+  if (visiting) visiting.hidden = !bare || !visitingRepository();
 }
 
 /*
@@ -6086,7 +6217,7 @@ function sgRulesHTML(rules) {
  * than closing and reopening a window. Every entry point lands here.
  */
 function openSafeguards() {
-  if (!state.work) return pickRepository('safeguards');
+  if (!state.work || visitingRepository()) return pickRepository('safeguards', { own: true });
   if (_page !== 'work') showPage('work');
   switchTab('safeguards');
 }
@@ -6354,7 +6485,8 @@ function ensureCM() {
   if (state.cm) return state.cm;
   state.cm = CodeMirror($('#editorHost'), {
     value: '', lineNumbers: true, theme: state.settings.editorTheme,
-    lineWrapping: !!state.settings.wrap, viewportMargin: 50
+    lineWrapping: !!state.settings.wrap, viewportMargin: 50,
+    readOnly: visitingRepository()
   });
   /*
    * On a phone the editor runs down behind the bottom navigation until the
@@ -6783,6 +6915,8 @@ function switchTab(name) {
    * screen; /files, the form this project's own tests use, did exactly that.
    */
   if (!tab) return;
+  /* A deep link to a collaborator's tab on a repository opened read-only lands in the editor instead of on a hidden pane. */
+  if (visitingRepository() && VISITOR_TABS.has(name)) return switchTab('editor');
   const tabCapability = tab.dataset.feature;
   if (tabCapability && !runCapabilityAction(tabCapability, () => {}, {
     allowExperimental: tab.dataset.allowExperimental === 'true'
@@ -7263,6 +7397,8 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
     });
   }
   if (!state.work) return PICK_TOOLS[target] ? pickRepository(target) : toast('Open a repository first.', 'err');
+  /* Governance and Safeguards belong to a repository's collaborators: with somebody else's open, they ask which of yours. */
+  if (visitingRepository() && VISITOR_TABS.has(target)) return pickRepository(target, { own: true });
   showPage('work');
   if (['neural', 'governance', 'exposure', 'audit', 'safeguards'].includes(target)) switchTab(target);
   else paintRail('work');

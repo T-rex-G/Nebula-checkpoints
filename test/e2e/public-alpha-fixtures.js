@@ -211,6 +211,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     accessGranted: scenario.access === 'active',
     providerConnected: scenario.access === 'active',
     mutationRequests: [],
+    visitRequests: [],
     disconnected: false,
     alphaEnded: false
   };
@@ -250,8 +251,18 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
   await page.route('**/api/**', async route => {
     const request = route.request();
     const url = new URL(request.url());
-    const pathname = url.pathname;
+    /*
+     * Somebody else's public repository, answered by the sandbox's routes:
+     * any path under octo/spoon-knife (in any letter case) is the sandbox's,
+     * and its own record says it is public and this account may only read it.
+     */
+    const visiting = /^\/api\/repo\/octo\/spoon-knife(?=\/|$)/i.test(url.pathname);
+    if (visiting) state.visitRequests.push(`${request.method()} ${url.pathname}`);
+    const pathname = visiting ? url.pathname.replace(/^\/api\/repo\/octo\/spoon-knife/i, '/api/repo/sandbox/demo') : url.pathname;
     const method = request.method();
+    if (visiting && pathname === '/api/repo/sandbox/demo' && method === 'GET') {
+      return route.fulfill({ status: 200, json: sanitized({ full_name: 'Octo/Spoon-Knife', private: false, default_branch: 'main', permission: 'read', homepage: null, branches: [{ name: 'main', protected: true, sha: HEAD_SHA }] }) });
+    }
     const fulfill = (json, status = 200) => route.fulfill({ status, json: sanitized(json) });
     if (/\/api\/repo\/sandbox\/demo\/(?:live-events\/status|access-surface|evidence)$/.test(pathname)) {
       await new Promise(resolve => setTimeout(resolve, scenario.trust === 'pending' ? 2500 : 120));

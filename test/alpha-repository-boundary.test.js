@@ -1275,6 +1275,8 @@ ${logs}`
       private: true,
       description: 'Production',
       homepage: null,
+      permission: 'unknown',
+      archived: false,
       branches: [{ name: 'main', protected: true, sha: 'c'.repeat(40) }]
     });
     assert.notDeepStrictEqual(

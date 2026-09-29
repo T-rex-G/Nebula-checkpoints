@@ -889,8 +889,9 @@ function runnerFor(store, reader, options = {}) {
   );
   for (const line of routeLines.filter(item => item !== acceptLine
     && !item.includes("/verify'") && !item.includes('/probe-readability'))) {
+    /* A reader route; the identity-scoped ones also accept a public repository's reader (test/authorization-resolver-server-contract.test.js). */
     assert(
-      line.includes("governanceAccess('reader')"),
+      line.includes("governanceAccess('reader')") || line.includes("governanceAccess('reader', OWN_WORK)"),
       `every other exposure route is a reader route: ${line.slice(0, 80)}`
     );
   }

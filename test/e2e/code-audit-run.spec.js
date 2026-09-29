@@ -67,6 +67,33 @@ test('a running audit shows its step and count, rides out an edge failure, and l
   expect(calls).toEqual(['start', 'poll', 'poll', 'poll']);
 });
 
+test('the rest of a large branch is read for the rules, and the result says how much of each', async ({ page }) => {
+  const pane = await openAudit(page);
+  const { riskyResult } = require('./code-audit-risk-fixture');
+  let polls = 0;
+  await page.route(AUDIT, async route => {
+    const run = new URL(route.request().url()).searchParams.get('run');
+    if (!run) return route.fallback();
+    polls += 1;
+    if (polls === 1) return route.fulfill({ status: 202, json: { state: 'running', run, stage: 'rules', done: 1200, total: 4422, position: null, limit: null, elapsedMs: 2400 } });
+    const result = riskyResult();
+    result.engine.traced.rulesOnly = 4422;
+    return route.fulfill({ status: 200, json: {
+      ...result, commitSha: 'a'.repeat(40), ref: 'main', auditedAt: new Date().toISOString(),
+      coverage: { treeTruncated: false, filesInTree: 5100, eligible: 5027, read: 5022, rulesOnly: 4422, unreadable: 5, skipped: { excluded: 8, oversize: 1, budget: 0 }, complete: false,
+        packages: { declared: 0, checked: 0, unknown: 0, notChecked: 0 }, advisories: { versions: 0, checked: 0, unknown: 0, notChecked: 0, vulnerable: 0, malicious: 0, lockfiles: 0, lockfilesRead: 0 }, exploit: null }
+    } });
+  });
+  await pane.getByRole('button', { name: 'Audit this branch' }).click();
+  const progress = pane.locator('.audit-summary .audit-progress');
+  await expect(progress.locator('.audit-progress-line')).toHaveText('Reading the rest of the branch against the rules · 1200 of 4422');
+  await expect(progress.locator('.audit-step[aria-current="step"]')).toHaveText('Read');
+  await expect(progress.getByRole('progressbar', { name: 'Files read' })).toHaveAttribute('aria-valuetext', '1200 of 4422 more files read for the rules');
+  await expect(pane.locator('.audit-grade')).toHaveAttribute('aria-label', /^Grade /, { timeout: 15000 });
+  await expect(pane.locator('.audit-engine-line')).toContainText('4422 more files checked against the rules');
+  await expect(pane.locator('.audit-evidence')).toHaveAttribute('aria-label', /^Read 5022 of 5027 files it audits at aaaaaaa \(600 traced, 4422 against the rules alone\)/);
+});
+
 test('a run the server no longer holds is started once more', async ({ page }) => {
   const pane = await openAudit(page);
   const calls = [];

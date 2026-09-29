@@ -549,6 +549,79 @@ function textFromBytes(bytes) {
   return Object.freeze({ text: decoded, skip: null });
 }
 
+/* ---- Many files in one request ----------------------------------------- */
+
+const GRAPHQL_URL = 'https://api.github.com/graphql';
+const MAX_TEXTS_PER_QUERY = 100;
+/* JSON-escaped text runs somewhat larger than the bytes it carries. */
+const MAX_TEXTS_RESPONSE_BYTES = 8 * 1024 * 1024;
+
+/*
+ * The text of many files at one commit, by path, in one request to GitHub's
+ * GraphQL API through the guarded transport's provider-query profile -- where
+ * the REST API needs a request per file, which is what capped an audit at a
+ * few hundred files. Each path is a query variable, never spliced into the
+ * query text. A file GitHub reports as binary or truncated, an LFS pointer,
+ * or one missing from the answer is a skip, and a request that fails leaves
+ * every file in it unreadable rather than failing the audit -- except a
+ * revoked session, which would fail every request after it the same way.
+ */
+async function readBlobTexts(input = {}) {
+  const reader = requireReader(input.scope);
+  const scope = requireScope(input.scope);
+  if (reader !== READERS.github) {
+    throw new ExposureReaderError('Batched reads are implemented for GitHub only', 'EXPOSURE_PROVIDER_UNSUPPORTED', 501);
+  }
+  const token = requireToken(input.token);
+  const commitSha = requireCommit(input.commitSha);
+  const paths = (Array.isArray(input.paths) ? input.paths : []).filter(filePath => safePath(filePath)).slice(0, MAX_TEXTS_PER_QUERY);
+  /** @type {Map<string, { text: string | null, skip: string | null }> & { failed?: boolean }} */
+  const out = new Map();
+  if (!paths.length) return out;
+  const variables = { owner: scope.owner, name: scope.repo };
+  const declarations = ['$owner: String!', '$name: String!'];
+  const fields = [];
+  paths.forEach((filePath, index) => {
+    variables[`e${index}`] = `${commitSha}:${filePath}`;
+    declarations.push(`$e${index}: String!`);
+    fields.push(`f${index}: object(expression: $e${index}) { ... on Blob { text isBinary isTruncated byteSize } }`);
+  });
+  const query = `query(${declarations.join(', ')}) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`;
+  const send = typeof input.transport === 'function' ? input.transport : guardedFetch;
+  let response;
+  try {
+    response = await send({
+      url: GRAPHQL_URL,
+      profile: PROFILES.PROVIDER_QUERY,
+      method: 'POST',
+      headers: {
+        accept: 'application/json', 'content-type': 'application/json',
+        'user-agent': 'Nebulaverse-X-Exposure-Reader/1.0', authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ query, variables }),
+      maxResponseBytes: MAX_TEXTS_RESPONSE_BYTES
+    });
+  } catch {
+    for (const filePath of paths) out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.UNREADABLE }));
+    /* Said separately, so a caller can ask again for fewer files at a time -- an answer over the size bound is the usual cause. */
+    out.failed = true;
+    return out;
+  }
+  assertAuthorized(Number(response && response.statusCode));
+  const body = Number(response && response.statusCode) === 200 ? parsed(response, MAX_TEXTS_RESPONSE_BYTES) : null;
+  const repository = body && body.data && body.data.repository && typeof body.data.repository === 'object' ? body.data.repository : null;
+  paths.forEach((filePath, index) => {
+    const blob = repository ? repository[`f${index}`] : null;
+    if (!blob || typeof blob !== 'object') return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.UNREADABLE }));
+    if (blob.isBinary === true || typeof blob.text !== 'string') return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.BINARY }));
+    if (blob.isTruncated === true || Number(blob.byteSize) > MAX_BLOB_BYTES) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.OVERSIZE }));
+    if (blob.text.includes('\u0000')) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.BINARY }));
+    if (blob.text.startsWith(LFS_POINTER_PREFIX)) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.LFS_POINTER }));
+    return out.set(filePath, Object.freeze({ text: blob.text, skip: null }));
+  });
+  return out;
+}
+
 /* ---- Archives ----------------------------------------------------------- */
 
 /* Base64 inside JSON is a third larger than the bytes it carries. */
@@ -864,6 +937,8 @@ module.exports = Object.freeze({
   parsePatch,
   readArchive,
   readBlob,
+  readBlobTexts,
+  MAX_TEXTS_PER_QUERY,
   readCommitChanges,
   readFileAtCommit,
   textFromBytes,

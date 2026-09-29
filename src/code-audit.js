@@ -102,11 +102,22 @@ const LIMITS = Object.freeze({
   maxFileBytes: 512 * 1024,
   maxLineScan: 20000,
   maxPackages: 120,
-  maxAdvisoryQueries: 1200,
+  /* As many versions as the bill of materials holds: a batch of 250 is one small request. */
+  maxAdvisoryQueries: 5000,
   advisoryBatch: 250,
   maxAdvisoryDetails: 160,
   readConcurrency: 8,
-  lookupConcurrency: 6
+  lookupConcurrency: 6,
+  /*
+   * Beyond the traced set: files read in batches through the provider's query
+   * API and checked against every per-file rule, a batch at a time, so what is
+   * held at once stays near one batch whatever the size of the branch.
+   */
+  maxOverflowFiles: 6000,
+  maxOverflowBytes: 64 * 1024 * 1024,
+  queryBatchBytes: 3 * 1024 * 1024,
+  scanBatchBytes: 6 * 1024 * 1024,
+  queryConcurrency: 2
 });
 
 const JS_EXT = new Set(['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'vue', 'svelte', 'astro']);
@@ -183,13 +194,24 @@ function selectFiles(entries, limits = LIMITS) {
   }
   candidates.sort((a, b) => a.priority - b.priority || a.path.localeCompare(b.path));
   const selected = [];
+  const overflow = [];
   let bytes = 0;
+  let overflowBytes = 0;
   for (const candidate of candidates) {
-    if (selected.length >= limits.maxFiles || bytes + candidate.size > limits.maxTotalBytes) { skipped.budget += 1; continue; }
-    selected.push(candidate);
-    bytes += candidate.size;
+    if (selected.length < limits.maxFiles && bytes + candidate.size <= limits.maxTotalBytes) {
+      selected.push(candidate);
+      bytes += candidate.size;
+      continue;
+    }
+    /* Past the traced set: read for the rules alone, up to their own ceiling. */
+    if (overflow.length < (limits.maxOverflowFiles || 0) && overflowBytes + candidate.size <= (limits.maxOverflowBytes || 0)) {
+      overflow.push(candidate);
+      overflowBytes += candidate.size;
+      continue;
+    }
+    skipped.budget += 1;
   }
-  return { selected, eligible: candidates.length, skipped };
+  return { selected, overflow, eligible: candidates.length, skipped };
 }
 
 /* ---- Rules ----------------------------------------------------------------- */
@@ -615,7 +637,8 @@ const LINE_RULES = Object.freeze([
     rule: 'SEC-005',
     applies: file => (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)) && !isTestPath(file.path),
     test: line => (inCode(/\bMath\.random\s*\(/, line) || inCode(/\brandom\.(random|randint|choice|choices|randrange|getrandbits)\s*\(/, line)) &&
-      /(token|secret|passw|otp|nonce|salt|session|api_?key|reset|invite|verification|verify_code|auth_code)/i.test(line)
+      /* A reset or invite is a secret when it is the token, code or link -- not a UI key that forces a re-render. */
+      /(token|secret|passw|otp|nonce|salt|session|api_?key|reset[_-]?(token|code|link|hash|secret|pass)|invite[_-]?(token|code|link|secret)|verification|verify_code|auth_code)/i.test(line)
   },
   {
     /*
@@ -2295,85 +2318,157 @@ function score(findings) {
  * tracing at all, the answer when a first attempt ran out of room. Either
  * way the coverage ledger says what was and was not followed.
  */
-function analyse({ files, paths, registry = new Map(), advisories = new Map(), intel = null, trace = {} }) {
-  const raw = [];
-  const packages = [];
+/*
+ * Every rule that reads one file on its own, for one file: what the traced
+ * analysis and the rules-only pass beyond it share, so a file checked in
+ * either is checked the same way. What it learns about the repository as a
+ * whole -- that it reads the environment, limits rates, has a sign-in route,
+ * declares packages -- goes on the context.
+ */
+function scanContext() {
+  return { raw: [], packages: [], usesEnvironment: false, rateLimited: false, authRoute: null, packageJsonWithDependencies: null };
+}
+function scanFile(file, context) {
+  secretFindings(file).forEach(finding => context.raw.push({ ...finding, path: file.path }));
+  if (FIREBASE_RULES.has(file.base)) firebaseFindings(file).forEach(finding => context.raw.push({ ...finding, path: file.path }));
+  serviceRoleFindings(file).forEach(finding => context.raw.push({ ...finding, path: file.path }));
+  if (/process\.env\.|import\.meta\.env\.|os\.environ|os\.getenv|getenv\s*\(|dotenv/.test(file.text) || /^\.env\.(example|sample|template)$/.test(file.base)) context.usesEnvironment = true;
+  if (/(rateLimit|rate-limit|ratelimit|RateLimiter|slowDown|express-slow-down|@upstash\/ratelimit|flask_limiter|Limiter\s*\(|throttle)/i.test(file.text)) context.rateLimited = true;
+  if (!context.authRoute && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)) && !isTestPath(file.path)) {
+    const auth = /(\.(post|put)\s*\(\s*['"`][^'"`\n]*(login|log-in|signin|sign-in|signup|sign-up|register|reset-password|forgot|otp|verify-code|magic-link)|@(app|router|bp)\.(post|route)\s*\(\s*['"][^'"\n]*(login|signin|signup|register|reset|otp))/i.exec(file.text);
+    const nextAuth = /(^|\/)(pages\/api|app\/api)\/[^ ]*(login|signin|signup|register|reset|otp)/i.test(file.path) && /export\s+(async\s+)?(function\s+POST|default|const\s+POST)/.test(file.text);
+    if (auth) context.authRoute = { path: file.path, line: lineOf(file.text, auth.index) };
+    else if (nextAuth) context.authRoute = { path: file.path, line: 1 };
+  }
+
+  if (file.base === 'package.json') {
+    const manifest = packageJsonFindings(file);
+    manifest.out.forEach(finding => context.raw.push({ ...finding, path: file.path }));
+    context.packages.push(...manifest.packages);
+    if (manifest.hasDependencies && !context.packageJsonWithDependencies) context.packageJsonWithDependencies = file.path;
+  }
+  if (isRequirements(file.base)) context.packages.push(...requirementsPackages(file));
+  if (isDockerfile(file.path)) context.raw.push(...dockerfileFindings(file).map(finding => ({ ...finding, path: file.path })));
+  if (file.ext === 'tf') context.raw.push(...terraformFindings(file).map(finding => ({ ...finding, path: file.path })));
+  if ((file.ext === 'yml' || file.ext === 'yaml') && !WORKFLOW.test(file.path)) context.raw.push(...manifestFindings(file).map(finding => ({ ...finding, path: file.path })));
+  if (isDockerfile(file.path)) {
+    const stages = new Set();
+    file.text.split('\n').forEach((line, index) => {
+      const from = /^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?/i.exec(line);
+      if (!from) return;
+      const image = from[1];
+      if (from[2]) stages.add(from[2].toLowerCase());
+      if (image === 'scratch' || image.startsWith('$') || stages.has(image.toLowerCase())) return;
+      if (image.includes('@sha256:')) return;
+      const tag = image.includes(':') ? image.slice(image.lastIndexOf(':') + 1) : '';
+      if (!tag || tag === 'latest' || image.lastIndexOf(':') < image.lastIndexOf('/')) context.raw.push({ rule: 'HYG-006', path: file.path, line: index + 1 });
+    });
+  }
+  if (file.base === 'tsconfig.json' && !dirName(file.path).split('/').some(part => part === 'node_modules')) {
+    const strict = /"strict"\s*:\s*(true|false)/.exec(file.text);
+    if (!strict || strict[1] === 'false') {
+      if (!/"extends"\s*:/.test(file.text) || (strict && strict[1] === 'false')) context.raw.push({ rule: 'HYG-007', path: file.path, line: strict ? lineOf(file.text, strict.index) : 1 });
+    }
+  }
+
+  const rules = LINE_RULES.filter(definition => definition.applies(file));
+  if (rules.length) {
+    /* Each line is bounded and classed once, then every rule that applies reads it. */
+    const lines = file.text.split('\n');
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const bounded = line.length > LIMITS.maxLineScan ? line.slice(0, LIMITS.maxLineScan) : line;
+      /* A comment that only mentions the pattern is not the pattern. */
+      const comment = /^\s*(\/\/|#|\*|<!--)/.test(bounded);
+      for (const definition of rules) {
+        if (comment && definition.rule !== 'SEC-006') continue;
+        if (definition.test(bounded, file)) context.raw.push({ rule: definition.rule, path: file.path, line: index + 1 });
+      }
+    }
+  }
+  fileRules(file).forEach(finding => context.raw.push({ ...finding, path: file.path }));
+}
+
+/*
+ * The rules alone, for files beyond what the traced analysis reads: every
+ * per-file rule, the waivers written beside what they find (read here, while
+ * the text is at hand), and what the repository-wide rules and the ledger need
+ * to know. What leaves is rules, places, packages and flags -- never text --
+ * so a batch can be read, checked and dropped before the next is read.
+ */
+const AI_USE = /(['"](openai|@anthropic-ai\/sdk|ai|@ai-sdk\/\w+|langchain|@langchain\/\w+|@google\/generative-ai|groq-sdk|cohere-ai)['"]|\bimport\s+(openai|anthropic)\b|from\s+(openai|anthropic|langchain\w*)\s+import|google\.generativeai)/;
+function scanRules(files) {
+  const context = scanContext();
+  const controlsFound = {};
+  const extensions = {};
+  let read = 0;
+  let aiUsed = false;
+  for (const source of Array.isArray(files) ? files : []) {
+    const file = { ...source, ext: extensionOf(source.path), base: baseName(source.path) };
+    if (typeof file.text !== 'string' || READ_LOCKS.has(file.base)) continue;
+    read += 1;
+    const before = context.raw.length;
+    scanFile(file, context);
+    let lines = null;
+    for (let index = before; index < context.raw.length; index += 1) {
+      const item = context.raw[index];
+      if (!item.path || !item.line) { item.suppression = null; continue; }
+      if (!lines) lines = file.text.split('\n');
+      item.suppression = suppression(lines, item.line, item.rule);
+    }
+    const test = isTestPath(file.path);
+    if (!test && SOURCE_EXT.has(file.ext)) extensions[file.ext] = (extensions[file.ext] || 0) + 1;
+    if (!aiUsed && AI_USE.test(file.text)) aiUsed = true;
+    if (!test) for (const [id, , pattern] of CONTROLS) if (!controlsFound[id] && pattern.test(file.text)) controlsFound[id] = file.path;
+  }
+  return {
+    raw: context.raw, packages: context.packages, usesEnvironment: context.usesEnvironment, rateLimited: context.rateLimited,
+    authRoute: context.authRoute, packageJsonWithDependencies: context.packageJsonWithDependencies,
+    controls: controlsFound, extensions, aiUsed, files: read
+  };
+}
+/* Two rules-only passes as one: the first place anything was seen wins, counts add. */
+function mergeScans(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const extensions = { ...a.extensions };
+  for (const [ext, count] of Object.entries(b.extensions || {})) extensions[ext] = (extensions[ext] || 0) + count;
+  return {
+    raw: [...a.raw, ...b.raw], packages: [...a.packages, ...b.packages],
+    usesEnvironment: a.usesEnvironment || b.usesEnvironment, rateLimited: a.rateLimited || b.rateLimited,
+    authRoute: a.authRoute || b.authRoute, packageJsonWithDependencies: a.packageJsonWithDependencies || b.packageJsonWithDependencies,
+    controls: { ...b.controls, ...a.controls }, extensions, aiUsed: a.aiUsed || b.aiUsed, files: (a.files || 0) + (b.files || 0)
+  };
+}
+
+function analyse({ files, paths, registry = new Map(), advisories = new Map(), intel = null, trace = {}, extra = null }) {
   const prepared = [];
   const allPaths = Array.isArray(paths) ? paths : files.map(file => file.path);
   const pathSet = new Set(allPaths);
-  let usesEnvironment = false;
-  let authRoute = null;
-  let rateLimited = false;
-  let packageJsonWithDependencies = null;
   /* Supabase serves the public schema over its API, so a table there without row level security is open. */
   const supabase = allPaths.some(filePath => /(^|\/)supabase\//.test(filePath)) ||
     files.some(file => (baseName(file.path) === 'package.json' || isRequirements(baseName(file.path))) && /supabase/i.test(String(file.text || '')));
 
+  const context = scanContext();
   for (const source of files) {
     const file = { ...source, ext: extensionOf(source.path), base: baseName(source.path) };
     if (typeof file.text !== 'string') continue;
     /* A lockfile is read for installed versions only; its text is not code. */
     if (READ_LOCKS.has(file.base)) continue;
     prepared.push(file);
-    secretFindings(file).forEach(finding => raw.push({ ...finding, path: file.path }));
-    if (FIREBASE_RULES.has(file.base)) firebaseFindings(file).forEach(finding => raw.push({ ...finding, path: file.path }));
-    serviceRoleFindings(file).forEach(finding => raw.push({ ...finding, path: file.path }));
-    if (/process\.env\.|import\.meta\.env\.|os\.environ|os\.getenv|getenv\s*\(|dotenv/.test(file.text) || /^\.env\.(example|sample|template)$/.test(file.base)) usesEnvironment = true;
-    if (/(rateLimit|rate-limit|ratelimit|RateLimiter|slowDown|express-slow-down|@upstash\/ratelimit|flask_limiter|Limiter\s*\(|throttle)/i.test(file.text)) rateLimited = true;
-    if (!authRoute && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)) && !isTestPath(file.path)) {
-      const auth = /(\.(post|put)\s*\(\s*['"`][^'"`\n]*(login|log-in|signin|sign-in|signup|sign-up|register|reset-password|forgot|otp|verify-code|magic-link)|@(app|router|bp)\.(post|route)\s*\(\s*['"][^'"\n]*(login|signin|signup|register|reset|otp))/i.exec(file.text);
-      const nextAuth = /(^|\/)(pages\/api|app\/api)\/[^ ]*(login|signin|signup|register|reset|otp)/i.test(file.path) && /export\s+(async\s+)?(function\s+POST|default|const\s+POST)/.test(file.text);
-      if (auth) authRoute = { path: file.path, line: lineOf(file.text, auth.index) };
-      else if (nextAuth) authRoute = { path: file.path, line: 1 };
-    }
-
-    if (file.base === 'package.json') {
-      const manifest = packageJsonFindings(file);
-      manifest.out.forEach(finding => raw.push({ ...finding, path: file.path }));
-      packages.push(...manifest.packages);
-      if (manifest.hasDependencies && !packageJsonWithDependencies) packageJsonWithDependencies = file.path;
-    }
-    if (isRequirements(file.base)) packages.push(...requirementsPackages(file));
-    if (isDockerfile(file.path)) raw.push(...dockerfileFindings(file).map(finding => ({ ...finding, path: file.path })));
-    if (file.ext === 'tf') raw.push(...terraformFindings(file).map(finding => ({ ...finding, path: file.path })));
-    if ((file.ext === 'yml' || file.ext === 'yaml') && !WORKFLOW.test(file.path)) raw.push(...manifestFindings(file).map(finding => ({ ...finding, path: file.path })));
-    if (isDockerfile(file.path)) {
-      const stages = new Set();
-      file.text.split('\n').forEach((line, index) => {
-        const from = /^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?/i.exec(line);
-        if (!from) return;
-        const image = from[1];
-        if (from[2]) stages.add(from[2].toLowerCase());
-        if (image === 'scratch' || image.startsWith('$') || stages.has(image.toLowerCase())) return;
-        if (image.includes('@sha256:')) return;
-        const tag = image.includes(':') ? image.slice(image.lastIndexOf(':') + 1) : '';
-        if (!tag || tag === 'latest' || image.lastIndexOf(':') < image.lastIndexOf('/')) raw.push({ rule: 'HYG-006', path: file.path, line: index + 1 });
-      });
-    }
-    if (file.base === 'tsconfig.json' && !dirName(file.path).split('/').some(part => part === 'node_modules')) {
-      const strict = /"strict"\s*:\s*(true|false)/.exec(file.text);
-      if (!strict || strict[1] === 'false') {
-        if (!/"extends"\s*:/.test(file.text) || (strict && strict[1] === 'false')) raw.push({ rule: 'HYG-007', path: file.path, line: strict ? lineOf(file.text, strict.index) : 1 });
-      }
-    }
-
-    const rules = LINE_RULES.filter(definition => definition.applies(file));
-    if (rules.length) {
-      /* Each line is bounded and classed once, then every rule that applies reads it. */
-      const lines = file.text.split('\n');
-      for (let index = 0; index < lines.length; index += 1) {
-        const line = lines[index];
-        const bounded = line.length > LIMITS.maxLineScan ? line.slice(0, LIMITS.maxLineScan) : line;
-        /* A comment that only mentions the pattern is not the pattern. */
-        const comment = /^\s*(\/\/|#|\*|<!--)/.test(bounded);
-        for (const definition of rules) {
-          if (comment && definition.rule !== 'SEC-006') continue;
-          if (definition.test(bounded, file)) raw.push({ rule: definition.rule, path: file.path, line: index + 1 });
-        }
-      }
-    }
-    fileRules(file).forEach(finding => raw.push({ ...finding, path: file.path }));
+    scanFile(file, context);
   }
+  const { raw, packages } = context;
+  /* What the rules-only pass beyond the traced files found, merged before identities are given. */
+  const beyond = extra && typeof extra === 'object' ? extra : null;
+  if (beyond) {
+    raw.push(...(Array.isArray(beyond.raw) ? beyond.raw : []));
+    packages.push(...(Array.isArray(beyond.packages) ? beyond.packages : []));
+  }
+  const usesEnvironment = context.usesEnvironment || Boolean(beyond && beyond.usesEnvironment);
+  const rateLimited = context.rateLimited || Boolean(beyond && beyond.rateLimited);
+  const authRoute = context.authRoute || (beyond && beyond.authRoute) || null;
+  const packageJsonWithDependencies = context.packageJsonWithDependencies || (beyond && beyond.packageJsonWithDependencies) || null;
 
   /* Repository-level rules, from what is present rather than what is written. */
   for (const filePath of allPaths) {
@@ -2470,7 +2565,9 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), i
     const place = `${item.rule}\0${item.path || ''}`;
     const ordinal = ordinals.get(place) || 0;
     const finding = { id: fingerprint(item.rule, item.path || '', ordinal), ...describe(item.rule, item.path, item.line, item.severity, item.detail), ...assurance(item) };
-    const waiver = item.path && item.line ? suppression(linesOf(item.path), item.line, item.rule) : null;
+    /* A rules-only item carries its waiver, read while its file's text was at hand. */
+    const waiver = item.suppression !== undefined ? item.suppression
+      : item.path && item.line ? suppression(linesOf(item.path), item.line, item.rule) : null;
     if (waiver) suppressed.push({ ...finding, suppression: waiver });
     else { findings.push(finding); ordinals.set(place, ordinal + 1); }
   }
@@ -2481,7 +2578,9 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), i
     javascript: flowResult.stats.javascript || 0, python: flowResult.stats.python || 0, functions: flowResult.stats.functions || 0,
     endpoints: surface.counts.endpoints, actions: surface.counts.actions, flows: flowResult.flows.length,
     crossFile: flowResult.flows.filter(flow => flow.viaHelper === 'file').length, failed: flowResult.stats.failed || 0,
-    cut: flowResult.stats.cut || 0, limit: flowResult.stats.limit || null
+    cut: flowResult.stats.cut || 0, limit: flowResult.stats.limit || null,
+    /* Files beyond the traced set, checked against every per-file rule. */
+    rulesOnly: beyond ? beyond.files || 0 : 0
   } };
   const bill = componentList(dependencies);
   return {
@@ -2489,8 +2588,8 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), i
     components: bill.components, componentsTruncated: bill.truncated,
     engine,
     surface: surfaceSummary(surface),
-    ledger: ledger({ findings, prepared, allPaths, surface, flowResult }),
-    controls: controls({ prepared, allPaths, findings, supabase })
+    ledger: ledger({ findings, prepared, allPaths, surface, flowResult, beyond }),
+    controls: controls({ prepared, allPaths, findings, supabase, beyond })
   };
 }
 
@@ -2629,11 +2728,14 @@ const LEDGER = Object.freeze([
   { id: 'logic', label: 'Business logic', rules: [], needs: 'never' }
 ]);
 const TRACED_LANGUAGES = new Set([...JS_EXT, ...PY_EXT]);
-function ledger({ findings, prepared, allPaths, surface, flowResult }) {
+function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = null }) {
   const sourceFiles = prepared.filter(file => SOURCE_EXT.has(file.ext) && !isTestPath(file.path));
   const traced = sourceFiles.filter(file => TRACED_LANGUAGES.has(file.ext) && !['vue', 'svelte', 'astro', 'html', 'htm'].includes(file.ext)).length;
-  const untraced = [...new Set(sourceFiles.filter(file => !TRACED_LANGUAGES.has(file.ext)).map(file => file.ext))];
-  const aiUsed = prepared.some(file => /(['"](openai|@anthropic-ai\/sdk|ai|@ai-sdk\/\w+|langchain|@langchain\/\w+|@google\/generative-ai|groq-sdk|cohere-ai)['"]|import\s+(openai|anthropic)|from\s+(openai|anthropic|langchain\w*)\s+import|google\.generativeai)/.test(file.text || ''));
+  const beyondExtensions = Object.keys((beyond && beyond.extensions) || {});
+  const untraced = [...new Set([...sourceFiles.map(file => file.ext), ...beyondExtensions].filter(ext => !TRACED_LANGUAGES.has(ext)))];
+  const aiUsed = prepared.some(file => AI_USE.test(file.text || '')) || Boolean(beyond && beyond.aiUsed);
+  /* Source files beyond the traced set that the tracer could have followed: read and ruled, not followed. */
+  const rulesOnly = beyondExtensions.filter(ext => TRACED_LANGUAGES.has(ext)).reduce((sum, ext) => sum + beyond.extensions[ext], 0);
   const infra = allPaths.some(filePath => isDockerfile(filePath) || /\.tf$/.test(filePath) || /(^|\/)(k8s|kubernetes|helm|charts|manifests)\//.test(filePath) || /^\.github\/workflows\//.test(filePath));
   const manifest = allPaths.some(filePath => /(^|\/)(package\.json|requirements[^/]*\.txt|pyproject\.toml|Pipfile|go\.mod|Gemfile|composer\.json)$/.test(filePath) || /^\.github\/workflows\//.test(filePath));
   const rulesDb = allPaths.some(filePath => /\.sql$/.test(filePath) || FIREBASE_RULES.has(baseName(filePath)));
@@ -2655,12 +2757,13 @@ function ledger({ findings, prepared, allPaths, surface, flowResult }) {
       if (!traced && !untraced.length) { status = 'not-applicable'; detail = 'No application code was found to read.'; }
       else if (!traced) { status = 'patterns'; detail = `Only pattern-checked: values are traced in JavaScript, TypeScript and Python, and this code is ${untraced.join(', ')}.`; }
       else if (limit && !followed) { status = 'patterns'; detail = `Only pattern-checked: following values across ${traced} files ${stopped}, so every file was checked against the rules instead.`; }
-      else if (untraced.length || failed || cut) {
+      else if (untraced.length || failed || cut || rulesOnly) {
         status = 'partial';
         const gaps = [];
         if (untraced.length) gaps.push(`${untraced.join(', ')} files were only pattern-checked`);
         if (failed) gaps.push(`${failed} files could not be followed`);
         if (cut) gaps.push(`${cut} ${cut === 1 ? 'file was' : 'files were'} left to the rules when tracing ${stopped} (server code is traced first)`);
+        if (rulesOnly) gaps.push(`${rulesOnly} more ${rulesOnly === 1 ? 'file' : 'files'} beyond the traced set ${rulesOnly === 1 ? 'was' : 'were'} checked against the rules`);
         detail = `Traced across ${cut ? followed : traced} files; ${gaps.join('; ')}.`;
       }
       else detail = `Values followed from what a caller sends to what uses them, across ${traced} files.`;
@@ -2674,6 +2777,7 @@ function ledger({ findings, prepared, allPaths, surface, flowResult }) {
         detail = `${endpoints} ${endpoints === 1 ? 'endpoint' : 'endpoints'} mapped (${surface.counts.guarded} guarded, ${surface.counts.open} open${surface.counts.unknown ? `, ${surface.counts.unknown} behind a guard to confirm` : ''})${rulesDb ? ', and the database rules read' : ''}.`;
         if (untraced.length) { status = 'partial'; detail += ` Endpoints in ${untraced.join(', ')} are not mapped.`; }
         if (cut) { status = 'partial'; detail += ` Endpoints in the ${cut} ${cut === 1 ? 'file' : 'files'} tracing did not reach are not mapped.`; }
+        if (rulesOnly) { status = 'partial'; detail += ` Endpoints in the ${rulesOnly} ${rulesOnly === 1 ? 'file' : 'files'} beyond the traced set are not mapped.`; }
       }
     } else if (entry.needs === 'ai') {
       if (!aiUsed) { status = 'not-applicable'; detail = 'No language-model SDK is used.'; }
@@ -2698,20 +2802,22 @@ function ledger({ findings, prepared, allPaths, surface, flowResult }) {
  */
 const CONTROLS = Object.freeze([
   ['auth-library', 'An established authentication library', /(['"](next-auth|@auth\/[\w-]+|@clerk\/[\w-]+|@supabase\/ssr|@supabase\/auth-helpers-[\w-]+|passport|lucia|better-auth|@kinde-oss\/[\w-]+|@auth0\/[\w-]+|firebase\/auth|iron-session)['"]|flask_login|django\.contrib\.auth|fastapi_users|authlib)/],
-  ['validation', 'Input validated by a schema', /from\s+['"](zod|yup|joi|valibot|superstruct|ajv|class-validator|@sinclair\/typebox|@hapi\/joi|arktype)['"]|require\(\s*['"](zod|joi|yup|ajv)['"]\s*\)|pydantic|marshmallow/],
-  ['orm', 'Queries through an ORM or placeholders', /(['"](@prisma\/client|drizzle-orm|sequelize|typeorm|@mikro-orm\/core|kysely|knex)['"]|sqlalchemy|django\.db|peewee|tortoise)/],
-  ['password-hash', 'Passwords hashed with a slow hash', /(bcrypt|bcryptjs|argon2|scrypt|passlib|generate_password_hash|make_password)/],
+  ['validation', 'Input validated by a schema', /from\s+['"](zod|yup|joi|valibot|superstruct|ajv|class-validator|@sinclair\/typebox|@hapi\/joi|arktype)['"]|require\(\s*['"](zod|joi|yup|ajv)['"]\s*\)|\bpydantic\b|\bmarshmallow\b/],
+  ['orm', 'Queries through an ORM or placeholders', /(['"](@prisma\/client|drizzle-orm|sequelize|typeorm|@mikro-orm\/core|kysely|knex)['"]|\bsqlalchemy\b|django\.db|\bpeewee\b|tortoise)/],
+  ['password-hash', 'Passwords hashed with a slow hash', /\b(bcrypt|bcryptjs|argon2|scrypt|passlib|generate_password_hash|make_password)\b/],
   ['rate-limit', 'Rate limiting', /(rateLimit|rate-limit|ratelimit|RateLimiter|slowDown|@upstash\/ratelimit|flask_limiter|slowapi|express-slow-down)/],
-  ['csrf', 'CSRF protection', /(csurf|csrf-csrf|lusca|CSRFProtect|CsrfViewMiddleware|@edge-csrf|csrfToken|doubleCsrf)/],
-  ['headers', 'Security headers set in code', /helmet\s*\(|Content-Security-Policy|contentSecurityPolicy|Strict-Transport-Security|SECURE_HSTS_SECONDS|Talisman\(/],
+  ['csrf', 'CSRF protection', /\b(csurf|csrf-csrf|lusca|CSRFProtect|CsrfViewMiddleware|@edge-csrf|csrfToken|doubleCsrf)\b/],
+  ['headers', 'Security headers set in code', /\bhelmet\s*\(|Content-Security-Policy|contentSecurityPolicy|Strict-Transport-Security|SECURE_HSTS_SECONDS|Talisman\(/],
   ['webhook-signature', 'Webhook signatures verified', /(constructEvent|verifySignature|verify_signature|webhooks?\.verify|timingSafeEqual|compare_digest)/]
 ]);
-function controls({ prepared, allPaths, findings, supabase }) {
+function controls({ prepared, allPaths, findings, supabase, beyond = null }) {
   const out = [];
   const firstWith = pattern => prepared.find(file => !isTestPath(file.path) && !READ_LOCKS.has(file.base) && pattern.test(file.text || ''));
+  const seenBeyond = (beyond && beyond.controls) || {};
   for (const [id, label, pattern] of CONTROLS) {
     const file = firstWith(pattern);
     if (file) out.push({ id, label, path: file.path });
+    else if (typeof seenBeyond[id] === 'string') out.push({ id, label, path: seenBeyond[id] });
   }
   const has = rule => findings.some(finding => finding.rule === rule);
   const paths = new Set(allPaths);
@@ -2820,7 +2926,82 @@ function baselineComponents(components, advisories, intel) {
   }
 }
 
-async function auditRepository({ reader, scope, ref, token, transport, registryTransport, advisoryTransport, intelTransport, intelCache, limits = LIMITS, analyser = input => analyse(input), onProgress = () => {} }) {
+/*
+ * The files past the traced set: read a few megabytes at a time through the
+ * provider's query API -- one request for up to a hundred files, where the
+ * REST API needs one each -- and checked against every per-file rule in
+ * batches, each batch's text dropped before the next is read. A reader
+ * without a query API, or an audit without its transport, leaves them
+ * unread, and coverage counts them as past the budget.
+ */
+async function readBeyond({ reader, scope, commitSha, token, queryTransport, overflow, limits, scanner, progress }) {
+  const out = { scan: null, read: 0, unreadable: 0, notRead: 0 };
+  const queue = Array.isArray(overflow) ? overflow : [];
+  if (!queue.length) return out;
+  if (typeof reader.readBlobTexts !== 'function' || typeof queryTransport !== 'function') {
+    out.notRead = queue.length;
+    return out;
+  }
+  const perQuery = Math.max(1, Math.min(Number(reader.MAX_TEXTS_PER_QUERY) || 100, 100));
+  const batches = [];
+  let batch = [];
+  let bytes = 0;
+  for (const entry of queue) {
+    if (batch.length && (batch.length >= perQuery || bytes + entry.size > limits.queryBatchBytes)) {
+      batches.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(entry);
+    bytes += entry.size;
+  }
+  if (batch.length) batches.push(batch);
+
+  let pending = [];
+  let pendingBytes = 0;
+  let done = 0;
+  const flush = async () => {
+    if (!pending.length) return;
+    const files = pending;
+    pending = [];
+    pendingBytes = 0;
+    try {
+      out.scan = mergeScans(out.scan, await scanner({ files }));
+      out.read += files.length;
+    } catch {
+      /* A batch the server could not check is unread, not clean. */
+      out.unreadable += files.length;
+    }
+  };
+  progress('rules', { done, total: queue.length });
+  const concurrency = Math.max(1, limits.queryConcurrency || 1);
+  /* A request that failed outright is asked again as two halves, twice over, before its files count as unread. */
+  const readBatch = async (paths, depth = 0) => {
+    const texts = await reader.readBlobTexts({ scope, commitSha, paths: paths.map(entry => entry.path), token, transport: queryTransport });
+    if (!texts.failed || paths.length < 2 || depth >= 2) return texts;
+    const middle = Math.ceil(paths.length / 2);
+    const [first, second] = await Promise.all([readBatch(paths.slice(0, middle), depth + 1), readBatch(paths.slice(middle), depth + 1)]);
+    return new Map([...first, ...second]);
+  };
+  for (let start = 0; start < batches.length; start += concurrency) {
+    const answers = await Promise.all(batches.slice(start, start + concurrency).map(async paths => ({ paths, texts: await readBatch(paths) })));
+    for (const { paths, texts } of answers) {
+      for (const entry of paths) {
+        const answer = texts.get(entry.path);
+        if (!answer || typeof answer.text !== 'string') { out.unreadable += 1; continue; }
+        pending.push({ path: entry.path, text: answer.text });
+        pendingBytes += answer.text.length;
+      }
+      done += paths.length;
+      progress('rules', { done, total: queue.length });
+    }
+    if (pendingBytes >= limits.scanBatchBytes) await flush();
+  }
+  await flush();
+  return out;
+}
+
+async function auditRepository({ reader, scope, ref, token, transport, queryTransport, registryTransport, advisoryTransport, intelTransport, intelCache, limits = LIMITS, analyser = input => analyse(input), scanner = input => scanRules(input.files), onProgress = () => {} }) {
   const progress = (stage, detail = {}) => { try { onProgress({ stage, ...detail }); } catch {} };
   progress('resolving');
   const resolved = await reader.resolveCommit({ scope, ref, token, transport });
@@ -2838,6 +3019,9 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
     if (typeof blob.text !== 'string') { unreadable += 1; return null; }
     return { path: entry.path, text: blob.text };
   })).filter(Boolean);
+
+  const beyond = await readBeyond({ reader, scope, commitSha: resolved.commitSha, token, queryTransport, overflow: selection.overflow, limits, scanner, progress });
+  unreadable += beyond.unreadable;
 
   const packages = [];
   for (const file of files) {
@@ -2865,7 +3049,7 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
     intel = await lookupExploitIntel(cves, intelTransport, intelCache ? { cache: intelCache } : {});
   }
   progress('analysing', { files: files.length });
-  const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers, intel: intel ? intel.answers : null });
+  const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers, intel: intel ? intel.answers : null, extra: beyond.scan });
   baselineComponents(result.components, advisories, intel);
   const lockfiles = paths.filter(filePath => READ_LOCKS.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath));
   return {
@@ -2875,10 +3059,12 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
       treeTruncated: Boolean(tree.truncated),
       filesInTree: paths.length,
       eligible: selection.eligible,
-      read: files.length,
+      read: files.length + beyond.read,
+      /* Of those, how many were checked against the rules alone, beyond the traced set. */
+      rulesOnly: beyond.read,
       unreadable,
-      skipped: selection.skipped,
-      complete: !tree.truncated && selection.skipped.budget === 0 && unreadable === 0,
+      skipped: { ...selection.skipped, budget: selection.skipped.budget + beyond.notRead },
+      complete: !tree.truncated && selection.skipped.budget + beyond.notRead === 0 && unreadable === 0,
       packages: { declared: registry.total, checked: result.dependencyStatus.checked, unknown: result.dependencyStatus.unknown, notChecked: Math.max(0, registry.total - registry.asked) },
       /*
        * Versions asked about, and where they came from. A lockfile too large
@@ -2903,6 +3089,6 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
 
 module.exports = Object.freeze({
   ENGINE, CATEGORIES, RULES, LIMITS, CRITICAL_CAP, SEVERITY_PENALTY, PATTERN_RULES, LEDGER,
-  analyse, auditRepository, selectFiles, lookupPackages, lookupAdvisories, queryAdvisoryIds, fetchAdvisoryRecords, describeAdvisory, advisoryKey, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
+  analyse, scanRules, mergeScans, auditRepository, selectFiles, lookupPackages, lookupAdvisories, queryAdvisoryIds, fetchAdvisoryRecords, describeAdvisory, advisoryKey, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
   compareVersions, rangeCeiling, rangeFloor, cvss3, sqlStatements
 });

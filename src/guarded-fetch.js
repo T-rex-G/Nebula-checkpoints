@@ -82,7 +82,15 @@ const PROFILES = Object.freeze({
    * and nothing else can be reached through it. The catalog runs to a few
    * megabytes, so this profile may read as much as a provider read.
    */
-  THREAT_INTEL: 'threat-intel'
+  THREAT_INTEL: 'threat-intel',
+  /*
+   * A read of a provider's query API: GitHub's GraphQL endpoint, which returns
+   * the text of many files at one commit in a single request where the REST
+   * API needs one request per file. It may POST, because GraphQL is a POST,
+   * and only to that one host and that one path, so the profile cannot be
+   * borrowed to send a body, or the credential it carries, anywhere else.
+   */
+  PROVIDER_QUERY: 'provider-query'
 });
 
 const PROFILE_RULES = Object.freeze({
@@ -91,7 +99,8 @@ const PROFILE_RULES = Object.freeze({
   [PROFILES.CREDENTIAL_VERIFY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true }),
   [PROFILES.SITE_PROBE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: false, readsBody: true, headers: true, truncates: true }),
   [PROFILES.ADVISORY_QUERY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true, hosts: Object.freeze(['api.osv.dev']) }),
-  [PROFILES.THREAT_INTEL]: Object.freeze({ methods: Object.freeze(['GET']), query: true, readsBody: true, hosts: Object.freeze(['api.first.org', 'www.cisa.gov']) })
+  [PROFILES.THREAT_INTEL]: Object.freeze({ methods: Object.freeze(['GET']), query: true, readsBody: true, hosts: Object.freeze(['api.first.org', 'www.cisa.gov']) }),
+  [PROFILES.PROVIDER_QUERY]: Object.freeze({ methods: Object.freeze(['POST']), query: false, readsBody: true, hosts: Object.freeze(['api.github.com']), paths: Object.freeze(['/graphql']) })
 });
 
 /* Response headers as a probe may see them: lower-cased names, bounded values. */
@@ -416,13 +425,16 @@ async function guardedFetch(input = {}) {
     throw new GuardedFetchError(input.profile === PROFILES.SITE_PROBE ? 'A site probe must be anonymous'
       : input.profile === PROFILES.ADVISORY_QUERY ? 'An advisory query must be anonymous' : 'An exploit-intelligence read must be anonymous', 'GUARDED_FETCH_REFUSED');
   }
-  /* A profile bound to named hosts reaches those and nothing else. */
+  /* A profile bound to named hosts reaches those and nothing else, and one bound to named paths only those. */
   if (rule.hosts && !rule.hosts.includes(target.hostname)) {
     throw new GuardedFetchError('This profile may not reach that host', 'GUARDED_FETCH_REFUSED');
   }
+  if (rule.paths && !rule.paths.includes(target.pathname)) {
+    throw new GuardedFetchError('This profile may not reach that path', 'GUARDED_FETCH_REFUSED');
+  }
   const body = input.body == null ? null : String(input.body);
   const maxBytes = boundedInteger(input.maxResponseBytes, MAX_RESPONSE_BYTES, 1024,
-    input.profile === PROFILES.PROVIDER_READ || input.profile === PROFILES.THREAT_INTEL ? MAX_PROVIDER_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
+    input.profile === PROFILES.PROVIDER_READ || input.profile === PROFILES.THREAT_INTEL || input.profile === PROFILES.PROVIDER_QUERY ? MAX_PROVIDER_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
   if (body !== null && Buffer.byteLength(body, 'utf8') > MAX_RESPONSE_BYTES) {
     throw new GuardedFetchError('Outbound body exceeds the transport limit', 'GUARDED_FETCH_BODY_TOO_LARGE');
   }

@@ -54,7 +54,9 @@ const BUDGET = Object.freeze({
   /* The rules-only run reads every file once, without tracing. */
   fallbackMs: 90_000,
   /* Audits waiting for the one running analysis. */
-  queue: 8
+  queue: 8,
+  /* One batch of the rules-only pass beyond the traced set. */
+  rulesMs: 60_000
 });
 
 /*
@@ -86,12 +88,17 @@ function publicFailure(code, message, status) {
 
 /* Run once in a worker: analyse what the main thread read, post the result, exit. */
 function runInWorker() {
-  const { analyse } = require('./code-audit');
-  const { files, paths, registry, advisories, intel, trace } = workerData;
+  const { analyse, scanRules } = require('./code-audit');
+  const { files, paths, registry, advisories, intel, trace, extra, mode } = workerData;
+  /* The rules alone, for a batch beyond the traced set: findings and flags out, no text. */
+  if (mode === 'rules') {
+    parentPort.postMessage({ result: scanRules(files) });
+    return;
+  }
   const bounded = trace && trace.skip
     ? { skip: trace.skip }
     : { deadline: Date.now() + Math.max(0, Number(trace && trace.traceMs) || 0), heapCeiling: Number(trace && trace.heapCeiling) || Infinity };
-  const result = analyse({ files, paths, registry, advisories, intel, trace: bounded });
+  const result = analyse({ files, paths, registry, advisories, intel, trace: bounded, extra: extra || null });
   parentPort.postMessage({ result });
 }
 
@@ -124,7 +131,7 @@ function runWorker(input, trace, hardMs, budget, spawn = Worker) {
     }, budget.watchMs);
     try {
       worker = new spawn(__filename, {
-        workerData: { kind: KIND, files: input.files, paths: input.paths, registry: input.registry, advisories: input.advisories, intel: input.intel || null, trace },
+        workerData: { kind: KIND, mode: input.mode || 'analyse', files: input.files, paths: input.paths, registry: input.registry, advisories: input.advisories, intel: input.intel || null, extra: input.extra || null, trace },
         resourceLimits: { maxOldGenerationSizeMb: Math.max(HEAP_FLOOR_MB, budget.heapMb), maxYoungGenerationSizeMb: budget.youngMb, stackSizeMb: 8 }
       });
     } catch {
@@ -186,6 +193,20 @@ async function analyseOffThread(input, { budget = BUDGET, onStage = () => {}, sp
   }
 }
 
+/*
+ * One batch of the rules-only pass, off the main thread, taking its turn in
+ * the same queue as the analyses so two never run at once. A batch stopped by
+ * the heap or the clock rejects, and the caller counts its files as unread.
+ */
+async function scanOffThread(input, { budget = BUDGET, spawn = Worker } = {}) {
+  await acquire(budget);
+  try {
+    return await runWorker({ mode: 'rules', files: input.files }, { skip: 'rules' }, budget.rulesMs, budget, spawn);
+  } finally {
+    release();
+  }
+}
+
 if (!isMainThread && workerData && workerData.kind === KIND) runInWorker();
 
-module.exports = Object.freeze({ analyseOffThread, AuditLimitError, BUDGET });
+module.exports = Object.freeze({ analyseOffThread, scanOffThread, AuditLimitError, BUDGET });

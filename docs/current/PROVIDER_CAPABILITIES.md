@@ -179,7 +179,14 @@ already report under any alias, or a CVE CISA has listed since, is shown as
 new; an unanswered question leaves the watch partial, never clear. The analysis runs on a worker thread with a capped heap and
 a time limit, so the server keeps answering while it works. A branch too large
 for the instance is checked against every rule without tracing, and the ledger
-names how many files were left untraced and which limit stopped them. The site check makes at most ten anonymous requests to the
+names how many files were left untraced and which limit stopped them. Past the
+traced set -- the prioritised files within the audit budget -- every eligible
+file, up to 6,000 more, is read a hundred at a time through GitHub's GraphQL
+API, by the guarded transport's provider-query profile (POST, to
+`api.github.com/graphql` and nothing else, each path a query variable), and
+checked against every per-file rule on the analysis worker a batch at a time,
+each batch's text dropped before the next is read. Coverage states how many
+files were traced and how many were checked against the rules alone. The site check makes at most ten anonymous requests to the
 origin a user names -- following up to three HTTPS redirects to the page a
 visitor actually lands on -- through the guarded transport's site profile: HTTPS on
 443 to a public address, no credential and no cookie, bodies cut after a few

@@ -36,6 +36,7 @@ const {
   listCommits,
   parsePatch,
   readBlob,
+  readBlobTexts,
   readCommitChanges,
   readTree,
   readerFor,
@@ -694,6 +695,56 @@ function blobEntry(entryPath, overrides = {}) {
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
   const refused = await readBlob({ scope, sha: 'e'.repeat(40), token: TOKEN, transport: transportReturning(blob(png)) });
   assert.strictEqual(refused.skip, SKIP_REASONS.BINARY);
+}
+
+/*
+ * Many files in one request, through GitHub's GraphQL API. Every path is a
+ * query variable -- a path that looks like GraphQL cannot change the query --
+ * and each file GitHub reports as binary, truncated or missing, or that is an
+ * LFS pointer, is a skip. A request that fails leaves its files unreadable; a
+ * revoked session fails the read.
+ */
+{
+  const calls = [];
+  const hostile = 'src/x") { viewer { login } } #.js';
+  const transport = async input => {
+    calls.push(input);
+    const { query, variables } = JSON.parse(input.body);
+    assert(!query.includes('src/') && !query.includes(COMMIT), 'no path and no commit in the query text');
+    const repository = {};
+    Object.keys(variables).filter(name => /^e\d+$/.test(name)).forEach(name => {
+      const filePath = variables[name].slice(COMMIT.length + 1);
+      const field = `f${name.slice(1)}`;
+      if (filePath === 'app.js') repository[field] = { text: 'const a = 1;\n', isBinary: false, isTruncated: false, byteSize: 13 };
+      else if (filePath === hostile) repository[field] = { text: 'ok', isBinary: false, isTruncated: false, byteSize: 2 };
+      else if (filePath === 'logo.bin') repository[field] = { text: null, isBinary: true, isTruncated: false, byteSize: 900 };
+      else if (filePath === 'huge.js') repository[field] = { text: 'x', isBinary: false, isTruncated: true, byteSize: 900000 };
+      else if (filePath === 'big.psd') repository[field] = { text: 'version https://git-lfs.github.com/spec/v1\noid sha256:abc\n', isBinary: false, isTruncated: false, byteSize: 60 };
+      else repository[field] = null;
+    });
+    return { statusCode: 200, body: JSON.stringify({ data: { repository } }) };
+  };
+  const read = await readBlobTexts({ scope, commitSha: COMMIT, token: TOKEN, transport, paths: ['app.js', hostile, 'logo.bin', 'huge.js', 'big.psd', 'gone.js', '../escape.js'] });
+  assert.strictEqual(calls.length, 1, 'one request for all of them');
+  assert.strictEqual(calls[0].profile, PROFILES.PROVIDER_QUERY);
+  assert.strictEqual(calls[0].url, 'https://api.github.com/graphql');
+  assert.strictEqual(calls[0].method, 'POST');
+  assert.strictEqual(read.get('app.js').text, 'const a = 1;\n');
+  assert.strictEqual(read.get(hostile).text, 'ok', 'a path that reads like a query is still only a variable');
+  assert.strictEqual(read.get('logo.bin').skip, SKIP_REASONS.BINARY);
+  assert.strictEqual(read.get('huge.js').skip, SKIP_REASONS.OVERSIZE);
+  assert.strictEqual(read.get('big.psd').skip, SKIP_REASONS.LFS_POINTER);
+  assert.strictEqual(read.get('gone.js').skip, SKIP_REASONS.UNREADABLE);
+  assert(!read.has('../escape.js'), 'an unsafe path is never asked for');
+
+  const failed = await readBlobTexts({ scope, commitSha: COMMIT, token: TOKEN, transport: async () => { throw new Error('reset'); }, paths: ['app.js'] });
+  assert.strictEqual(failed.get('app.js').skip, SKIP_REASONS.UNREADABLE, 'a failed request is unreadable, not empty');
+  await assert.rejects(
+    readBlobTexts({ scope, commitSha: COMMIT, token: TOKEN, transport: async () => ({ statusCode: 401, body: '{}' }), paths: ['app.js'] }),
+    error => error.code === 'EXPOSURE_AUTHORIZATION_REVOKED' || /authori/i.test(String(error.code))
+  );
+  await assert.rejects(readBlobTexts({ scope: { ...scope, provider: 'gitlab' }, commitSha: COMMIT, token: TOKEN, paths: ['a.js'] }), error => error.code === 'EXPOSURE_PROVIDER_UNSUPPORTED');
+  assert.strictEqual((await readBlobTexts({ scope, commitSha: COMMIT, token: TOKEN, transport, paths: [] })).size, 0);
 }
 
   console.log('exposure reader tests passed');

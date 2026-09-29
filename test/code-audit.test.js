@@ -148,6 +148,8 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   fires('weak token randomness', [...BASE, { path: 'lib/t.js', text: 'const resetToken = Math.random().toString(36).slice(2);\n' }], ['SEC-005']);
   fires('python weak randomness', [...BASE, { path: 'lib/t.py', text: 'otp = random.randint(100000, 999999)\n' }], ['SEC-005']);
   quiet('crypto randomness and a jitter', [...BASE, { path: 'lib/t.js', text: 'const resetToken = crypto.randomUUID();\nconst delay = Math.random() * 100;\n' }], ['SEC-005']);
+  fires('weak reset code', [...BASE, { path: 'lib/t.js', text: 'const reset_code = Math.floor(Math.random() * 1e6);\nconst inviteLink = `/join/${Math.random().toString(36)}`;\n' }], ['SEC-005']);
+  quiet('a key that only forces a re-render', [...BASE, { path: 'lib/t.js', text: 'const initial = { resetFileKey: Math.floor((Math.random() * 0x10000)) };\nconst inviteModalKey = Math.random();\n' }], ['SEC-005']);
 
   fires('public secret in code', [...BASE, { path: 'web/pay.ts', text: 'const key = process.env.NEXT_PUBLIC_STRIPE_SECRET_KEY;\n' }], ['SEC-006']);
   fires('public secret in env example', [...BASE, { path: '.env.example', text: 'VITE_SUPABASE_SERVICE_ROLE_KEY=\n' }], ['SEC-006']);
@@ -657,8 +659,13 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   const selection = audit.selectFiles(entries);
   assert.deepStrictEqual(selection.selected.map(entry => entry.path), ['package.json', 'package-lock.json', 'src/app.ts'], 'manifests first, then the lockfile, then source; vendored, built and minified code is not the application');
   assert.deepStrictEqual(selection.skipped, { excluded: 3, oversize: 1, budget: 0 });
+  /* Past the traced set, files go to the rules-only pass, up to its own ceiling; past that, they are counted as unread. */
   const tight = audit.selectFiles(entries, { ...audit.LIMITS, maxFiles: 1 });
-  assert.strictEqual(tight.skipped.budget, 2, 'what the budget left unread is counted, so coverage can say so');
+  assert.deepStrictEqual(tight.overflow.map(entry => entry.path), ['package-lock.json', 'src/app.ts'], 'in the same order of priority');
+  assert.strictEqual(tight.skipped.budget, 0);
+  const tighter = audit.selectFiles(entries, { ...audit.LIMITS, maxFiles: 1, maxOverflowFiles: 1 });
+  assert.deepStrictEqual(tighter.overflow.map(entry => entry.path), ['package-lock.json']);
+  assert.strictEqual(tighter.skipped.budget, 1, 'what neither pass could take is counted, so coverage can say so');
 }
 
 /* ---- The whole audit against a reader and a registry ------------------------------ */

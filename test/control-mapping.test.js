@@ -8,7 +8,7 @@ for (const name of ['CONTROL_CATALOG', 'TASK_14_CONTROL_CATALOG', 'LEGACY_CONTRO
 const { CONTROL_CATALOG, TASK_14_CONTROL_CATALOG, LEGACY_CONTROL_CATALOG, normalizeControlRefs, deriveControlMapping, normalizeControlMapping } = controls;
 const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
 assert.strictEqual(CONTROL_CATALOG.id, 'nebulaverse-control-catalog');
-assert.strictEqual(CONTROL_CATALOG.version, '1.5.0');
+assert.strictEqual(CONTROL_CATALOG.version, '1.6.0');
 assert.strictEqual(TASK_14_CONTROL_CATALOG.version, '1.1.0');
 assert.strictEqual(LEGACY_CONTROL_CATALOG.id, 'nebulaverse-control-catalog');
 assert.strictEqual(LEGACY_CONTROL_CATALOG.version, '1.0.0');
@@ -190,8 +190,9 @@ for (const action of EXPOSURE_ACTIONS) {
     'governance.draft.discard', 'governance.policy.archive', 'governance.policy.deactivate',
     'governance.policy.restore', 'governance.reset', 'governance.version.withdraw'
   ];
-  const current = CONTROL_CATALOG;
+  const current = controls.TASK_22_CONTROL_CATALOG;
   const previous = controls.TASK_21_CONTROL_CATALOG;
+  assert(current && current.version === '1.5.0', '1.5.0 must still be published');
   assert(previous && previous.version === '1.4.0', '1.4.0 must still be published');
   assert.notStrictEqual(current.hash, previous.hash);
   const before = new Set(previous.actionMappings.map(item => item.action));
@@ -200,7 +201,7 @@ for (const action of EXPOSURE_ACTIONS) {
   assert.deepStrictEqual([...before].filter(action => !after.has(action)), [], 'a revision may only add');
   const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
   for (const action of LIFECYCLE) {
-    assert.strictEqual(deriveControlMapping({ action, policyEvaluations: [] }).status, 'mapped');
+    assert.strictEqual(deriveControlMapping({ action, catalogVersion: '1.5.0', policyEvaluations: [] }).status, 'mapped');
     assert.strictEqual(deriveControlMapping({ action, catalogVersion: '1.4.0', policyEvaluations: [] }).status, 'unmapped',
       `a policy approved against 1.4.0 never covered ${action}`);
     assert.strictEqual(actions[action].actorBinding, 'governance', `${action} binds to a governance role, not to whoever runs it`);
@@ -209,6 +210,30 @@ for (const action of EXPOSURE_ACTIONS) {
   for (const action of ['governance.policy.deactivate', 'governance.policy.archive', 'governance.reset']) {
     assert.strictEqual(actions[action].risk, 'critical', `${action} changes what is enforced`);
   }
+}
+
+/*
+ * 1.6.0 adds clearing a repository audit history, and only that. 1.5.0 stays
+ * published, hashes what it hashed, and does not cover it.
+ */
+{
+  const current = CONTROL_CATALOG;
+  const previous = controls.TASK_22_CONTROL_CATALOG;
+  assert.notStrictEqual(current.hash, previous.hash);
+  const before = new Set(previous.actionMappings.map(item => item.action));
+  const after = new Set(current.actionMappings.map(item => item.action));
+  assert.deepStrictEqual([...after].filter(action => !before.has(action)), ['code-audit.history.clear'], '1.6.0 adds exactly one action');
+  assert.deepStrictEqual([...before].filter(action => !after.has(action)), [], 'a revision may only add');
+  assert.strictEqual(deriveControlMapping({ action: 'code-audit.history.clear', policyEvaluations: [] }).status, 'mapped');
+  assert.strictEqual(
+    deriveControlMapping({ action: 'code-audit.history.clear', catalogVersion: '1.5.0', policyEvaluations: [] }).status,
+    'unmapped',
+    'a policy approved against 1.5.0 never covered clearing an audit history'
+  );
+  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  assert.strictEqual(actions['code-audit.history.clear'].actorBinding, 'execution', 'a person clears their own record');
+  assert.strictEqual(actions['code-audit.history.clear'].risk, 'medium', 'irreversible, so not low');
+  assert.deepStrictEqual(actions['code-audit.history.clear'].operations, []);
 }
 
 console.log('control mapping tests passed');

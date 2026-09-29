@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Audits Kept, and a Watch for New CVEs
+
+Asked for: staying current after the audit, the way enterprise scanners do,
+without re-auditing by hand.
+
+- **Every audit is kept for the account that ran it**, per branch, and the
+  page opens on the last kept grade until it runs an audit of its own.
+  - What is kept is the grade, the score, the counts, and for each finding
+    its rule, severity, verdict, file and line, or its package, version,
+    fix, advisory ids, CVEs, CVSS, EPSS, risk and reach. Never the code: no
+    trace, no prompt, no advisory summary, no waiver reason, no list of
+    importing files.
+  - `db/migrations/029_code_audit_history.sql` constrains every text column
+    to an enumeration, a pattern or a bounded path, and has no json column.
+  - The 30 latest audits of each branch, for up to 400 days. The account
+    purge removes them, and **Clear history** (a governed action,
+    `code-audit.history.clear`, in control catalog 1.6.0) removes one
+    repository's on a second press.
+- **The server compares each audit with the last kept one of its branch**,
+  so "new" and "resolved" no longer depend on which browser ran the last
+  audit. Without a database, the browser's own comparison still applies.
+- **History**: the score over the kept audits as a chart with grade bands,
+  and the list that is its table. Each audit opens to what it found.
+- **Since the last audit**: the latest audit's package versions are asked
+  about again every six hours, or on request.
+  - Advisories OSV has published since, with their severity and fix.
+  - CVEs the audit reported that CISA has since listed as exploited in the
+    wild, with the dates.
+  - An advisory the audit already reported, under any alias, is never
+    announced again, and an unanswered question is never read as nothing
+    new.
+  - Only package names, versions and CVE ids leave, anonymously, through the
+    guarded transport's advisory and threat-intel profiles.
+  - The audit counts as the first check, so nothing is asked twice.
+  - Checked live against java-goof (28 components) and OWASP Juice Shop
+    (170) in under a second.
+
 ### Advisories in Eight Ecosystems, and a Bill of Materials
 
 Asked for: an audit as strong on any repository as on this one.

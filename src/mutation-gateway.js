@@ -114,6 +114,12 @@ const MUTATION_ACTIONS = Object.freeze({
    * was evidence, and the ledger entry this action writes is what remains.
    */
   'exposure.history.clear': defineAction('exposure', 'medium', 'Clear an identity\'s exposure history for a repository', []),
+  /*
+   * The same shape for repository audits: the reader's own record, bound to
+   * whoever executes it, and medium because the grades, findings and watch
+   * alerts it removes cannot be brought back.
+   */
+  'code-audit.history.clear': defineAction('code-audit', 'medium', 'Clear an identity\'s repository audit history for a repository', []),
   'governance.notification.preferences.update': defineAction('governance', 'low', 'Update repository governance notification preferences', [], null, 'governance'),
   'governance.notification.read': defineAction('governance', 'low', 'Advance repository governance notification read state', [], null, 'governance'),
   'governance.webhook.create': defineAction('governance', 'high', 'Create a signed governance webhook destination', [], null, 'governance'),

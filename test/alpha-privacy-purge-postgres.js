@@ -65,6 +65,26 @@ async function verifyAlphaPrivacyPurge(connectionString) {
       VALUES ($1,'github','github.com','other','demo',$2,'unrelated','refs/heads/main',
               $3,1,1,1,1,'complete','complete','purge-regression-2',now() + interval '30 days', now())`,
     [unrelatedScanId, unrelatedKey, 'd'.repeat(40)]);
+    /*
+     * A repository audit with a finding and a component. Only the audit is
+     * deleted by name; the other two leave through their cascade, which only
+     * a real server can show.
+     */
+    const auditId = crypto.randomUUID();
+    const auditColumns = `(audit_id, provider, authority, owner_login, repo_name, identity_key, ref_name, commit_sha, engine_version,
+       audited_at, score, grade, category_ids, category_scores, critical_count, serious_count, warning_count, to_confirm_count,
+       waived_count, exploited_count, risk_urgent, risk_high, risk_moderate, risk_low, files_read, files_eligible,
+       coverage_complete, components_total, findings_total, findings_stored)`;
+    await pool.query(`INSERT INTO nv_code_audits ${auditColumns}
+      VALUES ($1,'github','github.com','owner','demo',$2,'main',$3,'2.0.0',now(),71,'C','{}','{}',0,1,0,0,0,0,0,0,0,0,3,3,true,1,1,1)`,
+    [auditId, identityKey, 'c'.repeat(40)]);
+    await pool.query(`INSERT INTO nv_code_audit_findings (audit_id, finding_id, rule, category, severity, verdict, file_path, line_number)
+      VALUES ($1,$2,'SEC-011','code','serious','confirmed','routes/run.js',4)`, [auditId, 'a'.repeat(24)]);
+    await pool.query(`INSERT INTO nv_code_audit_components (audit_id, ecosystem, package_name, package_version, direct, dev)
+      VALUES ($1,'npm','express','4.17.1',true,false)`, [auditId]);
+    await pool.query(`INSERT INTO nv_code_audits ${auditColumns}
+      VALUES ($1,'github','github.com','other','demo',$2,'main',$3,'2.0.0',now(),71,'C','{}','{}',0,0,0,0,0,0,0,0,0,0,3,3,true,0,0,0)`,
+    [crypto.randomUUID(), unrelatedKey, 'd'.repeat(40)]);
     assert.strictEqual((await pool.query('SELECT 1 FROM nv_sessions WHERE session_key_hash=$1', [sessionKeyHash])).rowCount, 0);
     await privacy.completeCleanupTask({ testerId, cleanupId: cleanup.cleanupId });
     await privacy.createDeletionRequest({ testerId });
@@ -88,6 +108,10 @@ async function verifyAlphaPrivacyPurge(connectionString) {
       (await pool.query('SELECT 1 FROM nv_exposure_scans WHERE identity_key=$1', [unrelatedKey])).rowCount, 1,
       'while another identity keeps everything'
     );
+    assert.strictEqual((await pool.query('SELECT 1 FROM nv_code_audits WHERE identity_key=$1', [identityKey])).rowCount, 0, 'a purged tester keeps no audits');
+    assert.strictEqual((await pool.query('SELECT 1 FROM nv_code_audit_findings WHERE audit_id=$1', [auditId])).rowCount, 0, 'their findings went with them');
+    assert.strictEqual((await pool.query('SELECT 1 FROM nv_code_audit_components WHERE audit_id=$1', [auditId])).rowCount, 0, 'and their components');
+    assert.strictEqual((await pool.query('SELECT 1 FROM nv_code_audits WHERE identity_key=$1', [unrelatedKey])).rowCount, 1, 'another identity keeps its audits');
   } finally {
     await pool.end();
   }

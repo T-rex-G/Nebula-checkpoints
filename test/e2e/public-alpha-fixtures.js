@@ -137,7 +137,9 @@ const VALID = Object.freeze({
    * renders both.
    */
   activityState: new Set(['normal', 'quiet', 'partial', 'unreadable']),
-  postureState: new Set(['clean', 'critical-leak'])
+  postureState: new Set(['clean', 'critical-leak']),
+  /* Whether the server keeps audits: 'kept' as with a database, 'unavailable' as without one. */
+  auditHistory: new Set(['kept', 'unavailable'])
 });
 
 function normalizedScenario(input = {}) {
@@ -160,7 +162,11 @@ function normalizedScenario(input = {}) {
     trust: input.trust || 'settled',
     governance: input.governance || 'unavailable',
     activityState: input.activityState || 'normal',
-    postureState: input.postureState || 'clean'
+    postureState: input.postureState || 'clean',
+    auditHistory: input.auditHistory || 'kept',
+    /* Audit results kept before the page opened, oldest first, and what the watch will find since the latest. */
+    auditHistorySeed: Array.isArray(input.auditHistorySeed) ? input.auditHistorySeed : [],
+    auditWatchAlerts: Array.isArray(input.auditWatchAlerts) ? input.auditWatchAlerts : []
   };
   for (const [key, values] of Object.entries(VALID)) {
     if (!values.has(scenario[key])) throw new TypeError(`Unsupported public-alpha fixture ${key}: ${scenario[key]}`);
@@ -208,6 +214,27 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     disconnected: false,
     alphaEnded: false
   };
+  /*
+   * The audits the server keeps, newest first, reduced by the same function
+   * the server uses (src/code-audit-history.js) and answered in the same
+   * shapes, so the page is tested against what a database would give it.
+   */
+  const { compactAudit, serialize } = require('../../src/code-audit-history');
+  state.auditHistory = [];
+  const recordAudit = result => {
+    const compact = compactAudit(result);
+    const previous = state.auditHistory.find(entry => entry.row.ref_name === compact.audit.ref_name);
+    let diff = null;
+    if (previous) {
+      const before = new Set(previous.findings.map(row => row.finding_id));
+      const current = new Set(compact.findings.map(row => row.finding_id));
+      diff = { newIds: [...current].filter(id => !before.has(id)), resolved: [...before].filter(id => !current.has(id)).length };
+    }
+    const row = { ...compact.audit, audit_id: crypto.randomUUID(), new_count: diff ? diff.newIds.length : null, resolved_count: diff ? diff.resolved : null };
+    state.auditHistory.unshift({ row, findings: compact.findings, components: compact.components, alerts: [], watched: false });
+    return { saved: true, auditId: row.audit_id, previousAt: previous ? previous.row.audited_at : null, newIds: diff ? diff.newIds : null, resolved: diff ? diff.resolved : null };
+  };
+  for (const seeded of scenario.auditHistorySeed) recordAudit(seeded);
 
   await page.route('**/readyz', async route => {
     state.readyChecks += 1;
@@ -428,6 +455,52 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
      * something to say. As on the server, the first request starts a run and
      * answers 202 with its stage; the page asks again with the run id.
      */
+    if (pathname.startsWith('/api/repo/sandbox/demo/code-audit/')) {
+      const rest = pathname.slice('/api/repo/sandbox/demo/code-audit/'.length);
+      if (scenario.auditHistory === 'unavailable') {
+        return method === 'GET' ? fulfill({ available: false }) : fulfill(publicError('CODE_AUDIT_HISTORY_UNAVAILABLE', 'Audit history requires the configured PostgreSQL DATABASE_URL'), 503);
+      }
+      const ref = url.searchParams.get('ref') || 'main';
+      if (rest === 'history' && method === 'GET') {
+        const kept = state.auditHistory.filter(entry => entry.row.ref_name === ref);
+        const branches = [...new Set(state.auditHistory.map(entry => entry.row.ref_name))].map(name => {
+          const of = state.auditHistory.filter(entry => entry.row.ref_name === name);
+          return { ref: name, audits: of.length, lastAt: of[0].row.audited_at };
+        });
+        return fulfill({ available: true, ref, audits: kept.map(entry => serialize.audit(entry.row)), branches });
+      }
+      if (rest === 'watch' && method === 'GET') {
+        const latest = state.auditHistory.find(entry => entry.row.ref_name === ref);
+        if (!latest) return fulfill({ available: true, ref, audit: null, alerts: [], components: 0, fresh: false, checkableAt: null });
+        const force = url.searchParams.get('refresh') === '1';
+        const fresh = force || !latest.watched;
+        if (fresh) {
+          await new Promise(resolve => setTimeout(resolve, 250));
+          Object.assign(latest.row, { watch_checked_at: new Date().toISOString(), watch_state: 'ok', watch_checked: latest.components.length, watch_total: latest.components.length, watch_kev: 'ok' });
+          latest.alerts = scenario.auditWatchAlerts.map(alert => ({ ...alert, firstSeenAt: alert.firstSeenAt || new Date().toISOString() }));
+          latest.watched = true;
+        }
+        state.watchChecks = (state.watchChecks || 0) + (fresh ? 1 : 0);
+        return fulfill({
+          available: true, ref, audit: serialize.audit(latest.row), alerts: latest.alerts, components: latest.components.length, fresh,
+          checkableAt: new Date(Date.parse(latest.row.watch_checked_at) + (fresh ? 1000 : 10 * 60 * 1000)).toISOString()
+        });
+      }
+      if (rest === 'history/clear' && method === 'POST') {
+        const body = JSON.parse(request.postData() || '{}');
+        if (body.confirm !== 'clear-audit-history') return fulfill(publicError('CODE_AUDIT_CLEAR_UNCONFIRMED', 'Clearing audit history requires an explicit confirmation'), 400);
+        const cleared = state.auditHistory.length;
+        state.auditHistory = [];
+        return fulfill({ cleared }, 201);
+      }
+      const one = /^history\/([0-9a-f-]{36})$/.exec(rest);
+      if (one && method === 'GET') {
+        const entry = state.auditHistory.find(item => item.row.audit_id === one[1]);
+        if (!entry) return fulfill(publicError('CODE_AUDIT_NOT_FOUND', 'That audit is not kept for this repository'), 404);
+        const order = { critical: 0, serious: 1, warning: 2 };
+        return fulfill({ audit: serialize.audit(entry.row), findings: entry.findings.map(serialize.finding).sort((a, b) => order[a.severity] - order[b.severity]) });
+      }
+    }
     if (pathname === '/api/repo/sandbox/demo/code-audit' && method === 'GET' && !url.searchParams.get('run')) {
       state.auditRun = `run-${(state.audits || 0) + 1}`;
       return fulfill({ state: 'running', run: state.auditRun, stage: 'reading', done: 3, total: 7, position: null, limit: null, elapsedMs: 40 }, 202);
@@ -484,7 +557,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         ['CVE-2020-8203', { epss: 0.05213, percentile: 0.92215, epssDate: '2026-09-28', kev: null }]
       ]);
       const result = analyse({ files, paths: files.map(file => file.path), advisories, intel });
-      return fulfill({
+      const finished = {
         ...result,
         commitSha: HEAD_SHA,
         ref: 'main',
@@ -496,7 +569,9 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
           advisories: { versions: 3, checked: 3, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1 },
           exploit: { cves: 2, asked: 2, kev: 'ok', kevVersion: '2026.09.27', kevCount: 1728, kevStale: false, epss: 'ok', scored: 2, unscored: 0 }
         }
-      });
+      };
+      if (scenario.auditHistory === 'kept') finished.history = recordAudit(finished);
+      return fulfill(finished);
     }
     /*
      * The provider's branch rules, read by the real module from the JSON

@@ -142,7 +142,12 @@
     layers: 'M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4',
     tool: 'M14.7 6.3a4 4 0 0 0-5.2 5.2L4 17v3h3l5.5-5.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4z',
     flask: 'M9.5 3.5h5M10.5 3.5v6L5.3 18.4a1.4 1.4 0 0 0 1.2 2.1h11a1.4 1.4 0 0 0 1.2-2.1L13.5 9.5v-6M8 15h8',
-    unknown: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM9.7 9.7a2.4 2.4 0 1 1 3.3 2.2c-.7.3-1 .8-1 1.4v.5M12 16.6v.1'
+    unknown: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM9.7 9.7a2.4 2.4 0 1 1 3.3 2.2c-.7.3-1 .8-1 1.4v.5M12 16.6v.1',
+    watch: 'M2.8 12S6.2 5.8 12 5.8 21.2 12 21.2 12 17.8 18.2 12 18.2 2.8 12 2.8 12zM12 9.3a2.7 2.7 0 1 0 0 5.4 2.7 2.7 0 0 0 0-5.4z',
+    history: 'M3.8 12a8.2 8.2 0 1 0 2.4-5.8M3.8 4.6v3.8h3.8M12 7.8V12l2.9 1.9',
+    refresh: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v3.8h-3.8',
+    news: 'M12 3.5l2.2 5.3 5.3 2.2-5.3 2.2L12 18.5l-2.2-5.3L4.5 11l5.3-2.2z',
+    trash: 'M5 7h14M10 7V4.8h4V7M7 7l.8 12.2h8.4L17 7M10.2 10.5v5.6M13.8 10.5v5.6'
   });
   const STORE_PREFIX = 'nv_audit:';
   const SVG = 'http://www.w3.org/2000/svg';
@@ -226,7 +231,7 @@
    * tree; the toggle says which way it will go.
    */
   const FOLD_STORE = 'nv_ui:audit-folded';
-  const FOLDS = Object.freeze(['first', 'risk', 'families', 'surface', 'coverage', 'controls', 'owasp', 'findings', 'site']);
+  const FOLDS = Object.freeze(['watch', 'first', 'risk', 'families', 'surface', 'coverage', 'controls', 'owasp', 'findings', 'history', 'site']);
   const folded = new Set();
   try {
     const stored = JSON.parse(global.localStorage.getItem(FOLD_STORE) || '[]');
@@ -1035,20 +1040,26 @@
     card.setAttribute('aria-labelledby', 'auditSummaryHeading');
     const result = view.result;
     const status = view.status;
+    /* The last kept audit stands in for a result until this page runs one: its grade and counts, never its report. */
+    const stored = !result && status !== 'running' ? latestStored(view) : null;
 
     const layout = element('div', 'audit-grade-row');
-    const label = result ? `Grade ${result.grade}, ${result.score} out of 100` : status === 'running' ? 'Auditing' : 'Not audited';
+    const label = result ? `Grade ${result.grade}, ${result.score} out of 100`
+      : stored ? `Grade ${stored.grade}, ${stored.score} out of 100, from the last audit`
+        : status === 'running' ? 'Auditing' : 'Not audited';
     const fresh = result && (!previous || previous.id !== resultId(result));
-    layout.appendChild(status === 'running' ? scanning() : ring(result, status, label, fresh ? 0 : null));
+    layout.appendChild(status === 'running' ? scanning() : ring(result || stored, status, label, fresh ? 0 : null));
+    if (stored) layout.dataset.stored = 'true';
 
     const read = element('div', 'audit-grade-read');
     const head = element('div', 'audit-summary-head');
     const heading = element('h2', 'audit-kicker', 'Repository audit');
     heading.id = 'auditSummaryHeading';
     head.appendChild(heading);
-    if (result && result.ref) head.appendChild(element('span', 'audit-ref', result.ref));
+    const ref = (result && result.ref) || (stored && stored.ref);
+    if (ref) head.appendChild(element('span', 'audit-ref', ref));
     read.appendChild(head);
-    read.appendChild(element('p', 'audit-verdict', verdict(result, status)));
+    read.appendChild(element('p', 'audit-verdict', stored && status !== 'error' ? `Last audited ${when(stored.auditedAt).relative}` : verdict(result, status)));
 
     if (status === 'error') {
       const error = element('p', 'audit-lede audit-error', view.error || 'The audit could not be completed.');
@@ -1057,6 +1068,15 @@
     }
     if (status === 'running') {
       read.appendChild(progressBlock(view.progress));
+    } else if (stored) {
+      read.appendChild(countTally(stored.counts));
+      const notes = element('div', 'audit-notes');
+      if (stored.capReason) notes.appendChild(element('p', 'audit-cap', stored.capReason === 'exploited'
+        ? 'Held below 50 while a vulnerability CISA lists as exploited in the wild shipped with the code.'
+        : 'Held below 50 while a confirmed critical finding was open.'));
+      notes.appendChild(element('p', 'audit-stored-note',
+        `Kept from the audit of ${when(stored.auditedAt).absolute} at ${String(stored.commitSha).slice(0, 7)}. Audit again for the full report: traces, reach and fix prompts are worked out from the code each time and never stored.`));
+      read.appendChild(notes);
     } else if (!result) {
       const scope = element('ul', 'audit-scope');
       scope.setAttribute('aria-label', 'What the audit checks');
@@ -1092,7 +1112,7 @@
 
     const actions = element('div', 'audit-actions');
     const run = button('', 'btn btn-primary audit-run', handlers.onRun);
-    run.append(icon(ICON.run), element('span', 'audit-btn-label', status === 'running' ? 'Auditing…' : result ? 'Audit again' : 'Audit this branch'));
+    run.append(icon(ICON.run), element('span', 'audit-btn-label', status === 'running' ? 'Auditing…' : result || stored ? 'Audit again' : 'Audit this branch'));
     run.disabled = status === 'running';
     actions.appendChild(run);
     if (result) {
@@ -1320,6 +1340,391 @@
     card.appendChild(element('p', 'audit-coverage audit-risk-note',
       `Risk is (40 × CVSS impact + 60 × threat) × reach, out of 100: threat is 1 for a vulnerability being exploited and otherwise EPSS on a log scale; reach is from the imports in the files read.${sources ? ` Sources: ${sources}.` : ''}`));
     host.appendChild(foldable(card, 'risk', head, 'Dependency risk'));
+  }
+
+  /* ---- The watch and the history ------------------------------------------- */
+
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  /* A moment as a reader says it: "12 minutes ago", and in full for a title or a sentence. */
+  function when(iso) {
+    const at = Date.parse(iso);
+    if (!Number.isFinite(at)) return { relative: 'at an unknown time', absolute: 'an unknown time', short: '—' };
+    const seconds = Math.round((at - Date.now()) / 1000);
+    const units = [['year', 31536000], ['month', 2592000], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60]];
+    let relative = 'just now';
+    if (Math.abs(seconds) >= 60) {
+      const [unit, size] = units.find(([, span]) => Math.abs(seconds) >= span);
+      try { relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(Math.round(seconds / size), unit); }
+      catch { relative = `${Math.abs(Math.round(seconds / size))} ${unit}s ago`; }
+    }
+    const date = new Date(at);
+    const sameYear = date.getFullYear() === new Date().getFullYear();
+    const absolute = date.toLocaleString(undefined, { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }), hour: '2-digit', minute: '2-digit' });
+    const short = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    return { relative, absolute, short };
+  }
+  function timeNode(iso, className, text) {
+    const node = element('time', className, text || when(iso).relative);
+    node.dateTime = iso;
+    node.title = when(iso).absolute;
+    return node;
+  }
+  function latestStored(view) {
+    const history = view.history;
+    return history && history.status === 'ready' && Array.isArray(history.audits) && history.audits.length ? history.audits[0] : null;
+  }
+  function countTally(counts) {
+    const list = element('ul', 'audit-tally');
+    const total = ORDER.reduce((sum, severity) => sum + (Number(counts[severity]) || 0), 0);
+    list.setAttribute('aria-label', `${plural(total, 'finding', 'findings')}: ${ORDER.map(severity => `${Number(counts[severity]) || 0} ${severity}`).join(', ')}`);
+    for (const severity of ORDER) {
+      const count = Number(counts[severity]) || 0;
+      const item = element('li', 'audit-tally-item');
+      item.dataset.severity = severity;
+      item.dataset.zero = count ? 'false' : 'true';
+      item.appendChild(severityChip(severity, { count, large: true, zero: !count }));
+      list.appendChild(item);
+    }
+    return list;
+  }
+
+  const WATCH_FOLD = 6;
+  const expandedWatch = new Set();
+  function watchSentence(alert) {
+    if (alert.kind === 'exploited') {
+      return `CISA added ${alert.cve} to its catalog of vulnerabilities exploited in the wild${alert.kevAdded ? ` on ${alert.kevAdded}` : ''}${alert.kevDue ? `; US federal agencies must fix it by ${alert.kevDue}` : ''}. The audit reported it before it was listed.`;
+    }
+    const where = alert.dev ? ' It is a development dependency.' : alert.direct ? '' : ' It comes in through another package.';
+    const fix = alert.malicious ? ' Known malicious: remove it and rotate what it could reach.' : alert.fixed ? ` Fixed in ${alert.fixed}.` : ' No fixed version is published yet.';
+    return `Published after the audit${alert.cve ? `, as ${alert.cve}` : ''}.${fix}${where}`;
+  }
+  function watchRow(alert) {
+    const item = element('li', 'audit-watch-row');
+    item.dataset.kind = alert.kind;
+    const glyph = element('span', 'audit-watch-glyph');
+    glyph.dataset.tone = alert.exploited ? 'critical' : alert.severity || 'pending';
+    glyph.appendChild(icon(alert.kind === 'exploited' ? ICON.flame : ICON.news));
+    const main = element('div', 'audit-watch-main');
+    const name = element('p', 'audit-risk-pkg');
+    name.append(element('span', 'audit-risk-name', alert.name), element('span', 'audit-risk-ver', alert.version));
+    if (alert.fixed && !alert.malicious) name.append(icon(ICON.arrow, 'audit-ico audit-risk-arrow'), element('span', 'audit-risk-fix', alert.fixed));
+    const sub = element('p', 'audit-watch-sub', watchSentence(alert));
+    const refs = element('p', 'audit-watch-refs');
+    if (alert.id) refs.appendChild(osvLink(alert.id));
+    if (alert.cve && (alert.kind === 'exploited' || alert.exploited)) {
+      const kev = element('a', 'audit-adv-id', 'CISA KEV');
+      kev.href = `https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=${encodeURIComponent(alert.cve)}`;
+      kev.target = '_blank';
+      kev.rel = 'noopener noreferrer';
+      kev.append(icon(ICON.link, 'audit-ico audit-adv-out'));
+      refs.appendChild(kev);
+    }
+    main.append(name, sub);
+    if (refs.childNodes.length) main.appendChild(refs);
+    const tags = element('div', 'audit-risk-tags');
+    tags.appendChild(chip(alert.kind === 'exploited' ? 'critical' : 'info', alert.kind === 'exploited' ? 'Newly exploited' : 'New advisory',
+      { glyph: alert.kind === 'exploited' ? ICON.flame : ICON.news, beam: alert.exploited && !alert.dev, className: 'audit-watch-kind' }));
+    if (alert.severity && SEVERITY[alert.severity]) tags.appendChild(severityChip(alert.severity));
+    if (alert.kind === 'advisory' && alert.exploited) tags.appendChild(chip('critical', 'Exploited', { glyph: ICON.flame, className: 'audit-kev' }));
+    if (alert.ransomware) tags.appendChild(chip('critical', 'Ransomware', { glyph: ICON.ransom }));
+    if (Number.isFinite(alert.epss)) tags.appendChild(epssChip({ epss: { score: alert.epss, cve: alert.cve } }));
+    if (alert.dev) tags.appendChild(chip('neutral', 'Dev only', { glyph: REACH_TIER.dev.icon }));
+    item.append(glyph, main, tags);
+    return item;
+  }
+  function renderWatch(host, view, handlers) {
+    const watch = view.watch;
+    if (!watch || !['checking', 'ready', 'error'].includes(watch.status)) return;
+    const data = watch.data || {};
+    const audit = data.audit || latestStored(view);
+    if (!audit) return;
+    const alerts = Array.isArray(data.alerts) ? data.alerts : [];
+    const card = element('section', 'card audit-watch');
+    card.setAttribute('aria-labelledby', 'auditWatchHeading');
+    if (alerts.length) card.dataset.alerts = 'true';
+    const head = element('div', 'audit-card-head');
+    const titles = element('div', 'audit-card-titles');
+    const heading = element('h2', 'audit-kicker', 'Since the last audit');
+    heading.id = 'auditWatchHeading';
+    titles.append(heading, element('p', 'audit-card-lede',
+      `What has been published since the last audit of ${audit.ref}: new advisories for the package versions it found, and CVEs CISA has since listed as exploited. OSV and CISA are asked every six hours, by package name and version only.`));
+    head.appendChild(titles);
+    card.appendChild(head);
+
+    const state = element('p', 'audit-watch-state');
+    state.setAttribute('role', 'status');
+    const components = Number(data.components) || audit.components || 0;
+    const since = `since the audit of ${when(audit.auditedAt).absolute}`;
+    if (watch.status === 'checking') {
+      state.dataset.state = 'checking';
+      state.append(element('span', 'audit-watch-pulse'), element('span', null, `Asking OSV and CISA about ${plural(components, 'package version', 'package versions')} of ${audit.ref}…`));
+    } else if (watch.status === 'error') {
+      state.dataset.state = 'error';
+      state.appendChild(element('span', null, watch.error || 'The watch could not be checked. Nothing is marked new, and nothing is marked clear.'));
+    } else {
+      const checked = audit.watch || null;
+      state.dataset.state = !checked ? 'pending' : alerts.length ? 'alerts' : checked.state;
+      state.appendChild(icon(alerts.length ? ICON.news : checked && checked.state === 'ok' ? ICON.check : ICON.unknown, 'audit-ico audit-watch-state-ico'));
+      const words = [];
+      if (!checked) words.push(`Not checked yet ${since}.`);
+      else if (alerts.length) words.push(`${plural(alerts.length, 'new item', 'new items')} for ${plural(components, 'package version', 'package versions')} ${since}.`);
+      else if (checked.state === 'unavailable') words.push('OSV could not be reached. Nothing is marked new, and nothing is marked clear.');
+      else words.push(`Nothing new for ${plural(components, 'package version', 'package versions')} ${since}.`);
+      if (checked) {
+        const sources = checked.kev === 'ok' ? 'OSV and CISA’s exploited catalog' : checked.kev === 'unavailable' ? 'OSV (CISA’s catalog could not be read)' : 'OSV';
+        words.push(Date.parse(checked.checkedAt) <= Date.parse(audit.auditedAt) + 60000 ? `Last asked by the audit itself, ${when(checked.checkedAt).relative}.` : `Last asked of ${sources} ${when(checked.checkedAt).relative}.`);
+        if (checked.state === 'partial' && Number.isFinite(checked.checked) && Number.isFinite(checked.total)) words.push(`${checked.checked} of ${checked.total} answered; the rest are asked again next time.`);
+      }
+      state.appendChild(element('span', null, words.join(' ')));
+    }
+    card.appendChild(state);
+
+    if (alerts.length && watch.status !== 'checking') {
+      const all = expandedWatch.has(audit.id) || alerts.length <= WATCH_FOLD + 1;
+      const list = element('ol', 'audit-watch-list');
+      list.setAttribute('aria-label', 'Published since the last audit');
+      alerts.forEach((alert, index) => {
+        const row = watchRow(alert);
+        if (!all && index >= WATCH_FOLD) row.hidden = true;
+        list.appendChild(row);
+      });
+      card.appendChild(list);
+      if (!all) {
+        const more = keyed(button('', 'btn btn-ghost audit-more', event => {
+          expandedWatch.add(audit.id);
+          for (const row of list.querySelectorAll('.audit-watch-row[hidden]')) row.hidden = false;
+          event.currentTarget.remove();
+        }), 'watch-more');
+        more.append(element('span', null, `Show all ${alerts.length}`), element('span', 'audit-more-of', `${WATCH_FOLD} of ${alerts.length}`));
+        card.appendChild(more);
+      }
+    }
+    const actions = element('div', 'audit-watch-actions');
+    const tooSoon = data.checkableAt && Date.parse(data.checkableAt) > Date.now();
+    const check = keyed(iconButton(ICON.search, watch.status === 'checking' ? 'Checking…' : 'Check now', 'Check for new advisories now', 'btn btn-ghost audit-tool', handlers.onWatchCheck), 'watch-check');
+    check.disabled = watch.status === 'checking' || Boolean(tooSoon);
+    if (tooSoon) check.title = `Asked ${when(audit.watch && audit.watch.checkedAt).relative}; it can be asked again ${when(data.checkableAt).relative}.`;
+    actions.appendChild(check);
+    if (alerts.length && view.status !== 'running' && handlers.onRun) {
+      const again = keyed(iconButton(ICON.run, 'Audit again', 'Audit again to rank these by reach and risk', 'btn btn-ghost audit-tool', handlers.onRun), 'watch-run');
+      actions.appendChild(again);
+    }
+    card.appendChild(actions);
+    host.appendChild(foldable(card, 'watch', head, 'Since the last audit'));
+  }
+
+  /*
+   * The score over time: one series, so no legend -- the heading names it.
+   * The line is drawn in a stretched SVG with a stroke that does not stretch;
+   * the points are buttons laid over it, so each has a name, a focus ring and
+   * a hit area larger than the mark, and says its audit in a tooltip. The
+   * list below is the table view.
+   */
+  function trendChart(audits, handlers) {
+    const series = audits.slice(0, 30).reverse();
+    const scores = series.map(audit => Number(audit.score) || 0);
+    const floor = Math.max(0, Math.min(50, Math.floor((Math.min(...scores) - 8) / 10) * 10));
+    const y = score => 100 - ((score - floor) / (100 - floor)) * 100;
+    const x = index => (series.length === 1 ? 50 : (index / (series.length - 1)) * 100);
+    const figure = element('figure', 'audit-trend');
+    const plot = element('div', 'audit-trend-plot');
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', 'audit-trend-svg');
+    const axis = element('div', 'audit-trend-axis');
+    axis.setAttribute('aria-hidden', 'true');
+    for (const [grade, threshold] of [['A', 90], ['B', 80], ['C', 70], ['D', 60]]) {
+      if (threshold <= floor) continue;
+      const line = document.createElementNS(SVG, 'line');
+      line.setAttribute('x1', '0');
+      line.setAttribute('x2', '100');
+      line.setAttribute('y1', String(y(threshold)));
+      line.setAttribute('y2', String(y(threshold)));
+      line.setAttribute('class', 'audit-trend-grid');
+      line.setAttribute('vector-effect', 'non-scaling-stroke');
+      svg.appendChild(line);
+      const tick = element('span', 'audit-trend-tick', grade);
+      tick.style.top = `${y(threshold)}%`;
+      tick.title = `${grade}: ${threshold} and above`;
+      axis.appendChild(tick);
+    }
+    if (series.length > 1) {
+      const path = document.createElementNS(SVG, 'polyline');
+      path.setAttribute('points', series.map((audit, index) => `${x(index)},${y(scores[index])}`).join(' '));
+      path.setAttribute('class', 'audit-trend-line');
+      path.setAttribute('vector-effect', 'non-scaling-stroke');
+      svg.appendChild(path);
+    }
+    plot.appendChild(svg);
+    const tip = element('div', 'audit-trend-tip');
+    tip.setAttribute('aria-hidden', 'true');
+    tip.hidden = true;
+    const describe = audit => {
+      const change = audit.diff ? ` · ${audit.diff.new} new, ${audit.diff.resolved} resolved` : '';
+      return `${when(audit.auditedAt).absolute} · Grade ${audit.grade}, ${audit.score} · ${String(audit.commitSha).slice(0, 7)}${change}`;
+    };
+    series.forEach((audit, index) => {
+      const dot = keyed(button('', 'audit-trend-dot', () => handlers.onHistoryOpen && handlers.onHistoryOpen(audit.id, { reveal: true })), `trend:${audit.id}`);
+      dot.style.left = `${x(index)}%`;
+      dot.style.top = `${y(scores[index])}%`;
+      dot.dataset.grade = audit.grade;
+      if (index === series.length - 1) dot.dataset.latest = 'true';
+      dot.setAttribute('aria-label', `${describe(audit)}. Open this audit`);
+      const show = () => {
+        tip.textContent = describe(audit);
+        tip.hidden = false;
+        tip.style.top = `${y(scores[index])}%`;
+        tip.dataset.side = x(index) > 66 ? 'end' : x(index) < 34 ? 'start' : 'middle';
+        tip.style.left = `${x(index)}%`;
+      };
+      const hide = () => { tip.hidden = true; };
+      dot.addEventListener('mouseenter', show);
+      dot.addEventListener('focus', show);
+      dot.addEventListener('mouseleave', hide);
+      dot.addEventListener('blur', hide);
+      plot.appendChild(dot);
+    });
+    plot.appendChild(tip);
+    figure.append(axis, plot);
+    const first = series[0];
+    const last = series[series.length - 1];
+    const caption = element('figcaption', 'audit-trend-caption', series.length > 1
+      ? `Score over the last ${series.length} audits, from ${first.score} (${first.grade}) on ${when(first.auditedAt).short} to ${last.score} (${last.grade}) on ${when(last.auditedAt).short}.`
+      : 'The trend appears after the next audit of this branch.');
+    figure.appendChild(caption);
+    return figure;
+  }
+
+  const HISTORY_FINDINGS = 40;
+  const expandedHistory = new Set();
+  function historyFindings(detail, audit) {
+    const wrap = element('div', 'audit-hist-body');
+    if (!detail || detail.status === 'loading') {
+      const wait = element('p', 'audit-hist-wait', 'Reading what this audit kept…');
+      wait.setAttribute('role', 'status');
+      wrap.appendChild(wait);
+      return wrap;
+    }
+    if (detail.status === 'error') {
+      const error = element('p', 'audit-hist-wait audit-error', detail.error || 'This audit could not be read.');
+      error.setAttribute('role', 'alert');
+      wrap.appendChild(error);
+      return wrap;
+    }
+    const findings = detail.findings || [];
+    if (!findings.length) {
+      wrap.appendChild(element('p', 'audit-hist-wait', 'This audit found nothing in what it read.'));
+      return wrap;
+    }
+    const all = expandedHistory.has(audit.id) || findings.length <= HISTORY_FINDINGS + 1;
+    const list = element('ul', 'audit-hist-findings');
+    list.setAttribute('aria-label', `What the audit of ${when(audit.auditedAt).absolute} found`);
+    findings.forEach((finding, index) => {
+      const item = element('li', 'audit-hist-finding');
+      if (!all && index >= HISTORY_FINDINGS) item.hidden = true;
+      const title = element('span', 'audit-hist-title', finding.title);
+      const where = finding.package
+        ? `${finding.package.name} ${finding.package.version}${finding.package.fixed ? ` → ${finding.package.fixed}` : ''}`
+        : finding.path ? `${finding.path}${finding.line ? `:${finding.line}` : ''}` : '';
+      const place = element('span', 'audit-hist-where', where);
+      if (finding.package && finding.package.advisories.length) place.title = finding.package.advisories.join(', ');
+      const severity = element('span', 'audit-hist-sev');
+      severity.appendChild(severityChip(finding.severity));
+      const main = element('span', 'audit-hist-text');
+      main.append(title, place);
+      const tags = element('span', 'audit-hist-tags');
+      if (finding.verdict === 'needs-validation') tags.appendChild(chip(VERDICT['needs-validation'].tone, 'To confirm', { glyph: VERDICT['needs-validation'].icon }));
+      if (finding.exploited) tags.appendChild(chip('critical', 'Exploited', { glyph: ICON.flame, className: 'audit-kev' }));
+      if (finding.risk && RISK_BAND[finding.risk.band]) tags.appendChild(chip(RISK_BAND[finding.risk.band].tone, `Risk ${finding.risk.score}`, { className: 'audit-hist-risk' }));
+      item.append(severity, main, tags);
+      list.appendChild(item);
+    });
+    wrap.appendChild(list);
+    if (!all) {
+      const more = keyed(button('', 'btn btn-ghost audit-more', event => {
+        expandedHistory.add(audit.id);
+        for (const row of list.querySelectorAll('.audit-hist-finding[hidden]')) row.hidden = false;
+        event.currentTarget.remove();
+      }), `hist-more:${audit.id}`);
+      more.append(element('span', null, `Show all ${findings.length}`), element('span', 'audit-more-of', `${HISTORY_FINDINGS} of ${findings.length}`));
+      wrap.appendChild(more);
+    }
+    if (audit.findings && audit.findings.stored < audit.findings.total) {
+      wrap.appendChild(element('p', 'audit-coverage', `${audit.findings.stored} of ${audit.findings.total} findings were kept, the most severe first.`));
+    }
+    return wrap;
+  }
+  function renderHistory(host, view, handlers) {
+    const history = view.history;
+    if (!history || history.status !== 'ready' || !Array.isArray(history.audits) || !history.audits.length) return;
+    const audits = history.audits;
+    const ref = audits[0].ref;
+    const card = element('section', 'card audit-history');
+    card.setAttribute('aria-labelledby', 'auditHistoryHeading');
+    const head = element('div', 'audit-card-head');
+    const titles = element('div', 'audit-card-titles');
+    const heading = element('h2', 'audit-kicker', 'History');
+    heading.id = 'auditHistoryHeading';
+    titles.append(heading, element('p', 'audit-card-lede',
+      `Every audit of ${ref} you ran, newest first. Each keeps its grade, its counts and every finding’s rule, place and package — never any of the code.`));
+    head.appendChild(titles);
+    card.appendChild(head);
+    card.appendChild(trendChart(audits, handlers));
+
+    const shownId = view.result && view.result.history && view.result.history.auditId;
+    const open = view.historyOpen instanceof Set ? view.historyOpen : new Set();
+    const list = element('ol', 'audit-hist-list');
+    list.setAttribute('aria-label', `Audits of ${ref}`);
+    audits.forEach((audit, index) => {
+      const item = element('li', 'audit-hist-row');
+      const details = element('details', 'audit-hist');
+      details.dataset.auditId = audit.id;
+      details.open = open.has(audit.id);
+      const summary = element('summary', 'audit-hist-sum');
+      const grade = element('span', 'audit-hist-grade', audit.grade);
+      grade.dataset.grade = audit.grade;
+      const score = element('span', 'audit-hist-score', String(audit.score));
+      const main = element('span', 'audit-hist-main');
+      const top = element('span', 'audit-hist-top');
+      top.appendChild(timeNode(audit.auditedAt, 'audit-hist-when', when(audit.auditedAt).absolute));
+      if (index === 0) top.appendChild(element('span', 'audit-hist-tag', 'Latest'));
+      if (shownId && shownId === audit.id) top.appendChild(element('span', 'audit-hist-tag', 'Shown above'));
+      const counts = ORDER.filter(severity => audit.counts[severity]).map(severity => `${audit.counts[severity]} ${severity}`);
+      const sub = element('span', 'audit-hist-sub', [String(audit.commitSha).slice(0, 7), counts.length ? counts.join(' · ') : 'nothing found'].join(' · '));
+      main.append(top, sub);
+      const tags = element('span', 'audit-hist-tags');
+      if (audit.diff) {
+        if (audit.diff.new) tags.appendChild(chip('info', 'new', { count: audit.diff.new, glyph: ICON.news, className: 'audit-hist-new' }));
+        if (audit.diff.resolved) tags.appendChild(chip('good', 'resolved', { count: audit.diff.resolved, glyph: ICON.check, className: 'audit-hist-resolved' }));
+        if (!audit.diff.new && !audit.diff.resolved) tags.appendChild(chip('neutral', 'No change', { className: 'audit-hist-same' }));
+      }
+      if (audit.exploited) tags.appendChild(chip('critical', 'exploited', { count: audit.exploited, glyph: ICON.flame }));
+      summary.append(grade, score, main, tags, icon(ICON.chevron, 'audit-ico audit-hist-chev'));
+      summary.setAttribute('aria-label', `Audit of ${when(audit.auditedAt).absolute} at ${String(audit.commitSha).slice(0, 7)}: grade ${audit.grade}, ${audit.score} out of 100${audit.diff ? `, ${audit.diff.new} new, ${audit.diff.resolved} resolved` : ''}`);
+      details.appendChild(summary);
+      details.addEventListener('toggle', () => { if (handlers.onHistoryToggle) handlers.onHistoryToggle(audit.id, details.open); });
+      if (details.open) details.appendChild(historyFindings(view.historyDetail && view.historyDetail.get(audit.id), audit));
+      item.appendChild(details);
+      list.appendChild(item);
+    });
+    card.appendChild(list);
+
+    const others = (history.branches || []).filter(branch => branch.ref !== ref);
+    const foot = element('div', 'audit-hist-foot');
+    if (others.length) {
+      foot.appendChild(element('p', 'audit-coverage', `Also audited: ${others.map(branch => `${branch.ref} (${plural(branch.audits, 'audit', 'audits')})`).join(', ')}. Open a branch to see its history.`));
+    }
+    foot.appendChild(element('p', 'audit-coverage', 'Kept for your account only: the 30 latest audits of each branch, for up to 400 days, and removed with your account.'));
+    const armed = view.historyArmed === true;
+    const clear = keyed(iconButton(ICON.trash, armed ? 'Press again to clear' : 'Clear history',
+      armed ? 'Press again to delete every kept audit of this repository, on every branch' : 'Clear the kept audits of this repository',
+      `btn btn-ghost audit-tool audit-hist-clear${armed ? ' is-armed' : ''}`, handlers.onHistoryClear), 'history-clear');
+    clear.disabled = history.clearing === true;
+    foot.appendChild(clear);
+    card.appendChild(foot);
+    host.appendChild(foldable(card, 'history', head, 'History'));
   }
 
   /* ---- Families ------------------------------------------------------------- */
@@ -2221,6 +2626,7 @@
       renderUnavailable(root, view.unavailable);
     } else {
       renderSummary(root, view, handlers, previous);
+      renderWatch(root, view, handlers);
       renderPriorities(root, view, handlers, root);
       renderRisk(root, view, handlers, root);
       renderCategories(root, view, handlers);
@@ -2228,6 +2634,7 @@
       renderCoverage(root, view, handlers);
       renderStandards(root, view, handlers);
       renderFindings(root, view, handlers);
+      renderHistory(root, view, handlers);
     }
     if (view.site) renderSite(root, { ...view.site, hasRepositoryResult: Boolean(view.result) }, handlers, previous);
     for (const id of [...open]) {
@@ -2248,6 +2655,46 @@
       id: view.result ? resultId(view.result) : null,
       siteId: view.site && view.site.result ? `${view.site.result.origin}|${view.site.result.checkedAt}` : null
     });
+  }
+
+  /*
+   * What the kept history and the watch change, redrawn in place: an answer
+   * that arrives while the reader has a menu open or a field focused replaces
+   * its own cards and nothing else. The summary is among them only while it
+   * is showing the kept grade rather than this page's own result.
+   */
+  const PARTS = Object.freeze({
+    summary: { select: ':scope > .audit-summary', draw: (host, view, handlers, root) => renderSummary(host, view, handlers, drawn.get(root) || null) },
+    watch: { select: ':scope > [data-fold="watch"]', draw: (host, view, handlers) => renderWatch(host, view, handlers) },
+    history: { select: ':scope > [data-fold="history"]', draw: (host, view, handlers) => renderHistory(host, view, handlers) }
+  });
+  function update(root, view, handlers) {
+    if (!root) return;
+    if (view.unavailable || view.status === 'running' || !root.querySelector(':scope > .audit-summary')) return render(root, view, handlers);
+    const active = root.contains(document.activeElement) ? document.activeElement : null;
+    const key = active && active.dataset.key ? active.dataset.key : null;
+    for (const name of view.result ? ['watch', 'history'] : ['summary', 'watch', 'history']) {
+      const part = PARTS[name];
+      const scratch = document.createElement('div');
+      part.draw(scratch, view, handlers, root);
+      const fresh = scratch.firstElementChild;
+      const old = root.querySelector(part.select);
+      if (old) {
+        if (fresh) old.replaceWith(fresh); else old.remove();
+        continue;
+      }
+      if (!fresh) continue;
+      if (name === 'summary') root.prepend(fresh);
+      else if (name === 'watch') root.querySelector(':scope > .audit-summary').after(fresh);
+      else {
+        const site = root.querySelector(':scope > [data-fold="site"]');
+        if (site) site.before(fresh); else root.appendChild(fresh);
+      }
+    }
+    if (key && !root.contains(active)) {
+      const again = root.querySelector(`[data-key="${CSS.escape(key)}"]`);
+      if (again && !again.disabled) again.focus({ preventScroll: true });
+    }
   }
 
   /*
@@ -2758,7 +3205,7 @@
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, progress, brief, sarif, csv, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
+  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, update, progress, brief, sarif, csv, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaCodeAudit;

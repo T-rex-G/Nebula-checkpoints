@@ -1776,31 +1776,32 @@ function plain(value, limit) {
   return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
 }
 
+const OSV_HEADERS = Object.freeze({ 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'Nebulaverse-X-Audit/1.0' });
+const advisoryRank = id => (id.startsWith('MAL-') ? 0 : id.startsWith('GHSA-') ? 1 : 2);
+
 /*
- * Which of these versions have published advisories. One anonymous batch
- * query to OSV per few hundred packages through the guarded transport's
- * advisory profile, then the records themselves for the advisories found,
- * direct dependencies and malicious-package records first. A batch that
- * fails leaves its packages unknown, and unknown is never a finding.
+ * The advisory ids OSV holds for each of these versions: one anonymous batch
+ * query per few hundred packages through the guarded transport's advisory
+ * profile. A batch that fails leaves its packages in `unknown`, and unknown is
+ * never a finding -- nor, for the watch, news.
  */
-async function lookupAdvisories(entries, transport, limits = LIMITS) {
-  const answers = new Map();
+async function queryAdvisoryIds(entries, transport, limits = LIMITS) {
   const unique = [];
   const seen = new Set();
   for (const entry of entries) {
     const key = advisoryKey(entry);
-    if (seen.has(key)) continue;
+    if (seen.has(key) || !OSV_ECOSYSTEM[entry.ecosystem]) continue;
     seen.add(key);
     unique.push(entry);
   }
   const asked = unique.slice(0, limits.maxAdvisoryQueries);
-  const idsByKey = new Map();
-  const headers = { 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'Nebulaverse-X-Audit/1.0' };
+  const ids = new Map();
+  const unknown = new Set();
   for (let start = 0; start < asked.length; start += limits.advisoryBatch) {
     const batch = asked.slice(start, start + limits.advisoryBatch);
     try {
       const response = await transport({
-        url: `${OSV}/querybatch`, profile: 'advisory-query', method: 'POST', headers,
+        url: `${OSV}/querybatch`, profile: 'advisory-query', method: 'POST', headers: { ...OSV_HEADERS },
         body: JSON.stringify({ queries: batch.map(entry => ({ package: { name: entry.name, ecosystem: OSV_ECOSYSTEM[entry.ecosystem] }, version: entry.version })) }),
         maxResponseBytes: 256 * 1024
       });
@@ -1808,13 +1809,54 @@ async function lookupAdvisories(entries, transport, limits = LIMITS) {
       if (!body || !Array.isArray(body.results) || body.results.length !== batch.length) throw new Error('unanswered');
       batch.forEach((entry, index) => {
         const result = body.results[index];
-        const ids = (result && Array.isArray(result.vulns) ? result.vulns : []).map(vuln => String(vuln && vuln.id)).filter(id => ADVISORY_ID.test(id));
-        idsByKey.set(advisoryKey(entry), ids);
+        ids.set(advisoryKey(entry), (result && Array.isArray(result.vulns) ? result.vulns : []).map(vuln => String(vuln && vuln.id)).filter(id => ADVISORY_ID.test(id)));
       });
     } catch {
-      batch.forEach(entry => answers.set(advisoryKey(entry), 'unknown'));
+      batch.forEach(entry => unknown.add(advisoryKey(entry)));
     }
   }
+  return { asked, ids, unknown, total: unique.length };
+}
+
+/* The records themselves, a bounded number, fetched concurrently. A record that does not come back leaves its id reported alone. */
+async function fetchAdvisoryRecords(order, transport, limits = LIMITS) {
+  const records = new Map();
+  await boundedMap(order.slice(0, limits.maxAdvisoryDetails), limits.lookupConcurrency + 2, async id => {
+    try {
+      const response = await transport({ url: `${OSV}/vulns/${encodeURIComponent(id)}`, profile: 'advisory-query', method: 'GET', headers: { accept: 'application/json', 'user-agent': OSV_HEADERS['user-agent'] }, maxResponseBytes: 256 * 1024 });
+      const record = Number(response && response.statusCode) === 200 ? parseJson(String(response.body || '')) : null;
+      if (record && record.id === id) records.set(id, record);
+    } catch { /* The id alone is still reported. */ }
+  });
+  return records;
+}
+
+/* What one advisory says about one package version, from its record when there is one. */
+function describeAdvisory(id, record, entry) {
+  const aliases = record && Array.isArray(record.aliases) ? record.aliases.map(String) : [];
+  return Object.freeze({
+    id,
+    cve: aliases.find(alias => /^CVE-\d{4}-\d+$/.test(alias)) || (/^CVE-\d{4}-\d+$/.test(id) ? id : null),
+    /* Unrated when the record was not fetched: the id is still a fact, its severity is not. */
+    rated: Boolean(record),
+    severity: record ? advisorySeverity(record) : (id.startsWith('MAL-') ? 'critical' : null),
+    cvss: record ? topCvss(record) : null,
+    summary: record ? plain(record.summary || '', 140) : '',
+    fixed: record ? fixedVersion(record, entry) : null,
+    malicious: id.startsWith('MAL-')
+  });
+}
+
+/*
+ * Which of these versions have published advisories: the ids, then the
+ * records for the advisories found, direct dependencies and malicious-package
+ * records first. `ids` keeps every id OSV answered for each version, before
+ * aliases are folded together -- what the watch compares against later.
+ */
+async function lookupAdvisories(entries, transport, limits = LIMITS) {
+  const answers = new Map();
+  const { asked, ids: idsByKey, unknown, total } = await queryAdvisoryIds(entries, transport, limits);
+  for (const key of unknown) answers.set(key, 'unknown');
 
   /*
    * Records are fetched a round at a time across packages -- every
@@ -1824,51 +1866,31 @@ async function lookupAdvisories(entries, transport, limits = LIMITS) {
    */
   const order = [];
   const queued = new Set();
-  const rank = id => (id.startsWith('MAL-') ? 0 : id.startsWith('GHSA-') ? 1 : 2);
-  const lists = asked.map(entry => [...(idsByKey.get(advisoryKey(entry)) || [])].sort((a, b) => rank(a) - rank(b)));
+  const lists = asked.map(entry => [...(idsByKey.get(advisoryKey(entry)) || [])].sort((a, b) => advisoryRank(a) - advisoryRank(b)));
   for (let round = 0; lists.some(list => list.length > round); round += 1) {
     for (const list of lists) {
       const id = list[round];
       if (id && !queued.has(id)) { queued.add(id); order.push(id); }
     }
   }
-  const records = new Map();
-  await boundedMap(order.slice(0, limits.maxAdvisoryDetails), limits.lookupConcurrency + 2, async id => {
-    try {
-      const response = await transport({ url: `${OSV}/vulns/${encodeURIComponent(id)}`, profile: 'advisory-query', method: 'GET', headers: { accept: 'application/json', 'user-agent': headers['user-agent'] }, maxResponseBytes: 256 * 1024 });
-      const record = Number(response && response.statusCode) === 200 ? parseJson(String(response.body || '')) : null;
-      if (record && record.id === id) records.set(id, record);
-    } catch { /* The id alone is still reported. */ }
-  });
+  const records = await fetchAdvisoryRecords(order, transport, limits);
 
   for (const entry of asked) {
     const key = advisoryKey(entry);
     if (answers.has(key)) continue;
-    const ids = idsByKey.get(key) || [];
     const covered = new Set();
     const advisories = [];
-    for (const id of [...ids].sort((a, b) => rank(a) - rank(b))) {
+    for (const id of [...(idsByKey.get(key) || [])].sort((a, b) => advisoryRank(a) - advisoryRank(b))) {
       if (covered.has(id)) continue;
       const record = records.get(id);
-      const aliases = record && Array.isArray(record.aliases) ? record.aliases.map(String) : [];
-      aliases.forEach(alias => covered.add(alias));
+      const advisory = describeAdvisory(id, record, entry);
+      (record && Array.isArray(record.aliases) ? record.aliases.map(String) : []).forEach(alias => covered.add(alias));
       covered.add(id);
-      const cve = aliases.find(alias => /^CVE-\d{4}-\d+$/.test(alias)) || null;
-      advisories.push(Object.freeze({
-        id,
-        cve,
-        /* Unrated when the record was not fetched: the id is still a fact, its severity is not. */
-        rated: Boolean(record),
-        severity: record ? advisorySeverity(record) : (id.startsWith('MAL-') ? 'critical' : null),
-        cvss: record ? topCvss(record) : null,
-        summary: record ? plain(record.summary || '', 140) : '',
-        fixed: record ? fixedVersion(record, entry) : null,
-        malicious: id.startsWith('MAL-')
-      }));
+      advisories.push(advisory);
     }
     answers.set(key, Object.freeze({ advisories: Object.freeze(advisories) }));
   }
-  return { answers, asked: asked.length, total: unique.length };
+  return { answers, asked: asked.length, total, ids: idsByKey };
 }
 
 const SEVERITY_ORDER = Object.freeze({ critical: 0, serious: 1, warning: 2 });
@@ -2773,6 +2795,31 @@ async function lookupPackages(packages, transport, limits = LIMITS) {
  * starts, with a count while files are read. Progress carries numbers and
  * stage names only, never a path or a line of the code.
  */
+/*
+ * What each component's advisories were at this audit: every id OSV answered
+ * before aliases were folded together, the CVEs those advisories carry, and
+ * which of them CISA listed as exploited. It is the baseline the watch
+ * compares a later answer with (src/code-audit-watch.js), so an advisory this
+ * audit already reported is never announced again as new, and a CVE that was
+ * already in the catalog is never announced as newly exploited.
+ */
+const MAX_BASELINE_IDS = 200;
+function baselineComponents(components, advisories, intel) {
+  if (!Array.isArray(components) || !advisories.ids) return;
+  for (const component of components) {
+    const key = advisoryKey(component);
+    const ids = advisories.ids.get(key);
+    if (!ids || !ids.length) continue;
+    const answer = advisories.answers.get(key);
+    const cves = answer && answer !== 'unknown' ? [...new Set(answer.advisories.map(advisory => advisory.cve).filter(Boolean))] : [];
+    const listed = cve => {
+      const known = intel && intel.answers.get(cve);
+      return Boolean(known && known.kev);
+    };
+    component.advisories = { ids: [...new Set(ids)].slice(0, MAX_BASELINE_IDS), cves: cves.slice(0, MAX_BASELINE_IDS), exploited: cves.filter(listed).slice(0, MAX_BASELINE_IDS) };
+  }
+}
+
 async function auditRepository({ reader, scope, ref, token, transport, registryTransport, advisoryTransport, intelTransport, intelCache, limits = LIMITS, analyser = input => analyse(input), onProgress = () => {} }) {
   const progress = (stage, detail = {}) => { try { onProgress({ stage, ...detail }); } catch {} };
   progress('resolving');
@@ -2819,6 +2866,7 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
   }
   progress('analysing', { files: files.length });
   const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers, intel: intel ? intel.answers : null });
+  baselineComponents(result.components, advisories, intel);
   const lockfiles = paths.filter(filePath => READ_LOCKS.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath));
   return {
     commitSha: resolved.commitSha,
@@ -2855,6 +2903,6 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
 
 module.exports = Object.freeze({
   ENGINE, CATEGORIES, RULES, LIMITS, CRITICAL_CAP, SEVERITY_PENALTY, PATTERN_RULES, LEDGER,
-  analyse, auditRepository, selectFiles, lookupPackages, lookupAdvisories, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
+  analyse, auditRepository, selectFiles, lookupPackages, lookupAdvisories, queryAdvisoryIds, fetchAdvisoryRecords, describeAdvisory, advisoryKey, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
   compareVersions, rangeCeiling, rangeFloor, cvss3, sqlStatements
 });

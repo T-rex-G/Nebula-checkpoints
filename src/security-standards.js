@@ -76,12 +76,15 @@ const CWE_NAMES = Object.freeze({
   209: 'Error Message Containing Sensitive Information',
   250: 'Execution with Unnecessary Privileges',
   284: 'Improper Access Control',
+  290: 'Authentication Bypass by Spoofing',
   295: 'Improper Certificate Validation',
   306: 'Missing Authentication for Critical Function',
   307: 'Excessive Authentication Attempts',
   311: 'Missing Encryption of Sensitive Data',
   319: 'Cleartext Transmission of Sensitive Information',
   321: 'Use of Hard-coded Cryptographic Key',
+  324: 'Use of a Key Past its Expiration Date',
+  327: 'Use of a Broken or Risky Cryptographic Algorithm',
   338: 'Weak PRNG',
   345: 'Insufficient Verification of Data Authenticity',
   347: 'Improper Verification of Cryptographic Signature',
@@ -93,7 +96,9 @@ const CWE_NAMES = Object.freeze({
   506: 'Embedded Malicious Code',
   527: 'Exposure of Version-Control Repository',
   538: 'Sensitive Information in an Externally-Accessible File',
+  540: 'Inclusion of Sensitive Information in Source Code',
   546: 'Suspicious Comment',
+  548: 'Exposure of Information Through Directory Listing',
   601: 'Open Redirect',
   614: 'Sensitive Cookie Without Secure Attribute',
   639: 'Authorization Bypass Through User-Controlled Key',
@@ -173,7 +178,14 @@ const MAP = Object.freeze({
   'WEB-006': [693, 'A02', 'text'], 'WEB-007': [1021, 'A02', 'text'], 'WEB-008': [693, 'A02', 'text'],
   'WEB-009': [200, 'A02', 'text'], 'WEB-010': [942, 'A02'], 'WEB-011': [614, 'A02'], 'WEB-012': [1004, 'A02'],
   'WEB-013': [497, 'A01'], 'WEB-014': [1059, null], 'WEB-015': [538, 'A01'], 'WEB-016': [693, 'A02', 'text'],
-  'WEB-017': [693, 'A02', 'text'], 'WEB-018': [319, 'A04'], 'WEB-019': [353, 'A08']
+  'WEB-017': [693, 'A02', 'text'], 'WEB-018': [319, 'A04'], 'WEB-019': [353, 'A08'],
+  /* The deeper site check: the connection, what errors and listings give away, what the JavaScript ships, email. */
+  'WEB-020': [319, 'A04'], 'WEB-021': [209, 'A10'], 'WEB-022': [548, 'A01'], 'WEB-023': [798, 'A07'],
+  'WEB-024': [540, 'A01'], 'WEB-025': [1395, 'A03'], 'WEB-026': [1059, null], 'WEB-027': [290, 'A07'],
+  'WEB-028': [290, 'A07'], 'WEB-029': [324, 'A04'], 'WEB-030': [324, 'A04'], 'WEB-031': [327, 'A04'],
+  'WEB-032': [693, 'A02', 'text'], 'WEB-033': [319, 'A04'], 'WEB-034': [497, 'A01'], 'WEB-035': [538, 'A01'],
+  /* CWE-527's parent is CWE-538, as for the Git directory. */
+  'WEB-036': [527, 'A01', 'scope']
 });
 
 /* The labels for one rule, or null when the rule is not mapped. */

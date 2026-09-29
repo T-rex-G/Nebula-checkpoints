@@ -218,8 +218,24 @@ test('the deployed site is checked anonymously, and the next check shows what wa
   await expect(site).toContainText('Filled in from the repository’s homepage.');
 
   await site.getByRole('button', { name: 'Check site' }).click();
+  /* A job the page follows: the step it is on, then the result. */
+  await expect(site.locator('.audit-site-progress .audit-progress-line')).toHaveText('Reading the site’s JavaScript for secrets and libraries · 2 of 5');
+  await expect(site.locator('.audit-site-progress .audit-step[data-step="crawl"]')).toHaveAttribute('data-state', 'active');
   await expect(site.locator('.audit-grade')).toHaveAttribute('aria-label', /^Site grade F, \d{1,2} out of 100$/);
-  await expect(site).toContainText(/\d anonymous requests; the page answered 200\./);
+  await expect(site).toContainText(/\d+ anonymous requests in \d+ s; the page answered 200\./);
+
+  /* What was checked, row by row -- so a short list of findings is never read as a clean site. */
+  const ledger = site.getByRole('list', { name: 'What was checked' }).getByRole('listitem');
+  await expect(ledger.filter({ hasText: 'Certificate' })).toContainText('Valid for 74 more days, issued by Let’s Encrypt');
+  await expect(ledger.filter({ hasText: 'Plain HTTP' })).toContainText('Plain HTTP redirects to HTTPS');
+  await expect(ledger.filter({ hasText: 'Exposed files' })).toHaveAttribute('data-state', 'fail');
+  await expect(ledger.filter({ hasText: 'Email spoofing' })).toContainText('example.com: SPF strict, DMARC missing');
+  await expect(site.getByRole('list', { name: 'Browser libraries' })).toContainText('jquery 1.12.4');
+  await expect(site.getByRole('list', { name: 'Browser libraries' })).toContainText('2 advisories · fixed in 3.5.0');
+  /* Past five, the rest of the findings fold behind one control; the library is among them. */
+  await site.locator('.audit-more').click();
+  await expect(site.locator('.audit-item', { hasText: 'A JavaScript library with known vulnerabilities is loaded' })).toBeVisible();
+  await expect(site.locator('.audit-item', { hasText: 'Source maps are public' })).toBeVisible();
 
   /* The headers a browser enforces, each marked sent or not, and never by colour alone. */
   const headers = site.getByRole('list', { name: 'Security headers' }).getByRole('listitem');
@@ -250,6 +266,8 @@ test('the deployed site is checked anonymously, and the next check shows what wa
   const text = require('fs').readFileSync(await (await download).path(), 'utf8');
   expect(text).toContain('# Deployed site: https://demo.example.com');
   expect(text).toContain('An environment file is served publicly');
+  expect(text).toContain('## What was checked');
+  expect(text).toContain('- jquery 1.12.4: 2 advisories (CVE-2020-11022, CVE-2015-9251), fixed in 3.5.0');
   expect(text).not.toContain('SECRET_KEY');
 
   /* Fixed: the headers are sent and the file is gone. */

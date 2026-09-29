@@ -21,7 +21,7 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 test.use({ serviceWorkers: 'block' });
 test.skip(({ viewport }) => !viewport || viewport.width >= 1140, 'the rail draws itself above 1140px');
 
-const DESTINATIONS = ['overview', 'repos', 'neural', 'governance', 'exposure'];
+const DESTINATIONS = ['overview', 'repos', 'neural', 'governance', 'exposure', 'site'];
 
 async function signedIn(page) {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
@@ -65,7 +65,7 @@ test('every primary destination arrives, and closes the menu behind it', async (
    * views of an open repository and refuse when there is none. Reaching them
    * is the claim; inventing a repository to show is not.
    */
-  const expectedPage = { overview: 'page-overview', repos: 'page-repos' };
+  const expectedPage = { overview: 'page-overview', repos: 'page-repos', site: 'page-site' };
 
   for (const rail of DESTINATIONS) {
     await insideRepository(page);

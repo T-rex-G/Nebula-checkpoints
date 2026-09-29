@@ -1222,7 +1222,8 @@ test('the security entries sit together, in the same order, in the menu and the 
     };
   });
 
-  const expected = ['neural', 'governance', 'exposure', 'audit', 'safeguards'];
+  /* Website checks any address and needs no repository, but it is a security surface like its neighbours. */
+  const expected = ['neural', 'governance', 'exposure', 'audit', 'site', 'safeguards'];
   expect(groups.menu).toEqual(expected);
   expect(groups.rail).toEqual(expected);
   expect(groups.railLabel).toBe('Security');

@@ -2471,7 +2471,141 @@
     const hops = result.redirects
       ? ` after ${plural(result.redirects, 'redirect', 'redirects')}${result.requested && result.requested !== result.origin ? ` from ${result.requested}` : ''}`
       : '';
-    return `${plural(result.requests, 'anonymous request', 'anonymous requests')}; the page answered ${result.status}${hops}.`;
+    const took = Number.isFinite(result.durationMs) ? ` in ${Math.max(1, Math.round(result.durationMs / 1000))} s` : '';
+    return `${plural(result.requests, 'anonymous request', 'anonymous requests')}${took}; the page answered ${result.status}${hops}.`;
+  }
+
+  /*
+   * Where a running site check is, as the server reports it: four steps in
+   * the audit's own language, a line in words and a count where there is one.
+   */
+  const SITE_STEPS = Object.freeze([
+    { id: 'connect', label: 'Connect', stages: ['page', 'transport'] },
+    { id: 'probe', label: 'Probe', stages: ['paths'] },
+    { id: 'crawl', label: 'Read', stages: ['pages', 'scripts'] },
+    { id: 'lookup', label: 'Look up', stages: ['libraries', 'email'] }
+  ]);
+  function siteStageLine(progress) {
+    const p = progress || {};
+    switch (p.stage) {
+      case 'transport': return 'Checking the certificate, plain HTTP and cross-origin reads';
+      case 'paths': return p.total ? `Asking for files that should never be served · ${p.done || 0} of ${p.total}` : 'Asking for files that should never be served';
+      case 'pages': return p.total ? `Reading the pages the site links to · ${p.done || 0} of ${p.total}` : 'Reading the pages the site links to';
+      case 'scripts': return p.total ? `Reading the site’s JavaScript for secrets and libraries · ${p.done || 0} of ${p.total}` : 'Looking for the site’s JavaScript';
+      case 'libraries': return 'Asking OSV about the libraries found';
+      case 'email': return 'Looking up the domain’s SPF and DMARC records';
+      default: return 'Requesting the page a visitor lands on';
+    }
+  }
+  function siteProgressBlock(progress) {
+    const wrap = element('div', 'audit-progress audit-site-progress');
+    const steps = element('ol', 'audit-steps');
+    steps.setAttribute('aria-label', 'Site check steps');
+    for (const step of SITE_STEPS) {
+      const item = element('li', 'audit-step');
+      item.dataset.step = step.id;
+      item.append(element('span', 'audit-step-dot'), element('span', 'audit-step-label', step.label));
+      steps.appendChild(item);
+    }
+    const line = element('p', 'audit-progress-line');
+    const bar = element('div', 'audit-progress-bar');
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', 'Site check progress');
+    bar.appendChild(element('span', 'audit-progress-fill'));
+    const announce = element('span', 'sr-only');
+    announce.setAttribute('role', 'status');
+    wrap.append(steps, line, bar, announce);
+    updateSiteProgress(wrap, progress);
+    return wrap;
+  }
+  function updateSiteProgress(wrap, progress) {
+    const p = progress && progress.stage ? progress : { stage: 'page' };
+    const current = Math.max(0, SITE_STEPS.findIndex(step => step.stages.includes(p.stage)));
+    wrap.dataset.stage = p.stage;
+    wrap.querySelectorAll('.audit-step').forEach((item, index) => {
+      item.dataset.state = index < current ? 'done' : index === current ? 'active' : 'next';
+      if (index === current) item.setAttribute('aria-current', 'step');
+      else item.removeAttribute('aria-current');
+    });
+    const text = siteStageLine(p);
+    const line = wrap.querySelector('.audit-progress-line');
+    if (line.textContent !== text) line.textContent = text;
+    /* The bar moves through the steps, and within one by its count. */
+    const total = Math.max(0, Number(p.total) || 0);
+    const done = Math.min(total, Math.max(0, Number(p.done) || 0));
+    const fraction = Math.min(1, (current + (total ? done / total : 0.5)) / SITE_STEPS.length);
+    const bar = wrap.querySelector('.audit-progress-bar');
+    bar.style.setProperty('--audit-read', fraction.toFixed(4));
+    bar.dataset.busy = 'false';
+    bar.setAttribute('aria-valuemin', '0');
+    bar.setAttribute('aria-valuemax', '100');
+    bar.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
+    bar.setAttribute('aria-valuetext', text);
+    const announce = wrap.querySelector('[role="status"]');
+    if (announce.dataset.step !== SITE_STEPS[current].id) {
+      announce.dataset.step = SITE_STEPS[current].id;
+      announce.textContent = text;
+    }
+  }
+  /* A poll's answer, painted into the running site card without redrawing it. */
+  function siteProgress(root, value) {
+    const wrap = root && root.querySelector('.audit-site .audit-site-progress');
+    if (!wrap) return false;
+    updateSiteProgress(wrap, value);
+    return true;
+  }
+
+  /* What was checked, each as passed, failed, worth a look, skipped or not answered -- so a short findings list is never read as a clean site. */
+  const LEDGER_NAMES = Object.freeze({
+    certificate: 'Certificate', protocol: 'TLS', 'plain-http': 'Plain HTTP', hsts: 'HSTS', headers: 'Security headers', cookies: 'Cookies',
+    cors: 'Cross-origin reads', paths: 'Exposed files', errors: 'Error pages', pages: 'Pages read', scripts: 'JavaScript', maps: 'Source maps',
+    libraries: 'Libraries', contact: 'Security contact', email: 'Email spoofing'
+  });
+  const LEDGER_GLYPH = Object.freeze({ pass: '✓', fail: '✕', warn: '!', skip: '–', unknown: '?' });
+  const LEDGER_STATE = Object.freeze({ pass: 'Passed', fail: 'Failed', warn: 'Worth a look', skip: 'Skipped', unknown: 'Not answered' });
+  function siteLedger(result) {
+    const entries = Array.isArray(result.ledger) ? result.ledger : [];
+    if (!entries.length) return null;
+    const wrap = element('div', 'audit-site-ledger');
+    const title = element('h3', 'audit-site-list-title', 'What was checked');
+    const counts = entries.reduce((total, entry) => { total[entry.state] = (total[entry.state] || 0) + 1; return total; }, {});
+    const summary = element('span', 'audit-site-ledger-sum', [counts.pass ? `${counts.pass} passed` : '', counts.fail ? `${counts.fail} failed` : '', counts.warn ? `${counts.warn} worth a look` : ''].filter(Boolean).join(' · '));
+    const head = element('div', 'audit-site-ledger-head');
+    head.append(title, summary);
+    const list = element('ul', 'audit-site-ledger-list');
+    list.setAttribute('aria-label', 'What was checked');
+    for (const entry of entries) {
+      const item = element('li', 'audit-site-ledger-row');
+      item.dataset.state = entry.state;
+      const glyph = element('span', 'audit-site-ledger-glyph', LEDGER_GLYPH[entry.state] || '?');
+      glyph.setAttribute('aria-hidden', 'true');
+      const text = element('span', 'audit-site-ledger-text');
+      text.append(element('span', 'audit-site-ledger-name', LEDGER_NAMES[entry.id] || entry.id), element('span', 'audit-site-ledger-detail', entry.detail || ''));
+      const state = element('span', 'sr-only', `${LEDGER_STATE[entry.state] || entry.state}: `);
+      item.append(glyph, state, text);
+      list.appendChild(item);
+    }
+    wrap.append(head, list);
+    return wrap;
+  }
+  /* The browser libraries recognised, each with what the advisory database says of its version. */
+  function siteLibraries(result) {
+    const libraries = Array.isArray(result.libraries) ? result.libraries : [];
+    if (!libraries.length) return null;
+    const list = element('ul', 'audit-site-libs');
+    list.setAttribute('aria-label', 'Browser libraries');
+    for (const library of libraries) {
+      const item = element('li', 'audit-site-lib');
+      item.dataset.state = library.state;
+      const name = element('span', 'audit-site-lib-name', `${library.name} ${library.version}`);
+      const state = element('span', 'audit-site-lib-state', library.state === 'vulnerable'
+        ? `${plural(library.advisories, 'advisory', 'advisories')}${library.fixed ? ` · fixed in ${library.fixed}` : ''}`
+        : library.state === 'clean' ? 'No advisory' : 'Not checked');
+      item.title = library.source === 'address' ? 'Recognised from the address it is served from' : 'Recognised from its own banner';
+      item.append(name, state);
+      list.appendChild(item);
+    }
+    return list;
   }
 
   function renderSite(host, site, handlers, previous) {
@@ -2481,9 +2615,12 @@
     const mark = element('span', 'audit-site-mark');
     mark.appendChild(icon(ICON.globe));
     const titles = element('div', 'audit-site-titles');
-    const heading = element('h2', 'exposure-heading', 'Deployed site');
+    /* On its own page the hero above already says what is checked; the card says how. */
+    const heading = element('h2', 'exposure-heading', site.standalone ? 'Check a site' : 'Deployed site');
     heading.id = 'auditSiteHeading';
-    titles.append(heading, element('p', 'audit-site-lede', 'Headers, cookies and exposed files, as any visitor’s browser sees them. Ten anonymous requests; nothing kept.'));
+    titles.append(heading, element('p', 'audit-site-lede', site.standalone
+      ? 'Anonymous GET requests only \u2014 at most sixty, in under a minute \u2014 and nothing it reads is kept.'
+      : 'The certificate, headers, exposed files, the pages and scripts a visitor loads, their libraries and the domain’s email policy. Anonymous requests only; nothing kept.'));
     head.append(mark, titles);
     card.appendChild(head);
 
@@ -2508,11 +2645,12 @@
     field.append(input, submit);
     form.append(label, field);
     if (site.suggested && !site.result) form.appendChild(element('p', 'audit-site-hint', 'Filled in from the repository’s homepage.'));
+    if (site.standalone && !site.result && site.status !== 'running') form.appendChild(element('p', 'audit-site-hint', 'Any site you may test: it is asked only what any visitor’s browser asks, and nothing is submitted, guessed or tried.'));
     form.addEventListener('submit', event => { event.preventDefault(); handlers.onSiteCheck(input.value); });
     card.appendChild(form);
 
     if (site.status === 'running') {
-      card.appendChild(element('p', 'audit-lede audit-muted', 'Requesting the page and the paths that should never be served…'));
+      card.appendChild(siteProgressBlock(site.progress));
     } else if (site.status === 'error') {
       const error = element('p', 'audit-lede audit-error', site.error || 'The site could not be checked.');
       error.setAttribute('role', 'alert');
@@ -2559,6 +2697,10 @@
         headers.appendChild(item);
       }
       card.appendChild(headers);
+      const ledger = siteLedger(result);
+      if (ledger) card.appendChild(ledger);
+      const libraries = siteLibraries(result);
+      if (libraries) card.appendChild(libraries);
 
       const exportable = handlers.onExport && !site.hasRepositoryResult;
       if (total || exportable) {
@@ -2586,7 +2728,17 @@
         }
       }
     }
-    host.appendChild(foldable(card, 'site', head, 'Deployed site'));
+    host.appendChild(site.standalone ? card : foldable(card, 'site', head, 'Deployed site'));
+  }
+
+  /* The site check on its own page: the same card, for any address. */
+  const drawnSites = new WeakMap();
+  function renderSiteScan(root, site, handlers) {
+    if (!root) return;
+    const previous = drawnSites.get(root) || null;
+    root.replaceChildren();
+    renderSite(root, { ...site, standalone: true }, handlers, previous);
+    drawnSites.set(root, { siteId: site.result ? `${site.result.origin}|${site.result.checkedAt}` : null });
   }
 
   /*
@@ -2830,6 +2982,15 @@
         ...(site.headers || []).map(header => `| ${HEADER_NAMES[header.name] || header.name} | ${header.present ? 'yes' : 'no'} |`),
         ''
       );
+      if (Array.isArray(site.ledger) && site.ledger.length) {
+        lines.push('## What was checked', '', '| Check | Result | Detail |', '| --- | --- | --- |',
+          ...site.ledger.map(entry => `| ${LEDGER_NAMES[entry.id] || entry.id} | ${LEDGER_STATE[entry.state] || entry.state} | ${String(entry.detail || '').replace(/\|/g, '\\|')} |`), '');
+      }
+      if (Array.isArray(site.libraries) && site.libraries.length) {
+        lines.push('## Browser libraries', '', ...site.libraries.map(library => `- ${library.name} ${library.version}: ${library.state === 'vulnerable'
+          ? `${plural(library.advisories, 'advisory', 'advisories')}${library.ids && library.ids.length ? ` (${library.ids.join(', ')})` : ''}${library.fixed ? `, fixed in ${library.fixed}` : ''}`
+          : library.state === 'clean' ? 'no published advisory' : 'not checked'}`), '');
+      }
       if (!site.findings.length) lines.push('No findings on the site.', '');
       findingSection(site.findings, lines, 'S', finding => `\`${finding.where}\``);
     }
@@ -3209,7 +3370,7 @@
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, update, progress, brief, sarif, csv, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
+  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, update, progress, siteProgress, renderSiteScan, brief, sarif, csv, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaCodeAudit;

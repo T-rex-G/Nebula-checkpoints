@@ -175,7 +175,7 @@
         "site-check": [
           "Supported",
           "Deterministic",
-          "An anonymous look at a deployed site through the guarded transport: HTTPS on 443 to public addresses, no credential and no cookie, ten bounded requests including up to three redirects to the page. Security headers, cookies and served secrets are judged by fixture-tested rules; a file is reported as served only when its content has the shape that file must have, never quoted, and a site that cannot be reached is an error rather than a clean report."
+          "An anonymous look at a deployed site through the guarded transport: GET only, HTTPS on 443 to public addresses (and one plain-HTTP request whose answer body is never read), no credential and no cookie, at most sixty bounded requests in forty-five seconds. The certificate and protocol, security headers, cookies, cross-origin reads, served secrets and diagnostics pages, error pages, up to five linked pages (honouring robots.txt), and the site's own scripts -- for shipped secrets, public source maps and library versions, which OSV is asked about -- are judged by fixture-tested rules, and the domain's SPF and DMARC records are read from public DNS. A file is reported as served only when its content has the shape that file must have, never quoted; a question that could not be asked is reported as not checked, never as passed; and a site that cannot be reached is an error rather than a clean report."
         ],
         "stars.read": [
           "Supported",
@@ -364,7 +364,7 @@
         "site-check": [
           "Supported",
           "Deterministic",
-          "An anonymous look at a deployed site through the guarded transport: HTTPS on 443 to public addresses, no credential and no cookie, ten bounded requests including up to three redirects to the page. Security headers, cookies and served secrets are judged by fixture-tested rules; a file is reported as served only when its content has the shape that file must have, never quoted, and a site that cannot be reached is an error rather than a clean report."
+          "An anonymous look at a deployed site through the guarded transport: GET only, HTTPS on 443 to public addresses (and one plain-HTTP request whose answer body is never read), no credential and no cookie, at most sixty bounded requests in forty-five seconds. The certificate and protocol, security headers, cookies, cross-origin reads, served secrets and diagnostics pages, error pages, up to five linked pages (honouring robots.txt), and the site's own scripts -- for shipped secrets, public source maps and library versions, which OSV is asked about -- are judged by fixture-tested rules, and the domain's SPF and DMARC records are read from public DNS. A file is reported as served only when its content has the shape that file must have, never quoted; a question that could not be asked is reported as not checked, never as passed; and a site that cannot be reached is an error rather than a clean report."
         ],
         "stars.read": [
           "Unavailable",
@@ -553,7 +553,7 @@
         "site-check": [
           "Supported",
           "Deterministic",
-          "An anonymous look at a deployed site through the guarded transport: HTTPS on 443 to public addresses, no credential and no cookie, ten bounded requests including up to three redirects to the page. Security headers, cookies and served secrets are judged by fixture-tested rules; a file is reported as served only when its content has the shape that file must have, never quoted, and a site that cannot be reached is an error rather than a clean report."
+          "An anonymous look at a deployed site through the guarded transport: GET only, HTTPS on 443 to public addresses (and one plain-HTTP request whose answer body is never read), no credential and no cookie, at most sixty bounded requests in forty-five seconds. The certificate and protocol, security headers, cookies, cross-origin reads, served secrets and diagnostics pages, error pages, up to five linked pages (honouring robots.txt), and the site's own scripts -- for shipped secrets, public source maps and library versions, which OSV is asked about -- are judged by fixture-tested rules, and the domain's SPF and DMARC records are read from public DNS. A file is reported as served only when its content has the shape that file must have, never quoted; a question that could not be asked is reported as not checked, never as passed; and a site that cannot be reached is an error rather than a clean report."
         ],
         "stars.read": [
           "Unavailable",

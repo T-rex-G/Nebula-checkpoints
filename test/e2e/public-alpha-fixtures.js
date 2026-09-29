@@ -611,9 +611,27 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
      * first check finds a bare site serving its .env; by the second the
      * headers are sent, the file is gone, and / redirects to the app.
      */
-    if (pathname === '/api/repo/sandbox/demo/site-check' && method === 'GET') {
-      const { checkSite } = require('../../src/site-check');
-      state.siteChecks = (state.siteChecks || 0) + 1;
+    /*
+     * The site check, as the server runs it: a job the page starts and then
+     * asks after, and a result computed by the real engine over a small
+     * flawed site that is fixed by the second check. The same answer serves
+     * the repository's Audit tab and the Website page.
+     */
+    if ((pathname === '/api/repo/sandbox/demo/site-check' || pathname === '/api/site-check') && method === 'GET') {
+      const { checkSite, siteOrigin } = require('../../src/site-check');
+      const run = url.searchParams.get('run');
+      if (!run) {
+        try { siteOrigin(url.searchParams.get('url')); }
+        catch (error) { return fulfill({ error: error.message, code: error.code }, error.status || 400); }
+        state.siteChecks = (state.siteChecks || 0) + 1;
+        state.siteRun = `site-${state.siteChecks}`;
+        state.sitePolls = 0;
+        state.siteAsked = url.searchParams.get('url');
+        return fulfill({ state: 'running', run: state.siteRun, stage: 'page', done: 0, total: 0, position: null, limit: null, elapsedMs: 10 }, 202);
+      }
+      if (run !== state.siteRun) return fulfill({ error: 'This site check is no longer held by the server. It may have restarted. Check the site again.', code: 'SITE_CHECK_RUN_GONE' }, 404);
+      state.sitePolls += 1;
+      if (state.sitePolls === 1) return fulfill({ state: 'running', run, stage: 'scripts', done: 2, total: 5, position: null, limit: null, elapsedMs: 1800 }, 202);
       const fixed = state.siteChecks > 1;
       const headers = fixed ? {
         'content-type': 'text/html',
@@ -623,16 +641,35 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'strict-origin-when-cross-origin'
       } : { 'content-type': 'text/html', 'x-powered-by': 'Express', 'set-cookie': ['sid=x; Path=/'] };
+      const landing = fixed
+        ? '<!doctype html><html><body><a href="/pricing">Pricing</a><script src="/assets/app.js"></script></body></html>'
+        : '<!doctype html><html><body><a href="/pricing">Pricing</a><script src="/assets/app.js"></script><script src="https://code.jquery.com/jquery-1.12.4.min.js"></script></body></html>';
       const transport = async input => {
-        const path = new URL(input.url).pathname;
+        const target = new URL(input.url);
+        if (input.plainHttp) return { statusCode: 301, headers: { location: `https://${target.host}/` }, body: '' };
+        const path = target.pathname;
         if (path === '/' && fixed) return { statusCode: 302, headers: { location: '/app' }, body: '' };
-        if (path === '/' || path === '/app') return { statusCode: 200, headers, body: '<!doctype html><html></html>' };
+        if (path === '/' || path === '/app') {
+          return { statusCode: 200, headers, body: landing, tls: { protocol: 'TLSv1.3', validTo: new Date(Date.now() + 74.5 * 86_400_000).toISOString(), issuer: 'Let’s Encrypt' } };
+        }
+        if (path === '/pricing') return { statusCode: 200, headers: { 'content-type': 'text/html' }, body: '<!doctype html><html><body>Plans</body></html>' };
+        if (path === '/assets/app.js') return { statusCode: 200, headers: { 'content-type': 'application/javascript' }, body: `console.log("app");\n${fixed ? '' : '//# sourceMappingURL=app.js.map'}` };
+        if (path === '/assets/app.js.map' && !fixed) return { statusCode: 200, headers: { 'content-type': 'application/json' }, body: '{"version":3,"sources":["src/app.ts"],"mappings":"AAAA"}' };
         if (path === '/.env' && !fixed) return { statusCode: 200, headers: { 'content-type': 'text/plain' }, body: 'SECRET_KEY=x\n' };
-        if (path === '/.well-known/security.txt' && fixed) return { statusCode: 200, headers: { 'content-type': 'text/plain' }, body: 'Contact: mailto:security@example.com\n' };
-        return { statusCode: 404, headers: {}, body: '' };
+        if (path === '/.well-known/security.txt' && fixed) return { statusCode: 200, headers: { 'content-type': 'text/plain' }, body: 'Contact: mailto:security@example.com\nExpires: 2099-01-01T00:00:00Z\n' };
+        return { statusCode: 404, headers: { 'content-type': 'text/html' }, body: '<h1>Not found</h1>' };
       };
+      const advisoryTransport = async input => {
+        if (input.method === 'POST') {
+          const queries = JSON.parse(input.body).queries;
+          return { statusCode: 200, body: JSON.stringify({ results: queries.map(query => ({ vulns: query.package.name === 'jquery' ? [{ id: 'GHSA-gxr4-xjj5-5px2' }, { id: 'GHSA-rmxg-73gg-4p98' }] : [] })) }) };
+        }
+        const id = decodeURIComponent(new URL(input.url).pathname.split('/').pop());
+        return { statusCode: 200, body: JSON.stringify({ id, aliases: [id === 'GHSA-gxr4-xjj5-5px2' ? 'CVE-2020-11022' : 'CVE-2015-9251'], database_specific: { severity: 'MODERATE' }, affected: [{ package: { ecosystem: 'npm', name: 'jquery' }, ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: id === 'GHSA-gxr4-xjj5-5px2' ? '3.5.0' : '3.0.0' }] }] }] }) };
+      };
+      const txt = async name => (name.startsWith('_dmarc.') ? (fixed ? ['v=DMARC1; p=reject'] : []) : ['v=spf1 include:_spf.example.net -all']);
       try {
-        return fulfill({ ...(await checkSite({ url: url.searchParams.get('url'), transport })), checkedAt: new Date().toISOString() });
+        return fulfill({ ...(await checkSite({ url: state.siteAsked, transport, advisoryTransport, txt })), checkedAt: new Date().toISOString() });
       } catch (error) {
         return fulfill({ error: error.message, code: error.code }, error.status || 400);
       }

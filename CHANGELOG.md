@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+### A Site Check That Looks Like an Attacker Would
+
+Asked for: a deployed-site scan by URL that is not weak.
+
+- **Any address, on its own page.** A new Website entry in the rail checks any
+  site without a repository; the repository's Audit tab keeps its card. Both
+  run the check as a job with its steps shown -- connect, probe, read, look up
+  -- instead of one silent request.
+- **Seventeen new rules (36 in all)**, each fixture-tested firing and quiet:
+  - the connection: plain HTTP served without a redirect; a certificate
+    within two weeks or a month of expiry; an outdated TLS version;
+  - cross-origin reads: an origin reflected back with credentials;
+  - files that must never be served, now about twenty: `.env` variants, Git,
+    Subversion and Mercurial metadata, `.aws/credentials`, `.npmrc`,
+    Docker registry logins, WordPress config backups, and diagnostics pages
+    (Apache server-status, phpinfo, Spring Actuator env, Go pprof, Symfony
+    profiler, ELMAH);
+  - what an error page gives away: Django, Werkzeug, Laravel, Rails,
+    ASP.NET, PHP, Python, Java and Node.js debug output on a missing page,
+    and a framework's own debug page on any page read (a bare stack trace
+    quoted in documentation is not one); directory listings;
+  - the JavaScript a visitor downloads: server-side secrets shipped in the
+    site's own scripts or pages (the same detectors as Exposure, named by
+    kind, never shown; Supabase anon and Google browser keys are public by
+    design and not reported), public source maps, and library versions --
+    from a build's banner, a CDN address or WordPress's `?ver=` -- with
+    published advisories asked of OSV;
+  - forms that post over plain HTTP; a CSP whose script-src allows anywhere;
+    a security.txt with no valid expiry;
+  - email spoofing: a missing SPF record or one ending in +all, and a missing
+    DMARC policy or `p=none`, looked up at the registrable domain and skipped
+    on shared platforms such as onrender.com or vercel.app.
+- **What was checked, beside what was found.** Fifteen rows -- certificate,
+  TLS, plain HTTP, HSTS, headers, cookies, cross-origin reads, exposed files,
+  error pages, pages read, JavaScript, source maps, libraries, security
+  contact, email -- each passed, failed, worth a look, skipped or not
+  answered, so a short findings list is never read as a clean site. The
+  libraries found are listed with their advisories and fix, and both go into
+  the developer brief.
+- **Still a visitor, not an attack.** GET requests only, at most sixty in
+  forty-five seconds, nothing submitted, guessed or tried; up to five linked
+  pages, never one `robots.txt` closes or a sign-out; third-party scripts
+  are recognised by address, never fetched. One plain-HTTP request on port 80
+  is the only exception the transport allows, and its body is never read. Any
+  one site is checked at most every thirty seconds, whoever asks.
+- **Tested live:** this deployment in 37 requests and under four seconds.
+
 ### Any Public Repository, Read-Only
 
 Asked for: an audit of any public repository, not only the account's own.
@@ -27,6 +74,9 @@ Asked for: an audit of any public repository, not only the account's own.
 - The name is the provider's spelling, so a pasted `Owner/Repo` and a listed
   `owner/repo` are one repository, and a visited repository is remembered as
   such rather than offered among your own.
+- The candidate qualifier's unsharded browser run may take 50 minutes (was
+  30, which the growing suite had reached); no candidate command may run
+  longer than an hour.
 
 ### The Whole Branch, Not Its First 600 Files
 

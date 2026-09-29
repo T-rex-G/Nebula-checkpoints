@@ -205,7 +205,14 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * the watch asks again are all there and tested against a real database; what
  * the watch asks, and what counts as new, is in `src/code-audit-watch.js`.
  */
-const SERVER_ROUTE_CEILING = 176;
+/*
+ * 176 to 177 adds the site check on its own, for an address rather than a
+ * repository's homepage. It is the same handler as the repository route --
+ * one function that validates the address, throttles, and hands the check to
+ * the job runner (src/code-audit-jobs.js) -- registered twice; every rule is
+ * in `src/site-check.js`.
+ */
+const SERVER_ROUTE_CEILING = 177;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

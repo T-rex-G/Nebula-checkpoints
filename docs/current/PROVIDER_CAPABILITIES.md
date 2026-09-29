@@ -204,13 +204,33 @@ all, refuses it. Checking a credential, probing readability and accepting an
 exception stay with administrators, so reading a public repository never
 lends anyone else's credentials to a test.
 
-The site check makes at most ten anonymous requests to the
-origin a user names -- following up to three HTTPS redirects to the page a
+The site check runs for any address, from a repository's Audit tab or on its
+own Website page, as a job the page follows by run id and stage, like the
+audit. It makes at most sixty anonymous GET requests in forty-five seconds to
+the origin a user names -- following up to three HTTPS redirects to the page a
 visitor actually lands on -- through the guarded transport's site profile: HTTPS on
-443 to a public address, no credential and no cookie, bodies cut after a few
-kilobytes. A path is reported as served only when what came back has the shape
-that file must have, so a single-page app's catch-all page is not a leaked
-`.env`, and a site that cannot be reached is an error, not a clean report.
+443 to a public address, no credential and no cookie, every body cut at a
+bound (two megabytes for a script). It reads the certificate's end date,
+issuer and the negotiated protocol from the handshake; asks once over plain
+HTTP on port 80 -- the only plain request the profile allows, whose answer body
+is never read -- whether the site sends visitors on to HTTPS; asks once as
+another origin whether the answer is shared with the visitor's cookies; asks
+for about twenty files that must never be served (environment, Git and other
+version-control files, credential files, diagnostics pages); reads a missing
+page for a framework's debug output; follows up to five of the landing page's
+own links, never one `robots.txt` closes to crawlers or a sign-out; and reads
+the scripts those pages load from the site itself for credentials (named by
+kind, never shown; keys that are public by design are not findings), public
+source maps and library versions, which OSV is asked about through the
+advisory profile. The domain's SPF and DMARC records are read from public DNS
+by the transport's bounded TXT lookup, and skipped on a shared platform's
+domain, which is not the site's to answer for. A path is reported as served
+only when what came back has the shape that file must have, so a single-page
+app's catch-all page is not a leaked `.env`; a question that could not be
+asked is reported as not checked, never as passed; and a site that cannot be
+reached is an error, not a clean report. One check per identity at a time, a
+new one at most every fifteen seconds, and any one site at most every thirty
+seconds, whoever asks.
 
 ## GitLab — registry-qualified subset
 

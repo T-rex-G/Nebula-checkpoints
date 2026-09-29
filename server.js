@@ -147,13 +147,13 @@ const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
-const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = require('./src/guarded-fetch');
+const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./src/guarded-fetch');
 const { auditRepository } = require('./src/code-audit');
 const { analyseOffThread, scanOffThread } = require('./src/code-audit-worker');
 const { createAuditJobs } = require('./src/code-audit-jobs');
 const { CodeAuditHistory, createAuditWatch } = require('./src/code-audit-history');
 const { watchComponents } = require('./src/code-audit-watch');
-const { checkSite, declaredSite } = require('./src/site-check');
+const { checkSite, declaredSite, siteOrigin } = require('./src/site-check');
 const { readBranchProtection } = require('./src/branch-protection');
 const { buildPublicAssets, etagMatches, securityContact, stripHtmlComments, stripJsComments } = require('./src/public-assets');
 const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
@@ -3254,7 +3254,7 @@ async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
   const accounts = (Array.isArray(accountOrAccounts) ? accountOrAccounts : [accountOrAccounts])
     .filter(account => account && typeof account === 'object');
   /* An audit held for an account that is leaving goes with it. */
-  for (const account of accounts) auditJobs.forget(identityKey(account));
+  for (const account of accounts) { auditJobs.forget(identityKey(account)); siteJobs.forget(identityKey(account)); }
   if (!ALPHA_CONFIG.enabled) {
     const targetKeys = new Set(accounts.map(hostedAccountKey));
     for (const account of accounts) {
@@ -7901,29 +7901,60 @@ app.post('/api/repo/:owner/:repo/code-audit/history/clear', providerSessionAcces
 });
 
 /*
- * The deployed site, anonymously. Ten bounded requests through the guarded
- * transport's anonymous site profile; every rule is in src/site-check.js. One
- * check per identity at a time and at most one every fifteen seconds, so the
- * control cannot be leaned on to hammer somebody's site.
+ * The deployed site, anonymously: a few dozen bounded requests through the
+ * guarded transport's anonymous site profile, the libraries it finds asked
+ * of OSV through the advisory profile, and the domain's email policy looked
+ * up in public DNS. Every rule is in src/site-check.js. It is a job like the
+ * audit (src/code-audit-jobs.js): the first request starts it and answers
+ * 202 with a run id, and the page asks again with `run` and hears the stage.
+ *
+ * One check per identity at a time and a new one at most every fifteen
+ * seconds; and any one site is checked at most once every thirty seconds,
+ * whoever asks, so the control cannot be leaned on to hammer somebody's
+ * site. It runs from a repository's Audit tab or on its own, for any address
+ * -- it reads only what every visitor can.
  */
-const siteChecksInFlight = new Set();
+const siteJobs = createAuditJobs({ kind: 'site' });
 const siteCheckLast = new Map();
-app.get('/api/repo/:owner/:repo/site-check', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('site-check'), auth, async (req, res) => {
+const siteOriginLast = new Map();
+function siteCheckRequest(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   const who = identityKey(req.gh);
-  const last = siteCheckLast.get(who) || 0;
-  if (siteChecksInFlight.has(who) || Date.now() - last < 15000) {
-    res.setHeader('Retry-After', '15');
-    return res.status(429).json({ error: 'A site check ran moments ago. Wait a few seconds and try again.', code: 'SITE_CHECK_THROTTLED' });
+  const run = String(req.query.run || '').trim();
+  let origin;
+  try { origin = siteOrigin(req.query.url); } catch (error) { return fail(res, error); }
+  if (!run) {
+    const now = Date.now();
+    const mine = siteCheckLast.get(who) || 0;
+    const theirs = siteOriginLast.get(origin) || 0;
+    if (now - mine < 15000 || now - theirs < 30000) {
+      res.setHeader('Retry-After', String(Math.ceil(Math.max(15000 - (now - mine), 30000 - (now - theirs), 1000) / 1000)));
+      return res.status(429).json({ error: now - theirs < 30000 && now - mine >= 15000
+        ? 'This site was checked moments ago. Wait a few seconds and try again.'
+        : 'A site check ran moments ago. Wait a few seconds and try again.', code: 'SITE_CHECK_THROTTLED' });
+    }
   }
-  siteChecksInFlight.add(who);
-  siteCheckLast.set(who, Date.now());
-  if (siteCheckLast.size > 5000) siteCheckLast.delete(siteCheckLast.keys().next().value);
-  try {
-    res.json({ ...(await checkSite({ url: req.query.url, transport: input => guardedFetch(input) })), checkedAt: new Date().toISOString() });
-  } catch (e) { fail(res, e); }
-  finally { siteChecksInFlight.delete(who); }
-});
+  const answer = siteJobs.request({
+    identity: who, owner: 'site', repo: origin, ref: '', run,
+    launch: ({ onProgress }) => {
+      siteCheckLast.set(who, Date.now());
+      siteOriginLast.set(origin, Date.now());
+      for (const map of [siteCheckLast, siteOriginLast]) if (map.size > 5000) map.delete(map.keys().next().value);
+      return checkSite({
+        url: origin,
+        transport: input => guardedFetch(input),
+        advisoryTransport: input => guardedFetch(input),
+        txt: name => guardedTxt(name),
+        onProgress
+      }).then(result => ({ ...result, checkedAt: new Date().toISOString() }));
+    }
+  });
+  if (answer.error) return fail(res, answer.error);
+  if (answer.status === 202) res.setHeader('Retry-After', '1');
+  return res.status(answer.status).json(answer.body);
+}
+app.get('/api/site-check', providerSessionAccess, capabilityAccess('site-check'), auth, siteCheckRequest);
+app.get('/api/repo/:owner/:repo/site-check', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('site-check'), auth, siteCheckRequest);
 
 /*
  * What the provider enforces on a branch, beside Nebulaverse-X's own

@@ -1720,6 +1720,7 @@ async function purgeLocalData(full) {
   clearGovernanceState();
   clearExposureState();
   clearAuditState();
+  clearSiteScanState();
   await purgePrivateCaches();
   try { sessionStorage.clear(); } catch {}
   try {
@@ -5736,27 +5737,147 @@ function paintAudit(options = {}) {
     }
   });
 }
+/*
+ * A site check is a job on the server, as an audit is: the first request
+ * starts it and answers with a run id, and this asks after it -- quickly, a
+ * check takes seconds -- hearing the stage each time, until the result is
+ * there. A poll lost to the network or the edge is asked again.
+ */
+async function pollSiteCheck(path, { current, onProgress }) {
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let answer = await api(path);
+  let misses = 0;
+  let wait = 700;
+  while (answer && answer.state === 'running') {
+    if (!current()) return null;
+    onProgress(answer);
+    await pause(wait);
+    if (!current()) return null;
+    try {
+      answer = await api(`${path}&run=${encodeURIComponent(answer.run)}`);
+      misses = 0;
+      wait = Math.min(2000, Math.round(wait * 1.25));
+    } catch (error) {
+      if (!transientAuditError(error) || ++misses > AUDIT_POLL.transientTries) throw error;
+      wait = Math.min(4000, Math.max(wait, (error.retryAfter || 0) * 1000) * 1.5);
+    }
+  }
+  return current() ? answer : null;
+}
 async function runSiteCheck(address) {
   if (!state.work || siteView.status === 'running') return;
   const request = ++siteRequest;
   const key = siteKey();
   const epoch = state.uiEpoch;
-  siteView = { ...siteView, key, url: String(address || '').trim(), status: 'running', error: '' };
+  const current = () => request === siteRequest && epoch === state.uiEpoch && key === siteKey();
+  siteView = { ...siteView, key, url: String(address || '').trim(), status: 'running', error: '', progress: null };
   paintAudit();
   try {
-    const result = await api(`/api/repo/${wPath()}/site-check?url=${encodeURIComponent(siteView.url)}`);
-    if (request !== siteRequest || epoch !== state.uiEpoch || key !== siteKey()) return;
+    const result = await pollSiteCheck(`/api/repo/${wPath()}/site-check?url=${encodeURIComponent(siteView.url)}`, {
+      current,
+      onProgress: progress => {
+        siteView.progress = progress;
+        if ($('#tab-audit')?.classList.contains('active') && !window.NebulaCodeAudit.siteProgress($('#auditRoot'), progress)) paintAudit();
+      }
+    });
+    if (!result || !current()) return;
     try { localStorage.setItem(siteUrlStorageKey(), result.origin); } catch {}
     const fingerprints = `site:${result.origin}`;
     const previous = window.NebulaCodeAudit.readPrevious(fingerprints);
     window.NebulaCodeAudit.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
-    siteView = { key, status: 'done', url: result.origin, suggested: false, result, diff: window.NebulaCodeAudit.diff(result, previous), error: '' };
+    siteView = { key, status: 'done', url: result.origin, suggested: false, result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', progress: null };
   } catch (error) {
-    if (request !== siteRequest || epoch !== state.uiEpoch || key !== siteKey()) return;
-    siteView = { ...siteView, status: 'error', error: error.message || 'The site could not be checked.' };
+    if (!current()) return;
+    siteView = { ...siteView, status: 'error', error: error.message || 'The site could not be checked.', progress: null };
   }
   if ($('#tab-audit')?.classList.contains('active')) paintAudit();
 }
+
+/*
+ * The site check on its own page, for any address: no repository, the same
+ * engine and card. The address typed is remembered under the audit prefix the
+ * account purge removes, and so are the last check's fingerprints.
+ */
+const SITE_SCAN_URL = () => `${window.NebulaCodeAudit.STORE_PREFIX}site-url:standalone`;
+function blankSiteScan() {
+  let url = '';
+  try { url = localStorage.getItem(SITE_SCAN_URL()) || ''; } catch {}
+  return { status: 'idle', url, suggested: false, result: null, diff: null, error: '', progress: null };
+}
+let siteScanView = null;
+let siteScanRequest = 0;
+function clearSiteScanState() {
+  siteScanRequest++;
+  siteScanView = null;
+  const root = $('#siteRoot');
+  if (root) root.replaceChildren();
+}
+function showSiteScan() {
+  showPage('site');
+  paintSiteScan();
+}
+function paintSiteScan() {
+  const root = $('#siteRoot');
+  if (!root || !window.NebulaCodeAudit) return;
+  if (!siteScanView) siteScanView = blankSiteScan();
+  const decision = window.NebulaCapabilityUI.decision('site-check');
+  if (decision.status !== 'Supported') {
+    root.replaceChildren();
+    const note = document.createElement('p');
+    note.className = 'audit-lede audit-muted';
+    note.textContent = decision.reason;
+    root.appendChild(note);
+    return;
+  }
+  window.NebulaCodeAudit.renderSiteScan(root, siteScanView, {
+    onSiteInput: value => { siteScanView.url = value; },
+    onSiteCheck: runStandaloneSiteCheck,
+    onSiteExpand: () => paintSiteScan(),
+    onSiteCopyAll: async () => {
+      try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(siteScanView.result)); toast('Every site fix prompt copied', 'ok'); }
+      catch { toast('The clipboard is not available here', 'err'); }
+    },
+    onCopy: (finding, control) => copyPrompt(finding.prompt, control),
+    onExport: kind => {
+      const site = siteScanView.result;
+      if (!site) return;
+      const host = site.origin.replace(/^https:\/\//, '');
+      const base = `${host}-site-check-${String(site.checkedAt || new Date().toISOString()).slice(0, 10)}`;
+      if (kind === 'sarif') return dlFile(`${base}.sarif`, window.NebulaCodeAudit.sarif(null, site, {}), 'application/sarif+json');
+      if (kind === 'csv') return dlFile(`${base}.csv`, window.NebulaCodeAudit.csv(null, site, null), 'text/csv');
+      dlFile(`${base}.md`, window.NebulaCodeAudit.brief(null, host, site), 'text/markdown');
+    }
+  });
+}
+async function runStandaloneSiteCheck(address) {
+  if (!siteScanView || siteScanView.status === 'running') return;
+  const request = ++siteScanRequest;
+  const epoch = state.uiEpoch;
+  const current = () => request === siteScanRequest && epoch === state.uiEpoch;
+  siteScanView = { ...siteScanView, url: String(address || '').trim(), status: 'running', error: '', progress: null };
+  paintSiteScan();
+  try {
+    const result = await pollSiteCheck(`/api/site-check?url=${encodeURIComponent(siteScanView.url)}`, {
+      current,
+      onProgress: progress => {
+        siteScanView.progress = progress;
+        if (!window.NebulaCodeAudit.siteProgress($('#siteRoot'), progress)) paintSiteScan();
+      }
+    });
+    if (!result || !current()) return;
+    try { localStorage.setItem(SITE_SCAN_URL(), result.origin); } catch {}
+    const fingerprints = `site:${result.origin}`;
+    const previous = window.NebulaCodeAudit.readPrevious(fingerprints);
+    window.NebulaCodeAudit.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
+    siteScanView = { status: 'done', url: result.origin, suggested: false, result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', progress: null };
+  } catch (error) {
+    if (!current()) return;
+    siteScanView = { ...siteScanView, status: 'error', error: error.message || 'The site could not be checked.', progress: null };
+  }
+  if (_page === 'site') paintSiteScan();
+}
+$('#siteHomeBtn') && $('#siteHomeBtn').addEventListener('click', () => showOverview());
+$('#settingsBtnSite') && $('#settingsBtnSite').addEventListener('click', openSettings);
 /*
  * An audit is a job on the server: the first request starts it and answers
  * with a run id, and this asks after it until the result is there, backing
@@ -7055,6 +7176,7 @@ $('#sheet').addEventListener('click', e => {
     closeSheet();
     const act = item.dataset.act;
     if (['pulls', 'issues', 'releases', 'compare', 'actions', 'neural', 'governance', 'exposure', 'audit', 'safeguards'].includes(act)) switchTab(act);
+    else if (act === 'site') showSiteScan();
     else if (act === 'palette') openPalette();
     else if (act === 'zip') downloadZip();
     else if (act === 'branches') openBranchManager();
@@ -7252,7 +7374,7 @@ $('#reposRefreshBtn') && $('#reposRefreshBtn').addEventListener('click', () => l
  * the screen in view as current, which is what a reader navigating by landmark
  * relies on to know where they are.
  */
-const RAIL_SCREENS = new Set(['overview', 'repos', 'work']);
+const RAIL_SCREENS = new Set(['overview', 'repos', 'work', 'site']);
 function paintRail(name) {
   const rail = $('#navRail');
   if (!rail) return;
@@ -7388,6 +7510,7 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   closeNavMenu();
   if (target === 'overview') return showOverview();
   if (target === 'repos') return showPage('repos');
+  if (target === 'site') return showSiteScan();
   /* A repository still opening is the one the tool is for: it lands there once it answers. */
   if (!state.work && state.opening) {
     const opening = openRepoRequest;

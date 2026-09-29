@@ -1,6 +1,7 @@
 'use strict';
 
 const dns = require('dns');
+const http = require('http');
 const https = require('https');
 const net = require('net');
 const { isPublicAddress } = require('./governance-delivery');
@@ -97,7 +98,7 @@ const PROFILE_RULES = Object.freeze({
   [PROFILES.WEBHOOK]: Object.freeze({ methods: Object.freeze(['POST']), query: false, readsBody: false }),
   [PROFILES.PROVIDER_READ]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: true, readsBody: true }),
   [PROFILES.CREDENTIAL_VERIFY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true }),
-  [PROFILES.SITE_PROBE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: false, readsBody: true, headers: true, truncates: true }),
+  [PROFILES.SITE_PROBE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: false, readsBody: true, headers: true, truncates: true, tls: true, plainHttp: true }),
   [PROFILES.ADVISORY_QUERY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true, hosts: Object.freeze(['api.osv.dev']) }),
   [PROFILES.THREAT_INTEL]: Object.freeze({ methods: Object.freeze(['GET']), query: true, readsBody: true, hosts: Object.freeze(['api.first.org', 'www.cisa.gov']) }),
   [PROFILES.PROVIDER_QUERY]: Object.freeze({ methods: Object.freeze(['POST']), query: false, readsBody: true, hosts: Object.freeze(['api.github.com']), paths: Object.freeze(['/graphql']) })
@@ -116,6 +117,8 @@ function boundedHeaders(raw) {
 }
 
 const MAX_RESPONSE_BYTES = 256 * 1024;
+/* A deployed site's script bundle runs to a few megabytes; a site probe may read one, and still cuts it there. */
+const MAX_SITE_RESPONSE_BYTES = 2 * 1024 * 1024;
 /* A recursive tree may exceed the default. Only repository reads opt into
    this larger bound; webhook and credential-probe limits stay unchanged. */
 const MAX_PROVIDER_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -176,14 +179,24 @@ function rules(profile) {
  * on the reader's. The trailing dot is stripped first because a fully
  * qualified name is the same host and must not be a way around the check.
  */
-function normalizeTarget(rawUrl, profile) {
+function normalizeTarget(rawUrl, profile, options = {}) {
   const rule = rules(profile);
   let parsed;
   try { parsed = new URL(String(rawUrl || '').trim()); }
   catch { throw new GuardedFetchError('Outbound target must be an absolute URL', 'GUARDED_FETCH_URL_INVALID'); }
 
-  if (parsed.protocol !== 'https:') {
-    throw new GuardedFetchError('Outbound target must use HTTPS', 'GUARDED_FETCH_URL_INVALID');
+  /*
+   * Plain HTTP exists for one question only -- does a site send a visitor who
+   * types its name without https:// on to HTTPS -- so only the site profile
+   * may ask it, only on port 80, and the answer is a status and headers:
+   * nothing sent over it carries anything, and no body is ever read back.
+   */
+  const plain = options.plainHttp === true;
+  if (plain && !rule.plainHttp) {
+    throw new GuardedFetchError('This profile may not use plain HTTP', 'GUARDED_FETCH_REFUSED');
+  }
+  if (plain ? parsed.protocol !== 'http:' : parsed.protocol !== 'https:') {
+    throw new GuardedFetchError(plain ? 'A plain-HTTP probe must use http://' : 'Outbound target must use HTTPS', 'GUARDED_FETCH_URL_INVALID');
   }
   if (parsed.username || parsed.password) {
     throw new GuardedFetchError('Outbound target must not carry credentials in the URL', 'GUARDED_FETCH_URL_INVALID');
@@ -194,8 +207,8 @@ function normalizeTarget(rawUrl, profile) {
   if (!rule.query && parsed.search) {
     throw new GuardedFetchError('This profile does not permit a query string', 'GUARDED_FETCH_URL_INVALID');
   }
-  if (parsed.port && parsed.port !== '443') {
-    throw new GuardedFetchError('Outbound target must use HTTPS port 443', 'GUARDED_FETCH_URL_INVALID');
+  if (parsed.port && parsed.port !== (plain ? '80' : '443')) {
+    throw new GuardedFetchError(plain ? 'A plain-HTTP probe must use port 80' : 'Outbound target must use HTTPS port 443', 'GUARDED_FETCH_URL_INVALID');
   }
 
   const hostname = parsed.hostname.toLowerCase().replace(/\.$/, '');
@@ -417,7 +430,9 @@ async function guardedFetch(input = {}) {
     throw new GuardedFetchError('This profile does not permit that method', 'GUARDED_FETCH_METHOD_INVALID');
   }
 
-  const target = normalizeTarget(input.url, input.profile);
+  const plain = input.plainHttp === true;
+  const target = normalizeTarget(input.url, input.profile, { plainHttp: plain });
+  if (plain && input.agent != null) throw new GuardedFetchError('A plain-HTTP probe never shares a connection', 'GUARDED_FETCH_REFUSED');
   assertCredentialNotInUrl(target, input.headers);
   /* A site probe, an advisory query and an exploit-intelligence read are anonymous by construction: no credential and no cookie. */
   if ((input.profile === PROFILES.SITE_PROBE || input.profile === PROFILES.ADVISORY_QUERY || input.profile === PROFILES.THREAT_INTEL) && Object.keys(input.headers || {}).some(name =>
@@ -434,7 +449,8 @@ async function guardedFetch(input = {}) {
   }
   const body = input.body == null ? null : String(input.body);
   const maxBytes = boundedInteger(input.maxResponseBytes, MAX_RESPONSE_BYTES, 1024,
-    input.profile === PROFILES.PROVIDER_READ || input.profile === PROFILES.THREAT_INTEL || input.profile === PROFILES.PROVIDER_QUERY ? MAX_PROVIDER_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
+    input.profile === PROFILES.PROVIDER_READ || input.profile === PROFILES.THREAT_INTEL || input.profile === PROFILES.PROVIDER_QUERY ? MAX_PROVIDER_RESPONSE_BYTES
+      : input.profile === PROFILES.SITE_PROBE ? MAX_SITE_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
   if (body !== null && Buffer.byteLength(body, 'utf8') > MAX_RESPONSE_BYTES) {
     throw new GuardedFetchError('Outbound body exceeds the transport limit', 'GUARDED_FETCH_BODY_TOO_LARGE');
   }
@@ -479,7 +495,7 @@ async function guardedFetch(input = {}) {
     agent = input.agent;
   }
 
-  const requestImpl = typeof input.requestImpl === 'function' ? input.requestImpl : https.request;
+  const requestImpl = typeof input.requestImpl === 'function' ? input.requestImpl : plain ? http.request : https.request;
   const timeoutMs = boundedInteger(input.timeoutMs, DEFAULT_TIMEOUT_MS, 1000, 30_000);
   const remainingMs = deadlineMs - (Date.now() - startedAt);
   if (remainingMs <= 0) {
@@ -518,15 +534,15 @@ async function guardedFetch(input = {}) {
      */
 
     request = requestImpl({
-      protocol: 'https:',
+      protocol: plain ? 'http:' : 'https:',
       hostname: target.hostname,
-      port: 443,
+      port: plain ? 80 : 443,
       path: `${target.pathname || '/'}${target.search || ''}`,
       method,
       headers,
       /* The certificate is still checked against the name, not the pinned
          address: pinning decides where the bytes go, not who may answer. */
-      servername: target.hostname,
+      ...(plain ? {} : { servername: target.hostname }),
       lookup: (_hostname, options, callback) => {
         /* Node's family auto-selection asks for all:true. Both callback
            forms must return the same validated pin, never resolve again. */
@@ -541,6 +557,15 @@ async function guardedFetch(input = {}) {
     }, response => {
       const statusCode = Number(response.statusCode || 0);
       const seen = rule.headers ? { headers: boundedHeaders(response.headers) } : {};
+      /* Plain HTTP answers with a status and headers, and its body is never read. */
+      if (plain) {
+        if (typeof response.destroy === 'function') response.destroy();
+        return finish(resolve, { statusCode, ...seen, body: '', bodyUnread: true, plain: true });
+      }
+      if (rule.tls) {
+        const tls = peerTls(response.socket);
+        if (tls) seen.tls = tls;
+      }
 
       if (rule.readsBody) {
         const encoding = String((response.headers || {})['content-encoding'] || '').trim().toLowerCase();
@@ -596,6 +621,59 @@ async function guardedFetch(input = {}) {
   });
 }
 
+/*
+ * What a site's certificate says about itself, and the protocol the
+ * handshake settled on: the certificate's end date, its issuing
+ * organisation's name and the TLS version. Nothing else of the certificate
+ * crosses back.
+ */
+function peerTls(socket) {
+  try {
+    if (!socket || typeof socket.getPeerCertificate !== 'function') return null;
+    const certificate = socket.getPeerCertificate(false) || {};
+    const protocol = typeof socket.getProtocol === 'function' ? String(socket.getProtocol() || '') : '';
+    const validTo = certificate.valid_to ? new Date(certificate.valid_to) : null;
+    const issuer = certificate.issuer && (certificate.issuer.O || certificate.issuer.CN);
+    return Object.freeze({
+      protocol: /^TLSv1(?:\.[0-3])?$|^SSLv3$/.test(protocol) ? protocol : null,
+      validTo: validTo && !Number.isNaN(validTo.getTime()) ? validTo.toISOString() : null,
+      issuer: issuer ? String(issuer).replace(/[^\w .,'&()-]/g, '').slice(0, 80) || null : null
+    });
+  } catch {
+    return null;
+  }
+}
+
+/*
+ * A domain's published TXT records, for the questions a site check asks of
+ * the name rather than the server: does it say who may send its mail (SPF),
+ * and what to do with mail that fails (DMARC). A lookup of public DNS through
+ * the system resolver, bounded like everything else here: a name only, a
+ * deadline, and at most a few dozen short records back. No record at all is
+ * an answer (an empty list); a resolver that could not answer is an error,
+ * so the caller can say "unknown" rather than "missing".
+ */
+const MAX_TXT_RECORDS = 32;
+const MAX_TXT_RECORD_BYTES = 2048;
+const TXT_NAME = /^(?=.{1,253}$)(?:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/;
+async function guardedTxt(name, options = {}) {
+  const hostname = String(name || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!TXT_NAME.test(hostname) || /(?:^|\.)(?:localhost|local|internal)$/.test(hostname)) {
+    throw new GuardedFetchError('A DNS lookup needs a public domain name', 'GUARDED_FETCH_URL_INVALID');
+  }
+  const resolver = typeof options.resolveTxt === 'function' ? options.resolveTxt : host => dns.promises.resolveTxt(host);
+  const deadlineMs = boundedInteger(options.deadlineMs, 5000, 500, 15_000);
+  let records;
+  try {
+    records = await resolveWithin(resolver, hostname, deadlineMs);
+  } catch (error) {
+    if (['ENODATA', 'ENOTFOUND', 'NXDOMAIN'].includes(error && error.transportCode)) return Object.freeze([]);
+    throw error;
+  }
+  return Object.freeze((Array.isArray(records) ? records : []).slice(0, MAX_TXT_RECORDS)
+    .map(chunks => (Array.isArray(chunks) ? chunks.join('') : String(chunks || '')).slice(0, MAX_TXT_RECORD_BYTES)));
+}
+
 module.exports = Object.freeze({
   PROFILES,
   CODES,
@@ -607,5 +685,7 @@ module.exports = Object.freeze({
   normalizeTarget,
   validateAddresses,
   createGuardedSession,
-  guardedFetch
+  guardedFetch,
+  guardedTxt,
+  MAX_SITE_RESPONSE_BYTES
 });

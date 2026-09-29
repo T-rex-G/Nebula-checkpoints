@@ -140,6 +140,33 @@ function deferred() {
     jobs.forget('nobody');
   }
 
+  /* ---- A site check is the same kind of job, in its own words and stages ----------------------- */
+  {
+    const { SITE_JOBS, SITE_STAGES } = require('../src/code-audit-jobs');
+    const { STAGES } = require('../src/site-check');
+    assert.deepStrictEqual([...SITE_STAGES], [...STAGES], 'the job knows every stage the check reports');
+    assert(SITE_JOBS.maxRunMs >= 60 * 1000 && SITE_JOBS.maxRunMs <= 2 * 60 * 1000, 'a site check has a minute and a half');
+    let ids = 0;
+    let report = null;
+    const pending = deferred();
+    const jobs = createAuditJobs({ kind: 'site', randomId: () => `site-${++ids}` });
+    const launch = ({ onProgress }) => { report = onProgress; return pending.promise; };
+    const start = jobs.request({ identity: 'a', owner: 'site', repo: 'https://a.example.com', ref: '', launch });
+    assert.strictEqual(start.body.stage, 'page', 'a site check starts at the page');
+    report({ stage: 'scripts', done: 2, total: 5 });
+    report({ stage: 'reading', done: 9 });
+    const poll = jobs.request({ identity: 'a', owner: 'site', repo: 'https://a.example.com', ref: '', run: 'site-1', launch });
+    assert.deepStrictEqual([poll.body.stage, poll.body.done, poll.body.total], ['scripts', 2, 5], 'an audit stage is not a site stage');
+    const other = jobs.request({ identity: 'a', owner: 'site', repo: 'https://b.example.com', ref: '', launch });
+    assert.strictEqual(other.error.code, 'SITE_CHECK_IN_PROGRESS');
+    assert.match(other.error.safeState, /only reads what any visitor can/);
+    assert.strictEqual(jobs.request({ identity: 'a', owner: 'site', repo: 'https://a.example.com', ref: '', run: 'nope', launch }).error.code, 'SITE_CHECK_RUN_GONE');
+    pending.resolve({ grade: 'A' });
+    await settle();
+    assert.deepStrictEqual(jobs.request({ identity: 'a', owner: 'site', repo: 'https://a.example.com', ref: '', run: 'site-1', launch }).body, { grade: 'A' });
+    assert.throws(() => createAuditJobs({ kind: 'mystery' }), TypeError);
+  }
+
   console.log('code audit job tests passed');
 })().catch(error => {
   console.error(error);

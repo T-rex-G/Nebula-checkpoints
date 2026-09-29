@@ -36,12 +36,38 @@ const JOBS = Object.freeze({
 
 const STAGES = new Set(['queued', 'resolving', 'reading', 'rules', 'advisories', 'intel', 'analysing', 'patterns']);
 
-function jobError(code, message, status) {
+/*
+ * A deployed-site check is the same kind of work -- a few dozen outbound
+ * requests, longer than a quiet request is kept open at the edge -- so it is
+ * the same kind of job, with its own stages, limits and words.
+ */
+const SITE_JOBS = Object.freeze({ keepMs: 2 * 60 * 1000, maxRunMs: 90 * 1000, maxRunning: 8 });
+const SITE_STAGES = new Set(['page', 'transport', 'paths', 'pages', 'scripts', 'libraries', 'email']);
+const KINDS = Object.freeze({
+  audit: Object.freeze({
+    prefix: 'AUDIT', first: 'resolving', stages: STAGES, limits: JOBS,
+    safeState: 'Nothing was changed. The audit only reads.',
+    gone: 'This audit is no longer held by the server. It may have restarted. Run the audit again.',
+    inProgress: 'An audit of another repository is already running for this session. Wait for it to finish.',
+    busy: 'The server is running as many audits as it can hold. Try again in a minute.',
+    timeout: 'The audit ran past the time this server gives one. Run it again; a smaller branch finishes sooner.'
+  }),
+  site: Object.freeze({
+    prefix: 'SITE_CHECK', first: 'page', stages: SITE_STAGES, limits: SITE_JOBS,
+    safeState: 'Nothing was changed. The check only reads what any visitor can.',
+    gone: 'This site check is no longer held by the server. It may have restarted. Check the site again.',
+    inProgress: 'A check of another site is already running for this session. Wait for it to finish.',
+    busy: 'The server is running as many site checks as it can hold. Try again in a minute.',
+    timeout: 'The site check ran past the time this server gives one. Check the site again.'
+  })
+});
+
+function jobError(code, message, status, safeState = KINDS.audit.safeState) {
   const error = new Error(message);
   error.code = code;
   error.status = status;
   error.providerChanged = false;
-  error.safeState = 'Nothing was changed. The audit only reads.';
+  error.safeState = safeState;
   return error;
 }
 
@@ -50,7 +76,11 @@ function jobError(code, message, status) {
  * server to send as its public error body. `now` and `randomId` are
  * replaceable in tests.
  */
-function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(12).toString('hex'), limits = JOBS } = {}) {
+function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(12).toString('hex'), kind = 'audit', limits = null } = {}) {
+  const words = KINDS[kind];
+  if (!words) throw new TypeError(`Unknown job kind ${kind}`);
+  limits = limits || words.limits;
+  const fail = (name, status) => jobError(`${words.prefix}_${name}`, words[{ RUN_GONE: 'gone', IN_PROGRESS: 'inProgress', BUSY: 'busy', TIMEOUT: 'timeout' }[name]], status, words.safeState);
   const jobs = new Map();
 
   const sweep = () => {
@@ -61,7 +91,7 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
   const running = () => [...jobs.values()].filter(job => job.finishedAt === null).length;
 
   const progress = job => update => {
-    if (job.finishedAt !== null || !update || !STAGES.has(update.stage)) return;
+    if (job.finishedAt !== null || !update || !(update.stage === 'queued' || words.stages.has(update.stage))) return;
     job.stage = update.stage;
     if (Number.isFinite(update.done)) job.done = update.done;
     if (Number.isFinite(update.total)) job.total = update.total;
@@ -111,25 +141,25 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
     const same = Boolean(job) && job.owner === owner && job.repo === repo && job.ref === ref;
     if (run) {
       if (!job || job.id !== String(run) || !same) {
-        return { error: jobError('AUDIT_RUN_GONE', 'This audit is no longer held by the server. It may have restarted. Run the audit again.', 404) };
+        return { error: fail('RUN_GONE', 404) };
       }
       return answer(identity, job);
     }
     if (job && job.finishedAt === null) {
       if (same) return running202(job);
-      return { error: jobError('AUDIT_IN_PROGRESS', 'An audit of another repository is already running for this session. Wait for it to finish.', 429) };
+      return { error: fail('IN_PROGRESS', 429) };
     }
     if (running() >= limits.maxRunning) {
-      return { error: jobError('AUDIT_BUSY', 'The server is running as many audits as it can hold. Try again in a minute.', 503) };
+      return { error: fail('BUSY', 503) };
     }
     const fresh = {
       id: randomId(), identity, owner, repo, ref, startedAt: now(), finishedAt: null,
-      stage: 'resolving', done: 0, total: 0, position: null, limit: null, result: null, error: null, timer: null, controller: new AbortController()
+      stage: words.first, done: 0, total: 0, position: null, limit: null, result: null, error: null, timer: null, controller: new AbortController()
     };
     jobs.set(identity, fresh);
     const controller = fresh.controller;
     fresh.timer = setTimeout(() => {
-      settle(fresh, { error: jobError('AUDIT_TIMEOUT', 'The audit ran past the time this server gives one. Run it again; a smaller branch finishes sooner.', 504) });
+      settle(fresh, { error: fail('TIMEOUT', 504) });
       controller.abort();
     }, limits.maxRunMs);
     if (typeof fresh.timer.unref === 'function') fresh.timer.unref();
@@ -155,4 +185,4 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
   return Object.freeze({ request, forget, size: () => jobs.size });
 }
 
-module.exports = Object.freeze({ createAuditJobs, JOBS });
+module.exports = Object.freeze({ createAuditJobs, JOBS, SITE_JOBS, SITE_STAGES });

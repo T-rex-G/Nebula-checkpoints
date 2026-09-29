@@ -446,7 +446,7 @@ em{color:var(--teal);font-style:normal}
 [data-theme="light"] body:has(#page-repos.active) #lightWaves{display:none}
 [data-theme="light"] body:has(#page-alpha-access.active) #lightWaves{display:none}
 @media(min-width:1140px){
-  body:has(#page-overview.active, #page-repos.active, #page-work.active) #lightWaves{
+  body:has(#page-overview.active, #page-repos.active, #page-work.active, #page-site.active) #lightWaves{
     inset:23px;width:calc(100% - 46px);height:calc(100% - 46px);border-radius:23px}
 }
 /*
@@ -504,7 +504,7 @@ em{color:var(--teal);font-style:normal}
 
 /* ---------------- pages ---------------- */
 .page{display:none;min-height:100dvh}
-#page-overview, #page-repos, #page-work{padding-top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 16px)}
+#page-overview, #page-repos, #page-work, #page-site{padding-top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 16px)}
 .page.active{display:block;animation:pageIn .24s var(--ease) both}
 @keyframes pageIn{from{opacity:0}to{opacity:1}}
 
@@ -1788,7 +1788,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
    * Only where the mark is what it holds: the workbench bar uses this class
    * for the repository name and still needs to be able to shrink.
    */
-  #page-overview .topbar-brand,#page-repos .topbar-brand{flex:0 0 auto;min-width:auto}
+  #page-overview .topbar-brand,#page-repos .topbar-brand,#page-site .topbar-brand{flex:0 0 auto;min-width:auto}
   /* Four gaps between five controls is 28px of a 304px bar. */
   .topbar{gap:6px;padding:8px 8px}
   .topbar-actions{gap:4px}
@@ -3574,7 +3574,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  */
 #shellPlate{display:none}
 @media (min-width:1140px){
-  body:has(#page-overview.active, #page-repos.active, #page-work.active) #shellPlate{
+  body:has(#page-overview.active, #page-repos.active, #page-work.active, #page-site.active) #shellPlate{
     display:block;position:fixed;inset:22px;z-index:-1;pointer-events:none;
     border-radius:24px;border:1px solid var(--sb);
     background:var(--shellArt),var(--shellSolid);
@@ -3625,7 +3625,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    * The workbench is already built this way -- a full-height grid that scrolls
    * its own panes -- which is why it never showed this and the other two did.
    */
-  #page-overview .container,#page-repos .container{
+  #page-overview .container,#page-repos .container,#page-site .container{
     position:fixed;top:calc(23px + var(--tbh, 62px));bottom:23px;
     left:var(--shell-inset);right:23px;
     max-width:none;margin:0;padding:24px 26px 44px;
@@ -3647,8 +3647,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     background:var(--shellSolid);border-bottom:1px solid var(--sb)}
   /* The pages no longer reserve room for a bar that is now outside their
      scroll, and the document itself has nothing left to scroll. */
-  #page-overview,#page-repos{padding-top:0}
-  body:has(#page-overview.active, #page-repos.active){overflow:hidden}
+  #page-overview,#page-repos,#page-site{padding-top:0}
+  body:has(#page-overview.active, #page-repos.active, #page-site.active){overflow:hidden}
   /* The workbench is a full-height grid, so it keeps its own padding and takes
      the inset as a margin; the right margin is the plate's, not the page's. */
   #page-work .workspace{margin-right:23px;padding-left:0;padding-right:0}
@@ -3662,7 +3662,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    * to see through it. Below this width the bar floats over scrolling content
    * and keeps its glass.
    */
-  #page-overview .topbar,#page-repos .topbar,#page-work .topbar{
+  #page-overview .topbar,#page-repos .topbar,#page-work .topbar,#page-site .topbar{
     left:var(--shell-inset);right:23px;top:23px;border-radius:0 23px 0 0;
     background:transparent;border-top:0;border-left:0;border-right:0;
     border-bottom:1px solid var(--sb);
@@ -3790,7 +3790,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    * route back to the overview for anyone navigating by keyboard.
    */
   #page-overview .topbar-brand .hide-sm,
-  #page-repos .topbar-brand .hide-sm{display:none}
+  #page-repos .topbar-brand .hide-sm,
+  #page-site .topbar-brand .hide-sm{display:none}
   #page-repos .page-head-tools{flex-wrap:nowrap}
 }
 
@@ -6852,6 +6853,39 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .audit-header[data-present="false"] { border-color: color-mix(in oklab, var(--st-serious) 24%, var(--rp-line)); }
 .audit-export-item .audit-ico { color: var(--text); }
 
+/* What the site check checked: one row per question, each passed, failed, worth a look, skipped or unanswered -- a glyph, a word and a sentence, never colour alone. */
+.audit-site-ledger { display: grid; gap: 8px; }
+.audit-site-ledger-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
+.audit-site-ledger-sum { font-size: .78rem; color: var(--muted); }
+.audit-site-ledger-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
+.audit-site-ledger-row { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: start; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--rp-line); background: var(--rp-tile); min-width: 0; }
+.audit-site-ledger-glyph { width: 22px; height: 22px; margin-top: 1px; border-radius: 7px; display: grid; place-items: center; font-weight: 800; font-size: .74rem; color: var(--muted); border: 1px solid currentColor; }
+.audit-site-ledger-row[data-state="pass"] .audit-site-ledger-glyph { color: var(--st-good); }
+.audit-site-ledger-row[data-state="fail"] .audit-site-ledger-glyph { color: var(--st-serious); }
+.audit-site-ledger-row[data-state="warn"] .audit-site-ledger-glyph { color: var(--st-warning, var(--sev-warning)); }
+.audit-site-ledger-row[data-state="fail"] { border-color: color-mix(in oklab, var(--st-serious) 24%, var(--rp-line)); }
+.audit-site-ledger-row[data-state="skip"], .audit-site-ledger-row[data-state="unknown"] { background: transparent; border-style: dashed; }
+.audit-site-ledger-text { display: grid; gap: 2px; min-width: 0; }
+.audit-site-ledger-name { font-size: .82rem; font-weight: 650; color: var(--text); }
+.audit-site-ledger-detail { font-size: .76rem; color: var(--muted); line-height: 1.4; overflow-wrap: anywhere; }
+/* The browser libraries recognised, as chips: name and version, and what OSV says of them. */
+.audit-site-libs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.audit-site-lib { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--rp-line); background: var(--rp-tile); font-size: .76rem; min-width: 0; max-width: 100%; }
+.audit-site-lib-name { font-family: var(--font-mono); color: var(--text); white-space: nowrap; }
+.audit-site-lib-state { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.audit-site-lib[data-state="vulnerable"] { border-color: color-mix(in oklab, var(--st-serious) 34%, var(--rp-line)); }
+.audit-site-lib[data-state="vulnerable"] .audit-site-lib-state { color: var(--st-serious); }
+.audit-site-lib[data-state="clean"] .audit-site-lib-state { color: var(--st-good); }
+.audit-site-progress { margin-top: 2px; }
+/* The Website page: the site card on its own, under the same hero as Audit and Exposure. */
+.site-shell { max-width: 1080px; }
+.sec-mark-site { position: relative; }
+#page-site .audit-site { margin-top: 4px; }
+@media (max-width: 760px) {
+  .audit-site-ledger-list { grid-template-columns: minmax(0, 1fr); }
+  .audit-site-ledger-row { padding: 8px 10px; }
+}
+
 @media (max-width: 760px) {
   .audit-first-btn { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; }
   .audit-first-tags { grid-column: 2; grid-row: 1; }
@@ -6871,7 +6905,9 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
   .audit-surface, .audit-ledger, .audit-controls { padding: 16px; }
   .audit-tally { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   .audit-tally-item { display: block; padding: 0; min-width: 0; }
-  .audit-tally-item .nv-chip { width: 100%; justify-content: center; padding-inline: 6px; gap: 5px; font-size: .74rem; }
+  .audit-tally-item .nv-chip { width: 100%; justify-content: center; padding-inline: 4px; gap: 3px; font-size: .72rem; }
+  /* A two-digit count still leaves its word whole in a third of a phone's width. */
+  .audit-tally-item .nv-chip svg { width: 12px; height: 12px; flex: none; }
   .audit-summary .audit-split { grid-area: split; margin-top: 8px; }
   .audit-summary .audit-grade-row { grid-template-areas: "ring head" "ring verdict" "error error" "more more" "tally tally" "split split" "notes notes"; }
   .nv-chip.audit-pill { min-width: 0; justify-self: start; }

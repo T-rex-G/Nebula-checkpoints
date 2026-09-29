@@ -818,6 +818,82 @@ function fakeRequestImpl(behaviour) {
     await assert.rejects(ask({ method: 'GET', body: undefined }), error => error.code === 'GUARDED_FETCH_METHOD_INVALID', 'a query is a POST');
   }
 
+  /*
+   * What a deep site check adds, and only the site profile gains: the
+   * certificate's end date, issuer and protocol; a plain-HTTP question on
+   * port 80 answered by status and headers with the body never read; a
+   * script bundle's worth of body; and a bounded TXT lookup of the name.
+   */
+  {
+    const addresses = [{ address: '93.184.216.34', family: 4 }];
+    const socket = {
+      getPeerCertificate: () => ({ valid_to: 'Dec 31 23:59:59 2026 GMT', issuer: { O: "Let's Encrypt<script>", CN: 'R11' }, raw: Buffer.from('x'), subject: { CN: 'site.example' } }),
+      getProtocol: () => 'TLSv1.3'
+    };
+    const withTls = await guardedFetch({
+      url: 'https://site.example/', profile: PROFILES.SITE_PROBE, method: 'GET', addresses,
+      requestImpl: fakeRequestImpl(({ onResponse }) => onResponse({ ...fakeResponse({ statusCode: 200, chunks: ['ok'] }), socket }))
+    });
+    assert.deepStrictEqual({ ...withTls.tls }, { protocol: 'TLSv1.3', validTo: '2026-12-31T23:59:59.000Z', issuer: "Let's Encryptscript" }, 'three facts, sanitised; nothing else of the certificate');
+    const noSocket = await guardedFetch({
+      url: 'https://site.example/', profile: PROFILES.SITE_PROBE, method: 'GET', addresses,
+      requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, chunks: ['ok'] })))
+    });
+    assert.strictEqual(noSocket.tls, undefined, 'no socket, no claim');
+    const providerTls = await guardedFetch({
+      url: 'https://provider.example/x', profile: PROFILES.PROVIDER_READ, method: 'GET', addresses,
+      requestImpl: fakeRequestImpl(({ onResponse }) => onResponse({ ...fakeResponse({ statusCode: 200, chunks: ['ok'] }), socket }))
+    });
+    assert.strictEqual(providerTls.tls, undefined, 'only the site profile reports a certificate');
+
+    /* A bundle's worth of body, still cut at the bound. */
+    const bundle = await guardedFetch({
+      url: 'https://site.example/app.js', profile: PROFILES.SITE_PROBE, method: 'GET', addresses, maxResponseBytes: 3 * 1024 * 1024,
+      requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, chunks: ['a'.repeat(1024 * 1024), 'b'.repeat(1024 * 1024), 'c'.repeat(1024 * 1024)] })))
+    });
+    assert.strictEqual(bundle.body.length, 2 * 1024 * 1024, 'two megabytes at most');
+    assert.strictEqual(bundle.truncated, true);
+
+    /* Plain HTTP: port 80, no body read, no pool, the site profile alone. */
+    let destroyed = false;
+    const plainImpl = fakeRequestImpl(({ onResponse }) => {
+      const response = fakeResponse({ statusCode: 301, headers: { Location: 'https://site.example/' }, chunks: ['never read'] });
+      response.destroy = () => { destroyed = true; };
+      onResponse(response);
+    });
+    const plain = await guardedFetch({ url: 'http://site.example/', plainHttp: true, profile: PROFILES.SITE_PROBE, method: 'GET', addresses, requestImpl: plainImpl });
+    assert.deepStrictEqual([plain.statusCode, plain.headers.location, plain.body, plain.plain], [301, 'https://site.example/', '', true]);
+    assert(destroyed, 'the body of a plain-HTTP answer is not read');
+    assert.strictEqual(plainImpl.calls[0].port, 80);
+    assert.strictEqual(plainImpl.calls[0].protocol, 'http:');
+    assert.strictEqual(plainImpl.calls[0].servername, undefined);
+    await assert.rejects(guardedFetch({ url: 'http://site.example:8080/', plainHttp: true, profile: PROFILES.SITE_PROBE, method: 'GET', addresses, requestImpl: plainImpl }),
+      error => error.code === 'GUARDED_FETCH_URL_INVALID', 'port 80 only');
+    await assert.rejects(guardedFetch({ url: 'http://site.example/', profile: PROFILES.SITE_PROBE, method: 'GET', addresses, requestImpl: plainImpl }),
+      error => error.code === 'GUARDED_FETCH_URL_INVALID', 'plain HTTP is asked for, never implied');
+    await assert.rejects(guardedFetch({ url: 'http://provider.example/', plainHttp: true, profile: PROFILES.PROVIDER_READ, method: 'GET', addresses, requestImpl: plainImpl }),
+      error => error.code === 'GUARDED_FETCH_REFUSED', 'no other profile may use plain HTTP');
+    await assert.rejects(guardedFetch({ url: 'http://site.example/', plainHttp: true, profile: PROFILES.SITE_PROBE, method: 'GET', addresses: [{ address: '10.0.0.8', family: 4 }], requestImpl: plainImpl }),
+      error => error.code === 'GUARDED_FETCH_SSRF_BLOCKED', 'the same address policy');
+    await assert.rejects(guardedFetch({ url: 'http://site.example/', plainHttp: true, profile: PROFILES.SITE_PROBE, method: 'GET', addresses, headers: { cookie: 'a=b' }, requestImpl: plainImpl }),
+      error => error.code === 'GUARDED_FETCH_REFUSED', 'still anonymous');
+
+    /* TXT records: a public name only, bounded, "none" told apart from "unknown". */
+    const { guardedTxt } = require('../src/guarded-fetch');
+    const long = [['v=spf1 ', 'include:_spf.example.net -all'], ...Array.from({ length: 40 }, () => ['x'.repeat(3000)])];
+    const records = await guardedTxt('_dmarc.Example.com.', { resolveTxt: async name => { assert.strictEqual(name, '_dmarc.example.com'); return long; } });
+    assert.strictEqual(records.length, 32);
+    assert.strictEqual(records[0], 'v=spf1 include:_spf.example.net -all', 'chunks are joined');
+    assert.strictEqual(records[1].length, 2048);
+    assert.deepStrictEqual([...await guardedTxt('example.com', { resolveTxt: async () => { throw Object.assign(new Error('x'), { code: 'ENODATA' }); } })], []);
+    assert.deepStrictEqual([...await guardedTxt('example.com', { resolveTxt: async () => { throw Object.assign(new Error('x'), { code: 'ENOTFOUND' }); } })], []);
+    await assert.rejects(guardedTxt('example.com', { resolveTxt: async () => { throw Object.assign(new Error('x'), { code: 'ESERVFAIL' }); } }),
+      error => error.code === 'GUARDED_FETCH_DNS_INVALID', 'a resolver that could not answer is not "no record"');
+    for (const bad of ['localhost', 'printer.local', 'db.internal', '10.0.0.1', 'no_dot', '', 'a..b.com']) {
+      await assert.rejects(guardedTxt(bad, { resolveTxt: async () => [] }), error => error.code === 'GUARDED_FETCH_URL_INVALID', bad);
+    }
+  }
+
   console.log('guarded fetch tests passed');
 })().catch(error => {
   console.error(error && error.stack || error);

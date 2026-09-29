@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Any Public Repository, Read-Only
+
+Asked for: an audit of any public repository, not only the account's own.
+
+- **Paste a repository and it opens.** A GitHub address -- the repository,
+  or any file, branch, pull request or issue inside it -- a clone address or
+  `owner/name`, typed in the inventory's filter or in the picker a security
+  tool raises, opens that repository. An address on another host says which
+  host this session reads.
+- **Somebody else's repository opens read-only.** A "Read only" badge sits
+  beside the name, the editor does not accept typing, and every control that
+  would change the repository -- new file, commit, branch, push, delete -- is
+  put away on the desk and on a phone, together with Governance and
+  Safeguards, which belong to its collaborators. Governance and Safeguards
+  from the rail ask which of your own repositories instead.
+- **Audit, kept audits, the watch and Exposure scans work on it.** GitHub
+  answers who may do what only to people who can push, so a public
+  repository now grants the reader level everyone has on it, marked as public
+  reading. Only the routes whose data is the reader's own accept it; its
+  governance refuses it (tested route by route). Checking whether a
+  credential works, probing readability and accepting an exception stay with
+  the repository's administrators.
+- The name is the provider's spelling, so a pasted `Owner/Repo` and a listed
+  `owner/repo` are one repository, and a visited repository is remembered as
+  such rather than offered among your own.
+
 ### The Whole Branch, Not Its First 600 Files
 
 Asked for: an audit as complete on a large repository as on a small one.

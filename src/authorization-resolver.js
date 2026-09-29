@@ -403,6 +403,32 @@ function gitlabAccess(response) {
   return { baseRole: 'none', providerRole: 'none', level: 0, source: 'gitlab.project.permissions', complete: true };
 }
 
+/*
+ * Read access by virtue of the repository being public, not of membership.
+ * It is the reader level every signed-in person has on a public repository,
+ * and its source says so: work that belongs to the reader alone -- their own
+ * audits and scans of it -- may accept it, while anything the repository's
+ * collaborators share (its governance) refuses it, because being able to read
+ * a public repository makes nobody a collaborator on it.
+ */
+const PUBLIC_ACCESS_SOURCES = Object.freeze(['github.repository.public', 'gitea.repository.public', 'gitlab.project.public']);
+function publicRepositoryAccess(repository, scope) {
+  if (!isPlainObject(repository)) return null;
+  const expected = `${scope.owner}/${scope.repo}`.toLowerCase();
+  if (scope.provider === 'gitlab') {
+    const name = String(repository.path_with_namespace || '').trim().toLowerCase();
+    if (repository.visibility !== 'public' || name !== expected) return null;
+    return { baseRole: 'read', providerRole: 'public', level: 10, source: 'gitlab.project.public', complete: true };
+  }
+  const name = String(repository.full_name || '').trim().toLowerCase();
+  const visibility = repository.visibility == null ? (repository.private === false ? 'public' : '') : String(repository.visibility).toLowerCase();
+  if (repository.private !== false || repository.internal === true || visibility !== 'public' || name !== expected) return null;
+  return { baseRole: 'read', providerRole: 'public', level: 10, source: `${scope.provider === 'gitea' ? 'gitea' : 'github'}.repository.public`, complete: true };
+}
+function isPublicReaderAccess(snapshot) {
+  return Boolean(snapshot && snapshot.repositoryAccess && PUBLIC_ACCESS_SOURCES.includes(snapshot.repositoryAccess.source));
+}
+
 function sanitizeProviderPermissions(value) {
   if (!isPlainObject(value)) return {};
   const out = {};
@@ -465,7 +491,8 @@ function createAuthorizationResolver(options = {}) {
       if (scope.provider === 'gitlab') {
         const apiPath = `/projects/${encodeURIComponent(`${scope.owner}/${scope.repo}`)}`;
         const response = await request({ account, provider: scope.provider, baseUrl: account.baseUrl || '', apiPath });
-        const access = gitlabAccess(response);
+        const member = gitlabAccess(response);
+        const access = member && member.level === 0 ? (publicRepositoryAccess(response, scope) || member) : member;
         if (!access) return unavailableFromContext(context, scope, 'AUTHORIZATION_PROVIDER_RESPONSE_INCOMPLETE', now, cacheTtlMs, 'partial');
         return createResolvedSnapshot({ scope, context, access, now, ttlMs: cacheTtlMs });
       }
@@ -496,8 +523,24 @@ function createAuthorizationResolver(options = {}) {
         return createResolvedSnapshot({ scope, context, access, now, ttlMs: cacheTtlMs, installationCapabilities: capabilities });
       }
 
-      const permissionPath = `/repos/${encodeURIComponent(scope.owner)}/${encodeURIComponent(scope.repo)}/collaborators/${encodeURIComponent(context.governanceActor.login)}/permission`;
-      const permission = await request({ account, provider: scope.provider, baseUrl: account.baseUrl || '', apiPath: permissionPath });
+      const repoPath = `/repos/${encodeURIComponent(scope.owner)}/${encodeURIComponent(scope.repo)}`;
+      const permissionPath = `${repoPath}/collaborators/${encodeURIComponent(context.governanceActor.login)}/permission`;
+      let permission;
+      try {
+        permission = await request({ account, provider: scope.provider, baseUrl: account.baseUrl || '', apiPath: permissionPath });
+      } catch (error) {
+        /*
+         * GitHub answers this question only to people who can push. Anyone
+         * else reading a public repository is refused here, so the repository
+         * itself is asked whether it is public; if it is, the answer is the
+         * reader access everyone has, marked as such.
+         */
+        if (Number(error && error.status) !== 403) throw error;
+        const repository = await request({ account, provider: scope.provider, baseUrl: account.baseUrl || '', apiPath: repoPath }).catch(() => null);
+        const access = publicRepositoryAccess(repository, scope);
+        if (!access) throw error;
+        return createResolvedSnapshot({ scope, context, access, now, ttlMs: cacheTtlMs });
+      }
       const source = scope.provider === 'gitea' ? 'gitea.collaborator.permission' : 'github.collaborator.permission';
       const access = githubAccess(permission, context.governanceActor.login, source);
       if (!access) return unavailableFromContext(context, scope, 'AUTHORIZATION_PROVIDER_RESPONSE_INCOMPLETE', now, cacheTtlMs, 'partial');
@@ -551,5 +594,7 @@ module.exports = Object.freeze({
   GOVERNANCE_ROLE_NAMES,
   normalizeAuthorizationSnapshot,
   createUnavailableAuthorizationSnapshot,
-  createAuthorizationResolver
+  createAuthorizationResolver,
+  PUBLIC_ACCESS_SOURCES,
+  isPublicReaderAccess
 });

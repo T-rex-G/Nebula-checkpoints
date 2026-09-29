@@ -131,7 +131,7 @@ const { SingleUseStore, memorySingleUseStore } = require('./src/single-use-store
 const { writeLiveClient } = require('./src/live-stream');
 const { RateLimitStore } = require('./src/rate-limit-store');
 const { resolveProviderAccount } = require('./src/provider-credentials');
-const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot } = require('./src/authorization-resolver');
+const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot, isPublicReaderAccess } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
 const { createMutationGateway, normalizeMutationDescriptor } = require('./src/mutation-gateway');
 const { createGiteaFileMutationAdapter } = require('./src/provider-file-mutations');
@@ -2643,7 +2643,14 @@ function governanceFailure(res, error) {
   });
 }
 
-function governanceAccess(requiredRole) {
+/*
+ * `publicRepositories` lets a route accept the reader access everyone has on
+ * a public repository (src/authorization-resolver.js). Only routes whose data
+ * is the reader's own -- their audits and their scans, keyed by identity --
+ * opt in; everything the repository's collaborators share stays theirs.
+ */
+const OWN_WORK = Object.freeze({ publicRepositories: true });
+function governanceAccess(requiredRole, options = {}) {
   return async function authorizeGovernance(req, res, next) {
     res.setHeader('Cache-Control', 'no-store');
     try {
@@ -2664,7 +2671,12 @@ function governanceAccess(requiredRole) {
         },
         requiredRole
       });
-      req.governance = { ...context, service };
+      if (isPublicReaderAccess(context.authorization) && options.publicRepositories !== true) {
+        throw Object.assign(new Error('This is shared by the repository’s collaborators, and reading a public repository does not make you one'), {
+          status: 403, code: 'GOVERNANCE_COLLABORATORS_ONLY'
+        });
+      }
+      req.governance = { ...context, service, publicReader: isPublicReaderAccess(context.authorization) };
       next();
     } catch (error) { return governanceFailure(res, error); }
   };
@@ -4766,7 +4778,7 @@ function exposureFailure(res, error) {
   res.status(status).json(publicErrorBody(error));
 }
 
-app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.scan.request'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.scan.request'), async (req, res) => {
   try {
     const store = exposureService();
     /*
@@ -4800,7 +4812,7 @@ app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRe
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const scan = await exposureService().getScan({
       scope: req.governance.scope,
@@ -4817,7 +4829,7 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, 
  * how many findings of each severity it recorded. Paged by the last row seen,
  * so a scan finishing mid-page does not shift the next page.
  */
-app.get('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -4851,7 +4863,7 @@ app.get('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRep
  * survives, so clearing the evidence of a decision never clears the evidence
  * of the clear.
  */
-app.post('/api/repo/:owner/:repo/exposure/clear', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.history.clear'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/clear', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.history.clear'), async (req, res) => {
   try {
     /* The same explicit word as the other irreversible actions, refused
        before anything is touched. */
@@ -4870,7 +4882,7 @@ app.post('/api/repo/:owner/:repo/exposure/clear', providerSessionAccess, alphaRe
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), governanceMutationContext('exposure.scan.cancel'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.scan.cancel'), async (req, res) => {
   try {
     const scan = await exposureService().cancelScan({
       scope: req.governance.scope,
@@ -4928,7 +4940,7 @@ function exposureSeverityOf(rule) {
   return entry ? entry.severity : 'serious';
 }
 
-app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -4965,7 +4977,7 @@ app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alpha
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     /*
      * A scan's report: each observation with the finding it is about, so a
@@ -5122,7 +5134,7 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', provide
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const verifications = await exposureService().listVerifications({
       scope: req.governance.scope,
@@ -5281,7 +5293,7 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readabilit
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const probes = await exposureService().listReadabilityProbes({
       scope: req.governance.scope,
@@ -5501,6 +5513,22 @@ app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.creat
     res.status(201).json(result);
   } catch (e) { fail(res, e); }
 });
+/*
+ * What the signed-in account may do in a repository, as the provider reports
+ * it on the repository itself: the page opens a repository somebody else owns
+ * -- any public one -- read-only, and says so, rather than offering changes
+ * the provider would refuse. The provider still decides every change.
+ */
+function repositoryPermission(provider, info) {
+  if (provider === 'gitlab') {
+    const permissions = info && info.permissions || {};
+    const level = Math.max(...[permissions.project_access, permissions.group_access].map(value => Number(value && value.access_level) || 0));
+    return level >= 50 ? 'admin' : level >= 40 ? 'maintain' : level >= 30 ? 'write' : level >= 10 ? 'read' : 'none';
+  }
+  const permissions = info && info.permissions;
+  if (!permissions || typeof permissions !== 'object') return 'unknown';
+  return permissions.admin ? 'admin' : permissions.maintain ? 'maintain' : permissions.push ? 'write' : permissions.triage ? 'triage' : permissions.pull ? 'read' : 'none';
+}
 app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
   try {
     if (req.gh.provider === 'gitlab') {
@@ -5512,6 +5540,8 @@ app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, 
       return res.json({
         full_name: p3.path_with_namespace, default_branch: p3.default_branch,
         private: p3.visibility !== 'public', description: p3.description,
+        permission: repositoryPermission('gitlab', p3),
+        archived: p3.archived === true,
         branches: normalizeProviderBranches('gitlab', brs)
       });
     }
@@ -5523,6 +5553,8 @@ app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, 
       full_name: info.full_name, default_branch: info.default_branch,
       private: info.private, description: info.description,
       homepage: declaredSite(info.homepage || info.website),
+      permission: repositoryPermission(req.gh.provider || 'github', info),
+      archived: info.archived === true,
       branches: normalizeProviderBranches(req.gh.provider || 'github', branches)
     });
   } catch (e) { fail(res, e); }
@@ -7830,7 +7862,7 @@ function auditHistoryRef(req) {
   return ref;
 }
 
-app.get('/api/repo/:owner/:repo/code-audit/history', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/code-audit/history', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const ref = auditHistoryRef(req);
     const listed = await auditHistory().list({ scope: req.governance.scope, identityKey: req.governance.actor.identityKey, ref });
@@ -7838,7 +7870,7 @@ app.get('/api/repo/:owner/:repo/code-audit/history', providerSessionAccess, alph
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/code-audit/history/:auditId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/code-audit/history/:auditId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const found = await auditHistory().read({ scope: req.governance.scope, identityKey: req.governance.actor.identityKey, auditId: String(req.params.auditId || '') });
     if (!found) return res.status(404).json({ error: 'That audit is not kept for this repository', code: 'CODE_AUDIT_NOT_FOUND' });
@@ -7847,7 +7879,7 @@ app.get('/api/repo/:owner/:repo/code-audit/history/:auditId', providerSessionAcc
 });
 
 /* The watch answers from what it stored, and asks OSV and CISA again when that answer is six hours old -- or ten minutes, when asked to. */
-app.get('/api/repo/:owner/:repo/code-audit/watch', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/code-audit/watch', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const ref = auditHistoryRef(req);
     const watched = await auditWatch().refresh({
@@ -7857,7 +7889,7 @@ app.get('/api/repo/:owner/:repo/code-audit/watch', providerSessionAccess, alphaR
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.post('/api/repo/:owner/:repo/code-audit/history/clear', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader'), governanceMutationContext('code-audit.history.clear'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/code-audit/history/clear', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader', OWN_WORK), governanceMutationContext('code-audit.history.clear'), async (req, res) => {
   try {
     const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
     if (String(body.confirm || '') !== 'clear-audit-history') {

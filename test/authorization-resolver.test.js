@@ -205,6 +205,70 @@ function assertCredentialFree(value) {
   assert.strictEqual(forbidden.evidence.reasonCode, 'AUTHORIZATION_PROVIDER_FORBIDDEN');
   assertCredentialFree(forbidden);
 
+  /*
+   * Somebody else's public repository. GitHub refuses the collaborator
+   * permission read to anyone who cannot push, so the repository itself is
+   * asked; public, it grants the reader level everyone has, marked public.
+   */
+  const publicPaths = [];
+  const publicReader = await createAuthorizationResolver({
+    request: async ({ apiPath }) => {
+      publicPaths.push(apiPath);
+      if (apiPath.endsWith('/permission')) throw Object.assign(new Error('Must have push access to view collaborator permission.'), { status: 403 });
+      return { full_name: 'Acme/Demo', private: false, visibility: 'public', permissions: { pull: true, push: false, admin: false } };
+    }
+  }).resolve({ account: baseAccount, ...scope, actorIdentityKey: actorKey });
+  assert.deepStrictEqual(publicPaths, ['/repos/Acme/Demo/collaborators/alice/permission', '/repos/Acme/Demo']);
+  assert.strictEqual(publicReader.evidence.status, 'resolved');
+  assert.deepStrictEqual(publicReader.repositoryAccess, { baseRole: 'read', providerRole: 'public', level: 10, source: 'github.repository.public', complete: true });
+  assert.deepStrictEqual(publicReader.governanceRoles, { reader: true, author: false, reviewer: false, activator: false, administrator: false });
+  assert.strictEqual(authorization.isPublicReaderAccess(publicReader), true);
+  assert.strictEqual(authorization.isPublicReaderAccess(github), false, 'a collaborator is not a public reader');
+  assertCredentialFree(publicReader);
+
+  /* A private or internal repository, a different one, or none at all is not public reading: the refusal stands. */
+  for (const answer of [
+    { full_name: 'Acme/Demo', private: true, visibility: 'private' },
+    { full_name: 'Acme/Demo', private: true, visibility: 'internal' },
+    { full_name: 'Acme/Demo', private: false, internal: true },
+    { full_name: 'Acme/Other', private: false, visibility: 'public' },
+    null
+  ]) {
+    const refused = await createAuthorizationResolver({
+      request: async ({ apiPath }) => {
+        if (apiPath.endsWith('/permission')) throw Object.assign(new Error('forbidden'), { status: 403 });
+        if (!answer) throw Object.assign(new Error('missing'), { status: 404 });
+        return answer;
+      }
+    }).resolve({ account: baseAccount, ...scope, actorIdentityKey: actorKey });
+    assert.strictEqual(refused.evidence.status, 'unavailable', JSON.stringify(answer));
+    assert.strictEqual(refused.evidence.reasonCode, 'AUTHORIZATION_PROVIDER_FORBIDDEN');
+    assert.strictEqual(refused.governanceRoles.reader, false);
+  }
+
+  /* Only a refusal falls back: a permission read that failed otherwise is not turned into access. */
+  const outage = await createAuthorizationResolver({
+    request: async ({ apiPath }) => {
+      if (apiPath.endsWith('/permission')) throw Object.assign(new Error('down'), { status: 502 });
+      return { full_name: 'Acme/Demo', private: false, visibility: 'public' };
+    }
+  }).resolve({ account: baseAccount, ...scope, actorIdentityKey: actorKey });
+  assert.strictEqual(outage.evidence.status, 'unavailable');
+  assert.strictEqual(outage.governanceRoles.reader, false);
+
+  /* GitLab: a public project the account is not a member of. */
+  const gitlabAccount = { provider: 'gitlab', authMethod: 'token', login: 'alice', token: 'glpat-secret', baseUrl: 'https://gitlab.com' };
+  const gitlabPublic = await createAuthorizationResolver({
+    request: async () => ({ path_with_namespace: 'Acme/Demo', visibility: 'public', permissions: { project_access: null, group_access: null } })
+  }).resolve({ account: gitlabAccount, ...scope, actorIdentityKey: key('gitlab:alice') });
+  assert.strictEqual(gitlabPublic.repositoryAccess.source, 'gitlab.project.public');
+  assert.strictEqual(gitlabPublic.governanceRoles.reader, true);
+  assert.strictEqual(gitlabPublic.governanceRoles.author, false);
+  const gitlabPrivate = await createAuthorizationResolver({
+    request: async () => ({ path_with_namespace: 'Acme/Demo', visibility: 'internal', permissions: { project_access: null, group_access: null } })
+  }).resolve({ account: gitlabAccount, ...scope, actorIdentityKey: key('gitlab:alice') });
+  assert.strictEqual(gitlabPrivate.governanceRoles.reader, false, 'an internal project the account has no role in grants nothing');
+
   const malformed = await createAuthorizationResolver({ request: async () => ({ permission: 'owner', role_name: 'owner' }) })
     .resolve({ account: baseAccount, ...scope, actorIdentityKey: actorKey });
   assert.strictEqual(malformed.evidence.status, 'partial');

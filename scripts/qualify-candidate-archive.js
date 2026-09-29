@@ -27,9 +27,15 @@ const COMMAND_TIMEOUTS_MS = Object.freeze({
   gate: 5 * 60 * 1000,
   matrix: 10 * 60 * 1000,
   // The full unsharded candidate suite can exceed 15 minutes. Keep every
-  // browser case and its individual timeout, with a bounded 30-minute total.
-  browser: 30 * 60 * 1000
+  // browser case and its individual timeout, with a bounded total. It ran to
+  // just under 30 minutes on one worker once the suite passed 700 cases, and a
+  // bound the honest suite outgrows fails every candidate for its size rather
+  // than for a defect; the checkout's sharded matrix still holds each quarter
+  // to 20 minutes, which is where a slow test is caught.
+  browser: 50 * 60 * 1000
 });
+/* No single candidate command may run longer than this, whatever it is given. */
+const MAX_COMMAND_TIMEOUT_MS = 60 * 60 * 1000;
 /*
  * NV_TEST_DATABASE_URL is here because the candidate's own suite includes a
  * program that applies the migrations to a real server, and a migration proven
@@ -287,7 +293,7 @@ function filesEqual(leftPath, rightPath) {
 
 function runCommand(command, args, options = {}) {
   const timeoutMs = options.timeoutMs == null ? COMMAND_TIMEOUTS_MS.archive : options.timeoutMs;
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30 * 60 * 1000) {
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_COMMAND_TIMEOUT_MS) {
     fail('candidate command timeout is invalid');
   }
   const result = spawnSync(command, args, {

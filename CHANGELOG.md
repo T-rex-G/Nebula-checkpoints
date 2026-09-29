@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+### Repository Switches That Start Clean, Folding Audit Sections, and a Calmer Phone Bar
+
+Reported:
+- After switching repositories, the Audit and other security sections
+  sometimes still showed the previous repository's data.
+- The sections under the audit summary were too long to scroll past.
+- With read-only mode on, the phone's top bar left no room next to Private.
+- The floating action button offered more than Settings and the command
+  palette.
+
+- **Opening a repository clears every section before it asks for
+  anything.**
+  - The cause: the new name went up at once, but the workbench kept the
+    last repository until the new one answered. Anything painted or clicked
+    in between belonged to the old one: its audit under the new name, an
+    audit poll or scan status landing late, a Neural graph finishing its
+    load.
+  - Now Audit, the site check, Exposure, Governance, Safeguards and Neural
+    are cleared first. No repository is open until the new one answers, so
+    nothing can act on the old one.
+  - An open overtaken by a later one gives way, and a tool chosen while a
+    repository opens lands once it does.
+  - Neural drops a load or live catch-up that arrives for a repository no
+    longer open, and maps a new repository from nothing instead of
+    refreshing the old map in place.
+  - Signing out abandons an open still in flight.
+- **An address followed while the page is still starting waits for
+  sign-in.** A reload followed at once by a link used to open the
+  repository before capabilities had loaded. The tab was refused, the
+  address fell back to the editor, and start-up restored the editor.
+- **Every section under the audit summary folds to its heading:** Fix
+  first, Families (now titled), Attack surface, Coverage, Already in place,
+  OWASP Top 10, Findings and Deployed site.
+  - The fold animates, and a folded body leaves the tab order and the
+    accessibility tree.
+  - Which sections are folded is remembered for the browser by section name
+    only.
+  - The findings list opens by itself when a family, an OWASP category or
+    a Fix-first item is about to show something in it.
+- **The phone's workbench bar puts the name first.**
+  - Below 700px the owner is dropped from the name (the full name is its
+    title), and Private becomes its shield alone, with the word kept for
+    screen readers.
+  - The branch picker loses its decorative mark.
+  - The brand clips, so nothing in it can draw over the refresh control.
+  - Below 340px the shield steps aside for the name.
+- **The floating action carries Settings and the command palette, in that
+  order, and nothing else.**
+
 ### An Audit That Never Takes the Server Down With It
 
 Reported: after two audits of a real project on the hosted alpha, the Audit

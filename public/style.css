@@ -6641,6 +6641,55 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
   background-size: 200% 100%; animation: audit-progress-sheen 1.8s linear infinite;
 }
 @keyframes audit-progress-sheen { to { background-position: -200% 0; } }
+/*
+ * Sections that fold to their heading. The body animates its height on a
+ * grid row (1fr to 0fr), then leaves the accessibility tree; the space each
+ * card used to put between its heading and its content moves inside the
+ * body, so it folds away with it. The inner box reaches 6px past the body on
+ * each side and pads back in, so a focus ring at the edge is never clipped.
+ */
+#auditRoot .audit-foldable { row-gap: 0; }
+.audit-fold { display: grid; grid-template-rows: 1fr; min-width: 0; transition: grid-template-rows .32s var(--ease, ease); }
+.audit-fold-inner {
+  min-height: 0; min-width: 0; overflow: hidden; display: grid; align-content: start;
+  gap: var(--fold-gap, 14px); padding: var(--fold-gap, 14px) 6px 6px; margin: 0 -6px -6px;
+  transition: opacity .24s var(--ease, ease), padding .32s var(--ease, ease), margin .32s var(--ease, ease);
+}
+.audit-foldable[data-folded="true"] > .audit-fold { grid-template-rows: 0fr; }
+/* The padding goes too: a 0fr row still makes room for its item's padding, which left a strip under a folded heading. */
+.audit-foldable[data-folded="true"] > .audit-fold > .audit-fold-inner {
+  opacity: 0; visibility: hidden; padding-top: 0; padding-bottom: 0; margin-bottom: 0;
+  transition: opacity .2s var(--ease, ease), padding .32s var(--ease, ease), margin .32s var(--ease, ease), visibility 0s linear .32s;
+}
+.audit-first, .audit-owasp { --fold-gap: 12px; }
+.audit-site { --fold-gap: 16px; }
+.audit-families { --fold-gap: 10px; display: grid; }
+/* The findings card is a flow of blocks, not a grid: its heading's own margin becomes the body's padding. */
+.audit-findings { --fold-gap: 12px; }
+.audit-findings > .audit-findings-head { margin-bottom: 0; }
+.audit-findings .audit-fold-inner { display: block; }
+.audit-first-head { align-items: center; }
+.audit-families-head { padding: 2px 4px 0; }
+/* The heading takes the line and the toggle keeps the top right corner, however the words wrap. */
+.audit-foldable > .audit-card-head, .audit-foldable > .audit-owasp-head { flex-wrap: nowrap; align-items: flex-start; }
+.audit-foldable > .audit-card-head > .audit-card-titles, .audit-owasp-titles { flex: 1 1 auto; }
+.audit-owasp-titles { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 14px; }
+.audit-site-head .audit-fold-toggle { margin-left: auto; }
+.audit-findings-head > .exposure-findings-title { margin-right: auto; }
+.audit-findings-head { gap: 8px; }
+.audit-fold-toggle {
+  flex: none; align-self: flex-start; width: 32px; height: 32px; padding: 0; display: grid; place-items: center;
+  border-radius: 10px; border: 1px solid var(--rp-line); background: transparent; color: var(--muted); cursor: pointer;
+  transition: color .18s ease, border-color .18s ease, background-color .18s ease;
+}
+.audit-fold-toggle:hover { color: var(--text); border-color: color-mix(in oklab, var(--text) 28%, var(--rp-line)); background: var(--rp-tile); }
+.audit-fold-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.audit-fold-chev { width: 16px; height: 16px; transform: rotate(180deg); transition: transform .32s var(--ease, ease); }
+.audit-foldable[data-folded="true"] .audit-fold-chev { transform: none; }
+[data-motion="off"] .audit-fold, [data-motion="off"] .audit-fold-inner, [data-motion="off"] .audit-fold-chev { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .audit-fold, .audit-fold-inner, .audit-fold-chev { transition: none; }
+}
 /* On a phone four pills do not fit a row: the steps become dots on a line, each word under its dot. */
 @media (max-width: 480px) {
   .audit-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
@@ -7020,6 +7069,32 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .repo-vis-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; color: var(--text); border-color: color-mix(in oklab, var(--vis-private) 38%, transparent); background: color-mix(in oklab, var(--vis-private) 6%, transparent); }
 .repo-vis-badge[hidden] { display: none; }
 .repo-vis-badge svg { width: 12px; height: 12px; fill: none; stroke: var(--vis-private); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+/*
+ * The workbench bar on a phone. With the read-only lock showing it holds a
+ * menu, a refresh, the lock, a branch and the stage, and the Private pill --
+ * 69px of word and border -- took the whole of what was left: the repository
+ * name went to nothing and the pill ran on under the refresh button. Here
+ * the name comes first. The owner is dropped (the full name is the title),
+ * Private becomes its shield alone (the word stays for assistive technology),
+ * the branch picker loses its decorative mark, and the brand clips, so
+ * nothing in it can ever draw over a control beside it.
+ */
+@media (max-width: 700px) {
+  #backBtn { overflow: hidden; gap: 6px; }
+  #backBtn .back-chev { flex: none; }
+  #workRepoName { flex: 0 1 auto; min-width: 0; max-width: none; }
+  #workRepoName .repo-owner { display: none; }
+  #workPrivateBadge { flex: none; width: 24px; height: 24px; padding: 0; justify-content: center; border-radius: 50%; }
+  #workPrivateBadge .repo-vis-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #workPrivateBadge svg { width: 13px; height: 13px; }
+  #page-work .branch-pick-mark { display: none; }
+  #page-work .branch-select { padding-left: 12px; }
+  #page-work .ro-chip { margin-right: 0; }
+}
+/* Narrower than any current phone but the smallest: the name keeps the room, the shield goes. */
+@media (max-width: 340px) {
+  #workPrivateBadge { display: none; }
+}
 
 /* ---- The repository picker ------------------------------------------------- */
 .rp-pick { display: grid; gap: 12px; min-width: 0; }

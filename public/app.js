@@ -13,7 +13,7 @@ const state = {
   posture: null,
   uiEpoch: 0,
   repos: [], repoPage: 1, repoSort: 'pushed',
-  work: null, file: null, cm: null,
+  work: null, opening: null, file: null, cm: null,
   commitsPage: 1,
   staged: [],
   fileIndex: null,
@@ -637,9 +637,18 @@ $('#railCollapse') && $('#railCollapse').addEventListener('click', () => {
  * Which is why it is empty on the overview and the inventory. Those bars drop
  * nothing a reader cannot otherwise reach, so there is nothing for a floating
  * menu to solve, and a menu that repeats the screen behind it is worse than no
- * menu at all. The workbench drops two, and gets a dock with two entries.
+ * menu at all. The workbench gets a dock with two entries.
  */
 const DOCK_LABELS = Object.freeze({ overview: 'Overview actions', repos: 'Repository actions', work: 'Workspace actions' });
+/*
+ * Of what the bar drops, the dock carries two: Settings and the command
+ * palette, in that order. The others the bar drops on a phone -- the file
+ * panel's toggle, Safeguards -- each have a place of their own there (the
+ * tab strip, the security menu), and a dock that grew with every control
+ * that stopped fitting had become a second, longer menu.
+ */
+const DOCK_ACTIONS = Object.freeze(['settings', 'palette']);
+const dockAction = control => (/^settingsBtn/.test(control.id) ? 'settings' : control.id === 'paletteBtn' ? 'palette' : '');
 
 function accessibleName(control) {
   return (control.getAttribute('aria-label') || control.textContent || '').replace(/\s+/g, ' ').trim();
@@ -663,8 +672,10 @@ function floatingActionsFor(name) {
   const bar = page.querySelector('.topbar');
   if (!bar) return null;
   const dropped = [...bar.querySelectorAll('button.hide-sm')]
+    .filter(control => DOCK_ACTIONS.includes(dockAction(control)))
     .map(control => ({ control, label: accessibleName(control) }))
-    .filter(entry => entry.label && !placedElsewhere(page, entry.control, entry.label));
+    .filter(entry => entry.label && !placedElsewhere(page, entry.control, entry.label))
+    .sort((a, b) => DOCK_ACTIONS.indexOf(dockAction(a.control)) - DOCK_ACTIONS.indexOf(dockAction(b.control)));
   if (!dropped.length) return null;
   return { label: DOCK_LABELS[name] || 'Actions', items: dropped };
 }
@@ -899,6 +910,14 @@ function saveRoute(push = false) {
  */
 let lastAppliedRoute = '';
 async function applyRoute() {
+  /*
+   * Not before the session is known. A navigation that lands while the page
+   * is still starting (a reload followed at once by a link) used to open the
+   * repository before its capabilities had loaded: the tab it named was
+   * refused, the address fell back to the editor, and start-up then restored
+   * that. Start-up applies the address itself once it can.
+   */
+  if (!state.me) return;
   const hash = location.hash;
   if (hash === lastAppliedRoute) return;
   const m = /^#\/([^/]+)\/([^/@]+)@([^/]+)\/([a-z]+)(?:\/(.+))?$/.exec(hash);
@@ -931,7 +950,10 @@ async function restoreRoute() {
   const wasApplying = routeApplying;
   routeApplying = true;
   try {
-    await openRepo(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
+    const opened = await openRepo(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
+    /* A later open took over: the route is being applied there, not failed here. */
+    if (opened === null) return true;
+    if (!opened) return false;
     const br = decodeURIComponent(m[3]);
     if (br && br !== state.work.branch && [...$('#branchSelect').options].some(o => o.value === br)) {
       state.work.branch = br;
@@ -1734,6 +1756,7 @@ async function purgeLocalData(full) {
     try { state.cm.clearHistory(); } catch {}
   }
   state.staged = [];
+  forgetRepositoryWork();
   state.work = null;
   state.repos = [];
   state.me = null;
@@ -2530,19 +2553,67 @@ async function loadRepositoryTrustSummary() {
       : 'Repository trust summary updated.'
   });
 }
-async function openRepo(owner, repo) {
-  showPage('work');
+/*
+ * Everything on screen that belongs to one repository, cleared together when
+ * another is opened -- before the first await, so no section is drawn with
+ * the last repository's findings under the new one's name, and every request
+ * still in flight for it (an audit poll, a scan status, a graph load, a
+ * branch-rule read) lands on a view that is no longer its own and is dropped.
+ */
+let openRepoRequest = 0;
+function resetRepositoryViews() {
   clearGovernanceState();
   clearExposureState();
-  $('#workRepoName').textContent = `${owner}/${repo}`;
+  clearAuditState();
+  safeguardsRender++;
+  const safeguards = $('#safeguardsRoot');
+  if (safeguards) safeguards.replaceChildren();
+  branchRulesCache = { key: '', at: 0, value: null };
+  if (window.NebulaNeural && typeof window.NebulaNeural.reset === 'function') window.NebulaNeural.reset();
+}
+/* The account is leaving: a repository still opening for it never finishes opening, and its graph goes. */
+function forgetRepositoryWork() {
+  openRepoRequest++;
+  state.opening = null;
+  if (window.NebulaNeural && typeof window.NebulaNeural.reset === 'function') window.NebulaNeural.reset();
+}
+/*
+ * Resolves true when this repository is the one open at the end, false when
+ * it could not be opened, and null when another was opened meanwhile -- that
+ * open owns the workbench, and whoever called this has nothing left to do.
+ */
+async function openRepo(owner, repo) {
+  const opening = ++openRepoRequest;
+  showPage('work');
+  /* No repository is open until this one answers: nothing may act on the last one meanwhile. */
+  state.work = null;
+  resetRepositoryViews();
+  /* The owner is its own span so a phone can show the repository alone; the text is the full name either way. */
+  const repoName = $('#workRepoName');
+  const ownerPart = document.createElement('span');
+  ownerPart.className = 'repo-owner';
+  ownerPart.textContent = `${owner}/`;
+  repoName.replaceChildren(ownerPart, document.createTextNode(repo));
+  repoName.title = `${owner}/${repo}`;
+  $('#workPrivateBadge').hidden = true;
   $('#tree').innerHTML = '<div class="skeleton" style="height:200px"></div>';
   closeFile();
   state.staged = []; renderStagedCount();
   state.fileIndex = null;
   ['#prList', '#issueList', '#releaseList', '#commitList', '#cmpResult', '#uploadQueue', '#actionsList'].forEach(s => { $(s).innerHTML = ''; });
   $('#prDetail').hidden = true; $('#issueDetail').hidden = true;
+  let opened;
+  state.opening = opened = (async () => {
+    try { return { info: await api(`/api/repo/${owner}/${repo}`) }; }
+    catch (error) { return { error }; }
+  })();
+  const answer = await opened;
+  if (state.opening === opened) state.opening = null;
+  /* Another repository was chosen while this one loaded: that one owns the workbench. */
+  if (opening !== openRepoRequest) return null;
   try {
-    const info = await api(`/api/repo/${owner}/${repo}`);
+    if (answer.error) throw answer.error;
+    const info = answer.info;
     state.work = { owner, repo, branch: info.default_branch, ...info };
     $('#workPrivateBadge').hidden = !info.private;
     const names = info.branches.map(b => b.name);
@@ -2565,9 +2636,11 @@ async function openRepo(owner, repo) {
       });
       presentError(error);
     });
-    api(`/api/repo/${owner}/${repo}/star`).then(x => { state.work.starred = x.starred; }).catch(() => {});
+    const work = state.work;
+    api(`/api/repo/${owner}/${repo}/star`).then(x => { if (state.work === work) work.starred = x.starred; }).catch(() => {});
     rememberRepository(owner, repo);
-  } catch (e) { presentError(e); showPage('repos'); }
+    return true;
+  } catch (e) { presentError(e); showPage('repos'); return false; }
 }
 
 /*
@@ -2756,8 +2829,7 @@ async function pickRepository(target) {
   $('#modalOk').disabled = false;
   const repo = chosen || (ok ? highlighted : null);
   if (!repo) return;
-  await openRepo(repo.owner, repo.name);
-  if (state.work && state.work.owner === repo.owner && state.work.repo === repo.name) switchTab(target);
+  if (await openRepo(repo.owner, repo.name)) switchTab(target);
 }
 async function refreshRepoMetadata() {
   if (!state.work || !state.work.owner || !state.work.repo) return null;
@@ -6990,6 +7062,14 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   closeNavMenu();
   if (target === 'overview') return showOverview();
   if (target === 'repos') return showPage('repos');
+  /* A repository still opening is the one the tool is for: it lands there once it answers. */
+  if (!state.work && state.opening) {
+    const opening = openRepoRequest;
+    return state.opening.then(() => {
+      if (opening !== openRepoRequest || !state.work) return;
+      if (['neural', 'governance', 'exposure', 'audit', 'safeguards'].includes(target)) switchTab(target);
+    });
+  }
   if (!state.work) return PICK_TOOLS[target] ? pickRepository(target) : toast('Open a repository first.', 'err');
   showPage('work');
   if (['neural', 'governance', 'exposure', 'audit', 'safeguards'].includes(target)) switchTab(target);

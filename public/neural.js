@@ -272,10 +272,21 @@
     events.push({ id: `${type}:${nodeId}:${d.getTime()}:${events.length}`, type, label, detail, time: d.toISOString(), nodeId, edgeId, severity });
   }
 
+  /*
+   * Which repository the graph belongs to. Opening another bumps it (see
+   * reset), and a load or a catch-up that was in flight for the last one
+   * lands on nothing: it may not draw one repository's map under another's
+   * name.
+   */
+  let generation = 0;
+
   async function load(force = false) {
     if (!state || !state.work || NVN.loading) return;
     const key = repoKey();
     if (!force && NVN.loadedKey === key && NVN.nodes.length) { resize(); renderInspector(NVN.selected); return; }
+    /* Another repository, or another branch: the last map goes before this one is drawn. */
+    if (NVN.loadedKey && NVN.loadedKey !== key) reset();
+    const mine = generation;
     NVN.loading = true;
     const loading = document.getElementById('neuralLoading');
     const empty = document.getElementById('neuralEmpty');
@@ -308,6 +319,7 @@
          * a screen may show it. */
         api(`${base}/exposure/findings?limit=60`)
       ]);
+      if (mine !== generation || repoKey() !== key) return;
       const safety = settledValue(requests[0], { readOnly: false, freezeSync: false, protected: {} });
       const refs = settledValue(requests[1], { refs: [], tags: [], defaultBranch: state.work.branch });
       const activity = settledValue(requests[2], { commits: [], pulls: [], issues: [], releases: [] });
@@ -337,15 +349,56 @@
       const sync = document.getElementById('neuralLastSync');
       if (sync) sync.textContent = `${live.connected ? 'Webhook verified' : 'Polled'} · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     } catch (error) {
+      if (mine !== generation) return;
       console.error('Neural graph load failed', error);
       if (typeof toast === 'function') toast(`Neural map: ${error.message}`, 'err');
       if (!NVN.nodes.length) injectDemo(true);
     } finally {
-      NVN.loading = false;
-      if (loading) loading.hidden = true;
-      if (empty) empty.hidden = !!NVN.nodes.length;
-      resize();
+      if (mine === generation) {
+        NVN.loading = false;
+        if (loading) loading.hidden = true;
+        if (empty) empty.hidden = !!NVN.nodes.length;
+        resize();
+      }
     }
+  }
+
+  /*
+   * Another repository was opened. The graph, its figures, its selection and
+   * its live stream go at once; the next activation maps the new one from
+   * nothing, behind the loading cover, rather than refreshing the old map in
+   * place.
+   */
+  function reset() {
+    generation += 1;
+    closeLiveStream();
+    clearTimeout(NVN.liveReloadTimer);
+    NVN.loading = false;
+    NVN.catchUpBusy = false;
+    NVN.loadedKey = '';
+    NVN.nodes = []; NVN.edges = []; NVN.events = [];
+    NVN.data = null; NVN.totals = {};
+    NVN.selected = null; NVN.hover = null;
+    NVN.intelligenceCursor = '';
+    NVN.timelineIndex = -1;
+    NVN.userCamera = false;
+    NVN.emergency = false;
+    document.body.classList.remove('neural-emergency-active');
+    closeCard();
+    for (const id of ['neuralRiskScore', 'neuralSignalCount', 'neuralProtectedCount', 'neuralRecoveryState']) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      el.textContent = '—';
+      const card = el.closest('.neural-kpi');
+      if (card) delete card.dataset.level;
+    }
+    for (const id of ['neuralRiskHint', 'neuralRecoveryHint', 'neuralLastSync']) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = '';
+    }
+    renderLegend();
+    updateVisibleCount();
+    updateTimeline(true);
   }
 
   function readStoredSnapshot() {
@@ -3164,6 +3217,7 @@
 
   async function catchUpIntelligence() {
     if (!NVN.active || !state || !state.work || !NVN.data || NVN.catchUpBusy) return;
+    const mine = generation;
     NVN.catchUpBusy = true;
     try {
       const existing = ((NVN.data.intelligence || {}).events || []);
@@ -3174,6 +3228,7 @@
       while (pages < 5) {
         const query = after ? `&after=${encodeURIComponent(after)}` : '';
         const page = await api(`/api/repo/${workPath()}/intelligence/events?limit=500${query}`);
+        if (mine !== generation) return;
         available = page.available !== false;
         for (const event of page.events || []) if (event && event.id) merged.set(event.id, event);
         const next = String(page.cursor || '');
@@ -3181,6 +3236,7 @@
         pages += 1;
         if (!page.hasMore || !next) break;
       }
+      if (mine !== generation || !NVN.data) return;
       const events = [...merged.values()]
         .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0) || String(a.id).localeCompare(String(b.id)))
         .slice(-1500);
@@ -3191,7 +3247,7 @@
       applyMode();
     } catch (error) {
       console.warn('Neural intelligence catch-up failed', error && error.message);
-    } finally { NVN.catchUpBusy = false; }
+    } finally { if (mine === generation) NVN.catchUpBusy = false; }
   }
 
   function ensureLiveStream() {
@@ -3632,5 +3688,5 @@
     else { stopLoop(); closeLiveStream(); }
   });
   window.addEventListener('resize', resize);
-  window.NebulaNeural = { activate, deactivate, refresh: () => load(true), emergencyShield, injectDemo, state: NVN };
+  window.NebulaNeural = { activate, deactivate, reset, refresh: () => load(true), emergencyShield, injectDemo, state: NVN };
 })();

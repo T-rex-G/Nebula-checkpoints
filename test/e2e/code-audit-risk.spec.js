@@ -44,11 +44,11 @@ test('vulnerable packages are ranked by exploitation and reach, and the grade is
   await expect(rows.nth(0)).toHaveAttribute('data-band', 'urgent');
   await expect(rows.nth(0).locator('.audit-kev')).toHaveAttribute('data-beam', 'on');
   await expect(rows.nth(0)).toContainText('EPSS 85%');
-  await expect(rows.nth(0)).toContainText('Imported by the code: web/main.js.');
+  await expect(rows.nth(0)).toContainText('Imported by main.js');
   /* qs is not imported; Express brings it, and the server imports Express. */
   const qs = rows.filter({ hasText: 'qs' });
   await expect(qs).toContainText('Via express');
-  await expect(qs).toContainText('it comes with express, which the code imports');
+  await expect(qs).toContainText('Comes with express, which the code imports');
   /* Exploited too, but only a development tool: listed, not beamed, and not what holds the grade. */
   const tool = rows.filter({ hasText: 'systeminformation' });
   await expect(tool.locator('.audit-kev')).toBeVisible();
@@ -57,7 +57,7 @@ test('vulnerable packages are ranked by exploitation and reach, and the grade is
   /* A production dependency only a test imports is still installed, never "unused". */
   const lodash = rows.filter({ hasText: 'lodash' });
   await expect(lodash).toContainText('Installed');
-  await expect(lodash).toContainText('Only tests import it');
+  await expect(lodash).toContainText('Installed for production; only tests import it');
   await expect(risk.locator('.audit-risk-stats')).toContainText('1 exploited in the wild');
   await expect(risk.locator('.audit-risk-note')).toContainText('CISA’s Known Exploited Vulnerabilities catalog 2026.09.27 (1,728 CVEs)');
 
@@ -114,4 +114,19 @@ test('the exploited filter narrows the findings, and the exports carry the same 
   expect(jquery.properties.dependencyReach).toBe('imported');
   expect(jquery.properties['security-severity']).toBe('6.1');
   expect(sarif.runs[0].properties.capReason).toBe('exploited');
+
+  /* The bill of materials downloads in both formats, named for the repository and the day. */
+  await pane.getByRole('button', { name: /^Export/ }).click();
+  const [cdxFile] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Export CycloneDX SBOM' }).click()]);
+  expect(cdxFile.suggestedFilename()).toMatch(/^demo-sbom-\d{4}-\d{2}-\d{2}\.cdx\.json$/);
+  const bom = JSON.parse(require('fs').readFileSync(await cdxFile.path(), 'utf8'));
+  expect(bom.specVersion).toBe('1.5');
+  expect(bom.metadata.component.name).toBe('sandbox/demo');
+  expect(bom.vulnerabilities.find(vulnerability => vulnerability.id === 'GHSA-jpcq-cgw6-v4j6').affects).toEqual([{ ref: 'pkg:npm/jquery@3.4.1' }]);
+  await pane.getByRole('button', { name: /^Export/ }).click();
+  const [spdxFile] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Export SPDX SBOM' }).click()]);
+  expect(spdxFile.suggestedFilename()).toMatch(/^demo-sbom-\d{4}-\d{2}-\d{2}\.spdx\.json$/);
+  const spdx = JSON.parse(require('fs').readFileSync(await spdxFile.path(), 'utf8'));
+  expect(spdx.spdxVersion).toBe('SPDX-2.3');
+  expect(spdx.packages.map(item => item.name)).toContain('qs');
 });

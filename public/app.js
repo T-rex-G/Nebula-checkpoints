@@ -5555,6 +5555,13 @@ function paintAudit() {
         return dlFile(`${base}.sarif`, window.NebulaCodeAudit.sarif(result, site, { ref: state.work.branch, repositoryUri }), 'application/sarif+json');
       }
       if (kind === 'csv') return dlFile(`${base}.csv`, window.NebulaCodeAudit.csv(result, site, auditView.diff), 'text/csv');
+      if ((kind === 'cyclonedx' || kind === 'spdx') && result) {
+        const provider = (state.me && state.me.provider) || 'github';
+        const meta = { name: `${state.work.owner}/${state.work.repo}`, ref: state.work.branch, repositoryUri: provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '' };
+        return kind === 'cyclonedx'
+          ? dlFile(`${state.work.repo}-sbom-${day}.cdx.json`, window.NebulaCodeAudit.cyclonedx(result, meta), 'application/vnd.cyclonedx+json')
+          : dlFile(`${state.work.repo}-sbom-${day}.spdx.json`, window.NebulaCodeAudit.spdx(result, meta), 'application/spdx+json');
+      }
       dlFile(`${base}.md`, window.NebulaCodeAudit.brief(result, label, site), 'text/markdown');
     }
   });

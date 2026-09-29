@@ -418,7 +418,7 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   const result = run(files, { advisories, intel });
   const of = name => result.findings.find(item => item.detail && item.detail.package === name);
 
-  assert.deepStrictEqual(of('jquery').detail.usage, { tier: 'imported', files: ['web/main.js'], count: 1, through: [], throughCount: 0, chain: [], seen: null, reason: null });
+  assert.deepStrictEqual(of('jquery').detail.usage, { tier: 'imported', files: ['web/main.js'], count: 1, through: [], throughCount: 0, chain: [], seen: null, loader: null, reason: null });
   assert.deepStrictEqual(of('jquery').detail.intel, { exploited: true, ransomware: false, kev: { cve: 'CVE-2020-11023', added: '2025-01-23', due: '2025-02-13', ransomware: false },
     epss: { cve: 'CVE-2020-11023', score: 0.84887, percentile: 0.99705, date: '2026-09-28' }, catalog: 'listed', cves: 1, scored: 1 });
   assert.strictEqual(of('jquery').detail.risk.band, 'urgent');

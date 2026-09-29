@@ -77,6 +77,7 @@ const { opensWith } = require('./uranus-lex');
 const { analyseSurface, reachOf } = require('./uranus-surface');
 const { usageIndex, tierOf, riskOf, exploitedInProduction } = require('./uranus-reach');
 const { lookupExploitIntel } = require('./exploit-intel');
+const ecosystems = require('./ecosystems');
 
 /* The engine's name and version, carried in every result and export. */
 const ENGINE = Object.freeze({ name: 'Uranus', version: '2.0.0' });
@@ -110,6 +111,11 @@ const LIMITS = Object.freeze({
 
 const JS_EXT = new Set(['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'vue', 'svelte', 'astro']);
 const PY_EXT = new Set(['py']);
+/* The source files that can import each ecosystem's packages. */
+const ECOSYSTEM_LANGUAGES = Object.freeze({
+  npm: JS_EXT, pypi: PY_EXT, go: new Set(['go']), cargo: new Set(['rs']), rubygems: new Set(['rb']),
+  packagist: new Set(['php']), maven: new Set(['java', 'kt']), nuget: new Set(['cs'])
+});
 const SOURCE_EXT = new Set([...JS_EXT, ...PY_EXT, 'rb', 'php', 'go', 'java', 'kt', 'cs', 'rs', 'html', 'htm']);
 const SCRIPT_EXT = new Set(['sh', 'bash', 'zsh', 'ps1', 'yml', 'yaml', 'toml', 'json', 'cfg', 'ini', 'conf', 'env', 'txt', 'sql', 'rules', 'properties', 'tf', 'tfvars']);
 const EXCLUDED_DIR = /(^|\/)(node_modules|vendor|bower_components|dist|build|out|\.next|\.nuxt|\.svelte-kit|\.output|coverage|\.venv|venv|__pycache__|\.git|target|Pods)\//;
@@ -118,7 +124,11 @@ const EXCLUDED_FILE = /(\.min\.(js|css)|\.map|\.bundle\.js|\.chunk\.js)$/i;
 const UNTRUSTED = /(location\.|\.hash\b|\.search\b|searchParams|\bparams\b|\bquery\b|\.value\b|\binput\w*|response|\.json\b|\bdata\.|\bmessage|\bcomment|\buser\w*|\busername|\bbody\b|\btitle\b|\bname\b|\bdescription|\bcontent\b|\bpayload|\bhtml\b|\bmarkup\b|\btext\b)/i;
 const LOCKFILES = Object.freeze(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'bun.lock', 'npm-shrinkwrap.json']);
 /* The lockfiles read for installed versions. The others are only noticed. */
-const READ_LOCKS = new Set(['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'poetry.lock', 'Pipfile.lock']);
+const OTHER_LOCKFILES = new Set(['poetry.lock', 'Pipfile.lock', 'Cargo.lock', 'Gemfile.lock', 'gems.locked', 'composer.lock', 'packages.lock.json', 'gradle.lockfile', 'go.sum']);
+const READ_LOCKS = new Set(['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'poetry.lock', 'Pipfile.lock',
+  ...Object.keys(ecosystems.LOCKS)]);
+/* Manifests read for what a project declares, in every ecosystem the advisory lookup covers. */
+const MANIFESTS = /(^|\/)(package\.json|pyproject\.toml|Pipfile|setup\.py|pom\.xml|build\.gradle(\.kts)?|composer\.json|Gemfile|gems\.rb|Cargo\.toml|Directory\.Packages\.props|packages\.config|[^/]+\.(cs|fs|vb)proj)$/;
 const FIREBASE_RULES = new Set(['firestore.rules', 'storage.rules', 'database.rules.json']);
 
 function extensionOf(filePath) {
@@ -149,8 +159,7 @@ function isTestPath(filePath) {
  */
 function auditPriority(filePath) {
   const base = baseName(filePath);
-  if (base === 'package.json' || isRequirements(base) || base === 'pyproject.toml' || base === 'Pipfile' ||
-    base === 'setup.py' || base === '.gitignore' || base === 'tsconfig.json' || isDockerfile(filePath) || FIREBASE_RULES.has(base)) return 0;
+  if (MANIFESTS.test(filePath) || isRequirements(base) || base === '.gitignore' || base === 'tsconfig.json' || isDockerfile(filePath) || FIREBASE_RULES.has(base)) return 0;
   if (READ_LOCKS.has(base) || (extensionOf(filePath) === 'sql' && /(^|\/)(supabase|migrations?|db|database|sql|schema)\//i.test(filePath))) return 1;
   if (/^\.github\/workflows\//.test(filePath) || base === 'Makefile' || /\.(sh|ps1)$/.test(base) || /^\.env/.test(base) ||
     /^(next|vite|nuxt|svelte|astro)\.config\./.test(base) || base === 'vercel.json' || base === 'netlify.toml' ||
@@ -1260,7 +1269,8 @@ function packageLockEntries(text) {
     for (const [key, entry] of Object.entries(lock.packages)) {
       if (!key || !entry || typeof entry !== 'object' || entry.link || typeof entry.version !== 'string') continue;
       const name = typeof entry.name === 'string' && entry.name ? entry.name : key.slice(key.lastIndexOf('node_modules/') + 13);
-      out.push({ name, version: entry.version, line: lines.get(key) || 1, dev: Boolean(entry.dev), top: key === `node_modules/${name}`, requires: requiredNames(entry.dependencies, entry.optionalDependencies) });
+      out.push({ name, version: entry.version, line: lines.get(key) || 1, dev: Boolean(entry.dev), top: key === `node_modules/${name}`, requires: requiredNames(entry.dependencies, entry.optionalDependencies),
+        license: typeof entry.license === 'string' ? entry.license.slice(0, 120) : null });
     }
     return { entries: out, roots };
   }
@@ -1420,7 +1430,8 @@ const LOCK_PARSERS = Object.freeze({
   'yarn.lock': ['npm', yarnLockEntries],
   'pnpm-lock.yaml': ['npm', pnpmLockEntries],
   'poetry.lock': ['pypi', poetryLockEntries],
-  'Pipfile.lock': ['pypi', pipfileLockEntries]
+  'Pipfile.lock': ['pypi', pipfileLockEntries],
+  ...ecosystems.LOCKS
 });
 
 function nameKey(ecosystem, name) {
@@ -1445,10 +1456,15 @@ function readDependencies(files) {
     if (typeof file.text !== 'string') continue;
     const base = baseName(file.path);
     const dir = dirName(file.path);
+    const manifestParser = ecosystems.manifestParserFor(file.path);
     if (base === 'package.json') {
       manifests.push({ dir, ecosystem: 'npm', packages: packageJsonFindings({ ...file, ext: 'json', base }).packages });
     } else if (isRequirements(base)) {
       manifests.push({ dir, ecosystem: 'pypi', packages: requirementsPackages(file) });
+    } else if (manifestParser) {
+      /* One manifest can only speak for one ecosystem; an empty one declares nothing. */
+      const packages = manifestParser(file);
+      if (packages.length) manifests.push({ dir, ecosystem: packages[0].ecosystem, packages });
     } else if (LOCK_PARSERS[base]) {
       const [ecosystem, parse] = LOCK_PARSERS[base];
       const parsed = parse(file.text);
@@ -1457,37 +1473,49 @@ function readDependencies(files) {
   }
   const entries = [];
   const installedDirect = new Set();
+  /* Each lockfile indexed by name once, so a large one is not searched once per declared package. */
+  for (const lock of locks) {
+    lock.index = new Map();
+    for (const entry of lock.entries) {
+      const key = nameKey(lock.ecosystem, entry.name);
+      const known = lock.index.get(key);
+      if (!known || (entry.top && !known.top)) lock.index.set(key, entry);
+    }
+  }
   for (const manifest of manifests) {
     const lock = locks.find(candidate => candidate.ecosystem === manifest.ecosystem && candidate.dir === manifest.dir) ||
       locks.find(candidate => candidate.ecosystem === manifest.ecosystem && candidate.dir === '');
     for (const declared of manifest.packages) {
       const key = nameKey(manifest.ecosystem, declared.name);
       if (lock) lock.declared.push({ name: declared.name, dev: Boolean(declared.dev) });
-      const installed = lock && (lock.entries.find(entry => entry.top && nameKey(manifest.ecosystem, entry.name) === key) ||
-        lock.entries.find(entry => nameKey(manifest.ecosystem, entry.name) === key));
+      const installed = lock ? lock.index.get(key) : null;
       const base = { ecosystem: manifest.ecosystem, name: declared.name, path: declared.path, line: declared.line, direct: true, dev: Boolean(declared.dev) };
       if (installed) {
-        entries.push({ ...base, version: installed.version, source: 'lock', lock: lock.path });
+        entries.push({ ...base, version: installed.version, source: 'lock', lock: lock.path, license: installed.license || null });
         installedDirect.add(advisoryKey({ ecosystem: manifest.ecosystem, name: declared.name, version: installed.version }));
         continue;
       }
       const spec = String(declared.spec || '').trim();
-      const pinned = manifest.ecosystem === 'npm' ? /^=?v?(\d+\.\d+\.\d+(?:-[\w.]+)?)$/.exec(spec) : /^===?\s*([\w.!+-]+)$/.exec(spec);
-      if (pinned) { entries.push({ ...base, version: pinned[1], source: 'pin' }); continue; }
+      const pinned = exactVersion(spec, manifest.ecosystem);
+      if (pinned) { entries.push({ ...base, version: pinned, source: 'pin' }); continue; }
       const floor = rangeFloor(spec, manifest.ecosystem);
       if (floor) entries.push({ ...base, version: floor, source: 'range', range: spec });
     }
   }
   for (const lock of locks) {
+    /* A lockfile with no manifest beside it (go.mod is both) still says which packages were asked for. */
+    const asked = !lock.declared.length && lock.roots ? new Set(lock.roots.map(root => nameKey(lock.ecosystem, root.name))) : null;
     for (const entry of lock.entries) {
       if (installedDirect.has(advisoryKey({ ecosystem: lock.ecosystem, name: entry.name, version: entry.version }))) continue;
-      entries.push({ ecosystem: lock.ecosystem, name: entry.name, version: entry.version, path: lock.path, line: entry.line, direct: false, dev: entry.dev, source: 'lock', lock: lock.path });
+      const direct = Boolean(asked && asked.has(nameKey(lock.ecosystem, entry.name)));
+      entries.push({ ecosystem: lock.ecosystem, name: entry.name, version: entry.version, path: lock.path, line: entry.line, direct, dev: entry.dev, source: 'lock', lock: lock.path, license: entry.license || null });
     }
   }
   const seen = new Set();
   const inventory = entries.filter(entry => {
     const key = `${advisoryKey(entry)}\0${entry.path}`;
-    if (seen.has(key) || !/^\d/.test(entry.version)) return false;
+    /* A version starts with a digit; Go writes a v before it. */
+    if (seen.has(key) || !/^v?\d/.test(entry.version)) return false;
     seen.add(key);
     return true;
   }).sort((a, b) => Number(b.direct) - Number(a.direct));
@@ -1510,7 +1538,9 @@ function readDependencies(files) {
       const known = roots.get(key);
       roots.set(key, { name: root.name, dev: known ? known.dev && root.dev : root.dev });
     }
-    graphs.set(lock.path, { ecosystem: lock.ecosystem, requires, names, roots, linked: !lock.flat && [...requires.values()].some(set => set.size > 0) });
+    const namespaces = new Map();
+    for (const entry of lock.entries) if (Array.isArray(entry.namespaces) && entry.namespaces.length) namespaces.set(nameKey(lock.ecosystem, entry.name), entry.namespaces);
+    graphs.set(lock.path, { ecosystem: lock.ecosystem, requires, names, roots, namespaces, linked: !lock.flat && [...requires.values()].some(set => set.size > 0) });
   }
   return { inventory, graphs };
 }
@@ -1591,13 +1621,44 @@ function padded(version) {
   return parts.join('.');
 }
 
-/* The lowest version a declared range accepts, or null when it has no floor. */
-function rangeFloor(spec, ecosystem) {
+/*
+ * The version a spec pins exactly, or null. What "exact" looks like differs:
+ * a bare version is exact in npm, Maven, NuGet, Bundler and Composer, but a
+ * caret range in Cargo; PyPI needs `==`; a Go requirement is always exact.
+ */
+function exactVersion(spec, ecosystem) {
   const text = String(spec || '').trim();
+  const pick = match => (match ? match[1] : null);
+  switch (ecosystem) {
+    case 'npm': return pick(/^=?v?(\d+\.\d+\.\d+(?:-[\w.]+)?)$/.exec(text));
+    case 'pypi': return pick(/^===?\s*([\w.!+-]+)$/.exec(text));
+    case 'cargo': return pick(/^=\s*(\d[\w.+-]*)$/.exec(text));
+    case 'rubygems': return pick(/^=?\s*(\d[\w.]*)$/.exec(text));
+    case 'packagist': return pick(/^=?\s*v?(\d+(?:\.\d+)+(?:-[\w.]+)?)$/.exec(text));
+    case 'maven': case 'nuget': return pick(/^\[?\s*v?(\d[\w.+-]*?)\s*\]?$/.exec(text));
+    case 'go': return pick(/^(v?\d[\w.+-]*)$/.exec(text));
+    default: return null;
+  }
+}
+
+/*
+ * The lowest version a declared range accepts, or null when it has no floor.
+ * npm, Cargo and Composer share caret ranges (a bare Cargo version is one);
+ * Bundler's `~>` and Composer's `~` are pessimistic; Poetry writes carets in
+ * a PyPI manifest.
+ */
+const NPM_LIKE = new Set(['npm', 'cargo', 'packagist']);
+function rangeFloor(spec, ecosystem) {
+  const text = String(spec || '').trim().split(/\s*,\s*/)[0];
   if (!text || /\|\||^[<*xX]|^latest$|^next$/.test(text)) return null;
-  const match = ecosystem === 'npm'
-    ? /^(?:\^|~|>=|=)?\s*v?(\d+(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?)/.exec(text)
-    : /^(?:>=|~=|==)\s*([\d]+(?:\.\d+)*)/.exec(text);
+  let match = null;
+  if (NPM_LIKE.has(ecosystem) || (ecosystem === 'pypi' && /^[\^~](?!=)/.test(text))) {
+    match = /^(?:\^|~|>=|=)?\s*v?(\d+(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?)/.exec(text);
+  } else if (ecosystem === 'pypi') {
+    match = /^(?:>=|~=|==)\s*([\d]+(?:\.\d+)*)/.exec(text);
+  } else if (ecosystem === 'rubygems') {
+    match = /^(?:~>|>=|=)\s*(\d+(?:\.\d+)*)/.exec(text);
+  }
   return match ? padded(match[1].replace(/\.[xX*]/g, '.0')) : null;
 }
 
@@ -1609,11 +1670,18 @@ function rangeCeiling(spec, ecosystem) {
   const numbers = (/(\d+)(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?/.exec(text) || []).slice(1).map(part => (part === undefined || /[xX*]/.test(part) ? null : Number(part)));
   const [major, minor, patch] = numbers;
   if (major === undefined || major === null) return null;
-  if (ecosystem === 'pypi') {
+  /* Pessimistic: the last written part may rise, the one before it may not. */
+  const pessimistic = () => (patch !== null && patch !== undefined ? `${major}.${minor + 1}.0` : `${major + 1}.0.0`);
+  if (ecosystem === 'rubygems') return text.startsWith('~>') ? pessimistic() : null;
+  if (ecosystem === 'packagist' && /^~(?!>)/.test(text)) return pessimistic();
+  if (ecosystem === 'pypi' && !/^[\^~](?!=)/.test(text)) {
     if (!text.startsWith('~=')) return null;
     return patch !== null && patch !== undefined ? `${major}.${minor + 1}.0` : `${major + 1}.0.0`;
   }
-  if (text.startsWith('^')) {
+  if (!NPM_LIKE.has(ecosystem) && ecosystem !== 'pypi') return null;
+  /* A bare Cargo version is a caret range. */
+  const caret = text.startsWith('^') || (ecosystem === 'cargo' && /^\d/.test(text));
+  if (caret) {
     if (major > 0 || minor === null) return `${major + 1}.0.0`;
     if (minor > 0 || patch === null) return `0.${minor + 1}.0`;
     return `0.0.${patch + 1}`;
@@ -1701,7 +1769,7 @@ function fixedVersion(record, entry) {
 
 const ADVISORY_ID = /^[A-Za-z][A-Za-z0-9._-]{2,63}$/;
 const OSV = 'https://api.osv.dev/v1';
-const OSV_ECOSYSTEM = Object.freeze({ npm: 'npm', pypi: 'PyPI' });
+const OSV_ECOSYSTEM = ecosystems.OSV_NAMES;
 
 function plain(value, limit) {
   const text = String(value || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -1839,6 +1907,7 @@ function advisoryFindings(inventory, advisories) {
       package: entry.name,
       version: entry.version,
       ecosystem: entry.ecosystem,
+      purl: ecosystems.purl(entry.ecosystem, entry.name, entry.version),
       direct: entry.direct,
       dev: entry.dev,
       source: entry.source,
@@ -1916,9 +1985,15 @@ function exploitIntelOf(advisories, intel) {
 function assessDependencyRisk(items, { files, allPaths, graphs, intel }) {
   const through = new Map();
   const wanted = new Map();
+  /* PHP names a package by the namespaces it autoloads, which only its lockfile records. */
+  const namespacesOf = (ecosystem, key) => {
+    if (ecosystem !== 'packagist') return undefined;
+    for (const graph of graphs.values()) if (graph.namespaces && graph.namespaces.has(key)) return graph.namespaces.get(key);
+    return [];
+  };
   const want = (ecosystem, name) => {
     const key = nameKey(ecosystem, name);
-    wanted.set(`${ecosystem}:${key}`, { ecosystem, key, name });
+    wanted.set(`${ecosystem}:${key}`, { ecosystem, key, name, namespaces: namespacesOf(ecosystem, key) });
   };
   for (const item of items) {
     want(item.entry.ecosystem, item.entry.name);
@@ -1930,12 +2005,13 @@ function assessDependencyRisk(items, { files, allPaths, graphs, intel }) {
   const usage = usageIndex(files, [...wanted.values()], isTestPath);
   const read = new Set(files.map(file => file.path));
   const unseenOf = languages => allPaths.some(filePath => !read.has(filePath) && languages.has(extensionOf(filePath)) && !EXCLUDED_DIR.test(filePath) && !isTestPath(filePath));
-  const unseen = { npm: unseenOf(JS_EXT), pypi: unseenOf(PY_EXT) };
+  const unseen = {};
+  for (const [ecosystem, languages] of Object.entries(ECOSYSTEM_LANGUAGES)) unseen[ecosystem] = unseenOf(languages);
   const summary = { exploited: 0, ransomware: 0, bands: { urgent: 0, high: 0, moderate: 0, low: 0 }, tiers: {} };
   for (const item of items) {
     const { entry, detail } = item;
     const key = nameKey(entry.ecosystem, entry.name);
-    const placed = tierOf({ entry, key, usage, through: through.has(item) ? through.get(item) : null, unseen: unseen[entry.ecosystem] });
+    const placed = tierOf({ entry, key, usage, through: through.has(item) ? through.get(item) : null, unseen: Boolean(unseen[entry.ecosystem]), keyOf: nameKey });
     detail.usage = {
       tier: placed.tier,
       files: placed.files,
@@ -1944,6 +2020,7 @@ function assessDependencyRisk(items, { files, allPaths, graphs, intel }) {
       throughCount: placed.throughCount || 0,
       chain: placed.chain || [],
       seen: placed.seen || null,
+      loader: placed.loader || null,
       reason: placed.reason || null
     };
     detail.intel = exploitIntelOf(item.all, intel);
@@ -2384,13 +2461,56 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), i
     crossFile: flowResult.flows.filter(flow => flow.viaHelper === 'file').length, failed: flowResult.stats.failed || 0,
     cut: flowResult.stats.cut || 0, limit: flowResult.stats.limit || null
   } };
+  const bill = componentList(dependencies);
   return {
     findings, suppressed, dependencyStatus, advisoryStatus: vulnerabilities.status, dependencyRisk, priorities: priorities(findings), ...score(findings),
+    components: bill.components, componentsTruncated: bill.truncated,
     engine,
     surface: surfaceSummary(surface),
     ledger: ledger({ findings, prepared, allPaths, surface, flowResult }),
     controls: controls({ prepared, allPaths, findings, supabase })
   };
+}
+
+/*
+ * The bill of materials: every package version the manifests and lockfiles
+ * name, once each, with its package URL, what it depends on (by the same
+ * URLs, where the lockfile records it), whether the project asked for it,
+ * and the licence the lockfile states. Names, versions and licences only.
+ */
+const MAX_COMPONENTS = 5000;
+function componentList({ inventory, graphs }) {
+  const byKey = new Map();
+  for (const entry of inventory) {
+    const key = advisoryKey(entry);
+    const known = byKey.get(key);
+    if (known) {
+      known.direct = known.direct || entry.direct;
+      known.dev = known.dev && entry.dev;
+      if (!known.license && entry.license) known.license = entry.license;
+      continue;
+    }
+    byKey.set(key, {
+      ecosystem: entry.ecosystem, name: entry.name, version: entry.version, purl: ecosystems.purl(entry.ecosystem, entry.name, entry.version),
+      direct: Boolean(entry.direct), dev: Boolean(entry.dev), source: entry.source, license: entry.license || null, path: entry.path, lock: entry.lock || null
+    });
+  }
+  /* Each requirement resolved to the version the same lockfile installed. */
+  const versionIn = new Map();
+  for (const component of byKey.values()) {
+    if (!component.lock) continue;
+    versionIn.set(`${component.lock}\0${nameKey(component.ecosystem, component.name)}`, component);
+  }
+  const components = [...byKey.values()].sort((a, b) => Number(b.direct) - Number(a.direct) || a.ecosystem.localeCompare(b.ecosystem) || a.name.localeCompare(b.name));
+  for (const component of components) {
+    const graph = component.lock && graphs.get(component.lock);
+    const requires = graph && graph.requires.get(nameKey(component.ecosystem, component.name));
+    component.dependsOn = requires
+      ? [...requires].map(name => versionIn.get(`${component.lock}\0${name}`)).filter(Boolean).map(target => target.purl).filter(Boolean).slice(0, 200)
+      : [];
+    delete component.lock;
+  }
+  return { components: components.slice(0, MAX_COMPONENTS), truncated: components.length > MAX_COMPONENTS ? components.length : 0 };
 }
 
 /*
@@ -2586,7 +2706,10 @@ function controls({ prepared, allPaths, findings, supabase }) {
   const tables = prepared.some(file => file.ext === 'sql' && /create\s+table/i.test(file.text || ''));
   if (supabase && tables && !has('SEC-014') && !has('SEC-015') && !has('SEC-016')) out.push({ id: 'rls', label: 'Row level security on every table', path: null });
   const manifest = allPaths.find(filePath => baseName(filePath) === 'package.json');
-  if (manifest && !has('HYG-003') && LOCKFILES.some(lock => paths.has(lock) || allPaths.some(filePath => baseName(filePath) === lock))) out.push({ id: 'lockfile', label: 'A committed lockfile', path: null });
+  const npmLocked = manifest && !has('HYG-003') && LOCKFILES.some(lock => paths.has(lock) || allPaths.some(filePath => baseName(filePath) === lock));
+  /* The other ecosystems' lockfiles pin what installs just the same. */
+  const otherLock = allPaths.find(filePath => OTHER_LOCKFILES.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath));
+  if (npmLocked || otherLock) out.push({ id: 'lockfile', label: 'A committed lockfile', path: npmLocked ? null : otherLock });
   return out;
 }
 

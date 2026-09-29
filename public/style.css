@@ -6921,6 +6921,7 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .audit-risk-arrow { width: 13px; height: 13px; color: var(--muted); }
 .audit-risk-fix { color: var(--sev-ok); }
 .audit-risk-sub { font-size: .78rem; line-height: 1.45; color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+.audit-risk-places { font-size: .72rem; line-height: 1.4; color: var(--muted); opacity: .85; }
 .audit-risk-tags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; min-width: 0; }
 .audit-risk-go { color: var(--muted); transition: transform .18s var(--ease, ease), color .18s ease; }
 .audit-risk-btn:hover .audit-risk-go { transform: translateX(3px); color: var(--text); }

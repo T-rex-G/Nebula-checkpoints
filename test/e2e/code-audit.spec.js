@@ -40,7 +40,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('.audit-engine-line')).toContainText('3 entry points mapped');
   /* The evidence as figures, the sentence behind them as the strip's name. */
   const evidence = pane.locator('.audit-evidence');
-  await expect(evidence).toHaveAttribute('aria-label', /^Read \d+ of \d+ files it audits at a{7} · 3 of 3 packages checked against their registry · 3 of 3 package versions checked against OSV · 2 CVEs checked against CISA KEV 2026\.09\.27 and EPSS \(2 scored\)\.$/);
+  await expect(evidence).toHaveAttribute('aria-label', /^Read \d+ of \d+ files it audits at a{7} · 3 of 3 packages checked against their registry · 3 of 3 package versions checked against OSV · 3 components in the bill of materials \(npm\) · 2 CVEs checked against CISA KEV 2026\.09\.27 and EPSS \(2 scored\)\.$/);
   await expect(evidence).toContainText('3 versions');
 
   /* Three jobs first, no two from the same rule; the first opens its finding. */
@@ -154,7 +154,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   const exportButton = pane.locator('.audit-summary').getByRole('button', { name: 'Export', exact: true });
   await exportButton.click();
   await expect(exportButton).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByRole('menuitem')).toHaveCount(3);
+  await expect(page.getByRole('menuitem')).toHaveCount(5);
   await expect(page.getByRole('menuitem', { name: 'Export developer brief' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(exportButton).toHaveAttribute('aria-expanded', 'false');

@@ -478,7 +478,12 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
           { id: 'GHSA-p6mc-m468-83gw', cve: 'CVE-2020-8203', rated: true, severity: 'serious', summary: 'Prototype Pollution in lodash', fixed: '4.17.19', malicious: false }
         ] }]
       ]);
-      const result = analyse({ files, paths: files.map(file => file.path), advisories });
+      /* What FIRST and CISA answered for those CVEs: scored, and neither in the exploited catalog. */
+      const intel = new Map([
+        ['CVE-2021-23337', { epss: 0.21333, percentile: 0.97527, epssDate: '2026-09-28', kev: null }],
+        ['CVE-2020-8203', { epss: 0.05213, percentile: 0.92215, epssDate: '2026-09-28', kev: null }]
+      ]);
+      const result = analyse({ files, paths: files.map(file => file.path), advisories, intel });
       return fulfill({
         ...result,
         commitSha: HEAD_SHA,
@@ -488,7 +493,8 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
           treeTruncated: false, filesInTree: files.length, eligible: files.length - 1, read: files.length - 1, unreadable: 0,
           skipped: { excluded: 0, oversize: 0, budget: 0 }, complete: true,
           packages: { declared: 3, checked: 3, unknown: 0, notChecked: 0 },
-          advisories: { versions: 3, checked: 3, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1 }
+          advisories: { versions: 3, checked: 3, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1 },
+          exploit: { cves: 2, asked: 2, kev: 'ok', kevVersion: '2026.09.27', kevCount: 1728, kevStale: false, epss: 'ok', scored: 2, unscored: 0 }
         }
       });
     }

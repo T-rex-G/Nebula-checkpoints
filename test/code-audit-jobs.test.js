@@ -55,6 +55,9 @@ function deferred() {
     clock += 1500;
     let poll = jobs.request({ identity: 'a', owner: 'o', repo: 'r', ref: 'main', run: 'run-1', launch });
     assert.deepStrictEqual(poll.body, { state: 'running', run: 'run-1', stage: 'reading', done: 3, total: 9, position: null, limit: null, elapsedMs: 1500 });
+    /* Asking about exploitation is a stage of its own. */
+    report({ stage: 'intel' });
+    assert.strictEqual(jobs.request({ identity: 'a', owner: 'o', repo: 'r', ref: 'main', run: 'run-1', launch }).body.stage, 'intel');
     report({ stage: 'queued', position: 2 });
     assert.strictEqual(jobs.request({ identity: 'a', owner: 'o', repo: 'r', ref: 'main', run: 'run-1', launch }).body.position, 2);
     report({ stage: 'patterns', limit: 'memory' });

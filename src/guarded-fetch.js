@@ -73,7 +73,16 @@ const PROFILES = Object.freeze({
    * host only -- the database -- so the profile cannot be borrowed to send a
    * body anywhere else. It is anonymous: no credential, no cookie.
    */
-  ADVISORY_QUERY: 'advisory-query'
+  ADVISORY_QUERY: 'advisory-query',
+  /*
+   * Public exploit intelligence about advisories already found: FIRST's EPSS
+   * scores and CISA's catalog of vulnerabilities known to be exploited. GET
+   * only, with a query string (EPSS takes its CVE list there), anonymous,
+   * and bound to those two hosts, so nothing but CVE identifiers ever leaves
+   * and nothing else can be reached through it. The catalog runs to a few
+   * megabytes, so this profile may read as much as a provider read.
+   */
+  THREAT_INTEL: 'threat-intel'
 });
 
 const PROFILE_RULES = Object.freeze({
@@ -81,7 +90,8 @@ const PROFILE_RULES = Object.freeze({
   [PROFILES.PROVIDER_READ]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: true, readsBody: true }),
   [PROFILES.CREDENTIAL_VERIFY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true }),
   [PROFILES.SITE_PROBE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: false, readsBody: true, headers: true, truncates: true }),
-  [PROFILES.ADVISORY_QUERY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true, hosts: Object.freeze(['api.osv.dev']) })
+  [PROFILES.ADVISORY_QUERY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true, hosts: Object.freeze(['api.osv.dev']) }),
+  [PROFILES.THREAT_INTEL]: Object.freeze({ methods: Object.freeze(['GET']), query: true, readsBody: true, hosts: Object.freeze(['api.first.org', 'www.cisa.gov']) })
 });
 
 /* Response headers as a probe may see them: lower-cased names, bounded values. */
@@ -400,10 +410,11 @@ async function guardedFetch(input = {}) {
 
   const target = normalizeTarget(input.url, input.profile);
   assertCredentialNotInUrl(target, input.headers);
-  /* A site probe and an advisory query are anonymous by construction: no credential and no cookie. */
-  if ((input.profile === PROFILES.SITE_PROBE || input.profile === PROFILES.ADVISORY_QUERY) && Object.keys(input.headers || {}).some(name =>
+  /* A site probe, an advisory query and an exploit-intelligence read are anonymous by construction: no credential and no cookie. */
+  if ((input.profile === PROFILES.SITE_PROBE || input.profile === PROFILES.ADVISORY_QUERY || input.profile === PROFILES.THREAT_INTEL) && Object.keys(input.headers || {}).some(name =>
     /^(?:authorization|proxy-authorization|cookie|private-token|x-api-key)$/i.test(name))) {
-    throw new GuardedFetchError(input.profile === PROFILES.SITE_PROBE ? 'A site probe must be anonymous' : 'An advisory query must be anonymous', 'GUARDED_FETCH_REFUSED');
+    throw new GuardedFetchError(input.profile === PROFILES.SITE_PROBE ? 'A site probe must be anonymous'
+      : input.profile === PROFILES.ADVISORY_QUERY ? 'An advisory query must be anonymous' : 'An exploit-intelligence read must be anonymous', 'GUARDED_FETCH_REFUSED');
   }
   /* A profile bound to named hosts reaches those and nothing else. */
   if (rule.hosts && !rule.hosts.includes(target.hostname)) {
@@ -411,7 +422,7 @@ async function guardedFetch(input = {}) {
   }
   const body = input.body == null ? null : String(input.body);
   const maxBytes = boundedInteger(input.maxResponseBytes, MAX_RESPONSE_BYTES, 1024,
-    input.profile === PROFILES.PROVIDER_READ ? MAX_PROVIDER_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
+    input.profile === PROFILES.PROVIDER_READ || input.profile === PROFILES.THREAT_INTEL ? MAX_PROVIDER_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
   if (body !== null && Buffer.byteLength(body, 'utf8') > MAX_RESPONSE_BYTES) {
     throw new GuardedFetchError('Outbound body exceeds the transport limit', 'GUARDED_FETCH_BODY_TOO_LARGE');
   }

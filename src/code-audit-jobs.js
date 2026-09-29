@@ -34,7 +34,7 @@ const JOBS = Object.freeze({
   maxRunning: 16
 });
 
-const STAGES = new Set(['queued', 'resolving', 'reading', 'advisories', 'analysing', 'patterns']);
+const STAGES = new Set(['queued', 'resolving', 'reading', 'advisories', 'intel', 'analysing', 'patterns']);
 
 function jobError(code, message, status) {
   const error = new Error(message);

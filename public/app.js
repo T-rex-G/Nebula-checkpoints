@@ -5451,7 +5451,7 @@ async function toggleProtect(p) {
  * previous session never paints this one. The comparison with the last audit
  * keeps fingerprints only, and the account-boundary purge removes them.
  */
-let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
+let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0 };
 let auditRequest = 0;
 /*
  * The deployed-site check sits beside it, bound to the repository rather than
@@ -5479,7 +5479,7 @@ function freshSiteView() {
 function clearAuditState() {
   auditRequest++;
   siteRequest++;
-  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
+  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0 };
   siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
   const root = $('#auditRoot');
   if (root) root.replaceChildren();
@@ -5498,7 +5498,7 @@ async function copyPrompt(text, control) {
 function paintAudit() {
   const root = $('#auditRoot');
   if (!root || !window.NebulaCodeAudit) return;
-  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
+  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0 };
   if (siteView.key !== siteKey()) siteView = freshSiteView();
   const repository = window.NebulaCapabilityUI.decision('code-audit');
   window.NebulaCodeAudit.render(root, {
@@ -5514,10 +5514,26 @@ function paintAudit() {
       catch { toast('The clipboard is not available here', 'err'); }
     },
     onRun: runAudit,
-    onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.verdict = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
-    onOwasp: owasp => { auditView.owasp = owasp; auditView.severity = null; auditView.verdict = null; auditView.limit = 0; paintAudit(); },
+    onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
+    onOwasp: owasp => { auditView.owasp = owasp; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.limit = 0; paintAudit(); },
     onSeverity: severity => { auditView.severity = severity; auditView.limit = 0; paintAudit(); },
     onVerdict: verdict => { auditView.verdict = verdict; auditView.limit = 0; paintAudit(); },
+    onExploit: exploit => { auditView.exploit = exploit === 'kev' ? 'kev' : null; auditView.limit = 0; paintAudit(); },
+    /* A finding opened from Fix first or Dependency risk that the list is not showing: clear what hides it, and page to it. */
+    onReveal: id => {
+      const findings = (auditView.result && auditView.result.findings) || [];
+      const at = findings.findIndex(finding => finding.id === id);
+      if (at < 0) return;
+      const inScope = finding => (!auditView.filter || finding.category === auditView.filter)
+        && (!auditView.owasp || String((finding.standards && finding.standards.owasp) || '').startsWith(`${auditView.owasp}:`));
+      if (!inScope(findings[at])) { auditView.filter = null; auditView.owasp = null; }
+      auditView.severity = null;
+      auditView.verdict = null;
+      auditView.exploit = null;
+      auditView.query = '';
+      auditView.limit = Math.max(auditView.limit || 0, findings.filter(inScope).findIndex(finding => finding.id === id) + 1);
+      paintAudit();
+    },
     onQuery: query => { auditView.query = String(query || '').slice(0, 120); auditView.limit = 0; paintAudit(); },
     onMore: limit => { auditView.limit = limit; paintAudit(); },
     onOpen: finding => openAuditFinding(finding),
@@ -5618,7 +5634,7 @@ async function runAudit() {
     const repoKey = `${state.work.owner}/${state.work.repo}`;
     const previous = window.NebulaCodeAudit.readPrevious(repoKey);
     window.NebulaCodeAudit.remember(repoKey, result);
-    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', progress: null, filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
+    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0 };
   } catch (error) {
     if (!current()) return;
     const unreachable = !error.status && isOfflineError(error);

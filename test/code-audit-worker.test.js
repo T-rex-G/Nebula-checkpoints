@@ -50,6 +50,20 @@ function fakeWorker(behaviour) {
     assert.strictEqual(result.engine.traced.cut, 0);
   }
 
+  /* ---- Exploit intelligence crosses to the worker with the advisories ------------------------- */
+  {
+    const lock = { lockfileVersion: 3, packages: { '': { dependencies: { express: '^4.0.0' } }, 'node_modules/express': { version: '4.17.1' } } };
+    const withLock = { ...input, files: [...files, { path: 'package-lock.json', text: JSON.stringify(lock) }] };
+    withLock.paths = withLock.files.map(file => file.path);
+    withLock.advisories = new Map([['npm:express@4.17.1', { advisories: [{ id: 'GHSA-qw6h-vgh9-j6wx', cve: 'CVE-2024-43796', rated: true, severity: 'warning', cvss: 5, summary: '', fixed: '4.20.0', malicious: false }] }]]);
+    withLock.intel = new Map([['CVE-2024-43796', { epss: 0.0012, percentile: 0.31, epssDate: '2026-09-28', kev: null }]]);
+    const offThread = await analyseOffThread(withLock);
+    assert.deepStrictEqual(strip(offThread), strip(analyse(withLock)));
+    const express = offThread.findings.find(finding => finding.detail && finding.detail.package === 'express');
+    assert.strictEqual(express.detail.intel.epss.score, 0.0012);
+    assert.strictEqual(express.detail.usage.tier, 'imported');
+  }
+
   /* ---- Out of time: the rules-only run answers, and says why ----------------------------------- */
   {
     const stages = [];

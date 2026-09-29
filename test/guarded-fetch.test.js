@@ -773,6 +773,29 @@ function fakeRequestImpl(behaviour) {
     await assert.rejects(ask({ method: 'PUT' }), error => error.code === 'GUARDED_FETCH_METHOD_INVALID');
   }
 
+  /*
+   * Exploit intelligence: GET only, a query string allowed (EPSS takes its
+   * CVE list there), anonymous, the two public sources and nothing else, and
+   * a catalog-sized body readable where the default bound would refuse it.
+   */
+  {
+    const addresses = [{ address: '104.18.28.17', family: 4 }];
+    const catalog = 'x'.repeat(2 * 1024 * 1024);
+    const ask = extra => guardedFetch({
+      url: 'https://api.first.org/data/v1/epss?cve=CVE-2021-23337', profile: PROFILES.THREAT_INTEL, method: 'GET', addresses,
+      headers: { accept: 'application/json' }, maxResponseBytes: 4 * 1024 * 1024,
+      requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, chunks: [catalog] }))),
+      ...extra
+    });
+    assert.strictEqual((await ask()).body.length, catalog.length, 'a catalog-sized body is read whole');
+    assert.strictEqual((await ask({ url: 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json' })).statusCode, 200);
+    await assert.rejects(ask({ url: 'https://api.osv.dev/v1/vulns/GHSA-xxxx' }), error => error.code === 'GUARDED_FETCH_REFUSED', 'two hosts only');
+    await assert.rejects(ask({ url: 'https://example.com/?cve=CVE-2021-23337' }), error => error.code === 'GUARDED_FETCH_REFUSED');
+    await assert.rejects(ask({ method: 'POST', body: '{}' }), error => error.code === 'GUARDED_FETCH_METHOD_INVALID', 'reads only');
+    await assert.rejects(ask({ headers: { Authorization: 'Bearer something-long-enough' } }), error => error.code === 'GUARDED_FETCH_REFUSED', 'anonymous');
+    await assert.rejects(ask({ headers: { Cookie: 'session=1' } }), error => error.code === 'GUARDED_FETCH_REFUSED');
+  }
+
   console.log('guarded fetch tests passed');
 })().catch(error => {
   console.error(error && error.stack || error);

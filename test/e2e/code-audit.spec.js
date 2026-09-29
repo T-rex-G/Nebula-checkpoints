@@ -40,7 +40,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('.audit-engine-line')).toContainText('3 entry points mapped');
   /* The evidence as figures, the sentence behind them as the strip's name. */
   const evidence = pane.locator('.audit-evidence');
-  await expect(evidence).toHaveAttribute('aria-label', /^Read \d+ of \d+ files it audits at a{7} · 3 of 3 packages checked against their registry · 3 of 3 package versions checked against OSV\.$/);
+  await expect(evidence).toHaveAttribute('aria-label', /^Read \d+ of \d+ files it audits at a{7} · 3 of 3 packages checked against their registry · 3 of 3 package versions checked against OSV · 2 CVEs checked against CISA KEV 2026\.09\.27 and EPSS \(2 scored\)\.$/);
   await expect(evidence).toContainText('3 versions');
 
   /* Three jobs first, no two from the same rule; the first opens its finding. */
@@ -189,7 +189,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   const csvDownload = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Export CSV' }).click();
   const csvText = require('fs').readFileSync(await (await csvDownload).path(), 'utf8');
-  expect(csvText.split('\r\n')[0]).toBe('Source,Status,Severity,Verdict,Rule,Title,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reached through,How to confirm,Reason waived,Fix');
+  expect(csvText.split('\r\n')[0]).toBe('Source,Status,Severity,Verdict,Rule,Title,Detail,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reached through,Risk,Known exploited,EPSS,Dependency reach,How to confirm,Reason waived,Fix');
   expect(csvText).toContain('SEC-001');
   expect(csvText).not.toContain('Tr0ub4dor');
 

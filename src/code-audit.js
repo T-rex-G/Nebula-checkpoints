@@ -73,6 +73,7 @@ const { RULE_NARRATION } = require('./exposure-narration');
 const POPULAR = require('./popular-packages');
 const { standardsFor } = require('./security-standards');
 const { analyseFlows } = require('./uranus-flow');
+const { opensWith } = require('./uranus-lex');
 const { analyseSurface, reachOf } = require('./uranus-surface');
 
 /* The engine's name and version, carried in every result and export. */
@@ -472,25 +473,50 @@ function inString(line, position) {
   return Boolean(top && top.quote);
 }
 
+/*
+ * The global form of a rule's pattern, compiled once. The rules run on every
+ * line of every file, and building a fresh expression and iterator for each
+ * line was most of what an audit spent. The rules are a fixed set, so the
+ * cache is too; the bound only guards against a caller that builds its
+ * patterns from data.
+ */
+const GLOBAL_PATTERNS = new Map();
+function globalPattern(pattern) {
+  /* Keyed by flags, then by the source string itself: joining the two per line cost more than the match. */
+  let byFlags = GLOBAL_PATTERNS.get(pattern.flags);
+  if (!byFlags) GLOBAL_PATTERNS.set(pattern.flags, byFlags = new Map());
+  let compiled = byFlags.get(pattern.source);
+  if (!compiled) {
+    if (byFlags.size >= 512) byFlags.clear();
+    compiled = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`);
+    byFlags.set(pattern.source, compiled);
+  }
+  compiled.lastIndex = 0;
+  return compiled;
+}
+/* Whether any match of the pattern on the line is, or is not, inside a string. */
+function occurs(pattern, line, wantString) {
+  const compiled = globalPattern(pattern);
+  for (let match = compiled.exec(line); match; match = compiled.exec(line)) {
+    if (match[0] === '') compiled.lastIndex += 1;
+    if (inString(line, match.index) === wantString) return true;
+  }
+  return false;
+}
 /* True when the pattern occurs on the line as code, not only inside a string. */
-function inCode(pattern, line) {
-  const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
-  for (const match of line.matchAll(new RegExp(pattern.source, flags))) {
-    if (!inString(line, match.index)) return true;
-  }
-  return false;
-}
+const inCode = (pattern, line) => occurs(pattern, line, false);
 /* True when the pattern occurs inside a string literal: how code names a file. */
-function inText(pattern, line) {
-  const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
-  for (const match of line.matchAll(new RegExp(pattern.source, flags))) {
-    if (inString(line, match.index)) return true;
-  }
-  return false;
-}
+const inText = (pattern, line) => occurs(pattern, line, true);
 const lexical = file => JS_EXT.has(file.ext) || PY_EXT.has(file.ext);
 /* A value read straight off an incoming request, in the frameworks that name it so. */
 const REQUEST_VALUE = '(req|request|ctx\\.request|ctx)\\.(query|body|params)\\b';
+const REDIRECT_REQUEST = new RegExp(`\\b(res|reply|ctx|response|NextResponse)\\.redirect\\s*\\(\\s*(\\d{3}\\s*,\\s*)?${REQUEST_VALUE}`);
+const FETCH_REQUEST = new RegExp(`\\b(fetch|axios(\\.(get|post|put|patch|delete|head|request))?|got(\\.(get|post))?|needle|superagent\\.(get|post)|https?\\.(get|request))\\s*\\(\\s*${REQUEST_VALUE}`);
+const FILE_REQUEST = new RegExp(`\\b(res\\.(sendFile|download)|(fs|fsp|fs\\.promises)\\.(readFile|readFileSync|createReadStream|writeFile|writeFileSync|appendFile|unlink|unlinkSync|rm|rmSync))\\s*\\(\\s*(path\\.(join|resolve)\\s*\\(\\s*([^()]*?,\\s*)?)?${REQUEST_VALUE}`);
+/* A variable a bundler ships to the browser, named as if it held a secret. */
+const PUBLIC_SECRET = '(NEXT_PUBLIC_|VITE_|REACT_APP_|EXPO_PUBLIC_|NUXT_PUBLIC_|GATSBY_)[A-Z0-9_]*(SECRET|PRIVATE|SERVICE_ROLE|PASSWORD|PASSWD|ACCESS_KEY|SK_LIVE|SK_TEST)[A-Z0-9_]*';
+const PUBLIC_SECRET_SET = new RegExp(`^\\s*(export\\s+)?${PUBLIC_SECRET}\\s*[=:]`);
+const PUBLIC_SECRET_READ = new RegExp(`(process\\.env|import\\.meta\\.env)(\\.|\\[\\s*['"])${PUBLIC_SECRET}\\b`);
 
 /*
  * Every line-level rule: the files it applies to, and a test on one line.
@@ -589,10 +615,8 @@ const LINE_RULES = Object.freeze([
     rule: 'SEC-006',
     applies: file => SOURCE_EXT.has(file.ext) || /^\.env/.test(file.base) || file.ext === 'yml' || file.ext === 'yaml' || file.ext === 'toml',
     test: (line, file) => {
-      const name = '(NEXT_PUBLIC_|VITE_|REACT_APP_|EXPO_PUBLIC_|NUXT_PUBLIC_|GATSBY_)[A-Z0-9_]*(SECRET|PRIVATE|SERVICE_ROLE|PASSWORD|PASSWD|ACCESS_KEY|SK_LIVE|SK_TEST)[A-Z0-9_]*';
-      if (/^\.env/.test(file.base) || ['yml', 'yaml', 'toml'].includes(file.ext)) return new RegExp(`^\\s*(export\\s+)?${name}\\s*[=:]`).test(line);
-      const read = new RegExp(`(process\\.env|import\\.meta\\.env)(\\.|\\[\\s*['"])${name}\\b`);
-      return lexical(file) ? inCode(read, line) : read.test(line);
+      if (/^\.env/.test(file.base) || ['yml', 'yaml', 'toml'].includes(file.ext)) return PUBLIC_SECRET_SET.test(line);
+      return lexical(file) ? inCode(PUBLIC_SECRET_READ, line) : PUBLIC_SECRET_READ.test(line);
     }
   },
   {
@@ -640,21 +664,21 @@ const LINE_RULES = Object.freeze([
   {
     rule: 'SEC-020',
     applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)),
-    test: line => inCode(new RegExp(`\\b(res|reply|ctx|response|NextResponse)\\.redirect\\s*\\(\\s*(\\d{3}\\s*,\\s*)?${REQUEST_VALUE}`), line) ||
+    test: line => inCode(REDIRECT_REQUEST, line) ||
       inCode(/\bredirect\s*\(\s*request\.(args|form|values|GET|POST)\b/, line) ||
       inCode(/\bredirect\s*\(\s*(searchParams|request\.args|req\.query)\.get\s*\(/, line)
   },
   {
     rule: 'SEC-021',
     applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)),
-    test: line => inCode(new RegExp(`\\b(fetch|axios(\\.(get|post|put|patch|delete|head|request))?|got(\\.(get|post))?|needle|superagent\\.(get|post)|https?\\.(get|request))\\s*\\(\\s*${REQUEST_VALUE}`), line) ||
+    test: line => inCode(FETCH_REQUEST, line) ||
       inCode(/\b(requests|httpx)\.(get|post|put|patch|delete|head|request)\s*\(\s*request\.(args|form|values|json|GET|POST)\b/, line) ||
       inCode(/\burlopen\s*\(\s*request\.(args|form|values|json|GET|POST)\b/, line)
   },
   {
     rule: 'SEC-022',
     applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)),
-    test: line => inCode(new RegExp(`\\b(res\\.(sendFile|download)|(fs|fsp|fs\\.promises)\\.(readFile|readFileSync|createReadStream|writeFile|writeFileSync|appendFile|unlink|unlinkSync|rm|rmSync))\\s*\\(\\s*(path\\.(join|resolve)\\s*\\(\\s*([^()]*?,\\s*)?)?${REQUEST_VALUE}`), line) ||
+    test: line => inCode(FILE_REQUEST, line) ||
       inCode(/\b(open|send_file|send_from_directory)\s*\(\s*(os\.path\.join\s*\(\s*([^()]*?,\s*)?)?request\.(args|form|values|GET|POST)\b/, line)
   },
   {
@@ -980,7 +1004,7 @@ function firebaseFindings(file) {
 function clientFile(file) {
   if (isTestPath(file.path) || !JS_EXT.has(file.ext)) return false;
   if (/(^|\/)(api|server|functions|pages\/api)\//.test(file.path) || /\.server\.|(^|\/)\+server\./.test(file.path)) return false;
-  if (/^\s*(\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*\n\s*)*['"]use client['"]/.test(file.text)) return true;
+  if (opensWith(file.text, 'use client')) return true;
   if (/(^|\/)(public|static)\//.test(file.path)) return true;
   return ['vue', 'svelte'].includes(file.ext);
 }
@@ -1886,7 +1910,14 @@ function score(findings) {
  * and the same registry answers give the same result, which is what lets it be
  * tested without a provider.
  */
-function analyse({ files, paths, registry = new Map(), advisories = new Map() }) {
+/*
+ * `trace` bounds the part of the analysis that grows with the code: a
+ * `deadline` and a `heapCeiling` past which no further file is traced, or
+ * `skip` ('memory', 'time') to check every file against the rules without
+ * tracing at all, the answer when a first attempt ran out of room. Either
+ * way the coverage ledger says what was and was not followed.
+ */
+function analyse({ files, paths, registry = new Map(), advisories = new Map(), trace = {} }) {
   const raw = [];
   const packages = [];
   const prepared = [];
@@ -1948,15 +1979,20 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map() })
       }
     }
 
-    const lines = file.text.split('\n');
-    for (const definition of LINE_RULES) {
-      if (!definition.applies(file)) continue;
-      lines.forEach((line, index) => {
+    const rules = LINE_RULES.filter(definition => definition.applies(file));
+    if (rules.length) {
+      /* Each line is bounded and classed once, then every rule that applies reads it. */
+      const lines = file.text.split('\n');
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
         const bounded = line.length > LIMITS.maxLineScan ? line.slice(0, LIMITS.maxLineScan) : line;
         /* A comment that only mentions the pattern is not the pattern. */
-        if (/^\s*(\/\/|#|\*|<!--)/.test(bounded) && definition.rule !== 'SEC-006') return;
-        if (definition.test(bounded, file)) raw.push({ rule: definition.rule, path: file.path, line: index + 1 });
-      });
+        const comment = /^\s*(\/\/|#|\*|<!--)/.test(bounded);
+        for (const definition of rules) {
+          if (comment && definition.rule !== 'SEC-006') continue;
+          if (definition.test(bounded, file)) raw.push({ rule: definition.rule, path: file.path, line: index + 1 });
+        }
+      }
     }
     fileRules(file).forEach(finding => raw.push({ ...finding, path: file.path }));
   }
@@ -2014,8 +2050,15 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map() })
    */
   const flowInput = prepared.filter(file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)))
     .map(file => ({ path: file.path, text: file.text, client: clientFile(file) }));
-  let flowResult = { flows: [], routes: [], stats: { javascript: 0, python: 0, functions: 0, routes: 0, flows: 0, helpers: 0 } };
-  try { flowResult = analyseFlows(flowInput); } catch { flowResult.stats.failed = flowInput.length; }
+  let flowResult = { flows: [], routes: [], stats: { javascript: 0, python: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0 } };
+  if (trace.skip) {
+    flowResult.stats.cut = flowInput.length;
+    flowResult.stats.limit = trace.skip;
+  } else {
+    try {
+      flowResult = analyseFlows(flowInput, { deadline: trace.deadline, heapCeiling: trace.heapCeiling });
+    } catch { flowResult.stats.failed = flowInput.length; }
+  }
   const surface = analyseSurface({ routes: flowResult.routes, files: prepared });
   const traced = flowResult.flows.map(flow => ({
     rule: flow.rule, path: flow.path, line: flow.line, severity: flow.severity, verdict: flow.verdict, trace: flow.trace,
@@ -2036,15 +2079,18 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map() })
     }
     return linesByPath.get(filePath);
   };
+  /* How many findings of a rule a file already has: the ordinal in a finding's identity. */
+  const ordinals = new Map();
   for (const item of raw) {
     const key = `${item.rule}\0${item.path || ''}\0${item.line || ''}`;
     if (seen.has(key)) continue;
     seen.set(key, true);
-    const ordinal = findings.filter(existing => existing.rule === item.rule && existing.path === (item.path || null)).length;
+    const place = `${item.rule}\0${item.path || ''}`;
+    const ordinal = ordinals.get(place) || 0;
     const finding = { id: fingerprint(item.rule, item.path || '', ordinal), ...describe(item.rule, item.path, item.line, item.severity, item.detail), ...assurance(item) };
     const waiver = item.path && item.line ? suppression(linesOf(item.path), item.line, item.rule) : null;
     if (waiver) suppressed.push({ ...finding, suppression: waiver });
-    else findings.push(finding);
+    else { findings.push(finding); ordinals.set(place, ordinal + 1); }
   }
   findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
     Number(a.verdict === 'needs-validation') - Number(b.verdict === 'needs-validation') ||
@@ -2052,7 +2098,8 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map() })
   const engine = { ...ENGINE, traced: {
     javascript: flowResult.stats.javascript || 0, python: flowResult.stats.python || 0, functions: flowResult.stats.functions || 0,
     endpoints: surface.counts.endpoints, actions: surface.counts.actions, flows: flowResult.flows.length,
-    crossFile: flowResult.flows.filter(flow => flow.viaHelper === 'file').length, failed: flowResult.stats.failed || 0
+    crossFile: flowResult.flows.filter(flow => flow.viaHelper === 'file').length, failed: flowResult.stats.failed || 0,
+    cut: flowResult.stats.cut || 0, limit: flowResult.stats.limit || null
   } };
   return {
     findings, suppressed, dependencyStatus, advisoryStatus: vulnerabilities.status, priorities: priorities(findings), ...score(findings),
@@ -2158,6 +2205,11 @@ function ledger({ findings, prepared, allPaths, surface, flowResult }) {
   const manifest = allPaths.some(filePath => /(^|\/)(package\.json|requirements[^/]*\.txt|pyproject\.toml|Pipfile|go\.mod|Gemfile|composer\.json)$/.test(filePath) || /^\.github\/workflows\//.test(filePath));
   const rulesDb = allPaths.some(filePath => /\.sql$/.test(filePath) || FIREBASE_RULES.has(baseName(filePath)));
   const failed = flowResult.stats && flowResult.stats.failed;
+  const cut = (flowResult.stats && flowResult.stats.cut) || 0;
+  const limit = flowResult.stats && flowResult.stats.limit;
+  const followed = (flowResult.stats.javascript || 0) + (flowResult.stats.python || 0);
+  /* Why tracing stopped, in the words the ledger uses for it. */
+  const stopped = limit === 'memory' ? 'needed more memory than this server gives one audit' : 'ran past the time this server gives one audit';
   return LEDGER.map(entry => {
     const under = findings.filter(finding => entry.rules.includes(finding.rule));
     const counts = { confirmed: under.filter(finding => finding.verdict !== 'needs-validation').length, toConfirm: under.filter(finding => finding.verdict === 'needs-validation').length };
@@ -2169,13 +2221,27 @@ function ledger({ findings, prepared, allPaths, surface, flowResult }) {
     } else if (entry.needs === 'code') {
       if (!traced && !untraced.length) { status = 'not-applicable'; detail = 'No application code was found to read.'; }
       else if (!traced) { status = 'patterns'; detail = `Only pattern-checked: values are traced in JavaScript, TypeScript and Python, and this code is ${untraced.join(', ')}.`; }
-      else if (untraced.length || failed) { status = 'partial'; detail = `Traced across ${traced} files; ${untraced.length ? `${untraced.join(', ')} files were only pattern-checked` : `${failed} files could not be followed`}.`; }
+      else if (limit && !followed) { status = 'patterns'; detail = `Only pattern-checked: following values across ${traced} files ${stopped}, so every file was checked against the rules instead.`; }
+      else if (untraced.length || failed || cut) {
+        status = 'partial';
+        const gaps = [];
+        if (untraced.length) gaps.push(`${untraced.join(', ')} files were only pattern-checked`);
+        if (failed) gaps.push(`${failed} files could not be followed`);
+        if (cut) gaps.push(`${cut} ${cut === 1 ? 'file was' : 'files were'} left to the rules when tracing ${stopped} (server code is traced first)`);
+        detail = `Traced across ${cut ? followed : traced} files; ${gaps.join('; ')}.`;
+      }
       else detail = `Values followed from what a caller sends to what uses them, across ${traced} files.`;
     } else if (entry.needs === 'surface') {
       const endpoints = surface.counts.endpoints + surface.counts.actions;
-      if (!endpoints && !rulesDb) { status = 'not-applicable'; detail = 'No endpoints, server actions or database rules were found.'; }
-      else detail = `${endpoints} ${endpoints === 1 ? 'endpoint' : 'endpoints'} mapped (${surface.counts.guarded} guarded, ${surface.counts.open} open${surface.counts.unknown ? `, ${surface.counts.unknown} behind a guard to confirm` : ''})${rulesDb ? ', and the database rules read' : ''}.`;
-      if (untraced.length && status === 'covered') { status = 'partial'; detail += ` Endpoints in ${untraced.join(', ')} are not mapped.`; }
+      if (limit && !followed) {
+        status = 'patterns';
+        detail = `Endpoints not mapped: tracing ${stopped}.${rulesDb ? ' The database rules were read.' : ''}`;
+      } else if (!endpoints && !rulesDb && !cut) { status = 'not-applicable'; detail = 'No endpoints, server actions or database rules were found.'; }
+      else {
+        detail = `${endpoints} ${endpoints === 1 ? 'endpoint' : 'endpoints'} mapped (${surface.counts.guarded} guarded, ${surface.counts.open} open${surface.counts.unknown ? `, ${surface.counts.unknown} behind a guard to confirm` : ''})${rulesDb ? ', and the database rules read' : ''}.`;
+        if (untraced.length) { status = 'partial'; detail += ` Endpoints in ${untraced.join(', ')} are not mapped.`; }
+        if (cut) { status = 'partial'; detail += ` Endpoints in the ${cut} ${cut === 1 ? 'file' : 'files'} tracing did not reach are not mapped.`; }
+      }
     } else if (entry.needs === 'ai') {
       if (!aiUsed) { status = 'not-applicable'; detail = 'No language-model SDK is used.'; }
       else detail = 'Model replies followed to code, queries and markup; prompts checked for user text in the instructions.';
@@ -2287,15 +2353,27 @@ async function lookupPackages(packages, transport, limits = LIMITS) {
 /*
  * The whole audit against a provider: resolve the ref once, list the tree at
  * that commit, read what fits the budget, ask the registries, analyse.
+ *
+ * `analyser` runs the analysis -- in-process by default, on a worker thread
+ * where the caller has one -- and `onProgress` hears each stage as it
+ * starts, with a count while files are read. Progress carries numbers and
+ * stage names only, never a path or a line of the code.
  */
-async function auditRepository({ reader, scope, ref, token, transport, registryTransport, advisoryTransport, limits = LIMITS }) {
+async function auditRepository({ reader, scope, ref, token, transport, registryTransport, advisoryTransport, limits = LIMITS, analyser = input => analyse(input), onProgress = () => {} }) {
+  const progress = (stage, detail = {}) => { try { onProgress({ stage, ...detail }); } catch {} };
+  progress('resolving');
   const resolved = await reader.resolveCommit({ scope, ref, token, transport });
   const tree = await reader.readTree({ scope, commitSha: resolved.commitSha, token, transport });
   const paths = [...tree.entries.map(entry => entry.path), ...tree.skipped.filter(entry => entry.path).map(entry => entry.path)];
   const selection = selectFiles(tree.entries, limits);
   let unreadable = 0;
+  let done = 0;
+  const total = selection.selected.length;
+  progress('reading', { done, total });
   const files = (await boundedMap(selection.selected, limits.readConcurrency, async entry => {
     const blob = await reader.readBlob({ scope, sha: entry.sha, token, transport });
+    done += 1;
+    progress('reading', { done, total });
     if (typeof blob.text !== 'string') { unreadable += 1; return null; }
     return { path: entry.path, text: blob.text };
   })).filter(Boolean);
@@ -2306,12 +2384,14 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
     if (isRequirements(baseName(file.path))) packages.push(...requirementsPackages(file));
   }
   const inventory = dependencyInventory(files);
+  progress('advisories');
   /* The registries and the advisory database are asked at the same time: neither needs the other's answer. */
   const [registry, advisories] = await Promise.all([
     registryTransport ? lookupPackages(packages, registryTransport, limits) : { answers: new Map(), asked: 0, total: 0 },
     advisoryTransport ? lookupAdvisories(inventory, advisoryTransport, limits) : { answers: new Map(), asked: 0, total: 0 }
   ]);
-  const result = analyse({ files, paths, registry: registry.answers, advisories: advisories.answers });
+  progress('analysing', { files: files.length });
+  const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers });
   const lockfiles = paths.filter(filePath => READ_LOCKS.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath));
   return {
     commitSha: resolved.commitSha,

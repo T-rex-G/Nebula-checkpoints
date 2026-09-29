@@ -2,6 +2,117 @@
 
 ## Unreleased
 
+### Repository Switches That Start Clean, Folding Audit Sections, and a Calmer Phone Bar
+
+Reported:
+- After switching repositories, the Audit and other security sections
+  sometimes still showed the previous repository's data.
+- The sections under the audit summary were too long to scroll past.
+- With read-only mode on, the phone's top bar left no room next to Private.
+- The floating action button offered more than Settings and the command
+  palette.
+
+- **Opening a repository clears every section before it asks for
+  anything.**
+  - The cause: the new name went up at once, but the workbench kept the
+    last repository until the new one answered. Anything painted or clicked
+    in between belonged to the old one: its audit under the new name, an
+    audit poll or scan status landing late, a Neural graph finishing its
+    load.
+  - Now Audit, the site check, Exposure, Governance, Safeguards and Neural
+    are cleared first. No repository is open until the new one answers, so
+    nothing can act on the old one.
+  - An open overtaken by a later one gives way, and a tool chosen while a
+    repository opens lands once it does.
+  - Neural drops a load or live catch-up that arrives for a repository no
+    longer open, and maps a new repository from nothing instead of
+    refreshing the old map in place.
+  - Signing out abandons an open still in flight.
+- **An address followed while the page is still starting waits for
+  sign-in.** A reload followed at once by a link used to open the
+  repository before capabilities had loaded. The tab was refused, the
+  address fell back to the editor, and start-up restored the editor.
+- **Every section under the audit summary folds to its heading:** Fix
+  first, Families (now titled), Attack surface, Coverage, Already in place,
+  OWASP Top 10, Findings and Deployed site.
+  - The fold animates, and a folded body leaves the tab order and the
+    accessibility tree.
+  - Which sections are folded is remembered for the browser by section name
+    only.
+  - The findings list opens by itself when a family, an OWASP category or
+    a Fix-first item is about to show something in it.
+- **The phone's workbench bar puts the name first.**
+  - Below 700px the owner is dropped from the name (the full name is its
+    title), and Private becomes its shield alone, with the word kept for
+    screen readers.
+  - The branch picker loses its decorative mark.
+  - The brand clips, so nothing in it can draw over the refresh control.
+  - Below 340px the shield steps aside for the name.
+- **The floating action carries Settings and the command palette, in that
+  order, and nothing else.**
+
+### An Audit That Never Takes the Server Down With It
+
+Reported: after two audits of a real project on the hosted alpha, the Audit
+card showed "Request failed (502)", then "Request failed (429)", then a
+Cloudflare challenge; on a phone the error line was drawn over the list of
+what the audit checks. The Render logs showed the cause: each audit restarted
+the service about seventy seconds in, and no audit request ever finished.
+
+The audit uses no external scanner. Uranus is this repository's own engine;
+the only outside services it asks are the npm and PyPI registries (does a
+package exist) and OSV (does a version have advisories), through the
+guarded transport. The analysis ran on the thread that answers requests. On
+the free instance's 0.15 CPU it held that thread for most of a minute, the
+platform's health check went unanswered, and Render restarted the service
+mid-audit. The edge then answered for the missing server with a 502, limited
+the retries with a 429, and put a challenge in front of the browser.
+
+- **The analysis runs on a worker thread** (`src/code-audit-worker.js`). The
+  thread that answers requests and the health check stays free.
+  - The worker's heap is capped at 224 MB and watched from the main thread,
+    because a process-wide `--max-old-space-size` overrides a worker's own
+    limit.
+  - Tracing stops starting new files after 45 seconds or at 70% of that heap,
+    server code first. The ledger and the engine line say how many files were
+    left to the rules and which limit stopped them.
+  - A worker stopped by its heap or by the two-minute hard limit is followed
+    by a rules-only run that checks every file without tracing. Only if that
+    fails too is the audit refused, in words.
+  - One analysis runs at a time, with a short queue that tells a waiting
+    audit it is waiting.
+  - A worker's error never quotes the code it was reading.
+- **An audit is a job the page follows** (`src/code-audit-jobs.js`). The
+  first request starts it and answers 202 with a run id; the page asks again
+  with the id, backing off from 1.2 to 5 seconds.
+  - No request stays open long enough for the edge to cut it off.
+  - Asking again for the same branch resumes the running audit.
+  - A job lives only in memory, belongs to the identity that started it, is
+    dropped two minutes after it finishes and goes when the account signs
+    out.
+  - A poll lost to the network or the edge is asked again while the audit
+    carries on. A run the server no longer holds is started once more.
+- **The loader shows where the audit is:** Resolve, Read, Check, Trace, with
+  the file count as it reads and a bar that fills.
+  - The card is updated in place between polls, so the Uranus loader keeps
+    turning.
+  - Only a change of step is announced to a screen reader.
+- **Errors from the edge are told in words.** A 502, 503, 504 or Cloudflare
+  5xx without the server's JSON reads "The server did not answer in time: it
+  may be waking up or restarting". A bare 429 reads "The hosting edge is
+  limiting requests from this connection". Everywhere in the app, not only
+  the Audit.
+- **The error line has its own row on a phone.** The error and the scope list
+  were placed in the same grid cell, so one was drawn over the other.
+- **A faster engine, with the same findings.** Measured on this repository
+  (446 files, 7.1 MB) by comparing output against the previous engine:
+  analysis went from 3.7 s to 2.3 s.
+  - Rule patterns are compiled once instead of per line.
+  - Each line is classed once for all the rules that read it.
+  - "use client" and "use server" are found by a walk instead of a
+    backtracking expression.
+  - Finding ordinals are counted in a map instead of rescanning the list.
+
 ### Uranus, and the Security Screens in One Status Language
 
 Reported: Audit, Exposure and Safeguards still used filled red, amber and

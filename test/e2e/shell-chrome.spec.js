@@ -97,8 +97,9 @@ test.describe('the floating action', () => {
     await dock.click();
     await expect(page.locator('#fabMenu')).toBeVisible();
 
+    /* Settings and the command palette, and nothing else. */
     const entries = await page.locator('#fabMenu .nv-fab-item').allInnerTexts();
-    expect(entries).toContain('Command palette');
+    expect(entries).toEqual(['Settings', 'Command palette']);
 
     /*
      * And each entry has to be something the screen does not already show. A

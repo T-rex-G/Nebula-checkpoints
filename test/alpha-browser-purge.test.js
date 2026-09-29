@@ -144,6 +144,8 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     clearActivityFeed: () => operations.push(['activity-feed']),
     clearPosture: () => operations.push(['posture']),
     clearAuditState: () => operations.push(['audit']),
+    /* A repository still opening for the leaving account must never finish opening for the next one. */
+    forgetRepositoryWork: () => operations.push(['repository-work']),
     purgePrivateCaches: async () => {
       assert.strictEqual(state.uiEpoch, 1, 'invalidate pending UI responses before asynchronous cache cleanup');
       assert(operations.some(([kind]) => kind === 'activity-feed'),
@@ -200,6 +202,8 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     'the purge must clear exposure findings, or the next session sees what the previous one found');
   assert.deepStrictEqual(operations.find(([kind]) => kind === 'audit'), ['audit'],
     'the purge must clear the repository audit, or the next session sees the previous one\'s findings');
+  assert.deepStrictEqual(operations.find(([kind]) => kind === 'repository-work'), ['repository-work'],
+    'the purge must abandon a repository still opening, or it lands in the next session\'s workbench');
   assert.deepStrictEqual(operations.find(([kind]) => kind === 'posture'), ['posture'],
     'the purge must clear the workspace posture, or the next session is scored with the previous one\'s credential and leaks');
 }

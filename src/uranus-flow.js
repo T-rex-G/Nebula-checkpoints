@@ -38,7 +38,8 @@
  * which languages were followed and which were only pattern-checked.
  */
 
-const { lexJs, lexPython, matching, splitArgs } = require('./uranus-lex');
+const v8 = require('v8');
+const { lexJs, lexPython, matching, splitArgs, opensWith } = require('./uranus-lex');
 
 const MAX_STEPS = 6;
 const MAX_FLOWS_PER_FILE = 40;
@@ -1661,7 +1662,7 @@ function fileRouteKind(path) {
 function fileRoutes(tokens, ctx) {
   const kind = fileRouteKind(ctx.path);
   const hints = ctx.handlerHints;
-  const useServerFile = /^\s*(\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*\n\s*)*['"]use server['"]/.test(ctx.text);
+  const useServerFile = opensWith(ctx.text, 'use server');
   ctx.serverActions = useServerFile;
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -2363,25 +2364,60 @@ class Program {
  * Every flow in a set of files. `files` are { path, text, client } with the
  * text already read; nothing here reads anything else.
  */
+/*
+ * Server code first when there is a time limit: what a caller reaches is
+ * what an audit cut short should already have followed. Browser code last.
+ */
+const SERVER_PATH = /(^|\/)(api|server|servers|routes?|routers?|controllers?|handlers?|middlewares?|functions|backend|actions)\/|(^|\/)(server|app|main|index|routes?|router|api)\.(m?[jt]sx?|cjs|py)$|(^|\/)route\.(m?[jt]sx?)$|\.server\./;
+const traceRank = file => (file.client ? 2 : SERVER_PATH.test(file.path) ? 0 : 1);
+
+/*
+ * `options.deadline` is a clock time after which no further file is
+ * started, and `options.heapCeiling` a heap size in bytes past which none
+ * is either. The files not reached are counted as `cut`, never guessed at,
+ * `stats.limit` says which bound stopped the trace, and what was traced is
+ * reported as it would have been. The output keeps the files' own order
+ * whichever order they were walked in, so a run with room to spare is the
+ * same run without a limit.
+ */
 function analyseFlows(files, options = {}) {
   const sources = files.filter(file => typeof file.text === 'string' && (JS_FILE.test(file.path) || PY_FILE.test(file.path)) &&
     file.text.length <= (options.maxBytes || 512 * 1024) && !/\.min\.js$|\.d\.ts$/.test(file.path));
+  const deadline = Number.isFinite(options.deadline) ? options.deadline : Infinity;
+  const ceiling = Number.isFinite(options.heapCeiling) ? options.heapCeiling : Infinity;
+  const clock = typeof options.now === 'function' ? options.now : Date.now;
+  const heapUsed = typeof options.heapUsed === 'function' ? options.heapUsed : () => v8.getHeapStatistics().used_heap_size;
+  let limit = null;
+  const late = () => {
+    if (!limit && deadline !== Infinity && clock() > deadline) limit = 'time';
+    if (!limit && ceiling !== Infinity && heapUsed() > ceiling) limit = 'memory';
+    return Boolean(limit);
+  };
   const program = new Program(sources);
-  const flows = [];
-  const routes = [];
-  const stats = { javascript: 0, python: 0, functions: 0, routes: 0, flows: 0, helpers: 0 };
+  const stats = { javascript: 0, python: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0 };
+  const counted = new Map();
   /* Summaries for every local function first, so a call reads its callee's summary. */
   for (const file of sources) {
+    if (late()) break;
     const ctx = program.context(file.path);
     if (!ctx) continue;
     stats[ctx.language] += 1;
+    counted.set(file.path, { language: ctx.language, functions: ctx.functions.size });
     stats.functions += ctx.functions.size;
     for (const name of ctx.functions.keys()) program.summary(file.path, name, true);
   }
-  for (const file of sources) {
+  const order = sources.map((file, index) => ({ file, index })).sort((a, b) => traceRank(a.file) - traceRank(b.file) || a.index - b.index);
+  const walked = new Array(sources.length);
+  for (const { file, index } of order) {
+    if (!counted.has(file.path) || late()) {
+      /* A file summarised but not walked was not traced: it is counted as cut, not as read. */
+      const summarised = counted.get(file.path);
+      if (summarised) { stats[summarised.language] -= 1; stats.functions -= summarised.functions; }
+      stats.cut += 1;
+      continue;
+    }
     const ctx = program.context(file.path);
     if (!ctx) continue;
-    ctx.client = file.client;
     const flowCtx = { ...ctx, flows: [], routes: [], client: file.client };
     try {
       if (ctx.language === 'javascript') {
@@ -2410,13 +2446,20 @@ function analyseFlows(files, options = {}) {
         route.endLine = route.bodyEndLine;
       }
       route.uses = flowCtx.uses || [];
-      routes.push(route);
     }
+    walked[index] = flowCtx;
+  }
+  const flows = [];
+  const routes = [];
+  for (const flowCtx of walked) {
+    if (!flowCtx) continue;
+    routes.push(...flowCtx.routes);
     flows.push(...flowCtx.flows);
   }
   stats.routes = routes.length;
   stats.flows = flows.length;
   stats.helpers = flows.filter(flow => flow.viaHelper).length;
+  if (stats.cut) stats.limit = limit;
   return { flows: dedupe(flows), routes, stats };
 }
 

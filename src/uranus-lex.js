@@ -412,4 +412,29 @@ function splitArgs(tokens, open) {
   return { args, close };
 }
 
-module.exports = Object.freeze({ lexJs, lexPython, lexPyTokens, matching, splitArgs, JS_KEYWORDS, PY_KEYWORDS });
+/*
+ * Whether a module opens with a directive -- 'use client', 'use server' --
+ * once the comments and blank lines before it are stepped over. A walk, not
+ * an expression: a lazy match across block comments tried every later
+ * comment end in a large file, and this is asked of every file.
+ */
+function opensWith(text, directive) {
+  const source = String(text || '');
+  let index = 0;
+  for (;;) {
+    while (index < source.length && /\s/.test(source[index])) index += 1;
+    if (source.startsWith('/*', index)) {
+      const end = source.indexOf('*/', index + 2);
+      if (end < 0) return false;
+      index = end + 2;
+    } else if (source.startsWith('//', index)) {
+      const end = source.indexOf('\n', index + 2);
+      if (end < 0) return false;
+      index = end + 1;
+    } else break;
+  }
+  const quote = source[index];
+  return (quote === '"' || quote === "'") && source.startsWith(directive, index + 1) && source[index + 1 + directive.length] === quote;
+}
+
+module.exports = Object.freeze({ lexJs, lexPython, lexPyTokens, matching, splitArgs, opensWith, JS_KEYWORDS, PY_KEYWORDS });

@@ -4835,13 +4835,15 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
   /* The ring and the verdict side by side; the tally and the notes take the full width under them. */
   .audit-summary .audit-grade-row, .audit-site-grade {
     grid-template-columns: auto minmax(0, 1fr); row-gap: 0; column-gap: 16px;
-    grid-template-areas: "ring head" "ring verdict" "more more" "tally tally" "notes notes";
+    grid-template-areas: "ring head" "ring verdict" "error error" "more more" "tally tally" "notes notes";
   }
   .audit-summary .audit-grade-read, .audit-site-grade .audit-grade-read { display: contents; }
   .audit-summary .audit-grade, .audit-site-grade .audit-grade { grid-area: ring; }
   .audit-summary .audit-summary-head, .audit-site-grade .audit-origin { grid-area: head; align-self: end; margin-bottom: 8px; }
   .audit-summary .audit-verdict, .audit-site-grade .audit-verdict { grid-area: verdict; align-self: start; }
-  .audit-summary .audit-scope, .audit-summary .audit-grade-read > .audit-lede { grid-area: more; margin-top: 14px; }
+  .audit-summary .audit-scope, .audit-summary .audit-grade-read > .audit-lede, .audit-summary .audit-grade-read > .audit-progress { grid-area: more; margin-top: 14px; }
+  /* The error has a row of its own: sharing "more" with the scope list drew one over the other. */
+  .audit-summary .audit-grade-read > .audit-lede.audit-error { grid-area: error; margin-top: 12px; }
   .audit-summary .audit-tally, .audit-site-grade .audit-tally { grid-area: tally; margin-top: 14px; }
   .audit-summary .audit-notes, .audit-site-grade .audit-notes { grid-area: notes; margin-top: 12px; }
   .audit-actions .audit-run { flex: 1 1 auto; }
@@ -6612,6 +6614,97 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
   .uranus-loader-ring circle { opacity: .5; }
 }
 
+/* A running audit: four steps with the current one lit, what it is doing in words, and how much of the branch is read. */
+.audit-progress { display: grid; gap: 10px; min-width: 0; }
+.audit-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 6px; }
+.audit-step {
+  display: flex; align-items: center; gap: 7px; min-width: 0; padding: 5px 10px; border-radius: 999px;
+  font-size: .74rem; font-weight: 600; letter-spacing: .01em; color: var(--muted);
+  background: var(--rp-tile); border: 1px solid var(--rp-line);
+  transition: color .3s var(--ease, ease), border-color .3s var(--ease, ease);
+}
+.audit-step-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.audit-step-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: color-mix(in oklab, var(--muted) 45%, transparent); transition: background-color .3s var(--ease, ease); }
+.audit-step[data-state="done"] { color: var(--text); }
+.audit-step[data-state="done"] .audit-step-dot { background: var(--st-good); }
+.audit-step[data-state="active"] { color: var(--text); border-color: color-mix(in oklab, var(--st-info) var(--st-edge, 40%), var(--rp-line)); }
+.audit-step[data-state="active"] .audit-step-dot { background: var(--st-info); box-shadow: 0 0 0 3px color-mix(in oklab, var(--st-info) 22%, transparent); animation: audit-step-pulse 1.6s ease-in-out infinite; }
+@keyframes audit-step-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--st-info) 6%, transparent); } }
+.audit-progress-line { margin: 0; font-size: .88rem; line-height: 1.45; font-weight: 550; color: var(--text); font-variant-numeric: tabular-nums; }
+.audit-progress-bar { position: relative; height: 4px; border-radius: 999px; overflow: hidden; background: color-mix(in oklab, var(--text) 8%, transparent); }
+.audit-progress-fill {
+  position: absolute; inset: 0; border-radius: inherit; background: var(--st-info);
+  transform-origin: left center; transform: scaleX(var(--audit-read, 0)); transition: transform .6s var(--ease, ease);
+}
+.audit-progress-bar[data-busy="true"] .audit-progress-fill {
+  background: linear-gradient(90deg, var(--st-info) 0%, color-mix(in oklab, var(--st-info) 30%, var(--st-beam)) 50%, var(--st-info) 100%);
+  background-size: 200% 100%; animation: audit-progress-sheen 1.8s linear infinite;
+}
+@keyframes audit-progress-sheen { to { background-position: -200% 0; } }
+/*
+ * Sections that fold to their heading. The body animates its height on a
+ * grid row (1fr to 0fr), then leaves the accessibility tree; the space each
+ * card used to put between its heading and its content moves inside the
+ * body, so it folds away with it. The inner box reaches 6px past the body on
+ * each side and pads back in, so a focus ring at the edge is never clipped.
+ */
+#auditRoot .audit-foldable { row-gap: 0; }
+.audit-fold { display: grid; grid-template-rows: 1fr; min-width: 0; transition: grid-template-rows .32s var(--ease, ease); }
+.audit-fold-inner {
+  min-height: 0; min-width: 0; overflow: hidden; display: grid; align-content: start;
+  gap: var(--fold-gap, 14px); padding: var(--fold-gap, 14px) 6px 6px; margin: 0 -6px -6px;
+  transition: opacity .24s var(--ease, ease), padding .32s var(--ease, ease), margin .32s var(--ease, ease);
+}
+.audit-foldable[data-folded="true"] > .audit-fold { grid-template-rows: 0fr; }
+/* The padding goes too: a 0fr row still makes room for its item's padding, which left a strip under a folded heading. */
+.audit-foldable[data-folded="true"] > .audit-fold > .audit-fold-inner {
+  opacity: 0; visibility: hidden; padding-top: 0; padding-bottom: 0; margin-bottom: 0;
+  transition: opacity .2s var(--ease, ease), padding .32s var(--ease, ease), margin .32s var(--ease, ease), visibility 0s linear .32s;
+}
+.audit-first, .audit-owasp { --fold-gap: 12px; }
+.audit-site { --fold-gap: 16px; }
+.audit-families { --fold-gap: 10px; display: grid; }
+/* The findings card is a flow of blocks, not a grid: its heading's own margin becomes the body's padding. */
+.audit-findings { --fold-gap: 12px; }
+.audit-findings > .audit-findings-head { margin-bottom: 0; }
+.audit-findings .audit-fold-inner { display: block; }
+.audit-first-head { align-items: center; }
+.audit-families-head { padding: 2px 4px 0; }
+/* The heading takes the line and the toggle keeps the top right corner, however the words wrap. */
+.audit-foldable > .audit-card-head, .audit-foldable > .audit-owasp-head { flex-wrap: nowrap; align-items: flex-start; }
+.audit-foldable > .audit-card-head > .audit-card-titles, .audit-owasp-titles { flex: 1 1 auto; }
+.audit-owasp-titles { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 14px; }
+.audit-site-head .audit-fold-toggle { margin-left: auto; }
+.audit-findings-head > .exposure-findings-title { margin-right: auto; }
+.audit-findings-head { gap: 8px; }
+.audit-fold-toggle {
+  flex: none; align-self: flex-start; width: 32px; height: 32px; padding: 0; display: grid; place-items: center;
+  border-radius: 10px; border: 1px solid var(--rp-line); background: transparent; color: var(--muted); cursor: pointer;
+  transition: color .18s ease, border-color .18s ease, background-color .18s ease;
+}
+.audit-fold-toggle:hover { color: var(--text); border-color: color-mix(in oklab, var(--text) 28%, var(--rp-line)); background: var(--rp-tile); }
+.audit-fold-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.audit-fold-chev { width: 16px; height: 16px; transform: rotate(180deg); transition: transform .32s var(--ease, ease); }
+.audit-foldable[data-folded="true"] .audit-fold-chev { transform: none; }
+[data-motion="off"] .audit-fold, [data-motion="off"] .audit-fold-inner, [data-motion="off"] .audit-fold-chev { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .audit-fold, .audit-fold-inner, .audit-fold-chev { transition: none; }
+}
+/* On a phone four pills do not fit a row: the steps become dots on a line, each word under its dot. */
+@media (max-width: 480px) {
+  .audit-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+  .audit-step { position: relative; flex-direction: column; gap: 6px; padding: 0; border: 0; border-radius: 0; background: none; font-size: .72rem; }
+  .audit-step-dot { position: relative; z-index: 1; width: 9px; height: 9px; }
+  .audit-step::before { content: ""; position: absolute; top: 4px; left: calc(-50% + 9px); right: calc(50% + 9px); height: 1px; background: var(--rp-line); }
+  .audit-step:first-child::before { display: none; }
+  .audit-step[data-state="done"]::before, .audit-step[data-state="active"]::before { background: color-mix(in oklab, var(--st-good) 55%, transparent); }
+}
+[data-motion="off"] .audit-step[data-state="active"] .audit-step-dot, [data-motion="off"] .audit-progress-bar[data-busy="true"] .audit-progress-fill { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .audit-step[data-state="active"] .audit-step-dot, .audit-progress-bar[data-busy="true"] .audit-progress-fill { animation: none; }
+  .audit-progress-fill { transition: none; }
+}
+
 /* Fix first: neutral cards, the status in chips. */
 .audit-first-btn { background: var(--rp-tile); border-color: var(--rp-line); grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto 1fr; align-items: center; }
 .audit-first-btn:hover { border-color: color-mix(in oklab, var(--sev) 42%, var(--rp-line)); background: var(--rp-tile-hover); }
@@ -6780,7 +6873,7 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
   .audit-tally-item { display: block; padding: 0; min-width: 0; }
   .audit-tally-item .nv-chip { width: 100%; justify-content: center; padding-inline: 6px; gap: 5px; font-size: .74rem; }
   .audit-summary .audit-split { grid-area: split; margin-top: 8px; }
-  .audit-summary .audit-grade-row { grid-template-areas: "ring head" "ring verdict" "more more" "tally tally" "split split" "notes notes"; }
+  .audit-summary .audit-grade-row { grid-template-areas: "ring head" "ring verdict" "error error" "more more" "tally tally" "split split" "notes notes"; }
   .nv-chip.audit-pill { min-width: 0; justify-self: start; }
   .audit-row-tags { grid-column: 1; }
   .audit-trace-step { grid-template-columns: minmax(0, 1fr); }
@@ -6976,6 +7069,32 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .repo-vis-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; color: var(--text); border-color: color-mix(in oklab, var(--vis-private) 38%, transparent); background: color-mix(in oklab, var(--vis-private) 6%, transparent); }
 .repo-vis-badge[hidden] { display: none; }
 .repo-vis-badge svg { width: 12px; height: 12px; fill: none; stroke: var(--vis-private); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+/*
+ * The workbench bar on a phone. With the read-only lock showing it holds a
+ * menu, a refresh, the lock, a branch and the stage, and the Private pill --
+ * 69px of word and border -- took the whole of what was left: the repository
+ * name went to nothing and the pill ran on under the refresh button. Here
+ * the name comes first. The owner is dropped (the full name is the title),
+ * Private becomes its shield alone (the word stays for assistive technology),
+ * the branch picker loses its decorative mark, and the brand clips, so
+ * nothing in it can ever draw over a control beside it.
+ */
+@media (max-width: 700px) {
+  #backBtn { overflow: hidden; gap: 6px; }
+  #backBtn .back-chev { flex: none; }
+  #workRepoName { flex: 0 1 auto; min-width: 0; max-width: none; }
+  #workRepoName .repo-owner { display: none; }
+  #workPrivateBadge { flex: none; width: 24px; height: 24px; padding: 0; justify-content: center; border-radius: 50%; }
+  #workPrivateBadge .repo-vis-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #workPrivateBadge svg { width: 13px; height: 13px; }
+  #page-work .branch-pick-mark { display: none; }
+  #page-work .branch-select { padding-left: 12px; }
+  #page-work .ro-chip { margin-right: 0; }
+}
+/* Narrower than any current phone but the smallest: the name keeps the room, the shield goes. */
+@media (max-width: 340px) {
+  #workPrivateBadge { display: none; }
+}
 
 /* ---- The repository picker ------------------------------------------------- */
 .rp-pick { display: grid; gap: 12px; min-width: 0; }

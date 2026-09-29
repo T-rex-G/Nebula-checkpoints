@@ -182,6 +182,74 @@
   }
 
   /*
+   * Every section below the summary folds to its heading. Which ones are
+   * folded is kept for this browser by section name only -- never a
+   * repository, a path or a finding -- so a redraw, the next audit and the
+   * next visit find the page as the reader left it. Folding animates the
+   * height, then takes the body out of the tab order and the accessibility
+   * tree; the toggle says which way it will go.
+   */
+  const FOLD_STORE = 'nv_ui:audit-folded';
+  const FOLDS = Object.freeze(['first', 'families', 'surface', 'coverage', 'controls', 'owasp', 'findings', 'site']);
+  const folded = new Set();
+  try {
+    const stored = JSON.parse(global.localStorage.getItem(FOLD_STORE) || '[]');
+    if (Array.isArray(stored)) for (const id of stored) if (FOLDS.includes(id)) folded.add(id);
+  } catch { /* no storage: every section starts open */ }
+  function keepFolds() {
+    try { global.localStorage.setItem(FOLD_STORE, JSON.stringify([...folded])); } catch { /* the choice lasts this page */ }
+  }
+  function paintFold(card, open) {
+    const body = card.querySelector(':scope > .audit-fold');
+    const toggle = card.querySelector(':scope .audit-fold-toggle');
+    card.dataset.folded = open ? 'false' : 'true';
+    if (body) body.inert = !open;
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      toggle.setAttribute('aria-label', `${open ? 'Collapse' : 'Expand'} ${toggle.dataset.name}`);
+      toggle.title = open ? 'Collapse' : 'Expand';
+    }
+  }
+  /* Opens a section that something is about to show a result in. */
+  function unfold(id, root) {
+    if (!folded.delete(id)) return;
+    keepFolds();
+    const card = root && root.querySelector(`[data-fold="${id}"]`);
+    if (card) paintFold(card, true);
+  }
+  /*
+   * Moves everything after `head` into a folding body and puts the toggle at
+   * the end of `head`. `name` is what the toggle folds, in words.
+   */
+  function foldable(card, id, head, name) {
+    card.classList.add('audit-foldable');
+    card.dataset.fold = id;
+    const body = element('div', 'audit-fold');
+    body.id = `auditFold-${id}`;
+    const inner = element('div', 'audit-fold-inner');
+    let node = head.nextSibling;
+    while (node) {
+      const next = node.nextSibling;
+      inner.appendChild(node);
+      node = next;
+    }
+    body.appendChild(inner);
+    card.appendChild(body);
+    const toggle = keyed(button('', 'audit-fold-toggle', () => {
+      const open = card.dataset.folded === 'true';
+      if (open) folded.delete(id); else folded.add(id);
+      keepFolds();
+      paintFold(card, open);
+    }), `fold:${id}`);
+    toggle.dataset.name = name;
+    toggle.setAttribute('aria-controls', body.id);
+    toggle.appendChild(icon(ICON.chevron, 'audit-ico audit-fold-chev'));
+    head.appendChild(toggle);
+    paintFold(card, !folded.has(id));
+    return card;
+  }
+
+  /*
    * A status as an outline: the tone on its edge and its glyph, the words in
    * ink. `beam` sends light round the edge, for the few statuses the eye
    * should go to first.
@@ -482,6 +550,8 @@
     const advisories = coverage.advisories || {};
     if (advisories.notChecked) notes.push(`${plural(advisories.notChecked, 'package version', 'package versions')} beyond the advisory limit were not checked`);
     if (advisories.lockfiles > advisories.lockfilesRead) notes.push('a lockfile was not read (over 512 KB or past the budget), so declared ranges stood in for installed versions');
+    const traced = result.engine && result.engine.traced;
+    if (traced && traced.cut) notes.push(`tracing reached the server's ${traced.limit === 'memory' ? 'memory' : 'time'} limit, so ${plural(traced.cut, 'file was', 'files were')} checked against the rules without being traced`);
     return notes.length ? `Not a complete read: ${notes.join('; ')}. A finding-free section here is not a finding-free repository.` : '';
   }
 
@@ -609,6 +679,93 @@
     return wrap;
   }
 
+  /*
+   * Where a running audit is, as the server reports it: four steps, the
+   * current one lit, a line in words, and how many of the files have been
+   * read. Numbers and stage names only -- the server sends nothing else
+   * while it works. Updated in place between polls, so the loader keeps
+   * turning instead of restarting with every answer.
+   */
+  const STAGE_STEPS = Object.freeze([
+    { id: 'resolve', label: 'Resolve', stages: ['resolving'] },
+    { id: 'read', label: 'Read', stages: ['reading'] },
+    { id: 'ask', label: 'Check', stages: ['advisories'] },
+    { id: 'trace', label: 'Trace', stages: ['queued', 'analysing', 'patterns'] }
+  ]);
+  function stageLine(progress) {
+    const p = progress || {};
+    switch (p.stage) {
+      case 'reading': return p.total ? `Reading files · ${p.done || 0} of ${p.total}` : 'Listing the files to read';
+      case 'advisories': return 'Asking the package registries and OSV about each dependency';
+      case 'queued': return p.position > 1 ? `Waiting for ${p.position} audits ahead of this one` : 'Waiting for another audit to finish';
+      case 'analysing': return 'Mapping endpoints and tracing each value to what uses it';
+      case 'patterns': return `Tracing needed more ${p.limit === 'time' ? 'time' : 'memory'} than this server gives one audit, so every file is being checked against the rules instead`;
+      default: return 'Resolving the branch to a commit';
+    }
+  }
+  function progressBlock(progress) {
+    const wrap = element('div', 'audit-progress');
+    const steps = element('ol', 'audit-steps');
+    steps.setAttribute('aria-label', 'Audit steps');
+    for (const step of STAGE_STEPS) {
+      const item = element('li', 'audit-step');
+      item.dataset.step = step.id;
+      item.append(element('span', 'audit-step-dot'), element('span', 'audit-step-label', step.label));
+      steps.appendChild(item);
+    }
+    const line = element('p', 'audit-progress-line');
+    const bar = element('div', 'audit-progress-bar');
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', 'Files read');
+    bar.appendChild(element('span', 'audit-progress-fill'));
+    /* Only a change of step is announced; the running count would be noise. */
+    const announce = element('span', 'sr-only');
+    announce.setAttribute('role', 'status');
+    wrap.append(steps, line, bar, announce);
+    updateProgress(wrap, progress);
+    return wrap;
+  }
+  function updateProgress(wrap, progress) {
+    const p = progress && progress.stage ? progress : { stage: 'resolving' };
+    const current = Math.max(0, STAGE_STEPS.findIndex(step => step.stages.includes(p.stage)));
+    wrap.dataset.stage = p.stage;
+    wrap.querySelectorAll('.audit-step').forEach((item, index) => {
+      item.dataset.state = index < current ? 'done' : index === current ? 'active' : 'next';
+      if (index === current) item.setAttribute('aria-current', 'step');
+      else item.removeAttribute('aria-current');
+    });
+    const text = stageLine(p);
+    const line = wrap.querySelector('.audit-progress-line');
+    if (line.textContent !== text) line.textContent = text;
+    const bar = wrap.querySelector('.audit-progress-bar');
+    const total = Math.max(0, Number(p.total) || 0);
+    const done = Math.min(total, Math.max(0, Number(p.done) || 0));
+    const fraction = current > 1 ? 1 : current === 1 && total ? done / total : 0;
+    bar.style.setProperty('--audit-read', fraction.toFixed(4));
+    bar.dataset.busy = current > 1 ? 'true' : 'false';
+    if (total) {
+      bar.setAttribute('aria-valuemin', '0');
+      bar.setAttribute('aria-valuemax', String(total));
+      bar.setAttribute('aria-valuenow', String(current > 1 ? total : done));
+      bar.setAttribute('aria-valuetext', `${current > 1 ? total : done} of ${total} files read`);
+    } else {
+      ['aria-valuemin', 'aria-valuemax', 'aria-valuenow', 'aria-valuetext'].forEach(name => bar.removeAttribute(name));
+    }
+    const announce = wrap.querySelector('[role="status"]');
+    const step = STAGE_STEPS[current].label;
+    if (announce.dataset.step !== `${step}:${p.stage}`) {
+      announce.dataset.step = `${step}:${p.stage}`;
+      announce.textContent = p.stage === 'reading' ? 'Reading files' : text;
+    }
+  }
+  /* A poll's answer, painted into the running card without redrawing it. */
+  function progress(root, value) {
+    const wrap = root && root.querySelector('.audit-summary .audit-progress');
+    if (!wrap) return false;
+    updateProgress(wrap, value);
+    return true;
+  }
+
   /* Which engine read the branch, and how far it followed values. */
   function engineLine(result) {
     const engine = result.engine;
@@ -620,6 +777,7 @@
     parts.push(`${plural((traced.endpoints || 0) + (traced.actions || 0), 'entry point', 'entry points')} mapped`);
     if (traced.flows) parts.push(`${plural(traced.flows, 'path', 'paths')} to a sink${traced.crossFile ? `, ${traced.crossFile} across files` : ''}`);
     if (traced.failed) parts.push(`${plural(traced.failed, 'file', 'files')} it could not follow`);
+    if (traced.cut) parts.push(`${plural(traced.cut, 'file', 'files')} left to the rules (${traced.limit === 'memory' ? 'memory' : 'time'} limit)`);
     const line = element('p', 'audit-engine-line');
     line.append(uranusMark('audit-ico uranus-mark'), element('strong', null, `${engine.name} ${String(engine.version || '').replace(/\.0$/, '')}`), element('span', null, parts.join(' · ')));
     return line;
@@ -651,7 +809,7 @@
       read.appendChild(error);
     }
     if (status === 'running') {
-      read.appendChild(element('p', 'audit-lede audit-muted', 'Uranus is mapping the endpoints, following each value a caller sends to what uses it, and asking the registries and OSV.'));
+      read.appendChild(progressBlock(view.progress));
     } else if (!result) {
       const scope = element('ul', 'audit-scope');
       scope.setAttribute('aria-label', 'What the audit checks');
@@ -722,9 +880,11 @@
     if (!chosen.length) return;
     const card = element('section', 'card audit-first');
     card.setAttribute('aria-labelledby', 'auditFirstHeading');
+    const head = element('div', 'audit-card-head audit-first-head');
     const heading = element('h2', 'audit-kicker', 'Fix first');
     heading.id = 'auditFirstHeading';
-    card.appendChild(heading);
+    head.appendChild(heading);
+    card.appendChild(head);
     const list = element('ol', 'audit-first-list');
     chosen.forEach((finding, index) => {
       const item = element('li', 'audit-first-item');
@@ -748,13 +908,14 @@
       list.appendChild(item);
     });
     card.appendChild(list);
-    host.appendChild(card);
+    host.appendChild(foldable(card, 'first', head, 'Fix first'));
   }
 
   /* Opens a finding in the list and brings it into view, with focus on its row. */
   function focusFinding(root, id) {
     const details = root.querySelector(`details[data-finding-id="${CSS.escape(id)}"]`);
     if (!details) return;
+    unfold('findings', root);
     details.open = true;
     const summary = details.querySelector('summary');
     details.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
@@ -770,7 +931,11 @@
     list.setAttribute('aria-label', 'Audit families');
     for (const category of result.categories) {
       const item = element('li', 'audit-category');
-      const control = keyed(button('', 'audit-category-btn', () => handlers.onFilter(view.filter === category.id ? null : category.id)), `family:${category.id}`);
+      const control = keyed(button('', 'audit-category-btn', () => {
+        /* The narrowed list is where the answer appears: it opens if it was folded. */
+        unfold('findings');
+        handlers.onFilter(view.filter === category.id ? null : category.id);
+      }), `family:${category.id}`);
       control.setAttribute('aria-pressed', view.filter === category.id ? 'true' : 'false');
       const status = category.counts.critical ? 'critical' : category.counts.serious ? 'serious' : category.counts.warning ? 'warning' : 'clear';
       control.dataset.status = status;
@@ -799,9 +964,16 @@
       item.appendChild(control);
       list.appendChild(item);
     }
-    const families = element('div', 'audit-families');
-    families.appendChild(list);
-    host.appendChild(families);
+    const families = element('section', 'audit-families');
+    families.setAttribute('aria-labelledby', 'auditFamiliesHeading');
+    const head = element('div', 'audit-card-head audit-families-head');
+    const titles = element('div', 'audit-card-titles');
+    const heading = element('h2', 'audit-kicker', 'Families');
+    heading.id = 'auditFamiliesHeading';
+    titles.append(heading, element('p', 'audit-card-lede', 'Each scored on its own out of 100. Choose one to narrow the findings to it.'));
+    head.appendChild(titles);
+    families.append(head, list);
+    host.appendChild(foldable(families, 'families', head, 'Families'));
   }
 
   /* ---- Attack surface ------------------------------------------------------- */
@@ -910,7 +1082,7 @@
       }
       if (surface.truncated) card.appendChild(element('p', 'audit-coverage', `The first ${entries.length} are listed; the counts above include every one.`));
     }
-    host.appendChild(card);
+    host.appendChild(foldable(card, 'surface', head, 'Attack surface'));
   }
 
   /* ---- Coverage and controls ---------------------------------------------- */
@@ -959,14 +1131,16 @@
       list.appendChild(item);
     }
     card.appendChild(list);
-    host.appendChild(card);
+    host.appendChild(foldable(card, 'coverage', head, 'Coverage'));
 
     const side = element('section', 'card audit-controls');
     side.setAttribute('aria-labelledby', 'auditControlsHeading');
-    const sideHead = element('div', 'audit-card-titles');
+    const sideHead = element('div', 'audit-card-head');
+    const sideTitles = element('div', 'audit-card-titles');
     const sideHeading = element('h2', 'audit-kicker', 'Already in place');
     sideHeading.id = 'auditControlsHeading';
-    sideHead.append(sideHeading, element('p', 'audit-card-lede', 'Defences the read recognised, each with where it was first seen.'));
+    sideTitles.append(sideHeading, element('p', 'audit-card-lede', 'Defences the read recognised, each with where it was first seen.'));
+    sideHead.appendChild(sideTitles);
     side.appendChild(sideHead);
     const controlsFound = Array.isArray(result.controls) ? result.controls : [];
     if (!controlsFound.length) {
@@ -990,7 +1164,7 @@
       }
       side.appendChild(items);
     }
-    host.appendChild(side);
+    host.appendChild(foldable(side, 'controls', sideHead, 'Already in place'));
   }
 
   /* ---- Standards ------------------------------------------------------------ */
@@ -1011,8 +1185,10 @@
     heading.id = 'auditOwaspHeading';
     const cwes = new Set(result.findings.map(finding => finding.standards && finding.standards.cwe).filter(Boolean));
     const top25 = result.findings.filter(finding => finding.standards && finding.standards.top25).length;
-    head.append(heading, element('span', 'audit-owasp-cwe', `${plural(cwes.size, 'CWE', 'CWEs')} across ${plural(result.findings.length, 'finding', 'findings')}`
+    const titles = element('div', 'audit-card-titles audit-owasp-titles');
+    titles.append(heading, element('span', 'audit-owasp-cwe', `${plural(cwes.size, 'CWE', 'CWEs')} across ${plural(result.findings.length, 'finding', 'findings')}`
       + (top25 ? ` · ${plural(top25, 'finding', 'findings')} in the CWE Top 25` : '')));
+    head.appendChild(titles);
     card.appendChild(head);
     const list = element('ul', 'audit-owasp-grid');
     list.setAttribute('aria-label', 'OWASP Top 10 categories');
@@ -1021,7 +1197,10 @@
       const counts = severityCounts(under);
       const worst = ORDER.find(severity => counts[severity]) || 'clear';
       const item = element('li', 'audit-owasp-item');
-      const control = keyed(button('', 'audit-owasp-btn', () => handlers.onOwasp && handlers.onOwasp(view.owasp === id ? null : id)), `owasp:${id}`);
+      const control = keyed(button('', 'audit-owasp-btn', () => {
+        unfold('findings');
+        if (handlers.onOwasp) handlers.onOwasp(view.owasp === id ? null : id);
+      }), `owasp:${id}`);
       control.dataset.status = worst;
       control.setAttribute('aria-pressed', view.owasp === id ? 'true' : 'false');
       control.setAttribute('aria-label', `${id} ${word}: ${under.length ? plural(under.length, 'finding', 'findings') : 'clear'}`);
@@ -1032,7 +1211,7 @@
       list.appendChild(item);
     }
     card.appendChild(list);
-    host.appendChild(card);
+    host.appendChild(foldable(card, 'owasp', head, 'OWASP Top 10'));
   }
 
   /* A finding's CWE and OWASP category, each a link to its definition. */
@@ -1366,7 +1545,7 @@
     }
     const waived = result.suppressed || [];
     if (waived.length) card.appendChild(waivedList(waived));
-    host.appendChild(card);
+    host.appendChild(foldable(card, 'findings', head, 'Findings'));
   }
 
   /*
@@ -1556,7 +1735,7 @@
         }
       }
     }
-    host.appendChild(card);
+    host.appendChild(foldable(card, 'site', head, 'Deployed site'));
   }
 
   /*
@@ -1952,7 +2131,7 @@
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, brief, sarif, csv, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
+  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, progress, brief, sarif, csv, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaCodeAudit;

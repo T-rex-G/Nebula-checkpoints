@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+### Advisories in Eight Ecosystems, and a Bill of Materials
+
+Asked for: an audit as strong on any repository as on this one.
+
+- **Dependency advisories now cover Go, Maven and Gradle, Composer, Bundler,
+  Cargo and NuGet, beside npm and PyPI.** Before, a Java, Go, PHP, Ruby,
+  Rust or .NET repository had no dependency coverage at all.
+  - go.mod, which is its own lockfile: requirements marked indirect are
+    transitive, replacements are followed, local paths are left out.
+  - pom.xml, with versions resolved from its properties and dependency
+    management; build plugins are not dependencies. build.gradle(.kts) and
+    gradle.lockfile.
+  - composer.json and composer.lock, with each package's autoloaded
+    namespaces. Gemfile groups and Gemfile.lock (platform builds are one
+    version).
+  - Cargo.toml and Cargo.lock, with the workspace's own crates set apart.
+  - PackageReference, Directory.Packages.props, packages.config, legacy
+    packages-folder references and packages.lock.json.
+  - pyproject.toml (PEP 621 and Poetry) and Pipfile, beside requirements
+    files.
+  - A version the file does not write down is left out, never guessed.
+    Exact pins and range floors follow each ecosystem's own rules: a bare
+    Cargo version is a caret range, Bundler's `~>` and Composer's `~` are
+    pessimistic.
+- **Reach in every one of those languages.**
+  - Go by module path, Rust by crate, Ruby by require, PHP by the namespaces
+    a package autoloads, Java and Kotlin by package, C# by namespace.
+  - A gem the Gemfile lists for production, in an application that calls
+    `Bundler.require`, is loaded at boot and says so.
+  - Transitive packages are traced to what brought them in through the
+    Cargo, Composer, Bundler and NuGet lockfiles' requirement graphs.
+- **A bill of materials, exported as CycloneDX 1.5 or SPDX 2.3.**
+  - Every component the manifests and lockfiles name, once, by package URL.
+  - What each depends on, and the licence where the lockfile states one.
+  - Whether the project asked for it or only develops with it.
+  - In CycloneDX, every vulnerability the audit found, with its CVSS, EPSS,
+    CISA KEV listing, risk and reach.
+  - Both formats validate against their official JSON schemas, including on
+    real projects: OWASP Juice Shop, RailsGoat and java-goof.
+- **The risk list shows a package version once**, however many manifests
+  declare it, and each row says its reach in a few words; the finding
+  carries the whole sentence.
+- **"A committed lockfile"** is recognised for every ecosystem, not only npm.
+- The coverage line counts the bill of materials, and the risk section says
+  when EPSS has not yet scored a CVE rather than implying it failed.
+
 ### Exploit-Aware Dependency Risk: EPSS, CISA KEV and Reach
 
 Asked for: prioritisation that predicts exploitation (EPSS), not only

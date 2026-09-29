@@ -131,7 +131,11 @@ reading an unanswered lookup as unknown rather than missing. It asks OSV --
 anonymously, through the guarded transport's advisory profile, which can reach
 `api.osv.dev` and nothing else -- which installed versions (from the lockfile,
 or a declared range's floor, marked as such) have a published or malicious-
-package advisory. For the CVEs those advisories carry -- and only their
+package advisory, in npm, PyPI, Go, Maven, Composer, RubyGems, crates.io and
+NuGet, reading each ecosystem's manifests and lockfiles and leaving out any
+version a file does not write down. The same inventory is exported as a bill
+of materials in CycloneDX 1.5 or SPDX 2.3: package URLs, versions, licences
+where a lockfile states them, requirements, and the vulnerabilities found. For the CVEs those advisories carry -- and only their
 identifiers -- it asks FIRST's EPSS for the probability of exploitation and
 CISA's Known Exploited Vulnerabilities catalog whether each is exploited in the
 wild, through the guarded transport's threat-intel profile, which is anonymous,

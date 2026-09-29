@@ -34,7 +34,7 @@
 const JS_FILE = /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/i;
 const PY_FILE = /\.py$/i;
 const JSON_CONFIG = /(^|\/)(\.babelrc|\.eslintrc|\.prettierrc|\.stylelintrc|\.swcrc|\.postcssrc|\.mocharc|\.nycrc|babel\.config|jest\.config|tsconfig[\w.-]*|jsconfig|nodemon|lerna|turbo|nx)(\.json|\.ya?ml)?$/i;
-const BUILD_FILE = /(^|\/)((scripts?|tools?|tooling|build-tools|\.storybook|\.github|\.husky|config\/(webpack|jest|babel|vite|rollup))\/|[^/]*\.config\.[cm]?[jt]s$|(gulpfile|gruntfile|webpack\.[\w.-]*|rollup\.[\w.-]*|vite\.[\w.-]*|karma\.[\w.-]*|setup|noxfile|fabfile|tasks|manage)\.(?:[cm]?[jt]s|py)$|docs\/conf\.py$)/i;
+const BUILD_FILE = /(^|\/)((scripts?|tools?|tooling|build-tools|\.storybook|\.github|\.husky|config\/(webpack|jest|babel|vite|rollup))\/|[^/]*\.config\.[cm]?[jt]s$|(gulpfile|gruntfile|webpack\.[\w.-]*|rollup\.[\w.-]*|vite\.[\w.-]*|karma\.[\w.-]*|setup|noxfile|fabfile|tasks|manage)\.(?:[cm]?[jt]s|py)$|docs\/conf\.py$|build\.rs$|(build|settings)\.gradle(\.kts)?$|Rakefile$|[^/]+\.rake$)/i;
 
 /* JavaScript: require, dynamic import, static import and re-export. Bounded so a long line cannot make the search slow. */
 const JS_IMPORT = /\brequire(?:\.resolve)?\s*\(\s*(['"`])([^'"`\n]{1,214})\1|\bimport\s*\(\s*(['"`])([^'"`\n]{1,214})\3|\b(?:import|export)\s+(?:type\s+)?(?:[\w*$\s{},]{0,400}?\s*from\s*)?(['"])([^'"\n]{1,214})\5/g;
@@ -44,6 +44,35 @@ const MARKUP_FILE = /\.(html?|ejs|hbs|handlebars|pug|jade|njk|twig|dust|liquid|m
 /* Python: `import a.b, c` and `from a.b import c, d`, at the start of a line. */
 const PY_IMPORT = /^[ \t]*import[ \t]+([\w.]+(?:[ \t]+as[ \t]+\w+)?(?:[ \t]*,[ \t]*[\w.]+(?:[ \t]+as[ \t]+\w+)?)*)|^[ \t]*from[ \t]+([\w.]+)[ \t]+import[ \t]+\(?([\w \t,]*)/gm;
 const PY_STRING = /(['"])([A-Za-z_][\w]{0,60}(?:\.[A-Za-z_]\w{0,60}){0,6})\1/g;
+
+/*
+ * The other languages whose packages the advisory lookup covers. Each names
+ * a dependency in its own way: Go by module path, Rust by crate, Ruby by
+ * require (or all at once, through Bundler.require), PHP by the namespace
+ * its package autoloads, the JVM by package, .NET by namespace.
+ */
+const GO_FILE = /\.go$/;
+const GO_IMPORT_BLOCK = /\bimport\s*\(([^)]{0,20000})\)/g;
+const GO_IMPORT_LINE = /^[ \t]*import[ \t]+(?:[\w.]+[ \t]+)?"([^"\n]{1,300})"/gm;
+const GO_QUOTED = /"([^"\n]{1,300})"/g;
+const RUST_FILE = /\.rs$/;
+const RUST_USE = /\b(?:use|extern[ \t]+crate)[ \t]+(?:::)?([A-Za-z_]\w{0,80})|\b([a-z_][a-z0-9_]{0,80})::/g;
+const RUBY_FILE = /\.(rb|rake|ru)$|(^|\/)Rakefile$/;
+const RUBY_REQUIRE = /\brequire[ \t]*\(?[ \t]*['"]([\w/.-]{1,200})['"]/g;
+const PHP_FILE = /\.php$/;
+const PHP_NAME = /\\?\b([A-Za-z_]\w{0,80}(?:\\[A-Za-z_]\w{0,80}){1,12})/g;
+const JVM_FILE = /\.(java|kt|scala|groovy)$/;
+const JVM_IMPORT = /^[ \t]*import[ \t]+(?:static[ \t]+)?([\w.]{1,300})/gm;
+const DOTNET_FILE = /\.(cs|fs|vb)$/;
+const DOTNET_USING = /^[ \t]*(?:global[ \t]+)?(?:using|open|Imports)[ \t]+(?:static[ \t]+)?([A-Za-z_][\w.]{0,300})/gm;
+
+/* The names Ruby code requires a gem by: its own, with dashes as slashes or underscores. */
+const RUBY_NAMES = Object.freeze({
+  activesupport: ['active_support'], activerecord: ['active_record'], actionpack: ['action_controller', 'action_dispatch'],
+  actionview: ['action_view'], activemodel: ['active_model'], actionmailer: ['action_mailer'], activejob: ['active_job'],
+  actioncable: ['action_cable'], activestorage: ['active_storage'], railties: ['rails'], rails: ['rails', 'rails/all']
+});
+const rubyNames = name => [...new Set([name, name.replace(/-/g, '/'), name.replace(/-/g, '_'), ...(RUBY_NAMES[name.toLowerCase()] || [])].map(value => value.toLowerCase()))];
 
 /*
  * Distributions whose import name is not their package name. The rest follow
@@ -122,11 +151,41 @@ const FILES_KEPT = 3;
 function usageIndex(files, wanted, isTest) {
   const npm = new Map();
   const pypi = new Map();
-  const want = { npm: new Set(), pypi: new Map() };
+  const maps = { npm, pypi, go: new Map(), cargo: new Map(), rubygems: new Map(), packagist: new Map(), maven: new Map(), nuget: new Map() };
+  const want = { npm: new Set(), pypi: new Map(), go: new Map(), cargo: new Map(), rubygems: new Map(), packagist: new Map(), maven: new Map(), nuget: new Map() };
+  const add = (map, name, key) => { if (!map.has(name)) map.set(name, new Set()); map.get(name).add(key); };
   for (const item of wanted) {
-    if (item.ecosystem === 'npm') want.npm.add(item.key);
-    else for (const module of pythonModules(item.name)) want.pypi.set(module, item.key);
+    const name = String(item.name);
+    switch (item.ecosystem) {
+      case 'npm': want.npm.add(item.key); break;
+      case 'pypi': for (const module of pythonModules(name)) want.pypi.set(module, item.key); break;
+      case 'go': add(want.go, name.toLowerCase(), item.key); break;
+      case 'cargo': add(want.cargo, name.toLowerCase().replace(/-/g, '_'), item.key); break;
+      case 'rubygems': for (const required of rubyNames(name)) add(want.rubygems, required, item.key); break;
+      case 'packagist': for (const space of item.namespaces || []) add(want.packagist, String(space).toLowerCase().replace(/\\+$/, ''), item.key); break;
+      case 'maven': {
+        /* A package is imported by the packages under its group, or under the group's first three parts. */
+        const group = name.split(':')[0].toLowerCase();
+        add(want.maven, group, item.key);
+        const parts = group.split('.');
+        if (parts.length > 3) add(want.maven, parts.slice(0, 3).join('.'), item.key);
+        break;
+      }
+      case 'nuget': add(want.nuget, name.toLowerCase(), item.key); break;
+      default: break;
+    }
   }
+  const nativeWanted = ['go', 'cargo', 'rubygems', 'packagist', 'maven', 'nuget'].some(ecosystem => want[ecosystem].size);
+  /* The longest prefix of a dotted, slashed or back-slashed name that names a wanted package. */
+  const byPrefix = (map, value, separator) => {
+    const parts = String(value).toLowerCase().split(separator);
+    for (let size = parts.length; size > 0; size -= 1) {
+      const keys = map.get(parts.slice(0, size).join(separator));
+      if (keys) return keys;
+    }
+    return null;
+  };
+  let bundler = null;
   const record = (map, key, role, how, filePath) => {
     if (!map.has(key)) map.set(key, { runtime: null, build: null, test: null });
     const slot = map.get(key);
@@ -226,9 +285,35 @@ function usageIndex(files, wanted, isTest) {
         const key = pythonMatch(match[2]);
         if (key) record(pypi, key, role, 'name', file.path);
       }
+    } else if (nativeWanted) {
+      const hit = (ecosystem, keys, how = 'import') => { for (const key of keys || []) record(maps[ecosystem], key, role, how, file.path); };
+      if (GO_FILE.test(file.path) && want.go.size) {
+        for (const block of file.text.matchAll(GO_IMPORT_BLOCK)) for (const quoted of block[1].matchAll(GO_QUOTED)) hit('go', byPrefix(want.go, quoted[1], '/'));
+        for (const match of file.text.matchAll(GO_IMPORT_LINE)) hit('go', byPrefix(want.go, match[1], '/'));
+      } else if (RUST_FILE.test(file.path) && want.cargo.size) {
+        for (const match of file.text.matchAll(RUST_USE)) hit('cargo', want.cargo.get(String(match[1] || match[2]).toLowerCase()));
+      } else if (RUBY_FILE.test(file.path) && (want.rubygems.size)) {
+        for (const match of file.text.matchAll(RUBY_REQUIRE)) {
+          const required = match[1].toLowerCase();
+          hit('rubygems', want.rubygems.get(required) || want.rubygems.get(required.split('/')[0]));
+        }
+        /* Bundler.require loads every gem the Gemfile lists for the running environment. */
+        if (!bundler && role === 'runtime' && /\bBundler\.require\b/.test(file.text)) bundler = file.path;
+      } else if (PHP_FILE.test(file.path) && want.packagist.size) {
+        for (const match of file.text.matchAll(PHP_NAME)) hit('packagist', byPrefix(want.packagist, match[1], '\\'));
+      } else if (JVM_FILE.test(file.path) && want.maven.size) {
+        for (const match of file.text.matchAll(JVM_IMPORT)) hit('maven', byPrefix(want.maven, match[1], '.'));
+      } else if (DOTNET_FILE.test(file.path) && want.nuget.size) {
+        for (const match of file.text.matchAll(DOTNET_USING)) {
+          const space = match[1].toLowerCase().replace(/\.$/, '');
+          hit('nuget', byPrefix(want.nuget, space, '.'));
+          /* A namespace that only opens a package's name: the package extends it (a provider, an adapter). */
+          for (const [id, keys] of want.nuget) if (id.startsWith(`${space}.`)) hit('nuget', keys, 'name');
+        }
+      }
     }
   }
-  return { npm, pypi, scanned: { javascript: js, python: py } };
+  return { ...maps, bundler, scanned: { javascript: js, python: py } };
 }
 
 /*
@@ -261,8 +346,9 @@ const firstRole = slot => ROLES.find(role => slot && slot[role]) || null;
  * tests import is still installed where the application runs, so it stays
  * "installed", with the tests named as what was seen.
  */
-function tierOf({ entry, key, usage, through, unseen }) {
-  const map = entry.ecosystem === 'pypi' ? usage.pypi : usage.npm;
+const NO_USE = new Map();
+function tierOf({ entry, key, usage, through, unseen, keyOf: nameKeyOf }) {
+  const map = usage[entry.ecosystem] || NO_USE;
   const own = map.get(key) || null;
   const files = role => (own && own[role] ? { files: own[role].files, count: own[role].count } : { files: [], count: 0 });
   if (own && own.runtime) return { tier: RUNTIME_TIER[own.runtime.how] || 'named', ...files('runtime') };
@@ -270,7 +356,8 @@ function tierOf({ entry, key, usage, through, unseen }) {
   const hint = seen ? { ...files(seen), seen } : { files: [], count: 0 };
   const quiet = unseen ? { tier: 'unknown', reason: 'unread' } : { tier: 'installed' };
   if (!entry.direct && through && through.roots.length) {
-    const keyOf = root => (entry.ecosystem === 'pypi' ? String(root.name).toLowerCase().replace(/[-_.]+/g, '-') : String(root.name).toLowerCase());
+    const keyOf = root => (nameKeyOf ? nameKeyOf(entry.ecosystem, root.name)
+      : entry.ecosystem === 'pypi' ? String(root.name).toLowerCase().replace(/[-_.]+/g, '-') : String(root.name).toLowerCase());
     const live = through.roots.filter(root => { const slot = map.get(keyOf(root)); return slot && slot.runtime; });
     const shown = live.length ? live : through.roots;
     const base = { through: shown.slice(0, 3).map(root => root.name), throughCount: shown.length, chain: through.chain };
@@ -281,6 +368,8 @@ function tierOf({ entry, key, usage, through, unseen }) {
   }
   if (entry.dev) return { tier: 'dev', ...hint };
   if (seen === 'build') return { tier: 'build', ...hint };
+  /* A gem the Gemfile lists for production, where the application calls Bundler.require: it is loaded at boot. */
+  if (entry.ecosystem === 'rubygems' && entry.direct && usage.bundler) return { tier: 'named', files: [usage.bundler], count: 1, loader: 'bundler' };
   if (!entry.direct && !through) {
     if (seen === 'test') return { tier: 'test', ...hint };
     return { tier: 'unknown', reason: 'graph', ...hint };

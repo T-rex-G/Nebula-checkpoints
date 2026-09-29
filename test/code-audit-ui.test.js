@@ -184,6 +184,33 @@ const ui = require('../public/code-audit-ui');
   const riskyPrompts = ui.allPrompts(risky);
   assert.match(riskyPrompts, /CISA lists CVE-2020-11023 as exploited in the wild/);
 
+  /* The bill of materials: every component once, by package URL, with the vulnerabilities found against it. */
+  const bom = JSON.parse(ui.cyclonedx(risky, { name: 'sandbox/demo', ref: 'main' }));
+  assert.strictEqual(bom.bomFormat, 'CycloneDX');
+  assert.strictEqual(bom.specVersion, '1.5');
+  assert.match(bom.serialNumber, /^urn:uuid:[0-9a-f-]{36}$/);
+  assert.deepStrictEqual(bom.components.map(component => component.purl).sort(), risky.components.map(component => component.purl).sort());
+  const jquery = bom.vulnerabilities.find(vulnerability => vulnerability.id === 'GHSA-jpcq-cgw6-v4j6');
+  assert.deepStrictEqual(jquery.affects, [{ ref: 'pkg:npm/jquery@3.4.1' }]);
+  assert.deepStrictEqual(jquery.ratings, [{ source: { name: 'OSV' }, score: 6.1, method: 'CVSSv3', severity: 'medium' }]);
+  assert(jquery.properties.some(property => property.name === 'nebulaverse:cisa-kev' && property.value === 'true'));
+  assert.strictEqual(jquery.references[0].id, 'CVE-2020-11023');
+  assert.deepStrictEqual(bom.dependencies.find(entry => entry.ref === 'root').dependsOn.sort(), ['pkg:npm/express@4.17.1', 'pkg:npm/jquery@3.4.1', 'pkg:npm/lodash@4.17.15', 'pkg:npm/systeminformation@5.3.0']);
+  assert.deepStrictEqual(bom.dependencies.find(entry => entry.ref === 'pkg:npm/express@4.17.1').dependsOn.sort(), ['pkg:npm/body-parser@1.19.0', 'pkg:npm/qs@6.7.0']);
+  assert.strictEqual(bom.components.find(component => component.name === 'systeminformation').scope, 'optional', 'a development dependency is optional');
+  const spdxDocument = JSON.parse(ui.spdx(risky, { name: 'sandbox/demo', repositoryUri: 'https://github.com/sandbox/demo' }));
+  assert.strictEqual(spdxDocument.spdxVersion, 'SPDX-2.3');
+  assert.strictEqual(spdxDocument.packages.length, risky.components.length + 1);
+  assert.match(spdxDocument.creationInfo.created, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  const root = spdxDocument.packages[0];
+  assert.strictEqual(root.SPDXID, 'SPDXRef-Root');
+  const devRelation = spdxDocument.relationships.find(relation => relation.relationshipType === 'DEV_DEPENDENCY_OF');
+  assert.strictEqual(spdxDocument.packages.find(item => item.SPDXID === devRelation.spdxElementId).name, 'systeminformation');
+  const jqueryPackage = spdxDocument.packages.find(item => item.name === 'jquery');
+  assert(jqueryPackage.externalRefs.some(ref => ref.referenceCategory === 'SECURITY' && ref.referenceLocator === 'https://osv.dev/vulnerability/GHSA-jpcq-cgw6-v4j6'));
+  assert(!/format\.test\.js|\$\('#app'\)/.test(ui.cyclonedx(risky, {}) + ui.spdx(risky, {})), 'the SBOM names packages, never a line of code');
+  assert.match(ui.brief(risky, 'sandbox/demo (main)', null), /6 components in the bill of materials \(npm\)/);
+
   /* The comparison: identities only, new and resolved. */
   assert.strictEqual(ui.diff(result, null), null);
   const changed = ui.diff(result, { at: '2026-09-25T00:00:00.000Z', ids: [result.findings[0].id, 'f'.repeat(24)] });

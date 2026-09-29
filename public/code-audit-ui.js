@@ -173,6 +173,7 @@
     low: Object.freeze({ word: 'Low', tone: 'neutral' })
   });
   const RISK_ORDER = Object.freeze(['urgent', 'high', 'moderate', 'low']);
+  const ECOSYSTEM_NAME = Object.freeze({ npm: 'npm', pypi: 'PyPI', go: 'Go', maven: 'Maven', packagist: 'Composer', rubygems: 'RubyGems', cargo: 'Cargo', nuget: 'NuGet' });
   const PRODUCTION_TIERS = new Set(['imported', 'named', 'bundled', 'transitive', 'installed', 'unknown']);
 
   function element(tag, className, text) {
@@ -378,18 +379,42 @@
     const through = names(usage.through, usage.throughCount);
     switch (usage.tier) {
       case 'imported': return `Imported by the code${files ? `: ${files}` : ''}.`;
-      case 'named': return `Named in the code where a framework loads it by name${files ? `: ${files}` : ''}.`;
+      case 'named': return usage.loader === 'bundler'
+        ? `Loaded at boot by Bundler.require${files ? ` (${files})` : ''}, which requires every gem the Gemfile lists for production.`
+        : `Named in the code where a framework loads it by name${files ? `: ${files}` : ''}.`;
       case 'bundled': return `Shipped by the build: bundled, or served from node_modules${files ? ` (${files})` : ''}.`;
       case 'transitive': return `Not imported itself; it comes with ${through || 'a dependency'}, which the code imports.`;
       case 'installed': return usage.seen === 'test'
         ? `Installed for production. Only tests import it${files ? ` (${files})` : ''}; frameworks load some packages by convention, so that is not proof it never runs.`
         : `Installed for production${through ? ` with ${through}` : ''}, and no import or reference was found in the files read. Frameworks load some packages by convention, so that is not proof it is unused.`;
       case 'unknown': return usage.reason === 'graph'
-        ? 'The lockfile does not record which package requires it, so how it is reached is unknown.'
+        ? 'The code does not import it, and the dependency files do not record which package requires it, so how it is reached is unknown.'
         : 'Some source files were not read, so whether the code imports it is unknown.';
       case 'build': return `Only build tooling references it${through ? ` (through ${through})` : files ? ` (${files})` : ''}: it runs when the project is built, not when it serves a request.`;
       case 'test': return `Only tests import it${files ? ` (${files})` : ''}.`;
       case 'dev': return `A development dependency${through ? `, through ${through}` : ''}: installed to build and test, not to run.`;
+      default: return '';
+    }
+  }
+
+  /* The reach in a few words, for a row in a list; the finding itself carries the whole sentence. */
+  const fileName = filePath => String(filePath || '').slice(String(filePath || '').lastIndexOf('/') + 1);
+  function tierPhrase(usage) {
+    if (!usage) return '';
+    const count = usage.count || (usage.files || []).length;
+    const first = fileName((usage.files || [])[0]);
+    const inFiles = first ? `${first}${count > 1 ? ` and ${plural(count - 1, 'more file', 'more files')}` : ''}` : '';
+    const through = (usage.through || [])[0];
+    switch (usage.tier) {
+      case 'imported': return inFiles ? `Imported by ${inFiles}` : 'Imported by the code';
+      case 'named': return usage.loader === 'bundler' ? 'Loaded at boot by Bundler.require' : inFiles ? `Named in ${inFiles}` : 'Named in the code';
+      case 'bundled': return inFiles ? `Shipped by the build, from ${inFiles}` : 'Shipped by the build';
+      case 'transitive': return through ? `Comes with ${through}, which the code imports` : 'Comes with a dependency the code imports';
+      case 'installed': return usage.seen === 'test' ? 'Installed for production; only tests import it' : 'Installed for production; no import found';
+      case 'unknown': return usage.reason === 'graph' ? 'Reach unknown: nothing records what requires it' : 'Reach unknown: some source files were not read';
+      case 'build': return 'Build tooling only';
+      case 'test': return 'Only tests import it';
+      case 'dev': return through ? `Development only, through ${through}` : 'Development only';
       default: return '';
     }
   }
@@ -584,8 +609,11 @@
   const EXPORTS = Object.freeze([
     ['brief', ICON.markdown, 'Developer brief', 'Markdown for a person or an assistant', 'Export developer brief'],
     ['sarif', ICON.sarif, 'SARIF 2.1.0', 'For GitHub code scanning and other dashboards', 'Export SARIF'],
-    ['csv', ICON.table, 'CSV', 'For a spreadsheet or a tracker import', 'Export CSV']
+    ['csv', ICON.table, 'CSV', 'For a spreadsheet or a tracker import', 'Export CSV'],
+    ['cyclonedx', ICON.box, 'SBOM · CycloneDX 1.5', 'Every package, its licence and its vulnerabilities', 'Export CycloneDX SBOM'],
+    ['spdx', ICON.box, 'SBOM · SPDX 2.3', 'The same bill of materials, for licence and procurement tools', 'Export SPDX SBOM']
   ]);
+  const REPORT_EXPORTS = Object.freeze(['brief', 'sarif', 'csv']);
   function exportMenu(onExport, key, kinds) {
     const wrap = element('div', 'audit-export');
     const trigger = keyed(button('', 'btn btn-ghost audit-tool audit-export-btn'), key);
@@ -738,6 +766,11 @@
       parts.push(`${advisories.checked} of ${advisories.versions} package versions checked against OSV` +
         (advisories.unknown ? ` (${advisories.unknown} unanswered)` : ''));
     }
+    const components = Array.isArray(result.components) ? result.components : [];
+    if (components.length) {
+      const ecosystems = [...new Set(components.map(component => ECOSYSTEM_NAME[component.ecosystem] || component.ecosystem))];
+      parts.push(`${plural(result.componentsTruncated || components.length, 'component', 'components')} in the bill of materials (${ecosystems.join(', ')})`);
+    }
     const exploit = coverage.exploit;
     if (exploit && exploit.cves) {
       parts.push(`${exploit.asked} ${exploit.asked === 1 ? 'CVE' : 'CVEs'} checked against ${exploit.kev === 'ok' ? `CISA KEV${exploit.kevVersion ? ` ${exploit.kevVersion}` : ''}` : 'CISA KEV (unavailable)'} and EPSS (${exploit.scored} scored)`);
@@ -880,7 +913,7 @@
   }
 
   /* What the audit reads, for the moment before it has read anything. */
-  const SCOPE = Object.freeze(['Traced injection', 'Endpoint access', 'SSRF & redirects', 'AI output', 'Committed secrets', 'OSV advisories', 'Exploited CVEs (KEV, EPSS)', 'Dependency reach', 'Malicious packages', 'CI workflows', 'Supabase RLS', 'Firebase rules', 'Infrastructure', 'Hygiene']);
+  const SCOPE = Object.freeze(['Traced injection', 'Endpoint access', 'SSRF & redirects', 'AI output', 'Committed secrets', 'Advisories in 8 ecosystems', 'Exploited CVEs (KEV, EPSS)', 'Dependency reach', 'SBOM (CycloneDX, SPDX)', 'Malicious packages', 'CI workflows', 'Supabase RLS', 'Firebase rules', 'Infrastructure', 'Hygiene']);
 
   /* The ring's place while Uranus reads. */
   function scanning() {
@@ -1063,7 +1096,7 @@
     run.disabled = status === 'running';
     actions.appendChild(run);
     if (result) {
-      actions.appendChild(exportMenu(handlers.onExport, 'export'));
+      actions.appendChild(exportMenu(handlers.onExport, 'export', Array.isArray(result.components) && result.components.length ? null : REPORT_EXPORTS));
       if (result.findings.length) actions.appendChild(keyed(iconButton(ICON.copy, 'Prompts', 'Copy all fix prompts', 'btn btn-ghost audit-tool', handlers.onCopyAll), 'prompts'));
     }
     card.appendChild(actions);
@@ -1156,10 +1189,26 @@
   const RISK_FOLD = 6;
   const expandedRisks = new Set();
   /* The vulnerable packages by risk: exploited in something that ships first, then the number. */
+  /*
+   * One row per package version: declared in two manifests it is still one
+   * thing to upgrade. The row keeps the riskiest finding and counts the rest.
+   */
+  const placesOf = new WeakMap();
   function riskRanked(findings) {
-    return findings.filter(finding => riskOf(finding))
+    const ranked = findings.filter(finding => riskOf(finding))
       .sort((a, b) => Number(exploited(b)) - Number(exploited(a)) || riskOf(b).score - riskOf(a).score ||
         ORDER.indexOf(a.severity) - ORDER.indexOf(b.severity) || String(a.detail.package).localeCompare(String(b.detail.package)));
+    const first = new Map();
+    const out = [];
+    for (const finding of ranked) {
+      const detail = finding.detail;
+      const key = `${detail.ecosystem || ''}\0${String(detail.package).toLowerCase()}\0${detail.source === 'range' ? detail.range : detail.version}`;
+      const kept = first.get(key);
+      if (kept) { placesOf.set(kept, (placesOf.get(kept) || 1) + 1); continue; }
+      first.set(key, finding);
+      out.push(finding);
+    }
+    return out;
   }
   function intelSources(result) {
     const exploit = result.coverage && result.coverage.exploit;
@@ -1168,7 +1217,7 @@
       ? `CISA’s Known Exploited Vulnerabilities catalog${exploit.kevVersion ? ` ${exploit.kevVersion}` : ''}${exploit.kevCount ? ` (${exploit.kevCount.toLocaleString()} CVEs)` : ''}${exploit.kevStale ? ', an earlier copy because a refresh failed' : ''}`
       : exploit.kev === 'not-needed' ? '' : 'CISA’s catalog could not be read';
     const epss = exploit.epss === 'ok' || exploit.epss === 'partial'
-      ? `FIRST EPSS scores for ${exploit.scored} of ${exploit.asked} CVEs${exploit.epss === 'partial' ? ' (some requests went unanswered)' : ''}`
+      ? `FIRST EPSS scores for ${exploit.scored} of ${exploit.asked} CVEs${exploit.epss === 'partial' ? ' (some requests went unanswered)' : exploit.unscored ? ` (EPSS has not scored the other ${exploit.unscored} yet)` : ''}`
       : exploit.epss === 'not-needed' ? '' : 'EPSS could not be reached';
     return [kev, epss].filter(Boolean).join(' · ');
   }
@@ -1240,8 +1289,11 @@
       const name = element('span', 'audit-risk-pkg');
       name.append(element('span', 'audit-risk-name', detail.package), element('span', 'audit-risk-ver', version));
       if (detail.fixed && finding.rule !== 'DEP-006') name.append(icon(ICON.arrow, 'audit-ico audit-risk-arrow'), element('span', 'audit-risk-fix', detail.fixed));
-      const sub = element('span', 'audit-risk-sub', finding.rule === 'DEP-006' ? 'Known malicious: remove it and rotate what it could reach.' : tierSentence(detail.usage));
+      const sub = element('span', 'audit-risk-sub', finding.rule === 'DEP-006' ? 'Known malicious: remove it and rotate what it could reach.' : tierPhrase(detail.usage));
+      if (detail.usage) sub.title = tierSentence(detail.usage);
       main.append(name, sub);
+      const places = placesOf.get(finding) || 1;
+      if (places > 1) main.appendChild(element('span', 'audit-risk-places', `Declared in ${places} places; the finding below each one says where.`));
       const tags = element('span', 'audit-risk-tags');
       const kev = kevChip(finding, { short: true });
       if (kev) tags.appendChild(kev);
@@ -2109,7 +2161,7 @@
         titleWrap.append(listTitle, listCount);
         const actions = element('div', 'audit-actions');
         if (total) actions.appendChild(keyed(iconButton(ICON.copy, 'Prompts', 'Copy all fix prompts', 'btn btn-ghost audit-tool', handlers.onSiteCopyAll), 'site-prompts'));
-        if (exportable) actions.appendChild(exportMenu(handlers.onExport, 'site-export'));
+        if (exportable) actions.appendChild(exportMenu(handlers.onExport, 'site-export', REPORT_EXPORTS));
         listHead.append(titleWrap, actions);
         card.appendChild(listHead);
       }
@@ -2466,6 +2518,157 @@
   }
 
   /*
+   * The bill of materials, in the two formats supply-chain tools read. Every
+   * component the manifests and lockfiles name, by package URL, with its
+   * licence where the lockfile states one, what it depends on, and -- in
+   * CycloneDX -- the vulnerabilities this audit found against it with their
+   * exploit intelligence and reach. Names, versions and licences only; never
+   * a line of the code.
+   */
+  const SPDX_EXPRESSION = /^\(?[A-Za-z0-9][A-Za-z0-9.+-]*(\s+(AND|OR|WITH)\s+\(?[A-Za-z0-9][A-Za-z0-9.+-]*\)?)*\)?$/;
+  function uuid() {
+    if (global.crypto && typeof global.crypto.randomUUID === 'function') return global.crypto.randomUUID();
+    const bytes = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = bytes.map(value => value.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  const licencesOf = component => (Array.isArray(component.license) ? component.license : component.license ? [component.license] : [])
+    .map(value => String(value).trim()).filter(Boolean);
+  /* CycloneDX and SPDX split a coordinate into a group and a name where the ecosystem has one. */
+  function coordinates(component) {
+    const name = String(component.name);
+    if (component.ecosystem === 'maven' && name.includes(':')) return { group: name.split(':')[0], name: name.split(':')[1] };
+    if ((component.ecosystem === 'npm' && name.startsWith('@')) || component.ecosystem === 'packagist') {
+      const at = name.indexOf('/');
+      if (at > 0) return { group: name.slice(0, at), name: name.slice(at + 1) };
+    }
+    return { group: null, name };
+  }
+  const CDX_SEVERITY = Object.freeze({ critical: 'critical', serious: 'high', warning: 'medium' });
+
+  function dependencyFindings(result) {
+    return (result.findings || []).filter(finding => finding.detail && finding.detail.purl && Array.isArray(finding.detail.advisories));
+  }
+
+  function cyclonedx(result, meta = {}) {
+    const components = Array.isArray(result && result.components) ? result.components : [];
+    const refs = new Set(components.map(component => component.purl).filter(Boolean));
+    const engine = result.engine || {};
+    const property = (name, value) => ({ name: `nebulaverse:${name}`, value: String(value) });
+    const bomComponents = components.filter(component => component.purl).map(component => {
+      const { group, name } = coordinates(component);
+      const licences = licencesOf(component);
+      const licenses = licences.length === 1 && /\s(AND|OR|WITH)\s/.test(licences[0])
+        ? [{ expression: licences[0] }]
+        : licences.map(value => (SPDX_EXPRESSION.test(value) && !/\s/.test(value) ? { license: { id: value } } : { license: { name: value } }));
+      return {
+        type: 'library', 'bom-ref': component.purl, ...(group ? { group } : {}), name, version: component.version, purl: component.purl,
+        scope: component.dev ? 'optional' : 'required',
+        ...(licenses.length ? { licenses } : {}),
+        properties: [property('ecosystem', component.ecosystem), property('direct', Boolean(component.direct)), property('source', component.source), ...(component.path ? [property('declared-in', component.path)] : [])]
+      };
+    });
+    /* One vulnerability per advisory, affecting every component it was found in. */
+    const vulnerabilities = new Map();
+    for (const finding of dependencyFindings(result)) {
+      const detail = finding.detail;
+      if (!refs.has(detail.purl)) continue;
+      for (const advisory of detail.advisories) {
+        const known = vulnerabilities.get(advisory.id);
+        if (known) { if (!known.affects.some(item => item.ref === detail.purl)) known.affects.push({ ref: detail.purl }); continue; }
+        const intel = detail.intel || null;
+        const properties = [];
+        if (Number.isFinite(advisory.epss)) properties.push(property('epss', advisory.epss));
+        if (advisory.kev) properties.push(property('cisa-kev', true));
+        if (intel && intel.ransomware && intel.kev && intel.kev.cve === advisory.cve) properties.push(property('ransomware', true));
+        if (detail.risk) properties.push(property('risk', detail.risk.score), property('risk-band', detail.risk.band));
+        if (detail.usage) properties.push(property('reach', detail.usage.tier));
+        vulnerabilities.set(advisory.id, {
+          'bom-ref': `vuln:${advisory.id}`,
+          id: advisory.id,
+          source: { name: 'OSV', url: `https://osv.dev/vulnerability/${encodeURIComponent(advisory.id)}` },
+          ...(advisory.cve ? { references: [{ id: advisory.cve, source: { name: 'NVD', url: `https://nvd.nist.gov/vuln/detail/${encodeURIComponent(advisory.cve)}` } }] } : {}),
+          ratings: [{ source: { name: 'OSV' }, ...(Number.isFinite(advisory.cvss) ? { score: advisory.cvss, method: 'CVSSv3' } : {}), severity: CDX_SEVERITY[advisory.severity] || 'unknown' }],
+          ...(advisory.summary ? { description: advisory.summary } : {}),
+          ...(detail.fixed && finding.rule !== 'DEP-006' ? { recommendation: `Upgrade ${detail.package} to ${detail.fixed} or later.` } : {}),
+          affects: [{ ref: detail.purl }],
+          ...(properties.length ? { properties } : {})
+        });
+      }
+    }
+    const root = { type: 'application', 'bom-ref': 'root', name: meta.name || 'repository', ...(result.commitSha ? { version: result.commitSha } : {}) };
+    const dependencies = [
+      { ref: 'root', dependsOn: components.filter(component => component.direct && component.purl).map(component => component.purl) },
+      ...components.filter(component => component.purl && Array.isArray(component.dependsOn) && component.dependsOn.length)
+        .map(component => ({ ref: component.purl, dependsOn: component.dependsOn.filter(target => refs.has(target)) }))
+    ];
+    return JSON.stringify({
+      $schema: 'http://cyclonedx.org/schema/bom-1.5.schema.json',
+      bomFormat: 'CycloneDX', specVersion: '1.5', serialNumber: `urn:uuid:${uuid()}`, version: 1,
+      metadata: {
+        timestamp: result.auditedAt || new Date().toISOString(),
+        tools: { components: [{ type: 'application', name: 'Nebulaverse-X Uranus', ...(engine.version ? { version: engine.version } : {}) }] },
+        component: root,
+        properties: [...(meta.ref ? [property('ref', meta.ref)] : []), ...(result.componentsTruncated ? [property('components-truncated', result.componentsTruncated)] : [])]
+      },
+      components: bomComponents,
+      dependencies,
+      vulnerabilities: [...vulnerabilities.values()]
+    }, null, 2);
+  }
+
+  function spdx(result, meta = {}) {
+    const components = (Array.isArray(result && result.components) ? result.components : []).filter(component => component.purl);
+    const engine = result.engine || {};
+    const id = new Map(components.map((component, index) => [component.purl, `SPDXRef-Package-${index + 1}`]));
+    const advisoriesByPurl = new Map();
+    for (const finding of dependencyFindings(result)) {
+      const list = advisoriesByPurl.get(finding.detail.purl) || [];
+      for (const advisory of finding.detail.advisories) if (!list.includes(advisory.id)) list.push(advisory.id);
+      advisoriesByPurl.set(finding.detail.purl, list);
+    }
+    const declared = component => {
+      const licences = licencesOf(component);
+      const expression = licences.length > 1 ? licences.map(value => (/\s/.test(value) ? `(${value})` : value)).join(' AND ') : licences[0];
+      return expression && SPDX_EXPRESSION.test(expression.replace(/[()]/g, '')) ? expression : 'NOASSERTION';
+    };
+    const packages = [
+      {
+        name: meta.name || 'repository', SPDXID: 'SPDXRef-Root', versionInfo: result.commitSha || 'NOASSERTION', downloadLocation: meta.repositoryUri || 'NOASSERTION',
+        filesAnalyzed: false, licenseConcluded: 'NOASSERTION', licenseDeclared: 'NOASSERTION', copyrightText: 'NOASSERTION', primaryPackagePurpose: 'APPLICATION'
+      },
+      ...components.map(component => ({
+        name: component.name, SPDXID: id.get(component.purl), versionInfo: component.version, downloadLocation: 'NOASSERTION',
+        filesAnalyzed: false, licenseConcluded: 'NOASSERTION', licenseDeclared: declared(component), copyrightText: 'NOASSERTION', primaryPackagePurpose: 'LIBRARY',
+        externalRefs: [
+          { referenceCategory: 'PACKAGE-MANAGER', referenceType: 'purl', referenceLocator: component.purl },
+          ...(advisoriesByPurl.get(component.purl) || []).map(advisory => ({ referenceCategory: 'SECURITY', referenceType: 'advisory', referenceLocator: `https://osv.dev/vulnerability/${encodeURIComponent(advisory)}` }))
+        ]
+      }))
+    ];
+    const relationships = [{ spdxElementId: 'SPDXRef-DOCUMENT', relationshipType: 'DESCRIBES', relatedSpdxElement: 'SPDXRef-Root' }];
+    for (const component of components) {
+      if (component.direct) {
+        relationships.push(component.dev
+          ? { spdxElementId: id.get(component.purl), relationshipType: 'DEV_DEPENDENCY_OF', relatedSpdxElement: 'SPDXRef-Root' }
+          : { spdxElementId: 'SPDXRef-Root', relationshipType: 'DEPENDS_ON', relatedSpdxElement: id.get(component.purl) });
+      }
+      for (const target of component.dependsOn || []) {
+        if (id.has(target)) relationships.push({ spdxElementId: id.get(component.purl), relationshipType: 'DEPENDS_ON', relatedSpdxElement: id.get(target) });
+      }
+    }
+    const slug = String(meta.name || 'repository').toLowerCase().replace(/[^a-z0-9.-]+/g, '-').replace(/^-+|-+$/g, '') || 'repository';
+    return JSON.stringify({
+      spdxVersion: 'SPDX-2.3', dataLicense: 'CC0-1.0', SPDXID: 'SPDXRef-DOCUMENT', name: `${meta.name || 'repository'} dependencies`,
+      documentNamespace: `https://spdx.org/spdxdocs/${slug}-${uuid()}`,
+      creationInfo: { created: String(result.auditedAt || new Date().toISOString()).replace(/\.\d{3}Z$/, 'Z'), creators: [`Tool: Nebulaverse-X-Uranus${engine.version ? `-${engine.version}` : ''}`] },
+      packages, relationships
+    }, null, 2);
+  }
+
+  /*
    * CSV, one finding a row. A cell that opens with =, +, -, @ or a control
    * character is prefixed with an apostrophe: a path or a title from a
    * repository is somebody else's text, and a spreadsheet must not run it
@@ -2555,7 +2758,7 @@
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, progress, brief, sarif, csv, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
+  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, progress, brief, sarif, csv, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaCodeAudit;

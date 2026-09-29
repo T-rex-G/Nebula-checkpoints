@@ -151,6 +151,8 @@ const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = requi
 const { auditRepository } = require('./src/code-audit');
 const { analyseOffThread } = require('./src/code-audit-worker');
 const { createAuditJobs } = require('./src/code-audit-jobs');
+const { CodeAuditHistory, createAuditWatch } = require('./src/code-audit-history');
+const { watchComponents } = require('./src/code-audit-watch');
 const { checkSite, declaredSite } = require('./src/site-check');
 const { readBranchProtection } = require('./src/branch-protection');
 const { buildPublicAssets, etagMatches, securityContact, stripHtmlComments, stripJsComments } = require('./src/public-assets');
@@ -7730,6 +7732,7 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
   if (!ref) return res.status(400).json({ error: 'ref is required', code: 'AUDIT_REF_REQUIRED' });
   const { owner, repo } = req.params;
   const token = req.gh.token;
+  const account = req.gh;
   const answer = auditJobs.request({
     identity: identityKey(req.gh), owner, repo, ref, run: String(req.query.run || '').trim(),
     launch: async ({ onProgress, signal }) => {
@@ -7749,7 +7752,9 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
           analyser: input => analyseOffThread(input, { onStage: (stage, detail) => onProgress({ stage, ...(detail || {}) }) }),
           onProgress
         });
-        return { ...result, auditedAt: new Date().toISOString() };
+        const finished = { ...result, auditedAt: new Date().toISOString() };
+        finished.history = await recordAudit(account, owner, repo, finished);
+        return finished;
       } finally {
         session.close();
       }
@@ -7758,6 +7763,106 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
   if (answer.error) return fail(res, answer.error);
   if (answer.status === 202) res.setHeader('Retry-After', '2');
   return res.status(answer.status).json(answer.body);
+});
+
+/*
+ * Audits, kept. A finished audit is recorded for the identity that ran it --
+ * reduced by src/code-audit-history.js to what can be stored without storing
+ * the repository -- and the page reads the branch's history back, one past
+ * audit's findings, and the watch: whether anything has been published about
+ * the branch's components since its latest audit (src/code-audit-watch.js).
+ * Without a database there is no history, and the page is told so rather
+ * than shown an empty one.
+ */
+let _auditHistory = null;
+let _auditWatch = null;
+function auditHistory() {
+  if (!DB_URL) return null;
+  if (!_auditHistory) _auditHistory = new CodeAuditHistory({ pool: pool() });
+  return _auditHistory;
+}
+function auditWatch() {
+  const history = auditHistory();
+  if (!history) return null;
+  if (!_auditWatch) {
+    _auditWatch = createAuditWatch({
+      history,
+      check: ({ components }) => watchComponents({
+        components,
+        advisoryTransport: input => guardedFetch(input),
+        intelTransport: input => guardedFetch(input)
+      })
+    });
+  }
+  return _auditWatch;
+}
+/* A history that could not be written never fails the audit it would have recorded. */
+async function recordAudit(account, owner, repo, result) {
+  const history = auditHistory();
+  if (!history) return null;
+  try {
+    const scope = normalizePolicyScope({ provider: account.provider || 'github', baseUrl: account.baseUrl || '', owner, repo });
+    const recorded = await history.record({ scope, identityKey: identityKey(account), result });
+    return {
+      saved: true,
+      auditId: recorded.auditId,
+      previousAt: recorded.previous ? recorded.previous.auditedAt : null,
+      newIds: recorded.newIds,
+      resolved: recorded.resolved
+    };
+  } catch (error) {
+    console.warn(`[code-audit] history not recorded (${cleanText(String(error && error.code || 'error'), 60)})`);
+    return { saved: false };
+  }
+}
+function auditHistoryAvailable(req, res, next) {
+  if (auditHistory()) return next();
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.method === 'GET') return res.json({ available: false });
+  return res.status(503).json({ error: 'Audit history requires the configured PostgreSQL DATABASE_URL', code: 'CODE_AUDIT_HISTORY_UNAVAILABLE' });
+}
+function auditHistoryRef(req) {
+  const ref = String(req.query.ref || '').trim();
+  if (!ref || ref.length > 255) throw Object.assign(new Error('ref is required'), { status: 400, code: 'AUDIT_REF_REQUIRED' });
+  return ref;
+}
+
+app.get('/api/repo/:owner/:repo/code-audit/history', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader'), async (req, res) => {
+  try {
+    const ref = auditHistoryRef(req);
+    const listed = await auditHistory().list({ scope: req.governance.scope, identityKey: req.governance.actor.identityKey, ref });
+    res.json({ available: true, ref, audits: listed.audits, branches: listed.branches });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/code-audit/history/:auditId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader'), async (req, res) => {
+  try {
+    const found = await auditHistory().read({ scope: req.governance.scope, identityKey: req.governance.actor.identityKey, auditId: String(req.params.auditId || '') });
+    if (!found) return res.status(404).json({ error: 'That audit is not kept for this repository', code: 'CODE_AUDIT_NOT_FOUND' });
+    res.json(found);
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/* The watch answers from what it stored, and asks OSV and CISA again when that answer is six hours old -- or ten minutes, when asked to. */
+app.get('/api/repo/:owner/:repo/code-audit/watch', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader'), async (req, res) => {
+  try {
+    const ref = auditHistoryRef(req);
+    const watched = await auditWatch().refresh({
+      scope: req.governance.scope, identityKey: req.governance.actor.identityKey, ref, force: req.query.refresh === '1'
+    });
+    res.json({ available: true, ref, ...watched });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/code-audit/history/clear', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader'), governanceMutationContext('code-audit.history.clear'), async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
+    if (String(body.confirm || '') !== 'clear-audit-history') {
+      return res.status(400).json({ error: 'Clearing audit history requires an explicit confirmation', code: 'CODE_AUDIT_CLEAR_UNCONFIRMED' });
+    }
+    const cleared = await auditHistory().clear({ scope: req.governance.scope, identityKey: req.governance.actor.identityKey });
+    res.status(201).json({ cleared });
+  } catch (error) { exposureFailure(res, error); }
 });
 
 /*

@@ -197,8 +197,15 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * provider paths are read, how classic protection and rulesets combine, and
  * why a hidden detail is unknown rather than on are in
  * `src/branch-protection.js`, tested there provider by provider.
+ *
+ * 172 to 176 adds the kept audits: a branch's history, one past audit's
+ * findings, the watch over its components, and the clear. Each handler is one
+ * call to `src/code-audit-history.js` -- what is stored, how it is reduced so
+ * that no part of the repository is, what is kept and for how long, and when
+ * the watch asks again are all there and tested against a real database; what
+ * the watch asks, and what counts as new, is in `src/code-audit-watch.js`.
  */
-const SERVER_ROUTE_CEILING = 172;
+const SERVER_ROUTE_CEILING = 176;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

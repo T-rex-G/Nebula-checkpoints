@@ -5451,8 +5451,22 @@ async function toggleProtect(p) {
  * previous session never paints this one. The comparison with the last audit
  * keeps fingerprints only, and the account-boundary purge removes them.
  */
-let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0 };
+/*
+ * The kept history and the watch ride on the same view: the audits this
+ * identity ran of the branch, which of them is open and what each kept, and
+ * what has been published about the branch's packages since the latest.
+ */
+function blankAuditView(key = '') {
+  return {
+    key, status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0,
+    history: { status: 'idle' }, watch: { status: 'idle' }, historyOpen: new Set(), historyDetail: new Map(), historyArmed: false
+  };
+}
+let auditView = blankAuditView();
 let auditRequest = 0;
+let auditHistoryRequest = 0;
+let auditHistoryArmTimer = 0;
+let auditWatchTimer = 0;
 /*
  * The deployed-site check sits beside it, bound to the repository rather than
  * the branch: the address typed (or the repository's declared homepage) is
@@ -5478,8 +5492,11 @@ function freshSiteView() {
 }
 function clearAuditState() {
   auditRequest++;
+  auditHistoryRequest++;
   siteRequest++;
-  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0 };
+  clearTimeout(auditHistoryArmTimer);
+  clearTimeout(auditWatchTimer);
+  auditView = blankAuditView();
   siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
   const root = $('#auditRoot');
   if (root) root.replaceChildren();
@@ -5495,13 +5512,19 @@ async function copyPrompt(text, control) {
     }
   } catch { toast('The clipboard is not available here', 'err'); }
 }
-function paintAudit() {
+function paintAudit(options = {}) {
   const root = $('#auditRoot');
   if (!root || !window.NebulaCodeAudit) return;
-  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0 };
+  if (auditView.key !== auditKey()) {
+    auditHistoryRequest++;
+    clearTimeout(auditHistoryArmTimer);
+    auditView = blankAuditView(auditKey());
+  }
   if (siteView.key !== siteKey()) siteView = freshSiteView();
   const repository = window.NebulaCapabilityUI.decision('code-audit');
-  window.NebulaCodeAudit.render(root, {
+  if (repository.status === 'Supported' && auditView.history.status === 'idle' && state.work) loadAuditHistory();
+  const draw = options.partial ? window.NebulaCodeAudit.update : window.NebulaCodeAudit.render;
+  draw(root, {
     ...auditView,
     unavailable: repository.status === 'Supported' ? null : repository.reason,
     site: window.NebulaCapabilityUI.decision('site-check').status === 'Supported' ? siteView : null
@@ -5514,6 +5537,22 @@ function paintAudit() {
       catch { toast('The clipboard is not available here', 'err'); }
     },
     onRun: runAudit,
+    onWatchCheck: () => checkAuditWatch({ force: true }),
+    /* A redraw restores open rows, which fires toggle again: only a change the reader made is acted on. */
+    onHistoryToggle: (id, open) => {
+      if (open === auditView.historyOpen.has(id)) return;
+      if (open) auditView.historyOpen.add(id); else auditView.historyOpen.delete(id);
+      if (open) loadAuditDetail(id); else repaintAudit();
+    },
+    onHistoryOpen: (id, options = {}) => {
+      auditView.historyOpen.add(id);
+      loadAuditDetail(id);
+      if (options.reveal) {
+        const details = document.querySelector(`#auditRoot details[data-audit-id="${CSS.escape(id)}"]`);
+        if (details) details.scrollIntoView({ block: 'center', behavior: document.documentElement.dataset.motion === 'off' ? 'auto' : 'smooth' });
+      }
+    },
+    onHistoryClear: clearAuditHistory,
     onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
     onOwasp: owasp => { auditView.owasp = owasp; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.limit = 0; paintAudit(); },
     onSeverity: severity => { auditView.severity = severity; auditView.limit = 0; paintAudit(); },
@@ -5641,13 +5680,143 @@ async function runAudit() {
     const repoKey = `${state.work.owner}/${state.work.repo}`;
     const previous = window.NebulaCodeAudit.readPrevious(repoKey);
     window.NebulaCodeAudit.remember(repoKey, result);
-    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0 };
+    /*
+     * The server compared this audit with the last one it kept of the branch;
+     * this browser's own fingerprints are only the fallback for a server that
+     * keeps no history.
+     */
+    const kept = result.history && result.history.saved === true ? result.history : null;
+    const diff = kept
+      ? (Array.isArray(kept.newIds) ? { previousAt: kept.previousAt || null, newIds: new Set(kept.newIds), resolved: Number(kept.resolved) || 0 } : null)
+      : window.NebulaCodeAudit.diff(result, previous);
+    auditView = { ...blankAuditView(key), history: auditView.history, watch: auditView.watch, historyOpen: auditView.historyOpen, historyDetail: auditView.historyDetail, status: 'done', result, diff };
+    if (kept) loadAuditHistory();
   } catch (error) {
     if (!current()) return;
     const unreachable = !error.status && isOfflineError(error);
     auditView = { ...auditView, status: 'error', progress: null, error: unreachable ? 'The server could not be reached. Check the connection, then try again.' : error.message || 'The audit could not be completed.' };
   }
   if (shown()) paintAudit();
+}
+/*
+ * The kept audits of this branch, then the watch over the latest. Each answer
+ * is dropped if the repository, the branch or the account changed while it
+ * was in flight, so one repository's history never paints another's page.
+ */
+function auditHistoryScope() {
+  const request = ++auditHistoryRequest;
+  const key = auditKey();
+  const epoch = state.uiEpoch;
+  return { current: () => request === auditHistoryRequest && epoch === state.uiEpoch && key === auditKey() && auditView.key === key, base: `/api/repo/${wPath()}/code-audit`, ref: encodeURIComponent(state.work.branch) };
+}
+function repaintAudit() {
+  if ($('#tab-audit')?.classList.contains('active')) paintAudit({ partial: true });
+}
+async function loadAuditHistory() {
+  if (!state.work) return;
+  const scope = auditHistoryScope();
+  auditView.history = auditView.history.status === 'ready' ? { ...auditView.history, refreshing: true } : { status: 'loading' };
+  try {
+    const listed = await api(`${scope.base}/history?ref=${scope.ref}`);
+    if (!scope.current()) return;
+    if (!listed || listed.available === false) {
+      auditView.history = { status: 'unavailable' };
+      auditView.watch = { status: 'unavailable' };
+      return repaintAudit();
+    }
+    auditView.history = { status: 'ready', audits: Array.isArray(listed.audits) ? listed.audits : [], branches: Array.isArray(listed.branches) ? listed.branches : [] };
+    repaintAudit();
+    if (auditView.history.audits.length) await checkAuditWatch({ scope });
+    else { auditView.watch = { status: 'none' }; repaintAudit(); }
+  } catch (error) {
+    if (!scope.current()) return;
+    auditView.history = { status: 'error', error: error.message || 'The audit history could not be read.' };
+    repaintAudit();
+  }
+}
+const WATCH_STALE_MS = 6 * 60 * 60 * 1000;
+async function checkAuditWatch({ force = false, scope = null } = {}) {
+  if (!state.work || auditView.watch.status === 'checking') return;
+  const own = scope || auditHistoryScope();
+  const latest = auditView.history.status === 'ready' && auditView.history.audits[0];
+  if (!latest) return;
+  const last = latest.watch ? Date.parse(latest.watch.checkedAt) : 0;
+  /* Only a check that will reach OSV says so; one the server answers from what it kept is quiet. */
+  const willAsk = force || !last || Date.now() - last >= WATCH_STALE_MS;
+  auditView.watch = { ...auditView.watch, status: willAsk ? 'checking' : auditView.watch.data ? 'ready' : 'loading' };
+  if (willAsk) repaintAudit();
+  try {
+    const answer = await api(`${own.base}/watch?ref=${own.ref}${force ? '&refresh=1' : ''}`);
+    if (!own.current()) return;
+    if (!answer || answer.available === false || !answer.audit) {
+      auditView.watch = { status: 'none' };
+      return repaintAudit();
+    }
+    auditView.watch = { status: 'ready', data: answer };
+    /* "Check now" is held for a few minutes after a check; the page redraws when it is offered again. */
+    clearTimeout(auditWatchTimer);
+    const wait = Date.parse(answer.checkableAt) - Date.now();
+    if (Number.isFinite(wait) && wait > 0 && wait < 30 * 60 * 1000) auditWatchTimer = setTimeout(() => { if (own.current()) repaintAudit(); }, wait + 50);
+    /* The history row carries the same check, so the two never disagree about when it was. */
+    const row = auditView.history.status === 'ready' && auditView.history.audits.find(audit => audit.id === answer.audit.id);
+    if (row && answer.audit.watch) row.watch = answer.audit.watch;
+    if (answer.fresh && Array.isArray(answer.alerts) && answer.alerts.length) {
+      toast(`${answer.alerts.length} new ${answer.alerts.length === 1 ? 'item' : 'items'} for ${state.work.repo} since its last audit`, 'ok');
+    }
+  } catch (error) {
+    if (!own.current()) return;
+    auditView.watch = { ...auditView.watch, status: 'error', error: error.status === 429 ? 'Checked moments ago. Try again in a few minutes.' : 'The watch could not be checked. Nothing is marked new, and nothing is marked clear.' };
+  }
+  repaintAudit();
+}
+async function loadAuditDetail(id) {
+  if (!state.work) return;
+  const known = auditView.historyDetail.get(id);
+  if (known && known.status === 'loading') return;
+  if (known && known.status === 'ready') return repaintAudit();
+  const view = auditView;
+  const base = `/api/repo/${wPath()}/code-audit`;
+  view.historyDetail.set(id, { status: 'loading' });
+  repaintAudit();
+  try {
+    const found = await api(`${base}/history/${encodeURIComponent(id)}`);
+    if (view !== auditView) return;
+    view.historyDetail.set(id, { status: 'ready', findings: Array.isArray(found.findings) ? found.findings : [] });
+  } catch (error) {
+    if (view !== auditView) return;
+    view.historyDetail.set(id, { status: 'error', error: error.code === 'CODE_AUDIT_NOT_FOUND' ? 'This audit is no longer kept.' : 'This audit could not be read.' });
+  }
+  repaintAudit();
+}
+/* Armed like every other irreversible control: the first press says what the second will do. */
+async function clearAuditHistory() {
+  if (!state.work || auditView.history.status !== 'ready') return;
+  if (!auditView.historyArmed) {
+    auditView.historyArmed = true;
+    clearTimeout(auditHistoryArmTimer);
+    auditHistoryArmTimer = setTimeout(() => { auditView.historyArmed = false; repaintAudit(); }, 5000);
+    return repaintAudit();
+  }
+  clearTimeout(auditHistoryArmTimer);
+  auditView.historyArmed = false;
+  const view = auditView;
+  view.history = { ...view.history, clearing: true };
+  repaintAudit();
+  try {
+    const body = await api(`/api/repo/${wPath()}/code-audit/history/clear`, { method: 'POST', body: { confirm: 'clear-audit-history' } });
+    if (view !== auditView) return;
+    auditHistoryRequest++;
+    view.history = { status: 'ready', audits: [], branches: [] };
+    view.watch = { status: 'none' };
+    view.historyOpen = new Set();
+    view.historyDetail = new Map();
+    toast(`Cleared ${Number(body && body.cleared) || 0} kept ${Number(body && body.cleared) === 1 ? 'audit' : 'audits'} of ${state.work.repo}`, 'ok');
+  } catch (error) {
+    if (view !== auditView) return;
+    view.history = { ...view.history, clearing: false };
+    toast(error.message || 'The audit history could not be cleared.', 'err');
+  }
+  repaintAudit();
 }
 async function openAuditFinding(finding) {
   if (!finding || !finding.path) return;

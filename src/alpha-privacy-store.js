@@ -2349,6 +2349,15 @@ class AlphaPrivacyStore {
           `DELETE FROM nv_exposure_findings WHERE identity_key=ANY($1::text[])`,
           [exclusiveIdentityKeys]
         );
+        /*
+         * Repository audits, by the same key. Their findings, components and
+         * watch alerts reference the audit with ON DELETE CASCADE and leave
+         * with it, for the reason observations leave with their scan.
+         */
+        await client.query(
+          `DELETE FROM nv_code_audits WHERE identity_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
+        );
         const feedback = await client.query(
           `DELETE FROM nv_alpha_feedback WHERE tester_id=$1`,
           [testerId]

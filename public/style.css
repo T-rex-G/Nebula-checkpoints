@@ -6973,6 +6973,125 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 [data-motion="off"] .audit-risk-btn, [data-motion="off"] .audit-risk-go { transition: none; }
 @media (prefers-reduced-motion: reduce) { .audit-risk-btn, .audit-risk-go { transition: none; } }
 
+/* ---- Since the last audit, and the history ---------------------------------
+ * The watch is a status line and, when something was published, rows like the
+ * risk rows: what it is, the one sentence of why it matters, and its sources.
+ * The history is a trend over a list; the list is the chart's table view. */
+.audit-grade-row[data-stored="true"] .audit-ring-arc { opacity: .72; }
+.audit-stored-note { margin: 0; font-size: .82rem; line-height: 1.5; color: var(--muted); max-width: 66ch; }
+.audit-watch, .audit-history { padding: 18px 20px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; --fold-gap: 14px; }
+.audit-watch-state { margin: 0; display: flex; align-items: flex-start; gap: 10px; font-size: .88rem; line-height: 1.5; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.audit-watch-state-ico { width: 18px; height: 18px; margin-top: 1px; color: var(--muted); }
+.audit-watch-state[data-state="ok"] .audit-watch-state-ico { color: var(--st-good); }
+.audit-watch-state[data-state="alerts"] .audit-watch-state-ico { color: var(--st-info); }
+.audit-watch-state[data-state="error"], .audit-watch-state[data-state="unavailable"] { color: var(--muted); }
+.audit-watch-pulse { flex: none; width: 9px; height: 9px; margin: 6px 3px 0; border-radius: 50%; background: var(--st-info); box-shadow: 0 0 0 3px color-mix(in oklab, var(--st-info) 22%, transparent); animation: nv-pulse 1.6s ease-in-out infinite; }
+.audit-watch-list { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--rp-line); border-radius: 14px; overflow: hidden; }
+.audit-watch-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 14px; align-items: start; padding: 12px 14px; border-top: 1px solid var(--rp-line); min-width: 0; }
+.audit-watch-row:first-child { border-top: 0; }
+.audit-watch-row[hidden] { display: none; }
+.audit-watch-glyph { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; --tone: var(--st-pending); color: var(--tone); border: 1px solid color-mix(in oklab, var(--tone) 40%, transparent); background: color-mix(in oklab, var(--tone) 7%, transparent); }
+.audit-watch-glyph[data-tone="critical"] { --tone: var(--st-critical); }
+.audit-watch-glyph[data-tone="serious"] { --tone: var(--st-serious); }
+.audit-watch-glyph[data-tone="warning"] { --tone: var(--st-warning); }
+.audit-watch-main { display: grid; gap: 4px; min-width: 0; }
+.audit-watch-main > p { margin: 0; }
+.audit-watch-sub { font-size: .8rem; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.audit-watch-refs { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .78rem; }
+.audit-watch-actions, .audit-hist-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.audit-hist-foot { justify-content: space-between; }
+.audit-hist-foot > .audit-coverage { flex: 1 1 320px; font-size: .78rem; }
+.audit-watch-actions .audit-tool:disabled { opacity: .55; cursor: default; }
+
+/* The trend: A to D as recessive rules, one line, a point per audit. */
+.audit-trend { margin: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 8px; row-gap: 8px; min-width: 0; }
+.audit-trend-axis { position: relative; grid-row: 1; margin: 10px 0; }
+.audit-trend-tick { position: absolute; right: 0; transform: translateY(-50%); font-size: .66rem; font-weight: 700; letter-spacing: .04em; color: var(--muted); line-height: 1; }
+.audit-trend-plot { position: relative; grid-row: 1; height: 132px; margin: 10px 12px; min-width: 0; }
+.audit-trend-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.audit-trend-grid { stroke: var(--rp-line); stroke-width: 1; stroke-dasharray: 3 4; }
+.audit-trend-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.audit-trend-dot {
+  position: absolute; width: 10px; height: 10px; padding: 0; transform: translate(-50%, -50%); border-radius: 50%;
+  border: 0; background: var(--accent); box-shadow: 0 0 0 2px var(--page); cursor: pointer; transition: transform .16s var(--ease, ease);
+}
+.audit-trend-dot::before { content: ''; position: absolute; inset: -9px; border-radius: 50%; }
+.audit-trend-dot[data-latest="true"] { width: 12px; height: 12px; }
+.audit-trend-dot:hover, .audit-trend-dot:focus-visible { transform: translate(-50%, -50%) scale(1.35); }
+.audit-trend-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.audit-trend-tip {
+  position: absolute; z-index: 3; transform: translate(-50%, calc(-100% - 14px)); width: max-content; max-width: min(320px, 78vw);
+  padding: 7px 10px; border-radius: 10px; border: 1px solid var(--rp-line); pointer-events: none;
+  background-color: var(--page); background-image: linear-gradient(color-mix(in oklab, var(--text) 5%, transparent), color-mix(in oklab, var(--text) 5%, transparent));
+  box-shadow: 0 16px 32px -18px rgba(0,0,0,.6); font-size: .76rem; line-height: 1.4; color: var(--text); font-variant-numeric: tabular-nums;
+}
+.audit-trend-tip[data-side="start"] { transform: translate(-12px, calc(-100% - 14px)); }
+.audit-trend-tip[data-side="end"] { transform: translate(calc(-100% + 12px), calc(-100% - 14px)); }
+.audit-trend-tip[hidden] { display: none; }
+.audit-trend-caption { grid-column: 1 / -1; font-size: .76rem; line-height: 1.45; color: var(--muted); }
+
+/* The list: a grade tile, the score, when and at which commit, and what changed since the audit before. */
+.audit-hist-list { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--rp-line); border-radius: 14px; overflow: hidden; }
+.audit-hist-row { border-top: 1px solid var(--rp-line); min-width: 0; }
+.audit-hist-row:first-child { border-top: 0; }
+.audit-hist > summary { list-style: none; }
+.audit-hist > summary::-webkit-details-marker { display: none; }
+.audit-hist-sum {
+  display: grid; grid-template-columns: 34px 34px minmax(0, 1fr) auto auto; align-items: center; gap: 6px 12px;
+  padding: 11px 14px; cursor: pointer; min-width: 0; transition: background .18s var(--ease, ease);
+}
+.audit-hist-sum:hover { background: var(--rp-tile); }
+.audit-hist-sum:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 12px; }
+.audit-hist-grade {
+  width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-weight: 780; font-size: 1rem; color: var(--text);
+  --ring: var(--muted); border: 1.5px solid color-mix(in oklab, var(--ring) 60%, transparent); background: color-mix(in oklab, var(--ring) 8%, transparent);
+}
+.audit-hist-grade[data-grade="A"], .audit-hist-grade[data-grade="B"] { --ring: var(--sev-ok); }
+.audit-hist-grade[data-grade="C"], .audit-hist-grade[data-grade="D"] { --ring: var(--sev-serious); }
+.audit-hist-grade[data-grade="F"] { --ring: var(--sev-critical); }
+.audit-hist-score { font-size: 1.02rem; font-weight: 720; font-variant-numeric: tabular-nums; color: var(--text); }
+.audit-hist-main { display: grid; gap: 2px; min-width: 0; }
+.audit-hist-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.audit-hist-when { font-size: .88rem; font-weight: 600; color: var(--text); }
+.audit-hist-tag { font-size: .64rem; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 1px 7px; border-radius: 999px; border: 1px solid var(--rp-line); }
+.audit-hist-sub { font-family: var(--font-mono); font-size: .74rem; color: var(--muted); overflow-wrap: anywhere; }
+.audit-hist-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; }
+.audit-hist-chev { color: var(--muted); transition: transform .2s var(--ease, ease); }
+.audit-hist[open] > summary .audit-hist-chev { transform: rotate(180deg); }
+.audit-hist-body { padding: 4px 14px 14px; display: grid; gap: 10px; min-width: 0; }
+.audit-hist-wait { margin: 0; font-size: .82rem; color: var(--muted); }
+.audit-hist-findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; border-radius: 12px; background: var(--rp-tile); border: 1px solid var(--rp-line); }
+.audit-hist-finding { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; align-items: start; column-gap: 12px; row-gap: 6px; padding: 9px 12px; border-top: 1px solid var(--rp-line); min-width: 0; }
+.audit-hist-finding:first-child { border-top: 0; }
+.audit-hist-finding[hidden] { display: none; }
+.audit-hist-sev { display: flex; min-width: 0; }
+.audit-hist-text { display: grid; gap: 2px; min-width: 0; }
+.audit-hist-title { font-size: .84rem; line-height: 1.45; color: var(--text); }
+.audit-hist-where { font-family: var(--font-mono); font-size: .74rem; color: var(--muted); overflow-wrap: anywhere; }
+/* Chips in the history are the compact size: a row is read at a glance, not studied. */
+.audit-hist-tags .nv-chip, .audit-hist-sev .nv-chip { min-height: 24px; padding: 1px 9px 1px 7px; font-size: .72rem; }
+.audit-hist-clear.is-armed { color: var(--st-critical); border-color: color-mix(in oklab, var(--st-critical) 55%, transparent); background: color-mix(in oklab, var(--st-critical) 7%, transparent); }
+@media (max-width: 760px) {
+  .audit-watch-row { grid-template-columns: auto minmax(0, 1fr); }
+  .audit-watch-row > .audit-risk-tags { grid-column: 2; justify-content: flex-start; }
+  .audit-hist-sum { grid-template-columns: 34px auto minmax(0, 1fr) auto; grid-template-areas: "grade score main chev" ". . tags tags"; column-gap: 10px; }
+  .audit-hist-grade { grid-area: grade; }
+  .audit-hist-score { grid-area: score; }
+  .audit-hist-main { grid-area: main; }
+  .audit-hist-sum > .audit-hist-tags { grid-area: tags; justify-content: flex-start; }
+  .audit-hist-chev { grid-area: chev; }
+  .audit-hist-finding { grid-template-columns: auto minmax(0, 1fr); }
+  .audit-hist-finding > .audit-hist-text { grid-column: 1 / -1; grid-row: 2; }
+  .audit-hist-finding > .audit-hist-tags { justify-content: flex-start; }
+  .audit-trend-plot { height: 104px; }
+}
+@media (max-width: 480px) {
+  .audit-watch, .audit-history { padding: 16px; }
+  .audit-watch-row, .audit-hist-sum { padding: 11px 12px; }
+}
+[data-motion="off"] .audit-trend-dot, [data-motion="off"] .audit-hist-sum, [data-motion="off"] .audit-hist-chev, [data-motion="off"] .audit-watch-pulse { transition: none; animation: none; }
+@media (prefers-reduced-motion: reduce) { .audit-trend-dot, .audit-hist-sum, .audit-hist-chev, .audit-watch-pulse { transition: none; animation: none; } }
+
 /* ---- Exposure, in Orbit ---------------------------------------------------- */
 .exposure-chips { gap: 8px; }
 .exposure-chip.nv-chip::before, .exposure-badge.nv-chip::before { content: none; }

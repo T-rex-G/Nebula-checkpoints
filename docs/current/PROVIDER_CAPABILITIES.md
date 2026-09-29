@@ -166,7 +166,17 @@ pattern-checked, absent or not assessed -- so a clean list is never read as a
 clean repository. It states how much of the branch, how many packages and how
 many versions it checked. The audit runs as a job the page follows by run id,
 held in memory only, for the identity that started it, and dropped two minutes
-after it finishes. The analysis runs on a worker thread with a capped heap and
+after it finishes. What is kept afterwards, with a database, is a reduction of
+it for that identity (`db/migrations/029_code_audit_history.sql`): the grade,
+the counts, and each finding's rule, severity, file and line or package,
+version, fix, advisory and CVE identifiers and scores -- never a trace, a
+prompt, an advisory summary or any text from a file -- the 30 latest audits
+of a branch for up to 400 days, removed by the account purge or on request.
+The latest audit's package versions are watched: every six hours, or when
+asked, OSV is asked again by name and version and CISA's catalog by CVE, through
+the same two anonymous profiles, and only an advisory the audit did not
+already report under any alias, or a CVE CISA has listed since, is shown as
+new; an unanswered question leaves the watch partial, never clear. The analysis runs on a worker thread with a capped heap and
 a time limit, so the server keeps answering while it works. A branch too large
 for the instance is checked against every rule without tracing, and the ledger
 names how many files were left untraced and which limit stopped them. The site check makes at most ten anonymous requests to the

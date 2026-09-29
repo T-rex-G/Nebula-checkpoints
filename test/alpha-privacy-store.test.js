@@ -30,6 +30,7 @@ class FakePool {
       snapshots: [],
       exposureScans: [],
       exposureFindings: [],
+      codeAudits: [],
       installations: [],
       security: [],
       githubAudit: [],
@@ -460,6 +461,9 @@ class FakeClient {
     }
     if (/DELETE FROM nv_exposure_findings WHERE identity_key=ANY/.test(text)) {
       return this.deleteIdentityRows('exposureFindings', params[0]);
+    }
+    if (/DELETE FROM nv_code_audits WHERE identity_key=ANY/.test(text)) {
+      return this.deleteIdentityRows('codeAudits', params[0]);
     }
     if (/DELETE FROM nv_alpha_feedback WHERE tester_id=\$1/.test(text)) {
       const before = this.pool.state.feedback.length;
@@ -1118,6 +1122,8 @@ function makeStore(pool, currentTime = NOW) {
   purgePool.state.exposureFindings.push({
     fingerprint: 'e'.repeat(64), identity_key: input.identityKey, placeholder: '<github-token #1>'
   });
+  /* A repository audit is theirs too; its findings and components cascade from it. */
+  purgePool.state.codeAudits.push({ audit_id: 'audit', identity_key: input.identityKey });
   purgePool.state.governanceAudit.push({
     actor_identity_key: input.identityKey,
     record_hash: '1'.repeat(64),
@@ -1153,7 +1159,7 @@ function makeStore(pool, currentTime = NOW) {
   for (const name of [
     'providerSessions', 'webhooks', 'events', 'snapshots', 'installations',
     'security', 'githubAudit', 'feedback', 'governanceAudit', 'governanceDecisions',
-    'exposureScans', 'exposureFindings'
+    'exposureScans', 'exposureFindings', 'codeAudits'
   ]) assert.strictEqual(purgePool.state[name].length, 0, `${name} must be removed`);
   assert.strictEqual(purgePool.state.retainedIntegrity.length, 2);
   assert.deepStrictEqual(
@@ -1263,6 +1269,7 @@ function makeStore(pool, currentTime = NOW) {
   sharedPool.state.exposureFindings.push({
     fingerprint: 'f'.repeat(64), identity_key: input.identityKey, placeholder: '<github-token #1>'
   });
+  sharedPool.state.codeAudits.push({ audit_id: 'shared-audit', identity_key: input.identityKey });
   sharedPool.state.governanceAudit.push({
     actor_identity_key: input.identityKey,
     record_hash: '5'.repeat(64), previous_hash: '6'.repeat(64),
@@ -1279,7 +1286,7 @@ function makeStore(pool, currentTime = NOW) {
   });
   for (const name of [
     'providerSessions', 'webhooks', 'events', 'snapshots', 'installations',
-    'security', 'githubAudit', 'governanceAudit', 'exposureScans', 'exposureFindings'
+    'security', 'githubAudit', 'governanceAudit', 'exposureScans', 'exposureFindings', 'codeAudits'
   ]) assert.strictEqual(sharedPool.state[name].length, 1, `${name} must survive shared identity purge`);
   assert.strictEqual(sharedPool.state.retainedIntegrity.length, 0);
   assert(sharedPool.state.ownership.find(item => item.tester_id === TESTER_ID).released_at);

@@ -2,7 +2,7 @@
 
 /*
  * The Audit tab: a grade that rests on what was read, the three jobs to do
- * first, the seven families it is built from, the endpoints a caller can
+ * first, the eight families it is built from, the endpoints a caller can
  * reach, what was covered and what is already in place, the OWASP Top 10 map
  * of the same findings, findings that say whether they are confirmed and open
  * into their reason, traced path, fix, advisories, CWE and prompt, a search
@@ -40,7 +40,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('.audit-engine-line')).toContainText('3 entry points mapped');
   /* The evidence as figures, the sentence behind them as the strip's name. */
   const evidence = pane.locator('.audit-evidence');
-  await expect(evidence).toHaveAttribute('aria-label', /^Read \d+ of \d+ files it audits at a{7} · 3 of 3 packages checked against their registry · 3 of 3 package versions checked against OSV · 3 components in the bill of materials \(npm\) · 2 CVEs checked against CISA KEV 2026\.09\.27 and EPSS \(2 scored\)\.$/);
+  await expect(evidence).toHaveAttribute('aria-label', /^Read \d+ of \d+ files it audits at a{7} · 3 of 3 packages checked against their registry · 3 of 3 package versions checked against OSV · 3 components in the bill of materials \(npm\) · 2 CVEs checked against CISA KEV 2026\.09\.27 and EPSS \(2 scored\) · 3 of 3 package versions’ licences read\.$/);
   await expect(evidence).toContainText('3 versions');
 
   /* Three jobs first, no two from the same rule; the first opens its finding. */
@@ -51,9 +51,12 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('details[open]', { hasText: 'A SQL statement is built' })).toHaveCount(1);
   await expect(pane.locator('.audit-item', { hasText: 'A SQL statement is built' }).locator('summary')).toBeFocused();
 
-  /* Seven families, each with its own reading. */
+  /* Eight families, each with its own reading; licences are reported, not graded. */
   const families = pane.getByRole('list', { name: 'Audit families' }).getByRole('button');
-  await expect(families).toHaveCount(7);
+  await expect(families).toHaveCount(8);
+  await expect(families.nth(7)).toContainText('Licences');
+  await expect(families.nth(7)).toContainText('Not graded');
+  await expect(families.nth(7).locator('.audit-category-meter')).toHaveCount(0);
   await expect(families.nth(1)).toContainText('Code security');
   await expect(families.nth(2)).toContainText('Access control');
   await expect(families.nth(3)).toContainText('Secrets');

@@ -6719,15 +6719,23 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 /* Families: a neutral tile each; the worst status is a chip, the meter a hairline. */
 .audit-families { container: families / inline-size; min-width: 0; }
 .audit-families .audit-categories { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/*
+ * Four to a row, rows kept full: eight families sit four and four, seven
+ * sit four and three (the three a third wider each), and a wide pane puts
+ * them all on one row once each tile has room for its chips.
+ */
 @container families (min-width: 560px) {
   .audit-families .audit-categories { grid-template-columns: repeat(12, minmax(0, 1fr)); }
   .audit-families .audit-category { grid-column: span 3; }
-  .audit-families .audit-category:nth-child(n+5):nth-last-child(-n+3) { grid-column: span 4; }
-  .audit-families .audit-category:last-child:nth-child(odd) { grid-column: span 4; }
+  .audit-families .audit-categories:has(> .audit-category:nth-child(7):last-child) > .audit-category:nth-child(n+5) { grid-column: span 4; }
 }
 @container families (min-width: 920px) {
-  .audit-families .audit-categories { grid-template-columns: repeat(7, minmax(0, 1fr)); }
-  .audit-families .audit-category, .audit-families .audit-category:nth-child(n+5):nth-last-child(-n+3), .audit-families .audit-category:last-child:nth-child(odd) { grid-column: auto; }
+  .audit-families .audit-categories:has(> .audit-category:nth-child(7):last-child) { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .audit-families .audit-categories:has(> .audit-category:nth-child(7):last-child) > .audit-category { grid-column: auto; }
+}
+@container families (min-width: 1120px) {
+  .audit-families .audit-categories:has(> .audit-category:nth-child(8):last-child) { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+  .audit-families .audit-categories:has(> .audit-category:nth-child(8):last-child) > .audit-category { grid-column: auto; }
 }
 .audit-category-btn { background: var(--rp-tile); padding: 13px 12px 17px; gap: 9px; }
 .audit-category-btn:hover { border-color: color-mix(in oklab, var(--text) 22%, var(--rp-line)); background: var(--rp-tile-hover); }
@@ -7008,6 +7016,55 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 }
 [data-motion="off"] .audit-risk-btn, [data-motion="off"] .audit-risk-go { transition: none; }
 @media (prefers-reduced-motion: reduce) { .audit-risk-btn, .audit-risk-go { transition: none; } }
+
+/* ---- Licences ----------------------------------------------------------------
+ * What each dependency may be used under: a chip per family, what they were
+ * judged against, and the packages that are not permissive, the most
+ * demanding first, each leading to its finding where it has one. */
+.audit-licences { padding: 18px 20px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; --fold-gap: 14px; }
+.audit-licence-basis { margin: 0; display: grid; gap: 6px; font-size: .84rem; line-height: 1.5; min-width: 0; }
+.audit-licence-fact { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; align-items: baseline; min-width: 0; }
+.audit-licence-fact dt { font-size: .68rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.audit-licence-fact dd { margin: 0; color: var(--text); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.audit-licence-note { color: var(--muted); font-weight: 400; }
+.audit-licence-list { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--rp-line); border-radius: 14px; overflow: hidden; }
+.audit-licence-row { border-top: 1px solid var(--rp-line); min-width: 0; }
+.audit-licence-row:first-child { border-top: 0; }
+.audit-licence-row[hidden] { display: none; }
+.audit-licence-btn {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 14px; width: 100%;
+  padding: 11px 14px; border: 0; background: none; color: inherit; font: inherit; text-align: left; min-width: 0;
+  transition: background .18s var(--ease, ease);
+}
+button.audit-licence-btn { grid-template-columns: minmax(0, 1fr) auto auto; cursor: pointer; }
+button.audit-licence-btn:hover { background: var(--rp-tile); }
+.audit-licence-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 12px; }
+.audit-licence-main { display: grid; gap: 3px; min-width: 0; }
+.audit-licence-pkg { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; font-family: var(--font-mono); font-size: .86rem; min-width: 0; }
+.audit-licence-name { color: var(--text); font-weight: 650; overflow-wrap: anywhere; }
+.audit-licence-ver { color: var(--muted); overflow-wrap: anywhere; }
+.audit-licence-expr { font-family: var(--font-mono); font-size: .76rem; color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+.audit-licence-tags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; min-width: 0; }
+.audit-licence-go { color: var(--muted); transition: transform .18s var(--ease, ease), color .18s ease; }
+button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); color: var(--text); }
+.audit-licence-foot { margin: 0; }
+.audit-category-ungraded { font-size: .82rem; font-weight: 650; letter-spacing: .01em; color: var(--muted); align-self: end; }
+/* On a narrow screen the tags take a line of their own under the name; a row that leads to a finding keeps its arrow beside the name. */
+@media (max-width: 760px) {
+  .audit-licence-btn { grid-template-columns: minmax(0, 1fr); row-gap: 8px; }
+  button.audit-licence-btn { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "main go" "tags tags"; }
+  button.audit-licence-btn .audit-licence-main { grid-area: main; }
+  button.audit-licence-btn .audit-licence-tags { grid-area: tags; }
+  button.audit-licence-btn .audit-licence-go { grid-area: go; }
+  .audit-licence-tags { justify-content: flex-start; }
+}
+@media (max-width: 480px) {
+  .audit-licences { padding: 16px; }
+  .audit-licence-btn { padding: 11px 12px; }
+  .audit-licence-fact { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+[data-motion="off"] .audit-licence-btn, [data-motion="off"] .audit-licence-go { transition: none; }
+@media (prefers-reduced-motion: reduce) { .audit-licence-btn, .audit-licence-go { transition: none; } }
 
 /* ---- Since the last audit, and the history ---------------------------------
  * The watch is a status line and, when something was published, rows like the

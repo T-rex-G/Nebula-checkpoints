@@ -7782,6 +7782,7 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
           queryTransport: input => guardedFetch(input),
           registryTransport: input => guardedFetch(input),
           advisoryTransport: input => guardedFetch(input),
+          licenceTransport: input => guardedFetch(input),
           intelTransport: input => guardedFetch(input),
           analyser: input => analyseOffThread(input, { onStage: (stage, detail) => onProgress({ stage, ...(detail || {}) }) }),
           scanner: input => scanOffThread(input),

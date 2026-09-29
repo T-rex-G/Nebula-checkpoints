@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Every Dependency's Licence, Judged
+
+Phase 3 of the audit engine, first part: a licence policy.
+
+- **Every version's licence is read.** A lockfile's own statement (npm,
+  Composer) is taken first; the rest are asked of deps.dev, anonymously,
+  through a new guarded-transport profile that is GET only, anonymous and
+  bound to `api.deps.dev`: the ecosystem, name and version, nothing else.
+  The project's own dependencies are asked about first, at most 600 an audit.
+  An unanswered lookup is unknown, never permissive.
+- **SPDX read properly**: expressions with AND, OR, WITH and brackets; retired
+  GNU identifiers; the free-text names manifests use ("Apache 2.0", "MIT
+  License", "GNU General Public License v3 (GPLv3)"); Composer's lists as a
+  choice. A choice asks the least of its options, a combination the most, and
+  a linking exception (Classpath, GCC runtime, LLVM) softens copyleft.
+- **The project's own licence** from its root manifest (package.json,
+  Cargo.toml, pyproject.toml, composer.json) or licence file, recognised by
+  its text. A project that states none is judged as proprietary code.
+- **Seven rules (83 in all)**: network copyleft in what ships (AGPL, SSPL,
+  OSL); strong copyleft in a project that is not copyleft itself; a
+  restriction on use (non-commercial, source-available, field-of-use); a
+  direct dependency with no licence that can be read; a licence the
+  repository's policy refuses; the settled GNU incompatibilities; and a policy
+  file that cannot be read. A tool only developers install never ships its
+  copyleft and is not reported for it.
+- **A repository's own policy** in `.nebulaverse/licences.json`: licences or
+  families to allow and to refuse, and packages cleared by name with a
+  reason, which stay in the report as waived.
+- **Compliance, not security.** Licence findings are a family of their own,
+  shown as "Not graded", weighed at nothing in the grade, never in Fix first,
+  filed under no CWE, and exported to SARIF tagged `compliance` without a
+  security severity.
+- **On screen**: a Licences section with a chip per family, what the
+  dependencies were judged against, and every package that is not permissive,
+  the most demanding first, leading to its finding; each licence finding
+  lists the licence, the package, where the licence was read and what it was
+  judged against. The brief carries a Licences section, the coverage line how
+  many licences were read, and the bill of materials the licences deps.dev
+  answered.
+- The families grid keeps its rows full for eight families, four and four,
+  or one row on a wide pane.
+
 ### A Site Check That Looks Like an Attacker Would
 
 Asked for: a deployed-site scan by URL that is not weak.

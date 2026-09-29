@@ -139,7 +139,9 @@ const VALID = Object.freeze({
   activityState: new Set(['normal', 'quiet', 'partial', 'unreadable']),
   postureState: new Set(['clean', 'critical-leak']),
   /* Whether the server keeps audits: 'kept' as with a database, 'unavailable' as without one. */
-  auditHistory: new Set(['kept', 'unavailable'])
+  auditHistory: new Set(['kept', 'unavailable']),
+  /* What deps.dev answers for the audited dependencies: 'permissive' for what ships, or 'copyleft' making lodash AGPL. */
+  licences: new Set(['permissive', 'copyleft'])
 });
 
 function normalizedScenario(input = {}) {
@@ -164,6 +166,7 @@ function normalizedScenario(input = {}) {
     activityState: input.activityState || 'normal',
     postureState: input.postureState || 'clean',
     auditHistory: input.auditHistory || 'kept',
+    licences: input.licences || 'permissive',
     /* Audit results kept before the page opened, oldest first, and what the watch will find since the latest. */
     auditHistorySeed: Array.isArray(input.auditHistorySeed) ? input.auditHistorySeed : [],
     auditWatchAlerts: Array.isArray(input.auditWatchAlerts) ? input.auditWatchAlerts : []
@@ -567,7 +570,17 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         ['CVE-2021-23337', { epss: 0.21333, percentile: 0.97527, epssDate: '2026-09-28', kev: null }],
         ['CVE-2020-8203', { epss: 0.05213, percentile: 0.92215, epssDate: '2026-09-28', kev: null }]
       ]);
-      const result = analyse({ files, paths: files.map(file => file.path), advisories, intel });
+      /*
+       * What deps.dev answered for each version's licence: permissive for
+       * what ships and a copyleft development tool, which is listed but never
+       * reported; the copyleft scenario makes lodash network copyleft.
+       */
+      const licences = new Map([
+        ['npm:react@18.2.0', { value: 'MIT', source: 'deps.dev' }],
+        ['npm:lodash@4.17.15', { value: scenario.licences === 'copyleft' ? 'AGPL-3.0-only' : 'MIT', source: 'deps.dev' }],
+        ['npm:crossenv@1.0.0', { value: 'GPL-3.0-only', source: 'deps.dev' }]
+      ]);
+      const result = analyse({ files, paths: files.map(file => file.path), advisories, licences, intel });
       const finished = {
         ...result,
         commitSha: HEAD_SHA,
@@ -578,7 +591,8 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
           skipped: { excluded: 0, oversize: 0, budget: 0 }, complete: true,
           packages: { declared: 3, checked: 3, unknown: 0, notChecked: 0 },
           advisories: { versions: 3, checked: 3, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1 },
-          exploit: { cves: 2, asked: 2, kev: 'ok', kevVersion: '2026.09.27', kevCount: 1728, kevStale: false, epss: 'ok', scored: 2, unscored: 0 }
+          exploit: { cves: 2, asked: 2, kev: 'ok', kevVersion: '2026.09.27', kevCount: 1728, kevStale: false, epss: 'ok', scored: 2, unscored: 0 },
+          licences: { versions: 3, fromLock: 0, asked: 3, answered: 3 }
         }
       };
       if (scenario.auditHistory === 'kept') finished.history = recordAudit(finished);

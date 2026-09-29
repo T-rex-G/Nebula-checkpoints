@@ -134,8 +134,28 @@ or a declared range's floor, marked as such) have a published or malicious-
 package advisory, in npm, PyPI, Go, Maven, Composer, RubyGems, crates.io and
 NuGet, reading each ecosystem's manifests and lockfiles and leaving out any
 version a file does not write down. The same inventory is exported as a bill
-of materials in CycloneDX 1.5 or SPDX 2.3: package URLs, versions, licences
-where a lockfile states them, requirements, and the vulnerabilities found. For the CVEs those advisories carry -- and only their
+of materials in CycloneDX 1.5 or SPDX 2.3: package URLs, versions, licences,
+requirements, and the vulnerabilities found. Each version's licence is read
+where its lockfile states one (npm and Composer) and otherwise asked of
+deps.dev -- anonymously, through the guarded transport's licence profile,
+which is GET only, carries the ecosystem, name and version in its path and
+nothing else, and reaches `api.deps.dev` and nothing else -- the project's own
+dependencies first, at most 600 versions an audit. Every SPDX expression is
+read as a choice (OR asks the least of its options) or a combination (AND asks
+the most), and placed in a family: public domain, permissive, weak, strong or
+network copyleft, restricted use, no licence, or unknown. The project's own
+licence comes from its root manifest or licence file, and a project that
+states none is judged as proprietary code. Network copyleft in something that
+ships, strong copyleft in a project that is not itself copyleft, a restriction
+on use, a direct dependency with no readable licence, and the settled GNU
+incompatibilities (Apache-2.0 or GPL-3.0 in a GPL-2.0-only work; the BSD
+advertising clause, OpenSSL, EPL-1.0 and CDDL in any GPL work) are findings.
+A repository may allow and refuse licences or families and clear packages by
+name in `.nebulaverse/licences.json`; a cleared package stays in the report as
+waived, with its reason. Licence findings are compliance rather than security:
+they form a family weighed at nothing in the grade, never enter Fix first,
+claim no CWE, and are exported to SARIF tagged `compliance` without a security
+severity. An unanswered lookup is unknown, never permissive. For the CVEs those advisories carry -- and only their
 identifiers -- it asks FIRST's EPSS for the probability of exploitation and
 CISA's Known Exploited Vulnerabilities catalog whether each is exploited in the
 wild, through the guarded transport's threat-intel profile, which is anonymous,

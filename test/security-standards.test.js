@@ -30,8 +30,13 @@ assert.deepStrictEqual(Object.values(CWE_TOP25_2025).sort((a, b) => a - b), Arra
 assert.strictEqual(CWE_TOP25_2025[79], 1, 'cross-site scripting leads the 2025 list');
 assert.strictEqual(CWE_TOP25_2025[862], 4, 'missing authorization is fourth');
 
-/* Every rule of both engines is placed. */
-const rules = [...Object.keys(audit.RULES), ...Object.keys(site.RULES)];
+/*
+ * Every security rule of both engines is placed. Licence rules are terms of
+ * use rather than weaknesses; no CWE describes them and none is claimed.
+ */
+const rules = [...Object.keys(audit.RULES).filter(rule => audit.RULES[rule].category !== 'licences'), ...Object.keys(site.RULES)];
+assert(Object.keys(audit.RULES).some(rule => audit.RULES[rule].category === 'licences'));
+assert.deepStrictEqual(Object.keys(MAP).filter(rule => rule.startsWith('LIC-')), [], 'no licence rule is filed under a CWE');
 assert.deepStrictEqual(rules.filter(rule => !MAP[rule]), [], 'every rule sits under a CWE');
 assert.deepStrictEqual(Object.keys(MAP).filter(rule => !rules.includes(rule)), [], 'no mapping for a rule that does not exist');
 

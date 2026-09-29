@@ -89,7 +89,7 @@ function publicFailure(code, message, status) {
 /* Run once in a worker: analyse what the main thread read, post the result, exit. */
 function runInWorker() {
   const { analyse, scanRules } = require('./code-audit');
-  const { files, paths, registry, advisories, intel, trace, extra, mode } = workerData;
+  const { files, paths, registry, advisories, licences, intel, trace, extra, mode } = workerData;
   /* The rules alone, for a batch beyond the traced set: findings and flags out, no text. */
   if (mode === 'rules') {
     parentPort.postMessage({ result: scanRules(files) });
@@ -98,7 +98,7 @@ function runInWorker() {
   const bounded = trace && trace.skip
     ? { skip: trace.skip }
     : { deadline: Date.now() + Math.max(0, Number(trace && trace.traceMs) || 0), heapCeiling: Number(trace && trace.heapCeiling) || Infinity };
-  const result = analyse({ files, paths, registry, advisories, intel, trace: bounded, extra: extra || null });
+  const result = analyse({ files, paths, registry, advisories, licences: licences || null, intel, trace: bounded, extra: extra || null });
   parentPort.postMessage({ result });
 }
 
@@ -131,7 +131,7 @@ function runWorker(input, trace, hardMs, budget, spawn = Worker) {
     }, budget.watchMs);
     try {
       worker = new spawn(__filename, {
-        workerData: { kind: KIND, mode: input.mode || 'analyse', files: input.files, paths: input.paths, registry: input.registry, advisories: input.advisories, intel: input.intel || null, extra: input.extra || null, trace },
+        workerData: { kind: KIND, mode: input.mode || 'analyse', files: input.files, paths: input.paths, registry: input.registry, advisories: input.advisories, licences: input.licences || null, intel: input.intel || null, extra: input.extra || null, trace },
         resourceLimits: { maxOldGenerationSizeMb: Math.max(HEAP_FLOOR_MB, budget.heapMb), maxYoungGenerationSizeMb: budget.youngMb, stackSizeMb: 8 }
       });
     } catch {

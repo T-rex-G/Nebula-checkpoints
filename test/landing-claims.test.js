@@ -99,7 +99,8 @@ assert.deepStrictEqual(shown('again'), { letter: after.grade, score: `${after.sc
 assert.strictEqual(after.findings.length, 0);
 assert.match(html, new RegExp(`0 new findings, ${before.findings.length} resolved since the audit of`));
 
-for (const category of before.categories) {
+/* The scene draws the families the grade is built from; licences are reported beside them, weighed at nothing. */
+for (const category of before.categories.filter(item => item.weight > 0)) {
   const family = new RegExp(`data-family="${category.id}" style="--find:(\\d+)%;--again:(\\d+)%"><span>[^<]+</span><b><span data-only="read">&mdash;</span><span data-only="find fix">(\\d+)</span><span data-only="again">(\\d+)</span>`).exec(html);
   assert(family, `the ${category.id} family is drawn`);
   const later = after.categories.find(item => item.id === category.id).score;

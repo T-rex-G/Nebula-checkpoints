@@ -66,7 +66,8 @@
     dependencies: 'M6 3.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4zM18 3.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4zM12 15.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4zM7 8l4 7.8M17 8l-4 7.8M8.2 6h7.6',
     infrastructure: 'M4 5.5h16v5H4zM4 13.5h16v5H4zM7.5 8h.1M7.5 16h.1M11 8h5.5M11 16h5.5',
     hygiene: 'M7 4h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9 3.5h6M9 12.5l2.1 2.1 4-4.3',
-    access: 'M8 11V8a4 4 0 0 1 8 0v3M6 11h12v9.5H6zM12 14.6v2.6'
+    access: 'M8 11V8a4 4 0 0 1 8 0v3M6 11h12v9.5H6zM12 14.6v2.6',
+    licences: 'M12 4v16M6.5 20h11M5 7.5h14M7.5 7.5 4.5 14a3 3 0 0 0 6 0zM16.5 7.5l-3 6.5a3 3 0 0 0 6 0z'
   });
   /*
    * The OWASP Top 10:2025, in the short words a tile has room for, and the
@@ -231,7 +232,7 @@
    * tree; the toggle says which way it will go.
    */
   const FOLD_STORE = 'nv_ui:audit-folded';
-  const FOLDS = Object.freeze(['watch', 'first', 'risk', 'families', 'surface', 'coverage', 'controls', 'owasp', 'findings', 'history', 'site']);
+  const FOLDS = Object.freeze(['watch', 'first', 'risk', 'families', 'surface', 'licences', 'coverage', 'controls', 'owasp', 'findings', 'history', 'site']);
   const folded = new Set();
   try {
     const stored = JSON.parse(global.localStorage.getItem(FOLD_STORE) || '[]');
@@ -782,6 +783,10 @@
     if (exploit && exploit.cves) {
       parts.push(`${exploit.asked} ${exploit.asked === 1 ? 'CVE' : 'CVEs'} checked against ${exploit.kev === 'ok' ? `CISA KEV${exploit.kevVersion ? ` ${exploit.kevVersion}` : ''}` : 'CISA KEV (unavailable)'} and EPSS (${exploit.scored} scored)`);
     }
+    const licensing = result.licences && result.licences.status;
+    if (licensing && licensing.versions) {
+      parts.push(`${licensing.known} of ${licensing.versions} package ${licensing.versions === 1 ? 'version\u2019s licence' : 'versions\u2019 licences'} read`);
+    }
     return `${parts.join(' · ')}.`;
   }
   function coverageCaveat(result) {
@@ -795,6 +800,8 @@
     const advisories = coverage.advisories || {};
     if (advisories.notChecked) notes.push(`${plural(advisories.notChecked, 'package version', 'package versions')} beyond the advisory limit were not checked`);
     if (advisories.lockfiles > advisories.lockfilesRead) notes.push('a lockfile was not read (over 512 KB or past the budget), so declared ranges stood in for installed versions');
+    const licensing = result.licences && result.licences.status;
+    if (licensing && licensing.notAsked) notes.push(`${plural(licensing.notAsked, 'package version', 'package versions')} beyond the licence lookup limit were not checked`);
     const exploit = coverage.exploit;
     if (exploit && exploit.cves) {
       if (exploit.kev === 'unavailable') notes.push('CISA’s exploited-vulnerability catalog could not be read, so no vulnerability is marked exploited');
@@ -1138,6 +1145,7 @@
     if (!detail) return null;
     if (finding.rule === 'SCR-001' && detail.credential) return detail.credential;
     if (finding.rule === 'DEP-004') return `${detail.package} ≈ ${detail.resembles}`;
+    if (finding.category === 'licences' && detail.package) return `${detail.package} ${detail.version} · ${detail.licence || 'no licence'}`;
     if (detail.package) {
       if (finding.rule === 'DEP-006') return `${detail.package} ${detail.version}`;
       return detail.fixed ? `${detail.package} ${detail.version} → ${detail.fixed}` : `${detail.package} ${detail.version}`;
@@ -1752,7 +1760,10 @@
       const top = element('span', 'audit-category-top');
       top.append(icon(FAMILY_ICON[category.id] || ICON.shield, 'audit-ico audit-category-ico'), element('span', 'audit-category-label', category.label));
       const score = element('span', 'audit-category-score');
-      score.append(document.createTextNode(String(category.score)), element('span', 'audit-category-of', '/100'));
+      /* A family weighed at nothing -- licences -- is reported, not scored. */
+      const graded = category.weight !== 0;
+      if (graded) score.append(document.createTextNode(String(category.score)), element('span', 'audit-category-of', '/100'));
+      else { score.classList.add('audit-category-ungraded'); score.textContent = 'Not graded'; }
       const counts = element('span', 'audit-category-counts');
       if (status === 'clear') {
         counts.appendChild(chip('good', 'Clear', { glyph: ICON.check, className: 'audit-category-ok' }));
@@ -1769,7 +1780,8 @@
       const meter = element('span', 'audit-category-meter');
       meter.setAttribute('aria-hidden', 'true');
       meter.style.setProperty('--audit-fill', `${category.score}%`);
-      control.append(top, score, counts, meter);
+      control.append(top, score, counts);
+      if (graded) control.appendChild(meter);
       item.appendChild(control);
       list.appendChild(item);
     }
@@ -1779,10 +1791,167 @@
     const titles = element('div', 'audit-card-titles');
     const heading = element('h2', 'audit-kicker', 'Families');
     heading.id = 'auditFamiliesHeading';
-    titles.append(heading, element('p', 'audit-card-lede', 'Each scored on its own out of 100. Choose one to narrow the findings to it.'));
+    titles.append(heading, element('p', 'audit-card-lede', result.categories.some(category => category.weight === 0)
+      ? 'Each scored on its own out of 100; licences are reported but not graded. Choose one to narrow the findings to it.'
+      : 'Each scored on its own out of 100. Choose one to narrow the findings to it.'));
     head.appendChild(titles);
     families.append(head, list);
     host.appendChild(foldable(families, 'families', head, 'Families'));
+  }
+
+  /* ---- Licences ------------------------------------------------------------- */
+
+  /*
+   * What each dependency may be used under, in the order of how much it asks,
+   * with the tone a reader should give it. Public domain and permissive are
+   * the quiet majority; a package that grants no licence is the loudest.
+   */
+  const LICENCE_FAMILY = Object.freeze({
+    'public-domain': Object.freeze({ word: 'Public domain', tone: 'good' }),
+    permissive: Object.freeze({ word: 'Permissive', tone: 'good' }),
+    'weak-copyleft': Object.freeze({ word: 'Weak copyleft', tone: 'neutral' }),
+    'strong-copyleft': Object.freeze({ word: 'Strong copyleft', tone: 'warning' }),
+    'network-copyleft': Object.freeze({ word: 'Network copyleft', tone: 'serious' }),
+    restricted: Object.freeze({ word: 'Restricted use', tone: 'serious' }),
+    none: Object.freeze({ word: 'No licence', tone: 'critical' }),
+    unknown: Object.freeze({ word: 'Unknown', tone: 'pending' })
+  });
+  const LICENCE_ORDER = Object.freeze(['none', 'restricted', 'network-copyleft', 'strong-copyleft', 'weak-copyleft', 'unknown', 'permissive', 'public-domain']);
+  const LICENCE_FOLD = 8;
+  const expandedLicences = new Set();
+
+  /* A licence finding's facts, in the words the finding body and the brief share. */
+  function licenceFactList(detail) {
+    const family = LICENCE_FAMILY[detail.family] || LICENCE_FAMILY.unknown;
+    const facts = [
+      ['Licence', `${detail.licence || 'none stated'} (${family.word.toLowerCase()})`],
+      ['Package', `${detail.package} ${detail.version}, ${detail.dev ? 'installed for development only' : detail.direct ? 'asked for by the project' : 'a transitive dependency'}`],
+      ['Read from', detail.source === 'lockfile' ? 'the lockfile' : 'deps.dev']
+    ];
+    if (detail.project) facts.push(['Project licence', detail.project]);
+    if (detail.policy) facts.push(['Policy', `${detail.reason === 'denied' ? 'refused by' : 'not allowed by'} ${detail.policy}`]);
+    return facts;
+  }
+  function licenceFacts(detail) {
+    const list = element('dl', 'audit-licence-basis audit-licence-facts');
+    for (const [term, value] of licenceFactList(detail)) {
+      const row = element('div', 'audit-licence-fact');
+      row.append(element('dt', null, term), element('dd', null, value));
+      list.appendChild(row);
+    }
+    return list;
+  }
+
+  /* The licence finding a listed package carries, if it has one, so its row can lead to it. */
+  function licenceFinding(result, item) {
+    return (result.findings || []).find(finding => finding.category === 'licences' && finding.detail &&
+      finding.detail.package === item.package && finding.detail.version === item.version && finding.detail.ecosystem === item.ecosystem) || null;
+  }
+
+  function renderLicences(host, view, handlers, root) {
+    const result = view.result;
+    const summary = result && result.licences;
+    if (!summary || !summary.status || !summary.status.versions || view.filter || view.owasp) return;
+    const card = element('section', 'card audit-licences');
+    card.setAttribute('aria-labelledby', 'auditLicencesHeading');
+    const head = element('div', 'audit-card-head');
+    const titles = element('div', 'audit-card-titles');
+    const heading = element('h2', 'audit-kicker', 'Licences');
+    heading.id = 'auditLicencesHeading';
+    const policy = summary.policy && !summary.policy.invalid ? summary.policy : null;
+    const project = summary.project;
+    const against = policy ? `the policy in ${policy.path}`
+      : project && project.expression ? `the project\u2019s own ${project.expression}` : 'use in proprietary code';
+    titles.append(heading, element('p', 'audit-card-lede', `What each dependency may be used under, judged against ${against}. Reported, not graded.`));
+    head.appendChild(titles);
+    card.appendChild(head);
+
+    const stats = element('div', 'audit-surface-stats audit-licence-stats');
+    stats.setAttribute('role', 'list');
+    for (const family of LICENCE_ORDER) {
+      const count = summary.families[family] || 0;
+      if (!count) continue;
+      const entry = LICENCE_FAMILY[family];
+      const node = chip(entry.tone, entry.word.toLowerCase(), { count, large: true, className: 'audit-licence-stat' });
+      node.dataset.family = family;
+      node.setAttribute('role', 'listitem');
+      stats.appendChild(node);
+    }
+    card.appendChild(stats);
+
+    /* What the dependencies were judged against, and how to change it. */
+    const basis = element('dl', 'audit-licence-basis');
+    const fact = (term, text, note) => {
+      const row = element('div', 'audit-licence-fact');
+      const value = element('dd', null, text);
+      if (note) value.appendChild(element('span', 'audit-licence-note', note));
+      row.append(element('dt', null, term), value);
+      basis.appendChild(row);
+    };
+    if (project && project.expression) fact('Project', project.expression, project.source ? ` from ${project.source}` : '');
+    else if (project && project.unread) fact('Project', 'Not recognised', ` ${project.source} names no licence this audit knows; judged as proprietary code.`);
+    else fact('Project', 'None found', ' No licence file or manifest licence; judged as proprietary code, all rights reserved.');
+    if (policy) {
+      const parts = [];
+      if (policy.allow !== null) parts.push(`${policy.allow} allowed`);
+      if (policy.deny) parts.push(`${policy.deny} refused`);
+      if (policy.cleared) parts.push(plural(policy.cleared, 'package cleared', 'packages cleared'));
+      fact('Policy', policy.path, parts.length ? ` — ${parts.join(', ')}` : '');
+    } else if (summary.policy && summary.policy.invalid) {
+      fact('Policy', summary.policy.path, ' could not be read, so the default rules applied.');
+    } else {
+      fact('Policy', 'Default rules', ' Add .nebulaverse/licences.json to allow or refuse licences and clear packages by name.');
+    }
+    card.appendChild(basis);
+
+    const listed = Array.isArray(summary.packages) ? summary.packages : [];
+    if (listed.length) {
+      const id = resultId(result);
+      const all = expandedLicences.has(id) || listed.length <= LICENCE_FOLD + 1;
+      const list = element('ul', 'audit-licence-list');
+      list.setAttribute('aria-label', 'Dependencies that are not permissively licensed');
+      listed.forEach((item, index) => {
+        const row = element('li', 'audit-licence-row');
+        row.dataset.family = item.family;
+        if (!all && index >= LICENCE_FOLD) row.hidden = true;
+        const entry = LICENCE_FAMILY[item.family] || LICENCE_FAMILY.unknown;
+        const finding = licenceFinding(result, item);
+        const control = finding ? button('', 'audit-licence-btn', () => revealFinding(root, handlers, finding.id)) : element('div', 'audit-licence-btn');
+        const main = element('span', 'audit-licence-main');
+        const name = element('span', 'audit-licence-pkg');
+        name.append(element('span', 'audit-licence-name', item.package), element('span', 'audit-licence-ver', item.version));
+        const expression = element('span', 'audit-licence-expr', item.licence || 'No licence stated');
+        if (item.licence) expression.title = item.licence;
+        main.append(name, expression);
+        const tags = element('span', 'audit-licence-tags');
+        tags.appendChild(chip(entry.tone, entry.word, { className: 'audit-licence-family' }));
+        if (item.dev) tags.appendChild(chip('neutral', 'Development', { title: 'Installed for development only; it does not ship' }));
+        else if (!item.direct) tags.appendChild(chip('neutral', 'Transitive', { title: 'Came with another dependency' }));
+        control.append(main, tags);
+        if (finding) {
+          control.setAttribute('aria-label', `${item.package} ${item.version}: ${item.licence || 'no licence stated'}, ${entry.word}. Show the finding.`);
+          control.appendChild(icon(ICON.arrow, 'audit-ico audit-licence-go'));
+        }
+        row.appendChild(control);
+        list.appendChild(row);
+      });
+      card.appendChild(list);
+      if (!all) {
+        const more = keyed(button('', 'btn btn-ghost audit-more', event => {
+          expandedLicences.add(id);
+          for (const row of list.querySelectorAll('.audit-licence-row[hidden]')) row.hidden = false;
+          event.currentTarget.remove();
+        }), 'licences-more');
+        more.append(element('span', null, `Show all ${listed.length}`), element('span', 'audit-more-of', `${LICENCE_FOLD} of ${listed.length}`));
+        card.appendChild(more);
+      }
+    }
+    const counted = summary.status;
+    const open = counted.unknown + counted.notAsked;
+    card.appendChild(element('p', 'audit-coverage audit-licence-foot',
+      `${counted.known} of ${plural(counted.versions, 'package version', 'package versions')} read: ${counted.fromLock} from lockfiles, ${counted.fromRegistry} from deps.dev${open ? `; ${open} could not be read` : ''}. ` +
+      'Only the package names and versions were asked about. Not legal advice: a lawyer decides what a licence allows.'));
+    host.appendChild(foldable(card, 'licences', head, 'Licences'));
   }
 
   /* ---- Attack surface ------------------------------------------------------- */
@@ -2238,6 +2407,7 @@
       if (finding.reach) body.appendChild(reachLine(finding.reach));
       if (finding.trace && finding.trace.length) body.appendChild(traceView(finding, handlers));
       if (toConfirm && (finding.blocker || finding.check)) body.appendChild(validation(finding));
+      if (finding.category === 'licences' && finding.detail && finding.detail.package) body.appendChild(licenceFacts(finding.detail));
       if (finding.detail && finding.detail.package && Array.isArray(finding.detail.advisories)) {
         body.appendChild(advisoryList(finding.detail));
         if (finding.detail.risk || finding.detail.intel || finding.detail.usage) body.appendChild(intelBlock(finding, handlers));
@@ -2417,6 +2587,8 @@
       top.append(icon(SEVERITY[finding.severity].icon), element('span', 'audit-waived-name', finding.title));
       const meta = element('span', 'audit-waived-meta');
       meta.append(element('span', 'audit-rule', finding.rule), element('span', 'audit-row-where', location(finding)));
+      /* A package cleared in the licence policy is waived there, not on its line. */
+      if (finding.suppression && finding.suppression.policy) meta.appendChild(element('span', 'audit-row-where', `cleared in ${finding.suppression.policy}`));
       const reason = finding.suppression && finding.suppression.reason;
       item.append(top, meta, element('span', `audit-waived-reason${reason ? '' : ' audit-waived-bare'}`, reason ? `“${reason}”` : 'No reason given'));
       list.appendChild(item);
@@ -2787,6 +2959,7 @@
       renderRisk(root, view, handlers, root);
       renderCategories(root, view, handlers);
       renderSurface(root, view, handlers);
+      renderLicences(root, view, handlers, root);
       renderCoverage(root, view, handlers);
       renderStandards(root, view, handlers);
       renderFindings(root, view, handlers);
@@ -2885,6 +3058,9 @@
       const detail = finding.detail;
       if (detail && finding.rule === 'SCR-001') lines.push(`- **Credential:** ${detail.credential}`);
       if (detail && finding.rule === 'DEP-004') lines.push(`- **Looks like:** ${detail.resembles}`);
+      if (detail && detail.package && finding.category === 'licences') {
+        for (const [term, value] of licenceFactList(detail)) lines.push(`- **${term}:** ${value}`);
+      }
       if (detail && detail.package && Array.isArray(detail.advisories)) {
         lines.push(`- **Package:** ${detail.package} ${detail.source === 'range' ? `${detail.range} (lowest accepted ${detail.version})` : detail.version}${detail.direct ? '' : ' (transitive)'}`);
         if (detail.fixed) lines.push(`- **Fixed in:** ${detail.fixed}`);
@@ -2961,11 +3137,26 @@
             return `| ${detail.risk.score} ${RISK_BAND[detail.risk.band].word.toLowerCase()} | ${cell(`${detail.package} ${detail.source === 'range' ? detail.range : detail.version}`)} | ${kev} | ${epss} | ${cell(tierWord(detail.usage))} |`;
           }), '');
       }
+      const licensing = result.licences;
+      if (licensing && licensing.status && licensing.status.versions) {
+        const policy = licensing.policy && !licensing.policy.invalid ? licensing.policy : null;
+        const project = licensing.project;
+        const tally = LICENCE_ORDER.filter(family => licensing.families[family])
+          .map(family => `${licensing.families[family]} ${LICENCE_FAMILY[family].word.toLowerCase()}`).join(' · ');
+        lines.push('## Licences', '',
+          `Judged against ${policy ? `the policy in \`${policy.path}\`` : project && project.expression ? `the project\u2019s own ${project.expression}${project.source ? ` (from \`${project.source}\`)` : ''}` : 'use in proprietary code: no project licence was found'}. Reported, not graded.`, '',
+          `${licensing.status.known} of ${plural(licensing.status.versions, 'package version', 'package versions')} read: ${tally}.`, '');
+        const listed = Array.isArray(licensing.packages) ? licensing.packages : [];
+        if (listed.length) {
+          lines.push('| Package | Licence | Family | Kind |', '| --- | --- | --- | --- |',
+            ...listed.map(item => `| ${cell(`${item.package} ${item.version}`)} | ${cell(item.licence || 'none stated')} | ${(LICENCE_FAMILY[item.family] || LICENCE_FAMILY.unknown).word} | ${item.dev ? 'development' : item.direct ? 'direct' : 'transitive'} |`), '');
+        }
+      }
       if (!result.findings.length) lines.push('No findings in what was read.', '');
       findingSection(result.findings, lines, '', finding => finding.path ? `\`${location(finding)}\`` : 'whole repository');
       const waived = result.suppressed || [];
       if (waived.length) {
-        lines.push('## Waived in code', '', 'Not scored. Each was waived by an `nv-audit-ignore` comment naming its rule.', '',
+        lines.push('## Waived in code', '', 'Not scored. Each was waived by an `nv-audit-ignore` comment naming its rule, or, for a licence, cleared by name in the repository\u2019s licence policy.', '',
           '| Rule | Finding | Where | Reason |', '| --- | --- | --- | --- |',
           ...waived.map(finding => `| ${finding.rule} | ${cell(finding.title)} | \`${location(finding)}\` | ${cell((finding.suppression && finding.suppression.reason) || 'none given')} |`), '');
       }
@@ -3018,7 +3209,9 @@
     for (const finding of findings) {
       if (rules.has(finding.rule)) continue;
       const standards = finding.standards || {};
-      const tags = ['security', finding.category, standards.cwe && `external/cwe/${standards.cwe.toLowerCase()}`,
+      /* A licence is compliance: a dashboard files it apart from security alerts, and gives it no security severity. */
+      const compliance = finding.category === 'licences';
+      const tags = [compliance ? 'compliance' : 'security', finding.category, standards.cwe && `external/cwe/${standards.cwe.toLowerCase()}`,
         standards.owasp && `owasp-${standards.owasp.replace(':', '-').toLowerCase()}`, standards.top25 && 'cwe-top25-2025'].filter(Boolean);
       rules.set(finding.rule, {
         id: finding.rule,
@@ -3029,7 +3222,7 @@
         ...(standards.cwe ? { helpUri: `https://cwe.mitre.org/data/definitions/${standards.cwe.slice(4)}.html` } : {}),
         defaultConfiguration: { level: SARIF_LEVEL[finding.severity] },
         properties: {
-          tags, precision: 'high', 'problem.severity': finding.severity === 'warning' ? 'warning' : 'error', 'security-severity': SECURITY_SEVERITY[finding.severity],
+          tags, precision: 'high', 'problem.severity': finding.severity === 'warning' ? 'warning' : 'error', ...(compliance ? {} : { 'security-severity': SECURITY_SEVERITY[finding.severity] }),
           ...(standards.owaspBasis ? { 'owasp-basis': standards.owaspBasis } : {}),
           ...(standards.top25 ? { 'cwe-top25-2025-rank': standards.top25.rank } : {})
         }

@@ -78,6 +78,7 @@ const { analyseSurface, reachOf } = require('./uranus-surface');
 const { usageIndex, tierOf, riskOf, exploitedInProduction } = require('./uranus-reach');
 const { lookupExploitIntel } = require('./exploit-intel');
 const ecosystems = require('./ecosystems');
+const licences = require('./licences');
 
 /* The engine's name and version, carried in every result and export. */
 const ENGINE = Object.freeze({ name: 'Uranus', version: '2.0.0' });
@@ -89,7 +90,9 @@ const CATEGORIES = Object.freeze([
   Object.freeze({ id: 'secrets', label: 'Secrets', weight: 0.15 }),
   Object.freeze({ id: 'dependencies', label: 'Dependencies', weight: 0.1 }),
   Object.freeze({ id: 'infrastructure', label: 'Infrastructure', weight: 0.1 }),
-  Object.freeze({ id: 'hygiene', label: 'Project hygiene', weight: 0.1 })
+  Object.freeze({ id: 'hygiene', label: 'Project hygiene', weight: 0.1 }),
+  /* Compliance, not security: reported and exported with the rest, weighed at nothing in the grade. */
+  Object.freeze({ id: 'licences', label: 'Licences', weight: 0 })
 ]);
 
 const SEVERITY_PENALTY = Object.freeze({ critical: 40, serious: 20, warning: 6 });
@@ -171,6 +174,8 @@ function isTestPath(filePath) {
 function auditPriority(filePath) {
   const base = baseName(filePath);
   if (MANIFESTS.test(filePath) || isRequirements(base) || base === '.gitignore' || base === 'tsconfig.json' || isDockerfile(filePath) || FIREBASE_RULES.has(base)) return 0;
+  /* The project's own licence and its licence policy: what every dependency's licence is judged against. */
+  if (licences.isLicenceFile(filePath) || licences.POLICY_PATHS.includes(filePath)) return 0;
   if (READ_LOCKS.has(base) || (extensionOf(filePath) === 'sql' && /(^|\/)(supabase|migrations?|db|database|sql|schema)\//i.test(filePath))) return 1;
   if (/^\.github\/workflows\//.test(filePath) || base === 'Makefile' || /\.(sh|ps1)$/.test(base) || /^\.env/.test(base) ||
     /^(next|vite|nuxt|svelte|astro)\.config\./.test(base) || base === 'vercel.json' || base === 'netlify.toml' ||
@@ -457,7 +462,9 @@ const RULES = Object.freeze({
     fix: 'Add a README covering what the project is, how to run it locally, how configuration and secrets are supplied, and how to report a security issue.' },
   'HYG-009': { category: 'hygiene', severity: 'warning', title: 'No automated tests were found',
     why: 'Without tests every change, including a security fix, is verified by hand or not at all.',
-    fix: 'Add a test runner and start with tests for authentication, authorisation and payment paths.' }
+    fix: 'Add a test runner and start with tests for authentication, authorisation and payment paths.' },
+  /* What each dependency may be used under: src/licences.js. */
+  ...licences.RULES
 });
 
 /* Why the per-rule contribution to a category is capped: one rule firing thirty times is one problem. */
@@ -2145,6 +2152,12 @@ function detailText(rule, detail) {
   if (!detail) return '';
   if (rule === 'SCR-001') return detail.credential;
   if (rule === 'DEP-004') return `${detail.package} looks like ${detail.resembles}`;
+  if (rule.startsWith('LIC-')) {
+    if (!detail.package) return '';
+    const licence = detail.licence || 'no licence stated';
+    const against = rule === 'LIC-006' && detail.project ? `; the project is ${detail.project}` : rule === 'LIC-005' && detail.policy ? `; ${detail.reason === 'denied' ? 'refused' : 'not allowed'} by ${detail.policy}` : '';
+    return `${detail.package} ${detail.version}${detail.direct ? '' : ', a transitive dependency'} -- ${licence}${against}`;
+  }
   if (detail.package) {
     const ids = detail.advisories.map(advisory => advisory.cve || advisory.id).join(', ');
     const version = detail.source === 'range' ? `${detail.range} (lowest accepted: ${detail.version})` : detail.version;
@@ -2441,7 +2454,7 @@ function mergeScans(a, b) {
   };
 }
 
-function analyse({ files, paths, registry = new Map(), advisories = new Map(), intel = null, trace = {}, extra = null }) {
+function analyse({ files, paths, registry = new Map(), advisories = new Map(), licences: licenceAnswers = null, intel = null, trace = {}, extra = null }) {
   const prepared = [];
   const allPaths = Array.isArray(paths) ? paths : files.map(file => file.path);
   const pathSet = new Set(allPaths);
@@ -2453,8 +2466,8 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), i
   for (const source of files) {
     const file = { ...source, ext: extensionOf(source.path), base: baseName(source.path) };
     if (typeof file.text !== 'string') continue;
-    /* A lockfile is read for installed versions only; its text is not code. */
-    if (READ_LOCKS.has(file.base)) continue;
+    /* A lockfile is read for installed versions only, and a licence file for its licence; neither is code. */
+    if (READ_LOCKS.has(file.base) || licences.isLicenceFile(file.path)) continue;
     prepared.push(file);
     scanFile(file, context);
   }
@@ -2506,6 +2519,18 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), i
     ? assessDependencyRisk(vulnerabilities.out, { files, allPaths, graphs: dependencies.graphs, intel: intel instanceof Map && intel.size ? intel : null })
     : null;
   raw.push(...vulnerabilities.out);
+
+  /*
+   * What each package version may be used under, against the project's own
+   * licence and the repository's policy. Asked only when the licences were
+   * looked up: an analysis given none says nothing about licences.
+   */
+  let licenceSummary = null;
+  if (licenceAnswers instanceof Map) {
+    const judged = licences.licenceFindings(dependencies.inventory, licenceAnswers, { project: licences.projectLicence(files), policy: licences.readPolicy(files) });
+    raw.push(...judged.out);
+    licenceSummary = judged.summary;
+  }
 
   /* Dependencies the public registry answered for. Unknown is not missing. */
   const dependencyStatus = { checked: 0, missing: 0, unknown: 0 };
@@ -2582,13 +2607,14 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), i
     /* Files beyond the traced set, checked against every per-file rule. */
     rulesOnly: beyond ? beyond.files || 0 : 0
   } };
-  const bill = componentList(dependencies);
+  const bill = componentList(dependencies, licenceAnswers);
   return {
     findings, suppressed, dependencyStatus, advisoryStatus: vulnerabilities.status, dependencyRisk, priorities: priorities(findings), ...score(findings),
+    licences: licenceSummary,
     components: bill.components, componentsTruncated: bill.truncated,
     engine,
     surface: surfaceSummary(surface),
-    ledger: ledger({ findings, prepared, allPaths, surface, flowResult, beyond }),
+    ledger: ledger({ findings, prepared, allPaths, surface, flowResult, beyond, licences: licenceSummary }),
     controls: controls({ prepared, allPaths, findings, supabase, beyond })
   };
 }
@@ -2600,20 +2626,25 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), i
  * and the licence the lockfile states. Names, versions and licences only.
  */
 const MAX_COMPONENTS = 5000;
-function componentList({ inventory, graphs }) {
+function componentList({ inventory, graphs }, licenceAnswers = null) {
   const byKey = new Map();
+  /* A licence deps.dev answered fills in what the lockfile did not state. */
+  const answered = entry => {
+    const answer = licenceAnswers instanceof Map ? licenceAnswers.get(licences.versionKey(entry)) : null;
+    return answer && typeof answer === 'object' && typeof answer.value === 'string' ? answer.value.slice(0, 120) : null;
+  };
   for (const entry of inventory) {
     const key = advisoryKey(entry);
     const known = byKey.get(key);
     if (known) {
       known.direct = known.direct || entry.direct;
       known.dev = known.dev && entry.dev;
-      if (!known.license && entry.license) known.license = entry.license;
+      if (!known.license) known.license = entry.license || answered(entry);
       continue;
     }
     byKey.set(key, {
       ecosystem: entry.ecosystem, name: entry.name, version: entry.version, purl: ecosystems.purl(entry.ecosystem, entry.name, entry.version),
-      direct: Boolean(entry.direct), dev: Boolean(entry.dev), source: entry.source, license: entry.license || null, path: entry.path, lock: entry.lock || null
+      direct: Boolean(entry.direct), dev: Boolean(entry.dev), source: entry.source, license: entry.license || answered(entry), path: entry.path, lock: entry.lock || null
     });
   }
   /* Each requirement resolved to the version the same lockfile installed. */
@@ -2686,6 +2717,8 @@ function priorities(findings) {
   const out = [];
   const rules = new Set();
   for (const finding of ranked) {
+    /* A licence is a decision for the owners, not a defect to fix first. */
+    if (finding.category === 'licences') continue;
     if (rules.has(finding.rule)) continue;
     rules.add(finding.rule);
     out.push(finding.id);
@@ -2725,10 +2758,11 @@ const LEDGER = Object.freeze([
   { id: 'supply', label: 'Supply chain', rules: ['SUP-001', 'SUP-002', 'SUP-003', 'SUP-004', 'SUP-005', 'SUP-006', 'SUP-007', 'SUP-008', 'DEP-001', 'DEP-002', 'DEP-003', 'DEP-004', 'DEP-005', 'DEP-006'], needs: 'manifest' },
   { id: 'infrastructure', label: 'Infrastructure', rules: ['IAC-001', 'IAC-002', 'IAC-003', 'IAC-004', 'IAC-005', 'IAC-006', 'IAC-007', 'IAC-008', 'IAC-009', 'IAC-010'], needs: 'infra' },
   { id: 'configuration', label: 'Configuration', rules: ['SEC-008', 'SEC-012', 'SEC-013', 'SEC-031', 'SEC-032', 'HYG-001', 'HYG-002', 'HYG-003', 'HYG-004', 'HYG-005', 'HYG-006', 'HYG-007'], needs: 'any' },
+  { id: 'licences', label: 'Licences', rules: Object.keys(licences.RULES), needs: 'licences' },
   { id: 'logic', label: 'Business logic', rules: [], needs: 'never' }
 ]);
 const TRACED_LANGUAGES = new Set([...JS_EXT, ...PY_EXT]);
-function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = null }) {
+function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = null, licences: licenceSummary = null }) {
   const sourceFiles = prepared.filter(file => SOURCE_EXT.has(file.ext) && !isTestPath(file.path));
   const traced = sourceFiles.filter(file => TRACED_LANGUAGES.has(file.ext) && !['vue', 'svelte', 'astro', 'html', 'htm'].includes(file.ext)).length;
   const beyondExtensions = Object.keys((beyond && beyond.extensions) || {});
@@ -2788,6 +2822,17 @@ function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = nu
     } else if (entry.needs === 'manifest') {
       if (!manifest) { status = 'not-applicable'; detail = 'No package manifest or workflow was found.'; }
       else detail = 'Manifests, lockfiles, install scripts and workflows read; versions checked against OSV.';
+    } else if (entry.needs === 'licences') {
+      const counted = licenceSummary && licenceSummary.status;
+      if (!licenceSummary) { status = 'not-assessed'; detail = 'Licences were not looked up for this audit.'; }
+      else if (!counted.versions) { status = 'not-applicable'; detail = 'No dependency with a version was found.'; }
+      else {
+        const against = licenceSummary.policy && !licenceSummary.policy.invalid ? `the policy in ${licenceSummary.policy.path}`
+          : licenceSummary.project && licenceSummary.project.expression ? `the project's own ${licenceSummary.project.expression}` : 'use in proprietary code, as no project licence was found';
+        const open = counted.unknown + counted.notAsked;
+        detail = `${counted.known} of ${counted.versions} package ${counted.versions === 1 ? 'version' : 'versions'} read (${counted.fromLock} from lockfiles, ${counted.fromRegistry} from deps.dev) and judged against ${against}.`;
+        if (open) { status = 'partial'; detail += ` ${open} could not be read${counted.notAsked ? `, ${counted.notAsked} of them past the lookup budget` : ''}.`; }
+      }
     } else {
       detail = 'Every file read was checked.';
     }
@@ -3001,7 +3046,7 @@ async function readBeyond({ reader, scope, commitSha, token, queryTransport, ove
   return out;
 }
 
-async function auditRepository({ reader, scope, ref, token, transport, queryTransport, registryTransport, advisoryTransport, intelTransport, intelCache, limits = LIMITS, analyser = input => analyse(input), scanner = input => scanRules(input.files), onProgress = () => {} }) {
+async function auditRepository({ reader, scope, ref, token, transport, queryTransport, registryTransport, advisoryTransport, licenceTransport, intelTransport, intelCache, limits = LIMITS, analyser = input => analyse(input), scanner = input => scanRules(input.files), onProgress = () => {} }) {
   const progress = (stage, detail = {}) => { try { onProgress({ stage, ...detail }); } catch {} };
   progress('resolving');
   const resolved = await reader.resolveCommit({ scope, ref, token, transport });
@@ -3030,10 +3075,11 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
   }
   const inventory = dependencyInventory(files);
   progress('advisories');
-  /* The registries and the advisory database are asked at the same time: neither needs the other's answer. */
-  const [registry, advisories] = await Promise.all([
+  /* The registries, the advisory database and deps.dev are asked at the same time: none needs another's answer. */
+  const [registry, advisories, licenceLookup] = await Promise.all([
     registryTransport ? lookupPackages(packages, registryTransport, limits) : { answers: new Map(), asked: 0, total: 0 },
-    advisoryTransport ? lookupAdvisories(inventory, advisoryTransport, limits) : { answers: new Map(), asked: 0, total: 0 }
+    advisoryTransport ? lookupAdvisories(inventory, advisoryTransport, limits) : { answers: new Map(), asked: 0, total: 0 },
+    licenceTransport ? licences.lookupLicences(inventory, licenceTransport) : null
   ]);
   /*
    * Exploit intelligence for the CVEs those advisories carry: only the CVE
@@ -3049,7 +3095,7 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
     intel = await lookupExploitIntel(cves, intelTransport, intelCache ? { cache: intelCache } : {});
   }
   progress('analysing', { files: files.length });
-  const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers, intel: intel ? intel.answers : null, extra: beyond.scan });
+  const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers, licences: licenceLookup ? licenceLookup.answers : null, intel: intel ? intel.answers : null, extra: beyond.scan });
   baselineComponents(result.components, advisories, intel);
   const lockfiles = paths.filter(filePath => READ_LOCKS.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath));
   return {
@@ -3081,7 +3127,9 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
         lockfilesRead: files.filter(file => READ_LOCKS.has(baseName(file.path))).length
       },
       /* Which exploit sources answered: a source that did not leaves its answers unknown, never negative. */
-      exploit: intel ? intel.status : null
+      exploit: intel ? intel.status : null,
+      /* Licences: how many versions' licences came from lockfiles, how many deps.dev was asked about and answered. */
+      licences: licenceLookup ? { versions: licenceLookup.total, fromLock: licenceLookup.fromLock, asked: licenceLookup.asked, answered: licenceLookup.answered } : null
     },
     ...result
   };

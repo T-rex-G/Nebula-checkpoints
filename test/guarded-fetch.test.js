@@ -774,6 +774,26 @@ function fakeRequestImpl(behaviour) {
   }
 
   /*
+   * The licence query: GET to deps.dev only, anonymous, the package in the
+   * path and no query string -- so nothing but a name and a version leaves.
+   */
+  {
+    const addresses = [{ address: '142.250.72.19', family: 4 }];
+    const ask = extra => guardedFetch({
+      url: 'https://api.deps.dev/v3/systems/npm/packages/express/versions/4.18.2', profile: PROFILES.LICENCE_QUERY, method: 'GET', addresses,
+      headers: { accept: 'application/json' },
+      requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, chunks: ['{"licenses":["MIT"]}'] }))),
+      ...extra
+    });
+    assert.strictEqual(PROFILES.LICENCE_QUERY, 'licence-query');
+    assert.strictEqual((await ask()).body, '{"licenses":["MIT"]}');
+    await assert.rejects(ask({ url: 'https://api.osv.dev/v1/vulns/GHSA-xxxx' }), error => error.code === 'GUARDED_FETCH_REFUSED', 'one host only');
+    await assert.rejects(ask({ url: 'https://api.deps.dev/v3/systems/npm/packages/express?x=1' }), error => error.code === 'GUARDED_FETCH_URL_INVALID');
+    await assert.rejects(ask({ method: 'POST', body: '{}' }), error => error.code === 'GUARDED_FETCH_METHOD_INVALID', 'reads only');
+    await assert.rejects(ask({ headers: { Authorization: 'Bearer something-long-enough' } }), error => error.code === 'GUARDED_FETCH_REFUSED', 'anonymous');
+  }
+
+  /*
    * Exploit intelligence: GET only, a query string allowed (EPSS takes its
    * CVE list there), anonymous, the two public sources and nothing else, and
    * a catalog-sized body readable where the default bound would refuse it.

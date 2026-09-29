@@ -559,8 +559,10 @@ const paths = files => [...BASE, ...files].map(file => file.path);
 /* ---- Standards and waivers ---------------------------------------------------------- */
 {
   const { MAPPED_RULES, standardsFor } = require('../src/security-standards');
+  /* A licence is a term of use, not a weakness: those rules are the only ones no CWE describes, and are left unfiled on purpose. */
   const unmapped = Object.keys(audit.RULES).filter(rule => !MAPPED_RULES.includes(rule));
-  assert.deepStrictEqual(unmapped, [], 'every audit rule sits under a CWE, so a team can file it');
+  assert.deepStrictEqual(unmapped, Object.keys(audit.RULES).filter(rule => audit.RULES[rule].category === 'licences'), 'every security rule sits under a CWE, so a team can file it');
+  assert.strictEqual(standardsFor('LIC-001'), null, 'a licence finding claims no CWE');
   assert.deepStrictEqual(standardsFor('SEC-001'), { cwe: 'CWE-89', cweName: 'SQL Injection', owasp: 'A05:2025', owaspName: 'Injection', owaspBasis: 'cwe', top25: { rank: 2, year: 2025 } });
   const mapped = run([...BASE, { path: 'api/users.js', text: 'db.query(`SELECT * FROM users WHERE id = ${id}`);\n' }]);
   assert.strictEqual(mapped.findings[0].standards.cwe, 'CWE-89');

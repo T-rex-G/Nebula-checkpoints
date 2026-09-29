@@ -85,6 +85,13 @@ const PROFILES = Object.freeze({
    */
   THREAT_INTEL: 'threat-intel',
   /*
+   * A question to deps.dev about the licence of a package version a
+   * repository depends on: an ecosystem, a name and a version in the path,
+   * nothing else. GET only, no query string, anonymous, and bound to that
+   * one host, so the profile cannot be borrowed to reach anything else.
+   */
+  LICENCE_QUERY: 'licence-query',
+  /*
    * A read of a provider's query API: GitHub's GraphQL endpoint, which returns
    * the text of many files at one commit in a single request where the REST
    * API needs one request per file. It may POST, because GraphQL is a POST,
@@ -101,7 +108,16 @@ const PROFILE_RULES = Object.freeze({
   [PROFILES.SITE_PROBE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: false, readsBody: true, headers: true, truncates: true, tls: true, plainHttp: true }),
   [PROFILES.ADVISORY_QUERY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true, hosts: Object.freeze(['api.osv.dev']) }),
   [PROFILES.THREAT_INTEL]: Object.freeze({ methods: Object.freeze(['GET']), query: true, readsBody: true, hosts: Object.freeze(['api.first.org', 'www.cisa.gov']) }),
+  [PROFILES.LICENCE_QUERY]: Object.freeze({ methods: Object.freeze(['GET']), query: false, readsBody: true, hosts: Object.freeze(['api.deps.dev']) }),
   [PROFILES.PROVIDER_QUERY]: Object.freeze({ methods: Object.freeze(['POST']), query: false, readsBody: true, hosts: Object.freeze(['api.github.com']), paths: Object.freeze(['/graphql']) })
+});
+
+/* The profiles that never carry a credential, and what the refusal says. */
+const ANONYMOUS = Object.freeze({
+  [PROFILES.SITE_PROBE]: 'A site probe must be anonymous',
+  [PROFILES.ADVISORY_QUERY]: 'An advisory query must be anonymous',
+  [PROFILES.LICENCE_QUERY]: 'A licence query must be anonymous',
+  [PROFILES.THREAT_INTEL]: 'An exploit-intelligence read must be anonymous'
 });
 
 /* Response headers as a probe may see them: lower-cased names, bounded values. */
@@ -434,11 +450,10 @@ async function guardedFetch(input = {}) {
   const target = normalizeTarget(input.url, input.profile, { plainHttp: plain });
   if (plain && input.agent != null) throw new GuardedFetchError('A plain-HTTP probe never shares a connection', 'GUARDED_FETCH_REFUSED');
   assertCredentialNotInUrl(target, input.headers);
-  /* A site probe, an advisory query and an exploit-intelligence read are anonymous by construction: no credential and no cookie. */
-  if ((input.profile === PROFILES.SITE_PROBE || input.profile === PROFILES.ADVISORY_QUERY || input.profile === PROFILES.THREAT_INTEL) && Object.keys(input.headers || {}).some(name =>
+  /* A site probe, an advisory or licence query and an exploit-intelligence read are anonymous by construction: no credential and no cookie. */
+  if (ANONYMOUS[input.profile] && Object.keys(input.headers || {}).some(name =>
     /^(?:authorization|proxy-authorization|cookie|private-token|x-api-key)$/i.test(name))) {
-    throw new GuardedFetchError(input.profile === PROFILES.SITE_PROBE ? 'A site probe must be anonymous'
-      : input.profile === PROFILES.ADVISORY_QUERY ? 'An advisory query must be anonymous' : 'An exploit-intelligence read must be anonymous', 'GUARDED_FETCH_REFUSED');
+    throw new GuardedFetchError(ANONYMOUS[input.profile], 'GUARDED_FETCH_REFUSED');
   }
   /* A profile bound to named hosts reaches those and nothing else, and one bound to named paths only those. */
   if (rule.hosts && !rule.hosts.includes(target.hostname)) {

@@ -796,6 +796,28 @@ function fakeRequestImpl(behaviour) {
     await assert.rejects(ask({ headers: { Cookie: 'session=1' } }), error => error.code === 'GUARDED_FETCH_REFUSED');
   }
 
+  /*
+   * A provider's query API: POST, to GitHub's GraphQL endpoint and nothing
+   * else -- not another path on the same host, not another host -- with the
+   * reader's credential, and a provider-sized body.
+   */
+  {
+    const addresses = [{ address: '140.82.112.6', family: 4 }];
+    const texts = 'x'.repeat(3 * 1024 * 1024);
+    const ask = extra => guardedFetch({
+      url: 'https://api.github.com/graphql', profile: PROFILES.PROVIDER_QUERY, method: 'POST', addresses,
+      headers: { authorization: 'Bearer reader-token-for-the-test', 'content-type': 'application/json' }, body: '{"query":"{ viewer { login } }"}',
+      maxResponseBytes: 8 * 1024 * 1024,
+      requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, chunks: [texts] }))),
+      ...extra
+    });
+    assert.strictEqual((await ask()).body.length, texts.length, 'many files of text in one answer');
+    await assert.rejects(ask({ url: 'https://api.github.com/repos/o/r/git/blobs/abc' }), error => error.code === 'GUARDED_FETCH_REFUSED', 'one path only');
+    await assert.rejects(ask({ url: 'https://example.com/graphql' }), error => error.code === 'GUARDED_FETCH_REFUSED', 'one host only');
+    await assert.rejects(ask({ url: 'https://api.github.com/graphql?x=1' }), error => error.code === 'GUARDED_FETCH_URL_INVALID', 'no query string');
+    await assert.rejects(ask({ method: 'GET', body: undefined }), error => error.code === 'GUARDED_FETCH_METHOD_INVALID', 'a query is a POST');
+  }
+
   console.log('guarded fetch tests passed');
 })().catch(error => {
   console.error(error && error.stack || error);

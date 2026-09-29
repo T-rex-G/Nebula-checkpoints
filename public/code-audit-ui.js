@@ -760,7 +760,9 @@
 
   function coverageLine(result) {
     const coverage = result.coverage || {};
-    const parts = [`Read ${coverage.read} of ${coverage.eligible} files it audits at ${String(result.commitSha || '').slice(0, 7)}`];
+    const rulesOnly = Number(coverage.rulesOnly) || 0;
+    const parts = [`Read ${coverage.read} of ${coverage.eligible} files it audits at ${String(result.commitSha || '').slice(0, 7)}` +
+      (rulesOnly ? ` (${coverage.read - rulesOnly} traced, ${rulesOnly} against the rules alone)` : '')];
     const packages = coverage.packages || {};
     if (packages.declared) {
       parts.push(`${packages.checked} of ${packages.declared} packages checked against their registry` +
@@ -939,7 +941,7 @@
    */
   const STAGE_STEPS = Object.freeze([
     { id: 'resolve', label: 'Resolve', stages: ['resolving'] },
-    { id: 'read', label: 'Read', stages: ['reading'] },
+    { id: 'read', label: 'Read', stages: ['reading', 'rules'] },
     { id: 'ask', label: 'Check', stages: ['advisories', 'intel'] },
     { id: 'trace', label: 'Trace', stages: ['queued', 'analysing', 'patterns'] }
   ]);
@@ -947,6 +949,7 @@
     const p = progress || {};
     switch (p.stage) {
       case 'reading': return p.total ? `Reading files · ${p.done || 0} of ${p.total}` : 'Listing the files to read';
+      case 'rules': return `Reading the rest of the branch against the rules · ${p.done || 0} of ${p.total || 0}`;
       case 'advisories': return 'Asking the package registries and OSV about each dependency';
       case 'intel': return 'Checking each CVE against CISA’s exploited-vulnerability catalog and its EPSS score';
       case 'queued': return p.position > 1 ? `Waiting for ${p.position} audits ahead of this one` : 'Waiting for another audit to finish';
@@ -999,7 +1002,7 @@
       bar.setAttribute('aria-valuemin', '0');
       bar.setAttribute('aria-valuemax', String(total));
       bar.setAttribute('aria-valuenow', String(current > 1 ? total : done));
-      bar.setAttribute('aria-valuetext', `${current > 1 ? total : done} of ${total} files read`);
+      bar.setAttribute('aria-valuetext', p.stage === 'rules' ? `${done} of ${total} more files read for the rules` : `${current > 1 ? total : done} of ${total} files read`);
     } else {
       ['aria-valuemin', 'aria-valuemax', 'aria-valuenow', 'aria-valuetext'].forEach(name => bar.removeAttribute(name));
     }
@@ -1030,6 +1033,7 @@
     if (traced.flows) parts.push(`${plural(traced.flows, 'path', 'paths')} to a sink${traced.crossFile ? `, ${traced.crossFile} across files` : ''}`);
     if (traced.failed) parts.push(`${plural(traced.failed, 'file', 'files')} it could not follow`);
     if (traced.cut) parts.push(`${plural(traced.cut, 'file', 'files')} left to the rules (${traced.limit === 'memory' ? 'memory' : 'time'} limit)`);
+    if (traced.rulesOnly) parts.push(`${plural(traced.rulesOnly, 'more file', 'more files')} checked against the rules`);
     const line = element('p', 'audit-engine-line');
     line.append(uranusMark('audit-ico uranus-mark'), element('strong', null, `${engine.name} ${String(engine.version || '').replace(/\.0$/, '')}`), element('span', null, parts.join(' · ')));
     return line;

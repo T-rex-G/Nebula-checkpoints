@@ -149,7 +149,7 @@ const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = require('./src/guarded-fetch');
 const { auditRepository } = require('./src/code-audit');
-const { analyseOffThread } = require('./src/code-audit-worker');
+const { analyseOffThread, scanOffThread } = require('./src/code-audit-worker');
 const { createAuditJobs } = require('./src/code-audit-jobs');
 const { CodeAuditHistory, createAuditWatch } = require('./src/code-audit-history');
 const { watchComponents } = require('./src/code-audit-watch');
@@ -7746,10 +7746,13 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
           ref,
           token,
           transport: input => session.request(input),
+          /* The files past the traced set, many to a request, through the query profile bound to GitHub's GraphQL endpoint. */
+          queryTransport: input => guardedFetch(input),
           registryTransport: input => guardedFetch(input),
           advisoryTransport: input => guardedFetch(input),
           intelTransport: input => guardedFetch(input),
           analyser: input => analyseOffThread(input, { onStage: (stage, detail) => onProgress({ stage, ...(detail || {}) }) }),
+          scanner: input => scanOffThread(input),
           onProgress
         });
         const finished = { ...result, auditedAt: new Date().toISOString() };

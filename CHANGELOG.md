@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### The Whole Branch, Not Its First 600 Files
+
+Asked for: an audit as complete on a large repository as on a small one.
+
+- **Every eligible file of a branch is now checked against the rules**, up
+  to 6,000 beyond the traced set and 64 MB of text.
+  - The prioritised files (manifests, lockfiles, configuration, then server
+    code) are still traced, as before, within the old budget.
+  - The rest are read up to a hundred at a time through GitHub's GraphQL
+    API, where the REST API needed a request per file, and checked against
+    every per-file rule on the analysis worker a few megabytes at a time.
+    Each batch's text is dropped before the next is read.
+  - The split finds exactly what one pass over the whole branch finds for
+    every rule that does not need a trace: same places, same finding
+    identities, same waivers (tested).
+  - Mastodon: 5,022 of 5,027 files read (4,422 against the rules alone) in
+    46 requests, where it stopped at 600.
+- **A new guarded-transport profile, `provider-query`**: POST, only to
+  `api.github.com/graphql`, with the reader's credential. Each file path is
+  a query variable, never part of the query text. A batch whose answer
+  fails is asked again in halves before its files count as unread.
+- **Advisories for up to 5,000 package versions** (was 1,200): Mastodon's
+  1,682 are now all checked against OSV.
+- **The progress, the coverage line and the engine line** say how much was
+  traced and how much was checked against the rules alone. The ledger
+  names the files beyond the traced set, and endpoints there as not mapped.
+- **Fixed: six patterns that could never match.** A `\b` had been written
+  as a backspace character, so the controls for security headers, CSRF
+  protection, password hashing, schema validation and ORMs, and the
+  detection of model SDK imports, were blind. A test now fails on any
+  stray control byte in shipped code.
+- **Fixed: a weak-randomness false positive.** `SEC-005` read any name
+  beginning with "reset" or "invite" as a secret; a React key such as
+  `resetFileKey` is not one.
+
 ### Audits Kept, and a Watch for New CVEs
 
 Asked for: staying current after the audit, the way enterprise scanners do,

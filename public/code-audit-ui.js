@@ -482,6 +482,8 @@
     const advisories = coverage.advisories || {};
     if (advisories.notChecked) notes.push(`${plural(advisories.notChecked, 'package version', 'package versions')} beyond the advisory limit were not checked`);
     if (advisories.lockfiles > advisories.lockfilesRead) notes.push('a lockfile was not read (over 512 KB or past the budget), so declared ranges stood in for installed versions');
+    const traced = result.engine && result.engine.traced;
+    if (traced && traced.cut) notes.push(`tracing reached the server's ${traced.limit === 'memory' ? 'memory' : 'time'} limit, so ${plural(traced.cut, 'file was', 'files were')} checked against the rules without being traced`);
     return notes.length ? `Not a complete read: ${notes.join('; ')}. A finding-free section here is not a finding-free repository.` : '';
   }
 
@@ -609,6 +611,93 @@
     return wrap;
   }
 
+  /*
+   * Where a running audit is, as the server reports it: four steps, the
+   * current one lit, a line in words, and how many of the files have been
+   * read. Numbers and stage names only -- the server sends nothing else
+   * while it works. Updated in place between polls, so the loader keeps
+   * turning instead of restarting with every answer.
+   */
+  const STAGE_STEPS = Object.freeze([
+    { id: 'resolve', label: 'Resolve', stages: ['resolving'] },
+    { id: 'read', label: 'Read', stages: ['reading'] },
+    { id: 'ask', label: 'Check', stages: ['advisories'] },
+    { id: 'trace', label: 'Trace', stages: ['queued', 'analysing', 'patterns'] }
+  ]);
+  function stageLine(progress) {
+    const p = progress || {};
+    switch (p.stage) {
+      case 'reading': return p.total ? `Reading files · ${p.done || 0} of ${p.total}` : 'Listing the files to read';
+      case 'advisories': return 'Asking the package registries and OSV about each dependency';
+      case 'queued': return p.position > 1 ? `Waiting for ${p.position} audits ahead of this one` : 'Waiting for another audit to finish';
+      case 'analysing': return 'Mapping endpoints and tracing each value to what uses it';
+      case 'patterns': return `Tracing needed more ${p.limit === 'time' ? 'time' : 'memory'} than this server gives one audit, so every file is being checked against the rules instead`;
+      default: return 'Resolving the branch to a commit';
+    }
+  }
+  function progressBlock(progress) {
+    const wrap = element('div', 'audit-progress');
+    const steps = element('ol', 'audit-steps');
+    steps.setAttribute('aria-label', 'Audit steps');
+    for (const step of STAGE_STEPS) {
+      const item = element('li', 'audit-step');
+      item.dataset.step = step.id;
+      item.append(element('span', 'audit-step-dot'), element('span', 'audit-step-label', step.label));
+      steps.appendChild(item);
+    }
+    const line = element('p', 'audit-progress-line');
+    const bar = element('div', 'audit-progress-bar');
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', 'Files read');
+    bar.appendChild(element('span', 'audit-progress-fill'));
+    /* Only a change of step is announced; the running count would be noise. */
+    const announce = element('span', 'sr-only');
+    announce.setAttribute('role', 'status');
+    wrap.append(steps, line, bar, announce);
+    updateProgress(wrap, progress);
+    return wrap;
+  }
+  function updateProgress(wrap, progress) {
+    const p = progress && progress.stage ? progress : { stage: 'resolving' };
+    const current = Math.max(0, STAGE_STEPS.findIndex(step => step.stages.includes(p.stage)));
+    wrap.dataset.stage = p.stage;
+    wrap.querySelectorAll('.audit-step').forEach((item, index) => {
+      item.dataset.state = index < current ? 'done' : index === current ? 'active' : 'next';
+      if (index === current) item.setAttribute('aria-current', 'step');
+      else item.removeAttribute('aria-current');
+    });
+    const text = stageLine(p);
+    const line = wrap.querySelector('.audit-progress-line');
+    if (line.textContent !== text) line.textContent = text;
+    const bar = wrap.querySelector('.audit-progress-bar');
+    const total = Math.max(0, Number(p.total) || 0);
+    const done = Math.min(total, Math.max(0, Number(p.done) || 0));
+    const fraction = current > 1 ? 1 : current === 1 && total ? done / total : 0;
+    bar.style.setProperty('--audit-read', fraction.toFixed(4));
+    bar.dataset.busy = current > 1 ? 'true' : 'false';
+    if (total) {
+      bar.setAttribute('aria-valuemin', '0');
+      bar.setAttribute('aria-valuemax', String(total));
+      bar.setAttribute('aria-valuenow', String(current > 1 ? total : done));
+      bar.setAttribute('aria-valuetext', `${current > 1 ? total : done} of ${total} files read`);
+    } else {
+      ['aria-valuemin', 'aria-valuemax', 'aria-valuenow', 'aria-valuetext'].forEach(name => bar.removeAttribute(name));
+    }
+    const announce = wrap.querySelector('[role="status"]');
+    const step = STAGE_STEPS[current].label;
+    if (announce.dataset.step !== `${step}:${p.stage}`) {
+      announce.dataset.step = `${step}:${p.stage}`;
+      announce.textContent = p.stage === 'reading' ? 'Reading files' : text;
+    }
+  }
+  /* A poll's answer, painted into the running card without redrawing it. */
+  function progress(root, value) {
+    const wrap = root && root.querySelector('.audit-summary .audit-progress');
+    if (!wrap) return false;
+    updateProgress(wrap, value);
+    return true;
+  }
+
   /* Which engine read the branch, and how far it followed values. */
   function engineLine(result) {
     const engine = result.engine;
@@ -620,6 +709,7 @@
     parts.push(`${plural((traced.endpoints || 0) + (traced.actions || 0), 'entry point', 'entry points')} mapped`);
     if (traced.flows) parts.push(`${plural(traced.flows, 'path', 'paths')} to a sink${traced.crossFile ? `, ${traced.crossFile} across files` : ''}`);
     if (traced.failed) parts.push(`${plural(traced.failed, 'file', 'files')} it could not follow`);
+    if (traced.cut) parts.push(`${plural(traced.cut, 'file', 'files')} left to the rules (${traced.limit === 'memory' ? 'memory' : 'time'} limit)`);
     const line = element('p', 'audit-engine-line');
     line.append(uranusMark('audit-ico uranus-mark'), element('strong', null, `${engine.name} ${String(engine.version || '').replace(/\.0$/, '')}`), element('span', null, parts.join(' · ')));
     return line;
@@ -651,7 +741,7 @@
       read.appendChild(error);
     }
     if (status === 'running') {
-      read.appendChild(element('p', 'audit-lede audit-muted', 'Uranus is mapping the endpoints, following each value a caller sends to what uses it, and asking the registries and OSV.'));
+      read.appendChild(progressBlock(view.progress));
     } else if (!result) {
       const scope = element('ul', 'audit-scope');
       scope.setAttribute('aria-label', 'What the audit checks');
@@ -1952,7 +2042,7 @@
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, brief, sarif, csv, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
+  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, progress, brief, sarif, csv, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaCodeAudit;

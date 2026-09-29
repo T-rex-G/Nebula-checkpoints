@@ -145,7 +145,12 @@ review. The grade is held below 50 only while a confirmed critical finding is
 open, and the result carries a coverage ledger -- each class of attack traced,
 pattern-checked, absent or not assessed -- so a clean list is never read as a
 clean repository. It states how much of the branch, how many packages and how
-many versions it checked. The site check makes at most ten anonymous requests to the
+many versions it checked. The audit runs as a job the page follows by run id,
+held in memory only, for the identity that started it, and dropped two minutes
+after it finishes. The analysis runs on a worker thread with a capped heap and
+a time limit, so the server keeps answering while it works. A branch too large
+for the instance is checked against every rule without tracing, and the ledger
+names how many files were left untraced and which limit stopped them. The site check makes at most ten anonymous requests to the
 origin a user names -- following up to three HTTPS redirects to the page a
 visitor actually lands on -- through the guarded transport's site profile: HTTPS on
 443 to a public address, no credential and no cookie, bodies cut after a few

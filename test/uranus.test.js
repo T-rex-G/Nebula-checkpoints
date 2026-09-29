@@ -227,4 +227,50 @@ function surfaceOf(files) {
   assert.strictEqual(result.routes.length, 1500);
 }
 
+/* ---- Within a time and heap limit -------------------------------------------------------------------- */
+{
+  const route = (file, index) => ({ path: file, client: false, text: tpl(`const express = require('express');\nconst app = express();\napp.get('/r${index}', async (req, res) => {\n  await db.query(\`SELECT * FROM t WHERE id = `, I, `{req.query.id}\`);\n});\n`) });
+  const files = [
+    { path: 'public/widget.js', client: true, text: 'export const x = 1;\n' },
+    { path: 'lib/util.js', client: false, text: 'export function add(a, b) { return a + b; }\n' },
+    route('server/api.js', 1),
+    route('routes/users.js', 2)
+  ];
+  const whole = analyseFlows(files);
+  assert.strictEqual(whole.stats.cut, 0);
+  assert.strictEqual(whole.stats.limit, undefined, 'a trace with room to spare names no limit');
+  /* A limit far off changes nothing: the same flows, in the same order. */
+  const roomy = analyseFlows(files, { deadline: Date.now() + 60_000, heapCeiling: Number.MAX_SAFE_INTEGER });
+  assert.deepStrictEqual(rulesOf(roomy.flows), rulesOf(whole.flows));
+  assert.deepStrictEqual(roomy.flows.map(flow => flow.path), whole.flows.map(flow => flow.path));
+
+  /* The clock runs out after the summaries and two walks: server code was walked first, the rest is cut. */
+  let ticks = 0;
+  const cutShort = analyseFlows(files, { deadline: 1000, now: () => (++ticks > files.length + 2 ? 2000 : 0) });
+  assert.strictEqual(cutShort.stats.limit, 'time');
+  assert.strictEqual(cutShort.stats.cut, 2);
+  assert.strictEqual(cutShort.stats.javascript, 2, 'only the files walked count as traced');
+  assert.deepStrictEqual([...new Set(cutShort.flows.map(flow => flow.path))].sort(), ['routes/users.js', 'server/api.js']);
+
+  /* Past the heap ceiling nothing more is started, and the limit is named as memory. */
+  const full = analyseFlows(files, { heapCeiling: 10, heapUsed: () => 11 });
+  assert.strictEqual(full.stats.limit, 'memory');
+  assert.strictEqual(full.stats.cut, files.length);
+  assert.strictEqual(full.stats.functions, 0);
+  assert.strictEqual(full.flows.length, 0);
+
+  /* The audit says what the limit left untraced, in the ledger and on the engine line. */
+  const bounded = audit.analyse({ files: [{ path: 'README.md', text: '# x\n' }, ...files], trace: { skip: 'memory' } });
+  assert.strictEqual(bounded.engine.traced.limit, 'memory');
+  assert.strictEqual(bounded.engine.traced.cut, 4);
+  const injection = bounded.ledger.find(entry => entry.id === 'injection');
+  assert.strictEqual(injection.status, 'patterns');
+  assert.match(injection.detail, /needed more memory than this server gives one audit, so every file was checked against the rules instead/);
+  assert.strictEqual(bounded.ledger.find(entry => entry.id === 'access').status, 'patterns');
+  const partial = audit.analyse({ files: [{ path: 'README.md', text: '# x\n' }, ...files], trace: { deadline: 1000 } });
+  assert.strictEqual(partial.engine.traced.limit, 'time', 'a deadline already past cuts every file and says it was time');
+  /* The rules still ran on every file: the spliced SQL is reported as a pattern where it was not traced. */
+  assert(bounded.findings.some(finding => finding.rule === 'SEC-001' && finding.evidence !== 'traced'));
+}
+
 console.log('uranus tests passed');

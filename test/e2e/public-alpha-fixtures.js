@@ -425,9 +425,17 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
      * project, so the screen is tested against the shape the server returns
      * rather than a hand-written approximation of it. The second audit of a
      * session finds the SQL fixed, so the comparison with the last one has
-     * something to say.
+     * something to say. As on the server, the first request starts a run and
+     * answers 202 with its stage; the page asks again with the run id.
      */
+    if (pathname === '/api/repo/sandbox/demo/code-audit' && method === 'GET' && !url.searchParams.get('run')) {
+      state.auditRun = `run-${(state.audits || 0) + 1}`;
+      return fulfill({ state: 'running', run: state.auditRun, stage: 'reading', done: 3, total: 7, position: null, limit: null, elapsedMs: 40 }, 202);
+    }
     if (pathname === '/api/repo/sandbox/demo/code-audit' && method === 'GET') {
+      if (url.searchParams.get('run') !== state.auditRun) {
+        return fulfill({ error: 'This audit is no longer held by the server. It may have restarted. Run the audit again.', code: 'AUDIT_RUN_GONE' }, 404);
+      }
       state.audits = (state.audits || 0) + 1;
       const { analyse } = require('../../src/code-audit');
       /* A remote database password, built in pieces so no scanner mistakes the fixture for a leak. */

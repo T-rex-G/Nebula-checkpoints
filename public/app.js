@@ -125,6 +125,19 @@ async function ensureCsrfToken() {
   clearCsrfToken();
   return refreshCsrfToken();
 }
+/*
+ * What a status means when the server's own JSON did not come with it. The
+ * edge in front of the hosting answers for a server that is starting,
+ * restarting or too slow, and limits a connection that asks too often; a
+ * bare "Request failed (502)" told the reader none of that.
+ */
+function statusMessage(status, fromServer) {
+  if (!fromServer) {
+    if (status === 429) return 'The hosting edge is limiting requests from this connection. Wait a minute, then try again.';
+    if (status === 502 || status === 503 || status === 504 || (status >= 520 && status <= 527)) return 'The server did not answer in time: it may be waking up or restarting. Wait a few seconds, then try again.';
+  }
+  return `Request failed (${status})`;
+}
 async function api(path, opts = {}, allowCsrfRetry = true) {
   const method = String(opts.method || 'GET').toUpperCase();
   const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(method);
@@ -144,15 +157,19 @@ async function api(path, opts = {}, allowCsrfRetry = true) {
     },
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
-  const data = await r.json().catch(() => ({}));
+  let fromServer = true;
+  const data = await r.json().catch(() => { fromServer = false; return {}; });
   if (!r.ok) {
     if (allowCsrfRetry && needsCsrf && ['CSRF_REQUIRED', 'CSRF_INVALID', 'CSRF_EXPIRED'].includes(data.code)) {
       clearCsrfToken();
       return api(path, opts, false);
     }
-    const error = new Error(data.error || `Request failed (${r.status})`);
+    const error = new Error(data.error || statusMessage(r.status, fromServer));
     error.status = r.status;
     error.code = data.code || '';
+    /* No JSON body: the answer came from the edge in front of the server, not from the server. */
+    error.edge = !fromServer;
+    error.retryAfter = Number(r.headers.get('retry-after')) || 0;
     error.correlationId = data.correlationId || r.headers.get('x-nebulaverse-correlation-id') || '';
     error.providerChanged = data.providerChanged || 'unknown';
     error.safeState = data.safeState || '';
@@ -5362,7 +5379,7 @@ async function toggleProtect(p) {
  * previous session never paints this one. The comparison with the last audit
  * keeps fingerprints only, and the account-boundary purge removes them.
  */
-let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
+let auditView = { key: '', status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
 let auditRequest = 0;
 /*
  * The deployed-site check sits beside it, bound to the repository rather than
@@ -5390,7 +5407,7 @@ function freshSiteView() {
 function clearAuditState() {
   auditRequest++;
   siteRequest++;
-  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
+  auditView = { key: '', status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
   siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
   const root = $('#auditRoot');
   if (root) root.replaceChildren();
@@ -5409,7 +5426,7 @@ async function copyPrompt(text, control) {
 function paintAudit() {
   const root = $('#auditRoot');
   if (!root || !window.NebulaCodeAudit) return;
-  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
+  if (auditView.key !== auditKey()) auditView = { key: auditKey(), status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
   if (siteView.key !== siteKey()) siteView = freshSiteView();
   const repository = window.NebulaCapabilityUI.decision('code-audit');
   window.NebulaCodeAudit.render(root, {
@@ -5475,25 +5492,67 @@ async function runSiteCheck(address) {
   }
   if ($('#tab-audit')?.classList.contains('active')) paintAudit();
 }
+/*
+ * An audit is a job on the server: the first request starts it and answers
+ * with a run id, and this asks after it until the result is there, backing
+ * off as it goes. A poll lost to the network or to the edge is asked again
+ * -- the audit carries on server-side meanwhile -- and a run the server no
+ * longer holds (it restarted) is started once more before giving up.
+ */
+const AUDIT_POLL = Object.freeze({ firstMs: 1200, maxMs: 5000, growth: 1.35, transientTries: 6 });
+function transientAuditError(error) {
+  if (!error) return false;
+  if (error.edge && [429, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527].includes(error.status)) return true;
+  return !error.status && isOfflineError(error);
+}
 async function runAudit() {
   if (!state.work || auditView.status === 'running') return;
   const request = ++auditRequest;
   const key = auditKey();
   const epoch = state.uiEpoch;
-  auditView = { ...auditView, key, status: 'running', error: '' };
+  const current = () => request === auditRequest && epoch === state.uiEpoch && key === auditKey();
+  const base = `/api/repo/${wPath()}/code-audit?ref=${encodeURIComponent(state.work.branch)}`;
+  auditView = { ...auditView, key, status: 'running', error: '', progress: null };
   paintAudit();
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const shown = () => $('#tab-audit')?.classList.contains('active');
   try {
-    const result = await api(`/api/repo/${wPath()}/code-audit?ref=${encodeURIComponent(state.work.branch)}`);
-    if (request !== auditRequest || epoch !== state.uiEpoch || key !== auditKey()) return;
+    let answer = await api(base);
+    let wait = AUDIT_POLL.firstMs;
+    let misses = 0;
+    let restarted = false;
+    while (answer && answer.state === 'running') {
+      if (!current()) return;
+      auditView.progress = answer;
+      if (shown() && !window.NebulaCodeAudit.progress($('#auditRoot'), answer)) paintAudit();
+      await pause(wait);
+      if (!current()) return;
+      try {
+        answer = await api(`${base}&run=${encodeURIComponent(answer.run)}`);
+        misses = 0;
+        wait = Math.min(AUDIT_POLL.maxMs, Math.round(wait * AUDIT_POLL.growth));
+      } catch (error) {
+        if (error.code === 'AUDIT_RUN_GONE' && !restarted) {
+          restarted = true;
+          answer = await api(base);
+          continue;
+        }
+        if (!transientAuditError(error) || ++misses > AUDIT_POLL.transientTries) throw error;
+        wait = Math.min(AUDIT_POLL.maxMs * 2, Math.max(wait, (error.retryAfter || 0) * 1000, AUDIT_POLL.firstMs) * 1.5);
+      }
+    }
+    if (!current()) return;
+    const result = answer;
     const repoKey = `${state.work.owner}/${state.work.repo}`;
     const previous = window.NebulaCodeAudit.readPrevious(repoKey);
     window.NebulaCodeAudit.remember(repoKey, result);
-    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
+    auditView = { key, status: 'done', result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', progress: null, filter: null, severity: null, verdict: null, owasp: null, query: '', limit: 0 };
   } catch (error) {
-    if (request !== auditRequest || epoch !== state.uiEpoch || key !== auditKey()) return;
-    auditView = { ...auditView, status: 'error', error: error.message || 'The audit could not be completed.' };
+    if (!current()) return;
+    const unreachable = !error.status && isOfflineError(error);
+    auditView = { ...auditView, status: 'error', progress: null, error: unreachable ? 'The server could not be reached. Check the connection, then try again.' : error.message || 'The audit could not be completed.' };
   }
-  if ($('#tab-audit')?.classList.contains('active')) paintAudit();
+  if (shown()) paintAudit();
 }
 async function openAuditFinding(finding) {
   if (!finding || !finding.path) return;

@@ -149,6 +149,8 @@ const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = require('./src/guarded-fetch');
 const { auditRepository } = require('./src/code-audit');
+const { analyseOffThread } = require('./src/code-audit-worker');
+const { createAuditJobs } = require('./src/code-audit-jobs');
 const { checkSite, declaredSite } = require('./src/site-check');
 const { readBranchProtection } = require('./src/branch-protection');
 const { buildPublicAssets, etagMatches, securityContact, stripHtmlComments, stripJsComments } = require('./src/public-assets');
@@ -3237,6 +3239,8 @@ async function providerIdentity(acct) {
 async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
   const accounts = (Array.isArray(accountOrAccounts) ? accountOrAccounts : [accountOrAccounts])
     .filter(account => account && typeof account === 'object');
+  /* An audit held for an account that is leaving goes with it. */
+  for (const account of accounts) auditJobs.forget(identityKey(account));
   if (!ALPHA_CONFIG.enabled) {
     const targetKeys = new Set(accounts.map(hostedAccountKey));
     for (const account of accounts) {
@@ -7709,36 +7713,50 @@ app.get('/api/repo/:owner/:repo/access-surface', providerSessionAccess, alphaRep
  * one connection pool per audit, asks the package registries through the
  * guarded transport with HEAD, and asks OSV -- anonymously, through the
  * advisory profile bound to that one host -- which of the installed versions
- * have published advisories. One audit per identity at a time: it reads up
- * to a few hundred files, and a second click should not double that.
+ * have published advisories.
+ *
+ * The first request starts the audit and answers 202 with a run id; the page
+ * asks again with `run` and hears the stage until the result is there
+ * (src/code-audit-jobs.js). The analysis runs on a worker thread with a heap
+ * cap and a time limit (src/code-audit-worker.js), so this thread keeps
+ * answering the platform's health check while it works. One audit per
+ * identity at a time: it reads up to a few hundred files, and a second click
+ * resumes the first instead of doubling it.
  */
-const auditsInFlight = new Set();
+const auditJobs = createAuditJobs();
 app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const who = identityKey(req.gh);
-  if (auditsInFlight.has(who)) {
-    return res.status(429).json({ error: 'An audit is already running for this session. Wait for it to finish.', code: 'AUDIT_IN_PROGRESS' });
-  }
   const ref = String(req.query.ref || '').trim();
   if (!ref) return res.status(400).json({ error: 'ref is required', code: 'AUDIT_REF_REQUIRED' });
-  auditsInFlight.add(who);
-  const session = createGuardedSession({ profile: GUARDED_PROFILES.PROVIDER_READ, maxSockets: 8 });
-  try {
-    const result = await auditRepository({
-      reader: exposureReader,
-      scope: { provider: 'github', owner: req.params.owner, repo: req.params.repo },
-      ref,
-      token: req.gh.token,
-      transport: input => session.request(input),
-      registryTransport: input => guardedFetch(input),
-      advisoryTransport: input => guardedFetch(input)
-    });
-    res.json({ ...result, auditedAt: new Date().toISOString() });
-  } catch (e) { fail(res, e); }
-  finally {
-    session.close();
-    auditsInFlight.delete(who);
-  }
+  const { owner, repo } = req.params;
+  const token = req.gh.token;
+  const answer = auditJobs.request({
+    identity: identityKey(req.gh), owner, repo, ref, run: String(req.query.run || '').trim(),
+    launch: async ({ onProgress, signal }) => {
+      const session = createGuardedSession({ profile: GUARDED_PROFILES.PROVIDER_READ, maxSockets: 8 });
+      /* An abandoned audit stops reading: closing the pool fails what is still in flight. */
+      signal.addEventListener('abort', () => session.close(), { once: true });
+      try {
+        const result = await auditRepository({
+          reader: exposureReader,
+          scope: { provider: 'github', owner, repo },
+          ref,
+          token,
+          transport: input => session.request(input),
+          registryTransport: input => guardedFetch(input),
+          advisoryTransport: input => guardedFetch(input),
+          analyser: input => analyseOffThread(input, { onStage: (stage, detail) => onProgress({ stage, ...(detail || {}) }) }),
+          onProgress
+        });
+        return { ...result, auditedAt: new Date().toISOString() };
+      } finally {
+        session.close();
+      }
+    }
+  });
+  if (answer.error) return fail(res, answer.error);
+  if (answer.status === 202) res.setHeader('Retry-After', '2');
+  return res.status(answer.status).json(answer.body);
 });
 
 /*

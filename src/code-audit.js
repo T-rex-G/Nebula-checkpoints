@@ -75,6 +75,8 @@ const { standardsFor } = require('./security-standards');
 const { analyseFlows } = require('./uranus-flow');
 const { opensWith } = require('./uranus-lex');
 const { analyseSurface, reachOf } = require('./uranus-surface');
+const { usageIndex, tierOf, riskOf, exploitedInProduction } = require('./uranus-reach');
+const { lookupExploitIntel } = require('./exploit-intel');
 
 /* The engine's name and version, carried in every result and export. */
 const ENGINE = Object.freeze({ name: 'Uranus', version: '2.0.0' });
@@ -1233,9 +1235,17 @@ const isRequirements = base => /^requirements([-_.][\w.-]+)?\.txt$/i.test(base);
  * stable shape and skips what it does not recognise -- an unparsed entry is
  * a package not checked, which coverage reports, never a guess.
  */
+/*
+ * Each lockfile parser answers with the versions it installed and, where the
+ * format records them, what each package requires by name and which packages
+ * the project itself asked for (`roots`). The requirements are what let a
+ * transitive vulnerability be traced to the dependency that brought it in.
+ */
+const requiredNames = (...maps) => [...new Set(maps.flatMap(map => (map && typeof map === 'object' ? Object.keys(map) : [])))];
+
 function packageLockEntries(text) {
   const lock = parseJson(text);
-  if (!lock || typeof lock !== 'object') return [];
+  if (!lock || typeof lock !== 'object') return { entries: [], roots: null };
   const lines = new Map();
   text.split('\n').forEach((line, index) => {
     const key = /^\s*"((?:node_modules\/)[^"]+)"\s*:\s*\{/.exec(line);
@@ -1243,23 +1253,32 @@ function packageLockEntries(text) {
   });
   const out = [];
   if (lock.packages && typeof lock.packages === 'object') {
+    const root = lock.packages[''];
+    const roots = root && typeof root === 'object'
+      ? [...requiredNames(root.dependencies, root.optionalDependencies).map(name => ({ name, dev: false })), ...requiredNames(root.devDependencies).map(name => ({ name, dev: true }))]
+      : null;
     for (const [key, entry] of Object.entries(lock.packages)) {
       if (!key || !entry || typeof entry !== 'object' || entry.link || typeof entry.version !== 'string') continue;
       const name = typeof entry.name === 'string' && entry.name ? entry.name : key.slice(key.lastIndexOf('node_modules/') + 13);
-      out.push({ name, version: entry.version, line: lines.get(key) || 1, dev: Boolean(entry.dev), top: key === `node_modules/${name}` });
+      out.push({ name, version: entry.version, line: lines.get(key) || 1, dev: Boolean(entry.dev), top: key === `node_modules/${name}`, requires: requiredNames(entry.dependencies, entry.optionalDependencies) });
     }
-    return out;
+    return { entries: out, roots };
   }
   const walk = (dependencies, top) => {
     for (const [name, entry] of Object.entries(dependencies || {})) {
       if (!entry || typeof entry.version !== 'string' || /^(file|link|git|github|https?):/.test(entry.version)) continue;
-      out.push({ name, version: entry.version, line: keyLine(text, name), dev: Boolean(entry.dev), top });
+      out.push({ name, version: entry.version, line: keyLine(text, name), dev: Boolean(entry.dev), top, requires: requiredNames(entry.requires) });
       if (entry.dependencies) walk(entry.dependencies, false);
     }
   };
   walk(lock.dependencies, true);
-  return out;
+  return { entries: out, roots: null };
 }
+
+/* A package name as a YAML or yarn key writes it: quoted or not, with a range or a version after it. */
+const LOCK_DEP_LINE = /^\s+['"]?((?:@[^@/\s'"]+\/)?[^@\s'":]+)['"]?:?\s+\S/;
+/* The same name as a YAML map key, whatever follows it. */
+const LOCK_KEY_LINE = /^\s+['"]?((?:@[^@/\s'"]+\/)?[^@\s'":]+)['"]?:/;
 
 function yarnLockEntries(text) {
   const out = [];
@@ -1267,27 +1286,84 @@ function yarnLockEntries(text) {
   for (let index = 0; index < lines.length; index += 1) {
     const header = /^"?((?:@[^@/\s"]+\/)?[^@\s",]+)@[^\n]*:\s*$/.exec(lines[index]);
     if (!header) continue;
-    for (let cursor = index + 1; cursor < lines.length && /^\s/.test(lines[cursor]); cursor += 1) {
-      const version = /^\s+version:?\s+"?([^"\s]+)"?\s*$/.exec(lines[cursor]);
-      if (version) {
-        if (!/^0\.0\.0-use\.local$/.test(version[1])) out.push({ name: header[1], version: version[1], line: index + 1, dev: false, top: false });
-        break;
-      }
+    let version = null;
+    let listing = false;
+    const requires = [];
+    let cursor = index + 1;
+    for (; cursor < lines.length && /^\s/.test(lines[cursor]); cursor += 1) {
+      const line = lines[cursor];
+      const found = /^\s{2}version:?\s+"?([^"\s]+)"?\s*$/.exec(line);
+      if (found) { version = found[1]; listing = false; continue; }
+      if (/^\s{2}\S/.test(line)) { listing = /^\s{2}(dependencies|optionalDependencies):\s*$/.test(line); continue; }
+      const dep = listing && /^\s{4}\S/.test(line) && LOCK_DEP_LINE.exec(line);
+      if (dep) requires.push(dep[1]);
     }
+    if (version && !/^0\.0\.0-use\.local$/.test(version)) out.push({ name: header[1], version, line: index + 1, dev: false, top: false, requires });
+    index = cursor - 1;
   }
-  return out;
+  return { entries: out, roots: null };
 }
 
+/*
+ * pnpm keeps versions under `packages:` and, from lockfile 9, what each
+ * resolved package requires under `snapshots:`; `importers:` names what each
+ * workspace project asked for.
+ */
 function pnpmLockEntries(text) {
   const out = [];
-  let inPackages = false;
+  const byKey = new Map();
+  const edges = new Map();
+  const roots = [];
+  let section = null;
+  let current = null;
+  let listing = false;
+  let rootDev = null;
   text.split('\n').forEach((line, index) => {
-    if (/^\S/.test(line)) inPackages = /^packages:\s*$/.test(line);
-    if (!inPackages) return;
+    if (/^\S/.test(line)) {
+      section = (/^(packages|snapshots|importers|dependencies|devDependencies|optionalDependencies):\s*$/.exec(line) || [])[1] || null;
+      current = null;
+      listing = section === 'importers' ? null : false;
+      /* Lockfile 5 lists the project's own dependencies at the top level. */
+      rootDev = section === 'devDependencies' ? true : section === 'dependencies' || section === 'optionalDependencies' ? false : null;
+      return;
+    }
+    if (rootDev !== null) {
+      const dep = /^ {2}\S/.test(line) && LOCK_KEY_LINE.exec(line);
+      if (dep) roots.push({ name: dep[1], dev: rootDev });
+      return;
+    }
+    if (section === 'importers') {
+      if (/^ {4}\S/.test(line)) { listing = /^ {4}(dependencies|devDependencies|optionalDependencies):\s*$/.test(line) ? /devDependencies/.test(line) : null; return; }
+      const dep = listing !== null && /^ {6}\S/.test(line) && LOCK_KEY_LINE.exec(line);
+      if (dep) roots.push({ name: dep[1], dev: listing });
+      return;
+    }
+    if (section !== 'packages' && section !== 'snapshots') return;
     const entry = /^ {2}['"]?\/?((?:@[^@/\s'"]+\/)?[^@/\s'"(]+)[@/](\d[^:('"\s]*)(?:\([^:]*\))?['"]?:\s*$/.exec(line);
-    if (entry) out.push({ name: entry[1], version: entry[2], line: index + 1, dev: false, top: false });
+    if (entry) {
+      current = `${entry[1]}@${entry[2]}`;
+      listing = false;
+      if (section === 'packages' && !byKey.has(current)) {
+        const item = { name: entry[1], version: entry[2], line: index + 1, dev: false, top: false, requires: [] };
+        byKey.set(current, item);
+        out.push(item);
+      }
+      return;
+    }
+    if (!current) return;
+    if (/^ {4}\S/.test(line)) {
+      listing = /^ {4}(dependencies|optionalDependencies):\s*$/.test(line);
+      if (section === 'packages' && /^ {4}dev:\s*true\s*$/.test(line) && byKey.has(current)) byKey.get(current).dev = true;
+      return;
+    }
+    const dep = listing && /^ {6}\S/.test(line) && LOCK_DEP_LINE.exec(line);
+    if (dep) {
+      if (!edges.has(current)) edges.set(current, new Set());
+      edges.get(current).add(dep[1]);
+    }
   });
-  return out;
+  for (const [key, names] of edges) if (byKey.has(key)) byKey.get(key).requires = [...new Set([...byKey.get(key).requires, ...names])];
+  return { entries: out, roots: roots.length ? roots : null };
 }
 
 function poetryLockEntries(text) {
@@ -1298,16 +1374,31 @@ function poetryLockEntries(text) {
     let name = null;
     let version = null;
     let dev = false;
-    for (let cursor = index + 1; cursor < lines.length && !/^\[/.test(lines[cursor]); cursor += 1) {
+    let table = 'package';
+    const requires = [];
+    /* A package runs to the next package or the next top-level table; its own tables are `[package.*]`. */
+    for (let cursor = index + 1; cursor < lines.length && !/^\[\[/.test(lines[cursor]); cursor += 1) {
+      const heading = /^\[([^\]]+)\]\s*$/.exec(lines[cursor]);
+      if (heading) {
+        if (!heading[1].startsWith('package.')) break;
+        table = heading[1];
+        continue;
+      }
+      if (table === 'package.dependencies') {
+        const dep = /^([A-Za-z0-9][\w.-]*)\s*=/.exec(lines[cursor]);
+        if (dep) requires.push(dep[1]);
+        continue;
+      }
+      if (table !== 'package') continue;
       const pair = /^(name|version|category)\s*=\s*"([^"]*)"/.exec(lines[cursor]);
       if (!pair) continue;
       if (pair[1] === 'name') name = pair[2];
       if (pair[1] === 'version') version = pair[2];
       if (pair[1] === 'category') dev = pair[2] === 'dev';
     }
-    if (name && version) out.push({ name, version, line: index + 1, dev, top: false });
+    if (name && version) out.push({ name, version, line: index + 1, dev, top: false, requires });
   });
-  return out;
+  return { entries: out, roots: null };
 }
 
 function pipfileLockEntries(text) {
@@ -1316,10 +1407,11 @@ function pipfileLockEntries(text) {
   for (const [section, dev] of [['default', false], ['develop', true]]) {
     for (const [name, entry] of Object.entries((lock && lock[section]) || {})) {
       const version = entry && /^==\s*([^\s,;]+)$/.exec(String(entry.version || ''));
-      if (version) out.push({ name, version: version[1], line: keyLine(text, name), dev, top: true });
+      if (version) out.push({ name, version: version[1], line: keyLine(text, name), dev, top: true, requires: [] });
     }
   }
-  return out;
+  /* Pipfile.lock records no requirements between packages. */
+  return { entries: out, roots: null, flat: true };
 }
 
 const LOCK_PARSERS = Object.freeze({
@@ -1341,8 +1433,12 @@ function nameKey(ecosystem, name) {
  * what those bring in; then, for a manifest with no lockfile entry, an exact
  * pin or the lowest version its range accepts -- marked as a range, because
  * that is a statement about what could install, not what did.
+ *
+ * Beside the inventory, one requirement graph per lockfile: which package
+ * requires which, by name, and which the project asked for itself. It is
+ * what names the dependency a transitive vulnerability came in with.
  */
-function dependencyInventory(files) {
+function readDependencies(files) {
   const manifests = [];
   const locks = [];
   for (const file of files) {
@@ -1355,7 +1451,8 @@ function dependencyInventory(files) {
       manifests.push({ dir, ecosystem: 'pypi', packages: requirementsPackages(file) });
     } else if (LOCK_PARSERS[base]) {
       const [ecosystem, parse] = LOCK_PARSERS[base];
-      locks.push({ dir, ecosystem, path: file.path, entries: parse(file.text) });
+      const parsed = parse(file.text);
+      locks.push({ dir, ecosystem, path: file.path, entries: parsed.entries, roots: parsed.roots, flat: Boolean(parsed.flat), declared: [] });
     }
   }
   const entries = [];
@@ -1365,11 +1462,12 @@ function dependencyInventory(files) {
       locks.find(candidate => candidate.ecosystem === manifest.ecosystem && candidate.dir === '');
     for (const declared of manifest.packages) {
       const key = nameKey(manifest.ecosystem, declared.name);
+      if (lock) lock.declared.push({ name: declared.name, dev: Boolean(declared.dev) });
       const installed = lock && (lock.entries.find(entry => entry.top && nameKey(manifest.ecosystem, entry.name) === key) ||
         lock.entries.find(entry => nameKey(manifest.ecosystem, entry.name) === key));
       const base = { ecosystem: manifest.ecosystem, name: declared.name, path: declared.path, line: declared.line, direct: true, dev: Boolean(declared.dev) };
       if (installed) {
-        entries.push({ ...base, version: installed.version, source: 'lock' });
+        entries.push({ ...base, version: installed.version, source: 'lock', lock: lock.path });
         installedDirect.add(advisoryKey({ ecosystem: manifest.ecosystem, name: declared.name, version: installed.version }));
         continue;
       }
@@ -1383,16 +1481,77 @@ function dependencyInventory(files) {
   for (const lock of locks) {
     for (const entry of lock.entries) {
       if (installedDirect.has(advisoryKey({ ecosystem: lock.ecosystem, name: entry.name, version: entry.version }))) continue;
-      entries.push({ ecosystem: lock.ecosystem, name: entry.name, version: entry.version, path: lock.path, line: entry.line, direct: false, dev: entry.dev, source: 'lock' });
+      entries.push({ ecosystem: lock.ecosystem, name: entry.name, version: entry.version, path: lock.path, line: entry.line, direct: false, dev: entry.dev, source: 'lock', lock: lock.path });
     }
   }
   const seen = new Set();
-  return entries.filter(entry => {
+  const inventory = entries.filter(entry => {
     const key = `${advisoryKey(entry)}\0${entry.path}`;
     if (seen.has(key) || !/^\d/.test(entry.version)) return false;
     seen.add(key);
     return true;
   }).sort((a, b) => Number(b.direct) - Number(a.direct));
+
+  const graphs = new Map();
+  for (const lock of locks) {
+    const requires = new Map();
+    const names = new Map();
+    for (const entry of lock.entries) {
+      const key = nameKey(lock.ecosystem, entry.name);
+      names.set(key, entry.name);
+      if (!requires.has(key)) requires.set(key, new Set());
+      for (const name of entry.requires || []) requires.get(key).add(nameKey(lock.ecosystem, name));
+    }
+    /* What the project asked for: its manifests, else what the lockfile itself records. */
+    const rootList = lock.declared.length ? lock.declared : lock.roots || [];
+    const roots = new Map();
+    for (const root of rootList) {
+      const key = nameKey(lock.ecosystem, root.name);
+      const known = roots.get(key);
+      roots.set(key, { name: root.name, dev: known ? known.dev && root.dev : root.dev });
+    }
+    graphs.set(lock.path, { ecosystem: lock.ecosystem, requires, names, roots, linked: !lock.flat && [...requires.values()].some(set => set.size > 0) });
+  }
+  return { inventory, graphs };
+}
+
+function dependencyInventory(files) {
+  return readDependencies(files).inventory;
+}
+
+/*
+ * The dependencies the project asked for that bring this package in, and
+ * the shortest chain from one of them to it. Walked up from the package, so
+ * the cost is the part of the graph above it, never the whole lockfile.
+ */
+function introducedThrough(graph, name) {
+  if (!graph || !graph.linked || !graph.roots.size) return null;
+  if (!graph.parents) {
+    graph.parents = new Map();
+    for (const [parent, children] of graph.requires) {
+      for (const child of children) {
+        if (!graph.parents.has(child)) graph.parents.set(child, []);
+        graph.parents.get(child).push(parent);
+      }
+    }
+  }
+  const start = nameKey(graph.ecosystem, name);
+  const below = new Map([[start, null]]);
+  const queue = [start];
+  const found = [];
+  for (let head = 0; head < queue.length; head += 1) {
+    const node = queue[head];
+    if (node !== start && graph.roots.has(node)) { found.push(node); continue; }
+    for (const parent of graph.parents.get(node) || []) {
+      if (below.has(parent)) continue;
+      below.set(parent, node);
+      queue.push(parent);
+    }
+  }
+  if (!found.length) return { roots: [], chain: [] };
+  const chain = [];
+  for (let node = found[0]; node !== null && chain.length < 8; node = below.get(node)) chain.push(graph.names.get(node) || node);
+  return { roots: found.map(key => ({ name: graph.roots.get(key).name, dev: graph.roots.get(key).dev })), chain };
 }
 
 function advisoryKey(entry) {
@@ -1491,6 +1650,13 @@ function cvss3(vector) {
   return Math.ceil(raw * 10 - 1e-9) / 10;
 }
 
+/* The highest CVSS v3 base score a record publishes, or null. */
+function topCvss(record) {
+  const scores = (Array.isArray(record && record.severity) ? record.severity : [])
+    .filter(entry => entry && entry.type === 'CVSS_V3').map(entry => cvss3(entry.score)).filter(Number.isFinite);
+  return scores.length ? Math.max(...scores) : null;
+}
+
 /*
  * One advisory's severity in the audit's three words. GitHub's reviewed
  * rating when the record carries it, else the CVSS v3 base score, else
@@ -1502,12 +1668,8 @@ function advisorySeverity(record) {
   if (rated === 'CRITICAL') return 'critical';
   if (rated === 'HIGH') return 'serious';
   if (rated === 'MODERATE' || rated === 'MEDIUM' || rated === 'LOW') return 'warning';
-  const scores = (Array.isArray(record.severity) ? record.severity : [])
-    .filter(entry => entry && entry.type === 'CVSS_V3').map(entry => cvss3(entry.score)).filter(Number.isFinite);
-  if (scores.length) {
-    const top = Math.max(...scores);
-    return top >= 9 ? 'critical' : top >= 7 ? 'serious' : 'warning';
-  }
+  const top = topCvss(record);
+  if (top !== null) return top >= 9 ? 'critical' : top >= 7 ? 'serious' : 'warning';
   return 'serious';
 }
 
@@ -1630,6 +1792,7 @@ async function lookupAdvisories(entries, transport, limits = LIMITS) {
         /* Unrated when the record was not fetched: the id is still a fact, its severity is not. */
         rated: Boolean(record),
         severity: record ? advisorySeverity(record) : (id.startsWith('MAL-') ? 'critical' : null),
+        cvss: record ? topCvss(record) : null,
         summary: record ? plain(record.summary || '', 140) : '',
         fixed: record ? fixedVersion(record, entry) : null,
         malicious: id.startsWith('MAL-')
@@ -1654,11 +1817,16 @@ const softer = severity => (severity === 'critical' ? 'serious' : 'warning');
 function advisoryFindings(inventory, advisories) {
   const out = [];
   const status = { checked: 0, vulnerable: 0, malicious: 0, unknown: 0 };
+  /* A version declared in two manifests is one version checked, as the coverage counts versions. */
+  const counted = new Set();
   for (const entry of inventory) {
-    const answer = advisories.get(advisoryKey(entry));
+    const key = advisoryKey(entry);
+    const answer = advisories.get(key);
     if (!answer) continue;
-    status.checked += 1;
-    if (answer === 'unknown') { status.unknown += 1; continue; }
+    const first = !counted.has(key);
+    counted.add(key);
+    if (first) status.checked += 1;
+    if (answer === 'unknown') { if (first) status.unknown += 1; continue; }
     if (!answer.advisories.length) continue;
     const malicious = answer.advisories.filter(advisory => advisory.malicious);
     const listed = (malicious.length ? malicious : answer.advisories).slice(0, 6);
@@ -1666,6 +1834,7 @@ function advisoryFindings(inventory, advisories) {
     const rated = answer.advisories.filter(advisory => advisory.rated !== false && advisory.severity);
     const fixes = rated.map(advisory => advisory.fixed);
     const fixed = rated.length && fixes.every(Boolean) ? fixes.sort(compareVersions)[fixes.length - 1] : null;
+    const scores = rated.map(advisory => advisory.cvss).filter(Number.isFinite);
     const detail = {
       package: entry.name,
       version: entry.version,
@@ -1676,26 +1845,130 @@ function advisoryFindings(inventory, advisories) {
       range: entry.range || null,
       fixed,
       unfixed: rated.some(advisory => !advisory.fixed),
-      advisories: listed.map(advisory => ({ id: advisory.id, cve: advisory.cve, severity: advisory.severity, summary: advisory.summary })),
+      cvss: scores.length ? Math.max(...scores) : null,
+      advisories: listed.map(advisory => ({ id: advisory.id, cve: advisory.cve, severity: advisory.severity, cvss: Number.isFinite(advisory.cvss) ? advisory.cvss : null, summary: advisory.summary })),
       more: Math.max(0, (malicious.length ? malicious : answer.advisories).length - listed.length)
     };
+    /* `entry` and `all` stay with the item until the reach and the risk are known, then are dropped. */
+    const carry = { entry, all: answer.advisories };
     if (malicious.length) {
       status.malicious += 1;
-      out.push({ rule: 'DEP-006', path: entry.path, line: entry.line, severity: 'critical', detail });
+      out.push({ rule: 'DEP-006', path: entry.path, line: entry.line, severity: 'critical', detail, ...carry, impact: 'critical' });
       continue;
     }
     status.vulnerable += 1;
-    let severity = rated.length ? worst(rated.map(advisory => advisory.severity)) : 'serious';
-    if (entry.dev) severity = softer(severity);
+    const impact = rated.length ? worst(rated.map(advisory => advisory.severity)) : 'serious';
+    const severity = entry.dev ? softer(impact) : impact;
     if (entry.source === 'range') {
       const ceiling = rangeCeiling(entry.range, entry.ecosystem);
       const fixable = fixed && (!ceiling || compareVersions(fixed, ceiling) < 0);
-      out.push(fixable ? { rule: 'DEP-005', path: entry.path, line: entry.line, severity: 'warning', detail } : { rule: 'DEP-003', path: entry.path, line: entry.line, severity, detail });
+      out.push(fixable ? { rule: 'DEP-005', path: entry.path, line: entry.line, severity: 'warning', detail, ...carry, impact } : { rule: 'DEP-003', path: entry.path, line: entry.line, severity, detail, ...carry, impact });
       continue;
     }
-    out.push({ rule: 'DEP-003', path: entry.path, line: entry.line, severity, detail });
+    out.push({ rule: 'DEP-003', path: entry.path, line: entry.line, severity, detail, ...carry, impact });
   }
   return { out, status };
+}
+
+/*
+ * What is known about the exploitation of one package's advisories: the
+ * catalog entry that matters most (a ransomware campaign first, then the
+ * earliest listed) and the highest EPSS probability, each with the CVE it
+ * belongs to. `catalog` separates "not listed" from "the catalog could not
+ * be read", so an outage never reads as good news.
+ */
+function exploitIntelOf(advisories, intel) {
+  const cves = [...new Set(advisories.map(advisory => advisory.cve).filter(Boolean))];
+  if (!intel || !cves.length) return null;
+  let kev = null;
+  let epss = null;
+  let listedUnknown = false;
+  let answered = 0;
+  for (const cve of cves) {
+    const answer = intel.get(cve);
+    if (!answer) { listedUnknown = true; continue; }
+    answered += 1;
+    if (answer.kev === undefined) listedUnknown = true;
+    if (answer.kev) {
+      const better = !kev || (answer.kev.ransomware && !kev.ransomware) || (answer.kev.ransomware === kev.ransomware && String(answer.kev.added) < String(kev.added));
+      if (better) kev = { cve, added: answer.kev.added, due: answer.kev.due, ransomware: Boolean(answer.kev.ransomware) };
+    }
+    if (Number.isFinite(answer.epss) && (!epss || answer.epss > epss.score)) epss = { cve, score: answer.epss, percentile: answer.percentile, date: answer.epssDate };
+  }
+  if (!answered) return { exploited: false, ransomware: false, kev: null, epss: null, catalog: 'unknown', cves: cves.length, scored: 0 };
+  return {
+    exploited: Boolean(kev),
+    ransomware: Boolean(kev && kev.ransomware),
+    kev,
+    epss,
+    catalog: kev ? 'listed' : listedUnknown ? 'unknown' : 'unlisted',
+    cves: cves.length,
+    scored: cves.filter(cve => intel.get(cve) && Number.isFinite(intel.get(cve).epss)).length
+  };
+}
+
+/*
+ * Reach, exploit intelligence and one risk number for every vulnerable
+ * package. The import scan runs only when there is something to place, and
+ * only looks for the vulnerable packages and the dependencies that
+ * introduced them.
+ */
+function assessDependencyRisk(items, { files, allPaths, graphs, intel }) {
+  const through = new Map();
+  const wanted = new Map();
+  const want = (ecosystem, name) => {
+    const key = nameKey(ecosystem, name);
+    wanted.set(`${ecosystem}:${key}`, { ecosystem, key, name });
+  };
+  for (const item of items) {
+    want(item.entry.ecosystem, item.entry.name);
+    if (item.entry.direct) continue;
+    const found = introducedThrough(graphs.get(item.entry.lock), item.entry.name);
+    through.set(item, found);
+    for (const root of (found && found.roots) || []) want(item.entry.ecosystem, root.name);
+  }
+  const usage = usageIndex(files, [...wanted.values()], isTestPath);
+  const read = new Set(files.map(file => file.path));
+  const unseenOf = languages => allPaths.some(filePath => !read.has(filePath) && languages.has(extensionOf(filePath)) && !EXCLUDED_DIR.test(filePath) && !isTestPath(filePath));
+  const unseen = { npm: unseenOf(JS_EXT), pypi: unseenOf(PY_EXT) };
+  const summary = { exploited: 0, ransomware: 0, bands: { urgent: 0, high: 0, moderate: 0, low: 0 }, tiers: {} };
+  for (const item of items) {
+    const { entry, detail } = item;
+    const key = nameKey(entry.ecosystem, entry.name);
+    const placed = tierOf({ entry, key, usage, through: through.has(item) ? through.get(item) : null, unseen: unseen[entry.ecosystem] });
+    detail.usage = {
+      tier: placed.tier,
+      files: placed.files,
+      count: placed.count,
+      through: placed.through || [],
+      throughCount: placed.throughCount || 0,
+      chain: placed.chain || [],
+      seen: placed.seen || null,
+      reason: placed.reason || null
+    };
+    detail.intel = exploitIntelOf(item.all, intel);
+    if (detail.intel) {
+      const byCve = new Map(item.all.filter(advisory => advisory.cve).map(advisory => [advisory.cve, intel.get(advisory.cve)]));
+      detail.advisories = detail.advisories.map(advisory => {
+        const answer = advisory.cve ? byCve.get(advisory.cve) : null;
+        return { ...advisory, epss: answer && Number.isFinite(answer.epss) ? answer.epss : null, kev: Boolean(answer && answer.kev) };
+      });
+    }
+    detail.risk = riskOf({
+      severity: item.impact, cvss: detail.cvss, intel: detail.intel, tier: placed.tier,
+      malicious: item.rule === 'DEP-006', certainty: item.rule === 'DEP-005' ? 0.4 : 1
+    });
+    if (detail.intel && detail.intel.exploited && item.rule !== 'DEP-005') {
+      summary.exploited += 1;
+      if (detail.intel.ransomware) summary.ransomware += 1;
+    }
+    summary.bands[detail.risk.band] += 1;
+    summary.tiers[placed.tier] = (summary.tiers[placed.tier] || 0) + 1;
+    delete item.entry;
+    delete item.all;
+    delete item.impact;
+  }
+  return summary;
 }
 
 /* ---- Look-alike names ---------------------------------------------------------- */
@@ -1754,7 +2027,9 @@ function detailText(rule, detail) {
     const ids = detail.advisories.map(advisory => advisory.cve || advisory.id).join(', ');
     const version = detail.source === 'range' ? `${detail.range} (lowest accepted: ${detail.version})` : detail.version;
     const fix = rule === 'DEP-006' ? '' : detail.fixed ? `; fixed in ${detail.fixed}` : detail.unfixed ? '; no fixed version published' : '';
-    return `${detail.package} ${version}${detail.direct ? '' : ', a transitive dependency'} -- ${ids}${detail.more ? ` and ${detail.more} more` : ''}${fix}`;
+    const exploited = detail.intel && detail.intel.exploited && detail.intel.kev ? `; CISA lists ${detail.intel.kev.cve} as exploited in the wild` : '';
+    const through = detail.usage && detail.usage.tier === 'transitive' && detail.usage.through.length ? `; it comes with ${detail.usage.through.join(', ')}` : '';
+    return `${detail.package} ${version}${detail.direct ? '' : ', a transitive dependency'} -- ${ids}${detail.more ? ` and ${detail.more} more` : ''}${fix}${exploited}${through}`;
   }
   return '';
 }
@@ -1901,8 +2176,12 @@ function score(findings) {
   const mean = Math.round(categories.reduce((total, category) => total + category.score * category.weight, 0) /
     categories.reduce((total, category) => total + category.weight, 0));
   const critical = findings.some(finding => finding.severity === 'critical' && finding.verdict !== 'needs-validation');
-  const total = critical ? Math.min(mean, CRITICAL_CAP) : mean;
-  return { score: total, grade: gradeOf(total), capped: critical && mean > CRITICAL_CAP, categories };
+  /* A vulnerability being exploited in the wild, in something that ships, holds the grade down like a confirmed critical. */
+  const exploited = findings.some(exploitedInProduction);
+  const held = critical || exploited;
+  const total = held ? Math.min(mean, CRITICAL_CAP) : mean;
+  const capped = held && mean > CRITICAL_CAP;
+  return { score: total, grade: gradeOf(total), capped, capReason: capped ? (critical ? 'critical' : 'exploited') : null, categories };
 }
 
 /*
@@ -1917,7 +2196,7 @@ function score(findings) {
  * tracing at all, the answer when a first attempt ran out of room. Either
  * way the coverage ledger says what was and was not followed.
  */
-function analyse({ files, paths, registry = new Map(), advisories = new Map(), trace = {} }) {
+function analyse({ files, paths, registry = new Map(), advisories = new Map(), intel = null, trace = {} }) {
   const raw = [];
   const packages = [];
   const prepared = [];
@@ -2026,8 +2305,12 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), t
     if (resembles) raw.push({ rule: 'DEP-004', path: entry.path, line: entry.line, detail: { package: entry.name, resembles } });
   }
 
-  /* Versions with published advisories. */
-  const vulnerabilities = advisoryFindings(dependencyInventory(files), advisories);
+  /* Versions with published advisories, placed by how close they are to the running code and how exploited they are. */
+  const dependencies = readDependencies(files);
+  const vulnerabilities = advisoryFindings(dependencies.inventory, advisories);
+  const dependencyRisk = vulnerabilities.out.length
+    ? assessDependencyRisk(vulnerabilities.out, { files, allPaths, graphs: dependencies.graphs, intel: intel instanceof Map && intel.size ? intel : null })
+    : null;
   raw.push(...vulnerabilities.out);
 
   /* Dependencies the public registry answered for. Unknown is not missing. */
@@ -2102,7 +2385,7 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), t
     cut: flowResult.stats.cut || 0, limit: flowResult.stats.limit || null
   } };
   return {
-    findings, suppressed, dependencyStatus, advisoryStatus: vulnerabilities.status, priorities: priorities(findings), ...score(findings),
+    findings, suppressed, dependencyStatus, advisoryStatus: vulnerabilities.status, dependencyRisk, priorities: priorities(findings), ...score(findings),
     engine,
     surface: surfaceSummary(surface),
     ledger: ledger({ findings, prepared, allPaths, surface, flowResult }),
@@ -2138,18 +2421,26 @@ function suppression(lines, line, rule) {
 /*
  * What to fix first: the three findings that would most change the outcome,
  * no two from the same rule, so the list reads as three different jobs.
- * Severity first; among equals, the families an attacker reaches first -- a
- * live credential or an open database before a code pattern, a code pattern
- * before a dependency, anything before hygiene -- and a direct dependency
- * before one that came with it.
+ * A confirmed critical, or a vulnerability CISA lists as exploited in a
+ * package that ships, first; then severity; among equals, the families an
+ * attacker reaches first -- a live credential or an open database before a
+ * code pattern, a code pattern before a dependency, anything before hygiene
+ * -- then the riskier dependency, and a direct one before one that came
+ * with it.
  */
 const REACH = Object.freeze({ secrets: 0, access: 1, code: 1, 'supply-chain': 2, dependencies: 3, infrastructure: 3, hygiene: 4 });
 function priorities(findings) {
   const openReach = finding => (finding.reach && finding.reach.auth === 'open' ? 0 : 1);
+  /* Being exploited now outranks being severe in theory: such a vulnerability stands with the confirmed criticals. */
+  const urgent = finding => ((finding.severity === 'critical' && finding.verdict !== 'needs-validation') || exploitedInProduction(finding) ? 0 : 1);
+  const risk = finding => (finding.detail && finding.detail.risk ? finding.detail.risk.score : -1);
   const ranked = [...findings].sort((a, b) => Number(a.verdict === 'needs-validation') - Number(b.verdict === 'needs-validation') ||
+    urgent(a) - urgent(b) ||
+    Number(exploitedInProduction(b)) - Number(exploitedInProduction(a)) ||
     SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
     openReach(a) - openReach(b) ||
     (REACH[a.category] ?? 5) - (REACH[b.category] ?? 5) ||
+    risk(b) - risk(a) ||
     Number(Boolean(b.detail && b.detail.direct)) - Number(Boolean(a.detail && a.detail.direct)));
   const out = [];
   const rules = new Set();
@@ -2359,7 +2650,7 @@ async function lookupPackages(packages, transport, limits = LIMITS) {
  * starts, with a count while files are read. Progress carries numbers and
  * stage names only, never a path or a line of the code.
  */
-async function auditRepository({ reader, scope, ref, token, transport, registryTransport, advisoryTransport, limits = LIMITS, analyser = input => analyse(input), onProgress = () => {} }) {
+async function auditRepository({ reader, scope, ref, token, transport, registryTransport, advisoryTransport, intelTransport, intelCache, limits = LIMITS, analyser = input => analyse(input), onProgress = () => {} }) {
   const progress = (stage, detail = {}) => { try { onProgress({ stage, ...detail }); } catch {} };
   progress('resolving');
   const resolved = await reader.resolveCommit({ scope, ref, token, transport });
@@ -2390,8 +2681,21 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
     registryTransport ? lookupPackages(packages, registryTransport, limits) : { answers: new Map(), asked: 0, total: 0 },
     advisoryTransport ? lookupAdvisories(inventory, advisoryTransport, limits) : { answers: new Map(), asked: 0, total: 0 }
   ]);
+  /*
+   * Exploit intelligence for the CVEs those advisories carry: only the CVE
+   * identifiers leave, anonymously, and only when there is one to ask about.
+   */
+  const cves = [];
+  for (const answer of advisories.answers.values()) {
+    if (answer && Array.isArray(answer.advisories)) for (const advisory of answer.advisories) if (advisory.cve) cves.push(advisory.cve);
+  }
+  let intel = null;
+  if (intelTransport) {
+    if (cves.length) progress('intel');
+    intel = await lookupExploitIntel(cves, intelTransport, intelCache ? { cache: intelCache } : {});
+  }
   progress('analysing', { files: files.length });
-  const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers });
+  const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers, intel: intel ? intel.answers : null });
   const lockfiles = paths.filter(filePath => READ_LOCKS.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath));
   return {
     commitSha: resolved.commitSha,
@@ -2418,7 +2722,9 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
         malicious: result.advisoryStatus.malicious,
         lockfiles: lockfiles.length,
         lockfilesRead: files.filter(file => READ_LOCKS.has(baseName(file.path))).length
-      }
+      },
+      /* Which exploit sources answered: a source that did not leaves its answers unknown, never negative. */
+      exploit: intel ? intel.status : null
     },
     ...result
   };
@@ -2426,6 +2732,6 @@ async function auditRepository({ reader, scope, ref, token, transport, registryT
 
 module.exports = Object.freeze({
   ENGINE, CATEGORIES, RULES, LIMITS, CRITICAL_CAP, SEVERITY_PENALTY, PATTERN_RULES, LEDGER,
-  analyse, auditRepository, selectFiles, lookupPackages, lookupAdvisories, dependencyInventory, registryUrl, normalizePypi, gradeOf,
+  analyse, auditRepository, selectFiles, lookupPackages, lookupAdvisories, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
   compareVersions, rangeCeiling, rangeFloor, cvss3, sqlStatements
 });

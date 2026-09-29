@@ -87,11 +87,11 @@ function publicFailure(code, message, status) {
 /* Run once in a worker: analyse what the main thread read, post the result, exit. */
 function runInWorker() {
   const { analyse } = require('./code-audit');
-  const { files, paths, registry, advisories, trace } = workerData;
+  const { files, paths, registry, advisories, intel, trace } = workerData;
   const bounded = trace && trace.skip
     ? { skip: trace.skip }
     : { deadline: Date.now() + Math.max(0, Number(trace && trace.traceMs) || 0), heapCeiling: Number(trace && trace.heapCeiling) || Infinity };
-  const result = analyse({ files, paths, registry, advisories, trace: bounded });
+  const result = analyse({ files, paths, registry, advisories, intel, trace: bounded });
   parentPort.postMessage({ result });
 }
 
@@ -124,7 +124,7 @@ function runWorker(input, trace, hardMs, budget, spawn = Worker) {
     }, budget.watchMs);
     try {
       worker = new spawn(__filename, {
-        workerData: { kind: KIND, files: input.files, paths: input.paths, registry: input.registry, advisories: input.advisories, trace },
+        workerData: { kind: KIND, files: input.files, paths: input.paths, registry: input.registry, advisories: input.advisories, intel: input.intel || null, trace },
         resourceLimits: { maxOldGenerationSizeMb: Math.max(HEAP_FLOOR_MB, budget.heapMb), maxYoungGenerationSizeMb: budget.youngMb, stackSizeMb: 8 }
       });
     } catch {

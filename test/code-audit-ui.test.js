@@ -145,7 +145,7 @@ const ui = require('../public/code-audit-ui');
   /* CSV: a header, a row per finding, waived rows marked, and nothing a spreadsheet would run. */
   const table = ui.csv(waivedResult, site, null);
   const rows = table.trim().split('\r\n');
-  assert.strictEqual(rows[0], 'Source,Status,Severity,Verdict,Rule,Title,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reached through,How to confirm,Reason waived,Fix');
+  assert.strictEqual(rows[0], 'Source,Status,Severity,Verdict,Rule,Title,Detail,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reached through,Risk,Known exploited,EPSS,Dependency reach,How to confirm,Reason waived,Fix');
   assert(rows.some(row => row.includes(',CWE-89,#2,A05:2025,')), 'the rank and the 2025 category travel with the row');
   assert(rows.some(row => row.startsWith('repository,open,critical,confirmed,SEC-001,') && row.includes(',api/users.js,2,GET /u/:id (open),,')), 'a confirmed finding carries its route and no check');
   assert(rows.some(row => row.startsWith('repository,open,critical,to confirm,SEC-001,') && row.includes(',api/legacy.js,1,,')), 'a lead says it is one');
@@ -158,6 +158,31 @@ const ui = require('../public/code-audit-ui');
   const quoted = ui.csv({ findings: [{ id: 'x', rule: 'SEC-001', severity: 'critical', title: 'Say "hi", then go', category: 'code', path: 'a.js', line: 2, fix: 'line one\nline two' }], categories: [] }, null, null);
   assert(quoted.includes('"Say ""hi"", then go"'), 'quotes are doubled inside a quoted cell');
   assert(quoted.includes('"line one\nline two"'));
+
+  /* Exploit intelligence and reach travel with every export, and the brief ranks the packages by risk. */
+  const { riskyResult } = require('./e2e/code-audit-risk-fixture');
+  const risky = riskyResult();
+  const riskyBrief = ui.brief(risky, 'sandbox/demo (main)', null);
+  assert.match(riskyBrief, /Grade \*\*F\*\* — \d+\/100 \(held below 50 by a vulnerability exploited in the wild\)\./);
+  assert.match(riskyBrief, /## Dependency risk\n\nRanked by exploitation in the wild, exploit probability and reach\./);
+  assert.match(riskyBrief, /Sources: CISA’s Known Exploited Vulnerabilities catalog 2026\.09\.27 \(1,728 CVEs\) · FIRST EPSS scores for 4 of 4 CVEs\./);
+  const riskRows = riskyBrief.split('\n').filter(line => /^\| \d+ (urgent|high|moderate|low) \|/.test(line));
+  assert.deepStrictEqual(riskRows.map(line => line.split('|')[2].trim()), ['jquery 3.4.1', 'qs 6.7.0', 'lodash 4.17.15', 'systeminformation 5.3.0'], 'exploited and shipping first, then by risk');
+  assert.match(riskRows[3], /\| yes — CVE-2021-21315 \| 91% \(CVE-2021-21315\) \| Dev only \|$/);
+  assert.match(riskyBrief, /- \*\*Reach:\*\* Installed for production\. Only tests import it \(test\/format\.test\.js\)/);
+  assert.match(riskyBrief, /4 CVEs checked against CISA KEV 2026\.09\.27 and EPSS \(4 scored\)/);
+  const riskyCsv = ui.csv(risky, null, null).trim().split('\r\n');
+  const jqueryRow = riskyCsv.find(row => row.includes(',jquery 3.4.1 → 3.5.0,'));
+  assert(jqueryRow, 'the package, its version and its fix are named in the row');
+  assert.match(jqueryRow, /,\d+ urgent,yes \(CVE-2020-11023\),84\.89% \(CVE-2020-11023\),imported,/, 'risk, catalog, EPSS and reach in their columns');
+  const riskySarif = JSON.parse(ui.sarif(risky, null));
+  const qsResult = riskySarif.runs[0].results.find(item => item.properties.epssCve === 'CVE-2022-24999');
+  assert.strictEqual(qsResult.properties.knownExploited, false);
+  assert.strictEqual(qsResult.properties.dependencyReach, 'transitive');
+  assert.strictEqual(qsResult.properties['security-severity'], '7.5', 'the advisory’s own CVSS, for a dashboard to sort by');
+  assert.strictEqual(riskySarif.runs[0].properties.exploitSources.kevVersion, '2026.09.27');
+  const riskyPrompts = ui.allPrompts(risky);
+  assert.match(riskyPrompts, /CISA lists CVE-2020-11023 as exploited in the wild/);
 
   /* The comparison: identities only, new and resolved. */
   assert.strictEqual(ui.diff(result, null), null);

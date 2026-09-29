@@ -11,7 +11,7 @@ const assert = require('assert');
 const audit = require('../src/code-audit');
 
 function run(files, extra = {}) {
-  return audit.analyse({ files, paths: extra.paths || files.map(file => file.path), registry: extra.registry, advisories: extra.advisories });
+  return audit.analyse({ files, paths: extra.paths || files.map(file => file.path), registry: extra.registry, advisories: extra.advisories, intel: extra.intel });
 }
 function rules(result) {
   return result.findings.map(finding => `${finding.rule}@${finding.path || '-'}:${finding.line || '-'}`).sort();
@@ -382,6 +382,80 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   assert.deepStrictEqual(poetry.map(entry => `${entry.name}@${entry.version}${entry.dev ? ':dev' : ''}`), ['django@3.2.0', 'pytest@7.0.0:dev']);
 }
 
+/* ---- Exploit intelligence, reach and risk -------------------------------------------- */
+{
+  const lock = { lockfileVersion: 3, packages: {
+    '': { dependencies: { express: '^4.17.0', jquery: '^3.4.0', lodash: '^4.17.0' }, devDependencies: { systeminformation: '^5.3.0' } },
+    'node_modules/express': { version: '4.17.1', dependencies: { qs: '6.7.0' } },
+    'node_modules/qs': { version: '6.7.0' },
+    'node_modules/jquery': { version: '3.4.1' },
+    'node_modules/lodash': { version: '4.17.15' },
+    'node_modules/systeminformation': { version: '5.3.0', dev: true }
+  } };
+  const files = [
+    { path: 'README.md', text: '#' },
+    { path: 'package.json', text: JSON.stringify({ dependencies: lock.packages[''].dependencies, devDependencies: lock.packages[''].devDependencies }, null, 2) },
+    { path: 'package-lock.json', text: JSON.stringify(lock, null, 2) },
+    { path: 'server.js', text: "const express = require('express');\nexpress().listen(3000);\n" },
+    { path: 'web/main.js', text: "import $ from 'jquery';\n" },
+    { path: 'test/a.test.js', text: "require('lodash');\n" }
+  ];
+  const advisory = (id, cve, severity, cvss) => ({ id, cve, rated: true, severity, cvss, summary: '', fixed: '99.0.0', malicious: false });
+  const advisories = new Map([
+    ['npm:express@4.17.1', { advisories: [] }],
+    ['npm:jquery@3.4.1', { advisories: [advisory('GHSA-jpcq-cgw6-v4j6', 'CVE-2020-11023', 'warning', 6.1)] }],
+    ['npm:qs@6.7.0', { advisories: [advisory('GHSA-hrpp-h998-j3pp', 'CVE-2022-24999', 'serious', 7.5)] }],
+    ['npm:lodash@4.17.15', { advisories: [advisory('GHSA-35jh-r3h4-6jhm', 'CVE-2021-23337', 'serious', 7.2)] }],
+    ['npm:systeminformation@5.3.0', { advisories: [advisory('GHSA-2m8v-572m-ff2v', 'CVE-2021-21315', 'serious', 7.8)] }]
+  ]);
+  const listed = (added, due) => ({ added, due, ransomware: false });
+  const intel = new Map([
+    ['CVE-2020-11023', { epss: 0.84887, percentile: 0.99705, epssDate: '2026-09-28', kev: listed('2025-01-23', '2025-02-13') }],
+    ['CVE-2022-24999', { epss: 0.15622, percentile: 0.96731, epssDate: '2026-09-28', kev: null }],
+    ['CVE-2021-23337', { epss: 0.21333, percentile: 0.97527, epssDate: '2026-09-28', kev: null }],
+    ['CVE-2021-21315', { epss: 0.90675, percentile: 0.99801, epssDate: '2026-09-28', kev: listed('2022-01-18', '2022-02-01') }]
+  ]);
+  const result = run(files, { advisories, intel });
+  const of = name => result.findings.find(item => item.detail && item.detail.package === name);
+
+  assert.deepStrictEqual(of('jquery').detail.usage, { tier: 'imported', files: ['web/main.js'], count: 1, through: [], throughCount: 0, chain: [], seen: null, reason: null });
+  assert.deepStrictEqual(of('jquery').detail.intel, { exploited: true, ransomware: false, kev: { cve: 'CVE-2020-11023', added: '2025-01-23', due: '2025-02-13', ransomware: false },
+    epss: { cve: 'CVE-2020-11023', score: 0.84887, percentile: 0.99705, date: '2026-09-28' }, catalog: 'listed', cves: 1, scored: 1 });
+  assert.strictEqual(of('jquery').detail.risk.band, 'urgent');
+  assert.deepStrictEqual(of('jquery').detail.advisories[0], { id: 'GHSA-jpcq-cgw6-v4j6', cve: 'CVE-2020-11023', severity: 'warning', cvss: 6.1, summary: '', epss: 0.84887, kev: true });
+  assert.match(of('jquery').prompt, /CISA lists CVE-2020-11023 as exploited in the wild/);
+  assert.strictEqual(of('qs').detail.usage.tier, 'transitive');
+  assert.deepStrictEqual(of('qs').detail.usage.chain, ['express', 'qs']);
+  assert.match(of('qs').prompt, /it comes with express/);
+  assert.strictEqual(of('qs').detail.intel.catalog, 'unlisted');
+  assert.strictEqual(of('lodash').detail.usage.tier, 'installed', 'a production dependency only tests import is never "unused"');
+  assert.strictEqual(of('lodash').detail.usage.seen, 'test');
+  assert.strictEqual(of('systeminformation').detail.usage.tier, 'dev');
+  assert.strictEqual(of('systeminformation').detail.intel.exploited, true);
+  assert.notStrictEqual(of('systeminformation').detail.risk.band, 'urgent', 'exploited, but only a development tool');
+
+  /* The grade is held by what is exploited and ships; Fix first leads with it though its advisory is only moderate. */
+  assert.strictEqual(result.capReason, 'exploited');
+  assert(result.score <= audit.CRITICAL_CAP);
+  assert.strictEqual(result.findings.find(item => item.id === result.priorities[0]).detail.package, 'jquery');
+  assert.deepStrictEqual(result.dependencyRisk, { exploited: 2, ransomware: 0, bands: { urgent: 1, high: 1, moderate: 2, low: 0 }, tiers: { imported: 1, transitive: 1, installed: 1, dev: 1 } });
+
+  /* Without the catalog, nothing is exploited and nothing is clear; without any answer, there is no intel at all. */
+  const unread = new Map([...intel].map(([cve, answer]) => [cve, { ...answer, kev: undefined }]));
+  const blind = run(files, { advisories, intel: unread });
+  assert.strictEqual(blind.findings.find(item => item.detail && item.detail.package === 'jquery').detail.intel.catalog, 'unknown');
+  assert.strictEqual(blind.capReason, null);
+  const none = run(files, { advisories });
+  assert.strictEqual(none.findings.find(item => item.detail && item.detail.package === 'jquery').detail.intel, null);
+  assert.strictEqual(none.findings.find(item => item.detail && item.detail.package === 'jquery').detail.usage.tier, 'imported', 'reach does not need the network');
+
+  /* Source files that were not read make "no import found" unknown. */
+  const partial = audit.analyse({ files, paths: [...files.map(file => file.path), 'src/unread.js'], advisories, intel });
+  const partialLodash = partial.findings.find(item => item.detail && item.detail.package === 'lodash');
+  assert.strictEqual(partialLodash.detail.usage.tier, 'unknown');
+  assert.strictEqual(partialLodash.detail.usage.reason, 'unread');
+}
+
 /* ---- The advisory lookup ------------------------------------------------------------ */
 (async () => {
   const calls = [];
@@ -641,6 +715,27 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   assert.strictEqual(express.rule, 'DEP-005', 'the lowest version ^4.19.0 accepts is affected; 4.20.0 is inside the range');
   assert.strictEqual(express.detail.range, '^4.19.0');
   assert.deepStrictEqual(advised.coverage.advisories, { versions: 2, checked: 2, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1 });
+  assert.strictEqual(advised.coverage.exploit, null, 'without an exploit source, nothing is claimed about exploitation');
+
+  /* With exploit intelligence: only the advisory's CVE leaves, after the advisories, as its own stage. */
+  const stages = [];
+  const intelAsked = [];
+  const { createIntelCache, KEV_URL } = require('../src/exploit-intel');
+  const intelTransport = async input => {
+    intelAsked.push(input);
+    if (input.url === KEV_URL) return { statusCode: 200, body: JSON.stringify({ catalogVersion: '2026.09.27', vulnerabilities: [{ cveID: 'CVE-2024-43796', dateAdded: '2026-01-02', dueDate: '2026-01-23', knownRansomwareCampaignUse: 'Unknown' }] }) };
+    return { statusCode: 200, body: JSON.stringify({ data: [{ cve: 'CVE-2024-43796', epss: '0.00120', percentile: '0.31', date: '2026-09-28' }] }) };
+  };
+  const informed = await audit.auditRepository({ reader, scope: { provider: 'github', owner: 'a', repo: 'b' }, ref: 'main', token: 't', transport: null, registryTransport, advisoryTransport,
+    intelTransport, intelCache: createIntelCache(), onProgress: update => stages.push(update.stage) });
+  assert.deepStrictEqual([...new Set(stages)], ['resolving', 'reading', 'advisories', 'intel', 'analysing']);
+  assert(intelAsked.every(input => input.profile === 'threat-intel' && input.method === 'GET'));
+  assert(intelAsked.every(input => !/server\.js|expresss|README/.test(input.url)), 'nothing from the repository leaves');
+  assert.deepStrictEqual(informed.coverage.exploit, { cves: 1, asked: 1, kev: 'ok', kevVersion: '2026.09.27', kevCount: 1, kevStale: false, epss: 'ok', scored: 1, unscored: 0 });
+  const informedExpress = informed.findings.find(item => item.detail && item.detail.package === 'express');
+  assert.strictEqual(informedExpress.detail.intel.exploited, true);
+  assert.strictEqual(informedExpress.rule, 'DEP-005');
+  assert.strictEqual(informed.capReason, null, 'a range that already admits the fix does not hold the grade');
 
   console.log('code audit tests passed');
 })().catch(error => {

@@ -131,7 +131,22 @@ reading an unanswered lookup as unknown rather than missing. It asks OSV --
 anonymously, through the guarded transport's advisory profile, which can reach
 `api.osv.dev` and nothing else -- which installed versions (from the lockfile,
 or a declared range's floor, marked as such) have a published or malicious-
-package advisory. It reports credentials with the same detectors as exposure
+package advisory. For the CVEs those advisories carry -- and only their
+identifiers -- it asks FIRST's EPSS for the probability of exploitation and
+CISA's Known Exploited Vulnerabilities catalog whether each is exploited in the
+wild, through the guarded transport's threat-intel profile, which is anonymous,
+GET only and reaches `api.first.org` and `www.cisa.gov` and nothing else; both
+answers are public and cached in the process, and a source that cannot be read
+leaves its answers unknown, never negative. Each vulnerable package is then
+placed by how close it sits to the code that runs -- imported, named where a
+framework loads it by name, bundled or served from node_modules by the build,
+brought in by a dependency the code imports (the
+lockfile's requirement graph names which), installed with no import found,
+build tooling, tests or development only -- and given one risk number from its
+CVSS impact, that threat and that reach. No tier says "unused": a production
+dependency with no import found is "installed". A vulnerability CISA lists as
+exploited, in a package that ships, holds the grade below 50 and leads Fix
+first. It reports credentials with the same detectors as exposure
 scanning, keeping only the detector's name and the line, and reads Supabase
 migrations and Firebase rules for tables and paths anyone can read or write.
 Its engine, Uranus, follows values through JavaScript, TypeScript and Python --
@@ -141,8 +156,8 @@ maps every endpoint and server action with the guard in front of it. A finding
 is `confirmed` when the file states it or the whole path was traced, and `to
 confirm` when one decisive fact is out of reach; a lead names that fact and the
 local check that settles it, weighs half, and is exported to SARIF as a note to
-review. The grade is held below 50 only while a confirmed critical finding is
-open, and the result carries a coverage ledger -- each class of attack traced,
+review. The grade is held below 50 only while a confirmed critical finding, or
+a vulnerability exploited in the wild in a package that ships, is open, and the result carries a coverage ledger -- each class of attack traced,
 pattern-checked, absent or not assessed -- so a clean list is never read as a
 clean repository. It states how much of the branch, how many packages and how
 many versions it checked. The audit runs as a job the page follows by run id,

@@ -2,6 +2,82 @@
 
 ## Unreleased
 
+### Exploit-Aware Dependency Risk: EPSS, CISA KEV and Reach
+
+Asked for: prioritisation that predicts exploitation (EPSS), not only
+severity (CVSS), the way enterprise scanners do.
+
+- **Every CVE an audit finds is checked against two public sources.**
+  - FIRST's EPSS: the chance it is exploited in the next 30 days, and its
+    rank among every scored CVE.
+  - CISA's Known Exploited Vulnerabilities catalog: whether it is exploited
+    in the wild, when it was listed, the date US federal agencies had to fix
+    it by, and whether ransomware campaigns use it.
+  - Only CVE identifiers leave, anonymously, through a new guarded-transport
+    profile that reaches `api.first.org` and `www.cisa.gov` and nothing
+    else. Both answers are public and cached in the process (the catalog for
+    twelve hours, a score for a day); a failed catalog refresh uses the copy
+    it has for up to a week and says so.
+  - A source that cannot be read leaves its answers unknown, never "not
+    exploited", and the coverage note says which source was missing.
+- **Each vulnerable package is placed by how close it sits to the running
+  code.**
+  - Imported by the code, or named where a framework loads it by name (a
+    database dialect, a view engine, a Django app), with the files.
+  - Bundled: handed to a bundler by a build script, named as a build's entry
+    or provided global, or served from `node_modules`. What a build ships
+    reaches users; only the tool itself (the command, a loader, a plugin, a
+    preset) is build tooling.
+  - Brought in by a dependency the code imports: the lockfile's requirement
+    graph (npm, yarn classic and berry, pnpm 5 to 9, Poetry) names which
+    dependency, and the chain from it.
+  - Build tooling, tests or development only, from positive evidence: a
+    development dependency, or a package only configuration and build
+    scripts reference. `start` counts as production unless it starts a
+    development server.
+  - A production dependency with no import found is "installed", never
+    "unused": frameworks load packages by convention. When source files
+    went unread, or the lockfile records no requirements, reach is
+    "unknown".
+- **One risk number per vulnerable package, 0 to 100:** (40 × CVSS impact +
+  60 × threat) × reach. Threat is 1 for an exploited CVE and otherwise EPSS
+  on a log scale. An exploited vulnerability in anything that ships is never
+  below 80 (urgent); a known-malicious package is 100.
+- **What is exploited leads.**
+  - A vulnerability CISA lists as exploited, in a package that ships, holds
+    the grade below 50 like a confirmed critical finding, and the summary
+    says which held it.
+  - Fix first puts it with the confirmed criticals, ahead of severity; among
+    dependency findings, the riskier one first.
+  - A declared range that already admits the fixed version never holds the
+    grade: what installs may be fixed.
+- **A Dependency risk section** after Fix first ranks every vulnerable
+  package, with its risk, band, fix, reach in one sentence, and chips for
+  Exploited, Ransomware, EPSS and reach. Counts of exploited packages and of
+  each band sit above it; the exploited count filters the findings. It folds
+  like the other sections.
+- **Each dependency finding shows the evidence:** the risk and what it rests
+  on, the catalog entry with a link to CISA, the EPSS score with its date,
+  the files that import the package, and the chain that brought it in. Each
+  advisory shows its CVSS, KEV and EPSS.
+- **Findings filter by exploitation** beside severity and verdict, and search
+  finds "kev", "exploited", "ransomware", "epss", a risk band or a reach.
+- **Exports carry the same facts.**
+  - The brief gains a Dependency risk table and, per finding, risk, exploited,
+    EPSS and reach lines.
+  - SARIF results gain risk, known-exploited, KEV, EPSS and reach properties,
+    and a dependency's own CVSS as its `security-severity`.
+  - CSV gains Detail (the package, version and fix), Risk, Known exploited,
+    EPSS and Dependency reach columns.
+  - Fix prompts name an exploited CVE and the dependency that brought a
+    transitive package in.
+- **The audit's progress** shows the new exploit-intelligence stage under
+  Check.
+- **A version declared in two manifests is counted once.** The coverage line
+  could read "174 of 170 package versions checked".
+- Tested end to end against public, deliberately vulnerable projects (npm and
+  Python, up to 960 files) with live OSV, EPSS and CISA answers.
+
 ### Repository Switches That Start Clean, Folding Audit Sections, and a Calmer Phone Bar
 
 Reported:

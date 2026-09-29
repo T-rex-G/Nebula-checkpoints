@@ -7745,6 +7745,7 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
           transport: input => session.request(input),
           registryTransport: input => guardedFetch(input),
           advisoryTransport: input => guardedFetch(input),
+          intelTransport: input => guardedFetch(input),
           analyser: input => analyseOffThread(input, { onStage: (stage, detail) => onProgress({ stage, ...(detail || {}) }) }),
           onProgress
         });

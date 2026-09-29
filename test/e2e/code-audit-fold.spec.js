@@ -13,7 +13,7 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 test.use({ serviceWorkers: 'block' });
 
 const SECTIONS = [
-  ['first', 'Fix first'], ['families', 'Families'], ['surface', 'Attack surface'], ['coverage', 'Coverage'],
+  ['first', 'Fix first'], ['risk', 'Dependency risk'], ['families', 'Families'], ['surface', 'Attack surface'], ['coverage', 'Coverage'],
   ['controls', 'Already in place'], ['owasp', 'OWASP Top 10'], ['findings', 'Findings'], ['site', 'Deployed site']
 ];
 

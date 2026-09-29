@@ -134,11 +134,46 @@
     route: 'M5 5h5a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h11M16 14l3 3-3 3',
     lock: LOCK,
     write: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
-    spark: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6'
+    spark: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6',
+    flame: 'M12 3c.8 3.3 5.5 5.4 5.5 10.2A5.5 5.5 0 0 1 6.5 13.2c0-2.3 1.1-3.9 2.5-5.1.2 1.8 1 2.9 2.4 3.4C10.8 8.9 11.2 5.9 12 3z',
+    gauge: 'M4 17.5a8 8 0 1 1 16 0M12 17.5l4.2-5.3M12 17.6v.1',
+    ransom: 'M6.5 10.8h11v9.2h-11zM8.8 10.8V8.2a3.2 3.2 0 0 1 6.4 0v2.6M12 13.6v2.6M12 18.4v.1',
+    code: 'M9 7.5L4.5 12 9 16.5M15 7.5l4.5 4.5-4.5 4.5',
+    layers: 'M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4',
+    tool: 'M14.7 6.3a4 4 0 0 0-5.2 5.2L4 17v3h3l5.5-5.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4z',
+    flask: 'M9.5 3.5h5M10.5 3.5v6L5.3 18.4a1.4 1.4 0 0 0 1.2 2.1h11a1.4 1.4 0 0 0 1.2-2.1L13.5 9.5v-6M8 15h8',
+    unknown: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM9.7 9.7a2.4 2.4 0 1 1 3.3 2.2c-.7.3-1 .8-1 1.4v.5M12 16.6v.1'
   });
   const STORE_PREFIX = 'nv_audit:';
   const SVG = 'http://www.w3.org/2000/svg';
   const ADVISORY_ID = /^[A-Za-z][A-Za-z0-9._-]{2,63}$/;
+  const CVE_ID = /^CVE-\d{4}-\d{4,7}$/;
+
+  /*
+   * How close a vulnerable package is to the running code, as Uranus placed
+   * it. None of these words says "unused": a package with no import found is
+   * "installed", because frameworks load packages by convention.
+   */
+  const REACH_TIER = Object.freeze({
+    imported: Object.freeze({ word: 'Imported', icon: 'M9 7.5L4.5 12 9 16.5M15 7.5l4.5 4.5-4.5 4.5', tone: 'neutral' }),
+    named: Object.freeze({ word: 'Named in code', icon: 'M9 7.5L4.5 12 9 16.5M15 7.5l4.5 4.5-4.5 4.5', tone: 'neutral' }),
+    bundled: Object.freeze({ word: 'Bundled', icon: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9M8 5.3l8 4.4', tone: 'neutral' }),
+    transitive: Object.freeze({ word: 'Via a dependency', icon: 'M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4', tone: 'neutral' }),
+    installed: Object.freeze({ word: 'Installed', icon: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9', tone: 'neutral' }),
+    unknown: Object.freeze({ word: 'Reach unknown', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM9.7 9.7a2.4 2.4 0 1 1 3.3 2.2c-.7.3-1 .8-1 1.4v.5M12 16.6v.1', tone: 'pending' }),
+    build: Object.freeze({ word: 'Build only', icon: 'M14.7 6.3a4 4 0 0 0-5.2 5.2L4 17v3h3l5.5-5.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4z', tone: 'neutral' }),
+    test: Object.freeze({ word: 'Tests only', icon: 'M9.5 3.5h5M10.5 3.5v6L5.3 18.4a1.4 1.4 0 0 0 1.2 2.1h11a1.4 1.4 0 0 0 1.2-2.1L13.5 9.5v-6M8 15h8', tone: 'neutral' }),
+    dev: Object.freeze({ word: 'Dev only', icon: 'M14.7 6.3a4 4 0 0 0-5.2 5.2L4 17v3h3l5.5-5.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4z', tone: 'neutral' })
+  });
+  /* Risk bands in the status tones, each with its word: never colour alone. */
+  const RISK_BAND = Object.freeze({
+    urgent: Object.freeze({ word: 'Urgent', tone: 'critical' }),
+    high: Object.freeze({ word: 'High', tone: 'serious' }),
+    moderate: Object.freeze({ word: 'Moderate', tone: 'warning' }),
+    low: Object.freeze({ word: 'Low', tone: 'neutral' })
+  });
+  const RISK_ORDER = Object.freeze(['urgent', 'high', 'moderate', 'low']);
+  const PRODUCTION_TIERS = new Set(['imported', 'named', 'bundled', 'transitive', 'installed', 'unknown']);
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -190,7 +225,7 @@
    * tree; the toggle says which way it will go.
    */
   const FOLD_STORE = 'nv_ui:audit-folded';
-  const FOLDS = Object.freeze(['first', 'families', 'surface', 'coverage', 'controls', 'owasp', 'findings', 'site']);
+  const FOLDS = Object.freeze(['first', 'risk', 'families', 'surface', 'coverage', 'controls', 'owasp', 'findings', 'site']);
   const folded = new Set();
   try {
     const stored = JSON.parse(global.localStorage.getItem(FOLD_STORE) || '[]');
@@ -279,6 +314,172 @@
     const entry = REACH[reach.auth];
     const where = reach.route ? `${reach.method} ${reach.route}` : reach.method === 'ACTION' ? 'a server action' : 'this endpoint';
     return chip(entry.tone, entry.word, { glyph: entry.icon, className: 'audit-reach', title: `Reached through ${where}` });
+  }
+
+  /* ---- Exploit intelligence and reach ------------------------------------- */
+
+  /* A probability as a reader says it: 21%, 3.4%, 0.04%. */
+  function percent(value) {
+    const number = Number(value) * 100;
+    if (!Number.isFinite(number)) return '';
+    if (number >= 10) return `${Math.round(number)}%`;
+    if (number >= 1) return `${number.toFixed(1).replace(/\.0$/, '')}%`;
+    if (number >= 0.01) return `${number.toFixed(2).replace(/0$/, '')}%`;
+    return '<0.01%';
+  }
+  /* A rank among scored CVEs, rounded down so it never claims more than it is: 99.7%, never 100%. */
+  function rank(value) {
+    const number = Number(value) * 100;
+    if (!Number.isFinite(number)) return '';
+    return number >= 99 || number < 10 ? `${(Math.floor(number * 10) / 10).toString()}%` : `${Math.floor(number)}%`;
+  }
+  const intelOf = finding => (finding && finding.detail && finding.detail.intel) || null;
+  const usageOf = finding => (finding && finding.detail && finding.detail.usage) || null;
+  const riskOf = finding => (finding && finding.detail && finding.detail.risk) || null;
+  /* Exploited in the wild, in something that ships: what holds the grade and leads the list. */
+  function exploited(finding) {
+    const intel = intelOf(finding);
+    const usage = usageOf(finding);
+    return Boolean(intel && intel.exploited && finding.rule !== 'DEP-005' && (!usage || PRODUCTION_TIERS.has(usage.tier)));
+  }
+  function kevChip(finding, options = {}) {
+    const intel = intelOf(finding);
+    if (!intel || !intel.exploited) return null;
+    const title = intel.kev ? `CISA lists ${intel.kev.cve} as exploited in the wild${intel.kev.added ? ` since ${intel.kev.added}` : ''}` : 'Exploited in the wild';
+    return chip('critical', options.short ? 'Exploited' : 'Exploited in the wild', { glyph: ICON.flame, beam: exploited(finding), className: 'audit-kev', title });
+  }
+  function epssChip(intel) {
+    if (!intel || !intel.epss || !Number.isFinite(intel.epss.score)) return null;
+    const score = intel.epss.score;
+    const tone = score >= 0.1 ? 'serious' : score >= 0.01 ? 'warning' : 'neutral';
+    const beyond = Number.isFinite(intel.epss.percentile) ? `, higher than ${rank(intel.epss.percentile)} of scored CVEs` : '';
+    return chip(tone, `EPSS ${percent(score)}`, { glyph: ICON.gauge, className: 'audit-epss', title: `${percent(score)} chance ${intel.epss.cve} is exploited in the next 30 days${beyond}` });
+  }
+  function tierWord(usage) {
+    if (!usage) return '';
+    if (usage.tier === 'transitive' && usage.through && usage.through.length) return `Via ${usage.through[0]}`;
+    return (REACH_TIER[usage.tier] || REACH_TIER.unknown).word;
+  }
+  function tierChip(usage) {
+    if (!usage || !REACH_TIER[usage.tier]) return null;
+    const entry = REACH_TIER[usage.tier];
+    return chip(entry.tone, tierWord(usage), { glyph: entry.icon, className: 'audit-tier', title: tierSentence(usage) });
+  }
+  const names = (list, total) => {
+    const shown = (list || []).filter(Boolean);
+    if (!shown.length) return '';
+    const text = shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`;
+    return total > shown.length ? `${shown.join(', ')} and ${total - shown.length} more` : text;
+  };
+  /* The reach, as one sentence that never claims more than the scan saw. */
+  function tierSentence(usage) {
+    if (!usage) return '';
+    const files = names(usage.files, usage.count);
+    const through = names(usage.through, usage.throughCount);
+    switch (usage.tier) {
+      case 'imported': return `Imported by the code${files ? `: ${files}` : ''}.`;
+      case 'named': return `Named in the code where a framework loads it by name${files ? `: ${files}` : ''}.`;
+      case 'bundled': return `Shipped by the build: bundled, or served from node_modules${files ? ` (${files})` : ''}.`;
+      case 'transitive': return `Not imported itself; it comes with ${through || 'a dependency'}, which the code imports.`;
+      case 'installed': return usage.seen === 'test'
+        ? `Installed for production. Only tests import it${files ? ` (${files})` : ''}; frameworks load some packages by convention, so that is not proof it never runs.`
+        : `Installed for production${through ? ` with ${through}` : ''}, and no import or reference was found in the files read. Frameworks load some packages by convention, so that is not proof it is unused.`;
+      case 'unknown': return usage.reason === 'graph'
+        ? 'The lockfile does not record which package requires it, so how it is reached is unknown.'
+        : 'Some source files were not read, so whether the code imports it is unknown.';
+      case 'build': return `Only build tooling references it${through ? ` (through ${through})` : files ? ` (${files})` : ''}: it runs when the project is built, not when it serves a request.`;
+      case 'test': return `Only tests import it${files ? ` (${files})` : ''}.`;
+      case 'dev': return `A development dependency${through ? `, through ${through}` : ''}: installed to build and test, not to run.`;
+      default: return '';
+    }
+  }
+
+  /*
+   * What is known about exploitation and reach for one vulnerable package:
+   * the risk and the three factors it rests on, then the catalog, the EPSS
+   * score and the reach, each as a fact with its source and date.
+   */
+  function intelBlock(finding, handlers) {
+    const detail = finding.detail;
+    const risk = detail.risk;
+    const intel = detail.intel;
+    const usage = detail.usage;
+    const wrap = element('div', 'audit-intel');
+    if (risk) {
+      const head = element('div', 'audit-intel-head');
+      const meter = element('span', 'audit-intel-meter');
+      meter.dataset.band = risk.band;
+      meter.style.setProperty('--risk', `${Math.max(0, Math.min(100, risk.score))}%`);
+      meter.setAttribute('aria-hidden', 'true');
+      const score = element('span', 'audit-intel-score');
+      score.append(element('b', null, String(risk.score)), element('span', null, '/100'));
+      const title = element('span', 'audit-intel-title', 'Exploit risk');
+      head.append(title, score, chip(RISK_BAND[risk.band].tone, RISK_BAND[risk.band].word, { className: 'audit-band' }), meter);
+      wrap.appendChild(head);
+      const factors = element('p', 'audit-intel-factors');
+      const impact = Number.isFinite(detail.cvss) ? `CVSS ${detail.cvss.toFixed(1)}` : 'severity (no CVSS published)';
+      const threat = intel && intel.exploited ? 'exploited in the wild' : intel && intel.epss ? `EPSS ${percent(intel.epss.score)}` : 'no exploit score';
+      factors.textContent = `From its impact (${impact}), the threat (${threat}) and its reach (${tierWord(usage).toLowerCase() || 'unknown'}).`;
+      wrap.appendChild(factors);
+    }
+    const facts = element('ul', 'audit-intel-facts');
+    const fact = (path, text, tone, extra) => {
+      const item = element('li', 'audit-intel-fact');
+      if (tone) item.dataset.tone = tone;
+      const body = element('span', 'audit-intel-text', text);
+      item.append(icon(path), body);
+      if (extra) body.append(' ', extra);
+      facts.appendChild(item);
+      return item;
+    };
+    if (intel) {
+      if (intel.exploited && intel.kev) {
+        const link = element('a', 'audit-intel-link', 'CISA KEV');
+        link.href = `https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=${encodeURIComponent(CVE_ID.test(intel.kev.cve) ? intel.kev.cve : '')}`;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.append(icon(ICON.link, 'audit-ico audit-adv-out'));
+        fact(ICON.flame, `CISA lists ${intel.kev.cve} as exploited in the wild${intel.kev.added ? `, added ${intel.kev.added}` : ''}${intel.kev.due ? `; US federal agencies had to fix it by ${intel.kev.due}` : ''}.${intel.ransomware ? ' Known to be used in ransomware campaigns.' : ''}`, 'critical', link);
+      } else if (intel.catalog === 'unlisted') {
+        fact(ICON.flame, `Not in CISA’s catalog of exploited vulnerabilities${intel.cves > 1 ? ` (${intel.cves} CVEs checked)` : ''}.`, null);
+      } else {
+        fact(ICON.flame, 'CISA’s catalog of exploited vulnerabilities could not be read for this audit: unknown, not clear.', 'pending');
+      }
+      if (intel.epss) {
+        const beyond = Number.isFinite(intel.epss.percentile) ? `, higher than ${rank(intel.epss.percentile)} of scored CVEs` : '';
+        fact(ICON.gauge, `EPSS: a ${percent(intel.epss.score)} chance ${intel.epss.cve} is exploited in the next 30 days${beyond}${intel.epss.date ? ` (FIRST, ${intel.epss.date})` : ''}.`, intel.epss.score >= 0.1 ? 'serious' : null);
+      } else {
+        fact(ICON.gauge, intel.scored === 0 && intel.catalog !== 'unknown' ? 'EPSS has no score for these CVEs yet.' : 'No EPSS score was available for this audit.', 'pending');
+      }
+    } else if (detail.advisories && detail.advisories.every(advisory => !advisory.cve) && finding.rule !== 'DEP-006') {
+      fact(ICON.gauge, 'These advisories carry no CVE, so there is no exploit score or catalog entry to look up.', 'pending');
+    }
+    if (usage) {
+      const tier = REACH_TIER[usage.tier] || REACH_TIER.unknown;
+      const item = fact(tier.icon, tierSentence(usage), usage.tier === 'unknown' ? 'pending' : null);
+      const openable = (usage.files || []).filter(Boolean);
+      if (openable.length && handlers.onOpen) {
+        const files = element('span', 'audit-intel-files');
+        for (const path of openable) {
+          const open = button('', 'audit-inline-file', () => handlers.onOpen({ path, line: null }));
+          open.textContent = path;
+          open.setAttribute('aria-label', `Open ${path}`);
+          files.appendChild(open);
+        }
+        item.appendChild(files);
+      }
+      if (Array.isArray(usage.chain) && usage.chain.length > 1) {
+        const chain = element('span', 'audit-intel-chain');
+        chain.setAttribute('aria-label', `Dependency path: ${usage.chain.join(', then ')}`);
+        usage.chain.forEach((name, index) => {
+          if (index) chain.appendChild(icon(ICON.arrow, 'audit-ico audit-intel-step'));
+          chain.appendChild(element('code', null, name));
+        });
+        item.appendChild(chain);
+      }
+    }
+    if (facts.childNodes.length) wrap.appendChild(facts);
+    return wrap;
   }
 
   /*
@@ -537,6 +738,10 @@
       parts.push(`${advisories.checked} of ${advisories.versions} package versions checked against OSV` +
         (advisories.unknown ? ` (${advisories.unknown} unanswered)` : ''));
     }
+    const exploit = coverage.exploit;
+    if (exploit && exploit.cves) {
+      parts.push(`${exploit.asked} ${exploit.asked === 1 ? 'CVE' : 'CVEs'} checked against ${exploit.kev === 'ok' ? `CISA KEV${exploit.kevVersion ? ` ${exploit.kevVersion}` : ''}` : 'CISA KEV (unavailable)'} and EPSS (${exploit.scored} scored)`);
+    }
     return `${parts.join(' · ')}.`;
   }
   function coverageCaveat(result) {
@@ -550,6 +755,14 @@
     const advisories = coverage.advisories || {};
     if (advisories.notChecked) notes.push(`${plural(advisories.notChecked, 'package version', 'package versions')} beyond the advisory limit were not checked`);
     if (advisories.lockfiles > advisories.lockfilesRead) notes.push('a lockfile was not read (over 512 KB or past the budget), so declared ranges stood in for installed versions');
+    const exploit = coverage.exploit;
+    if (exploit && exploit.cves) {
+      if (exploit.kev === 'unavailable') notes.push('CISA’s exploited-vulnerability catalog could not be read, so no vulnerability is marked exploited');
+      else if (exploit.kevStale) notes.push('the exploited-vulnerability catalog is an earlier copy, because a refresh failed');
+      if (exploit.epss === 'unavailable') notes.push('EPSS could not be reached, so no exploit probability is shown');
+      else if (exploit.epss === 'partial') notes.push('some EPSS requests went unanswered, so some CVEs have no exploit probability');
+      if (exploit.cves > exploit.asked) notes.push(`${plural(exploit.cves - exploit.asked, 'CVE', 'CVEs')} beyond the lookup limit have no exploit data`);
+    }
     const traced = result.engine && result.engine.traced;
     if (traced && traced.cut) notes.push(`tracing reached the server's ${traced.limit === 'memory' ? 'memory' : 'time'} limit, so ${plural(traced.cut, 'file was', 'files were')} checked against the rules without being traced`);
     return notes.length ? `Not a complete read: ${notes.join('; ')}. A finding-free section here is not a finding-free repository.` : '';
@@ -667,7 +880,7 @@
   }
 
   /* What the audit reads, for the moment before it has read anything. */
-  const SCOPE = Object.freeze(['Traced injection', 'Endpoint access', 'SSRF & redirects', 'AI output', 'Committed secrets', 'OSV advisories', 'Malicious packages', 'CI workflows', 'Supabase RLS', 'Firebase rules', 'Infrastructure', 'Hygiene']);
+  const SCOPE = Object.freeze(['Traced injection', 'Endpoint access', 'SSRF & redirects', 'AI output', 'Committed secrets', 'OSV advisories', 'Exploited CVEs (KEV, EPSS)', 'Dependency reach', 'Malicious packages', 'CI workflows', 'Supabase RLS', 'Firebase rules', 'Infrastructure', 'Hygiene']);
 
   /* The ring's place while Uranus reads. */
   function scanning() {
@@ -689,7 +902,7 @@
   const STAGE_STEPS = Object.freeze([
     { id: 'resolve', label: 'Resolve', stages: ['resolving'] },
     { id: 'read', label: 'Read', stages: ['reading'] },
-    { id: 'ask', label: 'Check', stages: ['advisories'] },
+    { id: 'ask', label: 'Check', stages: ['advisories', 'intel'] },
     { id: 'trace', label: 'Trace', stages: ['queued', 'analysing', 'patterns'] }
   ]);
   function stageLine(progress) {
@@ -697,6 +910,7 @@
     switch (p.stage) {
       case 'reading': return p.total ? `Reading files · ${p.done || 0} of ${p.total}` : 'Listing the files to read';
       case 'advisories': return 'Asking the package registries and OSV about each dependency';
+      case 'intel': return 'Checking each CVE against CISA’s exploited-vulnerability catalog and its EPSS score';
       case 'queued': return p.position > 1 ? `Waiting for ${p.position} audits ahead of this one` : 'Waiting for another audit to finish';
       case 'analysing': return 'Mapping endpoints and tracing each value to what uses it';
       case 'patterns': return `Tracing needed more ${p.limit === 'time' ? 'time' : 'memory'} than this server gives one audit, so every file is being checked against the rules instead`;
@@ -820,7 +1034,9 @@
       const split = result.engine ? verdictSplit(result.findings) : null;
       if (split) read.appendChild(split);
       const notes = element('div', 'audit-notes');
-      if (result.capped) notes.appendChild(element('p', 'audit-cap', 'Held below 50 while a confirmed critical finding is open.'));
+      if (result.capped) notes.appendChild(element('p', 'audit-cap', result.capReason === 'exploited'
+        ? 'Held below 50 while a vulnerability CISA lists as exploited in the wild ships with the code.'
+        : 'Held below 50 while a confirmed critical finding is open.'));
       if (view.diff) {
         const since = view.diff.previousAt ? ` since the audit of ${new Date(view.diff.previousAt).toLocaleString()}` : '';
         notes.appendChild(element('p', 'audit-diff',
@@ -889,19 +1105,22 @@
     chosen.forEach((finding, index) => {
       const item = element('li', 'audit-first-item');
       item.dataset.severity = finding.severity;
-      const control = button('', 'audit-first-btn', () => focusFinding(root, finding.id));
+      const control = button('', 'audit-first-btn', () => revealFinding(root, handlers, finding.id));
       const toConfirm = verdictOf(finding) === 'needs-validation';
-      control.setAttribute('aria-label', `${index + 1}. ${SEVERITY[finding.severity].word}${toConfirm ? ', to confirm' : ''}: ${finding.title}, ${location(finding)}`);
+      control.setAttribute('aria-label', `${index + 1}. ${SEVERITY[finding.severity].word}${toConfirm ? ', to confirm' : ''}${exploited(finding) ? ', exploited in the wild' : ''}: ${finding.title}, ${location(finding)}`);
       const rank = element('span', 'audit-first-rank', String(index + 1));
       const tags = element('span', 'audit-first-tags');
-      tags.appendChild(severityChip(finding.severity, { beam: finding.severity === 'critical' && !toConfirm }));
+      tags.appendChild(severityChip(finding.severity, { beam: (finding.severity === 'critical' && !toConfirm) || exploited(finding) }));
       const body = element('span', 'audit-first-body');
       body.append(element('span', 'audit-first-title', finding.title), element('span', 'audit-first-where', location(finding)));
       const extra = element('span', 'audit-first-extra');
       const detail = detailChip(finding);
       if (detail) extra.appendChild(element('span', 'audit-first-chip', detail));
+      const kev = kevChip(finding, { short: true });
+      if (kev) extra.appendChild(kev);
       if (toConfirm) extra.appendChild(verdictChip(finding));
       else if (finding.reach && finding.reach.auth === 'open') extra.appendChild(reachChip(finding.reach));
+      else if (!kev && riskOf(finding) && usageOf(finding)) extra.appendChild(tierChip(usageOf(finding)));
       if (extra.childNodes.length) body.appendChild(extra);
       control.append(rank, tags, body, icon(ICON.arrow, 'audit-ico audit-first-go'));
       item.appendChild(control);
@@ -909,6 +1128,16 @@
     });
     card.appendChild(list);
     host.appendChild(foldable(card, 'first', head, 'Fix first'));
+  }
+
+  /*
+   * Opens a finding from a card above the list. A finding the list is not
+   * showing -- past the page, or hidden by a filter or a search -- is
+   * brought into it first, so the click is never silently lost.
+   */
+  function revealFinding(root, handlers, id) {
+    if (!root.querySelector(`details[data-finding-id="${CSS.escape(id)}"]`) && handlers.onReveal) handlers.onReveal(id);
+    focusFinding(root, id);
   }
 
   /* Opens a finding in the list and brings it into view, with focus on its row. */
@@ -920,6 +1149,125 @@
     const summary = details.querySelector('summary');
     details.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
     if (summary) summary.focus({ preventScroll: true });
+  }
+
+  /* ---- Dependency risk ---------------------------------------------------- */
+
+  const RISK_FOLD = 6;
+  const expandedRisks = new Set();
+  /* The vulnerable packages by risk: exploited in something that ships first, then the number. */
+  function riskRanked(findings) {
+    return findings.filter(finding => riskOf(finding))
+      .sort((a, b) => Number(exploited(b)) - Number(exploited(a)) || riskOf(b).score - riskOf(a).score ||
+        ORDER.indexOf(a.severity) - ORDER.indexOf(b.severity) || String(a.detail.package).localeCompare(String(b.detail.package)));
+  }
+  function intelSources(result) {
+    const exploit = result.coverage && result.coverage.exploit;
+    if (!exploit) return '';
+    const kev = exploit.kev === 'ok'
+      ? `CISA’s Known Exploited Vulnerabilities catalog${exploit.kevVersion ? ` ${exploit.kevVersion}` : ''}${exploit.kevCount ? ` (${exploit.kevCount.toLocaleString()} CVEs)` : ''}${exploit.kevStale ? ', an earlier copy because a refresh failed' : ''}`
+      : exploit.kev === 'not-needed' ? '' : 'CISA’s catalog could not be read';
+    const epss = exploit.epss === 'ok' || exploit.epss === 'partial'
+      ? `FIRST EPSS scores for ${exploit.scored} of ${exploit.asked} CVEs${exploit.epss === 'partial' ? ' (some requests went unanswered)' : ''}`
+      : exploit.epss === 'not-needed' ? '' : 'EPSS could not be reached';
+    return [kev, epss].filter(Boolean).join(' · ');
+  }
+  function renderRisk(host, view, handlers, root) {
+    const result = view.result;
+    if (!result || view.filter || view.owasp) return;
+    const ranked = riskRanked(result.findings);
+    if (!ranked.length) return;
+    const card = element('section', 'card audit-risk');
+    card.setAttribute('aria-labelledby', 'auditRiskHeading');
+    const head = element('div', 'audit-card-head');
+    const titles = element('div', 'audit-card-titles');
+    const heading = element('h2', 'audit-kicker', 'Dependency risk');
+    heading.id = 'auditRiskHeading';
+    titles.append(heading, element('p', 'audit-card-lede', 'Each vulnerable package, ranked by whether it is exploited in the wild, how likely it is to be, and how close it sits to the code that runs.'));
+    head.appendChild(titles);
+    card.appendChild(head);
+
+    const stats = element('div', 'audit-surface-stats audit-risk-stats');
+    stats.setAttribute('role', 'list');
+    const stat = node => { node.setAttribute('role', 'listitem'); stats.appendChild(node); };
+    const live = ranked.filter(exploited).length;
+    const ransom = ranked.filter(finding => exploited(finding) && intelOf(finding).ransomware).length;
+    const exploit = result.coverage && result.coverage.exploit;
+    const catalogRead = Boolean(exploit && exploit.kev === 'ok');
+    if (live || catalogRead) {
+      const toggle = keyed(button('', 'audit-risk-stat', () => {
+        if (!handlers.onExploit) return;
+        const showing = !view.exploit;
+        handlers.onExploit(showing ? 'kev' : null);
+        /* The filter narrows the findings list further down: take the reader to what it now shows. */
+        if (!showing) return;
+        unfold('findings', root);
+        const findings = root.querySelector('.audit-findings');
+        if (findings) findings.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
+      }), 'risk-exploited');
+      toggle.appendChild(chip('critical', 'exploited in the wild', { glyph: ICON.flame, count: live, large: true, zero: !live, beam: live > 0 }));
+      toggle.disabled = !live;
+      toggle.setAttribute('aria-pressed', view.exploit ? 'true' : 'false');
+      toggle.setAttribute('aria-label', live ? `${plural(live, 'package', 'packages')} exploited in the wild: show only these findings` : 'No package is exploited in the wild');
+      stat(toggle);
+    }
+    else if (exploit && exploit.kev === 'unavailable') stat(chip('pending', 'Exploit catalog unavailable', { glyph: ICON.flame, large: true, title: 'CISA’s catalog could not be read: nothing is marked exploited, and nothing is marked clear' }));
+    if (ransom) stat(chip('critical', 'used by ransomware', { glyph: ICON.ransom, count: ransom, large: true }));
+    for (const band of RISK_ORDER) {
+      const count = ranked.filter(finding => riskOf(finding).band === band).length;
+      stat(chip(RISK_BAND[band].tone, RISK_BAND[band].word.toLowerCase(), { count, large: true, zero: !count, className: 'audit-band-stat' }));
+    }
+    card.appendChild(stats);
+
+    const id = resultId(result);
+    const all = expandedRisks.has(id) || ranked.length <= RISK_FOLD + 1;
+    const list = element('ol', 'audit-risks');
+    list.setAttribute('aria-label', 'Vulnerable packages by risk');
+    ranked.forEach((finding, index) => {
+      const detail = finding.detail;
+      const risk = riskOf(finding);
+      const item = element('li', 'audit-risk-row');
+      item.dataset.band = risk.band;
+      if (!all && index >= RISK_FOLD) item.hidden = true;
+      const control = button('', 'audit-risk-btn', () => revealFinding(root, handlers, finding.id));
+      const version = detail.source === 'range' ? `${detail.range}` : detail.version;
+      control.setAttribute('aria-label', `Risk ${risk.score}, ${RISK_BAND[risk.band].word}: ${detail.package} ${version}${exploited(finding) ? ', exploited in the wild' : ''}. ${tierSentence(detail.usage)}`);
+      const score = element('span', 'audit-risk-score');
+      score.dataset.band = risk.band;
+      score.style.setProperty('--risk', `${Math.max(0, Math.min(100, risk.score))}%`);
+      score.append(element('b', null, String(risk.score)), element('span', 'audit-risk-band', RISK_BAND[risk.band].word));
+      const main = element('span', 'audit-risk-main');
+      const name = element('span', 'audit-risk-pkg');
+      name.append(element('span', 'audit-risk-name', detail.package), element('span', 'audit-risk-ver', version));
+      if (detail.fixed && finding.rule !== 'DEP-006') name.append(icon(ICON.arrow, 'audit-ico audit-risk-arrow'), element('span', 'audit-risk-fix', detail.fixed));
+      const sub = element('span', 'audit-risk-sub', finding.rule === 'DEP-006' ? 'Known malicious: remove it and rotate what it could reach.' : tierSentence(detail.usage));
+      main.append(name, sub);
+      const tags = element('span', 'audit-risk-tags');
+      const kev = kevChip(finding, { short: true });
+      if (kev) tags.appendChild(kev);
+      if (intelOf(finding) && intelOf(finding).ransomware) tags.appendChild(chip('critical', 'Ransomware', { glyph: ICON.ransom }));
+      const epss = epssChip(intelOf(finding));
+      if (epss) tags.appendChild(epss);
+      const tier = tierChip(detail.usage);
+      if (tier) tags.appendChild(tier);
+      control.append(score, main, tags, icon(ICON.arrow, 'audit-ico audit-risk-go'));
+      item.appendChild(control);
+      list.appendChild(item);
+    });
+    card.appendChild(list);
+    if (!all) {
+      const more = keyed(button('', 'btn btn-ghost audit-more', event => {
+        expandedRisks.add(id);
+        for (const row of list.querySelectorAll('.audit-risk-row[hidden]')) row.hidden = false;
+        event.currentTarget.remove();
+      }), 'risk-more');
+      more.append(element('span', null, `Show all ${ranked.length}`), element('span', 'audit-more-of', `${RISK_FOLD} of ${ranked.length}`));
+      card.appendChild(more);
+    }
+    const sources = intelSources(result);
+    card.appendChild(element('p', 'audit-coverage audit-risk-note',
+      `Risk is (40 × CVSS impact + 60 × threat) × reach, out of 100: threat is 1 for a vulnerability being exploited and otherwise EPSS on a log scale; reach is from the imports in the files read.${sources ? ` Sources: ${sources}.` : ''}`));
+    host.appendChild(foldable(card, 'risk', head, 'Dependency risk'));
   }
 
   /* ---- Families ------------------------------------------------------------- */
@@ -1256,9 +1604,14 @@
   function searchText(finding, families) {
     const standards = finding.standards || {};
     const reach = finding.reach && REACH[finding.reach.auth];
+    const intel = intelOf(finding);
+    const risk = riskOf(finding);
+    const advisories = finding.detail && Array.isArray(finding.detail.advisories) ? finding.detail.advisories.flatMap(advisory => [advisory.id, advisory.cve]) : [];
     return [finding.title, finding.rule, finding.where || location(finding), families && families.get(finding.category),
       standards.cwe, standards.cweName, standards.owasp, standards.owaspName, detailChip(finding), SEVERITY[finding.severity].word,
-      VERDICT[verdictOf(finding)].word, reach && reach.word, finding.reach && finding.reach.route]
+      VERDICT[verdictOf(finding)].word, reach && reach.word, finding.reach && finding.reach.route, ...advisories,
+      intel && intel.exploited && 'exploited kev known exploited', intel && intel.ransomware && 'ransomware', intel && intel.epss && 'epss',
+      risk && `risk ${RISK_BAND[risk.band].word}`, usageOf(finding) && tierWord(usageOf(finding))]
       .filter(Boolean).join(' ').toLowerCase();
   }
   function matches(finding, query, families) {
@@ -1298,6 +1651,17 @@
       const ids = element('span', 'audit-adv-ids');
       ids.appendChild(osvLink(advisory.id));
       if (advisory.cve) ids.appendChild(element('span', 'audit-adv-cve', advisory.cve));
+      if (Number.isFinite(advisory.cvss)) ids.appendChild(element('span', 'audit-adv-mark', `CVSS ${advisory.cvss.toFixed(1)}`));
+      if (advisory.kev) {
+        const kev = element('span', 'audit-adv-mark audit-adv-kev', 'KEV');
+        kev.title = 'Listed by CISA as exploited in the wild';
+        ids.appendChild(kev);
+      }
+      if (Number.isFinite(advisory.epss)) {
+        const epss = element('span', 'audit-adv-mark', `EPSS ${percent(advisory.epss)}`);
+        epss.title = 'Chance of exploitation in the next 30 days (FIRST EPSS)';
+        ids.appendChild(epss);
+      }
       item.append(icon(advisory.severity ? SEVERITY[advisory.severity].icon : SEVERITY.warning.icon), ids,
         element('span', 'audit-adv-summary', advisory.summary || (advisory.severity ? '' : 'Not rated in this audit')));
       list.appendChild(item);
@@ -1400,6 +1764,8 @@
         tag.title = detail;
         tags.appendChild(tag);
       }
+      const kev = kevChip(finding, { short: true });
+      if (kev) tags.appendChild(kev);
       if (toConfirm) tags.appendChild(verdictChip(finding));
       else if (finding.reach && finding.reach.auth === 'open') tags.appendChild(reachChip(finding.reach));
       if (changes && changes.newIds.has(finding.id)) tags.appendChild(chip('info', 'New', { className: 'audit-new', beam: true }));
@@ -1411,7 +1777,10 @@
       if (finding.reach) body.appendChild(reachLine(finding.reach));
       if (finding.trace && finding.trace.length) body.appendChild(traceView(finding, handlers));
       if (toConfirm && (finding.blocker || finding.check)) body.appendChild(validation(finding));
-      if (finding.detail && finding.detail.package && Array.isArray(finding.detail.advisories)) body.appendChild(advisoryList(finding.detail));
+      if (finding.detail && finding.detail.package && Array.isArray(finding.detail.advisories)) {
+        body.appendChild(advisoryList(finding.detail));
+        if (finding.detail.risk || finding.detail.intel || finding.detail.usage) body.appendChild(intelBlock(finding, handlers));
+      }
       const fix = element('div', 'exposure-item-action audit-fix');
       fix.append(element('span', 'audit-fix-label', 'Fix'), element('p', null, finding.fix));
       body.appendChild(fix);
@@ -1503,6 +1872,27 @@
         verdicts.append(option(null, 'Any', inScope.length), option('confirmed', 'Confirmed', inScope.length - leads), option('needs-validation', 'To confirm', leads));
         tools.appendChild(verdicts);
       }
+      const live = inScope.filter(exploited).length;
+      if (live || view.exploit) {
+        const exploits = element('div', 'audit-segments audit-exploits');
+        exploits.setAttribute('role', 'group');
+        exploits.setAttribute('aria-label', 'Show by exploitation');
+        const option = (value, text, total) => {
+          const control = keyed(button('', 'audit-segment', () => handlers.onExploit && handlers.onExploit(value)), `exploit:${value || 'any'}`);
+          control.setAttribute('aria-pressed', (view.exploit || null) === value ? 'true' : 'false');
+          if (value) {
+            control.dataset.exploit = value;
+            control.append(icon(ICON.flame));
+          }
+          control.append(element('span', null, text), element('span', 'audit-segment-n', String(total)));
+          /* "Any" is also the verdict group's first option: the name says which question it answers. */
+          control.setAttribute('aria-label', value ? `Exploited in the wild, ${total}` : `Any exploitation, ${total}`);
+          control.disabled = Boolean(value) && !total && view.exploit !== value;
+          return control;
+        };
+        exploits.append(option(null, 'Any', inScope.length), option('kev', 'Exploited', live));
+        tools.appendChild(exploits);
+      }
       if (inScope.length > 3 || view.query) {
         const search = element('label', 'audit-search');
         search.append(icon(ICON.search));
@@ -1528,7 +1918,7 @@
     }
 
     const shown = inScope.filter(finding => (!view.severity || finding.severity === view.severity)
-      && (!view.verdict || verdictOf(finding) === view.verdict) && matches(finding, view.query, families));
+      && (!view.verdict || verdictOf(finding) === view.verdict) && (!view.exploit || exploited(finding)) && matches(finding, view.query, families));
     if (!shown.length) {
       const empty = view.query
         ? `Nothing matches “${String(view.query).trim()}”.`
@@ -1780,6 +2170,7 @@
     } else {
       renderSummary(root, view, handlers, previous);
       renderPriorities(root, view, handlers, root);
+      renderRisk(root, view, handlers, root);
       renderCategories(root, view, handlers);
       renderSurface(root, view, handlers);
       renderCoverage(root, view, handlers);
@@ -1843,6 +2234,11 @@
         lines.push(`- **Package:** ${detail.package} ${detail.source === 'range' ? `${detail.range} (lowest accepted ${detail.version})` : detail.version}${detail.direct ? '' : ' (transitive)'}`);
         if (detail.fixed) lines.push(`- **Fixed in:** ${detail.fixed}`);
         lines.push(`- **Advisories:** ${detail.advisories.map(advisory => `${advisory.id}${advisory.cve ? ` (${advisory.cve})` : ''}`).join(', ')}${detail.more ? ` and ${detail.more} more` : ''}`);
+        if (detail.risk) lines.push(`- **Risk:** ${detail.risk.score}/100, ${RISK_BAND[detail.risk.band].word.toLowerCase()}`);
+        const intel = detail.intel;
+        if (intel && intel.exploited && intel.kev) lines.push(`- **Exploited in the wild:** ${intel.kev.cve}, in CISA’s catalog since ${intel.kev.added || 'an unknown date'}${intel.ransomware ? '; used in ransomware campaigns' : ''}`);
+        if (intel && intel.epss) lines.push(`- **EPSS:** ${percent(intel.epss.score)} (${intel.epss.cve}${intel.epss.date ? `, ${intel.epss.date}` : ''})`);
+        if (detail.usage) lines.push(`- **Reach:** ${tierSentence(detail.usage)}${detail.usage.chain && detail.usage.chain.length > 1 ? ` Path: ${detail.usage.chain.join(' → ')}.` : ''}`);
       }
       lines.push('', finding.why, '');
       if (verdictOf(finding) === 'needs-validation') {
@@ -1868,7 +2264,7 @@
       const leads = result.findings.filter(finding => verdictOf(finding) === 'needs-validation').length;
       const engine = result.engine && result.engine.traced ? result.engine : null;
       lines.push(
-        `Grade **${result.grade}** — ${result.score}/100${result.capped ? ' (held below 50 by a confirmed critical finding)' : ''}.`,
+        `Grade **${result.grade}** — ${result.score}/100${result.capped ? result.capReason === 'exploited' ? ' (held below 50 by a vulnerability exploited in the wild)' : ' (held below 50 by a confirmed critical finding)' : ''}.`,
         `Commit \`${result.commitSha}\`, audited ${result.auditedAt || new Date().toISOString()}${engine ? ` by ${engine.name} ${engine.version}` : ''}.`,
         ...(engine ? [`${result.findings.length - leads} confirmed, ${leads} to confirm. A finding to confirm weighs half and names the check that settles it.`] : []),
         '',
@@ -1895,6 +2291,20 @@
       const first = (result.priorities || []).map(id => byId.get(id)).filter(Boolean);
       if (first.length) {
         lines.push('**Fix first:**', '', ...first.map((finding, index) => `${index + 1}. ${finding.title} — ${finding.path ? `\`${location(finding)}\`` : 'whole repository'}`), '');
+      }
+      const risky = riskRanked(result.findings);
+      if (risky.length) {
+        const sources = intelSources(result);
+        lines.push('## Dependency risk', '', 'Ranked by exploitation in the wild, exploit probability and reach. Risk is (40 × CVSS impact + 60 × threat) × reach, out of 100.', '',
+          ...(sources ? [`Sources: ${sources}.`, ''] : []),
+          '| Risk | Package | Exploited | EPSS | Reach |', '| --- | --- | --- | --- | --- |',
+          ...risky.map(finding => {
+            const detail = finding.detail;
+            const intel = intelOf(finding);
+            const epss = intel && intel.epss ? `${percent(intel.epss.score)} (${intel.epss.cve})` : '—';
+            const kev = intel && intel.exploited ? `yes — ${intel.kev.cve}${intel.ransomware ? ', ransomware' : ''}` : intel && intel.catalog === 'unknown' ? 'unknown' : 'no';
+            return `| ${detail.risk.score} ${RISK_BAND[detail.risk.band].word.toLowerCase()} | ${cell(`${detail.package} ${detail.source === 'range' ? detail.range : detail.version}`)} | ${kev} | ${epss} | ${cell(tierWord(detail.usage))} |`;
+          }), '');
       }
       if (!result.findings.length) lines.push('No findings in what was read.', '');
       findingSection(result.findings, lines, '', finding => finding.path ? `\`${location(finding)}\`` : 'whole repository');
@@ -1990,9 +2400,18 @@
         severity: finding.severity, family: finding.category || 'site',
         ...(finding.verdict ? { verdict: verdictOf(finding), evidence: finding.evidence || null } : {}),
         ...(finding.reach ? { reach: { method: finding.reach.method, route: finding.reach.route, auth: finding.reach.auth } } : {}),
-        ...(toConfirm && finding.check ? { howToConfirm: finding.check } : {})
+        ...(toConfirm && finding.check ? { howToConfirm: finding.check } : {}),
+        ...(riskOf(finding) ? { risk: riskOf(finding).score, riskBand: riskOf(finding).band } : {}),
+        ...(intelOf(finding) ? {
+          knownExploited: Boolean(intelOf(finding).exploited),
+          ...(intelOf(finding).kev ? { kev: intelOf(finding).kev } : {}),
+          ...(intelOf(finding).epss ? { epss: intelOf(finding).epss.score, epssPercentile: intelOf(finding).epss.percentile, epssCve: intelOf(finding).epss.cve } : {})
+        } : {}),
+        ...(usageOf(finding) ? { dependencyReach: usageOf(finding).tier } : {})
       }
     };
+    /* A dependency's own CVSS is a better sort key for a dashboard than the family's default. */
+    if (finding.detail && Number.isFinite(finding.detail.cvss)) result.properties['security-severity'] = finding.detail.cvss.toFixed(1);
     if (suppression) result.suppressions = [{ kind: 'inSource', justification: suppression.reason || 'Waived in code without a reason.' }];
     return result;
   }
@@ -2024,7 +2443,8 @@
           ...(result.suppressed || []).map(finding => sarifResult(finding, index.get(finding.rule), place(finding), finding.suppression))
         ],
         properties: {
-          grade: result.grade, score: result.score, capped: Boolean(result.capped),
+          grade: result.grade, score: result.score, capped: Boolean(result.capped), ...(result.capReason ? { capReason: result.capReason } : {}),
+          ...(result.coverage && result.coverage.exploit ? { exploitSources: result.coverage.exploit } : {}),
           ...(result.engine ? { engine: `${result.engine.name} ${result.engine.version}`, traced: result.engine.traced || null } : {}),
           ...(Array.isArray(result.ledger) ? { coverage: result.ledger.map(entry => ({ class: entry.id, status: entry.status })) } : {})
         }
@@ -2057,13 +2477,17 @@
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
   function csv(result, site, changes) {
-    const rows = [['Source', 'Status', 'Severity', 'Verdict', 'Rule', 'Title', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Reached through', 'How to confirm', 'Reason waived', 'Fix']];
+    const rows = [['Source', 'Status', 'Severity', 'Verdict', 'Rule', 'Title', 'Detail', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Reached through', 'Risk', 'Known exploited', 'EPSS', 'Dependency reach', 'How to confirm', 'Reason waived', 'Fix']];
     const row = (source, status, finding, family) => {
       const standards = finding.standards || {};
       const reach = finding.reach ? `${finding.reach.route ? `${finding.reach.method} ${finding.reach.route}` : 'server action'} (${finding.reach.auth})` : '';
-      rows.push([source, status, finding.severity, verdictOf(finding) === 'needs-validation' ? 'to confirm' : 'confirmed', finding.rule, finding.title, family || '', standards.cwe || '',
+      rows.push([source, status, finding.severity, verdictOf(finding) === 'needs-validation' ? 'to confirm' : 'confirmed', finding.rule, finding.title, detailChip(finding) || '', family || '', standards.cwe || '',
         standards.top25 ? `#${standards.top25.rank}` : '', standards.owasp || '',
         finding.path || finding.where || 'whole repository', finding.line || '', reach,
+        riskOf(finding) ? `${riskOf(finding).score} ${riskOf(finding).band}` : '',
+        intelOf(finding) ? intelOf(finding).exploited ? `yes (${intelOf(finding).kev.cve})` : intelOf(finding).catalog === 'unknown' ? 'unknown' : 'no' : '',
+        intelOf(finding) && intelOf(finding).epss ? `${(intelOf(finding).epss.score * 100).toFixed(2)}% (${intelOf(finding).epss.cve})` : '',
+        usageOf(finding) ? usageOf(finding).tier : '',
         verdictOf(finding) === 'needs-validation' ? finding.check || '' : '',
         finding.suppression ? finding.suppression.reason || '' : '', finding.fix]);
     };

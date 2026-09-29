@@ -4661,7 +4661,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .audit-tag { font-size: .7rem; font-weight: 650; color: var(--muted); padding: 1px 8px; border-radius: 999px; border: 1px solid var(--rp-line); }
 .audit-adv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .audit-adv-item { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: baseline; gap: 8px; font-size: .82rem; color: var(--text); }
-.audit-adv-item > .audit-ico { width: 14px; height: 14px; align-self: center; color: var(--muted); }
+.audit-adv-item > .audit-ico { width: 14px; height: 14px; align-self: start; margin-top: 2px; color: var(--muted); }
 .audit-adv-item[data-severity="critical"] > .audit-ico { color: var(--sev-critical); }
 .audit-adv-item[data-severity="serious"] > .audit-ico { color: var(--sev-serious); }
 .audit-adv-item[data-severity="warning"] > .audit-ico { color: var(--sev-warning); }
@@ -6883,6 +6883,94 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 }
 .audit-std-chip.audit-std-top25 { background: transparent; color: var(--text); border-color: color-mix(in oklab, var(--st-serious) 40%, transparent); }
 .audit-std-chip.audit-std-top25:hover { border-color: color-mix(in oklab, var(--st-serious) 75%, transparent); }
+
+/* ---- Dependency risk --------------------------------------------------------
+ * Each vulnerable package as a row: its risk as a number over a thin meter in
+ * the band's tone, the package and its fix, the one sentence on how it is
+ * reached, and the chips for what is known about its exploitation. */
+.audit-risk { padding: 18px 20px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; --fold-gap: 14px; }
+.audit-risk-stat { display: inline-flex; padding: 0; border: 0; background: none; border-radius: 11px; cursor: pointer; font: inherit; color: inherit; }
+.audit-risk-stat:disabled { cursor: default; }
+.audit-risk-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.audit-risk-stat[aria-pressed="true"] .nv-chip { border-color: color-mix(in oklab, var(--st-critical) 80%, transparent); box-shadow: 0 0 0 1px color-mix(in oklab, var(--st-critical) 60%, transparent) inset; }
+.audit-risks { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--rp-line); border-radius: 14px; overflow: hidden; }
+.audit-risk-row { border-top: 1px solid var(--rp-line); min-width: 0; --band: var(--text); }
+.audit-risk-row:first-child { border-top: 0; }
+.audit-risk-row[hidden] { display: none; }
+.audit-risk-row[data-band="urgent"], .audit-risk-score[data-band="urgent"], .audit-intel-meter[data-band="urgent"] { --band: var(--st-critical); }
+.audit-risk-row[data-band="high"], .audit-risk-score[data-band="high"], .audit-intel-meter[data-band="high"] { --band: var(--st-serious); }
+.audit-risk-row[data-band="moderate"], .audit-risk-score[data-band="moderate"], .audit-intel-meter[data-band="moderate"] { --band: var(--st-warning); }
+.audit-risk-score[data-band="low"], .audit-intel-meter[data-band="low"] { --band: color-mix(in oklab, var(--text) 45%, transparent); }
+.audit-risk-btn {
+  display: grid; grid-template-columns: 58px minmax(0, 1fr) auto auto; align-items: center; gap: 6px 14px; width: 100%;
+  padding: 12px 14px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0;
+  transition: background .18s var(--ease, ease);
+}
+.audit-risk-btn:hover { background: var(--rp-tile); }
+.audit-risk-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 12px; }
+.audit-risk-score { position: relative; display: grid; justify-items: start; gap: 1px; padding-bottom: 7px; min-width: 0; }
+.audit-risk-score b { font-size: 1.22rem; font-weight: 760; line-height: 1; font-variant-numeric: tabular-nums; color: var(--text); letter-spacing: -.01em; }
+.audit-risk-band { font-size: .66rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.audit-risk-score::before, .audit-risk-score::after { content: ''; position: absolute; left: 0; bottom: 0; height: 3px; border-radius: 3px; }
+.audit-risk-score::before { width: 100%; background: color-mix(in oklab, var(--text) 9%, transparent); }
+.audit-risk-score::after { width: var(--risk, 0%); background: var(--band); }
+.audit-risk-main { display: grid; gap: 4px; min-width: 0; }
+.audit-risk-pkg { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; font-family: var(--font-mono); font-size: .86rem; min-width: 0; }
+.audit-risk-name { color: var(--text); font-weight: 650; overflow-wrap: anywhere; }
+.audit-risk-ver { color: var(--muted); overflow-wrap: anywhere; }
+.audit-risk-arrow { width: 13px; height: 13px; color: var(--muted); }
+.audit-risk-fix { color: var(--sev-ok); }
+.audit-risk-sub { font-size: .78rem; line-height: 1.45; color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+.audit-risk-tags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; min-width: 0; }
+.audit-risk-go { color: var(--muted); transition: transform .18s var(--ease, ease), color .18s ease; }
+.audit-risk-btn:hover .audit-risk-go { transform: translateX(3px); color: var(--text); }
+.audit-risk-note { margin: 0; }
+
+/* The same facts inside a dependency finding. */
+.audit-intel { display: grid; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--rp-tile); border: 1px solid var(--rp-line); min-width: 0; }
+.audit-intel-head { display: grid; grid-template-columns: auto auto auto minmax(60px, 1fr); align-items: center; gap: 8px 12px; min-width: 0; }
+.audit-intel-head > .nv-chip { justify-self: start; }
+.audit-intel-title { font-size: .68rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.audit-intel-score { display: inline-flex; align-items: baseline; gap: 2px; font-variant-numeric: tabular-nums; }
+.audit-intel-score b { font-size: 1.12rem; font-weight: 760; color: var(--text); }
+.audit-intel-score span { font-size: .74rem; color: var(--muted); }
+.audit-intel-meter { position: relative; height: 4px; border-radius: 4px; background: color-mix(in oklab, var(--text) 9%, transparent); overflow: hidden; }
+.audit-intel-meter::after { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--risk, 0%); border-radius: inherit; background: var(--band); }
+.audit-intel-factors { margin: 0; font-size: .78rem; color: var(--muted); line-height: 1.45; }
+.audit-intel-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.audit-intel-fact { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 9px; align-items: start; font-size: .84rem; line-height: 1.5; color: var(--text); }
+.audit-intel-fact > .audit-ico { width: 15px; height: 15px; margin-top: 3px; color: var(--muted); }
+.audit-intel-fact[data-tone="critical"] > .audit-ico { color: var(--st-critical); }
+.audit-intel-fact[data-tone="serious"] > .audit-ico { color: var(--st-serious); }
+.audit-intel-fact[data-tone="pending"] { color: var(--muted); }
+.audit-intel-text { min-width: 0; overflow-wrap: anywhere; }
+.audit-intel-link { display: inline-flex; align-items: center; gap: 3px; color: var(--text); text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--text) 30%, transparent); text-underline-offset: 3px; white-space: nowrap; }
+.audit-intel-link:hover { text-decoration-color: currentColor; }
+.audit-intel-files, .audit-intel-chain { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
+.audit-intel-chain { gap: 4px 6px; }
+.audit-intel-chain code { font-family: var(--font-mono); font-size: .76rem; color: var(--text); padding: 1px 6px; border-radius: 6px; border: 1px solid var(--rp-line); overflow-wrap: anywhere; }
+.audit-intel-step { width: 12px; height: 12px; color: var(--muted); }
+.audit-adv-mark { font-family: var(--font-mono); font-size: .7rem; color: var(--muted); padding: 0 6px; border-radius: 6px; border: 1px solid var(--rp-line); line-height: 1.5; white-space: nowrap; }
+.audit-adv-kev { color: var(--text); border-color: color-mix(in oklab, var(--st-critical) 55%, transparent); background: color-mix(in oklab, var(--st-critical) 8%, transparent); font-weight: 700; }
+
+/* On a narrow screen the score takes a line of its own, number and band side by side, and the words get the full width. */
+@media (max-width: 760px) {
+  .audit-risk-btn { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "score go" "main main" "tags tags"; row-gap: 8px; }
+  .audit-risk-score { grid-area: score; display: flex; align-items: baseline; gap: 8px; justify-self: start; min-width: 132px; padding-bottom: 7px; }
+  .audit-risk-main { grid-area: main; }
+  .audit-risk-tags { grid-area: tags; justify-content: flex-start; }
+  .audit-risk-go { grid-area: go; }
+  .audit-intel-head { grid-template-columns: auto auto minmax(0, 1fr); }
+  .audit-intel-meter { grid-column: 1 / -1; }
+}
+@media (max-width: 480px) {
+  .audit-risk { padding: 16px; }
+  .audit-risk-btn { padding: 12px; }
+  .audit-risk-score b { font-size: 1.08rem; }
+  .audit-intel { padding: 12px; }
+}
+[data-motion="off"] .audit-risk-btn, [data-motion="off"] .audit-risk-go { transition: none; }
+@media (prefers-reduced-motion: reduce) { .audit-risk-btn, .audit-risk-go { transition: none; } }
 
 /* ---- Exposure, in Orbit ---------------------------------------------------- */
 .exposure-chips { gap: 8px; }

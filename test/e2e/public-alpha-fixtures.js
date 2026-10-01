@@ -497,7 +497,9 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         state.watchChecks = (state.watchChecks || 0) + (fresh ? 1 : 0);
         return fulfill({
           available: true, ref, audit: serialize.audit(latest.row), alerts: latest.alerts, components: latest.components.length, fresh,
-          checkableAt: new Date(Date.parse(latest.row.watch_checked_at) + (fresh ? 1000 : 10 * 60 * 1000)).toISOString()
+          // Match the production cooldown; a one-second fixture expires while
+          // the page is being inspected and makes this assertion race the CPU.
+          checkableAt: new Date(Date.parse(latest.row.watch_checked_at) + 10 * 60 * 1000).toISOString()
         });
       }
       if (rest === 'history/clear' && method === 'POST') {

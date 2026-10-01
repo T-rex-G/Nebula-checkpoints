@@ -74,7 +74,7 @@ const RULES_VERSION = 4;
  * 2: base64 runs are decoded and scanned, and a commit's hunks can be scanned
  * for what that commit added.
  */
-const DETECTION_ENGINE_VERSION = 2;
+const DETECTION_ENGINE_VERSION = 3;
 
 /* A file this server will read at all. Past it the file is not scanned and the
    result says so. */
@@ -217,8 +217,11 @@ function placeholderFor(rule, ordinal) {
   return `<${rule} #${ordinal}>`;
 }
 
-function newDetectionState() {
-  return { byKey: new Map(), ordinals: new Map(), matchCount: 0, truncated: false };
+function newDetectionState(input = {}) {
+  const decodedLimit = Number.isInteger(input.maxDecodedBytes) && input.maxDecodedBytes >= 0
+    ? Math.min(input.maxDecodedBytes, MAX_DECODED_BYTES) : MAX_DECODED_BYTES;
+  return { byKey: new Map(), ordinals: new Map(), matchCount: 0, truncated: false,
+    decodedAttempts: 0, decodedBytes: 0, decodedLimit };
 }
 
 /*
@@ -343,18 +346,20 @@ function decodedText(run) {
 
 function decodeInto(state, text, locateAt, prefilter) {
   const runs = new RegExp(BASE64_RUN.source, 'g');
-  let attempts = 0;
-  let decodedBytes = 0;
   let match;
   while ((match = runs.exec(text)) !== null) {
-    if (attempts >= MAX_DECODED_RUNS || decodedBytes >= MAX_DECODED_BYTES) break;
-    if (state.matchCount >= MAX_MATCHES_PER_FILE) break;
+    if (state.matchCount >= MAX_MATCHES_PER_FILE) { state.truncated = true; break; }
     const location = locateAt(match.index);
     if (!location) continue;
-    attempts += 1;
+    if (state.decodedAttempts >= MAX_DECODED_RUNS) { state.truncated = true; break; }
+    /* Check the decoded size before allocation; character length is not a
+       UTF-8 byte count. The counters are shared across every hunk of a file. */
+    const size = Buffer.byteLength(match[0], 'base64');
+    if (state.decodedBytes + size > state.decodedLimit) { state.truncated = true; break; }
+    state.decodedAttempts += 1;
     const decoded = decodedText(match[0]);
+    state.decodedBytes += size;
     if (!decoded) continue;
-    decodedBytes += decoded.length;
     scanInto(state, decoded, () => location, prefilter, 'base64');
   }
 }
@@ -368,6 +373,7 @@ function detectionResult(state) {
     scanned: true,
     truncated: state.truncated,
     matchCount: state.matchCount,
+    decodedBytes: state.decodedBytes,
     candidates: Object.freeze(candidates)
   });
 }
@@ -382,11 +388,11 @@ function detectInText(input = {}) {
 
   if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {
     return Object.freeze({
-      scanned: false, truncated: true, matchCount: 0, candidates: Object.freeze([])
+      scanned: false, truncated: true, matchCount: 0, decodedBytes: 0, candidates: Object.freeze([])
     });
   }
 
-  const state = newDetectionState();
+  const state = newDetectionState(input);
   const locate = createLocator(text);
   /* The keyword check is an optimisation and can be switched off, which is
      how a test proves it never changes an answer. */
@@ -407,7 +413,7 @@ function detectInText(input = {}) {
 function detectInHunks(input = {}) {
   const hunks = Array.isArray(input.hunks) ? input.hunks : [];
   const prefilter = input.prefilter !== false;
-  const state = newDetectionState();
+  const state = newDetectionState(input);
   for (const hunk of hunks) {
     const lines = hunk && Array.isArray(hunk.lines) ? hunk.lines : [];
     if (!lines.some(line => line && line.added)) continue;

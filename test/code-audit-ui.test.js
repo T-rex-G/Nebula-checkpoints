@@ -25,10 +25,11 @@ const ui = require('../public/code-audit-ui');
   const site = {
     ...(await checkSite({
       url: 'https://demo.example.com',
+      txt: async () => [],
       transport: async input => new URL(input.url).pathname === '/.env'
         ? { statusCode: 200, headers: { 'content-type': 'text/plain' }, body: 'SECRET_KEY=canary-value\n' }
         : new URL(input.url).pathname === '/'
-          ? { statusCode: 200, headers: { 'content-type': 'text/html' }, body: '<!doctype html>' }
+          ? { statusCode: 200, headers: { 'content-type': 'text/html' }, body: '<!doctype html>', tls: { protocol: 'TLSv1.3', validTo: '2099-01-01T00:00:00.000Z' } }
           : { statusCode: 404, headers: {}, body: '' }
     })),
     checkedAt: '2026-09-26T12:01:00.000Z'
@@ -50,6 +51,38 @@ const ui = require('../public/code-audit-ui');
   assert(!siteOnly.includes('| Family |'));
   assert.strictEqual(ui.allPrompts(null), '');
   assert.match(ui.allPrompts(site), /^1\. On the deployed site \(\/\.env\): /);
+
+  /* Failed evidence remains visible in every export, even when there are no findings.
+     An old saved A cannot become trusted simply because its findings list is empty. */
+  for (const [state, coverage] of [
+    ['partial', { state: 'partial', complete: false, reasons: ['scripts: One script could not be read.'], categories: { scripts: { state: 'partial', complete: false } } }],
+    ['unknown', { state: 'unknown', complete: false, reasons: [] }],
+    ['unknown', undefined]
+  ]) {
+    const incomplete = { ...site, findings: [], score: 100, grade: 'A', observedScore: 100, coverage };
+    const brief = ui.brief(null, 'demo', incomplete);
+    assert.match(brief, /\*\*Overall grade withheld\.\*\*/);
+    assert(brief.includes(`Coverage ${state}. Overall grade withheld.`));
+    assert.match(brief, /Observed checks scored 100\/100; this is not an overall site score/);
+    assert.match(brief, /Incomplete checks cannot establish that the site is clear/);
+    assert(!brief.includes('Grade **A**'));
+    const sarif = JSON.parse(ui.sarif(null, incomplete)).runs[0];
+    assert.strictEqual(sarif.invocations[0].executionSuccessful, false);
+    assert.strictEqual(sarif.properties.grade, null);
+    assert.strictEqual(sarif.properties.score, null);
+    assert.strictEqual(sarif.properties.observedScore, 100);
+    assert.strictEqual(sarif.properties.coverage.state, state);
+    const csv = ui.csv(null, incomplete);
+    assert(csv.includes(`coverage-${state}`));
+    assert(csv.includes('Overall grade withheld'));
+    if (coverage && coverage.reasons.length) {
+      assert(brief.includes(coverage.reasons[0]));
+      assert(csv.includes(coverage.reasons[0]));
+    } else assert(brief.includes('Coverage evidence is unavailable; run the check again.'));
+  }
+  assert.strictEqual(site.coverage.complete, true, 'the baseline fixture supplies each required evidence source');
+  assert.strictEqual(JSON.parse(ui.sarif(null, site)).runs[0].invocations[0].executionSuccessful, true);
+  assert.match(siteOnly, /Coverage complete within the stated request and resource limits/);
 
   /* What a finding adds to its rule travels with it: the credential's kind, the advisories, the fix first. */
   const token = `gh${'p'}_${'B'.repeat(36)}`;
@@ -93,7 +126,7 @@ const ui = require('../public/code-audit-ui');
   assert.match(waivedBrief, /\*\*What is unknown\.\*\* .+\n\n\*\*How to confirm\.\*\* /);
   assert.match(waivedBrief, /## Coverage\n\n\| Class \| Status \| What was read \|/);
   assert.match(waivedBrief, /\| Business logic \| Not assessed \|/);
-  assert.match(waivedBrief, /by Uranus 2\.0\.0\.\n\d+ confirmed, \d+ to confirm\./);
+  assert.match(waivedBrief, /by Uranus 2\.1\.0\.\n\d+ confirmed, \d+ to confirm\./);
   assert.match(waivedBrief, /\| SEC-005 \| .+ \| `src\/nonce\.js:1` \| display nonce \\\| not a secret \|/, 'a pipe in the reason cannot break the table');
 
   /* SARIF 2.1.0: rules once each, tagged with their CWE; results at file and line; a waiver as an in-source suppression. */
@@ -127,7 +160,7 @@ const ui = require('../public/code-audit-ui');
   assert.strictEqual(lead.properties.verdict, 'needs-validation');
   assert(lead.properties.howToConfirm.length > 20);
   assert(!lead.codeFlows);
-  assert.strictEqual(repoRun.properties.engine, 'Uranus 2.0.0');
+  assert.strictEqual(repoRun.properties.engine, 'Uranus 2.1.0');
   assert(repoRun.properties.coverage.some(entry => entry.class === 'logic' && entry.status === 'not-assessed'));
   assert.strictEqual(repoRun.tool.driver.rules[sqlResult.ruleIndex].id, 'SEC-001', 'ruleIndex points at its rule');
   assert(sqlResult.partialFingerprints['nebulaverseFinding/v1']);
@@ -213,7 +246,9 @@ const ui = require('../public/code-audit-ui');
 
   /* The comparison: identities only, new and resolved. */
   assert.strictEqual(ui.diff(result, null), null);
-  const changed = ui.diff(result, { at: '2026-09-25T00:00:00.000Z', ids: [result.findings[0].id, 'f'.repeat(24)] });
+  const changed = ui.diff(result, { engine: `repository:${result.engine.version}`, at: '2026-09-25T00:00:00.000Z', ids: [result.findings[0].id, 'f'.repeat(24)] });
+  assert.equal(ui.diff(result, { engine: 'repository:2.0.0', ids: ['legacy'] }), null, 'engine changes start a fresh comparison');
+  assert.equal(ui.diff(result, { ids: ['legacy'] }), null, 'unversioned browser history is not compared with new identities');
   assert.strictEqual(changed.resolved, 1);
   assert.strictEqual(changed.newIds.size, result.findings.length - 1);
   assert.strictEqual(ui.storageKey('Sandbox/Demo'), 'nv_audit:sandbox/demo');

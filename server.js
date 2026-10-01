@@ -154,6 +154,7 @@ const { createAuditJobs } = require('./src/code-audit-jobs');
 const { CodeAuditHistory, createAuditWatch } = require('./src/code-audit-history');
 const { watchComponents } = require('./src/code-audit-watch');
 const { checkSite, declaredSite, siteOrigin } = require('./src/site-check');
+const { registerRenderedAudit } = require('./src/routes/rendered-audit');
 const { readBranchProtection } = require('./src/branch-protection');
 const { buildPublicAssets, etagMatches, securityContact, stripHtmlComments, stripJsComments } = require('./src/public-assets');
 const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
@@ -798,7 +799,7 @@ const VENDOR_ALLOWLIST = new Set([
   'marked/15.0.12/marked.min.js',
   'three/0.185.1/three.module.min.js',
   'three/0.185.1/three.core.min.js',
-  'dompurify/3.4.13/purify.min.js',
+  'dompurify/3.4.16/purify.min.js',
   'fonts/archivo-variable-latin.woff2',
   'fonts/public-sans-variable-latin.woff2',
   'fonts/jetbrains-mono-variable-latin.woff2',
@@ -1453,7 +1454,7 @@ async function resolveExposureSession(input) {
 
 function ensureExposureWorker() {
   if (exposureWorker || !DB_URL || shuttingDown || !exposureScanningAvailable()) return exposureWorker;
-  _exposureStore = new ExposureStore({ pool: pool() });
+  _exposureStore = new ExposureStore({ pool: pool(), cursorKey: EXPOSURE_FINGERPRINT_KEY });
   exposureWorker = startExposureWorker({
     store: _exposureStore,
     reader: exposureReader,
@@ -3254,7 +3255,7 @@ async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
   const accounts = (Array.isArray(accountOrAccounts) ? accountOrAccounts : [accountOrAccounts])
     .filter(account => account && typeof account === 'object');
   /* An audit held for an account that is leaving goes with it. */
-  for (const account of accounts) { auditJobs.forget(identityKey(account)); siteJobs.forget(identityKey(account)); }
+  for (const account of accounts) { auditJobs.forget(identityKey(account)); siteJobs.forget(identityKey(account)); renderedJobs.forget(identityKey(account)); }
   if (!ALPHA_CONFIG.enabled) {
     const targetKeys = new Set(accounts.map(hostedAccountKey));
     for (const account of accounts) {
@@ -4763,7 +4764,7 @@ function exposureService() {
       status: 503, code: 'EXPOSURE_DATABASE_REQUIRED'
     });
   }
-  if (!_exposureStore) _exposureStore = new ExposureStore({ pool: pool() });
+  if (!_exposureStore) _exposureStore = new ExposureStore({ pool: pool(), cursorKey: EXPOSURE_FINGERPRINT_KEY });
   return _exposureStore;
 }
 
@@ -4945,30 +4946,19 @@ app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alpha
     const store = exposureService();
     const scope = req.governance.scope;
     const identityKey = req.governance.actor.identityKey;
-    const findings = await store.listFindings({
-      scope, identityKey,
+    const page = await store.listFindingsPage({
+      scope, identityKey, currentGeneration: true,
       limit: Number.parseInt(String(req.query.limit || '50'), 10),
-      /* Findings from before a rules upgrade are shown until a scan under the
-         new rules finishes, and then not twice. */
-      currentGeneration: true
+      cursor: req.query.cursor ? String(req.query.cursor) : null,
+      query: String(req.query.q || ''), severity: String(req.query.severity || 'all'),
+      where: String(req.query.where || 'all'),
+      dispositions: req.query.status && req.query.status !== 'all' ? [String(req.query.status)] : undefined
     });
-    /*
-     * And the latest answer of each kind, in one round trip rather than one
-     * per finding. A screen that showed only what was asked in the current
-     * session would forget, and making a week-old answer reappear by asking
-     * again would mean using somebody's credential a second time to redisplay
-     * a fact already recorded.
-     */
-    const fingerprints = findings.map(finding => finding.fingerprint);
-    const [answers, locations] = await Promise.all([
-      store.latestAnswers({ scope, identityKey, fingerprints }),
-      /* The line each was last seen on, so the list says where, not only what. */
-      store.latestLocations({ scope, identityKey, fingerprints })
-    ]);
+    const fingerprints = page.findings.map(finding => finding.fingerprint);
+    const answers = await store.latestAnswers({ scope, identityKey, fingerprints });
     res.json({
-      findings: findings.map(finding => exposureFindingPayload(
-        locations[finding.fingerprint] ? { ...finding, ...locations[finding.fingerprint] } : finding
-      )),
+      ...page,
+      findings: page.findings.map(exposureFindingPayload),
       verifications: Object.fromEntries(Object.entries(answers.verifications)
         .map(([fingerprint, item]) => [fingerprint, { ...item, narration: describeVerification(item) }])),
       probes: Object.fromEntries(Object.entries(answers.probes)
@@ -7916,6 +7906,7 @@ app.post('/api/repo/:owner/:repo/code-audit/history/clear', providerSessionAcces
  * -- it reads only what every visitor can.
  */
 const siteJobs = createAuditJobs({ kind: 'site' });
+const renderedJobs = registerRenderedAudit(app, { providerSessionAccess, capabilityAccess, auth, identityKey, fail });
 const siteCheckLast = new Map();
 const siteOriginLast = new Map();
 function siteCheckRequest(req, res) {
@@ -7945,7 +7936,7 @@ function siteCheckRequest(req, res) {
         url: origin,
         transport: input => guardedFetch(input),
         advisoryTransport: input => guardedFetch(input),
-        txt: name => guardedTxt(name),
+        txt: (name, budget) => guardedTxt(name, budget),
         onProgress
       }).then(result => ({ ...result, checkedAt: new Date().toISOString() }));
     }
@@ -8563,6 +8554,9 @@ ensureExposureWorker();
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
+  renderedJobs.close();
+  siteJobs.close();
+  auditJobs.close();
   console.log(JSON.stringify({ t: new Date().toISOString(), event: 'shutdown', signal }));
   for (const clients of LIVE_CLIENTS.values()) {
     for (const client of clients) {

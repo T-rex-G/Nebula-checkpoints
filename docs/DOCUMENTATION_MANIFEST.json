@@ -319,6 +319,13 @@
       "immutableHistory": true
     },
     {
+      "path": "docs/operations/AUDIT_PLATFORM.md",
+      "lifecycle": "operational",
+      "authority": "Audit behavior, operating limits and optional isolated Chromium configuration.",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/operations/ALPHA17_LIVE_DISPATCH.md",
       "lifecycle": "operational",
       "authority": "authored-operator-guidance",

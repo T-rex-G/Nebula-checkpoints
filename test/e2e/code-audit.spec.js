@@ -36,7 +36,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('.audit-verdict').first()).toHaveText('1 critical issue to fix');
   /* Confirmed findings are counted apart from leads to confirm, and the engine says how far it followed values. */
   await expect(pane.locator('.audit-split')).toHaveAttribute('aria-label', '7 confirmed, 4 to confirm');
-  await expect(pane.locator('.audit-engine-line')).toContainText('Uranus 2.0');
+  await expect(pane.locator('.audit-engine-line')).toContainText('Uranus 2.1');
   await expect(pane.locator('.audit-engine-line')).toContainText('3 entry points mapped');
   /* The evidence as figures, the sentence behind them as the strip's name. */
   const evidence = pane.locator('.audit-evidence');
@@ -276,7 +276,7 @@ test('the deployed site is checked anonymously, and the next check shows what wa
   /* Fixed: the headers are sent and the file is gone. */
   await site.getByRole('button', { name: 'Check again' }).click();
   await expect(site.locator('.audit-grade')).toHaveAttribute('aria-label', 'Site grade A, 100 out of 100');
-  await expect(site.locator('.audit-verdict')).toHaveText('Nothing found');
+  await expect(site.locator('.audit-verdict')).toHaveText('Nothing found in the completed checks');
   await expect(site.locator('.audit-origin')).toHaveText('demo.example.com');
   /* X-Frame-Options is not sent, but CSP frame-ancestors does its job, and the tile says so. */
   await expect(headers.filter({ hasText: 'X-Frame-Options' })).toContainText('via CSP');

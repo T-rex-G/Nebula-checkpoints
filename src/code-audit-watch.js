@@ -129,15 +129,24 @@ async function watchComponents({ components, advisoryTransport, intelTransport, 
 
   const total = entries.length;
   const checked = answered.length;
-  const state = !total ? 'ok' : checked === 0 ? 'unavailable' : checked < total ? 'partial' : 'ok';
+  const missingDetails = wanted.some(id => !records.has(id) || !records.get(id));
+  const sources = {
+    advisories: !total ? 'ok' : !checked ? 'unavailable' : checked < total || missingDetails ? 'partial' : 'ok',
+    exploited: intel.status.kev === 'unavailable' ? 'unavailable'
+      : intel.status.kevStale || askCves.some(cve => !intel.answers.has(cve)) ? 'partial' : intel.status.kev
+  };
+  const truncated = Math.max(0, alerts.length - limits.maxAlerts);
+  const incomplete = sources.advisories !== 'ok' || !['ok', 'not-needed'].includes(sources.exploited) || truncated > 0;
+  const state = !incomplete ? 'ok' : !checked && !['ok', 'partial'].includes(sources.exploited) ? 'unavailable' : 'partial';
   return {
     state,
+    sources,
     checked,
     total,
     kev: intel.status.kev,
     kevVersion: intel.status.kevVersion || null,
     alerts: alerts.sort(order).slice(0, limits.maxAlerts),
-    truncated: Math.max(0, alerts.length - limits.maxAlerts)
+    truncated
   };
 }
 

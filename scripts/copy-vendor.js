@@ -38,7 +38,7 @@ const files = [
    */
   ['node_modules/three/build/three.module.min.js', 'three/0.185.1/three.module.min.js'],
   ['node_modules/three/build/three.core.min.js', 'three/0.185.1/three.core.min.js'],
-  ['node_modules/dompurify/dist/purify.min.js', 'dompurify/3.4.13/purify.min.js'],
+  ['node_modules/dompurify/dist/purify.min.js', 'dompurify/3.4.16/purify.min.js'],
   /*
    * Variable upright latin faces. One file per family covers every weight the
    * interface uses, which is why three files replace the eleven static faces a

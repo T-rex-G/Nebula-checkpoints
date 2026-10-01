@@ -78,7 +78,9 @@ test('vulnerable packages are ranked by exploitation and reach, and the grade is
 
 test('the exploited filter narrows the findings, and the exports carry the same facts', async ({ page }) => {
   const pane = await audited(page);
-  const toggle = pane.locator('.audit-risk-stat');
+  const toggle = pane.locator('.audit-risk-stats').getByRole('button', { name: /exploited in the wild/ });
+  await expect(toggle.locator('..')).toHaveAttribute('role', 'listitem');
+  await expect(toggle).not.toHaveAttribute('role', 'listitem');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await expect(pane.locator('.audit-exploits').getByRole('button', { name: /^Exploited/ })).toHaveAttribute('aria-pressed', 'true');

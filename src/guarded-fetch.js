@@ -59,7 +59,7 @@ const PROFILES = Object.freeze({
   CREDENTIAL_VERIFY: 'credential-verify',
   /*
    * An anonymous look at a deployed site, the way any visitor's browser sees
-   * it: GET or HEAD, no query string, no credential of any kind, and the
+   * it: GET or HEAD, cache-busting queries allowed, no credential of any kind, and the
    * response headers returned beside the status -- they are most of what a
    * site check is about. The body is read only as far as the caller's bound
    * and then cut, never refused: a probe needs the first bytes of a file to
@@ -67,6 +67,9 @@ const PROFILES = Object.freeze({
    * decompressed; it is reported as unread and the headers still arrive.
    */
   SITE_PROBE: 'site-probe',
+  /* Anonymous browser resources use the same DNS and TLS guard. Binary
+     bodies preserve images/fonts; redirects are returned, never followed. */
+  RENDERED_SITE: 'rendered-site',
   /*
    * A question to the public vulnerability database about packages a
    * repository declares: a name, an ecosystem and a version, nothing else.
@@ -105,7 +108,8 @@ const PROFILE_RULES = Object.freeze({
   [PROFILES.WEBHOOK]: Object.freeze({ methods: Object.freeze(['POST']), query: false, readsBody: false }),
   [PROFILES.PROVIDER_READ]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: true, readsBody: true }),
   [PROFILES.CREDENTIAL_VERIFY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true }),
-  [PROFILES.SITE_PROBE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: false, readsBody: true, headers: true, truncates: true, tls: true, plainHttp: true }),
+  [PROFILES.SITE_PROBE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: true, readsBody: true, headers: true, truncates: true, tls: true, plainHttp: true }),
+  [PROFILES.RENDERED_SITE]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: true, readsBody: true, headers: true, truncates: true, tls: true, binary: true }),
   [PROFILES.ADVISORY_QUERY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true, hosts: Object.freeze(['api.osv.dev']) }),
   [PROFILES.THREAT_INTEL]: Object.freeze({ methods: Object.freeze(['GET']), query: true, readsBody: true, hosts: Object.freeze(['api.first.org', 'www.cisa.gov']) }),
   [PROFILES.LICENCE_QUERY]: Object.freeze({ methods: Object.freeze(['GET']), query: false, readsBody: true, hosts: Object.freeze(['api.deps.dev']) }),
@@ -115,6 +119,7 @@ const PROFILE_RULES = Object.freeze({
 /* The profiles that never carry a credential, and what the refusal says. */
 const ANONYMOUS = Object.freeze({
   [PROFILES.SITE_PROBE]: 'A site probe must be anonymous',
+  [PROFILES.RENDERED_SITE]: 'A rendered site request must be anonymous',
   [PROFILES.ADVISORY_QUERY]: 'An advisory query must be anonymous',
   [PROFILES.LICENCE_QUERY]: 'A licence query must be anonymous',
   [PROFILES.THREAT_INTEL]: 'An exploit-intelligence read must be anonymous'
@@ -312,12 +317,16 @@ function lookupAll(hostname) {
 }
 
 /* A resolution that cannot outlive the request it serves. */
-async function resolveWithin(resolver, hostname, remainingMs) {
+async function resolveWithin(resolver, hostname, remainingMs, signal) {
   let dnsDeadline;
+  let onAbort;
   try {
+    if (signal && signal.aborted) throw new GuardedFetchError('Outbound request was cancelled', CODES.DEADLINE);
     return await Promise.race([
       Promise.resolve().then(() => resolver(hostname)),
       new Promise((_, reject) => {
+        onAbort = () => reject(new GuardedFetchError('Outbound request was cancelled', CODES.DEADLINE));
+        if (signal) signal.addEventListener('abort', onAbort, { once: true });
         dnsDeadline = setTimeout(() => reject(new GuardedFetchError(
           'Outbound request exceeded its deadline', 'GUARDED_FETCH_DEADLINE'
         )), Math.max(0, remainingMs));
@@ -328,6 +337,7 @@ async function resolveWithin(resolver, hostname, remainingMs) {
     throw new GuardedFetchError('Outbound target could not be resolved', 'GUARDED_FETCH_DNS_INVALID', error && error.code);
   } finally {
     clearTimeout(dnsDeadline);
+    if (signal && onAbort) signal.removeEventListener('abort', onAbort);
   }
 }
 
@@ -438,9 +448,11 @@ function createGuardedSession(options = {}) {
 }
 
 async function guardedFetch(input = {}) {
-  const deadlineMs = boundedInteger(input.deadlineMs, DEFAULT_DEADLINE_MS, 1000, 120_000);
+  const deadlineMs = boundedInteger(input.deadlineMs, DEFAULT_DEADLINE_MS, 1, 120_000);
   const startedAt = Date.now();
   const rule = rules(input.profile);
+  const aborted = () => input.signal && input.signal.aborted;
+  if (aborted()) throw new GuardedFetchError('Outbound request was cancelled', CODES.DEADLINE);
   const method = String(input.method || '').toUpperCase();
   if (!rule.methods.includes(method)) {
     throw new GuardedFetchError('This profile does not permit that method', 'GUARDED_FETCH_METHOD_INVALID');
@@ -455,6 +467,10 @@ async function guardedFetch(input = {}) {
     /^(?:authorization|proxy-authorization|cookie|private-token|x-api-key)$/i.test(name))) {
     throw new GuardedFetchError(ANONYMOUS[input.profile], 'GUARDED_FETCH_REFUSED');
   }
+  if ([PROFILES.RENDERED_SITE, PROFILES.SITE_PROBE].includes(input.profile) && Object.keys(input.headers || {}).some(name =>
+    !/^(?:accept|accept-language|accept-encoding|user-agent|origin|referer|range)$/i.test(name))) {
+    throw new GuardedFetchError('Site reads accept only anonymous browser headers', CODES.REFUSED);
+  }
   /* A profile bound to named hosts reaches those and nothing else, and one bound to named paths only those. */
   if (rule.hosts && !rule.hosts.includes(target.hostname)) {
     throw new GuardedFetchError('This profile may not reach that host', 'GUARDED_FETCH_REFUSED');
@@ -463,9 +479,12 @@ async function guardedFetch(input = {}) {
     throw new GuardedFetchError('This profile may not reach that path', 'GUARDED_FETCH_REFUSED');
   }
   const body = input.body == null ? null : String(input.body);
+  if ([PROFILES.SITE_PROBE, PROFILES.RENDERED_SITE].includes(input.profile) && body !== null) {
+    throw new GuardedFetchError('Anonymous site reads cannot carry a request body', CODES.REFUSED);
+  }
   const maxBytes = boundedInteger(input.maxResponseBytes, MAX_RESPONSE_BYTES, 1024,
     input.profile === PROFILES.PROVIDER_READ || input.profile === PROFILES.THREAT_INTEL || input.profile === PROFILES.PROVIDER_QUERY ? MAX_PROVIDER_RESPONSE_BYTES
-      : input.profile === PROFILES.SITE_PROBE ? MAX_SITE_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
+      : rule.truncates ? MAX_SITE_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
   if (body !== null && Buffer.byteLength(body, 'utf8') > MAX_RESPONSE_BYTES) {
     throw new GuardedFetchError('Outbound body exceeds the transport limit', 'GUARDED_FETCH_BODY_TOO_LARGE');
   }
@@ -485,11 +504,13 @@ async function guardedFetch(input = {}) {
     answers = await resolveWithin(
       typeof input.resolveAddresses === 'function' ? input.resolveAddresses : lookupAll,
       target.hostname,
-      Math.max(0, deadlineMs - (Date.now() - startedAt))
+      Math.max(0, deadlineMs - (Date.now() - startedAt)),
+      input.signal
     );
   }
   /* Validation before a socket exists: a refused address must never reach one. */
   const validated = validateAddresses(answers);
+  if (aborted()) throw new GuardedFetchError('Outbound request was cancelled', CODES.DEADLINE);
   const pinned = validated[0];
 
   /*
@@ -519,8 +540,7 @@ async function guardedFetch(input = {}) {
   /* Never accept-encoding: the bound that matters is on the bytes a caller
      ends up holding, and a small compressed body can become an enormous one. */
   const headers = { ...(input.headers || {}) };
-  delete headers['accept-encoding'];
-  delete headers['Accept-Encoding'];
+  for (const name of Object.keys(headers)) if (name.toLowerCase() === 'accept-encoding') delete headers[name];
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -529,7 +549,13 @@ async function guardedFetch(input = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
+      if (input.signal) input.signal.removeEventListener('abort', onAbort);
       fn(value);
+    };
+    const onAbort = () => {
+      const error = new GuardedFetchError('Outbound request was cancelled', CODES.DEADLINE);
+      if (request && typeof request.destroy === 'function') request.destroy(error);
+      finish(reject, error);
     };
     /*
      * The total deadline, which the socket timeout is not. A response that
@@ -540,6 +566,8 @@ async function guardedFetch(input = {}) {
       if (request && typeof request.destroy === 'function') request.destroy(error);
       finish(reject, error);
     }, remainingMs);
+    if (input.signal) input.signal.addEventListener('abort', onAbort, { once: true });
+    if (aborted()) return onAbort();
     /*
      * Deliberately not unref'd. An unreferenced deadline lets the process exit
      * while a request is still in flight, so the deadline never fires and the
@@ -548,7 +576,8 @@ async function guardedFetch(input = {}) {
      * the moment anything settles, so it holds nothing open that matters.
      */
 
-    request = requestImpl({
+    try {
+      request = requestImpl({
       protocol: plain ? 'http:' : 'https:',
       hostname: target.hostname,
       port: plain ? 80 : 443,
@@ -582,7 +611,9 @@ async function guardedFetch(input = {}) {
         if (tls) seen.tls = tls;
       }
 
-      if (rule.readsBody) {
+      const binary = rule.binary && input.responseType === 'buffer';
+      const resultBody = chunks => binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString('utf8');
+      if (rule.readsBody && !binary) {
         const encoding = String((response.headers || {})['content-encoding'] || '').trim().toLowerCase();
         if (encoding && encoding !== 'identity' && rule.truncates) {
           if (typeof response.destroy === 'function') response.destroy();
@@ -603,7 +634,7 @@ async function guardedFetch(input = {}) {
         if (received > maxBytes && rule.truncates) {
           chunks.push(Buffer.from(chunk).subarray(0, Math.max(0, chunk.length - (received - maxBytes))));
           if (typeof response.destroy === 'function') response.destroy();
-          return finish(resolve, { statusCode, ...seen, body: Buffer.concat(chunks).toString('utf8'), truncated: true });
+          return finish(resolve, { statusCode, ...seen, body: resultBody(chunks), truncated: true });
         }
         if (received > maxBytes) {
           if (typeof response.destroy === 'function') response.destroy();
@@ -615,7 +646,7 @@ async function guardedFetch(input = {}) {
         if (rule.readsBody) chunks.push(Buffer.from(chunk));
       });
       response.on('end', () => finish(resolve, rule.readsBody
-        ? { statusCode, ...seen, body: Buffer.concat(chunks).toString('utf8') }
+        ? { statusCode, ...seen, body: resultBody(chunks) }
         : { statusCode }));
       response.on('error', error => finish(reject, new GuardedFetchError(
         'Outbound response failed', 'GUARDED_FETCH_TRANSPORT_FAILED', error && error.code
@@ -632,7 +663,13 @@ async function guardedFetch(input = {}) {
     request.on('error', error => finish(reject, error instanceof GuardedFetchError
       ? error
       : new GuardedFetchError('Outbound request failed', 'GUARDED_FETCH_TRANSPORT_FAILED', error && error.code)));
-    request.end(body == null ? undefined : body);
+      request.end(body == null ? undefined : body);
+    } catch (error) {
+      if (request && typeof request.destroy === 'function') request.destroy();
+      finish(reject, error instanceof GuardedFetchError ? error : new GuardedFetchError(
+        'Outbound request failed', CODES.TRANSPORT_FAILED, error && error.code
+      ));
+    }
   });
 }
 
@@ -677,10 +714,10 @@ async function guardedTxt(name, options = {}) {
     throw new GuardedFetchError('A DNS lookup needs a public domain name', 'GUARDED_FETCH_URL_INVALID');
   }
   const resolver = typeof options.resolveTxt === 'function' ? options.resolveTxt : host => dns.promises.resolveTxt(host);
-  const deadlineMs = boundedInteger(options.deadlineMs, 5000, 500, 15_000);
+  const deadlineMs = boundedInteger(options.deadlineMs, 5000, 1, 15_000);
   let records;
   try {
-    records = await resolveWithin(resolver, hostname, deadlineMs);
+    records = await resolveWithin(resolver, hostname, deadlineMs, options.signal);
   } catch (error) {
     if (['ENODATA', 'ENOTFOUND', 'NXDOMAIN'].includes(error && error.transportCode)) return Object.freeze([]);
     throw error;

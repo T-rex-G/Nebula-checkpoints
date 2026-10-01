@@ -52,6 +52,15 @@ const KINDS = Object.freeze({
     busy: 'The server is running as many audits as it can hold. Try again in a minute.',
     timeout: 'The audit ran past the time this server gives one. Run it again; a smaller branch finishes sooner.'
   }),
+  rendered: Object.freeze({
+    prefix: 'RENDERED_AUDIT', first: 'launching', stages: new Set(['launching', 'desktop', 'mobile', 'accessibility', 'capturing']),
+    limits: Object.freeze({ keepMs: 120000, maxRunMs: 100000, maxRunning: 1 }),
+    safeState: 'The browser only requested public resources. No forms were submitted.',
+    gone: 'This rendered audit expired or the server restarted. Start it again.',
+    inProgress: 'A rendered audit is already running for this session.',
+    busy: 'The isolated browser is busy. Try again shortly.',
+    timeout: 'The rendered audit exceeded its time limit.'
+  }),
   site: Object.freeze({
     prefix: 'SITE_CHECK', first: 'page', stages: SITE_STAGES, limits: SITE_JOBS,
     safeState: 'Nothing was changed. The check only reads what any visitor can.',
@@ -100,7 +109,7 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
   };
 
   const settle = (job, outcome) => {
-    if (job.finishedAt !== null) return;
+    if (job.finishedAt !== null || jobs.get(job.identity) !== job) return;
     clearTimeout(job.timer);
     job.finishedAt = now();
     if (outcome.error) job.error = outcome.error;
@@ -182,7 +191,14 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
     if (job.finishedAt === null) job.controller.abort();
   }
 
-  return Object.freeze({ request, forget, size: () => jobs.size });
+  function cancel({ identity, owner, repo, ref, run }) {
+    const job = jobs.get(identity);
+    if (!job || job.id !== run || job.owner !== owner || job.repo !== repo || job.ref !== ref) return false;
+    forget(identity);
+    return true;
+  }
+  const close = () => { for (const identity of jobs.keys()) forget(identity); };
+  return Object.freeze({ request, forget, cancel, close, size: () => jobs.size });
 }
 
 module.exports = Object.freeze({ createAuditJobs, JOBS, SITE_JOBS, SITE_STAGES });

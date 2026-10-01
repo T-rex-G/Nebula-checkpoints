@@ -78,22 +78,54 @@ test('the overview offers a theme control that works, on a phone', async ({ page
  * overflow by growing a scrollbar -- it reports it by laying one child on top
  * of another, which is how the theme control came to sit over the brand.
  *
- * 360 is the narrowest width asserted, and the omission of 320 is deliberate
- * rather than convenient. At 320 the bar overflows by 34px and cannot be made
- * to fit without dropping one of its five actions or rebuilding the theme
- * switch as a plain icon button -- a visual change, not a fix. It overflowed
- * there before this change too, by 32px, measured both ways; the two extra
- * pixels are the brand no longer being crushed to zero width to absorb the
- * difference, which is an improvement to the same defect this file is about.
- * 320 CSS px is an iPhone SE first generation, which cannot run a current iOS.
- * Every phone this ships to is 360 or wider.
+ * Include narrow viewports and both sides of the wrapping breakpoint. A
+ * larger brand target previously made the 360px bar overflow again; keeping
+ * that target must leave every action reachable and content below the bar.
  */
-for (const width of [360, 390, 430]) {
+for (const width of [320, 360, 380, 381, 390, 430]) {
   test(`the overview bar fits its own box at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 });
     await overview(page);
-    const overflow = await page.locator('#page-overview .topbar').evaluate(el =>
-      el.scrollWidth - Math.round(el.getBoundingClientRect().width));
-    expect(overflow, 'the bar overflows its own box, so its children overlap').toBeLessThanOrEqual(0);
+    for (const theme of ['dark', 'light']) {
+      await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+      await expect.poll(() => page.locator('#page-overview .topbar').evaluate(el => {
+        const bar = el.getBoundingClientRect();
+        const buttons = [...el.querySelectorAll('button')];
+        const boxes = buttons.map(button => button.getBoundingClientRect());
+        const brand = el.querySelector('.topbar-brand').getBoundingClientRect();
+        const content = document.querySelector('#page-overview .container').getBoundingClientRect();
+        return {
+          overflow: el.scrollWidth > Math.round(bar.width),
+          reachable: buttons.every((button, i) => {
+            const box = boxes[i];
+            const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+            return box.width > 0 && box.height > 0 && button.contains(hit);
+          }),
+          contained: boxes.every(box => box.left >= bar.left && box.right <= bar.right &&
+            box.top >= bar.top && box.bottom <= bar.bottom),
+          overlapping: boxes.some((box, i) => boxes.slice(i + 1).some(other =>
+            box.left < other.right && box.right > other.left && box.top < other.bottom && box.bottom > other.top)),
+          brandTarget: brand.width >= 44 && brand.height >= 44,
+          contentClear: content.top >= bar.bottom
+        };
+      }), { message: `${theme}: all seven controls must fit, remain reachable, and leave content clear` }).toEqual({
+        overflow: false, reachable: true, contained: true, overlapping: false, brandTarget: true, contentClear: true
+      });
+      await expect(page.locator('#page-overview .topbar button')).toHaveCount(7);
+    }
   });
 }
+
+test('the overview reserves its new header height when the viewport changes', async ({ page }) => {
+  await page.setViewportSize({ width: 430, height: 800 });
+  await overview(page);
+  for (const width of [320, 430]) {
+    await page.setViewportSize({ width, height: 800 });
+    await expect.poll(() => page.locator('#page-overview .topbar').evaluate(el => {
+      const bar = el.getBoundingClientRect();
+      const content = document.querySelector('#page-overview .container').getBoundingClientRect();
+      const reserved = parseFloat(document.documentElement.style.getPropertyValue('--tbh'));
+      return reserved === el.offsetHeight && content.top >= bar.bottom;
+    })).toBe(true);
+  }
+});

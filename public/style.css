@@ -2106,6 +2106,14 @@ html.vt-reveal::view-transition-new(root){z-index:2}
 .avatar-btn .avatar{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .avatar-fallback{color:var(--text2)}
 
+/* Seven overview controls cannot share a narrow row without overlapping.
+   Keep navigation and identity together, then give account actions a full
+   row. measureTopbar reserves the resulting height, including after resize. */
+@media (max-width:380px){
+  #page-overview .topbar{flex-wrap:wrap}
+  #page-overview .topbar-actions{flex-basis:100%;justify-content:space-between}
+}
+
 /* ============================================================
    v4.3.0 — Visual Time Machine
    ============================================================ */

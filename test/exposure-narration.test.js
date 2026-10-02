@@ -47,6 +47,7 @@ const {
   describeProbe,
   describeVerification,
   narrationForRule,
+  observationFreshness,
   safeDisplayPath
 } = require('../src/exposure-narration');
 
@@ -165,6 +166,84 @@ const finding = Object.freeze({
   assert(readable.length > 40);
 }
 
+/* ---- Observations age out without changing their historical outcome --- */
+
+{
+  const observedAt = '2026-09-30T10:00:00.000Z';
+  const freshnessDeadline = '2026-10-01T10:00:00.000Z';
+  const now = Date.parse('2026-09-30T11:00:00.000Z');
+  const timing = { observedAt, freshnessDeadline };
+  const verified = { ...timing, state: VERIFICATION_STATES.VERIFIED, reason: VERIFICATION_REASONS.IDENTITY_CONFIRMED };
+  const rejected = { ...timing, state: VERIFICATION_STATES.REJECTED, reason: VERIFICATION_REASONS.CREDENTIAL_REFUSED };
+  const readable = { ...timing, state: PROBE_STATES.READABLE, reason: PROBE_REASONS.ROWS_VISIBLE };
+  const denied = { ...timing, state: PROBE_STATES.DENIED, reason: PROBE_REASONS.ACCESS_DENIED_FOR_TESTED_REQUEST };
+
+  const metadata = observationFreshness(verified, now);
+  assert.deepStrictEqual(metadata, { freshness: 'fresh', observedAt, freshnessDeadline });
+  assert(Object.isFrozen(metadata));
+  assert.deepStrictEqual(observationFreshness({
+    observedAt: '2026-09-30T10:00:00Z', freshnessDeadline: '2026-10-01T10:00:00.0Z'
+  }, now), metadata, 'UTC instants are displayed in canonical form');
+
+  for (const [describe, record] of [
+    [describeVerification, verified], [describeVerification, rejected],
+    [describeProbe, readable], [describeProbe, denied]
+  ]) {
+    const fresh = describe(record, now);
+    assert(fresh.includes(observedAt), 'a result says when it was checked');
+    assert(fresh.includes(freshnessDeadline), 'a result says when it ages out');
+    assert.match(fresh, /status can change before the freshness deadline/);
+    assert.doesNotMatch(fresh, /Current status is unknown/);
+    assert.doesNotMatch(fresh, /is live|no longer works|exposure is (?:actually )?over/);
+    assert.strictEqual(describe(record, now), fresh, 'explicit time makes narration deterministic');
+
+    for (const timestamp of [Date.parse(freshnessDeadline), Date.parse(freshnessDeadline) + 1]) {
+      const stale = describe(record, timestamp);
+      assert.match(stale, /Current status is unknown/);
+      assert(stale.includes(observedAt));
+      assert(stale.includes(freshnessDeadline));
+      assert.doesNotMatch(stale, /is live|no longer works|exposure is (?:actually )?over/);
+      assert.strictEqual(observationFreshness(record, timestamp).freshness, 'stale');
+    }
+
+    for (const incompleteTiming of [
+      { observedAt: undefined }, { freshnessDeadline: undefined },
+      { observedAt: 'yesterday' }, { freshnessDeadline: 'tomorrow' },
+      { observedAt: '2026-02-30T10:00:00.000Z' },
+      { freshnessDeadline: '2026-09-31T10:00:00.000Z' },
+      { observedAt: '2026-10-01T09:00:00.000Z' },
+      { freshnessDeadline: observedAt },
+      { freshnessDeadline: '2026-09-29T10:00:00.000Z' }
+    ]) {
+      const incomplete = { ...record, ...incompleteTiming };
+      assert.strictEqual(observationFreshness(incomplete, now).freshness, 'stale');
+      assert.match(describe(incomplete, now), /Current status is unknown/);
+    }
+    assert.match(describe(record, Number.NaN), /Current status is unknown/);
+    assert.match(describe(record, Infinity), /Current status is unknown/);
+  }
+
+  assert.match(describeVerification(rejected, now), /provider refused this credential at the time of the check/);
+  assert.match(describeProbe(denied, now), /these columns of this table for an anonymous caller/,
+    'the specific probe limitations survive the freshness explanation');
+  assert.match(describeVerification({ ...verified, reason: VERIFICATION_REASONS.PROVIDER_THROTTLED }, now),
+    /provider was rate-limiting us/, 'reason-specific explanations retain precedence');
+
+  for (const describe of [describeVerification, describeProbe]) {
+    const record = describe === describeVerification ? verified : readable;
+    const secret = ['gh', 'p_', 'N'.repeat(36)].join('');
+    const sentence = describe({ ...record, observedAt: secret, freshnessDeadline: `<script>${secret}</script>` }, now);
+    assert.match(sentence, /Current status is unknown/);
+    assert.match(sentence, /missing or invalid timestamp/);
+    assert(!sentence.includes(secret), 'invalid timestamp data cannot expose credentials');
+    assert(!sentence.includes('<script>'), 'invalid timestamp data is never reflected');
+  }
+  assert.deepStrictEqual(observationFreshness(null, now), {
+    freshness: 'stale', observedAt: null, freshnessDeadline: null
+  });
+  assert.match(describeDisposition('credential-rejected'), /past refusal does not establish its current status/);
+}
+
 /* ---- Every disposition has an entry ----------------------------------- */
 
 {
@@ -193,12 +272,16 @@ const finding = Object.freeze({
   assert.deepStrictEqual(first, third, 'and a structurally equal record produces them too');
   assert(Object.isFrozen(first));
 
-  /* Nothing in it depends on the clock, the environment or a counter. */
+  /* Finding and location narration remain independent of the clock. Only
+     observations depend on the explicit/default evaluation time. */
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-narration.js'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
   assert(source.includes('function describeFinding'), 'the comment strip must leave the code behind');
-  for (const forbidden of [/Date\.now|new Date/, /Math\.random/, /process\.env/, /require\('crypto'\)/]) {
+  const findingSource = [describeFinding, describeLocation, narrationForRule, safeDisplayPath]
+    .map(fn => fn.toString()).join('\n');
+  assert.doesNotMatch(findingSource, /Date\.now|new Date/);
+  for (const forbidden of [/Math\.random/, /process\.env/, /require\('crypto'\)/]) {
     assert.strictEqual(
       forbidden.test(source), false,
       `narration must be a pure function of the record: ${forbidden}`
@@ -449,7 +532,7 @@ const finding = Object.freeze({
     describeLocation({ path: 'a.js', occurrences: [{ line: 1, column: 1 }], occurrenceCount: 1, inTree: true, introducedCommit: INTRODUCED, introducedAt: 'yesterday' }),
     'In a.js, at line 1. It was first added in commit a1b2c3d.'
   );
-  assert.strictEqual(NARRATION_VERSION, 2);
+  assert.strictEqual(NARRATION_VERSION, 3);
 }
 
 console.log('exposure narration tests passed');

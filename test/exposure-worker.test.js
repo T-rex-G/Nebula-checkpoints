@@ -1104,8 +1104,9 @@ function runnerFor(store, reader, options = {}) {
     assert(reportHandler.includes('exposureFindingPayload('), 'and describes the finding the same way the list does');
     const listStart = server.indexOf("app.get('/api/repo/:owner/:repo/exposure/findings',");
     const listHandler = server.slice(listStart, server.indexOf('\n});', listStart));
-    assert(listHandler.includes('latestLocations('), 'the list says which line each finding was last seen on');
-    assert(/locations\[finding\.fingerprint\]/.test(listHandler), 'and describes each finding with those lines');
+    assert(listHandler.includes('listFindingsPage('), 'the list reads findings and their locations from one consistent page');
+    assert(listHandler.includes('page.findings.map(exposureFindingPayload)'), 'the page describes each finding with its observed locations');
+    assert(!listHandler.includes('latestLocations('), 'a later location read must not overwrite snapshot evidence');
 
     /* A finding says which questions it can be asked. */
     assert(/verifiable: EXPOSURE_VERIFIABLE_RULES\.has\(finding\.rule\)/.test(server), 'verification is offered only where a verifier exists');
@@ -1272,6 +1273,7 @@ function runnerFor(store, reader, options = {}) {
     const changeSet = {
       [added]: { sha: added, skip: null, committedAt: '2026-09-01T00:00:00.000Z', parents: 1, unsafePaths: 0, truncated: false,
         files: [{ path: 'app/config.js', status: 'modified', blobSha: 'e'.repeat(40), hunks: require('../src/exposure-reader').parsePatch(patchAdding) }] },
+      [merge]: { sha: merge, skip: null, files: [], parents: 2 },
       [deleted]: { sha: deleted, skip: null, committedAt: '2026-09-02T00:00:00.000Z', parents: 1, unsafePaths: 0, truncated: false,
         files: [{ path: 'app/config.js', status: 'modified', blobSha: 'f'.repeat(40), hunks: require('../src/exposure-reader').parsePatch(patchDeleting) }] }
     };
@@ -1281,7 +1283,7 @@ function runnerFor(store, reader, options = {}) {
     const reader = historyReader({ 'app/config.js': 'const a = 1;\nconst b = 2;\n' }, changeSet);
     const result = await runnerFor(store, reader).runOnce();
     assert.strictEqual(result.state, 'complete');
-    assert.deepStrictEqual(reader.changeCalls, [added, deleted], 'oldest first, and a merge is not read twice');
+    assert.deepStrictEqual(reader.changeCalls, [added, deleted, merge], 'oldest first, including merge resolutions');
     assert.strictEqual(reader.listCalls[0].commitSha, COMMIT, 'history is read from the scan commit, never a ref');
     assert.strictEqual(store.recorded.length, 1);
     const [found] = store.recorded;
@@ -1343,7 +1345,7 @@ function runnerFor(store, reader, options = {}) {
     const gapReader = historyReader({ 'README.md': 'x\n' }, { [added]: changeSet[added] });
     const gapResult = await runnerFor(gap, gapReader).runOnce();
     assert.strictEqual(gapResult.state, 'partial');
-    assert.strictEqual(gap.finalized.commitsSkipped, 1);
+    assert.strictEqual(gap.finalized.commitsSkipped, 2, 'both the unreadable regular and merge commits count');
 
     /* A change sent without a patch is read from its blob, within its own ceiling. */
     const patchless = fakeStore();

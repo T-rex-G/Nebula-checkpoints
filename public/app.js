@@ -3271,6 +3271,7 @@ function freshExposureState(scopeKey = '') {
     scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
     confirming: '', verifying: '', accepting: '', probing: '', clearing: false,
     loading: false, error: '', scopeKey,
+    paged: false, total: 0, counts: null, nextCursor: null, requestId: 0, exporting: false,
     /* Which findings are open, by fingerprint, so a re-render keeps them. */
     expanded: new Set(),
     /* The history, newest first, with a cursor for the next page. */
@@ -3399,7 +3400,11 @@ function renderExposureTally(current) {
     counts[exposureSeverity(finding)] += 1;
     if ((finding.disposition || 'open') === 'open') open += 1;
   }
-  const total = current.findings.length;
+  const total = current.counts ? current.counts.all : current.findings.length;
+  if (current.counts) {
+    Object.assign(counts, current.counts.bySeverity);
+    open = current.counts.byDisposition.open || 0;
+  }
   const severities = ['critical', 'serious', 'warning'].filter(key => counts[key]);
   if (tally) {
     tally.hidden = !total;
@@ -3822,7 +3827,11 @@ function renderExposure() {
     scanBtn.textContent = current.loading ? 'Please wait…' : activeScan ? 'Scan in progress…' : 'Scan this branch';
   }
   const refresh = $('#exposureRefreshBtn');
-  if (refresh) refresh.hidden = !(activeScan && current.error);
+  if (refresh) {
+    refresh.hidden = !current.error;
+    refresh.disabled = current.loading;
+    refresh.textContent = activeScan ? 'Retry status check' : 'Reload findings';
+  }
 
   renderExposureHistory(current);
   renderExposureTally(current);
@@ -3833,9 +3842,9 @@ function renderExposure() {
   list.textContent = '';
   const shown = exposureFiltered(current);
   renderExposureTools(current, shown.length);
-  if (current.findings.length && !shown.length) {
+  if ((current.findings.length || (current.counts && current.counts.all)) && !shown.length) {
     empty.hidden = false;
-    empty.textContent = 'No findings match these filters.';
+    empty.textContent = current.loading ? 'Loading findings…' : 'No findings match these filters.';
     return;
   }
   if (!current.findings.length) {
@@ -3890,7 +3899,7 @@ function exposureMatches(finding, view) {
   return terms.every(term => text.includes(term));
 }
 function exposureFiltered(current) {
-  return current.findings.filter(finding => exposureMatches(finding, current.view));
+  return current.paged ? current.findings : current.findings.filter(finding => exposureMatches(finding, current.view));
 }
 /* Rows safe to hand to an export: the displayable path, never the raw one. */
 function exposureExportRows(findings, current) {
@@ -3902,14 +3911,34 @@ function exposureExportRows(findings, current) {
       where: finding.displayPath || 'a file', line: exposureFirstLine(finding), status: finding.disposition || 'open',
       inTree: finding.inTree !== false, archive: where.archive, encoded: where.encoded,
       commit: /^[0-9a-f]{7,40}$/.test(String(finding.introducedCommit || '')) ? String(finding.introducedCommit).slice(0, 12) : '',
-      verified: verification ? verification.state : '', fingerprint: finding.fingerprint || '',
+      verified: verification ? (exposureAnswerFresh(verification) ? verification.state : `previously ${verification.state} (expired or undated)`) : '', fingerprint: finding.fingerprint || '',
       acceptedBy: finding.disposition === 'accepted-risk' ? finding.dispositionBy || '' : ''
     };
   });
 }
-function exportExposure(kind) {
+async function exportExposure(kind) {
   const current = exposureState();
-  const shown = exposureFiltered(current);
+  if (current.exporting) return;
+  let shown = exposureFiltered(current);
+  const scope = exposureScopeKey();
+  const selected = { ...current, view: { ...current.view } };
+  current.exporting = true;
+  renderExposure();
+  try {
+    if (current.paged) {
+      shown = [];
+      let cursor = null;
+      do {
+        const page = await api(exposureFindingsUrl(selected, cursor, 200));
+        if (current !== exposureState() || scope !== exposureScopeKey()) return;
+        if (!page || !Array.isArray(page.findings) || !Number.isInteger(page.total)) throw new Error('Incomplete export response');
+        shown.push(...page.findings);
+        Object.assign(current.verifications, page.verifications || {});
+        cursor = page.nextCursor;
+        if (shown.length > 10000 || (cursor && !page.findings.length)) throw new Error('Export limit reached');
+        if (!cursor && shown.length !== page.total) throw new Error('Incomplete export');
+      } while (cursor);
+    }
   if (!shown.length || !window.NebulaCodeAudit) return;
   const rows = exposureExportRows(shown, current);
   const day = new Date().toISOString().slice(0, 10);
@@ -3925,6 +3954,37 @@ function exportExposure(kind) {
     dlFile(`${base}.csv`, window.NebulaCodeAudit.exposureCsv(rows), 'text/csv');
   }
   announceExposure(`${rows.length} ${rows.length === 1 ? 'finding' : 'findings'} exported.`);
+  } catch (error) {
+    current.error = error.code === 'EXPOSURE_CURSOR_STALE'
+      ? 'Findings changed during export. Refresh and export again.'
+      : 'A complete export could not be collected. Narrow the filters or try again.';
+    announceExposure(current.error);
+  } finally {
+    current.exporting = false;
+    if (current === exposureState()) renderExposure();
+  }
+}
+function exposureAnswerFresh(answer) {
+  const deadline = Date.parse(answer && answer.freshnessDeadline || '');
+  const observed = Date.parse(answer && answer.observedAt || '');
+  return Number.isFinite(observed) && Number.isFinite(deadline) && observed <= Date.now() && deadline > Date.now();
+}
+function exposureFindingsUrl(current, cursor = null, limit = 50) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const view = current.view;
+  if (view.severity) params.set('severity', view.severity);
+  if (view.status !== 'all') params.set('status', view.status);
+  if (view.where !== 'all') params.set('where', view.where);
+  if (view.query) params.set('q', view.query);
+  if (cursor) params.set('cursor', cursor);
+  return `/api/repo/${wPath()}/exposure/findings?${params}`;
+}
+function filterExposure() {
+  if (exposureState().paged) {
+    exposureState().findings = [];
+    exposureState().nextCursor = null;
+    void loadExposure({ filterOnly: true });
+  } else renderExposure();
 }
 function ensureExposureTools() {
   const host = $('#exposureTools');
@@ -3946,7 +4006,7 @@ function ensureExposureTools() {
     const n = document.createElement('span');
     n.className = 'audit-segment-n';
     control.append(text, n);
-    control.addEventListener('click', () => { current().view.severity = value; renderExposure(); });
+    control.addEventListener('click', () => { current().view.severity = value; filterExposure(); });
     segments.appendChild(control);
   }
   const select = (id, label, options, key) => {
@@ -3958,7 +4018,7 @@ function ensureExposureTools() {
     const control = document.createElement('select');
     control.id = id;
     for (const [value, word] of options) control.add(new Option(word, value));
-    control.addEventListener('change', () => { current().view[key] = control.value; renderExposure(); });
+    control.addEventListener('change', () => { current().view[key] = control.value; filterExposure(); });
     wrap.append(sr, control);
     return wrap;
   };
@@ -3976,7 +4036,7 @@ function ensureExposureTools() {
   let timer = 0;
   input.addEventListener('input', () => {
     clearTimeout(timer);
-    timer = setTimeout(() => { current().view.query = input.value.slice(0, 120); renderExposure(); }, 140);
+    timer = setTimeout(() => { current().view.query = input.value.slice(0, 120); filterExposure(); }, 140);
   });
   search.appendChild(input);
   const row = document.createElement('div');
@@ -3996,9 +4056,15 @@ function ensureExposureTools() {
   reset.addEventListener('click', () => {
     Object.assign(current().view, { severity: null, status: 'all', where: 'all', query: '' });
     input.value = '';
-    renderExposure();
+    filterExposure();
   });
-  tail.append(shown, reset);
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.id = 'exposureLoadMore';
+  more.className = 'btn btn-ghost small';
+  more.textContent = 'Load more findings';
+  more.addEventListener('click', () => void loadExposure({ append: true, filterOnly: true }));
+  tail.append(shown, reset, more);
   if (window.NebulaCodeAudit && window.NebulaCodeAudit.exportMenu) tail.appendChild(window.NebulaCodeAudit.exportMenu(exportExposure, 'exposure-export', ['csv', 'sarif']));
   host.append(segments, row, tail);
   return host;
@@ -4006,12 +4072,13 @@ function ensureExposureTools() {
 function renderExposureTools(current, shownCount) {
   const host = ensureExposureTools();
   if (!host) return;
-  const total = current.findings.length;
+  const total = current.counts ? current.counts.all : current.findings.length;
   host.hidden = !total;
   if (!total) return;
   const view = current.view;
   const counts = { critical: 0, serious: 0, warning: 0 };
   for (const finding of current.findings) counts[exposureSeverity(finding)] += 1;
+  if (current.counts) Object.assign(counts, current.counts.bySeverity);
   host.querySelectorAll('.exposure-segments .audit-segment').forEach(control => {
     const value = control.dataset.value === 'all' ? null : control.dataset.value;
     control.setAttribute('aria-pressed', String((view.severity || null) === value));
@@ -4027,11 +4094,13 @@ function renderExposureTools(current, shownCount) {
   if (search && document.activeElement !== search && search.value !== view.query) search.value = view.query;
   const narrowed = Boolean(view.severity || view.status !== 'all' || view.where !== 'all' || view.query);
   const shown = $('#exposureShown');
-  if (shown) shown.textContent = narrowed ? `${shownCount} of ${total} shown` : `${total} ${total === 1 ? 'finding' : 'findings'}`;
+  if (shown) shown.textContent = current.paged ? `${shownCount} of ${current.total} matching findings loaded (${total} total)` : narrowed ? `${shownCount} of ${total} shown` : `${total} ${total === 1 ? 'finding' : 'findings'}`;
+  const more = $('#exposureLoadMore');
+  if (more) { more.hidden = !current.nextCursor; more.disabled = current.loading; }
   const reset = $('#exposureResetFilters');
   if (reset) reset.hidden = !narrowed;
   const exportBtn = host.querySelector('.audit-export-btn');
-  if (exportBtn) exportBtn.disabled = !shownCount;
+  if (exportBtn) exportBtn.disabled = !shownCount || current.loading || current.exporting;
 }
 
 const EXPOSURE_SEVERITY_RANK = { critical: 0, serious: 1, warning: 2 };
@@ -4262,10 +4331,11 @@ function exposureFindingBody(item, finding, current, interactive) {
   if (verification) {
     const liveness = document.createElement('p');
     liveness.className = 'exposure-item-liveness';
-    liveness.dataset.state = verification.state;
-    liveness.textContent = (verification.narration
-      || EXPOSURE_VERIFICATION_FALLBACK[verification.state]
-      || 'The provider was asked and the answer was not interpreted.');
+    const fresh = exposureAnswerFresh(verification);
+    liveness.dataset.state = fresh ? verification.state : 'stale';
+    liveness.textContent = fresh ? (verification.narration || EXPOSURE_VERIFICATION_FALLBACK[verification.state]
+      || 'The provider was asked and the answer was not interpreted.')
+      : `Previous verification (${verification.state}) expired or has no valid check time. Check again for current evidence.`;
     item.appendChild(liveness);
   }
 
@@ -4281,10 +4351,11 @@ function exposureFindingBody(item, finding, current, interactive) {
   if (probe) {
     const readability = document.createElement('p');
     readability.className = 'exposure-item-readability';
-    readability.dataset.state = probe.state;
-    const answer = probe.narration
-      || EXPOSURE_PROBE_FALLBACK[probe.state]
-      || 'The project was asked and the answer was not interpreted.';
+    const fresh = exposureAnswerFresh(probe);
+    readability.dataset.state = fresh ? probe.state : 'stale';
+    const answer = fresh ? (probe.narration || EXPOSURE_PROBE_FALLBACK[probe.state]
+      || 'The project was asked and the answer was not interpreted.')
+      : `Previous readability result (${probe.state}) expired or has no valid check time. Check again for current evidence.`;
     /* The question travels with the answer. "Readable" means nothing
        without it, and a reader who cannot see what was asked cannot tell
        whether the answer matters. */
@@ -4393,43 +4464,40 @@ function exposureFindingBody(item, finding, current, interactive) {
 
 }
 
-async function loadExposure() {
-  /*
-   * A repository has to be open. Reaching this with none -- a deep link, a
-   * tab restored before the workbench finished loading -- would build a URL
-   * with an empty owner and ask the server about a repository nobody named.
-   */
+async function loadExposure({ append = false, filterOnly = false } = {}) {
   if (!state.work) return;
-  const current = exposureState();
   const scopeKey = exposureScopeKey();
-  if (current.scopeKey !== scopeKey) state.exposure = freshExposureState(scopeKey);
+  if (exposureState().scopeKey !== scopeKey) state.exposure = freshExposureState(scopeKey);
   const now = exposureState();
+  if (append && (!now.nextCursor || now.loading)) return;
+  const requestId = ++now.requestId;
   now.loading = true;
   renderExposure();
-  /* The history loads beside the findings rather than after them: it is what
-     tells the proof card which scan it is describing. */
-  void loadExposureHistory();
+  if (!filterOnly) void loadExposureHistory();
   try {
-    const findings = await api(`/api/repo/${wPath()}/exposure/findings?limit=50`);
-    if (now !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    now.findings = Array.isArray(findings && findings.findings) ? findings.findings : [];
-    /*
-     * The answers already on record, which arrive with the list rather than
-     * being asked for again. A screen that showed only what was asked in this
-     * session would forget, and re-asking to redisplay a fact would mean using
-     * somebody's credential a second time to learn nothing new.
-     */
-    now.verifications = (findings && findings.verifications) || {};
-    now.probes = (findings && findings.probes) || {};
+    const page = await api(exposureFindingsUrl(now, append ? now.nextCursor : null));
+    if (now !== exposureState() || scopeKey !== exposureScopeKey() || requestId !== now.requestId) return;
+    const items = Array.isArray(page && page.findings) ? page.findings : [];
+    now.findings = append ? [...now.findings, ...items] : items;
+    now.paged = Number.isInteger(page.total) && Boolean(page.counts);
+    now.total = now.paged ? page.total : items.length;
+    now.counts = now.paged ? page.counts : null;
+    now.nextCursor = page.nextCursor || null;
+    now.verifications = { ...(append ? now.verifications : {}), ...(page.verifications || {}) };
+    now.probes = { ...(append ? now.probes : {}), ...(page.probes || {}) };
+    if (now.error) announceExposure('Findings loaded.');
     now.error = '';
   } catch (error) {
-    if (now !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    now.findings = [];
-    now.verifications = {};
-    now.probes = {};
-    now.error = 'Findings could not be loaded for this repository.';
+    if (now !== exposureState() || scopeKey !== exposureScopeKey() || requestId !== now.requestId) return;
+    if (error.code === 'EXPOSURE_CURSOR_STALE') {
+      now.loading = false;
+      announceExposure('Findings changed. Loading the current view.');
+      return loadExposure({ filterOnly: true });
+    }
+    if (!append) { now.findings = []; now.verifications = {}; now.probes = {}; now.nextCursor = null; }
+    now.error = 'Findings could not be loaded for this repository. Refresh to try again.';
   } finally {
-    now.loading = false;
+    if (requestId === now.requestId) now.loading = false;
     if (now === exposureState() && scopeKey === exposureScopeKey()) {
       renderExposure();
       scheduleExposurePoll(now);
@@ -4525,7 +4593,7 @@ async function verifyExposureFinding(fingerprint) {
         item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
       ));
     }
-    announceExposure(verification && (body.narration || EXPOSURE_VERIFICATION_FALLBACK[verification.state]) || 'The check finished.');
+    announceExposure(verification && (body.narration || (exposureAnswerFresh(verification) ? EXPOSURE_VERIFICATION_FALLBACK[verification.state] : 'Previous verification expired or has no check time. Check again for current evidence.')) || 'The check finished.');
   } catch (error) {
     current.error = error && error.code === 'GOV_ROLE_REQUIRED'
       ? 'A governance administrator with permission from the credential owner must run this check.'
@@ -4625,7 +4693,7 @@ async function probeExposureReadability(fingerprint) {
     const probe = body && body.probe ? { ...body.probe, narration: body.narration } : null;
     if (probe) current.probes[fingerprint] = probe;
     current.error = '';
-    announceExposure((probe && (body.narration || EXPOSURE_PROBE_FALLBACK[probe.state])) || 'The question finished.');
+    announceExposure((probe && (body.narration || (exposureAnswerFresh(probe) ? EXPOSURE_PROBE_FALLBACK[probe.state] : 'Previous readability result expired or has no check time. Check again for current evidence.'))) || 'The question finished.');
   } catch (error) {
     /*
      * The two refusals a reader can act on, named rather than flattened into
@@ -5807,6 +5875,7 @@ function blankSiteScan() {
 let siteScanView = null;
 let siteScanRequest = 0;
 function clearSiteScanState() {
+  if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.dispose($('#renderedAuditRoot'));
   siteScanRequest++;
   siteScanView = null;
   const root = $('#siteRoot');
@@ -5822,6 +5891,7 @@ function paintSiteScan() {
   if (!siteScanView) siteScanView = blankSiteScan();
   const decision = window.NebulaCapabilityUI.decision('site-check');
   if (decision.status !== 'Supported') {
+    if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.dispose($('#renderedAuditRoot'));
     root.replaceChildren();
     const note = document.createElement('p');
     note.className = 'audit-lede audit-muted';
@@ -5829,6 +5899,7 @@ function paintSiteScan() {
     root.appendChild(note);
     return;
   }
+  if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.mount($('#renderedAuditRoot'), { api, download: dlFile });
   window.NebulaCodeAudit.renderSiteScan(root, siteScanView, {
     onSiteInput: value => { siteScanView.url = value; },
     onSiteCheck: runStandaloneSiteCheck,
@@ -7083,7 +7154,11 @@ $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.ta
   const scanBtn = $('#exposureScanBtn');
   if (scanBtn) scanBtn.addEventListener('click', () => { void requestExposureScan(); });
   const refreshBtn = $('#exposureRefreshBtn');
-  if (refreshBtn) refreshBtn.addEventListener('click', () => { void refreshExposureScan(); });
+  if (refreshBtn) refreshBtn.addEventListener('click', () => {
+    const scan = exposureState().scan;
+    if (scan && ['queued', 'running'].includes(scan.state)) void refreshExposureScan();
+    else void loadExposure({ filterOnly: true });
+  });
   const cancelBtn = $('#exposureCancelBtn');
   if (cancelBtn) cancelBtn.addEventListener('click', () => { void cancelExposureScan(); });
   const expandAll = $('#exposureExpandAllBtn');

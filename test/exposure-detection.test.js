@@ -446,7 +446,7 @@ function rulesFor(text) {
 
   /* Switched off, nothing is decoded: this is what the engine version moved for. */
   assert.strictEqual(detectInText({ text: `token: ${encoded}\n`, decode: false }).candidates.length, 0);
-  assert.strictEqual(DETECTION_ENGINE_VERSION, 2);
+  assert.strictEqual(DETECTION_ENGINE_VERSION, 3);
 
   /*
    * What must decode to nothing: hashes, images, lockfile integrity, JWTs

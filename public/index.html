@@ -25,6 +25,7 @@
 <link rel="stylesheet" href="/vendor/codemirror/5.65.16/theme/base16-light.min.css">
 <link rel="stylesheet" href="/vendor/codemirror/5.65.16/theme/eclipse.min.css">
 <link rel="stylesheet" href="/style.css?v=__NV_ASSET_VERSION__">
+<link rel="stylesheet" href="/rendered-audit.css?v=__NV_ASSET_VERSION__">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <!--
   In <head>, and blocking, on purpose: it decides which theme the very first
@@ -424,7 +425,7 @@
             <ul class="lp-check-eg"><li>Traced injection, SSRF, path traversal and XSS</li><li>Endpoints with no authorization, and records fetched by any id</li><li>Model replies executed, and prompts built from user text</li><li>Advisories for npm, PyPI, Maven, Go, Composer, Bundler, Cargo and NuGet, ranked by CISA KEV, EPSS and reach</li><li>Supabase row level security and malicious packages</li><li>Every dependency&rsquo;s licence, against yours and your policy</li></ul>
           </li>
           <li class="lp-check">
-            <span class="lp-check-v" data-count="36" data-claim="site-rules">36</span>
+            <span class="lp-check-v" data-count="37" data-claim="site-rules">37</span>
             <h3 class="lp-check-t">Deployed-site checks</h3>
             <p class="lp-check-d">Certificate, headers, exposed files, the pages and scripts a visitor loads, vulnerable libraries and email spoofing. Anonymous and bounded; nothing it reads is kept.</p>
             <ul class="lp-check-eg"><li>Security headers and their strength</li><li>Cookie flags and credentialed CORS</li><li>Served .env, .git and .DS_Store</li><li>Mixed content and unpinned third-party scripts</li></ul>
@@ -868,12 +869,13 @@
       <header class="exposure-intro sec-hero">
         <span class="sec-mark sec-mark-site" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg></span>
         <div class="sec-hero-text">
-          <p class="exposure-kicker">Deployed-site security</p>
+          <p class="exposure-kicker">Security and experience</p>
           <h2 id="siteTitle">Website</h2>
-          <p>Any site, looked at the way a visitor&rsquo;s browser &mdash; and anyone probing it &mdash; looks at it: the certificate and the connection, the headers, files that should never be served, what an error page gives away, the pages and scripts a visitor loads, the libraries in them and the domain&rsquo;s email policy.</p>
+          <p>Check a public website&rsquo;s security, then inspect its rendered desktop and mobile experience. Review findings alongside coverage, screenshots and the limits of each check.</p>
         </div>
       </header>
       <div id="siteRoot" aria-live="polite"></div>
+      <section id="renderedAuditRoot" class="rendered-audit" aria-label="Rendered website audit" hidden></section>
     </div>
   </div>
 </main>
@@ -1871,7 +1873,7 @@
 <script src="/vendor/codemirror/5.65.16/mode/yaml/yaml.min.js"></script>
 <script src="/vendor/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
 <script src="/vendor/marked/15.0.12/marked.min.js"></script>
-<script src="/vendor/dompurify/3.4.13/purify.min.js"></script>
+<script src="/vendor/dompurify/3.4.16/purify.min.js"></script>
 <script src="/archive-safety.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/upload-planning.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/overlay-motion.js?v=__NV_ASSET_VERSION__"></script>
@@ -1884,6 +1886,7 @@
 <script src="/repo-sigil.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/code-audit-ui.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/rendered-audit-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/nebula-visuals.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/light-waves.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/trust-ui.js?v=__NV_ASSET_VERSION__"></script>

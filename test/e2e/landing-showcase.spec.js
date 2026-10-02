@@ -15,6 +15,10 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const { EXPOSURE_RULES } = require('../../src/exposure-rules');
+const { ADAPTERS } = require('../../src/credential-verification');
+const audit = require('../../src/code-audit');
+const site = require('../../src/site-check');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -58,11 +62,13 @@ test('the numbers are the build\'s own, and arrive whole', async ({ page }) => {
   const checks = page.locator('.lp-checks');
   await checks.scrollIntoViewIfNeeded();
   const values = checks.locator('.lp-check-v');
-  /* test/landing-claims.test.js holds each of these to the engine's own count. */
-  await expect(values).toHaveText(['99', '43', '83', '36'], { timeout: 5000 });
+  /* Read the engines, independently of the markup and animation under test. */
+  const counts = [EXPOSURE_RULES.length, Object.keys(ADAPTERS).length,
+    Object.keys(audit.RULES).length, Object.keys(site.RULES).length].map(String);
+  await expect(values).toHaveText(counts, { timeout: 5000 });
   /* The figures are in the markup, not produced by the count: without script
      a reader still gets them. */
-  expect(await values.evaluateAll(els => els.map(el => el.dataset.count))).toEqual(['99', '43', '83', '36']);
+  expect(await values.evaluateAll(els => els.map(el => el.dataset.count))).toEqual(counts);
   await expect(checks.getByRole('heading', { level: 3 })).toHaveText(['Secret detectors', 'Live verifiers', 'Uranus audit rules', 'Deployed-site checks']);
 });
 

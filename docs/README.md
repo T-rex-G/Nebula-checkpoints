@@ -31,6 +31,7 @@ Vision describes intent; it never proves delivery or qualification.
 
 ## Operations and qualification
 
+- [Audit platform and rendered browser](operations/AUDIT_PLATFORM.md)
 - [Render and Neon deployment](operations/DEPLOY_RENDER_NEON.md)
 - [Security deployment](operations/SECURITY_DEPLOYMENT.md)
 - [Operator runbooks](operations/runbooks/OPERATOR_CHECKLIST.md)

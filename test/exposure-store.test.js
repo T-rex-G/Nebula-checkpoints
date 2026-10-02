@@ -122,6 +122,56 @@ async function claim(store, now = T0) {
     });
     const store = new ExposureStore({ pool });
 
+    /* Full findings pagination is scope-bound and detects mutable evidence. */
+    {
+      const pagedScope = { ...scope, repo: 'Paging' };
+      const requested = await store.requestScan(scanRequest({ scope: pagedScope, idempotencyKey: 'paging-scan-001' }));
+      const held = await claim(store);
+      const fixtures = Array.from({ length: 235 }, (_, index) => findingFixture(`paged-${index}`, {
+        path: index === 234 ? 'release/special-last.js' : `src/file-${index}.js`,
+        rule: index % 2 ? 'aws-access-key' : 'github-token',
+        placeholder: index % 2 ? '<aws-access-key #1>' : '<github-token #1>',
+        inTree: index % 2 === 0,
+        introducedCommit: index % 2 ? COMMIT : null,
+        introducedAt: index % 2 ? new Date(T0).toISOString() : null,
+        decodedFrom: index === 233 ? 'base64' : null
+      }));
+      await store.recordObservations({ scanId: requested.scan.scanId, claimOwner: held.claimOwner, findings: fixtures, now: T0 + 1000 });
+      await store.finalizeScan({ scanId: requested.scan.scanId, claimOwner: held.claimOwner, state: 'complete', coverage: 'complete', now: T0 + 2000 });
+      const input = { scope: pagedScope, identityKey: IDENTITY, currentGeneration: true, limit: 50 };
+      const first = await store.listFindingsPage(input);
+      assert.equal(first.total, 235);
+      assert.equal(first.findings.length, 50);
+      assert.equal(first.counts.all, 235);
+      assert.equal(first.counts.bySeverity.critical, 118);
+      const all = [...first.findings];
+      let cursor = first.nextCursor;
+      const peer = new ExposureStore({ pool });
+      while (cursor) {
+        const page = await peer.listFindingsPage({ ...input, cursor });
+        all.push(...page.findings);
+        cursor = page.nextCursor;
+      }
+      assert.equal(all.length, 235);
+      assert.equal(new Set(all.map(f => f.fingerprint)).size, 235);
+      assert.equal((await store.listFindingsPage({ ...input, query: 'special-last' })).total, 1);
+      assert.equal((await store.listFindingsPage({ ...input, severity: 'serious', where: 'history' })).total, 117);
+      assert.equal((await store.listFindingsPage({ ...input, where: 'encoded' })).total, 1);
+      assert.equal((await store.listFindingsPage({ ...input, identityKey: OTHER_IDENTITY })).total, 0);
+      for (const extra of [{ identityKey: OTHER_IDENTITY }, { scope }, { severity: 'critical' }, { cursor: first.nextCursor + 'x' }]) {
+        await assert.rejects(store.listFindingsPage({ ...input, cursor: first.nextCursor, ...extra }), e => e.code === 'EXPOSURE_CURSOR_INVALID');
+      }
+      await pool.query("UPDATE nv_exposure_findings SET disposition='accepted-risk', disposition_at=now(), disposition_by='fixture-reviewer' WHERE fingerprint=$1", [fixtures[0].fingerprint]);
+      await assert.rejects(store.listFindingsPage({ ...input, cursor: first.nextCursor }), e => e.code === 'EXPOSURE_CURSOR_STALE');
+      const sharedKey = Buffer.from('pagination-test-key-0123456789abcdef');
+      const left = new ExposureStore({ pool, cursorKey: sharedKey });
+      const right = new ExposureStore({ pool, cursorKey: sharedKey });
+      const page = await left.listFindingsPage(input);
+      assert.equal((await right.listFindingsPage({ ...input, cursor: page.nextCursor })).findings.length, 50);
+      await pool.query("DELETE FROM nv_exposure_scans WHERE repo_name='Paging'");
+      await pool.query("DELETE FROM nv_exposure_findings WHERE repo_name='Paging'");
+    }
+
     /* ---- Idempotency, and the difference from a conflicting scan --------- */
 
     {

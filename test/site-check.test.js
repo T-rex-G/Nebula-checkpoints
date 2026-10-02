@@ -41,7 +41,7 @@ function site({ headers = GOOD_HEADERS, files = {}, pages = {}, spa = false, dow
     if (down) throw Object.assign(new Error('unreachable'), { code: 'GUARDED_FETCH_TRANSPORT_FAILED' });
     const target = new URL(input.url);
     if (input.plainHttp) {
-      if (plain === 'closed') throw Object.assign(new Error('refused'), { code: 'GUARDED_FETCH_TRANSPORT_FAILED' });
+      if (plain === 'closed') throw Object.assign(new Error('refused'), { code: 'GUARDED_FETCH_TRANSPORT_FAILED', transportCode: 'ECONNREFUSED' });
       if (plain === 'serves') return { statusCode: 200, headers: { 'content-type': 'text/html' }, body: '', bodyUnread: true };
       return { statusCode: 301, headers: { location: `https://${target.host}/` }, body: '', bodyUnread: true };
     }
@@ -85,9 +85,11 @@ const withContact = files => ({ '/.well-known/security.txt': SECURITY_TXT, ...fi
     const stages = [];
     const result = await check({ url: 'https://app.example.com/login', transport, onProgress: update => stages.push(update.stage) });
     assert.deepStrictEqual(rules(result), []);
-    assert.strictEqual(result.grade, 'A');
+    assert.strictEqual(result.grade, null, 'missing DNS and TLS evidence withholds a grade');
+    assert.strictEqual(result.observedScore, 100);
+    assert.strictEqual(result.coverage.complete, false);
     assert.strictEqual(result.origin, 'https://app.example.com');
-    assert.strictEqual(result.engine, 2);
+    assert.strictEqual(result.engine, 3);
     assert(seen.length <= LIMITS.maxRequests, 'the request budget holds');
     assert.strictEqual(result.requests, seen.length);
     for (const input of seen) {
@@ -136,7 +138,7 @@ const withContact = files => ({ '/.well-known/security.txt': SECURITY_TXT, ...fi
       'set-cookie': ['session=x; Path=/', 'prefs=y; Secure']
     } });
     const result = await check({ url: 'https://weak.example.com', transport });
-    assert.deepStrictEqual(rules(result), ['WEB-004', 'WEB-006', 'WEB-007', 'WEB-010', 'WEB-011', 'WEB-012', 'WEB-014', 'WEB-017']);
+    assert.deepStrictEqual(rules(result), ['WEB-004', 'WEB-006', 'WEB-007', 'WEB-011', 'WEB-012', 'WEB-014', 'WEB-017', 'WEB-037']);
     const cookie = result.findings.find(finding => finding.rule === 'WEB-011');
     assert.strictEqual(cookie.where, 'Set-Cookie: session', 'a cookie is named, its value never repeated');
     assert(!JSON.stringify(result).includes('session=x'));
@@ -224,7 +226,7 @@ const withContact = files => ({ '/.well-known/security.txt': SECURITY_TXT, ...fi
   {
     const reflecting = await check({ url: 'https://r.example.com', transport: site({ files: withContact({}), cors: origin => ({ 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true' }) }).transport });
     assert.deepStrictEqual(rules(reflecting), ['WEB-010']);
-    assert.strictEqual(reflecting.findings[0].where, 'Access-Control-Allow-Origin (reflects any origin)');
+    assert.strictEqual(reflecting.findings[0].where, 'Access-Control-Allow-Origin (accepts the untrusted test origin)');
     const publicApi = await check({ url: 'https://r.example.com', transport: site({ files: withContact({}), cors: origin => ({ 'access-control-allow-origin': origin }) }).transport });
     assert.deepStrictEqual(rules(publicApi), []);
   }
@@ -244,7 +246,7 @@ const withContact = files => ({ '/.well-known/security.txt': SECURITY_TXT, ...fi
     const result = await check({ url: 'https://leaky.example.com', transport });
     assert.deepStrictEqual([...new Set(rules(result))].filter(rule => rule !== 'WEB-014'), ['WEB-001', 'WEB-002', 'WEB-015', 'WEB-034', 'WEB-035', 'WEB-036']);
     assert.strictEqual(result.findings[0].severity, 'critical');
-    assert(result.score <= 49 && result.grade === 'F');
+    assert(result.observedScore <= 49 && result.grade === null);
     assert.strictEqual(result.capped, false, 'capped means the cap lowered the score; here the findings already had');
     assert(!JSON.stringify(result).includes('canary'), 'what a served file holds never leaves the check');
     assert.deepStrictEqual(result.findings.filter(finding => finding.rule === 'WEB-034').map(finding => finding.where).sort(), ['/actuator/env', '/server-status']);
@@ -255,7 +257,7 @@ const withContact = files => ({ '/.well-known/security.txt': SECURITY_TXT, ...fi
   {
     const result = await check({ url: 'https://one.example.com', transport: site({ files: withContact({ '/.env': 'SECRET_KEY=x\n' }) }).transport });
     assert.deepStrictEqual(rules(result), ['WEB-001']);
-    assert.strictEqual(result.score, 49);
+    assert.strictEqual(result.observedScore, 49);
     assert.strictEqual(result.capped, true);
   }
 
@@ -464,7 +466,7 @@ const withContact = files => ({ '/.well-known/security.txt': SECURITY_TXT, ...fi
     assert.strictEqual(result.status, 200);
     assert.deepStrictEqual(rules(result), ['WEB-011'], 'the landed page is judged, and a cookie set on the way counts');
     assert.strictEqual(result.findings[0].where, 'Set-Cookie: first');
-    assert.deepStrictEqual(seen.slice(0, 3).map(input => input.url), ['https://apex.example.com/', 'https://www.apex.example.com/', 'https://www.apex.example.com/en'], 'the query is dropped, never sent');
+    assert.deepStrictEqual(seen.slice(0, 3).map(input => input.url), ['https://apex.example.com/', 'https://www.apex.example.com/', 'https://www.apex.example.com/en?utm=x'], 'redirect queries retain the actual landing page');
     assert(seen.slice(3).every(input => new URL(input.url).host === 'www.apex.example.com'), 'the rest is asked of where the page settled');
   }
   for (const [label, location, code] of [

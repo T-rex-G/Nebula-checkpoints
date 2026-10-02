@@ -192,6 +192,10 @@ const ENTRIES = Object.freeze([
     summary: 'Older keys kept so snapshots signed before a rotation still verify.' },
 
   /* ---------------- File scanning ---------------- */
+  { name: 'NV_RENDERED_AUDIT_ENABLED', group: 'scanning', requirement: 'optional', fallback: 'false',
+    format: "'true' to enable", summary: 'Enables the bounded anonymous Chromium website audit. Requires an OS sandbox and enough memory for a separate browser process.' },
+  { name: 'NV_RENDERED_AUDIT_BROWSER_PATH', group: 'scanning', requirement: 'optional', fallback: 'Playwright Chromium executable',
+    format: 'operator-controlled absolute executable path', summary: 'Chromium executable for rendered website audits; otherwise uses the installed Playwright browser.' },
   { name: 'NV_REQUIRE_YARA', group: 'scanning', requirement: 'optional', fallback: 'false',
     format: 'boolean-ish',
     summary: 'Makes YARA scanning mandatory. Without it the built-in bounded signature gate runs alone.' },

@@ -185,7 +185,8 @@ const MAP = Object.freeze({
   'WEB-028': [290, 'A07'], 'WEB-029': [324, 'A04'], 'WEB-030': [324, 'A04'], 'WEB-031': [327, 'A04'],
   'WEB-032': [693, 'A02', 'text'], 'WEB-033': [319, 'A04'], 'WEB-034': [497, 'A01'], 'WEB-035': [538, 'A01'],
   /* CWE-527's parent is CWE-538, as for the Git directory. */
-  'WEB-036': [527, 'A01', 'scope']
+  'WEB-036': [527, 'A01', 'scope'],
+  'WEB-037': [693, 'A02', 'text']
 });
 
 /* The labels for one rule, or null when the rule is not mapped. */

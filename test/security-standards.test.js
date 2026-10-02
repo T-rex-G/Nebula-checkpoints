@@ -41,7 +41,7 @@ assert.deepStrictEqual(rules.filter(rule => !MAP[rule]), [], 'every rule sits un
 assert.deepStrictEqual(Object.keys(MAP).filter(rule => !rules.includes(rule)), [], 'no mapping for a rule that does not exist');
 
 const onList = cwe => Object.keys(OWASP_2025_CWES).filter(category => OWASP_2025_CWES[category].includes(cwe));
-const HEADER_RULES = new Set(['WEB-003', 'WEB-004', 'WEB-005', 'WEB-006', 'WEB-007', 'WEB-008', 'WEB-009', 'WEB-016', 'WEB-017', 'WEB-032']);
+const HEADER_RULES = new Set(['WEB-003', 'WEB-004', 'WEB-005', 'WEB-006', 'WEB-007', 'WEB-008', 'WEB-009', 'WEB-016', 'WEB-017', 'WEB-032', 'WEB-037']);
 
 for (const [rule, [cwe, category, basis = 'cwe']] of Object.entries(MAP)) {
   assert(CWE_NAMES[cwe], `${rule}: CWE-${cwe} has a name`);

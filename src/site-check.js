@@ -30,6 +30,8 @@
  */
 
 const crypto = require('crypto');
+const { parse: parseDomain } = require('tldts');
+const { parse: parseHtml } = require('parse5');
 const { gradeOf, lookupAdvisories, advisoryKey, compareVersions } = require('./code-audit');
 const { standardsFor } = require('./security-standards');
 const { detectInText } = require('./exposure-detection');
@@ -64,7 +66,7 @@ const RULES = Object.freeze({
     why: 'Full URLs, including tokens or identifiers in query strings, leak to every site the page links to.',
     fix: 'Send "Referrer-Policy: strict-origin-when-cross-origin" or stricter.' },
   'WEB-010': { severity: 'serious', title: 'Any origin may make credentialed requests',
-    why: 'A wildcard or reflected Access-Control-Allow-Origin with credentials lets any website read responses made with the visitor’s cookies.',
+    why: 'An untrusted reflected or null Access-Control-Allow-Origin with credentials can let another website read this endpoint’s responses with a visitor’s cookies, subject to browser cookie restrictions.',
     fix: 'Allow an explicit list of trusted origins, and enable credentials only for those.' },
   'WEB-011': { severity: 'serious', title: 'A cookie is set without Secure',
     why: 'A cookie without Secure can travel over plain HTTP, where anyone on the network can read it.',
@@ -141,6 +143,9 @@ const RULES = Object.freeze({
   'WEB-035': { severity: 'critical', title: 'A credentials file is served publicly',
     why: 'Anyone can download it, and files like this hold cloud keys, registry tokens and database passwords.',
     fix: 'Remove it from the public directory (deny dot-files and backup files at the server) and rotate every credential it held.' },
+  'WEB-037': { severity: 'warning', title: 'Credentialed CORS uses an invalid wildcard origin',
+    why: 'Browsers reject credentialed CORS when Access-Control-Allow-Origin is *. This configuration breaks credentialed cross-origin access; it does not allow other sites to read cookie-backed responses.',
+    fix: 'For credentialed clients, return one explicitly trusted origin. Otherwise remove Access-Control-Allow-Credentials and keep the public wildcard.' },
   'WEB-036': { severity: 'serious', title: 'Version-control metadata is served publicly',
     why: 'A reachable Subversion or Mercurial directory lets the source, and its history, be reconstructed from the site.',
     fix: 'Deny access to /.svn and /.hg at the web server, or remove them from the deployed files.' }
@@ -200,7 +205,6 @@ const DIRECTORY_LISTING = /<title>\s*(?:Index of \/|Directory listing for \/)/i;
  */
 const PUBLIC_BY_DESIGN = new Set(['supabase-anon-key', 'google-api-key']);
 const SOFTER_SECRETS = new Set(['stripe-test-key']);
-const LOCAL_URL = /@(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|host\.docker\.internal|postgres|mysql|mongo|redis|db|database)(:\d+)?[/?\s'"`]/i;
 
 /*
  * Browser libraries, by the banner their builds carry or the address a CDN
@@ -235,19 +239,16 @@ const VERSION = /^\d+\.\d+\.\d+$/;
  * web host. A host on a shared platform's domain has no email policy of its
  * own to check -- the platform's is not the site's -- and is skipped.
  */
-const MULTI_PART_SUFFIXES = new Set(['co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'co.jp', 'ne.jp', 'or.jp', 'com.br', 'com.mx',
-  'com.tr', 'co.in', 'co.za', 'com.sg', 'com.hk', 'com.cn', 'com.tw', 'co.kr', 'com.ar', 'com.eg', 'com.sa', 'com.my', 'co.id', 'com.ph', 'com.vn', 'com.ua', 'co.il', 'com.pl']);
 const SHARED_PLATFORMS = Object.freeze(['onrender.com', 'vercel.app', 'netlify.app', 'herokuapp.com', 'github.io', 'pages.dev', 'workers.dev', 'fly.dev', 'railway.app',
   'web.app', 'firebaseapp.com', 'azurewebsites.net', 'azurestaticapps.net', 'cloudfront.net', 'amplifyapp.com', 'appspot.com', 'glitch.me', 'replit.app', 'repl.co',
   'surge.sh', 'deno.dev', 'supabase.co', 'gitlab.io', 'onrender.app', 'ngrok.app', 'ngrok-free.app', 'lovable.app', 'bolt.new', 'webflow.io', 'wixsite.com', 'framer.app']);
 function emailDomain(hostname) {
   const host = String(hostname || '').toLowerCase();
   if (SHARED_PLATFORMS.some(suffix => host === suffix || host.endsWith(`.${suffix}`))) return { skipped: 'shared-platform' };
-  const labels = host.split('.');
-  if (labels.length < 2) return { skipped: 'no-domain' };
-  const lastTwo = labels.slice(-2).join('.');
-  const keep = MULTI_PART_SUFFIXES.has(lastTwo) ? 3 : 2;
-  return { domain: labels.slice(-keep).join('.') };
+  const parsed = parseDomain(host, { allowPrivateDomains: true });
+  if (parsed.isPrivate) return { skipped: 'shared-platform' };
+  if (!parsed.domain || !parsed.isIcann || parsed.isIp) return { skipped: 'no-domain' };
+  return { domain: parsed.domain };
 }
 
 const PENALTY = Object.freeze({ critical: 40, serious: 20, warning: 6 });
@@ -322,8 +323,29 @@ function cookieFindings(cookies) {
 
 /* One directive's sources, or null when the policy does not state it. */
 function cspDirective(csp, name) {
-  const found = new RegExp(`(?:^|;)\\s*${name}\\s+([^;]*)`, 'i').exec(csp);
-  return found ? found[1] : null;
+  // Browsers use the first occurrence, including an empty source list.
+  for (const directive of String(csp || '').split(';')) {
+    const [key, ...sources] = directive.trim().split(/\s+/);
+    if (key.toLowerCase() === name) return sources.join(' ');
+  }
+  return null;
+}
+function fallbackDirective(csp, names) {
+  for (const name of names) {
+    const value = cspDirective(csp, name);
+    if (value !== null) return value;
+  }
+  return null;
+}
+function frameProtected(headers) {
+  const sources = cspDirective(headers['content-security-policy'], 'frame-ancestors');
+  // An enforced frame-ancestors overrides X-Frame-Options in modern browsers.
+  if (sources !== null) return !/(?:^|\s)(?:\*|https?:)(?=\s|$)/i.test(sources) &&
+    (sources === '' || sources.split(/\s+/).every(source => /^(?:'none'|'self'|https?:\/\/[^\s*]+)$/i.test(source)));
+  return /^(?:DENY|SAMEORIGIN)$/i.test(String(headers['x-frame-options'] || '').trim());
+}
+function corsCredentials(headers) {
+  return String(headers['access-control-allow-credentials'] || '').trim() === 'true';
 }
 
 function headerFindings(headers) {
@@ -338,23 +360,26 @@ function headerFindings(headers) {
   const csp = get('content-security-policy');
   if (!csp) out.push({ rule: 'WEB-005', where: get('content-security-policy-report-only') ? 'Content-Security-Policy (report-only is not enforced)' : 'Content-Security-Policy' });
   else {
-    const script = cspDirective(csp, 'script-src') || cspDirective(csp, 'default-src') || '';
-    const nonced = /'nonce-|'sha(256|384|512)-|'strict-dynamic'/i.test(script);
-    if (/'unsafe-eval'/i.test(script) || (/'unsafe-inline'/i.test(script) && !nonced)) out.push({ rule: 'WEB-006', where: 'Content-Security-Policy' });
-    /* 'strict-dynamic' makes a nonce-capable browser ignore host sources, so a wide list beside it is a fallback, not an opening. */
-    if (script && !/'strict-dynamic'/i.test(script) && /(?:^|\s)(?:\*|https?:|data:)(?=\s|$)/i.test(script)) out.push({ rule: 'WEB-032', where: 'Content-Security-Policy: script-src' });
+    const script = fallbackDirective(csp, ['script-src', 'default-src']);
+    const elements = fallbackDirective(csp, ['script-src-elem', 'script-src', 'default-src']);
+    const nonced = value => /'nonce-[^']+'|'sha(?:256|384|512)-[^']+'/i.test(value || '');
+    const unsafeInline = value => /'unsafe-inline'/i.test(value || '') && !nonced(value);
+    if (/'unsafe-eval'/i.test(script || '') || unsafeInline(elements)) out.push({ rule: 'WEB-006', where: 'Content-Security-Policy' });
+    const unrestricted = value => value === null || (!(nonced(value) && /'strict-dynamic'/i.test(value)) && /(?:^|\s)(?:\*|https?:|data:)(?=\s|$)/i.test(value));
+    if (unrestricted(script) || unrestricted(elements)) out.push({ rule: 'WEB-032', where: 'Content-Security-Policy: script-src' });
   }
-  if (!get('x-frame-options') && !/frame-ancestors/i.test(csp)) out.push({ rule: 'WEB-007', where: 'X-Frame-Options' });
-  if (!/nosniff/i.test(get('x-content-type-options'))) out.push({ rule: 'WEB-008', where: 'X-Content-Type-Options' });
+  if (!frameProtected(headers)) out.push({ rule: 'WEB-007', where: 'X-Frame-Options' });
+  if (!/^nosniff$/i.test(get('x-content-type-options').trim())) out.push({ rule: 'WEB-008', where: 'X-Content-Type-Options' });
   if (!get('referrer-policy')) out.push({ rule: 'WEB-009', where: 'Referrer-Policy' });
-  const origin = get('access-control-allow-origin').trim();
-  if ((origin === '*' || origin === 'null') && /true/i.test(get('access-control-allow-credentials'))) out.push({ rule: 'WEB-010', where: 'Access-Control-Allow-Origin' });
+  const allowedOrigin = get('access-control-allow-origin').trim();
+  if (allowedOrigin === 'null' && corsCredentials(headers)) out.push({ rule: 'WEB-010', where: 'Access-Control-Allow-Origin' });
+  if (allowedOrigin === '*' && corsCredentials(headers)) out.push({ rule: 'WEB-037', where: 'Access-Control-Allow-Origin' });
   if (/\d/.test(get('server')) || get('x-powered-by')) out.push({ rule: 'WEB-013', where: get('x-powered-by') ? 'X-Powered-By' : 'Server' });
   if (!/same-origin/i.test(get('cross-origin-opener-policy'))) out.push({ rule: 'WEB-016', where: 'Cross-Origin-Opener-Policy' });
   if (csp) {
-    const objects = cspDirective(csp, 'object-src') || cspDirective(csp, 'default-src');
+    const objects = fallbackDirective(csp, ['object-src', 'default-src']);
     const baseOpen = cspDirective(csp, 'base-uri') === null;
-    const pluginsOpen = objects === null || !/'none'|'self'/i.test(objects) || /\*|https?:/i.test(objects);
+    const pluginsOpen = objects === null || (objects !== '' && !/'none'|'self'/i.test(objects)) || /\*|https?:/i.test(objects);
     if (baseOpen || pluginsOpen) out.push({ rule: 'WEB-017', where: 'Content-Security-Policy' });
   }
   return out;
@@ -367,29 +392,42 @@ function headerFindings(headers) {
  * HTTP. Only the first of each kind is named, by its host, never its full
  * address.
  */
-function markupFindings(body, origin) {
+function documentElements(html, fallbackBase) {
+  const elements = [];
+  const pending = [parseHtml(String(html || ''))];
+  while (pending.length) {
+    const node = pending.pop();
+    if (node.tagName) elements.push({ tag: node.tagName, attrs: Object.fromEntries((node.attrs || []).map(attr => [attr.name, attr.value])) });
+    for (let i = (node.childNodes || []).length - 1; i >= 0; i -= 1) pending.push(node.childNodes[i]);
+  }
+  let base = fallbackBase;
+  const declared = elements.find(element => element.tag === 'base' && element.attrs.href !== undefined);
+  if (declared) { try { base = new URL(declared.attrs.href, fallbackBase).href; } catch { /* use document URL */ } }
+  return { elements, base };
+}
+function markupFindings(body, origin, documentUrl = origin) {
   const out = [];
-  const html = String(body || '');
-  if (!html) return out;
-  const self = new URL(origin).host;
-  const tags = [...html.matchAll(/<(script|iframe|link|img|source|video|audio)\b([^>]*)>/gi)];
+  const { elements, base } = documentElements(body, documentUrl);
   let insecure = null;
   let unsigned = null;
-  for (const [, tag, attributes] of tags) {
-    const src = (/\b(?:src|href)\s*=\s*["']([^"']+)["']/i.exec(attributes) || [])[1] || '';
-    if (tag.toLowerCase() === 'link' && !/\brel\s*=\s*["'][^"']*(stylesheet|preload|modulepreload|icon)/i.test(attributes)) continue;
-    if (/^http:\/\//i.test(src) && !insecure) insecure = src;
-    if (tag.toLowerCase() === 'script' && /^(https:)?\/\//i.test(src) && !unsigned) {
-      try {
-        const host = new URL(src, origin).host;
-        if (host !== self && !/\bintegrity\s*=\s*["']sha(256|384|512)-/i.test(attributes)) unsigned = host;
-      } catch { /* not an address */ }
+  let form = null;
+  for (const { tag, attrs } of elements) {
+    if (tag === 'form' && attrs.action) {
+      try { const action = new URL(attrs.action, base); if (action.protocol === 'http:' && !form) form = action.host; } catch { /* invalid URL */ }
     }
+    if (!['script', 'iframe', 'link', 'img', 'source', 'video', 'audio'].includes(tag)) continue;
+    if (tag === 'link' && !/\b(stylesheet|preload|modulepreload|icon)\b/i.test(attrs.rel || '')) continue;
+    const src = attrs[tag === 'link' ? 'href' : 'src'];
+    if (!src) continue;
+    try {
+      const target = new URL(src, base);
+      if (target.protocol === 'http:' && !insecure) insecure = target.host;
+      if (tag === 'script' && /^https?:$/.test(target.protocol) && target.origin !== origin && !/^sha(?:256|384|512)-/i.test(attrs.integrity || '') && !unsigned) unsigned = target.host;
+    } catch { /* invalid URL */ }
   }
-  if (insecure) out.push({ rule: 'WEB-018', where: `http://${hostOf(insecure) || 'an http:// address'}` });
+  if (insecure) out.push({ rule: 'WEB-018', where: `http://${insecure}` });
   if (unsigned) out.push({ rule: 'WEB-019', where: `<script src> from ${unsigned}` });
-  const form = /<form\b[^>]*\baction\s*=\s*["'](http:\/\/[^"']+)["']/i.exec(html);
-  if (form) out.push({ rule: 'WEB-033', where: `<form action> to http://${hostOf(form[1]) || 'an http:// address'}` });
+  if (form) out.push({ rule: 'WEB-033', where: `<form action> to http://${form}` });
   return out;
 }
 
@@ -443,19 +481,26 @@ async function boundedMap(values, limit, operation) {
 /* Every credential in a script or page, by kind; the value never leaves this function. */
 function shippedSecrets(text) {
   const kinds = new Map();
-  const source = String(text || '');
-  for (let start = 0; start < source.length; start += LIMITS.detectChunk) {
-    const chunk = source.slice(start, start + LIMITS.detectChunk);
-    for (const candidate of detectInText({ text: chunk }).candidates) {
+  const source = Buffer.from(String(text || ''), 'utf8');
+  const overlap = 16 * 1024;
+  let truncated = false;
+  for (let start = 0; start < source.length; start += LIMITS.detectChunk - overlap) {
+    const chunk = source.subarray(start, start + LIMITS.detectChunk).toString('utf8');
+    // UTF-8 replacement at a byte boundary can add bytes; keep the detector's bound.
+    const detected = detectInText({ text: Buffer.byteLength(chunk) > LIMITS.detectChunk ? chunk.slice(0, -4) : chunk });
+    truncated ||= !detected.scanned || detected.truncated;
+    for (const candidate of detected.candidates) {
       if (PUBLIC_BY_DESIGN.has(candidate.rule)) continue;
       if (candidate.rule === 'database-url-password' || candidate.rule === 'authenticated-url') {
-        const lines = chunk.split('\n');
-        if ((candidate.occurrences || []).every(occurrence => LOCAL_URL.test(lines[(occurrence.line || 1) - 1] || ''))) continue;
+        try {
+          const candidateHost = new URL(candidate.secret.split(/[\s'"`<>]/)[0]).hostname;
+          if (/^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|host\.docker\.internal|postgres|mysql|mongo|redis|db|database)$/i.test(candidateHost)) continue;
+        } catch { /* An unparseable credential remains a finding, never suppressed. */ }
       }
       if (!kinds.has(candidate.rule)) kinds.set(candidate.rule, credentialKind(candidate.rule));
     }
   }
-  return [...kinds.entries()].map(([rule, kind]) => ({ rule, kind }));
+  return { secrets: [...kinds.entries()].map(([rule, kind]) => ({ rule, kind })), truncated };
 }
 
 function credentialKind(rule) {
@@ -479,7 +524,8 @@ function librariesInText(text) {
 function libraryFromAddress(address) {
   let parsed;
   try { parsed = new URL(address); } catch { return null; }
-  const path = decodeURIComponent(parsed.pathname);
+  let path;
+  try { path = decodeURIComponent(parsed.pathname); } catch { return null; }
   let match = /\/ajax\/libs\/([\w.-]+)\/(\d+\.\d+\.\d+)\//.exec(path);
   if (match && CDN_NAMES[match[1].toLowerCase()]) return { name: CDN_NAMES[match[1].toLowerCase()], version: match[2], source: 'address' };
   match = /\/npm\/((?:@[\w.-]+\/)?[\w.-]+)@(\d+\.\d+\.\d+)(?:\/|$)/.exec(path) || /^\/((?:@[\w.-]+\/)?[\w.-]+)@(\d+\.\d+\.\d+)(?:\/|$)/.exec(path);
@@ -499,9 +545,12 @@ const CRAWL_SKIP = /\.(?:png|jpe?g|gif|svg|webp|ico|pdf|zip|gz|tgz|mp4|mp3|webm|
 const CRAWL_NEVER = /\b(?:log-?out|sign-?out|delete|remove|unsubscribe|cancel|destroy)\b/i;
 function pageLinks(html, base, origin, disallowed) {
   const out = new Map();
-  for (const [, href] of String(html || '').matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"'#][^"']*)["']/gi)) {
+  const document = documentElements(html, base);
+  for (const { tag, attrs } of document.elements) {
+    if (tag !== 'a' || !attrs.href || attrs.href.startsWith('#')) continue;
+    const href = attrs.href;
     let target;
-    try { target = new URL(href, base); } catch { continue; }
+    try { target = new URL(href, document.base); } catch { continue; }
     if (target.origin !== origin) continue;
     const path = target.pathname || '/';
     if (path === '/' || CRAWL_SKIP.test(path) || CRAWL_NEVER.test(path) || path.length > 200) continue;
@@ -527,12 +576,17 @@ function robotsDisallowed(text) {
   return out.slice(0, 200);
 }
 
-function scriptSources(html, base) {
+function scriptSources(html, base, onInvalid = () => {}) {
   const out = [];
-  for (const [, attributes] of String(html || '').matchAll(/<script\b([^>]*)>/gi)) {
-    const src = (/\bsrc\s*=\s*["']([^"']+)["']/i.exec(attributes) || [])[1];
-    if (!src) continue;
-    try { out.push(new URL(src, base).href); } catch { /* not an address */ }
+  const document = documentElements(html, base);
+  for (const { tag, attrs } of document.elements) {
+    if (tag !== 'script' || !attrs.src) continue;
+    try {
+      const target = new URL(attrs.src, document.base);
+      decodeURIComponent(target.pathname);
+      target.hash = '';
+      out.push(target.href);
+    } catch { onInvalid(); }
   }
   return out;
 }
@@ -557,25 +611,75 @@ function hstsSummary(value) {
  * and therefore clean -- report.
  */
 async function checkSite({ url, transport, advisoryTransport = null, txt = null, onProgress = null, limits = LIMITS, now = Date.now, random = () => crypto.randomBytes(6).toString('hex') }) {
+  limits = { ...LIMITS, ...limits };
   const requested = siteOrigin(url);
   let origin = requested;
   const startedAt = now();
   let probed = 0;
   const progress = update => { if (typeof onProgress === 'function') { try { onProgress(update); } catch { /* progress is advisory */ } } };
   const remaining = () => limits.deadlineMs - (now() - startedAt);
+  const withinBudget = async (operation, ceiling = limits.deadlineMs) => {
+    const left = Math.min(remaining(), ceiling);
+    if (left < 1) throw new SiteCheckError('time budget spent', 'SITE_BUDGET');
+    const controller = new AbortController();
+    let timer;
+    try {
+      const result = await Promise.race([
+        Promise.resolve().then(() => {
+          const available = Math.min(remaining(), ceiling);
+          if (available < 1) throw new SiteCheckError('time budget spent', 'SITE_BUDGET');
+          return operation({ deadlineMs: available, signal: controller.signal });
+        }),
+        new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new SiteCheckError('time budget spent', 'SITE_BUDGET')); }, left); })
+      ]);
+      if (remaining() <= 0) { controller.abort(); throw new SiteCheckError('time budget spent', 'SITE_BUDGET'); }
+      return result;
+    } finally { clearTimeout(timer); }
+  };
   const request = async (target, { method = 'GET', maxResponseBytes = limits.probeBytes, headers = {}, plainHttp = false } = {}) => {
     if (probed >= limits.maxRequests) throw new SiteCheckError('request budget spent', 'SITE_BUDGET');
     const left = remaining();
     if (left < 1000) throw new SiteCheckError('time budget spent', 'SITE_BUDGET');
     probed += 1;
-    return transport({
+    return withinBudget(budget => transport({
       url: /^https?:\/\//.test(target) ? target : `${origin}${target}`, profile: 'site-probe', method, maxResponseBytes, plainHttp: plainHttp || undefined,
       headers: { accept: '*/*', 'accept-encoding': 'identity', 'user-agent': 'Nebulaverse-X-SiteCheck/2.0', ...headers },
-      deadlineMs: Math.min(limits.requestMs, left)
-    });
+      ...budget
+    }), Math.min(limits.requestMs, left));
   };
   const raw = [];
   const ledger = new Map();
+  const gaps = new Map();
+  const counts = new Map();
+  const incomplete = (id, reason) => {
+    if (!gaps.has(id)) gaps.set(id, new Set());
+    gaps.get(id).add(reason);
+  };
+  const observed = (id, response, { negative = false } = {}) => {
+    const count = counts.get(id) || { attempted: 0, completed: 0, read: 0, negative: 0, unknown: 0, truncated: 0, skipped: 0 };
+    count.attempted += 1;
+    const negativeStatus = negative && [401, 403, 404, 410].includes(response && response.statusCode);
+    const readable = response && !response.bodyUnread && (typeof response.body === 'string' || Buffer.isBuffer(response.body));
+    const ok = response && (negativeStatus || (response.statusCode >= 200 && response.statusCode < 300 && readable && !response.truncated));
+    if (negativeStatus) count.negative += 1;
+    else if (readable) count.read += 1;
+    if (ok) count.completed += 1;
+    else {
+      count.unknown += 1;
+      if (response && response.truncated) { count.truncated += 1; incomplete(id, 'Response body exceeded the read limit'); }
+      else if (response && response.bodyUnread) incomplete(id, 'Response body could not be read');
+      else if (response) incomplete(id, 'A response did not establish the check result');
+      else incomplete(id, 'A request failed or the scan budget was exhausted');
+    }
+    counts.set(id, count);
+    return ok;
+  };
+  const skipped = (id, reason, total = 1) => {
+    const count = counts.get(id) || { attempted: 0, completed: 0, read: 0, negative: 0, unknown: 0, truncated: 0, skipped: 0 };
+    count.skipped += total;
+    counts.set(id, count);
+    incomplete(id, reason);
+  };
   const note = (id, state, detail) => ledger.set(id, { id, state, detail });
 
   /*
@@ -607,23 +711,28 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
     catch {
       throw new SiteCheckError('The site redirected to an address that is not HTTPS on the standard port, so the check stopped there.', 'SITE_REDIRECT_REFUSED', 502);
     }
-    pathname = next.pathname || '/';
+    pathname = `${next.pathname || '/'}${next.search}`;
     redirects += 1;
   }
   const landing = pathname;
   const pageHeaders = page.headers || {};
+  observed('pages', page);
   raw.push(...headerFindings(pageHeaders));
   const html = looksLikeHtml(page) ? String(page.body || '') : '';
   const host = new URL(origin).hostname;
-  const presentHeaders = ['strict-transport-security', 'content-security-policy', 'x-frame-options', 'x-content-type-options', 'referrer-policy', 'cross-origin-opener-policy']
-    .filter(name => pageHeaders[name] || (name === 'x-frame-options' && /frame-ancestors/i.test(String(pageHeaders['content-security-policy'] || '')))).length;
-  note('headers', presentHeaders >= 6 ? 'pass' : presentHeaders >= 3 ? 'warn' : 'fail', `${presentHeaders} of the 6 protective headers sent`);
+  const effectiveHeader = name => {
+    const failures = { 'strict-transport-security': ['WEB-003', 'WEB-004'], 'content-security-policy': ['WEB-005', 'WEB-006', 'WEB-017', 'WEB-032'], 'x-frame-options': ['WEB-007'], 'x-content-type-options': ['WEB-008'], 'referrer-policy': ['WEB-009'], 'cross-origin-opener-policy': ['WEB-016'] };
+    return failures[name] ? !raw.some(finding => failures[name].includes(finding.rule)) : null;
+  };
+  const protectiveHeaders = ['strict-transport-security', 'content-security-policy', 'x-frame-options', 'x-content-type-options', 'referrer-policy', 'cross-origin-opener-policy'];
+  const effectiveHeaders = protectiveHeaders.filter(effectiveHeader).length;
+  note('headers', effectiveHeaders >= 6 ? 'pass' : effectiveHeaders >= 3 ? 'warn' : 'fail', `${effectiveHeaders} of the 6 header protections meet the checked requirements`);
 
   /* ---- The connection: certificate, protocol, plain HTTP, cross-origin reads ---- */
   progress({ stage: 'transport' });
   const tls = page.tls || null;
   let certificate = null;
-  if (tls && tls.validTo) {
+  if (tls && tls.validTo && Number.isFinite(new Date(tls.validTo).getTime())) {
     const daysLeft = Math.floor((new Date(tls.validTo).getTime() - now()) / 86_400_000);
     certificate = Object.freeze({ protocol: tls.protocol || null, validTo: tls.validTo, daysLeft, issuer: tls.issuer || null });
     if (daysLeft <= 14) raw.push({ rule: 'WEB-029', where: `Certificate for ${host}` });
@@ -640,10 +749,10 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
     const answer = await request(`http://${host}/`, { plainHttp: true });
     const location = String(answer.headers && answer.headers.location || '');
     const upgrades = answer.statusCode >= 300 && answer.statusCode < 400 && /^https:\/\//i.test(location);
-    plain = upgrades ? 'redirects' : answer.statusCode >= 200 && answer.statusCode < 400 ? 'serves' : 'refuses';
+    plain = upgrades ? 'redirects' : answer.statusCode >= 200 && answer.statusCode < 400 ? 'serves' : [401, 403, 404, 410].includes(answer.statusCode) ? 'refuses' : 'unknown';
     if (plain === 'serves') raw.push({ rule: 'WEB-020', where: `http://${host}/` });
   } catch (error) {
-    plain = error && error.code === 'SITE_BUDGET' ? 'unknown' : 'closed';
+    plain = error && error.transportCode === 'ECONNREFUSED' ? 'closed' : 'unknown';
   }
   note('plain-http', plain === 'serves' ? 'fail' : plain === 'unknown' ? 'unknown' : 'pass',
     { redirects: 'Plain HTTP redirects to HTTPS', serves: 'Plain HTTP serves the site without redirecting', refuses: 'Plain HTTP answers with an error, not the site', closed: 'Nothing answers on plain HTTP', unknown: 'Plain HTTP was not checked' }[plain]);
@@ -657,20 +766,22 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
   try {
     const answer = await request(landing, { headers: { origin: foreignOrigin } });
     const allowed = String(answer.headers && answer.headers['access-control-allow-origin'] || '').trim();
-    const credentials = /true/i.test(String(answer.headers && answer.headers['access-control-allow-credentials'] || ''));
-    const reflected = allowed === foreignOrigin && credentials;
-    if (reflected) raw.push({ rule: 'WEB-010', where: 'Access-Control-Allow-Origin (reflects any origin)' });
-    note('cors', reflected || (allowed === '*' && credentials) ? 'fail' : 'pass', reflected ? 'Any origin is trusted with the visitor’s cookies' : 'Other origins are not trusted with the visitor’s cookies');
+    const credentials = corsCredentials(answer.headers || {});
+    const reflected = (allowed === foreignOrigin || allowed === 'null') && credentials;
+    const wildcard = allowed === '*' && credentials;
+    if (reflected) raw.push({ rule: 'WEB-010', where: 'Access-Control-Allow-Origin (accepts the untrusted test origin)' });
+    if (wildcard && !raw.some(finding => finding.rule === 'WEB-037')) raw.push({ rule: 'WEB-037', where: 'Access-Control-Allow-Origin' });
+    if (!(answer.statusCode >= 200 && answer.statusCode < 300)) incomplete('cors', 'The tested endpoint did not return a successful response');
+    note('cors', reflected ? 'fail' : wildcard ? 'warn' : 'pass', reflected ? 'This endpoint permits credentialed reads from the tested untrusted origin' : wildcard ? 'Browsers reject credentialed CORS with a wildcard origin' : 'This endpoint did not allow credentialed reads from the tested untrusted origin');
   } catch {
     note('cors', 'unknown', 'Cross-origin access was not checked');
   }
 
   /* ---- Paths that must never be served, told apart from a catch-all page ------- */
   progress({ stage: 'paths', done: 0, total: PROBES.length + 2 });
-  let baseline = null;
   try {
     const missing = await request(`/nv-site-check-${random()}`, { maxResponseBytes: limits.errorPageBytes });
-    baseline = { status: missing.statusCode, length: String(missing.body || '').length, html: looksLikeHtml(missing) };
+    if (missing.bodyUnread || missing.truncated || missing.statusCode >= 500 || missing.statusCode < 200 || (missing.statusCode >= 300 && missing.statusCode < 400)) incomplete('errors', 'The missing-page response was incomplete or inconclusive');
     const body = String(missing.body || '');
     const debug = DEBUG_SIGNATURES.find(([pattern]) => pattern.test(body));
     if (debug) raw.push({ rule: 'WEB-021', where: `${debug[1]} on a missing page` });
@@ -684,8 +795,8 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
   let done = 0;
   await boundedMap(PROBES, limits.concurrency, async probe => {
     let response;
-    try { response = await request(probe.path); asked += 1; }
-    catch { return; }
+    try { response = await request(probe.path); asked += 1; observed('paths', response, { negative: true }); }
+    catch { observed('paths', null); return; }
     finally { done += 1; progress({ stage: 'paths', done, total: PROBES.length + 2 }); }
     if (response.statusCode !== 200 || response.bodyUnread) return;
     if (!probe.html && looksLikeHtml(response)) return;
@@ -695,57 +806,67 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
       raw.push({ rule: probe.rule, where: probe.path });
     }
   });
-  note('paths', served ? 'fail' : asked ? 'pass' : 'unknown', served
+  note('paths', served ? 'fail' : gaps.has('paths') ? 'unknown' : 'pass', served
     ? `${served} of ${asked} paths that should never be served ${served === 1 ? 'is' : 'are'} served`
-    : `${asked} paths that should never be served: none is`);
+    : `${counts.get('paths').completed} of ${PROBES.length} sensitive paths assessed; no exposure found in the completed checks`);
 
   let securityTxt = { contact: false, expires: null };
+  let contactKnown = false;
   try {
     const response = await request('/.well-known/security.txt', { maxResponseBytes: 8192 });
+    contactKnown = observed('contact', response, { negative: true });
     const body = String(response.body || '');
     if (response.statusCode === 200 && !looksLikeHtml(response)) {
       const expires = /^\s*Expires:\s*(\S+)/im.exec(body);
       const date = expires ? new Date(expires[1]) : null;
       securityTxt = { contact: /^\s*Contact:/im.test(body), expires: date && !Number.isNaN(date.getTime()) ? date.toISOString() : null };
     }
-  } catch { /* unanswered is the same as absent for a contact */ }
+  } catch { observed('contact', null); }
   progress({ stage: 'paths', done: PROBES.length + 1, total: PROBES.length + 2 });
-  if (!securityTxt.contact) raw.push({ rule: 'WEB-014', where: '/.well-known/security.txt' });
-  else if (!securityTxt.expires || new Date(securityTxt.expires).getTime() < now()) raw.push({ rule: 'WEB-026', where: '/.well-known/security.txt' });
-  note('contact', !securityTxt.contact ? 'fail' : !securityTxt.expires || new Date(securityTxt.expires).getTime() < now() ? 'warn' : 'pass',
-    !securityTxt.contact ? 'No security contact is published' : securityTxt.expires ? `security.txt names a contact until ${securityTxt.expires.slice(0, 10)}` : 'security.txt names a contact but no expiry');
+  if (contactKnown && !securityTxt.contact) raw.push({ rule: 'WEB-014', where: '/.well-known/security.txt' });
+  else if (contactKnown && (!securityTxt.expires || new Date(securityTxt.expires).getTime() < now())) raw.push({ rule: 'WEB-026', where: '/.well-known/security.txt' });
+  note('contact', !contactKnown ? 'unknown' : !securityTxt.contact ? 'fail' : !securityTxt.expires || new Date(securityTxt.expires).getTime() < now() ? 'warn' : 'pass',
+    !contactKnown ? 'The security contact could not be assessed' : !securityTxt.contact ? 'No security contact is published' : securityTxt.expires ? `security.txt names a contact until ${securityTxt.expires.slice(0, 10)}` : 'security.txt names a contact but no expiry');
 
   let disallowed = [];
+  let robotsKnown = false;
   try {
     const robots = await request('/robots.txt', { maxResponseBytes: 16 * 1024 });
+    robotsKnown = observed('robots', robots, { negative: true });
     if (robots.statusCode === 200 && !looksLikeHtml(robots)) disallowed = robotsDisallowed(robots.body);
-  } catch { /* no robots.txt, nothing disallowed */ }
+  } catch { observed('robots', null); }
+  note('robots', robotsKnown ? 'pass' : 'unknown', robotsKnown ? 'Robots policy assessed before following links' : 'Robots policy unavailable; linked pages were not crawled');
   progress({ stage: 'paths', done: PROBES.length + 2, total: PROBES.length + 2 });
 
   /* ---- Pages a visitor reaches from the landing page ---------------------------- */
-  const pages = [{ path: displayPath(landing), status: page.statusCode, html }];
-  const toVisit = pageLinks(html, `${origin}${landing}`, origin, disallowed).slice(0, limits.maxPages);
+  const pages = [{ path: displayPath(new URL(landing, origin).pathname), address: `${origin}${landing}`, status: page.statusCode, html }];
+  const linkedPages = pageLinks(html, `${origin}${landing}`, origin, disallowed);
+  const toVisit = robotsKnown ? linkedPages.slice(0, limits.maxPages) : [];
+  if (linkedPages.length > toVisit.length) skipped('pages', robotsKnown ? 'Linked-page limit reached' : 'Linked pages skipped because robots policy was unavailable', linkedPages.length - toVisit.length);
   progress({ stage: 'pages', done: 0, total: toVisit.length });
   let visited = 0;
   await boundedMap(toVisit, limits.concurrency, async path => {
     try {
       const response = await request(path, { maxResponseBytes: limits.pageBytes });
+      observed('pages', response);
       const headers = response.headers || {};
       if (Array.isArray(headers['set-cookie'])) cookies.push(...headers['set-cookie']);
       const body = looksLikeHtml(response) ? String(response.body || '') : '';
-      pages.push({ path: displayPath(path), status: response.statusCode, html: body });
+      pages.push({ path: displayPath(new URL(path, origin).pathname), address: `${origin}${path}`, status: response.statusCode, html: body });
       if (body) {
         const debug = DEBUG_SIGNATURES.find(([pattern, , anywhere]) => anywhere && pattern.test(body));
         if (debug) raw.push({ rule: 'WEB-021', where: `${debug[1]} on ${displayPath(path)}` });
         if (DIRECTORY_LISTING.test(body)) raw.push({ rule: 'WEB-022', where: displayPath(path) });
       }
-    } catch { /* a page that did not answer is simply not among those read */ }
+    } catch { observed('pages', null); }
     finally { visited += 1; progress({ stage: 'pages', done: visited, total: toVisit.length }); }
   });
   for (const visitedPage of pages) {
     if (!visitedPage.html) continue;
-    raw.push(...markupFindings(visitedPage.html, origin));
-    for (const secret of shippedSecrets(visitedPage.html)) raw.push({ rule: 'WEB-023', where: `${secret.kind} in ${visitedPage.path}`, soft: SOFTER_SECRETS.has(secret.rule) });
+    raw.push(...markupFindings(visitedPage.html, origin, visitedPage.address));
+    const detected = shippedSecrets(visitedPage.html);
+    if (detected.truncated) incomplete('pages', 'Credential detector reached its candidate limit');
+    for (const secret of detected.secrets) raw.push({ rule: 'WEB-023', where: `${secret.kind} in ${visitedPage.path}`, soft: SOFTER_SECRETS.has(secret.rule) });
   }
   raw.push(...cookieFindings(cookies));
   note('pages', 'pass', `${pages.length} ${pages.length === 1 ? 'page' : 'pages'} read: ${pages.map(entry => entry.path).slice(0, 6).join(', ')}${disallowed.length ? '; robots.txt honoured' : ''}`);
@@ -754,32 +875,45 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
     cookieNames.size ? `${cookieNames.size} ${cookieNames.size === 1 ? 'cookie' : 'cookies'} set to an anonymous visitor` : 'No cookie set to an anonymous visitor');
 
   /* ---- The JavaScript the pages load --------------------------------------------- */
-  const allScripts = [...new Set(pages.flatMap(entry => scriptSources(entry.html, `${origin}${entry.path}`)))];
-  const own = allScripts.filter(address => hostOf(address) === new URL(origin).host && /^https:/.test(address)).slice(0, limits.maxScripts);
+  const allScripts = [...new Set(pages.flatMap(entry => scriptSources(entry.html, entry.address, () => skipped('scripts', 'A script address was malformed'))))];
+  const ownScripts = allScripts.filter(address => hostOf(address) === new URL(origin).host && /^https:/.test(address));
+  const own = ownScripts.slice(0, limits.maxScripts);
+  if (ownScripts.length > own.length) skipped('scripts', 'Same-origin script limit reached', ownScripts.length - own.length);
+  if (gaps.has('pages')) incomplete('scripts', 'Page coverage was incomplete, so resource discovery may be incomplete');
   const thirdParty = [...new Set(allScripts.filter(address => hostOf(address) && hostOf(address) !== new URL(origin).host).map(hostOf))].slice(0, 12);
   const libraries = new Map();
   const addLibrary = found => {
     if (!found || !found.name || !VERSION.test(found.version)) return;
     const key = `${found.name}@${found.version}`;
-    if (!libraries.has(key) && libraries.size < limits.maxLibraries) libraries.set(key, found);
+    if (!libraries.has(key)) {
+      if (libraries.size < limits.maxLibraries) libraries.set(key, found);
+      else incomplete('libraries', 'Recognised-library limit reached');
+    }
   };
   allScripts.forEach(address => addLibrary(libraryFromAddress(address)));
   progress({ stage: 'scripts', done: 0, total: own.length });
   let scriptBytes = 0;
+  let reservedBytes = 0;
   let scriptsRead = 0;
   let mapsPublic = 0;
   const maps = [];
   let scanned = 0;
   await boundedMap(own, limits.concurrency, async address => {
+    let reservation = 0;
     try {
-      if (scriptBytes >= limits.scriptBudgetBytes) return;
-      const response = await request(address, { maxResponseBytes: limits.scriptBytes });
+      reservation = Math.min(limits.scriptBytes, limits.scriptBudgetBytes - scriptBytes - reservedBytes);
+      if (reservation < 1024) { skipped('scripts', 'Script byte budget exhausted'); return; }
+      reservedBytes += reservation;
+      const response = await request(address, { maxResponseBytes: reservation });
+      observed('scripts', response);
       if (response.statusCode !== 200 || response.bodyUnread) return;
       const text = String(response.body || '');
-      scriptBytes += text.length;
+      scriptBytes += Buffer.byteLength(text, 'utf8');
       scriptsRead += 1;
       const path = displayPath(new URL(address).pathname);
-      for (const secret of shippedSecrets(text)) raw.push({ rule: 'WEB-023', where: `${secret.kind} in ${path}`, soft: SOFTER_SECRETS.has(secret.rule) });
+      const detected = shippedSecrets(text);
+      if (detected.truncated) incomplete('scripts', 'Credential detector reached its candidate limit');
+      for (const secret of detected.secrets) raw.push({ rule: 'WEB-023', where: `${secret.kind} in ${path}`, soft: SOFTER_SECRETS.has(secret.rule) });
       librariesInText(text).forEach(addLibrary);
       const declared = [...text.slice(-4096).matchAll(/\/[/*][#@]\s*sourceMappingURL=([^\s'"*]+)/g)].pop();
       const header = response.headers && (response.headers.sourcemap || response.headers['x-sourcemap']);
@@ -787,26 +921,37 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
       if (reference && !/^data:/i.test(reference)) {
         try {
           const map = new URL(reference, address);
-          if (map.origin === origin && maps.length < limits.maxMaps) maps.push(map.href);
+          map.hash = '';
+          if (map.origin === origin) {
+            if (maps.length < limits.maxMaps) maps.push(map.href);
+            else incomplete('maps', 'Referenced source-map limit reached');
+          }
         } catch { /* not an address */ }
       }
-    } catch { /* unread */ }
-    finally { scanned += 1; progress({ stage: 'scripts', done: scanned, total: own.length }); }
+    } catch { observed('scripts', null); }
+    finally { if (reservation >= 1024) reservedBytes -= reservation; scanned += 1; progress({ stage: 'scripts', done: scanned, total: own.length }); }
   });
   await boundedMap(maps, limits.concurrency, async address => {
     try {
       const response = await request(address, { maxResponseBytes: 1024 });
-      if (response.statusCode === 200 && /^\s*\{\s*"version"\s*:\s*3\b|"mappings"\s*:/.test(String(response.body || ''))) {
+      const identified = response.statusCode === 200 && !response.bodyUnread && /^\s*\{\s*"version"\s*:\s*3\b|"mappings"\s*:/.test(String(response.body || ''));
+      // A recognisable prefix establishes map publication even if the rest is bounded.
+      observed('maps', identified ? { ...response, truncated: false } : response, { negative: true });
+      if (identified) {
         mapsPublic += 1;
         raw.push({ rule: 'WEB-024', where: displayPath(new URL(address).pathname) });
       }
-    } catch { /* unread */ }
+    } catch { observed('maps', null); }
   });
   const secretsFound = raw.filter(item => item.rule === 'WEB-023').length;
-  note('scripts', secretsFound ? 'fail' : own.length ? (scriptsRead ? 'pass' : 'unknown') : 'pass', own.length
-    ? `${scriptsRead} of ${own.length} ${own.length === 1 ? 'script' : 'scripts'} on this origin read (${scriptBytes < 1024 ? 'under 1 KB' : `${Math.round(scriptBytes / 1024)} KB`})${secretsFound ? `; ${secretsFound} secret${secretsFound === 1 ? '' : 's'} found` : ', no server-side secret in them'}`
+  note('scripts', secretsFound ? 'fail' : gaps.has('scripts') ? 'unknown' : 'pass', own.length
+    ? `${scriptsRead} of ${ownScripts.length} ${ownScripts.length === 1 ? 'script' : 'scripts'} on this origin read (${scriptBytes < 1024 ? 'under 1 KB' : `${Math.round(scriptBytes / 1024)} KB`})${secretsFound ? `; ${secretsFound} secret${secretsFound === 1 ? '' : 's'} found` : ', no server-side secret detected in the bytes assessed'}`
     : 'No script is loaded from this origin');
   note('maps', mapsPublic ? 'warn' : 'pass', mapsPublic ? `${mapsPublic} source ${mapsPublic === 1 ? 'map is' : 'maps are'} public` : maps.length ? 'Referenced source maps are not served' : 'No source map is referenced');
+  if (gaps.has('scripts')) {
+    incomplete('maps', 'Script coverage was incomplete, so source-map discovery may be incomplete');
+    incomplete('libraries', 'Script coverage was incomplete, so library discovery may be incomplete');
+  }
 
   /* ---- Libraries against the advisory database ----------------------------------- */
   const libraryList = [...libraries.values()];
@@ -815,7 +960,8 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
   if (libraryList.length && typeof advisoryTransport === 'function') {
     let answers = null;
     try {
-      ({ answers } = await lookupAdvisories(libraryList.map(entry => ({ ecosystem: 'npm', name: entry.name, version: entry.version })), advisoryTransport));
+      ({ answers } = await withinBudget(() => lookupAdvisories(libraryList.map(entry => ({ ecosystem: 'npm', name: entry.name, version: entry.version })),
+        input => withinBudget(budget => advisoryTransport({ ...input, ...budget }), limits.requestMs))));
     } catch { answers = null; }
     for (const entry of libraryList) {
       const answer = answers && answers.get(advisoryKey({ ecosystem: 'npm', name: entry.name, version: entry.version }));
@@ -841,6 +987,7 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
   }
   progress({ stage: 'libraries', done: libraryList.length, total: libraryList.length });
   const vulnerable = libraryReport.filter(entry => entry.state === 'vulnerable').length;
+  if (libraryReport.some(entry => entry.state === 'unknown')) incomplete('libraries', 'Not all recognised libraries were checked against advisories');
   note('libraries', vulnerable ? 'fail' : libraryReport.some(entry => entry.state === 'unknown') ? 'unknown' : 'pass', libraryList.length
     ? `${libraryList.length} ${libraryList.length === 1 ? 'library' : 'libraries'} recognised${vulnerable ? `, ${vulnerable} with published advisories` : libraryReport.some(entry => entry.state === 'unknown') ? ', not all checked against advisories' : ', none with a published advisory'}`
     : 'No versioned browser library recognised');
@@ -859,12 +1006,12 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
     let spf = null;
     let dmarc = null;
     try {
-      const records = await txt(mail.domain);
+      const records = await withinBudget(budget => txt(mail.domain, budget), limits.requestMs);
       const policy = records.find(record => /^v=spf1\b/i.test(record.trim()));
       spf = !policy ? 'missing' : /[+]?all\s*$/i.test(policy.trim()) && !/[-~?]all\s*$/i.test(policy.trim()) ? 'open' : /-all\s*$/i.test(policy.trim()) ? 'strict' : /~all\s*$/i.test(policy.trim()) ? 'soft' : 'neutral';
     } catch { spf = null; }
     try {
-      const records = await txt(`_dmarc.${mail.domain}`);
+      const records = await withinBudget(budget => txt(`_dmarc.${mail.domain}`, budget), limits.requestMs);
       const policy = records.find(record => /^v=DMARC1\b/i.test(record.trim()));
       const mode = policy && /(?:^|;)\s*p\s*=\s*(none|quarantine|reject)/i.exec(policy);
       dmarc = !policy ? 'missing' : mode ? mode[1].toLowerCase() : 'none';
@@ -872,6 +1019,7 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
     if (spf === 'missing' || spf === 'open') raw.push({ rule: 'WEB-028', where: `${mail.domain} (SPF ${spf === 'open' ? 'allows anyone' : 'missing'})` });
     if (dmarc === 'missing' || dmarc === 'none') raw.push({ rule: 'WEB-027', where: `_dmarc.${mail.domain} (${dmarc === 'none' ? 'p=none' : 'missing'})` });
     email = { state: spf === null || dmarc === null ? 'partial' : 'checked', reason: null, domain: mail.domain, spf, dmarc };
+    if (spf === null || dmarc === null) incomplete('email', 'Not all email DNS lookups completed');
     note('email', dmarc === 'missing' || dmarc === 'none' || spf === 'missing' || spf === 'open' ? 'warn' : spf === null || dmarc === null ? 'unknown' : 'pass',
       `${mail.domain}: SPF ${spf || 'unknown'}, DMARC ${dmarc === null ? 'unknown' : dmarc === 'missing' ? 'missing' : `p=${dmarc}`}`);
   }
@@ -896,17 +1044,35 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
   }
   const mean = Math.max(0, 100 - [...byRule.values()].reduce((total, penalty) => total + penalty, 0));
   const critical = findings.some(finding => finding.severity === 'critical');
-  const score = critical ? Math.min(mean, CRITICAL_CAP) : mean;
-  const LEDGER_ORDER = ['certificate', 'protocol', 'plain-http', 'hsts', 'headers', 'cookies', 'cors', 'paths', 'errors', 'pages', 'scripts', 'maps', 'libraries', 'contact', 'email'];
+  const observedScore = critical ? Math.min(mean, CRITICAL_CAP) : mean;
+  if (!ledger.has('protocol')) note('protocol', 'unknown', 'The negotiated TLS version was unavailable');
+  const LEDGER_ORDER = ['certificate', 'protocol', 'plain-http', 'hsts', 'headers', 'cookies', 'cors', 'paths', 'errors', 'robots', 'pages', 'scripts', 'maps', 'libraries', 'contact', 'email'];
+  const categories = {};
+  for (const id of LEDGER_ORDER) {
+    const entry = ledger.get(id);
+    if (!entry) continue;
+    if (entry.state === 'unknown') incomplete(id, entry.detail);
+    const reasons = [...(gaps.get(id) || [])];
+    const statistics = counts.get(id) || { attempted: entry.state === 'skip' ? 0 : 1, completed: reasons.length ? 0 : entry.state === 'skip' ? 0 : 1, read: 0, negative: 0, unknown: reasons.length ? 1 : 0, truncated: 0, skipped: entry.state === 'skip' ? 1 : 0 };
+    const complete = !reasons.length;
+    categories[id] = { state: complete ? 'complete' : statistics.completed ? 'partial' : 'unknown', complete, reasons, ...statistics };
+    if (!complete && entry.state === 'pass') note(id, 'unknown', `${entry.detail}; coverage incomplete`);
+  }
+  const reasons = Object.entries(categories).flatMap(([id, category]) => category.reasons.map(reason => `${id}: ${reason}`));
+  const complete = reasons.length === 0;
+  const coverage = { state: complete ? 'complete' : Object.values(categories).some(category => category.completed > 0) ? 'partial' : 'unknown', complete, reasons, categories };
   return {
-    engine: 2,
+    engine: 3,
     origin,
     requested,
     redirects,
     status: page.statusCode,
     requests: probed,
-    score,
-    grade: gradeOf(score),
+    score: complete ? observedScore : null,
+    grade: complete ? gradeOf(observedScore) : null,
+    observedScore,
+    coverage,
+    scope: { mode: 'anonymous-security-snapshot', requestCount: 'site-http-only', limitations: ['Checks cover only the observed anonymous pages and resources; authenticated content, dynamic imports and third-party script bodies are not assessed.', 'Library advisories describe published package risks; browser exploitability is not established.', 'A negotiated TLS version does not establish which other protocol versions the server accepts.'] },
     capped: critical && mean > CRITICAL_CAP,
     findings,
     /*
@@ -917,13 +1083,13 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
     headers: Object.freeze(['strict-transport-security', 'content-security-policy', 'x-frame-options', 'x-content-type-options', 'referrer-policy', 'permissions-policy', 'cross-origin-opener-policy', 'cross-origin-resource-policy']
       .map(name => {
         const present = Boolean(pageHeaders[name]);
-        const via = !present && name === 'x-frame-options' && /frame-ancestors/i.test(String(pageHeaders['content-security-policy'] || ''))
+        const via = !present && name === 'x-frame-options' && frameProtected(pageHeaders)
           ? 'content-security-policy' : null;
-        return Object.freeze({ name, present, via });
+        return Object.freeze({ name, present, via, effective: effectiveHeader(name) });
       })),
     transport: Object.freeze({ certificate, plainHttp: plain, hsts }),
     pages: pages.map(entry => Object.freeze({ path: entry.path, status: entry.status })),
-    scripts: Object.freeze({ read: scriptsRead, onOrigin: own.length, kilobytes: Math.ceil(scriptBytes / 1024), thirdParty, sourceMaps: mapsPublic }),
+    scripts: Object.freeze({ read: scriptsRead, onOrigin: ownScripts.length, kilobytes: Math.ceil(scriptBytes / 1024), thirdParty, sourceMaps: mapsPublic }),
     libraries: libraryReport.map(entry => Object.freeze({ name: entry.name, version: entry.version, source: entry.source, state: entry.state, advisories: entry.advisories, severity: entry.severity || null, fixed: entry.fixed || null, ids: entry.ids || [] })),
     email: Object.freeze(email),
     ledger: LEDGER_ORDER.filter(id => ledger.has(id)).map(id => Object.freeze(ledger.get(id))),

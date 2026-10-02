@@ -14,6 +14,7 @@ const PRECACHE = [
   `/overlay-motion.js?v=__NV_ASSET_VERSION__`, `/repo-sigil.js?v=__NV_ASSET_VERSION__`,
   `/workspace-pulse.js?v=__NV_ASSET_VERSION__`, `/nebula-visuals.js?v=__NV_ASSET_VERSION__`,
   `/code-audit-ui.js?v=__NV_ASSET_VERSION__`,
+  `/rendered-audit-ui.js?v=__NV_ASSET_VERSION__`, `/rendered-audit.css?v=__NV_ASSET_VERSION__`,
   `/light-waves.js?v=__NV_ASSET_VERSION__`,
   `/governance-ui.js?v=__NV_ASSET_VERSION__`, `/neural.js?v=__NV_ASSET_VERSION__`,
   '/manifest.webmanifest', '/assets/icon.svg', '/assets/icon-192.png'
@@ -38,7 +39,7 @@ const VENDOR_WARM = [
   '/vendor/codemirror/5.65.16/mode/meta.min.js',
   '/vendor/codemirror/5.65.16/addon/search/searchcursor.min.js',
   '/vendor/marked/15.0.12/marked.min.js',
-  '/vendor/dompurify/3.4.13/purify.min.js'
+  '/vendor/dompurify/3.4.16/purify.min.js'
 ];
 
 self.addEventListener('install', event => {

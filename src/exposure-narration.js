@@ -1,6 +1,6 @@
 'use strict';
 
-const { REASONS: VERIFICATION_REASONS, VERIFICATION_STATES } = require('./credential-verification');
+const { REASONS: VERIFICATION_REASONS, VERIFICATION_STATES, verificationFreshness } = require('./credential-verification');
 const { REASONS: PROBE_REASONS, PROBE_STATES } = require('./anonymous-readability-probe');
 const { detectInText } = require('./exposure-detection');
 const { shannonEntropy } = require('./exposure-rules');
@@ -43,7 +43,10 @@ const { shannonEntropy } = require('./exposure-rules');
 /* 2: a location says when a credential is only in history, inside an archive,
    or written base64-encoded, and withholds only the credential-shaped part of
    a path. */
-const NARRATION_VERSION = 2;
+/* 3: verification and readability observations carry their check time and
+   freshness deadline; an expired or undated result never implies current
+   liveness, rejection or protection. */
+const NARRATION_VERSION = 3;
 
 /* Severity is about the credential class, not about liveness. Whether a
    particular one still works is the verifier's answer and is reported
@@ -618,8 +621,8 @@ const RULE_NARRATION = Object.freeze({
  * "it is harmless" are different sentences and only one of them is true.
  */
 const VERIFICATION_NARRATION = Object.freeze({
-  [VERIFICATION_STATES.VERIFIED]: 'The provider confirmed this credential is live: it was used to identify its own account, and it worked.',
-  [VERIFICATION_STATES.REJECTED]: 'The provider refused this credential, so it no longer works. The exposure is over for this credential, though it remains in the repository history.',
+  [VERIFICATION_STATES.VERIFIED]: 'The provider accepted this credential at the time of the check: it was used to identify its own account, and it worked.',
+  [VERIFICATION_STATES.REJECTED]: 'The provider refused this credential at the time of the check. That records a rejection at that moment; the credential remains in the repository history.',
   [VERIFICATION_REASONS.AUTHORIZATION_MISSING]: 'Nobody authorised a check, so the credential was not used. Whether it still works is unknown.',
   [VERIFICATION_REASONS.AUTHORIZATION_INVALID]: 'The authorisation to check this credential did not validate, so the credential was not used. Whether it still works is unknown.',
   [VERIFICATION_REASONS.AUTHORIZATION_EXPIRED]: 'The authorisation to check this credential had expired, so the credential was not used. Whether it still works is unknown.',
@@ -627,8 +630,8 @@ const VERIFICATION_NARRATION = Object.freeze({
   [VERIFICATION_REASONS.UNSUPPORTED_CREDENTIAL_CLASS]: 'There is no way to ask this kind of credential whether it works without using it against a service it was not issued for, so nothing was asked. Assume it works.',
   [VERIFICATION_REASONS.UNSUPPORTED_TOKEN_CLASS]: 'This token class authenticates differently from the one this checker understands, so asking would have been a guess. Nothing was asked; assume it works.',
   [VERIFICATION_REASONS.INCOMPLETE_CREDENTIAL]: 'This is half a credential -- an identifier without its secret -- so there is nothing to test. That is not reassurance: the other half is often committed nearby.',
-  [VERIFICATION_REASONS.IDENTITY_CONFIRMED]: 'The provider identified the account this credential belongs to, which means it is live.',
-  [VERIFICATION_REASONS.CREDENTIAL_REFUSED]: 'The provider refused this credential, so it no longer works.',
+  [VERIFICATION_REASONS.IDENTITY_CONFIRMED]: 'The provider identified the account this credential belonged to at the time of the check, confirming that it worked then.',
+  [VERIFICATION_REASONS.CREDENTIAL_REFUSED]: 'The provider refused this credential at the time of the check.',
   [VERIFICATION_REASONS.MALFORMED_IDENTITY_RESPONSE]: 'The provider answered, but not with an identity this checker could read, so the answer proves nothing either way.',
   [VERIFICATION_REASONS.PROVIDER_THROTTLED]: 'The provider was rate-limiting us and did not answer the question. Being throttled means the request reached a working service, not that the credential is dead.',
   [VERIFICATION_REASONS.PROVIDER_POLICY_RESTRICTED]: 'The provider blocked the request on policy grounds rather than rejecting the credential. A credential blocked by policy from one endpoint usually still works elsewhere.',
@@ -646,7 +649,7 @@ const VERIFICATION_NARRATION = Object.freeze({
  */
 const PROBE_NARRATION = Object.freeze({
   [PROBE_STATES.READABLE]: 'A row came back. That projection of that table was readable by an anonymous stranger at that moment, with no sign-in of any kind.',
-  [PROBE_REASONS.ROWS_VISIBLE]: 'A row came back, so those columns of that table were readable by an anonymous stranger. Other columns and other tables were not tested.',
+  [PROBE_REASONS.ROWS_VISIBLE]: 'A row came back, so those columns of that table were readable by an anonymous stranger at the time of the check. Other columns and other tables were not tested.',
   [PROBE_REASONS.NO_VISIBLE_ROWS]: 'No rows came back. That is not evidence of protection: an empty table, a filter that matched nothing, and a policy that permits the read while hiding every row look identical from outside.',
   [PROBE_REASONS.ACCESS_DENIED_FOR_TESTED_REQUEST]: 'The service refused this exact request -- these columns of this table for an anonymous caller. It says nothing about the rest of the table, the rest of the schema, or whether row-level security is switched on.',
   [PROBE_REASONS.KEY_NOT_ANONYMOUS]: 'The key found is not an anonymous public key, so it was not used. A stronger key would bypass the policies this check is about, and using one would prove nothing.',
@@ -664,7 +667,7 @@ const PROBE_NARRATION = Object.freeze({
 
 const DISPOSITION_NARRATION = Object.freeze({
   open: 'This finding is open: the credential is in the tree and nothing has established that it stopped working.',
-  'credential-rejected': 'The issuing provider refused this credential, so it no longer works. This is the only outcome that means the exposure is actually over.',
+  'credential-rejected': 'The issuing provider refused this credential at a recorded check. Review the check time and freshness before treating it as resolved; a past refusal does not establish its current status.',
   'accepted-risk': 'Somebody reviewed this finding and accepted the risk. It is recorded against their name and the credential is still in the repository.',
   'removed-from-tree': 'A complete scan of the same branch no longer finds this credential in the tree. It is still in the repository history and still reachable by anyone with a clone, so it needs revoking unless it has already been revoked.'
 });
@@ -678,7 +681,48 @@ function narrationForRule(rule) {
   return RULE_NARRATION[name] || null;
 }
 
-function describeVerification(record) {
+/* Only stored UTC instants are displayed. Date.parse alone accepts prose and
+   rolls impossible dates into a later month, which would make corrupt
+   observations appear fresh or reflect arbitrary text into the report. */
+function observationTimestamp(value) {
+  const timestamp = text(value);
+  const parts = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?Z$/.exec(timestamp);
+  if (!parts) return null;
+  const parsed = Date.parse(timestamp);
+  if (!Number.isFinite(parsed)) return null;
+  const canonical = new Date(parsed).toISOString();
+  return canonical === `${parts[1]}.${(parts[2] || '').padEnd(3, '0')}Z` ? canonical : null;
+}
+
+/* Shared with presentation code so the badge and the words age together.
+   Keeping the original state records what happened; freshness describes
+   whether that observation can still be used. */
+function observationFreshness(record, now = Date.now()) {
+  const observedAt = observationTimestamp(record && record.observedAt);
+  const freshnessDeadline = observationTimestamp(record && record.freshnessDeadline);
+  const observed = Date.parse(observedAt);
+  const deadline = Date.parse(freshnessDeadline);
+  const valid = Number.isFinite(now) && observedAt !== null && freshnessDeadline !== null
+    && observed <= now && deadline > observed;
+  return Object.freeze({
+    freshness: valid ? verificationFreshness({ freshnessDeadline }, now) : 'stale',
+    observedAt,
+    freshnessDeadline
+  });
+}
+
+function describeObservation(sentence, record, now) {
+  if (!sentence) return null;
+  const observation = observationFreshness(record, now);
+  const checked = observation.observedAt || 'unavailable (missing or invalid timestamp)';
+  const deadline = observation.freshnessDeadline || 'unavailable (missing or invalid timestamp)';
+  const status = observation.freshness === 'fresh'
+    ? 'This records the result at the time of the check; status can change before the freshness deadline.'
+    : 'Current status is unknown: this observation has expired or its timing cannot establish freshness. Run a new authorised check to learn the current status.';
+  return `${status} Last recorded check: ${checked}. Freshness deadline: ${deadline}. ${sentence}`;
+}
+
+function describeVerification(record, now = Date.now()) {
   if (!record || typeof record !== 'object') return null;
   const reason = text(record.reason);
   const state = text(record.state);
@@ -687,14 +731,14 @@ function describeVerification(record) {
    * A verified credential and a rejected one also have a sentence keyed by
    * state, for a record that carries no reason.
    */
-  return VERIFICATION_NARRATION[reason] || VERIFICATION_NARRATION[state] || null;
+  return describeObservation(VERIFICATION_NARRATION[reason] || VERIFICATION_NARRATION[state], record, now);
 }
 
-function describeProbe(record) {
+function describeProbe(record, now = Date.now()) {
   if (!record || typeof record !== 'object') return null;
   const reason = text(record.reason);
   const state = text(record.state);
-  return PROBE_NARRATION[reason] || PROBE_NARRATION[state] || null;
+  return describeObservation(PROBE_NARRATION[reason] || PROBE_NARRATION[state], record, now);
 }
 
 function describeDisposition(disposition) {
@@ -856,5 +900,6 @@ module.exports = Object.freeze({
   describeLocation,
   describeProbe,
   describeVerification,
-  narrationForRule
+  narrationForRule,
+  observationFreshness
 });

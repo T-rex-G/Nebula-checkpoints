@@ -129,3 +129,31 @@ test('the overview reserves its new header height when the viewport changes', as
     })).toBe(true);
   }
 });
+
+test('the repositories header fits after navigation and resizing', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await overview(page);
+  await page.locator('#ovGoRepos').click();
+  await expect(page.locator('#page-repos')).toHaveClass(/active/);
+  for (const width of [320, 360, 380, 381, 390, 430, 320]) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const theme of ['dark', 'light']) {
+      await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+      await expect.poll(() => page.locator('#page-repos .topbar').evaluate(el => {
+        const bar = el.getBoundingClientRect();
+        const buttons = [...el.querySelectorAll('button')].filter(button => button.getBoundingClientRect().width > 0);
+        const brand = el.querySelector('.topbar-brand').getBoundingClientRect();
+        const content = document.querySelector('#page-repos .container').getBoundingClientRect();
+        return el.scrollWidth <= Math.round(bar.width) && buttons.length === 6 &&
+          brand.width >= 44 && brand.height >= 44 && content.top >= bar.bottom &&
+          parseFloat(document.documentElement.style.getPropertyValue('--tbh')) === el.offsetHeight &&
+          buttons.every(button => {
+            const box = button.getBoundingClientRect();
+            const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+            return box.left >= bar.left && box.right <= bar.right && box.top >= bar.top && box.bottom <= bar.bottom &&
+              (button.disabled || button.contains(hit));
+          });
+      }), { message: `${theme} at ${width}px: repository controls must fit and content must clear the header` }).toBe(true);
+    }
+  }
+});

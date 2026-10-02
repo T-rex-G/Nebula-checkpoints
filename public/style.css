@@ -2106,12 +2106,12 @@ html.vt-reveal::view-transition-new(root){z-index:2}
 .avatar-btn .avatar{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .avatar-fallback{color:var(--text2)}
 
-/* Seven overview controls cannot share a narrow row without overlapping.
-   Keep navigation and identity together, then give account actions a full
-   row. measureTopbar reserves the resulting height, including after resize. */
+/* Account controls need their own row on narrow overview and repository
+   screens to keep navigation and the 44px brand target inside the bar.
+   measureTopbar reserves the resulting height, including after resize. */
 @media (max-width:380px){
-  #page-overview .topbar{flex-wrap:wrap}
-  #page-overview .topbar-actions{flex-basis:100%;justify-content:space-between}
+  #page-overview .topbar,#page-repos .topbar{flex-wrap:wrap}
+  #page-overview .topbar-actions,#page-repos .topbar-actions{flex-basis:100%;justify-content:space-between}
 }
 
 /* ============================================================

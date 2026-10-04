@@ -36,7 +36,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('.audit-verdict').first()).toHaveText('1 critical issue to fix');
   /* Confirmed findings are counted apart from leads to confirm, and the engine says how far it followed values. */
   await expect(pane.locator('.audit-split')).toHaveAttribute('aria-label', '7 confirmed, 4 to confirm');
-  await expect(pane.locator('.audit-engine-line')).toContainText('Uranus 2.1');
+  await expect(pane.locator('.audit-engine-line')).toContainText('Uranus 2.2');
   await expect(pane.locator('.audit-engine-line')).toContainText('3 entry points mapped');
   /* The evidence as figures, the sentence behind them as the strip's name. */
   const evidence = pane.locator('.audit-evidence');

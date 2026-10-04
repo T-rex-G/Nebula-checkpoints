@@ -100,6 +100,7 @@ const CWE_NAMES = Object.freeze({
   546: 'Suspicious Comment',
   548: 'Exposure of Information Through Directory Listing',
   601: 'Open Redirect',
+  611: 'Improper Restriction of XML External Entity Reference',
   614: 'Sensitive Cookie Without Secure Attribute',
   639: 'Authorization Bypass Through User-Controlled Key',
   693: 'Protection Mechanism Failure',
@@ -152,7 +153,7 @@ const MAP = Object.freeze({
    * is on A08's list, and mass assignment is filed under it directly.
    */
   'SEC-026': [1333, 'A05', 'scope'], 'SEC-027': [1321, 'A08', 'scope'], 'SEC-028': [915, 'A08'], 'SEC-029': [943, 'A05', 'scope'],
-  'SEC-030': [94, 'A05'], 'SEC-031': [209, 'A10'], 'SEC-032': [546, null], 'SEC-033': [79, 'A05'],
+  'SEC-030': [94, 'A05'], 'SEC-031': [209, 'A10'], 'SEC-032': [546, null], 'SEC-033': [79, 'A05'], 'SEC-034': [611, 'A02'],
   /* Access: no authorization, a key the caller chooses, no authentication for a critical function. */
   'ACC-001': [862, 'A01'], 'ACC-002': [639, 'A01'], 'ACC-003': [306, 'A07'], 'ACC-004': [862, 'A01'], 'ACC-005': [306, 'A07'],
   /* Language models. */

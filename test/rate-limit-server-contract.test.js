@@ -19,7 +19,7 @@ const { spawn } = require('child_process');
 const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
 
 const root = path.resolve(__dirname, '..');
-const port = 33000 + Math.floor(Math.random() * 1000);
+const port = 21000 + Math.floor(Math.random() * 1000);
 const secret = 'rate-limit-server-test-secret-0123456789abcdef-0123456789abcdef';
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
 const LIMIT = 300;

@@ -173,10 +173,29 @@ exploited, in a package that ships, holds the grade below 50 and leads Fix
 first. It reports credentials with the same detectors as exposure
 scanning, keeping only the detector's name and the line, and reads Supabase
 migrations and Firebase rules for tables and paths anyone can read or write.
-Its engine, Uranus, follows values through JavaScript, TypeScript and Python --
-from a route parameter, a request body, a message or a model's reply, across
-helpers and files, to a query, a command, a request, a path or markup -- and
-maps every endpoint and server action with the guard in front of it. A finding
+Its engine, Uranus, follows values through JavaScript, TypeScript, Python, Go,
+Java and PHP -- from a route parameter, a request body, a message or a model's
+reply, across helpers and files, to a query, a command, a request, a path,
+markup, a deserializer or an XML parser that resolves external entities -- and
+maps every endpoint and server action with the guard in front of it: Express,
+Fastify, Koa, Hono, NestJS, Next.js, SvelteKit, Remix, Supabase edge functions,
+Flask, FastAPI and Django; net/http, Gin, Echo, Fiber, chi and gorilla/mux;
+Spring and JAX-RS; Laravel and Symfony. A handler named at its route and
+written elsewhere -- a Laravel controller, a Go handler in another package --
+is read where it is written, with the middleware its controller applies. A
+check before the call that settles a value (a number test, an anchored
+pattern, an allow-list, equality with literals, or its negation before an
+early exit) quiets the flow inside what it guards, and what was built from the
+checked value is settled with it. Calls are followed through helpers of
+helpers, a parent class's methods, a typed field's class (an injected Spring
+service and the one class implementing its interface, a Laravel controller's
+service), and a Go method of a name only one type defines. The engine is
+measured on a corpus of 138 cases in JavaScript, TypeScript, Python, Go, Java
+and PHP: 100% precision and 98% recall. Each case is a small application whose
+own comments say what must be found and where, run through the whole audit
+(`node scripts/uranus-benchmark.js`); the one miss it records, a function the
+caller names and the code calls, is written down rather than left out, and the
+unit suite fails if any case regresses. A finding
 is `confirmed` when the file states it or the whole path was traced, and `to
 confirm` when one decisive fact is out of reach; a lead names that fact and the
 local check that settles it, weighs half, and is exported to SARIF as a note to

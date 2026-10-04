@@ -100,7 +100,9 @@ module.exports = [
       'public/vendor/**',
       'coverage/**',
       'playwright-report/**',
-      'test-results/**'
+      'test-results/**',
+      /* the benchmark's applications: deliberately flawed code the engine reads, never code this repository runs */
+      'test/fixtures/uranus-benchmark/**'
     ]
   },
   {

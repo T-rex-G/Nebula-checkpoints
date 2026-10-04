@@ -24,7 +24,7 @@ const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation
 const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../src/security-foundation');
 
 const root = path.resolve(__dirname, '..');
-const port = 33000 + Math.floor(Math.random() * 1000);
+const port = 18000 + Math.floor(Math.random() * 1000);
 const secret = 'workbench-route-test-secret-0123456789abcdef-0123456789abcdef';
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
 const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);

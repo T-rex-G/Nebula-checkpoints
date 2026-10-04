@@ -36,6 +36,15 @@ for (const [claim, value] of Object.entries(expected)) {
 }
 assert.doesNotMatch(html, /Every write is previewed|0<\/b> writes reach a provider without a preview/);
 assert.match(html, /Staged file changes require a diff review before commit/);
+/* The benchmark's figures, as the corpus gives them today. */
+{
+  const { runBenchmark, percent } = require('../scripts/uranus-benchmark');
+  const { totals } = runBenchmark();
+  const shown = name => (new RegExp(`<b data-claim="${name}">([^<]+)</b>`).exec(html) || [])[1];
+  assert.strictEqual(shown('benchmark-cases'), String(totals.cases), 'the benchmark case count');
+  assert.strictEqual(shown('benchmark-precision'), percent(totals.precision), 'the benchmark precision');
+  assert.strictEqual(shown('benchmark-recall'), percent(totals.recall), 'the benchmark recall');
+}
 
 /* ---- The rules it quotes ----------------------------------------------------------- */
 const RULES = { ...audit.RULES, ...site.RULES };

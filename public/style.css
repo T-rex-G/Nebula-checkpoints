@@ -1340,6 +1340,26 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   background:transparent;padding:8px 11px;border-radius:9px;transition:background .18s,color .18s;min-height:38px;white-space:nowrap}
 .tab:hover{color:var(--text)}
 .tab.active{background:rgba(139,92,246,0.2);color:var(--text)}
+/*
+ * The strip is as wide as the pane, and the pane is what is left once the
+ * rail and the file tree have their columns -- so the strip, not the window,
+ * decides how the tabs sit. The repository's eight sections take 638 pixels
+ * at rest; a pane a pixel narrower used to drop Compare alone onto a line of
+ * its own. The tabs tighten first, and where even that is too wide the eight
+ * sit as two even rows of four rather than seven and an orphan.
+ */
+#deskTabs{container:desk-tabs / inline-size}
+@container desk-tabs (max-width:680px){
+  .tab{padding-inline:9px}
+}
+@container desk-tabs (max-width:620px){
+  .tab{padding-inline:7px}
+  .tabs .tab-group{gap:2px}
+}
+@container desk-tabs (max-width:570px){
+  .tabs .tab-group:not(.tab-group-security){display:grid;grid-template-columns:repeat(4,minmax(0,1fr));flex:1 1 100%}
+  .tabs .tab-group:not(.tab-group-security) .tab{text-align:center}
+}
 .tabpane{display:none;flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain}
 .tabpane.active{display:flex;flex-direction:column;animation:pageIn .2s var(--ease) both}
 
@@ -3666,7 +3686,18 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   body:has(#page-overview.active, #page-repos.active, #page-site.active){overflow:hidden}
   /* The workbench is a full-height grid, so it keeps its own padding and takes
      the inset as a margin; the right margin is the plate's, not the page's. */
-  #page-work .workspace{margin-right:23px;padding-left:0;padding-right:0}
+  /*
+   * The workbench is a window in the plate too. Sized from the viewport, its
+   * grid ran from under the bar to a pixel past the plate's bottom edge, with
+   * no gutter on either side: the file tree sat against the rail, the panes
+   * against the plate's right edge, and the main pane's square corner stuck
+   * out through the plate's rounded one. Pinned to the plate like the other
+   * screens, with one gutter all round, the panes sit inside the frame.
+   */
+  #page-work .workspace{position:fixed;top:calc(23px + var(--tbh, 62px));bottom:23px;
+    left:var(--shell-inset);right:23px;height:auto;margin:0;padding:14px;
+    transition:left .34s cubic-bezier(.4,0,.2,1),grid-template-columns .38s var(--ease),column-gap .38s var(--ease)}
+  [data-motion="off"] #page-work .workspace{transition:none}
   /*
    * No backdrop blur on the bar inside the plate. Chromium paints a
    * backdrop-filtered region as a plain rectangle and does not clip it to the
@@ -3781,6 +3812,22 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   letter-spacing:-.005em;text-transform:none}
 .nv-rail-d{display:block;font-size:.7rem;color:var(--muted)}
 .nv-rail-foot{display:grid;gap:10px;padding-top:14px;border-top:1px solid var(--hair)}
+@media (min-width:1140px){
+  /* The foot stays in the frame: the last list gives way first, and scrolls only if it must. */
+  .nv-rail-foot{flex:none}
+  .nv-rail-nav:last-of-type{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+}
+/*
+ * At a laptop's 720 or 768 pixels the rail's own rhythm was taller than the
+ * frame, and its foot -- the boundary state and who is signed in -- ran out
+ * past the plate's bottom edge. On a short screen the rhythm tightens instead.
+ */
+@media (min-width:1140px) and (max-height:820px){
+  .nv-rail{gap:16px;padding-top:20px;padding-bottom:18px}
+  .nv-rail-item{padding-top:8px;padding-bottom:8px}
+  .nv-rail-group{margin-bottom:-8px}
+  .nv-rail-foot{padding-top:10px;gap:8px}
+}
 .nv-rail-state,.nv-rail-user{display:flex;gap:9px;align-items:center;margin:0}
 .nv-rail-state-t{display:block;font-size:.76rem;font-weight:600;color:var(--fg2)}
 .nv-rail-dot{width:7px;height:7px;border-radius:50%;background:var(--mint);flex:none;
@@ -7524,7 +7571,7 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
    than shown refused. The provider refuses them regardless. */
 .repo-visitor-badge { border-color: color-mix(in oklab, var(--vis-public) 38%, transparent); background: color-mix(in oklab, var(--vis-public) 6%, transparent); }
 .repo-visitor-badge svg { stroke: var(--vis-public); }
-body.repo-visitor #page-work :is(#newFileBtn, #newBranchBtn, #renameFileBtn, #deleteFileBtn, #stageFileBtn, #commitFileBtn, #diffBtn, #stagedBtn, #safeguardsBtn, #tmOpenBtn),
+body.repo-visitor #page-work :is(#newFileBtn, #newBranchBtn, #renameFileBtn, #deleteFileBtn, #stageFileBtn, #commitFileBtn, #diffBtn, #stagedBtn, #tmOpenBtn),
 body.repo-visitor #page-work .tab:is([data-tab="upload"], [data-tab="governance"], [data-tab="safeguards"]),
 body.repo-visitor #page-work .neural-mode:is([data-neural-mode="recovery"], [data-neural-mode="governance"]),
 body.repo-visitor #bottomNav button[data-nav="upload"],

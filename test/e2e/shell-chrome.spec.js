@@ -1326,16 +1326,57 @@ test('on a desktop the file list folds away and comes back, and remembers', asyn
   await expect.poll(width).toBeGreaterThan(150);
 });
 
-test('safeguards open from the top bar on a desktop, as their own section', async ({ page }) => {
+test('safeguards open from the sidebar on a desktop, as their own section, and the top bar carries no second way in', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/#/sandbox/demo@main/files');
   await page.locator('#page-work.active').waitFor();
-  const control = page.locator('#safeguardsBtn');
-  if (!(await control.isVisible())) return;
-  await expect(control).not.toHaveAttribute('aria-haspopup', /.+/);
-  await control.click();
+  await expect(page.locator('#page-work .topbar [data-feature="recovery"]')).toHaveCount(0);
+  await page.locator('#navRail [data-rail="safeguards"]').click();
   await expect(page.locator('#tab-safeguards')).toBeVisible();
   await expect(page.locator('#tab-safeguards .sg-posture')).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page).toHaveURL(/\/safeguards$/);
 });
+
+/*
+ * Inside the plate on a laptop screen: the rail's foot -- the boundary and who
+ * is signed in -- and the workbench's two panes all sit within the frame, the
+ * panes a gutter in from every edge, and the section tabs never leave one or
+ * two of their number alone on a line.
+ */
+for (const [width, height] of [[1280, 720], [1140, 720], [1440, 900]]) {
+  test(`at ${width}x${height} the rail and the workbench sit inside the frame`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/pulls');
+    await expect(page.locator('#tab-pulls')).toBeVisible();
+    const box = selector => page.locator(selector).first().evaluate(node => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+    });
+    const plate = await box('#shellPlate');
+    const bar = await box('#page-work .topbar');
+    const foot = await box('#navRail .nv-rail-foot');
+    const rail = await box('#navRail');
+    expect(foot.bottom, 'the rail foot stays in the frame').toBeLessThanOrEqual(rail.bottom + 0.5);
+    expect(rail.bottom).toBeLessThanOrEqual(plate.bottom + 0.5);
+    for (const pane of ['#page-work .side', '#page-work .main-pane']) {
+      const rect = await box(pane);
+      expect(rect.top - bar.bottom, `${pane} starts a gutter below the bar`).toBeGreaterThanOrEqual(10);
+      expect(plate.bottom - rect.bottom, `${pane} ends a gutter above the frame`).toBeGreaterThanOrEqual(10);
+    }
+    expect((await box('#page-work .side')).left - rail.right, 'the file tree stands off the rail').toBeGreaterThanOrEqual(10);
+    expect(plate.right - (await box('#page-work .main-pane')).right, 'the pane stands off the frame').toBeGreaterThanOrEqual(10);
+    const rows = await page.locator('#deskTabs .tab-group').first().evaluate(group => {
+      const lines = new Map();
+      for (const tab of group.querySelectorAll('.tab')) {
+        if (!tab.offsetParent) continue;
+        const top = Math.round(tab.getBoundingClientRect().top);
+        lines.set(top, (lines.get(top) || 0) + 1);
+      }
+      return [...lines.values()];
+    });
+    expect(Math.min(...rows), `the repository's sections sit ${rows.join(' + ')}`).toBeGreaterThanOrEqual(3);
+  });
+}

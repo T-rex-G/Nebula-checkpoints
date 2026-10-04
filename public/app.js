@@ -3044,7 +3044,6 @@ document.addEventListener('keydown', event => {
 });
 window.addEventListener('resize', applyFilesHidden);
 applyFilesHidden();
-$('#safeguardsBtn')?.addEventListener('click', () => runCapabilityAction('recovery', () => openSafeguards()));
 
 $('#syncBtn').addEventListener('click', async () => {
   if (!state.work.repo) return;

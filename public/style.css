@@ -1067,6 +1067,9 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .field-label{display:block;font-size:.78rem;font-weight:500;color:var(--text2);margin:14px 0 6px}
 .field-label:first-child{margin-top:0}
 .hint{font-size:.75rem;color:var(--muted);margin-top:12px;line-height:1.55}
+/* A link in guidance reads as the text it sits in, marked by its underline -- never the browser's blue. */
+.hint a{color:var(--text);text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:color-mix(in oklab,var(--accent) 65%,transparent);text-underline-offset:3px}
+.hint a:hover{text-decoration-color:currentColor}
 .check{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--text2);margin-top:14px;cursor:pointer;min-height:32px}
 /*
  * 24 square, which is what WCAG 2.2 asks for (2.5.8). At 18 these cleared the
@@ -7510,11 +7513,23 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
   #page-repos .gx-eyebrow{margin-bottom:9px;font-size:.58rem}
   #page-repos .gx-title{font-size:1.7rem;line-height:1.14;margin-bottom:9px}
   #page-repos .gx-lede{font-size:.84rem;line-height:1.45;max-width:38ch}
-  #page-repos .gx-summary-toggle{display:inline-flex;margin-top:12px;min-height:36px;font-size:.76rem}
+  #page-repos .gx-summary-toggle{display:inline-flex;align-items:center;gap:9px;margin-top:12px;min-height:36px;font-size:.76rem}
+  /* A disclosure shows which way it is set, not only says so to a screen reader. */
+  #page-repos .gx-summary-toggle::after{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-2px) rotate(45deg);transition:transform .2s ease}
+  #page-repos .gx-summary-toggle[aria-expanded="true"]::after{transform:translateY(1px) rotate(-135deg)}
   #reposPulse:not([data-expanded="true"]){display:none}
+  @media (prefers-reduced-motion:reduce){#page-repos .gx-summary-toggle::after{transition:none}}
   #page-repos .page-head{margin-top:16px}
 }
 
+/* What is about to be written, and where: label beside value, the commit set
+   in the code face and broken evenly anywhere rather than after its last digit. */
+.stage-review-facts{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:7px 16px;margin:0 0 4px;font-size:.8rem;line-height:1.45}
+.stage-review-facts dt{color:var(--muted)}
+.stage-review-facts dd{margin:0;color:var(--text);min-width:0;overflow-wrap:anywhere}
+.stage-preview-head{font-size:.76rem;word-break:break-all;color:var(--text)}
+@media (max-width:520px){.stage-review-facts{grid-template-columns:minmax(0,1fr);gap:2px}.stage-review-facts dd+dt{margin-top:8px}}
 .stage-preview-file{margin:18px 0;border-top:1px solid var(--line);padding-top:14px;min-width:0}
-.stage-preview-file h3,.stage-preview-head{overflow-wrap:anywhere;font-size:.82rem}
+.stage-preview-file h3{overflow-wrap:anywhere;font-size:.82rem;margin:0}
+.stage-preview-kind{margin:6px 0 0;font-size:.78rem;color:var(--muted)}
 .stage-preview-file .diff-patch{max-height:320px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}

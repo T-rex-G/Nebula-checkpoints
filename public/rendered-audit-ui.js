@@ -20,22 +20,34 @@
     root.hidden = false;
     const model = { disposed: false, busy: false, run: '', url: '', result: null, cancelled: false, available: false, version: 0 };
     mounts.set(root, model);
-    const heading = el('h3', 'Rendered experience');
-    const intro = el('p', 'See desktop and mobile evidence for accessibility, responsive layout, search metadata and page timing.', 'rendered-intro');
-    const note = el('p', 'One anonymous page. Cross-origin resources are blocked; keyboard behavior and visual design still need human review.', 'rendered-intro');
-    const form = el('form', undefined, 'rendered-form');
-    const label = el('label', 'Page address');
-    const input = el('input');
-    input.id = 'renderedAuditUrl'; input.type = 'url'; input.required = true; input.placeholder = 'https://example.com/page'; input.maxLength = 2048;
+    /* The same card as "Check a site" above it: a mark and a title, one field
+       with its action beside it, and the limits said once, small, below. */
+    root.classList.add('card', 'audit-site');
+    root.setAttribute('aria-labelledby', 'renderedAuditHeading');
+    const head = el('div', undefined, 'audit-site-head');
+    const mark = el('span', undefined, 'audit-site-mark');
+    mark.innerHTML = '<svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4" width="14" height="10.5" rx="1.6"/><path d="M6.5 18h6M9.5 14.5V18"/><rect x="16.5" y="9" width="5" height="10" rx="1.2"/></svg>';
+    const titles = el('div', undefined, 'audit-site-titles');
+    const heading = el('h2', 'Rendered experience', 'exposure-heading');
+    heading.id = 'renderedAuditHeading';
+    titles.append(heading, el('p', 'Desktop and mobile evidence from one anonymous page in an isolated browser: accessibility, responsive layout, search metadata and timing.', 'audit-site-lede'));
+    head.append(mark, titles);
+    const form = el('form', undefined, 'audit-site-form');
+    form.noValidate = true;
+    const label = el('label', 'Page address', 'audit-site-label');
+    const field = el('div', undefined, 'audit-site-field');
+    const input = el('input', undefined, 'audit-site-input');
+    input.id = 'renderedAuditUrl'; input.type = 'url'; input.inputMode = 'url'; input.spellcheck = false; input.placeholder = 'https://example.com/page'; input.maxLength = 2048;
     label.htmlFor = input.id;
     const start = button('Run rendered audit', () => {}); start.className = 'btn btn-primary'; start.type = 'submit'; start.disabled = true;
-    const cancel = button('Cancel audit', () => void cancelRun()); cancel.hidden = true;
-    const refresh = button('Check availability', () => void readiness());
+    field.append(input, start);
+    const cancel = button('Cancel audit', () => void cancelRun()); cancel.hidden = true; cancel.classList.add('small');
+    const refresh = button('Check availability', () => void readiness()); refresh.classList.add('small');
     const status = el('p', 'Checking browser availability…', 'rendered-status'); status.setAttribute('role', 'status');
     const output = el('div', undefined, 'rendered-output');
-    const actions = el('div', undefined, 'rendered-actions'); actions.append(start, cancel, refresh);
-    form.append(label, input, actions);
-    root.replaceChildren(heading, intro, note, form, status, output);
+    const actions = el('div', undefined, 'rendered-actions'); actions.append(status, cancel, refresh);
+    form.append(label, field, el('p', 'Cross-origin resources are blocked, and nothing is clicked or submitted. Keyboard behaviour and visual design still need a person.', 'audit-site-hint'));
+    root.replaceChildren(head, form, actions, output);
     const endpoint = () => `/api/site-rendered?${new URLSearchParams({ url: model.url, run: model.run })}`;
     const controls = () => { start.disabled = model.busy || !model.available; input.disabled = model.busy; cancel.hidden = !model.busy; refresh.hidden = model.busy; };
     async function readiness() {

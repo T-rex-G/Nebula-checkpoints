@@ -294,7 +294,7 @@ function renderGalaxyPulse(repos) {
   const spread = pulse && pulse.languageSpread ? pulse.languageSpread(list) : [];
   const drawRadar = spread.length >= (pulse ? pulse.RADAR_MIN_AXES : 3);
   const measures = [
-    { label: 'Galaxies online', value: list.length, note: list.length === 1 ? 'connected system' : 'connected systems' },
+    { label: 'Repositories', value: list.length, note: 'connected' },
     { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
     ...(drawRadar ? [] : [{ label: 'Languages', value: languages.size, note: languages.size === 1 ? 'in use' : 'across the set' }])
   ].filter(measure => Number.isFinite(measure.value));
@@ -7122,11 +7122,11 @@ async function previewStagedChanges(scope, ops) {
     const changed = lines.some(line => line[0] !== ' ');
     const description = !remote ? (after ? 'Create file' : 'Create empty file')
       : op.op === 'delete' ? 'Delete file' : changed ? 'Update file' : 'No content changes';
-    const patch = changed ? lines.map(([tag, line]) =>
-      `<span class="${tag === '+' ? 'add' : tag === '-' ? 'del' : ''}">${esc(tag + ' ' + line)}</span>`).join('')
-      : `<span>${esc(description)}</span>`;
+    /* A file with no lines to show is described once, not again as an empty patch. */
+    const patch = changed ? `<pre class="diff-patch mono">${lines.map(([tag, line]) =>
+      `<span class="${tag === '+' ? 'add' : tag === '-' ? 'del' : ''}">${esc(tag + ' ' + line)}</span>`).join('')}</pre>` : '';
     previews.push({ op, sha: remote && remote.sha,
-      html: `<section class="stage-preview-file"><h3 class="mono">${esc(op.path)}</h3><p class="hint">${description}</p><pre class="diff-patch mono">${patch}</pre></section>` });
+      html: `<section class="stage-preview-file"><h3 class="mono">${esc(op.path)}</h3><p class="stage-preview-kind">${description}</p>${patch}</section>` });
   }
   return previews;
 }
@@ -7151,8 +7151,12 @@ $('#stageCommitBtn').addEventListener('click', async () => {
     if (!current()) throw new Error('The staged changes or repository changed. Review the current changes again.');
     const ok = await modal({
       title: 'Review staged changes', wide: true,
-      bodyHTML: `<p class="hint">Repository: <b>${esc(scope.owner)}/${esc(scope.repo)}</b><br>Branch: <b>${esc(scope.branch)}</b><br>Expected commit: <code class="stage-preview-head">${esc(scope.head)}</code></p>
-        <p class="hint">Commit message: ${esc(msg)}</p>${preview.map(item => item.html).join('')}
+      bodyHTML: `<dl class="stage-review-facts">
+          <dt>Repository</dt><dd>${esc(scope.owner)}/${esc(scope.repo)}</dd>
+          <dt>Branch</dt><dd>${esc(scope.branch)}</dd>
+          <dt>Expected commit</dt><dd><code class="stage-preview-head mono">${esc(scope.head)}</code></dd>
+          <dt>Message</dt><dd>${esc(msg)}</dd>
+        </dl>${preview.map(item => item.html).join('')}
         <p class="hint">Commit only if these changes match your intent. A moved branch head is refused by the server.</p>`,
       okText: `Commit ${ops.length} ${ops.length === 1 ? 'change' : 'changes'}`
     });

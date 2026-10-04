@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Uranus 2.3, truthful about itself
+
+Audited against this repository, Uranus 2.2 graded it F 49 on six findings,
+and none of them were real. Each was a reading mistake, now corrected for
+every repository:
+
+- **A path is not a read.** *Local credentials read and sent out* fired on a
+  website scanner's list of paths it asks a site for (`/.aws/credentials`).
+  It now needs the code to read the file from this machine: a file API on
+  the line, or the user's home directory named in the file (`os.homedir()`,
+  `expanduser`, `~/`, `$HOME`). Shell scripts need the home directory in the
+  path itself.
+- **The code's own SQL is not interpolation.** A statement that splices a
+  module-level constant written as text (`const SCOPE = 'owner=$1 AND ...'`,
+  a Python `SCOPE = "..."`, a Go `const`) is settled, as long as the name is
+  declared once, never reassigned and never a parameter. A `let`, a value
+  built from input, a template that splices, or a parameter that shadows the
+  constant still fires.
+- **A comment is not code.** Rules about code no longer read a comment that
+  follows code on the same line or opens with `/*`; a credential in a comment
+  is still a credential.
+- **Fixtures are not the application.** Manifests and lockfiles under tests,
+  `fixtures`, `__fixtures__` or `testdata` are set aside: they add nothing to
+  the inventory, the bill of materials, the advisories or the grade, and no
+  longer borrow the root lockfile. The coverage line says how many were set
+  aside.
+
+The benchmark is unchanged: 100% precision, 98% recall over 138 cases.
+
 ### The constellation, named
 
 - **Names.** Repositories are *Galaxies* (your repositories); the security

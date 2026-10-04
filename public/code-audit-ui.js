@@ -850,6 +850,9 @@
       parts.push(`${advisories.checked} of ${advisories.versions} package versions checked against OSV` +
         (advisories.unknown ? ` (${advisories.unknown} unanswered)` : ''));
     }
+    if (advisories.setAside) {
+      parts.push(`${plural(advisories.setAside, 'manifest', 'manifests')} kept for tests set aside, as no install of the application`);
+    }
     const components = Array.isArray(result.components) ? result.components : [];
     if (components.length) {
       const ecosystems = [...new Set(components.map(component => ECOSYSTEM_NAME[component.ecosystem] || component.ecosystem))];

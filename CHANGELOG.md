@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+### Go, Java and PHP, Traced
+
+Phase 3 of the audit engine, second part: Uranus follows values in three more
+languages, with the same rule as before -- a flow is reported only when the
+whole path from the request to the call is seen.
+
+- **Sources**: net/http, Gin, Echo, Fiber, gorilla/mux and chi requests, and
+  bodies decoded into structs; Spring's `@RequestParam`, `@PathVariable`,
+  `@RequestBody` and friends, JAX-RS parameters and the servlet request; PHP's
+  superglobals, `php://input`, Laravel's and Symfony's request objects, and
+  the route parameters of a Laravel closure or controller.
+- **Sinks**: SQL (database/sql, sqlx, gorm, JDBC, JdbcTemplate, JPA, PDO,
+  mysqli, Laravel's raw queries, Doctrine DBAL), shells, file paths, outbound
+  requests, redirects, HTML responses, evaluated code and included files,
+  deserializers, server-side templates, mass assignment and -- new, as
+  SEC-034 (CWE-611) -- XML parsed with external entities allowed, in Java,
+  PHP, and in JavaScript (libxmljs) and Python (lxml) too. 84 rules in all.
+- **Across functions**: a helper that passes a parameter to a sink, a helper
+  of a helper, a method of the class a controller extends, and a function in
+  another file when its name is unambiguous. Java's try-with-resources
+  declarations are read as the assignments they are.
+- **Validation**: a number test, an anchored pattern, an allow-list or
+  equality with literals quiets a flow inside the block it guards, and its
+  negation before an early exit quiets the rest of the function; values
+  built from the checked one are settled with it. An unanchored pattern or a
+  partial check makes a flow one to confirm, naming the check.
+- **Endpoints**: every framework above, with Go 1.22's method patterns, Gin
+  and Echo groups, gorilla's `.Methods()`, Spring class prefixes, Laravel
+  groups, prefixes, `Route::match` and controller groups, and Symfony's
+  `#[Route]` attributes. A handler written elsewhere is read where it is:
+  a Laravel controller by the `use` the routes file names, a Go handler in
+  another package, with the controller's own `middleware()` (and its `only`
+  and `except`) applied. Guards are read in each language's words
+  (`@PreAuthorize`, `#[IsGranted]`, `auth` middleware, `Auth::check()`,
+  `$this->authorize()`, `http.StatusUnauthorized`, a parsed JWT), and a
+  Spring Security filter chain, a request filter, Symfony's access control or
+  a Go router's `Use(auth)` in another file make an open write one to
+  confirm.
+- **Reach**: a flow is tied to the route whose handler holds it, the
+  narrowest first, so a handler written below the routes is no longer
+  credited to the route registered before it.
+- **Precision against real code**: spring-petclinic, Laravel's skeleton, koel
+  and a Gin RealWorld app give no flows; DVWA's and WebGoat's deliberate flaws
+  are found, and their "impossible" levels and pinned URLs stay quiet.
+- **Hardening**: every table the tracers read by a name taken from code is now
+  without a prototype, so `req.constructor`, a method called `toString` or a
+  file named `__proto__` are ordinary names.
+- **UI**: the attack surface names each framework; a route answering two verbs
+  shows one a line (`POST/PUT` where it is written in a sentence); on a phone
+  the verb column is fixed so every path starts on the same line.
+
 ### Every Dependency's Licence, Judged
 
 Phase 3 of the audit engine, first part: a licence policy.

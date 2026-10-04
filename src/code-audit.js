@@ -81,7 +81,7 @@ const ecosystems = require('./ecosystems');
 const licences = require('./licences');
 
 /* The engine's name and version, carried in every result and export. */
-const ENGINE = Object.freeze({ name: 'Uranus', version: '2.0.0' });
+const ENGINE = Object.freeze({ name: 'Uranus', version: '2.1.0' });
 
 const CATEGORIES = Object.freeze([
   Object.freeze({ id: 'supply-chain', label: 'Supply chain', weight: 0.15 }),
@@ -125,6 +125,8 @@ const LIMITS = Object.freeze({
 
 const JS_EXT = new Set(['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'vue', 'svelte', 'astro']);
 const PY_EXT = new Set(['py']);
+/* Go, Java and PHP: traced by Uranus's own reader for the C family of languages. */
+const CF_EXT = new Set(['go', 'java', 'php']);
 /* The source files that can import each ecosystem's packages. */
 const ECOSYSTEM_LANGUAGES = Object.freeze({
   npm: JS_EXT, pypi: PY_EXT, go: new Set(['go']), cargo: new Set(['rs']), rubygems: new Set(['rb']),
@@ -282,11 +284,11 @@ const RULES = Object.freeze({
     why: 'Decoding a JWT without verifying it, or allowing the "none" algorithm, accepts any token anyone writes, so every claim in it, including who the user is, can be forged.',
     fix: 'Verify every token with the expected algorithm and key (jwt.verify, jose.jwtVerify, PyJWT with algorithms=[...]) before trusting its claims.' },
   'SEC-010': { category: 'code', severity: 'critical', title: 'Request input is executed as code',
-    why: 'Passing request data to eval, Function or exec gives whoever sends the request the ability to run code on the server.',
-    fix: 'Never evaluate input. Parse it as data (JSON.parse, a schema validator) and act on the parsed values.' },
+    why: 'Passing request data to eval, Function or exec -- or to PHP\u2019s eval and assert, a Java script engine, a SpEL or OGNL expression -- gives whoever sends the request the ability to run code on the server.',
+    fix: 'Never evaluate input. Parse it as data (a JSON parser, a schema validator) and act on the parsed values.' },
   'SEC-011': { category: 'code', severity: 'serious', title: 'A shell command is built by string interpolation',
     why: 'Values spliced into a shell command are parsed by the shell. One that carries a semicolon or backtick runs a second command.',
-    fix: 'Call the program with an argument array (execFile, spawn without a shell, subprocess.run([...]) with shell=False) so values are never parsed as shell syntax.' },
+    fix: 'Call the program with an argument list and no shell (execFile or spawn, subprocess.run([...]) with shell=False, exec.Command(name, args...), ProcessBuilder with separate arguments), or quote every PHP argument with escapeshellarg, so values are never parsed as shell syntax.' },
   'SEC-012': { category: 'code', severity: 'warning', title: 'Sign-in and account routes have no rate limiting',
     why: 'Without a limit, login, sign-up, password-reset and code-verification endpoints can be hammered for credential stuffing, enumeration or SMS/email cost.',
     fix: 'Add a per-IP and per-account rate limit to authentication routes (for example express-rate-limit, @upstash/ratelimit or Flask-Limiter).' },
@@ -325,8 +327,8 @@ const RULES = Object.freeze({
     why: 'MD5 and the SHA family are built to be fast, so a stolen table of password hashes can be guessed at billions of attempts a second on one graphics card.',
     fix: 'Hash passwords with a slow, salted password hash -- argon2id, scrypt or bcrypt -- through a maintained library, and rehash existing ones on next login.' },
   'SEC-024': { category: 'code', severity: 'serious', title: 'Untrusted data is deserialized into objects',
-    why: 'pickle, marshal, yaml.load without the safe loader and node-serialize rebuild arbitrary objects from their input, and building the object runs code: whoever controls the bytes controls the process.',
-    fix: 'Parse data with a data-only format -- json.loads, yaml.safe_load, JSON.parse -- and validate it against a schema. Never unpickle anything that crossed a network or a user\u2019s hands.' },
+    why: 'pickle, marshal, yaml.load without the safe loader, node-serialize, Java\u2019s ObjectInputStream and XMLDecoder, SnakeYAML\u2019s default constructor and PHP\u2019s unserialize rebuild arbitrary objects from their input, and building the object runs code: whoever controls the bytes controls the process.',
+    fix: 'Parse data with a data-only format -- JSON, yaml.safe_load, SnakeYAML\u2019s SafeConstructor, json_decode -- and validate it against a schema. Never deserialize objects from anything that crossed a network or a user\u2019s hands.' },
   'SEC-025': { category: 'code', severity: 'serious', title: 'A signing secret is written into the code',
     why: 'A JWT or session signing key in the source lets anyone who reads the repository mint tokens and sessions the application will trust as its own.',
     fix: 'Load the key from the environment or a secret manager, rotate it (every token signed with the old one becomes invalid), and keep it out of version control.' },
@@ -352,6 +354,9 @@ const RULES = Object.freeze({
   'SEC-032': { category: 'hygiene', severity: 'warning', title: 'Security work is left as a to-do in the code',
     why: 'A TODO or FIXME that mentions authentication, validation or permissions marks a check somebody knew was missing, and such notes outlive the sprint they were written in.',
     fix: 'Do the work the note describes, or file it where it is tracked and link the issue from the comment.' },
+  'SEC-034': { category: 'code', severity: 'serious', title: 'XML from the request is parsed with external entities allowed',
+    why: 'A parser that resolves external entities and document type definitions reads the files and fetches the URLs a document names (XML external entities): a request can return the server\u2019s own files, reach internal services, or expand nested entities until memory runs out.',
+    fix: 'Turn document type definitions off on the parser (disallow-doctype-decl, or FEATURE_SECURE_PROCESSING with external entities disabled), leave LIBXML_NOENT and LIBXML_DTDLOAD unset in PHP, and parse with defusedxml in Python.' },
   'SEC-033': { category: 'code', severity: 'serious', title: 'Request input is written into an HTML response',
     why: 'Text from the request placed in HTML the server sends is markup to the browser, so a crafted link runs script on your domain with the visitor\u2019s session (reflected cross-site scripting).',
     fix: 'Render through a template engine that escapes by default, or escape the value for HTML before inserting it; answer with JSON where you can.' },
@@ -1454,7 +1459,7 @@ function pipfileLockEntries(text) {
   return { entries: out, roots: null, flat: true };
 }
 
-const LOCK_PARSERS = Object.freeze({
+const LOCK_PARSERS = Object.freeze(Object.assign(Object.create(null), {
   'package-lock.json': ['npm', packageLockEntries],
   'npm-shrinkwrap.json': ['npm', packageLockEntries],
   'yarn.lock': ['npm', yarnLockEntries],
@@ -1462,7 +1467,7 @@ const LOCK_PARSERS = Object.freeze({
   'poetry.lock': ['pypi', poetryLockEntries],
   'Pipfile.lock': ['pypi', pipfileLockEntries],
   ...ecosystems.LOCKS
-});
+}));
 
 function nameKey(ecosystem, name) {
   return ecosystem === 'pypi' ? normalizePypi(name) : String(name).toLowerCase();
@@ -2179,7 +2184,10 @@ function detailText(rule, detail) {
 const PATTERN_RULES = new Set(['SEC-001', 'SEC-002', 'SEC-007', 'SEC-010', 'SEC-011', 'SEC-012', 'SEC-020', 'SEC-021', 'SEC-022',
   'SEC-024', 'SUP-004', 'DEP-004', 'SEC-031', 'SEC-032']);
 
-const GUARD_KIND = Object.freeze({ middleware: 'a Next.js middleware', mounted: 'a router mounted behind authentication', django: 'Django’s middleware list', dependencies: 'a router declared with dependencies', nest: 'a global guard' });
+const GUARD_KIND = Object.freeze({
+  middleware: 'a Next.js middleware', mounted: 'a router mounted behind authentication', django: 'Django’s middleware list', dependencies: 'a router declared with dependencies', nest: 'a global guard',
+  'spring-security': 'a Spring Security filter chain', filter: 'a request filter that turns callers away', symfony: 'Symfony’s access control rules'
+});
 
 function where(path, line) {
   return path ? `${path}${line ? `:${line}` : ''}` : 'the repository';
@@ -2550,9 +2558,9 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
    * already flagged replaces the pattern with the trace; a flow no rule saw
    * is a finding of its own. Tests are not the application and are not read.
    */
-  const flowInput = prepared.filter(file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)))
+  const flowInput = prepared.filter(file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext) || CF_EXT.has(file.ext)))
     .map(file => ({ path: file.path, text: file.text, client: clientFile(file) }));
-  let flowResult = { flows: [], routes: [], stats: { javascript: 0, python: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0 } };
+  let flowResult = { flows: [], routes: [], stats: { javascript: 0, python: 0, go: 0, java: 0, php: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0 } };
   if (trace.skip) {
     flowResult.stats.cut = flowInput.length;
     flowResult.stats.limit = trace.skip;
@@ -2600,7 +2608,8 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
     Number(a.verdict === 'needs-validation') - Number(b.verdict === 'needs-validation') ||
     String(a.path).localeCompare(String(b.path)) || (a.line || 0) - (b.line || 0));
   const engine = { ...ENGINE, traced: {
-    javascript: flowResult.stats.javascript || 0, python: flowResult.stats.python || 0, functions: flowResult.stats.functions || 0,
+    javascript: flowResult.stats.javascript || 0, python: flowResult.stats.python || 0,
+    go: flowResult.stats.go || 0, java: flowResult.stats.java || 0, php: flowResult.stats.php || 0, functions: flowResult.stats.functions || 0,
     endpoints: surface.counts.endpoints, actions: surface.counts.actions, flows: flowResult.flows.length,
     crossFile: flowResult.flows.filter(flow => flow.viaHelper === 'file').length, failed: flowResult.stats.failed || 0,
     cut: flowResult.stats.cut || 0, limit: flowResult.stats.limit || null,
@@ -2748,7 +2757,7 @@ function surfaceSummary(surface) {
  * is clear because it was looked at, and the ledger says which.
  */
 const LEDGER = Object.freeze([
-  { id: 'injection', label: 'Injection', rules: ['SEC-001', 'SEC-010', 'SEC-011', 'SEC-024', 'SEC-026', 'SEC-029', 'SEC-030', 'SEC-033', 'SUP-009'], needs: 'code' },
+  { id: 'injection', label: 'Injection', rules: ['SEC-001', 'SEC-010', 'SEC-011', 'SEC-024', 'SEC-026', 'SEC-029', 'SEC-030', 'SEC-033', 'SEC-034', 'SUP-009'], needs: 'code' },
   { id: 'access', label: 'Access control', rules: ['ACC-001', 'ACC-002', 'ACC-003', 'ACC-004', 'ACC-005', 'SEC-014', 'SEC-015', 'SEC-016', 'SEC-017', 'SEC-018'], needs: 'surface' },
   { id: 'requests', label: 'URLs, files and redirects', rules: ['SEC-020', 'SEC-021', 'SEC-022'], needs: 'code' },
   { id: 'browser', label: 'Browser and markup', rules: ['SEC-002', 'SEC-003', 'SEC-004'], needs: 'code' },
@@ -2761,7 +2770,7 @@ const LEDGER = Object.freeze([
   { id: 'licences', label: 'Licences', rules: Object.keys(licences.RULES), needs: 'licences' },
   { id: 'logic', label: 'Business logic', rules: [], needs: 'never' }
 ]);
-const TRACED_LANGUAGES = new Set([...JS_EXT, ...PY_EXT]);
+const TRACED_LANGUAGES = new Set([...JS_EXT, ...PY_EXT, ...CF_EXT]);
 function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = null, licences: licenceSummary = null }) {
   const sourceFiles = prepared.filter(file => SOURCE_EXT.has(file.ext) && !isTestPath(file.path));
   const traced = sourceFiles.filter(file => TRACED_LANGUAGES.has(file.ext) && !['vue', 'svelte', 'astro', 'html', 'htm'].includes(file.ext)).length;
@@ -2776,7 +2785,7 @@ function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = nu
   const failed = flowResult.stats && flowResult.stats.failed;
   const cut = (flowResult.stats && flowResult.stats.cut) || 0;
   const limit = flowResult.stats && flowResult.stats.limit;
-  const followed = (flowResult.stats.javascript || 0) + (flowResult.stats.python || 0);
+  const followed = ['javascript', 'python', 'go', 'java', 'php'].reduce((sum, language) => sum + ((flowResult.stats && flowResult.stats[language]) || 0), 0);
   /* Why tracing stopped, in the words the ledger uses for it. */
   const stopped = limit === 'memory' ? 'needed more memory than this server gives one audit' : 'ran past the time this server gives one audit';
   return LEDGER.map(entry => {
@@ -2789,7 +2798,7 @@ function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = nu
       detail = 'Rules cannot know what the product should allow. Prices, quotas, state machines and workflows need a person or an agent to read them.';
     } else if (entry.needs === 'code') {
       if (!traced && !untraced.length) { status = 'not-applicable'; detail = 'No application code was found to read.'; }
-      else if (!traced) { status = 'patterns'; detail = `Only pattern-checked: values are traced in JavaScript, TypeScript and Python, and this code is ${untraced.join(', ')}.`; }
+      else if (!traced) { status = 'patterns'; detail = `Only pattern-checked: values are traced in JavaScript, TypeScript, Python, Go, Java and PHP, and this code is ${untraced.join(', ')}.`; }
       else if (limit && !followed) { status = 'patterns'; detail = `Only pattern-checked: following values across ${traced} files ${stopped}, so every file was checked against the rules instead.`; }
       else if (untraced.length || failed || cut || rulesOnly) {
         status = 'partial';

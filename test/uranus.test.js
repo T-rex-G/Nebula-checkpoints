@@ -145,6 +145,15 @@ function express(body) {
   fires('a template from input', [py("@app.get('/t')\ndef t():\n    return render_template_string(request.args['t'])\n")], ['SEC-030@api/views.py:3']);
   fires('FastAPI parameters', [{ path: 'app/main.py', text: "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/items')\ndef items(q: str):\n    return db.execute(f\"SELECT * FROM items WHERE name = '{q}'\")\n" }], ['SEC-001@app/main.py:5']);
   quiet('an integer', [py("@app.get('/n')\ndef n():\n    k = int(request.args['n'])\n    os.system('echo ' + str(k))\n")]);
+  /* XML: lxml with a parser that resolves entities is XXE; the default parser and defusedxml are not */
+  fires('lxml resolving entities', [py("from lxml import etree\nparser = etree.XMLParser(resolve_entities=True)\n@app.post('/x')\ndef x():\n    return etree.fromstring(request.data, parser)\n")], ['SEC-034@api/views.py:5']);
+  quiet('lxml by default', [py("from lxml import etree\n@app.post('/x')\ndef x():\n    return etree.fromstring(request.data)\n")]);
+  quiet('defusedxml', [py("from defusedxml import lxml as etree\nparser = XMLParser(resolve_entities=True)\n@app.post('/x')\ndef x():\n    return etree.fromstring(request.data, parser)\n")]);
+}
+/* XML in JavaScript: libxmljs substituting entities */
+{
+  fires('libxmljs with noent', [express("const libxmljs = require('libxmljs');\napp.post('/x', (req, res) => { res.json(libxmljs.parseXml(req.body.xml, { noent: true })); });")], ['SEC-034@server/app.js:4']);
+  quiet('libxmljs without entities', [express("const libxmljs = require('libxmljs');\napp.post('/x', (req, res) => { res.json(libxmljs.parseXml(req.body.xml)); });")]);
 }
 
 /* ---- Language models --------------------------------------------------------------------------------- */

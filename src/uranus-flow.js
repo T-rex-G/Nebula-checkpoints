@@ -40,6 +40,7 @@
 
 const v8 = require('v8');
 const { lexJs, lexPython, matching, splitArgs, opensWith } = require('./uranus-lex');
+const { analyseCFamily, CFAMILY_FILE } = require('./uranus-cfamily');
 
 const MAX_STEPS = 6;
 const MAX_FLOWS_PER_FILE = 40;
@@ -108,21 +109,21 @@ class Scope {
 
 /* ---- Sources ------------------------------------------------------------- */
 
-const REQUEST_FIELDS = Object.freeze({
+const REQUEST_FIELDS = Object.freeze(Object.assign(Object.create(null), {
   body: 'request body', query: 'query string', params: 'route parameter', headers: 'request header',
   cookies: 'cookie', signedCookies: 'cookie', files: 'uploaded file', file: 'uploaded file', rawBody: 'request body',
   url: 'request URL', originalUrl: 'request URL', path: 'request path', hostname: 'request host', host: 'request host',
   queryStringParameters: 'query string', pathParameters: 'route parameter', multiValueQueryStringParameters: 'query string'
-});
+}));
 const REQUEST_BODY_CALLS = new Set(['json', 'formData', 'text', 'arrayBuffer', 'blob', 'parseBody']);
-const HONO_CALLS = Object.freeze({ query: 'query string', queries: 'query string', param: 'route parameter', header: 'request header', json: 'request body', parseBody: 'request body', formData: 'request body', text: 'request body' });
-const PY_REQUEST_FIELDS = Object.freeze({
+const HONO_CALLS = Object.freeze(Object.assign(Object.create(null), { query: 'query string', queries: 'query string', param: 'route parameter', header: 'request header', json: 'request body', parseBody: 'request body', formData: 'request body', text: 'request body' }));
+const PY_REQUEST_FIELDS = Object.freeze(Object.assign(Object.create(null), {
   args: 'query string', form: 'request body', values: 'request body', json: 'request body', get_json: 'request body',
   data: 'request body', files: 'uploaded file', cookies: 'cookie', headers: 'request header', GET: 'query string',
   POST: 'request body', body: 'request body', query_params: 'query string', path_params: 'route parameter',
   COOKIES: 'cookie', FILES: 'uploaded file', META: 'request header', stream: 'request body', url: 'request URL',
   full_path: 'request URL', path: 'request path'
-});
+}));
 const BROWSER_LOCATION = /^(window\.|document\.|self\.|globalThis\.)?location\.(search|hash|href|pathname)$|^document\.(URL|documentURI|referrer|baseURI)$|^window\.name$/;
 
 /* ---- Sanitisers and propagation -------------------------------------------- */
@@ -143,7 +144,7 @@ const PASS_THROUGH_PARSE = /^(JSON|url|querystring|qs|URLSearchParams|path|yaml|
  * A flow into a sink from a model's reply is AI-001 whatever the sink, since
  * the fix is the same: the reply is data, never code or markup.
  */
-const SINKS = Object.freeze({
+const SINKS = Object.freeze(Object.assign(Object.create(null), {
   sql: { rule: 'SEC-001', severity: 'critical', label: 'a SQL statement' },
   command: { rule: 'SEC-011', severity: 'critical', label: 'a shell command' },
   code: { rule: 'SEC-010', severity: 'critical', label: 'code that is executed' },
@@ -158,9 +159,10 @@ const SINKS = Object.freeze({
   merge: { rule: 'SEC-027', severity: 'serious', label: 'an object merge' },
   mass: { rule: 'SEC-028', severity: 'serious', label: 'a record written as it arrived' },
   deserialize: { rule: 'SEC-024', severity: 'critical', label: 'a deserializer' },
+  xxe: { rule: 'SEC-034', severity: 'serious', label: 'an XML parser that resolves external entities' },
   prompt: { rule: 'AI-002', severity: 'warning', label: 'a model’s instructions' }
-});
-const MODEL_SINK_SEVERITY = Object.freeze({ code: 'critical', command: 'critical', sql: 'serious', dom: 'serious', html: 'serious', template: 'critical', deserialize: 'critical', path: 'serious', ssrf: 'serious' });
+}));
+const MODEL_SINK_SEVERITY = Object.freeze(Object.assign(Object.create(null), { code: 'critical', command: 'critical', sql: 'serious', dom: 'serious', html: 'serious', template: 'critical', deserialize: 'critical', path: 'serious', ssrf: 'serious' }));
 /* Sinks whose danger depends on facts the code does not show: always something to confirm. */
 const JUDGEMENT_SINKS = new Set(['nosql', 'merge', 'mass', 'prompt']);
 
@@ -176,7 +178,7 @@ const MODEL_ROOTS = /^(openai|anthropic|client|ai|llm|model|chain|groq|mistral|c
 const VERCEL_AI = new Set(['generateText', 'streamText', 'generateObject', 'streamObject']);
 
 /* NestJS parameter decorators and what each hands the method. */
-const NEST_SOURCES = Object.freeze({ Body: 'request body', Query: 'query string', Param: 'route parameter', Headers: 'request header', UploadedFile: 'uploaded file', Cookies: 'cookie' });
+const NEST_SOURCES = Object.freeze(Object.assign(Object.create(null), { Body: 'request body', Query: 'query string', Param: 'route parameter', Headers: 'request header', UploadedFile: 'uploaded file', Cookies: 'cookie' }));
 const EMPTY_ROLES = Object.freeze({ request: new Set(), response: new Set(), honoCtx: new Set(), params: new Set(), context: new Set(), urlNames: new Set(), message: null, lambda: false });
 /* Object keys under which a whole request body becomes a stored record. */
 const WRITE_KEYS = /^(data|values|set|\$set|attributes|fields|update|doc|document|record|row|payload|input)$/;
@@ -1445,6 +1447,9 @@ class JsWalker {
     /* Deserialisers that run what they read. */
     if (/^(unserialize|deserialize)$/.test(name) && (/node-serialize|serialize-javascript|funcster|cryo/.test(module) || /^serialize$/i.test(root)) && first) { this.sink('deserialize', first, line); return true; }
     if (name === 'load' && (root === 'yaml' || /js-yaml/.test(module)) && first && call.args.some(arg => arg.some(t => /DEFAULT_FULL_SCHEMA|FULL_SCHEMA/.test(String(t.v))))) { this.sink('deserialize', first, line); return true; }
+    /* libxmljs with entity substitution switched on: parseXml(text, { noent: true }) */
+    if (/^(parseXml|parseXmlString|parseXmlAsync)$/.test(name) && (/libxmljs/.test(module) || /^libxml/i.test(root)) && first &&
+      call.args.slice(1).some(arg => arg.some((t, index) => t.v === 'noent' && arg[index + 2] && arg[index + 2].v === 'true'))) { this.sink('xxe', first, line); return true; }
     void receiver;
     return false;
   }
@@ -2143,6 +2148,10 @@ class PyWalker extends JsWalker {
       const loader = kw('Loader');
       if (!loader || !loader.some(t => /Safe|CSafe|Base/.test(t.v))) return report('deserialize', first);
     }
+    /* lxml with a parser that resolves entities, loads DTDs or fetches from the network; xml.sax with external entities on */
+    if (/^(fromstring|XML|parse|fromstringlist|parseString)$/.test(name) && /(^|\.)(etree|objectify|sax|lxml)(\.|$)/.test(joined) && first &&
+      /XMLParser\s*\([^)]*(resolve_entities\s*=\s*True|load_dtd\s*=\s*True|no_network\s*=\s*False)|feature_external_ges\s*,\s*(True|1)/.test(this.ctx.text || '') &&
+      !/defusedxml/.test(this.ctx.text || '')) return report('xxe', first);
     /* Regular expressions. */
     if (root === 're' && /^(compile|search|match|fullmatch|findall|finditer|sub|split)$/.test(name) && first) return report('regex', first);
     /* Document databases. */
@@ -2381,8 +2390,11 @@ const traceRank = file => (file.client ? 2 : SERVER_PATH.test(file.path) ? 0 : 1
  * same run without a limit.
  */
 function analyseFlows(files, options = {}) {
+  const maxBytes = options.maxBytes || 512 * 1024;
   const sources = files.filter(file => typeof file.text === 'string' && (JS_FILE.test(file.path) || PY_FILE.test(file.path)) &&
-    file.text.length <= (options.maxBytes || 512 * 1024) && !/\.min\.js$|\.d\.ts$/.test(file.path));
+    file.text.length <= maxBytes && !/\.min\.js$|\.d\.ts$/.test(file.path));
+  /* Go, Java and PHP are read by their own tracer, under the same limits. */
+  const cfamily = files.filter(file => typeof file.text === 'string' && CFAMILY_FILE.test(file.path) && file.text.length <= maxBytes);
   const deadline = Number.isFinite(options.deadline) ? options.deadline : Infinity;
   const ceiling = Number.isFinite(options.heapCeiling) ? options.heapCeiling : Infinity;
   const clock = typeof options.now === 'function' ? options.now : Date.now;
@@ -2394,7 +2406,7 @@ function analyseFlows(files, options = {}) {
     return Boolean(limit);
   };
   const program = new Program(sources);
-  const stats = { javascript: 0, python: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0 };
+  const stats = { javascript: 0, python: 0, go: 0, java: 0, php: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0 };
   const counted = new Map();
   /* Summaries for every local function first, so a call reads its callee's summary. */
   for (const file of sources) {
@@ -2405,6 +2417,17 @@ function analyseFlows(files, options = {}) {
     counted.set(file.path, { language: ctx.language, functions: ctx.functions.size });
     stats.functions += ctx.functions.size;
     for (const name of ctx.functions.keys()) program.summary(file.path, name, true);
+  }
+  /* Go, Java and PHP are server code: traced before the browser code is walked. */
+  let other = { flows: [], routes: [] };
+  if (cfamily.length) {
+    try {
+      other = analyseCFamily(cfamily, { late, maxBytes });
+      for (const key of ['go', 'java', 'php', 'functions', 'cut']) stats[key] += other.stats[key] || 0;
+      if (other.stats.failed) stats.failed = (stats.failed || 0) + other.stats.failed;
+    } catch {
+      stats.failed = (stats.failed || 0) + cfamily.length;
+    }
   }
   const order = sources.map((file, index) => ({ file, index })).sort((a, b) => traceRank(a.file) - traceRank(b.file) || a.index - b.index);
   const walked = new Array(sources.length);
@@ -2449,12 +2472,19 @@ function analyseFlows(files, options = {}) {
     }
     walked[index] = flowCtx;
   }
-  const flows = [];
-  const routes = [];
+  let flows = [];
+  let routes = [];
   for (const flowCtx of walked) {
     if (!flowCtx) continue;
     routes.push(...flowCtx.routes);
     flows.push(...flowCtx.flows);
+  }
+  if (other.flows.length || other.routes.length) {
+    /* In the files' own order, whichever tracer read them. */
+    const position = new Map(files.map((file, index) => [file.path, index]));
+    const byFile = (a, b) => (position.get(a.path) ?? 0) - (position.get(b.path) ?? 0);
+    flows = [...flows, ...other.flows].sort(byFile);
+    routes = [...routes, ...other.routes].sort(byFile);
   }
   stats.routes = routes.length;
   stats.flows = flows.length;

@@ -199,21 +199,38 @@ function lex(text, language) {
 const isPunc = (token, value) => Boolean(token && token.t === 'punc' && token.v === value);
 const isWord = (token, value) => Boolean(token && token.t === 'id' && token.v === value);
 
-/* Matching close for the bracket at `index`, or -1. */
-function closing(tokens, index, end = tokens.length) {
-  const open = tokens[index].v;
-  const close = open === '(' ? ')' : open === '[' ? ']' : '}';
-  let depth = 0;
-  for (let k = index; k < end; k += 1) {
+/*
+ * Every bracket's partner, worked out once per file in one pass: a stack per
+ * kind, so a bracket matches the nearest unmatched one of its own kind, as
+ * counting depth does. Looking each close up by scanning forward instead
+ * made a file of unclosed brackets cost the square of its length.
+ */
+const PAIRS = Object.freeze({ '(': ')', '[': ']', '{': '}' });
+const partnerTables = new WeakMap();
+function partners(tokens) {
+  let table = partnerTables.get(tokens);
+  if (table) return table;
+  table = new Int32Array(tokens.length).fill(-1);
+  const stacks = { '(': [], '[': [], '{': [] };
+  const opener = { ')': '(', ']': '[', '}': '{' };
+  for (let k = 0; k < tokens.length; k += 1) {
     const token = tokens[k];
     if (token.t !== 'punc') continue;
-    if (token.v === open) depth += 1;
-    else if (token.v === close) {
-      depth -= 1;
-      if (depth === 0) return k;
+    if (PAIRS[token.v]) stacks[token.v].push(k);
+    else if (opener[token.v]) {
+      const open = stacks[opener[token.v]].pop();
+      if (open !== undefined) { table[open] = k; table[k] = open; }
     }
   }
-  return -1;
+  partnerTables.set(tokens, table);
+  return table;
+}
+
+/* Matching close for the bracket at `index`, or -1. */
+function closing(tokens, index, end = tokens.length) {
+  if (!tokens[index] || !PAIRS[tokens[index].v]) return -1;
+  const close = partners(tokens)[index];
+  return close > index && close < end ? close : -1;
 }
 
 /* Arguments of the call whose '(' is at `open`: [start, end) ranges at the top level. */
@@ -221,13 +238,19 @@ function argumentsOf(tokens, open) {
   const close = closing(tokens, open);
   if (close === -1) return { args: [], close: open };
   const args = [];
+  const table = partners(tokens);
   let start = open + 1;
-  let depth = 0;
+  /* A bracket inside is stepped over to its partner, so a call reads only its own top level: nested calls cost nothing twice. */
   for (let k = open + 1; k < close; k += 1) {
     const token = tokens[k];
-    if (token.t === 'punc' && (token.v === '(' || token.v === '[' || token.v === '{')) depth += 1;
-    else if (token.t === 'punc' && (token.v === ')' || token.v === ']' || token.v === '}')) depth -= 1;
-    else if (depth === 0 && isPunc(token, ',')) { args.push([start, k]); start = k + 1; }
+    if (token.t !== 'punc') continue;
+    if (PAIRS[token.v]) {
+      const partner = table[k];
+      if (partner > k && partner < close) { k = partner; continue; }
+      /* an unclosed bracket: the rest is one argument, as counting depth reads it */
+      break;
+    }
+    if (token.v === ',') { args.push([start, k]); start = k + 1; }
   }
   if (close > start) args.push([start, close]);
   return { args, close };
@@ -507,7 +530,17 @@ const SHELLS = /^(\/bin\/)?(sh|bash|zsh|cmd|cmd\.exe|powershell|pwsh)$/;
  * that turns them off anywhere is taken at its word: the setting usually
  * sits on the factory, a few lines from the parse.
  */
-const JAVA_XML_HARDENED = /disallow-doctype-decl|FEATURE_SECURE_PROCESSING|external-general-entities|external-parameter-entities|load-external-dtd|setExpandEntityReferences\s*\(\s*false|SUPPORT_DTD|IS_SUPPORTING_EXTERNAL_ENTITIES|ACCESS_EXTERNAL_DTD|ACCESS_EXTERNAL_SCHEMA|ACCESS_EXTERNAL_STYLESHEET|setXIncludeAware\s*\(\s*false\s*\)\s*;[\s\S]*setExpandEntityReferences/;
+/*
+ * Every pattern below runs over a whole file somebody else wrote, so none may
+ * scan without bound from a prefix the file can repeat: each alternative here
+ * is a literal or a bounded call, and the test is made once per file.
+ */
+const JAVA_XML_HARDENED = /disallow-doctype-decl|FEATURE_SECURE_PROCESSING|external-general-entities|external-parameter-entities|load-external-dtd|setExpandEntityReferences\s*\(\s*false|SUPPORT_DTD|IS_SUPPORTING_EXTERNAL_ENTITIES|ACCESS_EXTERNAL_DTD|ACCESS_EXTERNAL_SCHEMA|ACCESS_EXTERNAL_STYLESHEET/;
+const hardenedFiles = new WeakMap();
+function xmlHardened(file) {
+  if (!hardenedFiles.has(file)) hardenedFiles.set(file, JAVA_XML_HARDENED.test(file.text));
+  return hardenedFiles.get(file);
+}
 const JAVA_XML_PARSE = table({
   parse: /^(builder|db|documentBuilder|docBuilder|dBuilder|domBuilder|parser|saxParser|xmlReader|reader|newDocumentBuilder\(\)|newSAXParser\(\))$/i,
   unmarshal: /(unmarshaller|^um$|createUnmarshaller\(\))$/i,
@@ -1364,7 +1397,7 @@ class Walker {
       if (callee.constructed && (name === 'ObjectInputStream' || name === 'XMLDecoder')) { report('deserialize', 0); return; }
       if (name === 'load' && /Yaml\(\)|yaml/i.test(text)) { report('deserialize', 0); return; }
       if (receiver === 'Velocity' && name === 'evaluate') { report('template', 3); return; }
-      if (JAVA_XML_PARSE[name] && receiver && JAVA_XML_PARSE[name].test(receiver) && !JAVA_XML_HARDENED.test(this.file.text)) {
+      if (JAVA_XML_PARSE[name] && receiver && JAVA_XML_PARSE[name].test(receiver) && !xmlHardened(this.file)) {
         if ((name === 'read' && !/SAXReader/.test(this.file.text)) || (name === 'build' && !/SAXBuilder/.test(this.file.text))) return;
         report('xxe', 0);
         return;
@@ -1616,10 +1649,10 @@ function routesOf(tokens, language, path, functions, text) {
   if (language === 'java') {
     /* class-level @RequestMapping("/prefix") and @Path("/prefix") */
     const classPrefix = (() => {
-      const match = /@(RequestMapping|Path)\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"]*)"[^)]*\)\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:public\s+|final\s+|abstract\s+)*class\b/.exec(text);
+      const match = /@(RequestMapping|Path)\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"\n]{0,300})"[^)]{0,600}\)\s*(?:@\w+(?:\([^)]{0,600}\))?\s*){0,16}(?:(?:public|final|abstract)\s+){0,3}class\b/.exec(text);
       return match ? match[2] : '';
     })();
-    const classAuth = /@(PreAuthorize|Secured|RolesAllowed)\b[^{]*class\b/.test(text);
+    const classAuth = /@(PreAuthorize|Secured|RolesAllowed)\b[^{]{0,2000}?\bclass\b/.test(text);
     for (const fn of functions) {
       const decorations = fn.decorations.join(' ');
       const mapping = /@(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping|RequestMapping)\b(?:\s*\(([^)]*)\))?/.exec(decorations);
@@ -1643,9 +1676,9 @@ function routesOf(tokens, language, path, functions, text) {
   }
   /* Symfony: #[Route('/posts/{id}', methods: ['GET'])] on a method, under the class's own #[Route('/prefix')] */
   if (/#\s*\[\s*Route\s*\(/.test(text)) {
-    const classMatch = /#\[\s*Route\s*\(\s*(?:path\s*:\s*)?['"]([^'"]*)['"][^\]]*\]\s*(?:#\[[^\]]*\]\s*)*(?:final\s+|abstract\s+|readonly\s+)*class\b/.exec(text);
+    const classMatch = /#\[\s*Route\s*\(\s*(?:path\s*:\s*)?['"]([^'"\n]{0,300})['"][^\]]{0,600}\]\s*(?:#\[[^\]]{0,600}\]\s*){0,16}(?:(?:final|abstract|readonly)\s+){0,3}class\b/.exec(text);
     const classPrefix = classMatch ? classMatch[1] : '';
-    const classAuth = /#\[\s*(IsGranted|Security)\b[^\]]*\]\s*(?:#\[[^\]]*\]\s*)*(?:final\s+|abstract\s+|readonly\s+)*class\b/.test(text);
+    const classAuth = /#\[\s*(IsGranted|Security)\b[^\]]{0,600}\]\s*(?:#\[[^\]]{0,600}\]\s*){0,16}(?:(?:final|abstract|readonly)\s+){0,3}class\b/.test(text);
     for (const fn of functions) {
       if (!fn.name) continue;
       const decorations = fn.decorations.join(' ');
@@ -1825,8 +1858,11 @@ class Program {
     const entry = this.files.get(path);
     const names = new Set();
     if (entry) {
-      const block = /\bimport\s*\(([\s\S]*?)\)/.exec(entry.file.text);
-      const lines = block ? block[1].split('\n') : [];
+      /* The first import block, found by position rather than by a pattern that rescans from every "import (". */
+      const text = entry.file.text;
+      const open = /\bimport\s*\(/.exec(text);
+      const close = open ? text.indexOf(')', open.index + open[0].length) : -1;
+      const lines = open && close > 0 ? text.slice(open.index + open[0].length, close).split('\n') : [];
       for (const match of entry.file.text.matchAll(/^\s*import\s+(\w+\s+)?"([^"]+)"/gm)) lines.push(`${match[1] || ''}"${match[2]}"`);
       for (const line of lines) {
         const match = /^\s*(\w+\s+)?"([^"]+)"/.exec(line);
@@ -1843,7 +1879,7 @@ class Program {
     if (!entry || !/^\w+$/.test(field)) return null;
     const pattern = language === 'php'
       ? new RegExp(`(?:private|protected|public|readonly|var)\\s+(?:readonly\\s+)?\\??\\\\?(?:[\\w\\\\]+\\\\)?([A-Z]\\w*)\\s+\\$${field}\\b`)
-      : new RegExp(`\\b([A-Z]\\w*)(?:<[^;=(){}]*>)?\\s+${field}\\s*[;=,)]`);
+      : new RegExp(`\\b([A-Z]\\w*)(?:<[^;=(){}]{0,200}>)?\\s+${field}\\s*[;=,)]`);
     const match = pattern.exec(entry.file.text);
     return match ? match[1] : null;
   }
@@ -1854,13 +1890,21 @@ class Program {
     const key = `${language}:${type}`;
     if (this.implementors.has(key)) return this.implementors.get(key);
     const declares = new RegExp(`\\b(class|interface|enum|record)\\s+${type}\\b`);
-    const implementsIt = new RegExp(`\\bclass\\s+\\w+[^{]*\\b(implements|extends)\\s+[^{]*\\b${type}\\b`);
+    const named = new RegExp(`\\b${type}\\b`);
+    /* A class header up to its brace, at most a few hundred characters, then the words in it: never one pattern nesting two open scans. */
+    const implementsIt = text => {
+      for (const header of text.matchAll(/\bclass\s+\w+([^{]{0,600})\{/g)) {
+        const clause = /\b(?:implements|extends)\b([^{]*)$/.exec(header[1]);
+        if (clause && named.test(clause[1])) return true;
+      }
+      return false;
+    };
     const found = new Set();
     for (const [path, entry] of this.files) {
       if (entry.language !== language) continue;
       const declared = declares.exec(entry.file.text);
       if (declared && declared[1] !== 'interface') found.add(path);
-      else if (implementsIt.test(entry.file.text)) found.add(path);
+      else if (implementsIt(entry.file.text)) found.add(path);
     }
     this.implementors.set(key, found);
     return found;
@@ -1956,11 +2000,20 @@ function controllerMiddleware(text, action) {
   const found = [];
   const listOf = raw => (String(raw || '').match(/['"]([^'"]+)['"]/g) || []).map(item => item.slice(1, -1));
   const applies = (kind, scope) => !scope || (kind === 'only' ? scope.includes(action) : !scope.includes(action));
-  for (const match of text.matchAll(/\$this\s*->\s*middleware\s*\(\s*(\[[^\]]*\]|'[^']*'|"[^"]*")\s*\)(?:\s*->\s*(only|except)\s*\(\s*(\[[^\]]*\]|'[^']*'|"[^"]*")\s*\))?/g)) {
+  for (const match of text.matchAll(/\$this\s*->\s*middleware\s*\(\s*(\[[^\]]{0,600}\]|'[^'\n]{0,200}'|"[^"\n]{0,200}")\s*\)(?:\s*->\s*(only|except)\s*\(\s*(\[[^\]]{0,600}\]|'[^'\n]{0,200}'|"[^"\n]{0,200}")\s*\))?/g)) {
     if (applies(match[2], match[3] ? listOf(match[3]) : null)) found.push(...listOf(match[1]));
   }
   /* Laravel 11: public static function middleware(): array { return ['auth', new Middleware('auth', except: ['index'])]; } */
-  const declared = /static\s+function\s+middleware\s*\(\s*\)\s*(?::\s*array\s*)?\{([\s\S]*?)\n\s*\}/.exec(text);
+  /* The method's body runs to the first line that closes it, found in one pass and read no further than a few thousand characters. */
+  const header = /static\s+function\s+middleware\s*\(\s*\)\s*(?::\s*array\s*)?\{/.exec(text);
+  let declared = null;
+  if (header) {
+    const start = header.index + header[0].length;
+    const closing = /\n[ \t]*\}/g;
+    closing.lastIndex = start;
+    const end = closing.exec(text);
+    if (end && end.index - start <= 4000) declared = [null, text.slice(start, end.index)];
+  }
   if (declared) {
     for (const match of declared[1].matchAll(/new\s+(?:\\?[\w\\]*\\)?Middleware\s*\(\s*(['"][^'"]+['"])(?:\s*,\s*(only|except)\s*:\s*(\[[^\]]*\]))?/g)) {
       if (applies(match[2], match[3] ? listOf(match[3]) : null)) found.push(...listOf(match[1]));

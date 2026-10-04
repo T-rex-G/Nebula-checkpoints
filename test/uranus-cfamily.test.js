@@ -695,4 +695,36 @@ func user(w http.ResponseWriter, r *http.Request) {
   assert.strictEqual(standards.owasp, 'A02:2025');
 }
 
+/*
+ * A file somebody else wrote decides how long the tracer runs. None of these
+ * may cost more than a straight read: brackets left open by the thousand,
+ * calls nested twenty thousand deep, and a prefix that a pattern would once
+ * rescan from every one of its repeats. Each is ~400 KB; read in linear time
+ * it takes a fraction of a second, and the quadratic readings these replace
+ * took from two to fourteen seconds. The bound leaves room for a slow runner.
+ */
+{
+  const SIZE = 400 * 1024;
+  const fill = unit => unit.repeat(Math.floor(SIZE / unit.length));
+  const crafted = {
+    'XML parser hardening, repeated': { path: 'src/X.java', text: 'class X { void f(javax.xml.parsers.DocumentBuilder b, String s) { b.parse(s); } }\n' + fill('setXIncludeAware(false);') },
+    'class-level mapping, unclosed': { path: 'src/B.java', text: fill('@RequestMapping("/a" ') + '\nclass B {}' },
+    'class-level guard, no class': { path: 'src/A.java', text: fill('@PreAuthorize(x) ') },
+    'Symfony route attributes, unclosed': { path: 'app/C.php', text: '<?php\n' + fill("#[Route('/a' ") },
+    'Symfony guard attributes, unclosed': { path: 'app/D.php', text: '<?php\n' + fill('#[IsGranted(x ') },
+    'controller middleware, unclosed': { path: 'app/Http/Controllers/E.php', text: '<?php\nclass E { function __construct() { ' + fill("$this->middleware(['a', ") + '} }' },
+    'static middleware, never closed': { path: 'app/Http/Controllers/F.php', text: '<?php\nclass F {\n' + fill('public static function middleware(): array {\n') },
+    'Go import blocks, unclosed': { path: 'main.go', text: 'package main\n' + fill('import (\n') },
+    'calls left open': { path: 'n.php', text: '<?php\n$c = $_GET["c"];\n' + fill('exec(') + 'c' },
+    'calls nested deep': { path: 'src/N.java', text: 'class N { void f(String s) { ' + 'g('.repeat(30000) + 's' + ')'.repeat(30000) + '; } }' },
+    'Go calls nested deep': { path: 'n.go', text: 'package main\nfunc f(r *http.Request) { x := r.URL.Query().Get("a"); ' + 'exec.Command('.repeat(20000) + 'x' + ')'.repeat(20000) + ' }' }
+  };
+  for (const [name, file] of Object.entries(crafted)) {
+    const started = Date.now();
+    analyseCFamily([{ ...file, client: false }], { deadline: Date.now() + 120000 });
+    const took = Date.now() - started;
+    assert(took < 2500, `${name}: ${took} ms -- a crafted file must not make the tracer quadratic`);
+  }
+}
+
 console.log('uranus go, java and php tests passed');

@@ -40,6 +40,7 @@
 
 const v8 = require('v8');
 const { lexJs, lexPython, matching, splitArgs, opensWith } = require('./uranus-lex');
+const { analyseCFamily, CFAMILY_FILE } = require('./uranus-cfamily');
 
 const MAX_STEPS = 6;
 const MAX_FLOWS_PER_FILE = 40;
@@ -108,21 +109,21 @@ class Scope {
 
 /* ---- Sources ------------------------------------------------------------- */
 
-const REQUEST_FIELDS = Object.freeze({
+const REQUEST_FIELDS = Object.freeze(Object.assign(Object.create(null), {
   body: 'request body', query: 'query string', params: 'route parameter', headers: 'request header',
   cookies: 'cookie', signedCookies: 'cookie', files: 'uploaded file', file: 'uploaded file', rawBody: 'request body',
   url: 'request URL', originalUrl: 'request URL', path: 'request path', hostname: 'request host', host: 'request host',
   queryStringParameters: 'query string', pathParameters: 'route parameter', multiValueQueryStringParameters: 'query string'
-});
+}));
 const REQUEST_BODY_CALLS = new Set(['json', 'formData', 'text', 'arrayBuffer', 'blob', 'parseBody']);
-const HONO_CALLS = Object.freeze({ query: 'query string', queries: 'query string', param: 'route parameter', header: 'request header', json: 'request body', parseBody: 'request body', formData: 'request body', text: 'request body' });
-const PY_REQUEST_FIELDS = Object.freeze({
+const HONO_CALLS = Object.freeze(Object.assign(Object.create(null), { query: 'query string', queries: 'query string', param: 'route parameter', header: 'request header', json: 'request body', parseBody: 'request body', formData: 'request body', text: 'request body' }));
+const PY_REQUEST_FIELDS = Object.freeze(Object.assign(Object.create(null), {
   args: 'query string', form: 'request body', values: 'request body', json: 'request body', get_json: 'request body',
   data: 'request body', files: 'uploaded file', cookies: 'cookie', headers: 'request header', GET: 'query string',
   POST: 'request body', body: 'request body', query_params: 'query string', path_params: 'route parameter',
   COOKIES: 'cookie', FILES: 'uploaded file', META: 'request header', stream: 'request body', url: 'request URL',
   full_path: 'request URL', path: 'request path'
-});
+}));
 const BROWSER_LOCATION = /^(window\.|document\.|self\.|globalThis\.)?location\.(search|hash|href|pathname)$|^document\.(URL|documentURI|referrer|baseURI)$|^window\.name$/;
 
 /* ---- Sanitisers and propagation -------------------------------------------- */
@@ -143,7 +144,7 @@ const PASS_THROUGH_PARSE = /^(JSON|url|querystring|qs|URLSearchParams|path|yaml|
  * A flow into a sink from a model's reply is AI-001 whatever the sink, since
  * the fix is the same: the reply is data, never code or markup.
  */
-const SINKS = Object.freeze({
+const SINKS = Object.freeze(Object.assign(Object.create(null), {
   sql: { rule: 'SEC-001', severity: 'critical', label: 'a SQL statement' },
   command: { rule: 'SEC-011', severity: 'critical', label: 'a shell command' },
   code: { rule: 'SEC-010', severity: 'critical', label: 'code that is executed' },
@@ -158,9 +159,10 @@ const SINKS = Object.freeze({
   merge: { rule: 'SEC-027', severity: 'serious', label: 'an object merge' },
   mass: { rule: 'SEC-028', severity: 'serious', label: 'a record written as it arrived' },
   deserialize: { rule: 'SEC-024', severity: 'critical', label: 'a deserializer' },
+  xxe: { rule: 'SEC-034', severity: 'serious', label: 'an XML parser that resolves external entities' },
   prompt: { rule: 'AI-002', severity: 'warning', label: 'a model’s instructions' }
-});
-const MODEL_SINK_SEVERITY = Object.freeze({ code: 'critical', command: 'critical', sql: 'serious', dom: 'serious', html: 'serious', template: 'critical', deserialize: 'critical', path: 'serious', ssrf: 'serious' });
+}));
+const MODEL_SINK_SEVERITY = Object.freeze(Object.assign(Object.create(null), { code: 'critical', command: 'critical', sql: 'serious', dom: 'serious', html: 'serious', template: 'critical', deserialize: 'critical', path: 'serious', ssrf: 'serious' }));
 /* Sinks whose danger depends on facts the code does not show: always something to confirm. */
 const JUDGEMENT_SINKS = new Set(['nosql', 'merge', 'mass', 'prompt']);
 
@@ -176,7 +178,7 @@ const MODEL_ROOTS = /^(openai|anthropic|client|ai|llm|model|chain|groq|mistral|c
 const VERCEL_AI = new Set(['generateText', 'streamText', 'generateObject', 'streamObject']);
 
 /* NestJS parameter decorators and what each hands the method. */
-const NEST_SOURCES = Object.freeze({ Body: 'request body', Query: 'query string', Param: 'route parameter', Headers: 'request header', UploadedFile: 'uploaded file', Cookies: 'cookie' });
+const NEST_SOURCES = Object.freeze(Object.assign(Object.create(null), { Body: 'request body', Query: 'query string', Param: 'route parameter', Headers: 'request header', UploadedFile: 'uploaded file', Cookies: 'cookie' }));
 const EMPTY_ROLES = Object.freeze({ request: new Set(), response: new Set(), honoCtx: new Set(), params: new Set(), context: new Set(), urlNames: new Set(), message: null, lambda: false });
 /* Object keys under which a whole request body becomes a stored record. */
 const WRITE_KEYS = /^(data|values|set|\$set|attributes|fields|update|doc|document|record|row|payload|input)$/;
@@ -190,6 +192,8 @@ const CARRYING_METHOD = /^(join|resolve|normalize|format|concat|from|stringify|p
 /* A test on a value: an allow-list, a comparison, a validator. */
 const CHECK_TEXT = /\b(includes|has|startsWith|endsWith|test|match|indexOf|isValid\w*|validate\w*|allow\w*|whitelist|safe\w*|isAbsolute|relative|normalize|isInteger|isSafeInteger|isUUID|isEmail|isURL|matches|contains|in)\b|===|!==|==|!=/;
 /* A lookup in a fixed set: ALLOWED.has(x), allowedHosts.includes(x), x in ALLOWED. */
+/* Checks that settle a value's shape outright: an integer, a UUID, a whole-string pattern. */
+const STRONG_CHECK = /\bNumber\s*\.\s*(isInteger|isSafeInteger)\s*\(|\b(isUUID|isUuid|uuidValidate|isInt|isNumeric|isMongoId)\s*\(|\/\^[^/]*\$\/[a-z]*\s*\.\s*test\s*\(/;
 const ALLOW_LIST = /\b([A-Z][A-Z0-9_]{2,}|\w*(allow|whitelist|permitted|trusted|safe|valid)\w*)\s*\.\s*(has|includes)\s*\(|\bin\s+([A-Z][A-Z0-9_]{2,}|\w*(allow|whitelist|permitted|trusted)\w*)\b/i;
 
 function isStr(token) { return token && (token.t === 'str'); }
@@ -892,11 +896,13 @@ class JsWalker {
     const tokens = this.tokens;
     const text = tokens.slice(start, stop).map(t => t.v).join(' ');
     if (!CHECK_TEXT.test(text)) return;
-    /* An allow-list lookup settles the value; any other test leaves it to be confirmed. */
-    const allowList = ALLOW_LIST.test(text);
+    /* An allow-list lookup or a check of the value's whole shape settles it; any other test leaves it to be confirmed. */
+    const allowList = ALLOW_LIST.test(text) || STRONG_CHECK.test(text);
     for (let index = start; index < stop; index += 1) {
       const token = tokens[index];
       if (token.t !== 'id' || isPunc(tokens[index - 1], '.') || isPunc(tokens[index - 1], '?.')) continue;
+      /* settled: a line that splices only settled names is not a lead either, whatever the name held */
+      if (allowList && this.mode === 'flow' && Array.isArray(this.ctx.settled)) this.ctx.settled.push({ name: token.v, from: token.line, to: this.bodyEndLine || Infinity });
       const value = scope.lookup(token.v);
       if (!value) continue;
       if (allowList) scope.assign(token.v, null);
@@ -941,11 +947,15 @@ class JsWalker {
       if (!inner.request.has(binding.name)) { merged.request.delete(binding.name); merged.honoCtx.delete(binding.name); }
       if (!inner.response.has(binding.name)) merged.response.delete(binding.name);
     }
+    /* how far a check made in this function holds: to its last line */
+    const outerEnd = this.bodyEndLine;
+    this.bodyEndLine = this.tokens[fn.bodyEnd] ? this.tokens[fn.bodyEnd].line : outerEnd;
     if (fn.block) this.walk(fn.bodyStart, fn.bodyEnd, child, merged);
     else {
       const value = this.expression(fn.bodyStart, fn.bodyEnd, child, merged);
       if (value && this.summaryOf && this.summaryOf.fn === fn && value.param !== null) this.summaryOf.returns.add(value.param);
     }
+    this.bodyEndLine = outerEnd;
     if (hint && hint.route && this.mode === 'flow') {
       hint.route.bodyStart = fn.bodyStart;
       hint.route.bodyEnd = fn.bodyEnd;
@@ -1204,7 +1214,8 @@ class JsWalker {
       if (field && REQUEST_FIELDS[field]) {
         if (roles.lambda && !['body', 'queryStringParameters', 'pathParameters', 'headers', 'multiValueQueryStringParameters'].includes(field)) return null;
         if (field === 'url' && chain.calls.length) return { kind: REQUEST_FIELDS[field] };
-        return { kind: REQUEST_FIELDS[field], whole: segments.length === 2 && field === 'body' && !chain.calls.length };
+        /* the whole body, or the whole parsed query string (qs turns ?a[$ne]=1 into an object) */
+        return { kind: REQUEST_FIELDS[field], whole: segments.length === 2 && (field === 'body' || field === 'query') && !chain.calls.length };
       }
       if (field === 'nextUrl' && segments.includes('searchParams')) return { kind: 'query string' };
     }
@@ -1212,7 +1223,9 @@ class JsWalker {
     if (roles && roles.urlNames && roles.urlNames.has(root) && segments[1] === 'searchParams') return { kind: 'query string' };
     if (roles && roles.message && roles.message === root && segments[1] === 'data') return { kind: 'message from another window' };
     const joined = segments.join('.');
-    if (BROWSER_LOCATION.test(joined)) return { kind: 'the page’s URL' };
+    /* location.hash.slice(1): the URL is what the first call is made on */
+    const head = chain && chain.calls && chain.calls.length ? segments.slice(0, chain.calls[0].index).join('.') : joined;
+    if (BROWSER_LOCATION.test(joined) || BROWSER_LOCATION.test(head)) return { kind: 'the page’s URL' };
     if (/^(router)\.query$/.test(joined) || /^(this\.)?\$route\.(query|params)$/.test(joined) || /^route\.(query|params)$/.test(joined)) return { kind: 'the page’s URL' };
     return null;
   }
@@ -1398,7 +1411,7 @@ class JsWalker {
     const rooted = sendFile && call.args.some(arg => arg.some((t, i) => t.v === 'root' && isPunc(arg[i + 1], ':')));
     if ((fsCall || (sendFile && !rooted)) && first) { this.sink('path', first, line); return true; }
     /* Redirects. */
-    const redirect = (r.response.has(root) && name === 'redirect') || (root === 'ctx' && name === 'redirect') ||
+    const redirect = (r.response.has(root) && name === 'redirect') || (root === 'ctx' && name === 'redirect') || (r.honoCtx.has(root) && name === 'redirect') ||
       (root === 'NextResponse' && name === 'redirect') || (root === 'Response' && name === 'redirect') ||
       (segments.length === 1 && name === 'redirect' && /^(next\/navigation|@remix-run\/node|@remix-run\/react|@remix-run\/server-runtime|react-router|react-router-dom|@sveltejs\/kit|next\/server)$/.test(module));
     if (redirect) {
@@ -1445,6 +1458,9 @@ class JsWalker {
     /* Deserialisers that run what they read. */
     if (/^(unserialize|deserialize)$/.test(name) && (/node-serialize|serialize-javascript|funcster|cryo/.test(module) || /^serialize$/i.test(root)) && first) { this.sink('deserialize', first, line); return true; }
     if (name === 'load' && (root === 'yaml' || /js-yaml/.test(module)) && first && call.args.some(arg => arg.some(t => /DEFAULT_FULL_SCHEMA|FULL_SCHEMA/.test(String(t.v))))) { this.sink('deserialize', first, line); return true; }
+    /* libxmljs with entity substitution switched on: parseXml(text, { noent: true }) */
+    if (/^(parseXml|parseXmlString|parseXmlAsync)$/.test(name) && (/libxmljs/.test(module) || /^libxml/i.test(root)) && first &&
+      call.args.slice(1).some(arg => arg.some((t, index) => t.v === 'noent' && arg[index + 2] && arg[index + 2].v === 'true'))) { this.sink('xxe', first, line); return true; }
     void receiver;
     return false;
   }
@@ -1902,7 +1918,10 @@ class PyWalker extends JsWalker {
     const previousRoute = this.inRoute;
     this.pyRoles = { request: new Set([...(previousRoles && previousRoles.request ? previousRoles.request : []), ...inner.request]), lambda: inner.lambda || (previousRoles ? previousRoles.lambda : null) };
     this.inRoute = Boolean(routeDecorator || djangoView) || previousRoute;
+    const outerEnd = this.bodyEndLine;
+    this.bodyEndLine = this.lines[end - 1] ? this.lines[end - 1].line : outerEnd;
     this.block(start, end, child, roles, line.indent);
+    this.bodyEndLine = outerEnd;
     this.pyRoles = previousRoles;
     this.inRoute = previousRoute;
   }
@@ -2143,6 +2162,10 @@ class PyWalker extends JsWalker {
       const loader = kw('Loader');
       if (!loader || !loader.some(t => /Safe|CSafe|Base/.test(t.v))) return report('deserialize', first);
     }
+    /* lxml with a parser that resolves entities, loads DTDs or fetches from the network; xml.sax with external entities on */
+    if (/^(fromstring|XML|parse|fromstringlist|parseString)$/.test(name) && /(^|\.)(etree|objectify|sax|lxml)(\.|$)/.test(joined) && first &&
+      /XMLParser\s*\([^)]*(resolve_entities\s*=\s*True|load_dtd\s*=\s*True|no_network\s*=\s*False)|feature_external_ges\s*,\s*(True|1)/.test(this.ctx.text || '') &&
+      !/defusedxml/.test(this.ctx.text || '')) return report('xxe', first);
     /* Regular expressions. */
     if (root === 're' && /^(compile|search|match|fullmatch|findall|finditer|sub|split)$/.test(name) && first) return report('regex', first);
     /* Document databases. */
@@ -2381,8 +2404,11 @@ const traceRank = file => (file.client ? 2 : SERVER_PATH.test(file.path) ? 0 : 1
  * same run without a limit.
  */
 function analyseFlows(files, options = {}) {
+  const maxBytes = options.maxBytes || 512 * 1024;
   const sources = files.filter(file => typeof file.text === 'string' && (JS_FILE.test(file.path) || PY_FILE.test(file.path)) &&
-    file.text.length <= (options.maxBytes || 512 * 1024) && !/\.min\.js$|\.d\.ts$/.test(file.path));
+    file.text.length <= maxBytes && !/\.min\.js$|\.d\.ts$/.test(file.path));
+  /* Go, Java and PHP are read by their own tracer, under the same limits. */
+  const cfamily = files.filter(file => typeof file.text === 'string' && CFAMILY_FILE.test(file.path) && file.text.length <= maxBytes);
   const deadline = Number.isFinite(options.deadline) ? options.deadline : Infinity;
   const ceiling = Number.isFinite(options.heapCeiling) ? options.heapCeiling : Infinity;
   const clock = typeof options.now === 'function' ? options.now : Date.now;
@@ -2394,7 +2420,7 @@ function analyseFlows(files, options = {}) {
     return Boolean(limit);
   };
   const program = new Program(sources);
-  const stats = { javascript: 0, python: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0 };
+  const stats = { javascript: 0, python: 0, go: 0, java: 0, php: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0 };
   const counted = new Map();
   /* Summaries for every local function first, so a call reads its callee's summary. */
   for (const file of sources) {
@@ -2405,6 +2431,17 @@ function analyseFlows(files, options = {}) {
     counted.set(file.path, { language: ctx.language, functions: ctx.functions.size });
     stats.functions += ctx.functions.size;
     for (const name of ctx.functions.keys()) program.summary(file.path, name, true);
+  }
+  /* Go, Java and PHP are server code: traced before the browser code is walked. */
+  let other = { flows: [], routes: [] };
+  if (cfamily.length) {
+    try {
+      other = analyseCFamily(cfamily, { late, maxBytes });
+      for (const key of ['go', 'java', 'php', 'functions', 'cut']) stats[key] += other.stats[key] || 0;
+      if (other.stats.failed) stats.failed = (stats.failed || 0) + other.stats.failed;
+    } catch {
+      stats.failed = (stats.failed || 0) + cfamily.length;
+    }
   }
   const order = sources.map((file, index) => ({ file, index })).sort((a, b) => traceRank(a.file) - traceRank(b.file) || a.index - b.index);
   const walked = new Array(sources.length);
@@ -2418,7 +2455,7 @@ function analyseFlows(files, options = {}) {
     }
     const ctx = program.context(file.path);
     if (!ctx) continue;
-    const flowCtx = { ...ctx, flows: [], routes: [], client: file.client };
+    const flowCtx = { ...ctx, flows: [], routes: [], settled: [], client: file.client };
     try {
       if (ctx.language === 'javascript') {
         jsRoutes(ctx.tokens, flowCtx);
@@ -2449,18 +2486,28 @@ function analyseFlows(files, options = {}) {
     }
     walked[index] = flowCtx;
   }
-  const flows = [];
-  const routes = [];
+  let flows = [];
+  let routes = [];
+  /* names a check settled, with the lines over which it holds: what makes a pattern lead on them moot */
+  const settled = [...(other.settled || [])];
   for (const flowCtx of walked) {
     if (!flowCtx) continue;
     routes.push(...flowCtx.routes);
     flows.push(...flowCtx.flows);
+    for (const entry of flowCtx.settled || []) settled.push({ path: flowCtx.path, ...entry });
+  }
+  if (other.flows.length || other.routes.length) {
+    /* In the files' own order, whichever tracer read them. */
+    const position = new Map(files.map((file, index) => [file.path, index]));
+    const byFile = (a, b) => (position.get(a.path) ?? 0) - (position.get(b.path) ?? 0);
+    flows = [...flows, ...other.flows].sort(byFile);
+    routes = [...routes, ...other.routes].sort(byFile);
   }
   stats.routes = routes.length;
   stats.flows = flows.length;
   stats.helpers = flows.filter(flow => flow.viaHelper).length;
   if (stats.cut) stats.limit = limit;
-  return { flows: dedupe(flows), routes, stats };
+  return { flows: dedupe(flows), routes, settled, stats };
 }
 
 /* One flow per rule and sink line: several sources into one call are one finding with the first trace. */

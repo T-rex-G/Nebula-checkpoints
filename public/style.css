@@ -6768,7 +6768,7 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .audit-route:first-child { border-top: 0; }
 .audit-route[hidden] { display: none; }
 .audit-route:hover { background: var(--rp-tile); }
-.audit-route-method { justify-self: start; font-family: var(--font-mono); font-size: .68rem; font-weight: 700; letter-spacing: .05em; color: var(--text); padding: 2px 7px; border-radius: 6px; border: 1px solid var(--rp-line); }
+.audit-route-method { justify-self: start; width: min-content; max-width: 100%; font-family: var(--font-mono); font-size: .68rem; font-weight: 700; letter-spacing: .05em; line-height: 1.45; color: var(--text); padding: 2px 7px; border-radius: 6px; border: 1px solid var(--rp-line); }
 .audit-route-main { display: grid; gap: 3px; min-width: 0; }
 .audit-route-path { font-family: var(--font-mono); font-size: .84rem; color: var(--text); overflow-wrap: anywhere; line-height: 1.35; }
 .audit-route-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; font-size: .74rem; color: var(--muted); min-width: 0; }
@@ -6906,7 +6906,8 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
   .audit-validate { grid-template-columns: minmax(0, 1fr); }
   .audit-summary-row { grid-template-columns: auto minmax(0, 1fr); }
   .audit-row-tags { grid-column: 2; justify-content: flex-start; }
-  .audit-route { grid-template-columns: auto minmax(0, 1fr); }
+  /* a fixed verb column, so every path starts on the same line whatever the verb */
+  .audit-route { grid-template-columns: 62px minmax(0, 1fr); align-items: start; }
   .audit-route-tags { grid-column: 2; justify-content: flex-start; }
 }
 @media (max-width: 480px) {

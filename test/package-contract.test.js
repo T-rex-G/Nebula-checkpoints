@@ -95,9 +95,9 @@ const syntaxGate = [
 ].filter(Boolean).join(' && ');
 const syntaxChecks = source => syntaxGate.split(/\s*&&\s*/).includes(`node --check ${source}`);
 const dependencyLock = JSON.parse(read('package-lock.json'));
-assert.strictEqual(pkg.dependencies.dompurify, '3.4.13', 'DOMPurify must include the alpha.17 XSS fix');
-assert.strictEqual(dependencyLock.packages['node_modules/dompurify'].version, '3.4.13');
-assert.strictEqual(dependencyLock.packages['node_modules/brace-expansion'].version, '5.0.9',
+assert.strictEqual(pkg.dependencies.dompurify, '3.4.16', 'DOMPurify must include the alpha.17 XSS fix');
+assert.strictEqual(dependencyLock.packages['node_modules/dompurify'].version, '3.4.16');
+assert.strictEqual(dependencyLock.packages['node_modules/brace-expansion'].version, '5.0.12',
   'the release packager dependency chain must include the brace-expansion DoS fixes');
 
 /*
@@ -134,9 +134,9 @@ assert.deepStrictEqual(
   'the lockfile root must declare the same versions as package.json'
 );
 for (const source of ['public/index.html', 'public/sw.js', 'server.js', 'scripts/copy-vendor.js', 'scripts/verify.js']) {
-  assert(read(source).includes('dompurify/3.4.13/purify.min.js'), `${source} has a stale DOMPurify asset path`);
+  assert(read(source).includes('dompurify/3.4.16/purify.min.js'), `${source} has a stale DOMPurify asset path`);
 }
-assert(fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.13/purify.min.js')));
+assert(fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.16/purify.min.js')));
 assert(!fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.12')),
   'the vulnerable DOMPurify browser asset must not remain releasable');
 const task6Artifacts = [

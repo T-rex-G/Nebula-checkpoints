@@ -67,11 +67,11 @@ const DOTNET_FILE = /\.(cs|fs|vb)$/;
 const DOTNET_USING = /^[ \t]*(?:global[ \t]+)?(?:using|open|Imports)[ \t]+(?:static[ \t]+)?([A-Za-z_][\w.]{0,300})/gm;
 
 /* The names Ruby code requires a gem by: its own, with dashes as slashes or underscores. */
-const RUBY_NAMES = Object.freeze({
+const RUBY_NAMES = Object.freeze(Object.assign(Object.create(null), {
   activesupport: ['active_support'], activerecord: ['active_record'], actionpack: ['action_controller', 'action_dispatch'],
   actionview: ['action_view'], activemodel: ['active_model'], actionmailer: ['action_mailer'], activejob: ['active_job'],
   actioncable: ['action_cable'], activestorage: ['active_storage'], railties: ['rails'], rails: ['rails', 'rails/all']
-});
+}));
 const rubyNames = name => [...new Set([name, name.replace(/-/g, '/'), name.replace(/-/g, '_'), ...(RUBY_NAMES[name.toLowerCase()] || [])].map(value => value.toLowerCase()))];
 
 /*
@@ -79,7 +79,7 @@ const rubyNames = name => [...new Set([name, name.replace(/-/g, '/'), name.repla
  * the convention: lower case, dashes as underscores, or as dots for a
  * namespace package (google-cloud-storage imports as google.cloud.storage).
  */
-const PY_MODULES = Object.freeze({
+const PY_MODULES = Object.freeze(Object.assign(Object.create(null), {
   pyyaml: ['yaml'], 'beautifulsoup4': ['bs4'], pillow: ['pil'], 'scikit-learn': ['sklearn'], 'scikit-image': ['skimage'],
   'python-dateutil': ['dateutil'], 'opencv-python': ['cv2'], 'opencv-python-headless': ['cv2'], 'opencv-contrib-python': ['cv2'],
   pyjwt: ['jwt'], 'python-jose': ['jose'], pycryptodome: ['crypto'], pycryptodomex: ['cryptodome'], 'python-dotenv': ['dotenv'],
@@ -93,7 +93,7 @@ const PY_MODULES = Object.freeze({
   'flask-sqlalchemy': ['flask_sqlalchemy'], 'flask-cors': ['flask_cors'], 'flask-login': ['flask_login'], 'flask-wtf': ['flask_wtf'],
   'gitpython': ['git'], 'dnspython': ['dns'], 'pycparser': ['pycparser'], 'jinja2': ['jinja2'], 'markupsafe': ['markupsafe'],
   'typing-extensions': ['typing_extensions'], 'importlib-metadata': ['importlib_metadata'], 'pyasn1': ['pyasn1'], 'rsa': ['rsa']
-});
+}));
 
 function pythonModules(name) {
   const key = String(name).toLowerCase().replace(/[-_.]+/g, '-');
@@ -128,10 +128,10 @@ const ROLES = Object.freeze(['runtime', 'build', 'test']);
 const HOW_RANK = Object.freeze({ import: 0, name: 1, bundle: 2 });
 
 /* Commands whose package has another name, and packages whose `start` is a development server. */
-const BINARIES = Object.freeze({
+const BINARIES = Object.freeze(Object.assign(Object.create(null), {
   ng: '@angular/cli', 'vue-cli-service': '@vue/cli-service', tsc: 'typescript', craco: '@craco/craco', nest: '@nestjs/cli',
   'sequelize-cli': 'sequelize-cli', remix: '@remix-run/dev', playwright: '@playwright/test', 'svelte-kit': '@sveltejs/kit'
-});
+}));
 /* Words before the command itself. */
 const LAUNCHERS = new Set(['npx', 'pnpx', 'bunx', 'node', 'cross-env', 'env', 'dotenv', 'exec', 'yarn', 'pnpm', 'npm', 'run', 'bun']);
 /* Tools whose arguments become part of what ships. */

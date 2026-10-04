@@ -29,7 +29,7 @@ const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
 const root = path.resolve(__dirname, '..');
 const secret = 'route-surface-test-secret-0123456789abcdef-0123456789abcdef';
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
-const port = 34500 + Math.floor(Math.random() * 400);
+const port = 19000 + Math.floor(Math.random() * 1000);
 
 function seal(value) {
   const iv = crypto.randomBytes(12);

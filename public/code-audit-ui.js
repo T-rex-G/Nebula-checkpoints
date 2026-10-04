@@ -316,10 +316,12 @@
     const verdict = VERDICT[verdictOf(finding)];
     return chip(verdict.tone, verdict.word, { glyph: verdict.icon, className: 'audit-verdict-chip', ...options });
   }
+  /* 'POST,PUT' as a reader writes it: POST/PUT */
+  const verbs = method => String(method || 'ANY').split(',').join('/');
   function reachChip(reach) {
     if (!reach || !REACH[reach.auth]) return null;
     const entry = REACH[reach.auth];
-    const where = reach.route ? `${reach.method} ${reach.route}` : reach.method === 'ACTION' ? 'a server action' : 'this endpoint';
+    const where = reach.route ? `${verbs(reach.method)} ${reach.route}` : reach.method === 'ACTION' ? 'a server action' : 'this endpoint';
     return chip(entry.tone, entry.word, { glyph: entry.icon, className: 'audit-reach', title: `Reached through ${where}` });
   }
 
@@ -1033,7 +1035,7 @@
     const engine = result.engine;
     if (!engine || !engine.traced) return null;
     const traced = engine.traced;
-    const files = (traced.javascript || 0) + (traced.python || 0);
+    const files = ['javascript', 'python', 'go', 'java', 'php'].reduce((sum, language) => sum + (traced[language] || 0), 0);
     const parts = [`${plural(files, 'file', 'files')} traced`];
     if (traced.functions) parts.push(`${plural(traced.functions, 'helper', 'helpers')} summarised`);
     parts.push(`${plural((traced.endpoints || 0) + (traced.actions || 0), 'entry point', 'entry points')} mapped`);
@@ -1966,7 +1968,9 @@
   const FRAMEWORK_NAME = Object.freeze({
     express: 'Express', fastify: 'Fastify', koa: 'Koa', hono: 'Hono', next: 'Next.js', 'next-pages': 'Next.js',
     'server-action': 'Server action', sveltekit: 'SvelteKit', remix: 'Remix', 'supabase-edge': 'Edge function',
-    serverless: 'Serverless', flask: 'Flask', fastapi: 'FastAPI', django: 'Django'
+    serverless: 'Serverless', flask: 'Flask', fastapi: 'FastAPI', django: 'Django',
+    'go-http': 'net/http', gin: 'Gin', echo: 'Echo', fiber: 'Fiber', chi: 'chi', gorilla: 'gorilla/mux',
+    spring: 'Spring', jaxrs: 'JAX-RS', laravel: 'Laravel', symfony: 'Symfony'
   });
   const SURFACE_FOLD = 6;
   /* Surfaces the reader unfolded, by result, so a redraw keeps them open. */
@@ -2028,7 +2032,8 @@
       entries.forEach((entry, index) => {
         const item = element('li', 'audit-route');
         if (!all && index >= SURFACE_FOLD) item.hidden = true;
-        const method = element('span', 'audit-route-method', entry.action ? 'ACTION' : String(entry.method || 'ANY'));
+        /* 'POST,PUT,DELETE' reads as one verb a line inside the pill */
+        const method = element('span', 'audit-route-method', entry.action ? 'ACTION' : String(entry.method || 'ANY').split(',').join(' '));
         const where = element('span', 'audit-route-main');
         where.append(element('span', 'audit-route-path', entry.route || (entry.action ? 'Server action' : '—')));
         const meta = element('span', 'audit-route-meta');
@@ -2305,7 +2310,7 @@
   function reachLine(reach) {
     const line = element('p', 'audit-reach-line');
     const entry = REACH[reach.auth];
-    const through = reach.route ? `${reach.method} ${reach.route}` : reach.method === 'ACTION' ? 'a server action' : 'an endpoint';
+    const through = reach.route ? `${verbs(reach.method)} ${reach.route}` : reach.method === 'ACTION' ? 'a server action' : 'an endpoint';
     line.append(icon(ICON.route), element('span', null, 'Reached through '), element('code', 'audit-reach-route', through));
     if (FRAMEWORK_NAME[reach.framework]) line.appendChild(element('span', 'audit-reach-fw', FRAMEWORK_NAME[reach.framework]));
     if (entry) line.appendChild(chip(entry.tone, entry.word, { glyph: entry.icon }));
@@ -3044,7 +3049,7 @@
       );
       if (finding.reach) {
         const reach = REACH[finding.reach.auth];
-        lines.push(`- **Reached through:** ${finding.reach.route ? `\`${finding.reach.method} ${finding.reach.route}\`` : 'a server action'}${reach ? ` — ${reach.word.toLowerCase()}` : ''}`);
+        lines.push(`- **Reached through:** ${finding.reach.route ? `\`${verbs(finding.reach.method)} ${finding.reach.route}\`` : 'a server action'}${reach ? ` — ${reach.word.toLowerCase()}` : ''}`);
       }
       if (Array.isArray(finding.trace) && finding.trace.length) {
         lines.push(`- **Traced path:** ${finding.trace.map(step => `${STEP_ROLE[step.role] || 'Passes'} \`${step.line ? `${step.path}:${step.line}` : step.path}\` (${step.note})`).join(' → ')}`);
@@ -3488,7 +3493,7 @@
     const rows = [['Source', 'Status', 'Severity', 'Verdict', 'Rule', 'Title', 'Detail', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Reached through', 'Risk', 'Known exploited', 'EPSS', 'Dependency reach', 'How to confirm', 'Reason waived', 'Fix']];
     const row = (source, status, finding, family) => {
       const standards = finding.standards || {};
-      const reach = finding.reach ? `${finding.reach.route ? `${finding.reach.method} ${finding.reach.route}` : 'server action'} (${finding.reach.auth})` : '';
+      const reach = finding.reach ? `${finding.reach.route ? `${verbs(finding.reach.method)} ${finding.reach.route}` : 'server action'} (${finding.reach.auth})` : '';
       rows.push([source, status, finding.severity, verdictOf(finding) === 'needs-validation' ? 'to confirm' : 'confirmed', finding.rule, finding.title, detailChip(finding) || '', family || '', standards.cwe || '',
         standards.top25 ? `#${standards.top25.rank}` : '', standards.owasp || '',
         finding.path || finding.where || 'whole repository', finding.line || '', reach,

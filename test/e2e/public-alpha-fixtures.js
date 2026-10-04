@@ -141,7 +141,9 @@ const VALID = Object.freeze({
   /* Whether the server keeps audits: 'kept' as with a database, 'unavailable' as without one. */
   auditHistory: new Set(['kept', 'unavailable']),
   /* What deps.dev answers for the audited dependencies: 'permissive' for what ships, or 'copyleft' making lodash AGPL. */
-  licences: new Set(['permissive', 'copyleft'])
+  licences: new Set(['permissive', 'copyleft']),
+  /* What the audited branch is written in: 'node' alone, or 'polyglot' with a Go service, a Spring controller and a Laravel app beside it. */
+  auditStack: new Set(['node', 'polyglot'])
 });
 
 function normalizedScenario(input = {}) {
@@ -167,6 +169,7 @@ function normalizedScenario(input = {}) {
     postureState: input.postureState || 'clean',
     auditHistory: input.auditHistory || 'kept',
     licences: input.licences || 'permissive',
+    auditStack: input.auditStack || 'node',
     /* Audit results kept before the page opened, oldest first, and what the watch will find since the latest. */
     auditHistorySeed: Array.isArray(input.auditHistorySeed) ? input.auditHistorySeed : [],
     auditWatchAlerts: Array.isArray(input.auditWatchAlerts) ? input.auditWatchAlerts : []
@@ -557,6 +560,35 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         { path: 'supabase/migrations/20260101000000_init.sql', text: 'create table public.profiles (\n  id uuid primary key,\n  bio text\n);\n' },
         { path: 'api/users.js', text: usersRouter }
       ];
+      if (scenario.auditStack === 'polyglot') {
+        /* A Go service, a Spring controller and a Laravel app, each with a flaw the tracer follows and endpoints of its own. */
+        files.push(
+          { path: 'services/files/main.go', text: [
+            'package main', '', 'import (', '\t"net/http"', '\t"os"', '\t"github.com/gin-gonic/gin"', ')', '',
+            'func main() {', '\tr := gin.Default()', '\tadmin := r.Group("/admin", AuthRequired())',
+            '\tadmin.DELETE("/files/:name", removeFile)', '\tr.GET("/files/download", download)', '\tr.Run()', '}', '',
+            'func download(c *gin.Context) {', '\tname := c.Query("name")', '\tdata, _ := os.ReadFile("/srv/files/" + name)', '\tc.Data(200, "application/octet-stream", data)', '}', '',
+            'func removeFile(c *gin.Context) {', '\tos.Remove("/srv/files/" + c.Param("name"))', '}', ''
+          ].join('\n') },
+          { path: 'services/accounts/src/main/java/com/demo/AccountController.java', text: [
+            'package com.demo;', '', 'import org.springframework.web.bind.annotation.*;', '',
+            '@RestController', '@RequestMapping("/api/accounts")', 'public class AccountController {',
+            '  @GetMapping("/search")', '  public List<Account> search(@RequestParam String name) {',
+            '    return jdbcTemplate.query("SELECT * FROM accounts WHERE name = \'" + name + "\'", mapper);', '  }', '',
+            '  @PreAuthorize("hasRole(\'ADMIN\')")', '  @DeleteMapping("/{id}")', '  public void remove(@PathVariable Long id) {', '    repository.deleteById(id);', '  }', '}', ''
+          ].join('\n') },
+          { path: 'web/routes/web.php', text: [
+            '<?php', 'use App\\Http\\Controllers\\PostController;', 'use Illuminate\\Support\\Facades\\Route;', '',
+            "Route::match(['post', 'put'], '/posts', [PostController::class, 'save']);",
+            "Route::middleware('auth')->group(function () {", "    Route::delete('/posts/{id}', [PostController::class, 'destroy']);", '});', ''
+          ].join('\n') },
+          { path: 'web/app/Http/Controllers/PostController.php', text: [
+            '<?php', 'namespace App\\Http\\Controllers;', '', 'class PostController extends Controller', '{',
+            '    public function save(Request $request)', '    {', '        return Post::create($request->all());', '    }', '',
+            '    public function destroy($id)', '    {', '        return Post::where(\'user_id\', auth()->id())->findOrFail($id)->delete();', '    }', '}', ''
+          ].join('\n') }
+        );
+      }
       const advisories = new Map([
         ['npm:react@18.2.0', { advisories: [] }],
         ['npm:crossenv@1.0.0', { advisories: [] }],

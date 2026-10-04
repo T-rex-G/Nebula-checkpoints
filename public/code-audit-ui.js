@@ -1053,7 +1053,10 @@
     if (traced.cut) parts.push(`${plural(traced.cut, 'file', 'files')} left to the rules (${traced.limit === 'memory' ? 'memory' : 'time'} limit)`);
     if (traced.rulesOnly) parts.push(`${plural(traced.rulesOnly, 'more file', 'more files')} checked against the rules`);
     const line = element('p', 'audit-engine-line');
-    line.append(uranusMark('audit-ico uranus-mark'), element('strong', null, `${engine.name} ${String(engine.version || '').replace(/\.0$/, '')}`), element('span', null, parts.join(' · ')));
+    /* Spaces between the parts: the flex gap separates them on screen, and
+       without one a screen reader read the version and the count as a single
+       number -- "Uranus 2.26 files traced". */
+    line.append(uranusMark('audit-ico uranus-mark'), element('strong', null, `${engine.name} ${String(engine.version || '').replace(/\.0$/, '')}`), ' ', element('span', null, parts.join(' · ')));
     return line;
   }
 

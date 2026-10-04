@@ -56,7 +56,8 @@ remain in place; passing these added checks does not complete all release gates.
 4. Use PostgreSQL 17 clients for backup and restore. Production CLI still
    requires `sslmode=verify-full`, reviewed isolated target identity and Neon
    ownership checks. Never direct qualification restore at the cohort database.
-5. Set verified `NV_TRUSTED_PROXIES` ingress ranges before hosted traffic tests.
+5. Off Render, set verified `NV_TRUSTED_PROXIES` ingress ranges before hosted
+   traffic tests; on Render exactly one ingress hop is trusted by default.
    Run `npm run check:deployment` from the frozen candidate with
    `NV_ALPHA_BASE_URL` and `NV_EXPECTED_RELEASE_TREE_SHA256` from that archive.
    The default cohort purpose requires invitation mode. Operator verification

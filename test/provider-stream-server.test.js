@@ -3,7 +3,7 @@ const assert = require('assert/strict');
 const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
-const port = 34000 + Math.floor(Math.random() * 2000);
+const port = 23000 + Math.floor(Math.random() * 2000);
 const origin = `http://127.0.0.1:${port}`;
 const child = spawn(process.execPath, ['-r', './test/fixtures/provider-stream-fetch.js', 'server.js'], {
   cwd: path.resolve(__dirname, '..'),

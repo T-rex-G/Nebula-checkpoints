@@ -20,6 +20,18 @@
   drawer was out lay across its first entries; it now sits under the drawer's
   scrim until the drawer is put away.
 
+### Every kept audit exports on its own
+
+- **History exports.** An opened entry under *History* has its own *Export*:
+  the developer brief, CSV and SARIF of that audit, from what it kept -- each
+  finding's rule, place and package, with the rule's explanation, fix and a
+  prompt written by the engine, never any code. The entry says how many
+  findings were kept, and every export says so too when fewer were kept than
+  found (the most severe are kept first).
+- **Kept findings speak for themselves.** Reading a kept audit now returns
+  each finding with its rule's words and standards (CWE, OWASP, Top 25), so
+  the record can be understood without the audit that produced it.
+
 ### One home for website analysis
 
 - **Site checks run on the Website page alone.** The Audit tab carried a

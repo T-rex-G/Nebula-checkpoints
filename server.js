@@ -157,7 +157,7 @@ const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedT
 const { auditRepository } = require('./src/code-audit');
 const { analyseOffThread, scanOffThread } = require('./src/code-audit-worker');
 const { createAuditJobs } = require('./src/code-audit-jobs');
-const { CodeAuditHistory, createAuditWatch } = require('./src/code-audit-history');
+const { CodeAuditHistory, createAuditWatch, describeKept } = require('./src/code-audit-history');
 const { watchComponents } = require('./src/code-audit-watch');
 const {
   CodeAuditTriage, applyTriage, rescore, inForce, evaluateMergeGate, unavailableGate, gateAttributes, mergeAttributes,
@@ -7955,7 +7955,8 @@ app.get('/api/repo/:owner/:repo/code-audit/history/:auditId', providerSessionAcc
   try {
     const found = await auditHistory().read({ scope: req.governance.scope, identityKey: req.governance.actor.identityKey, auditId: String(req.params.auditId || '') });
     if (!found) return res.status(404).json({ error: 'That audit is not kept for this repository', code: 'CODE_AUDIT_NOT_FOUND' });
-    res.json(found);
+    /* Each kept finding with its rule's words, so the kept audit can be read and exported on its own. */
+    res.json({ ...found, findings: found.findings.map(describeKept) });
   } catch (error) { exposureFailure(res, error); }
 });
 

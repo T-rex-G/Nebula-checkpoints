@@ -236,7 +236,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
    * the server uses (src/code-audit-history.js) and answered in the same
    * shapes, so the page is tested against what a database would give it.
    */
-  const { compactAudit, serialize } = require('../../src/code-audit-history');
+  const { compactAudit, serialize, describeKept } = require('../../src/code-audit-history');
   state.auditHistory = [];
   const recordAudit = result => {
     const compact = compactAudit(result);
@@ -622,7 +622,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         const entry = state.auditHistory.find(item => item.row.audit_id === one[1]);
         if (!entry) return fulfill(publicError('CODE_AUDIT_NOT_FOUND', 'That audit is not kept for this repository'), 404);
         const order = { critical: 0, serious: 1, warning: 2 };
-        return fulfill({ audit: serialize.audit(entry.row), findings: entry.findings.map(serialize.finding).sort((a, b) => order[a.severity] - order[b.severity]) });
+        return fulfill({ audit: serialize.audit(entry.row), findings: entry.findings.map(serialize.finding).map(describeKept).sort((a, b) => order[a.severity] - order[b.severity]) });
       }
     }
     if (pathname === '/api/code-audit/score' && method === 'POST') {

@@ -25,6 +25,7 @@ const crypto = require('crypto');
 const { RULES, ENGINE } = require('./code-audit');
 const { clockOf, slaOf, DEFAULT_SLA, SLA_DAYS } = require('./code-audit-policy');
 const { TIERS } = require('./uranus-reach');
+const { standardsFor } = require('./security-standards');
 
 const LIMITS = Object.freeze({
   maxFindings: 1500,
@@ -412,6 +413,30 @@ function findingFromRow(row) {
     epss: number(row.epss),
     firstSeenAt: iso(row.first_seen_at),
     waived: row.waived || null
+  };
+}
+
+/*
+ * A kept finding with its rule's own words, for reading and exporting an
+ * audit that is no longer on screen: why the rule matters, how to fix it,
+ * the standards it maps to, and a prompt written from the rule, the place
+ * and the package facts the record holds. All of it is text this server
+ * wrote; none of it is read from the repository. It is the current engine's
+ * wording of the rule, which the export says.
+ */
+function describeKept(finding) {
+  const definition = RULES[finding.rule];
+  if (!definition) return { ...finding, why: null, fix: null, standards: null, prompt: null };
+  const where = finding.path ? `${finding.path}${finding.line ? ` (line ${finding.line})` : ''}` : 'this repository';
+  const pkg = finding.package;
+  const facts = pkg ? `${pkg.name} ${pkg.version}${pkg.advisories.length ? ` -- ${pkg.advisories.join(', ')}` : ''}${pkg.fixed ? `; fixed in ${pkg.fixed}` : ''}` : '';
+  return {
+    ...finding,
+    why: definition.why,
+    fix: definition.fix,
+    standards: standardsFor(finding.rule),
+    prompt: `In ${where}: ${definition.title.toLowerCase()}${facts ? ` (${facts})` : ''}. ${definition.why} ${definition.fix} ` +
+      'Make the smallest change that fixes it, keep the existing behaviour otherwise, and add or update a test that fails before the fix and passes after.'
   };
 }
 
@@ -999,6 +1024,7 @@ module.exports = Object.freeze({
   CodeAuditHistory,
   /* The shapes the routes answer with, for fixtures that stand in for the database. */
   serialize: Object.freeze({ audit: auditFromRow, finding: findingFromRow, alert: alertFromRow }),
+  describeKept,
   CodeAuditHistoryError,
   createAuditWatch,
   compactAudit,

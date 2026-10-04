@@ -5837,6 +5837,21 @@ function paintAudit(options = {}) {
       }
     },
     onHistoryClear: clearAuditHistory,
+    /* A kept audit exported on its own, from what it kept: the rule, place and package of each finding, never code. */
+    onHistoryExport: (id, kind) => {
+      const detail = auditView.historyDetail.get(id);
+      const audit = ((auditView.history && auditView.history.audits) || []).find(item => item.id === id);
+      if (!state.work || !audit || !detail || detail.status !== 'ready') return;
+      const findings = detail.findings || [];
+      const base = `${state.work.repo}-audit-${String(audit.auditedAt).slice(0, 10)}-${String(audit.commitSha).slice(0, 7)}`;
+      if (kind === 'sarif') {
+        const provider = (state.me && state.me.provider) || 'github';
+        const repositoryUri = provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '';
+        return dlFile(`${base}.sarif`, window.NebulaCodeAudit.keptSarif(audit, findings, { repositoryUri }), 'application/sarif+json');
+      }
+      if (kind === 'csv') return dlFile(`${base}.csv`, window.NebulaCodeAudit.keptCsv(audit, findings), 'text/csv');
+      dlFile(`${base}.md`, window.NebulaCodeAudit.keptBrief(audit, findings, `${state.work.owner}/${state.work.repo} (${audit.ref})`), 'text/markdown');
+    },
     onTriage: finding => triageAuditFinding(finding),
     onReopen: finding => reopenAuditFinding(finding),
     onTriageHistory: finding => showTriageHistory(finding),

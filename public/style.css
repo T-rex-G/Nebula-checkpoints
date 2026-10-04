@@ -7350,6 +7350,9 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
 .audit-hist[open] > summary .audit-hist-chev { transform: rotate(180deg); }
 .audit-hist-body { padding: 4px 14px 14px; display: grid; gap: 10px; min-width: 0; }
 .audit-hist-wait { margin: 0; font-size: .82rem; color: var(--muted); }
+.audit-hist-export { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+  padding: 8px 10px 8px 12px; margin-bottom: 10px; border-radius: 12px; border: 1px solid var(--rp-line); background: var(--rp-tile); }
+.audit-hist-export-t { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 0; }
 .audit-hist-findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; border-radius: 12px; background: var(--rp-tile); border: 1px solid var(--rp-line); }
 .audit-hist-finding { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; align-items: start; column-gap: 12px; row-gap: 6px; padding: 9px 12px; border-top: 1px solid var(--rp-line); min-width: 0; }
 .audit-hist-finding:first-child { border-top: 0; }

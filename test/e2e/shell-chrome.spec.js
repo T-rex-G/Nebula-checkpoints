@@ -1153,10 +1153,14 @@ test.describe('destination names', () => {
           /* The first span in a menu row can be a decorative glyph; the name
              is the one that is not hidden from the accessibility tree. */
           menu: clean(document.querySelector(`.sheet-item[data-act="${selector}"] span:not([aria-hidden])`)),
-          rail: clean(document.querySelector(`[data-rail="${selector}"] .nv-rail-t`))
+          /* The rail names the engine on top; the line beneath opens with the destination's own name. */
+          rail: clean(document.querySelector(`[data-rail="${selector}"] .nv-rail-d`)).split(' ')[0],
+          engine: clean(document.querySelector(`[data-rail="${selector}"] .nv-rail-t`))
         };
       }, tab);
 
+      expect(labels.engine, 'the rail entry is titled by its engine').toMatch(/^[A-Z][a-z]+ Engine$/);
+      delete labels.engine;
       for (const [where, label] of Object.entries(labels)) {
         if (label === null) continue;
         expect(label, `the ${where} calls this destination "${label}"`).toBe(name);
@@ -1422,6 +1426,45 @@ test('Magnetar Sec folds and opens like a menu, and keeps the current tool in vi
   await expect(head).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('#navRail [data-rail="audit"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('#navRail [data-rail="audit"]')).toBeVisible();
+
+  /*
+   * Open and at rest, nothing between the current entry and the rail clips
+   * it: the list used to, and cut the entry's glow into a hard-edged box the
+   * entries above the heading never had.
+   */
+  await expect(fold).not.toHaveAttribute('data-moving', /.*/);
+  const clipped = await page.locator('#navRail [data-rail="audit"]').evaluate(item => {
+    const rail = item.closest('#navRail');
+    const out = [];
+    for (let node = item.parentElement; node && node !== rail; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.overflowX !== 'visible' || style.overflowY !== 'visible') out.push(node.className || node.tagName);
+    }
+    return out;
+  });
+  expect(clipped, 'no container inside the rail clips the current entry').toEqual([]);
+});
+
+/* A window shorter than the rail scrolls the rail as one; its foot is still reachable inside the frame. */
+test('a short window scrolls the rail as one and keeps its foot reachable', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor();
+  const rail = page.locator('#navRail');
+  const reading = await rail.evaluate(node => {
+    const overflows = node.scrollHeight > node.clientHeight + 1;
+    const usable = /^(auto|scroll)$/.test(getComputedStyle(node).overflowY);
+    node.scrollTop = node.scrollHeight;
+    const box = node.getBoundingClientRect();
+    const foot = node.querySelector('.nv-rail-foot').getBoundingClientRect();
+    const list = node.querySelector('#railSecurityFold > ul').getBoundingClientRect();
+    return { overflows, usable, footBelow: box.bottom - foot.bottom, overlap: list.bottom - foot.top };
+  });
+  expect(reading.overflows, 'at 560px the rail is taller than the window').toBe(true);
+  expect(reading.usable, 'and it scrolls').toBe(true);
+  expect(reading.footBelow, 'its foot scrolls into the frame').toBeGreaterThanOrEqual(-1);
+  expect(reading.overlap, 'the security list never runs under the foot').toBeLessThanOrEqual(1);
 });
 
 test('the rail controls move: the collapse chevrons turn, and the menu button crosses into a close mark', async ({ page }) => {

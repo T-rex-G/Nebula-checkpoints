@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### The rail, named and lit evenly
+
+- **Engines on top, purpose beneath.** Each security entry is titled by its
+  engine and says in a few words what it is for: *Pulsar Engine* -- Neural ·
+  live code map; *Kepler Engine* -- Governance · policy twin; *Quasar Engine*
+  -- Exposure · leaked secrets; *Uranus Engine* -- Audit · code and packages;
+  *Parallax Engine* -- Website · live site check; *Corona Engine* --
+  Safeguards · lockdown. The line beneath begins with the name the tabs and
+  the phone menu use, so the two always meet.
+- **The current entry's glow is whole.** Under Magnetar Sec the list clipped
+  its contents at rest, so the current tool's glow ended in a hard-edged box
+  that Galaxies, above the heading, never had. The list clips only while it
+  folds; a window shorter than the rail scrolls the rail as one, as the phone
+  drawer does, instead of scrolling the list inside it.
+- **A message waits under the drawer.** A toast that arrived while the phone
+  drawer was out lay across its first entries; it now sits under the drawer's
+  scrim until the drawer is put away.
+
 ### Uranus 2.3, truthful about itself
 
 Audited against this repository, Uranus 2.2 graded it F 49 on six findings,

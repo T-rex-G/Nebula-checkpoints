@@ -1775,6 +1775,10 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   .toast{width:100%;max-width:420px;background:var(--shellSolid);
     backdrop-filter:none;-webkit-backdrop-filter:none}
 }
+/* While the navigation drawer is out, a message waits under its scrim instead of lying across the drawer's entries. */
+@media (max-width:1139px){
+  body.nav-open .toast-stack{z-index:79}
+}
 .toast{padding:13px 18px;border-radius:12px;font-size:.85rem;
   background:rgba(10,10,26,0.72);backdrop-filter:blur(18px);
   border:1px solid var(--glass-border);box-shadow:0 10px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.14);
@@ -3852,10 +3856,17 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .nv-rail-group-chev{flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
   transition:transform .36s cubic-bezier(.34,1.56,.64,1)}
 .nv-rail-group[aria-expanded="false"] .nv-rail-group-chev{transform:rotate(-90deg)}
-.nv-rail-fold{display:grid;grid-template-rows:1fr;flex:1 1 auto;min-height:0;
+/* As tall as what it holds: the rail scrolls when the window is shorter, and the foot keeps to the bottom. */
+.nv-rail-fold{display:grid;grid-template-rows:1fr;flex:none;
   transition:grid-template-rows .38s cubic-bezier(.22,1,.36,1)}
 .nv-rail-fold[data-open="false"]{grid-template-rows:0fr}
-.nv-rail-fold > .nv-rail-nav{min-height:0;overflow:hidden}
+/*
+ * The list is clipped only while it is folded or on its way: clipped at rest,
+ * it cut the active entry's glow into a hard-edged box that the entries
+ * above the heading, outside any clip, never had.
+ */
+.nv-rail-fold > .nv-rail-nav{min-height:0}
+.nv-rail-fold:is([data-open="false"],[data-moving]) > .nv-rail-nav{overflow:hidden}
 .nv-rail-fold > .nv-rail-nav > li{transition:opacity .3s var(--ease),transform .38s cubic-bezier(.22,1,.36,1);
   transition-delay:calc(.04s + var(--j, 0) * .035s)}
 .nv-rail-fold[data-open="false"] > .nv-rail-nav > li{opacity:0;transform:translateY(-8px);transition-duration:.16s;transition-delay:0s}
@@ -3871,6 +3882,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     color:transparent;background:var(--sb);pointer-events:none}
   body[data-rail="collapsed"] .nv-rail-group > *{display:none}
   body[data-rail="collapsed"] .nv-rail-fold{grid-template-rows:1fr}
+  body[data-rail="collapsed"] .nv-rail-fold > .nv-rail-nav{overflow:visible}
   body[data-rail="collapsed"] .nv-rail-fold > .nv-rail-nav > li{opacity:1;transform:none}
 }
 /*
@@ -3899,11 +3911,16 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .nv-rail-t{font-family:var(--font-body);font-size:.84rem;font-weight:600;color:var(--ttl);
   letter-spacing:-.005em;text-transform:none}
 .nv-rail-d{display:block;font-size:.7rem;color:var(--muted)}
-.nv-rail-foot{display:grid;gap:10px;padding-top:14px;border-top:1px solid var(--hair)}
+.nv-rail-foot{display:grid;gap:10px;margin-top:auto;padding-top:14px;border-top:1px solid var(--hair)}
 @media (min-width:1140px){
-  /* The foot stays in the frame: the last list gives way first, and scrolls only if it must. */
+  /*
+   * The foot stays in the frame. Where the rail is taller than the window the
+   * rail scrolls as one, as the phone drawer does: a list scrolling inside it
+   * had to clip, and clipped the glow of whichever entry was current.
+   */
   .nv-rail-foot{flex:none}
-  .nv-rail-fold[data-open="true"] > .nv-rail-nav{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+  .nv-rail{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+  .nv-rail::-webkit-scrollbar{display:none}
 }
 /*
  * At a laptop's 720 or 768 pixels the rail's own rhythm was taller than the

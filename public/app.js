@@ -633,6 +633,12 @@ function setSecurityFold(open, { remember = true } = {}) {
   const fold = $('#railSecurityFold');
   if (!head || !fold) return;
   const narrowed = document.body.dataset.rail === 'collapsed' && window.innerWidth >= 1140;
+  /* Clipped while it moves, and only then: at rest the current entry's glow spreads past the list. */
+  if (fold.dataset.open !== String(open)) {
+    fold.dataset.moving = '';
+    clearTimeout(fold.settleTimer);
+    fold.settleTimer = setTimeout(() => { delete fold.dataset.moving; }, 480);
+  }
   fold.dataset.open = String(open);
   head.setAttribute('aria-expanded', String(open));
   fold.inert = !open && !narrowed;
@@ -643,6 +649,9 @@ function setSecurityFold(open, { remember = true } = {}) {
   head.setAttribute('aria-label', `Magnetar Sec, ${count} security ${count === 1 ? 'tool' : 'tools'}`);
   if (remember) try { localStorage.setItem(SECURITY_FOLD, open ? '1' : '0'); } catch {}
 }
+$('#railSecurityFold') && $('#railSecurityFold').addEventListener('transitionend', event => {
+  if (event.target === event.currentTarget && event.propertyName === 'grid-template-rows') delete event.currentTarget.dataset.moving;
+});
 $('#railSecurityLabel') && $('#railSecurityLabel').addEventListener('click', () => {
   setSecurityFold($('#railSecurityFold').dataset.open !== 'true');
 });

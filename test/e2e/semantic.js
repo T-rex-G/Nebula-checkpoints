@@ -230,7 +230,7 @@ function status(target, name) {
 async function enterRepositories(page) {
   const repos = screen(page, 'repos');
   if (await repos.isVisible().catch(() => false)) return repos;
-  const through = page.getByRole('button', { name: 'Repositories', exact: true });
+  const through = page.getByRole('button', { name: 'Galaxies, your repositories', exact: true });
   /*
    * Activated from the keyboard rather than clicked. A pointer click sets the
    * browser's last input modality to mouse, and :focus-visible then withholds

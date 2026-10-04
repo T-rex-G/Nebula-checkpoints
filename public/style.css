@@ -3569,6 +3569,20 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * the file drawer this app already has rather than inventing a second idiom.
  */
 .nav-menu-btn{display:none}
+/*
+ * The menu button answers the drawer. Its three lines cross into a close mark
+ * while the drawer is out and fall back into lines as it goes; on hover the
+ * middle line draws in, the small sign that it opens something.
+ */
+.nav-menu-btn .ico path{transform-box:view-box;transform-origin:12px 12px;
+  transition:transform .34s cubic-bezier(.22,1,.36,1),opacity .2s var(--ease)}
+.nav-menu-btn:hover .nmb-l2{transform:scaleX(.62)}
+.nav-menu-btn[aria-expanded="true"] .nmb-l1{transform:translateY(5px) rotate(45deg)}
+.nav-menu-btn[aria-expanded="true"] .nmb-l2{opacity:0;transform:scaleX(.2)}
+.nav-menu-btn[aria-expanded="true"] .nmb-l3{transform:translateY(-5px) rotate(-45deg)}
+.nav-menu-btn:active{transform:scale(.92)}
+@media (prefers-reduced-motion:reduce){ .nav-menu-btn .ico path{transition:none} }
+[data-motion="off"] .nav-menu-btn .ico path{transition:none}
 @media (max-width:1139px){
   .nav-menu-btn{display:inline-flex}
   body.nav-open .nv-rail,
@@ -3587,15 +3601,16 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   /* The finger holds the drawer while it drags; letting go springs it back or away. */
   body.nav-open .nv-rail.is-dragging{animation:none;transition:none}
   body.nav-open .nv-rail:not(.is-dragging){transition:transform .32s cubic-bezier(.22,1,.36,1)}
-  /* The entries arrive just after the panel, one after another, then stay put. */
-  body.nav-open:not(.nav-closing) .nv-rail-nav > li,
-  body.nav-open:not(.nav-closing) .nv-rail-group{animation:navItemIn .44s cubic-bezier(.22,1,.36,1) both}
-  body.nav-open .nv-rail-nav > li:nth-child(1){animation-delay:.06s}
-  body.nav-open .nv-rail-nav > li:nth-child(2){animation-delay:.1s}
-  body.nav-open .nv-rail-nav > li:nth-child(3){animation-delay:.14s}
-  body.nav-open .nv-rail-nav > li:nth-child(4){animation-delay:.18s}
-  body.nav-open .nv-rail-nav > li:nth-child(5){animation-delay:.22s}
-  body.nav-open .nv-rail-group{animation-delay:.08s}
+  /*
+   * The blocks arrive just after the panel, one after another, top to bottom,
+   * then stay put. The order is each block's own index (--i in the markup),
+   * one sequence through the whole drawer: counted per list, the security
+   * list's first entry left beside Overview, its sixth -- past the last delay
+   * written out -- arrived before all the others, and the brand, the close
+   * control and the foot did not arrive at all, they were simply there.
+   */
+  body.nav-open:not(.nav-closing) :is(.nv-rail-head,.nv-rail-section,.nv-rail-nav > li,.nv-rail-group,.nv-rail-foot){
+    animation:navItemIn .44s cubic-bezier(.22,1,.36,1) both;animation-delay:calc(.05s + var(--i, 0) * .035s)}
   @keyframes navItemIn{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}
   /* The collapse control narrows a rail that is permanently on screen. A
      drawer is dismissed instead, so the same place holds the same-shaped
@@ -3606,11 +3621,9 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 @media (max-width:1139px) and (prefers-reduced-motion:reduce){
   body.nav-open .nv-rail,
   body.nav-closing .nv-rail,
-  body.nav-open .nv-rail-nav > li,
-  body.nav-open .nv-rail-group{animation:none}
+  body.nav-open :is(.nv-rail-head,.nv-rail-section,.nv-rail-nav > li,.nv-rail-group,.nv-rail-foot){animation:none}
 }
-[data-motion="off"] body.nav-open .nv-rail-nav > li,
-[data-motion="off"] body.nav-open .nv-rail-group{animation:none}
+[data-motion="off"] body.nav-open :is(.nv-rail-head,.nv-rail-section,.nv-rail-nav > li,.nv-rail-group,.nv-rail-foot){animation:none}
 /* The drawer's close control wears the collapse control's shape; it is only drawn in a drawer. */
 .nv-rail-collapse.nv-rail-close{display:none}
 .nv-rail-close svg{transition:transform .2s var(--ease)}
@@ -3769,9 +3782,25 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   text-transform:uppercase;color:var(--lab)}
 .nv-rail-collapse{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
   padding:0;border-radius:9px;border:1px solid var(--sb);background:transparent;color:var(--fg2);
-  cursor:pointer;transition:background .16s var(--ease),color .16s var(--ease)}
+  cursor:pointer;transition:background .16s var(--ease),color .16s var(--ease),transform .14s var(--ease),border-color .16s var(--ease)}
 .nv-rail-collapse svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .nv-rail-collapse:hover{background:var(--navHov);color:var(--fg)}
+/*
+ * The control is not a static mark. Pressing it turns the chevrons round to
+ * face the other way -- with a little overshoot, the rail's own easing -- as
+ * the rail narrows or widens beside it; on hover the leading chevron leans
+ * the way it will move the rail, and under a press the button gives a little.
+ */
+#railCollapse svg{transition:transform .52s cubic-bezier(.34,1.56,.64,1)}
+#railCollapse svg path{transition:transform .22s var(--ease)}
+#railCollapse:hover svg path:first-child{transform:translateX(-1.6px)}
+#railCollapse:hover svg path:last-child{transform:translateX(.6px)}
+.nv-rail-collapse:active{transform:scale(.9)}
+@media (prefers-reduced-motion:reduce){
+  #railCollapse svg,#railCollapse svg path,.nv-rail-collapse{transition:none}
+  #railCollapse:hover svg path{transform:none}
+}
+[data-motion="off"] :is(#railCollapse svg,#railCollapse svg path,.nv-rail-collapse){transition:none}
 .nv-rail-collapse:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 
 /*
@@ -3795,19 +3824,50 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   body[data-rail="collapsed"] .nv-rail-item{grid-template-columns:auto;justify-items:center;padding:11px 0}
   body[data-rail="collapsed"] .nv-rail-head,
   body[data-rail="collapsed"] .nv-rail-section{justify-content:center}
-  body[data-rail="collapsed"] .nv-rail-collapse svg{transform:scaleX(-1)}
+  body[data-rail="collapsed"] #railCollapse svg{transform:rotate(180deg)}
 }
-.nv-rail-nav{list-style:none;display:grid;gap:4px;margin:0;padding:0;flex:1;align-content:start}
-/* Only the last list stretches; the ones above it keep their own height so the
-   group label sits directly under the entries it follows. */
-.nv-rail-nav:not(:last-of-type){flex:none}
-.nv-rail-group{margin:6px 0 -12px 12px;font-family:var(--font-mono);font-size:10px;letter-spacing:.17em;
-  text-transform:uppercase;color:var(--lab)}
+.nv-rail-nav{list-style:none;display:grid;gap:4px;margin:0;padding:0;flex:none;align-content:start}
+/*
+ * Magnetar Sec opens and closes like a menu. The heading is the control: its
+ * chevron turns with it, and folded it shows how many tools it holds. The
+ * fold takes the rail's remaining height either way, so the foot keeps its
+ * place; the list inside slides open from the heading, its entries arriving
+ * one after another, and folding takes them away at once.
+ */
+.nv-rail-group{display:flex;align-items:center;gap:8px;width:calc(100% - 12px);margin:6px 0 -12px 12px;padding:4px 6px 4px 0;
+  border:0;border-radius:8px;background:none;cursor:pointer;text-align:left;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.17em;text-transform:uppercase;color:var(--lab);
+  transition:color .16s var(--ease)}
+.nv-rail-group:hover{color:var(--fg2)}
+.nv-rail-group:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.nv-rail-group-t{flex:1;min-width:0}
+.nv-rail-group-n{min-width:18px;padding:1px 6px;border-radius:99px;border:1px solid var(--sb);text-align:center;
+  font-size:9px;letter-spacing:.04em;color:var(--fg2);
+  transition:opacity .2s var(--ease),transform .28s cubic-bezier(.34,1.56,.64,1)}
+.nv-rail-group[aria-expanded="true"] .nv-rail-group-n{opacity:0;transform:scale(.6)}
+.nv-rail-group-chev{flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
+  transition:transform .36s cubic-bezier(.34,1.56,.64,1)}
+.nv-rail-group[aria-expanded="false"] .nv-rail-group-chev{transform:rotate(-90deg)}
+.nv-rail-fold{display:grid;grid-template-rows:1fr;flex:1 1 auto;min-height:0;
+  transition:grid-template-rows .38s cubic-bezier(.22,1,.36,1)}
+.nv-rail-fold[data-open="false"]{grid-template-rows:0fr}
+.nv-rail-fold > .nv-rail-nav{min-height:0;overflow:hidden}
+.nv-rail-fold > .nv-rail-nav > li{transition:opacity .3s var(--ease),transform .38s cubic-bezier(.22,1,.36,1);
+  transition-delay:calc(.04s + var(--j, 0) * .035s)}
+.nv-rail-fold[data-open="false"] > .nv-rail-nav > li{opacity:0;transform:translateY(-8px);transition-duration:.16s;transition-delay:0s}
+@media (prefers-reduced-motion:reduce){
+  .nv-rail-fold,.nv-rail-fold > .nv-rail-nav > li,.nv-rail-group-chev,.nv-rail-group-n{transition:none}
+}
+[data-motion="off"] :is(.nv-rail-fold,.nv-rail-fold > .nv-rail-nav > li,.nv-rail-group-chev,.nv-rail-group-n){transition:none}
 @media (min-width:1140px){
   /* Collapsed to icons, the name gives way to a rule: the grouping survives
-     without a word that no longer fits. */
-  body[data-rail="collapsed"] .nv-rail-group{height:1px;margin:4px 14px -12px;overflow:hidden;
-    color:transparent;background:var(--sb)}
+     without a word that no longer fits, and the tools stay out where their
+     marks are the only way to them. */
+  body[data-rail="collapsed"] .nv-rail-group{height:1px;width:auto;margin:4px 14px -12px;padding:0;overflow:hidden;
+    color:transparent;background:var(--sb);pointer-events:none}
+  body[data-rail="collapsed"] .nv-rail-group > *{display:none}
+  body[data-rail="collapsed"] .nv-rail-fold{grid-template-rows:1fr}
+  body[data-rail="collapsed"] .nv-rail-fold > .nv-rail-nav > li{opacity:1;transform:none}
 }
 /*
  * Icon, then title and subtitle -- the shape the reference gives every entry.
@@ -3839,7 +3899,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 @media (min-width:1140px){
   /* The foot stays in the frame: the last list gives way first, and scrolls only if it must. */
   .nv-rail-foot{flex:none}
-  .nv-rail-nav:last-of-type{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+  .nv-rail-fold[data-open="true"] > .nv-rail-nav{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
 }
 /*
  * At a laptop's 720 or 768 pixels the rail's own rhythm was taller than the

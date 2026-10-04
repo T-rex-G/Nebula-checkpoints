@@ -294,7 +294,7 @@ function renderGalaxyPulse(repos) {
   const spread = pulse && pulse.languageSpread ? pulse.languageSpread(list) : [];
   const drawRadar = spread.length >= (pulse ? pulse.RADAR_MIN_AXES : 3);
   const measures = [
-    { label: 'Repositories', value: list.length, note: 'connected' },
+    { label: 'Galaxies', value: list.length, note: 'repositories connected' },
     { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
     ...(drawRadar ? [] : [{ label: 'Languages', value: languages.size, note: languages.size === 1 ? 'in use' : 'across the set' }])
   ].filter(measure => Number.isFinite(measure.value));
@@ -610,12 +610,47 @@ function setRailCollapsed(collapsed) {
    * somewhere a pointer can reach it as well as in the accessibility tree.
    */
   $$('.nv-rail-item').forEach(item => {
-    const name = (item.querySelector('.nv-rail-t') || {}).textContent || '';
-    if (collapsed) item.title = name.trim();
+    const name = ((item.querySelector('.nv-rail-t') || {}).textContent || '').trim();
+    const sub = ((item.querySelector('.nv-rail-d') || {}).textContent || '').trim();
+    if (collapsed) item.title = sub ? `${name} — ${sub}` : name;
     else item.removeAttribute('title');
   });
   try { localStorage.setItem('nv_rail_collapsed', collapsed ? '1' : '0'); } catch {}
+  const fold = $('#railSecurityFold');
+  if (fold && typeof setSecurityFold === 'function') setSecurityFold(fold.dataset.open === 'true', { remember: false });
 }
+
+/*
+ * Magnetar Sec opens and closes like a menu, and the reader's choice is kept
+ * for the next visit. Folded, its tools are out of the tab order as well as
+ * out of sight; and when the screen in front of the reader is one of them,
+ * the heading opens by itself so the current entry is never hidden. On a rail
+ * narrowed to icons the marks are the only way to the tools, so it stays open.
+ */
+const SECURITY_FOLD = 'nv_ui:rail-security';
+function setSecurityFold(open, { remember = true } = {}) {
+  const head = $('#railSecurityLabel');
+  const fold = $('#railSecurityFold');
+  if (!head || !fold) return;
+  const narrowed = document.body.dataset.rail === 'collapsed' && window.innerWidth >= 1140;
+  fold.dataset.open = String(open);
+  head.setAttribute('aria-expanded', String(open));
+  fold.inert = !open && !narrowed;
+  head.tabIndex = narrowed ? -1 : 0;
+  const count = $$('#railSecurityFold .nv-rail-item').filter(item => !item.hidden && !item.closest('[hidden]')).length;
+  const badge = head.querySelector('.nv-rail-group-n');
+  if (badge) badge.textContent = String(count);
+  head.setAttribute('aria-label', `Magnetar Sec, ${count} security ${count === 1 ? 'tool' : 'tools'}`);
+  if (remember) try { localStorage.setItem(SECURITY_FOLD, open ? '1' : '0'); } catch {}
+}
+$('#railSecurityLabel') && $('#railSecurityLabel').addEventListener('click', () => {
+  setSecurityFold($('#railSecurityFold').dataset.open !== 'true');
+});
+(function restoreSecurityFold() {
+  let open = true;
+  try { open = localStorage.getItem(SECURITY_FOLD) !== '0'; } catch {}
+  setSecurityFold(open, { remember: false });
+})();
 
 $('#railCollapse') && $('#railCollapse').addEventListener('click', () => {
   setRailCollapsed(document.body.dataset.rail !== 'collapsed');
@@ -2321,7 +2356,7 @@ function pulseMeasures(list, pulse) {
     ? trust.components.filter(c => c.status === 'warning' || c.status === 'critical').length
     : null;
   return [
-    { icon: 'repositories', label: 'Repositories', value: list.length, note: 'connected' },
+    { icon: 'repositories', label: 'Galaxies', value: list.length, note: 'repositories connected' },
     { icon: 'private', label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
     {
       icon: 'trust', label: 'Trust score',
@@ -7813,6 +7848,8 @@ function paintRail(name) {
     if (current) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
   });
+  const fold = $('#railSecurityFold');
+  if (fold) setSecurityFold(fold.dataset.open === 'true' || Boolean(fold.querySelector('.nv-rail-item[aria-current="page"]')), { remember: false });
   const user = $('#navUser');
   const me = state.me;
   if (user) {

@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### The constellation, named
+
+- **Names.** Repositories are *Galaxies* (your repositories); the security
+  tools sit under **Magnetar Sec**, each on its own engine: Neural on the
+  *Pulsar Engine*, Governance on *Kepler*, Exposure on *Quasar*, Audit on
+  *Uranus*, Website on *Parallax* and Safeguards on *Corona*. The rail names
+  each tool's engine beneath it, a narrowed rail shows both on hover, and each
+  tool's page carries its engine above its title.
+- **Magnetar Sec opens and closes like a menu.** Its heading folds the six
+  tools away with the chevron turning, shows how many it holds while folded,
+  keeps the choice for the next visit, and opens by itself when the screen in
+  front of the reader is one of its tools; folded tools leave the tab order.
+- **The rail moves as one.** The drawer brings every block in turn, top to
+  bottom -- Safeguards used to arrive first, the second list beside the first,
+  and the brand, the close control and the foot did not move at all. The
+  collapse control turns its chevrons round as the rail narrows and leans the
+  way it will move; the menu button's lines cross into a close mark while the
+  drawer is out.
+- **The frame holds its contents.** The top bar's Safeguards button, a third
+  way into a section the rail and tabs open, is gone. At a laptop's height the
+  rail's foot stays inside the frame; the workbench sits a gutter in from every
+  edge instead of against the rail and through the frame's rounded corner; the
+  section tabs, the Neural header, Exposure's facts and Compare's pickers fit
+  the pane they are in rather than the window.
+
 ### Uranus, Governed
 
 Phase 4 of the audit engine: what a team does after the audit.

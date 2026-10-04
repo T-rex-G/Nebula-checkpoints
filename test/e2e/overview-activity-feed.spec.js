@@ -178,7 +178,7 @@ test('the feed is read once per visit, not once per glance', async ({ page }) =>
    * rate limit. A reader moving between the overview and the repository list
    * must not spend a fresh handful of requests every time they come back.
    */
-  /* By id, not by name: "Repositories" is both the rail entry and the
+  /* By id, not by name: "Galaxies" is both the rail entry and the
      overview's own action, and a role query matches them both. */
   await page.locator('#ovGoRepos').click();
   await expect(ui.screen(page, 'repos')).toBeVisible();

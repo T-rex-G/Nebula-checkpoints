@@ -367,7 +367,7 @@
 [data-design="obsidian"][data-theme="light"] .alpha-wake-state::before,
 [data-design="obsidian"][data-theme="light"] .ov-live::before{box-shadow:none}
 [data-design="obsidian"] .notif-unread{box-shadow:none}
-[data-design="obsidian"] input:focus,[data-design="obsidian"] select:focus,[data-design="obsidian"] textarea:focus{box-shadow:0 0 0 3px var(--field-halo)}
+[data-design="obsidian"] input:where(:not([type="checkbox"],[type="radio"],[type="range"])):focus,[data-design="obsidian"] select:focus,[data-design="obsidian"] textarea:focus{box-shadow:0 0 0 3px var(--field-halo)}
 
 /*
  * The design marks the current rail entry with a violet edge in light mode
@@ -1063,6 +1063,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 
    halo spreads from it, instead of a thick ring hung a few pixels outside. */
 input:where(:not([type="checkbox"],[type="radio"],[type="range"])):focus-visible,select:focus-visible,textarea:focus-visible{
   outline:1px solid var(--field-focus);outline-offset:0;border-color:var(--field-focus);box-shadow:0 0 0 4px var(--field-halo)}
+/* A box or a dot is not a field: the field's halo is a square behind it, so it
+   takes none. The keyboard ring above still marks it. */
+input:is([type="checkbox"],[type="radio"]):is(:focus,:focus-visible){box-shadow:none}
 input::placeholder,textarea::placeholder{color:var(--muted)}
 .field-label{display:block;font-size:.78rem;font-weight:500;color:var(--text2);margin:14px 0 6px}
 .field-label:first-child{margin-top:0}
@@ -7222,7 +7225,8 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
 .audit-triaged-item > .audit-triage-tools { grid-column: 2; grid-row: 1 / span 3; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; align-self: center; }
 .audit-triaged-item .audit-waived-top { flex-wrap: wrap; row-gap: 6px; }
 .audit-triage-reason { font-style: normal; color: var(--muted); line-height: 1.45; }
-.audit-triage-chip { margin-left: auto; }
+/* The decision follows the title it is about, and wraps under it from the left, never adrift beside it. */
+.audit-triage-chip { flex: none; }
 
 .audit-remediation { padding: 18px 20px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; --fold-gap: 14px; }
 .audit-rem-tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; border-radius: 14px; overflow: hidden; background: var(--rp-line); border: 1px solid var(--rp-line); }
@@ -7233,7 +7237,7 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
 .audit-rem-label { font-size: .74rem; font-weight: 650; letter-spacing: .02em; color: var(--muted); }
 .audit-rem-value { font-size: 1.45rem; font-weight: 700; line-height: 1.15; color: var(--text); font-variant-numeric: tabular-nums; }
 .audit-rem-tile[data-tone] .audit-rem-value { color: var(--tone); }
-.audit-rem-sub { font-size: .74rem; color: var(--muted); line-height: 1.35; overflow-wrap: anywhere; }
+.audit-rem-sub { font-size: .74rem; color: var(--muted); line-height: 1.35; overflow-wrap: anywhere; text-wrap: balance; }
 .audit-rem-table { width: 100%; border-collapse: collapse; font-size: .84rem; font-variant-numeric: tabular-nums; }
 .audit-rem-table th, .audit-rem-table td { padding: 9px 10px; text-align: right; border-bottom: 1px solid var(--rp-line); color: var(--text); white-space: nowrap; }
 .audit-rem-table thead th { font-size: .72rem; font-weight: 650; letter-spacing: .02em; color: var(--muted); }
@@ -7251,7 +7255,8 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
   .audit-rem-table tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 10px; padding: 10px 0; border-bottom: 1px solid var(--rp-line); }
   .audit-rem-table tbody tr:last-child { border-bottom: 0; }
   .audit-rem-table th, .audit-rem-table td { display: grid; gap: 1px; padding: 0; border: 0; text-align: left; white-space: normal; }
-  .audit-rem-table th[scope="row"] { grid-column: 1 / -1; }
+  /* The severity names the row: its chip keeps its own width rather than stretching into a bar. */
+  .audit-rem-table th[scope="row"] { grid-column: 1 / -1; justify-items: start; }
   .audit-rem-table td::before { content: attr(data-label); font-size: .7rem; font-weight: 650; color: var(--muted); }
   .audit-triaged-item { grid-template-columns: minmax(0, 1fr); }
   .audit-triaged-item > .audit-triage-tools { grid-column: 1; grid-row: auto; justify-content: flex-start; }
@@ -7271,6 +7276,9 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
 .triage-option { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--glass-border); cursor: pointer; }
 .triage-option:has(input:checked) { border-color: color-mix(in oklab, var(--accent) 60%, var(--glass-border)); background: color-mix(in oklab, var(--accent) 7%, transparent); }
 .triage-option input { margin-top: 3px; accent-color: var(--accent); width: 16px; height: 16px; }
+/* The choice is the whole card, so the keyboard ring goes round the card rather than the dot. */
+.triage-option input:focus-visible { outline: none; }
+.triage-option:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 .triage-option-text { display: grid; gap: 2px; font-size: .88rem; }
 .triage-option-text small { color: var(--muted); font-size: .78rem; line-height: 1.4; }
 #triageReason, #triageDays { width: 100%; }
@@ -7290,6 +7298,7 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
 .pr-gate-title { font-size: .8rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .pr-gate-line, .pr-gate-policy { margin: 0; font-size: .86rem; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
 .pr-gate-muted { color: var(--muted); }
+.pr-gate-sha { font-family: var(--font-mono); font-size: .82em; padding: 1px 5px; border-radius: 6px; border: 1px solid var(--rp-line, var(--glass-border)); }
 .pr-gate-policy { padding-left: 10px; border-left: 2px solid var(--st-info); }
 .pr-gate-policy[data-effect="deny"][data-mode="block"] { border-left-color: var(--st-critical); }
 .pr-gate-policy[data-effect="require-approval"] { border-left-color: var(--st-serious); }
@@ -7430,7 +7439,7 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
 }
 [data-design="obsidian"][data-theme="light"] .modal { box-shadow: 0 30px 80px rgba(28,25,23,.22), 0 4px 14px rgba(28,25,23,.1), inset 0 1.5px 0 rgba(255,255,255,.9); }
 [data-design="obsidian"] .sheet-item .ico { color: var(--text); }
-[data-design="obsidian"] input:focus, [data-design="obsidian"] select:focus, [data-design="obsidian"] textarea:focus { box-shadow: 0 0 0 3px var(--field-halo); }
+[data-design="obsidian"] input:where(:not([type="checkbox"],[type="radio"],[type="range"])):focus, [data-design="obsidian"] select:focus, [data-design="obsidian"] textarea:focus { box-shadow: 0 0 0 3px var(--field-halo); }
 [data-design="obsidian"] .empty-mark { filter: drop-shadow(0 0 10px var(--ghost-glow)); }
 [data-design="obsidian"] .dropzone { border-color: var(--ghost-edge); }
 [data-design="obsidian"] .dz-ring { border-color: var(--ghost-edge); box-shadow: 0 0 22px var(--ghost), inset 0 0 12px var(--ghost); }

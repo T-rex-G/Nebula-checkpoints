@@ -6195,9 +6195,17 @@ async function rescoreAudit(view) {
     if (view === auditView) toast('The grade will reflect this decision on the next audit', 'ok');
   }
 }
+/* A day and a moment the way the audit says them everywhere: Jan 2, 2027 and Oct 4, 2026, 5:25 PM. */
+function auditDay(at) {
+  const date = new Date(at);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function auditMoment(at) {
+  const date = new Date(at);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
 function triageDays(days) {
-  const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-  return until.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return auditDay(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 function triageReasonOptions(vocabulary, disposition) {
   return vocabulary.reasons.filter(reason => reason.disposition === disposition && /^[a-z-]{2,40}$/.test(reason.id))
@@ -6259,7 +6267,7 @@ async function triageAuditFinding(finding) {
     };
     if (view.triage.status === 'ready') view.triage.decisions = [decision, ...view.triage.decisions.filter(item => item.findingId !== decision.findingId)];
     await rescoreAudit(view);
-    toast(decision.disposition === 'false-positive' ? 'Recorded as a false positive' : `Risk accepted until ${new Date(decision.expiresAt).toLocaleDateString()}`, 'ok');
+    toast(decision.disposition === 'false-positive' ? 'Recorded as a false positive' : `Risk accepted until ${auditDay(decision.expiresAt)}`, 'ok');
     if (view === auditView) {
       paintAudit();
       loadAuditMetrics();
@@ -6311,8 +6319,8 @@ async function showTriageHistory(finding) {
       bodyHTML: `<p class="triage-target"><b>${esc(finding.title)}</b><span class="mono">${esc(finding.rule)}</span></p>
         ${events.length ? `<ol class="triage-events">${events.map(event => `
           <li class="triage-event" data-event="${event.event === 'reopened' ? 'reopened' : 'decided'}">
-            <span class="triage-event-what">${event.event === 'reopened' ? 'Reopened' : esc(TRIAGE_EVENT_WORD[event.disposition] || 'Decided')}${event.reason ? ` — ${esc(label(event.reason))}` : ''}${event.expiresAt ? `, until ${esc(new Date(event.expiresAt).toLocaleDateString())}` : ''}</span>
-            <span class="triage-event-who">${esc(event.actor)} · <time datetime="${esc(event.at)}">${esc(new Date(event.at).toLocaleString())}</time></span>
+            <span class="triage-event-what">${event.event === 'reopened' ? 'Reopened' : esc(TRIAGE_EVENT_WORD[event.disposition] || 'Decided')}${event.reason ? ` — ${esc(label(event.reason))}` : ''}${event.expiresAt ? `, until ${esc(auditDay(event.expiresAt))}` : ''}</span>
+            <span class="triage-event-who">${esc(event.actor)} · <time datetime="${esc(event.at)}">${esc(auditMoment(event.at))}</time></span>
           </li>`).join('')}</ol>` : '<p class="hint">No decisions recorded.</p>'}`
     });
   } catch (error) {
@@ -8728,7 +8736,14 @@ function renderPullGate(host, p, answer) {
   } else {
     const open = gate.open || {};
     const counts = ['critical', 'serious', 'warning'].filter(severity => open[severity]).map(severity => `${open[severity]} ${severity}`);
-    line(`Grade ${gate.grade} · audited ${new Date(gate.auditedAt).toLocaleString()} at ${String(gate.commitSha || '').slice(0, 7)} · ${counts.length ? `${counts.join(', ')} open` : 'nothing open'}${gate.base === 'missing' ? ` · ${p.base} not audited, so nothing is compared with it` : ''}`);
+    /* When, as long ago as it was, with the moment on hover; which commit, as code. */
+    const facts = node('p', 'pr-gate-line');
+    const when = node('time', null, timeAgo(gate.auditedAt));
+    when.dateTime = String(gate.auditedAt || '');
+    when.title = auditMoment(gate.auditedAt);
+    facts.append(`Grade ${gate.grade} · audited `, when, ' at ', node('code', 'pr-gate-sha', String(gate.commitSha || '').slice(0, 7)),
+      ` · ${counts.length ? `${counts.join(', ')} open` : 'nothing open'}${gate.base === 'missing' ? ` · ${p.base} not audited, so nothing is compared with it` : ''}`);
+    host.appendChild(facts);
     if (gate.blocking.length) {
       const list = node('ul', 'pr-gate-reasons');
       for (const reason of gate.blocking) if (GATE_REASON[reason]) list.appendChild(node('li', null, GATE_REASON[reason](gate)));

@@ -119,6 +119,14 @@ const VALID = Object.freeze({
    */
   governance: new Set(['unavailable', 'populated']),
   /*
+   * Triage: 'reviewer' may decide about findings, 'reader' sees the team's
+   * decisions and may not make one. And the clocks: 'fresh' findings were
+   * first seen by the audit that reports them, 'aged' ones forty days earlier,
+   * so the critical and serious ones are past their deadline.
+   */
+  triage: new Set(['reviewer', 'reader']),
+  auditClock: new Set(['fresh', 'aged']),
+  /*
    * The gate's own setting, in the words the server uses for it: 'off' or
    * 'invite', straight from NV_ALPHA_ACCESS_MODE. It was spelled 'on' here,
    * which no deployment ever sends -- so a client branching on the real value
@@ -168,6 +176,8 @@ function normalizedScenario(input = {}) {
     activityState: input.activityState || 'normal',
     postureState: input.postureState || 'clean',
     auditHistory: input.auditHistory || 'kept',
+    triage: input.triage || 'reviewer',
+    auditClock: input.auditClock || 'fresh',
     licences: input.licences || 'permissive',
     auditStack: input.auditStack || 'node',
     /* Audit results kept before the page opened, oldest first, and what the watch will find since the latest. */
@@ -238,9 +248,25 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       diff = { newIds: [...current].filter(id => !before.has(id)), resolved: [...before].filter(id => !current.has(id)).length };
     }
     const row = { ...compact.audit, audit_id: crypto.randomUUID(), new_count: diff ? diff.newIds.length : null, resolved_count: diff ? diff.resolved : null };
+    /* Each finding's clock: when any kept audit first saw it, as the server carries it -- forty days back when aged. */
+    const shift = scenario.auditClock === 'aged' ? 40 * 24 * 60 * 60 * 1000 : 0;
+    const firstSeen = {};
+    for (const finding of [...compact.findings, ...(compact.waived || [])]) {
+      const seen = state.auditHistory.filter(entry => entry.findings.some(kept => kept.finding_id === finding.finding_id))
+        .map(entry => Date.parse(entry.row.audited_at));
+      const at = Math.min(Date.parse(row.audited_at), ...seen) - shift;
+      finding.first_seen_at = new Date(at).toISOString();
+      firstSeen[finding.finding_id] = finding.first_seen_at;
+    }
     state.auditHistory.unshift({ row, findings: compact.findings, components: compact.components, alerts: [], watched: false });
-    return { saved: true, auditId: row.audit_id, previousAt: previous ? previous.row.audited_at : null, newIds: diff ? diff.newIds : null, resolved: diff ? diff.resolved : null };
+    return { saved: true, auditId: row.audit_id, previousAt: previous ? previous.row.audited_at : null, newIds: diff ? diff.newIds : null, resolved: diff ? diff.resolved : null, firstSeen };
   };
+  /* The team's decisions about the repository's findings, and every step of them, as the triage store keeps them. */
+  const triageModule = require('../../src/code-audit-triage');
+  const { clockOf } = require('../../src/code-audit-policy');
+  const { exploitedInProduction } = require('../../src/uranus-reach');
+  state.triage = new Map();
+  state.triageEvents = [];
   for (const seeded of scenario.auditHistorySeed) recordAudit(seeded);
 
   await page.route('**/readyz', async route => {
@@ -483,6 +509,80 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         return method === 'GET' ? fulfill({ available: false }) : fulfill(publicError('CODE_AUDIT_HISTORY_UNAVAILABLE', 'Audit history requires the configured PostgreSQL DATABASE_URL'), 503);
       }
       const ref = url.searchParams.get('ref') || 'main';
+      if (rest === 'triage' && method === 'GET') {
+        return fulfill({ available: true, canDecide: scenario.triage === 'reviewer', vocabulary: triageModule.VOCABULARY,
+          decisions: [...state.triage.values()].sort((a, b) => b.decidedAt.localeCompare(a.decidedAt)) });
+      }
+      const decided = /^findings\/([0-9a-f]{24})\/(triage|reopen|triage-events)$/.exec(rest);
+      if (decided) {
+        const [, findingId, verb] = decided;
+        if (verb === 'triage-events' && method === 'GET') {
+          return fulfill({ events: state.triageEvents.filter(event => event.findingId === findingId).slice().reverse() });
+        }
+        if (method !== 'POST') return fulfill(publicError('NOT_FOUND', 'Not found'), 404);
+        if (scenario.triage !== 'reviewer') return fulfill(publicError('GOV_ROLE_REQUIRED', 'A reviewer must decide about findings'), 403);
+        const at = new Date().toISOString();
+        if (verb === 'reopen') {
+          const removed = state.triage.get(findingId);
+          if (!removed) return fulfill(publicError('CODE_AUDIT_TRIAGE_NOT_FOUND', 'Nobody has decided anything about that finding'), 404);
+          state.triage.delete(findingId);
+          state.triageEvents.push({ id: crypto.randomUUID(), findingId, rule: removed.rule, event: 'reopened', disposition: null, reason: null, expiresAt: null, actor: scenario.login, at });
+          return fulfill({ reopened: removed }, 201);
+        }
+        const body = JSON.parse(request.postData() || '{}');
+        let input;
+        try { input = triageModule.normalizeDecision({ disposition: body.disposition, reason: body.reason, expiresInDays: body.expiresInDays }); }
+        catch (error) { return fulfill(publicError(error.code || 'CODE_AUDIT_TRIAGE_INVALID', error.message), 400); }
+        const expiresAt = input.days ? new Date(Date.parse(at) + input.days * 24 * 60 * 60 * 1000).toISOString() : null;
+        const decision = { findingId, rule: String(body.rule || ''), disposition: input.disposition, reason: input.reason, decidedBy: scenario.login, decidedAt: at, expiresAt };
+        state.triage.set(findingId, decision);
+        state.triageEvents.push({ id: crypto.randomUUID(), findingId, rule: decision.rule, event: 'decided', disposition: decision.disposition, reason: decision.reason, expiresAt, actor: scenario.login, at });
+        return fulfill({ decision }, 201);
+      }
+      if (rest === 'metrics' && method === 'GET') {
+        /* Where the branch stands against its clocks, worked out as the history does it, over the latest kept audit. */
+        const latest = state.auditHistory.find(entry => entry.row.ref_name === ref);
+        const now = Date.now();
+        const empty = () => ({ count: 0, medianDays: null, meanDays: null });
+        const mttr = { windowDays: 90, all: empty(), critical: empty(), serious: empty(), warning: empty() };
+        const triage = { summary: triageModule.summarizeDecisions(state.triage, now) };
+        if (!latest) return fulfill({ available: true, ref, audit: null, sla: null, open: null, oldest: null, mttr, triage: triage.summary, triageUnavailable: false });
+        const sla = { critical: latest.row.sla_critical || 7, serious: latest.row.sla_serious || 30, warning: latest.row.sla_warning || 90 };
+        const bySeverity = { critical: { open: 0, overdue: 0, dueSoon: 0 }, serious: { open: 0, overdue: 0, dueSoon: 0 }, warning: { open: 0, overdue: 0, dueSoon: 0 } };
+        const open = { total: 0, overdue: 0, dueSoon: 0, onTrack: 0, unclocked: 0, bySeverity };
+        let oldest = null;
+        for (const finding of latest.findings) {
+          const decision = state.triage.get(finding.finding_id);
+          if (decision && decision.rule === finding.rule && triageModule.inForce(decision, now)) continue;
+          const clock = clockOf({ severity: finding.severity, exploited: false }, { firstSeenAt: finding.first_seen_at, sla, now });
+          if (!bySeverity[finding.severity]) continue;
+          open.total += 1;
+          bySeverity[finding.severity].open += 1;
+          if (!clock) { open.unclocked += 1; continue; }
+          if (clock.state === 'overdue') { open.overdue += 1; bySeverity[finding.severity].overdue += 1; }
+          else if (clock.state === 'due-soon') { open.dueSoon += 1; bySeverity[finding.severity].dueSoon += 1; }
+          else open.onTrack += 1;
+          const days = Math.floor((now - Date.parse(finding.first_seen_at)) / (24 * 60 * 60 * 1000));
+          if (!oldest || days > oldest.days) oldest = { days, findingId: finding.finding_id, rule: finding.rule, severity: finding.severity };
+        }
+        /* A branch audited twice resolved what the first saw and the second did not: one fix, timed. */
+        const kept = state.auditHistory.filter(entry => entry.row.ref_name === ref);
+        if (kept.length > 1) {
+          const [current, before] = kept;
+          const gone = before.findings.filter(row => !current.findings.some(still => still.finding_id === row.finding_id) && mttr[row.severity]);
+          for (const row of gone) {
+            const days = Math.round((Date.parse(current.row.audited_at) - Date.parse(row.first_seen_at)) / 864e5 * 10) / 10;
+            for (const key of [row.severity, 'all']) {
+              const entry = mttr[key];
+              entry.meanDays = Math.round((((entry.meanDays || 0) * entry.count) + days) / (entry.count + 1) * 10) / 10;
+              entry.medianDays = entry.meanDays;
+              entry.count += 1;
+            }
+          }
+        }
+        return fulfill({ available: true, ref, audit: { id: latest.row.audit_id, auditedAt: latest.row.audited_at, commitSha: latest.row.commit_sha },
+          sla: { ...sla, source: latest.row.policy_source || 'default' }, open, oldest, mttr, triage: triage.summary, triageUnavailable: false });
+      }
       if (rest === 'history' && method === 'GET') {
         const kept = state.auditHistory.filter(entry => entry.row.ref_name === ref);
         const branches = [...new Set(state.auditHistory.map(entry => entry.row.ref_name))].map(name => {
@@ -524,6 +624,11 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         const order = { critical: 0, serious: 1, warning: 2 };
         return fulfill({ audit: serialize.audit(entry.row), findings: entry.findings.map(serialize.finding).sort((a, b) => order[a.severity] - order[b.severity]) });
       }
+    }
+    if (pathname === '/api/code-audit/score' && method === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      if (!Array.isArray(body.findings)) return fulfill(publicError('CODE_AUDIT_SCORE_INVALID', 'findings are required'), 400);
+      return fulfill(triageModule.rescore(body.findings));
     }
     if (pathname === '/api/repo/sandbox/demo/code-audit' && method === 'GET' && !url.searchParams.get('run')) {
       state.auditRun = `run-${(state.audits || 0) + 1}`;
@@ -634,8 +739,17 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
           licences: { versions: 3, fromLock: 0, asked: 3, answered: 3 }
         }
       };
-      if (scenario.auditHistory === 'kept') finished.history = recordAudit(finished);
-      return fulfill(finished);
+      const decided = triageModule.applyTriage(finished, state.triage);
+      if (scenario.auditHistory !== 'kept') return fulfill(decided);
+      const { firstSeen, ...history } = recordAudit(decided);
+      const sla = decided.policy && decided.policy.sla;
+      const now = Date.now();
+      const clocked = sla ? { ...decided, findings: decided.findings.map(finding => {
+        const clock = clockOf({ severity: finding.severity, exploited: exploitedInProduction(finding) }, { firstSeenAt: firstSeen[finding.id], sla, now });
+        return clock ? { ...finding, clock } : finding;
+      }) } : decided;
+      clocked.history = history;
+      return fulfill(clocked);
     }
     /*
      * The provider's branch rules, read by the real module from the JSON

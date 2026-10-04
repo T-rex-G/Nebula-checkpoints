@@ -81,7 +81,10 @@
       scenarios: [
         { id: 'write-file', action: 'file.write', attributes: { branch, paths: ['README.md'] } },
         { id: 'reset-protected-branch', action: 'branch.reset', attributes: { branch, protected: true } },
-        { id: 'merge-pull-request', action: 'pull.merge', attributes: { branch } },
+        { id: 'merge-pull-request', action: 'pull.merge', attributes: { branch, audit: { state: 'current', blocking: [] } } },
+        /* The audit gate's two answers, so a policy that acts on them is exercised before it can be activated. */
+        { id: 'merge-failing-audit', action: 'pull.merge', attributes: { branch, audit: { state: 'current', blocking: ['critical', 'overdue'] } } },
+        { id: 'merge-unaudited-head', action: 'pull.merge', attributes: { branch, audit: { state: 'missing', blocking: [] } } },
         { id: 'create-release', action: 'release.create', attributes: { branch } }
       ]
     };
@@ -317,7 +320,7 @@
     const scope = asObject(twin.scope);
     const noPolicies = count(asObject(twin.current).policyCount) === 0;
     return `<section class="gov-shell" aria-busy="false">
-      <header class="gov-hero"><div><span class="gov-eyebrow">Repository governance</span><h2>Policy Digital Twin</h2><p><span class="mono">${escapeHtml(scope.owner)}/${escapeHtml(scope.repo)}</span> · snapshot ${escapeHtml(formatTime(freshness.asOf))}</p></div><div class="gov-hero-actions">${badge(freshness.status || 'partial')}${access.evidence.status !== 'current' ? badge(access.evidence.status) : ''}${actionButton('refresh', 'Refresh', {}, 'ghost')}</div></header>
+      <header class="gov-hero"><div><span class="gov-eyebrow">Magnetar Sec · Kepler Engine</span><h2>Policy Digital Twin</h2><p><span class="mono">${escapeHtml(scope.owner)}/${escapeHtml(scope.repo)}</span> · snapshot ${escapeHtml(formatTime(freshness.asOf))}</p></div><div class="gov-hero-actions">${badge(freshness.status || 'partial')}${access.evidence.status !== 'current' ? badge(access.evidence.status) : ''}${actionButton('refresh', 'Refresh', {}, 'ghost')}</div></header>
       ${freshness.status !== 'current' ? `<div class="gov-banner warn" role="status"><strong>Partial evidence</strong><span>${incomplete.length ? `Incomplete: ${escapeHtml(incomplete.join(', '))}.` : 'One or more evidence sections are incomplete.'} Decisions remain server-authoritative.</span></div>` : ''}
       ${access.evidence.status !== 'current' ? `<div class="gov-banner danger" role="alert"><strong>Authorization evidence ${escapeHtml(access.evidence.status)}</strong><span>Governance actions are disabled until repository permissions are refreshed.</span></div>` : ''}
       <div class="gov-access-line"><span>Signed in as <b>${escapeHtml(access.actor.login || 'unknown')}</b></span><span>${escapeHtml(access.execution.kind === 'installation' ? 'GitHub App execution · human governance actor' : human(access.execution.authMethod || 'user session'))}</span></div>

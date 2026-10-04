@@ -44,7 +44,15 @@ function isIdPart(char) {
  * not close before the end of its line is text in a JSX element ("Don't"),
  * not a string, and is skipped rather than allowed to swallow the file.
  */
-function lexJs(text) {
+/*
+ * How many templates deep an interpolation is lexed as code. Each level lexes
+ * the source of the one inside it again, so a crafted file of thousands of
+ * nested templates was lexed thousands of times over; real code nests two or
+ * three. Deeper interpolations are kept as text with no code in them.
+ */
+const MAX_TEMPLATE_NESTING = 16;
+
+function lexJs(text, nesting = 0) {
   const tokens = [];
   let index = 0;
   let line = 1;
@@ -111,7 +119,7 @@ function lexJs(text) {
           if (depth > 0) cursor += 1;
         }
         const source = text.slice(exprStart, cursor);
-        const sub = lexJs(source);
+        const sub = nesting < MAX_TEMPLATE_NESTING ? lexJs(source, nesting + 1) : [];
         for (const token of sub) inner.push({ ...token, line: token.line + line - 1 });
         for (let k = exprStart; k < cursor; k += 1) if (text[k] === '\n') line += 1;
         exprs.push(inner);
@@ -237,7 +245,7 @@ const PY_KEYWORDS = new Set([
 const PY_PUNCT3 = ['**=', '//=', '>>=', '<<=', '...'];
 const PY_PUNCT2 = ['==', '!=', '<=', '>=', '->', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '**', '//', '<<', '>>', ':='];
 
-function fstringExprs(body, line) {
+function fstringExprs(body, line, nesting = 0) {
   const exprs = [];
   const parts = [];
   let buffer = '';
@@ -258,7 +266,7 @@ function fstringExprs(body, line) {
       }
       /* A format spec or conversion after the expression is not code. */
       const inner = body.slice(index + 1, cursor).replace(/(![rsa])?(:[^{}]*)?$/, '');
-      exprs.push(lexPyTokens(inner, line));
+      exprs.push(nesting < MAX_TEMPLATE_NESTING ? lexPyTokens(inner, line, nesting + 1) : []);
       index = cursor + 1;
       continue;
     }
@@ -269,7 +277,7 @@ function fstringExprs(body, line) {
   return { parts, exprs };
 }
 
-function lexPyTokens(text, startLine = 1) {
+function lexPyTokens(text, startLine = 1, nesting = 0) {
   const tokens = [];
   let index = 0;
   let line = startLine;
@@ -306,7 +314,7 @@ function lexPyTokens(text, startLine = 1) {
       }
       if (!closed && quote.length === 1) { index += prefix[0].length; continue; }
       if (flags.includes('f')) {
-        const { parts, exprs } = fstringExprs(body, startLine);
+        const { parts, exprs } = fstringExprs(body, startLine, nesting);
         tokens.push({ t: 'tpl', v: 'f', parts, exprs, line: startLine });
       } else {
         tokens.push({ t: 'str', v: body, q: quote, line: startLine });
@@ -374,16 +382,49 @@ function lexPython(text) {
   return lines;
 }
 
+/*
+ * Every bracket's partner in one pass, a stack per kind, kept per token list.
+ * Asked bracket by bracket, a walk to the closer is repeated for every opener,
+ * and a file of openers that never close made each walk run to the end of
+ * the list: quadratic on a few hundred kilobytes of crafted input. A list
+ * that has grown since is paired again.
+ */
+const PAIRS = Object.freeze({ '(': ')', '[': ']', '{': '}' });
+const CLOSERS = Object.freeze({ ')': '(', ']': '[', '}': '{' });
+const partnerTables = new WeakMap();
+function partners(tokens) {
+  const known = partnerTables.get(tokens);
+  if (known && known.length === tokens.length) return known.table;
+  const table = new Int32Array(tokens.length).fill(-1);
+  const open = { '(': [], '[': [], '{': [] };
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token || token.t !== 'punc') continue;
+    if (PAIRS[token.v]) open[token.v].push(index);
+    else if (CLOSERS[token.v]) {
+      const stack = open[CLOSERS[token.v]];
+      if (stack.length) table[stack.pop()] = index;
+    }
+  }
+  partnerTables.set(tokens, { length: tokens.length, table });
+  return table;
+}
+
 /* The index of the bracket that closes the one at `open`, or the end of the list. */
 function matching(tokens, open) {
-  const pairs = { '(': ')', '[': ']', '{': '}' };
-  const closer = pairs[tokens[open].v];
+  const token = tokens[open];
+  if (token && token.t === 'punc' && PAIRS[token.v]) {
+    const close = partners(tokens)[open];
+    return close >= 0 ? close : tokens.length - 1;
+  }
+  /* Anything else keeps the walk this table replaced, unchanged. */
+  const closer = token ? PAIRS[token.v] : undefined;
   let depth = 0;
   for (let index = open; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (token.t !== 'punc') continue;
-    if (token.v === tokens[open].v) depth += 1;
-    else if (token.v === closer) {
+    const current = tokens[index];
+    if (!current || current.t !== 'punc') continue;
+    if (token && current.v === token.v) depth += 1;
+    else if (current.v === closer) {
       depth -= 1;
       if (depth === 0) return index;
     }
@@ -391,24 +432,33 @@ function matching(tokens, open) {
   return tokens.length - 1;
 }
 
-/* A bracketed list split at its top-level commas: the arguments of a call. */
+/*
+ * A bracketed list split at its top-level commas: the arguments of a call.
+ * Only the list's own level is walked -- a nested bracket is stepped over to
+ * its partner -- and each argument is cut out once, so a call nested in a call
+ * is not walked again by every call around it. An opener that never closes
+ * inside the list makes the rest of it one argument, and a stray closer of
+ * another kind is passed over: both are malformed, and neither may cost a walk.
+ */
 function splitArgs(tokens, open) {
   const close = matching(tokens, open);
+  const table = partners(tokens);
   const args = [];
-  let current = [];
-  let depth = 0;
+  let start = open + 1;
   for (let index = open + 1; index < close; index += 1) {
     const token = tokens[index];
-    if (token.t === 'punc' && '([{'.includes(token.v)) depth += 1;
-    if (token.t === 'punc' && ')]}'.includes(token.v)) depth -= 1;
-    if (depth === 0 && token.t === 'punc' && token.v === ',') {
-      args.push(current);
-      current = [];
-      continue;
+    if (!token || token.t !== 'punc') continue;
+    if (PAIRS[token.v]) {
+      const partner = table[index];
+      if (partner > index && partner < close) { index = partner; continue; }
+      break;
     }
-    current.push(token);
+    if (token.v === ',') {
+      args.push(tokens.slice(start, index));
+      start = index + 1;
+    }
   }
-  if (current.length) args.push(current);
+  if (close > start) args.push(tokens.slice(start, close));
   return { args, close };
 }
 
@@ -437,4 +487,4 @@ function opensWith(text, directive) {
   return (quote === '"' || quote === "'") && source.startsWith(directive, index + 1) && source[index + 1 + directive.length] === quote;
 }
 
-module.exports = Object.freeze({ lexJs, lexPython, lexPyTokens, matching, splitArgs, opensWith, JS_KEYWORDS, PY_KEYWORDS });
+module.exports = Object.freeze({ lexJs, lexPython, lexPyTokens, matching, partners, splitArgs, opensWith, JS_KEYWORDS, PY_KEYWORDS });

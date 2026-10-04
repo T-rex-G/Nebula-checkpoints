@@ -39,11 +39,19 @@
  */
 
 const v8 = require('v8');
-const { lexJs, lexPython, matching, splitArgs, opensWith } = require('./uranus-lex');
+const { lexJs, lexPython, matching, partners, splitArgs, opensWith } = require('./uranus-lex');
 const { analyseCFamily, CFAMILY_FILE } = require('./uranus-cfamily');
 
 const MAX_STEPS = 6;
 const MAX_FLOWS_PER_FILE = 40;
+/*
+ * How deep one expression may sit inside others -- a call in an argument of a
+ * call, a function in a function -- before what lies deeper is left unknown.
+ * Real code stays within a few dozen; a crafted file of a hundred thousand
+ * nested calls would otherwise be walked level by level until the stack gave
+ * out, and the whole file with it.
+ */
+const MAX_NESTING = 100;
 const SQL_WORDS = /\b(SELECT|INSERT|UPDATE|DELETE|MERGE|UPSERT|REPLACE\s+INTO|CREATE|DROP|ALTER|TRUNCATE|WHERE|VALUES|FROM\s+\w)/i;
 const HTML_TEXT = /<\s*[a-zA-Z!/]/;
 const ABSOLUTE_PREFIX = /^\s*[a-z][a-z0-9+.-]*:\/\/[^/${}\s]+\//i;
@@ -378,9 +386,11 @@ function arrowBody(tokens, start, bodyAt, params, end, line, isAsync) {
   const stop = expressionEnd(tokens, bodyAt, end, true);
   return { start, name: null, params, bodyStart: bodyAt, bodyEnd: stop, next: stop, line, isAsync, block: false, arrow: true };
 }
+/* A generic parameter list is short; one left open is not looked for to the end of the file. */
+const MAX_TYPE_PARAMETERS = 256;
 function skipAngles(tokens, index) {
   let depth = 0;
-  for (let cursor = index; cursor < tokens.length; cursor += 1) {
+  for (let cursor = index; cursor < Math.min(tokens.length, index + MAX_TYPE_PARAMETERS); cursor += 1) {
     if (isPunc(tokens[cursor], '<')) depth += 1;
     else if (isPunc(tokens[cursor], '>')) { depth -= 1; if (depth === 0) return cursor + 1; }
     else if (isPunc(tokens[cursor], '>>')) { depth -= 2; if (depth <= 0) return cursor + 1; }
@@ -405,21 +415,26 @@ const CONTINUES = new Set(['.', '?.', '+', '-', '*', '/', '%', '&&', '||', '??',
 /*
  * Where an expression starting at `index` ends: at a top-level semicolon or
  * comma, at a bracket that closes something it did not open, or at a line
- * break where the next line cannot continue it.
+ * break where the next line cannot continue it. A bracket it opens is stepped
+ * over to its partner -- nothing inside one can end it -- so an arrow nested
+ * in an arrow does not walk the rest of the file again at every level. One
+ * that never closes before `end` runs the expression to `end`.
  */
 function expressionEnd(tokens, index, end, stopAtComma = true) {
-  let depth = 0;
+  const table = partners(tokens);
   for (let cursor = index; cursor < end; cursor += 1) {
-    const token = tokens[cursor];
+    let token = tokens[cursor];
     if (token.t === 'punc') {
-      if ('([{'.includes(token.v)) depth += 1;
-      else if (')]}'.includes(token.v)) {
-        if (depth === 0) return cursor;
-        depth -= 1;
-      } else if (depth === 0 && (token.v === ';' || (stopAtComma && token.v === ','))) return cursor;
+      if (token.v === '(' || token.v === '[' || token.v === '{') {
+        const partner = table[cursor];
+        if (partner < 0 || partner >= end) return end;
+        cursor = partner;
+        token = tokens[cursor];
+      } else if (token.v === ')' || token.v === ']' || token.v === '}') return cursor;
+      else if (token.v === ';' || (stopAtComma && token.v === ',')) return cursor;
     }
     const next = tokens[cursor + 1];
-    if (depth === 0 && next && next.line > token.line && cursor + 1 < end) {
+    if (next && next.line > token.line && cursor + 1 < end) {
       const ends = token.t === 'id' || token.t === 'num' || token.t === 'str' || token.t === 'tpl' || token.t === 're' ||
         isPunc(token, ')') || isPunc(token, ']') || isPunc(token, '}') || (token.t === 'kw' && ['this', 'null', 'true', 'false', 'undefined'].includes(token.v));
       const continues = (next.t === 'punc' && CONTINUES.has(next.v)) || (next.t === 'kw' && ['instanceof', 'in', 'of'].includes(next.v));
@@ -971,7 +986,16 @@ class JsWalker {
   }
 
   /* ---- expressions ---- */
+  /* Every walker evaluates through here, so nesting is counted once for the file, whichever walker recurses. */
   expression(start, stop, scope, roles) {
+    const ctx = this.ctx;
+    const depth = ctx.nesting || 0;
+    if (depth >= MAX_NESTING) { ctx.tooDeep = true; return null; }
+    ctx.nesting = depth + 1;
+    try { return this.evaluate(start, stop, scope, roles); } finally { ctx.nesting = depth; }
+  }
+
+  evaluate(start, stop, scope, roles) {
     const ternary = this.ternary(start, stop, scope, roles);
     if (ternary !== undefined) return ternary;
     const tokens = this.tokens;
@@ -1999,7 +2023,7 @@ class PyWalker extends JsWalker {
     this.expression(0, tokens.length, scope, roles);
   }
 
-  expression(start, stop, scope, roles) {
+  evaluate(start, stop, scope, roles) {
     const tokens = this.tokens;
     let result = null;
     let concat = false;
@@ -2471,6 +2495,8 @@ function analyseFlows(files, options = {}) {
       stats.failed = (stats.failed || 0) + 1;
       continue;
     }
+    /* Followed, but with expressions nested past what the walker reads: said, not hidden. */
+    if (flowCtx.tooDeep) stats.deep = (stats.deep || 0) + 1;
     for (const route of flowCtx.routes) {
       if (ctx.language === 'javascript' && route.bodyStart !== null) {
         route.bodyText = ctx.tokens.slice(route.bodyStart, route.bodyEnd).map(t => (t.t === 'tpl' ? t.parts.join(' ') : t.v)).join(' ');

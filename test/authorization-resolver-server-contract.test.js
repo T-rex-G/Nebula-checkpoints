@@ -32,6 +32,7 @@ const ownWork = [...server.matchAll(/^app\.(get|post|put|patch|delete)\('([^']+)
 assert.deepStrictEqual(ownWork, [
   'GET /api/repo/:owner/:repo/code-audit/history',
   'GET /api/repo/:owner/:repo/code-audit/history/:auditId',
+  'GET /api/repo/:owner/:repo/code-audit/metrics',
   'GET /api/repo/:owner/:repo/code-audit/watch',
   'GET /api/repo/:owner/:repo/exposure/findings',
   'GET /api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes',
@@ -47,6 +48,21 @@ assert.deepStrictEqual(ownWork, [
 assert.strictEqual((server.match(/OWN_WORK/g) || []).length, ownWork.length + 1, 'OWN_WORK is used nowhere else');
 for (const line of server.split('\n').filter(text => /^app\.\w+\('\/api\/repo\/:owner\/:repo\/governance/.test(text))) {
   assert(!line.includes('OWN_WORK'), `governance is collaborators' business: ${line.slice(0, 90)}`);
+}
+/*
+ * A team decision about an audit finding is the collaborators' business:
+ * reading the decisions takes the reader role on the repository itself, and
+ * making or taking one back takes the reviewer role, never a public reader.
+ */
+for (const [method, route, role] of [
+  ['get', '/api/repo/:owner/:repo/code-audit/triage', 'reader'],
+  ['get', '/api/repo/:owner/:repo/code-audit/findings/:findingId/triage-events', 'reader'],
+  ['get', '/api/repo/:owner/:repo/code-audit/gate', 'reader'],
+  ['post', '/api/repo/:owner/:repo/code-audit/findings/:findingId/triage', 'reviewer'],
+  ['post', '/api/repo/:owner/:repo/code-audit/findings/:findingId/reopen', 'reviewer']
+]) {
+  const line = server.split('\n').find(text => text.startsWith(`app.${method}('${route}'`));
+  assert(line && line.includes(`governanceAccess('${role}')`) && !line.includes('OWN_WORK'), `${route} takes the ${role} role of a collaborator`);
 }
 for (const action of ['verify', 'probe-readability', 'accept-risk']) {
   const line = server.split('\n').find(text => text.includes(`/exposure/findings/:fingerprint/${action}'`) && text.startsWith('app.post('));

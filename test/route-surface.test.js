@@ -213,7 +213,18 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * the job runner (src/code-audit-jobs.js) -- registered twice; every rule is
  * in `src/site-check.js`.
  */
-const SERVER_ROUTE_CEILING = 177;
+/*
+ * 177 to 184 adds a team's decisions about its audit findings, the clocks
+ * and time to fix, and the merge gate: the decisions as a list, one decision,
+ * taking one back and one finding's record of them; where a branch stands
+ * against its clocks; the gate on a pull request; and the grade worked out
+ * again after a decision. Each handler is a call into a module --
+ * `src/code-audit-triage.js` (the decisions, how they lie over an audit, the
+ * gate and its policy preview), `src/code-audit-history.js` (first-seen dates,
+ * resolutions and the metrics) and `src/code-audit-policy.js` (the clock) --
+ * each tested on its own, against a real database where it keeps rows.
+ */
+const SERVER_ROUTE_CEILING = 184;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

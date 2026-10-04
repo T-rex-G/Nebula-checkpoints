@@ -367,7 +367,7 @@
 [data-design="obsidian"][data-theme="light"] .alpha-wake-state::before,
 [data-design="obsidian"][data-theme="light"] .ov-live::before{box-shadow:none}
 [data-design="obsidian"] .notif-unread{box-shadow:none}
-[data-design="obsidian"] input:focus,[data-design="obsidian"] select:focus,[data-design="obsidian"] textarea:focus{box-shadow:0 0 0 3px var(--field-halo)}
+[data-design="obsidian"] input:where(:not([type="checkbox"],[type="radio"],[type="range"])):focus,[data-design="obsidian"] select:focus,[data-design="obsidian"] textarea:focus{box-shadow:0 0 0 3px var(--field-halo)}
 
 /*
  * The design marks the current rail entry with a violet edge in light mode
@@ -1063,6 +1063,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 
    halo spreads from it, instead of a thick ring hung a few pixels outside. */
 input:where(:not([type="checkbox"],[type="radio"],[type="range"])):focus-visible,select:focus-visible,textarea:focus-visible{
   outline:1px solid var(--field-focus);outline-offset:0;border-color:var(--field-focus);box-shadow:0 0 0 4px var(--field-halo)}
+/* A box or a dot is not a field: the field's halo is a square behind it, so it
+   takes none. The keyboard ring above still marks it. */
+input:is([type="checkbox"],[type="radio"]):is(:focus,:focus-visible){box-shadow:none}
 input::placeholder,textarea::placeholder{color:var(--muted)}
 .field-label{display:block;font-size:.78rem;font-weight:500;color:var(--text2);margin:14px 0 6px}
 .field-label:first-child{margin-top:0}
@@ -1165,7 +1168,11 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .branch-pick{position:relative;display:inline-flex;align-items:center}
 .branch-pick-mark{position:absolute;left:10px;width:15px;height:15px;pointer-events:none;
   fill:none;stroke:var(--muted);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-.branch-select{width:auto;max-width:180px;padding:8px 30px 8px 31px;min-height:40px;font-size:.82rem}
+.branch-select{width:auto;max-width:180px;padding:8px 30px 8px 12px;min-height:40px;font-size:.82rem}
+/* Room for the mark only where there is a mark: elsewhere the name sat behind an empty gap. */
+.branch-pick .branch-select{padding-left:31px}
+/* Compare's two pickers take their columns, so a long branch name is read whole. */
+.compare-row .branch-select{width:100%;max-width:none}
 .search-input{max-width:260px}
 .search-input.small{font-size:.82rem;min-height:40px;padding:8px 12px;max-width:none}
 
@@ -1337,6 +1344,26 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   background:transparent;padding:8px 11px;border-radius:9px;transition:background .18s,color .18s;min-height:38px;white-space:nowrap}
 .tab:hover{color:var(--text)}
 .tab.active{background:rgba(139,92,246,0.2);color:var(--text)}
+/*
+ * The strip is as wide as the pane, and the pane is what is left once the
+ * rail and the file tree have their columns -- so the strip, not the window,
+ * decides how the tabs sit. The repository's eight sections take 638 pixels
+ * at rest; a pane a pixel narrower used to drop Compare alone onto a line of
+ * its own. The tabs tighten first, and where even that is too wide the eight
+ * sit as two even rows of four rather than seven and an orphan.
+ */
+#deskTabs{container:desk-tabs / inline-size}
+@container desk-tabs (max-width:680px){
+  .tab{padding-inline:9px}
+}
+@container desk-tabs (max-width:620px){
+  .tab{padding-inline:7px}
+  .tabs .tab-group{gap:2px}
+}
+@container desk-tabs (max-width:570px){
+  .tabs .tab-group:not(.tab-group-security){display:grid;grid-template-columns:repeat(4,minmax(0,1fr));flex:1 1 100%}
+  .tabs .tab-group:not(.tab-group-security) .tab{text-align:center}
+}
 .tabpane{display:none;flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain}
 .tabpane.active{display:flex;flex-direction:column;animation:pageIn .2s var(--ease) both}
 
@@ -2256,6 +2283,30 @@ body.read-only .btn-primary{opacity:.55}
 @keyframes neuralLive{70%{box-shadow:0 0 0 8px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
 .neural-proto-badge{color:var(--accent2);border:1px solid rgba(167,139,250,.36);background:rgba(167,139,250,.1);padding:3px 7px;border-radius:99px;letter-spacing:.08em}
 .neural-head-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:none}
+/*
+ * The header lives in a pane whose width the rail and the file tree decide,
+ * so it reads its own width rather than the window's. Beside three full
+ * controls the title had sixty pixels left at a laptop's width: the kicker
+ * broke word by word, the title ran under the first button and the line
+ * beneath it was cut to "Live to...". Where the two do not fit side by side
+ * the controls go under the copy, and where the controls do not fit in a row
+ * they take the compact form the phone uses.
+ */
+.neural-head{container:neural-head / inline-size}
+/* Wrapping is for the row a desk draws; the phone's header is a column, and a
+   wrapping column overflows sideways -- it put the controls in a second
+   column beside the copy and widened the page. */
+@media (min-width:901px){ .neural-head{flex-wrap:wrap} }
+@container neural-head (max-width:820px){
+  .neural-head-copy{flex:1 1 100%}
+  .neural-head-actions{justify-content:flex-start}
+}
+@container neural-head (max-width:600px){
+  .neural-head-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .neural-head-actions .btn{width:100%;min-width:0;justify-content:center;padding-inline:8px;overflow:hidden}
+  .neural-head-btn .nh-long{display:none}
+  .neural-head-btn .nh-short{display:inline;overflow:hidden;text-overflow:ellipsis}
+}
 /*
  * Built like btn-primary, on the danger palette.
  *
@@ -3522,6 +3573,20 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * the file drawer this app already has rather than inventing a second idiom.
  */
 .nav-menu-btn{display:none}
+/*
+ * The menu button answers the drawer. Its three lines cross into a close mark
+ * while the drawer is out and fall back into lines as it goes; on hover the
+ * middle line draws in, the small sign that it opens something.
+ */
+.nav-menu-btn .ico path{transform-box:view-box;transform-origin:12px 12px;
+  transition:transform .34s cubic-bezier(.22,1,.36,1),opacity .2s var(--ease)}
+.nav-menu-btn:hover .nmb-l2{transform:scaleX(.62)}
+.nav-menu-btn[aria-expanded="true"] .nmb-l1{transform:translateY(5px) rotate(45deg)}
+.nav-menu-btn[aria-expanded="true"] .nmb-l2{opacity:0;transform:scaleX(.2)}
+.nav-menu-btn[aria-expanded="true"] .nmb-l3{transform:translateY(-5px) rotate(-45deg)}
+.nav-menu-btn:active{transform:scale(.92)}
+@media (prefers-reduced-motion:reduce){ .nav-menu-btn .ico path{transition:none} }
+[data-motion="off"] .nav-menu-btn .ico path{transition:none}
 @media (max-width:1139px){
   .nav-menu-btn{display:inline-flex}
   body.nav-open .nv-rail,
@@ -3540,15 +3605,16 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   /* The finger holds the drawer while it drags; letting go springs it back or away. */
   body.nav-open .nv-rail.is-dragging{animation:none;transition:none}
   body.nav-open .nv-rail:not(.is-dragging){transition:transform .32s cubic-bezier(.22,1,.36,1)}
-  /* The entries arrive just after the panel, one after another, then stay put. */
-  body.nav-open:not(.nav-closing) .nv-rail-nav > li,
-  body.nav-open:not(.nav-closing) .nv-rail-group{animation:navItemIn .44s cubic-bezier(.22,1,.36,1) both}
-  body.nav-open .nv-rail-nav > li:nth-child(1){animation-delay:.06s}
-  body.nav-open .nv-rail-nav > li:nth-child(2){animation-delay:.1s}
-  body.nav-open .nv-rail-nav > li:nth-child(3){animation-delay:.14s}
-  body.nav-open .nv-rail-nav > li:nth-child(4){animation-delay:.18s}
-  body.nav-open .nv-rail-nav > li:nth-child(5){animation-delay:.22s}
-  body.nav-open .nv-rail-group{animation-delay:.08s}
+  /*
+   * The blocks arrive just after the panel, one after another, top to bottom,
+   * then stay put. The order is each block's own index (--i in the markup),
+   * one sequence through the whole drawer: counted per list, the security
+   * list's first entry left beside Overview, its sixth -- past the last delay
+   * written out -- arrived before all the others, and the brand, the close
+   * control and the foot did not arrive at all, they were simply there.
+   */
+  body.nav-open:not(.nav-closing) :is(.nv-rail-head,.nv-rail-section,.nv-rail-nav > li,.nv-rail-group,.nv-rail-foot){
+    animation:navItemIn .44s cubic-bezier(.22,1,.36,1) both;animation-delay:calc(.05s + var(--i, 0) * .035s)}
   @keyframes navItemIn{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}
   /* The collapse control narrows a rail that is permanently on screen. A
      drawer is dismissed instead, so the same place holds the same-shaped
@@ -3559,11 +3625,9 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 @media (max-width:1139px) and (prefers-reduced-motion:reduce){
   body.nav-open .nv-rail,
   body.nav-closing .nv-rail,
-  body.nav-open .nv-rail-nav > li,
-  body.nav-open .nv-rail-group{animation:none}
+  body.nav-open :is(.nv-rail-head,.nv-rail-section,.nv-rail-nav > li,.nv-rail-group,.nv-rail-foot){animation:none}
 }
-[data-motion="off"] body.nav-open .nv-rail-nav > li,
-[data-motion="off"] body.nav-open .nv-rail-group{animation:none}
+[data-motion="off"] body.nav-open :is(.nv-rail-head,.nv-rail-section,.nv-rail-nav > li,.nv-rail-group,.nv-rail-foot){animation:none}
 /* The drawer's close control wears the collapse control's shape; it is only drawn in a drawer. */
 .nv-rail-collapse.nv-rail-close{display:none}
 .nv-rail-close svg{transition:transform .2s var(--ease)}
@@ -3663,7 +3727,18 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   body:has(#page-overview.active, #page-repos.active, #page-site.active){overflow:hidden}
   /* The workbench is a full-height grid, so it keeps its own padding and takes
      the inset as a margin; the right margin is the plate's, not the page's. */
-  #page-work .workspace{margin-right:23px;padding-left:0;padding-right:0}
+  /*
+   * The workbench is a window in the plate too. Sized from the viewport, its
+   * grid ran from under the bar to a pixel past the plate's bottom edge, with
+   * no gutter on either side: the file tree sat against the rail, the panes
+   * against the plate's right edge, and the main pane's square corner stuck
+   * out through the plate's rounded one. Pinned to the plate like the other
+   * screens, with one gutter all round, the panes sit inside the frame.
+   */
+  #page-work .workspace{position:fixed;top:calc(23px + var(--tbh, 62px));bottom:23px;
+    left:var(--shell-inset);right:23px;height:auto;margin:0;padding:14px;
+    transition:left .34s cubic-bezier(.4,0,.2,1),grid-template-columns .38s var(--ease),column-gap .38s var(--ease)}
+  [data-motion="off"] #page-work .workspace{transition:none}
   /*
    * No backdrop blur on the bar inside the plate. Chromium paints a
    * backdrop-filtered region as a plain rectangle and does not clip it to the
@@ -3711,9 +3786,25 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   text-transform:uppercase;color:var(--lab)}
 .nv-rail-collapse{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
   padding:0;border-radius:9px;border:1px solid var(--sb);background:transparent;color:var(--fg2);
-  cursor:pointer;transition:background .16s var(--ease),color .16s var(--ease)}
+  cursor:pointer;transition:background .16s var(--ease),color .16s var(--ease),transform .14s var(--ease),border-color .16s var(--ease)}
 .nv-rail-collapse svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .nv-rail-collapse:hover{background:var(--navHov);color:var(--fg)}
+/*
+ * The control is not a static mark. Pressing it turns the chevrons round to
+ * face the other way -- with a little overshoot, the rail's own easing -- as
+ * the rail narrows or widens beside it; on hover the leading chevron leans
+ * the way it will move the rail, and under a press the button gives a little.
+ */
+#railCollapse svg{transition:transform .52s cubic-bezier(.34,1.56,.64,1)}
+#railCollapse svg path{transition:transform .22s var(--ease)}
+#railCollapse:hover svg path:first-child{transform:translateX(-1.6px)}
+#railCollapse:hover svg path:last-child{transform:translateX(.6px)}
+.nv-rail-collapse:active{transform:scale(.9)}
+@media (prefers-reduced-motion:reduce){
+  #railCollapse svg,#railCollapse svg path,.nv-rail-collapse{transition:none}
+  #railCollapse:hover svg path{transform:none}
+}
+[data-motion="off"] :is(#railCollapse svg,#railCollapse svg path,.nv-rail-collapse){transition:none}
 .nv-rail-collapse:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 
 /*
@@ -3737,19 +3828,50 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   body[data-rail="collapsed"] .nv-rail-item{grid-template-columns:auto;justify-items:center;padding:11px 0}
   body[data-rail="collapsed"] .nv-rail-head,
   body[data-rail="collapsed"] .nv-rail-section{justify-content:center}
-  body[data-rail="collapsed"] .nv-rail-collapse svg{transform:scaleX(-1)}
+  body[data-rail="collapsed"] #railCollapse svg{transform:rotate(180deg)}
 }
-.nv-rail-nav{list-style:none;display:grid;gap:4px;margin:0;padding:0;flex:1;align-content:start}
-/* Only the last list stretches; the ones above it keep their own height so the
-   group label sits directly under the entries it follows. */
-.nv-rail-nav:not(:last-of-type){flex:none}
-.nv-rail-group{margin:6px 0 -12px 12px;font-family:var(--font-mono);font-size:10px;letter-spacing:.17em;
-  text-transform:uppercase;color:var(--lab)}
+.nv-rail-nav{list-style:none;display:grid;gap:4px;margin:0;padding:0;flex:none;align-content:start}
+/*
+ * Magnetar Sec opens and closes like a menu. The heading is the control: its
+ * chevron turns with it, and folded it shows how many tools it holds. The
+ * fold takes the rail's remaining height either way, so the foot keeps its
+ * place; the list inside slides open from the heading, its entries arriving
+ * one after another, and folding takes them away at once.
+ */
+.nv-rail-group{display:flex;align-items:center;gap:8px;width:calc(100% - 12px);margin:6px 0 -12px 12px;padding:4px 6px 4px 0;
+  border:0;border-radius:8px;background:none;cursor:pointer;text-align:left;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.17em;text-transform:uppercase;color:var(--lab);
+  transition:color .16s var(--ease)}
+.nv-rail-group:hover{color:var(--fg2)}
+.nv-rail-group:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.nv-rail-group-t{flex:1;min-width:0}
+.nv-rail-group-n{min-width:18px;padding:1px 6px;border-radius:99px;border:1px solid var(--sb);text-align:center;
+  font-size:9px;letter-spacing:.04em;color:var(--fg2);
+  transition:opacity .2s var(--ease),transform .28s cubic-bezier(.34,1.56,.64,1)}
+.nv-rail-group[aria-expanded="true"] .nv-rail-group-n{opacity:0;transform:scale(.6)}
+.nv-rail-group-chev{flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
+  transition:transform .36s cubic-bezier(.34,1.56,.64,1)}
+.nv-rail-group[aria-expanded="false"] .nv-rail-group-chev{transform:rotate(-90deg)}
+.nv-rail-fold{display:grid;grid-template-rows:1fr;flex:1 1 auto;min-height:0;
+  transition:grid-template-rows .38s cubic-bezier(.22,1,.36,1)}
+.nv-rail-fold[data-open="false"]{grid-template-rows:0fr}
+.nv-rail-fold > .nv-rail-nav{min-height:0;overflow:hidden}
+.nv-rail-fold > .nv-rail-nav > li{transition:opacity .3s var(--ease),transform .38s cubic-bezier(.22,1,.36,1);
+  transition-delay:calc(.04s + var(--j, 0) * .035s)}
+.nv-rail-fold[data-open="false"] > .nv-rail-nav > li{opacity:0;transform:translateY(-8px);transition-duration:.16s;transition-delay:0s}
+@media (prefers-reduced-motion:reduce){
+  .nv-rail-fold,.nv-rail-fold > .nv-rail-nav > li,.nv-rail-group-chev,.nv-rail-group-n{transition:none}
+}
+[data-motion="off"] :is(.nv-rail-fold,.nv-rail-fold > .nv-rail-nav > li,.nv-rail-group-chev,.nv-rail-group-n){transition:none}
 @media (min-width:1140px){
   /* Collapsed to icons, the name gives way to a rule: the grouping survives
-     without a word that no longer fits. */
-  body[data-rail="collapsed"] .nv-rail-group{height:1px;margin:4px 14px -12px;overflow:hidden;
-    color:transparent;background:var(--sb)}
+     without a word that no longer fits, and the tools stay out where their
+     marks are the only way to them. */
+  body[data-rail="collapsed"] .nv-rail-group{height:1px;width:auto;margin:4px 14px -12px;padding:0;overflow:hidden;
+    color:transparent;background:var(--sb);pointer-events:none}
+  body[data-rail="collapsed"] .nv-rail-group > *{display:none}
+  body[data-rail="collapsed"] .nv-rail-fold{grid-template-rows:1fr}
+  body[data-rail="collapsed"] .nv-rail-fold > .nv-rail-nav > li{opacity:1;transform:none}
 }
 /*
  * Icon, then title and subtitle -- the shape the reference gives every entry.
@@ -3778,6 +3900,22 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   letter-spacing:-.005em;text-transform:none}
 .nv-rail-d{display:block;font-size:.7rem;color:var(--muted)}
 .nv-rail-foot{display:grid;gap:10px;padding-top:14px;border-top:1px solid var(--hair)}
+@media (min-width:1140px){
+  /* The foot stays in the frame: the last list gives way first, and scrolls only if it must. */
+  .nv-rail-foot{flex:none}
+  .nv-rail-fold[data-open="true"] > .nv-rail-nav{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+}
+/*
+ * At a laptop's 720 or 768 pixels the rail's own rhythm was taller than the
+ * frame, and its foot -- the boundary state and who is signed in -- ran out
+ * past the plate's bottom edge. On a short screen the rhythm tightens instead.
+ */
+@media (min-width:1140px) and (max-height:820px){
+  .nv-rail{gap:16px;padding-top:20px;padding-bottom:18px}
+  .nv-rail-item{padding-top:8px;padding-bottom:8px}
+  .nv-rail-group{margin-bottom:-8px}
+  .nv-rail-foot{padding-top:10px;gap:8px}
+}
 .nv-rail-state,.nv-rail-user{display:flex;gap:9px;align-items:center;margin:0}
 .nv-rail-state-t{display:block;font-size:.76rem;font-weight:600;color:var(--fg2)}
 .nv-rail-dot{width:7px;height:7px;border-radius:50%;background:var(--mint);flex:none;
@@ -5305,7 +5443,23 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
   font-size: .74rem; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
 }
 .exposure-proof-line { font-size: 1rem; font-weight: 550; line-height: 1.5; margin-bottom: 16px; max-width: 78ch; }
-.exposure-facts { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; padding: 0; border: 0; margin-bottom: 16px; }
+.exposure-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0; border: 0; margin-bottom: 16px; }
+/*
+ * Four facts, or five once the history is read. Fitted by a minimum width they
+ * fell three and one in a laptop's pane, the last fact alone on its own row.
+ * They take the card's width now: one row where they fit, two even rows where
+ * they do not, and an odd last fact spans its row rather than standing alone.
+ */
+.exposure-proof { container: exposure-proof / inline-size; }
+.exposure-facts > .exposure-fact:not([hidden]):last-child:nth-child(odd) { grid-column: 1 / -1; }
+@container exposure-proof (min-width: 600px) {
+  .exposure-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .exposure-facts > .exposure-fact:not([hidden]):last-child:nth-child(odd) { grid-column: auto; }
+  .exposure-facts:has(> #exposureCommitsFact:not([hidden])) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container exposure-proof (min-width: 760px) {
+  .exposure-facts:has(> #exposureCommitsFact:not([hidden])) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
 .exposure-fact { padding: 12px 14px; border-radius: 14px; border: 1px solid var(--rp-line); background: var(--rp-tile); }
 .exposure-fact dt { font-size: .7rem; font-weight: 650; letter-spacing: .08em; }
 .exposure-fact dd { font-size: .98rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -7198,6 +7352,111 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
 [data-motion="off"] .audit-trend-dot, [data-motion="off"] .audit-hist-sum, [data-motion="off"] .audit-hist-chev, [data-motion="off"] .audit-watch-pulse { transition: none; animation: none; }
 @media (prefers-reduced-motion: reduce) { .audit-trend-dot, .audit-hist-sum, .audit-hist-chev, .audit-watch-pulse { transition: none; animation: none; } }
 
+/* ---- Clocks, decisions and remediation ------------------------------------- */
+.audit-body-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.audit-triage-btn, .audit-reopen, .audit-triage-history { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; }
+.audit-triage-btn .audit-ico, .audit-reopen .audit-ico, .audit-triage-history .audit-ico { width: 16px; height: 16px; }
+.audit-clock-line, .audit-triage-note, .audit-clock-note {
+  margin: 0; display: flex; align-items: flex-start; gap: 8px; min-width: 0;
+  font-size: .84rem; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere;
+}
+.audit-clock-line .audit-ico, .audit-triage-note .audit-ico, .audit-clock-note .audit-ico { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--muted); }
+.audit-clock-state { color: var(--text); font-weight: 650; }
+.audit-clock-line[data-state="overdue"] .audit-ico, .audit-clock-line[data-state="overdue"] .audit-clock-state { color: var(--st-critical); }
+.audit-clock-line[data-state="due-soon"] .audit-ico, .audit-clock-line[data-state="due-soon"] .audit-clock-state { color: var(--st-serious); }
+.audit-triage-note { color: var(--text); padding: 6px 10px; border-radius: 10px; border: 1px solid color-mix(in oklab, var(--st-serious) 32%, transparent); background: color-mix(in oklab, var(--st-serious) 6%, transparent); }
+.audit-triage-note .audit-ico { color: var(--st-serious); }
+.audit-clock-note { color: var(--text); padding: 3px 0 3px 10px; border-left: 2px solid var(--st-critical); }
+.audit-clock-note[data-state="due-soon"] { border-left-color: var(--st-serious); }
+.audit-clock-note .audit-ico { margin-top: 3px; color: var(--st-critical); }
+.audit-clock-note[data-state="due-soon"] .audit-ico { color: var(--st-serious); }
+.audit-triaged { border-style: solid; border-color: color-mix(in oklab, var(--st-pending) 30%, var(--rp-line)); }
+.audit-triaged-item { grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 12px; }
+.audit-triaged-item > .audit-waived-top, .audit-triaged-item > .audit-waived-meta, .audit-triaged-item > .audit-triage-reason { grid-column: 1; }
+.audit-triaged-item > .audit-triage-tools { grid-column: 2; grid-row: 1 / span 3; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; align-self: center; }
+.audit-triaged-item .audit-waived-top { flex-wrap: wrap; row-gap: 6px; }
+.audit-triage-reason { font-style: normal; color: var(--muted); line-height: 1.45; }
+/* The decision follows the title it is about, and wraps under it from the left, never adrift beside it. */
+.audit-triage-chip { flex: none; }
+
+.audit-remediation { padding: 18px 20px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; --fold-gap: 14px; }
+.audit-rem-tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; border-radius: 14px; overflow: hidden; background: var(--rp-line); border: 1px solid var(--rp-line); }
+.audit-rem-tile { --tone: var(--muted); display: grid; gap: 2px; align-content: start; padding: 12px 14px; background: color-mix(in oklab, var(--bg) 70%, transparent); min-width: 0; }
+.audit-rem-tile[data-tone="critical"] { --tone: var(--st-critical); }
+.audit-rem-tile[data-tone="warning"] { --tone: var(--st-serious); }
+.audit-rem-tile[data-tone="good"] { --tone: var(--st-good); }
+.audit-rem-label { font-size: .74rem; font-weight: 650; letter-spacing: .02em; color: var(--muted); }
+.audit-rem-value { font-size: 1.45rem; font-weight: 700; line-height: 1.15; color: var(--text); font-variant-numeric: tabular-nums; }
+.audit-rem-tile[data-tone] .audit-rem-value { color: var(--tone); }
+.audit-rem-sub { font-size: .74rem; color: var(--muted); line-height: 1.35; overflow-wrap: anywhere; text-wrap: balance; }
+.audit-rem-table { width: 100%; border-collapse: collapse; font-size: .84rem; font-variant-numeric: tabular-nums; }
+.audit-rem-table th, .audit-rem-table td { padding: 9px 10px; text-align: right; border-bottom: 1px solid var(--rp-line); color: var(--text); white-space: nowrap; }
+.audit-rem-table thead th { font-size: .72rem; font-weight: 650; letter-spacing: .02em; color: var(--muted); }
+.audit-rem-table th:first-child, .audit-rem-table td:first-child { text-align: left; }
+.audit-rem-table tbody tr:last-child > * { border-bottom: 0; }
+.audit-rem-table td[data-alert="true"] { color: var(--st-critical); font-weight: 700; }
+.audit-rem-notes { display: grid; gap: 6px; }
+.audit-rem-notes .exposure-caveat { margin: 0; }
+@media (max-width: 720px) {
+  .audit-rem-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .audit-rem-table thead { display: none; }
+  .audit-rem-table, .audit-rem-table tbody { display: block; }
+  .audit-rem-table tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 10px; padding: 10px 0; border-bottom: 1px solid var(--rp-line); }
+  .audit-rem-table tbody tr:last-child { border-bottom: 0; }
+  .audit-rem-table th, .audit-rem-table td { display: grid; gap: 1px; padding: 0; border: 0; text-align: left; white-space: normal; }
+  /* The severity names the row: its chip keeps its own width rather than stretching into a bar. */
+  .audit-rem-table th[scope="row"] { grid-column: 1 / -1; justify-items: start; }
+  .audit-rem-table td::before { content: attr(data-label); font-size: .7rem; font-weight: 650; color: var(--muted); }
+  .audit-triaged-item { grid-template-columns: minmax(0, 1fr); }
+  .audit-triaged-item > .audit-triage-tools { grid-column: 1; grid-row: auto; justify-content: flex-start; }
+  .audit-body-actions { margin-left: 0; justify-content: flex-start; }
+}
+@media (max-width: 480px) {
+  .audit-remediation { padding: 16px; }
+  .audit-rem-tile { padding: 11px 12px; }
+  .audit-rem-value { font-size: 1.3rem; }
+}
+
+/* The triage dialog: a decision, its reason, and for an accepted risk, its date. */
+.triage-target { margin: 0 0 12px; display: grid; gap: 3px; font-size: .9rem; line-height: 1.45; overflow-wrap: anywhere; }
+.triage-target .mono { font-size: .78rem; color: var(--muted); }
+.triage-field { margin: 0 0 12px; padding: 0; border: 0; min-width: 0; }
+.triage-options { display: grid; gap: 8px; }
+.triage-option { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--glass-border); cursor: pointer; }
+.triage-option:has(input:checked) { border-color: color-mix(in oklab, var(--accent) 60%, var(--glass-border)); background: color-mix(in oklab, var(--accent) 7%, transparent); }
+.triage-option input { margin-top: 3px; accent-color: var(--accent); width: 16px; height: 16px; }
+/* The choice is the whole card, so the keyboard ring goes round the card rather than the dot. */
+.triage-option input:focus-visible { outline: none; }
+.triage-option:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.triage-option-text { display: grid; gap: 2px; font-size: .88rem; }
+.triage-option-text small { color: var(--muted); font-size: .78rem; line-height: 1.4; }
+#triageReason, #triageDays { width: 100%; }
+#triageDaysWrap { margin-top: 12px; }
+.triage-hint { margin-top: 12px; }
+.triage-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.triage-event { display: grid; gap: 2px; padding: 9px 12px; border-radius: 10px; border-left: 2px solid var(--st-info); background: color-mix(in oklab, var(--text) 3%, transparent); font-size: .86rem; }
+.triage-event[data-event="reopened"] { border-left-color: var(--st-good); }
+.triage-event-who { font-size: .76rem; color: var(--muted); }
+
+/* The audit gate on a pull request. */
+.pr-gate { margin-top: 14px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--glass-border); display: grid; gap: 8px; min-width: 0; }
+.pr-gate[hidden] { display: none; }
+.pr-gate[data-state="hold"] { border-color: color-mix(in oklab, var(--st-critical) 40%, var(--glass-border)); background: color-mix(in oklab, var(--st-critical) 4%, transparent); }
+.pr-gate[data-state="pass"] { border-color: color-mix(in oklab, var(--st-good) 36%, var(--glass-border)); }
+.pr-gate-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.pr-gate-title { font-size: .8rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.pr-gate-line, .pr-gate-policy { margin: 0; font-size: .86rem; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.pr-gate-muted { color: var(--muted); }
+.pr-gate-sha { font-family: var(--font-mono); font-size: .82em; padding: 1px 5px; border-radius: 6px; border: 1px solid var(--rp-line, var(--glass-border)); }
+.pr-gate-policy { padding-left: 10px; border-left: 2px solid var(--st-info); }
+.pr-gate-policy[data-effect="deny"][data-mode="block"] { border-left-color: var(--st-critical); }
+.pr-gate-policy[data-effect="require-approval"] { border-left-color: var(--st-serious); }
+.pr-gate-reasons { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: .86rem; line-height: 1.45; color: var(--text); }
+.pr-gate-reasons li::marker { color: var(--st-critical); }
+.pr-gate-audit { justify-self: start; min-height: 44px; }
+
 /* ---- Exposure, in Orbit ---------------------------------------------------- */
 .exposure-chips { gap: 8px; }
 .exposure-chip.nv-chip::before, .exposure-badge.nv-chip::before { content: none; }
@@ -7331,7 +7590,7 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
 }
 [data-design="obsidian"][data-theme="light"] .modal { box-shadow: 0 30px 80px rgba(28,25,23,.22), 0 4px 14px rgba(28,25,23,.1), inset 0 1.5px 0 rgba(255,255,255,.9); }
 [data-design="obsidian"] .sheet-item .ico { color: var(--text); }
-[data-design="obsidian"] input:focus, [data-design="obsidian"] select:focus, [data-design="obsidian"] textarea:focus { box-shadow: 0 0 0 3px var(--field-halo); }
+[data-design="obsidian"] input:where(:not([type="checkbox"],[type="radio"],[type="range"])):focus, [data-design="obsidian"] select:focus, [data-design="obsidian"] textarea:focus { box-shadow: 0 0 0 3px var(--field-halo); }
 [data-design="obsidian"] .empty-mark { filter: drop-shadow(0 0 10px var(--ghost-glow)); }
 [data-design="obsidian"] .dropzone { border-color: var(--ghost-edge); }
 [data-design="obsidian"] .dz-ring { border-color: var(--ghost-edge); box-shadow: 0 0 22px var(--ghost), inset 0 0 12px var(--ghost); }
@@ -7416,7 +7675,7 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
    than shown refused. The provider refuses them regardless. */
 .repo-visitor-badge { border-color: color-mix(in oklab, var(--vis-public) 38%, transparent); background: color-mix(in oklab, var(--vis-public) 6%, transparent); }
 .repo-visitor-badge svg { stroke: var(--vis-public); }
-body.repo-visitor #page-work :is(#newFileBtn, #newBranchBtn, #renameFileBtn, #deleteFileBtn, #stageFileBtn, #commitFileBtn, #diffBtn, #stagedBtn, #safeguardsBtn, #tmOpenBtn),
+body.repo-visitor #page-work :is(#newFileBtn, #newBranchBtn, #renameFileBtn, #deleteFileBtn, #stageFileBtn, #commitFileBtn, #diffBtn, #stagedBtn, #tmOpenBtn),
 body.repo-visitor #page-work .tab:is([data-tab="upload"], [data-tab="governance"], [data-tab="safeguards"]),
 body.repo-visitor #page-work .neural-mode:is([data-neural-mode="recovery"], [data-neural-mode="governance"]),
 body.repo-visitor #bottomNav button[data-nav="upload"],

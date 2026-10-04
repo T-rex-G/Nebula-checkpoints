@@ -1213,10 +1213,10 @@ test('the security entries sit together, in the same order, in the menu and the 
     const list = document.querySelector('#navRail [aria-labelledby="railSecurityLabel"]');
     const safeguards = document.querySelector('.sheet-item[data-act="safeguards"]');
     return {
-      menu: group('Security'),
+      menu: group('Magnetar Sec'),
       repository: group('Repository'),
       rail: list ? [...list.querySelectorAll('[data-rail]')].map(node => node.dataset.rail) : [],
-      railLabel: (document.getElementById('railSecurityLabel') || {}).textContent,
+      railLabel: ((document.querySelector('#railSecurityLabel .nv-rail-group-t') || {}).textContent || '').trim(),
       railSafeguards: document.querySelectorAll('#navRail [data-rail="safeguards"]').length,
       safeguardsPopup: safeguards && safeguards.getAttribute('aria-haspopup')
     };
@@ -1226,7 +1226,7 @@ test('the security entries sit together, in the same order, in the menu and the 
   const expected = ['neural', 'governance', 'exposure', 'audit', 'site', 'safeguards'];
   expect(groups.menu).toEqual(expected);
   expect(groups.rail).toEqual(expected);
-  expect(groups.railLabel).toBe('Security');
+  expect(groups.railLabel).toBe('Magnetar Sec');
   expect(groups.repository).not.toContain('safeguards');
   /* A section like the others, not a dialog over the page. */
   expect(groups.safeguardsPopup).toBeNull();
@@ -1326,16 +1326,136 @@ test('on a desktop the file list folds away and comes back, and remembers', asyn
   await expect.poll(width).toBeGreaterThan(150);
 });
 
-test('safeguards open from the top bar on a desktop, as their own section', async ({ page }) => {
+test('safeguards open from the sidebar on a desktop, as their own section, and the top bar carries no second way in', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/#/sandbox/demo@main/files');
   await page.locator('#page-work.active').waitFor();
-  const control = page.locator('#safeguardsBtn');
-  if (!(await control.isVisible())) return;
-  await expect(control).not.toHaveAttribute('aria-haspopup', /.+/);
-  await control.click();
+  await expect(page.locator('#page-work .topbar [data-feature="recovery"]')).toHaveCount(0);
+  await page.locator('#navRail [data-rail="safeguards"]').click();
   await expect(page.locator('#tab-safeguards')).toBeVisible();
   await expect(page.locator('#tab-safeguards .sg-posture')).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page).toHaveURL(/\/safeguards$/);
+});
+
+/*
+ * Inside the plate on a laptop screen: the rail's foot -- the boundary and who
+ * is signed in -- and the workbench's two panes all sit within the frame, the
+ * panes a gutter in from every edge, and the section tabs never leave one or
+ * two of their number alone on a line.
+ */
+for (const [width, height] of [[1280, 720], [1140, 720], [1440, 900]]) {
+  test(`at ${width}x${height} the rail and the workbench sit inside the frame`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/pulls');
+    await expect(page.locator('#tab-pulls')).toBeVisible();
+    const box = selector => page.locator(selector).first().evaluate(node => {
+      const rect = node.getBoundingClientRect();
+      return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+    });
+    const plate = await box('#shellPlate');
+    const bar = await box('#page-work .topbar');
+    const foot = await box('#navRail .nv-rail-foot');
+    const rail = await box('#navRail');
+    expect(foot.bottom, 'the rail foot stays in the frame').toBeLessThanOrEqual(rail.bottom + 0.5);
+    expect(rail.bottom).toBeLessThanOrEqual(plate.bottom + 0.5);
+    for (const pane of ['#page-work .side', '#page-work .main-pane']) {
+      const rect = await box(pane);
+      expect(rect.top - bar.bottom, `${pane} starts a gutter below the bar`).toBeGreaterThanOrEqual(10);
+      expect(plate.bottom - rect.bottom, `${pane} ends a gutter above the frame`).toBeGreaterThanOrEqual(10);
+    }
+    expect((await box('#page-work .side')).left - rail.right, 'the file tree stands off the rail').toBeGreaterThanOrEqual(10);
+    expect(plate.right - (await box('#page-work .main-pane')).right, 'the pane stands off the frame').toBeGreaterThanOrEqual(10);
+    const rows = await page.locator('#deskTabs .tab-group').first().evaluate(group => {
+      const lines = new Map();
+      for (const tab of group.querySelectorAll('.tab')) {
+        if (!tab.offsetParent) continue;
+        const top = Math.round(tab.getBoundingClientRect().top);
+        lines.set(top, (lines.get(top) || 0) + 1);
+      }
+      return [...lines.values()];
+    });
+    expect(Math.min(...rows), `the repository's sections sit ${rows.join(' + ')}`).toBeGreaterThanOrEqual(3);
+  });
+}
+
+/*
+ * Magnetar Sec opens and closes like a menu: folded, its tools are out of
+ * sight and out of the tab order and the heading says how many it holds;
+ * the choice survives a reload; and the screen in front of the reader opens
+ * it again when that screen is one of its tools.
+ */
+test('Magnetar Sec folds and opens like a menu, and keeps the current tool in view', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor();
+  const head = page.locator('#railSecurityLabel');
+  const fold = page.locator('#railSecurityFold');
+  await expect(head).toHaveAttribute('aria-expanded', 'true');
+  await expect(head).toHaveAccessibleName(/^Magnetar Sec, \d security tools$/);
+  await expect(page.locator('#navRail [data-rail="neural"]')).toBeVisible();
+
+  await head.click();
+  await expect(head).toHaveAttribute('aria-expanded', 'false');
+  await expect(fold).toHaveAttribute('data-open', 'false');
+  await expect.poll(() => fold.evaluate(node => Math.round(node.getBoundingClientRect().height ? node.querySelector('ul').getBoundingClientRect().height : 0))).toBe(0);
+  expect(await fold.evaluate(node => node.inert)).toBe(true);
+  await expect(head.locator('.nv-rail-group-n')).toBeVisible();
+  await expect(head.locator('.nv-rail-group-n')).toHaveText(/^\d$/);
+
+  await page.reload();
+  await page.locator('#page-work.active').waitFor();
+  await expect(head).toHaveAttribute('aria-expanded', 'false');
+
+  /* Opened by the keyboard as well as the pointer. */
+  await head.focus();
+  await page.keyboard.press('Enter');
+  await expect(head).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Enter');
+  await expect(head).toHaveAttribute('aria-expanded', 'false');
+
+  /* The current tool is never hidden inside a folded heading. */
+  await page.locator('#deskTabs .tab[data-tab="audit"]').click();
+  await expect(head).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#navRail [data-rail="audit"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('#navRail [data-rail="audit"]')).toBeVisible();
+});
+
+test('the rail controls move: the collapse chevrons turn, and the menu button crosses into a close mark', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  const chevrons = page.locator('#railCollapse svg');
+  expect(await chevrons.evaluate(node => getComputedStyle(node).transitionDuration)).not.toBe('0s');
+  await page.locator('#railCollapse').click();
+  await expect.poll(() => chevrons.evaluate(node => getComputedStyle(node).transform)).toMatch(/^matrix\(-1, [-0-9.e]+, [-0-9.e]+, -1, 0, 0\)$/);
+  await page.locator('#railCollapse').click();
+  await expect.poll(() => chevrons.evaluate(node => getComputedStyle(node).transform)).toBe('none');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const menu = page.locator('#page-overview .nav-menu-btn');
+  await menu.click();
+  await expect(menu).toHaveAttribute('aria-expanded', 'true');
+  await expect.poll(() => menu.locator('.nmb-l2').evaluate(node => getComputedStyle(node).opacity)).toBe('0');
+});
+
+/* Every block of the drawer arrives in turn, top to bottom, in one sequence. */
+test('the navigation drawer brings every block in, one after another, top to bottom', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await page.locator('#page-overview .nav-menu-btn').click();
+  const timings = await page.evaluate(() => [...document.querySelectorAll('#navRail :is(.nv-rail-head, .nv-rail-section, .nv-rail-nav > li, .nv-rail-group, .nv-rail-foot)')]
+    .filter(node => !node.closest('[hidden]'))
+    .map(node => ({ name: node.className || node.textContent.trim().slice(0, 20), animation: getComputedStyle(node).animationName, delay: parseFloat(getComputedStyle(node).animationDelay) })));
+  expect(timings.length).toBeGreaterThanOrEqual(12);
+  for (const block of timings) expect(block.animation, `${block.name} arrives with the others`).toBe('navItemIn');
+  const delays = timings.map(block => block.delay);
+  expect(delays, 'one order, top to bottom').toEqual([...delays].sort((a, b) => a - b));
+  expect(new Set(delays).size, 'no two blocks arrive at once').toBe(delays.length);
 });

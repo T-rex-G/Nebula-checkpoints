@@ -8,7 +8,7 @@ for (const name of ['CONTROL_CATALOG', 'TASK_14_CONTROL_CATALOG', 'LEGACY_CONTRO
 const { CONTROL_CATALOG, TASK_14_CONTROL_CATALOG, LEGACY_CONTROL_CATALOG, normalizeControlRefs, deriveControlMapping, normalizeControlMapping } = controls;
 const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
 assert.strictEqual(CONTROL_CATALOG.id, 'nebulaverse-control-catalog');
-assert.strictEqual(CONTROL_CATALOG.version, '1.6.0');
+assert.strictEqual(CONTROL_CATALOG.version, '1.7.0');
 assert.strictEqual(TASK_14_CONTROL_CATALOG.version, '1.1.0');
 assert.strictEqual(LEGACY_CONTROL_CATALOG.id, 'nebulaverse-control-catalog');
 assert.strictEqual(LEGACY_CONTROL_CATALOG.version, '1.0.0');
@@ -217,8 +217,9 @@ for (const action of EXPOSURE_ACTIONS) {
  * published, hashes what it hashed, and does not cover it.
  */
 {
-  const current = CONTROL_CATALOG;
+  const current = controls.TASK_23_CONTROL_CATALOG;
   const previous = controls.TASK_22_CONTROL_CATALOG;
+  assert.strictEqual(current.version, '1.6.0');
   assert.notStrictEqual(current.hash, previous.hash);
   const before = new Set(previous.actionMappings.map(item => item.action));
   const after = new Set(current.actionMappings.map(item => item.action));
@@ -234,6 +235,32 @@ for (const action of EXPOSURE_ACTIONS) {
   assert.strictEqual(actions['code-audit.history.clear'].actorBinding, 'execution', 'a person clears their own record');
   assert.strictEqual(actions['code-audit.history.clear'].risk, 'medium', 'irreversible, so not low');
   assert.deepStrictEqual(actions['code-audit.history.clear'].operations, []);
+}
+
+/*
+ * 1.7.0 adds a team's decisions about its audit findings: recording one and
+ * taking it back. 1.6.0 stays published, hashes what it hashed, and covers
+ * neither.
+ */
+{
+  const current = CONTROL_CATALOG;
+  const previous = controls.TASK_23_CONTROL_CATALOG;
+  assert.notStrictEqual(current.hash, previous.hash);
+  const before = new Set(previous.actionMappings.map(item => item.action));
+  const after = new Set(current.actionMappings.map(item => item.action));
+  const TRIAGE = ['code-audit.finding.reopen', 'code-audit.finding.triage'];
+  assert.deepStrictEqual([...after].filter(action => !before.has(action)).sort(), TRIAGE, '1.7.0 adds exactly the triage actions');
+  assert.deepStrictEqual([...before].filter(action => !after.has(action)), [], 'a revision may only add');
+  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  for (const action of TRIAGE) {
+    assert.strictEqual(deriveControlMapping({ action, policyEvaluations: [] }).status, 'mapped');
+    assert.strictEqual(deriveControlMapping({ action, catalogVersion: '1.6.0', policyEvaluations: [] }).status, 'unmapped',
+      `a policy approved against 1.6.0 never covered ${action}`);
+    assert.strictEqual(actions[action].actorBinding, 'governance', `${action} binds to a governance role: it decides for the whole team`);
+    assert.deepStrictEqual(actions[action].operations, [], `${action} writes nothing to a provider`);
+  }
+  assert.strictEqual(actions['code-audit.finding.triage'].risk, 'high', 'it takes a finding out of the grade and the merge gate');
+  assert.strictEqual(actions['code-audit.finding.reopen'].risk, 'medium', 'it only ever shows a finding again');
 }
 
 console.log('control mapping tests passed');

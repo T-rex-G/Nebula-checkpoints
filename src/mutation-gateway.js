@@ -120,6 +120,16 @@ const MUTATION_ACTIONS = Object.freeze({
    * alerts it removes cannot be brought back.
    */
   'code-audit.history.clear': defineAction('code-audit', 'medium', 'Clear an identity\'s repository audit history for a repository', []),
+  /*
+   * A team's decision about one of its audit findings binds to a governance
+   * role, as accepting an exposure's risk does: it takes the finding out of
+   * the grade and out of the merge gate for everyone. It is high rather than
+   * critical because it can be read and taken back by any reviewer, and a
+   * risk accepted is accepted only until a date. Taking a decision back
+   * shows the finding again, which is never the dangerous direction.
+   */
+  'code-audit.finding.triage': defineAction('code-audit', 'high', 'Record a team decision about a repository audit finding', [], null, 'governance'),
+  'code-audit.finding.reopen': defineAction('code-audit', 'medium', 'Take back a team decision about a repository audit finding', [], null, 'governance'),
   'governance.notification.preferences.update': defineAction('governance', 'low', 'Update repository governance notification preferences', [], null, 'governance'),
   'governance.notification.read': defineAction('governance', 'low', 'Advance repository governance notification read state', [], null, 'governance'),
   'governance.webhook.create': defineAction('governance', 'high', 'Create a signed governance webhook destination', [], null, 'governance'),

@@ -192,7 +192,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   const csvDownload = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Export CSV' }).click();
   const csvText = require('fs').readFileSync(await (await csvDownload).path(), 'utf8');
-  expect(csvText.split('\r\n')[0]).toBe('Source,Status,Severity,Verdict,Rule,Title,Detail,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reached through,Risk,Known exploited,EPSS,Dependency reach,How to confirm,Reason waived,Fix');
+  expect(csvText.split('\r\n')[0]).toBe('Source,Status,Severity,Verdict,Rule,Title,Detail,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reached through,Risk,Known exploited,EPSS,Dependency reach,How to confirm,Reason waived,Due by,Fix');
   expect(csvText).toContain('SEC-001');
   expect(csvText).not.toContain('Tr0ub4dor');
 

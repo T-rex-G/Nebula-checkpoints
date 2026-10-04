@@ -3,7 +3,8 @@
 const crypto = require('crypto');
 
 const CATALOG_ID = 'nebulaverse-control-catalog';
-const CATALOG_VERSION = '1.6.0';
+const CATALOG_VERSION = '1.7.0';
+const TASK_23_CATALOG_VERSION = '1.6.0';
 const TASK_22_CATALOG_VERSION = '1.5.0';
 const TASK_21_CATALOG_VERSION = '1.4.0';
 const TASK_20_CATALOG_VERSION = '1.3.0';
@@ -115,6 +116,12 @@ const TASK_22_MAPPED_ACTIONS = Object.freeze([
  */
 const TASK_23_MAPPED_ACTIONS = Object.freeze(['code-audit.history.clear']);
 
+/*
+ * A team's decisions about its audit findings: recording one, and taking it
+ * back. 1.6.0 stays exactly as approved, and does not cover them.
+ */
+const TASK_24_MAPPED_ACTIONS = Object.freeze(['code-audit.finding.triage', 'code-audit.finding.reopen']);
+
 function actionControlRefs(actions) {
   return Object.freeze(Object.fromEntries(actions.map(action => [action, Object.freeze(['SOC2-TSC:CC6.1', 'SOC2-TSC:CC8.1'])])));
 }
@@ -146,9 +153,13 @@ const TASK_22_ACTION_CONTROL_REFS = actionControlRefs([
   ...BASE_MAPPED_ACTIONS, ...TASK_14_MAPPED_ACTIONS, ...TASK_19_MAPPED_ACTIONS, ...TASK_20_MAPPED_ACTIONS,
   ...TASK_21_MAPPED_ACTIONS, ...TASK_22_MAPPED_ACTIONS
 ]);
-const ACTION_CONTROL_REFS = actionControlRefs([
+const TASK_23_ACTION_CONTROL_REFS = actionControlRefs([
   ...BASE_MAPPED_ACTIONS, ...TASK_14_MAPPED_ACTIONS, ...TASK_19_MAPPED_ACTIONS, ...TASK_20_MAPPED_ACTIONS,
   ...TASK_21_MAPPED_ACTIONS, ...TASK_22_MAPPED_ACTIONS, ...TASK_23_MAPPED_ACTIONS
+]);
+const ACTION_CONTROL_REFS = actionControlRefs([
+  ...BASE_MAPPED_ACTIONS, ...TASK_14_MAPPED_ACTIONS, ...TASK_19_MAPPED_ACTIONS, ...TASK_20_MAPPED_ACTIONS,
+  ...TASK_21_MAPPED_ACTIONS, ...TASK_22_MAPPED_ACTIONS, ...TASK_23_MAPPED_ACTIONS, ...TASK_24_MAPPED_ACTIONS
 ]);
 const LEGACY_CONTROL_CATALOG = createCatalog(LEGACY_CATALOG_VERSION, LEGACY_ACTION_CONTROL_REFS);
 const TASK_14_CONTROL_CATALOG = createCatalog(TASK_14_CATALOG_VERSION, TASK_14_ACTION_CONTROL_REFS);
@@ -156,6 +167,7 @@ const TASK_19_CONTROL_CATALOG = createCatalog(TASK_19_CATALOG_VERSION, TASK_19_A
 const TASK_20_CONTROL_CATALOG = createCatalog(TASK_20_CATALOG_VERSION, TASK_20_ACTION_CONTROL_REFS);
 const TASK_21_CONTROL_CATALOG = createCatalog(TASK_21_CATALOG_VERSION, TASK_21_ACTION_CONTROL_REFS);
 const TASK_22_CONTROL_CATALOG = createCatalog(TASK_22_CATALOG_VERSION, TASK_22_ACTION_CONTROL_REFS);
+const TASK_23_CONTROL_CATALOG = createCatalog(TASK_23_CATALOG_VERSION, TASK_23_ACTION_CONTROL_REFS);
 const CONTROL_CATALOG = createCatalog(CATALOG_VERSION, ACTION_CONTROL_REFS);
 const CONTROL_CATALOGS = Object.freeze({
   [LEGACY_CONTROL_CATALOG.version]: Object.freeze({ catalog: LEGACY_CONTROL_CATALOG, actionMappings: LEGACY_ACTION_CONTROL_REFS }),
@@ -164,6 +176,7 @@ const CONTROL_CATALOGS = Object.freeze({
   [TASK_20_CONTROL_CATALOG.version]: Object.freeze({ catalog: TASK_20_CONTROL_CATALOG, actionMappings: TASK_20_ACTION_CONTROL_REFS }),
   [TASK_21_CONTROL_CATALOG.version]: Object.freeze({ catalog: TASK_21_CONTROL_CATALOG, actionMappings: TASK_21_ACTION_CONTROL_REFS }),
   [TASK_22_CONTROL_CATALOG.version]: Object.freeze({ catalog: TASK_22_CONTROL_CATALOG, actionMappings: TASK_22_ACTION_CONTROL_REFS }),
+  [TASK_23_CONTROL_CATALOG.version]: Object.freeze({ catalog: TASK_23_CONTROL_CATALOG, actionMappings: TASK_23_ACTION_CONTROL_REFS }),
   [CONTROL_CATALOG.version]: Object.freeze({ catalog: CONTROL_CATALOG, actionMappings: ACTION_CONTROL_REFS })
 });
 
@@ -351,6 +364,7 @@ module.exports = Object.freeze({
   TASK_20_CONTROL_CATALOG,
   TASK_21_CONTROL_CATALOG,
   TASK_22_CONTROL_CATALOG,
+  TASK_23_CONTROL_CATALOG,
   normalizeControlRefs,
   deriveControlMapping,
   normalizeControlMapping

@@ -749,7 +749,7 @@
   breakpoint it gives way to the bottom navigation the workspace already has.
 -->
 <nav class="nv-rail" id="navRail" aria-label="Primary" hidden>
-  <div class="nv-rail-head">
+  <div class="nv-rail-head" style="--i:0">
     <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
     <span class="nv-rail-brand">__NV_PRODUCT_NAME__</span>
     <span class="nv-rail-sub">Trust operations</span>
@@ -760,7 +760,7 @@
     Collapsing narrows the rail to its icons; the entries keep their names for
     assistive technology, so the rail never becomes a row of unlabelled marks.
   -->
-  <div class="nv-rail-section">
+  <div class="nv-rail-section" style="--i:1">
     <span class="nv-rail-section-t">Workspace</span>
     <button type="button" class="nv-rail-collapse" id="railCollapse"
       aria-expanded="true" aria-controls="navRail" aria-label="Collapse the sidebar">
@@ -774,14 +774,14 @@
   </div>
 
   <ul class="nv-rail-nav">
-    <li><button type="button" class="nv-rail-item" data-rail="overview">
+    <li style="--i:2"><button type="button" class="nv-rail-item" data-rail="overview">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg>
       <span class="nv-rail-t">Overview</span>
       <span class="nv-rail-d">Workspace pulse</span></button></li>
-    <li><button type="button" class="nv-rail-item" data-rail="repos">
+    <li style="--i:3"><button type="button" class="nv-rail-item" data-rail="repos">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-28 12 12)"/></svg>
-      <span class="nv-rail-t">Repositories</span>
-      <span class="nv-rail-d">Connected systems</span></button></li>
+      <span class="nv-rail-t">Galaxies</span>
+      <span class="nv-rail-d">Your repositories</span></button></li>
   </ul>
 
   <!--
@@ -791,35 +791,47 @@
     They sit together so a reader looking for one finds the others beside it.
     Safeguards is a section like the others, with its own address.
   -->
-  <p class="nv-rail-group" id="railSecurityLabel">Security</p>
-  <ul class="nv-rail-nav" aria-labelledby="railSecurityLabel">
-    <li><button type="button" class="nv-rail-item" data-rail="neural">
+  <!--
+    Magnetar Sec: the security tools, under one heading that opens and closes
+    like a menu. Folded, the heading stays and says how many it holds; the
+    entry for the screen in front of the reader opens it again by itself.
+  -->
+  <button type="button" class="nv-rail-group" id="railSecurityLabel" style="--i:4"
+    aria-expanded="true" aria-controls="railSecurityFold">
+    <span class="nv-rail-group-t">Magnetar Sec</span>
+    <span class="nv-rail-group-n" aria-hidden="true">6</span>
+    <svg class="nv-rail-group-chev" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
+  <div class="nv-rail-fold" id="railSecurityFold" data-open="true">
+  <ul class="nv-rail-nav nv-rail-nav-security" aria-labelledby="railSecurityLabel">
+    <li style="--j:0;--i:5"><button type="button" class="nv-rail-item" data-rail="neural">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22"/></svg>
       <span class="nv-rail-t">Neural</span>
-      <span class="nv-rail-d">Signal topology</span></button></li>
-    <li><button type="button" class="nv-rail-item" data-feature="governance" data-allow-experimental="true" data-rail="governance">
+      <span class="nv-rail-d">Pulsar Engine</span></button></li>
+    <li style="--j:1;--i:6"><button type="button" class="nv-rail-item" data-feature="governance" data-allow-experimental="true" data-rail="governance">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg>
       <span class="nv-rail-t">Governance</span>
-      <span class="nv-rail-d">Policy digital twin</span></button></li>
-    <li><button type="button" class="nv-rail-item" data-feature="exposure.scan" data-allow-experimental="true" data-rail="exposure">
+      <span class="nv-rail-d">Kepler Engine</span></button></li>
+    <li style="--j:2;--i:7"><button type="button" class="nv-rail-item" data-feature="exposure.scan" data-allow-experimental="true" data-rail="exposure">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg>
       <span class="nv-rail-t">Exposure</span>
-      <span class="nv-rail-d">Leaked credentials</span></button></li>
-    <li><button type="button" class="nv-rail-item" data-feature="site-check" data-rail="audit">
+      <span class="nv-rail-d">Quasar Engine</span></button></li>
+    <li style="--j:3;--i:8"><button type="button" class="nv-rail-item" data-feature="site-check" data-rail="audit">
       <svg class="nv-rail-i nv-audit-mark" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg>
       <span class="nv-rail-t">Audit</span>
-      <span class="nv-rail-d">Uranus engine</span></button></li>
-    <li><button type="button" class="nv-rail-item" data-feature="site-check" data-rail="site">
+      <span class="nv-rail-d">Uranus Engine</span></button></li>
+    <li style="--j:4;--i:9"><button type="button" class="nv-rail-item" data-feature="site-check" data-rail="site">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg>
       <span class="nv-rail-t">Website</span>
-      <span class="nv-rail-d">Deployed-site scan</span></button></li>
-    <li><button type="button" class="nv-rail-item" data-feature="recovery" data-rail="safeguards">
+      <span class="nv-rail-d">Parallax Engine</span></button></li>
+    <li style="--j:5;--i:10"><button type="button" class="nv-rail-item" data-feature="recovery" data-rail="safeguards">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg>
       <span class="nv-rail-t">Safeguards</span>
-      <span class="nv-rail-d">Lockdown and protection</span></button></li>
+      <span class="nv-rail-d">Corona Engine</span></button></li>
   </ul>
+  </div>
 
-  <div class="nv-rail-foot">
+  <div class="nv-rail-foot" style="--i:11">
     <!-- Painted from the server's own report (/api/workspace/posture); it
          says "checking" until that report arrives rather than claiming a
          state nobody has asked about. -->
@@ -845,7 +857,7 @@
 -->
 <main class="page" id="page-site" aria-labelledby="siteTitle">
   <header class="topbar glass">
-    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path class="nmb-l1" d="M4 7h16"/><path class="nmb-l2" d="M4 12h16"/><path class="nmb-l3" d="M4 17h16"/></svg></button>
     <button class="topbar-brand" id="siteHomeBtn" type="button" aria-label="Workspace overview">
       <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
@@ -867,7 +879,7 @@
       <header class="exposure-intro sec-hero">
         <span class="sec-mark sec-mark-site" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg></span>
         <div class="sec-hero-text">
-          <p class="exposure-kicker">Security and experience</p>
+          <p class="exposure-kicker">Magnetar Sec · Parallax Engine</p>
           <h2 id="siteTitle">Website</h2>
           <p>Check a public website&rsquo;s security, then inspect its rendered desktop and mobile experience. Review findings alongside coverage, screenshots and the limits of each check.</p>
         </div>
@@ -880,7 +892,7 @@
 
 <main class="page" id="page-overview" aria-label="Workspace overview">
   <header class="topbar glass">
-    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path class="nmb-l1" d="M4 7h16"/><path class="nmb-l2" d="M4 12h16"/><path class="nmb-l3" d="M4 17h16"/></svg></button>
     <!--
       The mark, not only the wordmark. This button's sole child was a .hide-sm
       span, and .hide-sm is display:none below 900px -- so on a phone the
@@ -909,9 +921,9 @@
         content, and this control is how a reader -- and the suite's journey
         helper -- reaches the repositories screen.
       -->
-      <button class="btn btn-ghost" id="ovGoRepos" aria-label="Repositories">
+      <button class="btn btn-ghost" id="ovGoRepos" aria-label="Galaxies, your repositories">
         <svg class="ico ov-repos-ico" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-28 12 12)"/></svg>
-        <span class="ov-repos-word">Repositories</span>
+        <span class="ov-repos-word">Galaxies</span>
       </button>
       <button class="btn btn-ghost icon-btn" id="settingsBtnOv" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <!--
@@ -1094,7 +1106,7 @@
 <!-- ======================= REPOS ======================= -->
 <main class="page" id="page-repos" aria-labelledby="reposTitle">
   <header class="topbar glass">
-    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path class="nmb-l1" d="M4 7h16"/><path class="nmb-l2" d="M4 12h16"/><path class="nmb-l3" d="M4 17h16"/></svg></button>
     <button class="topbar-brand" id="homeBtn" type="button" aria-label="Workspace overview">
       <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
@@ -1119,7 +1131,7 @@
           takes no pointer events -- the text over it stays selectable.
         -->
         <div class="gx-hero-art" id="gxHeroArt" aria-hidden="true"></div>
-        <p class="gx-eyebrow"><span>Your workspace</span><span aria-hidden="true">/</span><span>Repositories</span></p>
+        <p class="gx-eyebrow"><span>Your workspace</span><span aria-hidden="true">/</span><span>Galaxies</span></p>
         <h2 class="gx-title" id="gxHeroTitle">Choose a <em>repository.</em></h2>
         <p class="gx-lede">Open a repository to browse files, review changes, or run an audit.</p>
       </section>
@@ -1184,7 +1196,7 @@
 <!-- ======================= WORKSPACE ======================= -->
 <main class="page" id="page-work" aria-label="Repository workspace">
   <header class="topbar glass">
-    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path class="nmb-l1" d="M4 7h16"/><path class="nmb-l2" d="M4 12h16"/><path class="nmb-l3" d="M4 17h16"/></svg></button>
     <button class="topbar-brand" id="backBtn" type="button" title="Back to repositories" aria-label="Back to repositories">
       <span class="back-chev">‹</span>
       <span id="workRepoName" class="mono repo-name-trunc"></span>
@@ -1196,7 +1208,6 @@
       <button class="btn btn-ghost icon-btn hide-sm" id="settingsBtnWork" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button class="btn btn-ghost icon-btn hide-sm" id="paletteBtn" title="Command palette (Ctrl+K)" aria-label="Command palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg></button>
       <button class="btn btn-ghost icon-btn hide-sm" id="filesToggle" type="button" title="Hide files" aria-label="Hide files" aria-controls="side" aria-expanded="true"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.6"/><path d="M9.5 4.5v15"/><path class="files-toggle-chev" d="M15.6 9.6L13.2 12l2.4 2.4"/></svg></button>
-      <button class="btn btn-ghost icon-btn hide-sm" id="safeguardsBtn" type="button" data-feature="recovery" title="Safeguards" aria-label="Safeguards"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg></button>
       <button class="btn btn-ghost icon-btn" id="syncBtn" title="Refresh repo" aria-label="Refresh repo"><svg class="ico" width="17" height="17" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1M20.5 3.5v4h-4"/></svg></button>
       <span class="ro-chip" id="roChip" hidden title="Read-only mode"><svg class="ro-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span class="ro-word">READ-ONLY</span></span><span class="ro-chip freeze" id="freezeChip" hidden title="Sync frozen"><svg class="ro-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/></svg><span class="ro-word">SYNC FROZEN</span></span><span class="shield-chip" id="branchShield" hidden title="This branch is protected"><svg class="ico" width="13" height="13" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg></span><span class="branch-pick"><svg class="branch-pick-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6.2" r="2.2"/><circle cx="17" cy="6.2" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M7 8.4v1.2a3 3 0 0 0 3 3h4a3 3 0 0 0 3-3V8.4M12 12.6v3.2"/></svg><select id="branchSelect" class="branch-select" title="Branch" aria-label="Repository branch"></select></span>
       <button class="btn btn-ghost icon-btn staged-btn" id="stagedBtn" title="Staged changes" aria-label="Staged changes">
@@ -1255,7 +1266,7 @@
         <button class="tab" data-feature="workflows.read" data-allow-experimental="true" data-tab="actions">Actions</button>
         <button class="tab" data-feature="recovery" data-allow-experimental="true" data-tab="compare">Compare</button>
         </span>
-        <span class="tab-group tab-group-security" role="group" aria-label="Security">
+        <span class="tab-group tab-group-security" role="group" aria-label="Magnetar Sec">
         <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
         <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel">Governance</button>
         <button class="tab" data-feature="exposure.scan" data-allow-experimental="true" data-tab="exposure" id="exposureTabLabel">Exposure</button>
@@ -1437,7 +1448,7 @@
           -->
           <header class="neural-head">
             <div class="neural-head-copy">
-              <div class="neural-kicker"><span class="neural-live-dot"></span> NEURAL COMMAND CENTER</div>
+              <div class="neural-kicker"><span class="neural-live-dot"></span> PULSAR ENGINE · NEURAL COMMAND CENTER</div>
               <h2>Repository nervous system</h2>
               <p>Live topology for security, dependencies, protected assets, activity and recovery paths.</p>
             </div>
@@ -1560,7 +1571,7 @@
           <header class="exposure-intro sec-hero">
             <span class="sec-mark sec-mark-audit" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg></span>
             <div class="sec-hero-text">
-              <p class="exposure-kicker">Repository security</p>
+              <p class="exposure-kicker">Magnetar Sec · Uranus Engine</p>
               <h2>Audit</h2>
               <p>Uranus maps every endpoint, follows what a caller sends to what uses it, and reads secrets, packages, database rules and the live site. One grade, confirmed findings kept apart from leads, never the code.</p>
             </div>
@@ -1580,7 +1591,7 @@
           <header class="exposure-intro sec-hero">
             <span class="sec-mark sec-mark-safeguards" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg></span>
             <div class="sec-hero-text">
-              <p class="exposure-kicker">Repository security</p>
+              <p class="exposure-kicker">Magnetar Sec · Corona Engine</p>
               <h2>Safeguards</h2>
               <p>What stands between a mistake and this repository: the app's own switches, the rules the provider enforces on the branch, the paths nothing may change, and the way back.</p>
             </div>
@@ -1594,7 +1605,7 @@
           <header class="exposure-intro sec-hero">
             <span class="sec-mark sec-mark-exposure" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M8.6 12.4a2.1 2.1 0 1 1 2.9-2.9l2.6 2.6M12.6 10.6l1 1"/></svg></span>
             <div class="sec-hero-text">
-              <p class="exposure-kicker">Repository security</p>
+              <p class="exposure-kicker">Magnetar Sec · Quasar Engine</p>
               <h2>Exposure</h2>
               <p>Credentials committed to this branch and its history, checked live on request. The deployed site itself is checked on the Audit tab.</p>
             </div>
@@ -1752,7 +1763,7 @@
     <button class="sheet-item" data-feature="repository.read" data-act="zip"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5v11M6.5 9l5.5 5.5L17.5 9M4 20.5h16"/></svg><span>Download repo (.zip)</span></button>
     <button class="sheet-item danger" data-feature="repository.delete" data-allow-experimental="true" data-act="delrepo"><svg class="ico" width="19" height="19" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg><span>Delete repository…</span></button>
     <div class="sheet-div"></div>
-    <p class="sheet-label">Security</p>
+    <p class="sheet-label">Magnetar Sec</p>
     <button class="sheet-item" data-feature="access-surface" data-act="neural"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="7" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="18" cy="18" r="1.7"/><circle cx="6" cy="18" r="1.7"/><path d="M7 8.3l3.2 2.3M14 10.2l3.4-2.8M14 13.5l2.7 3M9.9 13.6l-2.7 3"/></svg><span>Neural</span></button>
     <button class="sheet-item" data-feature="governance" data-allow-experimental="true" data-act="governance"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg><span>Governance</span></button>
     <button class="sheet-item" data-feature="exposure.scan" data-allow-experimental="true" data-act="exposure"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg><span>Exposure</span></button>

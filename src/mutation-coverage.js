@@ -100,6 +100,8 @@ const ACTION_EXECUTION_CONTRACTS = deepFreeze({
   'exposure.finding.export': DEFAULT_GOVERNANCE,
   'exposure.history.clear': DEFAULT_GOVERNANCE,
   'code-audit.history.clear': DEFAULT_GOVERNANCE,
+  'code-audit.finding.triage': DEFAULT_GOVERNANCE,
+  'code-audit.finding.reopen': DEFAULT_GOVERNANCE,
   'governance.notification.preferences.update': DEFAULT_GOVERNANCE,
   'governance.notification.read': DEFAULT_GOVERNANCE,
   'governance.webhook.create': DEFAULT_GOVERNANCE,
@@ -154,6 +156,8 @@ const MUTATION_ROUTE_INVENTORY = deepFreeze([
   route('POST', '/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', 'exposure.finding.accept-risk'),
   route('POST', '/api/repo/:owner/:repo/exposure/clear', 'exposure.history.clear'),
   route('POST', '/api/repo/:owner/:repo/code-audit/history/clear', 'code-audit.history.clear'),
+  route('POST', '/api/repo/:owner/:repo/code-audit/findings/:findingId/triage', 'code-audit.finding.triage'),
+  route('POST', '/api/repo/:owner/:repo/code-audit/findings/:findingId/reopen', 'code-audit.finding.reopen'),
   /*
    * The two that contact somebody else. A verification uses a discovered
    * credential against the service that issued it; a probe asks a project what

@@ -79,6 +79,7 @@ const { usageIndex, tierOf, riskOf, exploitedInProduction } = require('./uranus-
 const { lookupExploitIntel } = require('./exploit-intel');
 const ecosystems = require('./ecosystems');
 const licences = require('./licences');
+const auditPolicy = require('./code-audit-policy');
 
 /* The engine's name and version, carried in every result and export. */
 const ENGINE = Object.freeze({ name: 'Uranus', version: '2.2.0' });
@@ -178,6 +179,8 @@ function auditPriority(filePath) {
   if (MANIFESTS.test(filePath) || isRequirements(base) || base === '.gitignore' || base === 'tsconfig.json' || isDockerfile(filePath) || FIREBASE_RULES.has(base)) return 0;
   /* The project's own licence and its licence policy: what every dependency's licence is judged against. */
   if (licences.isLicenceFile(filePath) || licences.POLICY_PATHS.includes(filePath)) return 0;
+  /* The repository's own clock for its findings. */
+  if (filePath === auditPolicy.POLICY_PATH) return 0;
   if (READ_LOCKS.has(base) || (extensionOf(filePath) === 'sql' && /(^|\/)(supabase|migrations?|db|database|sql|schema)\//i.test(filePath))) return 1;
   if (/^\.github\/workflows\//.test(filePath) || base === 'Makefile' || /\.(sh|ps1)$/.test(base) || /^\.env/.test(base) ||
     /^(next|vite|nuxt|svelte|astro)\.config\./.test(base) || base === 'vercel.json' || base === 'netlify.toml' ||
@@ -893,8 +896,15 @@ function sqlStatements(text) {
   let line = 1;
   let startLine = 1;
   let buffer = '';
+  /* Whether the buffer holds anything but whitespace -- asked of every character, so kept, never re-trimmed. */
+  let filled = false;
   const skip = (from, to) => {
     for (let cursor = from; cursor < to; cursor += 1) if (text[cursor] === '\n') line += 1;
+  };
+  const flush = () => {
+    if (filled) out.push({ sql: buffer.replace(/\s+/g, ' ').trim(), line: startLine });
+    buffer = '';
+    filled = false;
   };
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
@@ -916,22 +926,22 @@ function sqlStatements(text) {
       const close = tag ? tag[0] : "'";
       const end = text.indexOf(close, index + close.length);
       const stop = end === -1 ? text.length : end + close.length;
-      if (!buffer.trim()) startLine = line;
+      if (!filled) startLine = line;
       skip(index, stop);
       buffer += tag ? ' $body$ ' : text.slice(index, stop);
+      filled = true;
       index = stop - 1;
       continue;
     }
     if (char === '\n') line += 1;
-    if (char === ';') {
-      if (buffer.trim()) out.push({ sql: buffer.replace(/\s+/g, ' ').trim(), line: startLine });
-      buffer = '';
-      continue;
+    if (char === ';') { flush(); continue; }
+    if (/\S/.test(char)) {
+      if (!filled) startLine = line;
+      filled = true;
     }
-    if (!buffer.trim() && /\S/.test(char)) startLine = line;
     buffer += char;
   }
-  if (buffer.trim()) out.push({ sql: buffer.replace(/\s+/g, ' ').trim(), line: startLine });
+  flush();
   return out;
 }
 
@@ -2724,7 +2734,7 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
     go: flowResult.stats.go || 0, java: flowResult.stats.java || 0, php: flowResult.stats.php || 0, functions: flowResult.stats.functions || 0,
     endpoints: surface.counts.endpoints, actions: surface.counts.actions, flows: flowResult.flows.length,
     crossFile: flowResult.flows.filter(flow => flow.viaHelper === 'file').length, failed: flowResult.stats.failed || 0,
-    cut: flowResult.stats.cut || 0, limit: flowResult.stats.limit || null,
+    deep: flowResult.stats.deep || 0, cut: flowResult.stats.cut || 0, limit: flowResult.stats.limit || null,
     /* Files beyond the traced set, checked against every per-file rule. */
     rulesOnly: beyond ? beyond.files || 0 : 0
   } };
@@ -2732,6 +2742,7 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
   return {
     findings, suppressed, dependencyStatus, advisoryStatus: vulnerabilities.status, dependencyRisk, priorities: priorities(findings), ...score(findings),
     licences: licenceSummary,
+    policy: auditPolicy.readAuditPolicy(files),
     components: bill.components, componentsTruncated: bill.truncated,
     engine,
     surface: surfaceSummary(surface),
@@ -2898,6 +2909,7 @@ function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = nu
   const databaseMissing = databasePaths.filter(filePath => !databaseRead.has(filePath)).length;
   const rulesDb = databasePaths.length > databaseMissing;
   const failed = flowResult.stats && flowResult.stats.failed;
+  const deep = (flowResult.stats && flowResult.stats.deep) || 0;
   const cut = (flowResult.stats && flowResult.stats.cut) || 0;
   const limit = flowResult.stats && flowResult.stats.limit;
   const followed = ['javascript', 'python', 'go', 'java', 'php'].reduce((sum, language) => sum + ((flowResult.stats && flowResult.stats[language]) || 0), 0);
@@ -2915,11 +2927,12 @@ function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = nu
       if (!traced && !untraced.length) { status = 'not-applicable'; detail = 'No application code was found to read.'; }
       else if (!traced) { status = 'patterns'; detail = `Only pattern-checked: values are traced in JavaScript, TypeScript, Python, Go, Java and PHP, and this code is ${untraced.join(', ')}.`; }
       else if (limit && !followed) { status = 'patterns'; detail = `Only pattern-checked: following values across ${traced} files ${stopped}, so every file was checked against the rules instead.`; }
-      else if (untraced.length || failed || cut || rulesOnly) {
+      else if (untraced.length || failed || deep || cut || rulesOnly) {
         status = 'partial';
         const gaps = [];
         if (untraced.length) gaps.push(`${untraced.join(', ')} files were only pattern-checked`);
         if (failed) gaps.push(`${failed} files could not be followed`);
+        if (deep) gaps.push(`${deep} ${deep === 1 ? 'file nests' : 'files nest'} expressions deeper than values are followed`);
         if (cut) gaps.push(`${cut} ${cut === 1 ? 'file was' : 'files were'} left to the rules when tracing ${stopped} (server code is traced first)`);
         if (rulesOnly) gaps.push(`${rulesOnly} more ${rulesOnly === 1 ? 'file' : 'files'} beyond the traced set ${rulesOnly === 1 ? 'was' : 'were'} checked against the rules`);
         detail = `Traced across ${cut ? followed : traced} files; ${gaps.join('; ')}.`;
@@ -3267,6 +3280,6 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
 
 module.exports = Object.freeze({
   ENGINE, CATEGORIES, RULES, LIMITS, CRITICAL_CAP, SEVERITY_PENALTY, PATTERN_RULES, LEDGER,
-  analyse, scanRules, mergeScans, auditRepository, selectFiles, lookupPackages, lookupAdvisories, queryAdvisoryIds, fetchAdvisoryRecords, describeAdvisory, advisoryKey, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
+  analyse, score, priorities, scanRules, mergeScans, auditRepository, selectFiles, lookupPackages, lookupAdvisories, queryAdvisoryIds, fetchAdvisoryRecords, describeAdvisory, advisoryKey, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
   compareVersions, rangeCeiling, rangeFloor, cvss3, sqlStatements
 });

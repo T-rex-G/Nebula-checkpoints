@@ -148,7 +148,11 @@
     history: 'M3.8 12a8.2 8.2 0 1 0 2.4-5.8M3.8 4.6v3.8h3.8M12 7.8V12l2.9 1.9',
     refresh: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v3.8h-3.8',
     news: 'M12 3.5l2.2 5.3 5.3 2.2-5.3 2.2L12 18.5l-2.2-5.3L4.5 11l5.3-2.2z',
-    trash: 'M5 7h14M10 7V4.8h4V7M7 7l.8 12.2h8.4L17 7M10.2 10.5v5.6M13.8 10.5v5.6'
+    trash: 'M5 7h14M10 7V4.8h4V7M7 7l.8 12.2h8.4L17 7M10.2 10.5v5.6M13.8 10.5v5.6',
+    clock: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.4V12l3.1 2',
+    flag: 'M5.5 20.5V4M5.5 4.5h11l-2.2 4 2.2 4h-11',
+    reopen: 'M3.8 12a8.2 8.2 0 1 0 2.4-5.8M3.8 4.6v3.8h3.8',
+    timer: 'M12 6.5a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM12 10v3.5l2.2 1.4M9.5 3h5'
   });
   const STORE_PREFIX = 'nv_audit:';
   const SVG = 'http://www.w3.org/2000/svg';
@@ -232,7 +236,7 @@
    * tree; the toggle says which way it will go.
    */
   const FOLD_STORE = 'nv_ui:audit-folded';
-  const FOLDS = Object.freeze(['watch', 'first', 'risk', 'families', 'surface', 'licences', 'coverage', 'controls', 'owasp', 'findings', 'history', 'site']);
+  const FOLDS = Object.freeze(['watch', 'first', 'risk', 'families', 'surface', 'licences', 'coverage', 'controls', 'owasp', 'findings', 'remediation', 'history', 'site']);
   const folded = new Set();
   try {
     const stored = JSON.parse(global.localStorage.getItem(FOLD_STORE) || '[]');
@@ -323,6 +327,70 @@
     const entry = REACH[reach.auth];
     const where = reach.route ? `${verbs(reach.method)} ${reach.route}` : reach.method === 'ACTION' ? 'a server action' : 'this endpoint';
     return chip(entry.tone, entry.word, { glyph: entry.icon, className: 'audit-reach', title: `Reached through ${where}` });
+  }
+
+  /* ---- Clocks and decisions --------------------------------------------------- */
+
+  /*
+   * Every open finding has a clock: the days its branch gives its severity,
+   * from the day the kept history first saw it. A row says so only when it
+   * matters -- due soon, or past due -- and the finding's body always says
+   * where it stands.
+   */
+  const CLOCK = Object.freeze({
+    overdue: Object.freeze({ tone: 'critical', word: 'Overdue' }),
+    'due-soon': Object.freeze({ tone: 'warning', word: 'Due soon' }),
+    'on-track': Object.freeze({ tone: 'neutral', word: 'On track' })
+  });
+  const dayWord = count => `${count} ${count === 1 ? 'day' : 'days'}`;
+  function clockWords(clock) {
+    const days = Math.abs(clock.daysLeft);
+    if (clock.state === 'overdue') return `${dayWord(days || 1)} overdue`;
+    return days === 0 ? 'Due today' : `Due in ${dayWord(days)}`;
+  }
+  function clockChip(finding) {
+    const clock = finding && finding.clock;
+    if (!clock || !CLOCK[clock.state] || clock.state === 'on-track') return null;
+    return chip(CLOCK[clock.state].tone, clockWords(clock), {
+      glyph: ICON.clock, className: 'audit-clock-chip', beam: clock.state === 'overdue',
+      title: `Fix by ${when(clock.dueAt).short}: ${dayWord(clock.days)} from ${when(clock.firstSeenAt).short}, when it was first seen`
+    });
+  }
+  function clockLine(finding) {
+    const clock = finding && finding.clock;
+    if (!clock || !CLOCK[clock.state]) return null;
+    const line = element('p', 'audit-clock-line');
+    line.dataset.state = clock.state;
+    line.appendChild(icon(ICON.clock));
+    const words = element('span', 'audit-clock-words');
+    const state = element('b', 'audit-clock-state', clock.state === 'on-track' ? `Fix by ${when(clock.dueAt).short}` : clockWords(clock));
+    const why = clock.clock === 'exploited'
+      ? `${dayWord(clock.days)}, the critical clock, because it is exploited in the wild`
+      : `${dayWord(clock.days)} for a ${finding.severity} finding`;
+    words.append(state, document.createTextNode(` · first seen ${when(clock.firstSeenAt).short}${clock.state === 'on-track' ? '' : `, due ${when(clock.dueAt).short}`} · ${why}`));
+    line.appendChild(words);
+    return line;
+  }
+  /* A decision in the words the server sent, and who made it. */
+  function reasonLabel(view, decision) {
+    const vocabulary = view && view.triage && view.triage.vocabulary;
+    const found = vocabulary && Array.isArray(vocabulary.reasons) ? vocabulary.reasons.find(reason => reason.id === decision.reason) : null;
+    return found ? found.label : decision.reasonLabel || String(decision.reason || '').replace(/-/g, ' ');
+  }
+  const DISPOSITION = Object.freeze({
+    'false-positive': Object.freeze({ word: 'False positive', tone: 'neutral' }),
+    'accepted-risk': Object.freeze({ word: 'Risk accepted', tone: 'pending' })
+  });
+  function decisionSentence(decision, view) {
+    const by = decision.decidedBy ? ` by ${decision.decidedBy}` : '';
+    const on = decision.decidedAt ? ` on ${when(decision.decidedAt).short}` : '';
+    const until = decision.disposition === 'accepted-risk' && decision.expiresAt
+      ? decision.lapsed ? `; lapsed ${when(decision.expiresAt).short}` : `, until ${when(decision.expiresAt).short}` : '';
+    return `${DISPOSITION[decision.disposition] ? DISPOSITION[decision.disposition].word : 'Decided'}${by}${on}${until} — ${reasonLabel(view, decision)}.`;
+  }
+  /* What the reader can do about a finding, when the team's decisions are open to them. */
+  function canTriage(view, handlers) {
+    return Boolean(view && view.triage && view.triage.status === 'ready' && view.triage.canDecide && handlers && handlers.onTriage);
   }
 
   /* ---- Exploit intelligence and reach ------------------------------------- */
@@ -1120,8 +1188,24 @@
         notes.appendChild(element('p', 'audit-diff',
           `${plural(view.diff.newIds.size, 'new finding', 'new findings')}, ${view.diff.resolved} resolved${since}.`));
       }
-      const waived = (result.suppressed || []).length;
-      if (waived) notes.appendChild(element('p', 'audit-waived-note', `${plural(waived, 'finding', 'findings')} waived in code, listed below and not scored.`));
+      const suppressed = result.suppressed || [];
+      const triaged = suppressed.filter(finding => finding.suppression && finding.suppression.triage).length;
+      const waived = suppressed.length - triaged;
+      if (waived || triaged) {
+        const parts = [];
+        if (waived) parts.push(`${plural(waived, 'finding', 'findings')} waived in code`);
+        if (triaged) parts.push(`${plural(triaged, 'finding', 'findings')} triaged by the team`);
+        notes.appendChild(element('p', 'audit-waived-note', `${parts.join(' and ')}, listed below and not scored.`));
+      }
+      const overdue = result.findings.filter(finding => finding.clock && finding.clock.state === 'overdue').length;
+      const dueSoon = result.findings.filter(finding => finding.clock && finding.clock.state === 'due-soon').length;
+      if (overdue || dueSoon) {
+        const clocks = element('p', 'audit-clock-note');
+        clocks.dataset.state = overdue ? 'overdue' : 'due-soon';
+        clocks.append(icon(ICON.clock), element('span', null,
+          [overdue ? `${plural(overdue, 'finding', 'findings')} past ${overdue === 1 ? 'its' : 'their'} deadline` : '', dueSoon ? `${dueSoon} due within days` : ''].filter(Boolean).join(', ') + '.'));
+        notes.appendChild(clocks);
+      }
       if (notes.childNodes.length) read.appendChild(notes);
     }
     layout.appendChild(read);
@@ -1644,9 +1728,13 @@
       wrap.appendChild(error);
       return wrap;
     }
-    const findings = detail.findings || [];
+    /* Waived rows are kept for their clocks; the list is what the audit found open. */
+    const findings = (detail.findings || []).filter(finding => !finding.waived);
+    const waivedCount = (detail.findings || []).length - findings.length;
     if (!findings.length) {
-      wrap.appendChild(element('p', 'audit-hist-wait', 'This audit found nothing in what it read.'));
+      wrap.appendChild(element('p', 'audit-hist-wait', waivedCount
+        ? `Nothing open: ${plural(waivedCount, 'finding was', 'findings were')} waived in code or triaged by the team.`
+        : 'This audit found nothing in what it read.'));
       return wrap;
     }
     const all = expandedHistory.has(audit.id) || findings.length <= HISTORY_FINDINGS + 1;
@@ -1685,6 +1773,7 @@
     if (audit.findings && audit.findings.stored < audit.findings.total) {
       wrap.appendChild(element('p', 'audit-coverage', `${audit.findings.stored} of ${audit.findings.total} findings were kept, the most severe first.`));
     }
+    if (waivedCount) wrap.appendChild(element('p', 'audit-coverage', `${plural(waivedCount, 'more was', 'more were')} waived in code or triaged by the team.`));
     return wrap;
   }
   function renderHistory(host, view, handlers) {
@@ -1756,6 +1845,141 @@
     foot.appendChild(clear);
     card.appendChild(foot);
     host.appendChild(foldable(card, 'history', head, 'History'));
+  }
+
+  /* ---- Remediation ---------------------------------------------------------- */
+
+  /*
+   * How long a branch gives itself to fix what it finds, where it stands
+   * against that, and how long fixing has taken: the clock per severity from
+   * the branch's policy, the open findings past or near their deadline, and
+   * the time from first seen to gone for every finding the kept audits saw
+   * fixed in the last ninety days. Read from the kept history, so it exists
+   * only where the history does.
+   */
+  function fixDays(value) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+    const number = Number(value);
+    if (number < 1) return number < 1 / 24 ? 'under an hour' : `${Math.max(1, Math.round(number * 24))} h`;
+    return `${number >= 10 ? Math.round(number) : number.toFixed(1).replace(/\.0$/, '')} d`;
+  }
+  function remediationTile(label, value, sub, tone) {
+    const tile = element('li', 'audit-rem-tile');
+    if (tone) tile.dataset.tone = tone;
+    tile.append(element('span', 'audit-rem-label', label), element('strong', 'audit-rem-value', value));
+    if (sub) tile.appendChild(element('span', 'audit-rem-sub', sub));
+    return tile;
+  }
+  function renderRemediation(host, view, handlers) {
+    const metrics = view.metrics;
+    if (!metrics || metrics.status === 'idle' || metrics.status === 'unavailable') return;
+    const history = view.history;
+    if (!history || history.status !== 'ready' || !Array.isArray(history.audits) || !history.audits.length) return;
+    const card = element('section', 'card audit-remediation');
+    card.setAttribute('aria-labelledby', 'auditRemediationHeading');
+    const head = element('div', 'audit-card-head');
+    const titles = element('div', 'audit-card-titles');
+    const heading = element('h2', 'audit-kicker', 'Remediation');
+    heading.id = 'auditRemediationHeading';
+    const ref = history.audits[0].ref;
+    titles.append(heading, element('p', 'audit-card-lede',
+      `How long ${ref} gives itself to fix what an audit finds, where its open findings stand against that, and how long fixing has taken.`));
+    head.appendChild(titles);
+    card.appendChild(head);
+    if (metrics.status === 'loading' && !metrics.data) {
+      const wait = element('p', 'audit-hist-wait', 'Reading the clocks…');
+      wait.setAttribute('role', 'status');
+      card.appendChild(wait);
+      host.appendChild(foldable(card, 'remediation', head, 'Remediation'));
+      return;
+    }
+    if (metrics.status === 'error') {
+      const error = element('p', 'audit-hist-wait audit-error', metrics.error || 'The clocks could not be read.');
+      error.setAttribute('role', 'alert');
+      card.appendChild(error);
+      host.appendChild(foldable(card, 'remediation', head, 'Remediation'));
+      return;
+    }
+    const data = metrics.data || {};
+    const open = data.open || null;
+    const mttr = data.mttr || {};
+    const sla = data.sla || null;
+    const tiles = element('ul', 'audit-rem-tiles');
+    tiles.setAttribute('aria-label', 'Open findings against their deadlines, and time to fix');
+    if (open) {
+      tiles.append(
+        remediationTile('Overdue', String(open.overdue), open.overdue ? 'past their deadline' : 'none past due', open.overdue ? 'critical' : 'good'),
+        remediationTile('Due soon', String(open.dueSoon), 'in the last stretch', open.dueSoon ? 'warning' : null),
+        remediationTile('On track', String(open.onTrack), `of ${plural(open.total, 'open finding', 'open findings')}`, null)
+      );
+    }
+    const all = mttr.all || { count: 0 };
+    tiles.appendChild(remediationTile('Median time to fix', all.count ? fixDays(all.medianDays) : '—',
+      all.count ? `${plural(all.count, 'finding', 'findings')} fixed in ${mttr.windowDays || 90} days` : `nothing fixed in ${mttr.windowDays || 90} days`, null));
+    card.appendChild(tiles);
+
+    const table = element('table', 'audit-rem-table');
+    const caption = element('caption', 'sr-only', 'Clock, open findings and time to fix, by severity');
+    table.appendChild(caption);
+    const thead = element('thead');
+    const headRow = element('tr');
+    for (const name of ['Severity', 'Clock', 'Open', 'Overdue', 'Median fix', 'Fixed']) headRow.appendChild(element('th', null, name));
+    for (const cell of headRow.children) cell.scope = 'col';
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    const tbody = element('tbody');
+    for (const severity of ORDER) {
+      const row = element('tr');
+      row.dataset.severity = severity;
+      const name = element('th', 'audit-rem-sev');
+      name.scope = 'row';
+      name.appendChild(severityChip(severity));
+      const counts = open && open.bySeverity ? open.bySeverity[severity] : null;
+      const fix = mttr[severity] || { count: 0 };
+      const cells = [
+        ['Clock', sla ? dayWord(sla[severity]) : '—'],
+        ['Open', counts ? String(counts.open) : '—'],
+        ['Overdue', counts ? String(counts.overdue) : '—'],
+        ['Median fix', fix.count ? fixDays(fix.medianDays) : '—'],
+        ['Fixed', String(fix.count || 0)]
+      ];
+      row.appendChild(name);
+      for (const [label, value] of cells) {
+        const cell = element('td', null, value);
+        cell.dataset.label = label;
+        if (label === 'Overdue' && counts && counts.overdue) cell.dataset.alert = 'true';
+        row.appendChild(cell);
+      }
+      tbody.appendChild(row);
+    }
+    table.appendChild(tbody);
+    card.appendChild(table);
+
+    const notes = element('div', 'audit-rem-notes');
+    if (sla) {
+      const policy = view.result && view.result.policy;
+      const source = sla.source === 'repository' ? 'set in .nebulaverse/audit.json on this branch'
+        : sla.source === 'invalid' ? 'the defaults: .nebulaverse/audit.json could not be read'
+          : 'the defaults; set your own in .nebulaverse/audit.json';
+      notes.appendChild(element('p', 'audit-coverage', `Clock: ${dayWord(sla.critical)} for critical, ${dayWord(sla.serious)} for serious, ${dayWord(sla.warning)} for warnings — ${source}. A vulnerability exploited in the wild runs on the critical clock.`));
+      if (policy && Array.isArray(policy.problems)) for (const problem of policy.problems) notes.appendChild(element('p', 'exposure-caveat', problem));
+    }
+    if (data.oldest && open && open.total) {
+      notes.appendChild(element('p', 'audit-coverage', `Oldest open finding: ${dayWord(data.oldest.days)} since it was first seen (${data.oldest.rule}, ${data.oldest.severity}).`));
+    }
+    if (data.triage) {
+      const t = data.triage;
+      const parts = [];
+      if (t.falsePositive) parts.push(plural(t.falsePositive, 'false positive', 'false positives'));
+      if (t.acceptedRisk) parts.push(`${plural(t.acceptedRisk, 'risk accepted', 'risks accepted')}${t.expiringSoon ? `, ${t.expiringSoon} lapsing within two weeks` : ''}`);
+      if (t.lapsed) parts.push(`${plural(t.lapsed, 'acceptance', 'acceptances')} lapsed`);
+      notes.appendChild(element('p', 'audit-coverage', parts.length ? `Team decisions on this repository: ${parts.join(' · ')}.` : 'No team decisions on this repository yet.'));
+    } else if (data.triageUnavailable) {
+      notes.appendChild(element('p', 'exposure-caveat', 'The team’s decisions could not be read, so findings they cover are counted as open.'));
+    }
+    notes.appendChild(element('p', 'audit-coverage', 'Time to fix counts a finding as fixed when the next audit of the branch, by the same engine and reading every file, no longer finds it.'));
+    card.appendChild(notes);
+    host.appendChild(foldable(card, 'remediation', head, 'Remediation'));
   }
 
   /* ---- Families ------------------------------------------------------------- */
@@ -2390,7 +2614,7 @@
    * finding's place opens the file; a site finding's place is a header or a
    * path on the site, and is shown, not followed.
    */
-  function findingList(findings, changes, handlers, families) {
+  function findingList(findings, changes, handlers, families, view = {}) {
     const list = element('ul', 'exposure-list audit-list');
     for (const finding of findings) {
       const item = element('li', 'exposure-item audit-item');
@@ -2421,11 +2645,22 @@
       if (toConfirm) tags.appendChild(verdictChip(finding));
       else if (finding.reach && finding.reach.auth === 'open') tags.appendChild(reachChip(finding.reach));
       if (changes && changes.newIds.has(finding.id)) tags.appendChild(chip('info', 'New', { className: 'audit-new', beam: true }));
+      const due = clockChip(finding);
+      if (due) tags.appendChild(due);
+      if (finding.triage && finding.triage.lapsed) tags.appendChild(chip('warning', 'Acceptance lapsed', { glyph: ICON.flag, className: 'audit-lapsed-chip' }));
       if (tags.childNodes.length) summary.appendChild(tags);
       details.appendChild(summary);
 
       const body = element('div', 'audit-body');
       body.appendChild(element('p', 'exposure-item-consequence', finding.why));
+      const clock = clockLine(finding);
+      if (clock) body.appendChild(clock);
+      if (finding.triage && finding.triage.lapsed) {
+        const lapsed = element('p', 'audit-triage-note');
+        lapsed.dataset.state = 'lapsed';
+        lapsed.append(icon(ICON.flag), element('span', null, `${decisionSentence(finding.triage, view)} It is open again.`));
+        body.appendChild(lapsed);
+      }
       if (finding.reach) body.appendChild(reachLine(finding.reach));
       if (finding.trace && finding.trace.length) body.appendChild(traceView(finding, handlers));
       if (toConfirm && (finding.blocker || finding.check)) body.appendChild(validation(finding));
@@ -2451,9 +2686,17 @@
       const chips = standardsChips(finding.standards);
       if (chips) where.appendChild(chips);
       foot.appendChild(where);
+      const actions = element('div', 'audit-body-actions');
+      if (canTriage(view, handlers)) {
+        const decide = keyed(button('', 'btn btn-ghost small audit-triage-btn', () => handlers.onTriage(finding)), `triage:${finding.id}`);
+        decide.append(icon(ICON.flag), element('span', 'audit-btn-label', finding.triage && finding.triage.lapsed ? 'Decide again' : 'Triage'));
+        decide.setAttribute('aria-label', `Triage: ${finding.title}, ${location(finding)}`);
+        actions.appendChild(decide);
+      }
       const copy = button('', 'btn btn-ghost small audit-copy', event => handlers.onCopy(finding, event.currentTarget));
       copy.append(icon(ICON.copy), element('span', 'audit-btn-label', 'Copy fix prompt'));
-      foot.appendChild(copy);
+      actions.appendChild(copy);
+      foot.appendChild(actions);
       body.appendChild(foot);
       details.appendChild(body);
       item.appendChild(details);
@@ -2579,16 +2822,66 @@
       card.appendChild(element('p', 'exposure-empty audit-empty', empty));
     } else {
       const limit = Math.max(PAGE, Number(view.limit) || PAGE);
-      card.appendChild(findingList(shown.slice(0, limit), view.diff, handlers, families));
+      card.appendChild(findingList(shown.slice(0, limit), view.diff, handlers, families, view));
       if (shown.length > limit) {
         const more = keyed(button('', 'btn btn-ghost audit-more', () => handlers.onMore && handlers.onMore(limit + PAGE)), 'more');
         more.append(element('span', null, `Show ${Math.min(PAGE, shown.length - limit)} more`), element('span', 'audit-more-of', `${limit} of ${shown.length}`));
         card.appendChild(more);
       }
     }
-    const waived = result.suppressed || [];
+    const suppressed = result.suppressed || [];
+    const triaged = suppressed.filter(finding => finding.suppression && finding.suppression.triage);
+    const waived = suppressed.filter(finding => !(finding.suppression && finding.suppression.triage));
+    if (triaged.length) card.appendChild(triagedList(triaged, view, handlers));
     if (waived.length) card.appendChild(waivedList(waived));
+    if (result.triage && result.triage.unavailable) {
+      card.appendChild(element('p', 'exposure-caveat', 'The team’s decisions could not be read for this audit, so every finding is shown as found.'));
+    }
     host.appendChild(foldable(card, 'findings', head, 'Findings'));
+  }
+
+  /*
+   * What the team decided, finding by finding: who, when, why, and until
+   * when. Listed, never scored, never hidden, and each one can be taken back
+   * by anyone who could have made it.
+   */
+  function triagedList(items, view, handlers) {
+    const wrap = element('details', 'audit-waived audit-triaged');
+    const summary = element('summary', 'audit-waived-head');
+    summary.append(icon(ICON.flag), element('span', 'audit-waived-title', 'Triaged by the team'), element('span', 'exposure-count', String(items.length)));
+    wrap.appendChild(summary);
+    const list = element('ul', 'audit-waived-list');
+    for (const finding of items) {
+      const decision = finding.suppression.triage;
+      const item = element('li', 'audit-waived-item audit-triaged-item');
+      item.dataset.severity = finding.severity;
+      item.dataset.findingId = finding.id;
+      const top = element('span', 'audit-waived-top');
+      top.append(icon(SEVERITY[finding.severity].icon), element('span', 'audit-waived-name', finding.title));
+      const state = DISPOSITION[decision.disposition];
+      if (state) top.appendChild(chip(state.tone, state.word, { className: 'audit-triage-chip', glyph: ICON.flag }));
+      const meta = element('span', 'audit-waived-meta');
+      meta.append(element('span', 'audit-rule', finding.rule), element('span', 'audit-row-where', location(finding)));
+      const reason = element('span', 'audit-waived-reason audit-triage-reason', decisionSentence(decision, view));
+      item.append(top, meta, reason);
+      const tools = element('span', 'audit-triage-tools');
+      if (handlers.onTriageHistory && view.triage && view.triage.status === 'ready') {
+        const history = keyed(button('', 'btn btn-ghost small audit-triage-history', () => handlers.onTriageHistory(finding)), `triage-history:${finding.id}`);
+        history.append(icon(ICON.history), element('span', 'audit-btn-label', 'History'));
+        history.setAttribute('aria-label', `Decisions about ${finding.title}, ${location(finding)}`);
+        tools.appendChild(history);
+      }
+      if (canTriage(view, handlers) && handlers.onReopen) {
+        const reopen = keyed(button('', 'btn btn-ghost small audit-reopen', () => handlers.onReopen(finding)), `reopen:${finding.id}`);
+        reopen.append(icon(ICON.reopen), element('span', 'audit-btn-label', 'Reopen'));
+        reopen.setAttribute('aria-label', `Reopen ${finding.title}, ${location(finding)}`);
+        tools.appendChild(reopen);
+      }
+      if (tools.childNodes.length) item.appendChild(tools);
+      list.appendChild(item);
+    }
+    wrap.appendChild(list);
+    return wrap;
   }
 
   /*
@@ -3011,6 +3304,7 @@
       renderCoverage(root, view, handlers);
       renderStandards(root, view, handlers);
       renderFindings(root, view, handlers);
+      renderRemediation(root, view, handlers);
       renderHistory(root, view, handlers);
     }
     if (view.site) renderSite(root, { ...view.site, hasRepositoryResult: Boolean(view.result) }, handlers, previous);
@@ -3043,6 +3337,7 @@
   const PARTS = Object.freeze({
     summary: { select: ':scope > .audit-summary', draw: (host, view, handlers, root) => renderSummary(host, view, handlers, drawn.get(root) || null) },
     watch: { select: ':scope > [data-fold="watch"]', draw: (host, view, handlers) => renderWatch(host, view, handlers) },
+    remediation: { select: ':scope > [data-fold="remediation"]', draw: (host, view, handlers) => renderRemediation(host, view, handlers) },
     history: { select: ':scope > [data-fold="history"]', draw: (host, view, handlers) => renderHistory(host, view, handlers) }
   });
   function update(root, view, handlers) {
@@ -3050,7 +3345,7 @@
     if (view.unavailable || view.status === 'running' || !root.querySelector(':scope > .audit-summary')) return render(root, view, handlers);
     const active = root.contains(document.activeElement) ? document.activeElement : null;
     const key = active && active.dataset.key ? active.dataset.key : null;
-    for (const name of view.result ? ['watch', 'history'] : ['summary', 'watch', 'history']) {
+    for (const name of view.result ? ['watch', 'remediation', 'history'] : ['summary', 'watch', 'remediation', 'history']) {
       const part = PARTS[name];
       const scratch = document.createElement('div');
       part.draw(scratch, view, handlers, root);
@@ -3063,7 +3358,11 @@
       if (!fresh) continue;
       if (name === 'summary') root.prepend(fresh);
       else if (name === 'watch') root.querySelector(':scope > .audit-summary').after(fresh);
-      else {
+      else if (name === 'remediation') {
+        const history = root.querySelector(':scope > [data-fold="history"]');
+        const site = root.querySelector(':scope > [data-fold="site"]');
+        if (history) history.before(fresh); else if (site) site.before(fresh); else root.appendChild(fresh);
+      } else {
         const site = root.querySelector(':scope > [data-fold="site"]');
         if (site) site.before(fresh); else root.appendChild(fresh);
       }
@@ -3090,6 +3389,9 @@
         `- **Rule:** ${finding.rule}`,
         `- **Where:** ${place(finding)}`
       );
+      if (finding.clock) {
+        lines.push(`- **Due by:** ${String(finding.clock.dueAt).slice(0, 10)}${finding.clock.state === 'overdue' ? ' (overdue)' : ''} — ${finding.clock.days} days from ${String(finding.clock.firstSeenAt).slice(0, 10)}, when it was first seen`);
+      }
       if (finding.reach) {
         const reach = REACH[finding.reach.auth];
         lines.push(`- **Reached through:** ${finding.reach.route ? `\`${verbs(finding.reach.method)} ${finding.reach.route}\`` : 'a server action'}${reach ? ` — ${reach.word.toLowerCase()}` : ''}`);
@@ -3202,7 +3504,13 @@
       }
       if (!result.findings.length) lines.push('No findings in what was read.', '');
       findingSection(result.findings, lines, '', finding => finding.path ? `\`${location(finding)}\`` : 'whole repository');
-      const waived = result.suppressed || [];
+      const triaged = (result.suppressed || []).filter(finding => finding.suppression && finding.suppression.triage);
+      if (triaged.length) {
+        lines.push('## Triaged by the team', '', 'Not scored. Each was decided by a person with reviewer access to the repository: a false positive, or a risk accepted until a date, after which it is open again.', '',
+          '| Rule | Finding | Where | Decision |', '| --- | --- | --- | --- |',
+          ...triaged.map(finding => `| ${finding.rule} | ${cell(finding.title)} | \`${location(finding)}\` | ${cell(triageJustification(finding.suppression.triage))} |`), '');
+      }
+      const waived = (result.suppressed || []).filter(finding => !(finding.suppression && finding.suppression.triage));
       if (waived.length) {
         lines.push('## Waived in code', '', 'Not scored. Each was waived by an `nv-audit-ignore` comment naming its rule, or, for a licence, cleared by name in the repository\u2019s licence policy.', '',
           '| Rule | Finding | Where | Reason |', '| --- | --- | --- | --- |',
@@ -3292,6 +3600,13 @@
       kinds: [step.role === 'entrypoint' ? 'source' : step.role === 'sink' ? 'sink' : 'pass-through']
     })) }] }];
   }
+  function triageJustification(decision) {
+    const what = decision.disposition === 'false-positive' ? 'False positive' : 'Risk accepted';
+    const who = decision.decidedBy ? ` by ${decision.decidedBy}` : '';
+    const on = decision.decidedAt ? ` on ${String(decision.decidedAt).slice(0, 10)}` : '';
+    const until = decision.expiresAt ? `, until ${String(decision.expiresAt).slice(0, 10)}` : '';
+    return `${what}${who}${on}${until}: ${decision.reasonLabel || String(decision.reason || '').replace(/-/g, ' ')}.`;
+  }
   function sarifResult(finding, ruleIndex, place, suppression) {
     const toConfirm = verdictOf(finding) === 'needs-validation';
     const result = {
@@ -3315,12 +3630,15 @@
           ...(intelOf(finding).kev ? { kev: intelOf(finding).kev } : {}),
           ...(intelOf(finding).epss ? { epss: intelOf(finding).epss.score, epssPercentile: intelOf(finding).epss.percentile, epssCve: intelOf(finding).epss.cve } : {})
         } : {}),
-        ...(usageOf(finding) ? { dependencyReach: usageOf(finding).tier } : {})
+        ...(usageOf(finding) ? { dependencyReach: usageOf(finding).tier } : {}),
+        ...(finding.clock ? { firstSeen: finding.clock.firstSeenAt, dueBy: finding.clock.dueAt, clock: finding.clock.state } : {})
       }
     };
     /* A dependency's own CVSS is a better sort key for a dashboard than the family's default. */
     if (finding.detail && Number.isFinite(finding.detail.cvss)) result.properties['security-severity'] = finding.detail.cvss.toFixed(1);
-    if (suppression) result.suppressions = [{ kind: 'inSource', justification: suppression.reason || 'Waived in code without a reason.' }];
+    /* A team decision is an external suppression, accepted, with who and why; a waiver in the code is one in source. */
+    if (suppression && suppression.triage) result.suppressions = [{ kind: 'external', status: 'accepted', justification: triageJustification(suppression.triage) }];
+    else if (suppression) result.suppressions = [{ kind: 'inSource', justification: suppression.reason || 'Waived in code without a reason.' }];
     return result;
   }
 
@@ -3538,7 +3856,7 @@
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
   function csv(result, site, changes) {
-    const rows = [['Source', 'Status', 'Severity', 'Verdict', 'Rule', 'Title', 'Detail', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Reached through', 'Risk', 'Known exploited', 'EPSS', 'Dependency reach', 'How to confirm', 'Reason waived', 'Fix']];
+    const rows = [['Source', 'Status', 'Severity', 'Verdict', 'Rule', 'Title', 'Detail', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Reached through', 'Risk', 'Known exploited', 'EPSS', 'Dependency reach', 'How to confirm', 'Reason waived', 'Due by', 'Fix']];
     const row = (source, status, finding, family) => {
       const standards = finding.standards || {};
       const reach = finding.reach ? `${finding.reach.route ? `${verbs(finding.reach.method)} ${finding.reach.route}` : 'server action'} (${finding.reach.auth})` : '';
@@ -3550,12 +3868,17 @@
         intelOf(finding) && intelOf(finding).epss ? `${(intelOf(finding).epss.score * 100).toFixed(2)}% (${intelOf(finding).epss.cve})` : '',
         usageOf(finding) ? usageOf(finding).tier : '',
         verdictOf(finding) === 'needs-validation' ? finding.check || '' : '',
-        finding.suppression ? finding.suppression.reason || '' : '', finding.fix]);
+        finding.suppression ? finding.suppression.triage ? triageJustification(finding.suppression.triage) : finding.suppression.reason || '' : '',
+        finding.clock ? `${String(finding.clock.dueAt).slice(0, 10)}${finding.clock.state === 'overdue' ? ' (overdue)' : ''}` : '',
+        finding.fix]);
     };
     if (result) {
       const families = new Map((result.categories || []).map(category => [category.id, category.label]));
       for (const finding of result.findings) row('repository', changes && changes.newIds.has(finding.id) ? 'new' : 'open', finding, families.get(finding.category));
-      for (const finding of result.suppressed || []) row('repository', 'waived', finding, families.get(finding.category));
+      for (const finding of result.suppressed || []) {
+        const decision = finding.suppression && finding.suppression.triage;
+        row('repository', decision ? (decision.disposition === 'false-positive' ? 'false positive' : 'risk accepted') : 'waived', finding, families.get(finding.category));
+      }
     }
     if (site) {
       for (const finding of site.findings) row(site.origin, 'open', finding, 'Deployed site');

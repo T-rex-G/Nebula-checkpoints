@@ -178,7 +178,7 @@ const ui = require('../public/code-audit-ui');
   /* CSV: a header, a row per finding, waived rows marked, and nothing a spreadsheet would run. */
   const table = ui.csv(waivedResult, site, null);
   const rows = table.trim().split('\r\n');
-  assert.strictEqual(rows[0], 'Source,Status,Severity,Verdict,Rule,Title,Detail,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reached through,Risk,Known exploited,EPSS,Dependency reach,How to confirm,Reason waived,Fix');
+  assert.strictEqual(rows[0], 'Source,Status,Severity,Verdict,Rule,Title,Detail,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Reached through,Risk,Known exploited,EPSS,Dependency reach,How to confirm,Reason waived,Due by,Fix');
   assert(rows.some(row => row.includes(',CWE-89,#2,A05:2025,')), 'the rank and the 2025 category travel with the row');
   assert(rows.some(row => row.startsWith('repository,open,critical,confirmed,SEC-001,') && row.includes(',api/users.js,2,GET /u/:id (open),,')), 'a confirmed finding carries its route and no check');
   assert(rows.some(row => row.startsWith('repository,open,critical,to confirm,SEC-001,') && row.includes(',api/legacy.js,1,,')), 'a lead says it is one');
@@ -243,6 +243,48 @@ const ui = require('../public/code-audit-ui');
   assert(jqueryPackage.externalRefs.some(ref => ref.referenceCategory === 'SECURITY' && ref.referenceLocator === 'https://osv.dev/vulnerability/GHSA-jpcq-cgw6-v4j6'));
   assert(!/format\.test\.js|\$\('#app'\)/.test(ui.cyclonedx(risky, {}) + ui.spdx(risky, {})), 'the SBOM names packages, never a line of code');
   assert.match(ui.brief(risky, 'sandbox/demo (main)', null), /6 components in the bill of materials \(npm\)/);
+
+  /*
+   * The team's decisions and the clocks travel with every export: a decision
+   * in force is an accepted external suppression with who, when, until when
+   * and the reason in words; an open finding says when it is due, and that it
+   * is late when it is.
+   */
+  {
+    const { applyTriage } = require('../src/code-audit-triage');
+    const [sql, ...others] = result.findings;
+    assert(others.length, 'the fixture has findings left open beside the decided one');
+    const clocked = {
+      ...result,
+      findings: [sql, ...others.map(finding => ({ ...finding,
+        clock: { state: 'overdue', days: 30, firstSeenAt: '2026-08-01T00:00:00.000Z', dueAt: '2026-08-31T00:00:00.000Z', daysLeft: -26, clock: 'severity' } }))]
+    };
+    const decided = applyTriage(clocked, new Map([[sql.id, {
+      findingId: sql.id, rule: sql.rule, disposition: 'accepted-risk', reason: 'fix-scheduled',
+      decidedBy: 'alpha-tester', decidedAt: '2026-09-20T09:00:00.000Z', expiresAt: '2026-12-19T09:00:00.000Z'
+    }]]), { now: Date.parse('2026-09-26T12:00:00.000Z') });
+    assert.strictEqual(decided.findings.length, others.length, 'the decided finding leaves the open list');
+    const justification = 'Risk accepted by alpha-tester on 2026-09-20, until 2026-12-19: A fix is scheduled.';
+
+    const run = JSON.parse(ui.sarif(decided, null)).runs[0];
+    const accepted = run.results.find(item => item.suppressions);
+    assert.strictEqual(accepted.ruleId, sql.rule);
+    assert.deepStrictEqual(accepted.suppressions, [{ kind: 'external', status: 'accepted', justification }]);
+    const late = run.results.find(item => !item.suppressions);
+    assert.deepStrictEqual([late.properties.clock, late.properties.dueBy], ['overdue', '2026-08-31T00:00:00.000Z']);
+
+    const lines = ui.csv(decided, null, null).trim().split('\r\n');
+    const acceptedRow = lines.find(row => row.startsWith('repository,risk accepted,'));
+    assert(acceptedRow, 'a decided finding is listed with its decision as its status');
+    assert(acceptedRow.includes(`,"${justification}",`) || acceptedRow.includes(`,${justification},`), 'the reason column carries the decision in words');
+    assert(lines.some(row => row.startsWith('repository,open,') && row.includes(',2026-08-31 (overdue),')), 'Due by says when, and that it is late');
+
+    const text = ui.brief(decided, 'sandbox/demo (main)', null);
+    assert.match(text, /## Triaged by the team\n\nNot scored\./);
+    assert(text.includes(`| ${sql.rule} | `) && text.includes(justification), 'the brief lists the decision with its reason');
+    assert.match(text, /- \*\*Due by:\*\* 2026-08-31 \(overdue\) — 30 days from 2026-08-01, when it was first seen/);
+    assert(!/fix-scheduled/.test(text + ui.csv(decided, null, null)), 'a reason is said in words, never as its key');
+  }
 
   /* The comparison: identities only, new and resolved. */
   assert.strictEqual(ui.diff(result, null), null);

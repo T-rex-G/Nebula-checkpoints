@@ -157,7 +157,7 @@ async function main() {
       for (const screen of SCREENS) {
         /* Navigate the way a reader does, so the chrome paints as it really would. */
         if (screen === 'repos') {
-          await page.getByRole('button', { name: 'Repositories', exact: true }).click();
+          await page.getByRole('button', { name: 'Galaxies, your repositories', exact: true }).click();
           await page.getByRole('main', { name: 'Your galaxies' }).waitFor({ state: 'visible' });
         }
         await page.waitForTimeout(2600);

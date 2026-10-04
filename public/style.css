@@ -4856,6 +4856,19 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .audit-site-field .audit-site-input { width: 100%; min-width: 0; min-height: 46px; font-family: var(--font-mono); font-size: .9rem; border-radius: 12px; }
 .audit-site-field .btn { min-height: 46px; white-space: nowrap; }
 .audit-site-hint { margin: 0; font-size: .78rem; color: var(--muted); }
+/* The audit's view of the deployed site: an address, the latest check of it, the way to Parallax. */
+.audit-site-kicker { margin: 0 0 3px; color: var(--muted); font-size: .7rem; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.audit-site-link-body { display: grid; gap: 14px; min-width: 0; }
+.audit-site-where { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.audit-site-where .audit-origin { max-width: 100%; }
+.audit-site-link .audit-site-grade .audit-grade { width: 92px; height: 92px; }
+.audit-site-link .audit-site-grade .audit-grade-letter { font-size: 32px; }
+.audit-site-link-actions { justify-content: flex-start; flex-wrap: wrap; }
+.audit-site-link .audit-lede { margin: 0; }
+/* On the Website page, opened from an audit: whose site this is, and the way back. */
+.audit-site-from { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+  padding: 9px 12px; border-radius: 12px; border: 1px solid var(--rp-line); background: var(--rp-tile); }
+.audit-site-from-t { font-family: var(--font-mono); font-size: .8rem; color: var(--fg2); min-width: 0; overflow-wrap: anywhere; }
 .audit-site-grade .audit-grade { width: 116px; height: 116px; }
 .audit-site-grade .audit-grade-letter { font-size: 40px; }
 .audit-headers { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }

@@ -36,7 +36,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('.audit-verdict').first()).toHaveText('1 critical issue to fix');
   /* Confirmed findings are counted apart from leads to confirm, and the engine says how far it followed values. */
   await expect(pane.locator('.audit-split')).toHaveAttribute('aria-label', '7 confirmed, 4 to confirm');
-  await expect(pane.locator('.audit-engine-line')).toContainText('Uranus 2.2');
+  await expect(pane.locator('.audit-engine-line')).toContainText('Uranus 2.3');
   await expect(pane.locator('.audit-engine-line')).toContainText('3 entry points mapped');
   /* The evidence as figures, the sentence behind them as the strip's name. */
   const evidence = pane.locator('.audit-evidence');
@@ -212,55 +212,72 @@ test('a finding opens its file in the editor at its line', async ({ page }) => {
   await expect(page.locator('#tab-editor')).toBeVisible();
 });
 
-test('the deployed site is checked anonymously, and the next check shows what was fixed', async ({ page }) => {
+/*
+ * Site checks run in one place, the Website page on the Parallax engine. The
+ * audit names the repository's address, sends the reader there, shows the
+ * latest check of that address when they come back, and exports it.
+ */
+test('the deployed site is checked on the Website page, and the audit shows and exports the latest check', async ({ page }) => {
   const pane = await openAudit(page);
   const site = pane.locator('.audit-site');
   await expect(site.getByRole('heading', { name: 'Deployed site' })).toBeVisible();
-  const address = site.getByLabel('Site address');
-  await expect(address).toHaveValue('https://demo.example.com');
-  await expect(site).toContainText('Filled in from the repository’s homepage.');
+  await expect(site.locator('.audit-origin')).toHaveText('demo.example.com');
+  await expect(site).toContainText('From the repository’s homepage');
+  /* One scanner: the audit carries no site form of its own. */
+  await expect(pane.getByLabel('Site address')).toHaveCount(0);
 
-  await site.getByRole('button', { name: 'Check site' }).click();
+  await site.getByRole('button', { name: 'Check in Parallax' }).click();
+  await expect(page.locator('#page-site')).toHaveClass(/active/);
+  const card = page.locator('#siteRoot .audit-site');
+  await expect(card.getByLabel('Site address')).toHaveValue('https://demo.example.com');
+  await expect(card.locator('.audit-site-from')).toContainText('For sandbox/demo');
   /* A job the page follows: the step it is on, then the result. */
-  await expect(site.locator('.audit-site-progress .audit-progress-line')).toHaveText('Reading the site’s JavaScript for secrets and libraries · 2 of 5');
-  await expect(site.locator('.audit-site-progress .audit-step[data-step="crawl"]')).toHaveAttribute('data-state', 'active');
-  await expect(site.locator('.audit-grade')).toHaveAttribute('aria-label', /^Site grade F, \d{1,2} out of 100$/);
-  await expect(site).toContainText(/\d+ anonymous requests in \d+ s; the page answered 200\./);
+  /* Read at once: the step is on screen only until the next answer. */
+  await expect.poll(() => card.locator('.audit-site-progress').evaluate(node => ({
+    line: node.querySelector('.audit-progress-line').textContent,
+    crawl: node.querySelector('.audit-step[data-step="crawl"]').dataset.state
+  }), null, { timeout: 500 }).catch(() => null)).toEqual({ line: 'Reading the site’s JavaScript for secrets and libraries · 2 of 5', crawl: 'active' });
+  await expect(card.locator('.audit-grade')).toHaveAttribute('aria-label', /^Site grade F, \d{1,2} out of 100$/, { timeout: 15000 });
+  await expect(card).toContainText(/\d+ anonymous requests in \d+ s; the page answered 200\./);
 
   /* What was checked, row by row -- so a short list of findings is never read as a clean site. */
-  const ledger = site.getByRole('list', { name: 'What was checked' }).getByRole('listitem');
+  const ledger = card.getByRole('list', { name: 'What was checked' }).getByRole('listitem');
   await expect(ledger.filter({ hasText: 'Certificate' })).toContainText('Valid for 74 more days, issued by Let’s Encrypt');
   await expect(ledger.filter({ hasText: 'Plain HTTP' })).toContainText('Plain HTTP redirects to HTTPS');
   await expect(ledger.filter({ hasText: 'Exposed files' })).toHaveAttribute('data-state', 'fail');
   await expect(ledger.filter({ hasText: 'Email spoofing' })).toContainText('example.com: SPF strict, DMARC missing');
-  await expect(site.getByRole('list', { name: 'Browser libraries' })).toContainText('jquery 1.12.4');
-  await expect(site.getByRole('list', { name: 'Browser libraries' })).toContainText('2 advisories · fixed in 3.5.0');
+  await expect(card.getByRole('list', { name: 'Browser libraries' })).toContainText('jquery 1.12.4');
+  await expect(card.getByRole('list', { name: 'Browser libraries' })).toContainText('2 advisories · fixed in 3.5.0');
   /* Past five, the rest of the findings fold behind one control; the library is among them. */
-  await site.locator('.audit-more').click();
-  await expect(site.locator('.audit-item', { hasText: 'A JavaScript library with known vulnerabilities is loaded' })).toBeVisible();
-  await expect(site.locator('.audit-item', { hasText: 'Source maps are public' })).toBeVisible();
+  await card.locator('.audit-more').click();
+  await expect(card.locator('.audit-item', { hasText: 'A JavaScript library with known vulnerabilities is loaded' })).toBeVisible();
+  await expect(card.locator('.audit-item', { hasText: 'Source maps are public' })).toBeVisible();
 
   /* The headers a browser enforces, each marked sent or not, and never by colour alone. */
-  const headers = site.getByRole('list', { name: 'Security headers' }).getByRole('listitem');
+  const headers = card.getByRole('list', { name: 'Security headers' }).getByRole('listitem');
   await expect(headers).toHaveCount(8);
   await expect(headers.filter({ hasText: 'Strict-Transport-Security' })).toContainText('not sent');
 
   /* A served .env is named by its path and never quoted. */
-  const leak = site.locator('.audit-item', { hasText: 'An environment file is served publicly' });
+  const leak = card.locator('.audit-item', { hasText: 'An environment file is served publicly' });
   await expect(leak).toHaveAttribute('data-severity', 'critical');
   await leak.locator('summary').click();
   await expect(leak).toContainText('/.env');
   await expect(leak).toContainText('rotate every value it held');
   await expect(leak.getByRole('button', { name: 'Copy fix prompt' })).toBeVisible();
-  await expect(pane).not.toContainText('SECRET_KEY');
-  const cookie = site.locator('.audit-item', { hasText: 'cookie' }).first();
+  await expect(page.locator('#siteRoot')).not.toContainText('SECRET_KEY');
+  const cookie = card.locator('.audit-item', { hasText: 'cookie' }).first();
   await cookie.locator('summary').click();
   await expect(cookie).toContainText('Set-Cookie: sid');
 
   /* The origin is remembered for this repository, under the prefix the account purge removes. */
   expect(await page.evaluate(() => localStorage.getItem('nv_audit:site-url:sandbox/demo'))).toBe('https://demo.example.com');
 
-  /* The developer brief carries the site with the repository. */
+  /* Back in the audit, the card shows that check, and the developer brief carries it with the repository. */
+  await card.getByRole('button', { name: 'Back to the audit' }).click();
+  await expect(pane).toBeVisible();
+  await expect(site.locator('.audit-grade')).toHaveAttribute('aria-label', /^Site grade F, \d{1,2} out of 100$/);
+  await expect(site.getByRole('list', { name: /findings:/ })).toBeVisible();
   await pane.getByRole('button', { name: 'Audit this branch' }).click();
   await expect(pane.locator('.audit-summary .audit-grade')).toHaveAttribute('aria-label', /^Grade F/);
   const download = page.waitForEvent('download');
@@ -273,21 +290,32 @@ test('the deployed site is checked anonymously, and the next check shows what wa
   expect(text).toContain('- jquery 1.12.4: 2 advisories (CVE-2020-11022, CVE-2015-9251), fixed in 3.5.0');
   expect(text).not.toContain('SECRET_KEY');
 
-  /* Fixed: the headers are sent and the file is gone. */
+  /* Fixed: checked again from the audit, on the Website page. */
   await site.getByRole('button', { name: 'Check again' }).click();
-  await expect(site.locator('.audit-grade')).toHaveAttribute('aria-label', 'Site grade A, 100 out of 100');
-  await expect(site.locator('.audit-verdict')).toHaveText('Nothing found in the completed checks');
-  await expect(site.locator('.audit-origin')).toHaveText('demo.example.com');
+  await expect(page.locator('#page-site')).toHaveClass(/active/);
+  await expect(card.locator('.audit-grade')).toHaveAttribute('aria-label', 'Site grade A, 100 out of 100', { timeout: 15000 });
+  await expect(card.locator('.audit-verdict')).toHaveText('Nothing found in the completed checks');
+  await expect(card.locator('.audit-origin')).toHaveText('demo.example.com');
   /* X-Frame-Options is not sent, but CSP frame-ancestors does its job, and the tile says so. */
   await expect(headers.filter({ hasText: 'X-Frame-Options' })).toContainText('via CSP');
-  await expect(site).toContainText('the page answered 200 after 1 redirect.');
-  await expect(site).toContainText(/0 new findings, \d+ resolved since the check of/);
-  await expect(site.locator('.audit-item')).toHaveCount(0);
+  await expect(card).toContainText('the page answered 200 after 1 redirect.');
+  await expect(card).toContainText(/0 new findings, \d+ resolved since the check of/);
+  await expect(card.locator('.audit-item')).toHaveCount(0);
 
   /* An address the check will not request is refused with the reason, not reported clean. */
+  const address = card.getByLabel('Site address');
   await address.fill('http://demo.example.com');
-  await site.getByRole('button', { name: 'Check again' }).click();
-  await expect(site.getByRole('alert')).toHaveText('Only HTTPS sites can be checked');
+  await card.getByRole('button', { name: 'Check again' }).click();
+  await expect(card.getByRole('alert')).toHaveText('Only HTTPS sites can be checked');
+
+  /* Reached from the rail, the Website page is for any address: no repository is named. */
+  await card.getByRole('button', { name: 'Back to the audit' }).click();
+  await expect(pane).toBeVisible();
+  const menu = page.locator('.page.active .nav-menu-btn');
+  if (await menu.isVisible()) await menu.click();
+  await page.locator('#navRail [data-rail="site"]').click();
+  await expect(page.locator('#page-site')).toHaveClass(/active/);
+  await expect(page.locator('#siteRoot .audit-site-from')).toHaveCount(0);
 });
 
 test('where the provider has no repository reader, the audit says so and the site check still works', async ({ page }) => {
@@ -297,8 +325,14 @@ test('where the provider has no repository reader, the audit says so and the sit
   await expect(pane).toContainText('No repository reader is implemented for this provider');
   await expect(pane.getByRole('button', { name: 'Audit this branch' })).toHaveCount(0);
   const site = pane.locator('.audit-site');
-  await site.getByRole('button', { name: 'Check site' }).click();
-  await expect(site.locator('.audit-grade')).toHaveAttribute('aria-label', /^Site grade F/);
-  await site.getByRole('button', { name: 'Export', exact: true }).click();
+  await site.getByRole('button', { name: 'Check in Parallax' }).click();
+  await expect(page.locator('#page-site')).toHaveClass(/active/);
+  const card = page.locator('#siteRoot .audit-site');
+  await expect(card.locator('.audit-grade')).toHaveAttribute('aria-label', /^Site grade F/, { timeout: 15000 });
+  await card.getByRole('button', { name: 'Export', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'Export developer brief' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  /* And the audit, without a repository result, still shows the check of its site. */
+  await card.getByRole('button', { name: 'Back to the audit' }).click();
+  await expect(site.locator('.audit-grade')).toHaveAttribute('aria-label', /^Site grade F/);
 });

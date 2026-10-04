@@ -5740,8 +5740,6 @@ let auditWatchTimer = 0;
  * remembered per repository as an origin, and the last check's fingerprints
  * per origin, both under the audit prefix the account purge removes.
  */
-let siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
-let siteRequest = 0;
 function auditKey() {
   return state.work ? `${state.work.owner}/${state.work.repo}@${state.work.branch}` : '';
 }
@@ -5751,20 +5749,46 @@ function siteKey() {
 function siteUrlStorageKey() {
   return `${window.NebulaCodeAudit.STORE_PREFIX}site-url:${siteKey().toLowerCase()}`;
 }
-function freshSiteView() {
+/*
+ * The deployed site an audit shows. Site checks run on the Website page
+ * alone; the audit names this repository's address -- the one last checked
+ * for it, else its declared homepage -- and the Website page's latest result
+ * for that address, which its exports carry.
+ */
+let siteScanView = null;
+let siteScanRequest = 0;
+function siteOriginOf(address) {
+  try {
+    const url = new URL(String(address || '').trim());
+    return url.protocol === 'https:' ? url.origin : null;
+  } catch { return null; }
+}
+function auditSiteLink() {
   let remembered = '';
   try { remembered = localStorage.getItem(siteUrlStorageKey()) || ''; } catch {}
   const declared = state.work && state.work.homepage || '';
-  return { key: siteKey(), status: 'idle', url: remembered || declared, suggested: !remembered && Boolean(declared), result: null, diff: null, error: '' };
+  const url = remembered || declared;
+  const origin = siteOriginOf(url);
+  const scan = siteScanView;
+  const result = origin && scan && scan.result && scan.result.origin === origin ? scan.result : null;
+  const running = Boolean(origin && scan && scan.status === 'running' && siteOriginOf(scan.url) === origin);
+  return { link: true, url, suggested: !remembered && Boolean(declared), result, status: running ? 'running' : result ? 'done' : 'idle' };
+}
+function openParallax({ check = false } = {}) {
+  const link = auditSiteLink();
+  if (!siteScanView) siteScanView = blankSiteScan();
+  if (siteScanView.status !== 'running') {
+    siteScanView = { ...siteScanView, url: link.url || siteScanView.url, suggested: link.suggested, error: '', from: siteKey(), fromAudit: auditKey() };
+  }
+  showSiteScan();
+  if (check && link.url && siteScanView.status !== 'running') runStandaloneSiteCheck(link.url);
 }
 function clearAuditState() {
   auditRequest++;
   auditHistoryRequest++;
-  siteRequest++;
   clearTimeout(auditHistoryArmTimer);
   clearTimeout(auditWatchTimer);
   auditView = blankAuditView();
-  siteView = { key: '', status: 'idle', url: '', suggested: false, result: null, diff: null, error: '' };
   const root = $('#auditRoot');
   if (root) root.replaceChildren();
 }
@@ -5787,22 +5811,15 @@ function paintAudit(options = {}) {
     clearTimeout(auditHistoryArmTimer);
     auditView = blankAuditView(auditKey());
   }
-  if (siteView.key !== siteKey()) siteView = freshSiteView();
   const repository = window.NebulaCapabilityUI.decision('code-audit');
   if (repository.status === 'Supported' && auditView.history.status === 'idle' && state.work) loadAuditHistory();
   const draw = options.partial ? window.NebulaCodeAudit.update : window.NebulaCodeAudit.render;
   draw(root, {
     ...auditView,
     unavailable: repository.status === 'Supported' ? null : repository.reason,
-    site: window.NebulaCapabilityUI.decision('site-check').status === 'Supported' ? siteView : null
+    site: window.NebulaCapabilityUI.decision('site-check').status === 'Supported' ? auditSiteLink() : null
   }, {
-    onSiteInput: value => { siteView.url = value; siteView.suggested = false; },
-    onSiteCheck: runSiteCheck,
-    onSiteExpand: () => paintAudit(),
-    onSiteCopyAll: async () => {
-      try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(siteView.result)); toast('Every site fix prompt copied', 'ok'); }
-      catch { toast('The clipboard is not available here', 'err'); }
-    },
+    onSiteOpen: options => openParallax(options),
     onRun: runAudit,
     onWatchCheck: () => checkAuditWatch({ force: true }),
     /* A redraw restores open rows, which fires toggle again: only a change the reader made is acted on. */
@@ -5853,7 +5870,7 @@ function paintAudit(options = {}) {
     },
     onExport: kind => {
       const result = auditView.result;
-      const site = siteView.result;
+      const site = auditSiteLink().result;
       if (!result && !site) return;
       const label = `${state.work.owner}/${state.work.repo} (${state.work.branch})`;
       const day = String((result && result.auditedAt) || (site && site.checkedAt) || new Date().toISOString()).slice(0, 10);
@@ -5902,35 +5919,6 @@ async function pollSiteCheck(path, { current, onProgress }) {
   }
   return current() ? answer : null;
 }
-async function runSiteCheck(address) {
-  if (!state.work || siteView.status === 'running') return;
-  const request = ++siteRequest;
-  const key = siteKey();
-  const epoch = state.uiEpoch;
-  const current = () => request === siteRequest && epoch === state.uiEpoch && key === siteKey();
-  siteView = { ...siteView, key, url: String(address || '').trim(), status: 'running', error: '', progress: null };
-  paintAudit();
-  try {
-    const result = await pollSiteCheck(`/api/repo/${wPath()}/site-check?url=${encodeURIComponent(siteView.url)}`, {
-      current,
-      onProgress: progress => {
-        siteView.progress = progress;
-        if ($('#tab-audit')?.classList.contains('active') && !window.NebulaCodeAudit.siteProgress($('#auditRoot'), progress)) paintAudit();
-      }
-    });
-    if (!result || !current()) return;
-    try { localStorage.setItem(siteUrlStorageKey(), result.origin); } catch {}
-    const fingerprints = `site:${result.origin}`;
-    const previous = window.NebulaCodeAudit.readPrevious(fingerprints);
-    window.NebulaCodeAudit.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
-    siteView = { key, status: 'done', url: result.origin, suggested: false, result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', progress: null };
-  } catch (error) {
-    if (!current()) return;
-    siteView = { ...siteView, status: 'error', error: error.message || 'The site could not be checked.', progress: null };
-  }
-  if ($('#tab-audit')?.classList.contains('active')) paintAudit();
-}
-
 /*
  * The site check on its own page, for any address: no repository, the same
  * engine and card. The address typed is remembered under the audit prefix the
@@ -5942,8 +5930,6 @@ function blankSiteScan() {
   try { url = localStorage.getItem(SITE_SCAN_URL()) || ''; } catch {}
   return { status: 'idle', url, suggested: false, result: null, diff: null, error: '', progress: null };
 }
-let siteScanView = null;
-let siteScanRequest = 0;
 function clearSiteScanState() {
   if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.dispose($('#renderedAuditRoot'));
   siteScanRequest++;
@@ -5970,7 +5956,9 @@ function paintSiteScan() {
     return;
   }
   if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.mount($('#renderedAuditRoot'), { api, download: dlFile });
-  window.NebulaCodeAudit.renderSiteScan(root, siteScanView, {
+  const from = siteScanView.from && siteScanView.from === siteKey() ? siteScanView.from : null;
+  window.NebulaCodeAudit.renderSiteScan(root, { ...siteScanView, from }, {
+    onSiteBack: from ? () => { showPage('work'); switchTab('audit'); } : null,
     onSiteInput: value => { siteScanView.url = value; },
     onSiteCheck: runStandaloneSiteCheck,
     onSiteExpand: () => paintSiteScan(),
@@ -6006,11 +5994,16 @@ async function runStandaloneSiteCheck(address) {
       }
     });
     if (!result || !current()) return;
-    try { localStorage.setItem(SITE_SCAN_URL(), result.origin); } catch {}
+    const from = siteScanView.from || null;
+    try {
+      localStorage.setItem(SITE_SCAN_URL(), result.origin);
+      /* Checked for a repository: its audit names this address from now on. */
+      if (from) localStorage.setItem(`${window.NebulaCodeAudit.STORE_PREFIX}site-url:${from.toLowerCase()}`, result.origin);
+    } catch {}
     const fingerprints = `site:${result.origin}`;
     const previous = window.NebulaCodeAudit.readPrevious(fingerprints);
     window.NebulaCodeAudit.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
-    siteScanView = { status: 'done', url: result.origin, suggested: false, result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', progress: null };
+    siteScanView = { status: 'done', url: result.origin, suggested: false, result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', progress: null, from };
   } catch (error) {
     if (!current()) return;
     siteScanView = { ...siteScanView, status: 'error', error: error.message || 'The site could not be checked.', progress: null };
@@ -7976,7 +7969,11 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   closeNavMenu();
   if (target === 'overview') return showOverview();
   if (target === 'repos') return showPage('repos');
-  if (target === 'site') return showSiteScan();
+  if (target === 'site') {
+    /* Reached from the rail, the page is for any address rather than the repository an audit sent it. */
+    if (siteScanView && siteScanView.status !== 'running') siteScanView = { ...siteScanView, from: null };
+    return showSiteScan();
+  }
   /* A repository still opening is the one the tool is for: it lands there once it answers. */
   if (!state.work && state.opening) {
     const opening = openRepoRequest;

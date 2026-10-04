@@ -20,6 +20,20 @@
   drawer was out lay across its first entries; it now sits under the drawer's
   scrim until the drawer is put away.
 
+### One home for website analysis
+
+- **Site checks run on the Website page alone.** The Audit tab carried a
+  second copy of the Parallax scanner under *Deployed site*, with its own
+  form, progress and results. It now shows the repository's address (the one
+  last checked for it, else its homepage), the latest Website-page check of
+  that address -- grade, verdict, counts and when -- and two ways over:
+  *Check in Parallax* (or *Check again*) and *Open in Parallax*. That check
+  still joins the audit's brief, CSV and SARIF.
+- **The Website page knows who sent it.** Opened from an audit it says which
+  repository the check is for and offers *Back to the audit*; a check made
+  that way becomes the repository's address. Reached from the rail it is for
+  any address and names no repository.
+
 ### Uranus 2.3, truthful about itself
 
 Audited against this repository, Uranus 2.2 graded it F 49 on six findings,

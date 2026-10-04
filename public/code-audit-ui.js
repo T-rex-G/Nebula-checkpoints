@@ -3130,6 +3130,13 @@
       : 'The certificate, headers, exposed files, the pages and scripts a visitor loads, their libraries and the domain’s email policy. Anonymous requests only; nothing kept.'));
     head.append(mark, titles);
     card.appendChild(head);
+    /* Opened from a repository's audit: the check is for that repository, and the way back is one press. */
+    if (site.standalone && site.from) {
+      const from = element('div', 'audit-site-from');
+      from.appendChild(element('span', 'audit-site-from-t', `For ${site.from}`));
+      if (handlers.onSiteBack) from.appendChild(keyed(button('Back to the audit', 'btn btn-ghost audit-tool', handlers.onSiteBack), 'site-back'));
+      card.appendChild(from);
+    }
 
     const form = element('form', 'audit-site-form');
     form.noValidate = true;
@@ -3247,6 +3254,76 @@
     host.appendChild(site.standalone ? card : foldable(card, 'site', head, 'Deployed site'));
   }
 
+  /*
+   * The deployed site, as an audit shows it. Site checks run in one place --
+   * the Website page, on the Parallax engine -- so the audit does not carry
+   * a second scanner: it names this repository's address, says what the
+   * latest check of that address found, and sends the reader there to check
+   * it or read it in full. That check rides in this audit's exports.
+   */
+  function renderSiteLink(host, site, handlers, previous) {
+    const card = element('section', 'card audit-site audit-site-link');
+    card.setAttribute('aria-labelledby', 'auditSiteHeading');
+    const head = element('div', 'audit-site-head');
+    const mark = element('span', 'audit-site-mark');
+    mark.appendChild(icon(ICON.globe));
+    const titles = element('div', 'audit-site-titles');
+    const heading = element('h2', 'exposure-heading', 'Deployed site');
+    heading.id = 'auditSiteHeading';
+    titles.append(element('p', 'audit-site-kicker', 'Parallax Engine · Website'), heading,
+      element('p', 'audit-site-lede', 'Site checks run on the Website page. The latest one for this address shows here and joins this audit’s exports.'));
+    head.append(mark, titles);
+    card.appendChild(head);
+
+    const body = element('div', 'audit-site-link-body');
+    const where = element('div', 'audit-site-where');
+    if (site.url) {
+      const origin = element('span', 'audit-origin');
+      origin.append(icon(ICON.globe), element('span', null, String(site.url).replace(/^https:\/\//, '').replace(/\/$/, '')));
+      origin.title = site.url;
+      where.appendChild(origin);
+      if (site.suggested) where.appendChild(element('span', 'audit-site-hint', 'From the repository’s homepage'));
+    } else {
+      where.appendChild(element('span', 'audit-site-hint', 'The repository declares no homepage; add the address on the Website page.'));
+    }
+    body.appendChild(where);
+
+    const result = site.result;
+    if (site.status === 'running') {
+      body.appendChild(element('p', 'audit-lede audit-muted', 'Checking on the Website page…'));
+    } else if (result) {
+      const row = element('div', 'audit-grade-row audit-site-grade');
+      const assessment = siteAssessment(result);
+      const graded = assessment.complete && Number.isFinite(result.score) && typeof result.grade === 'string';
+      const fresh = !previous || previous.siteId !== `${result.origin}|${result.checkedAt}`;
+      row.appendChild(ring(graded ? result : { ...result, grade: null, score: null }, 'done', graded
+        ? `Site grade ${result.grade}, ${result.score} out of 100`
+        : `Site coverage ${assessment.state}; overall grade withheld`, fresh ? 0 : null));
+      const read = element('div', 'audit-grade-read');
+      read.append(element('p', 'audit-verdict audit-verdict-sm', result.findings.length ? verdict(result, 'done') : assessment.complete ? 'Nothing found in the completed checks' : 'No findings in the checks completed so far'));
+      read.appendChild(severityTally(result.findings));
+      const at = Date.parse(result.checkedAt);
+      if (Number.isFinite(at)) read.appendChild(element('p', 'audit-coverage', `Checked ${new Date(at).toLocaleString()}.`));
+      row.appendChild(read);
+      body.appendChild(row);
+    } else {
+      body.appendChild(element('p', 'audit-lede audit-muted', site.url ? 'Not checked yet in this session.' : 'No site checked yet.'));
+    }
+
+    const actions = element('div', 'audit-actions audit-site-link-actions');
+    if (result) {
+      actions.append(
+        keyed(button('Open in Parallax', 'btn btn-primary', () => handlers.onSiteOpen({ check: false })), 'site-open'),
+        keyed(button('Check again', 'btn btn-ghost', () => handlers.onSiteOpen({ check: true })), 'site-again'));
+    } else {
+      actions.appendChild(keyed(button(site.url ? 'Check in Parallax' : 'Open Parallax', 'btn btn-primary', () => handlers.onSiteOpen({ check: Boolean(site.url) })), 'site-open'));
+    }
+    if (site.status === 'running') actions.querySelectorAll('button').forEach(control => { if (control.textContent !== 'Open in Parallax') control.disabled = true; });
+    body.appendChild(actions);
+    card.appendChild(body);
+    host.appendChild(foldable(card, 'site', head, 'Deployed site'));
+  }
+
   /* The site check on its own page: the same card, for any address. */
   const drawnSites = new WeakMap();
   function renderSiteScan(root, site, handlers) {
@@ -3310,7 +3387,8 @@
       renderRemediation(root, view, handlers);
       renderHistory(root, view, handlers);
     }
-    if (view.site) renderSite(root, { ...view.site, hasRepositoryResult: Boolean(view.result) }, handlers, previous);
+    if (view.site && view.site.link) renderSiteLink(root, view.site, handlers, previous);
+    else if (view.site) renderSite(root, { ...view.site, hasRepositoryResult: Boolean(view.result) }, handlers, previous);
     for (const id of [...open]) {
       const details = root.querySelector(`details[data-finding-id="${CSS.escape(id)}"]`);
       if (details) details.open = true;

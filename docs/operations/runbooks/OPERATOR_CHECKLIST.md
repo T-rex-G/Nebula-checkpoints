@@ -134,9 +134,12 @@ node scripts/alpha-load.js
   does not qualify cohort admission. The previously observed Render service
   was gate-off; a green `/healthz` never establishes cohort readiness.
 - Set `NV_TRUSTED_PROXIES` only to verified ingress IP/CIDR ranges and prevent
-  untrusted routes to the application that impersonate those proxies. The new
-  default trusts direct connections. Without verified proxy ranges, hosted
-  clients share an ingress rate-limit bucket; do not restore numeric hop trust.
+  untrusted routes to the application that impersonate those proxies. An
+  explicit list always wins. Unset on Render (`RENDER=true`, set by the
+  platform), exactly one hop is trusted: Render's ingress is the only route to
+  a web service and appends the address it accepted, so clients keep their own
+  rate-limit buckets and cannot choose them. Unset anywhere else, forwarding
+  headers are ignored; never configure more hops than the ingress really adds.
 - Database-free sessions are limited to a single process, expire absolutely
   after 30 days, and are invalidated by restart. Hosted deployments use the
   shared PostgreSQL session store.

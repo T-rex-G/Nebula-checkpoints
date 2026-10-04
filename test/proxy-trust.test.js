@@ -9,7 +9,7 @@ const port = 29000 + Math.floor(Math.random() * 900);
 const child = spawn(process.execPath, ['server.js'], {
   cwd: path.join(__dirname, '..'),
   env: { ...process.env, PORT: String(port), NODE_ENV: 'test', DATABASE_URL: '',
-    NV_ALPHA_ACCESS_MODE: 'off', NV_DEPLOYMENT_PROFILE: 'local', NV_TRUSTED_PROXIES: '' },
+    NV_ALPHA_ACCESS_MODE: 'off', NV_DEPLOYMENT_PROFILE: 'local', NV_TRUSTED_PROXIES: '', RENDER: '' },
   stdio: ['ignore', 'pipe', 'pipe']
 });
 let logs = '';
@@ -34,7 +34,11 @@ async function main() {
         `direct clients cannot rotate their rate-limit bucket with X-Forwarded-For (request ${i + 1})`);
     }
 
-    assert.strictEqual(loadTrustedProxies(''), false);
+    assert.strictEqual(loadTrustedProxies('', {}), false);
+    assert.strictEqual(loadTrustedProxies('', { RENDER: 'false' }), false);
+    /* Render's ingress is the only route in and appends the hop it accepted; one hop, never more. */
+    assert.strictEqual(loadTrustedProxies('', { RENDER: 'true' }), 1);
+    assert.deepStrictEqual(loadTrustedProxies('10.0.0.0/8', { RENDER: 'true' }), ['10.0.0.0/8'], 'an explicit list wins');
     for (const invalid of ['1', 'true', '0.0.0.0/0', '::/0', 'example.com', '10.0.0.1/999', 'loopback,']) {
       assert.throws(() => loadTrustedProxies(invalid), /NV_TRUSTED_PROXIES/);
     }
@@ -52,6 +56,9 @@ async function main() {
     app.set('trust proxy', loadTrustedProxies('10.0.0.0/8'));
     const untrusted = await fetch(endpoint, { headers: { 'x-forwarded-for': '203.0.113.9' } });
     assert.strictEqual((await untrusted.json()).ip, '127.0.0.1', 'a shorter direct path must ignore forwarding headers');
+    app.set('trust proxy', loadTrustedProxies('', { RENDER: 'true' }));
+    const behindRender = await fetch(endpoint, { headers: { 'x-forwarded-for': '203.0.113.9, 198.51.100.27' } });
+    assert.strictEqual((await behindRender.json()).ip, '198.51.100.27', 'on Render only the hop its ingress appended is believed');
     console.log('proxy trust topology and direct-port rate-limit regressions passed');
   } finally {
     if (proxyServer) await new Promise(resolve => proxyServer.close(resolve));

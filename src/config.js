@@ -4,9 +4,18 @@ const crypto = require('crypto');
 const net = require('net');
 const { loadHostedAlphaLimits } = require('./hosted-readiness');
 
-function loadTrustedProxies(raw) {
+/*
+ * Which forwarding hops to believe. An explicit NV_TRUSTED_PROXIES list of
+ * verified ingress ranges always wins. Without one, a Render web service
+ * trusts exactly one hop: Render's ingress is the only public route to the
+ * service, and it appends the address it accepted the connection from, so the
+ * last entry is the one no client wrote -- trusting nothing there would put
+ * every anonymous visitor in the ingress's single rate-limit bucket. Anywhere
+ * else nothing is trusted, so a direct client cannot choose its own address.
+ */
+function loadTrustedProxies(raw, env = process.env) {
   const value = String(raw || '').trim();
-  if (!value) return false;
+  if (!value) return String((env && env.RENDER) || '').trim().toLowerCase() === 'true' ? 1 : false;
   const entries = value.split(',').map(part => part.trim());
   for (const entry of entries) {
     const parts = entry.split('/');

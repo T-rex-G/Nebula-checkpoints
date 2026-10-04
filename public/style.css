@@ -2292,7 +2292,11 @@ body.read-only .btn-primary{opacity:.55}
  * the controls go under the copy, and where the controls do not fit in a row
  * they take the compact form the phone uses.
  */
-.neural-head{container:neural-head / inline-size;flex-wrap:wrap}
+.neural-head{container:neural-head / inline-size}
+/* Wrapping is for the row a desk draws; the phone's header is a column, and a
+   wrapping column overflows sideways -- it put the controls in a second
+   column beside the copy and widened the page. */
+@media (min-width:901px){ .neural-head{flex-wrap:wrap} }
 @container neural-head (max-width:820px){
   .neural-head-copy{flex:1 1 100%}
   .neural-head-actions{justify-content:flex-start}

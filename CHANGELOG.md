@@ -20,6 +20,22 @@
   drawer was out lay across its first entries; it now sits under the drawer's
   scrim until the drawer is put away.
 
+### The galaxy, whole and in view
+
+- **On a phone it has a stage.** The Galaxies hero drew its spiral behind the
+  headline at a third of its strength, so it read as a faint ring across
+  "repository" with a straight top where the hero clipped it. It now sits on
+  a stage of its own above the copy, at full strength, sharper (drawn at up
+  to twice the pixel density), and the eyebrow tucks into its fading edge.
+  A phone that cannot draw it keeps no empty stage.
+- **On a desk it has a column.** The artwork was a box taller than the hero
+  and offset above it, so the hero cut its aura into a band with straight top
+  and bottom edges, and the disc filled a third of its width. It now sits in
+  its own column inside a hero tall enough to hold it, the disc scaled to
+  fill it, and leans a few degrees toward the pointer.
+- **It arrives.** The spiral turns into place once it has drawn its first
+  frame; with motion off it is simply there.
+
 ### Every kept audit exports on its own
 
 - **History exports.** An opened entry under *History* has its own *Export*:

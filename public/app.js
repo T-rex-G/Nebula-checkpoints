@@ -895,6 +895,28 @@ document.addEventListener('pointerdown', event => {
 
 /* Which screen owns which piece of the design's artwork. */
 const NEBULA_VISUALS = Object.freeze({ repos: ['galaxy', '#gxHeroArt'] });
+/*
+ * The galaxy leans a few degrees toward the pointer on a desk, eased by CSS.
+ * Never on a touch screen, never with motion off; one frame per move at most.
+ */
+(function galaxyLean() {
+  const hero = $('.gx-hero');
+  const art = $('#gxHeroArt');
+  if (!hero || !art || !window.matchMedia || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  let frame = 0;
+  hero.addEventListener('pointermove', event => {
+    if (frame || document.documentElement.dataset.motion === 'off') return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      const box = hero.getBoundingClientRect();
+      const x = (event.clientX - box.left) / Math.max(box.width, 1) - 0.5;
+      const y = (event.clientY - box.top) / Math.max(box.height, 1) - 0.5;
+      art.style.setProperty('--gx-ry', `${(x * 12).toFixed(2)}deg`);
+      art.style.setProperty('--gx-rx', `${(-y * 9).toFixed(2)}deg`);
+    });
+  }, { passive: true });
+  hero.addEventListener('pointerleave', () => { art.style.removeProperty('--gx-ry'); art.style.removeProperty('--gx-rx'); });
+})();
 
 function showPage(name) {
   setTimeout(measureTopbar, 30);

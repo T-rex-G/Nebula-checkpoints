@@ -4351,8 +4351,22 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * which reads as a rendering fault rather than as artwork. It is inset now,
  * and sized so its own mask does the fading.
  */
-@media (max-width:900px){ .gx-hero-art{right:0;top:-6%;width:72%;height:104%;opacity:.34} }
-@media (max-width:900px){ [data-theme="light"] .gx-hero-art{opacity:.22} }
+/*
+ * On a phone the galaxy has its own stage above the headline. Behind the copy
+ * it had to drop to a third of its strength to leave the sentence readable,
+ * and at that weight and size it read as a smudge across "repository" rather
+ * than as the artwork: a faint ring with a hard top where the hero clipped it.
+ * Above the copy it can be whole and at full strength, and the eyebrow tucks
+ * into its fading lower edge.
+ */
+@media (max-width:900px){
+  .gx-hero{display:flex;flex-direction:column}
+  /* The stage is held only once the artwork is drawing: a device without it keeps the page as it was. */
+  .gx-hero-art{position:relative;order:-1;right:auto;top:auto;width:100%;height:0;opacity:1}
+  .gx-hero-art[data-nebula-mounted="true"]{height:clamp(176px,48vw,240px);margin:-4px 0 -14px}
+  [data-theme="light"] .gx-hero-art{opacity:.92}
+  #page-repos .gx-hero:has(.gx-hero-art[data-nebula-mounted="true"]){padding-top:6px}
+}
 /*
  * Inside the plate the hero spans the region and only the copy is capped. The
  * cap used to sit on the section, so on a wide screen the artwork was measured
@@ -4360,11 +4374,28 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * stopped short of the right edge, floating in the middle with nothing to
  * anchor it. The copy keeps its measure; the artwork gets the margin.
  */
-@media (min-width:1140px){
-  .gx-hero{max-width:none}
-  .gx-hero>:not(.gx-hero-art){max-width:720px}
-  .gx-hero-art{right:0;top:-20%;width:47%;height:150%}
+/*
+ * Beside the copy on a desk, in a column of its own that the hero is tall
+ * enough to hold. It used to be a box taller than the hero, offset above it,
+ * so the hero's clip cut the aura into a band with a straight top and bottom
+ * edge -- the defect -- and the disc itself was a third of the column wide.
+ * Inside its own box the mask fades it to nothing before any edge, and the
+ * disc is scaled to fill the box.
+ */
+@media (min-width:901px){
+  .gx-hero{max-width:none;display:flex;flex-direction:column;justify-content:center}
+  .gx-hero:has(.gx-hero-art[data-nebula-mounted="true"]){min-height:clamp(220px,22vw,290px)}
+  .gx-hero>:not(.gx-hero-art){max-width:min(720px,56%)}
+  .gx-hero-art{right:0;top:0;bottom:0;width:44%;height:100%;
+    transform:perspective(900px) rotateX(var(--gx-rx,0deg)) rotateY(var(--gx-ry,0deg));
+    transition:transform .6s cubic-bezier(.22,1,.36,1)}
 }
+/* The artwork arrives rather than appears, once its first frame is drawn. */
+.gx-hero-art nebula-galaxy{animation:gxArrive 1.1s cubic-bezier(.22,1,.36,1) both}
+@keyframes gxArrive{from{opacity:0;transform:scale(.9) rotate(-6deg)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){ .gx-hero-art nebula-galaxy{animation:none} .gx-hero-art{transition:none;transform:none} }
+[data-motion="off"] .gx-hero-art nebula-galaxy{animation:none}
+[data-motion="off"] .gx-hero-art{transition:none;transform:none}
 
 /*
  * The recent-activity ledger, folded.

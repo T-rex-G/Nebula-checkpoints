@@ -397,10 +397,16 @@ test('the inventory artwork is not clipped by the edge of the screen', async ({ 
   const art = page.locator('#gxHeroArt');
   const box = await art.evaluate(node => {
     const rect = node.getBoundingClientRect();
-    return { left: rect.left, right: rect.right, viewport: window.innerWidth };
+    const hero = node.closest('.gx-hero').getBoundingClientRect();
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, height: rect.height, viewport: window.innerWidth,
+      hero: { top: hero.top, bottom: hero.bottom }, drawn: node.dataset.nebulaMounted === 'true', staged: getComputedStyle(node).position !== 'absolute' };
   });
   expect(box.left).toBeGreaterThanOrEqual(-1);
   expect(box.right).toBeLessThanOrEqual(box.viewport + 1);
+  /* Inside its hero top to bottom, so the hero's clip never cuts it into a band; and no empty stage when nothing is drawn. */
+  expect(box.top).toBeGreaterThanOrEqual(box.hero.top - 1);
+  expect(box.bottom).toBeLessThanOrEqual(box.hero.bottom + 1);
+  if (box.staged && !box.drawn) expect(box.height, 'a phone keeps no stage for artwork it cannot draw').toBe(0);
 
   /* And the page it sits on gains no horizontal scroll from it. */
   const overflow = await page.evaluate(() => document.body.scrollWidth - window.innerWidth);

@@ -33,6 +33,7 @@ varying vec2 vUv;
 
 uniform float uT;
 uniform float uAspect;
+uniform float uZoom;
 uniform float uLight;
 uniform float uExposure;
 uniform float uStars;
@@ -65,7 +66,7 @@ vec3 strandColor(float rc, float h) {
 }
 
 void main() {
-  vec2 p = (vUv - 0.5) * 2.0;
+  vec2 p = (vUv - 0.5) * 2.0 / uZoom;
   p.x *= uAspect;
 
   // inclined disc: rotate major axis, then un-squash the minor axis so a
@@ -264,7 +265,7 @@ class NebulaGalaxy extends HTMLElement {
     this.camera = new THREE.Camera();
 
     this.uniforms = {
-      uT: { value: 0 }, uAspect: { value: 1 }, uLight: { value: 0 },
+      uT: { value: 0 }, uAspect: { value: 1 }, uZoom: { value: 1 }, uLight: { value: 0 },
       uExposure: { value: 1.35 }, uStars: { value: 1 }, uStrands: { value: 18 },
       uTilt: { value: 0.38 }, uSquash: { value: 2.05 },
       uArms: { value: 2.0 }, uPitch: { value: 4.8 },
@@ -337,10 +338,21 @@ class NebulaGalaxy extends HTMLElement {
     const w = this.clientWidth || 320;
     const h = this.clientHeight || 320;
     const low = this.getAttribute('density') === 'low';
-    const cap = low ? 1.25 : 1.5;
+    /*
+     * A phone's stage is small, so it can afford a sharper draw: at 1.25 on a
+     * three-times screen the strands went soft. The cap still bounds the cost.
+     */
+    const cap = low ? 2 : 1.5;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
     this.renderer.setSize(w, h, false);
-    this.uniforms.uAspect.value = w / Math.max(h, 1);
+    const aspect = w / Math.max(h, 1);
+    this.uniforms.uAspect.value = aspect;
+    /*
+     * The disc is drawn a box-height across; in a wide box that left most of
+     * the width empty. Zoomed to the box's shape it fills it, and the tilt and
+     * squash keep its height inside the box, where the mask fades it out.
+     */
+    this.uniforms.uZoom.value = Math.min(1.45, Math.max(1.15, aspect * 0.95));
     this.uniforms.uStrands.value = low ? 12 : 18;
     this.uniforms.uStars.value = low ? 0 : 1;
     this.render();

@@ -125,10 +125,13 @@ test('the artwork hosts are decoration: hidden from readers and out of the way',
     art.style.display = previous;
     return {
       clipped: getComputedStyle(document.querySelector('.gx-hero')).overflow !== 'visible',
+      /* On a phone a drawn galaxy has a stage of its own above the copy, which is meant to take room. */
+      staged: getComputedStyle(art).position !== 'absolute' && art.dataset.nebulaMounted === 'true',
       withArt,
       without
     };
   });
   expect(overflow.clipped, 'the hero must clip its own decoration').toBe(true);
-  expect(overflow.withArt, 'decoration must not change the size of the page').toEqual(overflow.without);
+  expect(overflow.withArt.width, 'decoration must never widen the page').toBe(overflow.without.width);
+  if (!overflow.staged) expect(overflow.withArt.height, 'decoration beside the copy must not lengthen the page').toBe(overflow.without.height);
 });

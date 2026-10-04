@@ -186,7 +186,16 @@ is read where it is written, with the middleware its controller applies. A
 check before the call that settles a value (a number test, an anchored
 pattern, an allow-list, equality with literals, or its negation before an
 early exit) quiets the flow inside what it guards, and what was built from the
-checked value is settled with it. A finding
+checked value is settled with it. Calls are followed through helpers of
+helpers, a parent class's methods, a typed field's class (an injected Spring
+service and the one class implementing its interface, a Laravel controller's
+service), and a Go method of a name only one type defines. The engine is
+measured on a corpus of 138 cases in JavaScript, TypeScript, Python, Go, Java
+and PHP: 100% precision and 98% recall. Each case is a small application whose
+own comments say what must be found and where, run through the whole audit
+(`node scripts/uranus-benchmark.js`); the one miss it records, a function the
+caller names and the code calls, is written down rather than left out, and the
+unit suite fails if any case regresses. A finding
 is `confirmed` when the file states it or the whole path was traced, and `to
 confirm` when one decisive fact is out of reach; a lead names that fact and the
 local check that settles it, weighs half, and is exported to SARIF as a note to

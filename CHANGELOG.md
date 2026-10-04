@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+### Uranus, Measured
+
+Phase 3 of the audit engine, third part: a benchmark the engine is held to.
+
+- **A corpus of 138 small applications** in JavaScript, TypeScript, Python,
+  Go, Java and PHP (`test/fixtures/uranus-benchmark/`), 51 of them safe code.
+  Each file says in its own comments what must be found and on which line
+  (`expect: SEC-001`, with an optional verdict), and records honestly what the
+  engine does not do yet (`known-miss:`, `known-fp:`).
+- **A scorer** (`node scripts/uranus-benchmark.js`) runs every case through
+  the whole audit and reports precision and recall by language and by rule:
+  today 100% precision and 98% recall, the one miss a function whose name the
+  caller chooses. The unit suite fails on any missed expectation, any finding
+  where none is expected, any verdict that changed, and any known miss or
+  false positive that no longer holds; the documentation and the landing page
+  state the corpus's own figures, and their tests compute them.
+- **What the corpus found, fixed in the engine:**
+  - a Java method with a nested generic return type (`List<Map<K, V>> find(`)
+    was not read as a method at all;
+  - a helper of a helper whose inner call needs a built string now carries
+    that need to the caller, so Spring's controller, lookup and run chain is
+    followed;
+  - calls through a typed field resolve to its class, or to the one class
+    implementing its interface (an injected Spring service, a Laravel
+    controller's promoted service), and a Go method through an interface
+    resolves when one type defines that name; Go package-qualified calls
+    (`store.FindByEmail`) resolve to that package;
+  - a Laravel model's `update($request->all())` is mass assignment, not a
+    query;
+  - the browser's URL read through a call (`location.hash.slice(1)`) is a
+    source, Hono's `c.redirect` a sink, and the whole parsed query string a
+    query object for NoSQL injection;
+  - `Number.isInteger`, `isUUID` and anchored `/^…$/.test` settle a value as
+    an allow-list does;
+  - a line-pattern lead whose every spliced name a check has settled, or that
+    was parsed as a number, is dropped -- the trace already saw it made safe;
+  - the SQL pattern now reads a statement holding the other quote
+    (`"... name = '" + x`);
+  - a Python `.execute(` is no longer a write (SELECTs run through it), nor a
+    set's `.add(` or a dict's `.update(`; and a POST handler the read sees
+    whole, that calls nothing that could write, is not reported as an open
+    write.
+
 ### Go, Java and PHP, Traced
 
 Phase 3 of the audit engine, second part: Uranus follows values in three more

@@ -608,9 +608,10 @@ const LINE_RULES = Object.freeze([
     applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext) || ['rb', 'php', 'go', 'java', 'kt', 'cs'].includes(file.ext)),
     test: (line, file) => [
       /\.(query|execute|raw|exec|all|get|run|prepare|\$queryRawUnsafe|\$executeRawUnsafe)\s*\(\s*`[^`]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^`]*\$\{/i,
-      /\.(query|execute|raw|exec)\s*\(\s*["'][^"'\n]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^"'\n]*["']\s*\+/i,
-      /\.execute\s*\(\s*f["'][^"'\n]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^"'\n]*\{/i,
-      /\.execute\s*\(\s*["'][^"'\n]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^"'\n]*["']\s*(%\s*[\w(]|\.format\s*\()/i
+      /* a quoted statement, which may hold the other quote ("... name = '" + x), followed by a splice */
+      /\.(query|execute|raw|exec)\s*\(\s*(?:"[^"\n]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^"\n]*"|'[^'\n]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^'\n]*')\s*\+/i,
+      /\.execute\s*\(\s*f(?:"[^"\n]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^"\n]*\{|'[^'\n]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^'\n]*\{)/i,
+      /\.execute\s*\(\s*(?:"[^"\n]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^"\n]*"|'[^'\n]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^'\n]*')\s*(%\s*[\w(]|\.format\s*\()/i
     ].some(pattern => (lexical(file) ? inCode(pattern, line) : pattern.test(line)))
   },
   {
@@ -2184,6 +2185,46 @@ function detailText(rule, detail) {
 const PATTERN_RULES = new Set(['SEC-001', 'SEC-002', 'SEC-007', 'SEC-010', 'SEC-011', 'SEC-012', 'SEC-020', 'SEC-021', 'SEC-022',
   'SEC-024', 'SUP-004', 'DEP-004', 'SEC-031', 'SEC-032']);
 
+/* Pattern rules about a value spliced into a statement: the ones a settled value answers. */
+const SPLICE_RULES = new Set(['SEC-001', 'SEC-010', 'SEC-011', 'SEC-020', 'SEC-021', 'SEC-022', 'SEC-024']);
+
+/*
+ * The names a line splices into a string: `${name}`, f"{name}", "..." + name,
+ * name + "...", "..." . $name and "... $name ..." -- the base of a member
+ * chain for each. An empty answer means the line builds its string some
+ * other way, and nothing is settled by it.
+ */
+function splicedNames(text) {
+  const names = new Set();
+  const base = name => name.replace(/[.[].*$/, '');
+  for (const match of text.matchAll(/\$\{\s*([A-Za-z_$][\w$.]*)\s*\}/g)) names.add(base(match[1]));
+  if (/\bf["']/.test(text)) for (const match of text.matchAll(/\{\s*([A-Za-z_]\w*(?:\.\w+)*)\s*\}/g)) names.add(base(match[1]));
+  for (const match of text.matchAll(/["'`]\s*\+\s*([A-Za-z_$][\w$.]*)/g)) names.add(base(match[1]));
+  for (const match of text.matchAll(/([A-Za-z_$][\w$.]*)\s*\+\s*["'`]/g)) names.add(base(match[1]));
+  for (const match of text.matchAll(/["']\s*\.\s*(\$\w+)/g)) names.add(match[1]);
+  for (const match of text.matchAll(/(\$\w+)\s*\.\s*["']/g)) names.add(match[1]);
+  for (const quoted of text.matchAll(/"(?:[^"\\]|\\.)*"/g)) for (const match of quoted[0].matchAll(/\{?(\$\w+)/g)) names.add(match[1]);
+  return [...names];
+}
+
+/*
+ * Whether `name`, as last assigned before `line`, holds a number parsed from
+ * whatever it was given -- int(x), Number(x), parseInt(x), intval($x),
+ * strconv.Atoi(x), Integer.parseInt(x), a UUID parsed the same way. A number
+ * spliced into a statement cannot change what the statement says.
+ */
+const NUMERIC_PARSE = /^\s*(?:\(\s*\w+\s*\)\s*)?(?:int|float|Number|parseInt|parseFloat|Number\.parseInt|Number\.parseFloat|Number\.parseFloat|intval|floatval|abs|strconv\.Atoi|strconv\.ParseInt|strconv\.ParseUint|strconv\.ParseFloat|Integer\.parseInt|Integer\.valueOf|Long\.parseLong|Long\.valueOf|Double\.parseDouble|uuid\.UUID|UUID\.fromString|uuid\.Parse|uuid\.MustParse)\s*\(/;
+function parsedAsNumber(lines, line, name) {
+  if (!Array.isArray(lines) || !name) return false;
+  const escaped = name.replace(/[$]/g, '\\$');
+  const assigned = new RegExp(`(?:^|[^\\w$.])${escaped}\\s*(?:,\\s*\\w+\\s*)?(?::=|=(?!=))(.*)$`);
+  for (let index = Math.min(line, lines.length) - 2; index >= 0 && line - index < 200; index -= 1) {
+    const match = assigned.exec(lines[index]);
+    if (match) return NUMERIC_PARSE.test(match[1]);
+  }
+  return false;
+}
+
 const GUARD_KIND = Object.freeze({
   middleware: 'a Next.js middleware', mounted: 'a router mounted behind authentication', django: 'Django’s middleware list', dependencies: 'a router declared with dependencies', nest: 'a global guard',
   'spring-security': 'a Spring Security filter chain', filter: 'a request filter that turns callers away', symfony: 'Symfony’s access control rules'
@@ -2591,9 +2632,30 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
   };
   /* How many findings of a rule a file already has: the ordinal in a finding's identity. */
   const ordinals = new Map();
+  /*
+   * A pattern lead every spliced name of which a check has already settled
+   * -- an allow-list, a number test, an anchored pattern -- is not a lead:
+   * the trace saw the value arrive and saw it made safe before this line.
+   */
+  const settledByPath = new Map();
+  for (const entry of flowResult.settled || []) {
+    if (!settledByPath.has(entry.path)) settledByPath.set(entry.path, []);
+    settledByPath.get(entry.path).push(entry);
+  }
+  const settledLead = item => {
+    if (!SPLICE_RULES.has(item.rule) || item.evidence || !item.path || !item.line) return false;
+    const marks = settledByPath.get(item.path);
+    const lines = linesOf(item.path);
+    const text = lines ? lines[item.line - 1] : null;
+    if (!text) return false;
+    const spliced = splicedNames(text);
+    return spliced.length > 0 && spliced.every(name => (marks && marks.some(mark => mark.name === name && item.line >= mark.from && item.line <= mark.to)) ||
+      parsedAsNumber(lines, item.line, name));
+  };
   for (const item of raw) {
     const key = `${item.rule}\0${item.path || ''}\0${item.line || ''}`;
     if (seen.has(key)) continue;
+    if (settledLead(item)) continue;
     seen.set(key, true);
     const place = `${item.rule}\0${item.path || ''}`;
     const ordinal = ordinals.get(place) || 0;

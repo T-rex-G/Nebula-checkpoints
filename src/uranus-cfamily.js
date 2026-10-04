@@ -347,7 +347,8 @@ function functionsOf(tokens, language) {
     } else if (language === 'java' && token.t === 'id' && isPunc(tokens[i + 1], '(') && !JAVA_NOT_METHOD.has(token.v)) {
       const before = tokens[i - 1];
       /* a declaration: a type before the name (a word, a generic's '>' or an array's ']') */
-      if (!before || !(before.t === 'id' || isPunc(before, '>') || isPunc(before, ']'))) continue;
+      /* `List<Map<String, Object>> find(` ends its type with `>>`, read as one token */
+      if (!before || !(before.t === 'id' || isPunc(before, '>') || isPunc(before, '>>') || isPunc(before, '>>>') || isPunc(before, ']'))) continue;
       if (before.t === 'id' && (before.v === 'new' || before.v === 'return' || before.v === 'throw' || before.v === 'else')) continue;
       const paramsClose = closing(tokens, i + 1);
       if (paramsClose === -1) continue;
@@ -530,8 +531,9 @@ class Walker {
     this.program = program;
     this.flows = [];
     this.summary = null;
-    /* Names a condition has validated, each with the token ranges where that holds. */
+    /* Names a condition has validated, each with the token ranges where that holds, and the same as lines. */
     this.validated = new Map();
+    this.settled = [];
   }
 
   /* A name's value at token `at`: nothing where a condition has already proved it safe. */
@@ -557,9 +559,11 @@ class Walker {
         if (!value || all.has(other) || !Array.isArray(value.via)) continue;
         if ([...names].some(name => value.via.includes(name))) all.add(other);
       }
+      const lineAt = index => (this.tokens[Math.min(index, this.tokens.length - 1)] || { line: 0 }).line;
       for (const name of all) {
         if (!this.validated.has(name)) this.validated.set(name, []);
         this.validated.get(name).push([from, to]);
+        this.settled.push({ path: this.path, name, from: lineAt(from), to: lineAt(to) });
       }
     };
     mark(positive, blockFrom, blockTo);
@@ -1235,9 +1239,12 @@ class Walker {
           if (!value) continue;
           const through = extend(value, this.path, tokens[k].line, `passed to ${helperName}`);
           const flags = { built: Boolean(through.built || sink.flags.built), sql: Boolean(through.sql || sink.flags.sql), html: Boolean(through.html || sink.flags.html) };
+          /* a sink that needs a built string: the caller's value must be one, or carry the need on */
+          const unmet = sink.requires === 'built' && !(through.built || through.sql || through.whole);
+          if (unmet && !(this.summary && through.kind === 'parameter')) continue;
           /* A helper of a helper: this function's parameter reaches the sink too, through the call. */
           if (this.summary && through.kind === 'parameter' && through.param !== undefined && through.param !== null) {
-            if (this.summary.sinks.length < 8) this.summary.sinks.push({ kind: sink.kind, param: through.param, path: sink.path, line: sink.line, steps: [{ path: this.path, line: tokens[k].line, role: 'propagation', note: `passed to ${helperName}` }, ...sink.steps].slice(0, MAX_STEPS - 1), flags });
+            if (this.summary.sinks.length < 8) this.summary.sinks.push({ kind: sink.kind, param: through.param, path: sink.path, line: sink.line, steps: [{ path: this.path, line: tokens[k].line, role: 'propagation', note: `passed to ${helperName}` }, ...sink.steps].slice(0, MAX_STEPS - 1), flags, requires: unmet ? 'built' : null });
             continue;
           }
           this.pushFlow(sink.kind, { ...through, ...flags, steps: [...through.steps, ...sink.steps].slice(0, MAX_STEPS) }, sink.path, sink.line, guards.get(this.firstName(arg[0], arg[1], scope)) || null, helper.file === this.path ? 'function' : 'file');
@@ -1281,8 +1288,7 @@ class Walker {
       }
       if (name === 'Where' || name === 'Order' || name === 'Having' || name === 'Group' || name === 'Joins') {
         /* gorm: db.Where("name = " + x) -- the first argument built from a value */
-        const value = this.arg(args, 0, scope, roles);
-        if (value && value.built) this.report('sql', value, line, guards, args[0][0], args[0][1]);
+        this.builtSql(this.arg(args, 0, scope, roles), line, guards, args[0], true);
         return;
       }
       if (receiver === 'exec' && (name === 'Command' || name === 'CommandContext')) {
@@ -1327,8 +1333,7 @@ class Walker {
     if (this.language === 'java') {
       if (JAVA_SQL.test(name)) { report('sql', 0); return; }
       if (JAVA_SQL_GENERIC.test(name) && receiver && /(jdbc|template|stmt|statement|jdbcTemplate|namedParameterJdbcTemplate|conn|connection|session|em|entityManager|db)/i.test(receiver)) {
-        const value = this.arg(args, 0, scope, roles);
-        if (value && (value.built || value.sql || value.whole)) this.report('sql', value, line, guards, args[0][0], args[0][1]);
+        this.builtSql(this.arg(args, 0, scope, roles), line, guards, args[0]);
         return;
       }
       if (name === 'exec' && /getRuntime\(\)/.test(text)) { report('command', 0); return; }
@@ -1373,13 +1378,13 @@ class Walker {
       report('sql', index);
       return;
     }
-    if (PHP_SQL_METHODS.test(name) && callee.segments.length > 1) {
-      /* $pdo->query($q), $mysqli->query($q), DB::select($q), $wpdb->get_results($q), ->whereRaw($q) */
-      const target = /Raw$|^raw$/.test(name) || receiver === 'DB' || /^\$(pdo|db|dbh|mysqli|conn|connection|link|wpdb|database|pdoConn|sql|em|entityManager|dbal)$/i.test(receiver || '') || /->(db|pdo|conn|connection|mysqli|em|entityManager|dbal)$/.test(callee.segments.join('->')) ||
-        (/^(executeQuery|executeStatement|executeUpdate|createQuery|createNativeQuery)$/.test(name) && /(conn|connection|db|em|manager|dbal)$/i.test(receiver || ''));
-      if (!target) return;
+    /* $pdo->query($q), $mysqli->query($q), DB::select($q), $wpdb->get_results($q), ->whereRaw($q); another receiver's update() is a model's */
+    const sqlTarget = PHP_SQL_METHODS.test(name) && callee.segments.length > 1 && (/Raw$|^raw$/.test(name) || receiver === 'DB' || /^\$(pdo|db|dbh|mysqli|conn|connection|link|wpdb|database|pdoConn|sql|em|entityManager|dbal)$/i.test(receiver || '') || /->(db|pdo|conn|connection|mysqli|em|entityManager|dbal)$/.test(callee.segments.join('->')) ||
+      (/^(executeQuery|executeStatement|executeUpdate|createQuery|createNativeQuery)$/.test(name) && /(conn|connection|db|em|manager|dbal)$/i.test(receiver || '')));
+    if (sqlTarget) {
       const value = this.arg(args, 0, scope, roles);
-      if (value && (value.built || value.sql || value.whole || /Raw$|^raw$|^statement$|^unprepared$/.test(name))) this.report('sql', value, line, guards, args[0][0], args[0][1]);
+      if (value && /Raw$|^raw$|^statement$|^unprepared$/.test(name)) this.report('sql', value, line, guards, args[0][0], args[0][1]);
+      else this.builtSql(value, line, guards, args[0]);
       return;
     }
     if (PHP_COMMANDS.has(name) && callee.segments.length === 1) { report('command', 0); return; }
@@ -1434,6 +1439,17 @@ class Walker {
     }
   }
 
+  /*
+   * A call that runs SQL only as dangerous as the string it is handed: one
+   * built from a value, or carrying SQL words. A helper's bare parameter is
+   * noted as needing that, and judged where the helper is called.
+   */
+  builtSql(value, line, guards, range, builtOnly = false) {
+    if (!value || !range) return;
+    if (value.built || (!builtOnly && (value.sql || value.whole))) this.report('sql', value, line, guards, range[0], range[1]);
+    else if (this.summary && value.kind === 'parameter') this.report('sql', { ...value, requires: 'built' }, line, guards, range[0], range[1]);
+  }
+
   contextText(open) {
     return this.tokens.slice(Math.max(0, open - 12), open).map(t => t.v).join('');
   }
@@ -1441,7 +1457,7 @@ class Walker {
   report(kind, value, line, guards, from, to) {
     if (!value) return;
     if (this.summary && value.param !== undefined && value.param !== null && value.kind === 'parameter') {
-      if (this.summary.sinks.length < 8) this.summary.sinks.push({ kind, param: value.param, path: this.path, line, steps: [{ path: this.path, line, role: 'sink', note: `used in ${SINKS[kind].label}` }], flags: { built: value.built, sql: value.sql, html: value.html } });
+      if (this.summary.sinks.length < 8) this.summary.sinks.push({ kind, param: value.param, path: this.path, line, steps: [{ path: this.path, line, role: 'sink', note: `used in ${SINKS[kind].label}` }], flags: { built: value.built, sql: value.sql, html: value.html }, requires: value.requires || null });
       return;
     }
     if (value.kind === 'parameter') return;
@@ -1740,6 +1756,8 @@ class Program {
     }
     this.summaries = new Map();
     this.parents = new Map();
+    this.imports = new Map();
+    this.implementors = new Map();
     this.byName = new Map();
     for (const [path, entry] of this.files) {
       for (const fn of entry.functions) {
@@ -1755,9 +1773,20 @@ class Program {
   helper(language, name, callee, fromPath) {
     if (!name || !callee) return null;
     /* a function of this codebase: called by name, or on this object */
-    const own = callee.segments.length === 1 || (callee.segments.length === 2 && /^(this|\$this|self|static|parent|super|s|h)$/.test(callee.segments[0]));
+    /* Go: store.FindByEmail(x) names a function of an imported package */
+    const imported = language === 'go' && callee.segments.length === 2 && this.goImports(fromPath).has(callee.segments[0]) ? callee.segments[0] : null;
+    /* Java and PHP: userService.find(x), this.userService.find(x), $this->reports->forRegion($x) -- a field of a type declared here */
+    const owner = callee.segments.filter(segment => !/^(this|\$this)$/.test(segment));
+    const typed = (language === 'java' || language === 'php') && owner.length === 2 ? this.implementations(this.fieldType(fromPath, owner[0].replace(/^\$/, ''), language), language) : null;
+    /* Go: h.products.SearchByName(x) through an interface -- the one method of that name the codebase defines */
+    const goMethods = language === 'go' && callee.segments.length >= 2 && !imported
+      ? (this.byName.get(`go:${name}`) || []).filter(entry => entry.fn.receiver) : [];
+    const own = callee.segments.length === 1 || imported || (typed && typed.size) || goMethods.length === 1 || (callee.segments.length === 2 && /^(this|\$this|self|static|parent|super|s|h)$/.test(callee.segments[0]));
     if (!own) return null;
-    const candidates = this.byName.get(`${language}:${name}`);
+    let candidates = this.byName.get(`${language}:${name}`);
+    if (goMethods.length === 1 && callee.segments.length >= 2 && !imported) candidates = goMethods;
+    if (imported && candidates) candidates = candidates.filter(entry => this.goPackage(entry.path) === imported);
+    if (typed && typed.size && candidates) candidates = candidates.filter(entry => typed.has(entry.path));
     if (!candidates || !candidates.length) return null;
     /* the same file first, then the class it extends; another file only when the name is unambiguous */
     const inherited = /^(super|parent)$/.test(callee.segments[0]);
@@ -1788,6 +1817,60 @@ class Program {
 
   headerStart(tokens, fn) {
     return headerStartOf(tokens, fn);
+  }
+
+  /* The names a Go file imports packages under: the last element of each path, or its alias. */
+  goImports(path) {
+    if (this.imports.has(path)) return this.imports.get(path);
+    const entry = this.files.get(path);
+    const names = new Set();
+    if (entry) {
+      const block = /\bimport\s*\(([\s\S]*?)\)/.exec(entry.file.text);
+      const lines = block ? block[1].split('\n') : [];
+      for (const match of entry.file.text.matchAll(/^\s*import\s+(\w+\s+)?"([^"]+)"/gm)) lines.push(`${match[1] || ''}"${match[2]}"`);
+      for (const line of lines) {
+        const match = /^\s*(\w+\s+)?"([^"]+)"/.exec(line);
+        if (match) names.add(match[1] ? match[1].trim() : match[2].split('/').pop());
+      }
+    }
+    this.imports.set(path, names);
+    return names;
+  }
+
+  /* The type a field or constructor parameter of this file is declared with: `private final UserService userService;`, `private ReportService $reports`. */
+  fieldType(path, field, language) {
+    const entry = this.files.get(path);
+    if (!entry || !/^\w+$/.test(field)) return null;
+    const pattern = language === 'php'
+      ? new RegExp(`(?:private|protected|public|readonly|var)\\s+(?:readonly\\s+)?\\??\\\\?(?:[\\w\\\\]+\\\\)?([A-Z]\\w*)\\s+\\$${field}\\b`)
+      : new RegExp(`\\b([A-Z]\\w*)(?:<[^;=(){}]*>)?\\s+${field}\\s*[;=,)]`);
+    const match = pattern.exec(entry.file.text);
+    return match ? match[1] : null;
+  }
+
+  /* The files that implement a type: its own class, or the one class that implements the interface. */
+  implementations(type, language) {
+    if (!type) return null;
+    const key = `${language}:${type}`;
+    if (this.implementors.has(key)) return this.implementors.get(key);
+    const declares = new RegExp(`\\b(class|interface|enum|record)\\s+${type}\\b`);
+    const implementsIt = new RegExp(`\\bclass\\s+\\w+[^{]*\\b(implements|extends)\\s+[^{]*\\b${type}\\b`);
+    const found = new Set();
+    for (const [path, entry] of this.files) {
+      if (entry.language !== language) continue;
+      const declared = declares.exec(entry.file.text);
+      if (declared && declared[1] !== 'interface') found.add(path);
+      else if (implementsIt.test(entry.file.text)) found.add(path);
+    }
+    this.implementors.set(key, found);
+    return found;
+  }
+
+  /* The package a Go file declares. */
+  goPackage(path) {
+    const entry = this.files.get(path);
+    const match = entry ? /^\s*package\s+(\w+)/m.exec(entry.file.text) : null;
+    return match ? match[1] : null;
   }
 
   /* The file of the class this file's class extends, when exactly one file is named for it. */
@@ -1828,6 +1911,7 @@ function analyseCFamily(files, options = {}) {
   const program = new Program(files.filter(file => typeof file.text === 'string' && file.text.length <= (options.maxBytes || 512 * 1024)));
   const flows = [];
   const routes = [];
+  const settled = [];
   for (const [path, entry] of program.files) {
     if (late()) { stats.cut += 1; continue; }
     try {
@@ -1854,6 +1938,7 @@ function analyseCFamily(files, options = {}) {
       stats[entry.language] += 1;
       stats.functions += entry.functions.length;
       flows.push(...walker.flows);
+      settled.push(...walker.settled);
     } catch {
       stats.failed += 1;
     }
@@ -1863,7 +1948,7 @@ function analyseCFamily(files, options = {}) {
   stats.routes = routes.length;
   stats.flows = unique.length;
   stats.helpers = unique.filter(flow => flow.viaHelper).length;
-  return { flows: unique, routes, stats };
+  return { flows: unique, routes, settled, stats };
 }
 
 /* The middleware a Laravel controller applies to one of its actions, from its constructor or its static middleware(). */

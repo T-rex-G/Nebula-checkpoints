@@ -59,7 +59,13 @@ const CF_OWNER_BINDING = /(\bAuth\s*::\s*(id|user)\b|\bauth\s*\(\s*\)\s*->\s*(id
 const LANGUAGE_BODY_AUTH = Object.freeze({ go: GO_AUTH, java: JAVA_AUTH, php: PHP_AUTH });
 const LANGUAGE_MUTATION = Object.freeze({ go: MUTATION_GO, java: MUTATION_JAVA, php: MUTATION_PHP });
 const MUTATION_JS = /\.\s*(insert|insertOne|insertMany|update|updateOne|updateMany|upsert|deleteOne|deleteMany|destroy|create|createMany|save|findOneAndUpdate|findByIdAndUpdate|findByIdAndDelete|findOneAndDelete|findByIdAndRemove|bulkWrite|increment|decrement|setDoc|updateDoc|deleteDoc|addDoc|executeRaw|\$executeRaw|\$executeRawUnsafe|transaction)\s*\(|\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b|\.\s*from\s*\(\s*\S+\s*\)\s*\.\s*(insert|update|upsert|delete)\b|\.\s*(delete|remove|deleteMany)\s*\(\s*\{|\.\s*delete\s*\(\s*\)\s*\.\s*(eq|match|in|neq|filter)\b/i;
-const MUTATION_PY = /\.\s*(add|delete|commit|save|create|update|insert|insert_one|insert_many|update_one|update_many|delete_one|delete_many|bulk_create|bulk_update|execute)\s*\(|\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i;
+/*
+ * A write in Python: a session told to add, delete or commit, an ORM call that
+ * creates or changes, or a statement that inserts, updates or deletes. A bare
+ * `.execute(` is not one -- it runs SELECTs as often as anything -- nor is a
+ * set's `.add(` or a dict's `.update(`.
+ */
+const MUTATION_PY = /\b(?:session|db)\s*\.\s*(add|add_all|delete|merge|commit|flush)\s*\(|\.\s*(save|create|bulk_create|bulk_update|update_or_create|get_or_create|insert|insert_one|insert_many|update_one|update_many|delete_one|delete_many|replace_one|executemany)\s*\(|\.\s*update\s*\(\s*\w+\s*=|\.\s*delete\s*\(\s*\)|\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i;
 const PUBLIC_ROUTE = /(^|\/|-|_|\.)(login|log-in|signin|sign-in|signup|sign-up|register|logout|log-out|signout|sign-out|auth|oauth|oidc|sso|saml|callback|webhooks?|hooks?|health|healthz|healthcheck|ready|readyz|live|livez|ping|status|version|contact|subscribe|unsubscribe|newsletter|waitlist|forgot|reset|password|verify|verification|confirm|magic|magic-link|otp|invite|invitation|public|csp-report|report-uri|track|tracking|analytics|events?|beacon|feedback|stripe|paddle|lemonsqueezy|checkout|cron|og|sitemap|robots|manifest|favicon|revalidate|preview|share|feed|rss|search|graphql|trpc|session|csrf|captcha|recaptcha|turnstile|redeem|config|client-config|settings\.json)(\/|$|\.|-|_|\[|:)/i;
 const ADMIN_ROUTE = /(^|\/)(admin|administrator|debug|_debug|__debug__|internal|metrics|env|\.env|seed|reset-db|resetdb|flush|test-only|phpinfo|actuator|console|graphql-playground|playground|migrate|migrations|backup|export-all|impersonate|sudo|superuser|maintenance|dev-tools|devtools)(\/|$|\[|:|\.)/i;
 const ID_SOURCE = /\b(params|query|body|searchParams|args|path_params|kwargs)\s*\??\.\s*(get\s*\(\s*['"])?\w*(id|Id|ID|uuid|Uuid|UUID)['"]?\b|\[\s*['"]\w*(id|Id|ID|uuid)['"]\s*\]/;
@@ -99,10 +105,26 @@ function isGuarded(route) {
   return AUTH_BODY.test(text(route));
 }
 
+/*
+ * A call that may change something, by its verb. A POST handler the read can
+ * see whole, that calls none of these and writes nothing, only reads: a
+ * search, a calculation, a parse. PUT, PATCH and DELETE change by definition.
+ * A setter is not on the list: it changes an object in hand, not the store.
+ */
+const WRITE_VERB = /\b(create|save|add|insert|update|upsert|delete|remove|destroy|put|store|persist|register|upload|send|post|submit|apply|import|enqueue|publish|write|charge|transfer|pay|refund|approve|reject|assign|invite|reset|change|edit|modify|patch|mark|toggle|commit|flush|exec|execute|run|process|handle|dispatch|emit|notify|mail|move|copy|rename|archive|restore|grant|revoke|ban|block|follow|like|vote|order|checkout|book|reserve|cancel)\w*\s*\(/i;
+function readsOnly(route, body) {
+  if (!body || route.method !== 'POST') return false;
+  const writes = LANGUAGE_MUTATION[route.language] || (route.framework === 'flask' || route.framework === 'fastapi' || route.framework === 'django' ? MUTATION_PY : MUTATION_JS);
+  /* the handler's own name and its annotations are not calls it makes */
+  const calls = body.replace(/\b(?:async\s+)?(?:def|function|func)\s+[\w$]+/g, ' ').replace(/@\s*[\w.]+(?:\s*\([^)]*\))?/g, ' ').replace(/#\s*\[[^\]]*\]/g, ' ');
+  return !writes.test(body) && !WRITE_VERB.test(calls);
+}
+
 function isMutation(route) {
   const body = text(route);
   /* A server action is always a POST; what makes it a change is what its body writes. */
   if (route.method === 'ACTION') return MUTATION_JS.test(body);
+  if (readsOnly(route, body)) return false;
   if (/^(POST|PUT|PATCH|DELETE)$/.test(route.method) || /,(POST|PUT|PATCH|DELETE)|(POST|PUT|PATCH|DELETE),/.test(route.method)) return true;
   if (route.framework === 'flask' || route.framework === 'fastapi' || route.framework === 'django') return MUTATION_PY.test(body);
   if (LANGUAGE_MUTATION[route.language]) return LANGUAGE_MUTATION[route.language].test(body) || /\b[Mm]ethod\s*={2,3}\s*"(POST|PUT|PATCH|DELETE)"|\bcase\s+"(POST|PUT|PATCH|DELETE)"/.test(body);

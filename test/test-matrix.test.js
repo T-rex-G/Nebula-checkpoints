@@ -80,4 +80,26 @@ assert.deepStrictEqual(cliReport.counts, { total: 1, passed: 1, blocked: 0, fail
 fs.rmSync(cliTemp, { recursive: true, force: true });
 
 fs.rmSync(temp, { recursive: true, force: true });
+
+/*
+ * A server test listens on a port drawn from a fixed range. One drawn from the
+ * kernel's ephemeral range (32768 and up on Linux) can already be the local end
+ * of an outbound connection -- the tests' own PostgreSQL clients among them --
+ * and the server then exits on EADDRINUSE half a second in, as a bare "exit 1".
+ */
+{
+  const EPHEMERAL_FLOOR = 32768;
+  const testDir = path.join(__dirname);
+  let ranges = 0;
+  for (const name of fs.readdirSync(testDir).filter(file => file.endsWith('.test.js'))) {
+    const source = fs.readFileSync(path.join(testDir, name), 'utf8');
+    for (const match of source.matchAll(/\bport\s*=\s*(\d+)\s*\+\s*Math\.floor\(Math\.random\(\)\s*\*\s*(\d+)\)/g)) {
+      ranges += 1;
+      const top = Number(match[1]) + Number(match[2]);
+      assert(top <= EPHEMERAL_FLOOR, `${name} draws a port up to ${top}, inside the ephemeral range`);
+    }
+  }
+  assert(ranges >= 10, `the port scan must find the server tests: ${ranges}`);
+}
+
 console.log('test matrix tests passed');

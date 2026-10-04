@@ -17,12 +17,18 @@ async function expectSeparateRepositoryControls(page) {
   const ids = ['repoFilter', 'repoSort', 'reposRefreshBtn', 'newRepoBtnRepos'];
   await page.locator('#repoFilter').scrollIntoViewIfNeeded();
   for (const id of ids) await expect(page.locator(`#${id}`)).toBeVisible();
-  const geometry = await page.evaluate(ids => {
+  const measure = () => page.evaluate(ids => {
+    /* What the pointer would reach instead, named, so a failure says what is in the way. */
+    const describe = node => {
+      if (!node) return 'nothing (outside the viewport)';
+      const classes = typeof node.className === 'string' && node.className.trim() ? `.${node.className.trim().split(/\s+/).join('.')}` : '';
+      return `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ''}${classes}`;
+    };
     const controls = ids.map(id => {
       const element = document.getElementById(id);
       const rect = element.getBoundingClientRect();
       const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-      return { id, rect, reachable: hit === element || element.contains(hit) };
+      return { id, rect, reachable: hit === element || element.contains(hit), hit: describe(hit) };
     });
     const overlaps = [];
     for (let i = 0; i < controls.length; i++) for (let j = i + 1; j < controls.length; j++) {
@@ -32,9 +38,15 @@ async function expectSeparateRepositoryControls(page) {
         overlaps.push([controls[i].id, controls[j].id]);
       }
     }
-    return { overlaps, covered: controls.filter(control => !control.reachable).map(control => control.id) };
+    return { overlaps, covered: controls.filter(control => !control.reachable).map(control => `${control.id} under ${control.hit}`) };
   }, ids);
-  expect(geometry, 'each repository control needs its own reachable hit area').toEqual({ overlaps: [], covered: [] });
+  /*
+   * A navigation's view transition or an entering toast can lie over the page
+   * for a moment on a slow runner; whatever is still in the way after that is
+   * a defect, and the failure names it.
+   */
+  await expect.poll(measure, { message: 'each repository control needs its own reachable hit area', timeout: 5000 })
+    .toEqual({ overlaps: [], covered: [] });
 }
 
 test('new file stays local until its target and diff are reviewed and confirmed', async ({ page }) => {

@@ -1190,8 +1190,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
  *
  * The toolbar was a flex row of three unrelated widths, so the sort control
  * was squeezed until "Recently pushed" was cut mid-word -- a menu whose label
- * cannot be read is a menu that cannot be used. It is a two-row grid now:
- * the filter takes the width, the other two share the row beneath it.
+ * cannot be read is a menu that cannot be used. The filter takes one row,
+ * sort and refresh share the next, and creation has its own full-width row.
  *
  * And the summary cells fell to one per row at 420px, which turned four short
  * figures into four full-width panels. Two hold their reading down to 340.
@@ -1205,7 +1205,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
     grid-template-columns:minmax(0,1fr) auto}
   body #page-repos .page-head-tools .search-input{grid-column:1 / -1;grid-row:1;max-width:none;width:100%}
   body #page-repos .page-head-tools .branch-select{grid-column:1;grid-row:2;max-width:none;width:100%}
-  body #page-repos .page-head-tools .btn{grid-column:2;grid-row:2;align-self:stretch}
+  body #page-repos .page-head-tools #reposRefreshBtn{grid-column:2;grid-row:2;align-self:stretch}
+  body #page-repos .page-head-tools #newRepoBtnRepos{grid-column:1 / -1;grid-row:3;justify-content:center}
 
   /*
    * The toolbar sticks under the bar. An inventory is a list you scroll and
@@ -7511,10 +7512,6 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
   #page-repos .gx-summary-toggle{display:inline-flex;margin-top:12px;min-height:36px;font-size:.76rem}
   #reposPulse:not([data-expanded="true"]){display:none}
   #page-repos .page-head{margin-top:16px}
-  #page-repos .page-head-tools{gap:8px}
-  #page-repos #repoFilter{order:-1;flex:1 1 100%;width:100%}
-  #page-repos #reposRefreshBtn{margin-left:auto}
-  #page-repos #newRepoBtnRepos{flex-basis:100%;justify-content:center}
 }
 
 .stage-preview-file{margin:18px 0;border-top:1px solid var(--line);padding-top:14px;min-width:0}

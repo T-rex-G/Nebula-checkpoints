@@ -13,6 +13,30 @@ async function stageNewFile(page, path) {
   await page.locator('#modalOk').click();
 }
 
+async function expectSeparateRepositoryControls(page) {
+  const ids = ['repoFilter', 'repoSort', 'reposRefreshBtn', 'newRepoBtnRepos'];
+  await page.locator('#repoFilter').scrollIntoViewIfNeeded();
+  for (const id of ids) await expect(page.locator(`#${id}`)).toBeVisible();
+  const geometry = await page.evaluate(ids => {
+    const controls = ids.map(id => {
+      const element = document.getElementById(id);
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      return { id, rect, reachable: hit === element || element.contains(hit) };
+    });
+    const overlaps = [];
+    for (let i = 0; i < controls.length; i++) for (let j = i + 1; j < controls.length; j++) {
+      const a = controls[i].rect, b = controls[j].rect;
+      if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) {
+        overlaps.push([controls[i].id, controls[j].id]);
+      }
+    }
+    return { overlaps, covered: controls.filter(control => !control.reachable).map(control => control.id) };
+  }, ids);
+  expect(geometry, 'each repository control needs its own reachable hit area').toEqual({ overlaps: [], covered: [] });
+}
+
 test('new file stays local until its target and diff are reviewed and confirmed', async ({ page }) => {
   const fixture = await openConnectedRepository(page);
   await stageNewFile(page, 'reviewed-new.txt');
@@ -51,6 +75,7 @@ for (const width of [320, 390]) {
       await expect(filter).toBeInViewport({ ratio: 1 });
       await expect(first).toBeInViewport({ ratio: 0.75 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      await expectSeparateRepositoryControls(page);
     }
     const summary = page.getByRole('button', { name: 'Repository summary', exact: true });
     await expect(summary).toHaveAttribute('aria-expanded', 'false');
@@ -63,6 +88,22 @@ for (const width of [320, 390]) {
     await expect(page.locator('#page-work.active')).toBeVisible();
   });
 }
+
+test('repository toolbar controls stay separate across its layout breakpoints', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.goto('/');
+  await ui.enterRepositories(page);
+  for (const width of [760, 768, 900, 901, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const design of ['nebula', 'obsidian']) for (const theme of ['dark', 'light']) {
+      await page.evaluate(({ design, theme }) => {
+        document.documentElement.dataset.design = design;
+        document.documentElement.dataset.theme = theme;
+      }, { design, theme });
+      await expectSeparateRepositoryControls(page);
+    }
+  }
+});
 
 test('connection screen states deployment limits and a coherent least-privilege path', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'required' });

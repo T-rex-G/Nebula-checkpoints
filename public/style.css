@@ -7198,6 +7198,105 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
 [data-motion="off"] .audit-trend-dot, [data-motion="off"] .audit-hist-sum, [data-motion="off"] .audit-hist-chev, [data-motion="off"] .audit-watch-pulse { transition: none; animation: none; }
 @media (prefers-reduced-motion: reduce) { .audit-trend-dot, .audit-hist-sum, .audit-hist-chev, .audit-watch-pulse { transition: none; animation: none; } }
 
+/* ---- Clocks, decisions and remediation ------------------------------------- */
+.audit-body-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.audit-triage-btn, .audit-reopen, .audit-triage-history { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; }
+.audit-triage-btn .audit-ico, .audit-reopen .audit-ico, .audit-triage-history .audit-ico { width: 16px; height: 16px; }
+.audit-clock-line, .audit-triage-note, .audit-clock-note {
+  margin: 0; display: flex; align-items: flex-start; gap: 8px; min-width: 0;
+  font-size: .84rem; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere;
+}
+.audit-clock-line .audit-ico, .audit-triage-note .audit-ico, .audit-clock-note .audit-ico { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--muted); }
+.audit-clock-state { color: var(--text); font-weight: 650; }
+.audit-clock-line[data-state="overdue"] .audit-ico, .audit-clock-line[data-state="overdue"] .audit-clock-state { color: var(--st-critical); }
+.audit-clock-line[data-state="due-soon"] .audit-ico, .audit-clock-line[data-state="due-soon"] .audit-clock-state { color: var(--st-serious); }
+.audit-triage-note { color: var(--text); padding: 6px 10px; border-radius: 10px; border: 1px solid color-mix(in oklab, var(--st-serious) 32%, transparent); background: color-mix(in oklab, var(--st-serious) 6%, transparent); }
+.audit-triage-note .audit-ico { color: var(--st-serious); }
+.audit-clock-note { color: var(--text); padding: 3px 0 3px 10px; border-left: 2px solid var(--st-critical); }
+.audit-clock-note[data-state="due-soon"] { border-left-color: var(--st-serious); }
+.audit-clock-note .audit-ico { margin-top: 3px; color: var(--st-critical); }
+.audit-clock-note[data-state="due-soon"] .audit-ico { color: var(--st-serious); }
+.audit-triaged { border-style: solid; border-color: color-mix(in oklab, var(--st-pending) 30%, var(--rp-line)); }
+.audit-triaged-item { grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 12px; }
+.audit-triaged-item > .audit-waived-top, .audit-triaged-item > .audit-waived-meta, .audit-triaged-item > .audit-triage-reason { grid-column: 1; }
+.audit-triaged-item > .audit-triage-tools { grid-column: 2; grid-row: 1 / span 3; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; align-self: center; }
+.audit-triaged-item .audit-waived-top { flex-wrap: wrap; row-gap: 6px; }
+.audit-triage-reason { font-style: normal; color: var(--muted); line-height: 1.45; }
+.audit-triage-chip { margin-left: auto; }
+
+.audit-remediation { padding: 18px 20px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; --fold-gap: 14px; }
+.audit-rem-tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; border-radius: 14px; overflow: hidden; background: var(--rp-line); border: 1px solid var(--rp-line); }
+.audit-rem-tile { --tone: var(--muted); display: grid; gap: 2px; align-content: start; padding: 12px 14px; background: color-mix(in oklab, var(--bg) 70%, transparent); min-width: 0; }
+.audit-rem-tile[data-tone="critical"] { --tone: var(--st-critical); }
+.audit-rem-tile[data-tone="warning"] { --tone: var(--st-serious); }
+.audit-rem-tile[data-tone="good"] { --tone: var(--st-good); }
+.audit-rem-label { font-size: .74rem; font-weight: 650; letter-spacing: .02em; color: var(--muted); }
+.audit-rem-value { font-size: 1.45rem; font-weight: 700; line-height: 1.15; color: var(--text); font-variant-numeric: tabular-nums; }
+.audit-rem-tile[data-tone] .audit-rem-value { color: var(--tone); }
+.audit-rem-sub { font-size: .74rem; color: var(--muted); line-height: 1.35; overflow-wrap: anywhere; }
+.audit-rem-table { width: 100%; border-collapse: collapse; font-size: .84rem; font-variant-numeric: tabular-nums; }
+.audit-rem-table th, .audit-rem-table td { padding: 9px 10px; text-align: right; border-bottom: 1px solid var(--rp-line); color: var(--text); white-space: nowrap; }
+.audit-rem-table thead th { font-size: .72rem; font-weight: 650; letter-spacing: .02em; color: var(--muted); }
+.audit-rem-table th:first-child, .audit-rem-table td:first-child { text-align: left; }
+.audit-rem-table tbody tr:last-child > * { border-bottom: 0; }
+.audit-rem-table td[data-alert="true"] { color: var(--st-critical); font-weight: 700; }
+.audit-rem-notes { display: grid; gap: 6px; }
+.audit-rem-notes .exposure-caveat { margin: 0; }
+@media (max-width: 720px) {
+  .audit-rem-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .audit-rem-table thead { display: none; }
+  .audit-rem-table, .audit-rem-table tbody { display: block; }
+  .audit-rem-table tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 10px; padding: 10px 0; border-bottom: 1px solid var(--rp-line); }
+  .audit-rem-table tbody tr:last-child { border-bottom: 0; }
+  .audit-rem-table th, .audit-rem-table td { display: grid; gap: 1px; padding: 0; border: 0; text-align: left; white-space: normal; }
+  .audit-rem-table th[scope="row"] { grid-column: 1 / -1; }
+  .audit-rem-table td::before { content: attr(data-label); font-size: .7rem; font-weight: 650; color: var(--muted); }
+  .audit-triaged-item { grid-template-columns: minmax(0, 1fr); }
+  .audit-triaged-item > .audit-triage-tools { grid-column: 1; grid-row: auto; justify-content: flex-start; }
+  .audit-body-actions { margin-left: 0; justify-content: flex-start; }
+}
+@media (max-width: 480px) {
+  .audit-remediation { padding: 16px; }
+  .audit-rem-tile { padding: 11px 12px; }
+  .audit-rem-value { font-size: 1.3rem; }
+}
+
+/* The triage dialog: a decision, its reason, and for an accepted risk, its date. */
+.triage-target { margin: 0 0 12px; display: grid; gap: 3px; font-size: .9rem; line-height: 1.45; overflow-wrap: anywhere; }
+.triage-target .mono { font-size: .78rem; color: var(--muted); }
+.triage-field { margin: 0 0 12px; padding: 0; border: 0; min-width: 0; }
+.triage-options { display: grid; gap: 8px; }
+.triage-option { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--glass-border); cursor: pointer; }
+.triage-option:has(input:checked) { border-color: color-mix(in oklab, var(--accent) 60%, var(--glass-border)); background: color-mix(in oklab, var(--accent) 7%, transparent); }
+.triage-option input { margin-top: 3px; accent-color: var(--accent); width: 16px; height: 16px; }
+.triage-option-text { display: grid; gap: 2px; font-size: .88rem; }
+.triage-option-text small { color: var(--muted); font-size: .78rem; line-height: 1.4; }
+#triageReason, #triageDays { width: 100%; }
+#triageDaysWrap { margin-top: 12px; }
+.triage-hint { margin-top: 12px; }
+.triage-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.triage-event { display: grid; gap: 2px; padding: 9px 12px; border-radius: 10px; border-left: 2px solid var(--st-info); background: color-mix(in oklab, var(--text) 3%, transparent); font-size: .86rem; }
+.triage-event[data-event="reopened"] { border-left-color: var(--st-good); }
+.triage-event-who { font-size: .76rem; color: var(--muted); }
+
+/* The audit gate on a pull request. */
+.pr-gate { margin-top: 14px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--glass-border); display: grid; gap: 8px; min-width: 0; }
+.pr-gate[hidden] { display: none; }
+.pr-gate[data-state="hold"] { border-color: color-mix(in oklab, var(--st-critical) 40%, var(--glass-border)); background: color-mix(in oklab, var(--st-critical) 4%, transparent); }
+.pr-gate[data-state="pass"] { border-color: color-mix(in oklab, var(--st-good) 36%, var(--glass-border)); }
+.pr-gate-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.pr-gate-title { font-size: .8rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.pr-gate-line, .pr-gate-policy { margin: 0; font-size: .86rem; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.pr-gate-muted { color: var(--muted); }
+.pr-gate-policy { padding-left: 10px; border-left: 2px solid var(--st-info); }
+.pr-gate-policy[data-effect="deny"][data-mode="block"] { border-left-color: var(--st-critical); }
+.pr-gate-policy[data-effect="require-approval"] { border-left-color: var(--st-serious); }
+.pr-gate-reasons { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: .86rem; line-height: 1.45; color: var(--text); }
+.pr-gate-reasons li::marker { color: var(--st-critical); }
+.pr-gate-audit { justify-self: start; min-height: 44px; }
+
 /* ---- Exposure, in Orbit ---------------------------------------------------- */
 .exposure-chips { gap: 8px; }
 .exposure-chip.nv-chip::before, .exposure-badge.nv-chip::before { content: none; }

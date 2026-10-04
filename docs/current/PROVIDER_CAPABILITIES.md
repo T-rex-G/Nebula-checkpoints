@@ -227,6 +227,28 @@ checked against every per-file rule on the analysis worker a batch at a time,
 each batch's text dropped before the next is read. Coverage states how many
 files were traced and how many were checked against the rules alone.
 
+What a team does with a finding is shared by the repository's collaborators
+(`db/migrations/030_code_audit_triage.sql`). A reviewer marks it a false
+positive, or accepts its risk for 7 to 365 days, with a reason chosen from a
+fixed list -- there is no free-text field, because a note is where a line of
+code would be pasted -- through the governed actions
+`code-audit.finding.triage` and `code-audit.finding.reopen`. A decision in
+force takes the finding out of the grade and out of the merge gate, and lists
+it, never hides it, with who decided, when, until when and why; every decision
+and every reopening is kept in order, and an acceptance that lapses opens the
+finding again. Every open finding runs on a clock from the day this identity's
+kept audits first saw it -- 7 days for critical, 30 for serious, 90 for
+warnings, or the branch's own days in `.nebulaverse/audit.json`; a
+vulnerability exploited in the wild runs on the critical clock -- and the clock
+survives a waiver, so a finding whose acceptance lapses is not new. Time to fix
+is measured only between two audits of the same branch by the same engine that
+read every eligible file, so a narrower audit never counts as a fix. A pull
+request's merge gate is worked out from the merging person's latest audit of
+its head commit after the team's decisions -- current, stale, missing or
+unavailable, and the reasons it holds -- and every governed `pull.merge`
+carries it, so the `Audit merge gate` governance template can refuse or hold a
+merge in observe, warn or block mode.
+
 Any repository the signed-in account can read is opened, audited and scanned
 the same way, not only its own: a pasted address or owner/name opens it. Where
 the provider reports that the account cannot push, it opens read-only -- every

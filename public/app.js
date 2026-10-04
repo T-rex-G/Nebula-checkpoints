@@ -5682,7 +5682,8 @@ async function toggleProtect(p) {
 function blankAuditView(key = '') {
   return {
     key, status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0,
-    history: { status: 'idle' }, watch: { status: 'idle' }, historyOpen: new Set(), historyDetail: new Map(), historyArmed: false
+    history: { status: 'idle' }, watch: { status: 'idle' }, historyOpen: new Set(), historyDetail: new Map(), historyArmed: false,
+    triage: { status: 'idle' }, metrics: { status: 'idle' }
   };
 }
 let auditView = blankAuditView();
@@ -5776,6 +5777,9 @@ function paintAudit(options = {}) {
       }
     },
     onHistoryClear: clearAuditHistory,
+    onTriage: finding => triageAuditFinding(finding),
+    onReopen: finding => reopenAuditFinding(finding),
+    onTriageHistory: finding => showTriageHistory(finding),
     onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
     onOwasp: owasp => { auditView.owasp = owasp; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.limit = 0; paintAudit(); },
     onSeverity: severity => { auditView.severity = severity; auditView.limit = 0; paintAudit(); },
@@ -6035,7 +6039,7 @@ async function runAudit() {
     const diff = kept
       ? (Array.isArray(kept.newIds) ? { previousAt: kept.previousAt || null, newIds: new Set(kept.newIds), resolved: Number(kept.resolved) || 0 } : null)
       : window.NebulaCodeAudit.diff(result, previous);
-    auditView = { ...blankAuditView(key), history: auditView.history, watch: auditView.watch, historyOpen: auditView.historyOpen, historyDetail: auditView.historyDetail, status: 'done', result, diff };
+    auditView = { ...blankAuditView(key), history: auditView.history, watch: auditView.watch, historyOpen: auditView.historyOpen, historyDetail: auditView.historyDetail, triage: auditView.triage, metrics: auditView.metrics, status: 'done', result, diff };
     if (kept) loadAuditHistory();
   } catch (error) {
     if (!current()) return;
@@ -6072,8 +6076,13 @@ async function loadAuditHistory() {
     }
     auditView.history = { status: 'ready', audits: Array.isArray(listed.audits) ? listed.audits : [], branches: Array.isArray(listed.branches) ? listed.branches : [] };
     repaintAudit();
+    /* The team's decisions and the clocks come with the history: both are read from what the server keeps. */
+    const others = [loadAuditTriage(scope)];
+    if (auditView.history.audits.length) others.push(loadAuditMetrics(scope));
+    else auditView.metrics = { status: 'idle' };
     if (auditView.history.audits.length) await checkAuditWatch({ scope });
     else { auditView.watch = { status: 'none' }; repaintAudit(); }
+    await Promise.all(others);
   } catch (error) {
     if (!scope.current()) return;
     auditView.history = { status: 'error', error: error.message || 'The audit history could not be read.' };
@@ -6114,6 +6123,201 @@ async function checkAuditWatch({ force = false, scope = null } = {}) {
     auditView.watch = { ...auditView.watch, status: 'error', error: error.status === 429 ? 'Checked moments ago. Try again in a few minutes.' : 'The watch could not be checked. Nothing is marked new, and nothing is marked clear.' };
   }
   repaintAudit();
+}
+/*
+ * The team's decisions about this repository's findings. A reader who is not
+ * one of its collaborators -- anyone reading a public repository -- is told
+ * nothing about them and offered no way to make one.
+ */
+async function loadAuditTriage(scope) {
+  const view = auditView;
+  if (view.triage.status === 'ready' || view.triage.status === 'loading') return;
+  view.triage = { status: 'loading' };
+  try {
+    const answer = await api(`${scope.base}/triage`);
+    if (!scope.current() || view !== auditView) return;
+    view.triage = answer && answer.available !== false
+      ? { status: 'ready', canDecide: answer.canDecide === true, vocabulary: answer.vocabulary || null, decisions: Array.isArray(answer.decisions) ? answer.decisions : [] }
+      : { status: 'unavailable' };
+  } catch (error) {
+    if (!scope.current() || view !== auditView) return;
+    view.triage = { status: error.code === 'GOVERNANCE_COLLABORATORS_ONLY' || error.status === 403 ? 'forbidden' : 'error' };
+  }
+  repaintAudit();
+}
+/* Where the branch stands against its clocks, and how long fixing has taken. */
+async function loadAuditMetrics(scope = auditHistoryScope()) {
+  const view = auditView;
+  view.metrics = { ...view.metrics, status: 'loading' };
+  repaintAudit();
+  try {
+    const answer = await api(`${scope.base}/metrics?ref=${scope.ref}`);
+    if (!scope.current() || view !== auditView) return;
+    view.metrics = answer && answer.available !== false ? { status: 'ready', data: answer } : { status: 'unavailable' };
+  } catch (error) {
+    if (!scope.current() || view !== auditView) return;
+    view.metrics = { status: 'error', error: 'The clocks could not be read.' };
+  }
+  repaintAudit();
+}
+/*
+ * After a decision the page re-scores what it shows with the engine's own
+ * scoring on the server, so the grade, the fix-first list and the ledger
+ * read as the next audit will, without keeping a second copy of the rules
+ * here. A scoring that fails leaves the grade as it was and says so.
+ */
+async function rescoreAudit(view) {
+  const result = view.result;
+  if (!result) return;
+  const findings = result.findings.map(finding => {
+    const detail = finding.detail || {};
+    return {
+      id: finding.id, rule: finding.rule, category: finding.category, severity: finding.severity, verdict: finding.verdict,
+      open: Boolean(finding.reach && finding.reach.auth === 'open'),
+      exploited: Boolean(detail.intel && detail.intel.exploited),
+      tier: detail.usage && detail.usage.tier ? detail.usage.tier : null,
+      risk: detail.risk && Number.isFinite(detail.risk.score) ? detail.risk.score : null,
+      direct: detail.direct === true
+    };
+  });
+  try {
+    const scored = await api('/api/code-audit/score', { method: 'POST', body: { findings } });
+    if (view !== auditView || !scored) return;
+    const counts = new Map((scored.ledger || []).map(entry => [entry.id, entry]));
+    view.result = {
+      ...result,
+      score: scored.score, grade: scored.grade, capped: scored.capped, capReason: scored.capReason,
+      categories: Array.isArray(scored.categories) ? scored.categories : result.categories,
+      priorities: Array.isArray(scored.priorities) ? scored.priorities : result.priorities,
+      ledger: Array.isArray(result.ledger) ? result.ledger.map(entry => counts.has(entry.id) ? { ...entry, confirmed: counts.get(entry.id).confirmed, toConfirm: counts.get(entry.id).toConfirm } : entry) : result.ledger
+    };
+  } catch {
+    if (view === auditView) toast('The grade will reflect this decision on the next audit', 'ok');
+  }
+}
+function triageDays(days) {
+  const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  return until.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function triageReasonOptions(vocabulary, disposition) {
+  return vocabulary.reasons.filter(reason => reason.disposition === disposition && /^[a-z-]{2,40}$/.test(reason.id))
+    .map((reason, index) => `<option value="${reason.id}"${index === 0 ? ' selected' : ''}>${esc(reason.label)}</option>`).join('');
+}
+async function triageAuditFinding(finding) {
+  const view = auditView;
+  const vocabulary = view.triage && view.triage.vocabulary;
+  if (!finding || !view.result || !vocabulary || !Array.isArray(vocabulary.dispositions) || !Array.isArray(vocabulary.reasons)) return;
+  const dispositions = vocabulary.dispositions.filter(item => /^[a-z-]{2,40}$/.test(item.id));
+  const days = vocabulary.acceptDays || { choices: [30, 90, 180], default: 90 };
+  const where = finding.path ? `${finding.path}${finding.line ? `:${finding.line}` : ''}` : finding.where || 'whole repository';
+  const ok = await modal({
+    title: 'Triage this finding',
+    okText: 'Record decision',
+    bodyHTML: `
+      <p class="triage-target"><b>${esc(finding.title)}</b><span class="mono">${esc(where)} · ${esc(finding.rule)}</span></p>
+      <fieldset class="triage-field">
+        <legend class="field-label">Decision</legend>
+        <div class="triage-options">${dispositions.map((item, index) => `
+          <label class="triage-option"><input type="radio" name="triageDisposition" value="${item.id}"${index === 0 ? ' checked' : ''}>
+            <span class="triage-option-text"><b>${esc(item.label)}</b><small>${esc(item.hint || '')}</small></span></label>`).join('')}
+        </div>
+      </fieldset>
+      <label class="field-label" for="triageReason">Reason</label>
+      <select id="triageReason">${triageReasonOptions(vocabulary, dispositions[0] ? dispositions[0].id : '')}</select>
+      <div id="triageDaysWrap" hidden>
+        <label class="field-label" for="triageDays">Accept until</label>
+        <select id="triageDays">${(days.choices || []).filter(Number.isInteger).map(choice => `<option value="${choice}"${choice === days.default ? ' selected' : ''}>${choice} days, until ${esc(triageDays(choice))}</option>`).join('')}</select>
+      </div>
+      <p class="hint triage-hint">Recorded with your name and shared with the repository’s collaborators. It leaves the grade and the merge gate, stays listed with its reason, and anyone with reviewer access can reopen it.</p>`,
+    onOpen: body => {
+      const sync = () => {
+        const chosen = body.querySelector('input[name="triageDisposition"]:checked');
+        const disposition = chosen ? chosen.value : '';
+        body.querySelector('#triageReason').innerHTML = triageReasonOptions(vocabulary, disposition);
+        body.querySelector('#triageDaysWrap').hidden = disposition !== 'accepted-risk';
+      };
+      for (const input of body.querySelectorAll('input[name="triageDisposition"]')) input.addEventListener('change', sync);
+    }
+  });
+  if (!ok || view !== auditView) return;
+  const chosen = document.querySelector('#modalBody input[name="triageDisposition"]:checked');
+  const disposition = chosen ? chosen.value : '';
+  const reason = ($('#triageReason') || {}).value || '';
+  const expiresInDays = disposition === 'accepted-risk' ? Number(($('#triageDays') || {}).value) : undefined;
+  try {
+    const answer = await api(`/api/repo/${wPath()}/code-audit/findings/${encodeURIComponent(finding.id)}/triage`, {
+      method: 'POST', body: { rule: finding.rule, disposition, reason, ...(expiresInDays ? { expiresInDays } : {}) }
+    });
+    if (view !== auditView || !view.result) return;
+    const decision = answer.decision;
+    const result = view.result;
+    const { triage: lapsed, clock, ...rest } = result.findings.find(item => item.id === finding.id) || finding;
+    view.result = {
+      ...result,
+      findings: result.findings.filter(item => item.id !== finding.id),
+      suppressed: [...(result.suppressed || []), { ...rest, suppression: { triage: { disposition: decision.disposition, reason: decision.reason, decidedBy: decision.decidedBy, decidedAt: decision.decidedAt, expiresAt: decision.expiresAt } } }]
+    };
+    if (view.triage.status === 'ready') view.triage.decisions = [decision, ...view.triage.decisions.filter(item => item.findingId !== decision.findingId)];
+    await rescoreAudit(view);
+    toast(decision.disposition === 'false-positive' ? 'Recorded as a false positive' : `Risk accepted until ${new Date(decision.expiresAt).toLocaleDateString()}`, 'ok');
+    if (view === auditView) {
+      paintAudit();
+      loadAuditMetrics();
+    }
+  } catch (error) {
+    toast(error.message || 'The decision could not be recorded.', 'err');
+  }
+}
+async function reopenAuditFinding(finding) {
+  const view = auditView;
+  if (!finding || !view.result) return;
+  try {
+    await api(`/api/repo/${wPath()}/code-audit/findings/${encodeURIComponent(finding.id)}/reopen`, { method: 'POST', body: {} });
+    if (view !== auditView || !view.result) return;
+    const result = view.result;
+    const { suppression, ...open } = (result.suppressed || []).find(item => item.id === finding.id) || finding;
+    view.result = {
+      ...result,
+      suppressed: (result.suppressed || []).filter(item => item.id !== finding.id),
+      findings: [...result.findings, open]
+    };
+    if (view.triage.status === 'ready') view.triage.decisions = view.triage.decisions.filter(item => item.findingId !== finding.id);
+    await rescoreAudit(view);
+    toast('Reopened: the finding counts again', 'ok');
+    if (view === auditView) {
+      paintAudit();
+      loadAuditMetrics();
+    }
+  } catch (error) {
+    if (error.code === 'CODE_AUDIT_TRIAGE_NOT_FOUND') toast('That decision was already taken back', 'ok');
+    else toast(error.message || 'The finding could not be reopened.', 'err');
+  }
+}
+const TRIAGE_EVENT_WORD = Object.freeze({ 'false-positive': 'Marked a false positive', 'accepted-risk': 'Accepted the risk' });
+async function showTriageHistory(finding) {
+  if (!finding) return;
+  try {
+    const answer = await api(`/api/repo/${wPath()}/code-audit/findings/${encodeURIComponent(finding.id)}/triage-events`);
+    const vocabulary = auditView.triage && auditView.triage.vocabulary;
+    const label = id => {
+      const found = vocabulary && Array.isArray(vocabulary.reasons) ? vocabulary.reasons.find(reason => reason.id === id) : null;
+      return found ? found.label : String(id || '');
+    };
+    const events = Array.isArray(answer.events) ? answer.events : [];
+    await modal({
+      title: 'Decisions about this finding',
+      okText: 'Done',
+      cancel: false,
+      bodyHTML: `<p class="triage-target"><b>${esc(finding.title)}</b><span class="mono">${esc(finding.rule)}</span></p>
+        ${events.length ? `<ol class="triage-events">${events.map(event => `
+          <li class="triage-event" data-event="${event.event === 'reopened' ? 'reopened' : 'decided'}">
+            <span class="triage-event-what">${event.event === 'reopened' ? 'Reopened' : esc(TRIAGE_EVENT_WORD[event.disposition] || 'Decided')}${event.reason ? ` — ${esc(label(event.reason))}` : ''}${event.expiresAt ? `, until ${esc(new Date(event.expiresAt).toLocaleDateString())}` : ''}</span>
+            <span class="triage-event-who">${esc(event.actor)} · <time datetime="${esc(event.at)}">${esc(new Date(event.at).toLocaleString())}</time></span>
+          </li>`).join('')}</ol>` : '<p class="hint">No decisions recorded.</p>'}`
+    });
+  } catch (error) {
+    toast(error.message || 'The decisions could not be read.', 'err');
+  }
 }
 async function loadAuditDetail(id) {
   if (!state.work) return;
@@ -8450,6 +8654,118 @@ async function loadPRs() {
     });
   } catch (e) { host.innerHTML = ''; toast(e.message, 'err'); }
 }
+/*
+ * The audit gate on a pull request: what your latest audit of its head says
+ * about merging it, after the team's decisions, and what the repository's
+ * active policies will do with that when Merge is pressed. The same facts
+ * travel inside the merge itself, where the policy is applied; this only
+ * shows them first, so a refusal is never the first the reader hears of it.
+ */
+let pullGateRequest = 0;
+const GATE_REASON = Object.freeze({
+  critical: () => 'An open confirmed critical finding',
+  serious: () => 'Open confirmed serious findings',
+  exploited: gate => `${gate.exploited === 1 ? 'A dependency' : `${gate.exploited} dependencies`} exploited in the wild, in code that ships`,
+  secret: () => 'A credential in the code',
+  overdue: gate => `${gate.overdue} ${gate.overdue === 1 ? 'finding' : 'findings'} past ${gate.overdue === 1 ? 'its' : 'their'} deadline`,
+  introduced: gate => `${gate.introduced} serious or critical ${gate.introduced === 1 ? 'finding' : 'findings'} not on the base branch`
+});
+const GATE_EFFECT = Object.freeze({
+  deny: mode => (mode === 'block' ? 'refuses this merge' : mode === 'warn' ? 'warns against this merge and records it' : 'records that it would refuse this merge'),
+  'require-approval': mode => (mode === 'block' ? 'holds this merge for approval' : mode === 'warn' ? 'warns that this merge needs approval' : 'records that this merge would need approval'),
+  allow: () => 'allows this merge'
+});
+async function paintPullGate(p, box) {
+  const host = box.querySelector('#prGate');
+  if (!host || !window.NebulaCapabilityUI || window.NebulaCapabilityUI.decision('code-audit').status !== 'Supported') return;
+  const token = ++pullGateRequest;
+  const repoPath = wPath();
+  try {
+    const answer = await api(`/api/repo/${repoPath}/code-audit/gate?pull=${encodeURIComponent(p.number)}`);
+    if (token !== pullGateRequest || !host.isConnected || repoPath !== wPath()) return;
+    renderPullGate(host, p, answer);
+  } catch (error) {
+    if (token !== pullGateRequest || !host.isConnected) return;
+    /* A reader who is not a collaborator cannot merge either: there is nothing to show them. */
+    if (error.status === 403) return;
+    renderPullGate(host, p, null);
+  }
+}
+function renderPullGate(host, p, answer) {
+  const node = (tag, className, text) => {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  };
+  host.replaceChildren();
+  const gate = answer && answer.gate;
+  const head = node('div', 'pr-gate-head');
+  head.appendChild(node('span', 'pr-gate-title', 'Audit gate'));
+  let state = 'unavailable';
+  let word = 'Not read';
+  if (answer && answer.available === false) { state = 'unavailable'; word = 'No history'; }
+  else if (gate && gate.state === 'current') { state = gate.blocking.length ? 'hold' : 'pass'; word = gate.blocking.length ? `${gate.blocking.length} ${gate.blocking.length === 1 ? 'reason' : 'reasons'} to hold` : 'Passes'; }
+  else if (gate && gate.state === 'stale') { state = 'stale'; word = 'Audit is behind the head'; }
+  else if (gate && gate.state === 'missing') { state = 'missing'; word = 'Not audited'; }
+  const badge = node('span', 'nv-chip pr-gate-chip');
+  badge.dataset.tone = state === 'pass' ? 'good' : state === 'hold' ? 'critical' : 'pending';
+  badge.appendChild(node('span', null, word));
+  head.appendChild(badge);
+  host.dataset.state = state;
+  host.appendChild(head);
+  const line = (text, className = 'pr-gate-line') => host.appendChild(node('p', className, text));
+  if (!answer) line('The audit gate could not be read just now. The merge is still judged by any active policy when it runs.');
+  else if (answer.available === false) line('This server keeps no audit history, so there is no audit of this head to judge it by.');
+  else if (gate.state === 'missing') {
+    line(answer.pull && answer.pull.fork
+      ? 'This pull request comes from a fork, so no audit of this repository describes its head.'
+      : `You have not audited ${p.head}. Audit it before merging, so the merge is judged by what it brings in.`);
+  } else if (gate.state === 'stale') {
+    line(`Your latest audit of ${p.head} is of ${String(gate.commitSha || '').slice(0, 7)}; the head is now ${String(answer.pull.headSha || '').slice(0, 7)}. Audit it again before merging.`);
+  } else if (gate.state === 'unavailable') {
+    line('The kept audits could not be read just now.');
+  } else {
+    const open = gate.open || {};
+    const counts = ['critical', 'serious', 'warning'].filter(severity => open[severity]).map(severity => `${open[severity]} ${severity}`);
+    line(`Grade ${gate.grade} · audited ${new Date(gate.auditedAt).toLocaleString()} at ${String(gate.commitSha || '').slice(0, 7)} · ${counts.length ? `${counts.join(', ')} open` : 'nothing open'}${gate.base === 'missing' ? ` · ${p.base} not audited, so nothing is compared with it` : ''}`);
+    if (gate.blocking.length) {
+      const list = node('ul', 'pr-gate-reasons');
+      for (const reason of gate.blocking) if (GATE_REASON[reason]) list.appendChild(node('li', null, GATE_REASON[reason](gate)));
+      host.appendChild(list);
+    }
+  }
+  const policies = answer && answer.enforcement && Array.isArray(answer.enforcement.policies) ? answer.enforcement.policies : [];
+  const acting = policies.filter(policy => policy.effect !== 'allow');
+  if (acting.length) {
+    for (const policy of acting) {
+      const effect = (GATE_EFFECT[policy.effect] || GATE_EFFECT.allow)(policy.mode);
+      const sentence = node('p', 'pr-gate-policy');
+      sentence.dataset.mode = policy.mode;
+      sentence.dataset.effect = policy.effect;
+      const rule = policy.rules.find(item => item.description);
+      sentence.textContent = `Policy ${policy.policyKey} (${policy.mode}) ${effect}${rule ? `: ${rule.description}` : '.'}`;
+      host.appendChild(sentence);
+    }
+  } else if (gate && (state === 'hold' || state === 'missing' || state === 'stale') && answer.enforcement && answer.enforcement.available) {
+    line('No active policy acts on the gate yet. The Audit merge gate template in Governance does.', 'pr-gate-line pr-gate-muted');
+  }
+  if (gate && (gate.state === 'missing' || gate.state === 'stale') && !(answer.pull && answer.pull.fork)) {
+    const branchKnown = [...$('#branchSelect').options].some(option => option.value === p.head);
+    if (branchKnown) {
+      const go = node('button', 'btn btn-ghost small pr-gate-audit', 'Audit this head');
+      go.type = 'button';
+      go.addEventListener('click', () => {
+        $('#branchSelect').value = p.head;
+        $('#branchSelect').dispatchEvent(new Event('change'));
+        switchTab('audit');
+        runAudit();
+      });
+      host.appendChild(go);
+    }
+  }
+  host.hidden = false;
+}
 async function openPR(num, anchor) {
   const box = $('#prDetail');
   placeDetail(box, anchor);
@@ -8471,6 +8787,7 @@ async function openPR(num, anchor) {
         <span>${Number(p.changed_files) || 0} files</span>
       </div>
       <div class="detail-body" id="prBody" hidden></div>
+      <div class="pr-gate" id="prGate" hidden></div>
       <div class="detail-actions" id="prActions"></div>
       <div id="prFiles" style="margin-top:14px"></div>
       <div id="prComments" style="margin-top:14px"></div>
@@ -8481,6 +8798,7 @@ async function openPR(num, anchor) {
     if (p.body) { $('#prBody').hidden = false; renderMarkdownInto($('#prBody'), p.body); }
     $('#prCloseDetail').addEventListener('click', () => { box.hidden = true; });
     revealDetail(box);
+    if (p.state === 'open') paintPullGate(p, box);
     if (p.state === 'open' && !p.draft) {
       const act = $('#prActions');
       [['merge', 'Merge'], ['squash', 'Squash & merge'], ['rebase', 'Rebase & merge']].forEach(([m, label]) => {

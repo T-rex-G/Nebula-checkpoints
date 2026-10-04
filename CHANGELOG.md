@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+### Uranus, Governed
+
+Phase 4 of the audit engine: what a team does after the audit.
+
+- **Triage.** A reviewer marks a finding a false positive, or accepts its risk
+  for 30, 90 or 180 days (7 to 365 by the API), with a reason chosen from a
+  list of ten -- never typed, so no line of code can be pasted into a record.
+  The finding leaves the grade, the fix-first list and the merge gate, and is
+  listed under *Triaged by the team* with who decided, when, until when and
+  why. Every decision and every reopening is kept in order and read back from
+  the finding; a reader sees the decisions and is offered no way to make one.
+  An acceptance that lapses opens the finding again and says so on the row.
+- **Clocks.** Every open finding is due a number of days after it was first
+  seen: 7 for critical, 30 for serious, 90 for warnings, or the branch's own
+  days in `.nebulaverse/audit.json` (`high` and `medium` read as serious and
+  warning; a value outside 1 to 365 is refused and named, never echoed). A
+  vulnerability exploited in the wild runs on the critical clock. A row says
+  *Due soon* or *N days overdue*; the clock carries across engine versions and
+  through a waiver, so a finding is never made new by either.
+- **Remediation.** A card reads the clocks: overdue, due soon and on track,
+  by severity, and the median time to fix over ninety days -- measured only
+  between two audits of the same branch, by the same engine, that read every
+  eligible file, so a narrower audit never counts as a fix.
+- **The merge gate.** A pull request shows what the latest audit of its head
+  says after the team's decisions -- *Passes*, *N reasons to hold*, *Not
+  audited* or out of date -- and every governed `pull.merge` carries it. The
+  *Audit merge gate* governance template refuses a head with an open
+  confirmed critical, a credential, an exploited vulnerability or an overdue
+  finding, and holds one nobody audited at the commit being merged; an active
+  policy's answer is shown beside the gate.
+- **Exports** carry all of it: SARIF marks a decision as an accepted external
+  suppression with its justification and every result's due date; CSV lists a
+  decided finding as *false positive* or *risk accepted* with the decision in
+  words and a *Due by* column; the brief lists the team's decisions and each
+  finding's deadline.
+- Kept with migration `030_code_audit_triage.sql`, additive only: three new
+  tables and nullable columns. A decision is a finding id, a rule, a
+  disposition and a reason id; a clock is a number of days; a resolution is two
+  instants. The account purge removes a tester's resolutions, decisions and
+  every event recording them deciding or reopening; the findings their
+  decisions covered read as open again.
+
+### Uranus, Linear
+
+- A crafted JavaScript, Python or SQL file can no longer make the tracer or
+  the SQL reader quadratic: brackets left open by the thousand, calls, arrows,
+  literals and templates nested thousands deep, and a statement that never
+  ends now read in linear time (a 200 KB file well under a second, where they
+  took from four seconds to over a minute). Brackets are paired once per file;
+  nesting past a hundred levels is not followed, and the coverage ledger says
+  how many files that left partially traced.
+
 ### Uranus, Measured
 
 Phase 3 of the audit engine, third part: a benchmark the engine is held to.

@@ -81,7 +81,10 @@
       scenarios: [
         { id: 'write-file', action: 'file.write', attributes: { branch, paths: ['README.md'] } },
         { id: 'reset-protected-branch', action: 'branch.reset', attributes: { branch, protected: true } },
-        { id: 'merge-pull-request', action: 'pull.merge', attributes: { branch } },
+        { id: 'merge-pull-request', action: 'pull.merge', attributes: { branch, audit: { state: 'current', blocking: [] } } },
+        /* The audit gate's two answers, so a policy that acts on them is exercised before it can be activated. */
+        { id: 'merge-failing-audit', action: 'pull.merge', attributes: { branch, audit: { state: 'current', blocking: ['critical', 'overdue'] } } },
+        { id: 'merge-unaudited-head', action: 'pull.merge', attributes: { branch, audit: { state: 'missing', blocking: [] } } },
         { id: 'create-release', action: 'release.create', attributes: { branch } }
       ]
     };

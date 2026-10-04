@@ -58,15 +58,17 @@ function packageFinding(seed, { name = 'jquery', version = '3.4.1', exploited = 
     }
   };
 }
-function auditResult({ commit = 'one', ref = 'main', findings, auditedAt = T0, components } = {}) {
+function auditResult({ commit = 'one', ref = 'main', findings, auditedAt = T0, components, suppressed, coverage, engine = '2.0.0', policy } = {}) {
   return {
     commitSha: sha(commit), ref, auditedAt: new Date(auditedAt).toISOString(),
-    score: 62, grade: 'D', capped: false, capReason: null, engine: { name: 'Uranus', version: '2.0.0' },
+    score: 62, grade: 'D', capped: false, capReason: null, engine: { name: 'Uranus', version: engine },
     categories: [{ id: 'code', score: 70 }, { id: 'dependencies', score: 55 }],
     findings: findings || [codeFinding('a'), packageFinding('dep')],
-    suppressed: [{ rule: 'SEC-005', path: 'x.js', line: 3, reason: 'canary-waiver' }],
+    /* A waiver in the code: kept for its clock, never with the reason the code wrote. */
+    suppressed: suppressed || [{ id: id('waived'), rule: 'SEC-005', category: 'secrets', severity: 'serious', path: 'x.js', line: 3, title: 't', why: 'canary-why', suppression: { reason: 'canary-waiver', line: 3 } }],
     dependencyRisk: { exploited: 0, bands: { urgent: 0, high: 0, moderate: 1, low: 0 } },
-    coverage: { read: 30, eligible: 33, complete: false },
+    coverage: coverage || { read: 30, eligible: 33, complete: false },
+    ...(policy ? { policy } : {}),
     components: components || [
       { ecosystem: 'npm', name: 'jquery', version: '3.4.1', direct: true, dev: false, advisories: { ids: ['GHSA-jpcq-cgw6-v4j6', 'GHSA-gxr4-xjj5-5px2'], cves: ['CVE-2020-11023'], exploited: [] } },
       { ecosystem: 'npm', name: 'express', version: '4.17.1', direct: true, dev: false },
@@ -99,13 +101,21 @@ async function withClient(connectionString, run) {
       assert.equal(upgrade.previous, null);
       assert.equal(upgrade.newIds, null);
       assert.equal(upgrade.resolved, null, 'identity changes cannot masquerade as resolutions');
+      /* The comparison restarts; the clocks do not -- what the upgrade still reports is as old as it was. */
+      const kept = await history.latest({ scope: upgradeScope, identityKey: IDENTITY, ref: 'main' });
+      assert(kept.findings.length > 0);
+      assert(kept.findings.every(finding => finding.firstSeenAt === new Date(T0).toISOString()), 'an engine upgrade does not reset SLA clocks');
+      const resolutions = await pool.query(`SELECT count(*)::int AS n FROM nv_code_audit_resolutions WHERE repo_name='EngineUpgrade'`);
+      assert.strictEqual(resolutions.rows[0].n, 0, 'nor does it record fixes');
     }
 
     /* ---- Recording: the first audit of a branch has nothing to compare with -- */
     const first = await history.record({ scope, identityKey: IDENTITY, result: auditResult(), now: T0 });
     assert.strictEqual(first.previous, null);
     assert.strictEqual(first.newIds, null);
-    assert.deepStrictEqual(first.stored, { findings: 2, components: 2 }, 'a component whose name is not a package name is left out, not stored approximately');
+    assert.deepStrictEqual(first.stored, { findings: 2, waived: 1, components: 2 }, 'a component whose name is not a package name is left out, not stored approximately');
+    assert.deepStrictEqual(Object.keys(first.firstSeen).sort(), [id('a'), id('dep'), id('waived')].sort(), 'every kept row has a first-seen date');
+    assert(Object.values(first.firstSeen).every(at => at === new Date(T0).toISOString()), 'a first audit sees everything for the first time');
 
     /* ---- The second is compared with the first ---------------------------- */
     const second = await history.record({
@@ -129,7 +139,9 @@ async function withClient(connectionString, run) {
 
     /* ---- One audit's findings, worst first, with the rule's own title ------- */
     const read = await history.read({ scope, identityKey: IDENTITY, auditId: second.auditId });
-    assert.deepStrictEqual(read.findings.map(finding => finding.severity), ['critical', 'serious', 'warning']);
+    assert.deepStrictEqual(read.findings.filter(finding => !finding.waived).map(finding => finding.severity), ['critical', 'serious', 'warning']);
+    assert.deepStrictEqual(read.findings.filter(finding => finding.waived).map(finding => [finding.rule, finding.waived]), [['SEC-005', 'code']], 'a waived row says how it was waived');
+    assert.strictEqual(read.findings.find(finding => finding.rule === 'DEP-003').firstSeenAt, new Date(T0).toISOString(), 'its clock started with the first audit that saw it');
     const dep = read.findings.find(finding => finding.rule === 'DEP-003');
     assert.strictEqual(dep.title, require('../src/code-audit').RULES['DEP-003'].title);
     assert.deepStrictEqual(dep.package, { ecosystem: 'npm', name: 'jquery', version: '3.4.1', fixed: '3.5.0', advisories: ['GHSA-jpcq-cgw6-v4j6'], cves: ['CVE-2020-11023'], cvss: 6.1 });
@@ -237,12 +249,84 @@ async function withClient(connectionString, run) {
     /* ---- Nothing an audit read is anywhere in the tables --------------------- */
     {
       const dump = [];
-      for (const table of ['nv_code_audits', 'nv_code_audit_findings', 'nv_code_audit_components', 'nv_code_audit_alerts']) {
+      for (const table of ['nv_code_audits', 'nv_code_audit_findings', 'nv_code_audit_components', 'nv_code_audit_alerts', 'nv_code_audit_resolutions']) {
         dump.push(JSON.stringify((await pool.query(`SELECT * FROM ${table}`)).rows));
       }
       const text = dump.join('\n');
       for (const canary of CANARY) assert(!text.includes(canary), `${canary.slice(0, 16)}… must never be stored`);
       assert(!text.includes('canary-source-line.js'), 'the files that import a package are not stored');
+    }
+
+    /* ---- Clocks: carried from audit to audit, and from branch to branch ------ */
+    {
+      const DAY = 24 * HOUR;
+      const clocks = { ...scope, repo: 'Clocks' };
+      const complete = { read: 10, eligible: 10, complete: true };
+      const policy = { source: 'repository', path: '.nebulaverse/audit.json', sla: { critical: 7, serious: 30, warning: 90 }, problems: [] };
+      const A = codeFinding('clock-a', 'critical');
+      const B = codeFinding('clock-b', 'serious');
+      const C = codeFinding('clock-c', 'serious');
+      const D = codeFinding('clock-d', 'warning');
+      A.verdict = 'confirmed';
+      await history.record({ scope: clocks, identityKey: IDENTITY, now: T0, result: auditResult({ commit: 'c1', findings: [A, B], coverage: complete, policy, suppressed: [] }) });
+      const fixed = await history.record({ scope: clocks, identityKey: IDENTITY, now: T0 + 3 * DAY, result: auditResult({ commit: 'c2', auditedAt: T0 + 3 * DAY, findings: [A, C], coverage: complete, policy, suppressed: [] }) });
+      assert.strictEqual(fixed.firstSeen[A.id], new Date(T0).toISOString(), 'a finding still there keeps the day it was first seen');
+      assert.strictEqual(fixed.firstSeen[C.id], new Date(T0 + 3 * DAY).toISOString());
+      assert.strictEqual(fixed.resolutions, 1, 'what went away, with every file read by the same engine, was fixed');
+      /* A feature branch inherits the age of what it shares with main. */
+      const feature = await history.record({ scope: clocks, identityKey: IDENTITY, now: T0 + 4 * DAY, result: auditResult({ commit: 'f1', ref: 'feature', auditedAt: T0 + 4 * DAY, findings: [A, D], coverage: complete, policy, suppressed: [] }) });
+      assert.strictEqual(feature.firstSeen[A.id], new Date(T0).toISOString(), 'the branch inherits main\'s clock');
+      assert.strictEqual(feature.firstSeen[D.id], new Date(T0 + 4 * DAY).toISOString());
+      /* Disappearing from a partial read, or under a newer engine, is not a fix. */
+      const partial = await history.record({ scope: clocks, identityKey: IDENTITY, now: T0 + 5 * DAY, result: auditResult({ commit: 'c3', auditedAt: T0 + 5 * DAY, findings: [C], coverage: { read: 5, eligible: 10, complete: false }, policy, suppressed: [] }) });
+      assert.strictEqual(partial.resolutions, 0, 'a finding that went unread was not fixed');
+      const newer = await history.record({ scope: clocks, identityKey: IDENTITY, now: T0 + 6 * DAY, result: auditResult({ commit: 'c4', auditedAt: T0 + 6 * DAY, findings: [A, C], coverage: complete, engine: '2.1.0', policy, suppressed: [] }) });
+      assert.strictEqual(newer.firstSeen[A.id], new Date(T0).toISOString(), 'the feature branch still has it: its clock is the original one');
+      const engine = await history.record({ scope: clocks, identityKey: IDENTITY, now: T0 + 6 * DAY + HOUR, result: auditResult({ commit: 'c5', auditedAt: T0 + 6 * DAY + HOUR, findings: [C], coverage: complete, engine: '2.2.0', policy, suppressed: [] }) });
+      assert.strictEqual(engine.resolutions, 0, 'a finding a newer engine stopped reporting was not fixed');
+      const resolved = await pool.query(`SELECT finding_id, severity, first_seen_at, resolved_at FROM nv_code_audit_resolutions WHERE repo_name='Clocks'`);
+      assert.deepStrictEqual(resolved.rows.map(row => [row.finding_id, row.severity, row.first_seen_at.toISOString(), row.resolved_at.toISOString()]),
+        [[B.id, 'serious', new Date(T0).toISOString(), new Date(T0 + 3 * DAY).toISOString()]]);
+
+      /* A finding fixed and brought back starts again, where no other branch still has it. */
+      const solo = { ...scope, repo: 'Regression' };
+      await history.record({ scope: solo, identityKey: IDENTITY, now: T0, result: auditResult({ commit: 's1', findings: [A], coverage: complete, policy, suppressed: [] }) });
+      await history.record({ scope: solo, identityKey: IDENTITY, now: T0 + DAY, result: auditResult({ commit: 's2', auditedAt: T0 + DAY, findings: [C], coverage: complete, policy, suppressed: [] }) });
+      const back = await history.record({ scope: solo, identityKey: IDENTITY, now: T0 + 2 * DAY, result: auditResult({ commit: 's3', auditedAt: T0 + 2 * DAY, findings: [A, C], coverage: complete, policy, suppressed: [] }) });
+      assert.strictEqual(back.firstSeen[A.id], new Date(T0 + 2 * DAY).toISOString(), 'a regression is a new finding, with a new clock');
+
+      /* The latest audit with every row, and the clock it set. */
+      const latest = await history.latest({ scope: clocks, identityKey: IDENTITY, ref: 'main' });
+      assert.deepStrictEqual(latest.audit.sla, { critical: 7, serious: 30, warning: 90, source: 'repository' });
+      assert.deepStrictEqual(latest.findings.map(finding => finding.id), [C.id]);
+      assert.strictEqual(await history.latest({ scope: clocks, identityKey: OTHER, ref: 'main' }), null, 'another identity has none');
+
+      /* Where the branch stands, and how long fixing took. */
+      const main = { ...scope, repo: 'Metrics' };
+      await history.record({ scope: main, identityKey: IDENTITY, now: T0, result: auditResult({ commit: 'm1', findings: [A, B, D], coverage: complete, policy, suppressed: [] }) });
+      await history.record({ scope: main, identityKey: IDENTITY, now: T0 + 2 * DAY, result: auditResult({ commit: 'm2', auditedAt: T0 + 2 * DAY, findings: [A, D, C], coverage: complete, policy, suppressed: [] }) });
+      const metrics = await history.metrics({ scope: main, identityKey: IDENTITY, ref: 'main', now: T0 + 10 * DAY });
+      assert.deepStrictEqual(metrics.sla, { critical: 7, serious: 30, warning: 90, source: 'repository' });
+      assert.deepStrictEqual(metrics.open, {
+        total: 3, overdue: 1, dueSoon: 0, onTrack: 2, unclocked: 0,
+        bySeverity: { critical: { open: 1, overdue: 1, dueSoon: 0 }, serious: { open: 1, overdue: 0, dueSoon: 0 }, warning: { open: 1, overdue: 0, dueSoon: 0 } }
+      });
+      assert.deepStrictEqual(metrics.oldest, { days: 10, findingId: A.id, rule: A.rule, severity: 'critical' });
+      assert.strictEqual(metrics.mttr.windowDays, 90);
+      assert.deepStrictEqual(metrics.mttr.serious, { count: 1, medianDays: 2, meanDays: 2 });
+      assert.deepStrictEqual(metrics.mttr.all, { count: 1, medianDays: 2, meanDays: 2 });
+      assert.deepStrictEqual(metrics.mttr.critical, { count: 0, medianDays: null, meanDays: null });
+      const triaged = await history.metrics({ scope: main, identityKey: IDENTITY, ref: 'main', now: T0 + 10 * DAY, isTriaged: finding => finding.id === A.id });
+      assert.strictEqual(triaged.open.overdue, 0, 'a decision in force takes a finding out of the count');
+      assert.strictEqual(triaged.open.total, 2);
+      const outside = await history.metrics({ scope: main, identityKey: IDENTITY, ref: 'main', now: T0 + 200 * DAY });
+      assert.strictEqual(outside.mttr.all.count, 0, 'time to fix is measured over the last ninety days');
+      const none = await history.metrics({ scope: main, identityKey: IDENTITY, ref: 'never' });
+      assert.deepStrictEqual([none.audit, none.open], [null, null]);
+
+      /* Clearing a repository takes its resolutions with it. */
+      await history.clear({ scope: main, identityKey: IDENTITY });
+      assert.strictEqual((await pool.query(`SELECT count(*)::int AS n FROM nv_code_audit_resolutions WHERE repo_name='Metrics'`)).rows[0].n, 0);
     }
 
     /* ---- Clearing is one identity, one repository ---------------------------- */

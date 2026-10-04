@@ -23,9 +23,13 @@
 
 const crypto = require('crypto');
 const { RULES, ENGINE } = require('./code-audit');
+const { clockOf, slaOf, DEFAULT_SLA, SLA_DAYS } = require('./code-audit-policy');
+const { TIERS } = require('./uranus-reach');
 
 const LIMITS = Object.freeze({
   maxFindings: 1500,
+  /* Waived findings are kept beside the open ones, so a clock survives its waiver. */
+  maxWaived: 500,
   maxComponents: 5000,
   /* Audits kept per branch, and how far back. */
   keepPerBranch: 30,
@@ -34,7 +38,10 @@ const LIMITS = Object.freeze({
   watchedBranches: 5,
   listLimit: 30,
   branchLimit: 12,
-  insertBatch: 500
+  insertBatch: 500,
+  /* Time to fix is measured over this window, ending now. */
+  mttrWindowDays: 90,
+  maxResolutions: 1500
 });
 
 const ECOSYSTEMS = Object.freeze(['npm', 'pypi', 'go', 'maven', 'packagist', 'rubygems', 'cargo', 'nuget']);
@@ -47,6 +54,8 @@ const CAP_REASONS = Object.freeze(['critical', 'exploited']);
 const WATCH_STATES = Object.freeze(['ok', 'partial', 'unavailable']);
 const WATCH_KEV = Object.freeze(['ok', 'unavailable', 'not-needed']);
 const ALERT_KINDS = Object.freeze(['advisory', 'exploited']);
+const WAIVED = Object.freeze(['code', 'policy', 'triage']);
+const POLICY_SOURCES = Object.freeze(['default', 'repository', 'invalid']);
 
 /* The same shapes the migration checks, so a value is refused here first and the database is the second wall, not the only one. */
 const SHAPE = Object.freeze({
@@ -108,7 +117,16 @@ function requireRef(ref) {
 
 const SEVERITY_RANK = Object.freeze({ critical: 0, serious: 1, warning: 2 });
 
-function compactFinding(finding) {
+/* How a finding the audit did not count was waived: by a team decision, in the licence policy, or in the code beside it. */
+function waivedBy(finding) {
+  const suppression = finding && finding.suppression;
+  if (!suppression || typeof suppression !== 'object') return 'code';
+  if (suppression.triage) return 'triage';
+  if (suppression.policy) return 'policy';
+  return 'code';
+}
+
+function compactFinding(finding, waived = null) {
   if (!finding || !fits(SHAPE.findingId, finding.id) || !fits(SHAPE.rule, finding.rule)) return null;
   const severity = oneOf(SEVERITIES, finding.severity);
   if (!severity || !fits(SHAPE.category, finding.category)) return null;
@@ -143,7 +161,8 @@ function compactFinding(finding) {
     reach_tier: oneOf(REACH_TIERS, usage.tier),
     exploited,
     ransomware: exploited && intel.ransomware === true,
-    epss: epss === null ? null : Math.round(epss * 100000) / 100000
+    epss: epss === null ? null : Math.round(epss * 100000) / 100000,
+    waived: oneOf(WAIVED, waived)
   };
 }
 
@@ -181,12 +200,15 @@ function compactAudit(result) {
     if (finding && SEVERITIES.includes(finding.severity)) counts[finding.severity] += 1;
     if (finding && finding.verdict === 'needs-validation') toConfirm += 1;
   }
-  const compact = findings
-    .map(finding => ({ finding, row: compactFinding(finding) }))
-    .filter(item => item.row)
-    .sort((a, b) => SEVERITY_RANK[a.row.severity] - SEVERITY_RANK[b.row.severity] || (b.row.risk_score || 0) - (a.row.risk_score || 0))
-    .slice(0, LIMITS.maxFindings)
-    .map(item => item.row);
+  const ranked = rows => rows
+    .filter(Boolean)
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || (b.risk_score || 0) - (a.risk_score || 0));
+  const compact = ranked(findings.map(finding => compactFinding(finding))).slice(0, LIMITS.maxFindings);
+  /* An id appears once: a finding is open or waived, never both. */
+  const openIds = new Set(compact.map(row => row.finding_id));
+  const waivedRows = ranked((Array.isArray(result.suppressed) ? result.suppressed : []).map(finding => compactFinding(finding, waivedBy(finding))))
+    .filter(row => !openIds.has(row.finding_id))
+    .slice(0, LIMITS.maxWaived);
   const categories = (Array.isArray(result.categories) ? result.categories : [])
     .filter(category => category && fits(SHAPE.category, category.id) && bounded(category.score, 0, 100) !== null)
     .slice(0, 16);
@@ -222,6 +244,12 @@ function compactAudit(result) {
   const kev = oneOf(WATCH_KEV, exploit.kev) || (needsKev ? 'unavailable' : 'not-needed');
   const watchState = advisoryState === 'ok' && kev !== 'unavailable' ? 'ok'
     : advisoryState === 'unavailable' && kev !== 'ok' ? 'unavailable' : 'partial';
+  /* The clock the audited branch set, or the defaults; an audit without a policy at all predates clocks. */
+  const policy = result.policy && typeof result.policy === 'object' ? result.policy : null;
+  const days = value => (Number.isInteger(value) && value >= SLA_DAYS.min && value <= SLA_DAYS.max ? value : null);
+  const sla = policy && policy.sla && typeof policy.sla === 'object' ? policy.sla : {};
+  const policySource = policy ? oneOf(POLICY_SOURCES, policy.source) : null;
+  const slaKept = policySource && days(sla.critical) && days(sla.serious) && days(sla.warning);
   return {
     audit: {
       ref_name: requireRef(result.ref),
@@ -253,9 +281,14 @@ function compactAudit(result) {
       watch_state: watchState,
       watch_checked: Math.min(answered, components.length),
       watch_total: components.length,
-      watch_kev: kev
+      watch_kev: kev,
+      sla_critical: slaKept ? sla.critical : null,
+      sla_serious: slaKept ? sla.serious : null,
+      sla_warning: slaKept ? sla.warning : null,
+      policy_source: slaKept ? policySource : null
     },
     findings: compact,
+    waived: waivedRows,
     components
   };
 }
@@ -300,6 +333,10 @@ function compactAlert(alert) {
 /* ---- Out of the tables ---------------------------------------------------- */
 
 const iso = value => (value ? new Date(value).toISOString() : null);
+/* Whether a reach tier is code that ships, by the engine's own tiers. */
+const productionReach = tier => Boolean(tier && TIERS[tier] && TIERS[tier].production);
+/* An instant as the driver gives it -- a Date for timestamptz -- in milliseconds. */
+const ms = value => (value instanceof Date ? value.getTime() : Date.parse(value));
 const number = value => (value === null || value === undefined ? null : Number(value));
 const day = value => {
   if (!value) return null;
@@ -337,6 +374,12 @@ function auditFromRow(row) {
       checked: number(row.watch_checked),
       total: number(row.watch_total),
       kev: row.watch_kev || null
+    } : null,
+    sla: row.policy_source ? {
+      critical: Number(row.sla_critical),
+      serious: Number(row.sla_serious),
+      warning: Number(row.sla_warning),
+      source: row.policy_source
     } : null
   };
 }
@@ -366,7 +409,9 @@ function findingFromRow(row) {
     reach: row.reach_tier || null,
     exploited: row.exploited === true,
     ransomware: row.ransomware === true,
-    epss: number(row.epss)
+    epss: number(row.epss),
+    firstSeenAt: iso(row.first_seen_at),
+    waived: row.waived || null
   };
 }
 
@@ -410,12 +455,15 @@ const AUDIT_COLUMNS = `audit_id, ref_name, commit_sha, engine_version, audited_a
   category_ids, category_scores, critical_count, serious_count, warning_count, to_confirm_count, waived_count,
   exploited_count, risk_urgent, risk_high, risk_moderate, risk_low, files_read, files_eligible, coverage_complete,
   components_total, findings_total, findings_stored, new_count, resolved_count,
-  watch_checked_at, watch_state, watch_checked, watch_total, watch_kev`;
+  watch_checked_at, watch_state, watch_checked, watch_total, watch_kev,
+  sla_critical, sla_serious, sla_warning, policy_source`;
 const FINDING_COLUMNS = `finding_id, rule, category, severity, verdict, file_path, line_number, ecosystem, package_name,
-  package_version, fixed_version, advisory_ids, cve_ids, cvss, risk_score, risk_band, reach_tier, exploited, ransomware, epss`;
+  package_version, fixed_version, advisory_ids, cve_ids, cvss, risk_score, risk_band, reach_tier, exploited, ransomware, epss,
+  first_seen_at, waived`;
 const FINDING_RECORD = `finding_id text, rule text, category text, severity text, verdict text, file_path text, line_number integer,
   ecosystem text, package_name text, package_version text, fixed_version text, advisory_ids text[], cve_ids text[],
-  cvss numeric, risk_score smallint, risk_band text, reach_tier text, exploited boolean, ransomware boolean, epss numeric`;
+  cvss numeric, risk_score smallint, risk_band text, reach_tier text, exploited boolean, ransomware boolean, epss numeric,
+  first_seen_at timestamptz, waived text`;
 const COMPONENT_COLUMNS = 'ecosystem, package_name, package_version, direct, dev, advisory_ids, cve_ids, exploited_cve_ids';
 const COMPONENT_RECORD = `ecosystem text, package_name text, package_version text, direct boolean, dev boolean,
   advisory_ids text[], cve_ids text[], exploited_cve_ids text[]`;
@@ -458,6 +506,16 @@ class CodeAuditHistory {
    * give up their components (only the latest is watched), audits past the
    * per-branch ceiling or the age limit are removed, and only the most recently
    * audited branches of the repository keep components at all.
+   *
+   * Each finding's clock is carried: it started when the previous audit of
+   * this branch first saw it, or -- for a finding this branch has not shown
+   * before -- when the latest audit of another branch did, so a feature branch
+   * inherits the age of what it shares with main. A finding fixed and later
+   * brought back starts again. And what the previous audit saw and this one
+   * did not is a resolution, the evidence time to fix is measured from --
+   * kept only when this audit read every eligible file with the same engine,
+   * because a finding that went unread, or that a newer engine stopped
+   * reporting, was not fixed.
    */
   async record({ scope, identityKey, result, now = Date.now() }) {
     const where = requireScope(scope);
@@ -467,27 +525,66 @@ class CodeAuditHistory {
     const base = [where.provider, where.authority, where.owner, where.repo, identity];
     const { limits } = this;
     return this.#transaction(async client => {
-      let previous = (await client.query(
+      const latest = (await client.query(
         `SELECT audit_id, audited_at, engine_version FROM nv_code_audits
           WHERE ${SCOPE_SQL} AND ref_name=$6
           ORDER BY audited_at DESC, recorded_at DESC LIMIT 1`,
         [...base, compact.audit.ref_name]
       )).rows[0] || null;
-      // A detector/identity upgrade starts a new comparison baseline. It is
-      // not evidence that every old finding was fixed and every new one added.
-      if (previous && previous.engine_version !== compact.audit.engine_version) previous = null;
+      /*
+       * A detector or identity upgrade starts a new comparison: what changed
+       * across it is not evidence that every old finding was fixed and every
+       * new one added. Clocks still carry across it -- a finding the upgrade
+       * reports by the same identity is as old as it was -- so the branch's
+       * latest audit is read either way, and compared only on the same engine.
+       */
+      const previous = latest && latest.engine_version === compact.audit.engine_version ? latest : null;
+      const audit = compact.audit;
+      const rows = [...compact.findings, ...compact.waived];
+      const ids = rows.map(row => row.finding_id);
       let diff = null;
-      if (previous) {
-        const before = new Set((await client.query(
-          `SELECT f.finding_id FROM nv_code_audit_findings f
+      let before = new Map();
+      if (latest) {
+        before = new Map((await client.query(
+          `SELECT f.finding_id, f.rule, f.severity, f.waived, COALESCE(f.first_seen_at, a.audited_at) AS first_seen
+             FROM nv_code_audit_findings f
              JOIN nv_code_audits a ON a.audit_id=f.audit_id
             WHERE f.audit_id=$1 AND a.identity_key=$2`,
-          [previous.audit_id, identity]
-        )).rows.map(row => row.finding_id));
-        const current = new Set(compact.findings.map(row => row.finding_id));
-        diff = { newIds: [...current].filter(id => !before.has(id)), resolved: [...before].filter(id => !current.has(id)).length };
+          [latest.audit_id, identity]
+        )).rows.map(row => [row.finding_id, row]));
       }
-      const audit = compact.audit;
+      if (previous) {
+        const current = new Set(ids);
+        const open = new Set(compact.findings.map(row => row.finding_id));
+        diff = {
+          newIds: [...open].filter(id => !before.has(id)),
+          resolved: [...before.values()].filter(row => !row.waived && !current.has(row.finding_id)).length
+        };
+      }
+      /* The latest audit of every other branch, for what this branch has not shown before. */
+      const elsewhere = ids.length ? new Map((await client.query(
+        `WITH latest AS (
+           SELECT DISTINCT ON (ref_name) audit_id, audited_at FROM nv_code_audits
+            WHERE ${SCOPE_SQL} AND ref_name<>$6
+            ORDER BY ref_name, audited_at DESC, recorded_at DESC)
+         SELECT f.finding_id, min(COALESCE(f.first_seen_at, l.audited_at)) AS first_seen
+           FROM latest l
+           JOIN nv_code_audit_findings f ON f.audit_id=l.audit_id
+          WHERE f.finding_id = ANY($7::text[])
+          GROUP BY f.finding_id`,
+        [...base, audit.ref_name, ids]
+      )).rows.map(row => [row.finding_id, ms(row.first_seen)])) : new Map();
+      const auditedAt = Date.parse(audit.audited_at);
+      const firstSeen = {};
+      for (const row of rows) {
+        const candidates = [auditedAt];
+        const known = before.get(row.finding_id);
+        if (known) candidates.push(ms(known.first_seen));
+        if (elsewhere.has(row.finding_id)) candidates.push(elsewhere.get(row.finding_id));
+        const earliest = Math.min(...candidates.filter(Number.isFinite));
+        row.first_seen_at = new Date(earliest).toISOString();
+        firstSeen[row.finding_id] = row.first_seen_at;
+      }
       await client.query(
         `INSERT INTO nv_code_audits (
            audit_id, provider, authority, owner_login, repo_name, identity_key, ref_name, commit_sha, engine_version,
@@ -495,9 +592,10 @@ class CodeAuditHistory {
            critical_count, serious_count, warning_count, to_confirm_count, waived_count, exploited_count,
            risk_urgent, risk_high, risk_moderate, risk_low, files_read, files_eligible, coverage_complete,
            components_total, findings_total, findings_stored, new_count, resolved_count,
-           watch_checked_at, watch_state, watch_checked, watch_total, watch_kev)
+           watch_checked_at, watch_state, watch_checked, watch_total, watch_kev,
+           sla_critical, sla_serious, sla_warning, policy_source)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::text[],$16::smallint[],
-           $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39)`,
+           $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43)`,
         [auditId, where.provider, where.authority, where.owner, where.repo, identity, audit.ref_name, audit.commit_sha,
           audit.engine_version, audit.audited_at, new Date(now).toISOString(), audit.score, audit.grade, audit.cap_reason,
           audit.category_ids, audit.category_scores, audit.critical_count, audit.serious_count, audit.warning_count,
@@ -505,14 +603,15 @@ class CodeAuditHistory {
           audit.risk_moderate, audit.risk_low, audit.files_read, audit.files_eligible, audit.coverage_complete,
           audit.components_total, audit.findings_total, audit.findings_stored,
           diff ? diff.newIds.length : null, diff ? diff.resolved : null,
-          audit.watch_checked_at, audit.watch_state, audit.watch_checked, audit.watch_total, audit.watch_kev]
+          audit.watch_checked_at, audit.watch_state, audit.watch_checked, audit.watch_total, audit.watch_kev,
+          audit.sla_critical, audit.sla_serious, audit.sla_warning, audit.policy_source]
       );
-      for (let start = 0; start < compact.findings.length; start += limits.insertBatch) {
+      for (let start = 0; start < rows.length; start += limits.insertBatch) {
         await client.query(
           `INSERT INTO nv_code_audit_findings (audit_id, ${FINDING_COLUMNS})
            SELECT $1, ${FINDING_COLUMNS} FROM jsonb_to_recordset($2::jsonb) AS x(${FINDING_RECORD})
            ON CONFLICT (audit_id, finding_id) DO NOTHING`,
-          [auditId, JSON.stringify(compact.findings.slice(start, start + limits.insertBatch))]
+          [auditId, JSON.stringify(rows.slice(start, start + limits.insertBatch))]
         );
       }
       for (let start = 0; start < compact.components.length; start += limits.insertBatch * 2) {
@@ -522,6 +621,31 @@ class CodeAuditHistory {
            ON CONFLICT (audit_id, ecosystem, package_name, package_version) DO NOTHING`,
           [auditId, JSON.stringify(compact.components.slice(start, start + limits.insertBatch * 2))]
         );
+      }
+      /* What went away, when it can be trusted to have been fixed. */
+      let resolutions = 0;
+      if (previous && previous.engine_version === audit.engine_version && audit.coverage_complete
+        && audit.files_read >= audit.files_eligible) {
+        const current = new Set(ids);
+        const gone = [...before.values()].filter(row => !current.has(row.finding_id) && SEVERITIES.includes(row.severity))
+          .slice(0, limits.maxResolutions)
+          .map(row => ({
+            finding_id: row.finding_id,
+            rule: row.rule,
+            severity: row.severity,
+            first_seen_at: new Date(Math.min(ms(row.first_seen), auditedAt)).toISOString()
+          }));
+        if (gone.length) {
+          const inserted = await client.query(
+            `INSERT INTO nv_code_audit_resolutions
+               (provider, authority, owner_login, repo_name, identity_key, ref_name, finding_id, rule, severity, first_seen_at, resolved_at)
+             SELECT $1, $2, $3, $4, $5, $6, finding_id, rule, severity, first_seen_at, $7
+               FROM jsonb_to_recordset($8::jsonb) AS x(finding_id text, rule text, severity text, first_seen_at timestamptz)
+             ON CONFLICT DO NOTHING`,
+            [...base, audit.ref_name, audit.audited_at, JSON.stringify(gone)]
+          );
+          resolutions = inserted.rowCount;
+        }
       }
       /* Only the latest audit of a branch is watched; the ones before it keep their history, not their components. */
       await client.query(
@@ -541,6 +665,10 @@ class CodeAuditHistory {
         [...base, new Date(now - limits.maxAgeMs).toISOString()]
       );
       await client.query(
+        `DELETE FROM nv_code_audit_resolutions WHERE ${SCOPE_SQL} AND resolved_at < $6`,
+        [...base, new Date(now - limits.maxAgeMs).toISOString()]
+      );
+      await client.query(
         `DELETE FROM nv_code_audit_components
           WHERE audit_id IN (
             SELECT audit_id FROM nv_code_audits WHERE ${SCOPE_SQL}
@@ -554,7 +682,9 @@ class CodeAuditHistory {
         previous: previous ? { auditId: previous.audit_id, auditedAt: iso(previous.audited_at) } : null,
         newIds: diff ? diff.newIds : null,
         resolved: diff ? diff.resolved : null,
-        stored: { findings: compact.findings.length, components: compact.components.length }
+        firstSeen,
+        resolutions,
+        stored: { findings: compact.findings.length, waived: compact.waived.length, components: compact.components.length }
       };
     });
   }
@@ -724,11 +854,99 @@ class CodeAuditHistory {
   async clear({ scope, identityKey }) {
     const where = requireScope(scope);
     const identity = requireIdentity(identityKey);
-    const removed = await this.pool.query(
-      `DELETE FROM nv_code_audits WHERE ${SCOPE_SQL}`,
-      [where.provider, where.authority, where.owner, where.repo, identity]
+    const base = [where.provider, where.authority, where.owner, where.repo, identity];
+    return this.#transaction(async client => {
+      const removed = await client.query(`DELETE FROM nv_code_audits WHERE ${SCOPE_SQL}`, base);
+      /* The time to fix was measured from those audits; it goes with them. */
+      await client.query(`DELETE FROM nv_code_audit_resolutions WHERE ${SCOPE_SQL}`, base);
+      return removed.rowCount;
+    });
+  }
+
+  /*
+   * The latest audit of a branch and every row it kept -- open and waived --
+   * with the date each was first seen. What the merge gate and the clocks
+   * read. Null when this identity has kept no audit of the branch.
+   */
+  async latest({ scope, identityKey, ref }) {
+    const where = requireScope(scope);
+    const identity = requireIdentity(identityKey);
+    const row = (await this.pool.query(
+      `SELECT ${AUDIT_COLUMNS} FROM nv_code_audits
+        WHERE ${SCOPE_SQL} AND ref_name=$6
+        ORDER BY audited_at DESC, recorded_at DESC LIMIT 1`,
+      [where.provider, where.authority, where.owner, where.repo, identity, requireRef(ref)]
+    )).rows[0];
+    if (!row) return null;
+    const findings = await this.pool.query(
+      `SELECT ${FINDING_COLUMNS.split(',').map(column => `f.${column.trim()}`).join(', ')}
+         FROM nv_code_audit_findings f
+         JOIN nv_code_audits a ON a.audit_id=f.audit_id
+        WHERE f.audit_id=$1 AND a.identity_key=$2
+        ORDER BY ${SEVERITY_ORDER_SQL}, f.finding_id`,
+      [row.audit_id, identity]
     );
-    return removed.rowCount;
+    return { audit: auditFromRow(row), findings: findings.rows.map(findingFromRow) };
+  }
+
+  /*
+   * Where a branch stands against its clocks, and how long fixing has taken.
+   * The open findings are the latest audit's, less what a decision in force
+   * covers (`isTriaged`, from the team's decisions); time to fix is every
+   * resolution of the branch in the window, by severity, as a median and a
+   * mean in days.
+   */
+  async metrics({ scope, identityKey, ref, isTriaged = () => false, now = Date.now() }) {
+    const where = requireScope(scope);
+    const identity = requireIdentity(identityKey);
+    const branch = requireRef(ref);
+    const latest = await this.latest({ scope: where, identityKey: identity, ref: branch });
+    const windowDays = this.limits.mttrWindowDays;
+    const since = new Date(now - windowDays * 24 * 60 * 60 * 1000).toISOString();
+    const resolved = await this.pool.query(
+      `SELECT severity, count(*)::integer AS n,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM resolved_at - first_seen_at)) AS median_s,
+              avg(extract(epoch FROM resolved_at - first_seen_at)) AS mean_s
+         FROM nv_code_audit_resolutions
+        WHERE ${SCOPE_SQL} AND ref_name=$6 AND resolved_at >= $7
+        GROUP BY ROLLUP (severity)`,
+      [where.provider, where.authority, where.owner, where.repo, identity, branch, since]
+    );
+    const days = seconds => (seconds === null || seconds === undefined ? null : Math.round((Number(seconds) / 86400) * 10) / 10);
+    const mttr = { windowDays, all: { count: 0, medianDays: null, meanDays: null } };
+    for (const severity of SEVERITIES) mttr[severity] = { count: 0, medianDays: null, meanDays: null };
+    for (const row of resolved.rows) {
+      const entry = { count: Number(row.n), medianDays: days(row.median_s), meanDays: days(row.mean_s) };
+      if (row.severity === null) mttr.all = entry;
+      else if (SEVERITIES.includes(row.severity)) mttr[row.severity] = entry;
+    }
+    if (!latest) return { audit: null, sla: null, open: null, oldest: null, mttr };
+    const sla = slaOf(latest.audit) || DEFAULT_SLA;
+    const bySeverity = {};
+    for (const severity of SEVERITIES) bySeverity[severity] = { open: 0, overdue: 0, dueSoon: 0 };
+    const open = { total: 0, overdue: 0, dueSoon: 0, onTrack: 0, unclocked: 0, bySeverity };
+    let oldest = null;
+    for (const finding of latest.findings) {
+      if (finding.waived && finding.waived !== 'triage') continue;
+      if (isTriaged(finding)) continue;
+      const clock = clockOf({ severity: finding.severity, exploited: finding.exploited && finding.rule !== 'DEP-005' && productionReach(finding.reach) },
+        { firstSeenAt: finding.firstSeenAt, sla, now });
+      open.total += 1;
+      bySeverity[finding.severity].open += 1;
+      if (!clock) { open.unclocked += 1; continue; }
+      if (clock.state === 'overdue') { open.overdue += 1; bySeverity[finding.severity].overdue += 1; }
+      else if (clock.state === 'due-soon') { open.dueSoon += 1; bySeverity[finding.severity].dueSoon += 1; }
+      else open.onTrack += 1;
+      const age = Math.floor((now - Date.parse(finding.firstSeenAt)) / (24 * 60 * 60 * 1000));
+      if (!oldest || age > oldest.days) oldest = { days: age, findingId: finding.id, rule: finding.rule, severity: finding.severity };
+    }
+    return {
+      audit: { id: latest.audit.id, auditedAt: latest.audit.auditedAt, commitSha: latest.audit.commitSha },
+      sla: { ...sla, source: latest.audit.sla ? latest.audit.sla.source : 'default' },
+      open,
+      oldest,
+      mttr
+    };
   }
 }
 

@@ -159,6 +159,12 @@ const { analyseOffThread, scanOffThread } = require('./src/code-audit-worker');
 const { createAuditJobs } = require('./src/code-audit-jobs');
 const { CodeAuditHistory, createAuditWatch } = require('./src/code-audit-history');
 const { watchComponents } = require('./src/code-audit-watch');
+const {
+  CodeAuditTriage, applyTriage, rescore, inForce, evaluateMergeGate, unavailableGate, gateAttributes, mergeAttributes,
+  previewMergePolicies, summarizeDecisions, VOCABULARY: TRIAGE_VOCABULARY
+} = require('./src/code-audit-triage');
+const { clockOf } = require('./src/code-audit-policy');
+const { exploitedInProduction } = require('./src/uranus-reach');
 const { checkSite, declaredSite, siteOrigin } = require('./src/site-check');
 const { registerRenderedAudit } = require('./src/routes/rendered-audit');
 const { readBranchProtection } = require('./src/branch-protection');
@@ -2490,7 +2496,16 @@ function baseMutationMetadataFor(req, action) {
     case 'commit.restore': return { branch: text(body.branch, 255), commitSha: text(body.sha, 40), expectedHeadSha: text(body.expectedHeadSha, 40) };
     case 'commit.restore-paths': return { branch: text(body.branch, 255), commitSha: text(body.sha, 40), pathPrefix: text(body.prefix, 1000), expectedHeadSha: text(body.expectedHeadSha, 40) };
     case 'pull.create': return { head: text(body.head, 255), base: text(body.base, 255), draft: !!body.draft };
-    case 'pull.merge': return { pullNumber: Number(params.num || 0), mergeMethod: text(body.method || 'merge', 20) };
+    case 'pull.merge': {
+      /* The branches and the audit gate's attributes, read before the policy is (mergeFactsFor), so a rule can name them. */
+      const facts = req.mergeFacts || {};
+      return {
+        pullNumber: Number(params.num || 0), mergeMethod: text(body.method || 'merge', 20),
+        ...(facts.branch ? { branch: text(facts.branch, 255) } : {}),
+        ...(facts.head ? { head: text(facts.head, 255) } : {}),
+        ...(facts.audit ? { audit: facts.audit } : {})
+      };
+    }
     case 'pull.review': return { pullNumber: Number(params.num || 0), event: text(body.event, 30) };
     case 'issue.create': return {};
     case 'issue.comment': return { issueNumber: Number(params.num || 0) };
@@ -2607,11 +2622,29 @@ async function safePassageFor(req, action, descriptor, error) {
   }
 }
 
+/*
+ * A merge's facts for the policy: the branch it merges into, the branch it
+ * comes from, and what the merging person's latest audit of that head says
+ * (the merge gate). Read once, before the descriptor is built, so the policy
+ * judges the same facts the ledger records. A pull request that cannot be
+ * read leaves the gate unavailable rather than failing the merge here; the
+ * provider will say why it cannot merge it.
+ */
+async function mergeFactsFor(req) {
+  const number = Number.parseInt(String(req.params.num || ''), 10);
+  let pull;
+  try { pull = await readPullFacts(req, number); }
+  catch { return { audit: gateAttributes(unavailableGate()) }; }
+  const gate = await mergeGateFor(req.gh, req.params.owner, req.params.repo, pull);
+  return mergeAttributes(pull, gate);
+}
+
 function mutationContext(action) {
   return async function enterMutationContext(req, res, next) {
     let descriptor;
     try {
       req.authorization = await resolveMutationAuthorization(req, action);
+      if (action === 'pull.merge') req.mergeFacts = await mergeFactsFor(req);
       descriptor = mutationDescriptorFor(req, action);
     } catch (error) { return fail(res, error); }
     mutationGateway.run(descriptor, () => new Promise((resolve, reject) => {
@@ -2803,6 +2836,19 @@ function governanceMutationMetadata(req, action) {
      */
     case 'exposure.credential.verify':
       return { fingerprint: boundedId(req.params.fingerprint) };
+    /* The decision as asked for: the words chosen from the list, never anything the repository wrote. */
+    case 'code-audit.finding.triage': {
+      const days = Number(body.expiresInDays);
+      return {
+        findingId: boundedId(req.params.findingId),
+        rule: cleanText(String(body.rule || ''), 16),
+        disposition: cleanText(String(body.disposition || ''), 20).toLowerCase(),
+        reason: cleanText(String(body.reason || ''), 40).toLowerCase(),
+        expiresInDays: Number.isSafeInteger(days) && days > 0 && days <= 3650 ? days : null
+      };
+    }
+    case 'code-audit.finding.reopen':
+      return { findingId: boundedId(req.params.findingId) };
     case 'exposure.readability.probe':
       return {
         fingerprint: boundedId(req.params.fingerprint),
@@ -7810,8 +7856,19 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
           onProgress
         });
         const finished = { ...result, auditedAt: new Date().toISOString() };
-        finished.history = await recordAudit(account, owner, repo, finished);
-        return finished;
+        /*
+         * The team's decisions first, so the grade and the kept history are
+         * the ones the decisions make; then the clocks, which need the dates
+         * the history carries for each finding.
+         */
+        const triage = await triageForAccount(account, owner, repo);
+        const decided = triage && triage.decisions ? applyTriage(finished, triage.decisions) : finished;
+        if (triage && triage.unavailable) decided.triage = { unavailable: true };
+        const recorded = await recordAudit(account, owner, repo, decided);
+        const { firstSeen = null, ...history } = recorded || {};
+        const clocked = firstSeen ? withClocks(decided, firstSeen) : decided;
+        clocked.history = recorded ? history : recorded;
+        return clocked;
       } finally {
         session.close();
       }
@@ -7865,7 +7922,9 @@ async function recordAudit(account, owner, repo, result) {
       auditId: recorded.auditId,
       previousAt: recorded.previous ? recorded.previous.auditedAt : null,
       newIds: recorded.newIds,
-      resolved: recorded.resolved
+      resolved: recorded.resolved,
+      resolutions: recorded.resolutions,
+      firstSeen: recorded.firstSeen
     };
   } catch (error) {
     console.warn(`[code-audit] history not recorded (${cleanText(String(error && error.code || 'error'), 60)})`);
@@ -7920,6 +7979,225 @@ app.post('/api/repo/:owner/:repo/code-audit/history/clear', providerSessionAcces
     const cleared = await auditHistory().clear({ scope: req.governance.scope, identityKey: req.governance.actor.identityKey });
     res.status(201).json({ cleared });
   } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * Each open finding's clock (src/code-audit-policy.js): the days the audited
+ * branch gives its severity, from the date the kept history first saw it. A
+ * server without a history has no such date and draws no clocks, rather than
+ * starting every clock again at each audit.
+ */
+function withClocks(result, firstSeen) {
+  const sla = result.policy && result.policy.sla;
+  if (!sla || !Array.isArray(result.findings)) return result;
+  const now = Date.now();
+  return {
+    ...result,
+    findings: result.findings.map(finding => {
+      const clock = clockOf({ severity: finding.severity, exploited: exploitedInProduction(finding) }, { firstSeenAt: firstSeen[finding.id], sla, now });
+      return clock ? { ...finding, clock } : finding;
+    })
+  };
+}
+
+/*
+ * Triage. A decision about a finding belongs to the repository and is shared
+ * by its collaborators (src/code-audit-triage.js). Reading the decisions
+ * takes the reader role on the repository itself -- the access everyone has
+ * to a public repository is not enough -- and deciding takes the reviewer
+ * role, so a person who can push cannot wave away a finding in their own
+ * change. Each decision and each reopening is a governed action as well,
+ * recorded in the evidence ledger with the actor's name on it.
+ */
+let _auditTriage = null;
+function auditTriage() {
+  if (!DB_URL) return null;
+  if (!_auditTriage) _auditTriage = new CodeAuditTriage({ pool: pool() });
+  return _auditTriage;
+}
+/*
+ * The decisions an audit is read with: a collaborator's audit carries the
+ * team's, anyone else's is the engine's own. A collaborator whose decisions
+ * could not be read is told so, rather than shown the findings as if nobody
+ * had decided anything.
+ */
+async function triageForAccount(account, owner, repo) {
+  const triage = auditTriage();
+  if (!triage) return null;
+  let scope;
+  try {
+    const authorization = await authorizationResolver.resolve({ account, owner, repo, actorIdentityKey: identityKey(account) });
+    const context = assertGovernanceAuthorization({
+      authorization,
+      scope: { provider: account.provider || 'github', baseUrl: account.baseUrl || '', owner, repo },
+      requiredRole: 'reader'
+    });
+    if (isPublicReaderAccess(context.authorization)) return null;
+    scope = context.scope;
+  } catch {
+    return null;
+  }
+  try {
+    return { decisions: await triage.decisions({ scope }) };
+  } catch (error) {
+    console.warn(`[code-audit] triage not read (${cleanText(String(error && error.code || 'error'), 60)})`);
+    return { unavailable: true };
+  }
+}
+function findingParam(req) {
+  const id = String(req.params.findingId || '').toLowerCase();
+  if (!/^[0-9a-f]{24}$/.test(id)) throw Object.assign(new Error('That is not a finding of an audit'), { status: 400, code: 'CODE_AUDIT_FINDING_INVALID' });
+  return id;
+}
+
+app.get('/api/repo/:owner/:repo/code-audit/triage', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader'), async (req, res) => {
+  try {
+    const decisions = await auditTriage().list({ scope: req.governance.scope });
+    res.json({
+      available: true,
+      canDecide: req.governance.authorization.governanceRoles.reviewer === true,
+      vocabulary: TRIAGE_VOCABULARY,
+      decisions
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/code-audit/findings/:findingId/triage', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reviewer'), governanceMutationContext('code-audit.finding.triage'), async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
+    const decision = await auditTriage().decide({
+      scope: req.governance.scope,
+      findingId: findingParam(req),
+      rule: String(body.rule || ''),
+      input: { disposition: body.disposition, reason: body.reason, expiresInDays: body.expiresInDays },
+      actor: retainedActor(req),
+      actorKey: req.governance.actor.identityKey
+    });
+    res.status(201).json({ decision });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.post('/api/repo/:owner/:repo/code-audit/findings/:findingId/reopen', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reviewer'), governanceMutationContext('code-audit.finding.reopen'), async (req, res) => {
+  try {
+    const removed = await auditTriage().reopen({
+      scope: req.governance.scope,
+      findingId: findingParam(req),
+      actor: retainedActor(req),
+      actorKey: req.governance.actor.identityKey
+    });
+    if (!removed) return res.status(404).json({ error: 'Nobody has decided anything about that finding', code: 'CODE_AUDIT_TRIAGE_NOT_FOUND' });
+    res.status(201).json({ reopened: removed });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+app.get('/api/repo/:owner/:repo/code-audit/findings/:findingId/triage-events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader'), async (req, res) => {
+  try {
+    const events = await auditTriage().events({ scope: req.governance.scope, findingId: findingParam(req) });
+    res.json({ events });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * The grade and the fix-first list for what the page holds, after a decision
+ * moved a finding out of it, worked out by the engine's own scoring. Pure: it
+ * reads nothing and keeps nothing.
+ */
+app.post('/api/code-audit/score', providerSessionAccess, capabilityAccess('code-audit'), accountAuth, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const body = req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {};
+  if (!Array.isArray(body.findings)) return res.status(400).json({ error: 'findings are required', code: 'CODE_AUDIT_SCORE_INVALID' });
+  res.json(rescore(body.findings));
+});
+
+/*
+ * Where a branch stands against its clocks, and how long fixing has taken
+ * (src/code-audit-history.js). The reader's own audits, as the history is;
+ * the team's decisions take findings out of the count for a collaborator.
+ */
+app.get('/api/repo/:owner/:repo/code-audit/metrics', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader', OWN_WORK), async (req, res) => {
+  try {
+    const ref = auditHistoryRef(req);
+    const triage = req.governance.publicReader ? null : await triageForAccount(req.gh, req.params.owner, req.params.repo);
+    const decisions = triage && triage.decisions ? triage.decisions : new Map();
+    const now = Date.now();
+    const triaged = finding => {
+      const decision = decisions.get(finding.id);
+      return Boolean(decision && decision.rule === finding.rule && inForce(decision, now));
+    };
+    const metrics = await auditHistory().metrics({ scope: req.governance.scope, identityKey: req.governance.actor.identityKey, ref, isTriaged: triaged, now });
+    res.json({
+      available: true, ref, ...metrics,
+      triage: triage && triage.decisions ? summarizeDecisions(triage.decisions, now) : null,
+      triageUnavailable: Boolean(triage && triage.unavailable)
+    });
+  } catch (error) { exposureFailure(res, error); }
+});
+
+/*
+ * The merge gate: what the latest audit the person merging kept of a pull
+ * request's head says about merging it, after the team's decisions, against
+ * the clock of the branch it merges into (src/code-audit-triage.js). It is
+ * evaluated again inside every governed merge and carried in the mutation's
+ * metadata, where an active policy can act on it; this answers the same
+ * question for the page before anybody presses Merge, with the active
+ * policies' answer beside it -- read without writing, so no decision is
+ * recorded for a merge nobody asked for.
+ */
+async function readPullFacts(req, number) {
+  if (req.gh.provider === 'gitlab') {
+    const m = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${encodeURIComponent(number)}`);
+    return {
+      number, head: String(m.source_branch || ''), base: String(m.target_branch || ''), headSha: String(m.sha || '').toLowerCase(),
+      fork: Boolean(m.source_project_id && m.target_project_id && m.source_project_id !== m.target_project_id),
+      open: m.state === 'opened'
+    };
+  }
+  const p = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}`);
+  const headRepo = p.head && p.head.repo && p.head.repo.full_name;
+  const baseRepo = p.base && p.base.repo && p.base.repo.full_name;
+  return {
+    number, head: String(p.head && p.head.ref || ''), base: String(p.base && p.base.ref || ''), headSha: String(p.head && p.head.sha || '').toLowerCase(),
+    fork: Boolean(headRepo && baseRepo && headRepo.toLowerCase() !== baseRepo.toLowerCase()),
+    open: p.state === 'open'
+  };
+}
+async function mergeGateFor(account, owner, repo, pull, now = Date.now()) {
+  const history = auditHistory();
+  if (!history) return unavailableGate();
+  try {
+    const scope = normalizePolicyScope({ provider: account.provider || 'github', baseUrl: account.baseUrl || '', owner, repo });
+    const identity = identityKey(account);
+    /* A fork's head branch is a branch of the fork: no audit of this repository describes it. */
+    const [head, base, triage] = await Promise.all([
+      pull.head && !pull.fork ? history.latest({ scope, identityKey: identity, ref: pull.head }) : null,
+      pull.base ? history.latest({ scope, identityKey: identity, ref: pull.base }) : null,
+      triageForAccount(account, owner, repo)
+    ]);
+    return evaluateMergeGate({ headSha: pull.headSha, head, base, decisions: triage && triage.decisions, now });
+  } catch (error) {
+    console.warn(`[code-audit] merge gate not evaluated (${cleanText(String(error && error.code || 'error'), 60)})`);
+    return unavailableGate();
+  }
+}
+async function gatePolicies(scope, attributes) {
+  if (!(await dbReady())) return { available: false, policies: [] };
+  const resolved = await ensureGovernanceStore().resolveActivePolicySetInScope({ scope, action: 'pull.merge' });
+  return { available: true, policies: previewMergePolicies(resolved.activePolicies, attributes) };
+}
+
+app.get('/api/repo/:owner/:repo/code-audit/gate', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, governanceAccess('reader'), async (req, res) => {
+  try {
+    const number = Number.parseInt(String(req.query.pull || ''), 10);
+    if (!Number.isSafeInteger(number) || number < 1 || number > 2_147_483_647) {
+      return res.status(400).json({ error: 'pull is required', code: 'AUDIT_GATE_PULL_REQUIRED' });
+    }
+    const pull = await readPullFacts(req, number);
+    const gate = await mergeGateFor(req.gh, req.params.owner, req.params.repo, pull);
+    let enforcement;
+    try { enforcement = await gatePolicies(req.governance.scope, mergeAttributes(pull, gate)); }
+    catch { enforcement = { available: false, policies: [] }; }
+    res.json({ available: Boolean(auditHistory()), pull, gate, enforcement });
+  } catch (error) { fail(res, error); }
 });
 
 /*

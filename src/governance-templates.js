@@ -12,7 +12,7 @@ const {
 const { expandProtectedPaths } = require('./protected-paths');
 
 const TEMPLATE_CATALOG_ID = 'nebulaverse-policy-template-catalog';
-const TEMPLATE_CATALOG_VERSION = '1.2.0';
+const TEMPLATE_CATALOG_VERSION = '1.3.0';
 const MAX_FACTS_BYTES = 16 * 1024;
 const MAX_PROTECTED_BRANCHES = 50;
 const SAFE_BRANCH_RX = /^[A-Za-z0-9._\/-]{1,255}$/;
@@ -223,6 +223,46 @@ const DEFINITIONS = Object.freeze([
         description: `${protectedPathsDescription(expansion)} Merging into ${defaultBranch} needs approval too, so the pull request this leaves open cannot approve itself.`,
         enforcement: { mode: 'observe' },
         rules: [...expansion.rules, mergeRule]
+      };
+    }
+  }),
+  /*
+   * Merging held to the audit of what merges. Every governed merge carries
+   * what the merging person's latest audit of the pull request's head says
+   * (src/code-audit-triage.js): whether it is of the commit being merged,
+   * and what is still open there after the team's decisions. A head with an
+   * open confirmed critical, a credential, a vulnerability being exploited
+   * in something that ships, or a finding past the base branch's clock is
+   * not merged; a head nobody has audited at this commit needs approval.
+   * Serious findings and ones the change introduces are named by the gate
+   * too, for a stricter policy to add.
+   */
+  Object.freeze({
+    templateId: 'audit-merge-gate', version: '1.0.0',
+    name: 'Audit merge gate',
+    description: 'Observe-only gate on merges: refuse a head whose audit has open criticals, credentials, exploited vulnerabilities or overdue findings, and hold a head that was not audited at the commit being merged.',
+    approvalPolicy: Object.freeze({ requiredApprovals: 1, disallowAuthorApproval: true }),
+    buildDocument() {
+      return {
+        schemaVersion: 1,
+        description: 'Merges are judged by the Uranus audit of the commit being merged, after the team\u2019s triage, against the base branch\u2019s clock. Generated in observe mode: decisions are recorded and nothing is blocked until this policy is activated in warn or block mode.',
+        enforcement: { mode: 'observe' },
+        rules: [
+          {
+            id: 'audit-gate-findings',
+            action: 'pull.merge',
+            effect: 'deny',
+            conditions: { audit: { state: 'current', blocking: ['critical', 'secret', 'exploited', 'overdue'] } },
+            description: 'The audit of this head has an open confirmed critical, a credential, a vulnerability exploited in the wild, or a finding past its deadline.'
+          },
+          {
+            id: 'audit-gate-unaudited',
+            action: 'pull.merge',
+            effect: 'require-approval',
+            conditions: { audit: { state: ['missing', 'stale', 'unavailable'] } },
+            description: 'Nobody merging has audited this head at the commit being merged.'
+          }
+        ]
       };
     }
   }),

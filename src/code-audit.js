@@ -79,6 +79,7 @@ const { usageIndex, tierOf, riskOf, exploitedInProduction } = require('./uranus-
 const { lookupExploitIntel } = require('./exploit-intel');
 const ecosystems = require('./ecosystems');
 const licences = require('./licences');
+const auditPolicy = require('./code-audit-policy');
 
 /* The engine's name and version, carried in every result and export. */
 const ENGINE = Object.freeze({ name: 'Uranus', version: '2.2.0' });
@@ -178,6 +179,8 @@ function auditPriority(filePath) {
   if (MANIFESTS.test(filePath) || isRequirements(base) || base === '.gitignore' || base === 'tsconfig.json' || isDockerfile(filePath) || FIREBASE_RULES.has(base)) return 0;
   /* The project's own licence and its licence policy: what every dependency's licence is judged against. */
   if (licences.isLicenceFile(filePath) || licences.POLICY_PATHS.includes(filePath)) return 0;
+  /* The repository's own clock for its findings. */
+  if (filePath === auditPolicy.POLICY_PATH) return 0;
   if (READ_LOCKS.has(base) || (extensionOf(filePath) === 'sql' && /(^|\/)(supabase|migrations?|db|database|sql|schema)\//i.test(filePath))) return 1;
   if (/^\.github\/workflows\//.test(filePath) || base === 'Makefile' || /\.(sh|ps1)$/.test(base) || /^\.env/.test(base) ||
     /^(next|vite|nuxt|svelte|astro)\.config\./.test(base) || base === 'vercel.json' || base === 'netlify.toml' ||
@@ -2739,6 +2742,7 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
   return {
     findings, suppressed, dependencyStatus, advisoryStatus: vulnerabilities.status, dependencyRisk, priorities: priorities(findings), ...score(findings),
     licences: licenceSummary,
+    policy: auditPolicy.readAuditPolicy(files),
     components: bill.components, componentsTruncated: bill.truncated,
     engine,
     surface: surfaceSummary(surface),
@@ -3276,6 +3280,6 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
 
 module.exports = Object.freeze({
   ENGINE, CATEGORIES, RULES, LIMITS, CRITICAL_CAP, SEVERITY_PENALTY, PATTERN_RULES, LEDGER,
-  analyse, scanRules, mergeScans, auditRepository, selectFiles, lookupPackages, lookupAdvisories, queryAdvisoryIds, fetchAdvisoryRecords, describeAdvisory, advisoryKey, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
+  analyse, score, priorities, scanRules, mergeScans, auditRepository, selectFiles, lookupPackages, lookupAdvisories, queryAdvisoryIds, fetchAdvisoryRecords, describeAdvisory, advisoryKey, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
   compareVersions, rangeCeiling, rangeFloor, cvss3, sqlStatements
 });

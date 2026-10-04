@@ -2358,6 +2358,25 @@ class AlphaPrivacyStore {
           `DELETE FROM nv_code_audits WHERE identity_key=ANY($1::text[])`,
           [exclusiveIdentityKeys]
         );
+        /*
+         * The time to fix those audits measured, by the same key. And the
+         * tester's triage: a decision is shared with a repository's other
+         * collaborators, but it carries the tester's name, so it leaves with
+         * them -- the findings it covered read as open again -- and so does
+         * every event that records them deciding or reopening.
+         */
+        await client.query(
+          `DELETE FROM nv_code_audit_resolutions WHERE identity_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
+        );
+        await client.query(
+          `DELETE FROM nv_code_audit_triage WHERE decided_by_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
+        );
+        await client.query(
+          `DELETE FROM nv_code_audit_triage_events WHERE actor_key=ANY($1::text[])`,
+          [exclusiveIdentityKeys]
+        );
         const feedback = await client.query(
           `DELETE FROM nv_alpha_feedback WHERE tester_id=$1`,
           [testerId]

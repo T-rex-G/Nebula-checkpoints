@@ -44,8 +44,11 @@ for (const step of steps) {
   }
 }
 const skipped = steps.filter(step => SKIPPED.some(entry => entry.match.test(step)));
-assert.strictEqual(skipped.length, SKIPPED.length,
-  'every declared skip must match exactly one workflow step, and no step may match two');
+for (const skip of SKIPPED) assert(steps.some(step => skip.match.test(step)), 'every skip rule must match an actual provisioning step');
+for (const step of steps) assert(SKIPPED.filter(skip => skip.match.test(step)).length <= 1,
+  'no workflow step may match two skip rules');
+assert(skipped.every(step => /^npm ci$|^bash ci\/install-(?:browser|postgres-client)\.sh(?:\s|$)|^npx playwright install/.test(step)),
+  'only provisioning may be skipped; integration and database gates must execute');
 
 /*
  * The gates a change like this one is most likely to skip by hand. Named so
@@ -53,7 +56,7 @@ assert.strictEqual(skipped.length, SKIPPED.length,
  * failing test attached, not a silent loss of coverage.
  */
 for (const required of [/run docs:check/, /run check:syntax/, /run lint/, /^npm test$/,
-  /run test:migrations/, /audit-production/, /run check:secrets/, /run test:staging:gate/,
+  /run test:migrations/, /run test:database-resilience/, /run test:restore-integration/, /run test:integration/, /audit-production/, /run check:secrets/, /run test:staging:gate/,
   /run test:release/, /run test:e2e/, /run package:release/]) {
   assert(steps.some(step => required.test(step)),
     `the workflow no longer runs ${required}; the local runner would stop covering it`);

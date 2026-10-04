@@ -257,11 +257,16 @@ const archiveRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nebulaverse-generated
 try {
   fs.mkdirSync(path.join(archiveRoot, 'src'));
   fs.mkdirSync(path.join(archiveRoot, 'scripts'));
+  fs.mkdirSync(path.join(archiveRoot, 'config'));
   fs.mkdirSync(path.join(archiveRoot, 'docs', 'current'), { recursive: true });
   for (const relative of [
     'package.json',
     'WORK_CONTINUITY.json',
     'src/work-continuity.js',
+    'src/capability-registry.js',
+    'src/github-account-operations.js',
+    'src/alpha-access.js',
+    'config/public-alpha-capabilities.json',
     'scripts/generate-continuity-docs.js',
     'docs/current/PROJECT_STATE.md',
     'docs/current/CONTINUATION_PROMPT.md'

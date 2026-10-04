@@ -34,7 +34,8 @@ for (const [claim, value] of Object.entries(expected)) {
   assert.strictEqual(claims.get(claim).count, value, `${claim}: the page counts ${claims.get(claim).count}, the engine ${value}`);
   assert.strictEqual(claims.get(claim).shown, value, `${claim}: the figure without script must be the same number`);
 }
-assert.match(html, /<b data-claim="unpreviewed-writes">0<\/b> writes reach a provider without a preview/);
+assert.doesNotMatch(html, /Every write is previewed|0<\/b> writes reach a provider without a preview/);
+assert.match(html, /Staged file changes require a diff review before commit/);
 /* The benchmark's figures, as the corpus gives them today. */
 {
   const { runBenchmark, percent } = require('../scripts/uranus-benchmark');

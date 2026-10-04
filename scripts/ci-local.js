@@ -2,7 +2,7 @@
 'use strict';
 
 /*
- * Run the CI verify job's steps locally, in order, read out of the workflow
+ * Run the CI jobs' steps locally, in order, read out of the workflow
  * rather than restated here.
  *
  * The failure this exists to prevent: a change was pushed after its tests were
@@ -29,7 +29,8 @@ const WORKFLOW = path.join(ROOT, '.github', 'workflows', 'ci.yml');
  */
 const SKIPPED = [
   { match: /^npm ci$/, why: 'dependencies are already installed in the working tree' },
-  { match: /^(?:npx playwright install|bash ci\/install-browser\.sh$)/, why: 'browsers are provisioned by the environment' }
+  { match: /^bash ci\/install-postgres-client\.sh$/, why: 'PostgreSQL 17 clients must already be on PATH locally; the restore gate still runs' },
+  { match: /^(?:npx playwright install|bash ci\/install-browser\.sh(?:\s|$))/, why: 'browsers are provisioned by the environment; Chromium and WebKit are both required' }
 ];
 
 function readRunSteps(source) {
@@ -53,7 +54,7 @@ function localise(step, tempDir) {
 }
 
 function environmentFor(step, base) {
-  if (!/test:migrations/.test(step)) return base;
+  if (!/test:(migrations|database-resilience|restore-integration|integration|multi-instance|exposure-store|code-audit-history|governance-lifecycle)/.test(step)) return base;
   /*
    * The workflow points this at its own PostgreSQL service. Locally the URL has
    * to come from the caller, and running the gate without one would report a
@@ -61,7 +62,7 @@ function environmentFor(step, base) {
    */
   const url = String(base.NV_TEST_DATABASE_URL || '').trim();
   if (!url) {
-    throw new Error('NV_TEST_DATABASE_URL is required to run the migration gate locally');
+    throw new Error('NV_TEST_DATABASE_URL is required to run the database and integration gates locally');
   }
   return base;
 }

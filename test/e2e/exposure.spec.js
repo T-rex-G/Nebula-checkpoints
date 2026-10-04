@@ -827,9 +827,12 @@ test('answers already on record are on the screen before anything is pressed', a
   await openExposure(page);
   await expandFindings(page);
 
-  await expect(page.locator('.exposure-item-liveness')).toHaveAttribute('data-state', 'verified');
+  await expect(page.locator('.exposure-item-liveness')).toHaveAttribute('data-state', 'stale');
+  await expect(page.locator('.exposure-item-liveness')).toContainText('expired');
+  await expect(page.locator('.exposure-item-liveness')).not.toContainText('it is live');
   const readability = page.locator('.exposure-item-readability');
-  await expect(readability).toHaveAttribute('data-state', 'readable');
+  await expect(readability).toHaveAttribute('data-state', 'stale');
+  await expect(readability).toContainText('expired');
   await expect(readability).toContainText(/profiles/);
 
   /* Nothing was re-asked to put them there. */

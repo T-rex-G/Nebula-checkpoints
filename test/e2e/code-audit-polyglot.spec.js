@@ -25,8 +25,18 @@ async function audit(page) {
 
 test('Go, Java and PHP are traced and their endpoints mapped under their own frameworks', async ({ page }) => {
   const pane = await audit(page);
-  await expect(pane.locator('.audit-engine-line')).toContainText('Uranus 2.1');
+  await expect(pane.locator('.audit-engine-line')).toContainText('Uranus 2.2');
   await expect(pane.locator('.audit-engine-line')).toContainText('6 files traced');
+  /* The version and the count are read apart, not as one number. */
+  await expect(pane.locator('.audit-engine-line')).toContainText('Uranus 2.2 6 files traced');
+  /* And the space is not drawn: a flex row drops a text run that is only white space. */
+  const drawn = await pane.locator('.audit-engine-line').evaluate(line => {
+    const space = [...line.childNodes].find(node => node.nodeType === 3);
+    const range = document.createRange();
+    range.selectNodeContents(space);
+    return range.getClientRects().length;
+  });
+  expect(drawn).toBe(0);
 
   const surface = pane.locator('.audit-surface');
   await expect(surface.getByRole('heading', { name: 'Attack surface' })).toBeVisible();

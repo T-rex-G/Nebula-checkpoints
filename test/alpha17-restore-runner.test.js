@@ -10,10 +10,15 @@ const { spawn, execFileSync } = require('child_process');
 const root = path.resolve(__dirname, '..');
 const {
   MAX_COMMAND_DURATION_MS,
+  commandEnvironment,
   executeAlphaDb,
+  validateBackupResult,
+  validateRestoreResult,
   runRestoreValidation
 } = require('../ci/run-alpha17-restore-validation');
 const { neonConnectionIdentitySha256 } = require('../scripts/alpha-db');
+const { loadMigrations } = require('../src/migrations');
+const LATEST_MIGRATION = loadMigrations(path.join(root, 'db', 'migrations')).at(-1).id;
 
 const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
@@ -56,6 +61,7 @@ try {
   fs.mkdirSync(runnerTemp, { mode: 0o700 });
   const candidateRoot = path.join(runnerTemp, 'subject', 'candidate');
   fs.mkdirSync(candidateRoot, { recursive: true, mode: 0o700 });
+  fs.cpSync(path.join(root, 'db', 'migrations'), path.join(candidateRoot, 'db', 'migrations'), { recursive: true });
   const attestationPath = path.join(runnerTemp, 'restore-attestation.json');
   const commands = [];
   let observedBackupDirectory = null;
@@ -100,7 +106,7 @@ try {
         command: 'backup',
         backupPath,
         manifestPath,
-        schemaVersion: '015_alpha_privacy',
+        schemaVersion: LATEST_MIGRATION,
         sizeBytes: backup.length,
         plaintextSha256: '1'.repeat(64),
         ciphertextSha256: sha256(backup)
@@ -126,7 +132,7 @@ try {
     if (args[0] === 'restore') {
       return {
         command: 'restore',
-        migration: '015_alpha_privacy',
+        migration: LATEST_MIGRATION,
         counts: {
           testers: '1', invites: '1', feedback: '0', cleanup_tasks: '0', deletion_requests: '0'
         }
@@ -158,6 +164,24 @@ try {
     );
     assert.deepStrictEqual(commands, [], `${key} must fail before restore-target, backup, or restore executes`);
   }
+  const probeDirectory = fs.mkdtempSync(path.join(runnerTemp, 'backup-output-'));
+  const currentBackup = executeCommand(['backup', '--output-dir', probeDirectory], commandEnvironment(env));
+  assert.doesNotThrow(() => validateBackupResult(currentBackup, probeDirectory, LATEST_MIGRATION));
+  assert.throws(
+    () => validateBackupResult({ ...currentBackup, schemaVersion: '015_alpha_privacy' }, probeDirectory, LATEST_MIGRATION),
+    /backup result/,
+    'a historical database cannot qualify the current candidate schema'
+  );
+  const currentRestore = executeCommand(['restore'], commandEnvironment(env));
+  assert.doesNotThrow(() => validateRestoreResult(currentRestore, LATEST_MIGRATION));
+  assert.throws(
+    () => validateRestoreResult({ ...currentRestore, migration: '015_alpha_privacy' }, LATEST_MIGRATION),
+    /restore result/,
+    'a historical restore cannot qualify the current candidate schema'
+  );
+  fs.rmSync(probeDirectory, { recursive: true, force: true });
+  commands.length = 0;
+
   const result = await runRestoreValidation({
     env,
     executeCommand,
@@ -174,7 +198,7 @@ try {
     result.check.restoreAppDeployIdSha256,
     sha256(env.NV_ALPHA17_RESTORE_APP_DEPLOY_ID)
   );
-  assert.strictEqual(result.check.latestMigration, '015_alpha_privacy');
+  assert.strictEqual(result.check.latestMigration, LATEST_MIGRATION);
   assert.match(result.check.backupManifestSha256, /^[0-9a-f]{64}$/);
   assert.match(result.check.backupCiphertextSha256, /^[0-9a-f]{64}$/);
   assert.notStrictEqual(result.check.sourceIdentitySha256, result.check.targetIdentitySha256);

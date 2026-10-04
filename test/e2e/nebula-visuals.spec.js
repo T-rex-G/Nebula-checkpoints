@@ -100,7 +100,7 @@ test('the artwork hosts are decoration: hidden from readers and out of the way',
    * The hero heading sits over the galaxy and must still be readable text --
    * not a picture of text, and not something the artwork covers.
    */
-  await expect(ui.heading(ui.screen(page, 'repos'), /one clear/)).toBeVisible();
+  await expect(ui.heading(ui.screen(page, 'repos'), 'Choose a repository.')).toBeVisible();
 
   /*
    * Decoration must not grow the page. The artwork is sized past its hero on

@@ -294,7 +294,7 @@ function renderGalaxyPulse(repos) {
   const spread = pulse && pulse.languageSpread ? pulse.languageSpread(list) : [];
   const drawRadar = spread.length >= (pulse ? pulse.RADAR_MIN_AXES : 3);
   const measures = [
-    { label: 'Galaxies online', value: list.length, note: list.length === 1 ? 'connected system' : 'connected systems' },
+    { label: 'Repositories', value: list.length, note: 'connected' },
     { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
     ...(drawRadar ? [] : [{ label: 'Languages', value: languages.size, note: languages.size === 1 ? 'in use' : 'across the set' }])
   ].filter(measure => Number.isFinite(measure.value));
@@ -537,7 +537,16 @@ function closeModal(v) {
   modalReturnFocus = null;
   const generation = modalGeneration;
   if (restore && restore.isConnected && typeof restore.focus === 'function') requestAnimationFrame(() => {
-    if (generation === modalGeneration) restore.focus({ preventScroll: true });
+    /*
+     * Only a focus the closing dialog left behind is handed back. The flow
+     * that awaited the dialog may already have moved it on -- staging a new
+     * file opens the staged-changes panel and focuses its commit control --
+     * and taking it back a frame later would leave the reader behind that
+     * panel, with Enter landing on whatever opened the dialog.
+     */
+    const active = document.activeElement;
+    const left = !active || active === document.body || $('#scrim').contains(active);
+    if (generation === modalGeneration && left) restore.focus({ preventScroll: true });
   });
 }
 $('#modalOk').addEventListener('click', () => closeModal(true));
@@ -1486,7 +1495,7 @@ function ensureAlphaProviderGuidance() {
   }
   const copy = panel.querySelector('p');
   copy.textContent = loginProvider === 'github'
-    ? 'Prefer a GitHub App limited to selected repositories. If a token is required, use a short-lived sandbox credential with only the permissions needed for this test; never use a production repository.'
+    ? 'Sign in with a short-lived fine-grained token limited to selected sandbox repositories. A configured GitHub App can then be connected from Settings; never use a production repository.'
     : `Use a short-lived ${loginProvider === 'gitlab' ? 'GitLab' : 'Gitea'} sandbox credential with only the permissions needed for the advertised capability subset; never use a production repository.`;
   return panel;
 }
@@ -1522,13 +1531,25 @@ $('#provSeg').addEventListener('click', e => {
   $('#baseUrl').placeholder = loginProvider === 'gitea' ? 'https://gitea.example.com' : 'https://gitlab.com (default)';
   $('#tokenLabel').textContent = { github: 'GitHub Personal Access Token', gitlab: 'GitLab Personal Access Token (api scope)', gitea: 'Gitea Access Token' }[loginProvider];
   $('#tokenInput').placeholder = { github: 'ghp_…', gitlab: 'glpat-…', gitea: 'token…' }[loginProvider];
-  $('#loginHint').innerHTML = {
-    github: 'Create one at <span class="mono">github.com → Settings → Developer settings → Tokens (classic)</span> with the <span class="mono">repo</span> scope.',
-    gitlab: 'Create one at <span class="mono">GitLab → Preferences → Access tokens</span> with the <span class="mono">api</span> scope. Works with gitlab.com or your self-hosted server.',
-    gitea: 'Create one at <span class="mono">your Gitea → Settings → Applications → Generate token</span>. Enter your server URL above.'
-  }[loginProvider] + ' Sealed in an encrypted httpOnly cookie — never stored in the browser, never logged.';
+  renderLoginGuidance();
   ensureAlphaProviderGuidance();
 });
+function renderLoginGuidance() {
+  const github = 'Create a short-lived <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">fine-grained token</a> limited to selected repositories. Start with Contents read access; add Contents write or other permissions only for the actions you need.';
+  const providers = {
+    github,
+    gitlab: 'Use a short-lived sandbox token from GitLab → Preferences → Access tokens. The GitLab integration requires api scope; limit the token to a test account or project.',
+    gitea: 'Use a short-lived sandbox token from your Gitea → Settings → Applications. Select only the repository permissions needed for your actions and enter the server URL above.'
+  };
+  const app = loginProvider === 'github' && state.runtime.githubApp && state.runtime.githubApp.enabled
+    ? ' After sign-in, open Settings → GitHub App to connect an installation limited to selected repositories.' : '';
+  $('#loginHint').innerHTML = providers[loginProvider] + app + ' Sessions use an HttpOnly session cookie stored by your browser. Provider credentials are encrypted in that cookie or in server-side session storage.';
+  const value = key => Number.isFinite(state.runtime[key]) ? `${state.runtime[key]} MB` : 'unavailable';
+  $('#loginLimits').textContent = runtimeLimitsKnown()
+    ? `Deployment limits — Direct upload: ${value('uploadMaxMb')}; Git data: ${value('gitDataMaxMb')}; native push: ${value('nativePushMaxMb')}. Provider limits also apply. Public alpha: no production service guarantee.`
+    : 'Deployment upload limits are unavailable. Retry before uploading; provider limits also apply. Public alpha: no production service guarantee.';
+}
+
 const PROV_ICON = {
   github: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>',
   gitlab: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>',
@@ -1605,9 +1626,11 @@ async function loadRuntimeConfig(attempt = 0) {
     state.runtime = { ...state.runtime, ...c };
     refreshQueuedStrategies();
     $('#oauthBtn').hidden = !c.oauth || loginProvider !== 'github';
+    renderLoginGuidance();
   } catch {
     /* One retry: a free instance's first request can arrive while it wakes. */
     if (attempt === 0) return loadRuntimeConfig(1);
+    renderLoginGuidance();
   }
 }
 async function boot() {
@@ -2308,9 +2331,9 @@ function pulseMeasures(list, pulse) {
         : 'Not measured'
     },
     {
-      icon: 'signals', label: 'Verified capabilities',
-      value: signals && signals.measured ? signals.live : null,
-      note: signals && signals.measured ? `of ${signals.total} this provider projects` : 'Not measured'
+      icon: 'signals', label: 'Provider-verified',
+      value: signals && signals.measured ? signals.providerVerified : null,
+      note: signals && signals.measured ? `of ${signals.total} · registry evidence` : 'Not measured'
     },
     {
       icon: 'attention', label: 'Needs attention',
@@ -3271,6 +3294,7 @@ function freshExposureState(scopeKey = '') {
     scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
     confirming: '', verifying: '', accepting: '', probing: '', clearing: false,
     loading: false, error: '', scopeKey,
+    paged: false, total: 0, counts: null, nextCursor: null, requestId: 0, exporting: false,
     /* Which findings are open, by fingerprint, so a re-render keeps them. */
     expanded: new Set(),
     /* The history, newest first, with a cursor for the next page. */
@@ -3399,7 +3423,11 @@ function renderExposureTally(current) {
     counts[exposureSeverity(finding)] += 1;
     if ((finding.disposition || 'open') === 'open') open += 1;
   }
-  const total = current.findings.length;
+  const total = current.counts ? current.counts.all : current.findings.length;
+  if (current.counts) {
+    Object.assign(counts, current.counts.bySeverity);
+    open = current.counts.byDisposition.open || 0;
+  }
   const severities = ['critical', 'serious', 'warning'].filter(key => counts[key]);
   if (tally) {
     tally.hidden = !total;
@@ -3822,7 +3850,11 @@ function renderExposure() {
     scanBtn.textContent = current.loading ? 'Please wait…' : activeScan ? 'Scan in progress…' : 'Scan this branch';
   }
   const refresh = $('#exposureRefreshBtn');
-  if (refresh) refresh.hidden = !(activeScan && current.error);
+  if (refresh) {
+    refresh.hidden = !current.error;
+    refresh.disabled = current.loading;
+    refresh.textContent = activeScan ? 'Retry status check' : 'Reload findings';
+  }
 
   renderExposureHistory(current);
   renderExposureTally(current);
@@ -3833,9 +3865,9 @@ function renderExposure() {
   list.textContent = '';
   const shown = exposureFiltered(current);
   renderExposureTools(current, shown.length);
-  if (current.findings.length && !shown.length) {
+  if ((current.findings.length || (current.counts && current.counts.all)) && !shown.length) {
     empty.hidden = false;
-    empty.textContent = 'No findings match these filters.';
+    empty.textContent = current.loading ? 'Loading findings…' : 'No findings match these filters.';
     return;
   }
   if (!current.findings.length) {
@@ -3890,7 +3922,7 @@ function exposureMatches(finding, view) {
   return terms.every(term => text.includes(term));
 }
 function exposureFiltered(current) {
-  return current.findings.filter(finding => exposureMatches(finding, current.view));
+  return current.paged ? current.findings : current.findings.filter(finding => exposureMatches(finding, current.view));
 }
 /* Rows safe to hand to an export: the displayable path, never the raw one. */
 function exposureExportRows(findings, current) {
@@ -3902,14 +3934,34 @@ function exposureExportRows(findings, current) {
       where: finding.displayPath || 'a file', line: exposureFirstLine(finding), status: finding.disposition || 'open',
       inTree: finding.inTree !== false, archive: where.archive, encoded: where.encoded,
       commit: /^[0-9a-f]{7,40}$/.test(String(finding.introducedCommit || '')) ? String(finding.introducedCommit).slice(0, 12) : '',
-      verified: verification ? verification.state : '', fingerprint: finding.fingerprint || '',
+      verified: verification ? (exposureAnswerFresh(verification) ? verification.state : `previously ${verification.state} (expired or undated)`) : '', fingerprint: finding.fingerprint || '',
       acceptedBy: finding.disposition === 'accepted-risk' ? finding.dispositionBy || '' : ''
     };
   });
 }
-function exportExposure(kind) {
+async function exportExposure(kind) {
   const current = exposureState();
-  const shown = exposureFiltered(current);
+  if (current.exporting) return;
+  let shown = exposureFiltered(current);
+  const scope = exposureScopeKey();
+  const selected = { ...current, view: { ...current.view } };
+  current.exporting = true;
+  renderExposure();
+  try {
+    if (current.paged) {
+      shown = [];
+      let cursor = null;
+      do {
+        const page = await api(exposureFindingsUrl(selected, cursor, 200));
+        if (current !== exposureState() || scope !== exposureScopeKey()) return;
+        if (!page || !Array.isArray(page.findings) || !Number.isInteger(page.total)) throw new Error('Incomplete export response');
+        shown.push(...page.findings);
+        Object.assign(current.verifications, page.verifications || {});
+        cursor = page.nextCursor;
+        if (shown.length > 10000 || (cursor && !page.findings.length)) throw new Error('Export limit reached');
+        if (!cursor && shown.length !== page.total) throw new Error('Incomplete export');
+      } while (cursor);
+    }
   if (!shown.length || !window.NebulaCodeAudit) return;
   const rows = exposureExportRows(shown, current);
   const day = new Date().toISOString().slice(0, 10);
@@ -3925,6 +3977,37 @@ function exportExposure(kind) {
     dlFile(`${base}.csv`, window.NebulaCodeAudit.exposureCsv(rows), 'text/csv');
   }
   announceExposure(`${rows.length} ${rows.length === 1 ? 'finding' : 'findings'} exported.`);
+  } catch (error) {
+    current.error = error.code === 'EXPOSURE_CURSOR_STALE'
+      ? 'Findings changed during export. Refresh and export again.'
+      : 'A complete export could not be collected. Narrow the filters or try again.';
+    announceExposure(current.error);
+  } finally {
+    current.exporting = false;
+    if (current === exposureState()) renderExposure();
+  }
+}
+function exposureAnswerFresh(answer) {
+  const deadline = Date.parse(answer && answer.freshnessDeadline || '');
+  const observed = Date.parse(answer && answer.observedAt || '');
+  return Number.isFinite(observed) && Number.isFinite(deadline) && observed <= Date.now() && deadline > Date.now();
+}
+function exposureFindingsUrl(current, cursor = null, limit = 50) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const view = current.view;
+  if (view.severity) params.set('severity', view.severity);
+  if (view.status !== 'all') params.set('status', view.status);
+  if (view.where !== 'all') params.set('where', view.where);
+  if (view.query) params.set('q', view.query);
+  if (cursor) params.set('cursor', cursor);
+  return `/api/repo/${wPath()}/exposure/findings?${params}`;
+}
+function filterExposure() {
+  if (exposureState().paged) {
+    exposureState().findings = [];
+    exposureState().nextCursor = null;
+    void loadExposure({ filterOnly: true });
+  } else renderExposure();
 }
 function ensureExposureTools() {
   const host = $('#exposureTools');
@@ -3946,7 +4029,7 @@ function ensureExposureTools() {
     const n = document.createElement('span');
     n.className = 'audit-segment-n';
     control.append(text, n);
-    control.addEventListener('click', () => { current().view.severity = value; renderExposure(); });
+    control.addEventListener('click', () => { current().view.severity = value; filterExposure(); });
     segments.appendChild(control);
   }
   const select = (id, label, options, key) => {
@@ -3958,7 +4041,7 @@ function ensureExposureTools() {
     const control = document.createElement('select');
     control.id = id;
     for (const [value, word] of options) control.add(new Option(word, value));
-    control.addEventListener('change', () => { current().view[key] = control.value; renderExposure(); });
+    control.addEventListener('change', () => { current().view[key] = control.value; filterExposure(); });
     wrap.append(sr, control);
     return wrap;
   };
@@ -3976,7 +4059,7 @@ function ensureExposureTools() {
   let timer = 0;
   input.addEventListener('input', () => {
     clearTimeout(timer);
-    timer = setTimeout(() => { current().view.query = input.value.slice(0, 120); renderExposure(); }, 140);
+    timer = setTimeout(() => { current().view.query = input.value.slice(0, 120); filterExposure(); }, 140);
   });
   search.appendChild(input);
   const row = document.createElement('div');
@@ -3996,9 +4079,15 @@ function ensureExposureTools() {
   reset.addEventListener('click', () => {
     Object.assign(current().view, { severity: null, status: 'all', where: 'all', query: '' });
     input.value = '';
-    renderExposure();
+    filterExposure();
   });
-  tail.append(shown, reset);
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.id = 'exposureLoadMore';
+  more.className = 'btn btn-ghost small';
+  more.textContent = 'Load more findings';
+  more.addEventListener('click', () => void loadExposure({ append: true, filterOnly: true }));
+  tail.append(shown, reset, more);
   if (window.NebulaCodeAudit && window.NebulaCodeAudit.exportMenu) tail.appendChild(window.NebulaCodeAudit.exportMenu(exportExposure, 'exposure-export', ['csv', 'sarif']));
   host.append(segments, row, tail);
   return host;
@@ -4006,12 +4095,13 @@ function ensureExposureTools() {
 function renderExposureTools(current, shownCount) {
   const host = ensureExposureTools();
   if (!host) return;
-  const total = current.findings.length;
+  const total = current.counts ? current.counts.all : current.findings.length;
   host.hidden = !total;
   if (!total) return;
   const view = current.view;
   const counts = { critical: 0, serious: 0, warning: 0 };
   for (const finding of current.findings) counts[exposureSeverity(finding)] += 1;
+  if (current.counts) Object.assign(counts, current.counts.bySeverity);
   host.querySelectorAll('.exposure-segments .audit-segment').forEach(control => {
     const value = control.dataset.value === 'all' ? null : control.dataset.value;
     control.setAttribute('aria-pressed', String((view.severity || null) === value));
@@ -4027,11 +4117,13 @@ function renderExposureTools(current, shownCount) {
   if (search && document.activeElement !== search && search.value !== view.query) search.value = view.query;
   const narrowed = Boolean(view.severity || view.status !== 'all' || view.where !== 'all' || view.query);
   const shown = $('#exposureShown');
-  if (shown) shown.textContent = narrowed ? `${shownCount} of ${total} shown` : `${total} ${total === 1 ? 'finding' : 'findings'}`;
+  if (shown) shown.textContent = current.paged ? `${shownCount} of ${current.total} matching findings loaded (${total} total)` : narrowed ? `${shownCount} of ${total} shown` : `${total} ${total === 1 ? 'finding' : 'findings'}`;
+  const more = $('#exposureLoadMore');
+  if (more) { more.hidden = !current.nextCursor; more.disabled = current.loading; }
   const reset = $('#exposureResetFilters');
   if (reset) reset.hidden = !narrowed;
   const exportBtn = host.querySelector('.audit-export-btn');
-  if (exportBtn) exportBtn.disabled = !shownCount;
+  if (exportBtn) exportBtn.disabled = !shownCount || current.loading || current.exporting;
 }
 
 const EXPOSURE_SEVERITY_RANK = { critical: 0, serious: 1, warning: 2 };
@@ -4262,10 +4354,11 @@ function exposureFindingBody(item, finding, current, interactive) {
   if (verification) {
     const liveness = document.createElement('p');
     liveness.className = 'exposure-item-liveness';
-    liveness.dataset.state = verification.state;
-    liveness.textContent = (verification.narration
-      || EXPOSURE_VERIFICATION_FALLBACK[verification.state]
-      || 'The provider was asked and the answer was not interpreted.');
+    const fresh = exposureAnswerFresh(verification);
+    liveness.dataset.state = fresh ? verification.state : 'stale';
+    liveness.textContent = fresh ? (verification.narration || EXPOSURE_VERIFICATION_FALLBACK[verification.state]
+      || 'The provider was asked and the answer was not interpreted.')
+      : `Previous verification (${verification.state}) expired or has no valid check time. Check again for current evidence.`;
     item.appendChild(liveness);
   }
 
@@ -4281,10 +4374,11 @@ function exposureFindingBody(item, finding, current, interactive) {
   if (probe) {
     const readability = document.createElement('p');
     readability.className = 'exposure-item-readability';
-    readability.dataset.state = probe.state;
-    const answer = probe.narration
-      || EXPOSURE_PROBE_FALLBACK[probe.state]
-      || 'The project was asked and the answer was not interpreted.';
+    const fresh = exposureAnswerFresh(probe);
+    readability.dataset.state = fresh ? probe.state : 'stale';
+    const answer = fresh ? (probe.narration || EXPOSURE_PROBE_FALLBACK[probe.state]
+      || 'The project was asked and the answer was not interpreted.')
+      : `Previous readability result (${probe.state}) expired or has no valid check time. Check again for current evidence.`;
     /* The question travels with the answer. "Readable" means nothing
        without it, and a reader who cannot see what was asked cannot tell
        whether the answer matters. */
@@ -4393,43 +4487,40 @@ function exposureFindingBody(item, finding, current, interactive) {
 
 }
 
-async function loadExposure() {
-  /*
-   * A repository has to be open. Reaching this with none -- a deep link, a
-   * tab restored before the workbench finished loading -- would build a URL
-   * with an empty owner and ask the server about a repository nobody named.
-   */
+async function loadExposure({ append = false, filterOnly = false } = {}) {
   if (!state.work) return;
-  const current = exposureState();
   const scopeKey = exposureScopeKey();
-  if (current.scopeKey !== scopeKey) state.exposure = freshExposureState(scopeKey);
+  if (exposureState().scopeKey !== scopeKey) state.exposure = freshExposureState(scopeKey);
   const now = exposureState();
+  if (append && (!now.nextCursor || now.loading)) return;
+  const requestId = ++now.requestId;
   now.loading = true;
   renderExposure();
-  /* The history loads beside the findings rather than after them: it is what
-     tells the proof card which scan it is describing. */
-  void loadExposureHistory();
+  if (!filterOnly) void loadExposureHistory();
   try {
-    const findings = await api(`/api/repo/${wPath()}/exposure/findings?limit=50`);
-    if (now !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    now.findings = Array.isArray(findings && findings.findings) ? findings.findings : [];
-    /*
-     * The answers already on record, which arrive with the list rather than
-     * being asked for again. A screen that showed only what was asked in this
-     * session would forget, and re-asking to redisplay a fact would mean using
-     * somebody's credential a second time to learn nothing new.
-     */
-    now.verifications = (findings && findings.verifications) || {};
-    now.probes = (findings && findings.probes) || {};
+    const page = await api(exposureFindingsUrl(now, append ? now.nextCursor : null));
+    if (now !== exposureState() || scopeKey !== exposureScopeKey() || requestId !== now.requestId) return;
+    const items = Array.isArray(page && page.findings) ? page.findings : [];
+    now.findings = append ? [...now.findings, ...items] : items;
+    now.paged = Number.isInteger(page.total) && Boolean(page.counts);
+    now.total = now.paged ? page.total : items.length;
+    now.counts = now.paged ? page.counts : null;
+    now.nextCursor = page.nextCursor || null;
+    now.verifications = { ...(append ? now.verifications : {}), ...(page.verifications || {}) };
+    now.probes = { ...(append ? now.probes : {}), ...(page.probes || {}) };
+    if (now.error) announceExposure('Findings loaded.');
     now.error = '';
   } catch (error) {
-    if (now !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    now.findings = [];
-    now.verifications = {};
-    now.probes = {};
-    now.error = 'Findings could not be loaded for this repository.';
+    if (now !== exposureState() || scopeKey !== exposureScopeKey() || requestId !== now.requestId) return;
+    if (error.code === 'EXPOSURE_CURSOR_STALE') {
+      now.loading = false;
+      announceExposure('Findings changed. Loading the current view.');
+      return loadExposure({ filterOnly: true });
+    }
+    if (!append) { now.findings = []; now.verifications = {}; now.probes = {}; now.nextCursor = null; }
+    now.error = 'Findings could not be loaded for this repository. Refresh to try again.';
   } finally {
-    now.loading = false;
+    if (requestId === now.requestId) now.loading = false;
     if (now === exposureState() && scopeKey === exposureScopeKey()) {
       renderExposure();
       scheduleExposurePoll(now);
@@ -4525,7 +4616,7 @@ async function verifyExposureFinding(fingerprint) {
         item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
       ));
     }
-    announceExposure(verification && (body.narration || EXPOSURE_VERIFICATION_FALLBACK[verification.state]) || 'The check finished.');
+    announceExposure(verification && (body.narration || (exposureAnswerFresh(verification) ? EXPOSURE_VERIFICATION_FALLBACK[verification.state] : 'Previous verification expired or has no check time. Check again for current evidence.')) || 'The check finished.');
   } catch (error) {
     current.error = error && error.code === 'GOV_ROLE_REQUIRED'
       ? 'A governance administrator with permission from the credential owner must run this check.'
@@ -4625,7 +4716,7 @@ async function probeExposureReadability(fingerprint) {
     const probe = body && body.probe ? { ...body.probe, narration: body.narration } : null;
     if (probe) current.probes[fingerprint] = probe;
     current.error = '';
-    announceExposure((probe && (body.narration || EXPOSURE_PROBE_FALLBACK[probe.state])) || 'The question finished.');
+    announceExposure((probe && (body.narration || (exposureAnswerFresh(probe) ? EXPOSURE_PROBE_FALLBACK[probe.state] : 'Previous readability result expired or has no check time. Check again for current evidence.'))) || 'The question finished.');
   } catch (error) {
     /*
      * The two refusals a reader can act on, named rather than flattened into
@@ -5807,6 +5898,7 @@ function blankSiteScan() {
 let siteScanView = null;
 let siteScanRequest = 0;
 function clearSiteScanState() {
+  if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.dispose($('#renderedAuditRoot'));
   siteScanRequest++;
   siteScanView = null;
   const root = $('#siteRoot');
@@ -5822,6 +5914,7 @@ function paintSiteScan() {
   if (!siteScanView) siteScanView = blankSiteScan();
   const decision = window.NebulaCapabilityUI.decision('site-check');
   if (decision.status !== 'Supported') {
+    if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.dispose($('#renderedAuditRoot'));
     root.replaceChildren();
     const note = document.createElement('p');
     note.className = 'audit-lede audit-muted';
@@ -5829,6 +5922,7 @@ function paintSiteScan() {
     root.appendChild(note);
     return;
   }
+  if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.mount($('#renderedAuditRoot'), { api, download: dlFile });
   window.NebulaCodeAudit.renderSiteScan(root, siteScanView, {
     onSiteInput: value => { siteScanView.url = value; },
     onSiteCheck: runStandaloneSiteCheck,
@@ -6627,6 +6721,19 @@ function ensureCM() {
       saveDraft();
     }
   });
+  // A restored route can open its file while the view transition still hides
+  // the workspace. Refresh when its host actually acquires a laid-out size;
+  // a fixed 30 ms delay can leave CodeMirror blank in WebKit after reload.
+  const editor = state.cm;
+  let measuredWidth = 0, measuredHeight = 0, refreshFrame = 0;
+  const editorSize = new ResizeObserver(entries => {
+    const { width, height } = entries[0].contentRect;
+    if (width === measuredWidth && height === measuredHeight) return;
+    measuredWidth = width; measuredHeight = height;
+    cancelAnimationFrame(refreshFrame);
+    if (width > 0 && height > 0) refreshFrame = requestAnimationFrame(() => editor.refresh());
+  });
+  editorSize.observe($('#editorHost'));
   return state.cm;
 }
 
@@ -6904,32 +7011,25 @@ $('#fileHistoryBtn').addEventListener('click', async () => {
 });
 
 $('#newFileBtn').addEventListener('click', async () => {
+  if (!state.work) return;
+  const scope = `${wPath()}@${state.work.branch}`;
+  const epoch = state.uiEpoch;
   const ok = await modal({
     title: 'New file',
     bodyHTML: `<label class="field-label" for="nfPath">Path</label><input id="nfPath" type="text" placeholder="docs/notes.md" spellcheck="false">
-      <label class="check"><input type="checkbox" id="nfStage"> Stage instead of committing now</label>`,
-    okText: 'Create'
+      <p class="hint">Creates an empty file in your staged changes. Review the diff, repository and branch before committing; nothing is sent yet.</p>`,
+    okText: 'Stage file'
   });
   if (!ok) return;
+  if (!state.work || epoch !== state.uiEpoch || scope !== `${wPath()}@${state.work.branch}`) {
+    return toast('The repository changed. Open New file again for the intended branch.', 'err');
+  }
   const p = $('#nfPath').value.trim().replace(/^\/+/, '');
   if (!p) return;
-  const stageIt = $('#nfStage') && $('#nfStage').checked;
-  if (stageIt) {
-    addStaged({ op: 'put', path: p, content: '' });
-    toast(`New file ${p} staged`, 'ok');
-    closeDrawer();
-    return;
-  }
-  try {
-    const out = await api(`/api/repo/${wPath()}/file`, {
-      method: 'PUT', body: guardedWrite({ path: p, content: '', message: `Create ${p} via ${NV_PRODUCT_NAME}`, branch: state.work.branch })
-    });
-    rememberHead(out.commit);
-    toast(`Created ${p} ✦`, 'ok');
-    state.fileIndex = null;
-    loadTree('', $('#tree'), true);
-    openFile(p); closeDrawer();
-  } catch (e) { presentError(e); }
+  addStaged({ op: 'put', path: p, content: '', newFile: true });
+  toast(`New file ${p} staged for review`);
+  closeDrawer();
+  openStagePanel();
 });
 
 /* ================= STAGED CHANGES ================= */
@@ -6963,36 +7063,136 @@ function renderStagedPanel() {
     host.appendChild(el);
   });
 }
-function openStagePanel() { renderStagedPanel(); openOverlay($('#stageScrim')); }
-function closeStagePanel() { closeOverlay($('#stageScrim')); }
+/*
+ * The panel takes keyboard focus when it opens -- on its commit control when
+ * there is something to review, else on its close control -- and hands it
+ * back when it closes, so Tab never walks the page hidden behind it.
+ */
+let stageReturnFocus = null;
+function openStagePanel() {
+  const panel = $('#stageScrim');
+  if (!overlayOpen(panel)) {
+    const active = document.activeElement;
+    stageReturnFocus = active && active !== document.body && !$('#scrim').contains(active) ? active : null;
+  }
+  renderStagedPanel();
+  openOverlay(panel);
+  (state.staged.length ? $('#stageCommitBtn') : $('#stageClose')).focus({ preventScroll: true });
+}
+function closeStagePanel() {
+  const panel = $('#stageScrim');
+  const held = panel.contains(document.activeElement);
+  closeOverlay(panel);
+  const restore = stageReturnFocus;
+  stageReturnFocus = null;
+  if (held && restore && restore.isConnected && !restore.closest('[hidden], [inert]')) restore.focus({ preventScroll: true });
+}
 $('#stagedBtn').addEventListener('click', openStagePanel);
 $('#stageClose').addEventListener('click', closeStagePanel);
 $('#stageScrim').addEventListener('click', e => { if (e.target === $('#stageScrim')) closeStagePanel(); });
+/* The preview reads the exact expected commit, never a moving branch name.
+ * Missing files are allowed only for puts; failures and unrenderable content
+ * stop review rather than being presented as an empty original. */
+async function previewStagedChanges(scope, ops) {
+  const previews = [];
+  let previewBytes = 0;
+  let previewLines = 0;
+  for (const op of ops) {
+    let remote = null;
+    try {
+      remote = await api(`/api/repo/${scope.path}/file?ref=${encodeURIComponent(scope.head)}&path=${encodeURIComponent(op.path)}`);
+    } catch (error) {
+      if (error.status !== 404 || op.op !== 'put') throw error;
+    }
+    if (op.newFile && remote) throw new Error(`${op.path} already exists. Open it in the editor to stage an update instead.`);
+    if (remote && (remote.tooLarge || remote.lfs || remote.binary || typeof remote.content !== 'string')) {
+      throw new Error(`${op.path} cannot be previewed as text here. Review it with a tool that supports this file before committing.`);
+    }
+    const before = remote ? b64ToUtf8(remote.content) : '';
+    const after = op.op === 'delete' ? '' : op.content;
+    previewBytes += before.length + after.length;
+    if (previewBytes > 2 * 1024 * 1024 || before.includes('\0') || after.includes('\0')) {
+      throw new Error('This staged diff is too large or contains binary content. Split it into smaller text changes for review.');
+    }
+    const beforeLines = before ? before.split('\n') : [];
+    const afterLines = after ? after.split('\n') : [];
+    previewLines += beforeLines.length + afterLines.length;
+    if (previewLines > 10000) throw new Error('This staged diff has too many lines to review here. Split it into smaller changes.');
+    const lines = lineDiff(beforeLines, afterLines);
+    const changed = lines.some(line => line[0] !== ' ');
+    const description = !remote ? (after ? 'Create file' : 'Create empty file')
+      : op.op === 'delete' ? 'Delete file' : changed ? 'Update file' : 'No content changes';
+    /* A file with no lines to show is described once, not again as an empty patch. */
+    const patch = changed ? `<pre class="diff-patch mono">${lines.map(([tag, line]) =>
+      `<span class="${tag === '+' ? 'add' : tag === '-' ? 'del' : ''}">${esc(tag + ' ' + line)}</span>`).join('')}</pre>` : '';
+    previews.push({ op, sha: remote && remote.sha,
+      html: `<section class="stage-preview-file"><h3 class="mono">${esc(op.path)}</h3><p class="stage-preview-kind">${description}</p>${patch}</section>` });
+  }
+  return previews;
+}
+
 $('#stageCommitBtn').addEventListener('click', async () => {
-  if (!state.staged.length) return toast('Nothing staged', 'err');
-  const msg = $('#stageMsg').value.trim() || `Batch commit (${state.staged.length} changes) via ${NV_PRODUCT_NAME}`;
-  $('#stageCommitBtn').disabled = true;
+  if (!state.work || !state.staged.length) return toast('Nothing staged', 'err');
+  const scope = { path: wPath(), owner: state.work.owner, repo: state.work.repo,
+    branch: state.work.branch, head: currentHeadSha(), epoch: state.uiEpoch, identity: state.me };
+  if (!scope.head) return toast('Refresh repository metadata before reviewing changes; the expected commit is unavailable.', 'err');
+  const staged = JSON.stringify(state.staged);
+  const ops = state.staged.map(op => ({ ...op }));
+  const current = () => state.work && scope.path === wPath() && scope.branch === state.work.branch &&
+    scope.head === currentHeadSha() && scope.epoch === state.uiEpoch && scope.identity === state.me && staged === JSON.stringify(state.staged);
+  const msg = $('#stageMsg').value.trim() || (ops.length === 1 && ops[0].newFile
+    ? `Create ${ops[0].path} via ${NV_PRODUCT_NAME}` : `Batch commit (${ops.length} changes) via ${NV_PRODUCT_NAME}`);
+  const button = $('#stageCommitBtn');
+  button.disabled = true;
+  button.textContent = 'Preparing review…';
+  let queuedOperation = null;
   try {
-    const out = await api(`/api/repo/${wPath()}/batch`, {
-      method: 'POST',
-      body: guardedWrite({ branch: state.work.branch, message: msg, ops: state.staged.map(s => s.op === 'put' ? { op: 'put', path: s.path, content: s.content } : { op: 'delete', path: s.path }) })
+    const preview = await previewStagedChanges(scope, ops);
+    if (!current()) throw new Error('The staged changes or repository changed. Review the current changes again.');
+    const ok = await modal({
+      title: 'Review staged changes', wide: true,
+      bodyHTML: `<dl class="stage-review-facts">
+          <dt>Repository</dt><dd>${esc(scope.owner)}/${esc(scope.repo)}</dd>
+          <dt>Branch</dt><dd>${esc(scope.branch)}</dd>
+          <dt>Expected commit</dt><dd><code class="stage-preview-head mono">${esc(scope.head)}</code></dd>
+          <dt>Message</dt><dd>${esc(msg)}</dd>
+        </dl>${preview.map(item => item.html).join('')}
+        <p class="hint">Commit only if these changes match your intent. A moved branch head is refused by the server.</p>`,
+      okText: `Commit ${ops.length} ${ops.length === 1 ? 'change' : 'changes'}`
     });
-    rememberHead(out.commit);
-    toast(`✦ ${out.count} changes committed as ${String(out.commit).slice(0, 7)}`, 'ok');
+    if (!ok) return;
+    await ensureCsrfToken();
+    if (!current()) throw new Error('The reviewed repository, head or staged changes changed. Review again before committing.');
+    const common = { branch: scope.branch, message: msg, expectedHeadSha: scope.head };
+    let out;
+    if (ops.length === 1 && ops[0].op === 'put') {
+      const op = ops[0];
+      const body = { ...common, path: op.path, content: op.content, ...(preview[0].sha ? { sha: preview[0].sha } : {}) };
+      queuedOperation = { kind: 'put', owner: scope.owner, repo: scope.repo, ...body };
+      out = await api(`/api/repo/${scope.path}/file`, { method: 'PUT', body });
+    } else {
+      const body = { ...common, ops: ops.map(op => op.op === 'put'
+        ? { op: 'put', path: op.path, content: op.content } : { op: 'delete', path: op.path }) };
+      queuedOperation = { kind: 'batch', owner: scope.owner, repo: scope.repo, ...body };
+      out = await api(`/api/repo/${scope.path}/batch`, { method: 'POST', body });
+    }
+    if (!current()) return;
+    rememberHead(out.commit, scope.branch);
+    toast(ops.length === 1 && ops[0].newFile ? `Created ${ops[0].path} ✦`
+      : `✦ ${ops.length} changes committed as ${String(out.commit).slice(0, 7)}`, 'ok');
     state.staged = []; $('#stageMsg').value = '';
     renderStagedCount(); closeStagePanel();
     state.fileIndex = null;
     loadTree('', $('#tree'), true);
     refreshRate();
-  } catch (e) {
-    const queued = await queueCommit({
-      kind: 'batch', owner: state.work.owner, repo: state.work.repo, branch: state.work.branch,
-      message: msg, ops: state.staged.slice(), expectedHeadSha: currentHeadSha()
-    }, e);
+  } catch (error) {
+    const queued = queuedOperation && current() && await queueCommit(queuedOperation, error);
     if (queued) { state.staged = []; renderStagedCount(); renderStagedPanel(); }
-    else presentError(e);
+    else presentError(error);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Review staged changes';
   }
-  finally { $('#stageCommitBtn').disabled = false; }
 });
 
 /* ================= NAVIGATION (adaptive) ================= */
@@ -7083,7 +7283,11 @@ $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.ta
   const scanBtn = $('#exposureScanBtn');
   if (scanBtn) scanBtn.addEventListener('click', () => { void requestExposureScan(); });
   const refreshBtn = $('#exposureRefreshBtn');
-  if (refreshBtn) refreshBtn.addEventListener('click', () => { void refreshExposureScan(); });
+  if (refreshBtn) refreshBtn.addEventListener('click', () => {
+    const scan = exposureState().scan;
+    if (scan && ['queued', 'running'].includes(scan.state)) void refreshExposureScan();
+    else void loadExposure({ filterOnly: true });
+  });
   const cancelBtn = $('#exposureCancelBtn');
   if (cancelBtn) cancelBtn.addEventListener('click', () => { void cancelExposureScan(); });
   const expandAll = $('#exposureExpandAllBtn');
@@ -7366,7 +7570,12 @@ function runPaletteItem(item) {
     item.run();
   }, { allowExperimental: !!(item && item.allowExperimental) });
 }
-$('#reposRefreshBtn') && $('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
+$('#reposSummaryToggle').addEventListener('click', () => {
+  const expanded = $('#reposSummaryToggle').getAttribute('aria-expanded') !== 'true';
+  $('#reposSummaryToggle').setAttribute('aria-expanded', String(expanded));
+  $('#reposPulse').dataset.expanded = String(expanded);
+});
+$('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
 
 /*
  * The rail is chrome around the screens, so it follows them rather than each

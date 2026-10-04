@@ -31,6 +31,8 @@ Vision describes intent; it never proves delivery or qualification.
 
 ## Operations and qualification
 
+- [Product review remediation](qualification/PRODUCT_REVIEW_REMEDIATION.md) — PR #72 fixes, evidence and remaining release requirements
+- [Audit platform and rendered browser](operations/AUDIT_PLATFORM.md)
 - [Render and Neon deployment](operations/DEPLOY_RENDER_NEON.md)
 - [Security deployment](operations/SECURITY_DEPLOYMENT.md)
 - [Operator runbooks](operations/runbooks/OPERATOR_CHECKLIST.md)

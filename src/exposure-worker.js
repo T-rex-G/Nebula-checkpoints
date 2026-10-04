@@ -60,7 +60,7 @@ const { MAX_FINDINGS_PER_SCAN, EXPOSURE_CONFIG_VERSION } = require('./exposure-s
  * for changes the provider sent no patch for, archives are opened, and the
  * wall clock is twice as long to fit both.
  */
-const EXPOSURE_BUDGET_VERSION = 3;
+const EXPOSURE_BUDGET_VERSION = 4;
 
 const DEFAULT_BUDGETS = Object.freeze({
   /* Files read per scan. The tree may hold more; this is what gets opened. */
@@ -327,6 +327,29 @@ function createExposureRunner(options = {}) {
       return now() - startedAt >= budgets.maxWallClockMs;
     }
 
+    function reserveBytes(count) {
+      if (outOfTime()) {
+        skippedAny = true;
+        budgetReason = budgetReason || 'time-limit';
+        return false;
+      }
+      if (bytesScanned + count > budgets.maxBytes) {
+        skippedAny = true;
+        budgetReason = budgetReason || 'byte-limit';
+        return false;
+      }
+      bytesScanned += count;
+      return true;
+    }
+
+    function scanText(text, path) {
+      if (!reserveBytes(Buffer.byteLength(text, 'utf8'))) return null;
+      const detection = detectInText({ text, path, maxDecodedBytes: budgets.maxBytes - bytesScanned });
+      bytesScanned += detection.decodedBytes || 0;
+      if (!detection.scanned || detection.truncated) skippedAny = true;
+      return detection;
+    }
+
     const connections = createTransport ? createTransport() : null;
     const transport = connections && typeof connections.request === 'function' ? connections.request : undefined;
     /* Reads already started when the scan stops. Each is wrapped so it can
@@ -344,10 +367,9 @@ function createExposureRunner(options = {}) {
       archivesScanned += 1;
       if (opened.truncated || opened.membersSkipped) skippedAny = true;
       for (const member of opened.members) {
+        const detection = scanText(member.text, member.path);
+        if (!detection) return false;
         archiveMembersScanned += 1;
-        bytesScanned += Buffer.byteLength(member.text, 'utf8');
-        const detection = detectInText({ text: member.text, path: member.path });
-        if (!detection.scanned || detection.truncated) skippedAny = true;
         if (detection.candidates.length && !(await admit(detection, member.path, provenance, commit))) return false;
       }
       for (const named of opened.named) {
@@ -472,10 +494,9 @@ function createExposureRunner(options = {}) {
            * add up: read, plus binary, plus other, plus any a ceiling stopped
            * before, is the whole tree.
            */
+          const detection = scanText(blob.text, entry.path);
+          if (!detection) { dispatching = false; break; }
           filesScanned += 1;
-          bytesScanned += Buffer.byteLength(blob.text, 'utf8');
-          const detection = detectInText({ text: blob.text, path: entry.path });
-          if (!detection.scanned || detection.truncated) skippedAny = true;
           /*
            * `buildFindings` returns the sanitized findings and, separately, the
            * probes that carry the bytes. Only the findings are used here: a
@@ -538,10 +559,9 @@ function createExposureRunner(options = {}) {
               const item = commits[cursor];
               cursor += 1;
               dispatchedSinceCheck += 1;
-              /* A merge's changes are its parents' changes, already read. */
-              const read = item.parents > 1
-                ? Promise.resolve({ merge: true })
-                : reader.readCommitChanges({ scope: scan.scope, sha: item.sha, token, transport });
+              /* Merge conflict resolutions can introduce bytes in neither
+                 parent. Read the provider's first-parent diff for merges too. */
+              const read = reader.readCommitChanges({ scope: scan.scope, sha: item.sha, token, transport });
               inflight.push({ entry: item, settled: Promise.resolve(read).then(blob => ({ blob }), error => ({ error })) });
             }
           };
@@ -567,9 +587,8 @@ function createExposureRunner(options = {}) {
             const blob = await reader.readBlob({ scope: scan.scope, sha: file.blobSha, path: file.path, token, transport });
             if (blob.skip === SKIP_BINARY) return true;
             if (blob.skip || typeof blob.text !== 'string') { skippedAny = true; return true; }
-            bytesScanned += Buffer.byteLength(blob.text, 'utf8');
-            const detection = detectInText({ text: blob.text, path: file.path });
-            if (!detection.scanned || detection.truncated) skippedAny = true;
+            const detection = scanText(blob.text, file.path);
+            if (!detection) return false;
             return detection.candidates.length ? admit(detection, file.path, provenance, commit) : true;
           };
 
@@ -590,25 +609,33 @@ function createExposureRunner(options = {}) {
               throw outcome.error;
             }
             const changes = outcome.blob;
-            if (changes.merge) { commitsScanned += 1; await historyFill(); continue; }
             if (changes.skip) {
               commitsSkipped += 1;
               skippedAny = true;
               await historyFill();
               continue;
             }
-            commitsScanned += 1;
             if (changes.truncated || changes.unsafePaths) skippedAny = true;
             const provenance = Object.freeze({
               inTree: false, introducedCommit: changes.sha, introducedAt: changes.committedAt || null
             });
             let keepGoing = true;
             for (const file of changes.files) {
+              if (outOfTime()) {
+                skippedAny = true;
+                budgetReason = budgetReason || 'time-limit';
+                keepGoing = false;
+                break;
+              }
               if (Array.isArray(file.hunks)) {
-                const detection = detectInHunks({ hunks: file.hunks });
-                for (const hunk of file.hunks) {
-                  for (const line of hunk.lines) if (line.added) bytesScanned += Buffer.byteLength(line.text, 'utf8') + 1;
-                }
+                /* Context participates in detection too, so charge all bytes
+                   handed to the detector, before it sees them. */
+                const size = file.hunks.reduce((total, hunk) => total +
+                  (hunk.lines.some(line => line.added)
+                    ? Buffer.byteLength(hunk.lines.map(line => String(line.text || '')).join('\n'), 'utf8') : 0), 0);
+                if (!reserveBytes(size)) { keepGoing = false; break; }
+                const detection = detectInHunks({ hunks: file.hunks, maxDecodedBytes: budgets.maxBytes - bytesScanned });
+                bytesScanned += detection.decodedBytes || 0;
                 if (detection.truncated) skippedAny = true;
                 if (detection.candidates.length && !(await admit(detection, file.path, provenance, changes.sha))) {
                   keepGoing = false;
@@ -620,12 +647,17 @@ function createExposureRunner(options = {}) {
               }
             }
             if (!keepGoing) { historyDispatching = false; inflight.length = 0; break; }
+            commitsScanned += 1;
             await historyFill();
           }
-          if (cursor < commits.length) skippedAny = true;
+          commitsSkipped = commitsTotal - commitsScanned;
+          if (commitsSkipped) skippedAny = true;
         }
-      } else if (history && !historyReadable) {
+      } else if (history) {
+        /* Every requested but unstarted stage is incomplete, including the
+           deadline crossing while the last tree response arrives. */
         skippedAny = true;
+        if (outOfTime()) budgetReason = budgetReason || 'time-limit';
       }
 
       await flush();

@@ -29,6 +29,7 @@
  */
 
 const crypto = require('crypto');
+const { RULE_NARRATION } = require('./exposure-narration');
 
 /*
  * The version of the scanning configuration -- the caps a scan runs under.
@@ -44,7 +45,7 @@ const crypto = require('crypto');
  * 3: a scan can read history under a commit ceiling, archives are opened
  * under member and size ceilings, and the wall clock is longer to fit both.
  */
-const EXPOSURE_CONFIG_VERSION = 3;
+const EXPOSURE_CONFIG_VERSION = 4;
 
 /* A scan of the tree at one commit, or of that tree and every commit's
    changes reachable from it. */
@@ -91,6 +92,54 @@ const MAX_FINDINGS_PER_SCAN = 500;
 const MAX_LIST_LIMIT = 200;
 const DEFAULT_SWEEP_BATCH = 200;
 const MAX_SWEEP_BATCH = 2000;
+const DEFAULT_CURSOR_KEY = crypto.randomBytes(32);
+
+function findingsFilters(input) {
+  try {
+  const dispositions = Array.isArray(input.dispositions) && input.dispositions.length
+    ? [...new Set(input.dispositions.map(value => requireMember(value, DISPOSITIONS, 'Disposition')))].sort()
+    : DISPOSITIONS.slice().sort();
+  const query = text(input.query).toLowerCase().replace(/\s+/g, ' ');
+  if (query.length > 512) throw new TypeError('Finding query must be at most 512 characters');
+  return {
+    dispositions, query,
+    severity: requireMember(input.severity || 'all', ['all', 'critical', 'serious', 'warning'], 'Severity'),
+    where: requireMember(input.where || 'all', ['all', 'tree', 'history', 'archive', 'encoded'], 'Finding location')
+  };
+  } catch {
+    fail('Choose a valid finding filter and a query of at most 512 characters', 'EXPOSURE_FILTER_INVALID', 400);
+  }
+}
+
+function cursorSignature(payload, key) {
+  return crypto.createHmac('sha256', key).update(payload).digest('base64url');
+}
+
+function encodeFindingsCursor(value, key) {
+  const payload = Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${payload}.${cursorSignature(payload, key)}`;
+}
+
+function decodeFindingsCursor(value, key, binding) {
+  if (typeof value !== 'string' || value.length > 4096 || !/^[\w-]+\.[\w-]+$/.test(value)) {
+    fail('That findings cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+  }
+  const [payload, signature] = value.split('.');
+  const expected = cursorSignature(payload, key);
+  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    fail('That findings cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+  }
+  let cursor;
+  try { cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch {
+    fail('That findings cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+  }
+  if (!cursor || cursor.version !== 1 || cursor.binding !== binding
+      || !Number.isFinite(Date.parse(cursor.snapshot)) || !Number.isFinite(Date.parse(cursor.at))
+      || !/^[0-9a-f]{64}$/.test(cursor.fingerprint) || !/^[0-9a-f]{32}$/.test(cursor.revision)) {
+    fail('That findings cursor does not match this view', 'EXPOSURE_CURSOR_INVALID', 400);
+  }
+  return cursor;
+}
 
 class ExposureStoreError extends Error {
   constructor(message, code = 'EXPOSURE_STORE_UNAVAILABLE', status = 503) {
@@ -495,6 +544,8 @@ class ExposureStore {
       throw new TypeError('ExposureStore requires a pg-compatible pool');
     }
     this.pool = pool;
+    this.cursorKey = crypto.createHmac('sha256', options.cursorKey || DEFAULT_CURSOR_KEY)
+      .update('exposure-findings-cursor-v1').digest();
     this.sweepBatch = boundedInteger(options.sweepBatch, DEFAULT_SWEEP_BATCH, 1, MAX_SWEEP_BATCH);
   }
 
@@ -1450,6 +1501,95 @@ class ExposureStore {
       'list findings'
     );
     return Object.freeze(found.rows.map(findingFromRow));
+  }
+
+  /* One statement sees a consistent generation, locations, counts and page.
+     The signed cursor binds the viewer and filters. If evidence changes between
+     pages we refuse a mixed report, instead of silently dropping or duplicating rows. */
+  async listFindingsPage(input = {}) {
+    const scope = requireScope(input.scope);
+    const identityKey = requireDigest(input.identityKey, 'Finding identity');
+    const filters = findingsFilters(input);
+    const limit = boundedInteger(input.limit, 50, 1, MAX_LIST_LIMIT);
+    const binding = cursorSignature(JSON.stringify([scope, identityKey, filters, input.currentGeneration === true]), this.cursorKey);
+    const cursor = input.cursor ? decodeFindingsCursor(input.cursor, this.cursorKey, binding) : null;
+    if (cursor && Date.now() - Date.parse(cursor.snapshot) > 20 * 60 * 1000) {
+      fail('This findings view expired. Refresh the findings and try again.', 'EXPOSURE_CURSOR_STALE', 409);
+    }
+    const severities = Object.fromEntries(Object.entries(RULE_NARRATION).map(([rule, entry]) => [rule, entry.severity]));
+    const found = await this.#query(
+      `WITH generation AS (
+         SELECT rules_version, engine_version, fingerprint_key_version, scan_id FROM nv_exposure_scans
+          WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+            AND identity_key=$5 AND state IN ('complete', 'partial')
+          ORDER BY finished_at DESC, scan_id DESC LIMIT 1),
+       base AS MATERIALIZED (
+         SELECT f.*, location.observation,
+                to_char(f.first_observed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at
+           FROM nv_exposure_findings f
+           LEFT JOIN LATERAL (
+             SELECT to_jsonb(o) AS observation FROM nv_exposure_observations o
+               JOIN nv_exposure_scans s ON s.scan_id=o.scan_id
+              WHERE o.fingerprint=f.fingerprint AND s.identity_key=$5
+                AND s.provider=$1 AND s.authority=$2 AND s.owner_login=$3 AND s.repo_name=$4
+              ORDER BY o.observed_at DESC, o.scan_id DESC LIMIT 1
+           ) location ON true
+          WHERE f.provider=$1 AND f.authority=$2 AND f.owner_login=$3 AND f.repo_name=$4 AND f.identity_key=$5
+            AND (NOT $6::boolean OR NOT EXISTS (SELECT 1 FROM generation)
+              OR (f.rules_version, f.engine_version, f.fingerprint_key_version) =
+                 (SELECT rules_version, engine_version, fingerprint_key_version FROM generation))),
+       filtered AS MATERIALIZED (
+         SELECT * FROM base b WHERE disposition = ANY($7::text[])
+          AND ($8='all' OR COALESCE($9::jsonb->>rule, 'serious')=$8)
+          AND ($10='all' OR ($10='tree' AND COALESCE((observation->>'in_tree')::boolean, true))
+               OR ($10='history' AND (observation->>'in_tree')::boolean=false)
+               OR ($10='archive' AND strpos(file_path, '!/')>0)
+               OR ($10='encoded' AND observation->>'decoded_from'='base64'))
+          AND NOT EXISTS (SELECT 1 FROM unnest($11::text[]) term
+            WHERE strpos(lower(concat_ws(' ', file_path, rule, replace(rule, '-', ' '), placeholder,
+              disposition, replace(disposition, '-', ' '), COALESCE($9::jsonb->>rule, 'serious'))), term)=0)),
+       page AS (
+         SELECT * FROM filtered WHERE ($12::timestamptz IS NULL OR
+           (first_observed_at, fingerprint)>($12::timestamptz, $13::text))
+         ORDER BY first_observed_at, fingerprint LIMIT $14)
+       SELECT (SELECT count(*)::integer FROM filtered) AS total,
+              (SELECT count(*)::integer FROM base) AS all_count,
+              (SELECT jsonb_object_agg(rule, n) FROM (SELECT rule, count(*)::integer n FROM base GROUP BY rule) counts) AS by_rule,
+              (SELECT jsonb_object_agg(disposition, n) FROM (SELECT disposition, count(*)::integer n FROM base GROUP BY disposition) counts) AS by_disposition,
+              (SELECT jsonb_agg(to_jsonb(page) ORDER BY first_observed_at, fingerprint) FROM page) AS items,
+              md5(COALESCE((SELECT string_agg(md5(to_jsonb(b)::text), '' ORDER BY fingerprint) FROM base b), '') ||
+                  COALESCE((SELECT scan_id::text FROM generation), '')) AS revision`,
+      [scope.provider, scope.authority, scope.owner, scope.repo, identityKey, input.currentGeneration === true,
+        filters.dispositions, filters.severity, JSON.stringify(severities), filters.where,
+        filters.query.split(' ').filter(Boolean), cursor ? cursor.at : null, cursor ? cursor.fingerprint : null, limit + 1],
+      'page findings'
+    );
+    const row = found.rows[0];
+    if (cursor && cursor.revision !== row.revision) {
+      fail('The findings changed while paging. Refresh to read one consistent view.', 'EXPOSURE_CURSOR_STALE', 409);
+    }
+    const items = row.items || [];
+    const hasMore = items.length > limit;
+    const page = items.slice(0, limit);
+    const last = page[page.length - 1];
+    const byRule = row.by_rule || {};
+    const bySeverity = { critical: 0, serious: 0, warning: 0 };
+    for (const [rule, count] of Object.entries(byRule)) bySeverity[severities[rule] || 'serious'] += Number(count);
+    return {
+      findings: page.map(item => {
+        const observation = observationFromRow(item.observation);
+        return { ...findingFromRow(item), ...(observation ? {
+          occurrences: observation.occurrences, occurrenceCount: observation.occurrenceCount,
+          truncated: observation.truncated, inTree: observation.inTree,
+          introducedCommit: observation.introducedCommit, introducedAt: observation.introducedAt,
+          historyCommits: observation.historyCommits, decodedFrom: observation.decodedFrom
+        } : {}) };
+      }),
+      total: row.total, counts: { all: row.all_count, byRule, bySeverity, byDisposition: row.by_disposition || {} },
+      hasMore,
+      nextCursor: hasMore ? encodeFindingsCursor({ version: 1, binding, revision: row.revision,
+        snapshot: cursor ? cursor.snapshot : new Date().toISOString(), at: last.cursor_at, fingerprint: last.fingerprint }, this.cursorKey) : null
+    };
   }
 
   async listObservations(input = {}) {

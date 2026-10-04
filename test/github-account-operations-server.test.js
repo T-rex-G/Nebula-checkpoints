@@ -1,4 +1,5 @@
 'use strict';
+const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
 const fs = require('fs');
@@ -43,7 +44,7 @@ function session(selected = account, repository = null, safety = {}) {
   }
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(JSON.stringify({ accounts: [selected], active: 0, security, safety }), 'utf8'), cipher.final()]);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(withLifetime({ accounts: [selected], active: 0, security, safety })), 'utf8'), cipher.final()]);
   return {
     cookie: `nv_session=${Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64url')}`,
     'x-nv': '1', 'content-type': 'application/json',

@@ -215,9 +215,13 @@ function compactAudit(result) {
   const advisories = coverage.advisories && typeof coverage.advisories === 'object' ? coverage.advisories : {};
   const answered = Math.max(0, count(advisories.checked) - count(advisories.unknown));
   const exploit = coverage.exploit && typeof coverage.exploit === 'object' ? coverage.exploit : {};
-  const watchState = !count(advisories.versions) ? 'ok'
+  const advisoryState = !count(advisories.versions) ? 'ok'
     : answered === 0 ? 'unavailable'
       : count(advisories.unknown) || count(advisories.notChecked) ? 'partial' : 'ok';
+  const needsKev = components.some(component => component.cve_ids.length) || count(exploit.cves) > 0;
+  const kev = oneOf(WATCH_KEV, exploit.kev) || (needsKev ? 'unavailable' : 'not-needed');
+  const watchState = advisoryState === 'ok' && kev !== 'unavailable' ? 'ok'
+    : advisoryState === 'unavailable' && kev !== 'ok' ? 'unavailable' : 'partial';
   return {
     audit: {
       ref_name: requireRef(result.ref),
@@ -249,7 +253,7 @@ function compactAudit(result) {
       watch_state: watchState,
       watch_checked: Math.min(answered, components.length),
       watch_total: components.length,
-      watch_kev: oneOf(WATCH_KEV, exploit.kev) || (count(exploit.cves) ? 'unavailable' : 'not-needed')
+      watch_kev: kev
     },
     findings: compact,
     components
@@ -463,12 +467,15 @@ class CodeAuditHistory {
     const base = [where.provider, where.authority, where.owner, where.repo, identity];
     const { limits } = this;
     return this.#transaction(async client => {
-      const previous = (await client.query(
-        `SELECT audit_id, audited_at FROM nv_code_audits
+      let previous = (await client.query(
+        `SELECT audit_id, audited_at, engine_version FROM nv_code_audits
           WHERE ${SCOPE_SQL} AND ref_name=$6
           ORDER BY audited_at DESC, recorded_at DESC LIMIT 1`,
         [...base, compact.audit.ref_name]
       )).rows[0] || null;
+      // A detector/identity upgrade starts a new comparison baseline. It is
+      // not evidence that every old finding was fixed and every new one added.
+      if (previous && previous.engine_version !== compact.audit.engine_version) previous = null;
       let diff = null;
       if (previous) {
         const before = new Set((await client.query(
@@ -643,9 +650,9 @@ class CodeAuditHistory {
   /*
    * The watch's answer for an audit. Alerts are kept by what they are about,
    * so the date one was first seen survives later checks; a check that
-   * answered for every component also drops the alerts it no longer finds (an
-   * advisory withdrawn), and a partial one never does, because a question
-   * that went unanswered is not evidence that anything went away.
+   * answered completely for one source also drops that source's alerts it no
+   * longer finds (an advisory withdrawn). Unanswered or truncated sources
+   * retain their alerts: silence is not evidence that anything went away.
    */
   async saveWatch({ scope, identityKey, auditId, outcome, now = Date.now() }) {
     const where = requireScope(scope);
@@ -656,6 +663,19 @@ class CodeAuditHistory {
     const at = new Date(now).toISOString();
     const rows = [];
     const keys = new Set();
+    const sources = outcome.sources && typeof outcome.sources === 'object' ? outcome.sources : null;
+    const kevComplete = outcome.kev === 'ok' || outcome.kev === 'not-needed';
+    const truncated = count(outcome.truncated) > 0;
+    /* Legacy callers must prove a complete answer from both sources before pruning. */
+    const legacyComplete = !sources && state === 'ok' && kevComplete && count(outcome.checked) === count(outcome.total);
+    const completeKinds = truncated ? [] : sources
+      ? [...(sources.advisories === 'ok' && count(outcome.checked) === count(outcome.total) ? ['advisory'] : []),
+        ...(sources.exploited === 'ok' && outcome.kev === 'ok' ? ['exploited'] : [])]
+      : legacyComplete ? [...ALERT_KINDS] : [];
+    const exploitationAnswered = outcome.kev === 'ok' && (!sources || sources.exploited === 'ok');
+    const advisoriesAnswered = sources ? sources.advisories === 'ok' : legacyComplete;
+    const effectiveState = state === 'ok' && (truncated || !kevComplete || count(outcome.checked) < count(outcome.total)
+      || (sources && (sources.advisories !== 'ok' || !['ok', 'not-needed'].includes(sources.exploited)))) ? 'partial' : state;
     for (const alert of Array.isArray(outcome.alerts) ? outcome.alerts : []) {
       const row = compactAlert(alert);
       if (!row || keys.has(row.alert_key)) continue;
@@ -667,7 +687,7 @@ class CodeAuditHistory {
         `UPDATE nv_code_audits
             SET watch_checked_at=$7, watch_state=$8, watch_checked=$9, watch_total=$10, watch_kev=$11
           WHERE ${SCOPE_SQL} AND audit_id=$6`,
-        [where.provider, where.authority, where.owner, where.repo, identity, auditId, at, state,
+        [where.provider, where.authority, where.owner, where.repo, identity, auditId, at, effectiveState,
           count(outcome.checked), count(outcome.total), oneOf(WATCH_KEV, outcome.kev)]
       );
       if (!updated.rowCount) return null;
@@ -676,18 +696,24 @@ class CodeAuditHistory {
           `INSERT INTO nv_code_audit_alerts (audit_id, ${ALERT_COLUMNS}, first_seen_at, last_seen_at)
            SELECT $1, ${ALERT_COLUMNS}, $3, $3 FROM jsonb_to_recordset($2::jsonb) AS x(${ALERT_RECORD})
            ON CONFLICT (audit_id, alert_key) DO UPDATE SET
-             severity=EXCLUDED.severity, cvss=EXCLUDED.cvss, fixed_version=EXCLUDED.fixed_version,
-             exploited=EXCLUDED.exploited, ransomware=EXCLUDED.ransomware, kev_added=EXCLUDED.kev_added,
-             kev_due=EXCLUDED.kev_due, epss=EXCLUDED.epss, last_seen_at=EXCLUDED.last_seen_at`,
-          [auditId, JSON.stringify(rows), at]
+             cve_id=CASE WHEN $5 THEN EXCLUDED.cve_id ELSE COALESCE(EXCLUDED.cve_id, nv_code_audit_alerts.cve_id) END,
+             severity=CASE WHEN $5 THEN EXCLUDED.severity ELSE COALESCE(EXCLUDED.severity, nv_code_audit_alerts.severity) END,
+             cvss=CASE WHEN $5 THEN EXCLUDED.cvss ELSE COALESCE(EXCLUDED.cvss, nv_code_audit_alerts.cvss) END,
+             fixed_version=CASE WHEN $5 THEN EXCLUDED.fixed_version ELSE COALESCE(EXCLUDED.fixed_version, nv_code_audit_alerts.fixed_version) END,
+             exploited=CASE WHEN EXCLUDED.cve_id IS NOT NULL AND ($4 OR EXCLUDED.exploited) THEN EXCLUDED.exploited ELSE nv_code_audit_alerts.exploited END,
+             ransomware=CASE WHEN EXCLUDED.cve_id IS NOT NULL AND ($4 OR EXCLUDED.exploited) THEN EXCLUDED.ransomware ELSE nv_code_audit_alerts.ransomware END,
+             kev_added=CASE WHEN EXCLUDED.cve_id IS NOT NULL AND ($4 OR EXCLUDED.exploited) THEN EXCLUDED.kev_added ELSE nv_code_audit_alerts.kev_added END,
+             kev_due=CASE WHEN EXCLUDED.cve_id IS NOT NULL AND ($4 OR EXCLUDED.exploited) THEN EXCLUDED.kev_due ELSE nv_code_audit_alerts.kev_due END,
+             epss=COALESCE(EXCLUDED.epss, nv_code_audit_alerts.epss), last_seen_at=EXCLUDED.last_seen_at`,
+          [auditId, JSON.stringify(rows), at, exploitationAnswered, advisoriesAnswered]
         );
       }
-      if (state === 'ok') {
+      if (completeKinds.length) {
         await client.query(
           `DELETE FROM nv_code_audit_alerts
-            WHERE audit_id=$1 AND NOT (alert_key = ANY($3::text[]))
+            WHERE audit_id=$1 AND NOT (alert_key = ANY($3::text[])) AND kind = ANY($4::text[])
               AND audit_id IN (SELECT audit_id FROM nv_code_audits WHERE audit_id=$1 AND identity_key=$2)`,
-          [auditId, identity, [...keys]]
+          [auditId, identity, [...keys], completeKinds]
         );
       }
       return this.#alerts(client, auditId, identity);
@@ -740,7 +766,8 @@ function createAuditWatch({ history, check, staleMs = 6 * 60 * 60 * 1000, minInt
     const { outcome, alerts } = await running.get(key);
     const checkedAt = new Date(clock()).toISOString();
     return {
-      audit: { ...audit, watch: { checkedAt, state: outcome.state, checked: outcome.checked, total: outcome.total, kev: outcome.kev } },
+      audit: { ...audit, watch: { checkedAt, state: outcome.state, checked: outcome.checked, total: outcome.total, kev: outcome.kev,
+        sources: outcome.sources || null, truncated: count(outcome.truncated) } },
       alerts: alerts || [],
       components: watched.components.length,
       fresh: true,

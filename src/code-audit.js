@@ -73,7 +73,7 @@ const { RULE_NARRATION } = require('./exposure-narration');
 const POPULAR = require('./popular-packages');
 const { standardsFor } = require('./security-standards');
 const { analyseFlows } = require('./uranus-flow');
-const { opensWith } = require('./uranus-lex');
+const { opensWith, lexJs, lexPyTokens } = require('./uranus-lex');
 const { analyseSurface, reachOf } = require('./uranus-surface');
 const { usageIndex, tierOf, riskOf, exploitedInProduction } = require('./uranus-reach');
 const { lookupExploitIntel } = require('./exploit-intel');
@@ -81,7 +81,7 @@ const ecosystems = require('./ecosystems');
 const licences = require('./licences');
 
 /* The engine's name and version, carried in every result and export. */
-const ENGINE = Object.freeze({ name: 'Uranus', version: '2.1.0' });
+const ENGINE = Object.freeze({ name: 'Uranus', version: '2.2.0' });
 
 const CATEGORIES = Object.freeze([
   Object.freeze({ id: 'supply-chain', label: 'Supply chain', weight: 0.15 }),
@@ -218,7 +218,7 @@ function selectFiles(entries, limits = LIMITS) {
     }
     skipped.budget += 1;
   }
-  return { selected, overflow, eligible: candidates.length, skipped };
+  return { selected, overflow, eligible: candidates.length + skipped.oversize, skipped };
 }
 
 /* ---- Rules ----------------------------------------------------------------- */
@@ -951,44 +951,51 @@ function tableName(raw) {
  * matters is a table's final state: disabled in one migration and enabled in
  * a later one is fixed; created and never enabled is open.
  */
-function sqlFindings(files, supabase) {
-  const out = [];
-  const tables = new Map();
-  const ordered = files.filter(file => file.ext === 'sql' && !isTestPath(file.path)).sort((a, b) => a.path.localeCompare(b.path));
-  for (const file of ordered) {
+function sqlEvents(files) {
+  const events = [];
+  for (const file of files.filter(file => file.ext === 'sql' && !isTestPath(file.path))) {
+    const lines = file.text.split('\n');
     for (const statement of sqlStatements(file.text)) {
       const create = SQL_CREATE.exec(statement.sql);
-      if (create) {
-        const { schema, name } = tableName(create[1]);
-        const key = `${schema || 'public'}.${name}`;
-        if (!tables.has(key)) tables.set(key, { schema, created: { path: file.path, line: statement.line }, state: null });
-        continue;
-      }
       const alter = SQL_RLS.exec(statement.sql);
-      if (alter) {
-        const { schema, name } = tableName(alter[1]);
-        const key = `${schema || 'public'}.${name}`;
-        const entry = tables.get(key) || { schema, created: null, state: null };
-        const action = alter[2].toLowerCase();
-        if (action === 'enable' || action === 'force') entry.state = { on: true };
-        if (action === 'disable') entry.state = { on: false, path: file.path, line: statement.line };
-        tables.set(key, entry);
-        continue;
-      }
       const policy = SQL_POLICY.exec(statement.sql);
+      let action = create ? 'create' : alter ? alter[2].toLowerCase().replace(/\s+/g, ' ') : null;
       if (policy) {
         const rest = policy[2];
         const command = (/\bfor\s+(all|select|insert|update|delete)\b/i.exec(rest) || [null, 'all'])[1].toLowerCase();
         const open = /\b(using|with\s+check)\s*\(\s*\(?\s*true\s*\)?\s*\)/i.test(rest);
-        if (open && command !== 'select') out.push({ rule: 'SEC-016', path: file.path, line: statement.line });
+        if (open && command !== 'select') action = 'open-policy';
       }
+      if (!action) continue;
+      const { schema, name } = tableName((create || alter || policy)[1]);
+      const rule = action === 'create' ? 'SEC-015' : action === 'disable' ? 'SEC-014' : 'SEC-016';
+      /* Only a digest and finite state cross the worker boundary, never SQL or table identifiers. */
+      events.push({ key: fingerprint('sql-table', schema || 'public', name), public: !schema || schema === 'public',
+        action, path: file.path, line: statement.line, suppression: suppression(lines, statement.line, rule) });
     }
   }
+  return events;
+}
+
+function sqlFindings(events, supabase) {
+  const out = [];
+  const tables = new Map();
+  const finding = (rule, event) => ({ rule, path: event.path, line: event.line, suppression: event.suppression,
+    semantic: fingerprint('sql-finding', event.key, event.action) });
+  for (const event of [...events].sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line)) {
+    const entry = tables.get(event.key) || { public: event.public, created: null, state: null, forced: false };
+    if (event.action === 'create' && !entry.created) entry.created = event;
+    if (event.action === 'enable' || event.action === 'disable') entry.state = event;
+    /* FORCE changes owner bypass; only ENABLE actually turns RLS on. */
+    if (event.action === 'force' || event.action === 'no force') entry.forced = event.action === 'force';
+    if (event.action === 'open-policy') out.push(finding('SEC-016', event));
+    tables.set(event.key, entry);
+  }
   for (const entry of tables.values()) {
-    if (entry.state && entry.state.on === false) {
-      out.push({ rule: 'SEC-014', path: entry.state.path, line: entry.state.line });
-    } else if (supabase && entry.created && !entry.state && (entry.schema === null || entry.schema === 'public')) {
-      out.push({ rule: 'SEC-015', path: entry.created.path, line: entry.created.line });
+    if (entry.state && entry.state.action === 'disable') {
+      out.push(finding('SEC-014', entry.state));
+    } else if (supabase && entry.created && !entry.state && entry.public) {
+      out.push(finding('SEC-015', entry.created));
     }
   }
   return out;
@@ -2145,8 +2152,34 @@ function normalizePypi(name) {
 
 /* ---- The audit ----------------------------------------------------------------- */
 
-function fingerprint(rule, filePath, ordinal) {
-  return crypto.createHash('sha256').update(`${rule}\0${filePath}\0${ordinal}`).digest('hex').slice(0, 24);
+function fingerprint(rule, filePath, context) {
+  return crypto.createHash('sha256').update(`${rule}\0${filePath}\0${context}`).digest('hex').slice(0, 24);
+}
+
+/*
+ * Names and operations distinguish different mistakes at the same location.
+ * Comments, whitespace and literal values do not participate: moving code or
+ * rotating a credential must not expose its value through a finding digest.
+ * Only the digest crosses out of this analysis. Identical operations still
+ * need an occurrence count, but unrelated findings never renumber them.
+ */
+function semanticLines(file) {
+  const byLine = new Map();
+  const tokens = extensionOf(file.path) === 'py' ? lexPyTokens(file.text) : lexJs(file.text);
+  for (const token of tokens) {
+    if (token.t === 'nl') continue;
+    const material = ['id', 'kw', 'punc'].includes(token.t) ? `${token.t}:${token.v}` : `${token.t}:literal`;
+    if (!byLine.has(token.line)) byLine.set(token.line, []);
+    byLine.get(token.line).push(material);
+  }
+  return new Map([...byLine].map(([line, material]) => [line, fingerprint('semantic-v1', '', material.join('\0'))]));
+}
+
+function findingSemantic(item, lineIdentity) {
+  if (item.semantic) return item.semantic;
+  const detail = item.detail || {};
+  if (detail.package) return fingerprint('package', detail.ecosystem || '', `${detail.package}\0${detail.version || ''}`);
+  return lineIdentity || 'repository';
 }
 
 /*
@@ -2465,20 +2498,26 @@ function scanRules(files) {
   const extensions = {};
   let read = 0;
   let aiUsed = false;
+  const database = [];
+  const databasePaths = [];
   for (const source of Array.isArray(files) ? files : []) {
     const file = { ...source, ext: extensionOf(source.path), base: baseName(source.path) };
     if (typeof file.text !== 'string' || READ_LOCKS.has(file.base)) continue;
     read += 1;
     const before = context.raw.length;
     scanFile(file, context);
+    const identities = context.raw.length > before ? semanticLines(file) : new Map();
     let lines = null;
     for (let index = before; index < context.raw.length; index += 1) {
       const item = context.raw[index];
+      item.semantic = findingSemantic(item, identities.get(item.line));
       if (!item.path || !item.line) { item.suppression = null; continue; }
       if (!lines) lines = file.text.split('\n');
       item.suppression = suppression(lines, item.line, item.rule);
     }
     const test = isTestPath(file.path);
+    if (!test && (file.ext === 'sql' || FIREBASE_RULES.has(file.base))) databasePaths.push(file.path);
+    if (file.ext === 'sql') database.push(...sqlEvents([file]));
     if (!test && SOURCE_EXT.has(file.ext)) extensions[file.ext] = (extensions[file.ext] || 0) + 1;
     if (!aiUsed && AI_USE.test(file.text)) aiUsed = true;
     if (!test) for (const [id, , pattern] of CONTROLS) if (!controlsFound[id] && pattern.test(file.text)) controlsFound[id] = file.path;
@@ -2486,7 +2525,7 @@ function scanRules(files) {
   return {
     raw: context.raw, packages: context.packages, usesEnvironment: context.usesEnvironment, rateLimited: context.rateLimited,
     authRoute: context.authRoute, packageJsonWithDependencies: context.packageJsonWithDependencies,
-    controls: controlsFound, extensions, aiUsed, files: read
+    controls: controlsFound, extensions, aiUsed, files: read, database, databasePaths
   };
 }
 /* Two rules-only passes as one: the first place anything was seen wins, counts add. */
@@ -2499,7 +2538,8 @@ function mergeScans(a, b) {
     raw: [...a.raw, ...b.raw], packages: [...a.packages, ...b.packages],
     usesEnvironment: a.usesEnvironment || b.usesEnvironment, rateLimited: a.rateLimited || b.rateLimited,
     authRoute: a.authRoute || b.authRoute, packageJsonWithDependencies: a.packageJsonWithDependencies || b.packageJsonWithDependencies,
-    controls: { ...b.controls, ...a.controls }, extensions, aiUsed: a.aiUsed || b.aiUsed, files: (a.files || 0) + (b.files || 0)
+    controls: { ...b.controls, ...a.controls }, extensions, aiUsed: a.aiUsed || b.aiUsed, files: (a.files || 0) + (b.files || 0),
+    database: [...(a.database || []), ...(b.database || [])], databasePaths: [...(a.databasePaths || []), ...(b.databasePaths || [])]
   };
 }
 
@@ -2553,7 +2593,7 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
   const sourceCount = allPaths.filter(filePath => SOURCE_EXT.has(extensionOf(filePath)) && !EXCLUDED_DIR.test(filePath)).length;
   if (sourceCount >= 5 && !allPaths.some(filePath => isTestPath(filePath))) raw.push({ rule: 'HYG-009', path: null, line: null });
   if (authRoute && !rateLimited) raw.push({ rule: 'SEC-012', path: authRoute.path, line: authRoute.line });
-  raw.push(...sqlFindings(prepared, supabase));
+  raw.push(...sqlFindings([...sqlEvents(prepared), ...((beyond && beyond.database) || [])], supabase));
 
   /* Declared names one keystroke from a popular package. */
   for (const entry of dedupePackages(packages)) {
@@ -2630,7 +2670,15 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
     }
     return linesByPath.get(filePath);
   };
-  /* How many findings of a rule a file already has: the ordinal in a finding's identity. */
+  const identitiesByPath = new Map();
+  const identityAt = item => {
+    if (!identitiesByPath.has(item.path)) {
+      const source = files.find(file => file.path === item.path);
+      identitiesByPath.set(item.path, source && typeof source.text === 'string' ? semanticLines(source) : new Map());
+    }
+    return identitiesByPath.get(item.path).get(item.line);
+  };
+  /* Count only indistinguishable repetitions, including waived occurrences. */
   const ordinals = new Map();
   /*
    * A pattern lead every spliced name of which a check has already settled
@@ -2657,14 +2705,16 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
     if (seen.has(key)) continue;
     if (settledLead(item)) continue;
     seen.set(key, true);
-    const place = `${item.rule}\0${item.path || ''}`;
+    const semantic = findingSemantic(item, item.semantic ? null : identityAt(item));
+    const place = `${item.rule}\0${item.path || ''}\0${semantic}`;
     const ordinal = ordinals.get(place) || 0;
-    const finding = { id: fingerprint(item.rule, item.path || '', ordinal), ...describe(item.rule, item.path, item.line, item.severity, item.detail), ...assurance(item) };
+    ordinals.set(place, ordinal + 1);
+    const finding = { id: fingerprint(item.rule, item.path || '', `${semantic}\0${ordinal}`), ...describe(item.rule, item.path, item.line, item.severity, item.detail), ...assurance(item) };
     /* A rules-only item carries its waiver, read while its file's text was at hand. */
     const waiver = item.suppression !== undefined ? item.suppression
       : item.path && item.line ? suppression(linesOf(item.path), item.line, item.rule) : null;
     if (waiver) suppressed.push({ ...finding, suppression: waiver });
-    else { findings.push(finding); ordinals.set(place, ordinal + 1); }
+    else findings.push(finding);
   }
   findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
     Number(a.verdict === 'needs-validation') - Number(b.verdict === 'needs-validation') ||
@@ -2843,7 +2893,10 @@ function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = nu
   const rulesOnly = beyondExtensions.filter(ext => TRACED_LANGUAGES.has(ext)).reduce((sum, ext) => sum + beyond.extensions[ext], 0);
   const infra = allPaths.some(filePath => isDockerfile(filePath) || /\.tf$/.test(filePath) || /(^|\/)(k8s|kubernetes|helm|charts|manifests)\//.test(filePath) || /^\.github\/workflows\//.test(filePath));
   const manifest = allPaths.some(filePath => /(^|\/)(package\.json|requirements[^/]*\.txt|pyproject\.toml|Pipfile|go\.mod|Gemfile|composer\.json)$/.test(filePath) || /^\.github\/workflows\//.test(filePath));
-  const rulesDb = allPaths.some(filePath => /\.sql$/.test(filePath) || FIREBASE_RULES.has(baseName(filePath)));
+  const databasePaths = allPaths.filter(filePath => !isTestPath(filePath) && !EXCLUDED_DIR.test(filePath) && (extensionOf(filePath) === 'sql' || FIREBASE_RULES.has(baseName(filePath))));
+  const databaseRead = new Set([...prepared.filter(file => file.ext === 'sql' || FIREBASE_RULES.has(file.base)).map(file => file.path), ...((beyond && beyond.databasePaths) || [])]);
+  const databaseMissing = databasePaths.filter(filePath => !databaseRead.has(filePath)).length;
+  const rulesDb = databasePaths.length > databaseMissing;
   const failed = flowResult.stats && flowResult.stats.failed;
   const cut = (flowResult.stats && flowResult.stats.cut) || 0;
   const limit = flowResult.stats && flowResult.stats.limit;
@@ -2883,6 +2936,10 @@ function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = nu
         if (untraced.length) { status = 'partial'; detail += ` Endpoints in ${untraced.join(', ')} are not mapped.`; }
         if (cut) { status = 'partial'; detail += ` Endpoints in the ${cut} ${cut === 1 ? 'file' : 'files'} tracing did not reach are not mapped.`; }
         if (rulesOnly) { status = 'partial'; detail += ` Endpoints in the ${rulesOnly} ${rulesOnly === 1 ? 'file' : 'files'} beyond the traced set are not mapped.`; }
+      }
+      if (databaseMissing) {
+        status = 'partial';
+        detail = `${endpoints} endpoints mapped; ${databasePaths.length - databaseMissing} of ${databasePaths.length} database rule files checked. ${databaseMissing} could not be checked.`;
       }
     } else if (entry.needs === 'ai') {
       if (!aiUsed) { status = 'not-applicable'; detail = 'No language-model SDK is used.'; }
@@ -2948,7 +3005,9 @@ function controls({ prepared, allPaths, findings, supabase, beyond = null }) {
   const workflows = allPaths.some(filePath => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(filePath));
   if (workflows && !has('SUP-008')) out.push({ id: 'pinned-actions', label: 'Third-party actions pinned to commits', path: null });
   const tables = prepared.some(file => file.ext === 'sql' && /create\s+table/i.test(file.text || ''));
-  if (supabase && tables && !has('SEC-014') && !has('SEC-015') && !has('SEC-016')) out.push({ id: 'rls', label: 'Row level security on every table', path: null });
+  const databaseRead = new Set([...prepared.filter(file => file.ext === 'sql').map(file => file.path), ...((beyond && beyond.databasePaths) || [])]);
+  const allSqlRead = allPaths.filter(filePath => extensionOf(filePath) === 'sql' && !isTestPath(filePath) && !EXCLUDED_DIR.test(filePath)).every(filePath => databaseRead.has(filePath));
+  if (supabase && tables && allSqlRead && !has('SEC-014') && !has('SEC-015') && !has('SEC-016')) out.push({ id: 'rls', label: 'Row level security on every table', path: null });
   const manifest = allPaths.find(filePath => baseName(filePath) === 'package.json');
   const npmLocked = manifest && !has('HYG-003') && LOCKFILES.some(lock => paths.has(lock) || allPaths.some(filePath => baseName(filePath) === lock));
   /* The other ecosystems' lockfiles pin what installs just the same. */
@@ -3181,7 +3240,7 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
       rulesOnly: beyond.read,
       unreadable,
       skipped: { ...selection.skipped, budget: selection.skipped.budget + beyond.notRead },
-      complete: !tree.truncated && selection.skipped.budget + beyond.notRead === 0 && unreadable === 0,
+      complete: !tree.truncated && selection.skipped.oversize + selection.skipped.budget + beyond.notRead === 0 && unreadable === 0,
       packages: { declared: registry.total, checked: result.dependencyStatus.checked, unknown: result.dependencyStatus.unknown, notChecked: Math.max(0, registry.total - registry.asked) },
       /*
        * Versions asked about, and where they came from. A lockfile too large

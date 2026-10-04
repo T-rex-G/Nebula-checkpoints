@@ -503,6 +503,7 @@ const DEFAULT_TRUSTED_PROGRAM_PATHS = Object.freeze([
   'package.json',
   'package-lock.json',
   'playwright.config.js',
+  'playwright.integration.config.js',
   'scripts/test-matrix.js',
   'scripts/copy-vendor.js',
   'scripts/check-secrets.js',
@@ -1015,6 +1016,40 @@ function qualifyCandidateArchive(options) {
     fail('candidate browser matrix modified the program matrix report');
   }
   const browserReportFileSha256 = hashFile(parsed.browserReportPath);
+  // Run the narrow cross-layer and fault gates from the same extracted bytes
+  // as the broad fixture matrix. Separate reports preserve the boundary: the
+  // upstream here is a disposable provider adapter, not live provider evidence.
+  if (options.useFixtureCommands !== true) {
+    runCommand(process.execPath, ['test/integration/database-resilience.js'], {
+      cwd: candidateRoot, env: environment, label: 'candidate database resilience',
+      timeoutMs: COMMAND_TIMEOUTS_MS.gate
+    });
+    runCommand(process.execPath, ['test/integration/database-restore.js'], {
+      cwd: candidateRoot, env: environment, label: 'candidate encrypted database restore',
+      timeoutMs: COMMAND_TIMEOUTS_MS.gate
+    });
+    const integrationReportPath = path.join(path.dirname(parsed.browserReportPath), 'integration.json');
+    runCommand(process.execPath, [
+      path.join(candidateRoot, 'node_modules', '@playwright', 'test', 'cli.js'),
+      'test', '--config', path.join(candidateRoot, 'playwright.integration.config.js'), '--reporter=json'
+    ], {
+      cwd: candidateRoot,
+      env: { ...environment, PLAYWRIGHT_JSON_OUTPUT_FILE: integrationReportPath },
+      label: 'candidate real browser integration', timeoutMs: COMMAND_TIMEOUTS_MS.browser
+    });
+    const integration = validateBrowserReport(integrationReportPath, 2);
+    const integrationProofs = browserProofInventory(integration);
+    if (integration.stats.skipped !== 0 || !['integration-chromium', 'integration-webkit'].every(project =>
+      integrationProofs.has(browserProofKey({ file: 'real-provider-journey.spec.js',
+        title: 'browser login, repository edit and sign-out cross the real server and PostgreSQL', project })))) {
+      fail('candidate integration must execute Chromium and WebKit without skips');
+    }
+    fs.writeFileSync(path.join(path.dirname(parsed.browserReportPath), 'integration-subject.json'), JSON.stringify({
+      subjectSha256: parsed.expectedSha256, sourceCommit: parsed.sourceCommit,
+      reportSha256: hashFile(integrationReportPath), databaseResilience: 'passed', encryptedDatabaseRestore: 'passed',
+      liveProviderQualification: false
+    }, null, 2) + '\n');
+  }
   const completedAt = new Date().toISOString();
   const claimRequirements = options.claimRequirements || AUTOMATED_CLAIM_REQUIREMENTS;
   const claims = deriveTrustedAutomatedClaims({

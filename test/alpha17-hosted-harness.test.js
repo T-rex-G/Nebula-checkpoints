@@ -14,6 +14,8 @@ const {
 } = require('../ci/run-hosted-alpha17-validation');
 const { signRunnerRestoreAttestation } = require('../ci/alpha17-restore-attestation');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const { loadMigrations } = require('../src/migrations');
+const LATEST_MIGRATION = loadMigrations(path.join(__dirname, '..', 'db', 'migrations')).at(-1).id;
 
 const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
@@ -82,7 +84,7 @@ function runnerRestoreAttestation() {
     cleanupVerified: true,
     check: {
       status: 'pass',
-      latestMigration: '015_alpha_privacy',
+      latestMigration: LATEST_MIGRATION,
       backupManifestSha256: '1'.repeat(64),
       backupCiphertextSha256: '2'.repeat(64),
       restoreTargetFingerprint: '3'.repeat(64),
@@ -273,7 +275,7 @@ function cleanCheckout() {
     assert.strictEqual(result.checks['five-concurrent-read-testers'].workers, 5);
     assert.strictEqual(result.checks['single-bounded-mutation'].mutations, 1);
     assert.strictEqual(result.checks['ephemeral-filesystem-restart'].stateRecoveredFromDatabase, true);
-    assert.strictEqual(result.checks['isolated-database-restore'].latestMigration, '015_alpha_privacy');
+    assert.strictEqual(result.checks['isolated-database-restore'].latestMigration, LATEST_MIGRATION);
     assert.strictEqual(result.checks['disposable-tester-purge'].tokenBearingStateRemoved, true);
     assert.strictEqual(result.authorizedTargetSha256, env.NV_ALPHA17_SIGNED_TARGET_SHA256);
     assert.strictEqual(result.deploymentSha256, expectedDeploymentSha256);

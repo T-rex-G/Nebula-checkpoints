@@ -17,6 +17,8 @@ async function repositories(page, languages) {
   await page.goto('/');
   await expect(ui.screen(page, 'overview')).toBeVisible();
   await ui.enterRepositories(page);
+  const summary = page.locator('#reposSummaryToggle');
+  if (await summary.isVisible()) await summary.click();
   await expect(page.locator('#reposPulse')).toBeVisible();
 }
 

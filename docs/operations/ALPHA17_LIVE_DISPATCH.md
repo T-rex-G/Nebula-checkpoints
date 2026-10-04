@@ -1,19 +1,26 @@
 # Dispatching the alpha.17 live-provider qualification
 
-Two providers are qualified. Run 65 on 3 September 2026 passed both live legs
-on the same candidate: GitHub with seventeen checks and twelve capabilities,
-GitLab with fourteen checks and nine. Gitea has never been run and has no
-reachable instance.
+Historical evidence is candidate-specific. Run 65 on 3 September 2026 passed
+GitHub and GitLab on that run's candidate; run 68 later exercised Gitea.
+Neither run qualifies PR #72 or later archives. All providers and the
+hosted/manual gates require fresh evidence for the current candidate.
+See [the remediation report](../qualification/PRODUCT_REVIEW_REMEDIATION.md).
 
-Everything here is operator work. The workflow runs candidate code in a job
-that holds live credentials, so the approval is a human act by design and no
-part of it is automated away.
+The workflow executes candidate code with live credentials. Review the source
+commit and exact disposable targets before dispatch. The run signs its own
+activation envelope; repository write access currently authorizes dispatch,
+not an independent human signature. The envelope's limits are explained below.
 
 Each provider needs its own target, its own two credentials and its own
 fixtures. The sections below are per-provider for that reason: a GitLab target
 set up from the GitHub instructions will fail, and it will fail late.
 
 ## What the gate needs, and what already exists
+
+Target names and fixture descriptions below record the historical setup.
+They are not a current readback: the connected token received HTTP 403 when
+reading workflow target variables. Confirm the configured disposable targets,
+their reachability and credential scope before any live dispatch.
 
 Shared by every provider:
 
@@ -66,10 +73,11 @@ token on the disposable project, never a personal or group token.
 
 ### Gitea
 
-Not run. `ALPHA17_GITEA_REPOSITORY` and `ALPHA17_GITEA_API_URL` exist in the
-workflow and there is no instance behind them. Its five `Provider-verified`
-registry claims have no run supporting them; see the limitations in
-`WORK_CONTINUITY.json`.
+Historical run 68 exercised Gitea. The current values and reachability of
+`ALPHA17_GITEA_REPOSITORY` and `ALPHA17_GITEA_API_URL` remain unverified.
+Registry availability and evidence state are separate axes: `Supported`
+does not establish `Provider-verified` evidence for a new candidate.
+See `WORK_CONTINUITY.json` for the remaining evidence requirements.
 
 ### Both credentials, every provider
 
@@ -174,19 +182,16 @@ shape. A target changed mid-run no longer matches, and the run stops.
 What a run-minted envelope cannot carry is **who** approved, and on this
 repository nothing else carries it either.
 
-Required reviewers are an environment *protection rule*, and GitHub offers
-protection rules on a private repository only to paid plans. This repository is
-private on a personal free account, which is why the environment page shows no
-reviewer to add. The environment is still doing real work — it scopes the two
-live credentials so only the jobs that name it can read them, which keeps them
-away from the `automated` job and away from anything a pull request can reach —
-but it approves nothing.
+The environment scopes live credentials to the jobs that name it. That does
+not prove independent approval. Check its actual protection rules and the
+account's available GitHub features before treating it as an approval gate.
+The connected audit token could not inspect protected settings or target
+variables (HTTP 403), so no new protection is claimed here.
 
-So the honest statement of what gates a live dispatch today is: **write access
-to this private repository, and nothing more.** One person holds it, and that
-person is the operator. That is a real reduction from an operator-held signing
-key, and it is written here rather than implied, because a gate that is
-described as approval and is not one is worse than no gate at all.
+The observed dispatch boundary remains repository write access. Require an
+independent reviewer or operator-held authorization in the release process
+where separation of duties is required. A self-signed execution record binds
+what ran; it cannot establish who independently approved it.
 
 Two things restore a genuine second factor, neither of them required to run:
 adding a required reviewer once the repository is on a plan that allows it, or

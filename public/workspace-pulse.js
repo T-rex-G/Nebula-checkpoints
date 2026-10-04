@@ -29,7 +29,7 @@
    */
   const COMPONENTS = Object.freeze([
     Object.freeze({ id: 'exposure', label: 'Leaked credentials', weight: 0.25 }),
-    Object.freeze({ id: 'capabilities', label: 'Verified capabilities', weight: 0.15 }),
+    Object.freeze({ id: 'capabilities', label: 'Provider evidence', weight: 0.15 }),
     Object.freeze({ id: 'scanning', label: 'Upload scanning', weight: 0.15 }),
     Object.freeze({ id: 'recovery', label: 'Recovery points', weight: 0.15 }),
     Object.freeze({ id: 'authentication', label: 'Credential reach', weight: 0.15 }),
@@ -103,25 +103,21 @@
     return keys;
   }
 
-  /*
-   * Capability projection: how much of what this provider offers is verified
-   * here. The denominator is what is offered -- a capability the provider does
-   * not have is a missing feature, not a weakness in this workspace -- and
-   * Experimental earns nothing: reachable is not the same as evidenced, and
-   * the old half credit is how the dial came to read 79 over a line that said
-   * 20 of 35.
-   */
+  /* Availability is not evidence. Only offered capabilities whose registry
+   * evidence is Provider-verified earn credit; stale, inferred and missing
+   * evidence do not. This is registry maturity, not a live workspace check or
+   * qualification of the current candidate. */
   function capabilityComponent(signals) {
     const component = componentById('capabilities');
-    if (!signals || !signals.total) {
-      return unknown(component, 'Capability projection has not loaded.');
-    }
+    if (!signals || !signals.total) return unknown(component, 'Capability projection has not loaded.');
     const offered = signals.supported + signals.experimental;
     if (!offered) return measured(component, 0, 'This provider offers none of the projected capabilities.');
-    const parts = [`${signals.supported} of ${offered} offered capabilities verified`];
+    if (!signals.offeredEvidenceKnown) return unknown(component, 'Evidence maturity is unknown for the offered capabilities.');
+    const parts = [`${signals.offeredProviderVerified} of ${offered} offered capabilities provider-verified`];
     if (signals.experimental) parts.push(`${signals.experimental} experimental`);
-    if (signals.unavailable) parts.push(`${signals.unavailable} not offered by this provider`);
-    return measured(component, signals.supported / offered, `${parts.join(' \u00b7 ')}.`);
+    if (signals.unavailable) parts.push(`${signals.unavailable} unavailable`);
+    return measured(component, signals.offeredProviderVerified / offered,
+      `${parts.join(' · ')}. Based on registry evidence, not a live workspace check or current release qualification.`);
   }
 
   function scanningComponent(scanner) {
@@ -250,16 +246,27 @@
     return measured(component, priv / repos.length, `${priv} of ${repos.length} connected repositories are private.`);
   }
 
+  const EVIDENCE_STATES = Object.freeze(['Provider-verified', 'Deterministic', 'Inferred', 'Stale', 'Unavailable']);
+
   function capabilitySignals(features) {
     if (!features || typeof features !== 'object') return null;
     const values = Object.values(features);
     if (!values.length) return null;
     const count = status => values.filter(entry => entry && entry.status === status).length;
+    const offered = values.filter(entry => entry && ['Supported', 'Experimental'].includes(entry.status));
+    const evidence = EVIDENCE_STATES.map(label => Object.freeze({
+      label, count: values.filter(entry => entry && entry.evidenceState === label).length
+    }));
+    evidence.push(Object.freeze({ label: 'Unknown', count: values.filter(entry => !entry || !EVIDENCE_STATES.includes(entry.evidenceState)).length }));
     return Object.freeze({
       total: values.length,
       supported: count('Supported'),
       experimental: count('Experimental'),
-      unavailable: count('Unavailable')
+      unavailable: count('Unavailable'),
+      providerVerified: evidence[0].count,
+      offeredProviderVerified: offered.filter(entry => entry.evidenceState === 'Provider-verified').length,
+      offeredEvidenceKnown: offered.filter(entry => EVIDENCE_STATES.includes(entry.evidenceState)).length,
+      evidence: Object.freeze(evidence)
     });
   }
 
@@ -363,10 +370,12 @@
         measured: !!signals,
         live: signals ? signals.supported : 0,
         total: signals ? signals.total : 0,
+        providerVerified: signals ? signals.providerVerified : 0,
+        evidence: signals ? signals.evidence : Object.freeze([]),
         breakdown: Object.freeze(signals ? [
-          Object.freeze({ id: 'supported', label: 'Verified', count: signals.supported, status: 'good' }),
+          Object.freeze({ id: 'supported', label: 'Supported', count: signals.supported, status: 'good' }),
           Object.freeze({ id: 'experimental', label: 'Experimental', count: signals.experimental, status: 'warning' }),
-          Object.freeze({ id: 'unavailable', label: 'Not offered', count: signals.unavailable, status: 'muted' })
+          Object.freeze({ id: 'unavailable', label: 'Unavailable', count: signals.unavailable, status: 'muted' })
         ] : [])
       }),
       activity: activity(input.repos, now)
@@ -661,7 +670,7 @@
       return;
     }
     head.appendChild(element('p', 'wp-stat-note',
-      `verified of ${signals.total} capabilities this provider projects`));
+      `supported of ${signals.total} capabilities this provider projects`));
     host.appendChild(head);
 
     const ring = element('div', 'wp-ring');
@@ -682,7 +691,12 @@
       item.append(swatch, element('span', 'wp-legend-label', part.label), element('span', 'wp-legend-value', String(part.count)));
       legend.appendChild(item);
     }
-    host.append(legend, numbersTable(
+    host.appendChild(legend);
+    host.appendChild(element('p', 'wp-stat-note wp-evidence-note',
+      `${signals.providerVerified} Provider-verified in the registry. Availability and evidence maturity are separate; this is not current release qualification.`));
+    host.appendChild(numbersTable('Evidence maturity', ['Evidence', 'Capabilities'],
+      signals.evidence.map(part => [part.label, part.count])));
+    host.append(numbersTable(
       'Capability states',
       ['State', 'Capabilities'],
       signals.breakdown.map(part => [part.label, part.count])
@@ -1090,18 +1104,25 @@
     let chart = areaChart(values, label, Object.assign({}, options, { width: drawn }));
     host.appendChild(chart);
     if (typeof ResizeObserver === 'function') {
+      let redraw = 0;
       const watcher = new ResizeObserver(() => {
-        if (!chart.isConnected) { watcher.disconnect(); return; }
-        const now = measure();
-        if (Math.abs(now - drawn) < 24) return;
-        drawn = now;
-        const next = areaChart(values, label, Object.assign({}, options, { width: now, reveal: false }));
-        const showing = chart.dataset.hover;
-        chart.replaceWith(next);
-        chart = next;
-        if (showing !== undefined && typeof CustomEvent === 'function') {
-          next.dispatchEvent(new CustomEvent('wp-hover', { detail: Number(showing) }));
-        }
+        if (!chart.isConnected) { watcher.disconnect(); cancelAnimationFrame(redraw); return; }
+        cancelAnimationFrame(redraw);
+        // Replacing SVG inside a resize delivery can resize its observed card
+        // again in the same frame. Draw in the next frame to avoid that loop.
+        redraw = requestAnimationFrame(() => {
+          if (!chart.isConnected) { watcher.disconnect(); return; }
+          const now = measure();
+          if (Math.abs(now - drawn) < 24) return;
+          drawn = now;
+          const next = areaChart(values, label, Object.assign({}, options, { width: now, reveal: false }));
+          const showing = chart.dataset.hover;
+          chart.replaceWith(next);
+          chart = next;
+          if (showing !== undefined && typeof CustomEvent === 'function') {
+            next.dispatchEvent(new CustomEvent('wp-hover', { detail: Number(showing) }));
+          }
+        });
       });
       watcher.observe(host);
     }

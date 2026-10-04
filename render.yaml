@@ -15,6 +15,11 @@ services:
         generateValue: true
       - key: NODE_ENV
         value: production
+      # Optional: verified ingress proxy IP/CIDR ranges. Unset on Render trusts
+      # exactly one hop -- Render's ingress, the only route to the service, which
+      # appends the address it accepted -- so a client cannot pick its bucket.
+      - key: NV_TRUSTED_PROXIES
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: NV_DEPLOYMENT_PROFILE

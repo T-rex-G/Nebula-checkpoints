@@ -9,6 +9,10 @@ For current version and qualification status, see the generated
 describes implemented and historical delivery, not provider parity, production
 readiness, or completed hosted qualification.
 
+For repository audits, Exposure findings, and the optional desktop/mobile website
+audit, see the [audit platform guide](docs/operations/AUDIT_PLATFORM.md). It explains
+coverage, exports, browser isolation, and deployment requirements.
+
 ## Run it
 
 Node is pinned to the version in `package.json` (`engines.node`). The server

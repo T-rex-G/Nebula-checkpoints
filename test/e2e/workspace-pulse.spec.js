@@ -44,7 +44,7 @@ test('a signed-in session lands on the overview and reports a trust score it can
    * shown beside its inputs can be checked.
    */
   for (const label of [
-    'Leaked credentials', 'Verified capabilities', 'Upload scanning', 'Recovery points',
+    'Leaked credentials', 'Provider evidence', 'Upload scanning', 'Recovery points',
     'Credential reach', 'Private repositories'
   ]) {
     await expect(trust).toContainText(label);
@@ -73,7 +73,8 @@ test('a signed-in session lands on the overview and reports a trust score it can
 
   const signals = page.getByRole('article', { name: 'Capabilities' });
   await expect(signals).toBeVisible();
-  await expect(signals).toContainText('Verified');
+  await expect(signals).toContainText('Supported');
+  await expect(signals).toContainText('Provider-verified in the registry');
   await expect(signals).toContainText('CAPABILITIES');
 
   /* Nothing on the overview claims more than the session established. */
@@ -81,7 +82,7 @@ test('a signed-in session lands on the overview and reports a trust score it can
   await expect(page.locator('#ovCoreLine')).toHaveText(/^Grade [A-F] \u00b7 \d{1,3}\/100 \u00b7 /);
   await expect(page.locator('#navBoundary')).toHaveAttribute('data-state', 'online');
   await expect(page.locator('#navBoundary')).toContainText('Boundary online');
-  await expect(page.locator('#ovPulseGrid')).toContainText('Verified capabilities');
+  await expect(page.locator('#ovPulseGrid')).toContainText('Provider-verified');
   await expect(page.locator('#ovPulseGrid')).not.toContainText('Live signals');
 
   await expect(page.getByRole('article', { name: 'Repository activity' })).toBeVisible();

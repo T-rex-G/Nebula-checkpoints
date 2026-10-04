@@ -384,9 +384,16 @@ function failedQualificationRunLines(state) {
 }
 
 function renderProjectState(state) {
+  const { loadCapabilityDocument, projectCapabilities } = require('./capability-registry');
   validateContinuity(state);
   const baseline = state.recordedBaseline;
   const automated = state.gates.automated;
+  const registry = loadCapabilityDocument(path.join(__dirname, '..', 'config/public-alpha-capabilities.json'));
+  const capabilityRows = ['github', 'gitlab', 'gitea'].map(provider => {
+    const features = Object.values(projectCapabilities(registry, { provider, deployment: 'hosted-alpha' }).features);
+    const count = (field, value) => features.filter(feature => feature[field] === value).length;
+    return `| ${provider} | ${count('status', 'Supported')} | ${count('status', 'Experimental')} | ${count('status', 'Unavailable')} | ${count('evidenceState', 'Provider-verified')} |`;
+  });
   return [
     '# Nebulaverse-X Project State',
     '',
@@ -428,6 +435,14 @@ function renderProjectState(state) {
     '## Known limitations',
     '',
     ...state.limitations.map(item => `- ${item}`),
+    '',
+    '## Capability registry summary',
+    '',
+    'Generated from the current registry. Evidence maturity is not current-candidate qualification.',
+    '',
+    '| Provider | Supported | Experimental | Unavailable | Provider-verified evidence |',
+    '|---|---:|---:|---:|---:|',
+    ...capabilityRows,
     '',
     '## Next authorized action',
     '',

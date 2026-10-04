@@ -59,7 +59,7 @@ const {
 
 /* Shared by every profile: no plaintext, no credentials in the URL, no port
    games, and no name that resolves inside somebody's network by convention. */
-for (const profile of [PROFILES.WEBHOOK, PROFILES.PROVIDER_READ, PROFILES.CREDENTIAL_VERIFY]) {
+for (const profile of [PROFILES.WEBHOOK, PROFILES.PROVIDER_READ, PROFILES.CREDENTIAL_VERIFY, PROFILES.SITE_PROBE, PROFILES.RENDERED_SITE]) {
   for (const bad of [
     'http://example.com/hook',
     'ftp://example.com/hook',
@@ -733,11 +733,15 @@ function fakeRequestImpl(behaviour) {
     assert.strictEqual(packed.bodyUnread, true);
     assert.strictEqual(packed.headers['x-frame-options'], 'DENY', 'the headers still arrive when the body is not read');
 
-    for (const name of ['Authorization', 'Cookie', 'X-Api-Key']) {
+    for (const name of ['Authorization', 'Cookie', 'X-Api-Key', 'Api-Key', 'X-Auth-Token', 'Host']) {
       await assert.rejects(probe(() => {}, { headers: { [name]: 'something-long-enough' } }),
         error => error.code === 'GUARDED_FETCH_REFUSED', `${name} must be refused on an anonymous probe`);
     }
-    await assert.rejects(probe(() => {}, { url: 'https://site.example/?q=1' }), error => error.code === 'GUARDED_FETCH_URL_INVALID');
+    const queryImpl = fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ chunks: ['query page'] })));
+    const query = await probe(() => {}, { url: 'https://site.example/?q=1&lang=en', requestImpl: queryImpl });
+    assert.strictEqual(query.body, 'query page');
+    assert.strictEqual(queryImpl.calls[0].path, '/?q=1&lang=en', 'site probes preserve public query parameters');
+    await assert.rejects(probe(() => {}, { url: 'https://site.example/?q=1#section' }), error => error.code === 'GUARDED_FETCH_URL_INVALID');
     await assert.rejects(probe(() => {}, { method: 'POST' }), error => error.code === 'GUARDED_FETCH_METHOD_INVALID');
 
     /* A provider read is unchanged: no headers, and an oversized body is still refused. */
@@ -750,6 +754,137 @@ function fakeRequestImpl(behaviour) {
       url: 'https://provider.example/x', profile: PROFILES.PROVIDER_READ, method: 'GET', addresses, maxResponseBytes: 1024,
       requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200, chunks: ['x'.repeat(2000)] })))
     }), error => error.code === 'GUARDED_FETCH_RESPONSE_TOO_LARGE');
+  }
+
+  /* Browser resources keep their bytes and share the public-address guard. */
+  {
+    const addresses = [{ address: '93.184.216.34', family: 4 }];
+    const resource = extra => guardedFetch({
+      url: 'https://site.example/image.png?v=2', profile: PROFILES.RENDERED_SITE,
+      method: 'GET', addresses, responseType: 'buffer', ...extra
+    });
+    const bytes = Buffer.from([0, 255, 128, 193, 137, 80, 78, 71, 13, 10]);
+    const headers = {
+      Accept: 'image/avif,image/webp,*/*', 'Accept-Language': 'en',
+      'User-Agent': 'Nebula site check', Origin: 'https://site.example',
+      Referer: 'https://site.example/', Range: 'bytes=0-1023'
+    };
+    const requestImpl = fakeRequestImpl(({ onResponse, request }) => {
+      assert.strictEqual(request.body, undefined, 'anonymous resources send no body');
+      onResponse(fakeResponse({ headers: { 'Content-Type': 'image/png' }, chunks: [bytes.subarray(0, 3), bytes.subarray(3)] }));
+    });
+    const result = await resource({ headers, requestImpl });
+    assert(Buffer.isBuffer(result.body), 'binary resources remain a Buffer');
+    assert.deepStrictEqual(result.body, bytes, 'non-UTF-8 bytes survive without decoding');
+    assert.strictEqual(result.headers['content-type'], 'image/png');
+    const options = requestImpl.calls[0];
+    assert.deepStrictEqual(options.headers, headers, 'permitted browser headers survive');
+    assert.strictEqual(options.path, '/image.png?v=2');
+    assert.strictEqual(options.protocol, 'https:');
+    assert.strictEqual(options.servername, 'site.example', 'TLS verifies the requested hostname');
+    assert.strictEqual(options.port, 443);
+    assert.strictEqual(options.agent, false, 'rendered sites do not reuse provider pools');
+    options.lookup('site.example', {}, (error, address, family) => {
+      assert.ifError(error);
+      assert.deepStrictEqual([address, family], ['93.184.216.34', 4]);
+    });
+    options.lookup('site.example', { all: true }, (error, pins) => {
+      assert.ifError(error);
+      assert.deepStrictEqual(pins, addresses, 'family auto-selection receives only the validated pin');
+    });
+
+    const headImpl = fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 204 })));
+    const head = await resource({ method: 'HEAD', requestImpl: headImpl });
+    assert(Buffer.isBuffer(head.body));
+    assert.strictEqual(head.body.length, 0);
+    assert.strictEqual(headImpl.calls[0].method, 'HEAD');
+
+    const packedBytes = require('zlib').gzipSync(bytes);
+    const packed = await resource({ requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({
+      headers: { 'content-encoding': 'gzip' }, chunks: [packedBytes]
+    }))) });
+    assert.deepStrictEqual(packed.body, packedBytes, 'encoded resource bytes can be fulfilled without decoding or re-encoding');
+    assert.strictEqual(packed.headers['content-encoding'], 'gzip');
+
+    const oversized = Buffer.alloc(1600, 255);
+    const cut = await resource({ maxResponseBytes: 1024, requestImpl: fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ chunks: [oversized] }))) });
+    assert.strictEqual(cut.truncated, true, 'callers can refuse incomplete resource bytes');
+    assert.deepStrictEqual(cut.body, oversized.subarray(0, 1024));
+
+    for (const location of ['https://other.example/next', 'https://127.0.0.1/private', 'http://site.example/downgrade']) {
+      const redirectImpl = fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 302, headers: { location } })));
+      const redirected = await resource({ requestImpl: redirectImpl });
+      assert.strictEqual(redirected.statusCode, 302);
+      assert.strictEqual(redirected.headers.location, location);
+      assert.strictEqual(redirectImpl.calls.length, 1, 'redirect destinations are returned without automatically following them');
+    }
+
+    const noSocket = () => assert.fail('a refused resource must not open a socket');
+    for (const name of ['Authorization', 'aUtHoRiZaTiOn', 'Proxy-Authorization', 'Cookie', 'Private-Token', 'X-Api-Key', 'Host', 'X-Forwarded-For', 'X-Custom-Secret', 'Content-Type']) {
+      await assert.rejects(resource({ headers: { [name]: 'private-value' }, requestImpl: noSocket }),
+        error => error.code === CODES.REFUSED, `${name} is outside the anonymous browser header policy`);
+    }
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'CONNECT', 'OPTIONS']) {
+      await assert.rejects(resource({ method, requestImpl: noSocket }), error => error.code === CODES.METHOD_INVALID, method);
+    }
+    for (const body of ['', 'payload', Buffer.from('payload')]) {
+      await assert.rejects(resource({ body, requestImpl: noSocket }), error => error.code === CODES.REFUSED, 'even an empty explicit body is refused');
+    }
+    await assert.rejects(resource({ url: 'http://site.example/', requestImpl: noSocket }), error => error.code === CODES.URL_INVALID);
+    await assert.rejects(resource({ url: 'http://site.example/', plainHttp: true, requestImpl: noSocket }), error => error.code === CODES.REFUSED);
+    await assert.rejects(resource({ agent: {}, requestImpl: noSocket }), error => error.code === CODES.REFUSED);
+    for (const address of PRIVATE) {
+      await assert.rejects(resource({ addresses: [{ address, family: address.includes(':') ? 6 : 4 }], requestImpl: noSocket }),
+        error => error.code === CODES.SSRF_BLOCKED, address);
+    }
+    for (const answers of [[], [{ address: 'not-an-address', family: 4 }], [{ address: '93.184.216.34', family: 6 }]]) {
+      await assert.rejects(resource({ addresses: answers, requestImpl: noSocket }), error => error.code === CODES.DNS_INVALID);
+    }
+    await assert.rejects(resource({ addresses: undefined, resolveAddresses: async () => [...addresses, { address: '10.0.0.1', family: 4 }], requestImpl: noSocket }),
+      error => error.code === CODES.SSRF_BLOCKED, 'one private DNS answer refuses the entire set');
+    await assert.rejects(resource({ addresses: undefined, resolveAddresses: async () => { throw Object.assign(new Error('secret DNS detail'), { code: 'ESERVFAIL' }); }, requestImpl: noSocket }),
+      error => error instanceof GuardedFetchError && error.code === CODES.DNS_INVALID && !error.message.includes('secret'));
+
+    for (const stage of ['request', 'response', 'construction']) {
+      const failure = Object.assign(new Error('private transport details'), { code: 'ECONNRESET' });
+      const failedImpl = stage === 'construction' ? () => { throw failure; } : fakeRequestImpl(({ onResponse, listeners }) => {
+        if (stage === 'request') return listeners.error[0](failure);
+        const response = fakeResponse();
+        response.on = (event, handler) => { if (event === 'error') setImmediate(() => handler(failure)); return response; };
+        response.resume = () => {};
+        return onResponse(response);
+      });
+      await assert.rejects(resource({ requestImpl: failedImpl }),
+        error => error instanceof GuardedFetchError && error.code === CODES.TRANSPORT_FAILED && error.transportCode === 'ECONNRESET' && !error.message.includes('private'),
+        `${stage} errors fail without exposing raw transport details`);
+    }
+
+    const cancelled = new AbortController();
+    cancelled.abort();
+    await assert.rejects(resource({ signal: cancelled.signal, requestImpl: noSocket }), error => error.code === CODES.DEADLINE);
+    const active = new AbortController();
+    let pendingRequest;
+    const activeResult = resource({ signal: active.signal, requestImpl: fakeRequestImpl(({ request }) => {
+      pendingRequest = request;
+      active.abort();
+    }) });
+    await assert.rejects(failFast(activeResult, 500, 'active abort did not settle promptly'), error => error.code === CODES.DEADLINE);
+    assert(pendingRequest.destroyed, 'cancellation tears down the active request');
+
+    const resolving = new AbortController();
+    let completeDns;
+    let dnsStarted;
+    const started = new Promise(resolve => { dnsStarted = resolve; });
+    const dnsResult = resource({ addresses: undefined, signal: resolving.signal, requestImpl: noSocket,
+      resolveAddresses: () => new Promise(resolve => { completeDns = resolve; dnsStarted(); }) });
+    await started;
+    resolving.abort();
+    try {
+      await assert.rejects(failFast(dnsResult, 500, 'abort during DNS did not settle promptly'), error => error.code === CODES.DEADLINE);
+    } finally {
+      completeDns(addresses);
+      await dnsResult.catch(() => {});
+    }
   }
 
   /*

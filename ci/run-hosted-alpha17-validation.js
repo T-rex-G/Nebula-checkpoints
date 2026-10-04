@@ -283,6 +283,7 @@ async function runHostedValidation(options = {}) {
     String(env.NV_ALPHA17_RESTORE_ATTESTATION || '')
   );
   const restoreAttestation = validateRunnerRestoreAttestation(inputRestoreAttestation, {
+    candidateRoot: options.releaseRoot || path.resolve(__dirname, '..'),
     expectedSubjectHash: subjectSha256,
     expectedSourceCommit: sourceCommit,
     expectedOriginId: `workflow-${runId}-restore`,

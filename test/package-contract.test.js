@@ -137,7 +137,7 @@ for (const source of ['public/index.html', 'public/sw.js', 'server.js', 'scripts
   assert(read(source).includes('dompurify/3.4.16/purify.min.js'), `${source} has a stale DOMPurify asset path`);
 }
 assert(fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.16/purify.min.js')));
-assert(!fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.12')),
+assert(!fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.12')) && !fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.13')),
   'the vulnerable DOMPurify browser asset must not remain releasable');
 const task6Artifacts = [
   'src/alpha-access.js',

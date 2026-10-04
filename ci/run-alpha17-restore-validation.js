@@ -8,6 +8,7 @@ const { spawnSync } = require('child_process');
 const { neonConnectionIdentitySha256 } = require('../scripts/alpha-db');
 const { runSmoke } = require('../scripts/alpha-smoke');
 const {
+  candidateLatestMigration,
   signRunnerRestoreAttestation,
   validateRunnerRestoreAttestation
 } = require('./alpha17-restore-attestation');
@@ -122,11 +123,11 @@ function assertOutputFile(backupDirectory, filePath, label) {
   return resolved;
 }
 
-function validateBackupResult(value, backupDirectory) {
+function validateBackupResult(value, backupDirectory, expectedMigration = candidateLatestMigration()) {
   if (!hasExactKeys(value, [
     'command', 'backupPath', 'manifestPath', 'schemaVersion', 'sizeBytes',
     'plaintextSha256', 'ciphertextSha256'
-  ]) || value.command !== 'backup' || value.schemaVersion !== '015_alpha_privacy') {
+  ]) || value.command !== 'backup' || value.schemaVersion !== expectedMigration) {
     fail('backup result does not match the restore runner contract');
   }
   if (!Number.isSafeInteger(value.sizeBytes) || value.sizeBytes <= 0) fail('backup size is invalid');
@@ -164,9 +165,9 @@ function validateTargetResult(value, env, expectedIdentitySha256) {
   return value;
 }
 
-function validateRestoreResult(value) {
+function validateRestoreResult(value, expectedMigration = candidateLatestMigration()) {
   if (!hasExactKeys(value, ['command', 'migration', 'counts']) ||
-      value.command !== 'restore' || value.migration !== '015_alpha_privacy' ||
+      value.command !== 'restore' || value.migration !== expectedMigration ||
       !hasExactKeys(value.counts, COUNT_KEYS)) {
     fail('restore result does not match the runner contract');
   }
@@ -203,6 +204,7 @@ async function runRestoreValidation(options = {}) {
   if (!SHA256_PATTERN.test(subjectSha256) || /^0{64}$/.test(subjectSha256)) fail('restore subject is invalid');
   if (!COMMIT_PATTERN.test(sourceCommit) || /^0{40}$/.test(sourceCommit)) fail('restore source commit is invalid');
   if (!/^[a-zA-Z0-9._-]{1,80}$/.test(runId)) fail('restore workflow run ID is invalid');
+  const expectedMigration = candidateLatestMigration(candidateRoot);
   const commandEnv = commandEnvironment(env);
   const executeCommand = options.executeCommand || ((args, childEnv) => executeAlphaDb(args, childEnv, candidateRoot));
   const sourceIdentitySha256 = neonConnectionIdentitySha256(
@@ -264,11 +266,12 @@ async function runRestoreValidation(options = {}) {
   try {
     const backup = validateBackupResult(
       executeCommand(['backup', '--output-dir', backupDirectory], commandEnv),
-      backupDirectory
+      backupDirectory,
+      expectedMigration
     );
     const restore = validateRestoreResult(executeCommand([
       'restore', '--backup', backup.backupPath, '--manifest', backup.manifestPath
-    ], commandEnv));
+    ], commandEnv), expectedMigration);
     const smoke = await (options.runSmokeImpl || runSmoke)(restoreAppBaseUrl);
     if (!smoke || smoke.ok !== true) fail('restore-backed application smoke failed');
     const backupManifestSha256 = hashFile(backup.manifestPath);
@@ -334,6 +337,7 @@ async function runRestoreValidation(options = {}) {
     attestationKeyBase64: requireEnvironment(env, 'NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64')
   });
   const attestation = validateRunnerRestoreAttestation(signedAttestation, {
+    candidateRoot,
     expectedSubjectHash: subjectSha256,
     expectedSourceCommit: sourceCommit,
     expectedOriginId: `workflow-${runId}-restore`,

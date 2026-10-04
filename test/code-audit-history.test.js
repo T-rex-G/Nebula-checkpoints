@@ -91,6 +91,15 @@ async function withClient(connectionString, run) {
   try {
     await withClient(url.toString(), client => runMigrations(client, loadMigrations(DIRECTORY)));
     const history = new CodeAuditHistory({ pool });
+    {
+      const upgradeScope = { ...scope, repo: 'EngineUpgrade' };
+      await history.record({ scope: upgradeScope, identityKey: IDENTITY, result: auditResult(), now: T0 });
+      const upgrade = await history.record({ scope: upgradeScope, identityKey: IDENTITY, now: T0 + HOUR,
+        result: { ...auditResult({ commit: 'upgraded', auditedAt: T0 + HOUR }), engine: { name: 'Uranus', version: '2.1.0' } } });
+      assert.equal(upgrade.previous, null);
+      assert.equal(upgrade.newIds, null);
+      assert.equal(upgrade.resolved, null, 'identity changes cannot masquerade as resolutions');
+    }
 
     /* ---- Recording: the first audit of a branch has nothing to compare with -- */
     const first = await history.record({ scope, identityKey: IDENTITY, result: auditResult(), now: T0 });
@@ -116,7 +125,7 @@ async function withClient(connectionString, run) {
     assert.deepStrictEqual(listed.audits[0].categories, [{ id: 'code', score: 70 }, { id: 'dependencies', score: 55 }]);
     assert.deepStrictEqual(listed.branches, [{ ref: 'main', audits: 2, lastAt: new Date(T0 + HOUR).toISOString() }]);
     /* The audit is the watch's first check, so the watch does not ask the same questions again straight away. */
-    assert.deepStrictEqual(listed.audits[0].watch, { checkedAt: new Date(T0 + HOUR).toISOString(), state: 'ok', checked: 0, total: 2, kev: 'not-needed' });
+    assert.deepStrictEqual(listed.audits[0].watch, { checkedAt: new Date(T0 + HOUR).toISOString(), state: 'partial', checked: 0, total: 2, kev: 'unavailable' });
 
     /* ---- One audit's findings, worst first, with the rule's own title ------- */
     const read = await history.read({ scope, identityKey: IDENTITY, auditId: second.auditId });
@@ -145,6 +154,16 @@ async function withClient(connectionString, run) {
     assert.deepStrictEqual(saved.map(item => item.kind), ['exploited', 'advisory'], 'exploited first; a malformed alert is dropped');
     assert.strictEqual(saved[1].firstSeenAt, new Date(T0 + 2 * HOUR).toISOString());
     assert.strictEqual(saved[0].kevAdded, '2025-01-23');
+    const outage = await history.saveWatch({ scope, identityKey: IDENTITY, auditId: second.auditId, now: T0 + 3 * HOUR,
+      outcome: { state: 'partial', checked: 2, total: 2, kev: 'unavailable', sources: { advisories: 'ok', exploited: 'unavailable' }, alerts: [alert] } });
+    assert.equal(outage.find(item => item.kind === 'exploited').kevAdded, '2025-01-23', 'KEV failure preserves the exploitation alert');
+    const enriched = { ...alert, exploited: true, ransomware: true, kevAdded: '2026-01-01', kevDue: '2026-01-20' };
+    await history.saveWatch({ scope, identityKey: IDENTITY, auditId: second.auditId, now: T0 + 4 * HOUR,
+      outcome: { state: 'ok', checked: 2, total: 2, kev: 'ok', sources: { advisories: 'ok', exploited: 'ok' }, alerts: [enriched, exploited] } });
+    const retained = await history.saveWatch({ scope, identityKey: IDENTITY, auditId: second.auditId, now: T0 + 5 * HOUR,
+      outcome: { state: 'partial', checked: 2, total: 2, kev: 'unavailable', sources: { advisories: 'ok', exploited: 'unavailable' }, alerts: [alert] } });
+    assert.equal(retained.find(item => item.kind === 'advisory').exploited, true, 'an advisory refresh cannot clear unavailable KEV enrichment');
+    assert.equal(retained.find(item => item.kind === 'advisory').kevAdded, '2026-01-01');
     const again = await history.saveWatch({ scope, identityKey: IDENTITY, auditId: second.auditId, now: T0 + 9 * HOUR, outcome: { state: 'partial', checked: 1, total: 2, kev: 'ok', alerts: [alert] } });
     assert.strictEqual(again.length, 2, 'a partial check never drops an alert it did not see again');
     assert.strictEqual(again.find(item => item.kind === 'advisory').firstSeenAt, new Date(T0 + 2 * HOUR).toISOString(), 'first seen survives');

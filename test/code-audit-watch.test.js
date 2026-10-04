@@ -95,7 +95,7 @@ const stored = [
   {
     const { transport } = services({ osvDown: true, kev: [kevEntry('CVE-2020-11023', '2025-01-23', '2025-02-13')] });
     const outcome = await watchComponents({ components: stored, advisoryTransport: transport, intelTransport: transport, intelCache: createIntelCache() });
-    assert.strictEqual(outcome.state, 'unavailable');
+    assert.strictEqual(outcome.state, 'partial', 'CISA can answer while OSV is unavailable');
     assert.strictEqual(outcome.checked, 0);
     assert.deepStrictEqual(outcome.alerts.map(alert => alert.kind), ['exploited'], 'the catalog is still asked when OSV is down');
   }

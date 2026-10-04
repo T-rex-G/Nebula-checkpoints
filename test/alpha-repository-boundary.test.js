@@ -343,6 +343,7 @@ class AlphaPrivacyStore {
 }
 
 class Pool {
+  on() { return this; }
   async connect() {
     return {
       query: this.query.bind(this),
@@ -493,6 +494,9 @@ Module._load = function load(request, parent, isMain) {
     return { startWebhookWorker: () => ({ stop() {} }) };
   }
   if (request === 'pg') return { Pool };
+  if (request === './src/provider-transport' && parent && /server\.js$/.test(parent.filename)) {
+    return { providerFetch: (...args) => global.fetch(...args) };
+  }
   if (request === 'dns') {
     return { promises: { lookup: async () => [{ address: '93.184.216.34', family: 4 }] } };
   }
@@ -654,6 +658,7 @@ const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
     NV_GIT_HOST_ALLOWLIST: 'gitlab.com,gitea.example',
     NV_ALPHA_TEST_EVENT_LOG: eventLog,
     NV_ALPHA_TEST_ROOT: root,
+    NV_TRUSTED_PROXIES: '127.0.0.1/32,::1/128',
     NV_ALPHA_TEST_STATE_FILE: alphaStateFile,
     NV_ALPHA_TEST_WEBHOOK_ID: webhookId,
     NV_ALPHA_TEST_WEBHOOK_IDENTITY: identityKey(accounts.github),

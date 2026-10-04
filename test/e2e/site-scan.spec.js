@@ -53,9 +53,9 @@ test('any site is checked from the rail, followed step by step, and reported wit
   await expect(card.locator('.audit-grade')).toHaveAttribute('aria-label', /^Site grade F, \d{1,2} out of 100$/, { timeout: 15000 });
   await expect(card.locator('.audit-origin')).toHaveText('demo.example.com');
   const ledger = card.getByRole('list', { name: 'What was checked' }).getByRole('listitem');
-  await expect(ledger).toHaveCount(15);
+  await expect(ledger).toHaveCount(16);
   await expect(ledger.filter({ hasText: 'Pages read' })).toContainText('2 pages read: /, /pricing');
-  await expect(ledger.filter({ hasText: 'JavaScript' })).toContainText('1 of 1 script on this origin read (under 1 KB), no server-side secret in them');
+  await expect(ledger.filter({ hasText: 'JavaScript' })).toContainText('1 of 1 script on this origin read (under 1 KB), no server-side secret detected in the bytes assessed');
   await expect(ledger.filter({ hasText: 'Source maps' })).toHaveAttribute('data-state', 'warn');
   await expect(card.locator('.audit-site-ledger-sum')).toContainText(/\d+ passed · \d+ failed/);
   /* The state is a word as well as a glyph. */

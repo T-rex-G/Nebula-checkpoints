@@ -667,7 +667,7 @@ func user(w http.ResponseWriter, r *http.Request) {
     { path: 'go.mod', text: 'module example.com/app\n\ngo 1.22\n' }
   ];
   const result = audit.analyse({ files, paths: files.map(file => file.path) });
-  assert.strictEqual(result.engine.version, '2.1.0');
+  assert.strictEqual(result.engine.version, '2.2.0');
   assert.strictEqual(result.engine.traced.go, 1);
   assert.strictEqual(result.engine.traced.java, 1);
   assert.strictEqual(result.engine.traced.php, 1);

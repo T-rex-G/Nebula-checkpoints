@@ -736,6 +736,7 @@
    */
   function diff(result, previous) {
     if (!previous || !Array.isArray(previous.ids)) return null;
+    if (engineIdentity(result) !== (previous.engine || null)) return null;
     const before = new Set(previous.ids);
     const now = new Set(result.findings.map(finding => finding.id));
     return {
@@ -747,6 +748,10 @@
   function storageKey(repoKey) {
     return `${STORE_PREFIX}${String(repoKey || '').toLowerCase()}`;
   }
+  function engineIdentity(result) {
+    if (typeof result.engine === 'number') return `site:${result.engine}`;
+    return result.engine && result.engine.version ? `repository:${result.engine.version}` : null;
+  }
   function readPrevious(repoKey) {
     try { return JSON.parse(global.localStorage.getItem(storageKey(repoKey)) || 'null'); } catch { return null; }
   }
@@ -754,6 +759,7 @@
     try {
       global.localStorage.setItem(storageKey(repoKey), JSON.stringify({
         at: result.auditedAt || new Date().toISOString(),
+        engine: engineIdentity(result),
         ids: result.findings.map(finding => finding.id).slice(0, 2000)
       }));
     } catch { /* private mode: no comparison next time, and nothing is lost */ }
@@ -799,14 +805,16 @@
     if (coverage.skipped && coverage.skipped.oversize) notes.push(`${plural(coverage.skipped.oversize, 'file', 'files')} over 512 KB were not read`);
     if (coverage.unreadable) notes.push(`${plural(coverage.unreadable, 'file', 'files')} could not be read`);
     if (coverage.packages && coverage.packages.notChecked) notes.push(`${plural(coverage.packages.notChecked, 'package', 'packages')} beyond the lookup limit were not checked`);
+    if (coverage.packages && coverage.packages.unknown) notes.push(`${plural(coverage.packages.unknown, 'registry lookup', 'registry lookups')} went unanswered`);
     const advisories = coverage.advisories || {};
+    if (advisories.unknown) notes.push(`${plural(advisories.unknown, 'advisory lookup', 'advisory lookups')} went unanswered`);
     if (advisories.notChecked) notes.push(`${plural(advisories.notChecked, 'package version', 'package versions')} beyond the advisory limit were not checked`);
     if (advisories.lockfiles > advisories.lockfilesRead) notes.push('a lockfile was not read (over 512 KB or past the budget), so declared ranges stood in for installed versions');
     const licensing = result.licences && result.licences.status;
     if (licensing && licensing.notAsked) notes.push(`${plural(licensing.notAsked, 'package version', 'package versions')} beyond the licence lookup limit were not checked`);
     const exploit = coverage.exploit;
     if (exploit && exploit.cves) {
-      if (exploit.kev === 'unavailable') notes.push('CISA’s exploited-vulnerability catalog could not be read, so no vulnerability is marked exploited');
+      if (exploit.kev === 'unavailable') notes.push('CISA’s exploited-vulnerability catalog could not be read, so existing exploit evidence must be treated as last known rather than current');
       else if (exploit.kevStale) notes.push('the exploited-vulnerability catalog is an earlier copy, because a refresh failed');
       if (exploit.epss === 'unavailable') notes.push('EPSS could not be reached, so no exploit probability is shown');
       else if (exploit.epss === 'partial') notes.push('some EPSS requests went unanswered, so some CVEs have no exploit probability');
@@ -856,7 +864,8 @@
    * that only changed a filter.
    */
   function ring(result, status, label, animateFrom) {
-    const wrap = element('div', `audit-grade audit-grade-${result ? result.grade : 'none'}`);
+    const graded = result && Number.isFinite(result.score) && typeof result.grade === 'string';
+    const wrap = element('div', `audit-grade audit-grade-${graded ? result.grade : 'none'}`);
     wrap.setAttribute('role', 'img');
     wrap.setAttribute('aria-label', label);
     if (status === 'running') wrap.dataset.running = 'true';
@@ -875,7 +884,7 @@
     track.setAttribute('class', 'audit-ring-track');
     arc.setAttribute('class', 'audit-ring-arc');
     arc.setAttribute('transform', 'rotate(-90 60 60)');
-    const score = result ? Math.max(0, Math.min(100, Number(result.score) || 0)) : status === 'running' ? 28 : 0;
+    const score = graded ? Math.max(0, Math.min(100, result.score)) : status === 'running' ? 28 : 0;
     const start = animateFrom === null || reducedMotion() ? score : animateFrom;
     arc.style.strokeDasharray = `${start} 100`;
     /* A round cap on a zero-length arc is a dot, which reads as a score. */
@@ -883,8 +892,8 @@
     if (start !== score) global.requestAnimationFrame(() => global.requestAnimationFrame(() => { arc.style.strokeDasharray = `${score} 100`; }));
     svg.append(track, arc);
     const face = element('div', 'audit-grade-face');
-    face.append(element('span', 'audit-grade-letter', result ? result.grade : '—'),
-      element('span', 'audit-grade-score', result ? `${result.score}/100` : status === 'running' ? 'reading' : 'not audited'));
+    face.append(element('span', 'audit-grade-letter', graded ? result.grade : '—'),
+      element('span', 'audit-grade-score', graded ? `${result.score}/100` : status === 'running' ? 'reading' : result ? 'incomplete' : 'not audited'));
     wrap.append(svg, face);
     return wrap;
   }
@@ -1044,7 +1053,10 @@
     if (traced.cut) parts.push(`${plural(traced.cut, 'file', 'files')} left to the rules (${traced.limit === 'memory' ? 'memory' : 'time'} limit)`);
     if (traced.rulesOnly) parts.push(`${plural(traced.rulesOnly, 'more file', 'more files')} checked against the rules`);
     const line = element('p', 'audit-engine-line');
-    line.append(uranusMark('audit-ico uranus-mark'), element('strong', null, `${engine.name} ${String(engine.version || '').replace(/\.0$/, '')}`), element('span', null, parts.join(' · ')));
+    /* Spaces between the parts: the flex gap separates them on screen, and
+       without one a screen reader read the version and the count as a single
+       number -- "Uranus 2.26 files traced". */
+    line.append(uranusMark('audit-ico uranus-mark'), element('strong', null, `${engine.name} ${String(engine.version || '').replace(/\.0$/, '')}`), ' ', element('span', null, parts.join(' · ')));
     return line;
   }
 
@@ -1272,7 +1284,12 @@
 
     const stats = element('div', 'audit-surface-stats audit-risk-stats');
     stats.setAttribute('role', 'list');
-    const stat = node => { node.setAttribute('role', 'listitem'); stats.appendChild(node); };
+    const stat = node => {
+      const item = element('div');
+      item.setAttribute('role', 'listitem');
+      item.appendChild(node);
+      stats.appendChild(item);
+    };
     const live = ranked.filter(exploited).length;
     const ransom = ranked.filter(finding => exploited(finding) && intelOf(finding).ransomware).length;
     const exploit = result.coverage && result.coverage.exploit;
@@ -2644,6 +2661,22 @@
    * the headers a browser enforces were sent, and the findings. The address
    * is the only thing typed here, and only its origin is ever requested.
    */
+  /* Legacy reports without coverage evidence cannot establish a passing grade. */
+  function siteAssessment(result) {
+    const raw = result.coverage || {};
+    const complete = raw.complete === true && raw.state === 'complete';
+    const state = complete ? 'complete' : raw.state === 'partial' ? 'partial' : 'unknown';
+    const reasons = Array.isArray(raw.reasons) ? raw.reasons.filter(reason => typeof reason === 'string') : [];
+    if (!complete && !reasons.length) reasons.push('Coverage evidence is unavailable; run the check again.');
+    return { state, complete, reasons, categories: raw.categories || {} };
+  }
+  function siteAssessmentLine(result) {
+    const coverage = siteAssessment(result);
+    if (coverage.complete) return 'Coverage complete within the stated request and resource limits. This is a bounded security check, not a security certification.';
+    const observed = Number.isFinite(result.observedScore) ? ` Observed checks scored ${result.observedScore}/100; this is not an overall site score.` : '';
+    return `Coverage ${coverage.state}. Overall grade withheld.${observed} ${coverage.reasons.join(' ')}`;
+  }
+
   function siteCoverage(result) {
     const hops = result.redirects
       ? ` after ${plural(result.redirects, 'redirect', 'redirects')}${result.requested && result.requested !== result.origin ? ` from ${result.requested}` : ''}`
@@ -2735,7 +2768,7 @@
   /* What was checked, each as passed, failed, worth a look, skipped or not answered -- so a short findings list is never read as a clean site. */
   const LEDGER_NAMES = Object.freeze({
     certificate: 'Certificate', protocol: 'TLS', 'plain-http': 'Plain HTTP', hsts: 'HSTS', headers: 'Security headers', cookies: 'Cookies',
-    cors: 'Cross-origin reads', paths: 'Exposed files', errors: 'Error pages', pages: 'Pages read', scripts: 'JavaScript', maps: 'Source maps',
+    cors: 'Cross-origin reads', paths: 'Exposed files', errors: 'Error pages', robots: 'Crawler instructions', pages: 'Pages read', scripts: 'JavaScript', maps: 'Source maps',
     libraries: 'Libraries', contact: 'Security contact', email: 'Email spoofing'
   });
   const LEDGER_GLYPH = Object.freeze({ pass: '✓', fail: '✕', warn: '!', skip: '–', unknown: '?' });
@@ -2746,7 +2779,7 @@
     const wrap = element('div', 'audit-site-ledger');
     const title = element('h3', 'audit-site-list-title', 'What was checked');
     const counts = entries.reduce((total, entry) => { total[entry.state] = (total[entry.state] || 0) + 1; return total; }, {});
-    const summary = element('span', 'audit-site-ledger-sum', [counts.pass ? `${counts.pass} passed` : '', counts.fail ? `${counts.fail} failed` : '', counts.warn ? `${counts.warn} worth a look` : ''].filter(Boolean).join(' · '));
+    const summary = element('span', 'audit-site-ledger-sum', [counts.pass ? `${counts.pass} passed` : '', counts.fail ? `${counts.fail} failed` : '', counts.warn ? `${counts.warn} worth a look` : '', counts.unknown ? `${counts.unknown} unknown` : '', counts.skip ? `${counts.skip} skipped` : ''].filter(Boolean).join(' · '));
     const head = element('div', 'audit-site-ledger-head');
     head.append(title, summary);
     const list = element('ul', 'audit-site-ledger-list');
@@ -2787,14 +2820,15 @@
 
   function renderSite(host, site, handlers, previous) {
     const card = element('section', 'card audit-site');
-    card.setAttribute('aria-labelledby', 'auditSiteHeading');
+    const idPrefix = site.standalone ? 'standaloneSite' : 'auditSite';
+    card.setAttribute('aria-labelledby', `${idPrefix}Heading`);
     const head = element('div', 'audit-site-head');
     const mark = element('span', 'audit-site-mark');
     mark.appendChild(icon(ICON.globe));
     const titles = element('div', 'audit-site-titles');
     /* On its own page the hero above already says what is checked; the card says how. */
     const heading = element('h2', 'exposure-heading', site.standalone ? 'Check a site' : 'Deployed site');
-    heading.id = 'auditSiteHeading';
+    heading.id = `${idPrefix}Heading`;
     titles.append(heading, element('p', 'audit-site-lede', site.standalone
       ? 'Anonymous GET requests only \u2014 at most sixty, in under a minute \u2014 and nothing it reads is kept.'
       : 'The certificate, headers, exposed files, the pages and scripts a visitor loads, their libraries and the domain’s email policy. Anonymous requests only; nothing kept.'));
@@ -2804,10 +2838,10 @@
     const form = element('form', 'audit-site-form');
     form.noValidate = true;
     const label = element('label', 'audit-site-label', 'Site address');
-    label.htmlFor = 'auditSiteUrl';
+    label.htmlFor = `${idPrefix}Url`;
     const field = element('div', 'audit-site-field');
     const input = element('input', 'audit-site-input');
-    input.id = 'auditSiteUrl';
+    input.id = `${idPrefix}Url`;
     input.type = 'url';
     input.inputMode = 'url';
     input.autocomplete = 'url';
@@ -2838,25 +2872,34 @@
     if (result && site.status !== 'running') {
       const row = element('div', 'audit-grade-row audit-site-grade');
       const fresh = !previous || previous.siteId !== `${result.origin}|${result.checkedAt}`;
-      row.appendChild(ring(result, 'done', `Site grade ${result.grade}, ${result.score} out of 100`, fresh ? 0 : null));
+      const assessment = siteAssessment(result);
+      const graded = assessment.complete && Number.isFinite(result.score) && typeof result.grade === 'string';
+      row.appendChild(ring(graded ? result : { ...result, grade: null, score: null }, 'done', graded
+        ? `Site grade ${result.grade}, ${result.score} out of 100`
+        : `Site coverage ${assessment.state}; overall grade withheld`, fresh ? 0 : null));
       const read = element('div', 'audit-grade-read');
       const total = result.findings.length;
       const origin = element('span', 'audit-origin');
       origin.append(icon(ICON.globe), element('span', null, result.origin.replace(/^https:\/\//, '')));
       origin.title = result.origin;
-      read.append(origin, element('p', 'audit-verdict audit-verdict-sm', total ? verdict(result, 'done') : 'Nothing found'));
+      read.append(origin, element('p', 'audit-verdict audit-verdict-sm', total ? verdict(result, 'done') : assessment.complete ? 'Nothing found in the completed checks' : 'No findings in the checks completed so far'));
       read.appendChild(severityTally(result.findings));
       const notes = element('div', 'audit-notes');
-      if (result.capped) notes.appendChild(element('p', 'audit-cap', 'Held below 50 while a critical finding is open.'));
+      if (result.capped && graded) notes.appendChild(element('p', 'audit-cap', 'Held below 50 while a critical finding is open.'));
       if (site.diff) {
         const since = site.diff.previousAt ? ` since the check of ${new Date(site.diff.previousAt).toLocaleString()}` : '';
         notes.appendChild(element('p', 'audit-diff',
-          `${plural(site.diff.newIds.size, 'new finding', 'new findings')}, ${site.diff.resolved} resolved${since}.`));
+          assessment.complete
+            ? `${plural(site.diff.newIds.size, 'new finding', 'new findings')}, ${site.diff.resolved} resolved${since}.`
+            : `${plural(site.diff.newIds.size, 'new finding', 'new findings')}${since}. Resolution cannot be established from this incomplete check.`));
       }
       notes.appendChild(element('p', 'audit-coverage', siteCoverage(result)));
       read.appendChild(notes);
       row.appendChild(read);
       card.appendChild(row);
+      const caveat = element('p', assessment.complete ? 'audit-coverage audit-site-assessment' : 'exposure-caveat audit-site-assessment', siteAssessmentLine(result));
+      caveat.dataset.coverage = assessment.state;
+      card.appendChild(caveat);
 
       const headers = element('ul', 'audit-headers');
       headers.setAttribute('aria-label', 'Security headers');
@@ -3170,7 +3213,10 @@
       lines.push(
         `# Deployed site: ${site.origin}`,
         '',
-        `Grade **${site.grade}** — ${site.score}/100${site.capped ? ' (held below 50 by a critical finding)' : ''}.`,
+        siteAssessment(site).complete && Number.isFinite(site.score) && typeof site.grade === 'string'
+          ? `Grade **${site.grade}** — ${site.score}/100${site.capped ? ' (held below 50 by a critical finding)' : ''}.`
+          : '**Overall grade withheld.**',
+        siteAssessmentLine(site),
         `Checked ${site.checkedAt || new Date().toISOString()}: ${siteCoverage(site)}`,
         '',
         '| Header | Sent |',
@@ -3187,7 +3233,7 @@
           ? `${plural(library.advisories, 'advisory', 'advisories')}${library.ids && library.ids.length ? ` (${library.ids.join(', ')})` : ''}${library.fixed ? `, fixed in ${library.fixed}` : ''}`
           : library.state === 'clean' ? 'no published advisory' : 'not checked'}`), '');
       }
-      if (!site.findings.length) lines.push('No findings on the site.', '');
+      if (!site.findings.length) lines.push(siteAssessment(site).complete ? 'No findings in the completed checks.' : 'No findings in the checks completed so far. Incomplete checks cannot establish that the site is clear.', '');
       findingSection(site.findings, lines, 'S', finding => `\`${finding.where}\``);
     }
     return lines.filter((line, index, all) => !(line === '' && all[index - 1] === '')).join('\n');
@@ -3321,7 +3367,9 @@
         results: site.findings.map(finding => sarifResult(finding, index.get(finding.rule), {
           locations: [{ logicalLocations: [{ name: finding.where, fullyQualifiedName: `${site.origin} ${finding.where}`, kind: 'resource' }] }]
         })),
-        properties: { origin: site.origin, grade: site.grade, score: site.score, capped: Boolean(site.capped) }
+        invocations: [{ executionSuccessful: siteAssessment(site).complete }],
+        properties: { origin: site.origin, grade: siteAssessment(site).complete ? site.grade : null, score: siteAssessment(site).complete ? site.score : null,
+          observedScore: Number.isFinite(site.observedScore) ? site.observedScore : null, capped: Boolean(site.capped), coverage: siteAssessment(site) }
       });
     }
     return JSON.stringify({ $schema: 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0', runs }, null, 2);
@@ -3509,7 +3557,17 @@
       for (const finding of result.findings) row('repository', changes && changes.newIds.has(finding.id) ? 'new' : 'open', finding, families.get(finding.category));
       for (const finding of result.suppressed || []) row('repository', 'waived', finding, families.get(finding.category));
     }
-    if (site) for (const finding of site.findings) row(site.origin, 'open', finding, 'Deployed site');
+    if (site) {
+      for (const finding of site.findings) row(site.origin, 'open', finding, 'Deployed site');
+      const coverage = siteAssessment(site);
+      if (!coverage.complete) {
+        const summary = Array(rows[0].length).fill('');
+        summary[0] = site.origin; summary[1] = `coverage-${coverage.state}`;
+        summary[5] = 'Overall grade withheld'; summary[6] = siteAssessmentLine(site);
+        summary[7] = 'Coverage';
+        rows.push(summary);
+      }
+    }
     return `${rows.map(cells => cells.map(csvCell).join(',')).join('\r\n')}\r\n`;
   }
 

@@ -462,6 +462,11 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       return fulfill({ files: scenario.files || ['README.md', '.env.example', '.github/workflows/ci.yml', '.github/workflows/deploy.yml', 'package.json', 'package-lock.json', 'src/app.js'] });
     }
     if (pathname === '/api/repo/sandbox/demo/file' && method === 'GET') {
+      const requestedPath = url.searchParams.get('path');
+      const existing = scenario.files || ['README.md', '.env.example', '.github/workflows/ci.yml', '.github/workflows/deploy.yml', 'package.json', 'package-lock.json', 'src/app.js'];
+      if (!existing.includes(requestedPath) && !state.mutationRequests.some(body => body.path === requestedPath)) {
+        return fulfill(publicError('NOT_FOUND', 'File not found at the requested commit.'), 404);
+      }
       return fulfill({ path: url.searchParams.get('path') || 'alpha-proof.txt', sha: 'c'.repeat(40), size: 0, content: '', binary: false });
     }
     /*
@@ -500,7 +505,9 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         state.watchChecks = (state.watchChecks || 0) + (fresh ? 1 : 0);
         return fulfill({
           available: true, ref, audit: serialize.audit(latest.row), alerts: latest.alerts, components: latest.components.length, fresh,
-          checkableAt: new Date(Date.parse(latest.row.watch_checked_at) + (fresh ? 1000 : 10 * 60 * 1000)).toISOString()
+          // Match the production cooldown; a one-second fixture expires while
+          // the page is being inspected and makes this assertion race the CPU.
+          checkableAt: new Date(Date.parse(latest.row.watch_checked_at) + 10 * 60 * 1000).toISOString()
         });
       }
       if (rest === 'history/clear' && method === 'POST') {
@@ -798,6 +805,8 @@ async function startNewFileAction(page, path = 'alpha-proof.txt') {
   await page.locator('.pal-item', { hasText: 'New file' }).first().click();
   await page.locator('#nfPath').fill(path);
   await page.locator('#modalOk').click();
+  await page.locator('#stageCommitBtn').click();
+  await page.getByRole('dialog', { name: 'Review staged changes', exact: true }).getByRole('button', { name: 'Commit 1 change', exact: true }).click();
 }
 
 module.exports = {

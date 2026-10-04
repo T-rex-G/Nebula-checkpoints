@@ -37,7 +37,7 @@ const THEMES = Object.freeze(['dark', 'light']);
 /* Every destination the workbench offers, not only the one it opens on. */
 const WORKBENCH_TABS = Object.freeze([
   'editor', 'upload', 'commits', 'pulls', 'issues',
-  'releases', 'actions', 'compare', 'neural', 'governance'
+  'releases', 'actions', 'compare', 'neural', 'governance', 'audit', 'exposure'
 ]);
 
 /*
@@ -287,6 +287,16 @@ async function main() {
           findings.push(...await axeFindings(page, label(`work/${tab}`)));
           findings.push(...await targetFindings(page, label(`work/${tab}`)));
         }
+
+        await page.evaluate(() => window.showSiteScan());
+        await page.locator('#page-site.active').waitFor();
+        // Measure the settled page, not a frame of its 240 ms opacity entrance.
+        await page.locator('#page-site.active').evaluate(async node => {
+          await Promise.all(node.getAnimations().map(animation => animation.finished.catch(() => {})));
+        });
+        findings.push(...await axeFindings(page, label('website')));
+        findings.push(...await targetFindings(page, label('website')));
+        await page.evaluate(() => { window.showPage('work'); window.switchTab('editor'); });
 
         /* 1.4.10: the narrowest width the standard actually asks for. */
         await page.setViewportSize({ width: 320, height: 560 });

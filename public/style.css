@@ -1168,7 +1168,11 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .branch-pick{position:relative;display:inline-flex;align-items:center}
 .branch-pick-mark{position:absolute;left:10px;width:15px;height:15px;pointer-events:none;
   fill:none;stroke:var(--muted);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-.branch-select{width:auto;max-width:180px;padding:8px 30px 8px 31px;min-height:40px;font-size:.82rem}
+.branch-select{width:auto;max-width:180px;padding:8px 30px 8px 12px;min-height:40px;font-size:.82rem}
+/* Room for the mark only where there is a mark: elsewhere the name sat behind an empty gap. */
+.branch-pick .branch-select{padding-left:31px}
+/* Compare's two pickers take their columns, so a long branch name is read whole. */
+.compare-row .branch-select{width:100%;max-width:none}
 .search-input{max-width:260px}
 .search-input.small{font-size:.82rem;min-height:40px;padding:8px 12px;max-width:none}
 
@@ -2279,6 +2283,26 @@ body.read-only .btn-primary{opacity:.55}
 @keyframes neuralLive{70%{box-shadow:0 0 0 8px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
 .neural-proto-badge{color:var(--accent2);border:1px solid rgba(167,139,250,.36);background:rgba(167,139,250,.1);padding:3px 7px;border-radius:99px;letter-spacing:.08em}
 .neural-head-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:none}
+/*
+ * The header lives in a pane whose width the rail and the file tree decide,
+ * so it reads its own width rather than the window's. Beside three full
+ * controls the title had sixty pixels left at a laptop's width: the kicker
+ * broke word by word, the title ran under the first button and the line
+ * beneath it was cut to "Live to...". Where the two do not fit side by side
+ * the controls go under the copy, and where the controls do not fit in a row
+ * they take the compact form the phone uses.
+ */
+.neural-head{container:neural-head / inline-size;flex-wrap:wrap}
+@container neural-head (max-width:820px){
+  .neural-head-copy{flex:1 1 100%}
+  .neural-head-actions{justify-content:flex-start}
+}
+@container neural-head (max-width:600px){
+  .neural-head-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .neural-head-actions .btn{width:100%;min-width:0;justify-content:center;padding-inline:8px;overflow:hidden}
+  .neural-head-btn .nh-long{display:none}
+  .neural-head-btn .nh-short{display:inline;overflow:hidden;text-overflow:ellipsis}
+}
 /*
  * Built like btn-primary, on the danger palette.
  *
@@ -5355,7 +5379,23 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
   font-size: .74rem; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
 }
 .exposure-proof-line { font-size: 1rem; font-weight: 550; line-height: 1.5; margin-bottom: 16px; max-width: 78ch; }
-.exposure-facts { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; padding: 0; border: 0; margin-bottom: 16px; }
+.exposure-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0; border: 0; margin-bottom: 16px; }
+/*
+ * Four facts, or five once the history is read. Fitted by a minimum width they
+ * fell three and one in a laptop's pane, the last fact alone on its own row.
+ * They take the card's width now: one row where they fit, two even rows where
+ * they do not, and an odd last fact spans its row rather than standing alone.
+ */
+.exposure-proof { container: exposure-proof / inline-size; }
+.exposure-facts > .exposure-fact:not([hidden]):last-child:nth-child(odd) { grid-column: 1 / -1; }
+@container exposure-proof (min-width: 600px) {
+  .exposure-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .exposure-facts > .exposure-fact:not([hidden]):last-child:nth-child(odd) { grid-column: auto; }
+  .exposure-facts:has(> #exposureCommitsFact:not([hidden])) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container exposure-proof (min-width: 760px) {
+  .exposure-facts:has(> #exposureCommitsFact:not([hidden])) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
 .exposure-fact { padding: 12px 14px; border-radius: 14px; border: 1px solid var(--rp-line); background: var(--rp-tile); }
 .exposure-fact dt { font-size: .7rem; font-weight: 650; letter-spacing: .08em; }
 .exposure-fact dd { font-size: .98rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }

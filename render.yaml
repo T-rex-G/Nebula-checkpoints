@@ -15,6 +15,10 @@ services:
         generateValue: true
       - key: NODE_ENV
         value: production
+      # Supply only verified ingress proxy IP/CIDR ranges. Unset keeps direct
+      # clients from choosing their own forwarded address and rate-limit bucket.
+      - key: NV_TRUSTED_PROXIES
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: NV_DEPLOYMENT_PROFILE

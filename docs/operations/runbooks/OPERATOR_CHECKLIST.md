@@ -11,18 +11,17 @@ Use sanitized outputs only. Never paste database URLs, cookies, invitation codes
   hosted qualification, the exact service origin, Render service identity, and
   cohort/restore Neon project and branch identities, isolated-target kind, and
   reviewed restore-target fingerprint.
-- Generate a fresh Ed25519 authorization envelope using schema `1.3.0`. The
-  selected jobs must exactly match the dispatch switches, every selected target
-  hash must match the configured repository variables, and `ref` must name the
-  exact ref the dispatch runs on.
-- Allocate a new `authorizationId` for every dispatch. An identifier is spent on
-  first use and is refused afterwards, so re-signing a spent approval with a
-  later expiry does not produce a second activation. A dispatch that the
-  verifier rejects does not spend its identifier and may be corrected and
-  retried unchanged.
-- Re-running an authorized workflow run is not a retry. It presents the same
-  spent identifier and is refused, so recover by signing a fresh approval and
-  dispatching again.
+- Review the exact source commit and configured disposable targets before
+  dispatch. The workflow's `authorize-live` job mints its own short-lived
+  Ed25519 envelope using schema `1.3.0` over the frozen archive, source commit, selected jobs and
+  target identities. This binds the execution; it is not independent approval.
+- The workflow allocates a new `authorizationId` for every dispatch.
+  Dispatch a new workflow for a new attempt. A spent authorization identifier
+  cannot be reused. Follow [the live dispatch guide](../ALPHA17_LIVE_DISPATCH.md)
+  for the current inputs and evidence boundaries.
+- Verify environment protection and repository write access separately. A
+  workflow-generated signature does not establish that a second person approved
+  the run. Do not describe historical evidence as qualification of new bytes.
 - Confirm the credential-free target preflight succeeds before the workflow
   reaches any secret-bearing step. Stop on any target or job mismatch.
 - Expect cleanup to remove only the per-run branch and proof files. Repository
@@ -124,7 +123,23 @@ node scripts/alpha-load.js
   server.
 - Create and verify a fresh encrypted backup.
 - Record migration compatibility and rollback decision.
-- Keep live mutations frozen until smoke and readiness pass.
+- Keep live mutations frozen until the candidate-bound readiness gate passes.
+  Obtain `NV_EXPECTED_RELEASE_TREE_SHA256` from the reviewed frozen archive,
+  not from the running service. Run `npm run check:deployment` with
+  `NV_ALPHA_BASE_URL` and that fingerprint. Its default `cohort` purpose requires
+  invitation mode, the candidate's latest migration, a live database and no
+  maintenance. Repeat immediately before cohort admission and after rollout.
+- A gate-off deployment can be inspected using
+  `NV_DEPLOYMENT_CHECK_PURPOSE=operator-verification`. That result explicitly
+  does not qualify cohort admission. The previously observed Render service
+  was gate-off; a green `/healthz` never establishes cohort readiness.
+- Set `NV_TRUSTED_PROXIES` only to verified ingress IP/CIDR ranges and prevent
+  untrusted routes to the application that impersonate those proxies. The new
+  default trusts direct connections. Without verified proxy ranges, hosted
+  clients share an ingress rate-limit bucket; do not restore numeric hop trust.
+- Database-free sessions are limited to a single process, expire absolutely
+  after 30 days, and are invalidated by restart. Hosted deployments use the
+  shared PostgreSQL session store.
 
 ```bash
 set -euo pipefail

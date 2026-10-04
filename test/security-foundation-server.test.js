@@ -1,4 +1,5 @@
 'use strict';
+const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
 const crypto = require('crypto');
@@ -154,7 +155,7 @@ const port = 28500 + Math.floor(Math.random() * 1000);
 function seal(value) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(withLifetime(value)), 'utf8'), cipher.final()]);
   return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64url');
 }
 

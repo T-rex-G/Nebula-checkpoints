@@ -7,7 +7,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>__NV_PRODUCT_NAME__ — Git, from orbit</title>
-<meta name="description" content="Enterprise-grade web Git client for GitHub. PRs, issues, releases, staged commits — and pushes of any size via automatic Git LFS.">
+<meta name="description" content="Public alpha Git workspace for GitHub, GitLab and Gitea. Review staged changes, audit repositories and inspect supported provider capabilities. Deployment limits apply.">
 <meta name="theme-color" content="#06030F">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
@@ -167,7 +167,7 @@
         -->
         <h1 id="alphaAccessTitle" class="lp-title"><span class="lp-line" style="--i:0">Enter the</span> <span class="lp-line" style="--i:1">Nebulaverse-X</span> <span class="lp-line" style="--i:2"><em>test orbit</em></span></h1>
         <p class="lp-lede">Connect one sandbox repository, audit what it ships and the site it runs as,
-          and preview every change against GitHub, GitLab or Gitea before a single write reaches a provider.</p>
+          and review staged file changes before committing to GitHub, GitLab or Gitea.</p>
 
       </div>
 
@@ -245,7 +245,7 @@
         <li class="lp-step">
           <span class="lp-step-n">03</span>
           <span class="lp-step-t">Prove</span>
-          <span class="lp-step-d">Every action previewed</span>
+          <span class="lp-step-d">Staged changes previewed</span>
         </li>
       </ol>
     </div>
@@ -465,10 +465,9 @@
               <span class="lp-diff-f"><span class="lp-diff-btn">Approve change</span><span class="lp-diff-head">against live head a1c9f2e</span></span>
             </div>
             <span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7M3 12h5M3 18h7"/><path d="M14 5l6 7-6 7"/></svg></span>
-            <h3 class="lp-cap-t">Every write is previewed</h3>
-            <p class="lp-cap-d">A change is rendered as a diff against the provider&rsquo;s live head
-              before a byte is sent, so you approve the change itself rather than the intention
-              behind it.</p>
+            <h3 class="lp-cap-t">Review staged changes</h3>
+            <p class="lp-cap-d">Staged file changes show a diff, repository, branch and expected commit before confirmation.
+              If that head moves, the write is refused so you can review again.</p>
           </li>
           <li class="lp-cap card">
             <div class="lp-cap-art lp-art-paths" aria-hidden="true">
@@ -548,7 +547,7 @@
           <li class="lp-proof-row">
             <h3 class="lp-proof-k">A write to the repository</h3>
             <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Sent.</p>
-            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Previewed as a diff against the live head and checked by policy first. <b data-claim="unpreviewed-writes">0</b> writes reach a provider without a preview.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Staged file changes require a diff review before commit. Other write actions use their own confirmation controls and provider policy checks.</p>
           </li>
           <li class="lp-proof-row">
             <h3 class="lp-proof-k">What each provider can do</h3>
@@ -566,7 +565,7 @@
         <div class="lp-story-rail">
           <p class="lp-sec-eyebrow">How it works</p>
           <h2 class="lp-sec-title" id="lpStoryTitle">From connection to proof in three moves</h2>
-          <p class="lp-sec-lede">Nothing reaches a provider until you have seen exactly what it will do.</p>
+          <p class="lp-sec-lede">Choose the repository, understand its evidence, and review the changes you stage.</p>
           <div class="lp-story-progress" aria-hidden="true"><span></span></div>
         </div>
         <ol class="lp-story-steps">
@@ -588,7 +587,7 @@
           <li class="lp-story-step card">
             <span class="lp-story-n">03</span>
             <h3 class="lp-story-t">Prove the next move</h3>
-            <p class="lp-story-d">Every write is previewed against the live head and checked by policy. Approve the change itself, or keep the work safe when a path is held.</p>
+            <p class="lp-story-d">Review staged changes against the expected head before committing. Other actions identify the operation you confirm, and provider policy may hold a write.</p>
             <div class="lp-story-art lp-art-prove" aria-hidden="true"><span class="k">Preview</span><span class="ok">3 files · policy passed</span><span class="go">Approve</span></div>
           </li>
         </ol>
@@ -638,9 +637,7 @@
           </details>
           <details class="lp-faq-item">
             <summary>Will it write to my repository?</summary>
-            <p>Only a change you approve. Every write is rendered as a diff against the provider's live head and
-              checked by policy before it is sent; a merge carries the head you reviewed, and a head that has moved
-              since is refused.</p>
+            <p>Only through an action you confirm. Staged file changes include a diff review; other actions, such as a rename or deletion, use their own confirmation controls. Expected-head checks refuse writes when the reviewed branch head has changed.</p>
           </details>
           <details class="lp-faq-item">
             <summary>What does "verified" mean for a leaked key?</summary>
@@ -676,7 +673,7 @@
       <!-- The close: one clear next step, back to the card at the top. -->
       <section class="lp-cta" aria-labelledby="lpCtaTitle">
         <h2 class="lp-cta-title" id="lpCtaTitle">Ready when your sandbox is.</h2>
-        <p class="lp-cta-lede">One repository, previewed end to end. Leave whenever you like; this browser forgets on your word.</p>
+        <p class="lp-cta-lede">One sandbox repository, with changes you can review. Leave whenever you like; this browser forgets on your word.</p>
         <button class="btn btn-primary lp-cta-btn" type="button" data-lp-jump>Request entry</button>
       </section>
       <footer class="lp-foot">
@@ -722,7 +719,7 @@
       <svg class="nv-mark nv-mark-lg" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
     </div>
     <h1 class="brand-title" id="loginTitle">__NV_PRODUCT_NAME__</h1>
-    <p class="brand-sub">GitHub · GitLab · Gitea, from your pocket — offline-ready, pushes of <em>any</em> size.</p>
+    <p class="brand-sub">GitHub · GitLab · Gitea — a public alpha workspace for sandbox repositories.</p>
     <div class="card login-card">
       <div class="field-label" id="providerLabel">Provider</div>
       <div class="seg" id="provSeg" role="radiogroup" aria-labelledby="providerLabel">
@@ -738,7 +735,8 @@
       <input id="tokenInput" type="password" placeholder="ghp_••••••••••••••••" autocomplete="off" spellcheck="false">
       <button class="btn btn-primary btn-block" id="loginBtn">Enter orbit</button>
       <button class="btn btn-ghost btn-block" id="oauthBtn" hidden>Continue with GitHub (OAuth)</button>
-      <p class="hint" id="loginHint">Create one at <span class="mono">github.com → Settings → Developer settings → Tokens (classic)</span> with the <span class="mono">repo</span> scope. Sealed in an encrypted httpOnly cookie — never stored in the browser, never logged.</p>
+      <p class="hint" id="loginHint">Use a short-lived fine-grained token limited to selected repositories. Grant Contents read access for browsing; add write permission only for changes you intend to make. Sessions use an HttpOnly cookie stored by your browser.</p>
+      <p class="hint" id="loginLimits" role="status">Deployment upload limits are loading. Provider limits also apply.</p>
       <div class="login-error" id="loginError" role="alert" hidden></div>
     </div>
   </div>
@@ -1121,12 +1119,9 @@
           takes no pointer events -- the text over it stays selectable.
         -->
         <div class="gx-hero-art" id="gxHeroArt" aria-hidden="true"></div>
-        <p class="gx-eyebrow"><span>Connected systems</span><span aria-hidden="true">/</span><span>Galaxy inventory</span></p>
-        <h2 class="gx-title" id="gxHeroTitle">Your galaxies,<br><em>one clear</em> next move.</h2>
-        <p class="gx-lede">Browse provider-connected systems with conservative activity context, then hand off to the proven workbench when you&rsquo;re ready to act.</p>
-        <div class="gx-hero-actions">
-          <button class="btn btn-primary" id="reposRefreshBtn">Refresh</button>
-        </div>
+        <p class="gx-eyebrow"><span>Your workspace</span><span aria-hidden="true">/</span><span>Repositories</span></p>
+        <h2 class="gx-title" id="gxHeroTitle">Choose a <em>repository.</em></h2>
+        <p class="gx-lede">Open a repository to browse files, review changes, or run an audit.</p>
       </section>
 
       <!--
@@ -1135,6 +1130,7 @@
         placeholder: a surface whose whole claim is trust cannot invent a
         number on it.
       -->
+      <button class="btn btn-ghost gx-summary-toggle" id="reposSummaryToggle" aria-expanded="false" aria-controls="reposPulse">Repository summary</button>
       <section class="gx-pulse" id="reposPulse" aria-label="Galaxy pulse" hidden>
         <dl class="gx-pulse-grid" id="reposPulseGrid"></dl>
       </section>
@@ -1149,6 +1145,7 @@
           <option value="full_name">Name</option>
         </select>
         <input id="repoFilter" class="search-input" type="search" placeholder="Filter, or paste any public repository…" aria-label="Filter repositories, or paste any public repository address" aria-describedby="repoOpenAnyHint">
+        <button class="btn btn-ghost" id="reposRefreshBtn" aria-label="Refresh repositories">Refresh</button>
         <!--
           Creating a repository is what this screen is for: it lists the ones
           that exist, so the way to add one belongs beside the list rather
@@ -1780,7 +1777,8 @@
     <div class="stage-list" id="stageList"></div>
     <div class="stage-foot">
       <input id="stageMsg" type="text" placeholder="Commit message for all staged changes…" spellcheck="false">
-      <button class="btn btn-primary btn-block" id="stageCommitBtn">Commit all as one ✦</button>
+      <label class="sr-only" for="stageMsg">Staged commit message</label>
+      <button class="btn btn-primary btn-block" id="stageCommitBtn">Review staged changes</button>
     </div>
   </aside>
 </div>

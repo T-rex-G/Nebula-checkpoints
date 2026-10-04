@@ -127,7 +127,8 @@ jobs:
       # whether the bytes that were packaged from it are -- and a failure in
       # the candidate alone is what tells you packaging broke something. What
       # they no longer do is wait for each other.
-      - run: bash ci/install-browser.sh
+      - run: bash ci/install-browser.sh chromium webkit
+      - run: bash ci/install-postgres-client.sh
       - name: Build candidate twice and freeze bytes
         id: freeze
         shell: bash
@@ -154,6 +155,21 @@ jobs:
           echo "subject_sha256=${subject_sha256}" >> "${GITHUB_OUTPUT}"
           echo "source_commit=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
           echo "source_parent=$(git rev-parse HEAD^)" >> "${GITHUB_OUTPUT}"
+      # This job uses synthetic browser credentials. Keep only its diagnostics;
+      # live-provider and hosted jobs must not upload browser session material.
+      - name: Retain browser failure evidence
+        if: failure()
+        timeout-minutes: 3
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alpha17-candidate-browser-failure-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/candidate-extracted/*/test-results/
+            ${{ runner.temp }}/candidate-extracted/*/playwright-report/
+            ${{ runner.temp }}/automated-evidence/playwright.json
+          if-no-files-found: ignore
+          retention-days: 3
+          compression-level: 6
       - run: node scripts/check-secrets.js
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -176,7 +192,7 @@ jobs:
   # subset. Nothing downstream reads its report: the qualification evidence is
   # the candidate matrix's report, which qualify-candidate-archive.js generates
   # itself through PLAYWRIGHT_JSON_OUTPUT_FILE. So the shards need no merge step
-  # and simply pass or fail, and this job needs no artifact.
+  # and simply pass or fail. Failed shards retain their own browser diagnostics.
   #
   # It does not share the automated job's Playwright cache, because a sibling
   # job is a different runner. That costs one browser install per shard -- 21
@@ -209,6 +225,20 @@ jobs:
       - run: npm ci
       - run: bash ci/install-browser.sh
       - run: npx playwright test --shard=${{ matrix.shard }}/4
+      # This job uses synthetic browser credentials. Keep only its diagnostics;
+      # live-provider and hosted jobs must not upload browser session material.
+      - name: Retain browser failure evidence
+        if: failure()
+        timeout-minutes: 3
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alpha17-browser-failure-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 3
+          compression-level: 6
 
   authorize-live:
     if: >-
@@ -586,8 +616,7 @@ jobs:
         run: |
           trusted_root="${GITHUB_WORKSPACE}/trusted-runner"
           (cd "${trusted_root}" && npm ci --ignore-scripts --no-audit --no-fund)
-          command -v pg_dump >/dev/null
-          command -v pg_restore >/dev/null
+          bash "${trusted_root}/ci/install-postgres-client.sh"
       - name: Run authenticated restore and hosted gate from trusted runner
         shell: bash
         env:

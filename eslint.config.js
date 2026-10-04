@@ -108,7 +108,7 @@ module.exports = [
     files: [
       'server.js',
       'eslint.config.js',
-      'playwright.config.js',
+      'playwright*.config.js',
       'src/**/*.js',
       'scripts/**/*.js',
       'ci/**/*.js',

@@ -192,6 +192,10 @@ function evaluate(env) {
     production, insecure: env.NV_DB_INSECURE === '1'
   }));
   check('Governance failure mode', 'governance', () => config.normalizeGovernanceRuntimeFailureMode(env.NV_GOVERNANCE_RUNTIME_FAILURE_MODE));
+  check('NV_TRUSTED_PROXIES', 'server', () => config.loadTrustedProxies(env.NV_TRUSTED_PROXIES));
+  if (production && !isSet(env, 'NV_TRUSTED_PROXIES')) {
+    notes.push('Forwarding headers are not trusted. Behind a proxy, verify its source IP ranges and set NV_TRUSTED_PROXIES; until then clients share the proxy address rate limit.');
+  }
   check('GitHub App', 'github-app', () => config.loadGithubAppConfig(env, { production }));
   check('Alpha access', 'alpha-access', () => config.loadAlphaAccessConfig(env, { databaseUrl: env.DATABASE_URL || '' }));
 

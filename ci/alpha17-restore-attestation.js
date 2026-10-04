@@ -1,6 +1,8 @@
 'use strict';
 
 const crypto = require('crypto');
+const path = require('path');
+const { loadMigrations } = require('../src/migrations');
 const {
   cloneJson,
   hasExactKeys,
@@ -14,7 +16,7 @@ const MAX_AGE_MS = 72 * 60 * 60 * 1000;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const RESTORE_CHECK_CONTRACT = Object.freeze({
   status: 'pass',
-  latestMigration: '015_alpha_privacy',
+  latestMigration: '$candidate-migration',
   backupManifestSha256: '$sha256',
   backupCiphertextSha256: '$sha256',
   restoreTargetFingerprint: '$sha256',
@@ -33,6 +35,16 @@ function fail(message, code = 'ALPHA17_RESTORE_ATTESTATION_INVALID') {
   const error = new Error(message);
   error.code = code;
   throw error;
+}
+
+// The workflow checks out the frozen source commit for its trusted runner.
+// Read that candidate's inventory rather than baking a historical migration
+// into every later backup, restore and attestation contract.
+function candidateLatestMigration(candidateRoot = path.resolve(__dirname, '..')) {
+  const migrations = loadMigrations(path.join(candidateRoot, 'db', 'migrations'));
+  const latest = migrations.at(-1)?.id;
+  if (!latest) fail('candidate migration inventory is empty');
+  return latest;
 }
 
 function parseFresh(value, now) {
@@ -118,9 +130,12 @@ function validateRunnerRestoreAttestation(input, options = {}) {
   if (!hasExactKeys(record.check, Object.keys(RESTORE_CHECK_CONTRACT))) {
     fail('runner restore proof does not match its schema');
   }
+  const expectedMigration = candidateLatestMigration(options.candidateRoot);
   for (const [field, rule] of Object.entries(RESTORE_CHECK_CONTRACT)) {
     if (rule === '$sha256') {
       if (!isNonzeroSha256(record.check[field])) fail('runner restore proof contains an invalid digest');
+    } else if (rule === '$candidate-migration') {
+      if (record.check[field] !== expectedMigration) fail('runner restore migration does not match the candidate');
     } else if (record.check[field] !== rule) {
       fail('runner restore proof is incomplete');
     }
@@ -159,6 +174,7 @@ function validateRunnerRestoreAttestation(input, options = {}) {
 
 module.exports = Object.freeze({
   RESTORE_CHECK_CONTRACT,
+  candidateLatestMigration,
   signRunnerRestoreAttestation,
   validateRunnerRestoreAttestation
 });

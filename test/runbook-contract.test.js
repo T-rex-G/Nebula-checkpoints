@@ -274,7 +274,7 @@ assert.match(
 
 
 /*
- * The checklist tells the operator which envelope schema to sign. A literal
+ * The checklist names the envelope schema minted by the workflow. A literal
  * copied into prose drifts silently the next time the verifier's schema moves,
  * and the operator only learns of it when a signed envelope is refused at
  * dispatch, so the number is read back from the verifier rather than trusted.
@@ -287,9 +287,11 @@ assert.strictEqual(
   'the checklist must name the schema the verifier actually accepts'
 );
 assert.match(
-  operatorChecklist, /Allocate a new `authorizationId` for every dispatch/,
-  'the checklist must tell the operator that an approval identifier is single-use'
+  operatorChecklist, /workflow allocates a new `authorizationId` for every dispatch/,
+  'the checklist must describe automatic allocation of single-use execution identities'
 );
+assert.match(operatorChecklist, /it is not independent approval/,
+  'a run-minted signature must not be described as independent human approval');
 
 for (const file of ['10-alpha-shutdown.md', 'OPERATOR_CHECKLIST.md']) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');

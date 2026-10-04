@@ -1486,7 +1486,7 @@ function ensureAlphaProviderGuidance() {
   }
   const copy = panel.querySelector('p');
   copy.textContent = loginProvider === 'github'
-    ? 'Prefer a GitHub App limited to selected repositories. If a token is required, use a short-lived sandbox credential with only the permissions needed for this test; never use a production repository.'
+    ? 'Sign in with a short-lived fine-grained token limited to selected sandbox repositories. A configured GitHub App can then be connected from Settings; never use a production repository.'
     : `Use a short-lived ${loginProvider === 'gitlab' ? 'GitLab' : 'Gitea'} sandbox credential with only the permissions needed for the advertised capability subset; never use a production repository.`;
   return panel;
 }
@@ -1522,13 +1522,25 @@ $('#provSeg').addEventListener('click', e => {
   $('#baseUrl').placeholder = loginProvider === 'gitea' ? 'https://gitea.example.com' : 'https://gitlab.com (default)';
   $('#tokenLabel').textContent = { github: 'GitHub Personal Access Token', gitlab: 'GitLab Personal Access Token (api scope)', gitea: 'Gitea Access Token' }[loginProvider];
   $('#tokenInput').placeholder = { github: 'ghp_…', gitlab: 'glpat-…', gitea: 'token…' }[loginProvider];
-  $('#loginHint').innerHTML = {
-    github: 'Create one at <span class="mono">github.com → Settings → Developer settings → Tokens (classic)</span> with the <span class="mono">repo</span> scope.',
-    gitlab: 'Create one at <span class="mono">GitLab → Preferences → Access tokens</span> with the <span class="mono">api</span> scope. Works with gitlab.com or your self-hosted server.',
-    gitea: 'Create one at <span class="mono">your Gitea → Settings → Applications → Generate token</span>. Enter your server URL above.'
-  }[loginProvider] + ' Sealed in an encrypted httpOnly cookie — never stored in the browser, never logged.';
+  renderLoginGuidance();
   ensureAlphaProviderGuidance();
 });
+function renderLoginGuidance() {
+  const github = 'Create a short-lived <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">fine-grained token</a> limited to selected repositories. Start with Contents read access; add Contents write or other permissions only for the actions you need.';
+  const providers = {
+    github,
+    gitlab: 'Use a short-lived sandbox token from GitLab → Preferences → Access tokens. The GitLab integration requires api scope; limit the token to a test account or project.',
+    gitea: 'Use a short-lived sandbox token from your Gitea → Settings → Applications. Select only the repository permissions needed for your actions and enter the server URL above.'
+  };
+  const app = loginProvider === 'github' && state.runtime.githubApp && state.runtime.githubApp.enabled
+    ? ' After sign-in, open Settings → GitHub App to connect an installation limited to selected repositories.' : '';
+  $('#loginHint').innerHTML = providers[loginProvider] + app + ' Sessions use an HttpOnly session cookie stored by your browser. Provider credentials are encrypted in that cookie or in server-side session storage.';
+  const value = key => Number.isFinite(state.runtime[key]) ? `${state.runtime[key]} MB` : 'unavailable';
+  $('#loginLimits').textContent = runtimeLimitsKnown()
+    ? `Deployment limits — Direct upload: ${value('uploadMaxMb')}; Git data: ${value('gitDataMaxMb')}; native push: ${value('nativePushMaxMb')}. Provider limits also apply. Public alpha: no production service guarantee.`
+    : 'Deployment upload limits are unavailable. Retry before uploading; provider limits also apply. Public alpha: no production service guarantee.';
+}
+
 const PROV_ICON = {
   github: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>',
   gitlab: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>',
@@ -1605,9 +1617,11 @@ async function loadRuntimeConfig(attempt = 0) {
     state.runtime = { ...state.runtime, ...c };
     refreshQueuedStrategies();
     $('#oauthBtn').hidden = !c.oauth || loginProvider !== 'github';
+    renderLoginGuidance();
   } catch {
     /* One retry: a free instance's first request can arrive while it wakes. */
     if (attempt === 0) return loadRuntimeConfig(1);
+    renderLoginGuidance();
   }
 }
 async function boot() {
@@ -2308,9 +2322,9 @@ function pulseMeasures(list, pulse) {
         : 'Not measured'
     },
     {
-      icon: 'signals', label: 'Verified capabilities',
-      value: signals && signals.measured ? signals.live : null,
-      note: signals && signals.measured ? `of ${signals.total} this provider projects` : 'Not measured'
+      icon: 'signals', label: 'Provider-verified',
+      value: signals && signals.measured ? signals.providerVerified : null,
+      note: signals && signals.measured ? `of ${signals.total} · registry evidence` : 'Not measured'
     },
     {
       icon: 'attention', label: 'Needs attention',
@@ -6698,6 +6712,19 @@ function ensureCM() {
       saveDraft();
     }
   });
+  // A restored route can open its file while the view transition still hides
+  // the workspace. Refresh when its host actually acquires a laid-out size;
+  // a fixed 30 ms delay can leave CodeMirror blank in WebKit after reload.
+  const editor = state.cm;
+  let measuredWidth = 0, measuredHeight = 0, refreshFrame = 0;
+  const editorSize = new ResizeObserver(entries => {
+    const { width, height } = entries[0].contentRect;
+    if (width === measuredWidth && height === measuredHeight) return;
+    measuredWidth = width; measuredHeight = height;
+    cancelAnimationFrame(refreshFrame);
+    if (width > 0 && height > 0) refreshFrame = requestAnimationFrame(() => editor.refresh());
+  });
+  editorSize.observe($('#editorHost'));
   return state.cm;
 }
 
@@ -6975,32 +7002,25 @@ $('#fileHistoryBtn').addEventListener('click', async () => {
 });
 
 $('#newFileBtn').addEventListener('click', async () => {
+  if (!state.work) return;
+  const scope = `${wPath()}@${state.work.branch}`;
+  const epoch = state.uiEpoch;
   const ok = await modal({
     title: 'New file',
     bodyHTML: `<label class="field-label" for="nfPath">Path</label><input id="nfPath" type="text" placeholder="docs/notes.md" spellcheck="false">
-      <label class="check"><input type="checkbox" id="nfStage"> Stage instead of committing now</label>`,
-    okText: 'Create'
+      <p class="hint">Creates an empty file in your staged changes. Review the diff, repository and branch before committing; nothing is sent yet.</p>`,
+    okText: 'Stage file'
   });
   if (!ok) return;
+  if (!state.work || epoch !== state.uiEpoch || scope !== `${wPath()}@${state.work.branch}`) {
+    return toast('The repository changed. Open New file again for the intended branch.', 'err');
+  }
   const p = $('#nfPath').value.trim().replace(/^\/+/, '');
   if (!p) return;
-  const stageIt = $('#nfStage') && $('#nfStage').checked;
-  if (stageIt) {
-    addStaged({ op: 'put', path: p, content: '' });
-    toast(`New file ${p} staged`, 'ok');
-    closeDrawer();
-    return;
-  }
-  try {
-    const out = await api(`/api/repo/${wPath()}/file`, {
-      method: 'PUT', body: guardedWrite({ path: p, content: '', message: `Create ${p} via ${NV_PRODUCT_NAME}`, branch: state.work.branch })
-    });
-    rememberHead(out.commit);
-    toast(`Created ${p} ✦`, 'ok');
-    state.fileIndex = null;
-    loadTree('', $('#tree'), true);
-    openFile(p); closeDrawer();
-  } catch (e) { presentError(e); }
+  addStaged({ op: 'put', path: p, content: '', newFile: true });
+  toast(`New file ${p} staged for review`);
+  closeDrawer();
+  openStagePanel();
 });
 
 /* ================= STAGED CHANGES ================= */
@@ -7039,31 +7059,105 @@ function closeStagePanel() { closeOverlay($('#stageScrim')); }
 $('#stagedBtn').addEventListener('click', openStagePanel);
 $('#stageClose').addEventListener('click', closeStagePanel);
 $('#stageScrim').addEventListener('click', e => { if (e.target === $('#stageScrim')) closeStagePanel(); });
+/* The preview reads the exact expected commit, never a moving branch name.
+ * Missing files are allowed only for puts; failures and unrenderable content
+ * stop review rather than being presented as an empty original. */
+async function previewStagedChanges(scope, ops) {
+  const previews = [];
+  let previewBytes = 0;
+  let previewLines = 0;
+  for (const op of ops) {
+    let remote = null;
+    try {
+      remote = await api(`/api/repo/${scope.path}/file?ref=${encodeURIComponent(scope.head)}&path=${encodeURIComponent(op.path)}`);
+    } catch (error) {
+      if (error.status !== 404 || op.op !== 'put') throw error;
+    }
+    if (op.newFile && remote) throw new Error(`${op.path} already exists. Open it in the editor to stage an update instead.`);
+    if (remote && (remote.tooLarge || remote.lfs || remote.binary || typeof remote.content !== 'string')) {
+      throw new Error(`${op.path} cannot be previewed as text here. Review it with a tool that supports this file before committing.`);
+    }
+    const before = remote ? b64ToUtf8(remote.content) : '';
+    const after = op.op === 'delete' ? '' : op.content;
+    previewBytes += before.length + after.length;
+    if (previewBytes > 2 * 1024 * 1024 || before.includes('\0') || after.includes('\0')) {
+      throw new Error('This staged diff is too large or contains binary content. Split it into smaller text changes for review.');
+    }
+    const beforeLines = before ? before.split('\n') : [];
+    const afterLines = after ? after.split('\n') : [];
+    previewLines += beforeLines.length + afterLines.length;
+    if (previewLines > 10000) throw new Error('This staged diff has too many lines to review here. Split it into smaller changes.');
+    const lines = lineDiff(beforeLines, afterLines);
+    const changed = lines.some(line => line[0] !== ' ');
+    const description = !remote ? (after ? 'Create file' : 'Create empty file')
+      : op.op === 'delete' ? 'Delete file' : changed ? 'Update file' : 'No content changes';
+    const patch = changed ? lines.map(([tag, line]) =>
+      `<span class="${tag === '+' ? 'add' : tag === '-' ? 'del' : ''}">${esc(tag + ' ' + line)}</span>`).join('')
+      : `<span>${esc(description)}</span>`;
+    previews.push({ op, sha: remote && remote.sha,
+      html: `<section class="stage-preview-file"><h3 class="mono">${esc(op.path)}</h3><p class="hint">${description}</p><pre class="diff-patch mono">${patch}</pre></section>` });
+  }
+  return previews;
+}
+
 $('#stageCommitBtn').addEventListener('click', async () => {
-  if (!state.staged.length) return toast('Nothing staged', 'err');
-  const msg = $('#stageMsg').value.trim() || `Batch commit (${state.staged.length} changes) via ${NV_PRODUCT_NAME}`;
-  $('#stageCommitBtn').disabled = true;
+  if (!state.work || !state.staged.length) return toast('Nothing staged', 'err');
+  const scope = { path: wPath(), owner: state.work.owner, repo: state.work.repo,
+    branch: state.work.branch, head: currentHeadSha(), epoch: state.uiEpoch, identity: state.me };
+  if (!scope.head) return toast('Refresh repository metadata before reviewing changes; the expected commit is unavailable.', 'err');
+  const staged = JSON.stringify(state.staged);
+  const ops = state.staged.map(op => ({ ...op }));
+  const current = () => state.work && scope.path === wPath() && scope.branch === state.work.branch &&
+    scope.head === currentHeadSha() && scope.epoch === state.uiEpoch && scope.identity === state.me && staged === JSON.stringify(state.staged);
+  const msg = $('#stageMsg').value.trim() || (ops.length === 1 && ops[0].newFile
+    ? `Create ${ops[0].path} via ${NV_PRODUCT_NAME}` : `Batch commit (${ops.length} changes) via ${NV_PRODUCT_NAME}`);
+  const button = $('#stageCommitBtn');
+  button.disabled = true;
+  button.textContent = 'Preparing review…';
+  let queuedOperation = null;
   try {
-    const out = await api(`/api/repo/${wPath()}/batch`, {
-      method: 'POST',
-      body: guardedWrite({ branch: state.work.branch, message: msg, ops: state.staged.map(s => s.op === 'put' ? { op: 'put', path: s.path, content: s.content } : { op: 'delete', path: s.path }) })
+    const preview = await previewStagedChanges(scope, ops);
+    if (!current()) throw new Error('The staged changes or repository changed. Review the current changes again.');
+    const ok = await modal({
+      title: 'Review staged changes', wide: true,
+      bodyHTML: `<p class="hint">Repository: <b>${esc(scope.owner)}/${esc(scope.repo)}</b><br>Branch: <b>${esc(scope.branch)}</b><br>Expected commit: <code class="stage-preview-head">${esc(scope.head)}</code></p>
+        <p class="hint">Commit message: ${esc(msg)}</p>${preview.map(item => item.html).join('')}
+        <p class="hint">Commit only if these changes match your intent. A moved branch head is refused by the server.</p>`,
+      okText: `Commit ${ops.length} ${ops.length === 1 ? 'change' : 'changes'}`
     });
-    rememberHead(out.commit);
-    toast(`✦ ${out.count} changes committed as ${String(out.commit).slice(0, 7)}`, 'ok');
+    if (!ok) return;
+    await ensureCsrfToken();
+    if (!current()) throw new Error('The reviewed repository, head or staged changes changed. Review again before committing.');
+    const common = { branch: scope.branch, message: msg, expectedHeadSha: scope.head };
+    let out;
+    if (ops.length === 1 && ops[0].op === 'put') {
+      const op = ops[0];
+      const body = { ...common, path: op.path, content: op.content, ...(preview[0].sha ? { sha: preview[0].sha } : {}) };
+      queuedOperation = { kind: 'put', owner: scope.owner, repo: scope.repo, ...body };
+      out = await api(`/api/repo/${scope.path}/file`, { method: 'PUT', body });
+    } else {
+      const body = { ...common, ops: ops.map(op => op.op === 'put'
+        ? { op: 'put', path: op.path, content: op.content } : { op: 'delete', path: op.path }) };
+      queuedOperation = { kind: 'batch', owner: scope.owner, repo: scope.repo, ...body };
+      out = await api(`/api/repo/${scope.path}/batch`, { method: 'POST', body });
+    }
+    if (!current()) return;
+    rememberHead(out.commit, scope.branch);
+    toast(ops.length === 1 && ops[0].newFile ? `Created ${ops[0].path} ✦`
+      : `✦ ${ops.length} changes committed as ${String(out.commit).slice(0, 7)}`, 'ok');
     state.staged = []; $('#stageMsg').value = '';
     renderStagedCount(); closeStagePanel();
     state.fileIndex = null;
     loadTree('', $('#tree'), true);
     refreshRate();
-  } catch (e) {
-    const queued = await queueCommit({
-      kind: 'batch', owner: state.work.owner, repo: state.work.repo, branch: state.work.branch,
-      message: msg, ops: state.staged.slice(), expectedHeadSha: currentHeadSha()
-    }, e);
+  } catch (error) {
+    const queued = queuedOperation && current() && await queueCommit(queuedOperation, error);
     if (queued) { state.staged = []; renderStagedCount(); renderStagedPanel(); }
-    else presentError(e);
+    else presentError(error);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Review staged changes';
   }
-  finally { $('#stageCommitBtn').disabled = false; }
 });
 
 /* ================= NAVIGATION (adaptive) ================= */
@@ -7441,7 +7535,12 @@ function runPaletteItem(item) {
     item.run();
   }, { allowExperimental: !!(item && item.allowExperimental) });
 }
-$('#reposRefreshBtn') && $('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
+$('#reposSummaryToggle').addEventListener('click', () => {
+  const expanded = $('#reposSummaryToggle').getAttribute('aria-expanded') !== 'true';
+  $('#reposSummaryToggle').setAttribute('aria-expanded', String(expanded));
+  $('#reposPulse').dataset.expanded = String(expanded);
+});
+$('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
 
 /*
  * The rail is chrome around the screens, so it follows them rather than each

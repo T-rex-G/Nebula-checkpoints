@@ -1,7 +1,24 @@
 'use strict';
 
 const crypto = require('crypto');
+const net = require('net');
 const { loadHostedAlphaLimits } = require('./hosted-readiness');
+
+function loadTrustedProxies(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return false;
+  const entries = value.split(',').map(part => part.trim());
+  for (const entry of entries) {
+    const parts = entry.split('/');
+    const family = net.isIP(parts[0]);
+    const prefix = parts.length === 2 ? Number(parts[1]) : family === 4 ? 32 : 128;
+    if (!family || parts.length > 2 || (parts.length === 2 && !/^\d{1,3}$/.test(parts[1]))
+      || !Number.isInteger(prefix) || prefix <= 0 || prefix > (family === 4 ? 32 : 128)) {
+      throw new Error('NV_TRUSTED_PROXIES must contain explicit proxy IP addresses or non-universal CIDR ranges');
+    }
+  }
+  return entries;
+}
 
 function normalizeDatabaseUrl(raw, options = {}) {
   const value = String(raw || '').trim();
@@ -156,6 +173,7 @@ function loadGithubAppConfig(env = process.env, options = {}) {
 }
 
 module.exports = {
+  loadTrustedProxies,
   normalizeDatabaseUrl,
   normalizeGovernanceRuntimeFailureMode,
   loadHostedAlphaLimits,

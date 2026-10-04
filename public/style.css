@@ -7499,3 +7499,24 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 [data-design="obsidian"][data-theme="light"] :is(#tab-audit, #tab-exposure, #siteRoot) { --muted: #57534E; }
 .audit-site-assessment { overflow-wrap: anywhere; }
 .audit-risk-stats > [role="listitem"] { display: flex; min-width: 0; }
+
+/* The mobile inventory starts with selection. Its optional summary stays
+   available through a keyboard-accessible disclosure, with desktop unchanged. */
+.gx-summary-toggle{display:none}
+@media (max-width:760px){
+  #page-repos .gx-hero{padding:18px 0 0}
+  #page-repos .gx-eyebrow{margin-bottom:9px;font-size:.58rem}
+  #page-repos .gx-title{font-size:1.7rem;line-height:1.14;margin-bottom:9px}
+  #page-repos .gx-lede{font-size:.84rem;line-height:1.45;max-width:38ch}
+  #page-repos .gx-summary-toggle{display:inline-flex;margin-top:12px;min-height:36px;font-size:.76rem}
+  #reposPulse:not([data-expanded="true"]){display:none}
+  #page-repos .page-head{margin-top:16px}
+  #page-repos .page-head-tools{gap:8px}
+  #page-repos #repoFilter{order:-1;flex:1 1 100%;width:100%}
+  #page-repos #reposRefreshBtn{margin-left:auto}
+  #page-repos #newRepoBtnRepos{flex-basis:100%;justify-content:center}
+}
+
+.stage-preview-file{margin:18px 0;border-top:1px solid var(--line);padding-top:14px;min-width:0}
+.stage-preview-file h3,.stage-preview-head{overflow-wrap:anywhere;font-size:.82rem}
+.stage-preview-file .diff-patch{max-height:320px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}

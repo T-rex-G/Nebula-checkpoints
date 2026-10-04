@@ -459,6 +459,11 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       return fulfill({ files: scenario.files || ['README.md', '.env.example', '.github/workflows/ci.yml', '.github/workflows/deploy.yml', 'package.json', 'package-lock.json', 'src/app.js'] });
     }
     if (pathname === '/api/repo/sandbox/demo/file' && method === 'GET') {
+      const requestedPath = url.searchParams.get('path');
+      const existing = scenario.files || ['README.md', '.env.example', '.github/workflows/ci.yml', '.github/workflows/deploy.yml', 'package.json', 'package-lock.json', 'src/app.js'];
+      if (!existing.includes(requestedPath) && !state.mutationRequests.some(body => body.path === requestedPath)) {
+        return fulfill(publicError('NOT_FOUND', 'File not found at the requested commit.'), 404);
+      }
       return fulfill({ path: url.searchParams.get('path') || 'alpha-proof.txt', sha: 'c'.repeat(40), size: 0, content: '', binary: false });
     }
     /*
@@ -768,6 +773,8 @@ async function startNewFileAction(page, path = 'alpha-proof.txt') {
   await page.locator('.pal-item', { hasText: 'New file' }).first().click();
   await page.locator('#nfPath').fill(path);
   await page.locator('#modalOk').click();
+  await page.locator('#stageCommitBtn').click();
+  await page.getByRole('dialog', { name: 'Review staged changes', exact: true }).getByRole('button', { name: 'Commit 1 change', exact: true }).click();
 }
 
 module.exports = {

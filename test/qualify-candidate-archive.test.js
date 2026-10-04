@@ -233,6 +233,7 @@ function fixtureClaimRequirements() {
     'package.json',
     'package-lock.json',
     'playwright.config.js',
+    'playwright.integration.config.js',
     'scripts/test-matrix.js',
     'scripts/copy-vendor.js',
     'scripts/check-secrets.js',

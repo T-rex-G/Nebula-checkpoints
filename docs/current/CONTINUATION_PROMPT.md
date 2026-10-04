@@ -42,7 +42,7 @@ Read in order:
 
 Next authorized action:
 
-Qualify the schema-5 continuity successor, then continue the remediation backlog. Live-provider, hosted, manual-accessibility and final-release gates stay pending and require separate authorization.
+Review the product-remediation changes on the existing PR, run all automated gates against its exact candidate, and bind separate live-provider, hosted recovery and manual accessibility evidence before any cohort opening. Keep unexecuted external qualifications explicitly pending.
 
 Keep the live-provider qualification, hosted qualification, manual accessibility and final release gates as recorded. Do not merge,
 deploy, open the cohort, or dispatch live qualification from this prompt.

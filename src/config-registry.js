@@ -47,6 +47,9 @@ const ENTRIES = Object.freeze([
   { name: 'PORT', group: 'server', requirement: 'optional', fallback: '10000',
     format: 'TCP port number',
     summary: 'Port the HTTP server binds. Hosting platforms usually set this for you.' },
+  { name: 'NV_TRUSTED_PROXIES', group: 'server', requirement: 'optional', fallback: 'false (direct connections)',
+    format: 'comma-separated proxy IP addresses or CIDR ranges; hop counts and universal ranges are rejected',
+    summary: 'Only these immediate proxy addresses may supply forwarding headers. Leave unset for a directly reachable Node server. Hosted operators must verify proxy source ranges and block bypass paths before enabling trust.' },
   { name: 'NODE_ENV', group: 'server', requirement: 'production', fallback: null,
     format: "'production' enables the production posture",
     summary: 'Turns on HSTS, Secure cookies, TLS enforcement on the database URL, and every production-only requirement in this table.' },
@@ -73,6 +76,12 @@ const ENTRIES = Object.freeze([
     summary: 'Git hosts this deployment may reach. Checked when a server URL is connected, not at startup: in production a self-hosted Git server is refused unless its host is listed, while gitlab.com is allowed as a canonical hosted provider. Leaving it empty is fine for a deployment that only uses the hosted providers.' },
 
   /* ---------------- PostgreSQL ---------------- */
+  { name: 'NV_EXPECTED_RELEASE_TREE_SHA256', group: 'operator', requirement: 'optional', fallback: null,
+    format: '64 lowercase hexadecimal characters',
+    summary: 'Frozen candidate fingerprint required by check-deployment-readiness. Obtain it from the reviewed release archive, never by copying the deployed value.' },
+  { name: 'NV_DEPLOYMENT_CHECK_PURPOSE', group: 'operator', requirement: 'optional', fallback: "'cohort'",
+    format: "'cohort' or 'operator-verification'",
+    summary: 'The readiness gate requires invitation mode for cohort admission. Operator verification may inspect gate-off deployments but does not qualify cohort admission.' },
   { name: 'DATABASE_URL', group: 'database', requirement: 'production', fallback: "'' (in-memory only)",
     format: 'postgres:// or postgresql:// URL',
     summary: 'Primary database. TLS is normalised to verify-full unless explicitly disabled, and production rejects sslmode=disable.' },

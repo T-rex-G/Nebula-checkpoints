@@ -1,4 +1,5 @@
 'use strict';
+const { withLifetime } = require('./fixtures/local-session');
 
 /*
  * A characterization test for the /api/security surface, written before those
@@ -34,7 +35,7 @@ const port = 34500 + Math.floor(Math.random() * 400);
 function seal(value) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(withLifetime(value)), 'utf8'), cipher.final()]);
   return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64url');
 }
 
@@ -42,7 +43,7 @@ const account = {
   provider: 'gitea', authMethod: 'token', login: 'surface-user',
   token: 'fixture-token', baseUrl: 'https://gitea.example'
 };
-const sessionCookie = `nv_session=${seal({
+const sessionCookie = () => `nv_session=${seal({
   accounts: [account], active: 0,
   security: { sessionNonce: 'a'.repeat(48), stepUp: null }
 })}`;
@@ -292,7 +293,7 @@ async function call(method, pathname, headers) {
       `${entry.method} ${entry.path} must refuse an anonymous caller exactly as it did before`
     );
 
-    const authorized = await call(entry.method, entry.path, { cookie: sessionCookie });
+    const authorized = await call(entry.method, entry.path, { cookie: sessionCookie() });
     assert.deepStrictEqual(
       [authorized.status, authorized.code], entry.session,
       `${entry.method} ${entry.path} must answer a session exactly as it did before`
@@ -305,7 +306,7 @@ async function call(method, pathname, headers) {
    * reachable, and none of them answers 404.
    */
   for (const entry of EXPECTATIONS) {
-    const probe = await call(entry.method, entry.path, { cookie: sessionCookie });
+    const probe = await call(entry.method, entry.path, { cookie: sessionCookie() });
     assert.notStrictEqual(
       probe.status, 404,
       `${entry.method} ${entry.path} is no longer mounted`

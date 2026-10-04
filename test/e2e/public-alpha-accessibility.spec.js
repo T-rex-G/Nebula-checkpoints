@@ -136,7 +136,14 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await page.keyboard.press('Shift+Tab');
   await expect(ui.dialog(page, 'New file').getByRole('button', { name: 'Close dialog' })).toBeFocused();
   await page.keyboard.press('Shift+Tab');
-  await expect(ui.button(ui.dialog(page, 'New file'), 'Create')).toBeFocused();
+  await expect(ui.button(ui.dialog(page, 'New file'), 'Stage file')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(ui.status(page, 'Notifications')).toContainText('New file keyboard-proof.txt staged for review');
+  await page.locator('#stageCommitBtn').focus();
+  await page.keyboard.press('Enter');
+  const review = ui.dialog(page, 'Review staged changes');
+  await expect(review).toContainText('Create empty file');
+  await review.getByRole('button', { name: 'Commit 1 change', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(ui.status(page, 'Notifications')).toContainText('Created keyboard-proof.txt');
   await expect(ui.status(page, 'Notifications')).toHaveAttribute('aria-live', 'polite');

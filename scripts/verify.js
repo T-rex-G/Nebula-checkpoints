@@ -257,7 +257,8 @@ must(server.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hosted i
 must(server.includes("path.join(__dirname, 'public', 'vendor')") && server.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
 must(server.includes('allowWebhookRequest') && server.includes('Webhook delivery rate exceeded'), 'Webhook abuse limiter is missing');
 must(server.includes('/readyz'), 'Readiness endpoint is missing');
-must(server.includes('normalizeDatabaseUrl') && server.includes('enableChannelBinding: true'), 'Strict database transport configuration is missing');
+must(server.includes('normalizeDatabaseUrl') && server.includes('createDatabasePool(DB_URL,')
+  && read('src/database-pool.js').includes('enableChannelBinding: true'), 'Strict database transport configuration is missing');
 must(app.includes('Secure Markdown renderer is unavailable') && app.includes('DOMPurify.sanitize'), 'Markdown preview must fail closed and sanitize HTML');
 must(app.includes('NebulaArchiveSafety') && app.includes('validateArchiveEntries(rawEntries)'), 'ZIP extraction must validate the central directory before decompression');
 must(app.includes('actualTotal > validated.limits.maxTotalUncompressed'), 'ZIP extraction must enforce the actual extracted-size ceiling');

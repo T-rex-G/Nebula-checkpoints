@@ -16,7 +16,7 @@ function features(supported, experimental, unavailable) {
   const out = {};
   let index = 0;
   for (const [status, count] of [['Supported', supported], ['Experimental', experimental], ['Unavailable', unavailable]]) {
-    for (let i = 0; i < count; i += 1) out[`feature-${index++}`] = { status };
+    for (let i = 0; i < count; i += 1) out[`feature-${index++}`] = { status, evidenceState: status === 'Supported' ? 'Provider-verified' : status === 'Experimental' ? 'Deterministic' : 'Unavailable' };
   }
   return out;
 }
@@ -109,7 +109,7 @@ const component = (model, id) => model.trust.components.find(entry => entry.id =
   const gitea = pulse.model({ ...PERFECT, features: features(6, 4, 25) });
   const reading = component(gitea, 'capabilities');
   assert.strictEqual(reading.ratio, 0.6, 'the denominator is what the provider offers');
-  assert(reading.detail.includes('6 of 10') && reading.detail.includes('4 experimental') && reading.detail.includes('25 not offered'),
+  assert(reading.detail.includes('6 of 10') && reading.detail.includes('4 experimental') && reading.detail.includes('25 unavailable'),
     `the detail must say exactly what the ratio is made of: ${reading.detail}`);
   const none = pulse.model({ ...PERFECT, features: features(0, 0, 8) });
   assert.strictEqual(component(none, 'capabilities').ratio, 0);
@@ -232,13 +232,37 @@ const component = (model, id) => model.trust.components.find(entry => entry.id =
   assert.strictEqual(model.signals.total, 10);
   assert.deepStrictEqual(
     model.signals.breakdown.map(entry => [entry.label, entry.count]),
-    [['Verified', 5], ['Experimental', 2], ['Not offered', 3]]
+    [['Supported', 5], ['Experimental', 2], ['Unavailable', 3]]
   );
   assert.strictEqual(
     model.signals.breakdown.reduce((total, entry) => total + entry.count, 0),
     model.signals.total,
     'the breakdown must account for every projected capability'
   );
+}
+
+/* Availability and evidence maturity are independent axes, including stale or missing evidence. */
+{
+  const model = pulse.model({ features: {
+    deterministic: { status: 'Supported', evidenceState: 'Deterministic' },
+    inferred: { status: 'Supported', evidenceState: 'Inferred' },
+    stale: { status: 'Supported', evidenceState: 'Stale' },
+    missing: { status: 'Supported' },
+    verifiedExperimental: { status: 'Experimental', evidenceState: 'Provider-verified' },
+    restricted: { status: 'Unavailable', evidenceState: 'Provider-verified' }
+  } });
+  assert.strictEqual(model.signals.live, 4, 'the availability ring counts Supported without calling it verified');
+  assert.strictEqual(model.signals.providerVerified, 2, 'evidence count follows evidenceState independently of status');
+  assert.strictEqual(component(model, 'capabilities').ratio, 1 / 5,
+    'only offered provider-verified capabilities contribute; stale and unknown evidence earn no credit');
+  assert.match(component(model, 'capabilities').detail, /1 of 5 offered capabilities provider-verified/);
+  assert.match(component(model, 'capabilities').detail, /registry evidence/);
+  assert.deepStrictEqual(model.signals.evidence.map(entry => [entry.label, entry.count]), [
+    ['Provider-verified', 2], ['Deterministic', 1], ['Inferred', 1], ['Stale', 1], ['Unavailable', 0], ['Unknown', 1]
+  ]);
+  const absent = pulse.model({ features: { one: { status: 'Supported' } } });
+  assert.strictEqual(component(absent, 'capabilities').status, 'unknown', 'availability alone never establishes evidence maturity');
+  assert.strictEqual(absent.signals.providerVerified, 0);
 }
 
 /* Activity buckets classify by age, and undated repositories are not invented into one. */

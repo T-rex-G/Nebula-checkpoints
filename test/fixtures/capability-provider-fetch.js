@@ -130,3 +130,8 @@ global.fetch = async (input, options = {}) => {
 
   return json(599, { message: `cross-provider transport reached: ${method} ${url.pathname}` });
 };
+
+// Replace only the provider network seam in this synthetic server fixture.
+const transportPath = require.resolve('../../src/provider-transport');
+const transport = require(transportPath);
+require.cache[transportPath].exports = { ...transport, providerFetch: (...args) => global.fetch(...args) };

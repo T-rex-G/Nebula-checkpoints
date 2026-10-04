@@ -610,8 +610,10 @@ assert(
 const playwrightCacheBinding = automated.indexOf('PLAYWRIGHT_BROWSERS_PATH=%s');
 const playwrightInstall = automated.indexOf('bash ci/install-browser.sh');
 const browserInstaller = fs.readFileSync(path.join(__dirname, '..', 'ci', 'install-browser.sh'), 'utf8');
-assert(browserInstaller.includes('npx playwright install --with-deps chromium'),
+assert(browserInstaller.includes('npx playwright install --with-deps "${browsers[@]}"') && browserInstaller.includes('browsers=(chromium)'),
   'browser provisioning must install the pinned browser and its system dependencies');
+assert(automated.includes('bash ci/install-browser.sh chromium webkit'),
+  'the extracted candidate must have both browsers for the real integration gate');
 assert(!browserInstaller.includes('PLAYWRIGHT_BROWSERS_PATH='),
   'browser provisioning must inherit the cache shared with extracted-candidate qualification');
 /*
@@ -704,6 +706,23 @@ assert(
   /services:\n\s+postgres:/.test(automated),
   'the job running the runtime matrix must provide the PostgreSQL service it binds'
 );
+
+// Retain evidence from failures at every browser execution boundary. The
+// extracted candidate writes beneath its own root, not the checkout root.
+for (const [name, source, artifactName, evidencePath] of [
+  ['CI', ciWorkflow, 'ci-browser-failure-${{ github.event_name }}-${{ github.run_attempt }}', 'test-results/'],
+  ['checkout shard', browserMatrix, 'alpha17-browser-failure-${{ matrix.shard }}-${{ github.run_attempt }}', 'test-results/'],
+  ['extracted candidate', automated, 'alpha17-candidate-browser-failure-${{ github.run_attempt }}', '${{ runner.temp }}/candidate-extracted/*/test-results/']
+]) {
+  const failureUpload = source.match(/- name: Retain browser failure evidence\n([\s\S]*?)(?=\n      - |$)/);
+  assert(failureUpload, `${name} must retain browser failure evidence`);
+  assert(/if: failure\(\)/.test(failureUpload[1]), `${name} diagnostics must survive a failed test step`);
+  assert(failureUpload[1].includes(`name: ${artifactName}`), `${name} artifact must have a run/shard-specific name`);
+  assert(failureUpload[1].includes(evidencePath), `${name} must upload the directory where that browser ran`);
+  assert(/retention-days: 3/.test(failureUpload[1]), `${name} diagnostics must expire after three days`);
+  assert(/if-no-files-found: ignore/.test(failureUpload[1]), `${name} must tolerate failures before the browser starts`);
+  assert(!failureUpload[1].includes('always()'), `${name} diagnostics must not become success evidence`);
+}
 
 const authorization = job('authorize-live');
 assert(authorization.includes("github.event_name == 'workflow_dispatch'"));

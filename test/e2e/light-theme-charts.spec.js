@@ -38,6 +38,8 @@ async function overviewWithRadar(page) {
   await page.goto('/');
   await expect(ui.screen(page, 'overview')).toBeVisible();
   await ui.enterRepositories(page);
+  const summary = page.getByRole('button', { name: 'Repository summary', exact: true });
+  if (await summary.isVisible()) await summary.click();
   await expect(page.locator('.wp-radar')).toBeVisible();
 }
 
@@ -69,7 +71,7 @@ const readTheme = (page, theme) => page.evaluate(async ([name, settle]) => {
   const ring = document.querySelector('.wp-radar-ring');
   const from = document.querySelector('.wp-radar-fill-from');
   const to = document.querySelector('.wp-radar-fill-to');
-  const button = document.querySelector('#page-repos .btn-primary');
+  const button = document.querySelector('#ovOpenBrowser');
   return {
     muted: token('--wp-muted'),
     track: token('--wp-track'),
@@ -129,9 +131,14 @@ test('the radar fill follows a theme toggled after the chart was drawn', async (
 });
 
 test('the primary button carries its own elevation on a light surface', async ({ page }) => {
-  await overviewWithRadar(page);
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.goto('/');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open repository browser', exact: true })).toBeVisible();
   const dark = await readTheme(page, 'dark');
   const light = await readTheme(page, 'light');
+  expect(dark.buttonShadow).toBeTruthy();
+  expect(light.buttonShadow).toBeTruthy();
   expect(dark.buttonShadow, 'the primary button lost its elevation').not.toBe('none');
   expect(light.buttonShadow,
     'the deep-violet shadow tuned for the dark shell reads as a dark blob under the button on a light one')

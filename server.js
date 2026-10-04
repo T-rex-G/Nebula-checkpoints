@@ -58,6 +58,7 @@ const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
 const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 const {
   CapabilityError, loadCapabilityDocument, projectCapabilities,
   resolveCapability, assertCapabilityAvailable, legacyCapsFor
@@ -79,6 +80,7 @@ const {
 } = require('./src/intelligence');
 const {
   normalizeDatabaseUrl,
+  loadTrustedProxies,
   normalizeGovernanceRuntimeFailureMode,
   loadHostedAlphaLimits,
   loadGithubAppConfig,
@@ -127,6 +129,10 @@ const {
 } = require('./src/github-app');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation');
 const { rateLimitIdentity } = require('./src/rate-limit-identity');
+const { createLocalSessionPolicy } = require('./src/local-session-policy');
+const { createDatabasePool } = require('./src/database-pool');
+const { providerFetch } = require('./src/provider-transport');
+const localSessionPolicy = createLocalSessionPolicy();
 const { SingleUseStore, memorySingleUseStore } = require('./src/single-use-store');
 const { writeLiveClient } = require('./src/live-stream');
 const { RateLimitStore } = require('./src/rate-limit-store');
@@ -182,7 +188,7 @@ const {
 } = require('./src/snapshot-signatures');
 
 const app = express();
-app.set('trust proxy', 1);
+app.set('trust proxy', loadTrustedProxies(process.env.NV_TRUSTED_PROXIES));
 const PORT = process.env.PORT || 10000;
 const SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 const HOSTING_PROFILE = String(process.env.NV_DEPLOYMENT_PROFILE || 'local').trim().toLowerCase();
@@ -967,13 +973,10 @@ const DB_URL = normalizeDatabaseUrl(process.env.DATABASE_URL || '', {
 let _pool = null;
 function pool() {
   if (!_pool) {
-    const { Pool } = require('pg');
-    _pool = new Pool({
-      connectionString: DB_URL,
-      max: 3,
-      connectionTimeoutMillis: 15000,
-      idleTimeoutMillis: 30000,
-      enableChannelBinding: true
+    _pool = createDatabasePool(DB_URL, error => {
+      invalidateDatabaseReady('unavailable');
+      console.error(JSON.stringify({ t: new Date().toISOString(), event: 'database-idle-disconnect',
+        code: /^[A-Z0-9]{5}$/.test(String(error && error.code || '')) ? error.code : 'DB_CONNECTION_FAILED' }));
     });
   }
   return _pool;
@@ -1226,6 +1229,7 @@ app.post('/api/alpha/end', (req, res) => {
 
 let _dbReady = null;
 let _dbRetryAfter = 0;
+let _databaseGeneration = 0;
 let _databaseReadiness = databaseReadiness({
   required: !!DB_URL,
   connected: !DB_URL,
@@ -1327,6 +1331,7 @@ function startAlphaPrivacyRetention() {
   if (typeof timer.unref === 'function') timer.unref();
 }
 function invalidateDatabaseReady(state = 'unavailable') {
+  _databaseGeneration += 1;
   _dbReady = null;
   _dbRetryAfter = Date.now() + 15000;
   _databaseReadiness = databaseReadiness({
@@ -1348,8 +1353,13 @@ function dbReady() {
     migrationMatch: true,
     quotaWarning: false
   });
+  const generation = _databaseGeneration;
   _dbReady = initializeDatabase()
     .then(ok => {
+      if (generation !== _databaseGeneration) {
+        invalidateDatabaseReady('unavailable');
+        return false;
+      }
       if (ok) {
         startDatabaseMaintenance();
         startAlphaPrivacyRetention();
@@ -1669,7 +1679,10 @@ async function setSession(req, res, data) {
     setCookieRaw(res, seal({ sid }));
     return;
   }
-  setCookieRaw(res, seal(data));
+  const bounded = localSessionPolicy.prepare(data);
+  // Retain the original lifetime through security/account session writes.
+  req.session = bounded;
+  setCookieRaw(res, seal(bounded), Math.max(0, Math.ceil((bounded.lifetime.expiresAt - Date.now()) / 1000)));
 }
 function sessionSidFromRequest(req) {
   const current = unseal(getCookie(req, 'nv_session') || '');
@@ -1681,6 +1694,7 @@ async function destroySession(req, res) {
     if (!(await dbReady())) throw Object.assign(new Error('Session database is temporarily unavailable; sign-out was not completed'), { status: 503 });
     await pool().query('DELETE FROM nv_sessions WHERE sid=$1', [sid]);
   }
+  if (!DB_URL) localSessionPolicy.revoke(unseal(getCookie(req, 'nv_session') || ''));
   if (sid) closeLiveSessions([sid], 'session-ended');
   setCookieRaw(res, '', 0);
 }
@@ -1707,7 +1721,7 @@ async function sessionOf(req) {
     const d = unseal(r.rows[0].data);
     return (d && Array.isArray(d.accounts) && d.accounts.length) ? d : null;
   }
-  if (s.token) return { accounts: [{ token: s.token, login: s.login }], active: 0 }; /* v3 cookie */
+  if (!localSessionPolicy.valid(s)) return null;
   if (Array.isArray(s.accounts) && s.accounts.length) return s;
   return null;
 }
@@ -2352,7 +2366,7 @@ async function gh(acct, apiPath, opts = {}) {
   const cacheable = method === 'GET' && !opts.raw && !opts.accept;
   const ck = cacheable ? crypto.createHash('sha1').update(`${provider}|${acct.baseUrl || ''}|${token}|${apiPath}`).digest('hex') : null;
   const cached = ck ? _etags.get(ck) : null;
-  const r = await fetchT(API_BASE + apiPath, {
+  const r = await (provider === 'gitea' ? providerFetch : fetchT)(API_BASE + apiPath, {
     method,
     headers: {
       Authorization: AUTH,
@@ -2430,6 +2444,12 @@ async function githubArchiveResponse(acct, owner, repo, ref) {
   }, UPLOAD_TIMEOUT_MS);
 }
 const fail = (res, error) => {
+  // Once a download starts, a second JSON response cannot be sent. End the
+  // broken transfer without letting ERR_HTTP_HEADERS_SENT escape the handler.
+  if (res.headersSent || res.destroyed) {
+    if (!res.destroyed) res.destroy();
+    return;
+  }
   const status = error && error.status >= 400 && error.status < 600 ? error.status : 500;
   const body = publicErrorBody(error, { correlationId: res.locals.correlationId });
   /* A refusal that has a compliant route carries it alongside the refusal. The
@@ -3217,7 +3237,7 @@ async function glFetch(acct, apiPath, opts = {}) {
     mutationGateway.assertProviderMutation({ provider: 'gitlab', baseUrl: acct.baseUrl || 'https://gitlab.com', method, apiPath, body: opts.body });
   }
   const base = (await assertPublicBaseCached(acct.baseUrl || 'https://gitlab.com')) + '/api/v4';
-  const r = await fetchT(base + apiPath, {
+  const r = await providerFetch(base + apiPath, {
     method,
     headers: {
       'PRIVATE-TOKEN': acct.token, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}`,
@@ -5574,7 +5594,7 @@ app.get('/api/repo/:owner/:repo/zip', providerSessionAccess, alphaRepositoryAcce
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition',
       `attachment; filename="${req.params.repo}-${(ref || 'default').replace(/[^\w.-]/g, '_')}.zip"`);
-    Readable.fromWeb(r.body).pipe(res);
+    await pipeline(Readable.fromWeb(r.body), res);
   } catch (e) { fail(res, e); }
 });
 
@@ -5683,7 +5703,7 @@ app.get('/api/repo/:owner/:repo/raw', providerSessionAccess, alphaRepositoryAcce
       const r2 = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(p2)}/raw?ref=${encodeURIComponent(req.query.ref)}`, { raw: true });
       if (!r2.ok) return res.status(r2.status).json({ error: 'Could not fetch raw content' });
       setRawHeaders(res, p2);
-      Readable.fromWeb(r2.body).pipe(res);
+      await pipeline(Readable.fromWeb(r2.body), res);
       return;
     }
     const p = requestedPath;
@@ -5693,34 +5713,43 @@ app.get('/api/repo/:owner/:repo/raw', providerSessionAccess, alphaRepositoryAcce
     if (!r.ok) return res.status(r.status).json({ error: 'Could not fetch raw content' });
     /* peek the head: LFS pointers are ~130 bytes of text */
     const reader = r.body.getReader();
-    const headChunks = [];
-    let total = 0, ended = false;
-    while (total < 400) {
-      const { value, done } = await reader.read();
-      if (done) { ended = true; break; }
-      headChunks.push(Buffer.from(value));
-      total += value.length;
-    }
-    const headBuf = Buffer.concat(headChunks);
-    const lm = ended && /^version https:\/\/git-lfs\.github\.com\/spec\/v1\noid sha256:([a-f0-9]{64})\nsize (\d+)\s*$/.exec(headBuf.toString('utf8'));
-    if (lm) {
-      assertProviderBoundLfs(req.gh);
+    const cancelReader = () => { void reader.cancel().catch(() => {}); };
+    res.once('close', cancelReader);
+    try {
+      const headChunks = [];
+      let total = 0, ended = false;
+      while (total < 400) {
+        const { value, done } = await reader.read();
+        if (done) { ended = true; break; }
+        headChunks.push(Buffer.from(value));
+        total += value.length;
+      }
+      const headBuf = Buffer.concat(headChunks);
+      const lm = ended && /^version https:\/\/git-lfs\.github\.com\/spec\/v1\noid sha256:([a-f0-9]{64})\nsize (\d+)\s*$/.exec(headBuf.toString('utf8'));
+      if (lm) {
+        assertProviderBoundLfs(req.gh);
+        setRawHeaders(res, p);
+        /* it's a pointer — fetch the real bytes from LFS storage */
+        const stream = await lfsDownloadStream(req.gh, req.params.owner, req.params.repo, lm[1], parseInt(lm[2], 10));
+        res.setHeader('Content-Length', lm[2]);
+        await pipeline(Readable.fromWeb(stream), res);
+        return;
+      }
       setRawHeaders(res, p);
-      /* it's a pointer — fetch the real bytes from LFS storage */
-      const stream = await lfsDownloadStream(req.gh, req.params.owner, req.params.repo, lm[1], parseInt(lm[2], 10));
-      res.setHeader('Content-Length', lm[2]);
-      Readable.fromWeb(stream).pipe(res);
-      return;
+      async function* chunks() {
+        yield headBuf;
+        if (ended) return;
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) return;
+          yield Buffer.from(value);
+        }
+      }
+      await pipeline(Readable.from(chunks()), res);
+    } finally {
+      res.removeListener('close', cancelReader);
+      await reader.cancel().catch(() => {});
     }
-    setRawHeaders(res, p);
-    res.write(headBuf);
-    if (ended) return res.end();
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (!res.write(Buffer.from(value))) await new Promise(rs => res.once('drain', rs));
-    }
-    res.end();
   } catch (e) { fail(res, e); }
 });
 function requireHttpsLfsActionUrl(raw, action) {
@@ -6597,7 +6626,9 @@ async function uploadViaGitPush(acct, owner, repo, branch, p, tmp, message, expe
     const remote = gitRemoteBase(acct, owner, repo);
     const authH = remote.auth;
     const gitBase = remote.url;
-    const ad = await fetchT(`${gitBase}/info/refs?service=git-receive-pack`, { headers: { Authorization: authH, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` }, redirect: 'error' }, 30000);
+    const providerTransport = (acct.provider || 'github') === 'github' ? fetchT : providerFetch;
+    if (providerTransport === providerFetch) await assertPublicBaseCached(acct.baseUrl || 'https://gitlab.com');
+    const ad = await providerTransport(`${gitBase}/info/refs?service=git-receive-pack`, { headers: { Authorization: authH, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` }, redirect: 'error' }, 30000);
     if (!ad.ok) throw Object.assign(new Error(`git advertisement failed (${ad.status})`), { status: ad.status });
     const oldSha = parseAdvert(Buffer.from(await ad.arrayBuffer()), `refs/heads/${branch}`);
     if (!oldSha) throw new Error(`Branch ${branch} not found on the remote`);
@@ -6610,7 +6641,7 @@ async function uploadViaGitPush(acct, owner, repo, branch, p, tmp, message, expe
     const who = acct.login || 'nebulaverse';
     const { objs, commitSha } = buildPushObjects(fileBuf, p, levels, oldSha, message, who, `${who}@users.noreply.github.com`);
     const body = buildReceiveBody(oldSha, commitSha, branch, packEncode(objs));
-    const pr = await fetchT(`${gitBase}/git-receive-pack`, {
+    const pr = await providerTransport(`${gitBase}/git-receive-pack`, {
       method: 'POST',
       headers: { Authorization: authH, 'Content-Type': 'application/x-git-receive-pack-request', Accept: 'application/x-git-receive-pack-result', 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` },
       body, redirect: 'error'

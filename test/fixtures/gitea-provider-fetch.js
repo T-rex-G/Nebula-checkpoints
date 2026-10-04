@@ -116,3 +116,8 @@ global.fetch = async (input, options = {}) => {
   }
   return json(500, { message: `unexpected fixture request: ${method} ${route}` });
 };
+
+// Replace only the provider network seam in this synthetic server fixture.
+const transportPath = require.resolve('../../src/provider-transport');
+const transport = require(transportPath);
+require.cache[transportPath].exports = { ...transport, providerFetch: (...args) => global.fetch(...args) };

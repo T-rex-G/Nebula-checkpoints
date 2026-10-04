@@ -139,7 +139,15 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await expect(ui.button(ui.dialog(page, 'New file'), 'Stage file')).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(ui.status(page, 'Notifications')).toContainText('New file keyboard-proof.txt staged for review');
-  await page.locator('#stageCommitBtn').focus();
+  /*
+   * Staging opens the panel with its commit control focused. The New file
+   * dialog's own focus return runs a frame after it closes; two frames later
+   * the panel must still hold focus, or Enter would land behind it.
+   */
+  const stageCommit = page.locator('#stageCommitBtn');
+  await expect(stageCommit).toBeFocused();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(stageCommit).toBeFocused();
   await page.keyboard.press('Enter');
   const review = ui.dialog(page, 'Review staged changes');
   await expect(review).toContainText('Create empty file');

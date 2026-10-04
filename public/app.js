@@ -537,7 +537,16 @@ function closeModal(v) {
   modalReturnFocus = null;
   const generation = modalGeneration;
   if (restore && restore.isConnected && typeof restore.focus === 'function') requestAnimationFrame(() => {
-    if (generation === modalGeneration) restore.focus({ preventScroll: true });
+    /*
+     * Only a focus the closing dialog left behind is handed back. The flow
+     * that awaited the dialog may already have moved it on -- staging a new
+     * file opens the staged-changes panel and focuses its commit control --
+     * and taking it back a frame later would leave the reader behind that
+     * panel, with Enter landing on whatever opened the dialog.
+     */
+    const active = document.activeElement;
+    const left = !active || active === document.body || $('#scrim').contains(active);
+    if (generation === modalGeneration && left) restore.focus({ preventScroll: true });
   });
 }
 $('#modalOk').addEventListener('click', () => closeModal(true));
@@ -7054,8 +7063,30 @@ function renderStagedPanel() {
     host.appendChild(el);
   });
 }
-function openStagePanel() { renderStagedPanel(); openOverlay($('#stageScrim')); }
-function closeStagePanel() { closeOverlay($('#stageScrim')); }
+/*
+ * The panel takes keyboard focus when it opens -- on its commit control when
+ * there is something to review, else on its close control -- and hands it
+ * back when it closes, so Tab never walks the page hidden behind it.
+ */
+let stageReturnFocus = null;
+function openStagePanel() {
+  const panel = $('#stageScrim');
+  if (!overlayOpen(panel)) {
+    const active = document.activeElement;
+    stageReturnFocus = active && active !== document.body && !$('#scrim').contains(active) ? active : null;
+  }
+  renderStagedPanel();
+  openOverlay(panel);
+  (state.staged.length ? $('#stageCommitBtn') : $('#stageClose')).focus({ preventScroll: true });
+}
+function closeStagePanel() {
+  const panel = $('#stageScrim');
+  const held = panel.contains(document.activeElement);
+  closeOverlay(panel);
+  const restore = stageReturnFocus;
+  stageReturnFocus = null;
+  if (held && restore && restore.isConnected && !restore.closest('[hidden], [inert]')) restore.focus({ preventScroll: true });
+}
 $('#stagedBtn').addEventListener('click', openStagePanel);
 $('#stageClose').addEventListener('click', closeStagePanel);
 $('#stageScrim').addEventListener('click', e => { if (e.target === $('#stageScrim')) closeStagePanel(); });

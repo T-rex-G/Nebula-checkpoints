@@ -20,6 +20,18 @@
   drawer was out lay across its first entries; it now sits under the drawer's
   scrim until the drawer is put away.
 
+### Neural on a desk, explorer open or closed
+
+- **The graph leads.** With the file tree open beside a laptop-width pane the
+  Neural columns stack, and the rail used to come first, so the graph began
+  a thousand pixels down, past the bottom of the window. It now comes first,
+  with the modes after it in two columns.
+- **One header row.** The line under the title may take two lines, so the
+  three controls keep their place beside it instead of dropping under the
+  copy and costing the graph a row.
+- **No more ellipses.** Mode descriptions and the readings' captions wrap to
+  two lines instead of ending in "…".
+
 ### Governance lists you can work through
 
 - **The evidence ledger, one list at a time.** Runtime decisions and

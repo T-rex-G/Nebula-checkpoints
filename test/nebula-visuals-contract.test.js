@@ -104,6 +104,20 @@ for (const name of MODULES) {
     /UNMASKED_RENDERER_WEBGL/.test(probe) && /swiftshader/i.test(loader),
     'the probe must reject a software rasteriser, not just a missing context'
   );
+  /*
+   * And a renderer that will not say its name. WebKit reports a generic one,
+   * so the probe also asks the browser to refuse a context it would draw in
+   * software, and a mounted piece is held to a frame budget that takes it down
+   * when the page under it stops keeping up.
+   */
+  assert(/getContext\('webgl2', ask\)/.test(probe) && /failIfMajorPerformanceCaveat: true/.test(probe),
+    'the probe must ask the browser to refuse a software context');
+  const appended = mount.indexOf('host.appendChild(element)');
+  const held = mount.indexOf('holdToBudget(host, element)');
+  assert(appended > -1 && held > appended, 'every mounted piece must be held to the frame budget');
+  const budget = loader.slice(loader.indexOf('function holdToBudget('));
+  assert(/element\.remove\(\)/.test(budget) && /nebulaMounted = 'failed'/.test(budget) && /capable = false/.test(budget),
+    'a piece over budget must be removed, its host marked failed, and nothing else mounted this session');
 
   /*
    * The app must reach the artwork through the loader. A direct import in the

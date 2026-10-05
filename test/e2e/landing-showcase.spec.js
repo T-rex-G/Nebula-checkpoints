@@ -225,3 +225,50 @@ test('the systems light as the section is scrolled, and the gate leads to the ca
   await at(0);
   await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBe(6);
 });
+
+/*
+ * The scene answers to the page, not the other way round. It loads only when
+ * its section is on screen, so nothing heavy competes with the entry card at
+ * load; and a device that cannot keep up with it -- here a frame held for a
+ * second and a half, as a CPU rasteriser does -- loses the scene, not the page:
+ * it is taken down, its host marked failed, and the stage keeps the CSS
+ * horizon. A WebKit build drawing in software once froze the landing so long
+ * its sign-in button could not be pressed.
+ */
+test('the singularity loads on approach and stands down when the page cannot keep up', async ({ page }) => {
+  await page.addInitScript(() => {
+    /* Lets the scene mount on this runner: the probe would otherwise refuse its software renderer. */
+    for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
+      if (!C) continue;
+      const get = C.prototype.getParameter;
+      C.prototype.getParameter = function (p) { return p === 0x9246 || p === 0x1F01 ? 'ANGLE (Test GPU)' : get.call(this, p); };
+    }
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (kind, options) {
+      return getContext.call(this, kind, options && options.failIfMajorPerformanceCaveat ? { ...options, failIfMajorPerformanceCaveat: false } : options);
+    };
+    /* A frame that takes a second and a half, a few frames after the scene goes in. */
+    new MutationObserver((records, observer) => {
+      if (!document.querySelector('#lpOrbitArt nebula-singularity')) return;
+      observer.disconnect();
+      let frames = 0;
+      const stall = () => {
+        if (++frames < 3) return requestAnimationFrame(stall);
+        const start = performance.now();
+        while (performance.now() - start < 1500) { /* a CPU rasteriser's frame */ }
+      };
+      requestAnimationFrame(stall);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  });
+  await mockPublicAlphaApi(page, { access: 'required' });
+  await page.goto('/');
+  const art = page.locator('#lpOrbitArt');
+  await page.waitForTimeout(600);
+  await expect(art, 'nothing heavy loads with the page').not.toHaveAttribute('data-nebula-mounted', /.+/);
+  await page.locator('.lp-orbit').evaluate(el => window.scrollTo(0, el.getBoundingClientRect().top + scrollY + 40));
+  await expect(art).toHaveAttribute('data-nebula-mounted', 'failed', { timeout: 15000 });
+  await expect(art.locator('nebula-singularity')).toHaveCount(0);
+  await expect(page.locator('.lp-orbit')).not.toHaveAttribute('data-drawn', 'true');
+  await expect(art.locator('.lp-orbit-fallback')).toBeAttached();
+  expect(await page.evaluate(() => window.NebulaVisuals.supportsWebGL()), 'no other piece mounts this session').toBe(false);
+});

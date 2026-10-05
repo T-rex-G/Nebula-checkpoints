@@ -64,18 +64,26 @@
     new MutationObserver(schedule).observe(root, { attributes: true, attributeFilter: ['data-motion'] });
   }
 
-  /* The scene loads when the section is near, not with the page. */
+  /*
+   * The scene loads when the section comes on screen, not with the page: the
+   * stage is sticky for two and a half screens, so the CSS horizon stands in
+   * for the moment it takes, and nothing heavy competes with the hero and the
+   * entry card while a reader is deciding whether to sign in. A scene the
+   * loader takes down for missing its frame budget gives the stage back to
+   * the CSS horizon.
+   */
   if (section && art && typeof IntersectionObserver === 'function') {
     const near = new IntersectionObserver(entries => {
       if (mounted || !entries.some(entry => entry.isIntersecting) || !global.NebulaVisuals) return;
       mounted = true;
       near.disconnect();
       global.NebulaVisuals.mount('singularity', art).then(drawn => {
-        if (drawn) section.dataset.drawn = 'true';
+        if (drawn && art.dataset.nebulaMounted === 'true') section.dataset.drawn = 'true';
         schedule();
       });
-    }, { rootMargin: '600px 0px' });
+    }, { rootMargin: '0px', threshold: 0 });
     near.observe(section);
+    art.addEventListener('nebula-visual-retired', () => { delete section.dataset.drawn; });
   }
 
   /* The gate dives in before the page moves to the card: a beat of the horizon growing, then the same jump as the bar's Enter. */

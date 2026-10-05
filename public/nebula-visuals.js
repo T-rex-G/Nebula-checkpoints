@@ -61,12 +61,26 @@
    */
   const SOFTWARE_RENDERER = /swiftshader|llvmpipe|software|basic render/i;
 
+  /*
+   * The name is not always there to read. WebKit reports a generic renderer
+   * for privacy, so a WebKit build drawing on the CPU passed the name check,
+   * mounted the singularity, and painted one frame in thirty seconds: the
+   * landing froze, and its sign-in button never held still long enough to be
+   * pressed. Two more answers close that gap. The probe asks the browser to
+   * refuse a context it would draw in software (failIfMajorPerformanceCaveat,
+   * as the hero's vortex already does), and a mounted piece is held to a
+   * frame budget below: the first second or so of frames is timed, and a
+   * piece that drags the page under it is taken down for the session.
+   */
+  const BUDGET = Object.freeze({ frames: 24, firstFrameMs: 4000, frameMs: 1000, medianMs: 45, minimum: 12 });
+
   function supportsWebGL() {
     if (capable !== null) return capable;
     capable = false;
     try {
       const canvas = document.createElement('canvas');
-      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      const ask = { failIfMajorPerformanceCaveat: true };
+      const gl = canvas.getContext('webgl2', ask) || canvas.getContext('webgl', ask);
       if (gl && typeof gl.getExtension === 'function') {
         const info = gl.getExtension('WEBGL_debug_renderer_info');
         const renderer = String(
@@ -124,12 +138,52 @@
       element.setAttribute('design', design());
       element.setAttribute('density', density());
       host.appendChild(element);
+      holdToBudget(host, element);
       return true;
     } catch {
       /* The interface is complete without it; leaving the host empty is correct. */
       host.dataset.nebulaMounted = 'failed';
       return false;
     }
+  }
+
+  /*
+   * Times the page's frames while a newly mounted piece settles in. The first
+   * interval is the piece compiling its shaders and is allowed to be long, if
+   * not endless; after it, a single frame of a second or a median under about
+   * twenty frames a second means the device is drawing this on its CPU. The
+   * piece is then removed, its context released, the host marked as failed --
+   * which every caller already treats as "no artwork" -- and no other piece is
+   * mounted this session. A hidden page draws no frames, so it is never judged.
+   */
+  function holdToBudget(host, element) {
+    if (typeof global.requestAnimationFrame !== 'function') return;
+    const gaps = [];
+    let last = 0;
+    const retire = () => {
+      capable = false;
+      const canvas = element.querySelector('canvas');
+      const gl = canvas && (canvas.getContext('webgl2') || canvas.getContext('webgl'));
+      const lose = gl && gl.getExtension('WEBGL_lose_context');
+      element.remove();
+      if (lose) lose.loseContext();
+      host.dataset.nebulaMounted = 'failed';
+      host.dispatchEvent(new CustomEvent('nebula-visual-retired', { bubbles: true }));
+    };
+    const tick = now => {
+      if (!element.isConnected) return;
+      if (last) gaps.push(now - last);
+      last = now;
+      const first = gaps[0];
+      const rest = gaps.slice(1);
+      if (first > BUDGET.firstFrameMs || rest.some(gap => gap > BUDGET.frameMs)) return retire();
+      if (rest.length >= BUDGET.minimum) {
+        const median = rest.slice().sort((a, b) => a - b)[Math.floor(rest.length / 2)];
+        if (median > BUDGET.medianMs) return retire();
+      }
+      if (gaps.length < BUDGET.frames) global.requestAnimationFrame(tick);
+    };
+    global.requestAnimationFrame(tick);
   }
 
   /* Follows the theme toggle, for whichever pieces are already mounted. */

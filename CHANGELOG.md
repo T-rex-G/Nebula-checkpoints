@@ -17,6 +17,15 @@
 - **A gate at the end.** The section closes on an "Enter" reticle that dives
   into the horizon and lands on the access card, the same jump as the bar's
   Enter. The bar gains a *Systems* link that goes to the section.
+- **The scene answers to the page.** It loads when its section comes on
+  screen rather than with the page, so nothing heavy competes with the entry
+  card. A device that would draw it on the CPU is turned away twice over: the
+  probe asks the browser to refuse a software context, and a mounted scene is
+  held to a frame budget -- a frame of a second, or under about twenty frames
+  a second, takes it down for the session and gives the stage back to the CSS
+  horizon. WebKit hides its renderer's name, and a WebKit build drawing in
+  software once froze the landing so long its sign-in button could not be
+  pressed. The Galaxies artwork is held to the same budget.
 - **Counted from the code.** The coverage figures said they were "the
   engine's own"; they come from several systems' rule sets, and now say they
   are counted from the code that runs.

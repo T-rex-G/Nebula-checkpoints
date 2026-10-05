@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### The bento, the first screen and the inventory, composed
+
+- **One repository, read honestly, as a bento.** Four cards on one anatomy --
+  a working picture in a well, a kicker, a title and a sentence -- laid
+  wide-narrow over narrow-wide on a six-column grid whose cards are subgrids,
+  so pictures in a row share a height and titles a baseline. The pictures are
+  the product's own surfaces in miniature: a diff with its gutter and the head
+  it was reviewed against, a policy list whose refused path shows its Safe
+  Passage route, a provider matrix with each provider's mark and a key, and
+  the signals as a ledger beside twelve weeks of bars on one baseline. A light
+  follows the pointer across the whole grid where there is a pointer. The
+  area chart whose line stopped short of its fill is gone.
+- **The first screen, composed.** The readings at the vortex's edge are
+  callouts with a hairline leading to a lit point on the scene; the small
+  print carries a sign; in a narrow column the three promises form a trust
+  strip of equal cells instead of a tall list. A desktop-width screen that is
+  much taller than it is wide -- a tablet upright, a phone showing the desktop
+  site -- stacks the copy, a full-width vortex and the path, instead of a
+  small vortex between two bands of empty night.
+- **The tornado reaches the top of the screen.** On a desk the vortex's stage
+  runs from the top of the window, behind the clear bar, to the path, and the
+  column is drawn to fill it: the crown opens at the top of the screen, the
+  waist sits level with the copy and the base spreads into the path. The bar's
+  links and state chip stand on a ground of the page's own colour so they stay
+  legible over it.
+- **Obsidian, darker and cleaner.** The dark preset's page, shell, cards and
+  raised surfaces sit a step deeper in neutral black. The light preset's page
+  and shell lost the mint and rose washes that read as a green layer, its card
+  edge light is pearl rather than violet, its status pill and checks are inked
+  in stone rather than teal, and the vortex's loose dust is thinner on stone.
+- **How it works fills to the end.** The timeline's line and its stops play on
+  the track's own scroll timeline; the line had clipped itself into a scroll
+  container and stopped half way between the second and third stop.
+- **No lights ride the map's orbits**, only what a signal does.
+- **The six systems on a phone** run their rows edge to edge inside the
+  panel's corner, so the first row's lit wash no longer leaves a notch.
+- **The Galaxies summary as one panel, sized to what it holds.** The set,
+  its private part and its public part form a ledger down the panel's left
+  edge; the languages take the rest, the radar for the estate's shape beside
+  each language ranked with its count and share. It was three tall tiles of
+  one number each, an empty slot and a radar alone in a box three times its
+  height; the radar's own box is cut to what it draws. Where the live galaxy
+  cannot run, the header draws a still one in the same place.
+
 ### The landing, rebuilt from the first screen to the footer
 
 - **Two ways forward.** With entry open, the hero offers a filled *Get

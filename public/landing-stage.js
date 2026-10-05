@@ -358,6 +358,33 @@
   }
 
   /*
+   * The bento's light follows the pointer across the whole grid: every card
+   * is handed the pointer's position in its own box, so the edge nearest the
+   * pointer catches it even on the card next door. One write per frame, and
+   * only where there is a fine pointer to follow.
+   */
+  const bento = document.querySelector('.lp-bento');
+  const finePointer = global.matchMedia && global.matchMedia('(hover: hover) and (pointer: fine)');
+  if (bento && finePointer && finePointer.matches && typeof bento.querySelectorAll === 'function') {
+    const cards = [...bento.querySelectorAll('.lp-bento-c')];
+    let pending = null;
+    bento.addEventListener('pointermove', event => {
+      const first = pending === null;
+      pending = { x: event.clientX, y: event.clientY };
+      if (!first) return;
+      global.requestAnimationFrame(() => {
+        const { x, y } = pending;
+        pending = null;
+        cards.forEach(card => {
+          const box = card.getBoundingClientRect();
+          card.style.setProperty('--mx', `${Math.round(x - box.left)}px`);
+          card.style.setProperty('--my', `${Math.round(y - box.top)}px`);
+        });
+      });
+    }, { passive: true });
+  }
+
+  /*
    * The numbers count up once, the first time they are seen. The figure is
    * in the markup from the start, so without script -- or with motion off --
    * the reader gets the number, not a zero.
@@ -392,6 +419,30 @@
     const target = document.getElementById(button.dataset.lpTour);
     if (target) target.scrollIntoView({ behavior: still() ? 'auto' : 'smooth', block: 'start' });
   }));
+
+  /*
+   * On a desk the vortex reaches the top of the screen. At rest the bar is
+   * clear glass, so the form can rise behind it to the window's edge; the
+   * stage's top is set to the page's top rather than a fixed distance above
+   * the artwork, which on a laptop left the crown starting a sixth of the
+   * way down the screen. Once the page scrolls the bar's ground covers it.
+   * A tall screen and a phone stack the hero and keep their own bleed.
+   */
+  /* The column at desk scale: drawn half again its fitted size and set a little low, so the crown opens at the top of the window and the waist sits level with the copy. */
+  const DESK_COLUMN = Object.freeze({ zoom: 1.5, rise: -0.06 });
+  const artBox = document.querySelector('.lp-art');
+  const desk = global.matchMedia && global.matchMedia('(min-width: 940px) and (min-aspect-ratio: 4/5)');
+  if (artBox && desk && artBox.style && typeof artBox.getBoundingClientRect === 'function') {
+    const reach = () => {
+      if (!desk.matches) { artBox.style.removeProperty('--lp-bleed-top'); return; }
+      const top = artBox.getBoundingClientRect().top + (global.scrollY || global.pageYOffset || 0);
+      artBox.style.setProperty('--lp-bleed-top', `${Math.max(0, Math.round(top))}px`);
+    };
+    reach();
+    const bodyBox = document.querySelector('.lp-body');
+    if (bodyBox && typeof global.ResizeObserver === 'function') new global.ResizeObserver(reach).observe(bodyBox);
+    if (desk.addEventListener) desk.addEventListener('change', reach);
+  }
 
   /*
    * The closing call. With the gate on it returns the reader to the card at
@@ -438,10 +489,19 @@
    * a subject and nothing else -- the page is never a black box waiting for a
    * context that is not coming.
    */
+  /*
+   * On a desk the stage runs from the top of the window to the path, a box
+   * taller than it is wide, and the form is drawn to fill that height: the
+   * crown opens at the top of the screen and the base spreads into the path,
+   * rather than the same-sized form floating in the middle of a taller box.
+   */
+  const presetName = (canvas.dataset && canvas.dataset.vortex) || 'column';
+  const deskShape = () => (desk && desk.matches && presetName === 'column' ? DESK_COLUMN : {});
   // The canvas owns an unobstructed box and handles pointer capture itself.
-  const scene = global.NebulaVortex && global.NebulaVortex.create(canvas, {
-    preset: (canvas.dataset && canvas.dataset.vortex) || 'column'
-  });
+  const scene = global.NebulaVortex && global.NebulaVortex.create(canvas, Object.assign({
+    preset: presetName
+  }, deskShape()));
+  if (scene && desk && desk.addEventListener) desk.addEventListener('change', () => scene.setShape(presetName, deskShape()));
   if (!scene) {
     canvas.hidden = true;
     if (art) art.hidden = true;

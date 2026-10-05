@@ -48,14 +48,17 @@
    * phone's whole width so the curve stays shallow there. The apex is close
    * to the section's top because everything above it is the hero's own
    * ground: at a fifth of the way down it left a band of empty dark between
-   * the path and the horizon.
+   * the path and the horizon. A desk-width screen that is far taller than it
+   * is wide (a tablet upright, a phone showing the desktop site) keeps the
+   * apex at the low end too: a tenth of that height is a band of its own.
    */
   function measureArc() {
     if (!stage) return null;
     const width = stage.clientWidth || global.innerWidth;
     const height = stage.clientHeight || global.innerHeight;
     const narrow = width < 700;
-    const top = Math.round(narrow ? Math.min(120, Math.max(72, height * 0.12)) : Math.min(130, Math.max(84, height * 0.1)));
+    const tall = !narrow && height > width * 1.45;
+    const top = Math.round(narrow ? Math.min(120, Math.max(72, height * 0.12)) : tall ? 88 : Math.min(130, Math.max(84, height * 0.1)));
     const radius = Math.round(narrow ? Math.max(width * 1.35, height * 0.72) : Math.max(width * 0.78, height * 0.92));
     stage.style.setProperty('--arc-top', `${top}px`);
     stage.style.setProperty('--arc-r', `${radius}px`);

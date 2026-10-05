@@ -63,3 +63,34 @@ test('a long tail folds into one spoke that says what it stands for', async ({ p
   await expect(page.locator('.wp-radar-label').last()).toHaveText('Other');
   await expect(page.locator('#reposPulse')).toContainText('grouped');
 });
+
+/*
+ * The shape alone left every value to be estimated from a spoke. Beside it,
+ * each language is ranked with its count and its share of the set, in the
+ * radar's own order, and the folded tail says how many it stands for.
+ */
+test('beside the shape, each language is ranked with its count and share', async ({ page }) => {
+  await repositories(page, ['JavaScript', 'JavaScript', 'Python', 'Go', 'Rust']);
+  const rows = page.locator('.gx-lang-list li');
+  await expect(rows).toHaveCount(4);
+  await expect(rows.locator('.gx-lang-name')).toHaveText(['JavaScript', 'Go', 'Python', 'Rust']);
+  await expect(rows.first().locator('.gx-lang-n')).toHaveText('2');
+  await expect(rows.first().locator('.gx-lang-pc')).toHaveText('40%');
+  await expect(rows.nth(1).locator('.gx-lang-pc')).toHaveText('20%');
+});
+
+test('the ranked list names the folded tail by its size', async ({ page }) => {
+  await repositories(page, ['JavaScript', 'Python', 'Go', 'Rust', 'Swift', 'Ruby', 'C', 'Zig', 'Elixir', 'Nim']);
+  await expect(page.locator('.gx-lang-list li')).toHaveCount(8);
+  await expect(page.locator('.gx-lang-list .gx-lang-name').last()).toHaveText('Other (3)');
+});
+
+/* Private and public account for the whole set, so the row never ends on an empty slot. */
+test('private and public add up to the set', async ({ page }) => {
+  await repositories(page, ['JavaScript', 'Python', 'Go']);
+  const figure = label => page.locator('#reposPulseGrid .gx-pulse-cell')
+    .filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) }).locator('.gx-pulse-value');
+  await expect(figure('Galaxies')).toHaveText('3');
+  await expect(figure('Private')).toHaveText('0');
+  await expect(figure('Public')).toHaveText('3');
+});

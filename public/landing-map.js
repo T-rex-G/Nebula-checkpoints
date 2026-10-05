@@ -111,7 +111,6 @@
       const arc = svg.querySelector('.lp-map-arcs path');
       const arcRadius = arc ? Number((arc.getAttribute('d').match(/A\s*([\d.]+)/) || [])[1]) || hub[2] + 8 : hub[2] + 8;
       const accent = rgb(arc ? env.getComputedStyle(arc).stroke : '', [167, 139, 250]);
-      const rings = [...svg.querySelectorAll('.lp-map-ring')].map(ring => Number(ring.getAttribute('r'))).filter(Boolean);
       /* The repository's name stays on top of everything that moves past it. */
       const pill = svg.querySelector('.lp-map-pill');
       const label = pill ? ['x', 'y', 'width', 'height'].map(name => Number(pill.getAttribute(name)) || 0) : null;
@@ -131,7 +130,7 @@
           t: -(0.15 + random() * 2.6)
         };
       }).filter(Boolean);
-      return { svg, box: { x: box.x, y: box.y, width: box.width, height: box.height }, hub, arcRadius, accent, rings, strands, label,
+      return { svg, box: { x: box.x, y: box.y, width: box.width, height: box.height }, hub, arcRadius, accent, strands, label,
         pulses: [], pings: [] };
     }
 
@@ -220,18 +219,12 @@
       const [hx, hy, hr] = scene.hub;
       const [ar, ag, ab] = scene.accent;
 
-      /* A light riding each orbit, the outer ones slower. */
-      scene.rings.forEach((radius, index) => {
-        const turn = clock * (index % 2 ? -0.11 : 0.16) / (1 + index * 0.35) + index * 2.1;
-        ctx.beginPath();
-        ctx.arc(hx, hy, radius, turn - 0.5, turn);
-        ctx.strokeStyle = `rgba(${ar},${ag},${ab},${onLight ? 0.4 : 0.32})`;
-        ctx.lineWidth = Math.max(1.1, 1.4 * px);
-        ctx.stroke();
-        const head = sprite(scene.accent);
-        const size = 14;
-        if (head) ctx.drawImage(head, hx + Math.cos(turn) * radius - size / 2, hy + Math.sin(turn) * radius - size / 2, size, size);
-      });
+      /*
+       * No lights ride the orbits. A comet circling each ring read as stray
+       * scratches crossing the strands -- motion that carried no signal --
+       * so the only things that move are what a signal does: run a strand,
+       * land at the hub, and the hub's own arcs turning.
+       */
 
       /* The hub's two arcs, turning once every eleven seconds. */
       const spin = (clock * Math.PI * 2) / 11;

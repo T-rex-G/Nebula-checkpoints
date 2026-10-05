@@ -78,14 +78,14 @@ function strand(from, to) {
 function harness({ context = true, display = 'block', layout = null } = {}) {
   const frames = new Map();
   let id = 0;
-  const calls = { clear: 0, image: 0, stroke: 0, clip: 0 };
+  const calls = { clear: 0, image: 0, stroke: 0, clip: 0, radii: new Set() };
   const observers = [];
   const intersections = [];
   const resizes = [];
   const html = { dataset: { theme: 'dark', motion: 'on', design: 'nebula' } };
   const doc = events({ documentElement: html, hidden: false });
   const ctx = {
-    setTransform() {}, clearRect() { calls.clear++; }, beginPath() {}, moveTo() {}, lineTo() {}, arc() {}, rect() {},
+    setTransform() {}, clearRect() { calls.clear++; }, beginPath() {}, moveTo() {}, lineTo() {}, arc(x, y, r) { calls.radii.add(Math.round(r)); }, rect() {},
     stroke() { calls.stroke++; }, drawImage() { calls.image++; }, save() {}, restore() {}, clip() { calls.clip++; },
     fillRect() {}, createRadialGradient: () => ({ addColorStop() {} })
   };
@@ -189,6 +189,9 @@ function harness({ context = true, display = 'block', layout = null } = {}) {
   h.pump(30);
   assert.ok(h.calls.stroke > 0 && h.calls.image > 0, 'signals and lights are drawn');
   assert.ok(h.calls.clip > 0, 'the repository name is kept clear of what moves past it');
+  /* Nothing circles the orbits: the rings' radii are never drawn on, only the hub's arcs and where signals land. */
+  assert.ok(!h.calls.radii.has(78) && !h.calls.radii.has(118), 'a light is riding the orbits again');
+  assert.ok(h.calls.radii.has(52), 'the hub\'s arcs stopped turning');
   assert.ok(h.api.state().clock > 0.4);
 
   /* Off screen it stops asking for frames. */

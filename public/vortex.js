@@ -165,12 +165,13 @@
       hot: '#FAFAFA', accent: '#A78BFA', dust: '#F4F4F5',
       line: 0.09, mote: 0.8, field: 0.4
     }),
-    /* Quartz: the same form inked in graphite. */
+    /* Quartz: the same form inked in graphite. Its loose field is kept thin:
+       on stone a stipple reads as dust on the page rather than as light. */
     'obsidian-light': Object.freeze({
       additive: false,
       top: '#57534E', waist: '#1C1917', bottom: '#44403C',
       hot: '#0C0A09', accent: '#5B3FD0', dust: '#292524',
-      line: 0.11, mote: 0.46, field: 0.28
+      line: 0.11, mote: 0.46, field: 0.16
     })
   });
 

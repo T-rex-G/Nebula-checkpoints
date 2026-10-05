@@ -1194,9 +1194,15 @@
    */
   const RADAR_LABEL_MAX = 13;
 
+  /*
+   * The box is cut to what is drawn in it: the web and its labels reach 87
+   * units from the centre and a label's own height past that, so 214 tall
+   * holds them with a margin. At 272 a third of the chart's height was empty
+   * band above and below, which the card it sits in paid for.
+   */
   function radarChart(axes, label) {
     const width = 340;
-    const height = 272;
+    const height = 214;
     const centre = { x: width / 2, y: height / 2 };
     const radius = 74;
     const id = `wp-radar-${areaSequence += 1}`;

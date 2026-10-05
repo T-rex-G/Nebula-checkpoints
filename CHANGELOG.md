@@ -4,17 +4,22 @@
 
 ### The landing, shown rather than told
 
-- **Six engines around one repository.** Under the hero a new section holds a
+- **Six systems around one repository.** Under the hero a new section holds a
   black hole drawn on the GPU -- star field, lensed plasma ring, corona and a
   drifting dust disk in the theme's colours -- and banks it as the reader
-  scrolls through, while the six engines light one by one beside it: Pulsar,
-  Kepler, Quasar, Uranus, Parallax and Corona, each in two words. The scene
-  loads only when the section comes near, pauses off screen and in a hidden
-  tab, and is skipped on software renderers, where a CSS horizon stands in.
-  With motion off every engine is lit at once and nothing moves.
+  scrolls through, while the six systems light one by one beside it, each
+  named for what it is: *Pulsar Map*, *Kepler Twin*, *Quasar Scanner*,
+  *Uranus Engine*, *Parallax Probe* and *Corona Guard*, each with what it is
+  for in a few words. The scene loads only when the section comes near,
+  pauses off screen and in a hidden tab, and is skipped on software
+  renderers, where a CSS horizon stands in. With motion off every system is
+  lit at once and nothing moves.
 - **A gate at the end.** The section closes on an "Enter" reticle that dives
   into the horizon and lands on the access card, the same jump as the bar's
-  Enter. The bar gains an *Engines* link that goes to the section.
+  Enter. The bar gains a *Systems* link that goes to the section.
+- **Counted from the code.** The coverage figures said they were "the
+  engine's own"; they come from several systems' rule sets, and now say they
+  are counted from the code that runs.
 - **Where you are.** A hairline at the screen's right edge fills as the
   landing is read.
 - **Detail that drifts in.** The story steps, the providers, the questions
@@ -27,13 +32,18 @@
 
 ### The rail, named and lit evenly
 
-- **Engines on top, purpose beneath.** Each security entry is titled by its
-  engine and says in a few words what it is for: *Pulsar Engine* -- Neural ·
-  live code map; *Kepler Engine* -- Governance · policy twin; *Quasar Engine*
-  -- Exposure · leaked secrets; *Uranus Engine* -- Audit · code and packages;
-  *Parallax Engine* -- Website · live site check; *Corona Engine* --
-  Safeguards · lockdown. The line beneath begins with the name the tabs and
-  the phone menu use, so the two always meet.
+- **Each system named for what it is, purpose beneath.** Calling all six
+  "engines" overstated five of them. Only Uranus parses code and traces
+  values through it, so only Uranus is an engine; the others are named for
+  what they are: *Pulsar Map* -- Neural · how code connects; *Kepler
+  Twin* -- Governance · policy rules; *Quasar Scanner* -- Exposure
+  · leaked secrets; *Uranus Engine* -- Audit · code and packages; *Parallax
+  Probe* -- Website · live site check; *Corona Guard* -- Safeguards ·
+  lockdown. Each page's kicker uses the same name. The line beneath begins
+  with the name the tabs and the phone menu use, so the two always meet.
+- **Each page says where the rest is.** Exposure said the deployed site was
+  checked on the Audit tab, and Audit that it read the live site itself;
+  the site is checked on the Website page, by Parallax, and both now say so.
 - **The current entry's glow is whole.** Under Magnetar Sec the list clipped
   its contents at rest, so the current tool's glow ended in a hard-edged box
   that Galaxies, above the heading, never had. The list clips only while it
@@ -42,6 +52,14 @@
 - **A message waits under the drawer.** A toast that arrived while the phone
   drawer was out lay across its first entries; it now sits under the drawer's
   scrim until the drawer is put away.
+
+### The overview keeps what you opened
+
+- **The numbers stay open.** Each overview card is rebuilt whenever a reading
+  it shows arrives, and its *Show the numbers* table was rebuilt closed, so a
+  reader who had just opened it lost it the moment the next signal landed. An
+  opened table now stays open through every repaint for as long as the page
+  is open.
 
 ### Neural on a desk, explorer open or closed
 
@@ -79,12 +97,18 @@
 
 ### The galaxy, whole and in view
 
-- **On a phone it has a stage.** The Galaxies hero drew its spiral behind the
-  headline at a third of its strength, so it read as a faint ring across
-  "repository" with a straight top where the hero clipped it. It now sits on
-  a stage of its own above the copy, at full strength, sharper (drawn at up
-  to twice the pixel density), and the eyebrow tucks into its fading edge.
-  A phone that cannot draw it keeps no empty stage.
+- **On a phone it sits beside the copy.** The Galaxies hero drew its spiral
+  behind the headline at a third of its strength, so it read as a faint ring
+  across "repository" with a straight top where the hero clipped it. It now
+  sits to the right of the headline, inside the hero top to bottom, at
+  nearly full strength and sharper (drawn at up to twice the pixel density);
+  the headline and the sentence keep to the left three fifths, so only the
+  mask's fading edge meets them. A phone that cannot draw it keeps the full
+  measure for the copy.
+- **No pale plate on paper.** In the light themes the shader inks the whole
+  quad, and the mask was still at a fifth of its strength at the box's edge,
+  which left a pale panel with a straight side beside the copy. The mask now
+  fades to nothing exactly at the box's own sides, whatever its shape.
 - **On a desk it has a column.** The artwork was a box taller than the hero
   and offset above it, so the hero cut its aura into a band with straight top
   and bottom edges, and the disc filled a third of its width. It now sits in
@@ -108,7 +132,7 @@
 ### One home for website analysis
 
 - **Site checks run on the Website page alone.** The Audit tab carried a
-  second copy of the Parallax scanner under *Deployed site*, with its own
+  second copy of the Parallax probe under *Deployed site*, with its own
   form, progress and results. It now shows the repository's address (the one
   last checked for it, else its homepage), the latest Website-page check of
   that address -- grade, verdict, counts and when -- and two ways over:
@@ -151,11 +175,11 @@ The benchmark is unchanged: 100% precision, 98% recall over 138 cases.
 ### The constellation, named
 
 - **Names.** Repositories are *Galaxies* (your repositories); the security
-  tools sit under **Magnetar Sec**, each on its own engine: Neural on the
-  *Pulsar Engine*, Governance on *Kepler*, Exposure on *Quasar*, Audit on
+  tools sit under **Magnetar Sec**, each named for the system behind it:
+  Neural on *Pulsar*, Governance on *Kepler*, Exposure on *Quasar*, Audit on
   *Uranus*, Website on *Parallax* and Safeguards on *Corona*. The rail names
-  each tool's engine beneath it, a narrowed rail shows both on hover, and each
-  tool's page carries its engine above its title.
+  each tool's system with it, a narrowed rail shows both on hover, and each
+  tool's page carries its system above its title.
 - **Magnetar Sec opens and closes like a menu.** Its heading folds the six
   tools away with the chevron turning, shows how many it holds while folded,
   keeps the choice for the next visit, and opens by itself when the screen in

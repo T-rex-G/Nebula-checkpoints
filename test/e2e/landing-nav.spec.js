@@ -44,7 +44,7 @@ test('a section link lands its heading below the bar and marks it as being read'
     await expect(links).toBeHidden();
     return;
   }
-  await expect(links.getByRole('button')).toHaveText(['Engines', 'Audit', 'Map', 'Coverage', 'Proof', 'FAQ']);
+  await expect(links.getByRole('button')).toHaveText(['Systems', 'Audit', 'Map', 'Coverage', 'Proof', 'FAQ']);
   await links.getByRole('button', { name: 'Coverage' }).click();
   await expect.poll(() => page.evaluate(() => {
     const heading = document.getElementById('lpChecksTitle').getBoundingClientRect();

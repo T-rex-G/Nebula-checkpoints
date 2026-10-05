@@ -5,7 +5,7 @@
  *
  * Below the gate: the providers it works against, the audit played at the
  * pace of the scroll, a framed miniature of the Neural view that settles as
- * it scrolls in, what it checks with the engine's own counts, the
+ * it scrolls in, what it checks with the code's own counts, the
  * capabilities as a bento, the comparison with what a scan usually does, the
  * three moves, the questions and a closing call that returns the reader to
  * the card. These read what a
@@ -62,7 +62,7 @@ test('the numbers are the build\'s own, and arrive whole', async ({ page }) => {
   const checks = page.locator('.lp-checks');
   await checks.scrollIntoViewIfNeeded();
   const values = checks.locator('.lp-check-v');
-  /* Read the engines, independently of the markup and animation under test. */
+  /* Read the rule sets, independently of the markup and animation under test. */
   const counts = [EXPOSURE_RULES.length, Object.keys(ADAPTERS).length,
     Object.keys(audit.RULES).length, Object.keys(site.RULES).length].map(String);
   await expect(values).toHaveText(counts, { timeout: 5000 });
@@ -193,25 +193,26 @@ test('with motion off the showcase holds still', async ({ page }) => {
 });
 
 /*
- * The singularity: six engines around one core, lit one by one as the reader
+ * The singularity: six systems around one core, lit one by one as the reader
  * scrolls through the section, ending at a gate that is the way in. Every
- * engine is in the page from the start; motion only decides when each lights.
+ * system is in the page from the start; motion only decides when each lights.
+ * Each is named for what it is, and only Uranus is called an engine.
  */
-test('the engines light as the section is scrolled, and the gate leads to the card', async ({ page }) => {
+test('the systems light as the section is scrolled, and the gate leads to the card', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'required' });
   await page.goto('/');
   const orbit = page.locator('.lp-orbit');
-  await expect(orbit.getByRole('heading', { name: /Six engines/ })).toBeAttached();
-  await expect(orbit.getByRole('list', { name: 'The engines' }).getByRole('listitem').locator('b'))
-    .toHaveText(['Pulsar', 'Kepler', 'Quasar', 'Uranus', 'Parallax', 'Corona']);
+  await expect(orbit.getByRole('heading', { name: /Six systems/ })).toBeAttached();
+  await expect(orbit.getByRole('list', { name: 'The systems' }).getByRole('listitem').locator('b'))
+    .toHaveText(['Pulsar Map', 'Kepler Twin', 'Quasar Scanner', 'Uranus Engine', 'Parallax Probe', 'Corona Guard']);
   const at = progress => orbit.evaluate((el, p) => window.scrollTo(0, el.getBoundingClientRect().top + scrollY + (el.offsetHeight - innerHeight) * p), progress);
   await at(0);
-  await expect.poll(() => orbit.locator('.lp-engine[data-on="true"]').count()).toBe(0);
+  await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBe(0);
   await at(0.5);
-  await expect.poll(() => orbit.locator('.lp-engine[data-on="true"]').count()).toBeGreaterThan(1);
-  await expect.poll(() => orbit.locator('.lp-engine[data-on="true"]').count()).toBeLessThan(6);
+  await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBeGreaterThan(1);
+  await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBeLessThan(6);
   await at(1);
-  await expect.poll(() => orbit.locator('.lp-engine[data-on="true"]').count()).toBe(6);
+  await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBe(6);
   await expect(orbit).toHaveAttribute('data-ready', 'true');
   /* Nothing in the section is wider than the screen. */
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
@@ -219,8 +220,8 @@ test('the engines light as the section is scrolled, and the gate leads to the ca
   await orbit.getByRole('button', { name: 'Enter through the horizon' }).click();
   await expect.poll(() => page.evaluate(() => document.activeElement && !!document.activeElement.closest('.lp-card'))).toBe(true);
 
-  /* With motion off every engine is lit wherever the reader is. */
+  /* With motion off every system is lit wherever the reader is. */
   await page.evaluate(() => { document.documentElement.dataset.motion = 'off'; window.scrollTo(0, 0); });
   await at(0);
-  await expect.poll(() => orbit.locator('.lp-engine[data-on="true"]').count()).toBe(6);
+  await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBe(6);
 });

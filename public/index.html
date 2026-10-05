@@ -128,7 +128,7 @@
         and marks the one being read.
       -->
       <nav class="lp-links" aria-label="On this page">
-        <button type="button" class="lp-link" data-lp-goto="lpOrbitTitle">Engines</button>
+        <button type="button" class="lp-link" data-lp-goto="lpOrbitTitle">Systems</button>
         <button type="button" class="lp-link" data-lp-goto="lpPlayTitle">Audit</button>
         <button type="button" class="lp-link" data-lp-goto="lpShowTitle">Map</button>
         <button type="button" class="lp-link" data-lp-goto="lpChecksTitle">Coverage</button>
@@ -254,27 +254,30 @@
     </div><!-- /.lp-hero -->
 
     <!--
-      The singularity: six engines around one core, shown rather than told.
+      The singularity: six systems around one core, shown rather than told.
+      Only Uranus is called an engine, because only Uranus is one: it parses
+      code and traces values through it. The others are named for what they
+      are -- a map, a twin, a scanner, a probe and a guard.
       The section is taller than the screen and its stage holds still while
       the reader scrolls through it; the disc banks from broad to edge-on and
-      each engine lights as it is reached, ending at a gate that is the same
+      each system lights as it is reached, ending at a gate that is the same
       control as the bar's Enter. Without WebGL the stage draws the horizon in
-      CSS; without script, or with motion off, every engine is lit at once.
+      CSS; without script, or with motion off, every system is lit at once.
     -->
     <section class="lp-orbit" aria-labelledby="lpOrbitTitle">
       <div class="lp-orbit-stick">
         <div class="lp-orbit-art" id="lpOrbitArt" aria-hidden="true"><span class="lp-orbit-fallback"></span></div>
         <div class="lp-orbit-copy">
           <p class="lp-orbit-eyebrow">Magnetar Sec</p>
-          <h2 class="lp-orbit-title" id="lpOrbitTitle">Six engines<span class="lp-orbit-ghost">around one repository</span></h2>
+          <h2 class="lp-orbit-title" id="lpOrbitTitle">Six systems<span class="lp-orbit-ghost">around one repository</span></h2>
         </div>
-        <ol class="lp-engines" aria-label="The engines">
-          <li class="lp-engine" style="--k:0" data-on="true"><span class="lp-engine-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22"/></svg></span><b>Pulsar</b><span>Live code map</span></li>
-          <li class="lp-engine" style="--k:1" data-on="true"><span class="lp-engine-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span><b>Kepler</b><span>Policy twin</span></li>
-          <li class="lp-engine" style="--k:2" data-on="true"><span class="lp-engine-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg></span><b>Quasar</b><span>Leaked secrets</span></li>
-          <li class="lp-engine" style="--k:3" data-on="true"><span class="lp-engine-i" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg></span><b>Uranus</b><span>Code and packages</span></li>
-          <li class="lp-engine" style="--k:4" data-on="true"><span class="lp-engine-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg></span><b>Parallax</b><span>Live site check</span></li>
-          <li class="lp-engine" style="--k:5" data-on="true"><span class="lp-engine-i" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg></span><b>Corona</b><span>Lockdown switches</span></li>
+        <ol class="lp-systems" aria-label="The systems">
+          <li class="lp-system" style="--k:0" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22"/></svg></span><b>Pulsar Map</b><span>How code connects</span></li>
+          <li class="lp-system" style="--k:1" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span><b>Kepler Twin</b><span>Policy rules</span></li>
+          <li class="lp-system" style="--k:2" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg></span><b>Quasar Scanner</b><span>Leaked secrets</span></li>
+          <li class="lp-system" style="--k:3" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg></span><b>Uranus Engine</b><span>Code and packages</span></li>
+          <li class="lp-system" style="--k:4" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg></span><b>Parallax Probe</b><span>Live site check</span></li>
+          <li class="lp-system" style="--k:5" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg></span><b>Corona Guard</b><span>Lockdown switches</span></li>
         </ol>
         <div class="lp-orbit-gate">
           <button type="button" class="lp-reticle" data-lp-jump aria-label="Enter through the horizon"><i class="lp-ret-c lp-ret-c1"></i><i class="lp-ret-c lp-ret-c2"></i><i class="lp-ret-c lp-ret-c3"></i><i class="lp-ret-c lp-ret-c4"></i><span>Enter</span><span class="lp-reticle-arr" aria-hidden="true">&rarr;</span></button>
@@ -418,16 +421,16 @@
         </ul>
       </section>
       <!--
-        Coverage, counted. Every figure is the engine's own count, and
-        test/landing-claims.test.js fails the build when the page and the
-        engine disagree -- the page cannot drift into a number it no longer
+        Coverage, counted. Every figure is counted from the code that runs,
+        and test/landing-claims.test.js fails the build when the page and the
+        code disagree -- the page cannot drift into a number it no longer
         ships.
       -->
       <section class="lp-checks" aria-labelledby="lpChecksTitle">
         <div class="lp-checks-head">
           <p class="lp-sec-eyebrow">Coverage</p>
           <h2 class="lp-show-title" id="lpChecksTitle">Everything it checks, counted</h2>
-          <p class="lp-show-lede">Each number is the engine's own, and the build fails if this page ever says otherwise.</p>
+          <p class="lp-show-lede">Each number is counted from the code that runs, and the build fails if this page ever says otherwise.</p>
         </div>
         <ul class="lp-checks-grid">
           <li class="lp-check">
@@ -830,15 +833,15 @@
   <ul class="nv-rail-nav nv-rail-nav-security" aria-labelledby="railSecurityLabel">
     <li style="--j:0;--i:5"><button type="button" class="nv-rail-item" data-rail="neural">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22"/></svg>
-      <span class="nv-rail-t">Pulsar Engine</span>
-      <span class="nv-rail-d">Neural · live code map</span></button></li>
+      <span class="nv-rail-t">Pulsar Map</span>
+      <span class="nv-rail-d">Neural · how code connects</span></button></li>
     <li style="--j:1;--i:6"><button type="button" class="nv-rail-item" data-feature="governance" data-allow-experimental="true" data-rail="governance">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg>
-      <span class="nv-rail-t">Kepler Engine</span>
-      <span class="nv-rail-d">Governance · policy twin</span></button></li>
+      <span class="nv-rail-t">Kepler Twin</span>
+      <span class="nv-rail-d">Governance · policy rules</span></button></li>
     <li style="--j:2;--i:7"><button type="button" class="nv-rail-item" data-feature="exposure.scan" data-allow-experimental="true" data-rail="exposure">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg>
-      <span class="nv-rail-t">Quasar Engine</span>
+      <span class="nv-rail-t">Quasar Scanner</span>
       <span class="nv-rail-d">Exposure · leaked secrets</span></button></li>
     <li style="--j:3;--i:8"><button type="button" class="nv-rail-item" data-feature="site-check" data-rail="audit">
       <svg class="nv-rail-i nv-audit-mark" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg>
@@ -846,11 +849,11 @@
       <span class="nv-rail-d">Audit · code and packages</span></button></li>
     <li style="--j:4;--i:9"><button type="button" class="nv-rail-item" data-feature="site-check" data-rail="site">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg>
-      <span class="nv-rail-t">Parallax Engine</span>
+      <span class="nv-rail-t">Parallax Probe</span>
       <span class="nv-rail-d">Website · live site check</span></button></li>
     <li style="--j:5;--i:10"><button type="button" class="nv-rail-item" data-feature="recovery" data-rail="safeguards">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg>
-      <span class="nv-rail-t">Corona Engine</span>
+      <span class="nv-rail-t">Corona Guard</span>
       <span class="nv-rail-d">Safeguards · lockdown</span></button></li>
   </ul>
   </div>
@@ -875,9 +878,9 @@
 
 <!-- ======================= OVERVIEW ======================= -->
 <!--
-  The deployed-site check on its own, for any address a reader may test:
-  the same engine and card the Audit tab uses for a repository's homepage,
-  reached from the rail without opening a repository first.
+  The deployed-site check, Parallax, for any address a reader may test. It
+  is the only place a site is checked: the Audit tab links here with the
+  repository's homepage, and the rail reaches it without a repository.
 -->
 <main class="page" id="page-site" aria-labelledby="siteTitle">
   <header class="topbar glass">
@@ -903,7 +906,7 @@
       <header class="exposure-intro sec-hero">
         <span class="sec-mark sec-mark-site" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg></span>
         <div class="sec-hero-text">
-          <p class="exposure-kicker">Magnetar Sec · Parallax Engine</p>
+          <p class="exposure-kicker">Magnetar Sec · Parallax Probe</p>
           <h2 id="siteTitle">Website</h2>
           <p>Check a public website&rsquo;s security, then inspect its rendered desktop and mobile experience. Review findings alongside coverage, screenshots and the limits of each check.</p>
         </div>
@@ -1150,9 +1153,10 @@
   <div class="container">
     <section class="gx-hero" aria-labelledby="gxHeroTitle">
         <!--
-          The galaxy sits behind the hero copy, not beside it. It is decoration
-          and carries no meaning, so it is hidden from assistive technology and
-          takes no pointer events -- the text over it stays selectable.
+          The galaxy sits beside the hero copy, in the hero's right half, on a
+          phone as on a desk. It is decoration and carries no meaning, so it is
+          hidden from assistive technology and takes no pointer events -- the
+          text its fading edge meets stays selectable.
         -->
         <div class="gx-hero-art" id="gxHeroArt" aria-hidden="true"></div>
         <p class="gx-eyebrow"><span>Your workspace</span><span aria-hidden="true">/</span><span>Galaxies</span></p>
@@ -1472,7 +1476,7 @@
           -->
           <header class="neural-head">
             <div class="neural-head-copy">
-              <div class="neural-kicker"><span class="neural-live-dot"></span> PULSAR ENGINE · NEURAL COMMAND CENTER</div>
+              <div class="neural-kicker"><span class="neural-live-dot"></span> PULSAR MAP · NEURAL COMMAND CENTER</div>
               <h2>Repository nervous system</h2>
               <p>Live topology for security, dependencies, protected assets, activity and recovery paths.</p>
             </div>
@@ -1597,7 +1601,7 @@
             <div class="sec-hero-text">
               <p class="exposure-kicker">Magnetar Sec · Uranus Engine</p>
               <h2>Audit</h2>
-              <p>Uranus maps every endpoint, follows what a caller sends to what uses it, and reads secrets, packages, database rules and the live site. One grade, confirmed findings kept apart from leads, never the code.</p>
+              <p>Uranus maps every endpoint, follows what a caller sends to what uses it, and reads secrets, packages and database rules, with the live site&rsquo;s result from Parallax beside them. One grade, confirmed findings kept apart from leads, never the code.</p>
             </div>
           </header>
           <div id="auditRoot" aria-live="polite"></div>
@@ -1615,7 +1619,7 @@
           <header class="exposure-intro sec-hero">
             <span class="sec-mark sec-mark-safeguards" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg></span>
             <div class="sec-hero-text">
-              <p class="exposure-kicker">Magnetar Sec · Corona Engine</p>
+              <p class="exposure-kicker">Magnetar Sec · Corona Guard</p>
               <h2>Safeguards</h2>
               <p>What stands between a mistake and this repository: the app's own switches, the rules the provider enforces on the branch, the paths nothing may change, and the way back.</p>
             </div>
@@ -1629,9 +1633,9 @@
           <header class="exposure-intro sec-hero">
             <span class="sec-mark sec-mark-exposure" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M8.6 12.4a2.1 2.1 0 1 1 2.9-2.9l2.6 2.6M12.6 10.6l1 1"/></svg></span>
             <div class="sec-hero-text">
-              <p class="exposure-kicker">Magnetar Sec · Quasar Engine</p>
+              <p class="exposure-kicker">Magnetar Sec · Quasar Scanner</p>
               <h2>Exposure</h2>
-              <p>Credentials committed to this branch and its history, checked live on request. The deployed site itself is checked on the Audit tab.</p>
+              <p>Credentials committed to this branch and its history, checked live on request. The deployed site itself is checked on the Website page.</p>
             </div>
           </header>
           <!--

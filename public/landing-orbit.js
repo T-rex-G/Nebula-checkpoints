@@ -4,11 +4,11 @@
  * The section is taller than the screen and its stage is sticky, so how far
  * the reader has scrolled through it is a number from 0 to 1. That number
  * banks the black hole (handed to <nebula-singularity> as its `progress`),
- * lights the engines one by one, and readies the gate at the end. The scene
+ * lights the six systems one by one, and readies the gate at the end. The scene
  * itself is fetched through the visuals loader, which first asks whether this
  * device can draw it; without it the stage keeps its CSS horizon.
  *
- * Content never depends on any of this: every engine is in the markup, lit,
+ * Content never depends on any of this: every system is in the markup, lit,
  * so without script -- or with motion off -- the reader gets all six at once.
  * The page's own scroll is never taken over; this only listens to it.
  *
@@ -27,7 +27,7 @@
   const reduced = global.matchMedia ? global.matchMedia('(prefers-reduced-motion: reduce)') : null;
   const still = () => root.dataset.motion === 'off' || !!(reduced && reduced.matches);
   const art = document.getElementById('lpOrbitArt');
-  const engines = section ? [...section.querySelectorAll('.lp-engine')] : [];
+  const systems = section ? [...section.querySelectorAll('.lp-system')] : [];
   let frame = 0;
   let mounted = false;
 
@@ -48,9 +48,9 @@
     const progress = sectionProgress();
     section.style.setProperty('--orbit-p', progress.toFixed(4));
     const calm = still();
-    /* The engines light in turn through the first four fifths; the gate is ready for the last. */
-    engines.forEach((engine, index) => {
-      engine.dataset.on = String(calm || progress >= (index + 0.5) / (engines.length + 1.6));
+    /* The systems light in turn through the first four fifths; the gate is ready for the last. */
+    systems.forEach((system, index) => {
+      system.dataset.on = String(calm || progress >= (index + 0.5) / (systems.length + 1.6));
     });
     section.dataset.ready = String(calm || progress > 0.78);
     const scene = art && art.querySelector('nebula-singularity');

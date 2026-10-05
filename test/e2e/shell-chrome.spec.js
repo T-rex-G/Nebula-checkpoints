@@ -398,15 +398,26 @@ test('the inventory artwork is not clipped by the edge of the screen', async ({ 
   const box = await art.evaluate(node => {
     const rect = node.getBoundingClientRect();
     const hero = node.closest('.gx-hero').getBoundingClientRect();
-    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, height: rect.height, viewport: window.innerWidth,
-      hero: { top: hero.top, bottom: hero.bottom }, drawn: node.dataset.nebulaMounted === 'true', staged: getComputedStyle(node).position !== 'absolute' };
+    const words = [...node.closest('.gx-hero').querySelectorAll('.gx-title, .gx-lede')].map(item => item.getBoundingClientRect());
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, viewport: window.innerWidth,
+      hero: { top: hero.top, bottom: hero.bottom, left: hero.left, width: hero.width },
+      words: Math.max(...words.map(item => item.right)), drawn: node.dataset.nebulaMounted === 'true',
+      layered: getComputedStyle(node).position === 'absolute' };
   });
   expect(box.left).toBeGreaterThanOrEqual(-1);
   expect(box.right).toBeLessThanOrEqual(box.viewport + 1);
-  /* Inside its hero top to bottom, so the hero's clip never cuts it into a band; and no empty stage when nothing is drawn. */
+  /* Inside its hero top to bottom, so the hero's clip never cuts it into a band. */
   expect(box.top).toBeGreaterThanOrEqual(box.hero.top - 1);
   expect(box.bottom).toBeLessThanOrEqual(box.hero.bottom + 1);
-  if (box.staged && !box.drawn) expect(box.height, 'a phone keeps no stage for artwork it cannot draw').toBe(0);
+  /*
+   * Beside the copy on every screen, never stacked above it: on a phone a
+   * stage of its own pushed the headline down and made the hero a picture
+   * with a caption. The headline and the sentence end before the disc's
+   * middle, so only the mask's fading edge ever meets them.
+   */
+  expect(box.layered, 'the artwork is layered beside the copy, not given a row of its own').toBe(true);
+  expect(box.left, 'the artwork keeps to the right side of the hero').toBeGreaterThanOrEqual(box.hero.left + box.hero.width * 0.4);
+  if (box.drawn) expect(box.words, 'the copy stops short of the disc').toBeLessThanOrEqual((box.left + box.right) / 2);
 
   /* And the page it sits on gains no horizontal scroll from it. */
   const overflow = await page.evaluate(() => document.body.scrollWidth - window.innerWidth);
@@ -1139,9 +1150,9 @@ test('the graph filter and the policy destination do not share a name', async ({
  */
 test.describe('destination names', () => {
   const DESTINATIONS = [
-    { tab: 'neural', name: 'Neural' },
-    { tab: 'governance', name: 'Governance' },
-    { tab: 'exposure', name: 'Exposure' }
+    { tab: 'neural', name: 'Neural', title: 'Pulsar Map' },
+    { tab: 'governance', name: 'Governance', title: 'Kepler Twin' },
+    { tab: 'exposure', name: 'Exposure', title: 'Quasar Scanner' }
   ];
 
   test('every control that leads to a destination calls it the same thing', async ({ page }) => {
@@ -1149,7 +1160,7 @@ test.describe('destination names', () => {
     await page.goto('/#/sandbox/demo@main/files');
     await page.locator('#page-work.active').waitFor();
 
-    for (const { tab, name } of DESTINATIONS) {
+    for (const { tab, name, title } of DESTINATIONS) {
       const labels = await page.evaluate(selector => {
         const clean = node => node
           ? (node.textContent || '').replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim()
@@ -1159,19 +1170,41 @@ test.describe('destination names', () => {
           /* The first span in a menu row can be a decorative glyph; the name
              is the one that is not hidden from the accessibility tree. */
           menu: clean(document.querySelector(`.sheet-item[data-act="${selector}"] span:not([aria-hidden])`)),
-          /* The rail names the engine on top; the line beneath opens with the destination's own name. */
+          /* The rail names the system on top; the line beneath opens with the destination's own name. */
           rail: clean(document.querySelector(`[data-rail="${selector}"] .nv-rail-d`)).split(' ')[0],
-          engine: clean(document.querySelector(`[data-rail="${selector}"] .nv-rail-t`))
+          system: clean(document.querySelector(`[data-rail="${selector}"] .nv-rail-t`))
         };
       }, tab);
 
-      expect(labels.engine, 'the rail entry is titled by its engine').toMatch(/^[A-Z][a-z]+ Engine$/);
-      delete labels.engine;
+      expect(labels.system, 'the rail entry is titled by its system').toBe(title);
+      delete labels.system;
       for (const [where, label] of Object.entries(labels)) {
         if (label === null) continue;
         expect(label, `the ${where} calls this destination "${label}"`).toBe(name);
       }
     }
+  });
+
+  /*
+   * Each system is named for what it is. Uranus parses code and traces values
+   * through it, so it alone is an engine; calling a map, a policy twin, a
+   * scanner, a probe or a set of switches an engine would overstate them.
+   */
+  test('the rail names each system for what it is, and only Uranus an engine', async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+    await page.goto('/#/sandbox/demo@main/files');
+    await page.locator('#page-work.active').waitFor();
+    await expect(page.locator('.nv-rail-nav-security .nv-rail-t')).toHaveText(
+      ['Pulsar Map', 'Kepler Twin', 'Quasar Scanner', 'Uranus Engine', 'Parallax Probe', 'Corona Guard']);
+    const kickers = await page.evaluate(() => [...document.querySelectorAll('.exposure-kicker, .neural-kicker, .gov-eyebrow, .audit-site-kicker')]
+      .map(node => node.textContent));
+    expect(kickers.filter(text => /engine/i.test(text) && !/Uranus Engine/.test(text)), 'no other system is called an engine').toEqual([]);
+    /* Each name and each purpose on one line at a laptop's width: a wrapped line pushed the rail's foot out of the frame. */
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const wrapped = await page.evaluate(() => [...document.querySelectorAll('.nv-rail-nav-security :is(.nv-rail-t, .nv-rail-d)')]
+      .filter(node => node.getBoundingClientRect().height > parseFloat(getComputedStyle(node).lineHeight) * 1.5)
+      .map(node => node.textContent));
+    expect(wrapped, 'rail lines that wrap').toEqual([]);
   });
 
   test('every destination can be reached by name from the palette', async ({ page }) => {

@@ -1152,7 +1152,7 @@ test('both themes and a 320px screen keep it readable', async ({ page }) => {
     const button = page.locator('#exposureScanBtn');
     await button.scrollIntoViewIfNeeded();
     expect((await button.boundingBox()).height).toBeGreaterThanOrEqual(44);
-    await expect(page.locator('#tab-exposure .exposure-intro')).toContainText('The deployed site itself is checked on the Audit tab.');
+    await expect(page.locator('#tab-exposure .exposure-intro')).toContainText('The deployed site itself is checked on the Website page.');
     await page.screenshot({ path: test.info().outputPath(`exposure-320-${theme}.png`), fullPage: true });
   }
 });

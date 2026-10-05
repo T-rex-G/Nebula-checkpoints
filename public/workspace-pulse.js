@@ -533,9 +533,23 @@
     return track;
   }
 
+  /*
+   * Which tables a reader has opened, by caption. Each card is rebuilt
+   * whenever a reading it shows arrives, and a rebuilt disclosure starts
+   * closed: a reader who opened the numbers had them shut under them the
+   * moment the next signal landed. Kept for the page's life only; it holds
+   * the captions this file wrote and nothing read from anywhere.
+   */
+  const openNumbers = new Set();
+
   function numbersTable(caption, headings, rows, note) {
     const details = element('details', 'wp-numbers');
     details.appendChild(element('summary', null, 'Show the numbers'));
+    details.open = openNumbers.has(caption);
+    details.addEventListener('toggle', () => {
+      if (details.open) openNumbers.add(caption);
+      else openNumbers.delete(caption);
+    });
     const table = element('table');
     table.appendChild(element('caption', null, caption));
     const head = document.createElement('thead');

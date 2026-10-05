@@ -184,7 +184,10 @@
   --ttl:var(--fg); --ico:var(--fg2); --tabc:var(--fg3);
   --artHalo:radial-gradient(closest-side, rgba(167,139,250,.30), transparent 72%);
   --gxAura:radial-gradient(ellipse 60% 64% at 50% 48%, rgba(167,139,250,.26), rgba(196,181,253,.13) 52%, transparent 76%);
-  --gxMask:radial-gradient(ellipse 64% 68% at 50% 50%, #000 36%, rgba(0,0,0,.34) 70%, transparent 92%);
+  /* Sized to the box's own sides, so the fade reaches nothing exactly at its edge whatever the box's shape: on paper
+     the shader inks the whole quad, and a mask still at a fifth of its strength at the edge left a pale plate with a
+     straight side beside the copy. */
+  --gxMask:radial-gradient(ellipse closest-side at 50% 50%, #000 46%, rgba(0,0,0,.34) 76%, transparent 100%);
   --gxBlend:normal; --gxFilter:saturate(1.12) contrast(1.03);
 
   /* The product's established names, resolved onto the design's. */
@@ -4435,20 +4438,24 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * and sized so its own mask does the fading.
  */
 /*
- * On a phone the galaxy has its own stage above the headline. Behind the copy
- * it had to drop to a third of its strength to leave the sentence readable,
- * and at that weight and size it read as a smudge across "repository" rather
- * than as the artwork: a faint ring with a hard top where the hero clipped it.
- * Above the copy it can be whole and at full strength, and the eyebrow tucks
- * into its fading lower edge.
+ * On a phone the galaxy sits beside the copy, to its right, as it does on a
+ * desk. Behind the copy it had to drop to a third of its strength to leave
+ * the sentence readable, and read as a smudge across "repository"; stacked
+ * above the copy it pushed the headline down and turned the hero into a
+ * picture with a caption. Beside it, the copy takes the left three fifths
+ * and the disc the right half, meeting only in the mask's fading edge, so
+ * both are whole: the art at nearly full strength, the sentence untouched.
+ * The box stays inside the hero top to bottom, so the hero's clip never cuts
+ * it into a band. The copy narrows only once the artwork is drawing: a phone
+ * that cannot draw it keeps the full measure.
  */
 @media (max-width:900px){
-  .gx-hero{display:flex;flex-direction:column}
-  /* The stage is held only once the artwork is drawing: a device without it keeps the page as it was. */
-  .gx-hero-art{position:relative;order:-1;right:auto;top:auto;width:100%;height:0;opacity:1}
-  .gx-hero-art[data-nebula-mounted="true"]{height:clamp(176px,48vw,240px);margin:-4px 0 -14px}
-  [data-theme="light"] .gx-hero-art{opacity:.92}
-  #page-repos .gx-hero:has(.gx-hero-art[data-nebula-mounted="true"]){padding-top:6px}
+  .gx-hero-art{right:0;top:0;bottom:0;width:48%;height:100%;opacity:.95}
+  [data-theme="light"] .gx-hero-art{opacity:.85}
+  .gx-hero:has(.gx-hero-art[data-nebula-mounted="true"]){min-height:clamp(168px,46vw,232px);display:flex;flex-direction:column;justify-content:center}
+  /* The headline and the sentence keep left of the disc; the one-line eyebrow above them keeps its whole row. Under
+     the id, so the phone inventory's own measure for the lede cannot widen it back under the disc. */
+  #page-repos .gx-hero:has(.gx-hero-art[data-nebula-mounted="true"])>:is(.gx-title,.gx-lede){max-width:60%}
 }
 /*
  * Inside the plate the hero spans the region and only the copy is capped. The
@@ -7942,7 +7949,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 
 /* ================= LANDING · THE SINGULARITY ================= */
 /*
- * Six engines around one core, at the pace of the scroll. The section is
+ * Six systems around one core, at the pace of the scroll. The section is
  * taller than the screen and its stage is sticky, so the reader scrolls
  * through it while the scene banks; --orbit-p (0 to 1) is how far through
  * they are. It is a night sky in both themes -- a cinematic band between
@@ -7985,25 +7992,25 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
  * phone. Each lights as the scroll reaches it: dim and low until then, then
  * up into place with its mark glowing.
  */
-.lp-engines{list-style:none;margin:0;padding:0;align-self:center;display:grid;grid-template-columns:repeat(2,minmax(0,250px));
+.lp-systems{list-style:none;margin:0;padding:0;align-self:center;display:grid;grid-template-columns:repeat(2,minmax(0,250px));
   justify-content:space-between;row-gap:clamp(14px,5vh,52px);width:100%;max-width:1240px;margin-inline:auto}
-.lp-engine{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;column-gap:12px;align-items:center;
+.lp-system{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;column-gap:12px;align-items:center;align-content:center;
   padding:12px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.1);background:rgba(8,8,22,.42);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   opacity:.28;transform:translateY(14px);transition:opacity .6s ease,transform .7s cubic-bezier(.16,1,.3,1),border-color .6s ease,box-shadow .6s ease}
-.lp-engine:nth-child(even){text-align:right;grid-template-columns:minmax(0,1fr) auto}
-.lp-engine:nth-child(even) .lp-engine-i{grid-column:2;grid-row:1/span 2}
-.lp-engine:nth-child(even) b,.lp-engine:nth-child(even)>span:last-child{grid-column:1}
-.lp-engine-i{grid-row:1/span 2;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:#d8b4fe;
+.lp-system:nth-child(even){text-align:right;grid-template-columns:minmax(0,1fr) auto}
+.lp-system:nth-child(even) .lp-system-i{grid-column:2;grid-row:1/span 2}
+.lp-system:nth-child(even) b,.lp-system:nth-child(even)>span:last-child{grid-column:1}
+.lp-system-i{grid-row:1/span 2;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:#d8b4fe;
   background:rgba(139,92,246,.14);border:1px solid rgba(167,139,250,.28);transition:box-shadow .6s ease}
-.lp-engine-i svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.lp-engine b{font-family:var(--font-display);font-size:1.02rem;font-weight:600;letter-spacing:-.01em;color:#f5f7ff}
-.lp-engine>span:last-child{font-size:.76rem;color:rgba(224,231,255,.62)}
-.lp-engine[data-on="true"]{opacity:1;transform:none;border-color:rgba(167,139,250,.32);box-shadow:0 18px 40px -24px rgba(139,92,246,.6)}
-.lp-engine[data-on="true"] .lp-engine-i{box-shadow:0 0 22px rgba(167,139,250,.45)}
-[data-design="obsidian"] .lp-engine-i{color:#e7e5e4;background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.16)}
-[data-design="obsidian"] .lp-engine[data-on="true"]{border-color:rgba(255,255,255,.24);box-shadow:0 18px 40px -24px rgba(0,0,0,.8)}
-[data-design="obsidian"] .lp-engine[data-on="true"] .lp-engine-i{box-shadow:0 0 22px rgba(255,255,255,.18)}
+.lp-system-i svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.lp-system b{font-family:var(--font-display);font-size:1.02rem;font-weight:600;letter-spacing:-.01em;color:#f5f7ff}
+.lp-system>span:last-child{font-size:.76rem;color:rgba(224,231,255,.62)}
+.lp-system[data-on="true"]{opacity:1;transform:none;border-color:rgba(167,139,250,.32);box-shadow:0 18px 40px -24px rgba(139,92,246,.6)}
+.lp-system[data-on="true"] .lp-system-i{box-shadow:0 0 22px rgba(167,139,250,.45)}
+[data-design="obsidian"] .lp-system-i{color:#e7e5e4;background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.16)}
+[data-design="obsidian"] .lp-system[data-on="true"]{border-color:rgba(255,255,255,.24);box-shadow:0 18px 40px -24px rgba(0,0,0,.8)}
+[data-design="obsidian"] .lp-system[data-on="true"] .lp-system-i{box-shadow:0 0 22px rgba(255,255,255,.18)}
 
 /* The gate: the reference's reticle, corners that open toward the hand. */
 .lp-orbit-gate{display:grid;justify-items:center;gap:12px;opacity:.35;transform:translateY(10px);transition:opacity .6s ease,transform .7s cubic-bezier(.16,1,.3,1)}
@@ -8039,21 +8046,21 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 @media (max-width:860px){
   .lp-orbit{height:220svh}
   .lp-orbit-stick{grid-template-rows:auto 1fr auto auto;padding-inline:18px}
-  .lp-engines{grid-template-columns:repeat(2,minmax(0,1fr));align-self:end;column-gap:10px;row-gap:10px;margin-bottom:16px}
-  .lp-engine,.lp-engine:nth-child(even){text-align:left;grid-template-columns:auto minmax(0,1fr);padding:10px 11px;column-gap:10px}
-  .lp-engine:nth-child(even) .lp-engine-i{grid-column:1}
-  .lp-engine:nth-child(even) b,.lp-engine:nth-child(even)>span:last-child{grid-column:2}
-  .lp-engine-i{width:32px;height:32px;border-radius:10px}
-  .lp-engine b{font-size:.9rem}
-  .lp-engine>span:last-child{font-size:.7rem}
+  .lp-systems{grid-template-columns:repeat(2,minmax(0,1fr));align-self:end;column-gap:10px;row-gap:10px;margin-bottom:16px}
+  .lp-system,.lp-system:nth-child(even){text-align:left;grid-template-columns:auto minmax(0,1fr);padding:10px 11px;column-gap:10px}
+  .lp-system:nth-child(even) .lp-system-i{grid-column:1}
+  .lp-system:nth-child(even) b,.lp-system:nth-child(even)>span:last-child{grid-column:2}
+  .lp-system-i{width:32px;height:32px;border-radius:10px}
+  .lp-system b{font-size:.9rem}
+  .lp-system>span:last-child{font-size:.7rem}
   .lp-progress{right:6px;height:80px}
   .lp-orbit-fallback{top:42%;width:min(84vw,420px)}
 }
 @media (prefers-reduced-motion:reduce){
-  .lp-engine,.lp-orbit-gate,.lp-orbit-art nebula-singularity{transition:none;animation:none}
+  .lp-system,.lp-orbit-gate,.lp-orbit-art nebula-singularity{transition:none;animation:none}
   .lp-orbit.is-diving .lp-orbit-art{animation:none}
 }
-[data-motion="off"] :is(.lp-engine,.lp-orbit-gate,.lp-orbit-art nebula-singularity){transition:none;animation:none}
+[data-motion="off"] :is(.lp-system,.lp-orbit-gate,.lp-orbit-art nebula-singularity){transition:none;animation:none}
 [data-motion="off"] .lp-orbit.is-diving .lp-orbit-art{animation:none}
 
 /*

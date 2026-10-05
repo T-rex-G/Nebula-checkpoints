@@ -3268,7 +3268,7 @@
 
   /*
    * The deployed site, as an audit shows it. Site checks run in one place --
-   * the Website page, on the Parallax engine -- so the audit does not carry
+   * the Website page, on the Parallax probe -- so the audit does not carry
    * a second scanner: it names this repository's address, says what the
    * latest check of that address found, and sends the reader there to check
    * it or read it in full. That check rides in this audit's exports.
@@ -3282,7 +3282,7 @@
     const titles = element('div', 'audit-site-titles');
     const heading = element('h2', 'exposure-heading', 'Deployed site');
     heading.id = 'auditSiteHeading';
-    titles.append(element('p', 'audit-site-kicker', 'Parallax Engine · Website'), heading,
+    titles.append(element('p', 'audit-site-kicker', 'Parallax Probe · Website'), heading,
       element('p', 'audit-site-lede', 'Site checks run on the Website page. The latest one for this address shows here and joins this audit’s exports.'));
     head.append(mark, titles);
     card.appendChild(head);

@@ -27,12 +27,13 @@
 - **No lights ride the map's orbits**, only what a signal does.
 - **The six systems on a phone** run their rows edge to edge inside the
   panel's corner, so the first row's lit wash no longer leaves a notch.
-- **The Galaxies summary as one composition.** The set, its private part and
-  its public part stand in a column that adds up; the languages card keeps
-  the radar for the estate's shape and ranks each language beside it with its
-  count and share. It was three tall tiles of one number each, an empty slot
-  and a radar alone in a page-wide panel. Where the live galaxy cannot run,
-  the header draws a still one in the same place.
+- **The Galaxies summary as one panel, sized to what it holds.** The set,
+  its private part and its public part form a ledger down the panel's left
+  edge; the languages take the rest, the radar for the estate's shape beside
+  each language ranked with its count and share. It was three tall tiles of
+  one number each, an empty slot and a radar alone in a box three times its
+  height; the radar's own box is cut to what it draws. Where the live galaxy
+  cannot run, the header draws a still one in the same place.
 
 ### The landing, rebuilt from the first screen to the footer
 

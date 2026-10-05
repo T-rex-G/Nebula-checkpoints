@@ -4474,7 +4474,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  */
 @media (min-width:901px){
   .gx-hero{max-width:none;display:flex;flex-direction:column;justify-content:center}
-  .gx-hero:has(.gx-hero-art){min-height:clamp(200px,17vw,248px)}
+  .gx-hero:has(.gx-hero-art){min-height:clamp(176px,13.5vw,208px);padding-top:18px}
   .gx-hero>:not(.gx-hero-art){max-width:min(720px,56%)}
   .gx-hero-art{right:0;top:0;bottom:0;width:44%;height:100%;
     transform:perspective(900px) rotateX(var(--gx-rx,0deg)) rotateY(var(--gx-ry,0deg));
@@ -8980,54 +8980,63 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 [data-design="obsidian"][data-theme="light"] .gx-still-g1,[data-design="obsidian"][data-theme="light"] .gx-still-g2{stop-color:#a8a29e}
 
 /*
- * The inventory's summary as one composition. Three figures that add up --
- * the set, its private part and its public part -- stand in a column, and the
- * languages card takes the rest of the row: the radar for the estate's shape
- * and, beside it, each language ranked with its count and share. It was a
- * row of three tall tiles holding one number each, an empty third slot, and
- * a radar alone in a panel the width of the page.
+ * The inventory's summary as one panel, sized to what it holds. The three
+ * figures that add up -- the set, its private part, its public part -- form
+ * a ledger down the panel's left edge; the languages take the rest: the
+ * radar for the estate's shape and, beside it, each language ranked with its
+ * count and share. It was three tall tiles holding one number each, an empty
+ * slot, and a radar alone in a box three times its height.
  */
-.gx-pulse-grid:has(> .gx-pulse-radar){grid-auto-flow:row;grid-auto-columns:auto;
-  grid-template-columns:minmax(200px,.9fr) minmax(0,2.6fr);grid-template-rows:repeat(3,minmax(0,1fr))}
+.gx-pulse-grid:has(> .gx-pulse-radar){grid-auto-flow:row;grid-auto-columns:auto;gap:0;
+  grid-template-columns:minmax(190px,240px) minmax(0,1fr);grid-template-rows:repeat(3,auto);
+  border:1px solid var(--glass-border);border-radius:var(--radius);background:var(--card-grad);box-shadow:var(--card-shadow);overflow:hidden}
+.gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell{border:0;border-radius:0;background:none;box-shadow:none;backdrop-filter:none}
 .gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar){grid-column:1;display:flex;flex-direction:column;justify-content:center;
-  padding:14px 18px}
-.gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar) dt{margin-bottom:6px}
-.gx-pulse-grid > .gx-pulse-radar{grid-column:2;grid-row:1 / span 3;display:flex;flex-direction:column;padding:16px 20px 14px}
-.gx-pulse-radar dd{display:block;flex:1 1 auto}
-.gx-lang{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);align-items:center;gap:clamp(16px,3vw,40px)}
+  padding:14px 20px}
+.gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar) + .gx-pulse-cell:not(.gx-pulse-radar){border-top:1px solid var(--glass-border)}
+.gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar) dt{margin-bottom:5px}
+.gx-pulse-grid:has(> .gx-pulse-radar) .gx-pulse-value{font-size:1.55rem}
+.gx-pulse-grid > .gx-pulse-radar{grid-column:2;grid-row:1 / span 3;display:grid;grid-template-rows:auto 1fr;padding:14px 22px 12px;
+  border-left:1px solid var(--glass-border)}
+.gx-pulse-radar > dt{margin-bottom:2px}
+.gx-pulse-radar dd{display:block}
+.gx-lang{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);align-items:center;gap:clamp(16px,3vw,44px)}
 .gx-pulse-radar .gx-lang .wp-radar{margin:0;max-width:300px}
-.gx-lang-list{list-style:none;margin:0;padding:0;display:grid;gap:9px;align-content:center}
+.gx-lang-list{list-style:none;margin:0;padding:0;display:grid;gap:8px;align-content:center}
 .gx-lang-list li{display:grid;grid-template-columns:minmax(72px,9rem) minmax(0,1fr) 2.2em 3em;align-items:center;column-gap:12px;
   font-size:.8rem;line-height:1.3}
 .gx-lang-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
 .gx-lang-bar{position:relative;height:6px;border-radius:4px;background:var(--wp-track,rgba(148,163,184,.16));overflow:hidden}
-.gx-lang-bar i{position:absolute;inset:0 auto 0 0;width:calc(var(--w,0) * 100%);border-radius:4px;
+.gx-lang-bar i{position:absolute;inset:0 auto 0 0;width:calc(var(--w,0) * 100%);border-radius:4px;transform-origin:0 50%;
   background:linear-gradient(90deg,var(--wp-series-lo,var(--accent)),var(--wp-series-hi,var(--accent2)))}
 .gx-lang-n{text-align:right;font-family:var(--font-mono);font-size:.74rem;font-variant-numeric:tabular-nums;color:var(--text)}
 .gx-lang-pc{text-align:right;font-family:var(--font-mono);font-size:.7rem;font-variant-numeric:tabular-nums;color:var(--muted)}
-.gx-pulse-radar .gx-pulse-note{display:block;margin-top:8px}
+.gx-pulse-radar .gx-pulse-note{display:block;margin:8px 0 0}
+#reposPulse:has(.gx-pulse-radar){margin-top:20px}
 @media (prefers-reduced-motion:no-preference){
   :root:not([data-motion="off"]) .gx-lang-bar i{animation:gxLangGrow .8s cubic-bezier(.22,1,.36,1) both}
 }
 @keyframes gxLangGrow{from{transform:scaleX(0)}to{transform:none}}
-.gx-lang-bar i{transform-origin:0 50%}
 
+/* Mid widths: the ledger becomes one row of three across the panel's head, the languages below it. */
 @media (max-width:1180px){
   .gx-pulse-grid:has(> .gx-pulse-radar){grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:none}
-  .gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar){grid-column:auto}
-  .gx-pulse-grid > .gx-pulse-radar{grid-column:1 / -1;grid-row:auto}
+  .gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar){grid-column:auto;padding:14px 18px}
+  .gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar) + .gx-pulse-cell:not(.gx-pulse-radar){border-top:0;border-left:1px solid var(--glass-border)}
+  .gx-pulse-grid > .gx-pulse-radar{grid-column:1 / -1;grid-row:auto;border-left:0;border-top:1px solid var(--glass-border)}
 }
 @media (max-width:760px){
-  .gx-pulse-grid:has(> .gx-pulse-radar){grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
   .gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar){padding:12px 12px 11px}
-  .gx-pulse-grid:has(> .gx-pulse-radar) .gx-pulse-cell dd{flex-direction:column;align-items:flex-start;gap:5px}
-  .gx-pulse-grid:has(> .gx-pulse-radar) .gx-pulse-value{font-size:1.4rem}
+  .gx-pulse-grid:has(> .gx-pulse-radar) .gx-pulse-cell dd{flex-direction:column;align-items:flex-start;gap:4px}
+  .gx-pulse-grid:has(> .gx-pulse-radar) .gx-pulse-value{font-size:1.35rem}
   .gx-pulse-grid:has(> .gx-pulse-radar) .gx-pulse-note{font-size:.66rem;line-height:1.3}
-  .gx-pulse-grid > .gx-pulse-radar{padding:14px 14px 12px}
-  .gx-lang{grid-template-columns:minmax(0,1fr);gap:10px}
+  .gx-pulse-grid > .gx-pulse-radar{padding:12px 14px}
+  .gx-lang{grid-template-columns:minmax(0,1fr);gap:6px}
   .gx-pulse-radar .gx-lang .wp-radar{margin:0 auto;max-width:280px}
-  .gx-lang-list li{grid-template-columns:minmax(64px,7.5rem) minmax(0,1fr) 2em 2.8em;column-gap:10px}
+  .gx-lang-list{gap:6px}
+  .gx-lang-list li{grid-template-columns:minmax(64px,7.5rem) minmax(0,1fr) 2em 2.8em;column-gap:10px;font-size:.76rem}
 }
 @media (max-width:340px){
   .gx-pulse-grid:has(> .gx-pulse-radar){grid-template-columns:minmax(0,1fr)}
+  .gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar) + .gx-pulse-cell:not(.gx-pulse-radar){border-left:0;border-top:1px solid var(--glass-border)}
 }

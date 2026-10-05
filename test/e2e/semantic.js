@@ -32,10 +32,18 @@ const SCREENS = Object.freeze({
   work: 'Repository workspace'
 });
 
+/*
+ * Exact, for the reason secretField below is: a role query matches names by
+ * substring unless told otherwise, and the sign-in screen is named for the
+ * product while the gate is named "Enter the Nebulaverse-X test orbit". So
+ * "the sign-in screen is visible" was already true at the gate, before the
+ * invitation had been redeemed -- and a check that was meant to run behind
+ * the gate ran in front of it, against a scene that was still moving.
+ */
 function screen(target, name) {
   const accessibleName = SCREENS[name];
   if (!accessibleName) throw new Error(`unknown screen ${name}`);
-  return target.getByRole('main', { name: accessibleName });
+  return target.getByRole('main', { name: accessibleName, exact: true });
 }
 
 function field(target, name) {

@@ -41,17 +41,21 @@
   const smooth = value => { const v = Math.min(1, Math.max(0, value)); return v * v * (3 - 2 * v); };
 
   /*
-   * The arc, from the stage's own size: its apex a fifth of the way down (a
-   * sixth on a phone) and a radius wide enough that it reads as a horizon
+   * The arc, from the stage's own size: its apex a tenth of the way down
+   * (between 84px and 130px on a desk, a little lower on a phone, where the
+   * curve is shallower) and a radius wide enough that it reads as a horizon
    * rather than a ball -- three quarters of a desk's width, more than a
-   * phone's whole width so the curve stays shallow there.
+   * phone's whole width so the curve stays shallow there. The apex is close
+   * to the section's top because everything above it is the hero's own
+   * ground: at a fifth of the way down it left a band of empty dark between
+   * the path and the horizon.
    */
   function measureArc() {
     if (!stage) return null;
     const width = stage.clientWidth || global.innerWidth;
     const height = stage.clientHeight || global.innerHeight;
     const narrow = width < 700;
-    const top = Math.round(narrow ? Math.min(150, height * 0.16) : Math.min(220, Math.max(120, height * 0.2)));
+    const top = Math.round(narrow ? Math.min(120, Math.max(72, height * 0.12)) : Math.min(130, Math.max(84, height * 0.1)));
     const radius = Math.round(narrow ? Math.max(width * 1.35, height * 0.72) : Math.max(width * 0.78, height * 0.92));
     stage.style.setProperty('--arc-top', `${top}px`);
     stage.style.setProperty('--arc-r', `${radius}px`);

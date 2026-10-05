@@ -96,7 +96,7 @@
     }
     const pass = byId('alphaPassThrough');
     if (pass) {
-      pass.textContent = signedIn ? 'Continue to your workspace' : 'Continue to sign in';
+      pass.textContent = signedIn ? 'Open your workspace' : 'Get started';
     }
     global.dispatchEvent(new CustomEvent('nebula:alpha-access-gated'));
   }

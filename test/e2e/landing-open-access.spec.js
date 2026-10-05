@@ -44,7 +44,7 @@ test('with the gate off the landing page stays instead of handing over', async (
 test('the way through knows whether the session is signed in', async ({ page }) => {
   await mockPublicAlphaApi(page, { mode: 'off', access: 'required', ready: 'ready' });
   await page.goto('/');
-  await expect(passThrough(page)).toHaveText(/Continue to sign in/);
+  await expect(passThrough(page)).toHaveText(/^Get started$/);
 
   await passThrough(page).click();
   /* It hands over to the application, which routes on from there. */

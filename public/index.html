@@ -240,16 +240,24 @@
           way out, and this is already where the eye is.
         -->
         <div class="alpha-open" id="alphaOpenAccess" hidden>
-          <button class="btn btn-primary lp-entry-go" id="alphaPassThrough" type="button">Continue</button>
+          <!--
+            Two paths, the way product sites offer them: the filled one for a
+            reader ready to go in, and a quiet outlined one for a reader still
+            deciding, which takes them to the audit played step by step.
+          -->
+          <div class="lp-actions">
+            <button class="btn btn-primary lp-entry-go" id="alphaPassThrough" type="button">Get started</button>
+            <button class="btn lp-ghost" type="button" data-lp-tour="lpPlayTitle"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M10.2 8.8l5 3.2-5 3.2z"/></svg>See how it works</button>
+          </div>
           <p class="alpha-open-note" id="alphaOpenNote">Entry is open.</p>
         </div>
         <p class="alpha-access-rule">Use only a sandbox/test repository containing no real secrets, personal data, production deployments, or irreplaceable source.</p>
       </section>
       <!-- Three promises the product keeps, each said in full further down the page. -->
       <ul class="lp-promise" aria-label="What it promises">
-        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Every staged change reviewed as a diff</li>
-        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Leaked credentials named, never shown</li>
-        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Findings filed under OWASP Top&nbsp;10:2025</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Diff review before commit</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Secrets named, never shown</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>OWASP Top&nbsp;10:2025</li>
       </ul>
       <ol class="lp-steps" aria-label="Your path through the alpha">
         <li class="lp-step">

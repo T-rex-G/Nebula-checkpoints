@@ -8049,7 +8049,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-orbit{position:relative;height:250svh;color:#f3f4ff;--orbit-p:0;--orbit-sky:0;--orbit-tail:0;--orbit-pull:0}
 .lp-orbit-stick{position:sticky;top:0;height:100svh;min-height:560px;overflow:hidden;display:grid;
   grid-template-rows:auto 1fr auto;justify-items:center;
-  padding:calc(var(--arc-top,180px) + clamp(56px,9vh,104px)) clamp(20px,5vw,72px) clamp(22px,5vh,48px);isolation:isolate;
+  padding:calc(var(--arc-top,96px) + clamp(56px,9vh,104px)) clamp(20px,5vw,72px) clamp(22px,5vh,48px);isolation:isolate;
   background:rgba(2,2,8,var(--orbit-sky))}
 .lp-orbit-art{position:absolute;inset:0;z-index:-1;pointer-events:none}
 /* The scene comes in over the CSS arc it matches, so a fade is all the handover needs. */
@@ -8067,10 +8067,10 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
  * preset's light coming up around it. Sized and placed from the same numbers
  * the scene uses, so the handover does not move the arc.
  */
-.lp-orbit-fallback{position:absolute;left:calc(50% - var(--arc-r,900px));top:var(--arc-top,180px);
+.lp-orbit-fallback{position:absolute;left:calc(50% - var(--arc-r,900px));top:var(--arc-top,96px);
   width:calc(2 * var(--arc-r,900px));height:calc(2 * var(--arc-r,900px));
   --fb-r:min(17vmin,150px);
-  transform:translateY(calc(var(--orbit-pull) * (52svh - var(--arc-top,180px) - var(--arc-r,900px))))
+  transform:translateY(calc(var(--orbit-pull) * (52svh - var(--arc-top,96px) - var(--arc-r,900px))))
     scale(calc(1 - var(--orbit-pull) * (1 - var(--fb-r) / var(--arc-r,900px))));
   transform-origin:50% 50%;transition:opacity .9s ease}
 .lp-orbit-fallback::after{content:"";position:absolute;inset:0;border-radius:50%;background:#000;
@@ -8102,7 +8102,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-system{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;column-gap:12px;align-items:center;align-content:center;
   padding:12px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.1);background:rgba(7,7,20,.88);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
-  opacity:.38;transform:translateY(14px);transition:opacity .6s ease,transform .7s cubic-bezier(.16,1,.3,1),border-color .6s ease,box-shadow .6s ease}
+  opacity:.5;transform:translateY(14px);transition:opacity .6s ease,transform .7s cubic-bezier(.16,1,.3,1),border-color .6s ease,box-shadow .6s ease}
 .lp-system:nth-child(even){text-align:right;grid-template-columns:minmax(0,1fr) auto}
 .lp-system:nth-child(even) .lp-system-i{grid-column:2;grid-row:1/span 2}
 .lp-system:nth-child(even) b,.lp-system:nth-child(even)>span:last-child{grid-column:1}
@@ -8159,8 +8159,30 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
   .lp-system b{font-size:.9rem}
   .lp-system>span:last-child{font-size:.7rem}
   .lp-progress{right:6px;height:80px}
-  .lp-orbit-stick{padding-top:calc(var(--arc-top,140px) + clamp(40px,7vh,72px))}
+  .lp-orbit-stick{padding-top:calc(var(--arc-top,100px) + clamp(40px,7vh,72px))}
   .lp-orbit-copy{text-align:center}
+}
+/*
+ * On a phone the six stand in one column as a single glass panel, a row each:
+ * the mark, the name, and what it covers set against the right edge. Two
+ * columns of cards cramped each name into half the screen and three rows of
+ * them sat low, leaving a well of empty night between the title and the
+ * list. Unlit rows stay legible; lit ones take a wash of the preset's light.
+ */
+@media (max-width:600px){
+  .lp-systems{grid-template-columns:minmax(0,1fr);row-gap:0;column-gap:0;padding:4px;margin-bottom:14px;border-radius:18px;
+    border:1px solid rgba(255,255,255,.1);background:rgba(7,7,20,.8);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 24px 48px -28px rgba(0,0,0,.8)}
+  .lp-system,.lp-system:nth-child(even){grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:auto;column-gap:12px;
+    padding:10px 12px 10px 8px;border:0;border-radius:13px;background:transparent;box-shadow:none;opacity:.6;transform:none}
+  .lp-system + .lp-system{border-top:1px solid rgba(255,255,255,.06);border-radius:0 0 13px 13px}
+  .lp-system + .lp-system:not(:last-child){border-radius:0}
+  .lp-system-i,.lp-system:nth-child(even) .lp-system-i{grid-column:1;grid-row:auto;width:32px;height:32px;border-radius:10px}
+  .lp-system b,.lp-system:nth-child(even) b{grid-column:2;font-size:.92rem}
+  .lp-system>span:last-child,.lp-system:nth-child(even)>span:last-child{grid-column:3;text-align:right;font-size:.72rem;white-space:nowrap}
+  .lp-system[data-on="true"]{opacity:1;border-color:rgba(255,255,255,.06);box-shadow:none;
+    background:linear-gradient(90deg,rgba(139,92,246,.16),rgba(139,92,246,0) 70%)}
+  [data-design="obsidian"] .lp-system[data-on="true"]{border-color:rgba(255,255,255,.06);box-shadow:none;
+    background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,0) 70%)}
 }
 @media (prefers-reduced-motion:reduce){
   .lp-system,.lp-orbit-gate,.lp-orbit-art nebula-singularity{transition:none;animation:none}
@@ -8340,3 +8362,150 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
   .lp-eyebrow{font-size:.58rem;letter-spacing:.12em;padding:6px 12px 6px 9px}
   .lp-title{font-size:clamp(2.4rem,11vw,3.4rem)}
 }
+
+/* ================= LANDING · ONE FLUID FRAME ================= */
+/*
+ * One set of numbers decides the frame at every width, instead of a fixed
+ * container and a handful of breakpoints: the content may grow to 1600px,
+ * the gutter scales with the screen between 16px and 80px, and the reading
+ * sections stop at 1280px so a line never runs past what an eye can follow.
+ * --lp-edge is the distance from the content's right edge to the window's,
+ * which is how far the artwork may bleed to meet it.
+ */
+.lp{--lp-max:1600px;--lp-gutter:clamp(16px,4.6vw,80px);--lp-read:1280px;
+  --lp-edge:calc((100vw - min(100vw, var(--lp-max))) / 2 + var(--lp-gutter))}
+.lp-nav,.lp-body,.lp-more{width:min(100%,var(--lp-max));padding-inline:var(--lp-gutter)}
+.lp-more > :where(section,div,footer){max-width:var(--lp-read);margin-inline:auto}
+
+/*
+ * The first screen is as tall as the screen leaves room for, but never taller
+ * than its content can fill: on a tall window it used to stretch to the
+ * window and leave a band of empty dark between the path and the horizon.
+ * Its content sits in the middle of whatever height it gets.
+ */
+.lp-hero{display:flex;flex-direction:column;justify-content:center;
+  min-height:clamp(560px,calc(100svh - var(--lp-nav-h) - var(--lp-arc-peek,150px)),920px)}
+.lp-body{margin-inline:auto}
+@media (min-width:940px){
+  /* The copy takes half the frame up to 600px, so the galaxy never shrinks to a thumbnail at tablet widths. */
+  .lp-body{grid-template-columns:minmax(0,clamp(420px,50%,600px)) minmax(0,1fr);column-gap:clamp(24px,5vw,96px)}
+  /* The galaxy runs to the window's edge rather than stopping at the column's. */
+  .lp-stage{right:calc(-1 * var(--lp-edge))}
+}
+
+/*
+ * Two ways forward, set the way product sites set them: a filled button for
+ * the reader who is ready, and an outlined one beside it for the reader who
+ * wants to see first. The same height, the same corner, one gap.
+ */
+.lp-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.lp-actions .btn{min-height:50px;padding:0 22px;border-radius:12px;font-size:.95rem;font-weight:600;letter-spacing:-.01em}
+.alpha-open .lp-actions .lp-entry-go{padding:0 20px 0 22px;border-radius:12px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 0 0 1px rgba(196,181,253,.28),0 12px 28px -14px rgba(124,58,237,.7)}
+.lp-ghost{gap:9px;color:var(--text);background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.16);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.lp-ghost:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.3)}
+.lp-ghost:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
+.lp-ghost svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round;opacity:.85}
+[data-theme="light"] .lp-ghost{color:#1e1b4b;background:rgba(255,255,255,.66);border-color:rgba(30,27,75,.16);
+  box-shadow:0 1px 2px rgba(30,27,75,.06)}
+[data-theme="light"] .lp-ghost:hover{background:#fff;border-color:rgba(30,27,75,.3)}
+/* Obsidian is monochrome: its filled button glows in its own light, not the Nebula preset's violet. */
+[data-design="obsidian"] .alpha-open .lp-actions .lp-entry-go{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 0 0 1px rgba(255,255,255,.14),0 12px 28px -16px rgba(255,255,255,.26)}
+[data-design="obsidian"][data-theme="light"] .alpha-open .lp-actions .lp-entry-go{
+  box-shadow:0 0 0 1px rgba(0,0,0,.06),0 12px 26px -16px rgba(0,0,0,.45)}
+[data-design="obsidian"] .lp-ghost:focus-visible{outline-color:#e4e4e7}
+
+/*
+ * With entry open there is nothing to request, so the card reads as two
+ * buttons with one line under them: the readiness state and what it means,
+ * side by side. "Request entry" still names the region for a screen reader.
+ */
+.lp-card:has(> #alphaOpenAccess:not([hidden])){display:flex;flex-wrap:wrap;align-items:center;column-gap:12px;row-gap:14px}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) > *{flex:1 1 100%}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) .alpha-open{display:contents}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) .lp-actions{order:1;flex:1 1 100%}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) .lp-entry-head{order:2;flex:0 0 auto}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) .alpha-open-note{order:2;flex:1 1 240px}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) .alpha-access-rule{order:3;flex:1 1 100%}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) #lpEntryTitle{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+/*
+ * The promises as one quiet row of checks, never a line and a half: when the
+ * column is too narrow for all three side by side they stand in a column.
+ */
+.lp-promise{display:flex;flex-wrap:wrap;gap:10px 20px;container:lp-promise/inline-size}
+.lp-promise li{white-space:nowrap}
+@container lp-promise (max-width:560px){
+  .lp-promise li{flex:1 1 100%}
+}
+
+@media (max-width:939px){
+  .lp-hero{min-height:0;justify-content:flex-start}
+}
+@media (max-width:520px){
+  .lp-actions .btn{flex:1 1 auto}
+}
+
+/* ================= LANDING · THE AUDIT, PLAYED (FRAME AND RAIL) ================= */
+/*
+ * The frame holds the middle of the screen, not a fixed distance under the
+ * bar: its sticky offset is whatever centres it in the screen below the bar
+ * (landing-stage.js keeps --frame-h, its height, as the stages change it),
+ * and never less than a gap under the bar, so a frame taller than the room
+ * keeps its top in view. Before it sticks it starts level with the first
+ * move. The moves are spaced at a little under half a screen -- a full
+ * screen between them read as gaps -- and each one's number sits at the
+ * middle of its card, on the rail.
+ */
+@media (min-width:940px){
+  .lp-play-body{--step-h:clamp(300px,44svh,460px)}
+  .lp-play-step{min-height:var(--step-h)}
+  .lp-play-frame{top:max(calc(var(--lp-nav-h) + 16px),calc(var(--lp-nav-h) + (100svh - var(--lp-nav-h) - var(--frame-h,480px)) / 2))}
+  .lp-play-n{top:50%;margin-top:-20px}
+}
+/*
+ * The rail is drawn by the compositor where the browser can tie an animation
+ * to the scroll: the fill scales and the dot moves with the page itself, so
+ * neither trails it by a frame the way a value set from a scroll handler
+ * does. The range is the rail crossing the reading line, the middle of the
+ * screen under the bar -- the same line the script uses to choose the move --
+ * so the dot reaches each number as its card is centred, and passes under it.
+ * Elsewhere the script's --play-p moves them, by transform as well.
+ */
+/* Inset 0: by default a view timeline shrinks the screen by the page's scroll-padding (the bar's 88px), and the range would end that far early. */
+.lp-play-rail{view-timeline:--lp-rail block;view-timeline-inset:0}
+.lp-play-rail b{top:0;transform:translateY(calc(var(--play-p) * var(--rail-h,0px)))}
+@supports (animation-timeline: view()){
+  @media (prefers-reduced-motion:no-preference){
+    :root:not([data-motion="off"]) .lp-play-rail i{animation:lp-rail-fill linear both;animation-timeline:--lp-rail;
+      animation-range:cover calc(50vh - var(--lp-nav-h) / 2) cover calc(100% - 50vh - var(--lp-nav-h) / 2)}
+    :root:not([data-motion="off"]) .lp-play-rail b{animation:lp-rail-dot linear both;animation-timeline:--lp-rail;
+      animation-range:cover calc(50vh - var(--lp-nav-h) / 2) cover calc(100% - 50vh - var(--lp-nav-h) / 2)}
+  }
+}
+@keyframes lp-rail-fill{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes lp-rail-dot{from{transform:translateY(0)}to{transform:translateY(var(--rail-h,0px))}}
+
+/*
+ * The seven families never truncate: the frame measures itself, and when
+ * seven tiles would cut a name ("SUP...") or push a three-figure score past
+ * its tile, they stand as four over three, both rows filling the width.
+ */
+.lp-au{container:lp-au/inline-size}
+@container lp-au (max-width:599px){
+  .lp-au-fams{grid-template-columns:repeat(12,minmax(0,1fr))}
+  .lp-au-fams li{grid-column:span 3}
+  .lp-au-fams li:nth-child(n+5){grid-column:span 4}
+}
+.lp-au-fams li > span{text-overflow:clip}
+
+/*
+ * Inside the workspace, a security tool's page runs edge to edge with the tab
+ * bar above it. It was centred at 900px (1080px for the Audit) with its own
+ * 16px inset, so on a wide screen a band of nothing opened between the file
+ * explorer and the first card, and at every width the cards stood 16px in
+ * from the tab bar's edges. The prose inside keeps its own measure.
+ */
+.main-pane .exposure-shell{max-width:none;margin:0;padding-inline:0}

@@ -46,7 +46,15 @@ const PALETTE = {
   }
 };
 
-const FRESNEL_VERTEX = 'varying vec3 N,W;void main(){N=normalize(normalMatrix*normal);vec4 wp=modelMatrix*vec4(position,1.);W=wp.xyz;gl_Position=projectionMatrix*viewMatrix*wp;}';
+/* The horizon's radius in scene units; the shot that frames the page's arc solves against it. */
+const CORE_RADIUS = 1.22;
+/*
+ * The rim's normal in world space, the space its view ray is in: a normal in
+ * view space (normalMatrix) only agrees with cameraPosition - W while the
+ * camera looks straight ahead, and once the shot tilts down onto the disc the
+ * rim lit unevenly, bright under the hole and faint over it.
+ */
+const FRESNEL_VERTEX = 'varying vec3 N,W;void main(){N=normalize(mat3(modelMatrix)*normal);vec4 wp=modelMatrix*vec4(position,1.);W=wp.xyz;gl_Position=projectionMatrix*viewMatrix*wp;}';
 
 const PLASMA_VERTEX = `
 varying vec3 lp;varying vec2 uv0;
@@ -236,15 +244,27 @@ class NebulaSingularity extends HTMLElement {
     this.rollFrame.add(this.diskFrame);
 
     /* The horizon: opaque, drawn first, so the near disc crosses in front of it and the lensed far side stays behind. */
-    const core = new THREE.Mesh(new THREE.SphereGeometry(1.22, low ? 64 : 112, low ? 40 : 72), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    const core = new THREE.Mesh(new THREE.SphereGeometry(CORE_RADIUS, low ? 64 : 112, low ? 40 : 72), new THREE.MeshBasicMaterial({ color: 0x000000 }));
     core.renderOrder = 5;
     this.singularity.add(core);
 
+    /*
+     * The light around the horizon is brightest at the horizon and fades
+     * outward, the way a glow does. Each glow is the back of a sphere a little
+     * larger than the hole; seen from outside, the back faces that clear the
+     * hole run from the hole's limb (where |V.N| is the limb value below) out
+     * to the sphere's own silhouette (where it is 0). Weighting by that ratio
+     * puts the light on the limb and none at the silhouette. A rim weighted
+     * the other way -- brightest at its own silhouette -- drew every sphere as
+     * its own hard ring, and with the hole filling the screen at the horizon
+     * that read as three arcs stacked over one another instead of one edge.
+     */
+    const limb = radius => Math.sqrt(1 - (CORE_RADIUS / radius) ** 2);
     this.coronaMaterial = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, side: THREE.BackSide, blending: THREE.AdditiveBlending,
-      uniforms: { uT: { value: 0 }, uK: { value: 1 }, uA: { value: new THREE.Vector3() }, uB: { value: new THREE.Vector3() } },
+      uniforms: { uT: { value: 0 }, uK: { value: 1 }, uC: { value: limb(1.31) }, uA: { value: new THREE.Vector3() }, uB: { value: new THREE.Vector3() } },
       vertexShader: FRESNEL_VERTEX,
-      fragmentShader: 'uniform float uT,uK;uniform vec3 uA,uB;varying vec3 N,W;void main(){vec3 V=normalize(cameraPosition-W);float rim=pow(1.-abs(dot(V,N)),3.7);float pulse=.95+.05*sin(uT*.7);gl_FragColor=vec4(mix(uA,uB,smoothstep(.2,.95,rim)),rim*.13*pulse*uK);}'
+      fragmentShader: 'uniform float uT,uK,uC;uniform vec3 uA,uB;varying vec3 N,W;void main(){vec3 V=normalize(cameraPosition-W);float x=clamp(abs(dot(V,N))/uC,0.,1.);float rim=x*x;float pulse=.95+.05*sin(uT*.7);gl_FragColor=vec4(mix(uA,uB,smoothstep(.2,.95,rim)),rim*.13*pulse*uK);}'
     });
     const corona = new THREE.Mesh(new THREE.SphereGeometry(1.31, low ? 64 : 96, low ? 40 : 64), this.coronaMaterial);
     corona.renderOrder = 6;
@@ -253,9 +273,9 @@ class NebulaSingularity extends HTMLElement {
     this.shells = [[1.245, 0.18], [1.285, 0.075]].map(([radius, opacity]) => {
       const material = new THREE.ShaderMaterial({
         transparent: true, side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false,
-        uniforms: { uT: { value: 0 }, uColor: { value: new THREE.Color() }, uOp: { value: opacity } },
+        uniforms: { uT: { value: 0 }, uColor: { value: new THREE.Color() }, uOp: { value: opacity }, uC: { value: limb(radius) } },
         vertexShader: FRESNEL_VERTEX,
-        fragmentShader: 'uniform float uT,uOp;uniform vec3 uColor;varying vec3 N,W;void main(){vec3 V=normalize(cameraPosition-W);float f=pow(1.-abs(dot(V,N)),6.2);float p=.94+.06*sin(uT*1.2);gl_FragColor=vec4(uColor*(.7+f*1.4),f*uOp*p);}'
+        fragmentShader: 'uniform float uT,uOp,uC;uniform vec3 uColor;varying vec3 N,W;void main(){vec3 V=normalize(cameraPosition-W);float x=clamp(abs(dot(V,N))/uC,0.,1.);float f=x*x*x*x;float p=.94+.06*sin(uT*1.2);gl_FragColor=vec4(uColor*(.7+f*1.4),f*uOp*p);}'
       });
       const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 48), material);
       mesh.renderOrder = 6;
@@ -360,7 +380,7 @@ class NebulaSingularity extends HTMLElement {
   horizonShot(A) {
     const width = this.clientWidth || 320;
     const height = this.clientHeight || 320;
-    const arc = this._horizon || { top: height * 0.2, radius: Math.max(width * 0.78, height * 0.9) };
+    const arc = this._horizon || { top: Math.min(130, Math.max(84, height * 0.1)), radius: Math.max(width * 0.78, height * 0.92) };
     const fov = 20;
     const tanHalf = Math.tan((fov / 2) * RAD);
     const distance = 30;
@@ -368,7 +388,7 @@ class NebulaSingularity extends HTMLElement {
     const radius = Math.atan(((2 * arc.radius) / height) * tanHalf);
     const centre = distance * Math.tan(apex - radius);
     const span = Math.hypot(distance, centre) * Math.sin(radius);
-    return { fov, cy: 0, cz: distance, x: 0, y: centre, s: span / 1.22, rx: A.rx, rz: A.rz };
+    return { fov, cy: 0, cz: distance, x: 0, y: centre, s: span / CORE_RADIUS, rx: A.rx, rz: A.rz };
   }
 
   shot(progress) {

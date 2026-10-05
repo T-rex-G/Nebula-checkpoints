@@ -8,7 +8,7 @@ test('browser login, repository edit and sign-out cross the real server and Post
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto(origin);
-  await page.getByRole('button', { name: 'Continue to sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'Get started', exact: true }).click();
   const login = ui.screen(page, 'login');
   await expect(login).toBeVisible();
 
@@ -55,7 +55,7 @@ test('browser login, repository edit and sign-out cross the real server and Post
   // A fresh page must read committed provider data and its server-side session,
   // rather than succeeding solely because the editor holds unsaved bytes.
   await page.reload();
-  await page.getByRole('button', { name: 'Continue to sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'Get started', exact: true }).click();
   await expect(ui.screen(page, 'work')).toBeVisible();
   await expect(page.locator('#filePath')).toHaveText('README.md');
   await expect(page.locator('.CodeMirror-code')).toContainText('Unicode survives: orbit Ω.');
@@ -70,7 +70,7 @@ test('browser login, repository edit and sign-out cross the real server and Post
   expect(replay.status).toBe(401);
   await replay.body.cancel();
   await page.reload();
-  await page.getByRole('button', { name: 'Continue to sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'Get started', exact: true }).click();
   await expect(login).toBeVisible();
   expect(pageErrors).toEqual([]);
   await testInfo.attach('integration-evidence', {

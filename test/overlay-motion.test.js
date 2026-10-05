@@ -2343,10 +2343,13 @@ check('the landing scrolls without frosted surfaces or filtered strokes', () => 
    * (data-ambient="on"); drawn on a CPU it froze a WebKit build outright.
    */
   const ambient = rules.filter(rule => /\binfinite\b/.test(rule.body)
-    && eachSelector(rule).some(one => /\.lp-(aurora|eyebrow-dot|title em|entry-row|chip)\b/.test(one.selector)));
-  assert.ok(ambient.length >= 5, 'the hero lost its ambient motion, or this check no longer finds it');
+    && eachSelector(rule).some(one => /\.lp-(eyebrow-dot|title em|entry-row|chip)\b/.test(one.selector)));
+  assert.ok(ambient.length >= 4, 'the hero lost its ambient motion, or this check no longer finds it');
   assert.deepStrictEqual(ambient.filter(rule => !/\[data-ambient="on"\]/.test(rule.selector)).map(rule => rule.selector), [],
     'a never-ending hero animation runs on a device that has not shown it can keep up');
+  /* The hero's light is the galaxy: no soft blobs of colour drift behind the copy, in either preset. */
+  assert.ok(!/class="lp-aurora"/.test(htmlSource) && !/\.lp-aurora\b/.test(cssSource),
+    'the drifting light fields are back behind the hero');
 });
 
 console.log(failures ? `\n${failures} failed` : '\nall passed');

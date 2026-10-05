@@ -35,6 +35,10 @@
   a three-stop timeline; the alpha's limits are three cards; the questions
   are cards that light when open, beside a heading that holds; the close
   rises from the horizon the page opened on; and the footer maps the page.
+- **No light bubbles behind the hero.** The three soft fields of colour that
+  drifted behind the first screen -- one under the copy, one over the
+  galaxy's shoulder -- are gone in both presets; the galaxy is the hero's
+  light.
 - **The workspace's security pages** -- Audit, Exposure, Safeguards --
   run edge to edge with the tab bar above them instead of floating in a
   narrower centred column.

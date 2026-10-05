@@ -8220,28 +8220,14 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-body{grid-template-areas:"copy art" "entry art" "promise art" "steps steps";grid-template-rows:auto auto 1fr auto;
   row-gap:22px;padding-top:clamp(24px,5vh,56px);padding-bottom:clamp(20px,4vh,40px)}
 
-/* Slow light: three soft fields, moved only by transform so the compositor does the work. */
-.lp-aurora{position:absolute;inset:-20% -10% 0;z-index:-2;pointer-events:none;overflow:hidden}
-.lp-aurora i{position:absolute;width:52vmax;height:52vmax;border-radius:50%;opacity:.55;
-  background:radial-gradient(closest-side,var(--lp-aur,rgba(124,58,237,.34)),transparent 72%)}
-.lp-aurora i:nth-child(1){left:-12vmax;top:-18vmax;--lp-aur:rgba(124,58,237,.30)}
-.lp-aurora i:nth-child(2){right:-14vmax;top:-6vmax;--lp-aur:rgba(56,189,248,.16)}
-.lp-aurora i:nth-child(3){left:28%;top:38%;width:40vmax;height:40vmax;--lp-aur:rgba(217,70,239,.14)}
-@media (prefers-reduced-motion:no-preference){
-  :root[data-ambient="on"]:not([data-motion="off"]) .lp-aurora i{animation:lpAurora 22s ease-in-out infinite alternate}
-  :root[data-ambient="on"]:not([data-motion="off"]) .lp-aurora i:nth-child(2){animation-duration:27s;animation-delay:-9s}
-  :root[data-ambient="on"]:not([data-motion="off"]) .lp-aurora i:nth-child(3){animation-duration:31s;animation-delay:-15s}
-}
-@keyframes lpAurora{0%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(4vmax,3vmax,0) scale(1.08)}100%{transform:translate3d(-3vmax,5vmax,0) scale(.96)}}
-[data-theme="light"] .lp-aurora i{opacity:.7}
-[data-theme="light"] .lp-aurora i:nth-child(1){--lp-aur:rgba(124,58,237,.16)}
-[data-theme="light"] .lp-aurora i:nth-child(2){--lp-aur:rgba(14,165,233,.12)}
-[data-theme="light"] .lp-aurora i:nth-child(3){--lp-aur:rgba(217,70,239,.08)}
-[data-design="obsidian"] .lp-aurora i:nth-child(1){--lp-aur:rgba(255,255,255,.07)}
-[data-design="obsidian"] .lp-aurora i:nth-child(2){--lp-aur:rgba(161,161,170,.08)}
-[data-design="obsidian"] .lp-aurora i:nth-child(3){--lp-aur:rgba(255,255,255,.04)}
-[data-design="obsidian"][data-theme="light"] .lp-aurora i{--lp-aur:rgba(0,0,0,.035)}
-
+/*
+ * No soft fields of light behind the hero. Three drifting radial blobs sat
+ * there -- violet top left, sky blue top right, magenta under the copy -- and
+ * against the galaxy they read as stains on the page rather than light: a
+ * bubble in the middle of the copy column and another over the artwork's
+ * shoulder, in both presets. The galaxy is the hero's light, and the shell's
+ * own bloom is its ground.
+ */
 /* The status pill: a live dot, the state, on a hairline capsule. */
 .lp-eyebrow{display:inline-flex;align-items:center;gap:9px;width:max-content;max-width:100%;margin:0 0 22px;padding:7px 14px 7px 11px;
   border-radius:999px;border:1px solid color-mix(in srgb,var(--teal) 34%,transparent);

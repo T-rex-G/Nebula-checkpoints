@@ -108,9 +108,27 @@ test('the audit plays at the pace of the scroll', async ({ page }, info) => {
     await expect(frame.locator('.lp-au-letter')).toHaveText(letters[stage], { useInnerText: true });
     await expect(frame).toBeInViewport();
   }
+  /* At the last move the rail is lit to its end and every move before it is marked as passed. */
+  const rail = play.locator('.lp-play-rail');
+  await expect(rail).toHaveCount(1);
+  await expect(rail).toHaveAttribute('aria-hidden', 'true');
+  await expect.poll(() => rail.evaluate(el => Number(el.style.getPropertyValue('--play-p')))).toBeGreaterThan(0.9);
+  expect(await steps.evaluateAll(els => els.map(el => el.classList.contains('is-passed')))).toEqual([true, true, true, false]);
+  /* The frame's tab under the ink is the move being played. */
+  const inked = () => frame.evaluate(el => {
+    const ink = el.querySelector('.lp-au-ink').getBoundingClientRect();
+    const tab = [...el.querySelectorAll('[data-tab]')].find(item => {
+      const box = item.getBoundingClientRect();
+      return Math.abs(box.left - ink.left) < 2 && Math.abs(box.width - ink.width) < 2;
+    });
+    return tab ? tab.dataset.tab : null;
+  });
+  await expect.poll(inked).toBe('again');
   /* Scrolling back plays it backwards: the stage follows the reader, not a timer. */
   await steps.nth(1).evaluate(el => el.scrollIntoView({ block: 'center' }));
   await expect(frame).toHaveAttribute('data-stage', 'find');
+  await expect.poll(inked).toBe('find');
+  expect(await steps.evaluateAll(els => els.map(el => el.classList.contains('is-passed')))).toEqual([true, false, false, false]);
   await expect(frame.locator('.lp-au-cap')).toHaveText('Held below 50 while a confirmed critical finding is open.');
   await expect(play).not.toContainText('SELECT *');
 });
@@ -186,10 +204,48 @@ test('with motion off the showcase holds still', async ({ page }) => {
   await page.locator('.lp-show').scrollIntoViewIfNeeded();
   const moving = await page.evaluate(() => [
     '.lp-frame', '.lp-map-flow', '.lp-map-arcs', '.lp-story-progress span', '.lp-line',
-    '.lp-ticker-track', '.lp-play-frame [data-only]', '.lp-au-bar i'
+    '.lp-ticker-track', '.lp-play-frame [data-only]', '.lp-au-bar i', '.lp-au-sweep'
   ].filter(selector => [...document.querySelectorAll(selector)]
     .some(el => getComputedStyle(el).animationName !== 'none')));
   expect(moving).toEqual([]);
+  /* The map's moving layer draws nothing and hands the picture back to the still SVG. */
+  const view = page.locator('.lp-show .lp-frame-view');
+  await expect(view).toHaveAttribute('data-fx', 'still');
+  await expect(view).not.toHaveClass(/has-fx/);
+});
+
+/*
+ * The map, alive: signals run each strand into the hub on their own canvas,
+ * on a phone as on a desk, only while the map is on screen. If the device
+ * cannot keep pace, the canvas goes and the still map is the picture.
+ */
+test('the map moves while it is read, and stops when it is not', async ({ page }) => {
+  await openLanding(page);
+  const view = page.locator('.lp-show .lp-frame-view');
+  await expect(view).toHaveAttribute('data-fx', /paused|still/);
+  await view.evaluate(el => el.scrollIntoView({ block: 'center' }));
+  await expect(view).toHaveAttribute('data-fx', /running|retired/);
+  if (await view.getAttribute('data-fx') === 'retired') {
+    await expect(view.locator('canvas.lp-map-fx')).toHaveCount(0);
+    return;
+  }
+  const layer = view.locator('canvas.lp-map-fx');
+  await expect(layer).toHaveCount(1);
+  await expect(layer).toHaveAttribute('aria-hidden', 'true');
+  /* It is drawing, and the SVG is not drawing the same motion under it. */
+  await expect.poll(() => layer.evaluate(canvas => {
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let lit = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i]) lit++;
+    return lit;
+  })).toBeGreaterThan(0);
+  expect(await view.evaluate(el => [...el.querySelectorAll('.lp-map-flows, .lp-map-arcs')]
+    .every(group => getComputedStyle(group).display === 'none'))).toBe(true);
+  /* Nothing on it takes a tap or a scroll from the page. */
+  expect(await layer.evaluate(el => getComputedStyle(el).pointerEvents)).toBe('none');
+  /* Off screen it stops. */
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(view).toHaveAttribute('data-fx', 'paused');
 });
 
 /*

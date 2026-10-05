@@ -17,6 +17,39 @@
 - **A gate at the end.** The section closes on an "Enter" reticle that dives
   into the horizon and lands on the access card, the same jump as the bar's
   Enter. The bar gains a *Systems* link that goes to the section.
+- **Out of the hero's own arc.** The arc that closes the hero is now the
+  black hole's rim: the scene opens on a long-lens shot whose horizon sits
+  exactly on that arc -- the CSS circle and the scene take the same measured
+  numbers -- then lets its disc and stars in and banks into the full view as
+  the reader scrolls on. Its progress is eased rather than stepped, so a
+  flicked scroll glides instead of jumping, and the light theme no longer
+  shows a grey band before the disc arrives.
+- **A first screen redrawn.** The hero leads with a live pill, a shorter
+  promise and an entry bar ringed by a moving beam of light; three readings
+  float at the galaxy's edge -- the Uranus grade, the Quasar history check,
+  the Kepler merge policy -- and the path under it is three glass steps, one
+  column on a phone with each number above its title. Soft light drifts
+  behind it, moved only by transform.
+- **The audit as cards on a rail.** The four moves of the played audit are
+  cards hung from a numbered rail that lights down to the reading line; the
+  move being shown is raised and lit, and the moves passed keep their number
+  lit. The frame carries the moves as tabs -- Read, Grade, Fix, Verify --
+  with an ink that slides to the one being played, a band of light passes
+  down it while it reads, and its glow takes the colour of the result. The
+  mechanism is the same: the move nearest the reading line is the one the
+  frame shows, and a phone keeps one snapshot per move.
+- **A map that moves on a phone too.** The Neural map's motion is drawn on
+  one canvas over the picture: a signal leaves its node, runs the strand into
+  the hub and lands as a ring, the hub's arcs turn and a light rides each
+  orbit. A canvas repaints only itself, so the map now moves on touch screens,
+  where the SVG dashes had to stand still. It runs only while the map is on
+  screen and the tab is visible, never with motion off, and a device that
+  cannot hold about seventeen frames a second gets the still map back.
+- **No glass over moving light.** The hero's readings, the systems and the
+  entry bar are near-opaque rather than blurred, so nothing re-samples the
+  galaxy, the black hole or the drifting light under it on every frame, and a
+  test keeps it that way. Obsidian's light theme loses the last violet dots
+  in the frame bars.
 - **The scene answers to the page.** It loads when its section comes on
   screen rather than with the page, so nothing heavy competes with the entry
   card. A device that would draw it on the CPU is turned away twice over: the

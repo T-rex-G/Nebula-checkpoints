@@ -156,10 +156,12 @@
     </header>
 
     <div class="lp-hero">
+    <!-- Slow light behind the hero: three soft fields that drift, drawn once and moved by the compositor. -->
+    <div class="lp-aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 
     <div class="lp-body">
       <div class="lp-copy">
-        <p class="lp-eyebrow">Controlled hosted public alpha</p>
+        <p class="lp-eyebrow"><span class="lp-eyebrow-dot" aria-hidden="true"></span>Controlled hosted public alpha</p>
         <!--
           This heading is the screen's accessible name, so its text is fixed:
           the browser suite finds this landmark by it. The emphasis is markup
@@ -167,8 +169,8 @@
           string.
         -->
         <h1 id="alphaAccessTitle" class="lp-title"><span class="lp-line" style="--i:0">Enter the</span> <span class="lp-line" style="--i:1">Nebulaverse-X</span> <span class="lp-line" style="--i:2"><em>test orbit</em></span></h1>
-        <p class="lp-lede">Connect one sandbox repository, audit what it ships and the site it runs as,
-          and review staged file changes before committing to GitHub, GitLab or Gitea.</p>
+        <p class="lp-lede">Connect one sandbox repository. Audit what it ships and the site it runs as,
+          then review every staged change before it reaches GitHub, GitLab or Gitea.</p>
 
       </div>
 
@@ -179,6 +181,17 @@
              or chalice. -->
         <div class="lp-stage" aria-hidden="true">
           <canvas class="lp-portal" id="lpPortal" data-vortex="column"></canvas>
+        </div>
+        <!--
+          Three readings of a sandbox repository floating at the vortex's edge,
+          the way the product shows them: decoration, so hidden from readers
+          and transparent to the pointer, and kept off the middle of the scene
+          so the vortex stays the thing under the hand.
+        -->
+        <div class="lp-float" aria-hidden="true">
+          <div class="lp-chip lp-chip-a" style="--f:0"><span class="lp-chip-ring"><b>A</b></span><span class="lp-chip-t"><b>Uranus Engine</b><span>Grade A &middot; 100/100</span></span></div>
+          <div class="lp-chip lp-chip-b" style="--f:1"><span class="lp-chip-ico"><svg viewBox="0 0 24 24"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg></span><span class="lp-chip-t"><b>Quasar Scanner</b><span>History read &middot; no live leaks</span></span></div>
+          <div class="lp-chip lp-chip-c" style="--f:2"><span class="lp-chip-ico"><svg viewBox="0 0 24 24"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span><span class="lp-chip-t"><b>Kepler Twin</b><span>Merge policy &middot; passed</span></span></div>
         </div>
         <p class="lp-art-note"><span class="lp-drag-hint">Drag to explore · </span>Scroll to discover</p>
       </div>
@@ -232,6 +245,12 @@
         </div>
         <p class="alpha-access-rule">Use only a sandbox/test repository containing no real secrets, personal data, production deployments, or irreplaceable source.</p>
       </section>
+      <!-- Three promises the product keeps, each said in full further down the page. -->
+      <ul class="lp-promise" aria-label="What it promises">
+        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Every staged change reviewed as a diff</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Leaked credentials named, never shown</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Findings filed under OWASP Top&nbsp;10:2025</li>
+      </ul>
       <ol class="lp-steps" aria-label="Your path through the alpha">
         <li class="lp-step">
           <span class="lp-step-n">01</span>
@@ -250,7 +269,6 @@
         </li>
       </ol>
     </div>
-    <div class="lp-horizon" aria-hidden="true"></div>
     </div><!-- /.lp-hero -->
 
     <!--
@@ -329,30 +347,44 @@
         <div class="lp-play-body">
           <ol class="lp-play-steps">
             <li class="lp-play-step" data-stage="read">
-              <span class="lp-play-n">01</span>
-              <h3 class="lp-play-t">Read what ships</h3>
-              <p class="lp-play-d">File by file, then dropped &mdash; and it says how much it read.</p>
+              <div class="lp-play-card">
+                <svg class="lp-play-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5.5h10M4 10h16M4 14.5h12M4 19h8"/><circle cx="18.5" cy="17.5" r="2.6"/><path d="m20.4 19.4 1.6 1.6"/></svg>
+                <span class="lp-play-n">01</span>
+                <h3 class="lp-play-t">Read what ships</h3>
+                <p class="lp-play-d">File by file, then dropped &mdash; and it says how much it read.</p>
+              </div>
             </li>
             <li class="lp-play-step" data-stage="find">
-              <span class="lp-play-n">02</span>
-              <h3 class="lp-play-t">Grade what an attacker would find</h3>
-              <p class="lp-play-d">Secrets, injection, workflows, open rules and exploited packages, ranked.</p>
+              <div class="lp-play-card">
+                <svg class="lp-play-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"/></svg>
+                <span class="lp-play-n">02</span>
+                <h3 class="lp-play-t">Grade what an attacker would find</h3>
+                <p class="lp-play-d">Secrets, injection, workflows, open rules and exploited packages, ranked.</p>
+              </div>
             </li>
             <li class="lp-play-step" data-stage="fix">
-              <span class="lp-play-n">03</span>
-              <h3 class="lp-play-t">Hand over the fix</h3>
-              <p class="lp-play-d">Why, how, the line, and a prompt for your assistant &mdash; never the code.</p>
+              <div class="lp-play-card">
+                <svg class="lp-play-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14.7 6.3a4.5 4.5 0 0 0-5.9 5.6l-6 6a1.6 1.6 0 0 0 2.3 2.3l6-6a4.5 4.5 0 0 0 5.6-5.9l-2.7 2.7-2.3-.5-.5-2.3z"/></svg>
+                <span class="lp-play-n">03</span>
+                <h3 class="lp-play-t">Hand over the fix</h3>
+                <p class="lp-play-d">Why, how, the line, and a prompt for your assistant &mdash; never the code.</p>
+              </div>
             </li>
             <li class="lp-play-step" data-stage="again">
-              <span class="lp-play-n">04</span>
-              <h3 class="lp-play-t">Prove it is gone</h3>
-              <p class="lp-play-d">Audit again: what is new, what is resolved, the same answer every time.</p>
+              <div class="lp-play-card">
+                <svg class="lp-play-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2.5 4.5 5.5v6c0 4.6 3.1 8.5 7.5 10 4.4-1.5 7.5-5.4 7.5-10v-6z"/><path d="m8.6 12.2 2.4 2.4 4.6-4.8"/></svg>
+                <span class="lp-play-n">04</span>
+                <h3 class="lp-play-t">Prove it is gone</h3>
+                <p class="lp-play-d">Audit again: what is new, what is resolved, the same answer every time.</p>
+              </div>
             </li>
           </ol>
           <div class="lp-play-stick">
             <figure class="lp-frame lp-play-frame" data-stage="find" aria-hidden="true">
               <div class="lp-frame-bar"><i></i><i></i><i></i><span class="lp-frame-url">Audit · sandbox/demo @ main</span></div>
+              <div class="lp-au-tabs"><span data-tab="read">Read</span><span data-tab="find">Grade</span><span data-tab="fix">Fix</span><span data-tab="again">Verify</span><i class="lp-au-ink"></i></div>
               <div class="lp-au">
+                <i class="lp-au-sweep"></i>
                 <div class="lp-au-top">
                   <div class="lp-au-grade">
                     <b class="lp-au-letter"><span data-only="read">&mdash;</span><span data-only="find fix">F</span><span data-only="again">A</span></b>
@@ -1926,6 +1958,7 @@
 <script src="/rendered-audit-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/nebula-visuals.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/landing-orbit.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/landing-map.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/light-waves.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/trust-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/app.js?v=__NV_ASSET_VERSION__"></script>

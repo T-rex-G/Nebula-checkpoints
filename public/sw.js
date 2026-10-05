@@ -13,6 +13,7 @@ const PRECACHE = [
   `/app.js?v=__NV_ASSET_VERSION__`, `/alpha-ui.js?v=__NV_ASSET_VERSION__`, `/capability-ui.js?v=__NV_ASSET_VERSION__`, `/trust-ui.js?v=__NV_ASSET_VERSION__`,
   `/overlay-motion.js?v=__NV_ASSET_VERSION__`, `/repo-sigil.js?v=__NV_ASSET_VERSION__`,
   `/workspace-pulse.js?v=__NV_ASSET_VERSION__`, `/nebula-visuals.js?v=__NV_ASSET_VERSION__`, `/landing-orbit.js?v=__NV_ASSET_VERSION__`,
+  `/landing-map.js?v=__NV_ASSET_VERSION__`,
   `/code-audit-ui.js?v=__NV_ASSET_VERSION__`,
   `/rendered-audit-ui.js?v=__NV_ASSET_VERSION__`, `/rendered-audit.css?v=__NV_ASSET_VERSION__`,
   `/light-waves.js?v=__NV_ASSET_VERSION__`,

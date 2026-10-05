@@ -4,9 +4,16 @@
  * A dark horizon with a plasma disc orbiting it: the disc's inner edge turns
  * faster than its rim (Kepler's r^-3/2), the far side of the disc is lensed up
  * over the horizon, dust spirals in, and the whole frame banks as the reader
- * scrolls -- twenty degrees across the screen at the top of the section,
- * seventy, nearly edge-on, at the gate. The bank is a property the page sets
- * (`progress`, 0 to 1); everything else is the element's own.
+ * scrolls. It opens on the horizon itself: at the top of the section the hole
+ * is so close that only its upper limb shows, drawn exactly where the page's
+ * arc is (`horizon`, the arc's apex and radius in the element's pixels), so
+ * the arc the hero ends on is the edge of the black hole. The camera then
+ * pulls back -- a dolly from a long lens to a wide one -- and the disc, the
+ * dust and the stars come up as the hole settles into frame, banking from
+ * twenty degrees to seventy, nearly edge-on, at the gate. The page sets
+ * `progress` (0 to 1) and `horizon`; the scene eases toward the progress it
+ * is given rather than jumping to it, so a coarse scroll still moves it
+ * smoothly. Everything else is the element's own.
  *
  * Shipping rules shared with <nebula-galaxy>: decoration, so hidden from
  * assistive technology; it draws only while on screen and on a visible tab;
@@ -121,6 +128,15 @@ class NebulaSingularity extends HTMLElement {
     if (this._built && !this._raf) this.render(0);
   }
 
+  /* Where the page draws its arc, in this element's pixels: { top, radius }. */
+  get horizon() { return this._horizon || null; }
+  set horizon(value) {
+    const top = Number(value && value.top);
+    const radius = Number(value && value.radius);
+    this._horizon = Number.isFinite(top) && Number.isFinite(radius) && radius > 0 ? { top, radius } : null;
+    if (this._built && !this._raf) this.render(0);
+  }
+
   connectedCallback() {
     if (this._built) return;
     this._built = true;
@@ -182,6 +198,7 @@ class NebulaSingularity extends HTMLElement {
   attributeChangedCallback(name, before, after) {
     if (!this._built || this._failed || before === after) return;
     if (name === 'design') this.paint();
+    else if (name === 'theme' && !this._raf) this.render(0);
   }
 
   build() {
@@ -225,9 +242,9 @@ class NebulaSingularity extends HTMLElement {
 
     this.coronaMaterial = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, side: THREE.BackSide, blending: THREE.AdditiveBlending,
-      uniforms: { uT: { value: 0 }, uA: { value: new THREE.Vector3() }, uB: { value: new THREE.Vector3() } },
+      uniforms: { uT: { value: 0 }, uK: { value: 1 }, uA: { value: new THREE.Vector3() }, uB: { value: new THREE.Vector3() } },
       vertexShader: FRESNEL_VERTEX,
-      fragmentShader: 'uniform float uT;uniform vec3 uA,uB;varying vec3 N,W;void main(){vec3 V=normalize(cameraPosition-W);float rim=pow(1.-abs(dot(V,N)),3.7);float pulse=.95+.05*sin(uT*.7);gl_FragColor=vec4(mix(uA,uB,smoothstep(.2,.95,rim)),rim*.13*pulse);}'
+      fragmentShader: 'uniform float uT,uK;uniform vec3 uA,uB;varying vec3 N,W;void main(){vec3 V=normalize(cameraPosition-W);float rim=pow(1.-abs(dot(V,N)),3.7);float pulse=.95+.05*sin(uT*.7);gl_FragColor=vec4(mix(uA,uB,smoothstep(.2,.95,rim)),rim*.13*pulse*uK);}'
     });
     const corona = new THREE.Mesh(new THREE.SphereGeometry(1.31, low ? 64 : 96, low ? 40 : 64), this.coronaMaterial);
     corona.renderOrder = 6;
@@ -257,6 +274,7 @@ class NebulaSingularity extends HTMLElement {
       });
       const mesh = new THREE.Mesh(new THREE.RingGeometry(inner, outer, low ? 260 : 480, 16), material);
       mesh.renderOrder = side === THREE.BackSide ? 2 : 7;
+      mesh.userData.opacity = opacity;
       return mesh;
     };
     /* The far side, lensed over the horizon: the same plasma, compressed and lifted. */
@@ -324,26 +342,67 @@ class NebulaSingularity extends HTMLElement {
   }
 
   /*
-   * The shot, from the section's progress: the disc broad across the screen
-   * at the top, approaching at the middle, near edge-on and centred at the
-   * gate. Translation settles a little before the bank, so it reads as a
-   * camera moving rather than a card rotating.
+   * The shot, from the section's progress, as four keyframes.
+   *
+   * H, the horizon: a long lens (20 degrees) from far back, looking straight
+   * ahead, with the hole scaled and lowered until its upper limb is the
+   * page's arc -- the apex where the page puts it and, near the apex, the
+   * same curvature. The angles are solved, not tuned: the limb's highest
+   * point is the centre's elevation plus the hole's angular radius, so
+   * placing the centre at (apex angle - radius angle) puts the apex exactly.
+   * Only the rim and the corona show here; the disc, dust and stars come up
+   * with the pull-back.
+   *
+   * A, M and B are the composed shots: the disc broad across the screen,
+   * approaching, then near edge-on and centred at the gate. Each segment eases
+   * in and out, so the camera reads as moving rather than a card rotating.
    */
+  horizonShot(A) {
+    const width = this.clientWidth || 320;
+    const height = this.clientHeight || 320;
+    const arc = this._horizon || { top: height * 0.2, radius: Math.max(width * 0.78, height * 0.9) };
+    const fov = 20;
+    const tanHalf = Math.tan((fov / 2) * RAD);
+    const distance = 30;
+    const apex = Math.atan((1 - (2 * arc.top) / height) * tanHalf);
+    const radius = Math.atan(((2 * arc.radius) / height) * tanHalf);
+    const centre = distance * Math.tan(apex - radius);
+    const span = Math.hypot(distance, centre) * Math.sin(radius);
+    return { fov, cy: 0, cz: distance, x: 0, y: centre, s: span / 1.22, rx: A.rx, rz: A.rz };
+  }
+
   shot(progress) {
     const portrait = this.camera.aspect < 0.78;
-    const A = portrait ? { x: 0.13, y: -0.66, s: 0.78, rx: 1.48, rz: -20 * RAD, cz: 10.65 } : { x: 0.18, y: -0.5, s: 0.82, rx: 1.45, rz: -20 * RAD, cz: 11.25 };
-    const M = portrait ? { x: 0.035, y: -0.2, s: 0.91, rx: 1.405, rz: -43 * RAD, cz: 10.05 } : { x: 0.075, y: -0.15, s: 0.94, rx: 1.395, rz: -43 * RAD, cz: 10.55 };
-    const B = portrait ? { x: 0.045, y: 0.035, s: 1.015, rx: 1.34, rz: -70 * RAD, cz: 9.62 } : { x: 0.02, y: 0.02, s: 1.045, rx: 1.35, rz: -70 * RAD, cz: 10.02 };
+    const fov = this.low ? 58 : 50;
+    const cy = this.low ? 1.1 : 1.7;
+    /*
+     * The hole settles below the middle of the frame and the disc banks
+     * toward the reader -- opening from near edge-on to a broad ellipse --
+     * rather than rolling across the screen, so its band stays under the
+     * title that sits over the horizon and passes behind the systems' plates.
+     */
+    const A = portrait ? { fov, cy, x: 0, y: -0.7, s: 0.74, rx: 1.47, rz: -14 * RAD, cz: 10.65 } : { fov, cy, x: 0, y: -1.1, s: 0.8, rx: 1.46, rz: -14 * RAD, cz: 11.25 };
+    const M = portrait ? { fov, cy, x: 0, y: -0.74, s: 0.86, rx: 1.36, rz: -10 * RAD, cz: 10.05 } : { fov, cy, x: 0, y: -1.16, s: 0.92, rx: 1.35, rz: -10 * RAD, cz: 10.55 };
+    const B = portrait ? { fov, cy, x: 0, y: -0.72, s: 0.95, rx: 1.22, rz: -7 * RAD, cz: 9.62 } : { fov, cy, x: 0, y: -1.3, s: 1, rx: 1.26, rz: -7 * RAD, cz: 10.02 };
+    const H = this.horizonShot(A);
     const p = clamp01(progress);
-    const e = smooth(p < 0.54 ? p / 0.54 : (p - 0.54) / 0.46);
-    const from = p < 0.54 ? A : M;
-    const to = p < 0.54 ? M : B;
-    const settle = smooth(e * 1.12);
-    const bank = e * e * (3 - 2 * e);
-    return {
-      x: lerp(from.x, to.x, settle), y: lerp(from.y, to.y, settle), s: lerp(from.s, to.s, settle),
-      rx: lerp(from.rx, to.rx, bank), rz: lerp(from.rz, to.rz, bank), cz: lerp(from.cz, to.cz, settle)
-    };
+    const stops = [[0, H], [0.12, H], [0.42, A], [0.7, M], [1, B]];
+    let index = 1;
+    while (index < stops.length - 1 && p > stops[index][0]) index += 1;
+    const [p0, from] = stops[index - 1];
+    const [p1, to] = stops[index];
+    const k = smooth(p1 > p0 ? (p - p0) / (p1 - p0) : 1);
+    /*
+     * Leaving the horizon, size and distance move on a log scale: the hole
+     * shrinks from filling the screen to a fraction of it, and a linear blend
+     * would spend most of the move on the first few percent.
+     */
+    const log = (a, b) => Math.exp(lerp(Math.log(a), Math.log(b), k));
+    const out = {};
+    for (const key of Object.keys(A)) out[key] = from === H && (key === 's' || key === 'cz') ? log(from[key], to[key]) : lerp(from[key], to[key], k);
+    /* How much of the scene beyond the rim is lit: none at the horizon, all once the hole has settled. */
+    out.reveal = smooth((p - 0.14) / 0.26);
+    return out;
   }
 
   motionSuppressed() {
@@ -385,22 +444,39 @@ class NebulaSingularity extends HTMLElement {
     if (this._failed || !this.renderer) return;
     const still = this._still || dt === 0 && !this._raf;
     const t = still ? 8 : (this._clock ? this._clock.elapsedTime : 0);
-    const shot = this.shot(this._progress);
+    /*
+     * The shown progress eases toward the page's. A phone reports its scroll
+     * in steps, and the shot is steep near the horizon, so following the raw
+     * value made the pull-back judder; a held frame (motion off, or no loop
+     * running) takes the value as it is.
+     */
+    if (still || this._shown == null) this._shown = this._progress;
+    else this._shown += (this._progress - this._shown) * (1 - Math.exp(-6.5 * dt));
+    const shot = this.shot(this._shown);
+    if (Math.abs(this.camera.fov - shot.fov) > 1e-4) {
+      this.camera.fov = shot.fov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.camera.position.set(0, shot.cy, shot.cz);
+    this.camera.lookAt(0, 0, 0);
     this.singularity.position.set(shot.x, shot.y, 0);
     this.singularity.scale.setScalar(shot.s);
-    const damp = still ? 1 : 1 - Math.exp(-7.2 * dt);
-    this.diskFrame.rotation.x += (shot.rx - this.diskFrame.rotation.x) * damp;
-    this.rollFrame.rotation.z += (shot.rz - this.rollFrame.rotation.z) * damp;
+    this.diskFrame.rotation.x = shot.rx;
+    this.rollFrame.rotation.z = shot.rz;
     if (!still && this._orbit) {
       this._orbit.x += (this._pointer.x * 0.5 - this._orbit.x) * 0.02;
       this._orbit.y += (-this._pointer.y * 0.3 - this._orbit.y) * 0.02;
-      this.scene.rotation.y = this._orbit.x * 0.035;
-      this.scene.rotation.x = this._orbit.y * 0.02;
     }
-    const height = this.low ? 1.1 : 1.7;
-    this.camera.position.z += (shot.cz - this.camera.position.z) * (still ? 1 : 1 - Math.exp(-3.2 * dt));
-    this.camera.position.y = height;
-    this.camera.lookAt(0, 0, 0);
+    /* The pointer leans the frame only once there is a frame to lean: at the horizon the arc holds still. */
+    const lean = this._orbit ? shot.reveal : 0;
+    this.scene.rotation.y = this._orbit ? this._orbit.x * 0.035 * lean : 0;
+    this.scene.rotation.x = this._orbit ? this._orbit.y * 0.02 * lean : 0;
+    for (const mesh of this.disks) mesh.material.uniforms.opacity.value = mesh.userData.opacity * shot.reveal;
+    for (const mesh of this.farDisks) mesh.material.uniforms.opacity.value = mesh.userData.opacity * shot.reveal;
+    this.dustMaterial.uniforms.uOpacity.value = 0.42 * shot.reveal;
+    this.stars.material.opacity = 0.8 * shot.reveal;
+    /* On paper the corona's dusk reads as a grey band over the page, so there the rim alone draws the arc until the night is in. */
+    this.coronaMaterial.uniforms.uK.value = this.getAttribute('theme') === 'light' ? shot.reveal : 1;
     for (const mesh of this.disks) mesh.material.uniforms.t.value = t;
     for (const mesh of this.farDisks) mesh.material.uniforms.t.value = t;
     for (const mesh of this.shells) mesh.material.uniforms.uT.value = t;

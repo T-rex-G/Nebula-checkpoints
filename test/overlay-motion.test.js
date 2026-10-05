@@ -2332,6 +2332,11 @@ check('the landing scrolls without frosted surfaces or filtered strokes', () => 
   assert.ok(halo && !/filter\s*:/.test(halo[1]), 'the map halo is a blur filter again');
   assert.ok(/@media \(hover:none\), \(max-width:720px\)\{\s*\.lp-map-flow,\.lp-map-arcs\{animation:none\}/.test(cssSource),
     'the map keeps repainting its strokes under a finger that is scrolling the page');
+  /* The glass that sits over a moving scene is opaque enough not to need a blur of what moves under it. */
+  const frosted = rules.filter(rule => /backdrop-filter\s*:\s*(?!none)/.test(rule.body)
+    && eachSelector(rule).some(one => /\.lp-(chip|system|entry-row|play-card|step)\b/.test(one.selector)));
+  assert.deepStrictEqual(frosted.map(rule => rule.selector), [],
+    'a landing surface over the galaxy, the singularity or the drifting light blurs it again on every frame');
 });
 
 console.log(failures ? `\n${failures} failed` : '\nall passed');

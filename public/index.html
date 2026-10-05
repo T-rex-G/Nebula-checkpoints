@@ -1279,7 +1279,27 @@
           hidden from assistive technology and takes no pointer events -- the
           text its fading edge meets stays selectable.
         -->
-        <div class="gx-hero-art" id="gxHeroArt" aria-hidden="true"></div>
+        <div class="gx-hero-art" id="gxHeroArt" aria-hidden="true">
+          <!-- The galaxy held still: drawn where the live one cannot run, so the header never ends on an empty smudge of light. -->
+          <svg class="gx-hero-still" viewBox="0 0 400 260" focusable="false">
+            <defs>
+              <radialGradient id="gxStillGlow"><stop offset="0" class="gx-still-g0"/><stop offset=".3" class="gx-still-g1"/><stop offset="1" class="gx-still-g2"/></radialGradient>
+            </defs>
+            <circle cx="200" cy="130" r="118" fill="url(#gxStillGlow)"/>
+            <g transform="rotate(-16 200 130)">
+              <ellipse class="gx-still-ring gx-still-r3" cx="200" cy="130" rx="178" ry="58"/>
+              <ellipse class="gx-still-ring gx-still-r2" cx="200" cy="130" rx="128" ry="41"/>
+              <ellipse class="gx-still-ring gx-still-r1" cx="200" cy="130" rx="78" ry="25"/>
+              <circle class="gx-still-dot" cx="32.7" cy="110.2" r="3.4"/>
+              <circle class="gx-still-dot gx-still-hot" cx="354.2" cy="159" r="4.4"/>
+              <circle class="gx-still-dot" cx="136" cy="165.5" r="3"/>
+              <circle class="gx-still-dot gx-still-hot" cx="298" cy="103.6" r="3.6"/>
+              <circle class="gx-still-dot" cx="173.3" cy="106.5" r="2.6"/>
+              <circle class="gx-still-dot" cx="239" cy="151.7" r="2.8"/>
+            </g>
+            <circle class="gx-still-core" cx="200" cy="130" r="8"/>
+          </svg>
+        </div>
         <p class="gx-eyebrow"><span>Your workspace</span><span aria-hidden="true">/</span><span>Galaxies</span></p>
         <h2 class="gx-title" id="gxHeroTitle">Choose a <em>repository.</em></h2>
         <p class="gx-lede">Open a repository to browse files, review changes, or run an audit.</p>

@@ -4446,16 +4446,16 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * and the disc the right half, meeting only in the mask's fading edge, so
  * both are whole: the art at nearly full strength, the sentence untouched.
  * The box stays inside the hero top to bottom, so the hero's clip never cuts
- * it into a band. The copy narrows only once the artwork is drawing: a phone
- * that cannot draw it keeps the full measure.
+ * it into a band. A phone that cannot draw the live disc draws the still one
+ * in the same place, so the copy keeps the same measure either way.
  */
 @media (max-width:900px){
   .gx-hero-art{right:0;top:0;bottom:0;width:48%;height:100%;opacity:.95}
   [data-theme="light"] .gx-hero-art{opacity:.85}
-  .gx-hero:has(.gx-hero-art[data-nebula-mounted="true"]){min-height:clamp(168px,46vw,232px);display:flex;flex-direction:column;justify-content:center}
+  .gx-hero:has(.gx-hero-art){min-height:clamp(168px,46vw,232px);display:flex;flex-direction:column;justify-content:center}
   /* The headline and the sentence keep left of the disc; the one-line eyebrow above them keeps its whole row. Under
      the id, so the phone inventory's own measure for the lede cannot widen it back under the disc. */
-  #page-repos .gx-hero:has(.gx-hero-art[data-nebula-mounted="true"])>:is(.gx-title,.gx-lede){max-width:60%}
+  #page-repos .gx-hero:has(.gx-hero-art)>:is(.gx-title,.gx-lede){max-width:60%}
 }
 /*
  * Inside the plate the hero spans the region and only the copy is capped. The
@@ -4474,7 +4474,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  */
 @media (min-width:901px){
   .gx-hero{max-width:none;display:flex;flex-direction:column;justify-content:center}
-  .gx-hero:has(.gx-hero-art[data-nebula-mounted="true"]){min-height:clamp(220px,22vw,290px)}
+  .gx-hero:has(.gx-hero-art){min-height:clamp(200px,17vw,248px)}
   .gx-hero>:not(.gx-hero-art){max-width:min(720px,56%)}
   .gx-hero-art{right:0;top:0;bottom:0;width:44%;height:100%;
     transform:perspective(900px) rotateX(var(--gx-rx,0deg)) rotateY(var(--gx-ry,0deg));
@@ -6395,16 +6395,16 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .lp-sig-stats small{margin-left:1px;font-size:.68rem;font-weight:500;color:var(--muted);letter-spacing:0}
 .lp-sig-stats em{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal;font-size:.66rem;color:var(--muted)}
 .lp-sig-bars{grid-area:bars;display:flex;align-items:flex-end;gap:5px;min-height:112px;padding-top:4px;border-bottom:1px solid var(--art-hair)}
-.lp-sig-bars i{flex:1 1 0;height:calc(var(--h) * 100%);min-height:6px;border-radius:4px 4px 0 0;transform-origin:50% 100%;
+.lp-sig-bars i{flex:1 1 0;height:calc(var(--h,1) * 100%);min-height:6px;border-radius:4px 4px 0 0;transform-origin:50% 100%;
   background:linear-gradient(180deg,color-mix(in srgb,var(--accent2) 62%,transparent),color-mix(in srgb,var(--accent2) 28%,transparent))}
 .lp-sig-bars i:last-child{background:var(--accent2);box-shadow:0 0 22px -2px color-mix(in srgb,var(--accent2) 55%,transparent)}
 .lp-sig-axis{grid-area:axis;display:flex;justify-content:space-between;gap:12px;font-size:.6rem;color:var(--muted)}
 
 /* Played once as the section arrives: the change lands a line at a time, the weeks rise. */
 @media (prefers-reduced-motion:no-preference){
-  .lp-sec-wide.lp-revealed .lp-diff-l{animation:lp-bento-line .55s var(--ease) both;animation-delay:calc(var(--i) * 70ms + 160ms)}
+  .lp-sec-wide.lp-revealed .lp-diff-l{animation:lp-bento-line .55s var(--ease) both;animation-delay:calc(var(--i,0) * 70ms + 160ms)}
   .lp-sec-wide.lp-revealed .lp-path-route{animation:lp-bento-line .6s var(--ease) .55s both}
-  .lp-sec-wide.lp-revealed .lp-sig-bars i{animation:lp-bento-bar .8s var(--ease) both;animation-delay:calc(var(--i) * 45ms + 200ms)}
+  .lp-sec-wide.lp-revealed .lp-sig-bars i{animation:lp-bento-bar .8s var(--ease) both;animation-delay:calc(var(--i,0) * 45ms + 200ms)}
 }
 @keyframes lp-bento-line{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
 @keyframes lp-bento-bar{from{transform:scaleY(.06)}to{transform:none}}
@@ -8947,4 +8947,87 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 [data-theme="light"] .lp-foot-link:hover{color:#140d33}
 @media (max-width:700px){
   .lp-foot{grid-template-columns:minmax(0,1fr);gap:24px}
+}
+
+/* ================= APP · GALAXIES, COMPOSED ================= */
+/*
+ * The still galaxy: tilted orbits round a lit core, in the preset's ink. It is
+ * the header's picture wherever the live disc cannot run -- no WebGL, a
+ * metered connection, or a device the frame budget retired it from -- and it
+ * steps aside the moment the live one mounts.
+ */
+.gx-hero-still{position:absolute;inset:6% 4%;width:92%;height:88%;overflow:visible;color:#a78bfa}
+.gx-hero-art[data-nebula-mounted="true"] .gx-hero-still{display:none}
+.gx-still-ring{fill:none;stroke:currentColor;stroke-width:1.1;vector-effect:non-scaling-stroke}
+.gx-still-r1{opacity:.55}.gx-still-r2{opacity:.36;stroke-dasharray:2 5}.gx-still-r3{opacity:.22}
+.gx-still-dot{fill:currentColor;opacity:.8}
+.gx-still-hot{fill:#67e8f9;opacity:1}
+.gx-still-core{fill:#f5f3ff}
+.gx-still-g0{stop-color:#f5f3ff;stop-opacity:.9}
+.gx-still-g1{stop-color:#8b5cf6;stop-opacity:.34}
+.gx-still-g2{stop-color:#8b5cf6;stop-opacity:0}
+[data-theme="light"] .gx-hero-still{color:#7c3aed}
+[data-theme="light"] .gx-still-hot{fill:#0891b2}
+[data-theme="light"] .gx-still-core{fill:#7c3aed}
+[data-theme="light"] .gx-still-g0{stop-color:#c4b5fd;stop-opacity:.85}
+[data-theme="light"] .gx-still-g1{stop-color:#a78bfa;stop-opacity:.22}
+[data-design="obsidian"] .gx-hero-still{color:#d4d4d8}
+[data-design="obsidian"] .gx-still-hot{fill:#fafafa}
+[data-design="obsidian"] .gx-still-g1,[data-design="obsidian"] .gx-still-g2{stop-color:#a1a1aa}
+[data-design="obsidian"][data-theme="light"] .gx-hero-still{color:#44403c}
+[data-design="obsidian"][data-theme="light"] .gx-still-hot,[data-design="obsidian"][data-theme="light"] .gx-still-core{fill:#1c1917}
+[data-design="obsidian"][data-theme="light"] .gx-still-g0{stop-color:#d6d3d1}
+[data-design="obsidian"][data-theme="light"] .gx-still-g1,[data-design="obsidian"][data-theme="light"] .gx-still-g2{stop-color:#a8a29e}
+
+/*
+ * The inventory's summary as one composition. Three figures that add up --
+ * the set, its private part and its public part -- stand in a column, and the
+ * languages card takes the rest of the row: the radar for the estate's shape
+ * and, beside it, each language ranked with its count and share. It was a
+ * row of three tall tiles holding one number each, an empty third slot, and
+ * a radar alone in a panel the width of the page.
+ */
+.gx-pulse-grid:has(> .gx-pulse-radar){grid-auto-flow:row;grid-auto-columns:auto;
+  grid-template-columns:minmax(200px,.9fr) minmax(0,2.6fr);grid-template-rows:repeat(3,minmax(0,1fr))}
+.gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar){grid-column:1;display:flex;flex-direction:column;justify-content:center;
+  padding:14px 18px}
+.gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar) dt{margin-bottom:6px}
+.gx-pulse-grid > .gx-pulse-radar{grid-column:2;grid-row:1 / span 3;display:flex;flex-direction:column;padding:16px 20px 14px}
+.gx-pulse-radar dd{display:block;flex:1 1 auto}
+.gx-lang{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);align-items:center;gap:clamp(16px,3vw,40px)}
+.gx-pulse-radar .gx-lang .wp-radar{margin:0;max-width:300px}
+.gx-lang-list{list-style:none;margin:0;padding:0;display:grid;gap:9px;align-content:center}
+.gx-lang-list li{display:grid;grid-template-columns:minmax(72px,9rem) minmax(0,1fr) 2.2em 3em;align-items:center;column-gap:12px;
+  font-size:.8rem;line-height:1.3}
+.gx-lang-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.gx-lang-bar{position:relative;height:6px;border-radius:4px;background:var(--wp-track,rgba(148,163,184,.16));overflow:hidden}
+.gx-lang-bar i{position:absolute;inset:0 auto 0 0;width:calc(var(--w,0) * 100%);border-radius:4px;
+  background:linear-gradient(90deg,var(--wp-series-lo,var(--accent)),var(--wp-series-hi,var(--accent2)))}
+.gx-lang-n{text-align:right;font-family:var(--font-mono);font-size:.74rem;font-variant-numeric:tabular-nums;color:var(--text)}
+.gx-lang-pc{text-align:right;font-family:var(--font-mono);font-size:.7rem;font-variant-numeric:tabular-nums;color:var(--muted)}
+.gx-pulse-radar .gx-pulse-note{display:block;margin-top:8px}
+@media (prefers-reduced-motion:no-preference){
+  :root:not([data-motion="off"]) .gx-lang-bar i{animation:gxLangGrow .8s cubic-bezier(.22,1,.36,1) both}
+}
+@keyframes gxLangGrow{from{transform:scaleX(0)}to{transform:none}}
+.gx-lang-bar i{transform-origin:0 50%}
+
+@media (max-width:1180px){
+  .gx-pulse-grid:has(> .gx-pulse-radar){grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:none}
+  .gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar){grid-column:auto}
+  .gx-pulse-grid > .gx-pulse-radar{grid-column:1 / -1;grid-row:auto}
+}
+@media (max-width:760px){
+  .gx-pulse-grid:has(> .gx-pulse-radar){grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar){padding:12px 12px 11px}
+  .gx-pulse-grid:has(> .gx-pulse-radar) .gx-pulse-cell dd{flex-direction:column;align-items:flex-start;gap:5px}
+  .gx-pulse-grid:has(> .gx-pulse-radar) .gx-pulse-value{font-size:1.4rem}
+  .gx-pulse-grid:has(> .gx-pulse-radar) .gx-pulse-note{font-size:.66rem;line-height:1.3}
+  .gx-pulse-grid > .gx-pulse-radar{padding:14px 14px 12px}
+  .gx-lang{grid-template-columns:minmax(0,1fr);gap:10px}
+  .gx-pulse-radar .gx-lang .wp-radar{margin:0 auto;max-width:280px}
+  .gx-lang-list li{grid-template-columns:minmax(64px,7.5rem) minmax(0,1fr) 2em 2.8em;column-gap:10px}
+}
+@media (max-width:340px){
+  .gx-pulse-grid:has(> .gx-pulse-radar){grid-template-columns:minmax(0,1fr)}
 }

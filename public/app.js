@@ -293,9 +293,16 @@ function renderGalaxyPulse(repos) {
   const pulse = window.NebulaWorkspacePulse;
   const spread = pulse && pulse.languageSpread ? pulse.languageSpread(list) : [];
   const drawRadar = spread.length >= (pulse ? pulse.RADAR_MIN_AXES : 3);
+  /*
+   * Private and public together account for the set, so the row never stops
+   * on an empty slot and a reader can check one figure against the other two.
+   * Public is counted only where the provider said so: a repository whose
+   * visibility did not come back is neither, rather than assumed open.
+   */
   const measures = [
     { label: 'Galaxies', value: list.length, note: 'repositories connected' },
     { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
+    { label: 'Public', value: list.filter(r => r && r.private === false).length, note: 'readable by anyone' },
     ...(drawRadar ? [] : [{ label: 'Languages', value: languages.size, note: languages.size === 1 ? 'in use' : 'across the set' }])
   ].filter(measure => Number.isFinite(measure.value));
   grid.innerHTML = '';
@@ -323,8 +330,44 @@ function renderGalaxyPulse(repos) {
     const dt = document.createElement('dt');
     dt.textContent = 'Languages';
     const dd = document.createElement('dd');
-    dd.appendChild(pulse.radarChart(spread,
+    /*
+     * The radar gives the estate its shape; the ranked list beside it gives
+     * each language its number and its share, read off one baseline. The
+     * card was a radar alone in a row-wide panel -- a small shape in a large
+     * empty box, with every value left to be estimated from a spoke.
+     */
+    const body = document.createElement('div');
+    body.className = 'gx-lang';
+    body.appendChild(pulse.radarChart(spread,
       `Repositories by language: ${spread.map(axis => `${axis.label} ${axis.count}`).join(', ')}.`));
+    const total = spread.reduce((sum, axis) => sum + axis.count, 0) || 1;
+    const peak = Math.max(...spread.map(axis => axis.count), 1);
+    const ranked = document.createElement('ol');
+    ranked.className = 'gx-lang-list';
+    ranked.setAttribute('aria-label', 'Repositories by language');
+    for (const axis of spread) {
+      const row = document.createElement('li');
+      const name = document.createElement('span');
+      name.className = 'gx-lang-name';
+      name.textContent = axis.folded ? `Other (${axis.folded})` : axis.label;
+      name.title = name.textContent;
+      const bar = document.createElement('span');
+      bar.className = 'gx-lang-bar';
+      bar.setAttribute('aria-hidden', 'true');
+      const fill = document.createElement('i');
+      fill.style.setProperty('--w', String(Math.round((axis.count / peak) * 1000) / 1000));
+      bar.appendChild(fill);
+      const count = document.createElement('span');
+      count.className = 'gx-lang-n';
+      count.textContent = String(axis.count);
+      const share = document.createElement('span');
+      share.className = 'gx-lang-pc';
+      share.textContent = `${Math.round((axis.count / total) * 100)}%`;
+      row.append(name, bar, count, share);
+      ranked.appendChild(row);
+    }
+    body.appendChild(ranked);
+    dd.appendChild(body);
     const note = document.createElement('span');
     note.className = 'gx-pulse-note';
     const folded = spread.find(axis => axis.folded);

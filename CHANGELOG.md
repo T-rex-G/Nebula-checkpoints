@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### The bento, the first screen and the inventory, composed
+
+- **One repository, read honestly, as a bento.** Four cards on one anatomy --
+  a working picture in a well, a kicker, a title and a sentence -- laid
+  wide-narrow over narrow-wide on a six-column grid whose cards are subgrids,
+  so pictures in a row share a height and titles a baseline. The pictures are
+  the product's own surfaces in miniature: a diff with its gutter and the head
+  it was reviewed against, a policy list whose refused path shows its Safe
+  Passage route, a provider matrix with each provider's mark and a key, and
+  the signals as a ledger beside twelve weeks of bars on one baseline. A light
+  follows the pointer across the whole grid where there is a pointer. The
+  area chart whose line stopped short of its fill is gone.
+- **The first screen, composed.** The readings at the vortex's edge are
+  callouts with a hairline leading to a lit point on the scene; the small
+  print carries a sign; in a narrow column the three promises form a trust
+  strip of equal cells instead of a tall list. A desktop-width screen that is
+  much taller than it is wide -- a tablet upright, a phone showing the desktop
+  site -- stacks the copy, a full-width vortex and the path, instead of a
+  small vortex between two bands of empty night.
+- **How it works fills to the end.** The timeline's line and its stops play on
+  the track's own scroll timeline; the line had clipped itself into a scroll
+  container and stopped half way between the second and third stop.
+- **No lights ride the map's orbits**, only what a signal does.
+- **The six systems on a phone** run their rows edge to edge inside the
+  panel's corner, so the first row's lit wash no longer leaves a notch.
+- **The Galaxies summary as one composition.** The set, its private part and
+  its public part stand in a column that adds up; the languages card keeps
+  the radar for the estate's shape and ranks each language beside it with its
+  count and share. It was three tall tiles of one number each, an empty slot
+  and a radar alone in a page-wide panel. Where the live galaxy cannot run,
+  the header draws a still one in the same place.
+
 ### The landing, rebuilt from the first screen to the footer
 
 - **Two ways forward.** With entry open, the hero offers a filled *Get

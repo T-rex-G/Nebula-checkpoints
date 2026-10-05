@@ -50,6 +50,13 @@
   galaxy, the black hole or the drifting light under it on every frame, and a
   test keeps it that way. Obsidian's light theme loses the last violet dots
   in the frame bars.
+- **Ambient motion is earned.** The hero's never-ending motion -- the
+  drifting light, the beam, the floating readings, the title's sheen -- runs
+  only once the page has measured the device keeping a steady frame rate
+  without it, and stands down for the session if the frames fall. Drawn on a
+  CPU it had taken a WebKit build from thirteen frames a second to four and
+  then frozen it before its sign-in button could be pressed; WebKit hides its
+  renderer's name, so the frames themselves are the test.
 - **The scene answers to the page.** It loads when its section comes on
   screen rather than with the page, so nothing heavy competes with the entry
   card. A device that would draw it on the CPU is turned away twice over: the

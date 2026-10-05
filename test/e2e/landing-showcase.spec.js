@@ -215,6 +215,31 @@ test('with motion off the showcase holds still', async ({ page }) => {
 });
 
 /*
+ * The hero's ambient motion -- drifting light, the beam round the entry bar,
+ * the floating readings -- is earned: it runs only once the visuals loader has
+ * seen this device keep a steady frame rate (data-ambient="on"). A runner
+ * drawing on its CPU never earns it, and the hero is simply still; the same
+ * rules run as soon as the attribute is granted.
+ */
+test('the hero drifts only on a device that has shown it can keep up', async ({ page }) => {
+  await openLanding(page);
+  const root = page.locator('html');
+  await expect(root).toHaveAttribute('data-ambient', /^(on|off)$/);
+  const drifting = () => page.evaluate(() => ['.lp-aurora i', '.lp-chip', '.lp-title em']
+    .map(selector => getComputedStyle(document.querySelector(selector)).animationName));
+  if (await root.getAttribute('data-ambient') === 'off') {
+    expect((await drifting()).filter(name => /lpAurora|lpFloat|lpSheen/.test(name))).toEqual([]);
+    /* Still is not hidden: the readings are there, settled where they float. */
+    await expect(page.locator('.lp-chip').first()).toHaveCSS('opacity', '1');
+  }
+  await page.evaluate(() => { document.documentElement.dataset.ambient = 'on'; });
+  const names = await drifting();
+  expect(names[0]).toBe('lpAurora');
+  expect(names[1]).toContain('lpFloat');
+  expect(names[2]).toBe('lpSheen');
+});
+
+/*
  * The map, alive: signals run each strand into the hub on their own canvas,
  * on a phone as on a desk, only while the map is on screen. If the device
  * cannot keep pace, the canvas goes and the still map is the picture.

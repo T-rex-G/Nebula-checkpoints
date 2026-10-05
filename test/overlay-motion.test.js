@@ -2337,6 +2337,16 @@ check('the landing scrolls without frosted surfaces or filtered strokes', () => 
     && eachSelector(rule).some(one => /\.lp-(chip|system|entry-row|play-card|step)\b/.test(one.selector)));
   assert.deepStrictEqual(frosted.map(rule => rule.selector), [],
     'a landing surface over the galaxy, the singularity or the drifting light blurs it again on every frame');
+  /*
+   * The hero's ambient motion never stops while the page is open, so it runs
+   * only where the visuals loader has measured the device keeping up
+   * (data-ambient="on"); drawn on a CPU it froze a WebKit build outright.
+   */
+  const ambient = rules.filter(rule => /\binfinite\b/.test(rule.body)
+    && eachSelector(rule).some(one => /\.lp-(aurora|eyebrow-dot|title em|entry-row|chip)\b/.test(one.selector)));
+  assert.ok(ambient.length >= 5, 'the hero lost its ambient motion, or this check no longer finds it');
+  assert.deepStrictEqual(ambient.filter(rule => !/\[data-ambient="on"\]/.test(rule.selector)).map(rule => rule.selector), [],
+    'a never-ending hero animation runs on a device that has not shown it can keep up');
 });
 
 console.log(failures ? `\n${failures} failed` : '\nall passed');

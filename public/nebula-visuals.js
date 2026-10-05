@@ -96,6 +96,61 @@
     return capable;
   }
 
+  /*
+   * The landing's ambient motion -- the drifting light behind the hero, the
+   * beam round the entry bar, the readings floating at the galaxy's edge, the
+   * sheen on the title, the pulsing dot -- never stops while the page is
+   * open. On a GPU that is a handful of composited layers; drawn on the CPU it
+   * is every frame repainted by hand, and a WebKit build doing exactly that
+   * fell from about thirteen frames a second to four, froze, and was killed
+   * before its sign-in button could be pressed. So it answers to the same
+   * question as the artwork, and then has to earn it: the root carries
+   * data-ambient="on" only on a device that would draw the galaxy AND is
+   * already keeping a steady frame rate with the motion off, and loses it for
+   * the session if the frame rate falls once it is on, or the moment a
+   * mounted piece misses its frame budget. WebKit hides its renderer's name,
+   * so the measured frames are the answer that cannot be masked. The CSS runs
+   * none of it without the attribute, so a device that never earns it stays
+   * still -- the light is still there, it just does not drift.
+   */
+  const AMBIENT = Object.freeze({ earn: 20, earnMs: 40, hold: 60, holdMs: 50 });
+  let ambientLost = false;
+  function settleAmbient(on) {
+    const root = document.documentElement;
+    if (!on) ambientLost = true;
+    if (root && root.dataset) root.dataset.ambient = on && !ambientLost ? 'on' : 'off';
+  }
+  const medianOf = gaps => gaps.slice().sort((a, b) => a - b)[Math.floor(gaps.length / 2)];
+  function watchAmbient() {
+    if (typeof global.requestAnimationFrame !== 'function' || !supportsWebGL() || metered()) {
+      settleAmbient(false);
+      return;
+    }
+    let gaps = [];
+    let last = 0;
+    let earned = false;
+    const tick = now => {
+      if (ambientLost) return;
+      if (last) gaps.push(now - last);
+      last = now;
+      if (gaps.length < (earned ? AMBIENT.hold : AMBIENT.earn)) {
+        global.requestAnimationFrame(tick);
+        return;
+      }
+      const median = medianOf(gaps);
+      if (!earned) {
+        if (median > AMBIENT.earnMs) { settleAmbient(false); return; }
+        earned = true;
+        gaps = [];
+        settleAmbient(true);
+        global.requestAnimationFrame(tick);
+        return;
+      }
+      if (median > AMBIENT.holdMs) settleAmbient(false);
+    };
+    global.requestAnimationFrame(tick);
+  }
+
   function metered() {
     const connection = global.navigator && global.navigator.connection;
     return !!(connection && connection.saveData);
@@ -168,6 +223,7 @@
       element.remove();
       if (lose) lose.loseContext();
       host.dataset.nebulaMounted = 'failed';
+      settleAmbient(false);
       host.dispatchEvent(new CustomEvent('nebula-visual-retired', { bubbles: true }));
     };
     const tick = now => {
@@ -192,6 +248,16 @@
     const preset = design();
     document.querySelectorAll(Object.values(TAGS).join(', '))
       .forEach(element => { element.setAttribute('theme', next); element.setAttribute('design', preset); });
+  }
+
+  /*
+   * Asked once, on the landing only -- the shell behind sign-in has no ambient
+   * motion to gate -- and after the page has loaded, so the frames measured
+   * are the page at rest rather than the page being built.
+   */
+  if (document.querySelector('.lp')) {
+    if (document.readyState === 'complete') watchAmbient();
+    else global.addEventListener('load', watchAmbient, { once: true });
   }
 
   global.NebulaVisuals = Object.freeze({ mount, repaint, supportsWebGL });

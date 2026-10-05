@@ -8206,9 +8206,9 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-aurora i:nth-child(2){right:-14vmax;top:-6vmax;--lp-aur:rgba(56,189,248,.16)}
 .lp-aurora i:nth-child(3){left:28%;top:38%;width:40vmax;height:40vmax;--lp-aur:rgba(217,70,239,.14)}
 @media (prefers-reduced-motion:no-preference){
-  :root:not([data-motion="off"]) .lp-aurora i{animation:lpAurora 22s ease-in-out infinite alternate}
-  :root:not([data-motion="off"]) .lp-aurora i:nth-child(2){animation-duration:27s;animation-delay:-9s}
-  :root:not([data-motion="off"]) .lp-aurora i:nth-child(3){animation-duration:31s;animation-delay:-15s}
+  :root[data-ambient="on"]:not([data-motion="off"]) .lp-aurora i{animation:lpAurora 22s ease-in-out infinite alternate}
+  :root[data-ambient="on"]:not([data-motion="off"]) .lp-aurora i:nth-child(2){animation-duration:27s;animation-delay:-9s}
+  :root[data-ambient="on"]:not([data-motion="off"]) .lp-aurora i:nth-child(3){animation-duration:31s;animation-delay:-15s}
 }
 @keyframes lpAurora{0%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(4vmax,3vmax,0) scale(1.08)}100%{transform:translate3d(-3vmax,5vmax,0) scale(.96)}}
 [data-theme="light"] .lp-aurora i{opacity:.7}
@@ -8227,7 +8227,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-eyebrow::before{display:none}
 .lp-eyebrow-dot{width:7px;height:7px;flex:none;border-radius:50%;background:var(--teal);box-shadow:0 0 0 3px color-mix(in srgb,var(--teal) 22%,transparent)}
 @media (prefers-reduced-motion:no-preference){
-  :root:not([data-motion="off"]) .lp-eyebrow-dot{animation:lpPing 2.4s ease-out infinite}
+  :root[data-ambient="on"]:not([data-motion="off"]) .lp-eyebrow-dot{animation:lpPing 2.4s ease-out infinite}
 }
 @keyframes lpPing{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--teal) 55%,transparent)}100%{box-shadow:0 0 0 9px transparent}}
 [data-theme="light"] .lp-eyebrow{background:rgba(6,80,95,.06);border-color:rgba(6,80,95,.24)}
@@ -8236,7 +8236,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 /* The emphasis carries a slow sheen across it; with motion off it simply holds its colours. */
 .lp-title em{background-size:220% 100%;background-image:linear-gradient(100deg,var(--lp-em-a) 0%,var(--lp-em-b) 35%,var(--lp-em-a) 70%,var(--lp-em-b) 100%)}
 @media (prefers-reduced-motion:no-preference){
-  :root:not([data-motion="off"]) .lp-title em{animation:lpSheen 9s ease-in-out infinite alternate}
+  :root[data-ambient="on"]:not([data-motion="off"]) .lp-title em{animation:lpSheen 9s ease-in-out infinite alternate}
 }
 @keyframes lpSheen{from{background-position:0% 50%}to{background-position:100% 50%}}
 .lp-lede{margin-top:22px;font-size:1.08rem;max-width:31rem}
@@ -8250,7 +8250,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
   mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
 @media (prefers-reduced-motion:no-preference){
-  :root:not([data-motion="off"]) .lp-entry-row::before{animation:lpBeam 5.5s linear infinite}
+  :root[data-ambient="on"]:not([data-motion="off"]) .lp-entry-row::before{animation:lpBeam 5.5s linear infinite}
 }
 @keyframes lpBeam{to{--lp-beam:360deg}}
 [data-theme="light"] .lp-entry-row{background:rgba(255,255,255,.92)}
@@ -8290,7 +8290,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-chip-ring b{font-family:var(--font-display);font-size:.9rem;font-weight:700;color:#6ee7b7}
 @keyframes lpChipIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:no-preference){
-  :root:not([data-motion="off"]) .lp-chip{animation:lpChipIn .9s var(--ease) both,lpFloat 7s ease-in-out infinite alternate;
+  :root[data-ambient="on"]:not([data-motion="off"]) .lp-chip{animation:lpChipIn .9s var(--ease) both,lpFloat 7s ease-in-out infinite alternate;
     animation-delay:calc(.5s + var(--f,0) * .18s),calc(1.4s + var(--f,0) * -2.3s)}
 }
 @keyframes lpFloat{from{translate:0 0}to{translate:0 -9px}}

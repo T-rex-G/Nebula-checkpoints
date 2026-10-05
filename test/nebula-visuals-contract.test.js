@@ -118,6 +118,20 @@ for (const name of MODULES) {
   const budget = loader.slice(loader.indexOf('function holdToBudget('));
   assert(/element\.remove\(\)/.test(budget) && /nebulaMounted = 'failed'/.test(budget) && /capable = false/.test(budget),
     'a piece over budget must be removed, its host marked failed, and nothing else mounted this session');
+  assert(/settleAmbient\(false\)/.test(budget.slice(0, budget.indexOf('const tick'))),
+    'a piece over budget must also stand the landing\'s ambient motion down');
+
+  /*
+   * The landing's ambient motion has to be earned: the GPU probe first, then
+   * a steady frame rate measured with the motion still off, and it is lost
+   * for the session the moment the frames fall. WebKit masks its renderer, so
+   * the measured frames are the answer a software build cannot hide.
+   */
+  const watch = loader.slice(loader.indexOf('function watchAmbient('), loader.indexOf('function metered('));
+  assert(/supportsWebGL\(\)/.test(watch) && /metered\(\)/.test(watch), 'ambient motion must ask the GPU probe and the data saver first');
+  assert(/AMBIENT\.earnMs/.test(watch) && /AMBIENT\.holdMs/.test(watch), 'ambient motion must be earned and then held to a frame rate');
+  assert(/if \(!on\) ambientLost = true/.test(loader), 'ambient motion, once lost, must stay lost for the session');
+  assert(/addEventListener\('load', watchAmbient/.test(loader), 'the frames must be measured on the loaded page, not the page being built');
 
   /*
    * The app must reach the artwork through the loader. A direct import in the

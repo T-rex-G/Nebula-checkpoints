@@ -46,9 +46,16 @@ test('any site is checked from the rail, followed step by step, and reported wit
   const address = card.getByLabel('Site address');
   await address.fill('https://demo.example.com/pricing?ref=ad');
   await card.getByRole('button', { name: 'Check site' }).click();
-  await expect(card.locator('.audit-site-progress .audit-progress-line')).toHaveText('Reading the site’s JavaScript for secrets and libraries · 2 of 5');
-  await expect(card.locator('.audit-site-progress .audit-step[data-step="connect"]')).toHaveAttribute('data-state', 'done');
-  await expect(card.locator('.audit-site-progress [role="progressbar"]')).toHaveAttribute('aria-valuetext', 'Reading the site’s JavaScript for secrets and libraries · 2 of 5');
+  /* Read at once: the step is on screen only until the next answer, and a busy runner can pass it between two reads. */
+  await expect.poll(() => card.locator('.audit-site-progress').evaluate(node => ({
+    line: node.querySelector('.audit-progress-line').textContent,
+    connect: node.querySelector('.audit-step[data-step="connect"]').dataset.state,
+    bar: node.querySelector('[role="progressbar"]').getAttribute('aria-valuetext')
+  }), null, { timeout: 500 }).catch(() => null)).toEqual({
+    line: 'Reading the site’s JavaScript for secrets and libraries · 2 of 5',
+    connect: 'done',
+    bar: 'Reading the site’s JavaScript for secrets and libraries · 2 of 5'
+  });
 
   await expect(card.locator('.audit-grade')).toHaveAttribute('aria-label', /^Site grade F, \d{1,2} out of 100$/, { timeout: 15000 });
   await expect(card.locator('.audit-origin')).toHaveText('demo.example.com');

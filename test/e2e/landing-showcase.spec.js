@@ -5,7 +5,7 @@
  *
  * Below the gate: the providers it works against, the audit played at the
  * pace of the scroll, a framed miniature of the Neural view that settles as
- * it scrolls in, what it checks with the engine's own counts, the
+ * it scrolls in, what it checks with the code's own counts, the
  * capabilities as a bento, the comparison with what a scan usually does, the
  * three moves, the questions and a closing call that returns the reader to
  * the card. These read what a
@@ -62,7 +62,7 @@ test('the numbers are the build\'s own, and arrive whole', async ({ page }) => {
   const checks = page.locator('.lp-checks');
   await checks.scrollIntoViewIfNeeded();
   const values = checks.locator('.lp-check-v');
-  /* Read the engines, independently of the markup and animation under test. */
+  /* Read the rule sets, independently of the markup and animation under test. */
   const counts = [EXPOSURE_RULES.length, Object.keys(ADAPTERS).length,
     Object.keys(audit.RULES).length, Object.keys(site.RULES).length].map(String);
   await expect(values).toHaveText(counts, { timeout: 5000 });
@@ -190,4 +190,85 @@ test('with motion off the showcase holds still', async ({ page }) => {
   ].filter(selector => [...document.querySelectorAll(selector)]
     .some(el => getComputedStyle(el).animationName !== 'none')));
   expect(moving).toEqual([]);
+});
+
+/*
+ * The singularity: six systems around one core, lit one by one as the reader
+ * scrolls through the section, ending at a gate that is the way in. Every
+ * system is in the page from the start; motion only decides when each lights.
+ * Each is named for what it is, and only Uranus is called an engine.
+ */
+test('the systems light as the section is scrolled, and the gate leads to the card', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'required' });
+  await page.goto('/');
+  const orbit = page.locator('.lp-orbit');
+  await expect(orbit.getByRole('heading', { name: /Six systems/ })).toBeAttached();
+  await expect(orbit.getByRole('list', { name: 'The systems' }).getByRole('listitem').locator('b'))
+    .toHaveText(['Pulsar Map', 'Kepler Twin', 'Quasar Scanner', 'Uranus Engine', 'Parallax Probe', 'Corona Guard']);
+  const at = progress => orbit.evaluate((el, p) => window.scrollTo(0, el.getBoundingClientRect().top + scrollY + (el.offsetHeight - innerHeight) * p), progress);
+  await at(0);
+  await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBe(0);
+  await at(0.5);
+  await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBeGreaterThan(1);
+  await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBeLessThan(6);
+  await at(1);
+  await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBe(6);
+  await expect(orbit).toHaveAttribute('data-ready', 'true');
+  /* Nothing in the section is wider than the screen. */
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  /* The gate is the way in: it takes the reader to the invitation and into its first control. */
+  await orbit.getByRole('button', { name: 'Enter through the horizon' }).click();
+  await expect.poll(() => page.evaluate(() => document.activeElement && !!document.activeElement.closest('.lp-card'))).toBe(true);
+
+  /* With motion off every system is lit wherever the reader is. */
+  await page.evaluate(() => { document.documentElement.dataset.motion = 'off'; window.scrollTo(0, 0); });
+  await at(0);
+  await expect.poll(() => orbit.locator('.lp-system[data-on="true"]').count()).toBe(6);
+});
+
+/*
+ * The scene answers to the page, not the other way round. It loads only when
+ * its section is on screen, so nothing heavy competes with the entry card at
+ * load; and a device that cannot keep up with it -- here a frame held for a
+ * second and a half, as a CPU rasteriser does -- loses the scene, not the page:
+ * it is taken down, its host marked failed, and the stage keeps the CSS
+ * horizon. A WebKit build drawing in software once froze the landing so long
+ * its sign-in button could not be pressed.
+ */
+test('the singularity loads on approach and stands down when the page cannot keep up', async ({ page }) => {
+  await page.addInitScript(() => {
+    /* Lets the scene mount on this runner: the probe would otherwise refuse its software renderer. */
+    for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
+      if (!C) continue;
+      const get = C.prototype.getParameter;
+      C.prototype.getParameter = function (p) { return p === 0x9246 || p === 0x1F01 ? 'ANGLE (Test GPU)' : get.call(this, p); };
+    }
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (kind, options) {
+      return getContext.call(this, kind, options && options.failIfMajorPerformanceCaveat ? { ...options, failIfMajorPerformanceCaveat: false } : options);
+    };
+    /* A frame that takes a second and a half, a few frames after the scene goes in. */
+    new MutationObserver((records, observer) => {
+      if (!document.querySelector('#lpOrbitArt nebula-singularity')) return;
+      observer.disconnect();
+      let frames = 0;
+      const stall = () => {
+        if (++frames < 3) return requestAnimationFrame(stall);
+        const start = performance.now();
+        while (performance.now() - start < 1500) { /* a CPU rasteriser's frame */ }
+      };
+      requestAnimationFrame(stall);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  });
+  await mockPublicAlphaApi(page, { access: 'required' });
+  await page.goto('/');
+  const art = page.locator('#lpOrbitArt');
+  await page.waitForTimeout(600);
+  await expect(art, 'nothing heavy loads with the page').not.toHaveAttribute('data-nebula-mounted', /.+/);
+  await page.locator('.lp-orbit').evaluate(el => window.scrollTo(0, el.getBoundingClientRect().top + scrollY + 40));
+  await expect(art).toHaveAttribute('data-nebula-mounted', 'failed', { timeout: 15000 });
+  await expect(art.locator('nebula-singularity')).toHaveCount(0);
+  await expect(page.locator('.lp-orbit')).not.toHaveAttribute('data-drawn', 'true');
+  await expect(art.locator('.lp-orbit-fallback')).toBeAttached();
+  expect(await page.evaluate(() => window.NebulaVisuals.supportsWebGL()), 'no other piece mounts this session').toBe(false);
 });

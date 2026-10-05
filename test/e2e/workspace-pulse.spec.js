@@ -70,6 +70,16 @@ test('a signed-in session lands on the overview and reports a trust score it can
   const numbers = trust.getByRole('group').first();
   await numbers.getByText('Show the numbers').click();
   await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
+  /*
+   * And they stay open. The card is rebuilt whenever a reading it shows
+   * arrives; the disclosure used to be rebuilt closed, so a reader who had
+   * just opened it lost it the moment the next signal landed.
+   */
+  await page.evaluate(() => {
+    const Pulse = window.NebulaWorkspacePulse;
+    Pulse.render({ trust: document.querySelector('#wpTrust') }, Pulse.model({ repos: [] }));
+  });
+  await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
 
   const signals = page.getByRole('article', { name: 'Capabilities' });
   await expect(signals).toBeVisible();

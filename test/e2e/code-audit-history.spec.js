@@ -84,6 +84,30 @@ test('the last kept audit stands in until the next, and the watch says what was 
   await expect(oldest.locator('.audit-hist-finding').first()).toBeVisible();
   await expect(oldest.locator('.audit-hist-finding', { hasText: 'jquery 3.4.1 → 3.5.0' })).toContainText('Exploited');
 
+  /* A kept audit exports on its own: the brief names its commit and every kept finding with its rule's words, never code. */
+  await expect(oldest.locator('.audit-hist-export')).toContainText(/This audit · [0-9a-f]{7} · \d+ findings? kept/);
+  const brief = page.waitForEvent('download');
+  await oldest.locator('.audit-hist-export').getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Export developer brief' }).click();
+  const briefFile = await brief;
+  expect(briefFile.suggestedFilename()).toMatch(/^demo-audit-\d{4}-\d{2}-\d{2}-[0-9a-f]{7}\.md$/);
+  const briefText = require('fs').readFileSync(await briefFile.path(), 'utf8');
+  expect(briefText).toContain('# Security audit: sandbox/demo (main)');
+  expect(briefText).toContain('From the kept record');
+  expect(briefText).toContain('jquery 3.4.1');
+  expect(briefText).toContain('**Fix:**');
+  const sheet = page.waitForEvent('download');
+  await oldest.locator('.audit-hist-export').getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Export CSV' }).click();
+  const csvText = require('fs').readFileSync(await (await sheet).path(), 'utf8');
+  expect(csvText.split('\r\n')[0]).toBe('Audit,Commit,Status,Severity,Verdict,Rule,Title,Family,CWE,CWE Top 25 (2025),OWASP,Location,Line,Package,Version,Fixed in,Advisories,Risk,Known exploited,EPSS,Dependency reach,First seen,Fix');
+  const sarif = page.waitForEvent('download');
+  await oldest.locator('.audit-hist-export').getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Export SARIF' }).click();
+  const run = JSON.parse(require('fs').readFileSync(await (await sarif).path(), 'utf8')).runs[0];
+  expect(run.properties.kept).toBe(true);
+  expect(run.results.length).toBeGreaterThan(0);
+
   /* Folding the watch is remembered like every other section. */
   await watch.getByRole('button', { name: 'Collapse Since the last audit' }).click();
   await expect(watch).toHaveAttribute('data-folded', 'true');

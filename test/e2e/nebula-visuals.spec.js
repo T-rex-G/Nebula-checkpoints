@@ -130,5 +130,6 @@ test('the artwork hosts are decoration: hidden from readers and out of the way',
     };
   });
   expect(overflow.clipped, 'the hero must clip its own decoration').toBe(true);
-  expect(overflow.withArt, 'decoration must not change the size of the page').toEqual(overflow.without);
+  expect(overflow.withArt.width, 'decoration must never widen the page').toBe(overflow.without.width);
+  expect(overflow.withArt.height, 'decoration beside the copy must not lengthen the page').toBe(overflow.without.height);
 });

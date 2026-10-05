@@ -82,7 +82,7 @@ const licences = require('./licences');
 const auditPolicy = require('./code-audit-policy');
 
 /* The engine's name and version, carried in every result and export. */
-const ENGINE = Object.freeze({ name: 'Uranus', version: '2.2.0' });
+const ENGINE = Object.freeze({ name: 'Uranus', version: '2.3.0' });
 
 const CATEGORIES = Object.freeze([
   Object.freeze({ id: 'supply-chain', label: 'Supply chain', weight: 0.15 }),
@@ -166,6 +166,14 @@ function isDockerfile(filePath) {
 function isTestPath(filePath) {
   return /(^|\/)(tests?|__tests__|spec|specs|e2e|cypress|playwright)\//i.test(filePath) ||
     /\.(test|spec)\.[a-z]+$/i.test(filePath) || /(^|\/)test_[^/]+\.py$|_test\.(py|go)$/.test(filePath);
+}
+/*
+ * A manifest or lockfile kept for the tests: a fixture project a test reads,
+ * test data. It describes no install of the application, so its packages
+ * are neither its inventory nor its advisories.
+ */
+function isFixturePath(filePath) {
+  return isTestPath(filePath) || /(^|\/)(__fixtures__|fixtures?|testdata|test-data)\//i.test(filePath);
 }
 
 /*
@@ -551,11 +559,29 @@ function occurs(pattern, line, wantString) {
   }
   return false;
 }
+/*
+ * A line of JavaScript or Python up to a comment that follows its code:
+ * `//` or `/*` (or Python's `#`) after a space or the end of a statement,
+ * outside any string. A regular expression's escaped slashes never start one.
+ */
+function codeOf(line, python) {
+  const marker = python ? /(^|[\s;,)\]}])#/g : /(^|[\s;,)\]}])\/[/*]/g;
+  for (let match = marker.exec(line); match; match = marker.exec(line)) {
+    const at = match.index + match[1].length;
+    if (!inString(line, at)) return line.slice(0, at);
+  }
+  return line;
+}
 /* True when the pattern occurs on the line as code, not only inside a string. */
 const inCode = (pattern, line) => occurs(pattern, line, false);
 /* True when the pattern occurs inside a string literal: how code names a file. */
 const inText = (pattern, line) => occurs(pattern, line, true);
 const lexical = file => JS_EXT.has(file.ext) || PY_EXT.has(file.ext);
+/* SUP-005: a credential store, the calls that read a file, and the ways code names the user's home directory. */
+const CREDENTIAL_STORE = /(\.ssh\/id_(rsa|ed25519|ecdsa)|\.aws\/credentials|\.git-credentials|\.docker\/config\.json|\.kube\/config|Login Data|\.config\/gcloud)/;
+const LOCAL_READ = /\b(readFileSync|readFile|createReadStream|readSync|read_text|read_bytes|open)\s*\(/;
+const HOME_DIR = /\bhomedir\s*\(|\bexpanduser\s*\(|\bPath\.home\s*\(|\bprocess\.env\.(HOME|USERPROFILE)\b|\b(environ(\.get)?\s*[[(]|getenv\s*\()\s*['"](HOME|USERPROFILE)['"]|['"`]~[\/]/;
+const SHELL_CREDENTIAL_READ = /(~|\$\{?HOME\}?|\/root|\/home\/[\w.-]+)\/[^\s'"]*(\.ssh\/id_(rsa|ed25519|ecdsa)|\.aws\/credentials|\.git-credentials|\.docker\/config\.json|\.kube\/config|\.config\/gcloud)/;
 /* A value read straight off an incoming request, in the frameworks that name it so. */
 const REQUEST_VALUE = '(req|request|ctx\\.request|ctx)\\.(query|body|params)\\b';
 const REDIRECT_REQUEST = new RegExp(`\\b(res|reply|ctx|response|NextResponse)\\.redirect\\s*\\(\\s*(\\d{3}\\s*,\\s*)?${REQUEST_VALUE}`);
@@ -600,10 +626,15 @@ const LINE_RULES = Object.freeze([
   {
     rule: 'SUP-005',
     applies: file => (JS_EXT.has(file.ext) || PY_EXT.has(file.ext) || file.ext === 'sh') && !isTestPath(file.path),
-    /* Code names a credential file in a string; the same words elsewhere (a pattern, an identifier) read nothing. */
+    /*
+     * Code names a credential file in a string, and reads it from this
+     * machine: a file API on the line, or the user's home directory in the
+     * file. The same path as a URL a scanner asks a website for, or in a
+     * pattern or an identifier, reads nothing.
+     */
     test: (line, file) => {
-      const store = /(\.ssh\/id_(rsa|ed25519|ecdsa)|\.aws\/credentials|\.git-credentials|\.docker\/config\.json|\.kube\/config|Login Data|\.config\/gcloud)/;
-      return lexical(file) ? inText(store, line) : store.test(line);
+      if (!lexical(file)) return SHELL_CREDENTIAL_READ.test(line);
+      return inText(CREDENTIAL_STORE, line) && (LOCAL_READ.test(line) || HOME_DIR.test(line) || HOME_DIR.test(file.text));
     }
   },
   {
@@ -1505,11 +1536,16 @@ function nameKey(ecosystem, name) {
 function readDependencies(files) {
   const manifests = [];
   const locks = [];
+  const setAside = [];
   for (const file of files) {
     if (typeof file.text !== 'string') continue;
     const base = baseName(file.path);
     const dir = dirName(file.path);
     const manifestParser = ecosystems.manifestParserFor(file.path);
+    if (isFixturePath(file.path)) {
+      if (base === 'package.json' || isRequirements(base) || manifestParser || LOCK_PARSERS[base]) setAside.push(file.path);
+      continue;
+    }
     if (base === 'package.json') {
       manifests.push({ dir, ecosystem: 'npm', packages: packageJsonFindings({ ...file, ext: 'json', base }).packages });
     } else if (isRequirements(base)) {
@@ -1595,7 +1631,7 @@ function readDependencies(files) {
     for (const entry of lock.entries) if (Array.isArray(entry.namespaces) && entry.namespaces.length) namespaces.set(nameKey(lock.ecosystem, entry.name), entry.namespaces);
     graphs.set(lock.path, { ecosystem: lock.ecosystem, requires, names, roots, namespaces, linked: !lock.flat && [...requires.values()].some(set => set.size > 0) });
   }
-  return { inventory, graphs };
+  return { inventory, graphs, setAside };
 }
 
 function dependencyInventory(files) {
@@ -2268,6 +2304,55 @@ function parsedAsNumber(lines, line, name) {
   return false;
 }
 
+/*
+ * Whether `name` is a module-level constant whose value is text written in
+ * the code: `const NAME = '...'` (or a template with no ${...}, or literals
+ * joined by +) at the left margin of a JavaScript file, `NAME = '...'` in
+ * Python, `const NAME = "..."` in Go -- declared once, never reassigned,
+ * never a parameter. A constant spliced into a statement is the code's own
+ * SQL, which no caller can change.
+ */
+const LITERAL_PART = String.raw`(?:'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|` + '`' + String.raw`(?:[^` + '`' + String.raw`\\$]|\\.|\$(?!\{))*` + '`' + ')';
+const LITERAL_VALUE = new RegExp(String.raw`^\s*${LITERAL_PART}(?:\s*\+\s*${LITERAL_PART})*\s*;?\s*(?://.*|#.*)?$`);
+function boundToLiteral(lines, name) {
+  if (!Array.isArray(lines) || !/^[A-Za-z_$][\w$]*$/.test(name)) return false;
+  const escaped = name.replace(/[$]/g, '\\$');
+  const declaration = new RegExp(String.raw`^(?:export\s+)?(?:const\s+)?${escaped}\s*(?::\s*string\s*)?=(?!=)(.*)$`);
+  /* Anything else that could give the name another value: a declaration, an assignment, a parameter. */
+  const binding = new RegExp([
+    String.raw`\b(?:const|let|var)\s+${escaped}\b`,
+    String.raw`(?<![.\w$])${escaped}\s*(?:[-+*/%&|^:]|\*\*|\?\?|\|\||&&)?=(?!=)`,
+    String.raw`(?<![.\w$])${escaped}\s*=>`,
+    String.raw`\([^()]*(?<![.\w$])${escaped}\b[^()]*\)\s*(?:=>|\{)`,
+    String.raw`\bdef\s+\w+\s*\([^)]*\b${escaped}\b`,
+    String.raw`\b(?:const|let|var)\s*[{[][^=]*\b${escaped}\b`
+  ].join('|'));
+  let value = null;
+  let declared = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line.includes(name)) continue;
+    const match = declaration.exec(line);
+    /* A declaration at the left margin; JavaScript's and Go's carry `const`, Python's is a plain module assignment. */
+    if (match && (/^(?:export\s+)?const\s/.test(line) || /^[A-Z_][A-Z0-9_]*\s*=/.test(line))) {
+      declared += 1;
+      let text = match[1];
+      /* A template that runs over several lines is read until it closes. */
+      if (/^\s*`/.test(text) && (text.match(/`/g) || []).length === 1) {
+        for (let next = index + 1; next < lines.length && next - index < 60; next += 1) {
+          text += `\n${lines[next]}`;
+          if (lines[next].includes('`')) break;
+        }
+        text = text.replace(/\n/g, ' ');
+      }
+      value = text;
+      continue;
+    }
+    if (binding.test(line)) return false;
+  }
+  return declared === 1 && value !== null && LITERAL_VALUE.test(value);
+}
+
 const GUARD_KIND = Object.freeze({
   middleware: 'a Next.js middleware', mounted: 'a router mounted behind authentication', django: 'Django’s middleware list', dependencies: 'a router declared with dependencies', nest: 'a global guard',
   'spring-security': 'a Spring Security filter chain', filter: 'a request filter that turns callers away', symfony: 'Symfony’s access control rules'
@@ -2446,13 +2531,13 @@ function scanFile(file, context) {
     else if (nextAuth) context.authRoute = { path: file.path, line: 1 };
   }
 
-  if (file.base === 'package.json') {
+  if (file.base === 'package.json' && !isFixturePath(file.path)) {
     const manifest = packageJsonFindings(file);
     manifest.out.forEach(finding => context.raw.push({ ...finding, path: file.path }));
     context.packages.push(...manifest.packages);
     if (manifest.hasDependencies && !context.packageJsonWithDependencies) context.packageJsonWithDependencies = file.path;
   }
-  if (isRequirements(file.base)) context.packages.push(...requirementsPackages(file));
+  if (isRequirements(file.base) && !isFixturePath(file.path)) context.packages.push(...requirementsPackages(file));
   if (isDockerfile(file.path)) context.raw.push(...dockerfileFindings(file).map(finding => ({ ...finding, path: file.path })));
   if (file.ext === 'tf') context.raw.push(...terraformFindings(file).map(finding => ({ ...finding, path: file.path })));
   if ((file.ext === 'yml' || file.ext === 'yaml') && !WORKFLOW.test(file.path)) context.raw.push(...manifestFindings(file).map(finding => ({ ...finding, path: file.path })));
@@ -2483,11 +2568,15 @@ function scanFile(file, context) {
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
       const bounded = line.length > LIMITS.maxLineScan ? line.slice(0, LIMITS.maxLineScan) : line;
-      /* A comment that only mentions the pattern is not the pattern. */
-      const comment = /^\s*(\/\/|#|\*|<!--)/.test(bounded);
+      /* A comment that only mentions the pattern is not the pattern, whether it has the line or follows the code. */
+      const comment = /^\s*(\/\/|#|\/?\*|<!--)/.test(bounded);
+      const code = comment ? '' : lexical(file) ? codeOf(bounded, PY_EXT.has(file.ext)) : bounded;
       for (const definition of rules) {
-        if (comment && definition.rule !== 'SEC-006') continue;
-        if (definition.test(bounded, file)) context.raw.push({ rule: definition.rule, path: file.path, line: index + 1 });
+        if (definition.rule === 'SEC-006') {
+          if (definition.test(bounded, file)) context.raw.push({ rule: definition.rule, path: file.path, line: index + 1 });
+        } else if (code && definition.test(code, file)) {
+          context.raw.push({ rule: definition.rule, path: file.path, line: index + 1 });
+        }
       }
     }
   }
@@ -2708,7 +2797,7 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
     if (!text) return false;
     const spliced = splicedNames(text);
     return spliced.length > 0 && spliced.every(name => (marks && marks.some(mark => mark.name === name && item.line >= mark.from && item.line <= mark.to)) ||
-      parsedAsNumber(lines, item.line, name));
+      parsedAsNumber(lines, item.line, name) || boundToLiteral(lines, name));
   };
   for (const item of raw) {
     const key = `${item.rule}\0${item.path || ''}\0${item.line || ''}`;
@@ -2740,7 +2829,7 @@ function analyse({ files, paths, registry = new Map(), advisories = new Map(), l
   } };
   const bill = componentList(dependencies, licenceAnswers);
   return {
-    findings, suppressed, dependencyStatus, advisoryStatus: vulnerabilities.status, dependencyRisk, priorities: priorities(findings), ...score(findings),
+    findings, suppressed, dependencyStatus, advisoryStatus: vulnerabilities.status, manifestsSetAside: dependencies.setAside.length, dependencyRisk, priorities: priorities(findings), ...score(findings),
     licences: licenceSummary,
     policy: auditPolicy.readAuditPolicy(files),
     components: bill.components, componentsTruncated: bill.truncated,
@@ -2903,7 +2992,7 @@ function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = nu
   /* Source files beyond the traced set that the tracer could have followed: read and ruled, not followed. */
   const rulesOnly = beyondExtensions.filter(ext => TRACED_LANGUAGES.has(ext)).reduce((sum, ext) => sum + beyond.extensions[ext], 0);
   const infra = allPaths.some(filePath => isDockerfile(filePath) || /\.tf$/.test(filePath) || /(^|\/)(k8s|kubernetes|helm|charts|manifests)\//.test(filePath) || /^\.github\/workflows\//.test(filePath));
-  const manifest = allPaths.some(filePath => /(^|\/)(package\.json|requirements[^/]*\.txt|pyproject\.toml|Pipfile|go\.mod|Gemfile|composer\.json)$/.test(filePath) || /^\.github\/workflows\//.test(filePath));
+  const manifest = allPaths.some(filePath => (/(^|\/)(package\.json|requirements[^/]*\.txt|pyproject\.toml|Pipfile|go\.mod|Gemfile|composer\.json)$/.test(filePath) && !isFixturePath(filePath)) || /^\.github\/workflows\//.test(filePath));
   const databasePaths = allPaths.filter(filePath => !isTestPath(filePath) && !EXCLUDED_DIR.test(filePath) && (extensionOf(filePath) === 'sql' || FIREBASE_RULES.has(baseName(filePath))));
   const databaseRead = new Set([...prepared.filter(file => file.ext === 'sql' || FIREBASE_RULES.has(file.base)).map(file => file.path), ...((beyond && beyond.databasePaths) || [])]);
   const databaseMissing = databasePaths.filter(filePath => !databaseRead.has(filePath)).length;
@@ -3213,6 +3302,7 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
 
   const packages = [];
   for (const file of files) {
+    if (isFixturePath(file.path)) continue;
     if (baseName(file.path) === 'package.json') packages.push(...packageJsonFindings({ ...file, ext: 'json', base: 'package.json' }).packages);
     if (isRequirements(baseName(file.path))) packages.push(...requirementsPackages(file));
   }
@@ -3240,7 +3330,7 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
   progress('analysing', { files: files.length });
   const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers, licences: licenceLookup ? licenceLookup.answers : null, intel: intel ? intel.answers : null, extra: beyond.scan });
   baselineComponents(result.components, advisories, intel);
-  const lockfiles = paths.filter(filePath => READ_LOCKS.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath));
+  const lockfiles = paths.filter(filePath => READ_LOCKS.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath) && !isFixturePath(filePath));
   return {
     commitSha: resolved.commitSha,
     ref: resolved.ref,
@@ -3267,7 +3357,9 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
         vulnerable: result.advisoryStatus.vulnerable,
         malicious: result.advisoryStatus.malicious,
         lockfiles: lockfiles.length,
-        lockfilesRead: files.filter(file => READ_LOCKS.has(baseName(file.path))).length
+        lockfilesRead: files.filter(file => READ_LOCKS.has(baseName(file.path)) && !isFixturePath(file.path)).length,
+        /* Manifests and lockfiles kept for the tests, which describe no install of the application. */
+        setAside: result.manifestsSetAside || 0
       },
       /* Which exploit sources answered: a source that did not leaves its answers unknown, never negative. */
       exploit: intel ? intel.status : null,

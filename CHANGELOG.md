@@ -2,14 +2,193 @@
 
 ## Unreleased
 
+### The landing, shown rather than told
+
+- **Six systems around one repository.** Under the hero a new section holds a
+  black hole drawn on the GPU -- star field, lensed plasma ring, corona and a
+  drifting dust disk in the theme's colours -- and banks it as the reader
+  scrolls through, while the six systems light one by one beside it, each
+  named for what it is: *Pulsar Map*, *Kepler Twin*, *Quasar Scanner*,
+  *Uranus Engine*, *Parallax Probe* and *Corona Guard*, each with what it is
+  for in a few words. The scene loads only when the section comes near,
+  pauses off screen and in a hidden tab, and is skipped on software
+  renderers, where a CSS horizon stands in. With motion off every system is
+  lit at once and nothing moves.
+- **A gate at the end.** The section closes on an "Enter" reticle that dives
+  into the horizon and lands on the access card, the same jump as the bar's
+  Enter. The bar gains a *Systems* link that goes to the section.
+- **The scene answers to the page.** It loads when its section comes on
+  screen rather than with the page, so nothing heavy competes with the entry
+  card. A device that would draw it on the CPU is turned away twice over: the
+  probe asks the browser to refuse a software context, and a mounted scene is
+  held to a frame budget -- a frame of a second, or under about twenty frames
+  a second, takes it down for the session and gives the stage back to the CSS
+  horizon. WebKit hides its renderer's name, and a WebKit build drawing in
+  software once froze the landing so long its sign-in button could not be
+  pressed. The Galaxies artwork is held to the same budget.
+- **Counted from the code.** The coverage figures said they were "the
+  engine's own"; they come from several systems' rule sets, and now say they
+  are counted from the code that runs.
+- **Where you are.** A hairline at the screen's right edge fills as the
+  landing is read.
+- **Detail that drifts in.** The story steps, the providers, the questions
+  and the closing card rise a few pixels into place as they are scrolled to,
+  tied to the scroll by the browser rather than to a timer. Never by fading,
+  so nothing is ever hidden, never with motion off, and never a heading the
+  bar's links land on.
+- **Fewer words.** The walkthrough is four short steps instead of six long
+  ones, and the play and story introductions are a sentence each.
+
+### The rail, named and lit evenly
+
+- **Each system named for what it is, purpose beneath.** Calling all six
+  "engines" overstated five of them. Only Uranus parses code and traces
+  values through it, so only Uranus is an engine; the others are named for
+  what they are: *Pulsar Map* -- Neural · how code connects; *Kepler
+  Twin* -- Governance · policy rules; *Quasar Scanner* -- Exposure
+  · leaked secrets; *Uranus Engine* -- Audit · code and packages; *Parallax
+  Probe* -- Website · live site check; *Corona Guard* -- Safeguards ·
+  lockdown. Each page's kicker uses the same name. The line beneath begins
+  with the name the tabs and the phone menu use, so the two always meet.
+- **Each page says where the rest is.** Exposure said the deployed site was
+  checked on the Audit tab, and Audit that it read the live site itself;
+  the site is checked on the Website page, by Parallax, and both now say so.
+- **The current entry's glow is whole.** Under Magnetar Sec the list clipped
+  its contents at rest, so the current tool's glow ended in a hard-edged box
+  that Galaxies, above the heading, never had. The list clips only while it
+  folds; a window shorter than the rail scrolls the rail as one, as the phone
+  drawer does, instead of scrolling the list inside it.
+- **A message waits under the drawer.** A toast that arrived while the phone
+  drawer was out lay across its first entries; it now sits under the drawer's
+  scrim until the drawer is put away.
+
+### The overview keeps what you opened
+
+- **The numbers stay open.** Each overview card is rebuilt whenever a reading
+  it shows arrives, and its *Show the numbers* table was rebuilt closed, so a
+  reader who had just opened it lost it the moment the next signal landed. An
+  opened table now stays open through every repaint for as long as the page
+  is open.
+
+### Neural on a desk, explorer open or closed
+
+- **The graph leads.** With the file tree open beside a laptop-width pane the
+  Neural columns stack, and the rail used to come first, so the graph began
+  a thousand pixels down, past the bottom of the window. It now comes first,
+  with the modes after it in two columns.
+- **One header row.** The line under the title may take two lines, so the
+  three controls keep their place beside it instead of dropping under the
+  copy and costing the graph a row.
+- **No more ellipses.** Mode descriptions and the readings' captions wrap to
+  two lines instead of ending in "…".
+
+### Governance lists you can work through
+
+- **The evidence ledger, one list at a time.** Runtime decisions and
+  activations were two timelines running the length of the page, every
+  activation with its own full-width rollback button under it. They are now
+  tabs over one compact ledger: a row per entry (tone, what happened, state,
+  how long ago), eight at a time with *Show 8 more*, filtered by outcome
+  (blocked, warned, allowed) or by kind (activated, switched off, rolled
+  back), and *Load older decisions* when the server holds more.
+- **Rollback where it means something.** The version that is running is
+  marked *Current*; an earlier one offers a small control named in full
+  ("Roll back to alpha version 3000…").
+- **Clear from view.** A list can be cleared up to its newest entry and stays
+  cleared on the next visit; the ledger is immutable, so cleared entries stay
+  in exports and chain verification, the page says so, and *Show N cleared*
+  brings them back. Only the sequence number is kept, per repository, and the
+  account purge removes it.
+- **Notifications as an inbox.** Unread first, six at a time; *Clear N* marks
+  them read on the server and puts them away; read ones are one press away.
+  Signed exports show the latest four, the rest unfold, each on two lines
+  instead of a name squeezed to a letter a line.
+
+### The galaxy, whole and in view
+
+- **On a phone it sits beside the copy.** The Galaxies hero drew its spiral
+  behind the headline at a third of its strength, so it read as a faint ring
+  across "repository" with a straight top where the hero clipped it. It now
+  sits to the right of the headline, inside the hero top to bottom, at
+  nearly full strength and sharper (drawn at up to twice the pixel density);
+  the headline and the sentence keep to the left three fifths, so only the
+  mask's fading edge meets them. A phone that cannot draw it keeps the full
+  measure for the copy.
+- **No pale plate on paper.** In the light themes the shader inks the whole
+  quad, and the mask was still at a fifth of its strength at the box's edge,
+  which left a pale panel with a straight side beside the copy. The mask now
+  fades to nothing exactly at the box's own sides, whatever its shape.
+- **On a desk it has a column.** The artwork was a box taller than the hero
+  and offset above it, so the hero cut its aura into a band with straight top
+  and bottom edges, and the disc filled a third of its width. It now sits in
+  its own column inside a hero tall enough to hold it, the disc scaled to
+  fill it, and leans a few degrees toward the pointer.
+- **It arrives.** The spiral turns into place once it has drawn its first
+  frame; with motion off it is simply there.
+
+### Every kept audit exports on its own
+
+- **History exports.** An opened entry under *History* has its own *Export*:
+  the developer brief, CSV and SARIF of that audit, from what it kept -- each
+  finding's rule, place and package, with the rule's explanation, fix and a
+  prompt written by the engine, never any code. The entry says how many
+  findings were kept, and every export says so too when fewer were kept than
+  found (the most severe are kept first).
+- **Kept findings speak for themselves.** Reading a kept audit now returns
+  each finding with its rule's words and standards (CWE, OWASP, Top 25), so
+  the record can be understood without the audit that produced it.
+
+### One home for website analysis
+
+- **Site checks run on the Website page alone.** The Audit tab carried a
+  second copy of the Parallax probe under *Deployed site*, with its own
+  form, progress and results. It now shows the repository's address (the one
+  last checked for it, else its homepage), the latest Website-page check of
+  that address -- grade, verdict, counts and when -- and two ways over:
+  *Check in Parallax* (or *Check again*) and *Open in Parallax*. That check
+  still joins the audit's brief, CSV and SARIF.
+- **The Website page knows who sent it.** Opened from an audit it says which
+  repository the check is for and offers *Back to the audit*; a check made
+  that way becomes the repository's address. Reached from the rail it is for
+  any address and names no repository.
+
+### Uranus 2.3, truthful about itself
+
+Audited against this repository, Uranus 2.2 graded it F 49 on six findings,
+and none of them were real. Each was a reading mistake, now corrected for
+every repository:
+
+- **A path is not a read.** *Local credentials read and sent out* fired on a
+  website scanner's list of paths it asks a site for (`/.aws/credentials`).
+  It now needs the code to read the file from this machine: a file API on
+  the line, or the user's home directory named in the file (`os.homedir()`,
+  `expanduser`, `~/`, `$HOME`). Shell scripts need the home directory in the
+  path itself.
+- **The code's own SQL is not interpolation.** A statement that splices a
+  module-level constant written as text (`const SCOPE = 'owner=$1 AND ...'`,
+  a Python `SCOPE = "..."`, a Go `const`) is settled, as long as the name is
+  declared once, never reassigned and never a parameter. A `let`, a value
+  built from input, a template that splices, or a parameter that shadows the
+  constant still fires.
+- **A comment is not code.** Rules about code no longer read a comment that
+  follows code on the same line or opens with `/*`; a credential in a comment
+  is still a credential.
+- **Fixtures are not the application.** Manifests and lockfiles under tests,
+  `fixtures`, `__fixtures__` or `testdata` are set aside: they add nothing to
+  the inventory, the bill of materials, the advisories or the grade, and no
+  longer borrow the root lockfile. The coverage line says how many were set
+  aside.
+
+The benchmark is unchanged: 100% precision, 98% recall over 138 cases.
+
 ### The constellation, named
 
 - **Names.** Repositories are *Galaxies* (your repositories); the security
-  tools sit under **Magnetar Sec**, each on its own engine: Neural on the
-  *Pulsar Engine*, Governance on *Kepler*, Exposure on *Quasar*, Audit on
+  tools sit under **Magnetar Sec**, each named for the system behind it:
+  Neural on *Pulsar*, Governance on *Kepler*, Exposure on *Quasar*, Audit on
   *Uranus*, Website on *Parallax* and Safeguards on *Corona*. The rail names
-  each tool's engine beneath it, a narrowed rail shows both on hover, and each
-  tool's page carries its engine above its title.
+  each tool's system with it, a narrowed rail shows both on hover, and each
+  tool's page carries its system above its title.
 - **Magnetar Sec opens and closes like a menu.** Its heading folds the six
   tools away with the chevron turning, shows how many it holds while folded,
   keeps the choice for the next visit, and opens by itself when the screen in

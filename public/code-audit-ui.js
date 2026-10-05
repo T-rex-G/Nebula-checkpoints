@@ -850,6 +850,9 @@
       parts.push(`${advisories.checked} of ${advisories.versions} package versions checked against OSV` +
         (advisories.unknown ? ` (${advisories.unknown} unanswered)` : ''));
     }
+    if (advisories.setAside) {
+      parts.push(`${plural(advisories.setAside, 'manifest', 'manifests')} kept for tests set aside, as no install of the application`);
+    }
     const components = Array.isArray(result.components) ? result.components : [];
     if (components.length) {
       const ecosystems = [...new Set(components.map(component => ECOSYSTEM_NAME[component.ecosystem] || component.ecosystem))];
@@ -1714,7 +1717,17 @@
 
   const HISTORY_FINDINGS = 40;
   const expandedHistory = new Set();
-  function historyFindings(detail, audit) {
+  /* A kept audit exported on its own: what it found, from what it kept, in the formats the live one offers. */
+  function historyExport(audit, handlers) {
+    const bar = element('div', 'audit-hist-export');
+    const kept = audit.findings && audit.findings.stored < audit.findings.total
+      ? `${audit.findings.stored} of ${audit.findings.total} findings kept`
+      : `${plural(audit.findings ? audit.findings.total : 0, 'finding', 'findings')} kept`;
+    bar.appendChild(element('span', 'audit-hist-export-t', `This audit · ${String(audit.commitSha).slice(0, 7)} · ${kept}`));
+    bar.appendChild(exportMenu(kind => handlers.onHistoryExport(audit.id, kind), `hist-export:${audit.id}`, REPORT_EXPORTS));
+    return bar;
+  }
+  function historyFindings(detail, audit, handlers) {
     const wrap = element('div', 'audit-hist-body');
     if (!detail || detail.status === 'loading') {
       const wait = element('p', 'audit-hist-wait', 'Reading what this audit kept…');
@@ -1732,12 +1745,14 @@
     const findings = (detail.findings || []).filter(finding => !finding.waived);
     const waivedCount = (detail.findings || []).length - findings.length;
     if (!findings.length) {
+      if (handlers && handlers.onHistoryExport) wrap.appendChild(historyExport(audit, handlers));
       wrap.appendChild(element('p', 'audit-hist-wait', waivedCount
         ? `Nothing open: ${plural(waivedCount, 'finding was', 'findings were')} waived in code or triaged by the team.`
         : 'This audit found nothing in what it read.'));
       return wrap;
     }
     const all = expandedHistory.has(audit.id) || findings.length <= HISTORY_FINDINGS + 1;
+    if (handlers && handlers.onHistoryExport) wrap.appendChild(historyExport(audit, handlers));
     const list = element('ul', 'audit-hist-findings');
     list.setAttribute('aria-label', `What the audit of ${when(audit.auditedAt).absolute} found`);
     findings.forEach((finding, index) => {
@@ -1825,7 +1840,7 @@
       summary.setAttribute('aria-label', `Audit of ${when(audit.auditedAt).absolute} at ${String(audit.commitSha).slice(0, 7)}: grade ${audit.grade}, ${audit.score} out of 100${audit.diff ? `, ${audit.diff.new} new, ${audit.diff.resolved} resolved` : ''}`);
       details.appendChild(summary);
       details.addEventListener('toggle', () => { if (handlers.onHistoryToggle) handlers.onHistoryToggle(audit.id, details.open); });
-      if (details.open) details.appendChild(historyFindings(view.historyDetail && view.historyDetail.get(audit.id), audit));
+      if (details.open) details.appendChild(historyFindings(view.historyDetail && view.historyDetail.get(audit.id), audit, handlers));
       item.appendChild(details);
       list.appendChild(item);
     });
@@ -3127,6 +3142,13 @@
       : 'The certificate, headers, exposed files, the pages and scripts a visitor loads, their libraries and the domain’s email policy. Anonymous requests only; nothing kept.'));
     head.append(mark, titles);
     card.appendChild(head);
+    /* Opened from a repository's audit: the check is for that repository, and the way back is one press. */
+    if (site.standalone && site.from) {
+      const from = element('div', 'audit-site-from');
+      from.appendChild(element('span', 'audit-site-from-t', `For ${site.from}`));
+      if (handlers.onSiteBack) from.appendChild(keyed(button('Back to the audit', 'btn btn-ghost audit-tool', handlers.onSiteBack), 'site-back'));
+      card.appendChild(from);
+    }
 
     const form = element('form', 'audit-site-form');
     form.noValidate = true;
@@ -3244,6 +3266,76 @@
     host.appendChild(site.standalone ? card : foldable(card, 'site', head, 'Deployed site'));
   }
 
+  /*
+   * The deployed site, as an audit shows it. Site checks run in one place --
+   * the Website page, on the Parallax probe -- so the audit does not carry
+   * a second scanner: it names this repository's address, says what the
+   * latest check of that address found, and sends the reader there to check
+   * it or read it in full. That check rides in this audit's exports.
+   */
+  function renderSiteLink(host, site, handlers, previous) {
+    const card = element('section', 'card audit-site audit-site-link');
+    card.setAttribute('aria-labelledby', 'auditSiteHeading');
+    const head = element('div', 'audit-site-head');
+    const mark = element('span', 'audit-site-mark');
+    mark.appendChild(icon(ICON.globe));
+    const titles = element('div', 'audit-site-titles');
+    const heading = element('h2', 'exposure-heading', 'Deployed site');
+    heading.id = 'auditSiteHeading';
+    titles.append(element('p', 'audit-site-kicker', 'Parallax Probe · Website'), heading,
+      element('p', 'audit-site-lede', 'Site checks run on the Website page. The latest one for this address shows here and joins this audit’s exports.'));
+    head.append(mark, titles);
+    card.appendChild(head);
+
+    const body = element('div', 'audit-site-link-body');
+    const where = element('div', 'audit-site-where');
+    if (site.url) {
+      const origin = element('span', 'audit-origin');
+      origin.append(icon(ICON.globe), element('span', null, String(site.url).replace(/^https:\/\//, '').replace(/\/$/, '')));
+      origin.title = site.url;
+      where.appendChild(origin);
+      if (site.suggested) where.appendChild(element('span', 'audit-site-hint', 'From the repository’s homepage'));
+    } else {
+      where.appendChild(element('span', 'audit-site-hint', 'The repository declares no homepage; add the address on the Website page.'));
+    }
+    body.appendChild(where);
+
+    const result = site.result;
+    if (site.status === 'running') {
+      body.appendChild(element('p', 'audit-lede audit-muted', 'Checking on the Website page…'));
+    } else if (result) {
+      const row = element('div', 'audit-grade-row audit-site-grade');
+      const assessment = siteAssessment(result);
+      const graded = assessment.complete && Number.isFinite(result.score) && typeof result.grade === 'string';
+      const fresh = !previous || previous.siteId !== `${result.origin}|${result.checkedAt}`;
+      row.appendChild(ring(graded ? result : { ...result, grade: null, score: null }, 'done', graded
+        ? `Site grade ${result.grade}, ${result.score} out of 100`
+        : `Site coverage ${assessment.state}; overall grade withheld`, fresh ? 0 : null));
+      const read = element('div', 'audit-grade-read');
+      read.append(element('p', 'audit-verdict audit-verdict-sm', result.findings.length ? verdict(result, 'done') : assessment.complete ? 'Nothing found in the completed checks' : 'No findings in the checks completed so far'));
+      read.appendChild(severityTally(result.findings));
+      const at = Date.parse(result.checkedAt);
+      if (Number.isFinite(at)) read.appendChild(element('p', 'audit-coverage', `Checked ${new Date(at).toLocaleString()}.`));
+      row.appendChild(read);
+      body.appendChild(row);
+    } else {
+      body.appendChild(element('p', 'audit-lede audit-muted', site.url ? 'Not checked yet in this session.' : 'No site checked yet.'));
+    }
+
+    const actions = element('div', 'audit-actions audit-site-link-actions');
+    if (result) {
+      actions.append(
+        keyed(button('Open in Parallax', 'btn btn-primary', () => handlers.onSiteOpen({ check: false })), 'site-open'),
+        keyed(button('Check again', 'btn btn-ghost', () => handlers.onSiteOpen({ check: true })), 'site-again'));
+    } else {
+      actions.appendChild(keyed(button(site.url ? 'Check in Parallax' : 'Open Parallax', 'btn btn-primary', () => handlers.onSiteOpen({ check: Boolean(site.url) })), 'site-open'));
+    }
+    if (site.status === 'running') actions.querySelectorAll('button').forEach(control => { if (control.textContent !== 'Open in Parallax') control.disabled = true; });
+    body.appendChild(actions);
+    card.appendChild(body);
+    host.appendChild(foldable(card, 'site', head, 'Deployed site'));
+  }
+
   /* The site check on its own page: the same card, for any address. */
   const drawnSites = new WeakMap();
   function renderSiteScan(root, site, handlers) {
@@ -3307,7 +3399,8 @@
       renderRemediation(root, view, handlers);
       renderHistory(root, view, handlers);
     }
-    if (view.site) renderSite(root, { ...view.site, hasRepositoryResult: Boolean(view.result) }, handlers, previous);
+    if (view.site && view.site.link) renderSiteLink(root, view.site, handlers, previous);
+    else if (view.site) renderSite(root, { ...view.site, hasRepositoryResult: Boolean(view.result) }, handlers, previous);
     for (const id of [...open]) {
       const details = root.querySelector(`details[data-finding-id="${CSS.escape(id)}"]`);
       if (details) details.open = true;
@@ -3694,6 +3787,122 @@
   }
 
   /*
+   * A kept audit, exported from History. What an audit keeps is its grade,
+   * counts and coverage and, for each finding, the rule, the place and the
+   * package facts -- never a line of code -- and the server adds each rule's
+   * own words. The exports say exactly that much: which audit, what it
+   * found, and, when fewer findings were kept than found, how many.
+   */
+  const KEPT_WAIVED = Object.freeze({ triage: 'triaged by the team', policy: 'cleared by the licence policy', code: 'waived in code' });
+  const keptWaived = finding => KEPT_WAIVED[finding.waived] || 'waived';
+  function keptPlace(finding) {
+    if (finding.package) return `${finding.package.name} ${finding.package.version}${finding.path ? ` (${finding.path})` : ''}`;
+    return finding.path ? `${finding.path}${finding.line ? `:${finding.line}` : ''}` : 'whole repository';
+  }
+  function keptNotes(audit) {
+    const notes = [];
+    if (audit.findings && audit.findings.stored < audit.findings.total) notes.push(`${audit.findings.stored} of ${audit.findings.total} findings were kept, the most severe first; the rest are counted above but not listed.`);
+    if (audit.files && !audit.files.complete) notes.push(`Not a complete read: ${audit.files.read} of ${audit.files.eligible} files were read.`);
+    return notes;
+  }
+  function keptBrief(audit, findings, label) {
+    const open = findings.filter(finding => !finding.waived);
+    const waived = findings.filter(finding => finding.waived);
+    const lines = [`# Security audit: ${label}`, '',
+      `Grade **${audit.grade}** — ${audit.score}/100${audit.capReason ? audit.capReason === 'exploited' ? ' (held below 50 by a vulnerability exploited in the wild)' : ' (held below 50 by a confirmed critical finding)' : ''}.`,
+      `Commit \`${audit.commitSha}\` on ${audit.ref}, audited ${audit.auditedAt} by Uranus ${audit.engine}.`,
+      `${ORDER.map(severity => `${audit.counts[severity]} ${severity}`).join(' · ')}; ${audit.toConfirm} to confirm${audit.exploited ? `; ${audit.exploited} exploited in the wild` : ''}.`,
+      `Read ${audit.files.read} of ${audit.files.eligible} files.`, '',
+      '> From the kept record: each finding’s rule, place and package, never any of the code. Each rule’s explanation is the current engine’s wording.', ''];
+    for (const note of keptNotes(audit)) lines.push(note, '');
+    if (!open.length) lines.push('Nothing open in what was kept.', '');
+    open.forEach((finding, index) => {
+      const standards = finding.standards;
+      lines.push(`## ${index + 1}. ${finding.title}`, '',
+        `- **Severity:** ${finding.severity}`,
+        `- **Verdict:** ${verdictOf(finding) === 'needs-validation' ? 'to confirm' : 'confirmed'}`,
+        `- **Rule:** ${finding.rule}`,
+        `- **Where:** \`${keptPlace(finding)}\``);
+      if (standards) {
+        lines.push(`- **Standards:** ${[standards.cwe && `${standards.cwe}${standards.cweName ? ` (${standards.cweName})` : ''}`,
+          standards.owasp && `OWASP ${standards.owasp} ${standards.owaspName}`, standards.top25 && `CWE Top 25 (2025) #${standards.top25.rank}`].filter(Boolean).join(' · ')}`);
+      }
+      const pkg = finding.package;
+      if (pkg) {
+        if (pkg.fixed) lines.push(`- **Fixed in:** ${pkg.fixed}`);
+        if (pkg.advisories.length) lines.push(`- **Advisories:** ${pkg.advisories.join(', ')}`);
+      }
+      if (finding.risk && RISK_BAND[finding.risk.band]) lines.push(`- **Risk:** ${finding.risk.score}/100, ${RISK_BAND[finding.risk.band].word.toLowerCase()}`);
+      if (finding.exploited) lines.push(`- **Exploited in the wild:** yes${finding.ransomware ? ', used in ransomware campaigns' : ''}`);
+      if (Number.isFinite(finding.epss)) lines.push(`- **EPSS:** ${percent(finding.epss)}`);
+      if (finding.firstSeenAt) lines.push(`- **First seen:** ${String(finding.firstSeenAt).slice(0, 10)}`);
+      lines.push('');
+      if (finding.why) lines.push(finding.why, '');
+      if (finding.fix) lines.push(`**Fix:** ${finding.fix}`, '');
+      if (finding.prompt) lines.push('**Prompt for a coding assistant:**', '', '```text', finding.prompt, '```', '');
+    });
+    if (waived.length) {
+      lines.push('## Waived or triaged', '', 'Not scored. Kept for their clocks.', '', '| Rule | Finding | Where | How |', '| --- | --- | --- | --- |',
+        ...waived.map(finding => `| ${finding.rule} | ${cell(finding.title)} | \`${cell(keptPlace(finding))}\` | ${keptWaived(finding)} |`), '');
+    }
+    return `${lines.join('\n')}\n`;
+  }
+  function keptCsv(audit, findings) {
+    const rows = [['Audit', 'Commit', 'Status', 'Severity', 'Verdict', 'Rule', 'Title', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Package', 'Version', 'Fixed in', 'Advisories', 'Risk', 'Known exploited', 'EPSS', 'Dependency reach', 'First seen', 'Fix']];
+    for (const finding of findings) {
+      const standards = finding.standards || {};
+      const pkg = finding.package;
+      rows.push([audit.auditedAt, audit.commitSha, finding.waived ? keptWaived(finding) : 'open', finding.severity,
+        verdictOf(finding) === 'needs-validation' ? 'to confirm' : 'confirmed', finding.rule, finding.title, finding.category || '',
+        standards.cwe || '', standards.top25 ? `#${standards.top25.rank}` : '', standards.owasp || '',
+        finding.path || (pkg ? '' : 'whole repository'), finding.line || '', pkg ? pkg.name : '', pkg ? pkg.version : '', pkg && pkg.fixed ? pkg.fixed : '',
+        pkg ? pkg.advisories.join(' ') : '', finding.risk ? `${finding.risk.score} ${finding.risk.band || ''}`.trim() : '',
+        finding.package ? (finding.exploited ? 'yes' : 'no') : '', Number.isFinite(finding.epss) ? `${(finding.epss * 100).toFixed(2)}%` : '',
+        finding.reach || '', finding.firstSeenAt ? String(finding.firstSeenAt).slice(0, 10) : '', finding.fix || '']);
+    }
+    const notes = keptNotes(audit);
+    for (const note of notes) {
+      const row = Array(rows[0].length).fill('');
+      row[0] = audit.auditedAt; row[1] = audit.commitSha; row[2] = 'note'; row[6] = note;
+      rows.push(row);
+    }
+    return `${rows.map(cells => cells.map(csvCell).join(',')).join('\r\n')}\r\n`;
+  }
+  function keptSarif(audit, findings, meta = {}) {
+    const asFinding = finding => ({ ...finding, reach: null, detail: null, why: finding.why || finding.title, fix: finding.fix || '' });
+    const all = findings.map(asFinding);
+    const rules = sarifRules(all);
+    const index = new Map(rules.map((rule, at) => [rule.id, at]));
+    const place = finding => finding.path ? {
+      locations: [{ physicalLocation: { artifactLocation: { uri: finding.path, uriBaseId: 'SRCROOT' }, ...(finding.line ? { region: { startLine: finding.line } } : {}) } }]
+    } : {};
+    const results = all.map((finding, at) => {
+      const kept = findings[at];
+      const result = sarifResult(finding, index.get(finding.rule), place(finding),
+        finding.waived ? { reason: `${keptWaived(finding)[0].toUpperCase()}${keptWaived(finding).slice(1)}.` } : null);
+      Object.assign(result.properties, {
+        ...(finding.package ? { package: `${finding.package.name}@${finding.package.version}`, advisories: finding.package.advisories, ...(finding.package.fixed ? { fixedIn: finding.package.fixed } : {}), knownExploited: Boolean(finding.exploited) } : {}),
+        ...(finding.risk ? { risk: finding.risk.score, riskBand: finding.risk.band } : {}),
+        ...(Number.isFinite(finding.epss) ? { epss: finding.epss } : {}),
+        ...(kept.reach ? { dependencyReach: kept.reach } : {}),
+        ...(finding.firstSeenAt ? { firstSeen: finding.firstSeenAt } : {})
+      });
+      return result;
+    });
+    const run = {
+      tool: { driver: { name: 'Nebulaverse-X Uranus', informationUri: meta.informationUri || 'https://github.com/T-rex-G/Nebula-checkpoints', semanticVersion: audit.engine, rules } },
+      automationDetails: { id: `nebulaverse-audit/${audit.ref}/${audit.id}` },
+      ...(meta.repositoryUri ? { versionControlProvenance: [{ repositoryUri: meta.repositoryUri, revisionId: audit.commitSha, branch: audit.ref }] } : {}),
+      originalUriBaseIds: { SRCROOT: { uri: 'file:///' } },
+      invocations: [{ executionSuccessful: true, endTimeUtc: audit.auditedAt }],
+      results,
+      properties: { kept: true, grade: audit.grade, score: audit.score, ...(audit.capReason ? { capReason: audit.capReason } : {}), engine: `Uranus ${audit.engine}`,
+        findingsKept: audit.findings ? audit.findings.stored : results.length, findingsTotal: audit.findings ? audit.findings.total : results.length }
+    };
+    return JSON.stringify({ $schema: 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0', runs: [run] }, null, 2);
+  }
+
+  /*
    * The bill of materials, in the two formats supply-chain tools read. Every
    * component the manifests and lockfiles name, by package URL, with its
    * licence where the lockfile states one, what it depends on, and -- in
@@ -3949,7 +4158,7 @@
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, update, progress, siteProgress, renderSiteScan, brief, sarif, csv, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
+  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, update, progress, siteProgress, renderSiteScan, brief, sarif, csv, keptBrief, keptCsv, keptSarif, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaCodeAudit;

@@ -440,3 +440,25 @@ test('the Neural view drops the trust bar and keeps its header to one compact ba
   else await page.locator('#bottomNav button[data-nav="editor"]').click();
   await expect(page.locator('#trustSummary')).toBeVisible();
 });
+
+/*
+ * With the file tree open beside a laptop-width pane the Neural columns stack,
+ * and the rail used to come first: the graph began a thousand pixels down,
+ * past the bottom of the window. The graph leads, and the mode descriptions
+ * wrap rather than trail off in an ellipsis.
+ */
+test('beside an open file tree the graph leads the stacked Neural layout', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/neural');
+  await expect(page.locator('#neuralStage')).toBeVisible();
+  const layout = await page.evaluate(() => {
+    const top = selector => document.querySelector(selector).getBoundingClientRect().top;
+    const mode = document.querySelector('.neural-mode small');
+    return { stage: top('#neuralStage'), rail: top('#neuralRail'), viewport: innerHeight, clipped: getComputedStyle(mode).textOverflow === 'ellipsis' };
+  });
+  expect(layout.stage, 'the graph comes before the rail').toBeLessThan(layout.rail);
+  expect(layout.stage, 'and begins inside the window').toBeLessThan(layout.viewport - 200);
+  expect(layout.clipped).toBe(false);
+});

@@ -126,7 +126,7 @@ const ui = require('../public/code-audit-ui');
   assert.match(waivedBrief, /\*\*What is unknown\.\*\* .+\n\n\*\*How to confirm\.\*\* /);
   assert.match(waivedBrief, /## Coverage\n\n\| Class \| Status \| What was read \|/);
   assert.match(waivedBrief, /\| Business logic \| Not assessed \|/);
-  assert.match(waivedBrief, /by Uranus 2\.2\.0\.\n\d+ confirmed, \d+ to confirm\./);
+  assert.match(waivedBrief, /by Uranus 2\.3\.0\.\n\d+ confirmed, \d+ to confirm\./);
   assert.match(waivedBrief, /\| SEC-005 \| .+ \| `src\/nonce\.js:1` \| display nonce \\\| not a secret \|/, 'a pipe in the reason cannot break the table');
 
   /* SARIF 2.1.0: rules once each, tagged with their CWE; results at file and line; a waiver as an in-source suppression. */
@@ -160,7 +160,7 @@ const ui = require('../public/code-audit-ui');
   assert.strictEqual(lead.properties.verdict, 'needs-validation');
   assert(lead.properties.howToConfirm.length > 20);
   assert(!lead.codeFlows);
-  assert.strictEqual(repoRun.properties.engine, 'Uranus 2.2.0');
+  assert.strictEqual(repoRun.properties.engine, 'Uranus 2.3.0');
   assert(repoRun.properties.coverage.some(entry => entry.class === 'logic' && entry.status === 'not-assessed'));
   assert.strictEqual(repoRun.tool.driver.rules[sqlResult.ruleIndex].id, 'SEC-001', 'ruleIndex points at its rule');
   assert(sqlResult.partialFingerprints['nebulaverseFinding/v1']);
@@ -294,6 +294,40 @@ const ui = require('../public/code-audit-ui');
   assert.strictEqual(changed.resolved, 1);
   assert.strictEqual(changed.newIds.size, result.findings.length - 1);
   assert.strictEqual(ui.storageKey('Sandbox/Demo'), 'nv_audit:sandbox/demo');
+
+  /* A kept audit exports from what it kept, says so, and says when fewer findings were kept than found. */
+  {
+    const { describeKept } = require('../src/code-audit-history');
+    const audit = { id: '00000000-0000-4000-8000-000000000001', ref: 'main', commitSha: 'a'.repeat(40), engine: '2.3.0', auditedAt: '2026-10-01T10:00:00.000Z',
+      score: 41, grade: 'F', capReason: 'critical', counts: { critical: 1, serious: 1, warning: 4 }, toConfirm: 1, exploited: 1,
+      files: { read: 40, eligible: 40, complete: true }, findings: { total: 6, stored: 3 } };
+    const findings = [
+      { id: 'f1', rule: 'SEC-001', title: 'A SQL statement is built by string interpolation', category: 'code', severity: 'critical', verdict: 'confirmed', path: 'api/users.js', line: 4, package: null, risk: null, reach: null, exploited: false, ransomware: false, epss: null, firstSeenAt: '2026-09-20T00:00:00.000Z', waived: null },
+      { id: 'f2', rule: 'DEP-003', title: 'A dependency has a published vulnerability', category: 'dependencies', severity: 'serious', verdict: 'confirmed', path: 'package-lock.json', line: 12,
+        package: { ecosystem: 'npm', name: 'jquery', version: '3.4.1', fixed: '3.5.0', advisories: ['GHSA-gxr4-xjj5-5px2'], cves: ['CVE-2020-11022'], cvss: 6.1 }, risk: { score: 71, band: 'high' }, reach: 'bundled', exploited: true, ransomware: false, epss: 0.0212, firstSeenAt: '2026-09-20T00:00:00.000Z', waived: null },
+      { id: 'f3', rule: 'SEC-005', title: 'A non-cryptographic random number generates a secret value', category: 'code', severity: 'warning', verdict: 'confirmed', path: 'src/nonce.js', line: 1, package: null, risk: null, reach: null, exploited: false, ransomware: false, epss: null, firstSeenAt: null, waived: 'triage' }
+    ].map(describeKept);
+    assert(findings.every(finding => finding.why && finding.fix && finding.prompt && finding.standards), 'each kept finding carries its rule’s words');
+    assert(findings[1].prompt.includes('jquery 3.4.1 -- GHSA-gxr4-xjj5-5px2; fixed in 3.5.0'));
+    const keptBrief = ui.keptBrief(audit, findings, 'sandbox/demo (main)');
+    assert(keptBrief.includes('Grade **F** — 41/100 (held below 50 by a confirmed critical finding).'));
+    assert(keptBrief.includes('3 of 6 findings were kept, the most severe first'));
+    assert(keptBrief.includes('`jquery 3.4.1 (package-lock.json)`'));
+    assert(keptBrief.includes('- **Exploited in the wild:** yes'));
+    assert(keptBrief.includes('| SEC-005 | A non-cryptographic random number generates a secret value | `src/nonce.js:1` | triaged by the team |'));
+    assert(!/## \d+\. A non-cryptographic/.test(keptBrief), 'a triaged finding is not listed as open');
+    const keptRows = ui.keptCsv(audit, findings).trim().split('\r\n');
+    assert.strictEqual(keptRows.length, 1 + findings.length + 1, 'a row per kept finding and one for the note');
+    assert(keptRows[2].includes('jquery,3.4.1,3.5.0,GHSA-gxr4-xjj5-5px2,71 high,yes,2.12%,bundled'));
+    assert(keptRows[3].includes('triaged by the team'));
+    assert(keptRows[4].includes('3 of 6 findings were kept'));
+    const keptRun = JSON.parse(ui.keptSarif(audit, findings, { repositoryUri: 'https://github.com/sandbox/demo' })).runs[0];
+    assert.strictEqual(keptRun.properties.findingsKept, 3);
+    assert.strictEqual(keptRun.properties.findingsTotal, 6);
+    assert.strictEqual(keptRun.results[1].properties.dependencyReach, 'bundled');
+    assert.strictEqual(keptRun.results[2].suppressions[0].justification, 'Triaged by the team.');
+    assert.strictEqual(keptRun.versionControlProvenance[0].revisionId, audit.commitSha);
+  }
 
   console.log('code audit UI tests passed');
 })().catch(error => {

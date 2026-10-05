@@ -36,7 +36,38 @@ const GOVERNANCE_SCOPE = Object.freeze({
   scopeKey: 'github:github.com:sandbox/demo'
 });
 
-function governanceTwinPayload(now = new Date()) {
+/*
+ * A governance history a team builds over weeks: dozens of activations and
+ * switch-offs, a full page of runtime decisions with more behind it. The
+ * populated twin above has one of each, which is not what a long-lived
+ * repository's pane has to hold.
+ */
+function busyGovernance(data, now) {
+  const at = minutes => new Date(now.getTime() - minutes * 60_000).toISOString();
+  const policyId = data.policies[0].policy_id;
+  data.activations = Array.from({ length: 34 }, (_, index) => ({
+    seq: 100 - index, policy_id: index % 3 === 2 ? data.policies[1].policy_id : policyId,
+    version_id: `3000000${index % 10}-0000-4000-8000-0000000000${String(10 + index).padStart(2, '0')}`,
+    action: index % 4 === 1 ? 'deactivate' : index % 4 === 3 ? 'rollback' : 'activate',
+    actor_login: index % 2 ? 'alpha-tester' : 'release-bot', created_at: at(40 + index * 95)
+  }));
+  const actions = ['branch.reset', 'pull.merge', 'file.write', 'branch.delete', 'release.publish'];
+  const outcomes = ['allow', 'warn', 'block', 'allow', 'allow'];
+  data.decisions = Array.from({ length: 25 }, (_, index) => ({
+    seq: 400 - index, action: actions[index % actions.length], enforcement_outcome: outcomes[index % outcomes.length],
+    effective_effect: outcomes[index % outcomes.length] === 'allow' ? 'allow' : 'deny', evaluated_at: at(5 + index * 17), decision_hash: `${(index % 10)}`.repeat(64)
+  }));
+  data.nextDecisionSeq = 375;
+  return data;
+}
+function busyNotifications(now) {
+  const types = ['policy.activated', 'exception.approved', 'policy.deactivated', 'version.submitted', 'review.approved'];
+  return Array.from({ length: 30 }, (_, index) => ({
+    seq: 300 - index, eventType: types[index % types.length], createdAt: new Date(now.getTime() - (10 + index * 45) * 60_000).toISOString(), eventHash: `${index % 10}`.repeat(64)
+  }));
+}
+
+function governanceTwinPayload(now = new Date(), busy = false) {
   const asOf = now.toISOString();
   const later = new Date(now.getTime() + 86_400_000).toISOString();
   const earlier = new Date(now.getTime() - 3_600_000).toISOString();
@@ -61,6 +92,7 @@ function governanceTwinPayload(now = new Date()) {
     completeness: { policies: true, versions: true, drafts: true, exceptions: true, activations: true, decisions: true },
     nextDecisionSeq: 8
   };
+  if (busy) busyGovernance(data, now);
   const digitalTwin = buildPolicyDigitalTwinReadModel({
     scope: GOVERNANCE_SCOPE, data, options: { historyLimit: 25, afterDecisionSeq: 0 }
   });
@@ -117,7 +149,7 @@ const VALID = Object.freeze({
    * failure. 'populated' serves a real read model, which is the surface the
    * reader actually uses and which nothing had ever drawn.
    */
-  governance: new Set(['unavailable', 'populated']),
+  governance: new Set(['unavailable', 'populated', 'busy']),
   /*
    * Triage: 'reviewer' may decide about findings, 'reader' sees the team's
    * decisions and may not make one. And the clocks: 'fresh' findings were
@@ -236,7 +268,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
    * the server uses (src/code-audit-history.js) and answered in the same
    * shapes, so the page is tested against what a database would give it.
    */
-  const { compactAudit, serialize } = require('../../src/code-audit-history');
+  const { compactAudit, serialize, describeKept } = require('../../src/code-audit-history');
   state.auditHistory = [];
   const recordAudit = result => {
     const compact = compactAudit(result);
@@ -316,8 +348,8 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
      * Opt-in, keyed off the scenario, because the pane's existing guard is
      * about how the FAILURE state lays out and must keep getting the failure.
      */
-    if (/\/governance\/digital-twin$/.test(pathname) && scenario.governance === 'populated') {
-      return fulfill(governanceTwinPayload());
+    if (/\/governance\/digital-twin$/.test(pathname) && (scenario.governance === 'populated' || scenario.governance === 'busy')) {
+      return fulfill(governanceTwinPayload(new Date(), scenario.governance === 'busy'));
     }
     /*
      * The four delivery endpoints the pane fans out to after the twin loads.
@@ -325,12 +357,28 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
      * audit exports and administrative webhooks -- around an error string
      * instead of around content, which is not the layout anybody sees.
      */
-    if (scenario.governance === 'populated') {
+    if (scenario.governance === 'populated' || scenario.governance === 'busy') {
       if (/\/governance\/notifications$/.test(pathname)) {
+        if (scenario.governance === 'busy') {
+          const events = busyNotifications(new Date());
+          return fulfill({ events, unreadCount: events.filter(item => item.seq > (state.governanceReadThrough || 0)).length, nextSeq: 301 });
+        }
         return fulfill({ events: [], unreadCount: 0, nextSeq: 1 });
       }
       if (/\/governance\/notifications\/preferences$/.test(pathname) && method === 'GET') {
-        return fulfill({ preferences: { enabled: true, eventTypes: ['policy.activated', 'exception.approved'] } });
+        return fulfill({ preferences: { enabled: true, eventTypes: ['policy.activated', 'exception.approved'], lastReadSeq: state.governanceReadThrough || 0 } });
+      }
+      if (/\/governance\/notifications\/read$/.test(pathname) && method === 'POST') {
+        const body = JSON.parse(request.postData() || '{}');
+        state.governanceReadThrough = Math.max(state.governanceReadThrough || 0, Number(body.throughSeq) || 0);
+        return fulfill({ preferences: { enabled: true, eventTypes: ['policy.activated', 'exception.approved'], lastReadSeq: state.governanceReadThrough } });
+      }
+      if (/\/governance\/exports$/.test(pathname) && method === 'GET' && scenario.governance === 'busy') {
+        return fulfill({ exports: Array.from({ length: 14 }, (_, index) => ({
+          exportId: `7000000${index % 10}-0000-4000-8000-0000000000${String(10 + index).padStart(2, '0')}`,
+          format: index % 3 ? 'json' : 'csv', eventCount: 12 + index, recorded: true,
+          createdAt: new Date(Date.now() - (2 + index * 26) * 3_600_000).toISOString(), envelopeHash: `${index % 10}`.repeat(64)
+        })) });
       }
       if (/\/governance\/exports$/.test(pathname) && method === 'GET') {
         return fulfill({ exports: [{
@@ -622,7 +670,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         const entry = state.auditHistory.find(item => item.row.audit_id === one[1]);
         if (!entry) return fulfill(publicError('CODE_AUDIT_NOT_FOUND', 'That audit is not kept for this repository'), 404);
         const order = { critical: 0, serious: 1, warning: 2 };
-        return fulfill({ audit: serialize.audit(entry.row), findings: entry.findings.map(serialize.finding).sort((a, b) => order[a.severity] - order[b.severity]) });
+        return fulfill({ audit: serialize.audit(entry.row), findings: entry.findings.map(serialize.finding).map(describeKept).sort((a, b) => order[a.severity] - order[b.severity]) });
       }
     }
     if (pathname === '/api/code-audit/score' && method === 'POST') {

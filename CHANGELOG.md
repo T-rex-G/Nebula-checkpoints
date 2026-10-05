@@ -8,7 +8,8 @@
   started* and an outlined *See how it works* that scrolls to the played
   audit, the way product sites set a primary and a secondary action; the
   readiness state and its note sit on one line beneath them. The closing call
-  repeats the same pair and names the same way in as the card it returns to.
+  repeats the same pair; with entry open its *Get started* is the same way
+  through, not a scroll back to the card's.
 - **One fluid frame.** The landing's width, gutter and reading measure are
   three numbers rather than breakpoints: content grows to 1600px, the gutter
   scales from 16px to 80px with the screen, reading sections stop at 1280px,

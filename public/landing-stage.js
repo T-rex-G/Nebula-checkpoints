@@ -394,13 +394,18 @@
   }));
 
   /*
-   * The closing call returns the reader to the card at the top and puts them
-   * in its first control -- the invitation, or the way through when entry is
-   * open -- rather than leaving them to find it.
+   * The closing call. With the gate on it returns the reader to the card at
+   * the top and puts them in its first control, the invitation, rather than
+   * leaving them to find it. With entry open it is named for the way through
+   * ("Get started", "Open your workspace") and is that way through: two
+   * buttons with one name doing two different things is a promise broken.
    */
   const jumps = typeof document.querySelectorAll === 'function' ? document.querySelectorAll('[data-lp-jump]') : [];
   jumps.forEach(button => {
     button.addEventListener('click', () => {
+      const open = document.getElementById('alphaOpenAccess');
+      const through = document.getElementById('alphaPassThrough');
+      if (open && !open.hidden && through && !through.disabled) { through.click(); return; }
       const target = document.querySelector('.lp-card');
       if (!target) return;
       const still = root.dataset.motion === 'off' || (reducedMotion && reducedMotion.matches);

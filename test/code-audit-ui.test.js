@@ -126,7 +126,7 @@ const ui = require('../public/code-audit-ui');
   assert.match(waivedBrief, /\*\*What is unknown\.\*\* .+\n\n\*\*How to confirm\.\*\* /);
   assert.match(waivedBrief, /## Coverage\n\n\| Class \| Status \| What was read \|/);
   assert.match(waivedBrief, /\| Business logic \| Not assessed \|/);
-  assert.match(waivedBrief, /by Uranus 2\.3\.0\.\n\d+ confirmed, \d+ to confirm\./);
+  assert.match(waivedBrief, /by Uranus 2\.4\.0\.\n\d+ confirmed, \d+ to confirm\./);
   assert.match(waivedBrief, /\| SEC-005 \| .+ \| `src\/nonce\.js:1` \| display nonce \\\| not a secret \|/, 'a pipe in the reason cannot break the table');
 
   /* SARIF 2.1.0: rules once each, tagged with their CWE; results at file and line; a waiver as an in-source suppression. */
@@ -160,7 +160,7 @@ const ui = require('../public/code-audit-ui');
   assert.strictEqual(lead.properties.verdict, 'needs-validation');
   assert(lead.properties.howToConfirm.length > 20);
   assert(!lead.codeFlows);
-  assert.strictEqual(repoRun.properties.engine, 'Uranus 2.3.0');
+  assert.strictEqual(repoRun.properties.engine, 'Uranus 2.4.0');
   assert(repoRun.properties.coverage.some(entry => entry.class === 'logic' && entry.status === 'not-assessed'));
   assert.strictEqual(repoRun.tool.driver.rules[sqlResult.ruleIndex].id, 'SEC-001', 'ruleIndex points at its rule');
   assert(sqlResult.partialFingerprints['nebulaverseFinding/v1']);

@@ -82,7 +82,7 @@ const licences = require('./licences');
 const auditPolicy = require('./code-audit-policy');
 
 /* The engine's name and version, carried in every result and export. */
-const ENGINE = Object.freeze({ name: 'Uranus', version: '2.3.0' });
+const ENGINE = Object.freeze({ name: 'Uranus', version: '2.4.0' });
 
 const CATEGORIES = Object.freeze([
   Object.freeze({ id: 'supply-chain', label: 'Supply chain', weight: 0.15 }),
@@ -98,6 +98,17 @@ const CATEGORIES = Object.freeze([
 
 const SEVERITY_PENALTY = Object.freeze({ critical: 40, serious: 20, warning: 6 });
 const CRITICAL_CAP = 49;
+/*
+ * Confirmed serious findings hold the grade down too, by how many are open.
+ * The grade is a weighted mean of seven categories, so serious findings
+ * gathered in one category were spread thin: nine of them in Code security
+ * could still average out to an A, under a headline that said "9 serious
+ * issues to fix". The letter now never says less than the findings do: one
+ * or two confirmed serious findings hold it to B at best, three to five to C,
+ * six or more to D. Leads to confirm do not count, as they do not for the
+ * critical cap.
+ */
+const SERIOUS_CAPS = Object.freeze([[6, 69], [3, 79], [1, 89]]);
 const GRADES = Object.freeze([['A', 90], ['B', 80], ['C', 70], ['D', 60], ['F', 0]]);
 
 const LIMITS = Object.freeze({
@@ -2491,9 +2502,15 @@ function score(findings) {
   /* A vulnerability being exploited in the wild, in something that ships, holds the grade down like a confirmed critical. */
   const exploited = findings.some(exploitedInProduction);
   const held = critical || exploited;
-  const total = held ? Math.min(mean, CRITICAL_CAP) : mean;
-  const capped = held && mean > CRITICAL_CAP;
-  return { score: total, grade: gradeOf(total), capped, capReason: capped ? (critical ? 'critical' : 'exploited') : null, categories };
+  /* Only categories the grade weighs count: a licence is compliance, and never moves the grade. */
+  const graded = new Set(CATEGORIES.filter(category => category.weight > 0).map(category => category.id));
+  const serious = findings.filter(finding => finding.severity === 'serious' && finding.verdict !== 'needs-validation' && graded.has(finding.category)).length;
+  const seriousCap = (SERIOUS_CAPS.find(([atLeast]) => serious >= atLeast) || [0, 100])[1];
+  const ceiling = held ? CRITICAL_CAP : seriousCap;
+  const total = Math.min(mean, ceiling);
+  const capped = mean > ceiling;
+  const capReason = capped ? (held ? (critical ? 'critical' : 'exploited') : 'serious') : null;
+  return { score: total, grade: gradeOf(total), capped, capReason, categories };
 }
 
 /*
@@ -3371,7 +3388,7 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
 }
 
 module.exports = Object.freeze({
-  ENGINE, CATEGORIES, RULES, LIMITS, CRITICAL_CAP, SEVERITY_PENALTY, PATTERN_RULES, LEDGER,
+  ENGINE, CATEGORIES, RULES, LIMITS, CRITICAL_CAP, SERIOUS_CAPS, SEVERITY_PENALTY, PATTERN_RULES, LEDGER,
   analyse, score, priorities, scanRules, mergeScans, auditRepository, selectFiles, lookupPackages, lookupAdvisories, queryAdvisoryIds, fetchAdvisoryRecords, describeAdvisory, advisoryKey, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
   compareVersions, rangeCeiling, rangeFloor, cvss3, sqlStatements
 });

@@ -199,8 +199,11 @@ unit suite fails if any case regresses. A finding
 is `confirmed` when the file states it or the whole path was traced, and `to
 confirm` when one decisive fact is out of reach; a lead names that fact and the
 local check that settles it, weighs half, and is exported to SARIF as a note to
-review. The grade is held below 50 only while a confirmed critical finding, or
-a vulnerability exploited in the wild in a package that ships, is open, and the result carries a coverage ledger -- each class of attack traced,
+review. The grade is held below 50 while a confirmed critical finding, or
+a vulnerability exploited in the wild in a package that ships, is open; confirmed
+serious findings hold it too, by how many are open -- one or two to B at best,
+three to five to C, six or more to D -- so the letter never says less than the
+findings do. The result carries a coverage ledger -- each class of attack traced,
 pattern-checked, absent or not assessed -- so a clean list is never read as a
 clean repository. It states how much of the branch, how many packages and how
 many versions it checked. The audit runs as a job the page follows by run id,

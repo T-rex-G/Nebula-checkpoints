@@ -2332,6 +2332,21 @@ check('the landing scrolls without frosted surfaces or filtered strokes', () => 
   assert.ok(halo && !/filter\s*:/.test(halo[1]), 'the map halo is a blur filter again');
   assert.ok(/@media \(hover:none\), \(max-width:720px\)\{\s*\.lp-map-flow,\.lp-map-arcs\{animation:none\}/.test(cssSource),
     'the map keeps repainting its strokes under a finger that is scrolling the page');
+  /* The glass that sits over a moving scene is opaque enough not to need a blur of what moves under it. */
+  const frosted = rules.filter(rule => /backdrop-filter\s*:\s*(?!none)/.test(rule.body)
+    && eachSelector(rule).some(one => /\.lp-(chip|system|entry-row|play-card|step)\b/.test(one.selector)));
+  assert.deepStrictEqual(frosted.map(rule => rule.selector), [],
+    'a landing surface over the galaxy, the singularity or the drifting light blurs it again on every frame');
+  /*
+   * The hero's ambient motion never stops while the page is open, so it runs
+   * only where the visuals loader has measured the device keeping up
+   * (data-ambient="on"); drawn on a CPU it froze a WebKit build outright.
+   */
+  const ambient = rules.filter(rule => /\binfinite\b/.test(rule.body)
+    && eachSelector(rule).some(one => /\.lp-(aurora|eyebrow-dot|title em|entry-row|chip)\b/.test(one.selector)));
+  assert.ok(ambient.length >= 5, 'the hero lost its ambient motion, or this check no longer finds it');
+  assert.deepStrictEqual(ambient.filter(rule => !/\[data-ambient="on"\]/.test(rule.selector)).map(rule => rule.selector), [],
+    'a never-ending hero animation runs on a device that has not shown it can keep up');
 });
 
 console.log(failures ? `\n${failures} failed` : '\nall passed');

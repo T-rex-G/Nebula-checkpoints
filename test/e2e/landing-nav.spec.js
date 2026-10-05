@@ -120,13 +120,14 @@ test('with motion off the promise is simply there', async ({ page }) => {
 /*
  * The path under the hero -- 01 Connect, 02 Understand, 03 Prove -- is read as
  * one row, so it has to look like one. Two defects were photographed there:
- * the horizon's rim was drawn straight through the row (across "01" and "03"
- * on a desktop, into the dividers on a phone), and each number sat lower than
- * its title because it spanned two grid rows. The rim's highest point is where
- * it can first touch the row; the baseline is found with a zero-height probe,
- * which sits exactly on it.
+ * a horizon's rim drawn straight through the row (across "01" and "03" on a
+ * desktop, into the dividers on a phone), and each number sitting lower than
+ * its title because it spanned two grid rows. The horizon is now the arc the
+ * singularity rises from, at the head of the next section; its apex is the
+ * top of the circle that draws it, which is where it can first touch the row.
+ * The baseline is found with a zero-height probe, which sits exactly on it.
  */
-test('the horizon passes under the steps, and each number sits on its title', async ({ page }) => {
+test('the arc passes under the steps, and each number sits on its title', async ({ page }) => {
   /*
    * The settled layout, not a frame of the reveal: the row arrives with a
    * short rise from translateY(18px), and a box read mid-rise is up to 18px
@@ -140,8 +141,8 @@ test('the horizon passes under the steps, and each number sits on its title', as
     .filter(animation => animation.effect && animation.effect.getTiming().iterations !== Infinity)
     .map(animation => animation.finished.catch(() => null))));
   const placed = await page.evaluate(() => {
-    const horizon = document.querySelector('.lp-horizon');
-    const apex = horizon.getBoundingClientRect().top + parseFloat(getComputedStyle(horizon, '::before').top);
+    const arc = document.querySelector('.lp-orbit-fallback');
+    const apex = arc.getBoundingClientRect().top;
     const steps = document.querySelector('.lp-steps').getBoundingClientRect();
     const baseline = el => {
       const probe = document.createElement('span');
@@ -153,6 +154,8 @@ test('the horizon passes under the steps, and each number sits on its title', as
     };
     return {
       clear: apex - steps.bottom,
+      /* The arc is measured once and shared: the CSS circle and the scene's horizon are the same numbers. */
+      shared: getComputedStyle(document.querySelector('.lp-orbit-stick')).getPropertyValue('--arc-top').trim(),
       rows: [...document.querySelectorAll('.lp-step')].map(step => ({
         number: baseline(step.querySelector('.lp-step-n')),
         title: baseline(step.querySelector('.lp-step-t')),
@@ -162,6 +165,7 @@ test('the horizon passes under the steps, and each number sits on its title', as
     };
   });
   expect(placed.clear).toBeGreaterThanOrEqual(24);
+  expect(placed.shared).toMatch(/^\d+(\.\d+)?px$/);
   expect(placed.rows).toHaveLength(3);
   const phone = page.viewportSize().width < 940;
   placed.rows.forEach(row => {

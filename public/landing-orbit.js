@@ -2,11 +2,16 @@
  * The landing's singularity section, driven by the scroll.
  *
  * The section is taller than the screen and its stage is sticky, so how far
- * the reader has scrolled through it is a number from 0 to 1. That number
- * banks the black hole (handed to <nebula-singularity> as its `progress`),
- * lights the six systems one by one, and readies the gate at the end. The scene
- * itself is fetched through the visuals loader, which first asks whether this
- * device can draw it; without it the stage keeps its CSS horizon.
+ * the reader has scrolled through it is a number from 0 to 1. The section
+ * opens on the arc the hero ends with, and the arc is the black hole's edge:
+ * this file measures it once (its apex and radius, from the stage's size) and
+ * hands the same two numbers to the CSS that draws it before the scene loads
+ * and to <nebula-singularity> that draws it after, so the two meet exactly.
+ * As the reader scrolls, the space around the hole darkens (--orbit-sky:
+ * on paper the page goes dark as it crosses the horizon), the camera pulls
+ * back, the six systems light one by one, and the gate readies at the end.
+ * The scene is fetched through the visuals loader, which first asks whether
+ * this device can draw it; without it the stage keeps its CSS horizon.
  *
  * Content never depends on any of this: every system is in the markup, lit,
  * so without script -- or with motion off -- the reader gets all six at once.
@@ -27,9 +32,31 @@
   const reduced = global.matchMedia ? global.matchMedia('(prefers-reduced-motion: reduce)') : null;
   const still = () => root.dataset.motion === 'off' || !!(reduced && reduced.matches);
   const art = document.getElementById('lpOrbitArt');
+  const stage = section && section.querySelector('.lp-orbit-stick');
   const systems = section ? [...section.querySelectorAll('.lp-system')] : [];
   let frame = 0;
   let mounted = false;
+  let arc = null;
+
+  const smooth = value => { const v = Math.min(1, Math.max(0, value)); return v * v * (3 - 2 * v); };
+
+  /*
+   * The arc, from the stage's own size: its apex a fifth of the way down (a
+   * sixth on a phone) and a radius wide enough that it reads as a horizon
+   * rather than a ball -- three quarters of a desk's width, more than a
+   * phone's whole width so the curve stays shallow there.
+   */
+  function measureArc() {
+    if (!stage) return null;
+    const width = stage.clientWidth || global.innerWidth;
+    const height = stage.clientHeight || global.innerHeight;
+    const narrow = width < 700;
+    const top = Math.round(narrow ? Math.min(150, height * 0.16) : Math.min(220, Math.max(120, height * 0.2)));
+    const radius = Math.round(narrow ? Math.max(width * 1.35, height * 0.72) : Math.max(width * 0.78, height * 0.92));
+    stage.style.setProperty('--arc-top', `${top}px`);
+    stage.style.setProperty('--arc-r', `${radius}px`);
+    return { top, radius, width, height };
+  }
 
   function sectionProgress() {
     const box = section.getBoundingClientRect();
@@ -45,20 +72,35 @@
       line.style.transform = `scaleY(${height > 0 ? Math.min(1, global.scrollY / height).toFixed(4) : 0})`;
     }
     if (!section) return;
+    if (!arc) arc = measureArc();
     const progress = sectionProgress();
     section.style.setProperty('--orbit-p', progress.toFixed(4));
+    /* The sky closes in over the first steps past the horizon, and opens to the page again as the section leaves. */
+    section.style.setProperty('--orbit-sky', smooth(progress / 0.16).toFixed(4));
+    section.style.setProperty('--orbit-tail', smooth((progress - 0.955) / 0.045).toFixed(4));
+    /* The fallback pulls back with the scene: from the arc to a disc in the middle of the stage. */
+    section.style.setProperty('--orbit-pull', smooth((progress - 0.12) / 0.3).toFixed(4));
     const calm = still();
-    /* The systems light in turn through the first four fifths; the gate is ready for the last. */
+    /* The systems light in turn once the hole has settled, through to the last fifth; the gate is ready for the last. */
     systems.forEach((system, index) => {
-      system.dataset.on = String(calm || progress >= (index + 0.5) / (systems.length + 1.6));
+      system.dataset.on = String(calm || progress >= 0.3 + index * (0.46 / Math.max(1, systems.length - 1)));
     });
-    section.dataset.ready = String(calm || progress > 0.78);
+    section.dataset.ready = String(calm || progress > 0.8);
     const scene = art && art.querySelector('nebula-singularity');
-    if (scene) scene.progress = progress;
+    if (scene) {
+      if (arc && scene.horizon === null) scene.horizon = arc;
+      scene.progress = progress;
+    }
   }
   const schedule = () => { if (!frame) frame = global.requestAnimationFrame(paint); };
+  const remeasure = () => {
+    arc = measureArc();
+    const scene = art && art.querySelector('nebula-singularity');
+    if (scene && arc) scene.horizon = arc;
+    schedule();
+  };
   global.addEventListener('scroll', schedule, { passive: true });
-  global.addEventListener('resize', schedule);
+  global.addEventListener('resize', remeasure);
   if (reduced && reduced.addEventListener) reduced.addEventListener('change', schedule);
   if (typeof MutationObserver === 'function') {
     new MutationObserver(schedule).observe(root, { attributes: true, attributeFilter: ['data-motion'] });
@@ -78,10 +120,12 @@
       mounted = true;
       near.disconnect();
       global.NebulaVisuals.mount('singularity', art).then(drawn => {
+        const scene = art.querySelector('nebula-singularity');
+        if (scene && arc) scene.horizon = arc;
         if (drawn && art.dataset.nebulaMounted === 'true') section.dataset.drawn = 'true';
         schedule();
       });
-    }, { rootMargin: '0px', threshold: 0 });
+    }, { rootMargin: '0px 0px -25% 0px', threshold: 0 });
     near.observe(section);
     art.addEventListener('nebula-visual-retired', () => { delete section.dataset.drawn; });
   }

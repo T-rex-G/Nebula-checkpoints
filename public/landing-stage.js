@@ -209,6 +209,34 @@
       step.appendChild(snap);
     });
     play.classList.add('is-cloned');
+    /*
+     * The rail the moves hang from: a line from the first move's number to
+     * the last one's, lit down to the reading line. Decoration, so it is
+     * drawn by the script that plays the scene; without script the moves
+     * stand on their own.
+     */
+    const body = play.querySelector('.lp-play-body');
+    const badges = steps.map(step => step.querySelector('.lp-play-n')).filter(Boolean);
+    let rail = null;
+    if (body && badges.length === steps.length) {
+      rail = document.createElement('div');
+      rail.className = 'lp-play-rail';
+      rail.setAttribute('aria-hidden', 'true');
+      rail.appendChild(document.createElement('i'));
+      rail.appendChild(document.createElement('b'));
+      body.appendChild(rail);
+    }
+    const placeRail = () => {
+      if (!rail) return;
+      const frame = body.getBoundingClientRect();
+      const first = badges[0].getBoundingClientRect();
+      const last = badges[badges.length - 1].getBoundingClientRect();
+      const top = first.top + first.height / 2 - frame.top;
+      rail.style.top = `${top.toFixed(1)}px`;
+      rail.style.height = `${Math.max(0, last.top + last.height / 2 - frame.top - top).toFixed(1)}px`;
+    };
+    /* Fonts, the snapshots and a turned phone all move the numbers; the rail follows them. */
+    if (rail && typeof global.ResizeObserver === 'function') new global.ResizeObserver(placeRail).observe(body);
     const count = playFrame.querySelector('.lp-au-count');
     const total = count ? Number(count.textContent) || 0 : 0;
     const stacked = global.matchMedia ? global.matchMedia('(max-width:939px)') : null;
@@ -236,9 +264,18 @@
         const gap = Math.abs((box.top + box.bottom) / 2 - line);
         if (gap < distance) { distance = gap; best = step; }
       }
+      if (rail) {
+        const box = rail.getBoundingClientRect();
+        const lit = box.height > 0 ? Math.max(0, Math.min(1, (line - box.top) / box.height)) : 0;
+        rail.style.setProperty('--play-p', lit.toFixed(4));
+      }
       if (!best || best.dataset.stage === current) return;
       current = best.dataset.stage;
-      steps.forEach(step => step.classList.toggle('is-current', step === best));
+      const reached = steps.indexOf(best);
+      steps.forEach((step, index) => {
+        step.classList.toggle('is-current', step === best);
+        step.classList.toggle('is-passed', index < reached);
+      });
       playFrame.dataset.stage = current;
       if (current === 'read') countUp();
     };
@@ -247,16 +284,18 @@
       queued = true;
       global.requestAnimationFrame(choose);
     };
+    const onResize = () => { placeRail(); onScroll(); };
     new IntersectionObserver(entries => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           play.classList.add('is-playing');
           global.addEventListener('scroll', onScroll, { passive: true });
-          global.addEventListener('resize', onScroll, { passive: true });
+          global.addEventListener('resize', onResize, { passive: true });
+          placeRail();
           onScroll();
         } else {
           global.removeEventListener('scroll', onScroll);
-          global.removeEventListener('resize', onScroll);
+          global.removeEventListener('resize', onResize);
         }
       });
     }, { threshold: 0 }).observe(play);

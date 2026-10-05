@@ -35,6 +35,15 @@
   a three-stop timeline; the alpha's limits are three cards; the questions
   are cards that light when open, beside a heading that holds; the close
   rises from the horizon the page opened on; and the footer maps the page.
+- **A tornado that moves like one.** The hero's vortex now turns one way
+  everywhere, and faster toward its axis: what it carries drifts slowly over
+  the wide base, races through the waist and slows again as the crown opens,
+  the way a real vortex keeps its flux. The strands are its streamlines, all
+  of one hand -- the crossed, woven lattice is gone -- and the light pulsing
+  along them keeps the same pace as the motes. The comets ride the same
+  streamlines, so their tails curve with the form and stretch through the
+  waist instead of slashing across it; the dust around the form wheels in
+  the same sense; and the motes shimmer rather than blink.
 - **No light bubbles behind the hero.** The three soft fields of colour that
   drifted behind the first screen -- one under the copy, one over the
   galaxy's shoulder -- are gone in both presets; the galaxy is the hero's

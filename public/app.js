@@ -1822,7 +1822,7 @@ async function purgeLocalData(full) {
       if (k.startsWith('nv_snap_') || k.startsWith('nv_incident_') ||
           k.startsWith('nv_draft:') || k.startsWith('nv_recent:') ||
           k.startsWith('nv_offline_repos:') || k.startsWith('nv_neural_layout') ||
-          k.startsWith('nv_audit:')) localStorage.removeItem(k);
+          k.startsWith('nv_audit:') || k.startsWith('nv_view:')) localStorage.removeItem(k);
     }
   } catch {}
   /* Offline writes are not identity-bound in v5.2. Clearing them on any account
@@ -3181,7 +3181,8 @@ const wPath = () => `${state.work.owner}/${state.work.repo}`;
 let governanceExpiryTimer = null;
 const GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS = Object.freeze([
   'refresh', 'select-policy', 'view-version', 'view-exception', 'verify-chain',
-  'load-more-decisions', 'delivery-refresh', 'download-export', 'verify-export'
+  'load-more-decisions', 'delivery-refresh', 'download-export', 'verify-export',
+  'ledger-tab', 'ledger-filter', 'ledger-more', 'ledger-clear', 'ledger-show-cleared', 'inbox-more', 'inbox-show-read', 'exports-all'
 ]);
 function applyGovernanceCapabilityBoundary(root) {
   if (!root) return;
@@ -4874,10 +4875,37 @@ function announceGovernance(message) {
   live.textContent = '';
   requestAnimationFrame(() => { live.textContent = String(message || ''); });
 }
+/*
+ * How this reader is looking at the governance lists: which ledger tab and
+ * filter, how far down, what they cleared from view. The view is not
+ * evidence -- the ledger is immutable on the server -- and the one thing kept
+ * between visits, the sequence each list was cleared through, is a number per
+ * repository under a prefix the account purge removes.
+ */
+const GOVERNANCE_LEDGER_VIEW = () => `nv_view:ledger:${String(state.governance.scopeKey || '').toLowerCase()}`;
+function freshGovernanceView() {
+  let cleared = {};
+  try { cleared = JSON.parse(localStorage.getItem(GOVERNANCE_LEDGER_VIEW()) || '{}') || {}; } catch { cleared = {}; }
+  const seq = value => (Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : 0);
+  return { tab: 'decisions', filter: 'all', limit: 0, showCleared: false, showRead: false, inboxLimit: 0, exportsAll: false,
+    cleared: { decisions: seq(cleared.decisions), activations: seq(cleared.activations) } };
+}
+function governanceView() {
+  if (!state.governance.view || state.governance.view.scope !== state.governance.scopeKey) {
+    state.governance.view = { ...freshGovernanceView(), scope: state.governance.scopeKey };
+  }
+  return state.governance.view;
+}
+function repaintGovernanceView(focusKey) {
+  renderGovernanceInterface();
+  const again = focusKey && $(`#govRoot [data-focus-key="${CSS.escape(focusKey)}"]`);
+  if (again && !again.disabled) again.focus({ preventScroll: true });
+}
 function renderGovernanceInterface() {
   const root = $('#govRoot');
   if (!root || !window.NebulaGovernanceUI) return;
   $('#govRoot').innerHTML = window.NebulaGovernanceUI.renderGovernanceInterface({
+    view: governanceView(),
     digitalTwin: state.governance.digitalTwin,
     access: state.governance.access,
     loading: state.governance.loading,
@@ -5466,7 +5494,22 @@ const governanceActionHandlers = Object.freeze({
   'restore-policy': button => restoreGovernancePolicy(button.dataset.policyId, button.dataset.name || 'this policy'),
   'discard-draft': button => discardGovernanceDraft(button.dataset.policyId, button.dataset.draftId, button.dataset.revision),
   'withdraw-version': button => withdrawGovernanceVersion(button.dataset.policyId, button.dataset.versionId, button.dataset.versionNumber),
-  'reset-governance': button => resetGovernance(button.dataset.total, button.dataset.running)
+  'reset-governance': button => resetGovernance(button.dataset.total, button.dataset.running),
+  'ledger-tab': button => { const view = governanceView(); if (view.tab !== button.dataset.tab) Object.assign(view, { tab: button.dataset.tab === 'activations' ? 'activations' : 'decisions', filter: 'all', limit: 0 }); repaintGovernanceView(button.dataset.focusKey); },
+  'ledger-filter': button => { Object.assign(governanceView(), { filter: button.dataset.filter, limit: 0 }); repaintGovernanceView(button.dataset.focusKey); },
+  'ledger-more': button => { const view = governanceView(); view.limit = (view.limit || 8) + 8; repaintGovernanceView(button.dataset.focusKey); },
+  'ledger-clear': button => {
+    const view = governanceView();
+    view.cleared = { ...view.cleared, [view.tab]: Math.max(Number(view.cleared[view.tab]) || 0, Number(button.dataset.through) || 0) };
+    Object.assign(view, { showCleared: false, limit: 0 });
+    try { localStorage.setItem(GOVERNANCE_LEDGER_VIEW(), JSON.stringify(view.cleared)); } catch {}
+    announceGovernance(`${view.tab === 'activations' ? 'Activations' : 'Runtime decisions'} cleared from view; the ledger keeps every entry`);
+    repaintGovernanceView('ledger-show-cleared');
+  },
+  'ledger-show-cleared': button => { const view = governanceView(); view.showCleared = !view.showCleared; repaintGovernanceView(button.dataset.focusKey); },
+  'inbox-more': button => { const view = governanceView(); view.inboxLimit = (view.inboxLimit || 6) + 6; repaintGovernanceView(button.dataset.focusKey); },
+  'inbox-show-read': button => { const view = governanceView(); view.showRead = !view.showRead; repaintGovernanceView(button.dataset.focusKey); },
+  'exports-all': button => { const view = governanceView(); view.exportsAll = !view.exportsAll; repaintGovernanceView(button.dataset.focusKey); }
 });
 const governanceRoot = $('#govRoot');
 if (governanceRoot) governanceRoot.addEventListener('click', async event => {

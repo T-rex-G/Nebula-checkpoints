@@ -249,29 +249,153 @@
       return `<article class="card gov-row"><div class="gov-row-main"><div class="gov-row-title"><strong>${escapeHtml(human(item.kind))} · ${escapeHtml(item.action)}</strong>${badge(item.state)}</div><span>Expires ${escapeHtml(formatTime(item.expiresAt))}</span><small>Requested ${escapeHtml(formatTime(item.createdAt))}</small></div><div class="gov-actions">${actionButton('view-exception', 'Inspect', ids)}${access.capabilities.administer && item.state === 'pending' ? actionButton('decide-exception', 'Decide', ids, 'primary') : ''}${access.capabilities.administer && item.state === 'approved' ? actionButton('revoke-exception', 'Revoke', ids, 'ghost') : ''}</div></article>`;
     }).join('')}</div></section>`;
   }
-  function renderHistory(twin, access, verification) {
+  /*
+   * The evidence ledger as a reader can work through it: one list at a time
+   * (runtime decisions or activations), filtered by outcome, a page at a time,
+   * newest first. A long-lived repository has hundreds of entries, and the
+   * old two timelines -- every activation with its own full-width rollback
+   * button -- ran the length of the page. "Clear from view" tidies the list
+   * for this reader only, up to the newest entry shown; the ledger itself is
+   * immutable, so every entry stays in exports and in chain verification and
+   * one press brings them back.
+   */
+  const LEDGER_PAGE = 8;
+  const OUTCOME = Object.freeze({ block: 'Blocked', warn: 'Warned', allow: 'Allowed' });
+  const ACTIVATION = Object.freeze({ activate: 'Activated', deactivate: 'Switched off', rollback: 'Rolled back' });
+  const ACTIVATION_TONE = Object.freeze({ activate: 'allow', deactivate: 'warn', rollback: 'info' });
+  function ago(value) {
+    const at = new Date(value).getTime();
+    if (!Number.isFinite(at)) return 'unknown time';
+    const minutes = Math.max(0, Math.round((Date.now() - at) / 60000));
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) return `${hours} h ago`;
+    return `${Math.round(hours / 24)} d ago`;
+  }
+  function ledgerControl(action, label, data, attrs = '') {
+    const ids = Object.entries(data).map(([key, value]) => ` data-${escapeAttr(key)}="${escapeAttr(value)}"`).join('');
+    return `<button type="button" data-gov-action="${escapeAttr(action)}"${ids}${attrs}>${label}</button>`;
+  }
+  function renderHistory(twin, access, verification, viewInput) {
     const history = asObject(twin.history);
-    const activations = asArray(history.activations);
-    const decisions = asArray(history.decisions);
+    const view = asObject(viewInput);
     const verify = asObject(verification);
-    return `<section class="gov-section" aria-labelledby="govHistoryTitle"><div class="gov-section-head"><div><h3 id="govHistoryTitle">Evidence history</h3><p>Activation and runtime decision references from the immutable ledger.</p></div><div class="gov-actions">${actionButton('verify-chain', verify.valid === true && verify.complete === true ? 'Chain verified' : 'Verify chain')}${history.nextDecisionSeq != null ? actionButton('load-more-decisions', 'Load more', { 'after-seq': history.nextDecisionSeq }) : ''}</div></div>${verify.valid != null ? `<div class="gov-banner ${verify.valid ? 'ok' : 'danger'}" role="status">${verify.valid ? (verify.complete === true ? 'Decision chain verified' : 'Decision chain valid through the configured verification limit') : 'Decision chain verification failed'}${verify.checked != null ? ` · ${count(verify.checked)} records checked` : ''}</div>` : ''}
-      <div class="gov-history-grid"><div class="card"><h4>Activations</h4>${activations.length ? `<ol class="gov-timeline">${activations.map(item => `<li><span class="gov-time">${escapeHtml(formatTime(item.createdAt))}</span><strong>${escapeHtml(item.action === 'deactivate' ? 'Switched off' : human(item.action))}</strong><small>${escapeHtml(item.actorLogin)} · ${escapeHtml(String(item.versionId || '').slice(0, 8))}</small>${access.capabilities.activate ? actionButton('rollback', item.action === 'deactivate' ? 'Turn this version back on' : 'Rollback to version', { 'policy-id': item.policyId, 'version-id': item.versionId }) : ''}</li>`).join('')}</ol>` : '<p class="gov-muted">No activation history.</p>'}</div>
-      <div class="card"><h4>Runtime decisions</h4>${decisions.length ? `<ol class="gov-timeline">${decisions.map(item => `<li><span class="gov-time">${escapeHtml(formatTime(item.evaluatedAt))}</span><strong>${escapeHtml(item.action)}</strong><small>${escapeHtml(human(item.enforcementOutcome))} · ${escapeHtml(human(item.effectiveEffect))} · ${escapeHtml(hashShort(item.decisionHash))}</small></li>`).join('')}</ol>` : '<p class="gov-muted">No runtime decisions.</p>'}</div></div>
+    const tab = view.tab === 'activations' ? 'activations' : 'decisions';
+    const decisions = asArray(history.decisions);
+    const activations = asArray(history.activations);
+    const all = tab === 'decisions' ? decisions : activations;
+    const cleared = count(asObject(view.cleared)[tab]);
+    const showCleared = view.showCleared === true;
+    const live = all.filter(item => count(item.seq) > cleared);
+    const pool = showCleared ? all : live;
+    const kindOf = item => (tab === 'decisions'
+      ? (String(item.enforcementOutcome || 'allow') in OUTCOME ? String(item.enforcementOutcome || 'allow') : 'allow')
+      : (String(item.action || 'activate') in ACTIVATION ? String(item.action || 'activate') : 'activate'));
+    const words = tab === 'decisions' ? OUTCOME : ACTIVATION;
+    const filter = view.filter && view.filter in words ? view.filter : 'all';
+    const filtered = filter === 'all' ? pool : pool.filter(item => kindOf(item) === filter);
+    const limit = Math.max(LEDGER_PAGE, count(view.limit) || LEDGER_PAGE);
+    const shown = filtered.slice(0, limit);
+    const policies = asArray(asObject(twin.current).policies);
+    const keyOf = id => { const policy = policies.find(item => item.policyId === id); return policy ? policy.policyKey : String(id || '').slice(0, 8); };
+    const activeOf = id => { const policy = policies.find(item => item.policyId === id); return policy ? asObject(policy.active).versionId : null; };
+
+    const tabs = [['decisions', 'Runtime decisions', decisions.length, history.nextDecisionSeq != null], ['activations', 'Activations', activations.length, false]]
+      .map(([id, label, n, more]) => ledgerControl('ledger-tab', `${escapeHtml(label)} <span class="gov-ledger-count">${n}${more ? '+' : ''}</span>`, { tab: id, 'focus-key': `ledger-tab:${id}` },
+        ` role="tab" id="govLedgerTab-${id}" aria-controls="govLedgerPanel" aria-selected="${id === tab}" class="gov-ledger-tab" tabindex="${id === tab ? 0 : -1}"`)).join('');
+    const chips = [['all', 'All', pool.length], ...Object.entries(words).map(([id, word]) => [id, word, pool.filter(item => kindOf(item) === id).length])]
+      .map(([id, word, n]) => ledgerControl('ledger-filter', `${escapeHtml(word)} <b>${n}</b>`, { filter: id, 'focus-key': `ledger-filter:${id}` },
+        ` class="gov-ledger-chip" data-tone="${id === 'all' ? 'neutral' : tab === 'decisions' ? id : ACTIVATION_TONE[id]}" aria-pressed="${id === filter}"${n || id === 'all' ? '' : ' disabled'}`)).join('');
+
+    const row = item => {
+      const kind = kindOf(item);
+      if (tab === 'decisions') {
+        return `<li class="gov-ledger-row" data-tone="${kind}"${count(item.seq) <= cleared ? ' data-cleared="true"' : ''}>
+          <span class="gov-ledger-mark" aria-hidden="true"></span>
+          <span class="gov-ledger-what"><strong class="mono">${escapeHtml(item.action)}</strong><small>${escapeHtml(human(item.effectiveEffect))} · ${escapeHtml(hashShort(item.decisionHash))}</small></span>
+          <span class="gov-ledger-state">${escapeHtml(OUTCOME[kind])}</span>
+          <time class="gov-ledger-when" datetime="${escapeAttr(item.evaluatedAt)}" title="${escapeAttr(formatTime(item.evaluatedAt))}">${escapeHtml(ago(item.evaluatedAt))}</time>
+        </li>`;
+      }
+      const current = kind !== 'deactivate' && activeOf(item.policyId) === item.versionId;
+      /* One small control per row, named in full for a screen reader and on hover: the list is for reading, the control is there when wanted. */
+      const restoreLabel = `${kind === 'deactivate' ? 'Turn back on' : 'Roll back to'} ${keyOf(item.policyId)} version ${String(item.versionId || '').slice(0, 8)}`;
+      const restore = access.capabilities.activate && !current
+        ? ledgerControl('rollback', '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4.5v4.2h4.2"/></svg>', { 'policy-id': item.policyId, 'version-id': item.versionId },
+          ` class="btn btn-ghost small gov-ledger-act" aria-label="${escapeAttr(restoreLabel)}" title="${escapeAttr(restoreLabel)}"`)
+        : current ? '<span class="gov-ledger-now">Current</span>' : '';
+      return `<li class="gov-ledger-row" data-tone="${ACTIVATION_TONE[kind]}"${count(item.seq) <= cleared ? ' data-cleared="true"' : ''}>
+        <span class="gov-ledger-mark" aria-hidden="true"></span>
+        <span class="gov-ledger-what"><strong>${escapeHtml(ACTIVATION[kind])} · <span class="mono">${escapeHtml(keyOf(item.policyId))}</span></strong><small>${escapeHtml(item.actorLogin)} · version ${escapeHtml(String(item.versionId || '').slice(0, 8))}</small></span>
+        <span class="gov-ledger-state">${restore}</span>
+        <time class="gov-ledger-when" datetime="${escapeAttr(item.createdAt)}" title="${escapeAttr(formatTime(item.createdAt))}">${escapeHtml(ago(item.createdAt))}</time>
+      </li>`;
+    };
+
+    const foot = [
+      `<span class="gov-ledger-shown">${shown.length ? `Showing ${shown.length} of ${filtered.length}` : 'Nothing to show'}</span>`,
+      filtered.length > shown.length ? actionButton('ledger-more', `Show ${Math.min(LEDGER_PAGE, filtered.length - shown.length)} more`, { 'focus-key': 'ledger-more' }) : '',
+      tab === 'decisions' && history.nextDecisionSeq != null ? actionButton('load-more-decisions', 'Load older decisions', { 'after-seq': history.nextDecisionSeq }) : '',
+      live.length ? actionButton('ledger-clear', 'Clear from view', { through: Math.max(...live.map(item => count(item.seq))), 'focus-key': 'ledger-clear' }) : '',
+      all.length - live.length ? actionButton('ledger-show-cleared', showCleared ? 'Hide cleared' : `Show ${all.length - live.length} cleared`, { 'focus-key': 'ledger-show-cleared' }) : ''
+    ].join('');
+    const empty = all.length
+      ? (live.length || showCleared ? 'No entries match this filter.' : `All ${all.length} cleared from view. They are still in the ledger.`)
+      : (tab === 'decisions' ? 'No runtime decisions yet.' : 'No activation history yet.');
+
+    return `<section class="gov-section" aria-labelledby="govHistoryTitle"><div class="gov-section-head"><div><h3 id="govHistoryTitle">Evidence history</h3><p>Every runtime decision and activation, newest first, from the immutable ledger.</p></div><div class="gov-actions">${actionButton('verify-chain', verify.valid === true && verify.complete === true ? 'Chain verified' : 'Verify chain')}</div></div>${verify.valid != null ? `<div class="gov-banner ${verify.valid ? 'ok' : 'danger'}" role="status">${verify.valid ? (verify.complete === true ? 'Decision chain verified' : 'Decision chain valid through the configured verification limit') : 'Decision chain verification failed'}${verify.checked != null ? ` · ${count(verify.checked)} records checked` : ''}</div>` : ''}
+      <div class="card gov-ledger">
+        <div class="gov-ledger-tabs" role="tablist" aria-label="Evidence">${tabs}</div>
+        <div class="gov-ledger-chips" role="group" aria-label="Filter ${tab === 'decisions' ? 'decisions by outcome' : 'activations by kind'}">${chips}</div>
+        <div id="govLedgerPanel" role="tabpanel" aria-labelledby="govLedgerTab-${tab}">
+          ${shown.length ? `<ol class="gov-ledger-rows">${shown.map(row).join('')}</ol>` : `<p class="gov-muted gov-ledger-empty">${escapeHtml(empty)}</p>`}
+        </div>
+        <div class="gov-ledger-foot">${foot}</div>
+        ${cleared ? '<p class="gov-ledger-note">Clearing tidies this view for you only. The ledger is immutable: cleared entries stay in exports and chain verification.</p>' : ''}
+      </div>
     </section>`;
   }
-  function renderDelivery(deliveryInput, access) {
+  /*
+   * Notifications are an inbox: what is unread, a few at a time, and a Clear
+   * that marks them read on the server and puts them away. What was read is
+   * one press away. Signed exports show the latest few; the rest unfold.
+   */
+  const INBOX_PAGE = 6;
+  const EXPORTS_SHOWN = 4;
+  function renderDelivery(deliveryInput, access, viewInput) {
     const delivery = asObject(deliveryInput);
+    const view = asObject(viewInput);
     const preferences = asObject(delivery.preferences);
     const notifications = asArray(asObject(delivery.notifications).events);
     const exportsList = asArray(delivery.exports);
     const webhooks = asArray(delivery.webhooks);
-    const unread = notifications.filter(item => Number(item.seq) > count(preferences.lastReadSeq)).length;
+    const readThrough = count(preferences.lastReadSeq);
+    const unreadItems = notifications.filter(item => count(item.seq) > readThrough);
+    const unread = unreadItems.length;
+    const showRead = view.showRead === true;
+    const inbox = showRead ? notifications : unreadItems;
+    const inboxLimit = Math.max(INBOX_PAGE, count(view.inboxLimit) || INBOX_PAGE);
+    const inboxShown = inbox.slice(0, inboxLimit);
+    const exportsAll = view.exportsAll === true;
+    const exportsShown = exportsAll ? exportsList : exportsList.slice(0, EXPORTS_SHOWN);
+    const latestSeq = notifications.length ? Math.max(...notifications.map(item => count(item.seq))) : 0;
+    const note = item => `<li class="gov-inbox-row"${count(item.seq) <= readThrough ? ' data-read="true"' : ''}><span class="gov-inbox-dot" aria-hidden="true"></span><span class="gov-ledger-what"><strong>${escapeHtml(human(item.eventType))}</strong><small>Event ${count(item.seq)} · ${escapeHtml(hashShort(item.eventHash))}</small></span><time class="gov-ledger-when" datetime="${escapeAttr(item.createdAt)}" title="${escapeAttr(formatTime(item.createdAt))}">${escapeHtml(ago(item.createdAt))}</time></li>`;
+    const inboxFoot = [
+      inbox.length > inboxShown.length ? actionButton('inbox-more', `Show ${Math.min(INBOX_PAGE, inbox.length - inboxShown.length)} more`, { 'focus-key': 'inbox-more' }) : '',
+      unread ? actionButton('mark-notifications-read', `Clear ${unread}`, { 'through-seq': latestSeq }) : '',
+      notifications.length - unread ? actionButton('inbox-show-read', showRead ? 'Hide read' : `Show ${notifications.length - unread} read`, { 'focus-key': 'inbox-show-read' }) : ''
+    ].join('');
     return `<section class="gov-section" aria-labelledby="govDeliveryTitle">
       <div class="gov-section-head"><div><h3 id="govDeliveryTitle">Notifications and signed evidence</h3><p>Live-only governance events, bounded exports and administrator-managed webhooks.</p></div><div class="gov-actions">${actionButton('delivery-refresh', 'Refresh delivery')}${actionButton('create-export', 'Create signed export', {}, 'primary')}</div></div>
       ${delivery.error ? `<div class="gov-banner warn" role="status"><strong>Delivery evidence partially unavailable</strong><span>${escapeHtml(delivery.error)}</span></div>` : ''}
       <div class="gov-history-grid">
-        <article class="card"><div class="gov-row-title"><h4>Notifications</h4>${badge(unread ? 'warn' : 'current', `${unread} unread`)}</div><p class="gov-muted">${preferences.enabled === false ? 'Notifications are disabled for this identity.' : 'Notifications are enabled for selected governance events.'}</p><div class="gov-actions">${actionButton('edit-notification-preferences', 'Preferences')}${notifications.length ? actionButton('mark-notifications-read', 'Mark shown as read', { 'through-seq': Math.max(...notifications.map(item => count(item.seq))) }) : ''}</div>${notifications.length ? `<ol class="gov-timeline">${notifications.slice(0, 12).map(item => `<li><span class="gov-time">${escapeHtml(formatTime(item.createdAt))}</span><strong>${escapeHtml(human(item.eventType))}</strong><small>Event ${count(item.seq)} · ${escapeHtml(hashShort(item.eventHash))}</small></li>`).join('')}</ol>` : '<p class="gov-muted">No governance notifications.</p>'}</article>
-        <article class="card"><div class="gov-row-title"><h4>Signed audit exports</h4>${badge(exportsList.length ? 'current' : 'neutral', `${exportsList.length} recorded`)}</div><p class="gov-muted">Bounded JSON or CSV evidence envelopes. External storage is not part of this checkpoint.</p>${exportsList.length ? `<ol class="gov-timeline">${exportsList.slice(0, 10).map(item => `<li><span class="gov-time">${escapeHtml(formatTime(item.createdAt))}</span><strong>${escapeHtml(String(item.format || 'json').toUpperCase())} · ${count(item.eventCount)} events</strong><small>${escapeHtml(hashShort(item.envelopeHash || item.exportHash))}</small><div class="gov-actions">${actionButton('download-export', 'Download', { 'export-id': item.exportId })}${actionButton('verify-export', 'Verify', { 'export-id': item.exportId })}</div></li>`).join('')}</ol>` : '<p class="gov-muted">No signed exports have been created.</p>'}</article>
+        <article class="card gov-inbox"><div class="gov-row-title"><h4>Notifications</h4>${badge(unread ? 'warn' : 'current', `${unread} unread`)}</div><p class="gov-muted">${preferences.enabled === false ? 'Notifications are disabled for this identity.' : 'Notifications are enabled for selected governance events.'}</p>
+          ${inboxShown.length ? `<ol class="gov-ledger-rows gov-inbox-rows">${inboxShown.map(note).join('')}</ol>` : `<p class="gov-muted gov-ledger-empty">${notifications.length ? 'All caught up. Nothing unread.' : 'No governance notifications.'}</p>`}
+          <div class="gov-ledger-foot">${actionButton('edit-notification-preferences', 'Preferences')}${inboxFoot}</div></article>
+        <article class="card gov-exports"><div class="gov-row-title"><h4>Signed audit exports</h4>${badge(exportsList.length ? 'current' : 'neutral', `${exportsList.length} recorded`)}</div><p class="gov-muted">Bounded JSON or CSV evidence envelopes. External storage is not part of this checkpoint.</p>
+          ${exportsShown.length ? `<ol class="gov-ledger-rows">${exportsShown.map(item => `<li class="gov-ledger-row gov-export-row" data-tone="neutral"><span class="gov-ledger-mark" aria-hidden="true"></span><span class="gov-ledger-what"><strong>${escapeHtml(String(item.format || 'json').toUpperCase())} · ${count(item.eventCount)} events</strong><small>${escapeHtml(hashShort(item.envelopeHash || item.exportHash))}</small></span><span class="gov-ledger-state gov-export-acts">${actionButton('download-export', 'Download', { 'export-id': item.exportId })}${actionButton('verify-export', 'Verify', { 'export-id': item.exportId })}</span><time class="gov-ledger-when" datetime="${escapeAttr(item.createdAt)}" title="${escapeAttr(formatTime(item.createdAt))}">${escapeHtml(ago(item.createdAt))}</time></li>`).join('')}</ol>` : '<p class="gov-muted gov-ledger-empty">No signed exports have been created.</p>'}
+          ${exportsList.length > EXPORTS_SHOWN ? `<div class="gov-ledger-foot"><span class="gov-ledger-shown">Showing ${exportsShown.length} of ${exportsList.length}</span>${actionButton('exports-all', exportsAll ? 'Show latest only' : `Show all ${exportsList.length}`, { 'focus-key': 'exports-all' })}</div>` : ''}</article>
       </div>
       ${access.capabilities.administer ? `<article class="card gov-webhooks"><div class="gov-section-head"><div><h4>Administrative webhooks</h4><p>HTTPS-only, DNS-revalidated, signed delivery endpoints.</p></div>${actionButton('create-webhook', 'Add webhook', {}, 'primary')}</div>${webhooks.length ? `<div class="gov-list">${webhooks.map(item => `<div class="gov-row"><div class="gov-row-main"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.url)}</span><small>${item.enabled === false ? 'Disabled' : 'Enabled'} · ${escapeHtml((item.eventTypes || []).join(', '))}</small></div><div class="gov-actions">${actionButton('rotate-webhook', 'Rotate secret', { 'webhook-id': item.webhookId })}${actionButton('delete-webhook', 'Delete', { 'webhook-id': item.webhookId }, 'ghost')}</div></div>`).join('')}</div>` : '<p class="gov-muted">No webhooks configured.</p>'}</article>` : ''}
     </section>`;
@@ -330,9 +454,9 @@
       ${renderDrafts(twin, access)}
       ${renderProposed(twin, access, input.simulation)}
       ${renderExceptions(twin, access)}
-      ${renderHistory(twin, access, input.verification)}
+      ${renderHistory(twin, access, input.verification, input.view)}
       ${renderArchived(input.archived, access)}
-      ${renderDelivery(input.delivery, access)}
+      ${renderDelivery(input.delivery, access, input.view)}
       ${renderDangerZone(twin, access)}
       <footer class="gov-foot"><span>Read-model hash</span><code>${escapeHtml(hashShort(twin.readModelHash))}</code></footer>
     </section>`;

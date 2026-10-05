@@ -51,7 +51,14 @@ assert(!html.includes('<script>alert(1)</script>'));
 assert(html.includes('data-gov-action="simulate"'), 'reader must be able to simulate');
 assert(!html.includes('data-gov-action="create-policy"'), 'reader must not receive author controls');
 assert(!html.includes('data-gov-action="activate"'), 'reader must not receive activator controls');
-const adminHtml = ui.renderGovernanceInterface({ digitalTwin: twin, access: { ...reader, capabilities: { read: true, author: true, review: true, activate: true, administer: true } } });
+/* The ledger opens on runtime decisions; activations, with their rollback controls, are the second tab. */
+const earlier = { seq: 1, policyId: '10000000-0000-4000-8000-000000000001', versionId: '10000000-0000-4000-8000-0000000000aa', action: 'activate', actorLogin: 'admin', createdAt: '2026-07-22T00:20:00.000Z' };
+const withEarlier = { ...twin, history: { ...twin.history, activations: [...twin.history.activations, earlier] } };
+const adminHtml = ui.renderGovernanceInterface({ digitalTwin: withEarlier, view: { tab: 'activations' }, access: { ...reader, capabilities: { read: true, author: true, review: true, activate: true, administer: true } } });
+/* The running version is marked current; only an earlier one offers to roll back, and says to what. */
+assert.strictEqual((adminHtml.match(/data-gov-action="rollback"/g) || []).length, 1);
+assert(adminHtml.includes('class="gov-ledger-now">Current<'));
+assert(adminHtml.includes('aria-label="Roll back to release-safety version 10000000"'));
 for (const action of ['create-policy', 'new-draft', 'edit-draft', 'claim-review', 'activate', 'request-exception', 'decide-exception', 'rollback']) {
   assert(adminHtml.includes(`data-gov-action="${action}"`), `administrator interface missing ${action}`);
 }

@@ -3048,6 +3048,72 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .gov-timeline li{position:relative;display:grid;gap:6px;padding:12px 12px 12px 16px;border-left:2px solid rgba(139,92,246,.28);background:rgba(139,92,246,.05);border-radius:0 10px 10px 0}
 .gov-timeline li:before{content:"";position:absolute;left:-5px;top:14px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
 .gov-timeline small,.gov-time,.gov-muted{font-size:.72rem;color:var(--muted)}
+/*
+ * The ledger: one list at a time, a row per entry -- a tone mark, what
+ * happened, its state, when -- instead of a card per entry with a full-width
+ * button under it. Tabs choose the list, chips filter it, the foot pages and
+ * clears it.
+ */
+.gov-ledger{padding:14px;display:grid;gap:12px;min-width:0}
+.gov-ledger-tabs{display:flex;gap:4px;padding:4px;border-radius:13px;background:var(--rp-tile, rgba(255,255,255,.03));border:1px solid var(--glass-border);width:max-content;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.gov-ledger-tab{display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:0 14px;border-radius:10px;border:1px solid transparent;background:none;color:var(--text2);font:inherit;font-size:.8rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .16s var(--ease),color .16s var(--ease),border-color .16s var(--ease)}
+.gov-ledger-tab:hover{color:var(--text)}
+.gov-ledger-tab[aria-selected="true"]{background:var(--navBg);border-color:var(--navB);color:var(--text)}
+.gov-ledger-tab:focus-visible,.gov-ledger-chip:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.gov-ledger-count{font-variant-numeric:tabular-nums;font-size:.7rem;padding:1px 7px;border-radius:999px;background:var(--glass-border);color:var(--text2)}
+.gov-ledger-chips{display:flex;flex-wrap:wrap;gap:6px}
+.gov-ledger-chip{--tone:var(--muted);display:inline-flex;align-items:center;gap:7px;min-height:30px;padding:0 11px;border-radius:999px;border:1px solid var(--glass-border);background:none;color:var(--text2);font:inherit;font-size:.74rem;cursor:pointer}
+.gov-ledger-chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--tone)}
+.gov-ledger-chip b{font-variant-numeric:tabular-nums;color:var(--text)}
+.gov-ledger-chip[aria-pressed="true"]{border-color:color-mix(in oklab,var(--tone) 55%,transparent);background:color-mix(in oklab,var(--tone) 12%,transparent);color:var(--text)}
+.gov-ledger-chip:disabled{opacity:.45;cursor:default}
+:is(.gov-ledger-chip,.gov-ledger-row)[data-tone="block"]{--tone:var(--red)}
+:is(.gov-ledger-chip,.gov-ledger-row)[data-tone="warn"]{--tone:var(--amber)}
+:is(.gov-ledger-chip,.gov-ledger-row)[data-tone="allow"]{--tone:var(--green)}
+:is(.gov-ledger-chip,.gov-ledger-row)[data-tone="info"]{--tone:var(--cyan)}
+:is(.gov-ledger-chip,.gov-ledger-row)[data-tone="neutral"]{--tone:var(--muted)}
+.gov-ledger-rows{list-style:none;margin:0;padding:0;display:grid;border-top:1px solid var(--glass-border)}
+.gov-ledger-row,.gov-inbox-row{--tone:var(--accent);display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--glass-border);min-width:0;
+  animation:govRowIn .32s cubic-bezier(.22,1,.36,1) both}
+@keyframes govRowIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.gov-ledger-row[data-cleared="true"],.gov-inbox-row[data-read="true"]{opacity:.6}
+.gov-ledger-mark,.gov-inbox-dot{width:8px;height:8px;border-radius:50%;background:var(--tone);box-shadow:0 0 0 3px color-mix(in oklab,var(--tone) 18%,transparent)}
+.gov-inbox-row[data-read="true"] .gov-inbox-dot{background:transparent;box-shadow:inset 0 0 0 1.5px var(--muted)}
+.gov-inbox-row{grid-template-columns:auto minmax(0,1fr) auto}
+.gov-ledger-what{display:grid;gap:3px;min-width:0}
+.gov-ledger-what strong{font-size:.84rem;font-weight:600;overflow-wrap:anywhere}
+.gov-ledger-what small{font-size:.72rem;color:var(--muted);overflow-wrap:anywhere}
+.gov-ledger-state{font-size:.74rem;font-weight:600;color:color-mix(in oklab,var(--tone) 80%,var(--text));white-space:nowrap;display:flex;gap:6px;align-items:center}
+.gov-ledger-act{width:32px;height:32px;min-height:32px;padding:0;display:inline-grid;place-items:center;border-radius:9px}
+.gov-ledger-act svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s cubic-bezier(.22,1,.36,1)}
+.gov-ledger-act:hover svg{transform:rotate(-40deg)}
+/* An export is read on one line and acted on the next: in a half-width card, side by side squeezed its name to a letter a line. */
+.gov-export-row{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"mark what when" "mark state state"}
+.gov-export-row>.gov-ledger-mark{grid-area:mark;align-self:start;margin-top:6px}
+.gov-export-row>.gov-ledger-what{grid-area:what}
+.gov-export-row>.gov-ledger-when{grid-area:when;align-self:start}
+.gov-export-row>.gov-ledger-state{grid-area:state}
+.gov-ledger-now{font-size:.7rem;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid color-mix(in oklab,var(--green) 40%,transparent);color:var(--green)}
+.gov-ledger-when{font-size:.72rem;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right}
+.gov-ledger-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.gov-ledger-shown{font-size:.74rem;color:var(--muted);margin-right:auto;font-variant-numeric:tabular-nums}
+.gov-ledger-empty{padding:14px 4px}
+.gov-ledger-note{margin:0;font-size:.72rem;color:var(--muted);line-height:1.5}
+.gov-inbox,.gov-exports{display:grid;gap:10px;align-content:start}
+@media (max-width:620px){
+  .gov-ledger-row{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"mark what when" "mark state state"}
+  .gov-ledger-row>.gov-ledger-mark{grid-area:mark;align-self:start;margin-top:6px}
+  .gov-ledger-row>.gov-ledger-what{grid-area:what;align-self:start}
+  .gov-ledger-row>.gov-ledger-when{grid-area:when;align-self:start}
+  .gov-ledger-row>.gov-ledger-state{grid-area:state}
+  .gov-ledger-row>.gov-ledger-state:empty{display:none}
+  .gov-ledger-row:not(.gov-export-row){grid-template-areas:"mark what when" "mark what state"}
+  .gov-ledger-row:not(.gov-export-row)>.gov-ledger-state{justify-self:end}
+  .gov-ledger-tabs{width:100%}
+  .gov-ledger-tab{flex:1 1 0;justify-content:center;padding:0 8px}
+}
+@media (prefers-reduced-motion:reduce){ .gov-ledger-row,.gov-inbox-row{animation:none} }
+[data-motion="off"] :is(.gov-ledger-row,.gov-inbox-row){animation:none}
 .gov-empty,.gov-state{padding:32px;text-align:center;justify-items:center}
 /* The lifecycle row sits under the everyday actions, separated, so switching
    a policy off is never the button beside "Inspect" a thumb lands on. */

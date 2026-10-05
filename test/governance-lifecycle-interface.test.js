@@ -89,7 +89,8 @@ const archived = [{ policyId: '60000000-0000-4000-8000-000000000006', policyKey:
   assert(html.includes('Reset governance'));
   assert(html.indexOf('data-gov-action="reset-governance"') > html.indexOf('Notifications and signed evidence'),
     'the reset sits apart, after everything else on the page');
-  assert(html.includes('Switched off'), 'the history names a switch-off for what it is');
+  const ledger = ui.renderGovernanceInterface({ digitalTwin: twin(), view: { tab: 'activations' }, access: access('ada', { author: true, review: true, activate: true, administer: true }), archived });
+  assert(ledger.includes('Switched off'), 'the history names a switch-off for what it is');
 }
 
 /* Switched off: the card says so and offers the version that was running. */

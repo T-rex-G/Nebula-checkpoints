@@ -20,6 +20,28 @@
   drawer was out lay across its first entries; it now sits under the drawer's
   scrim until the drawer is put away.
 
+### Governance lists you can work through
+
+- **The evidence ledger, one list at a time.** Runtime decisions and
+  activations were two timelines running the length of the page, every
+  activation with its own full-width rollback button under it. They are now
+  tabs over one compact ledger: a row per entry (tone, what happened, state,
+  how long ago), eight at a time with *Show 8 more*, filtered by outcome
+  (blocked, warned, allowed) or by kind (activated, switched off, rolled
+  back), and *Load older decisions* when the server holds more.
+- **Rollback where it means something.** The version that is running is
+  marked *Current*; an earlier one offers a small control named in full
+  ("Roll back to alpha version 3000…").
+- **Clear from view.** A list can be cleared up to its newest entry and stays
+  cleared on the next visit; the ledger is immutable, so cleared entries stay
+  in exports and chain verification, the page says so, and *Show N cleared*
+  brings them back. Only the sequence number is kept, per repository, and the
+  account purge removes it.
+- **Notifications as an inbox.** Unread first, six at a time; *Clear N* marks
+  them read on the server and puts them away; read ones are one press away.
+  Signed exports show the latest four, the rest unfold, each on two lines
+  instead of a name squeezed to a letter a line.
+
 ### The galaxy, whole and in view
 
 - **On a phone it has a stage.** The Galaxies hero drew its spiral behind the

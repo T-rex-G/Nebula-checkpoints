@@ -474,28 +474,41 @@
         </div>
         <ul class="lp-checks-grid">
           <li class="lp-check">
-            <span class="lp-check-v" data-count="99" data-claim="secret-detectors">99</span>
+            <div class="lp-check-top">
+              <span class="lp-check-v" data-count="99" data-claim="secret-detectors">99</span>
+              <span class="lp-check-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16.5 6l2.5 2.5M14 8.5l2 2"/></svg></span>
+            </div>
             <h3 class="lp-check-t">Secret detectors</h3>
-            <p class="lp-check-d">In files, in git history, inside archives and behind base64 or UTF-16 &mdash; each named by where it is, never by what it is.</p>
-            <ul class="lp-check-eg"><li>Cloud and database credentials</li><li>AI and payment API keys</li><li>Package-registry tokens</li><li>Private keys and webhook URLs</li></ul>
+            <p class="lp-check-d">In files, git history, archives and encoded text &mdash; each named by where it is, never by what it is.</p>
+            <ul class="lp-check-eg"><li>Cloud and database</li><li>AI and payment keys</li><li>Registry tokens</li><li>Private keys and webhooks</li></ul>
           </li>
           <li class="lp-check">
-            <span class="lp-check-v" data-count="43" data-claim="credential-verifiers">43</span>
+            <div class="lp-check-top">
+              <span class="lp-check-v" data-count="43" data-claim="credential-verifiers">43</span>
+              <span class="lp-check-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span>
+            </div>
             <h3 class="lp-check-t">Live verifiers</h3>
-            <p class="lp-check-d">Ask the issuing service whether a leaked key still works &mdash; only when you ask, bound to you and that one finding, and answered live, not live or could not tell.</p>
-            <ul class="lp-check-eg"><li>GitHub, GitLab and Slack</li><li>OpenAI, Anthropic and Stripe</li><li>npm, Sentry and Datadog</li><li>Neon, Render and Netlify</li></ul>
+            <p class="lp-check-d">Ask the issuing service whether a leaked key still works &mdash; only when you ask, for that one finding.</p>
+            <ul class="lp-check-eg"><li>GitHub, GitLab, Slack</li><li>OpenAI, Anthropic, Stripe</li><li>npm, Sentry, Datadog</li><li>Neon, Render, Netlify</li></ul>
           </li>
-          <li class="lp-check">
-            <span class="lp-check-v" data-count="84" data-claim="audit-rules">84</span>
+          <li class="lp-check lp-check-lead">
+            <div class="lp-check-top">
+              <span class="lp-check-v" data-count="84" data-claim="audit-rules">84</span>
+              <span class="lp-check-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg></span>
+            </div>
             <h3 class="lp-check-t">Uranus audit rules</h3>
-            <p class="lp-check-d">Uranus follows what a caller sends through variables, helpers and imports to the call that misuses it, maps every endpoint and what guards it, and says of each finding whether it is confirmed or still to confirm &mdash; each security finding filed under its CWE, its OWASP Top&nbsp;10:2025 category and its 2025 CWE Top&nbsp;25 rank.</p>
-            <ul class="lp-check-eg"><li>Traced injection, SSRF, path traversal, XSS and XXE in JavaScript, TypeScript, Python, Go, Java and PHP</li><li>Measured on <b data-claim="benchmark-cases">138</b> cases: <b data-claim="benchmark-precision">100%</b> precision, <b data-claim="benchmark-recall">98%</b> recall</li><li>Endpoints with no authorization, and records fetched by any id</li><li>Model replies executed, and prompts built from user text</li><li>Advisories for npm, PyPI, Maven, Go, Composer, Bundler, Cargo and NuGet, ranked by CISA KEV, EPSS and reach</li><li>Supabase row level security and malicious packages</li><li>Every dependency&rsquo;s licence, against yours and your policy</li></ul>
+            <p class="lp-check-d">Follows what a caller sends to the call that misuses it, maps every endpoint and what guards it, and files each finding under its CWE and OWASP Top&nbsp;10:2025 category.</p>
+            <ul class="lp-check-eg"><li>Injection, SSRF, XSS, XXE</li><li>JS, TS, Python, Go, Java, PHP</li><li>Missing authorization</li><li>Model output and prompts</li><li>Advisories in 8 ecosystems</li><li>Supabase RLS</li><li>Malicious packages</li><li>Licence policy</li></ul>
+            <p class="lp-check-bench">Measured on <b data-claim="benchmark-cases">138</b> cases <i aria-hidden="true">&middot;</i> <b data-claim="benchmark-precision">100%</b> precision <i aria-hidden="true">&middot;</i> <b data-claim="benchmark-recall">98%</b> recall</p>
           </li>
           <li class="lp-check">
-            <span class="lp-check-v" data-count="37" data-claim="site-rules">37</span>
+            <div class="lp-check-top">
+              <span class="lp-check-v" data-count="37" data-claim="site-rules">37</span>
+              <span class="lp-check-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg></span>
+            </div>
             <h3 class="lp-check-t">Deployed-site checks</h3>
-            <p class="lp-check-d">Certificate, headers, exposed files, the pages and scripts a visitor loads, vulnerable libraries and email spoofing. Anonymous and bounded; nothing it reads is kept.</p>
-            <ul class="lp-check-eg"><li>Security headers and their strength</li><li>Cookie flags and credentialed CORS</li><li>Served .env, .git and .DS_Store</li><li>Mixed content and unpinned third-party scripts</li></ul>
+            <p class="lp-check-d">The certificate, headers, exposed files, the scripts a visitor loads, vulnerable libraries and email spoofing &mdash; anonymous and bounded, nothing kept.</p>
+            <ul class="lp-check-eg"><li>Security headers</li><li>Cookies and CORS</li><li>Served .env and .git</li><li>Mixed content</li><li>Third-party scripts</li><li>SPF and DMARC</li></ul>
           </li>
         </ul>
         <div class="lp-ticker" aria-hidden="true">
@@ -525,10 +538,12 @@
           <li class="lp-cap lp-cap-lead card">
             <div class="lp-cap-art lp-art-diff" aria-hidden="true">
               <span class="lp-diff-h"><b>config/deploy.yml</b><i>preview</i></span>
+              <span class="lp-diff-l lp-diff-ctx">  service: api</span>
               <span class="lp-diff-l lp-diff-ctx">  environment: staging</span>
               <span class="lp-diff-l lp-diff-del">-  replicas: 2</span>
               <span class="lp-diff-l lp-diff-add">+  replicas: 3</span>
               <span class="lp-diff-l lp-diff-add">+  healthcheck: /healthz</span>
+              <span class="lp-diff-l lp-diff-ctx">  region: eu-west</span>
               <span class="lp-diff-f"><span class="lp-diff-btn">Approve change</span><span class="lp-diff-head">against live head a1c9f2e</span></span>
             </div>
             <span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7M3 12h5M3 18h7"/><path d="M14 5l6 7-6 7"/></svg></span>
@@ -633,16 +648,17 @@
           <p class="lp-sec-eyebrow">How it works</p>
           <h2 class="lp-sec-title" id="lpStoryTitle">From connection to proof in three moves</h2>
           <p class="lp-sec-lede">Choose the repository, understand its evidence, and review the changes you stage.</p>
-          <div class="lp-story-progress" aria-hidden="true"><span></span></div>
         </div>
+        <div class="lp-story-track">
+        <div class="lp-story-progress" aria-hidden="true"><span></span></div>
         <ol class="lp-story-steps">
-          <li class="lp-story-step card">
+          <li class="lp-story-step">
             <span class="lp-story-n">01</span>
             <h3 class="lp-story-t">Connect one sandbox</h3>
             <p class="lp-story-d">GitHub, GitLab or Gitea &mdash; one test repository, credentials sealed.</p>
             <div class="lp-story-art lp-art-connect" aria-hidden="true"><span class="on">sandbox/demo</span><span>acme/website</span><span>acme/billing</span></div>
           </li>
-          <li class="lp-story-step card">
+          <li class="lp-story-step">
             <span class="lp-story-n">02</span>
             <h3 class="lp-story-t">Understand what is there</h3>
             <p class="lp-story-d">Trust score, live signals, leaked secrets and the map of what is wired in.</p>
@@ -651,18 +667,19 @@
               <span><b>79</b>trust score</span>
             </div>
           </li>
-          <li class="lp-story-step card">
+          <li class="lp-story-step">
             <span class="lp-story-n">03</span>
             <h3 class="lp-story-t">Prove the next move</h3>
             <p class="lp-story-d">Staged changes reviewed against the expected head before any commit.</p>
             <div class="lp-story-art lp-art-prove" aria-hidden="true"><span class="k">Preview</span><span class="ok">3 files · policy passed</span><span class="go">Approve</span></div>
           </li>
         </ol>
+        </div>
       </section>
-      <div class="lp-sec">
+      <div class="lp-sec lp-limits-sec">
         <div class="lp-sec-head">
           <p class="lp-sec-eyebrow">Before you enter</p>
-          <h2 class="lp-sec-title">What this alpha will not do</h2>
+          <h2 class="lp-sec-title" id="lpLimitsTitle">What this alpha will not do</h2>
           <p class="lp-sec-lede">A controlled alpha is defined by its edges. These are the ones worth
             knowing before you spend an invitation.</p>
         </div>
@@ -694,6 +711,7 @@
         <div class="lp-sec-head">
           <p class="lp-sec-eyebrow">Questions</p>
           <h2 class="lp-sec-title" id="lpFaqTitle">Before you connect anything</h2>
+          <p class="lp-sec-lede">What it reads, what it keeps, what it sends and what it will write &mdash; answered the way the product behaves.</p>
         </div>
         <div class="lp-faq-list">
           <details class="lp-faq-item">
@@ -739,15 +757,40 @@
 
       <!-- The close: one clear next step, back to the card at the top. -->
       <section class="lp-cta" aria-labelledby="lpCtaTitle">
+        <span class="lp-cta-horizon" aria-hidden="true"></span>
+        <p class="lp-sec-eyebrow lp-cta-eyebrow">Controlled public alpha</p>
         <h2 class="lp-cta-title" id="lpCtaTitle">Ready when your sandbox is.</h2>
         <p class="lp-cta-lede">One sandbox repository, with changes you can review. Leave whenever you like; this browser forgets on your word.</p>
-        <button class="btn btn-primary lp-cta-btn" type="button" data-lp-jump>Request entry</button>
+        <div class="lp-cta-actions">
+          <button class="btn btn-primary lp-cta-btn" type="button" data-lp-jump>Request entry</button>
+          <button class="btn lp-ghost lp-cta-ghost" type="button" data-lp-tour="lpPlayTitle"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M10.2 8.8l5 3.2-5 3.2z"/></svg>See how it works</button>
+        </div>
       </section>
       <footer class="lp-foot">
-        <span class="lp-foot-brand">
-          <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
-          __NV_PRODUCT_NAME__
-        </span>
+        <div class="lp-foot-about">
+          <span class="lp-foot-brand">
+            <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
+            __NV_PRODUCT_NAME__
+          </span>
+          <p class="lp-foot-tag">Security that shows its working, one sandbox repository at a time.</p>
+        </div>
+        <!-- The page's own map: every link scrolls to a section here; nothing leaves the page. -->
+        <nav class="lp-foot-nav" aria-label="On this page">
+          <div class="lp-foot-col">
+            <p class="lp-foot-h">Product</p>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpOrbitTitle">Systems</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpPlayTitle">Audit</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpShowTitle">Map</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpChecksTitle">Coverage</button>
+          </div>
+          <div class="lp-foot-col">
+            <p class="lp-foot-h">Trust</p>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpProofTitle">Proof</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpStoryTitle">How it works</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpLimitsTitle">Limits</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpFaqTitle">Questions</button>
+          </div>
+        </nav>
         <!--
           The build used to be printed here, on a page that requires no
           invitation to read. A tester still needs to be able to quote it, so
@@ -755,9 +798,12 @@
           /api/me carries it. What is left is the thing a visitor to this page
           actually needs to know about the deployment.
         -->
-        <span class="lp-foot-meta">
-          <span>Controlled hosted public alpha</span>
-        </span>
+        <div class="lp-foot-base">
+          <span class="lp-foot-meta">
+            <span>Controlled hosted public alpha</span>
+          </span>
+          <span class="lp-foot-note">Sandbox repositories only &middot; nothing it reads is kept</span>
+        </div>
       </footer>
     </section>
   </div>

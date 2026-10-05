@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### The landing, rebuilt from the first screen to the footer
+
+- **Two ways forward.** With entry open, the hero offers a filled *Get
+  started* and an outlined *See how it works* that scrolls to the played
+  audit, the way product sites set a primary and a secondary action; the
+  readiness state and its note sit on one line beneath them. The closing call
+  repeats the same pair and names the same way in as the card it returns to.
+- **One fluid frame.** The landing's width, gutter and reading measure are
+  three numbers rather than breakpoints: content grows to 1600px, the gutter
+  scales from 16px to 80px with the screen, reading sections stop at 1280px,
+  and the galaxy bleeds to the window's edge. The hero is as tall as the
+  screen leaves room for and no taller, so a tall window no longer opens a
+  band of empty dark under it; at tablet widths the galaxy keeps its size.
+- **One edge on the horizon.** The black hole's glow is brightest at its
+  rim and fades outward, so the arc is one crisp line with a soft light
+  rather than three rings stacked over one another, and it sits close under
+  the hero instead of a fifth of a screen below it. On a phone the six
+  systems read as one panel of rows.
+- **A rail that keeps up.** The played audit's rail and its dot move with
+  the page itself where the browser can tie an animation to the scroll, so
+  they no longer trail it by a frame; the dot meets each number as its card
+  is centred. The held frame centres on the screen, the moves are spaced at
+  under half a screen, and the seven family tiles stand four over three
+  rather than cut a name short.
+- **The map's lights stay on their strands** on Safari: the moving layer is
+  sized from the frame's layout, not from its box mid-tilt.
+- **After the map, shapes instead of paragraphs.** Coverage is four cards,
+  each a figure, a line and what it covers as chips; the bento balances two
+  wide cards with two tall ones; the comparison is one table with its answer
+  column lit, each *usually* crossed and each *here* ticked; how it works is
+  a three-stop timeline; the alpha's limits are three cards; the questions
+  are cards that light when open, beside a heading that holds; the close
+  rises from the horizon the page opened on; and the footer maps the page.
+- **The workspace's security pages** -- Audit, Exposure, Safeguards --
+  run edge to edge with the tab bar above them instead of floating in a
+  narrower centred column.
+
 ### The landing, shown rather than told
 
 - **Six systems around one repository.** Under the hero a new section holds a

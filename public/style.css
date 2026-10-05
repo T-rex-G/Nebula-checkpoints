@@ -8461,7 +8461,8 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
  */
 @media (min-width:940px){
   .lp-play-body{--step-h:clamp(300px,44svh,460px)}
-  .lp-play-step{min-height:var(--step-h)}
+  /* Every card centred in its stop, the first too, so each number is on the reading line when its card is. */
+  .lp-play-step,.lp-play-step:first-child{min-height:var(--step-h);align-content:center;padding-top:0}
   .lp-play-frame{top:max(calc(var(--lp-nav-h) + 16px),calc(var(--lp-nav-h) + (100svh - var(--lp-nav-h) - var(--frame-h,480px)) / 2))}
   .lp-play-n{top:50%;margin-top:-20px}
 }
@@ -8509,3 +8510,271 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
  * from the tab bar's edges. The prose inside keeps its own measure.
  */
 .main-pane .exposure-shell{max-width:none;margin:0;padding-inline:0}
+
+/* ================= LANDING · THE LOWER SECTIONS, REBUILT ================= */
+/*
+ * After the map the page used to fall back to running text: four columns of
+ * uneven length, a bento whose lead card stretched an empty diff, a bare
+ * table, a sticky heading beside three stacked cards, a list, and a footer of
+ * two words. Each section now has one shape a reader takes in at a glance --
+ * equal cards with chips, a balanced bento, a comparison with its answer
+ * column lit, a timeline, three cards, an accordion of cards, a horizon to
+ * close on, and a footer that maps the page.
+ */
+
+/* ---- Coverage: four equal cards, a figure, a line, and what it covers as chips. */
+/* Two by two: four skinny columns left three of the cards half empty beside the longest. */
+.lp-checks-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;border:0;border-radius:0;overflow:visible;background:none}
+.lp-check,.lp-check + .lp-check{position:relative;display:flex;flex-direction:column;gap:12px;padding:26px 24px 24px;min-width:0;
+  border:1px solid var(--line);border-left:1px solid var(--line);border-top:1px solid var(--line);border-radius:20px;
+  background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01)),var(--card2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);transition:transform .35s var(--ease),border-color .25s ease}
+.lp-check:hover{transform:translateY(-3px);border-color:var(--line-hi)}
+.lp-check-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.lp-check-ico{flex:none;width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:var(--accent2);
+  background:color-mix(in srgb,var(--accent2) 12%,transparent);border:1px solid color-mix(in srgb,var(--accent2) 26%,transparent)}
+.lp-check-ico svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.lp-check-t{margin:2px 0 0}
+.lp-check-d{font-size:.86rem;line-height:1.6}
+.lp-check-eg{display:flex;flex-wrap:wrap;gap:7px;margin:auto 0 0;padding:14px 0 0;border-top:1px solid var(--hair)}
+.lp-check-eg li{padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03);
+  font-size:.74rem;line-height:1.3;color:var(--text2);white-space:nowrap}
+.lp-check-eg li::before{content:none}
+.lp-check-bench{margin:0;padding:10px 12px;border-radius:12px;font-size:.78rem;line-height:1.45;color:var(--text2);
+  background:color-mix(in srgb,var(--accent2) 9%,transparent);border:1px solid color-mix(in srgb,var(--accent2) 22%,transparent)}
+.lp-check-bench b{color:var(--text);font-weight:650;font-variant-numeric:tabular-nums}
+.lp-check-bench i{font-style:normal;margin:0 2px;color:var(--muted)}
+.lp-check:nth-child(even),.lp-check:nth-child(n+3){border-left:1px solid var(--line);border-top:1px solid var(--line)}
+@media (min-width:761px){
+  .lp-check,.lp-check + .lp-check{padding:30px 30px 28px}
+  .lp-check-d{max-width:46ch}
+}
+@media (max-width:760px){
+  .lp-checks-grid{grid-template-columns:minmax(0,1fr)}
+  .lp-check,.lp-check + .lp-check{padding:22px 20px 20px}
+}
+[data-theme="light"] .lp-check{background:rgba(255,255,255,.76);box-shadow:0 1px 0 #fff inset,0 18px 40px -30px rgba(60,40,120,.3)}
+[data-theme="light"] .lp-check-eg li{background:rgba(255,255,255,.8);border-color:rgba(76,29,149,.14);color:rgba(22,18,52,.8)}
+[data-theme="light"] .lp-check-ico{color:#6d28d9}
+[data-design="obsidian"] .lp-check-ico{color:#e7e5e4;background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14)}
+[data-design="obsidian"] .lp-check-bench{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.12)}
+[data-design="obsidian"][data-theme="light"] .lp-check-ico{color:#27272a;background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.1)}
+[data-design="obsidian"][data-theme="light"] .lp-check-bench{background:rgba(0,0,0,.025);border-color:rgba(0,0,0,.1)}
+
+/*
+ * ---- The bento, balanced: three columns, two rows, no card stretched to
+ * fill another's height. The lead and the last span two columns with their
+ * picture beside their words; the two between stand picture over words.
+ */
+@media (min-width:981px){
+  .lp-sec-wide .lp-caps{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:auto}
+  .lp-sec-wide .lp-cap-lead,.lp-sec-wide .lp-cap:last-child{grid-column:span 2;grid-row:auto;display:grid;
+    grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-rows:auto auto 1fr;column-gap:clamp(20px,2.6vw,36px);align-items:start}
+  .lp-sec-wide .lp-cap-lead .lp-cap-art,.lp-sec-wide .lp-cap:last-child .lp-cap-art{grid-column:1;grid-row:1 / 4;margin:0;height:100%;min-height:0}
+  .lp-sec-wide .lp-cap-lead > :not(.lp-cap-art),.lp-sec-wide .lp-cap:last-child > :not(.lp-cap-art){grid-column:2}
+  .lp-sec-wide .lp-cap-lead .lp-cap-ico,.lp-sec-wide .lp-cap:last-child .lp-cap-ico{margin-top:6px}
+  /* The pulse fills its panel rather than sitting at the foot of an empty one. */
+  .lp-sec-wide .lp-cap:last-child .lp-art-pulse svg{flex:1 1 auto;height:auto;min-height:96px}
+}
+@media (min-width:641px) and (max-width:980px){
+  .lp-sec-wide .lp-caps{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lp-sec-wide .lp-cap-lead{grid-column:1 / -1;grid-row:auto}
+}
+.lp-sec-wide .lp-cap-lead .lp-cap-art{min-height:0;justify-content:flex-start}
+.lp-diff-f{margin-top:auto}
+
+/*
+ * ---- Shows its working: one table in one card. The answer column is lit
+ * from the head to the last row, the way a comparison marks the choice it
+ * argues for; each "usually" is crossed and each "here" is ticked, and the
+ * words "Usually" and "Here" are still in every row for a screen reader.
+ */
+.lp-proof-rows{border:1px solid var(--line);border-radius:22px;overflow:hidden;
+  background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.008)),var(--card2)}
+@media (min-width:761px){
+  .lp-proof-row{grid-template-columns:26% 28% 46%;column-gap:0;padding:0;align-items:stretch;border-bottom:1px solid var(--hair);
+    background:linear-gradient(90deg,transparent 54%,color-mix(in srgb,var(--accent2) 7%,transparent) 54%)}
+  .lp-proof-row:last-child{border-bottom:0}
+  .lp-proof-row > *{padding:20px clamp(16px,2vw,26px)}
+  .lp-proof-cols{padding:0}
+  .lp-proof-cols > span{padding:14px clamp(16px,2vw,26px)}
+  .lp-proof-cols span:last-child{display:flex;align-items:center;gap:8px;color:var(--accent2);
+    box-shadow:inset 0 2px 0 var(--accent2)}
+  .lp-proof-k{display:flex;align-items:baseline}
+}
+.lp-proof-them,.lp-proof-us{position:relative;padding-left:calc(clamp(16px,2vw,26px) + 28px)}
+.lp-proof-them::before,.lp-proof-us::before{content:"";position:absolute;left:clamp(16px,2vw,26px);top:calc(20px + .2em);width:18px;height:18px;border-radius:50%;
+  background-repeat:no-repeat;background-position:center;background-size:10px}
+.lp-proof-them::before{background-color:rgba(148,163,184,.12);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M7 7l10 10M17 7L7 17'/%3E%3C/svg%3E")}
+.lp-proof-us::before{background-color:color-mix(in srgb,var(--accent2) 20%,transparent);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c4b5fd' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+[data-theme="light"] .lp-proof-us::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236d28d9' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+[data-design="obsidian"] .lp-proof-us::before{background-color:rgba(255,255,255,.1);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e7e5e4' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+[data-design="obsidian"][data-theme="light"] .lp-proof-us::before{background-color:rgba(0,0,0,.06);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2327272a' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+[data-design="obsidian"] .lp-proof-row{background:linear-gradient(90deg,transparent 54%,rgba(255,255,255,.035) 54%)}
+[data-design="obsidian"] .lp-proof-cols span:last-child{color:var(--text);box-shadow:inset 0 2px 0 rgba(255,255,255,.5)}
+[data-theme="light"] .lp-proof-rows{background:rgba(255,255,255,.76)}
+@media (max-width:760px){
+  .lp-proof-rows{border-radius:18px}
+  .lp-proof-row{padding:18px 18px 16px;gap:10px;background:none}
+  .lp-proof-them,.lp-proof-us{padding:10px 12px 10px 40px;border-radius:12px}
+  .lp-proof-them::before,.lp-proof-us::before{left:12px;top:calc(10px + .25em)}
+  /* On a phone the tag stands over its sentence, so the sentence keeps one left edge. */
+  .lp-proof-tag{display:block;width:max-content;margin:0 0 6px}
+  .lp-proof-them{background:rgba(148,163,184,.06)}
+  .lp-proof-us{background:color-mix(in srgb,var(--accent2) 8%,transparent)}
+  [data-design="obsidian"] .lp-proof-us{background:rgba(255,255,255,.04)}
+}
+
+/*
+ * ---- How it works, as a timeline: the three moves side by side, each
+ * number a stop on one line that fills as the section passes. On a phone
+ * the stops stand down the left with the line between them.
+ */
+.lp-story{display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(28px,4vw,44px);align-items:start}
+.lp-story-rail{position:static;max-width:44rem;margin:0 auto;text-align:center}
+.lp-story-rail .lp-sec-lede{margin-inline:auto}
+.lp-story-track{--g:16px;position:relative;padding-top:4px}
+.lp-story-steps{grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--g);counter-reset:none}
+.lp-story-step{position:relative;isolation:isolate;align-content:start;padding:0;border:0;background:none;box-shadow:none;gap:16px}
+.lp-story-n{position:relative;z-index:1;width:42px;height:42px;display:grid;place-items:center;border-radius:50%;
+  font-size:.74rem;font-weight:600;color:var(--text);background:var(--page,#07040f);
+  border:1px solid color-mix(in srgb,var(--accent2) 55%,transparent);box-shadow:0 0 0 5px color-mix(in srgb,var(--accent2) 10%,transparent)}
+.lp-story-step > :not(.lp-story-n){margin:0}
+.lp-story-step{grid-template-rows:auto auto auto 1fr}
+.lp-story-step::after{content:"";position:absolute;inset:58px 0 0;z-index:-1;border-radius:18px;border:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01)),var(--card2)}
+.lp-story-step > .lp-story-t{margin-top:16px}
+.lp-story-step > .lp-story-t,.lp-story-step > .lp-story-d,.lp-story-step > .lp-story-art{padding-inline:24px}
+.lp-story-step > .lp-story-art{padding-bottom:24px;align-self:end}
+.lp-story-progress{position:absolute;top:25px;left:21px;width:calc((200% + 2 * var(--g)) / 3);height:2px;margin:0;border-radius:2px;overflow:hidden;background:var(--hair)}
+.lp-story-progress span{transform-origin:0 50%;transform:scaleX(1);background:linear-gradient(90deg,var(--accent),var(--accent2))}
+@supports (animation-timeline: view()){
+  @media (prefers-reduced-motion:no-preference){
+    :root:not([data-motion="off"]) .lp-story-progress span{animation:lp-fill-x linear both;animation-timeline:view();animation-range:entry 80% cover 55%}
+  }
+}
+@keyframes lp-fill-x{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+[data-motion="off"] .lp-story-progress span{animation:none;transform:none}
+[data-theme="light"] .lp-story-step::after{background:rgba(255,255,255,.76)}
+[data-theme="light"] .lp-story-n{background:#fff}
+[data-design="obsidian"] .lp-story-n{border-color:rgba(255,255,255,.35);box-shadow:0 0 0 5px rgba(255,255,255,.05)}
+@media (max-width:900px){
+  .lp-story-rail{text-align:left;margin:0}
+  .lp-story-steps{grid-template-columns:minmax(0,1fr);gap:18px}
+  .lp-story-step{grid-template-columns:42px minmax(0,1fr);grid-template-rows:auto;column-gap:14px;row-gap:10px}
+  .lp-story-n{grid-row:1 / span 3}
+  .lp-story-step > :not(.lp-story-n){grid-column:2}
+  .lp-story-step::after{inset:0 0 0 56px}
+  .lp-story-step > .lp-story-t{margin-top:20px}
+  .lp-story-step > .lp-story-t,.lp-story-step > .lp-story-d,.lp-story-step > .lp-story-art{padding-inline:20px}
+  .lp-story-step > .lp-story-art{padding-bottom:20px}
+  /* Down the left, one stretch of line from each stop to the next. */
+  .lp-story-progress{display:none}
+  .lp-story-step:not(:last-child)::before{content:"";position:absolute;left:20px;top:42px;bottom:-18px;width:2px;
+    background:linear-gradient(180deg,var(--accent2),color-mix(in srgb,var(--accent2) 25%,transparent))}
+}
+
+/* ---- What it will not do: the heading over three cards, each edge with its sign. */
+.lp-sec.lp-limits-sec{grid-template-columns:minmax(0,1fr);gap:clamp(24px,3.4vw,36px)}
+.lp-limits-sec .lp-sec-head{max-width:40rem}
+.lp-limits{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;border:0;border-radius:0;overflow:visible;background:none}
+.lp-limit,.lp-limit + .lp-limit{display:flex;flex-direction:column;gap:14px;padding:22px 22px 24px;border:1px solid var(--line);border-radius:18px;
+  background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01)),var(--card2)}
+/* The sign in a tile: the tile is drawn round the 24-unit glyph with an outline, so the glyph keeps its own size. */
+.lp-limit-ico{flex:none;width:22px;height:22px;margin:9px;border-radius:7px;overflow:visible;
+  outline:1px solid color-mix(in srgb,var(--amber,#f59e0b) 30%,transparent);outline-offset:8px;
+  background:color-mix(in srgb,var(--amber,#f59e0b) 12%,transparent);box-shadow:0 0 0 8px color-mix(in srgb,var(--amber,#f59e0b) 12%,transparent)}
+.lp-limit-b{font-size:.98rem;font-family:var(--font-display);letter-spacing:-.01em}
+.lp-limit-d{margin-top:8px;font-size:.85rem}
+[data-theme="light"] .lp-limit{background:rgba(255,255,255,.76)}
+@media (max-width:860px){
+  .lp-limits{grid-template-columns:minmax(0,1fr)}
+  .lp-limit,.lp-limit + .lp-limit{flex-direction:row;align-items:flex-start}
+}
+
+/*
+ * ---- Questions: the heading holds beside the answers on a desk, and each
+ * question is a card of its own that lights when it is open.
+ */
+.lp-faq{align-items:start}
+@media (min-width:940px){
+  .lp-faq .lp-sec-head{position:sticky;top:calc(var(--lp-nav-h) + 32px)}
+}
+.lp-faq-list{display:grid;gap:10px;border-top:0}
+.lp-faq-item{border:1px solid var(--line);border-radius:16px;padding:0 20px;
+  background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.008)),var(--card2);transition:border-color .25s ease,background-color .25s ease}
+.lp-faq-item + .lp-faq-item{border-top:1px solid var(--line)}
+.lp-faq-item:hover{border-color:var(--line-hi)}
+.lp-faq-item[open]{border-color:color-mix(in srgb,var(--accent2) 45%,var(--line))}
+.lp-faq-item summary{padding:18px 0;align-items:center}
+.lp-faq-item summary::after{content:"";width:28px;height:28px;border-radius:50%;border:1px solid var(--line);
+  background:center/12px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a5a3c8' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E");
+  transition:transform .3s var(--ease),border-color .25s ease}
+.lp-faq-item[open] summary::after{transform:rotate(45deg);border-color:color-mix(in srgb,var(--accent2) 45%,var(--line))}
+.lp-faq-item summary:focus-visible{outline-offset:2px}
+.lp-faq-item p{margin:0 0 20px}
+[data-theme="light"] .lp-faq-item{background:rgba(255,255,255,.76)}
+[data-theme="light"] .lp-faq-item summary::after{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234c4670' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E")}
+[data-design="obsidian"] .lp-faq-item[open],[data-design="obsidian"] .lp-faq-item[open] summary::after{border-color:rgba(255,255,255,.28)}
+@media (prefers-reduced-motion:no-preference){
+  .lp-faq-item[open] p{animation:lp-faq-in .35s var(--ease) both}
+}
+@keyframes lp-faq-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+[data-motion="off"] .lp-faq-item[open] p{animation:none}
+
+/*
+ * ---- The close: the horizon again, rising from the foot of the card the way
+ * the singularity opened, with the same two ways forward as the first screen.
+ */
+.lp-cta{isolation:isolate;padding:clamp(56px,8vw,104px) clamp(20px,4vw,48px) clamp(120px,12vw,160px);
+  background:radial-gradient(ellipse 60% 70% at 50% 0%,rgba(124,58,237,.22),transparent 70%),#06040e}
+/* A wide, shallow curve whose crown sits under the buttons, never through a line of text. */
+.lp-cta-horizon{position:absolute;left:50%;bottom:0;z-index:-1;width:max(220%,1500px);aspect-ratio:1;border-radius:50%;
+  translate:-50% calc(100% - clamp(64px,7vw,92px));background:#000;
+  box-shadow:0 0 0 1.5px var(--lp-rim,rgba(216,180,254,.75)),0 -30px 90px -20px var(--lp-rim-glow,rgba(139,92,246,.55)),
+    0 -80px 160px -40px rgba(124,58,237,.35)}
+.lp-cta-eyebrow{margin:0}
+.lp-cta.lp-revealed > .lp-cta-horizon{animation:none}
+.lp-cta-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:10px}
+.lp-cta-actions .btn{min-height:50px;border-radius:12px;font-weight:600}
+.lp-cta-actions .lp-cta-btn{margin-top:0}
+.lp-cta-ghost{gap:9px;padding:0 22px}
+[data-theme="light"] .lp-cta{background:radial-gradient(ellipse 60% 70% at 50% 0%,rgba(124,58,237,.14),transparent 70%),#fbfaff}
+[data-theme="light"] .lp-cta-horizon{background:#f1edfc;box-shadow:0 0 0 1.5px rgba(124,58,237,.45),0 -30px 90px -30px rgba(124,58,237,.35)}
+[data-design="obsidian"] .lp-cta{background:radial-gradient(ellipse 60% 70% at 50% 0%,rgba(255,255,255,.07),transparent 70%),#08080a}
+[data-design="obsidian"] .lp-cta-horizon{box-shadow:0 0 0 1.5px rgba(255,255,255,.55),0 -30px 90px -20px rgba(214,211,209,.3)}
+[data-design="obsidian"][data-theme="light"] .lp-cta{background:radial-gradient(ellipse 60% 70% at 50% 0%,rgba(0,0,0,.05),transparent 70%),#fafaf9}
+[data-design="obsidian"][data-theme="light"] .lp-cta-horizon{background:#f1f0ee;box-shadow:0 0 0 1.5px rgba(0,0,0,.18),0 -30px 90px -30px rgba(0,0,0,.18)}
+@media (max-width:520px){
+  .lp-cta-actions{width:100%}
+  .lp-cta-actions .btn{flex:1 1 auto}
+  .lp-cta{padding-bottom:96px}
+  .lp-cta-horizon{translate:-50% calc(100% - 52px)}
+}
+
+/* ---- The footer: the brand and its line, the page's own map, the deployment. */
+.lp-foot{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:28px 40px;align-items:start;
+  margin-top:clamp(64px,8vw,96px);padding:36px 0 max(28px,env(safe-area-inset-bottom,0px));border-top:1px solid var(--hair)}
+.lp-foot-about{display:grid;gap:12px;align-content:start}
+.lp-foot-brand{font-size:.95rem;color:var(--text)}
+.lp-foot-brand .nv-mark{width:22px;height:22px;flex-basis:22px}
+.lp-foot-tag{margin:0;max-width:28rem;color:var(--text2);font-size:.86rem;line-height:1.6}
+.lp-foot-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.lp-foot-col{display:grid;gap:4px;align-content:start;justify-items:start}
+.lp-foot-h{margin:0 0 6px;font-family:var(--font-mono);font-size:.64rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.lp-foot-link{padding:4px 0;border:0;background:none;color:var(--text2);font:inherit;font-size:.88rem;cursor:pointer;text-align:left;
+  transition:color .2s ease}
+.lp-foot-link:hover{color:var(--text)}
+.lp-foot-link:focus-visible{outline:2px solid var(--accent2);outline-offset:3px;border-radius:4px}
+.lp-foot-base{grid-column:1 / -1;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 24px;
+  padding-top:20px;border-top:1px solid var(--hair)}
+.lp-foot-note{font-size:.78rem;color:var(--text2)}
+[data-theme="light"] .lp-foot-link,[data-theme="light"] .lp-foot-tag,[data-theme="light"] .lp-foot-note{color:rgba(22,18,52,.74)}
+[data-theme="light"] .lp-foot-link:hover{color:#140d33}
+@media (max-width:700px){
+  .lp-foot{grid-template-columns:minmax(0,1fr);gap:24px}
+}

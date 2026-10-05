@@ -7,17 +7,28 @@
  * A surface of revolution -- a crown, a waist and a base, each with its own
  * radius -- made visible mostly by points, the way a particle tornado reads:
  *
- *   motes    thousands of them, riding the spiral of the form up (or down)
- *            it, packed tight at the waist and scattering into a cloud as
- *            the form flares, each flickering on its own clock;
- *   strands  a few hundred faint spiral lines under the motes, both hands
- *            woven, so the form has a lattice to hang on and a waist that
- *            sums to the brightest light on the page;
- *   comets   a few bright heads with halos and fading tails that race the
- *            strands and part the motes as they pass -- the motes behind a
- *            comet flare and ripple outward, then settle;
+ *   motes    thousands of them, carried up (or down) the form by the flow,
+ *            packed tight at the waist and scattering into a cloud as the
+ *            form flares, each flickering on its own clock;
+ *   strands  a few hundred faint spiral lines under the motes -- the flow's
+ *            streamlines, all turning one way -- so the form has a lattice
+ *            to hang on and a waist that sums to the brightest light on the
+ *            page;
+ *   comets   a few bright heads with halos and fading tails that ride the
+ *            same streamlines faster than the motes, and part them as they
+ *            pass -- the motes behind a comet flare and ripple outward, then
+ *            settle;
  *   field    a sparse drift of dust around the whole form, so it stands in
  *            a volume rather than on a flat ground.
+ *
+ * The motion is a vortex's, not a turntable's. What is carried along the
+ * form keeps its flux, so it moves fastest where the form is narrowest: a
+ * mote drifts slowly across the wide base, races through the waist and slows
+ * again as the crown opens. Riding a streamline of constant pitch, that same
+ * speed is its turn about the axis, so the waist whirls and the rims barely
+ * wheel -- one sense of rotation everywhere, faster toward the axis. The
+ * lattice under it barely turns at all; the light moving along it is what
+ * turns. (The flow map below is that law, tabulated once per shape.)
  *
  * And one moment that belongs to this product rather than to the shape: every
  * few seconds a band of light passes along the form, the way an audit passes
@@ -47,6 +58,18 @@
   const MAX_COMETS = 10;
 
   /*
+   * The flow map. Time spent per unit of height goes as the radius to this
+   * power: 2 would be strict continuity through a pipe, which sends the
+   * waist past in a blur and parks everything at the rims; just over 1 keeps
+   * the waist the densest, brightest part of the form while it still runs
+   * several times faster than the base. FLOW_STEPS samples of the map go to
+   * the shaders as vec4s (the last padded), read back with linear steps.
+   */
+  const FLOW_EASE = 1.1;
+  const FLOW_STEPS = 32;
+  const FLOW_VEC4 = Math.ceil((FLOW_STEPS + 1) / 4);
+
+  /*
    * The budget follows the smaller edge of the canvas. What reads as fine
    * grain on a desktop stage is a grey smear on a 390px phone, and a hot
    * battery for a picture nobody can resolve.
@@ -71,7 +94,7 @@
     /* A tall column pinched above a base that flares into a ground of light. */
     column: Object.freeze({
       top: 1.3, waist: 0.2, waistAt: 0.58, bottom: 2.2, flare: 2.5,
-      twist: 0.85, weave: 0.45, spin: 0.2, flow: 0.04, direction: 'up',
+      twist: 1.4, weave: 0, spin: 0.04, flow: 0.055, direction: 'up',
       sway: 0.03, tilt: 0.22, zoom: 1.28, rise: -0.1
     }),
     /* Two cones meeting at a point of light. */
@@ -177,8 +200,35 @@ uniform float uRepel;
 uniform float uHoverActive;
 uniform float uLift;
 uniform float uFlowClock;
+uniform vec4  uFlowMap[${FLOW_VEC4}];    /* the map's samples: where on the form (0 crown, 1 base) at each moment of a transit */
+uniform vec4  uTimeMap[${FLOW_VEC4}];    /* its inverse: what moment of a transit each place on the form is */
 
 const float TAU = 6.2831853;
+const float FLOW_STEPS = ${FLOW_STEPS}.0;
+
+float pick(vec4 q, int c) {
+  return c == 0 ? q.x : (c == 1 ? q.y : (c == 2 ? q.z : q.w));
+}
+float sampleFlow(int i) {
+  int j = i / 4;
+  return pick(uFlowMap[j], i - j * 4);
+}
+float sampleTime(int i) {
+  int j = i / 4;
+  return pick(uTimeMap[j], i - j * 4);
+}
+/* Where a point is on the form a fraction p of the way through its transit. */
+float flowAt(float p) {
+  float x = clamp(p, 0.0, 1.0) * FLOW_STEPS;
+  float i = min(floor(x), FLOW_STEPS - 1.0);
+  return mix(sampleFlow(int(i)), sampleFlow(int(i) + 1), x - i);
+}
+/* And the other way: how far through a transit a point at v has come. */
+float timeAt(float v) {
+  float x = clamp(v, 0.0, 1.0) * FLOW_STEPS;
+  float i = min(floor(x), FLOW_STEPS - 1.0);
+  return mix(sampleTime(int(i)), sampleTime(int(i) + 1), x - i);
+}
 
 /* Set by project(): how much nearer than the axis a point is, for sizing. */
 float gNear;
@@ -269,15 +319,19 @@ void main() {
   float dn = (v - w) / 0.07;
   float neck = exp(-dn * dn);
 
-  /* Light running along each strand, out of step with its neighbours. */
-  float run = pow(0.5 + 0.5 * sin(v * 11.0 + uFlowDir * uTime * 1.6 + aRnd.y * TAU), 8.0);
+  /*
+   * Light running along each strand, out of step with its neighbours, at the
+   * flow's own pace: measured in transit time, so a pulse crawls over the
+   * base and races through the waist the way a mote does.
+   */
+  float run = pow(0.5 + 0.5 * sin(timeAt(v) * 14.0 - uFlowDir * uFlowClock * 14.0 * 1.15 + aRnd.y * TAU), 8.0);
   float ds = (v - uScan.x) / 0.035;
   float scan = uScan.y * exp(-ds * ds);
 
   vCol = mix(col, uHot, clamp(neck * 0.5 + scan * 0.8, 0.0, 1.0));
   vAlpha = uAlpha * (0.45 + 0.55 * aRnd.x)
     * rimFade(v)
-    * mix(0.3, 1.0, facing)
+    * mix(0.2, 1.0, facing)
     * (0.75 + 1.1 * run + 2.4 * scan + 0.8 * push + 0.8 * neck);
 }
 `;
@@ -322,9 +376,12 @@ void main() {
   vGlow = 0.0;
 
   if (kind < -0.5) {
-    /* The field: dust around the form, drifting with it, faint and far. */
-    float angle = aSeed.x + uSpin * 0.25;
+    /*
+     * The field: dust around the form, wheeling with it -- the same sense of
+     * turn, faster near the axis than out at the edge -- faint and far.
+     */
     float r = 0.35 + 2.3 * sqrt(hash(rnd * 91.7));
+    float angle = aSeed.x + uSpin + uFlowDir * sign(uTwist) * uFlowClock * 3.2 / (0.45 + r);
     float y = fract(aSeed.y - uFlowDir * uFlowClock * 0.35) * 3.0 - 1.5;
     gl_Position = project(vec3(cos(angle) * r, y, sin(angle) * r), facing, push);
     float twinkle = 0.3 + 0.7 * pow(0.5 + 0.5 * sin(uTime * (0.6 + 1.8 * rnd) + rnd * 57.0), 3.0);
@@ -338,7 +395,7 @@ void main() {
      * surface at the waist, scattering as the form opens -- the flare is a
      * cloud, not a skin.
      */
-    float v = fract(aSeed.y + uFlowDir * uFlowClock * (0.45 + 0.55 * rnd));
+    float v = flowAt(fract(aSeed.y + uFlowDir * uFlowClock * (0.75 + 0.35 * rnd)));
     float away = abs(v - uWaistAt) / max(max(uWaistAt, 1.0 - uWaistAt), 0.001);
     float spread = 0.012 + 0.3 * pow(away, 1.6);
     float scatter = (hash(rnd * 37.1) + hash(rnd * 71.3) - 1.0) * spread * (0.5 + radiusAt(v));
@@ -368,8 +425,8 @@ void main() {
     wake = min(wake, 1.5);
 
     gl_Position = project(surface(angle, v, scatter + wake * 0.07), facing, push);
-    float flicker = 0.25 + 0.75 * pow(0.5 + 0.5 * sin(uTime * (1.2 + 4.0 * rnd) + rnd * 91.0), 2.0);
-    flicker *= step(0.06, hash(rnd * 3.7 + floor(uTime * (0.5 + rnd))));
+    /* A shimmer, not a blink: a mote that winked out and in read as noise against the flow. */
+    float flicker = 0.55 + 0.45 * pow(0.5 + 0.5 * sin(uTime * (0.8 + 2.4 * rnd) + rnd * 91.0), 2.0);
     float ds = (v - uScan.x) / 0.05;
     float scan = uScan.y * exp(-ds * ds);
     float dn = (v - uWaistAt) / 0.08;
@@ -380,13 +437,20 @@ void main() {
     col = mix(mix(uColDust, ramp(v), 0.5), uHot, clamp(scan + neck * 0.4, 0.0, 1.0));
     col = mix(col, uAccent, clamp(wake * 0.55, 0.0, 0.8));
   } else {
-    /* A comet: a head with a halo, and a tail, whipping round faster than the strands. */
+    /*
+     * A comet: a head with a halo and a tail, on the same streamline as the
+     * motes and moving faster along it. Its tail is where the head was a
+     * moment ago, so it stretches as the head races through the waist and
+     * shortens as it slows over the rims -- a streak that follows the turn
+     * of the form instead of cutting across it.
+     */
     float k = kind - 1.0;
-    float head = fract(aSeed.y + uFlowDir * uFlowClock * 2.4 * (0.75 + 0.5 * rnd));
-    float v = head - uFlowDir * k * 0.1;
-    float angle = aSeed.x + uSpin * 2.2 + uTwist * TAU * (v - uWaistAt) + v * 2.0;
+    float head = fract(aSeed.y + uFlowDir * uFlowClock * 2.6 * (0.8 + 0.4 * rnd));
+    float p = head - uFlowDir * k * 0.075;
+    float inside = step(0.0, p) * step(p, 1.0);
+    float v = flowAt(p);
+    float angle = aSeed.x + uSpin + uTwist * TAU * (v - uWaistAt);
     gl_Position = project(surface(angle, v, 0.015), facing, push);
-    float inside = step(0.0, v) * step(v, 1.0);
     vGlow = k < 0.001 ? 1.0 : 0.0;
     size = (k < 0.001 ? 22.0 : mix(3.2, 0.9, sqrt(k))) * gNear;
     alpha = inside * pow(1.0 - k, 1.5) * rimFade(v) * mix(0.45, 1.0, facing);
@@ -576,7 +640,7 @@ void main() {
     const SHARED = ['uRes', 'uFocal', 'uDist', 'uCamYaw', 'uCamPitch', 'uTilt', 'uTime', 'uSpin',
       'uTop', 'uWaist', 'uWaistAt', 'uBottom', 'uFlare', 'uTwist', 'uSway', 'uPointer', 'uRepel',
       'uHoverActive', 'uHot', 'uFlowDir', 'uScan', 'uLift', 'uFlowClock',
-      'uColTop', 'uColWaist', 'uColBottom', 'uView', 'uEdge'];
+      'uColTop', 'uColWaist', 'uColBottom', 'uView', 'uEdge', 'uFlowMap[0]', 'uTimeMap[0]'];
 
     function init() {
       const strands = link(gl, STRAND_VERT, LINE_FRAG);
@@ -863,16 +927,55 @@ void main() {
     }
 
     /*
+     * The flow map, per shape: the moment of a transit at which a point
+     * reaches each place on the form, and the inverse. Time spent per unit of
+     * height goes as radius^FLOW_EASE, so the map is the running integral of
+     * that, normalised; the inverse is read off it by walking the integral.
+     * Built from the resting waist, not the breathing one, so the motes do
+     * not jitter in step with the breath.
+     */
+    const flowMap = new Float32Array(FLOW_VEC4 * 4);
+    const timeMap = new Float32Array(FLOW_VEC4 * 4);
+    let flowOf = null;
+    function tabulateFlow() {
+      const FINE = 512;
+      const sum = new Float64Array(FINE + 1);
+      for (let i = 0; i < FINE; i += 1) {
+        const v = (i + 0.5) / FINE;
+        sum[i + 1] = sum[i] + Math.pow(Math.max(radiusAt(v), 0.02), FLOW_EASE);
+      }
+      const total = sum[FINE] || 1;
+      for (let k = 0; k <= FLOW_STEPS; k += 1) {
+        timeMap[k] = sum[Math.round(k / FLOW_STEPS * FINE)] / total;
+      }
+      let i = 0;
+      for (let k = 0; k <= FLOW_STEPS; k += 1) {
+        const target = k / FLOW_STEPS * total;
+        while (i < FINE && sum[i + 1] < target) i += 1;
+        const span = sum[i + 1] - sum[i];
+        flowMap[k] = Math.min(1, (i + (span > 0 ? (target - sum[i]) / span : 0)) / FINE);
+      }
+      for (let k = FLOW_STEPS + 1; k < flowMap.length; k += 1) { flowMap[k] = 1; timeMap[k] = 1; }
+      flowOf = shape;
+    }
+    function flowAt(p) {
+      const x = Math.max(0, Math.min(1, p)) * FLOW_STEPS;
+      const i = Math.min(Math.floor(x), FLOW_STEPS - 1);
+      return flowMap[i] + (flowMap[i + 1] - flowMap[i]) * (x - i);
+    }
+
+    /*
      * Where each comet's head is this frame -- the same arithmetic as the
      * shader's comet path -- so the motes it passes can answer it.
      */
     function placeComets() {
       const dir = shape.direction === 'up' ? -1 : 1;
+      if (flowOf !== shape) tabulateFlow();
       cometHeads.fill(0);
       comets.slice(0, MAX_COMETS).forEach((c, i) => {
-        const raw = c.phase + dir * flowClock * 2.4 * (0.75 + 0.5 * c.r);
-        const v = raw - Math.floor(raw);
-        const angle = c.angle + spin * 2.2 + shape.twist * TAU * (v - shape.waistAt) + v * 2;
+        const raw = c.phase + dir * flowClock * 2.6 * (0.8 + 0.4 * c.r);
+        const v = flowAt(raw - Math.floor(raw));
+        const angle = c.angle + spin + shape.twist * TAU * (v - shape.waistAt);
         const edge = Math.min(v / 0.1, (1 - v) / 0.1, 1);
         cometHeads[i * 4] = v;
         cometHeads[i * 4 + 1] = angle;
@@ -882,6 +985,9 @@ void main() {
     }
 
     function setShared(u, focal) {
+      if (flowOf !== shape) tabulateFlow();
+      gl.uniform4fv(u['uFlowMap[0]'], flowMap);
+      gl.uniform4fv(u['uTimeMap[0]'], timeMap);
       gl.uniform2f(u.uView, canvas.width, canvas.height);
       gl.uniform4fv(u.uEdge, edges);
       gl.uniform1f(u.uLift, fit.lift);

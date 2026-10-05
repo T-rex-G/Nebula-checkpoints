@@ -8049,7 +8049,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-orbit{position:relative;height:250svh;color:#f3f4ff;--orbit-p:0;--orbit-sky:0;--orbit-tail:0;--orbit-pull:0}
 .lp-orbit-stick{position:sticky;top:0;height:100svh;min-height:560px;overflow:hidden;display:grid;
   grid-template-rows:auto 1fr auto;justify-items:center;
-  padding:calc(var(--arc-top,180px) + clamp(56px,9vh,104px)) clamp(20px,5vw,72px) clamp(22px,5vh,48px);isolation:isolate;
+  padding:calc(var(--arc-top,96px) + clamp(56px,9vh,104px)) clamp(20px,5vw,72px) clamp(22px,5vh,48px);isolation:isolate;
   background:rgba(2,2,8,var(--orbit-sky))}
 .lp-orbit-art{position:absolute;inset:0;z-index:-1;pointer-events:none}
 /* The scene comes in over the CSS arc it matches, so a fade is all the handover needs. */
@@ -8067,10 +8067,10 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
  * preset's light coming up around it. Sized and placed from the same numbers
  * the scene uses, so the handover does not move the arc.
  */
-.lp-orbit-fallback{position:absolute;left:calc(50% - var(--arc-r,900px));top:var(--arc-top,180px);
+.lp-orbit-fallback{position:absolute;left:calc(50% - var(--arc-r,900px));top:var(--arc-top,96px);
   width:calc(2 * var(--arc-r,900px));height:calc(2 * var(--arc-r,900px));
   --fb-r:min(17vmin,150px);
-  transform:translateY(calc(var(--orbit-pull) * (52svh - var(--arc-top,180px) - var(--arc-r,900px))))
+  transform:translateY(calc(var(--orbit-pull) * (52svh - var(--arc-top,96px) - var(--arc-r,900px))))
     scale(calc(1 - var(--orbit-pull) * (1 - var(--fb-r) / var(--arc-r,900px))));
   transform-origin:50% 50%;transition:opacity .9s ease}
 .lp-orbit-fallback::after{content:"";position:absolute;inset:0;border-radius:50%;background:#000;
@@ -8102,7 +8102,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-system{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;column-gap:12px;align-items:center;align-content:center;
   padding:12px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.1);background:rgba(7,7,20,.88);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
-  opacity:.38;transform:translateY(14px);transition:opacity .6s ease,transform .7s cubic-bezier(.16,1,.3,1),border-color .6s ease,box-shadow .6s ease}
+  opacity:.5;transform:translateY(14px);transition:opacity .6s ease,transform .7s cubic-bezier(.16,1,.3,1),border-color .6s ease,box-shadow .6s ease}
 .lp-system:nth-child(even){text-align:right;grid-template-columns:minmax(0,1fr) auto}
 .lp-system:nth-child(even) .lp-system-i{grid-column:2;grid-row:1/span 2}
 .lp-system:nth-child(even) b,.lp-system:nth-child(even)>span:last-child{grid-column:1}
@@ -8159,8 +8159,30 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
   .lp-system b{font-size:.9rem}
   .lp-system>span:last-child{font-size:.7rem}
   .lp-progress{right:6px;height:80px}
-  .lp-orbit-stick{padding-top:calc(var(--arc-top,140px) + clamp(40px,7vh,72px))}
+  .lp-orbit-stick{padding-top:calc(var(--arc-top,100px) + clamp(40px,7vh,72px))}
   .lp-orbit-copy{text-align:center}
+}
+/*
+ * On a phone the six stand in one column as a single glass panel, a row each:
+ * the mark, the name, and what it covers set against the right edge. Two
+ * columns of cards cramped each name into half the screen and three rows of
+ * them sat low, leaving a well of empty night between the title and the
+ * list. Unlit rows stay legible; lit ones take a wash of the preset's light.
+ */
+@media (max-width:600px){
+  .lp-systems{grid-template-columns:minmax(0,1fr);row-gap:0;column-gap:0;padding:4px;margin-bottom:14px;border-radius:18px;
+    border:1px solid rgba(255,255,255,.1);background:rgba(7,7,20,.8);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 24px 48px -28px rgba(0,0,0,.8)}
+  .lp-system,.lp-system:nth-child(even){grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:auto;column-gap:12px;
+    padding:10px 12px 10px 8px;border:0;border-radius:13px;background:transparent;box-shadow:none;opacity:.6;transform:none}
+  .lp-system + .lp-system{border-top:1px solid rgba(255,255,255,.06);border-radius:0 0 13px 13px}
+  .lp-system + .lp-system:not(:last-child){border-radius:0}
+  .lp-system-i,.lp-system:nth-child(even) .lp-system-i{grid-column:1;grid-row:auto;width:32px;height:32px;border-radius:10px}
+  .lp-system b,.lp-system:nth-child(even) b{grid-column:2;font-size:.92rem}
+  .lp-system>span:last-child,.lp-system:nth-child(even)>span:last-child{grid-column:3;text-align:right;font-size:.72rem;white-space:nowrap}
+  .lp-system[data-on="true"]{opacity:1;border-color:rgba(255,255,255,.06);box-shadow:none;
+    background:linear-gradient(90deg,rgba(139,92,246,.16),rgba(139,92,246,0) 70%)}
+  [data-design="obsidian"] .lp-system[data-on="true"]{border-color:rgba(255,255,255,.06);box-shadow:none;
+    background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,0) 70%)}
 }
 @media (prefers-reduced-motion:reduce){
   .lp-system,.lp-orbit-gate,.lp-orbit-art nebula-singularity{transition:none;animation:none}
@@ -8198,28 +8220,14 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-body{grid-template-areas:"copy art" "entry art" "promise art" "steps steps";grid-template-rows:auto auto 1fr auto;
   row-gap:22px;padding-top:clamp(24px,5vh,56px);padding-bottom:clamp(20px,4vh,40px)}
 
-/* Slow light: three soft fields, moved only by transform so the compositor does the work. */
-.lp-aurora{position:absolute;inset:-20% -10% 0;z-index:-2;pointer-events:none;overflow:hidden}
-.lp-aurora i{position:absolute;width:52vmax;height:52vmax;border-radius:50%;opacity:.55;
-  background:radial-gradient(closest-side,var(--lp-aur,rgba(124,58,237,.34)),transparent 72%)}
-.lp-aurora i:nth-child(1){left:-12vmax;top:-18vmax;--lp-aur:rgba(124,58,237,.30)}
-.lp-aurora i:nth-child(2){right:-14vmax;top:-6vmax;--lp-aur:rgba(56,189,248,.16)}
-.lp-aurora i:nth-child(3){left:28%;top:38%;width:40vmax;height:40vmax;--lp-aur:rgba(217,70,239,.14)}
-@media (prefers-reduced-motion:no-preference){
-  :root[data-ambient="on"]:not([data-motion="off"]) .lp-aurora i{animation:lpAurora 22s ease-in-out infinite alternate}
-  :root[data-ambient="on"]:not([data-motion="off"]) .lp-aurora i:nth-child(2){animation-duration:27s;animation-delay:-9s}
-  :root[data-ambient="on"]:not([data-motion="off"]) .lp-aurora i:nth-child(3){animation-duration:31s;animation-delay:-15s}
-}
-@keyframes lpAurora{0%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(4vmax,3vmax,0) scale(1.08)}100%{transform:translate3d(-3vmax,5vmax,0) scale(.96)}}
-[data-theme="light"] .lp-aurora i{opacity:.7}
-[data-theme="light"] .lp-aurora i:nth-child(1){--lp-aur:rgba(124,58,237,.16)}
-[data-theme="light"] .lp-aurora i:nth-child(2){--lp-aur:rgba(14,165,233,.12)}
-[data-theme="light"] .lp-aurora i:nth-child(3){--lp-aur:rgba(217,70,239,.08)}
-[data-design="obsidian"] .lp-aurora i:nth-child(1){--lp-aur:rgba(255,255,255,.07)}
-[data-design="obsidian"] .lp-aurora i:nth-child(2){--lp-aur:rgba(161,161,170,.08)}
-[data-design="obsidian"] .lp-aurora i:nth-child(3){--lp-aur:rgba(255,255,255,.04)}
-[data-design="obsidian"][data-theme="light"] .lp-aurora i{--lp-aur:rgba(0,0,0,.035)}
-
+/*
+ * No soft fields of light behind the hero. Three drifting radial blobs sat
+ * there -- violet top left, sky blue top right, magenta under the copy -- and
+ * against the galaxy they read as stains on the page rather than light: a
+ * bubble in the middle of the copy column and another over the artwork's
+ * shoulder, in both presets. The galaxy is the hero's light, and the shell's
+ * own bloom is its ground.
+ */
 /* The status pill: a live dot, the state, on a hairline capsule. */
 .lp-eyebrow{display:inline-flex;align-items:center;gap:9px;width:max-content;max-width:100%;margin:0 0 22px;padding:7px 14px 7px 11px;
   border-radius:999px;border:1px solid color-mix(in srgb,var(--teal) 34%,transparent);
@@ -8339,4 +8347,420 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 @media (max-width:480px){
   .lp-eyebrow{font-size:.58rem;letter-spacing:.12em;padding:6px 12px 6px 9px}
   .lp-title{font-size:clamp(2.4rem,11vw,3.4rem)}
+}
+
+/* ================= LANDING · ONE FLUID FRAME ================= */
+/*
+ * One set of numbers decides the frame at every width, instead of a fixed
+ * container and a handful of breakpoints: the content may grow to 1600px,
+ * the gutter scales with the screen between 16px and 80px, and the reading
+ * sections stop at 1280px so a line never runs past what an eye can follow.
+ * --lp-edge is the distance from the content's right edge to the window's,
+ * which is how far the artwork may bleed to meet it.
+ */
+.lp{--lp-max:1600px;--lp-gutter:clamp(16px,4.6vw,80px);--lp-read:1280px;
+  --lp-edge:calc((100vw - min(100vw, var(--lp-max))) / 2 + var(--lp-gutter))}
+.lp-nav,.lp-body,.lp-more{width:min(100%,var(--lp-max));padding-inline:var(--lp-gutter)}
+.lp-more > :where(section,div,footer){max-width:var(--lp-read);margin-inline:auto}
+
+/*
+ * The first screen is as tall as the screen leaves room for, but never taller
+ * than its content can fill: on a tall window it used to stretch to the
+ * window and leave a band of empty dark between the path and the horizon.
+ * Its content sits in the middle of whatever height it gets.
+ */
+.lp-hero{display:flex;flex-direction:column;justify-content:center;
+  min-height:clamp(560px,calc(100svh - var(--lp-nav-h) - var(--lp-arc-peek,150px)),920px)}
+.lp-body{margin-inline:auto}
+@media (min-width:940px){
+  /* The copy takes half the frame up to 600px, so the galaxy never shrinks to a thumbnail at tablet widths. */
+  .lp-body{grid-template-columns:minmax(0,clamp(420px,50%,600px)) minmax(0,1fr);column-gap:clamp(24px,5vw,96px)}
+  /* The galaxy runs to the window's edge rather than stopping at the column's. */
+  .lp-stage{right:calc(-1 * var(--lp-edge))}
+}
+
+/*
+ * Two ways forward, set the way product sites set them: a filled button for
+ * the reader who is ready, and an outlined one beside it for the reader who
+ * wants to see first. The same height, the same corner, one gap.
+ */
+.lp-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.lp-actions .btn{min-height:50px;padding:0 22px;border-radius:12px;font-size:.95rem;font-weight:600;letter-spacing:-.01em}
+.alpha-open .lp-actions .lp-entry-go{padding:0 20px 0 22px;border-radius:12px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 0 0 1px rgba(196,181,253,.28),0 12px 28px -14px rgba(124,58,237,.7)}
+.lp-ghost{gap:9px;color:var(--text);background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.16);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.lp-ghost:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.3)}
+.lp-ghost:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
+.lp-ghost svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round;opacity:.85}
+[data-theme="light"] .lp-ghost{color:#1e1b4b;background:rgba(255,255,255,.66);border-color:rgba(30,27,75,.16);
+  box-shadow:0 1px 2px rgba(30,27,75,.06)}
+[data-theme="light"] .lp-ghost:hover{background:#fff;border-color:rgba(30,27,75,.3)}
+/* Obsidian is monochrome: its filled button glows in its own light, not the Nebula preset's violet. */
+[data-design="obsidian"] .alpha-open .lp-actions .lp-entry-go{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 0 0 1px rgba(255,255,255,.14),0 12px 28px -16px rgba(255,255,255,.26)}
+[data-design="obsidian"][data-theme="light"] .alpha-open .lp-actions .lp-entry-go{
+  box-shadow:0 0 0 1px rgba(0,0,0,.06),0 12px 26px -16px rgba(0,0,0,.45)}
+[data-design="obsidian"] .lp-ghost:focus-visible{outline-color:#e4e4e7}
+
+/*
+ * With entry open there is nothing to request, so the card reads as two
+ * buttons with one line under them: the readiness state and what it means,
+ * side by side. "Request entry" still names the region for a screen reader.
+ */
+.lp-card:has(> #alphaOpenAccess:not([hidden])){display:flex;flex-wrap:wrap;align-items:center;column-gap:12px;row-gap:14px}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) > *{flex:1 1 100%}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) .alpha-open{display:contents}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) .lp-actions{order:1;flex:1 1 100%}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) .lp-entry-head{order:2;flex:0 0 auto}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) .alpha-open-note{order:2;flex:1 1 240px}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) .alpha-access-rule{order:3;flex:1 1 100%}
+.lp-card:has(> #alphaOpenAccess:not([hidden])) #lpEntryTitle{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+/*
+ * The promises as one quiet row of checks, never a line and a half: when the
+ * column is too narrow for all three side by side they stand in a column.
+ */
+.lp-promise{display:flex;flex-wrap:wrap;gap:10px 20px;container:lp-promise/inline-size}
+.lp-promise li{white-space:nowrap}
+@container lp-promise (max-width:560px){
+  .lp-promise li{flex:1 1 100%}
+}
+
+@media (max-width:939px){
+  .lp-hero{min-height:0;justify-content:flex-start}
+}
+@media (max-width:520px){
+  .lp-actions .btn{flex:1 1 auto}
+}
+
+/* ================= LANDING · THE AUDIT, PLAYED (FRAME AND RAIL) ================= */
+/*
+ * The frame holds the middle of the screen, not a fixed distance under the
+ * bar: its sticky offset is whatever centres it in the screen below the bar
+ * (landing-stage.js keeps --frame-h, its height, as the stages change it),
+ * and never less than a gap under the bar, so a frame taller than the room
+ * keeps its top in view. Before it sticks it starts level with the first
+ * move. The moves are spaced at a little under half a screen -- a full
+ * screen between them read as gaps -- and each one's number sits at the
+ * middle of its card, on the rail.
+ */
+@media (min-width:940px){
+  .lp-play-body{--step-h:clamp(300px,44svh,460px)}
+  /* Every card centred in its stop, the first too, so each number is on the reading line when its card is. */
+  .lp-play-step,.lp-play-step:first-child{min-height:var(--step-h);align-content:center;padding-top:0}
+  .lp-play-frame{top:max(calc(var(--lp-nav-h) + 16px),calc(var(--lp-nav-h) + (100svh - var(--lp-nav-h) - var(--frame-h,480px)) / 2))}
+  .lp-play-n{top:50%;margin-top:-20px}
+}
+/*
+ * The rail is drawn by the compositor where the browser can tie an animation
+ * to the scroll: the fill scales and the dot moves with the page itself, so
+ * neither trails it by a frame the way a value set from a scroll handler
+ * does. The range is the rail crossing the reading line, the middle of the
+ * screen under the bar -- the same line the script uses to choose the move --
+ * so the dot reaches each number as its card is centred, and passes under it.
+ * Elsewhere the script's --play-p moves them, by transform as well.
+ */
+/* Inset 0: by default a view timeline shrinks the screen by the page's scroll-padding (the bar's 88px), and the range would end that far early. */
+.lp-play-rail{view-timeline:--lp-rail block;view-timeline-inset:0}
+.lp-play-rail b{top:0;transform:translateY(calc(var(--play-p) * var(--rail-h,0px)))}
+@supports (animation-timeline: view()){
+  @media (prefers-reduced-motion:no-preference){
+    :root:not([data-motion="off"]) .lp-play-rail i{animation:lp-rail-fill linear both;animation-timeline:--lp-rail;
+      animation-range:cover calc(50vh - var(--lp-nav-h) / 2) cover calc(100% - 50vh - var(--lp-nav-h) / 2)}
+    :root:not([data-motion="off"]) .lp-play-rail b{animation:lp-rail-dot linear both;animation-timeline:--lp-rail;
+      animation-range:cover calc(50vh - var(--lp-nav-h) / 2) cover calc(100% - 50vh - var(--lp-nav-h) / 2)}
+  }
+}
+@keyframes lp-rail-fill{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes lp-rail-dot{from{transform:translateY(0)}to{transform:translateY(var(--rail-h,0px))}}
+
+/*
+ * The seven families never truncate: the frame measures itself, and when
+ * seven tiles would cut a name ("SUP...") or push a three-figure score past
+ * its tile, they stand as four over three, both rows filling the width.
+ */
+.lp-au{container:lp-au/inline-size}
+@container lp-au (max-width:599px){
+  .lp-au-fams{grid-template-columns:repeat(12,minmax(0,1fr))}
+  .lp-au-fams li{grid-column:span 3}
+  .lp-au-fams li:nth-child(n+5){grid-column:span 4}
+}
+.lp-au-fams li > span{text-overflow:clip}
+
+/*
+ * Inside the workspace, a security tool's page runs edge to edge with the tab
+ * bar above it. It was centred at 900px (1080px for the Audit) with its own
+ * 16px inset, so on a wide screen a band of nothing opened between the file
+ * explorer and the first card, and at every width the cards stood 16px in
+ * from the tab bar's edges. The prose inside keeps its own measure.
+ */
+.main-pane .exposure-shell{max-width:none;margin:0;padding-inline:0}
+
+/* ================= LANDING · THE LOWER SECTIONS, REBUILT ================= */
+/*
+ * After the map the page used to fall back to running text: four columns of
+ * uneven length, a bento whose lead card stretched an empty diff, a bare
+ * table, a sticky heading beside three stacked cards, a list, and a footer of
+ * two words. Each section now has one shape a reader takes in at a glance --
+ * equal cards with chips, a balanced bento, a comparison with its answer
+ * column lit, a timeline, three cards, an accordion of cards, a horizon to
+ * close on, and a footer that maps the page.
+ */
+
+/* ---- Coverage: four equal cards, a figure, a line, and what it covers as chips. */
+/* Two by two: four skinny columns left three of the cards half empty beside the longest. */
+.lp-checks-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;border:0;border-radius:0;overflow:visible;background:none}
+.lp-check,.lp-check + .lp-check{position:relative;display:flex;flex-direction:column;gap:12px;padding:26px 24px 24px;min-width:0;
+  border:1px solid var(--line);border-left:1px solid var(--line);border-top:1px solid var(--line);border-radius:20px;
+  background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01)),var(--card2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);transition:transform .35s var(--ease),border-color .25s ease}
+.lp-check:hover{transform:translateY(-3px);border-color:var(--line-hi)}
+.lp-check-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.lp-check-ico{flex:none;width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:var(--accent2);
+  background:color-mix(in srgb,var(--accent2) 12%,transparent);border:1px solid color-mix(in srgb,var(--accent2) 26%,transparent)}
+.lp-check-ico svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.lp-check-t{margin:2px 0 0}
+.lp-check-d{font-size:.86rem;line-height:1.6}
+.lp-check-eg{display:flex;flex-wrap:wrap;gap:7px;margin:auto 0 0;padding:14px 0 0;border-top:1px solid var(--hair)}
+.lp-check-eg li{padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03);
+  font-size:.74rem;line-height:1.3;color:var(--text2);white-space:nowrap}
+.lp-check-eg li::before{content:none}
+.lp-check-bench{margin:0;padding:10px 12px;border-radius:12px;font-size:.78rem;line-height:1.45;color:var(--text2);
+  background:color-mix(in srgb,var(--accent2) 9%,transparent);border:1px solid color-mix(in srgb,var(--accent2) 22%,transparent)}
+.lp-check-bench b{color:var(--text);font-weight:650;font-variant-numeric:tabular-nums}
+.lp-check-bench i{font-style:normal;margin:0 2px;color:var(--muted)}
+.lp-check:nth-child(even),.lp-check:nth-child(n+3){border-left:1px solid var(--line);border-top:1px solid var(--line)}
+@media (min-width:761px){
+  .lp-check,.lp-check + .lp-check{padding:30px 30px 28px}
+  .lp-check-d{max-width:46ch}
+}
+@media (max-width:760px){
+  .lp-checks-grid{grid-template-columns:minmax(0,1fr)}
+  .lp-check,.lp-check + .lp-check{padding:22px 20px 20px}
+}
+[data-theme="light"] .lp-check{background:rgba(255,255,255,.76);box-shadow:0 1px 0 #fff inset,0 18px 40px -30px rgba(60,40,120,.3)}
+[data-theme="light"] .lp-check-eg li{background:rgba(255,255,255,.8);border-color:rgba(76,29,149,.14);color:rgba(22,18,52,.8)}
+[data-theme="light"] .lp-check-ico{color:#6d28d9}
+[data-design="obsidian"] .lp-check-ico{color:#e7e5e4;background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14)}
+[data-design="obsidian"] .lp-check-bench{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.12)}
+[data-design="obsidian"][data-theme="light"] .lp-check-ico{color:#27272a;background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.1)}
+[data-design="obsidian"][data-theme="light"] .lp-check-bench{background:rgba(0,0,0,.025);border-color:rgba(0,0,0,.1)}
+
+/*
+ * ---- The bento, balanced: three columns, two rows, no card stretched to
+ * fill another's height. The lead and the last span two columns with their
+ * picture beside their words; the two between stand picture over words.
+ */
+@media (min-width:981px){
+  .lp-sec-wide .lp-caps{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:auto}
+  .lp-sec-wide .lp-cap-lead,.lp-sec-wide .lp-cap:last-child{grid-column:span 2;grid-row:auto;display:grid;
+    grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-rows:auto auto 1fr;column-gap:clamp(20px,2.6vw,36px);align-items:start}
+  .lp-sec-wide .lp-cap-lead .lp-cap-art,.lp-sec-wide .lp-cap:last-child .lp-cap-art{grid-column:1;grid-row:1 / 4;margin:0;height:100%;min-height:0}
+  .lp-sec-wide .lp-cap-lead > :not(.lp-cap-art),.lp-sec-wide .lp-cap:last-child > :not(.lp-cap-art){grid-column:2}
+  .lp-sec-wide .lp-cap-lead .lp-cap-ico,.lp-sec-wide .lp-cap:last-child .lp-cap-ico{margin-top:6px}
+  /* The pulse fills its panel rather than sitting at the foot of an empty one. */
+  .lp-sec-wide .lp-cap:last-child .lp-art-pulse svg{flex:1 1 auto;height:auto;min-height:96px}
+}
+@media (min-width:641px) and (max-width:980px){
+  .lp-sec-wide .lp-caps{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lp-sec-wide .lp-cap-lead{grid-column:1 / -1;grid-row:auto}
+}
+.lp-sec-wide .lp-cap-lead .lp-cap-art{min-height:0;justify-content:flex-start}
+.lp-diff-f{margin-top:auto}
+
+/*
+ * ---- Shows its working: one table in one card. The answer column is lit
+ * from the head to the last row, the way a comparison marks the choice it
+ * argues for; each "usually" is crossed and each "here" is ticked, and the
+ * words "Usually" and "Here" are still in every row for a screen reader.
+ */
+.lp-proof-rows{border:1px solid var(--line);border-radius:22px;overflow:hidden;
+  background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.008)),var(--card2)}
+@media (min-width:761px){
+  .lp-proof-row{grid-template-columns:26% 28% 46%;column-gap:0;padding:0;align-items:stretch;border-bottom:1px solid var(--hair);
+    background:linear-gradient(90deg,transparent 54%,color-mix(in srgb,var(--accent2) 7%,transparent) 54%)}
+  .lp-proof-row:last-child{border-bottom:0}
+  .lp-proof-row > *{padding:20px clamp(16px,2vw,26px)}
+  .lp-proof-cols{padding:0}
+  .lp-proof-cols > span{padding:14px clamp(16px,2vw,26px)}
+  .lp-proof-cols span:last-child{display:flex;align-items:center;gap:8px;color:var(--accent2);
+    box-shadow:inset 0 2px 0 var(--accent2)}
+  .lp-proof-k{display:flex;align-items:baseline}
+}
+.lp-proof-them,.lp-proof-us{position:relative;padding-left:calc(clamp(16px,2vw,26px) + 28px)}
+.lp-proof-them::before,.lp-proof-us::before{content:"";position:absolute;left:clamp(16px,2vw,26px);top:calc(20px + .2em);width:18px;height:18px;border-radius:50%;
+  background-repeat:no-repeat;background-position:center;background-size:10px}
+.lp-proof-them::before{background-color:rgba(148,163,184,.12);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M7 7l10 10M17 7L7 17'/%3E%3C/svg%3E")}
+.lp-proof-us::before{background-color:color-mix(in srgb,var(--accent2) 20%,transparent);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c4b5fd' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+[data-theme="light"] .lp-proof-us::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236d28d9' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+[data-design="obsidian"] .lp-proof-us::before{background-color:rgba(255,255,255,.1);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e7e5e4' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+[data-design="obsidian"][data-theme="light"] .lp-proof-us::before{background-color:rgba(0,0,0,.06);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2327272a' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+[data-design="obsidian"] .lp-proof-row{background:linear-gradient(90deg,transparent 54%,rgba(255,255,255,.035) 54%)}
+[data-design="obsidian"] .lp-proof-cols span:last-child{color:var(--text);box-shadow:inset 0 2px 0 rgba(255,255,255,.5)}
+[data-theme="light"] .lp-proof-rows{background:rgba(255,255,255,.76)}
+@media (max-width:760px){
+  .lp-proof-rows{border-radius:18px}
+  .lp-proof-row{padding:18px 18px 16px;gap:10px;background:none}
+  .lp-proof-them,.lp-proof-us{padding:10px 12px 10px 40px;border-radius:12px}
+  .lp-proof-them::before,.lp-proof-us::before{left:12px;top:calc(10px + .25em)}
+  /* On a phone the tag stands over its sentence, so the sentence keeps one left edge. */
+  .lp-proof-tag{display:block;width:max-content;margin:0 0 6px}
+  .lp-proof-them{background:rgba(148,163,184,.06)}
+  .lp-proof-us{background:color-mix(in srgb,var(--accent2) 8%,transparent)}
+  [data-design="obsidian"] .lp-proof-us{background:rgba(255,255,255,.04)}
+}
+
+/*
+ * ---- How it works, as a timeline: the three moves side by side, each
+ * number a stop on one line that fills as the section passes. On a phone
+ * the stops stand down the left with the line between them.
+ */
+.lp-story{display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(28px,4vw,44px);align-items:start}
+.lp-story-rail{position:static;max-width:44rem;margin:0 auto;text-align:center}
+.lp-story-rail .lp-sec-lede{margin-inline:auto}
+.lp-story-track{--g:16px;position:relative;padding-top:4px}
+.lp-story-steps{grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--g);counter-reset:none}
+.lp-story-step{position:relative;isolation:isolate;align-content:start;padding:0;border:0;background:none;box-shadow:none;gap:16px}
+.lp-story-n{position:relative;z-index:1;width:42px;height:42px;display:grid;place-items:center;border-radius:50%;
+  font-size:.74rem;font-weight:600;color:var(--text);background:var(--page,#07040f);
+  border:1px solid color-mix(in srgb,var(--accent2) 55%,transparent);box-shadow:0 0 0 5px color-mix(in srgb,var(--accent2) 10%,transparent)}
+.lp-story-step > :not(.lp-story-n){margin:0}
+.lp-story-step{grid-template-rows:auto auto auto 1fr}
+.lp-story-step::after{content:"";position:absolute;inset:58px 0 0;z-index:-1;border-radius:18px;border:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01)),var(--card2)}
+.lp-story-step > .lp-story-t{margin-top:16px}
+.lp-story-step > .lp-story-t,.lp-story-step > .lp-story-d,.lp-story-step > .lp-story-art{padding-inline:24px}
+.lp-story-step > .lp-story-art{padding-bottom:24px;align-self:end}
+.lp-story-progress{position:absolute;top:25px;left:21px;width:calc((200% + 2 * var(--g)) / 3);height:2px;margin:0;border-radius:2px;overflow:hidden;background:var(--hair)}
+.lp-story-progress span{transform-origin:0 50%;transform:scaleX(1);background:linear-gradient(90deg,var(--accent),var(--accent2))}
+@supports (animation-timeline: view()){
+  @media (prefers-reduced-motion:no-preference){
+    :root:not([data-motion="off"]) .lp-story-progress span{animation:lp-fill-x linear both;animation-timeline:view();animation-range:entry 80% cover 55%}
+  }
+}
+@keyframes lp-fill-x{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+[data-motion="off"] .lp-story-progress span{animation:none;transform:none}
+[data-theme="light"] .lp-story-step::after{background:rgba(255,255,255,.76)}
+[data-theme="light"] .lp-story-n{background:#fff}
+[data-design="obsidian"] .lp-story-n{border-color:rgba(255,255,255,.35);box-shadow:0 0 0 5px rgba(255,255,255,.05)}
+@media (max-width:900px){
+  .lp-story-rail{text-align:left;margin:0}
+  .lp-story-steps{grid-template-columns:minmax(0,1fr);gap:18px}
+  .lp-story-step{grid-template-columns:42px minmax(0,1fr);grid-template-rows:auto;column-gap:14px;row-gap:10px}
+  .lp-story-n{grid-row:1 / span 3}
+  .lp-story-step > :not(.lp-story-n){grid-column:2}
+  .lp-story-step::after{inset:0 0 0 56px}
+  .lp-story-step > .lp-story-t{margin-top:20px}
+  .lp-story-step > .lp-story-t,.lp-story-step > .lp-story-d,.lp-story-step > .lp-story-art{padding-inline:20px}
+  .lp-story-step > .lp-story-art{padding-bottom:20px}
+  /* Down the left, one stretch of line from each stop to the next. */
+  .lp-story-progress{display:none}
+  .lp-story-step:not(:last-child)::before{content:"";position:absolute;left:20px;top:42px;bottom:-18px;width:2px;
+    background:linear-gradient(180deg,var(--accent2),color-mix(in srgb,var(--accent2) 25%,transparent))}
+}
+
+/* ---- What it will not do: the heading over three cards, each edge with its sign. */
+.lp-sec.lp-limits-sec{grid-template-columns:minmax(0,1fr);gap:clamp(24px,3.4vw,36px)}
+.lp-limits-sec .lp-sec-head{max-width:40rem}
+.lp-limits{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;border:0;border-radius:0;overflow:visible;background:none}
+.lp-limit,.lp-limit + .lp-limit{display:flex;flex-direction:column;gap:14px;padding:22px 22px 24px;border:1px solid var(--line);border-radius:18px;
+  background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01)),var(--card2)}
+/* The sign in a tile: the tile is drawn round the 24-unit glyph with an outline, so the glyph keeps its own size. */
+.lp-limit-ico{flex:none;width:22px;height:22px;margin:9px;border-radius:7px;overflow:visible;
+  outline:1px solid color-mix(in srgb,var(--amber,#f59e0b) 30%,transparent);outline-offset:8px;
+  background:color-mix(in srgb,var(--amber,#f59e0b) 12%,transparent);box-shadow:0 0 0 8px color-mix(in srgb,var(--amber,#f59e0b) 12%,transparent)}
+.lp-limit-b{font-size:.98rem;font-family:var(--font-display);letter-spacing:-.01em}
+.lp-limit-d{margin-top:8px;font-size:.85rem}
+[data-theme="light"] .lp-limit{background:rgba(255,255,255,.76)}
+@media (max-width:860px){
+  .lp-limits{grid-template-columns:minmax(0,1fr)}
+  .lp-limit,.lp-limit + .lp-limit{flex-direction:row;align-items:flex-start}
+}
+
+/*
+ * ---- Questions: the heading holds beside the answers on a desk, and each
+ * question is a card of its own that lights when it is open.
+ */
+.lp-faq{align-items:start}
+@media (min-width:940px){
+  .lp-faq .lp-sec-head{position:sticky;top:calc(var(--lp-nav-h) + 32px)}
+}
+.lp-faq-list{display:grid;gap:10px;border-top:0}
+.lp-faq-item{border:1px solid var(--line);border-radius:16px;padding:0 20px;
+  background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.008)),var(--card2);transition:border-color .25s ease,background-color .25s ease}
+.lp-faq-item + .lp-faq-item{border-top:1px solid var(--line)}
+.lp-faq-item:hover{border-color:var(--line-hi)}
+.lp-faq-item[open]{border-color:color-mix(in srgb,var(--accent2) 45%,var(--line))}
+.lp-faq-item summary{padding:18px 0;align-items:center}
+.lp-faq-item summary::after{content:"";width:28px;height:28px;border-radius:50%;border:1px solid var(--line);
+  background:center/12px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a5a3c8' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E");
+  transition:transform .3s var(--ease),border-color .25s ease}
+.lp-faq-item[open] summary::after{transform:rotate(45deg);border-color:color-mix(in srgb,var(--accent2) 45%,var(--line))}
+.lp-faq-item summary:focus-visible{outline-offset:2px}
+.lp-faq-item p{margin:0 0 20px}
+[data-theme="light"] .lp-faq-item{background:rgba(255,255,255,.76)}
+[data-theme="light"] .lp-faq-item summary::after{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234c4670' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E")}
+[data-design="obsidian"] .lp-faq-item[open],[data-design="obsidian"] .lp-faq-item[open] summary::after{border-color:rgba(255,255,255,.28)}
+@media (prefers-reduced-motion:no-preference){
+  .lp-faq-item[open] p{animation:lp-faq-in .35s var(--ease) both}
+}
+@keyframes lp-faq-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+[data-motion="off"] .lp-faq-item[open] p{animation:none}
+
+/*
+ * ---- The close: the horizon again, rising from the foot of the card the way
+ * the singularity opened, with the same two ways forward as the first screen.
+ */
+.lp-cta{isolation:isolate;padding:clamp(56px,8vw,104px) clamp(20px,4vw,48px) clamp(120px,12vw,160px);
+  background:radial-gradient(ellipse 60% 70% at 50% 0%,rgba(124,58,237,.22),transparent 70%),#06040e}
+/* A wide, shallow curve whose crown sits under the buttons, never through a line of text. */
+.lp-cta-horizon{position:absolute;left:50%;bottom:0;z-index:-1;width:max(220%,1500px);aspect-ratio:1;border-radius:50%;
+  translate:-50% calc(100% - clamp(64px,7vw,92px));background:#000;
+  box-shadow:0 0 0 1.5px var(--lp-rim,rgba(216,180,254,.75)),0 -30px 90px -20px var(--lp-rim-glow,rgba(139,92,246,.55)),
+    0 -80px 160px -40px rgba(124,58,237,.35)}
+.lp-cta-eyebrow{margin:0}
+.lp-cta.lp-revealed > .lp-cta-horizon{animation:none}
+.lp-cta-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-top:10px}
+.lp-cta-actions .btn{min-height:50px;border-radius:12px;font-weight:600}
+.lp-cta-actions .lp-cta-btn{margin-top:0}
+.lp-cta-ghost{gap:9px;padding:0 22px}
+[data-theme="light"] .lp-cta{background:radial-gradient(ellipse 60% 70% at 50% 0%,rgba(124,58,237,.14),transparent 70%),#fbfaff}
+[data-theme="light"] .lp-cta-horizon{background:#f1edfc;box-shadow:0 0 0 1.5px rgba(124,58,237,.45),0 -30px 90px -30px rgba(124,58,237,.35)}
+[data-design="obsidian"] .lp-cta{background:radial-gradient(ellipse 60% 70% at 50% 0%,rgba(255,255,255,.07),transparent 70%),#08080a}
+[data-design="obsidian"] .lp-cta-horizon{box-shadow:0 0 0 1.5px rgba(255,255,255,.55),0 -30px 90px -20px rgba(214,211,209,.3)}
+[data-design="obsidian"][data-theme="light"] .lp-cta{background:radial-gradient(ellipse 60% 70% at 50% 0%,rgba(0,0,0,.05),transparent 70%),#fafaf9}
+[data-design="obsidian"][data-theme="light"] .lp-cta-horizon{background:#f1f0ee;box-shadow:0 0 0 1.5px rgba(0,0,0,.18),0 -30px 90px -30px rgba(0,0,0,.18)}
+@media (max-width:520px){
+  .lp-cta-actions{width:100%}
+  .lp-cta-actions .btn{flex:1 1 auto}
+  .lp-cta{padding-bottom:96px}
+  .lp-cta-horizon{translate:-50% calc(100% - 52px)}
+}
+
+/* ---- The footer: the brand and its line, the page's own map, the deployment. */
+.lp-foot{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:28px 40px;align-items:start;
+  margin-top:clamp(64px,8vw,96px);padding:36px 0 max(28px,env(safe-area-inset-bottom,0px));border-top:1px solid var(--hair)}
+.lp-foot-about{display:grid;gap:12px;align-content:start}
+.lp-foot-brand{font-size:.95rem;color:var(--text)}
+.lp-foot-brand .nv-mark{width:22px;height:22px;flex-basis:22px}
+.lp-foot-tag{margin:0;max-width:28rem;color:var(--text2);font-size:.86rem;line-height:1.6}
+.lp-foot-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.lp-foot-col{display:grid;gap:4px;align-content:start;justify-items:start}
+.lp-foot-h{margin:0 0 6px;font-family:var(--font-mono);font-size:.64rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.lp-foot-link{padding:4px 0;border:0;background:none;color:var(--text2);font:inherit;font-size:.88rem;cursor:pointer;text-align:left;
+  transition:color .2s ease}
+.lp-foot-link:hover{color:var(--text)}
+.lp-foot-link:focus-visible{outline:2px solid var(--accent2);outline-offset:3px;border-radius:4px}
+.lp-foot-base{grid-column:1 / -1;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 24px;
+  padding-top:20px;border-top:1px solid var(--hair)}
+.lp-foot-note{font-size:.78rem;color:var(--text2)}
+[data-theme="light"] .lp-foot-link,[data-theme="light"] .lp-foot-tag,[data-theme="light"] .lp-foot-note{color:rgba(22,18,52,.74)}
+[data-theme="light"] .lp-foot-link:hover{color:#140d33}
+@media (max-width:700px){
+  .lp-foot{grid-template-columns:minmax(0,1fr);gap:24px}
 }

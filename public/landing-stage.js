@@ -232,11 +232,19 @@
       const first = badges[0].getBoundingClientRect();
       const last = badges[badges.length - 1].getBoundingClientRect();
       const top = first.top + first.height / 2 - frame.top;
+      const height = Math.max(0, last.top + last.height / 2 - frame.top - top);
       rail.style.top = `${top.toFixed(1)}px`;
-      rail.style.height = `${Math.max(0, last.top + last.height / 2 - frame.top - top).toFixed(1)}px`;
+      rail.style.height = `${height.toFixed(1)}px`;
+      rail.style.setProperty('--rail-h', `${height.toFixed(1)}px`);
     };
     /* Fonts, the snapshots and a turned phone all move the numbers; the rail follows them. */
     if (rail && typeof global.ResizeObserver === 'function') new global.ResizeObserver(placeRail).observe(body);
+    /* The held frame centres itself on the screen by its own height, which each stage changes. */
+    if (typeof global.ResizeObserver === 'function') {
+      new global.ResizeObserver(() => {
+        playFrame.style.setProperty('--frame-h', `${Math.round(playFrame.offsetHeight)}px`);
+      }).observe(playFrame);
+    }
     const count = playFrame.querySelector('.lp-au-count');
     const total = count ? Number(count.textContent) || 0 : 0;
     const stacked = global.matchMedia ? global.matchMedia('(max-width:939px)') : null;
@@ -253,9 +261,12 @@
       };
       global.requestAnimationFrame(tick);
     };
+    const nav = document.querySelector('.lp-nav');
     const choose = () => {
       queued = false;
-      const top = stacked && stacked.matches ? Math.max(0, playFrame.getBoundingClientRect().bottom) : 0;
+      /* The reading line is the middle of what the bar leaves (and, stacked, of what the frame leaves). */
+      const under = nav ? Math.max(0, nav.getBoundingClientRect().bottom) : 0;
+      const top = stacked && stacked.matches ? Math.max(under, playFrame.getBoundingClientRect().bottom) : under;
       const line = top + (global.innerHeight - top) / 2;
       let best = null;
       let distance = Infinity;
@@ -373,13 +384,28 @@
   }
 
   /*
-   * The closing call returns the reader to the card at the top and puts them
-   * in its first control -- the invitation, or the way through when entry is
-   * open -- rather than leaving them to find it.
+   * "See how it works": the quiet way forward, for a reader who wants to see
+   * before going in. It goes to the section it names and nowhere else.
+   */
+  const tours = typeof document.querySelectorAll === 'function' ? document.querySelectorAll('[data-lp-tour]') : [];
+  tours.forEach(button => button.addEventListener('click', () => {
+    const target = document.getElementById(button.dataset.lpTour);
+    if (target) target.scrollIntoView({ behavior: still() ? 'auto' : 'smooth', block: 'start' });
+  }));
+
+  /*
+   * The closing call. With the gate on it returns the reader to the card at
+   * the top and puts them in its first control, the invitation, rather than
+   * leaving them to find it. With entry open it is named for the way through
+   * ("Get started", "Open your workspace") and is that way through: two
+   * buttons with one name doing two different things is a promise broken.
    */
   const jumps = typeof document.querySelectorAll === 'function' ? document.querySelectorAll('[data-lp-jump]') : [];
   jumps.forEach(button => {
     button.addEventListener('click', () => {
+      const open = document.getElementById('alphaOpenAccess');
+      const through = document.getElementById('alphaPassThrough');
+      if (open && !open.hidden && through && !through.disabled) { through.click(); return; }
       const target = document.querySelector('.lp-card');
       if (!target) return;
       const still = root.dataset.motion === 'off' || (reducedMotion && reducedMotion.matches);

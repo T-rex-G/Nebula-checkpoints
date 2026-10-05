@@ -97,9 +97,9 @@
   }
 
   /*
-   * The landing's ambient motion -- the drifting light behind the hero, the
-   * beam round the entry bar, the readings floating at the galaxy's edge, the
-   * sheen on the title, the pulsing dot -- never stops while the page is
+   * The landing's ambient motion -- the beam round the entry bar, the
+   * readings floating at the galaxy's edge, the sheen on the title, the
+   * pulsing dot -- never stops while the page is
    * open. On a GPU that is a handful of composited layers; drawn on the CPU it
    * is every frame repainted by hand, and a WebKit build doing exactly that
    * fell from about thirteen frames a second to four, froze, and was killed

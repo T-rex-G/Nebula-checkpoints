@@ -215,9 +215,9 @@ test('with motion off the showcase holds still', async ({ page }) => {
 });
 
 /*
- * The hero's ambient motion -- drifting light, the beam round the entry bar,
- * the floating readings -- is earned: it runs only once the visuals loader has
- * seen this device keep a steady frame rate (data-ambient="on"). A runner
+ * The hero's ambient motion -- the beam round the entry bar, the floating
+ * readings, the title's sheen -- is earned: it runs only once the visuals
+ * loader has seen this device keep a steady frame rate (data-ambient="on"). A runner
  * drawing on its CPU never earns it, and the hero is simply still; the same
  * rules run as soon as the attribute is granted.
  */
@@ -225,18 +225,19 @@ test('the hero drifts only on a device that has shown it can keep up', async ({ 
   await openLanding(page);
   const root = page.locator('html');
   await expect(root).toHaveAttribute('data-ambient', /^(on|off)$/);
-  const drifting = () => page.evaluate(() => ['.lp-aurora i', '.lp-chip', '.lp-title em']
+  const drifting = () => page.evaluate(() => ['.lp-chip', '.lp-title em']
     .map(selector => getComputedStyle(document.querySelector(selector)).animationName));
+  /* No soft blobs of light drift behind the hero: the galaxy is its light. */
+  await expect(page.locator('.lp-aurora')).toHaveCount(0);
   if (await root.getAttribute('data-ambient') === 'off') {
-    expect((await drifting()).filter(name => /lpAurora|lpFloat|lpSheen/.test(name))).toEqual([]);
+    expect((await drifting()).filter(name => /lpFloat|lpSheen/.test(name))).toEqual([]);
     /* Still is not hidden: the readings are there, settled where they float. */
     await expect(page.locator('.lp-chip').first()).toHaveCSS('opacity', '1');
   }
   await page.evaluate(() => { document.documentElement.dataset.ambient = 'on'; });
   const names = await drifting();
-  expect(names[0]).toBe('lpAurora');
-  expect(names[1]).toContain('lpFloat');
-  expect(names[2]).toBe('lpSheen');
+  expect(names[0]).toContain('lpFloat');
+  expect(names[1]).toBe('lpSheen');
 });
 
 /*

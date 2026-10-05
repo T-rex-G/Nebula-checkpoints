@@ -44,10 +44,26 @@ test('with the gate off the landing page stays instead of handing over', async (
 test('the way through knows whether the session is signed in', async ({ page }) => {
   await mockPublicAlphaApi(page, { mode: 'off', access: 'required', ready: 'ready' });
   await page.goto('/');
-  await expect(passThrough(page)).toHaveText(/Continue to sign in/);
+  await expect(passThrough(page)).toHaveText(/^Get started$/);
 
   await passThrough(page).click();
   /* It hands over to the application, which routes on from there. */
+  await expect(landing(page)).not.toHaveClass(/active/);
+});
+
+/*
+ * The closing call carries the same name as the way through when entry is
+ * open, so it has to do the same thing: hand over, not scroll back to a card
+ * that asks the reader to press "Get started" a second time.
+ */
+test('with entry open the closing call is the same way through', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'off', access: 'required', ready: 'ready' });
+  await page.goto('/');
+  await expect(passThrough(page)).toHaveText(/^Get started$/);
+  const call = page.getByLabel('Ready when your sandbox is.').getByRole('button', { name: 'Get started', exact: true });
+  await expect(call).toHaveCount(1);
+  await call.scrollIntoViewIfNeeded();
+  await call.click();
   await expect(landing(page)).not.toHaveClass(/active/);
 });
 

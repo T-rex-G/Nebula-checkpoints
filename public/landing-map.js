@@ -165,7 +165,16 @@
 
     function layout() {
       if (destroyed) return;
-      const rect = view.getBoundingClientRect();
+      /*
+       * The layout size, not the drawn one: the frame tilts flat as it
+       * scrolls in, and a bounding box read mid-tilt is the box scaled by
+       * the tilt -- a canvas sized from it drew every light off its strand
+       * once the frame settled. The bounding box stands in only where there
+       * is no layout to read.
+       */
+      const rect = view.clientWidth && view.clientHeight
+        ? { width: view.clientWidth, height: view.clientHeight }
+        : view.getBoundingClientRect();
       const nextWidth = Math.round(rect.width);
       const nextHeight = Math.round(rect.height);
       const nextRatio = Math.min(Number(env.devicePixelRatio) || 1, 2);

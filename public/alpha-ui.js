@@ -65,6 +65,12 @@
     if (open) open.hidden = hidden;
   }
 
+  /* The landing's closing call names the same way in as the card it returns the reader to. */
+  function labelClosingCall(text) {
+    const call = document.querySelector('.lp-cta-btn');
+    if (call) call.textContent = text;
+  }
+
   /*
    * Entry is open: the gate is configured off, so there is no invitation to
    * redeem and nothing to check. The landing page stays rather than handing
@@ -96,8 +102,10 @@
     }
     const pass = byId('alphaPassThrough');
     if (pass) {
-      pass.textContent = signedIn ? 'Continue to your workspace' : 'Continue to sign in';
+      pass.textContent = signedIn ? 'Open your workspace' : 'Get started';
     }
+    /* The closing call says what the first screen says: with the gate off there is nothing to request. */
+    labelClosingCall(signedIn ? 'Open your workspace' : 'Get started');
     global.dispatchEvent(new CustomEvent('nebula:alpha-access-gated'));
   }
 
@@ -153,6 +161,7 @@
     activateAccessPage();
     setOpenAccessHidden(true);
     setInviteFormHidden(false);
+    labelClosingCall('Request entry');
     showTerms(status && status.termsVersion);
     const terms = byId('alphaTermsAccept');
     if (terms) terms.checked = false;

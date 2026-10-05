@@ -75,7 +75,7 @@ function strand(from, to) {
   });
 }
 
-function harness({ context = true, display = 'block' } = {}) {
+function harness({ context = true, display = 'block', layout = null } = {}) {
   const frames = new Map();
   let id = 0;
   const calls = { clear: 0, image: 0, stroke: 0, clip: 0 };
@@ -127,7 +127,8 @@ function harness({ context = true, display = 'block' } = {}) {
     },
     appendChild(child) { children.push(child); },
     querySelectorAll: selector => (selector === 'svg.lp-map' ? [svg] : []),
-    getBoundingClientRect: () => ({ width: 1120, height: 630 })
+    getBoundingClientRect: () => ({ width: 1120, height: 630 }),
+    ...(layout || {})
   };
   const media = events({ matches: false });
   const env = events({
@@ -291,3 +292,15 @@ assert.match(css, /\.lp-frame-view\.has-fx \.lp-map-flows,\.lp-frame-view\.has-f
   'while the layer runs, the SVG must not draw the same motion underneath it');
 assert.match(css, /\.lp-map-fx\{[^}]*pointer-events:none/);
 console.log('landing map geometry, lifecycle, budget and delivery tests passed');
+
+/*
+ * The frame tilts flat as it scrolls in, and its bounding box mid-tilt is
+ * the layout box scaled down. The canvas takes the layout box, so the lights
+ * stay on their strands once the frame settles.
+ */
+{
+  const h = harness({ layout: { clientWidth: 1120, clientHeight: 630, getBoundingClientRect: () => ({ width: 1030.4, height: 579.6 }) } });
+  assert.equal(h.canvases[0].width, 2240, 'sized from the layout box, not the tilted one');
+  assert.equal(h.canvases[0].height, 1260);
+  h.api.destroy();
+}

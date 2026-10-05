@@ -7939,3 +7939,134 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .stage-preview-file h3{overflow-wrap:anywhere;font-size:.82rem;margin:0}
 .stage-preview-kind{margin:6px 0 0;font-size:.78rem;color:var(--muted)}
 .stage-preview-file .diff-patch{max-height:320px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* ================= LANDING · THE SINGULARITY ================= */
+/*
+ * Six engines around one core, at the pace of the scroll. The section is
+ * taller than the screen and its stage is sticky, so the reader scrolls
+ * through it while the scene banks; --orbit-p (0 to 1) is how far through
+ * they are. It is a night sky in both themes -- a cinematic band between
+ * the hero and the detail -- so its ink is fixed light, never the theme's.
+ */
+.lp-orbit{position:relative;height:250svh;color:#f3f4ff;--orbit-p:0;
+  background:linear-gradient(180deg,transparent,#020208 14%,#020208 86%,transparent)}
+.lp-orbit-stick{position:sticky;top:0;height:100svh;min-height:560px;overflow:hidden;display:grid;
+  grid-template-rows:auto 1fr auto;padding:calc(var(--lp-nav-h,68px) + clamp(16px,4vh,44px)) clamp(20px,5vw,72px) clamp(22px,5vh,48px);isolation:isolate}
+.lp-orbit-art{position:absolute;inset:0;z-index:-1;pointer-events:none}
+.lp-orbit-art nebula-singularity{position:absolute;inset:0;animation:lpOrbitIn 1.6s cubic-bezier(.16,1,.3,1) both}
+@keyframes lpOrbitIn{from{opacity:0;transform:scale(1.08);filter:blur(10px)}to{opacity:1;transform:none;filter:none}}
+/* The vignette and grain that seat the scene in the page, from the reference. */
+.lp-orbit-stick::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(ellipse 70% 62% at 50% 52%,transparent 0 42%,rgba(2,2,8,.55) 78%,#020208 100%)}
+/*
+ * Without WebGL, the horizon in CSS: a black disc, a tilted ring of the
+ * preset's light around it, and a lensed arc over the top. It banks with
+ * the scroll the same way, through --orbit-p.
+ */
+.lp-orbit-fallback{position:absolute;left:50%;top:52%;width:min(70vmin,620px);aspect-ratio:1;translate:-50% -50%;
+  rotate:calc(-20deg - var(--orbit-p) * 50deg)}
+.lp-orbit-fallback::before{content:"";position:absolute;inset:0;border-radius:50%;transform:scaleY(calc(.22 - var(--orbit-p) * .1));
+  background:radial-gradient(closest-side,transparent 30%,rgba(216,180,254,.95) 33%,rgba(217,70,239,.7) 42%,rgba(139,92,246,.35) 60%,transparent 72%);filter:blur(1.5px)}
+.lp-orbit-fallback::after{content:"";position:absolute;left:39%;top:39%;width:22%;height:22%;border-radius:50%;background:#000;
+  box-shadow:0 0 0 2px rgba(216,180,254,.5),0 0 40px 6px rgba(139,92,246,.45),0 -10px 34px rgba(217,70,239,.35)}
+[data-design="obsidian"] .lp-orbit-fallback::before{background:radial-gradient(closest-side,transparent 30%,rgba(255,255,255,.95) 33%,rgba(214,211,209,.7) 42%,rgba(120,113,108,.35) 60%,transparent 72%)}
+[data-design="obsidian"] .lp-orbit-fallback::after{box-shadow:0 0 0 2px rgba(255,255,255,.5),0 0 40px 6px rgba(214,211,209,.35),0 -10px 34px rgba(255,255,255,.25)}
+.lp-orbit[data-drawn="true"] .lp-orbit-fallback{display:none}
+
+.lp-orbit-copy{max-width:min(760px,92vw)}
+.lp-orbit-eyebrow{margin:0 0 clamp(12px,2vh,22px);font-size:.66rem;letter-spacing:.36em;text-transform:uppercase;color:rgba(224,231,255,.56);font-weight:600}
+.lp-orbit-title{margin:0;font-family:var(--font-display);font-weight:300;font-size:clamp(2.6rem,7.4vw,6.4rem);line-height:.86;letter-spacing:-.06em;color:#f5f7ff;text-wrap:balance}
+/* The second line in outline only: the reference's ghost line. */
+.lp-orbit-ghost{display:block;margin-top:.14em;font-size:.56em;letter-spacing:-.04em;color:transparent;-webkit-text-stroke:1px rgba(235,240,255,.34)}
+@supports not (-webkit-text-stroke:1px black){.lp-orbit-ghost{color:rgba(235,240,255,.3)}}
+
+/*
+ * The engines, three on each side of the core on a desk, a grid of two on a
+ * phone. Each lights as the scroll reaches it: dim and low until then, then
+ * up into place with its mark glowing.
+ */
+.lp-engines{list-style:none;margin:0;padding:0;align-self:center;display:grid;grid-template-columns:repeat(2,minmax(0,250px));
+  justify-content:space-between;row-gap:clamp(14px,5vh,52px);width:100%;max-width:1240px;margin-inline:auto}
+.lp-engine{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;column-gap:12px;align-items:center;
+  padding:12px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.1);background:rgba(8,8,22,.42);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  opacity:.28;transform:translateY(14px);transition:opacity .6s ease,transform .7s cubic-bezier(.16,1,.3,1),border-color .6s ease,box-shadow .6s ease}
+.lp-engine:nth-child(even){text-align:right;grid-template-columns:minmax(0,1fr) auto}
+.lp-engine:nth-child(even) .lp-engine-i{grid-column:2;grid-row:1/span 2}
+.lp-engine:nth-child(even) b,.lp-engine:nth-child(even)>span:last-child{grid-column:1}
+.lp-engine-i{grid-row:1/span 2;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:#d8b4fe;
+  background:rgba(139,92,246,.14);border:1px solid rgba(167,139,250,.28);transition:box-shadow .6s ease}
+.lp-engine-i svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.lp-engine b{font-family:var(--font-display);font-size:1.02rem;font-weight:600;letter-spacing:-.01em;color:#f5f7ff}
+.lp-engine>span:last-child{font-size:.76rem;color:rgba(224,231,255,.62)}
+.lp-engine[data-on="true"]{opacity:1;transform:none;border-color:rgba(167,139,250,.32);box-shadow:0 18px 40px -24px rgba(139,92,246,.6)}
+.lp-engine[data-on="true"] .lp-engine-i{box-shadow:0 0 22px rgba(167,139,250,.45)}
+[data-design="obsidian"] .lp-engine-i{color:#e7e5e4;background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.16)}
+[data-design="obsidian"] .lp-engine[data-on="true"]{border-color:rgba(255,255,255,.24);box-shadow:0 18px 40px -24px rgba(0,0,0,.8)}
+[data-design="obsidian"] .lp-engine[data-on="true"] .lp-engine-i{box-shadow:0 0 22px rgba(255,255,255,.18)}
+
+/* The gate: the reference's reticle, corners that open toward the hand. */
+.lp-orbit-gate{display:grid;justify-items:center;gap:12px;opacity:.35;transform:translateY(10px);transition:opacity .6s ease,transform .7s cubic-bezier(.16,1,.3,1)}
+.lp-orbit[data-ready="true"] .lp-orbit-gate{opacity:1;transform:none}
+.lp-reticle{position:relative;display:inline-flex;align-items:center;gap:12px;min-width:150px;min-height:60px;justify-content:center;padding:0 26px;
+  border:0;background:rgba(6,6,18,.32);color:#fff;cursor:pointer;font:650 .74rem/1 var(--font-body);letter-spacing:.3em;text-transform:uppercase;
+  text-shadow:0 0 22px rgba(255,255,255,.5);touch-action:manipulation;translate:var(--mag-x,0) var(--mag-y,0);transition:translate .3s ease}
+.lp-reticle:focus-visible{outline:2px solid var(--focus);outline-offset:6px}
+.lp-ret-c{position:absolute;width:16px;height:16px;opacity:.72;pointer-events:none;transition:width .36s cubic-bezier(.16,1,.3,1),height .36s cubic-bezier(.16,1,.3,1),opacity .36s ease;
+  filter:drop-shadow(0 0 7px rgba(173,190,255,.35))}
+.lp-ret-c1{left:0;top:0;border-left:1px solid #fff;border-top:1px solid #fff}
+.lp-ret-c2{right:0;top:0;border-right:1px solid #fff;border-top:1px solid #fff}
+.lp-ret-c3{left:0;bottom:0;border-left:1px solid #fff;border-bottom:1px solid #fff}
+.lp-ret-c4{right:0;bottom:0;border-right:1px solid #fff;border-bottom:1px solid #fff}
+.lp-reticle:hover .lp-ret-c,.lp-reticle:focus-visible .lp-ret-c{width:26px;height:26px;opacity:1}
+.lp-reticle-arr{font-size:1.1rem;letter-spacing:0;transition:transform .4s cubic-bezier(.16,1,.3,1)}
+.lp-reticle:hover .lp-reticle-arr{transform:translateX(7px)}
+.lp-orbit-hint{margin:0;font-size:.6rem;letter-spacing:.26em;text-transform:uppercase;color:rgba(235,240,255,.38)}
+/* A beat of the horizon growing before the page moves to the card. */
+.lp-orbit.is-diving .lp-orbit-art{animation:lpDive .9s cubic-bezier(.16,.85,.18,1) both}
+.lp-orbit.is-diving .lp-ret-c1{transform:translate(-28vw,-30vh)}
+.lp-orbit.is-diving .lp-ret-c2{transform:translate(28vw,-30vh)}
+.lp-orbit.is-diving .lp-ret-c3{transform:translate(-28vw,30vh)}
+.lp-orbit.is-diving .lp-ret-c4{transform:translate(28vw,30vh)}
+.lp-orbit.is-diving .lp-ret-c{transition:transform .8s cubic-bezier(.16,.85,.18,1),opacity .5s;opacity:.15}
+@keyframes lpDive{0%{transform:none;filter:none}55%{transform:scale(1.35);filter:brightness(1.35)}100%{transform:none;filter:none}}
+
+/* How far down the landing the reader is: one hairline at the right edge. */
+.lp-progress{position:fixed;right:14px;top:50%;width:1px;height:110px;translate:0 -50%;z-index:30;background:rgba(127,127,160,.22);pointer-events:none}
+.lp-progress i{display:block;width:1px;height:100%;background:var(--accent,#a78bfa);transform-origin:top;transform:scaleY(0)}
+#page-alpha-access:not(.active) .lp-progress{display:none}
+
+@media (max-width:860px){
+  .lp-orbit{height:220svh}
+  .lp-orbit-stick{grid-template-rows:auto 1fr auto auto;padding-inline:18px}
+  .lp-engines{grid-template-columns:repeat(2,minmax(0,1fr));align-self:end;column-gap:10px;row-gap:10px;margin-bottom:16px}
+  .lp-engine,.lp-engine:nth-child(even){text-align:left;grid-template-columns:auto minmax(0,1fr);padding:10px 11px;column-gap:10px}
+  .lp-engine:nth-child(even) .lp-engine-i{grid-column:1}
+  .lp-engine:nth-child(even) b,.lp-engine:nth-child(even)>span:last-child{grid-column:2}
+  .lp-engine-i{width:32px;height:32px;border-radius:10px}
+  .lp-engine b{font-size:.9rem}
+  .lp-engine>span:last-child{font-size:.7rem}
+  .lp-progress{right:6px;height:80px}
+  .lp-orbit-fallback{top:42%;width:min(84vw,420px)}
+}
+@media (prefers-reduced-motion:reduce){
+  .lp-engine,.lp-orbit-gate,.lp-orbit-art nebula-singularity{transition:none;animation:none}
+  .lp-orbit.is-diving .lp-orbit-art{animation:none}
+}
+[data-motion="off"] :is(.lp-engine,.lp-orbit-gate,.lp-orbit-art nebula-singularity){transition:none;animation:none}
+[data-motion="off"] .lp-orbit.is-diving .lp-orbit-art{animation:none}
+
+/*
+ * The detail drifts in as it is scrolled to: blocks rise a few pixels into
+ * place, tied to the scroll rather than to a timer, where the browser can do
+ * it on its own thread. Never opacity, so nothing is ever hidden; never with
+ * motion off; never a heading the bar's links land on, which would be
+ * measured mid-drift and landed short.
+ */
+@supports (animation-timeline: view()){
+  @media (prefers-reduced-motion:no-preference){
+    :root:not([data-motion="off"]) :is(.lp-story-steps,.lp-providers,.lp-faq-list,.lp-cta){
+      animation:lpDrift linear both;animation-timeline:view();animation-range:entry 0% cover 38%}
+  }
+}
+@keyframes lpDrift{from{transform:translateY(42px) scale(.985)}to{transform:none}}

@@ -25,7 +25,7 @@ const allowlist = new Set(
 );
 assert(allowlist.size >= 30, 'the vendor allowlist must be readable for this check to mean anything');
 
-const MODULES = ['nebula-galaxy.js'];
+const MODULES = ['nebula-galaxy.js', 'nebula-singularity.js'];
 
 /* The Trust core is SVG in both presets; the WebGL mark is retired, and the
    loader must not be able to reach for it. */
@@ -134,7 +134,7 @@ for (const name of MODULES) {
   const worker = fs.readFileSync(path.join(publicRoot, 'sw.js'), 'utf8');
   assert(worker.includes('/nebula-visuals.js?v='), 'the worker must precache the artwork loader');
   const lists = worker.slice(0, worker.indexOf("addEventListener('install'"));
-  for (const heavy of ['three.module.min.js', 'nebula-galaxy.js']) {
+  for (const heavy of ['three.module.min.js', 'nebula-galaxy.js', 'nebula-singularity.js']) {
     assert(!lists.includes(heavy), `${heavy} must not be warmed on install; it is cached on first use`);
   }
 }

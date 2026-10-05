@@ -440,6 +440,11 @@ function describeKept(finding) {
   };
 }
 
+/* A kept audit as the history route answers it: the record, each finding described. */
+function describeKeptAudit(found) {
+  return { ...found, findings: found.findings.map(describeKept) };
+}
+
 function componentFromRow(row) {
   return {
     ecosystem: row.ecosystem,
@@ -1025,6 +1030,7 @@ module.exports = Object.freeze({
   /* The shapes the routes answer with, for fixtures that stand in for the database. */
   serialize: Object.freeze({ audit: auditFromRow, finding: findingFromRow, alert: alertFromRow }),
   describeKept,
+  describeKeptAudit,
   CodeAuditHistoryError,
   createAuditWatch,
   compactAudit,

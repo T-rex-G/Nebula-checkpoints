@@ -191,3 +191,36 @@ test('with motion off the showcase holds still', async ({ page }) => {
     .some(el => getComputedStyle(el).animationName !== 'none')));
   expect(moving).toEqual([]);
 });
+
+/*
+ * The singularity: six engines around one core, lit one by one as the reader
+ * scrolls through the section, ending at a gate that is the way in. Every
+ * engine is in the page from the start; motion only decides when each lights.
+ */
+test('the engines light as the section is scrolled, and the gate leads to the card', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'required' });
+  await page.goto('/');
+  const orbit = page.locator('.lp-orbit');
+  await expect(orbit.getByRole('heading', { name: /Six engines/ })).toBeAttached();
+  await expect(orbit.getByRole('list', { name: 'The engines' }).getByRole('listitem').locator('b'))
+    .toHaveText(['Pulsar', 'Kepler', 'Quasar', 'Uranus', 'Parallax', 'Corona']);
+  const at = progress => orbit.evaluate((el, p) => window.scrollTo(0, el.getBoundingClientRect().top + scrollY + (el.offsetHeight - innerHeight) * p), progress);
+  await at(0);
+  await expect.poll(() => orbit.locator('.lp-engine[data-on="true"]').count()).toBe(0);
+  await at(0.5);
+  await expect.poll(() => orbit.locator('.lp-engine[data-on="true"]').count()).toBeGreaterThan(1);
+  await expect.poll(() => orbit.locator('.lp-engine[data-on="true"]').count()).toBeLessThan(6);
+  await at(1);
+  await expect.poll(() => orbit.locator('.lp-engine[data-on="true"]').count()).toBe(6);
+  await expect(orbit).toHaveAttribute('data-ready', 'true');
+  /* Nothing in the section is wider than the screen. */
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  /* The gate is the way in: it takes the reader to the invitation and into its first control. */
+  await orbit.getByRole('button', { name: 'Enter through the horizon' }).click();
+  await expect.poll(() => page.evaluate(() => document.activeElement && !!document.activeElement.closest('.lp-card'))).toBe(true);
+
+  /* With motion off every engine is lit wherever the reader is. */
+  await page.evaluate(() => { document.documentElement.dataset.motion = 'off'; window.scrollTo(0, 0); });
+  await at(0);
+  await expect.poll(() => orbit.locator('.lp-engine[data-on="true"]').count()).toBe(6);
+});

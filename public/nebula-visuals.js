@@ -32,9 +32,10 @@
   const STAMP = (document.documentElement && document.documentElement.dataset.nvAssetVersion) || '';
   const versioned = file => (STAMP ? `${file}?v=${encodeURIComponent(STAMP)}` : file);
   const MODULES = Object.freeze({
-    galaxy: versioned('/nebula-galaxy.js')
+    galaxy: versioned('/nebula-galaxy.js'),
+    singularity: versioned('/nebula-singularity.js')
   });
-  const TAGS = Object.freeze({ galaxy: 'nebula-galaxy' });
+  const TAGS = Object.freeze({ galaxy: 'nebula-galaxy', singularity: 'nebula-singularity' });
 
   const requested = new Map();
   let capable = null;
@@ -121,7 +122,7 @@
       const element = document.createElement(tag);
       element.setAttribute('theme', theme());
       element.setAttribute('design', design());
-      if (kind === 'galaxy') element.setAttribute('density', density());
+      element.setAttribute('density', density());
       host.appendChild(element);
       return true;
     } catch {

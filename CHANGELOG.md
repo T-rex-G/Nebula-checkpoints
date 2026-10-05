@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### The landing, shown rather than told
+
+- **Six engines around one repository.** Under the hero a new section holds a
+  black hole drawn on the GPU -- star field, lensed plasma ring, corona and a
+  drifting dust disk in the theme's colours -- and banks it as the reader
+  scrolls through, while the six engines light one by one beside it: Pulsar,
+  Kepler, Quasar, Uranus, Parallax and Corona, each in two words. The scene
+  loads only when the section comes near, pauses off screen and in a hidden
+  tab, and is skipped on software renderers, where a CSS horizon stands in.
+  With motion off every engine is lit at once and nothing moves.
+- **A gate at the end.** The section closes on an "Enter" reticle that dives
+  into the horizon and lands on the access card, the same jump as the bar's
+  Enter. The bar gains an *Engines* link that goes to the section.
+- **Where you are.** A hairline at the screen's right edge fills as the
+  landing is read.
+- **Detail that drifts in.** The story steps, the providers, the questions
+  and the closing card rise a few pixels into place as they are scrolled to,
+  tied to the scroll by the browser rather than to a timer. Never by fading,
+  so nothing is ever hidden, never with motion off, and never a heading the
+  bar's links land on.
+- **Fewer words.** The walkthrough is four short steps instead of six long
+  ones, and the play and story introductions are a sentence each.
+
 ### The rail, named and lit evenly
 
 - **Engines on top, purpose beneath.** Each security entry is titled by its

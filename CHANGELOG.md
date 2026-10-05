@@ -21,6 +21,17 @@
   much taller than it is wide -- a tablet upright, a phone showing the desktop
   site -- stacks the copy, a full-width vortex and the path, instead of a
   small vortex between two bands of empty night.
+- **The tornado reaches the top of the screen.** On a desk the vortex's stage
+  runs from the top of the window, behind the clear bar, to the path, and the
+  column is drawn to fill it: the crown opens at the top of the screen, the
+  waist sits level with the copy and the base spreads into the path. The bar's
+  links and state chip stand on a ground of the page's own colour so they stay
+  legible over it.
+- **Obsidian, darker and cleaner.** The dark preset's page, shell, cards and
+  raised surfaces sit a step deeper in neutral black. The light preset's page
+  and shell lost the mint and rose washes that read as a green layer, its card
+  edge light is pearl rather than violet, its status pill and checks are inked
+  in stone rather than teal, and the vortex's loose dust is thinner on stone.
 - **How it works fills to the end.** The timeline's line and its stops play on
   the track's own scroll timeline; the line had clipped itself into a scroll
   container and stopped half way between the second and third stop.

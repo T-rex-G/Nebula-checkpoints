@@ -421,6 +421,30 @@
   }));
 
   /*
+   * On a desk the vortex reaches the top of the screen. At rest the bar is
+   * clear glass, so the form can rise behind it to the window's edge; the
+   * stage's top is set to the page's top rather than a fixed distance above
+   * the artwork, which on a laptop left the crown starting a sixth of the
+   * way down the screen. Once the page scrolls the bar's ground covers it.
+   * A tall screen and a phone stack the hero and keep their own bleed.
+   */
+  /* The column at desk scale: drawn half again its fitted size and set a little low, so the crown opens at the top of the window and the waist sits level with the copy. */
+  const DESK_COLUMN = Object.freeze({ zoom: 1.5, rise: -0.06 });
+  const artBox = document.querySelector('.lp-art');
+  const desk = global.matchMedia && global.matchMedia('(min-width: 940px) and (min-aspect-ratio: 4/5)');
+  if (artBox && desk && artBox.style && typeof artBox.getBoundingClientRect === 'function') {
+    const reach = () => {
+      if (!desk.matches) { artBox.style.removeProperty('--lp-bleed-top'); return; }
+      const top = artBox.getBoundingClientRect().top + (global.scrollY || global.pageYOffset || 0);
+      artBox.style.setProperty('--lp-bleed-top', `${Math.max(0, Math.round(top))}px`);
+    };
+    reach();
+    const bodyBox = document.querySelector('.lp-body');
+    if (bodyBox && typeof global.ResizeObserver === 'function') new global.ResizeObserver(reach).observe(bodyBox);
+    if (desk.addEventListener) desk.addEventListener('change', reach);
+  }
+
+  /*
    * The closing call. With the gate on it returns the reader to the card at
    * the top and puts them in its first control, the invitation, rather than
    * leaving them to find it. With entry open it is named for the way through
@@ -465,10 +489,19 @@
    * a subject and nothing else -- the page is never a black box waiting for a
    * context that is not coming.
    */
+  /*
+   * On a desk the stage runs from the top of the window to the path, a box
+   * taller than it is wide, and the form is drawn to fill that height: the
+   * crown opens at the top of the screen and the base spreads into the path,
+   * rather than the same-sized form floating in the middle of a taller box.
+   */
+  const presetName = (canvas.dataset && canvas.dataset.vortex) || 'column';
+  const deskShape = () => (desk && desk.matches && presetName === 'column' ? DESK_COLUMN : {});
   // The canvas owns an unobstructed box and handles pointer capture itself.
-  const scene = global.NebulaVortex && global.NebulaVortex.create(canvas, {
-    preset: (canvas.dataset && canvas.dataset.vortex) || 'column'
-  });
+  const scene = global.NebulaVortex && global.NebulaVortex.create(canvas, Object.assign({
+    preset: presetName
+  }, deskShape()));
+  if (scene && desk && desk.addEventListener) desk.addEventListener('change', () => scene.setShape(presetName, deskShape()));
   if (!scene) {
     canvas.hidden = true;
     if (art) art.hidden = true;

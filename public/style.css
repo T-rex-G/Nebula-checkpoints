@@ -5891,81 +5891,12 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
    ring and an animated map; the surfaces are opaque instead. */
 .lp .card,.lp .glass{backdrop-filter:none;-webkit-backdrop-filter:none}
 
-/* The capabilities, as a bento: one card leads, each carries its own picture. */
-.lp-sec.lp-sec-wide{grid-template-columns:minmax(0,1fr);gap:clamp(28px,4vw,44px)}
-.lp-sec-wide .lp-sec-head{max-width:40rem}
-.lp-sec-wide .lp-caps{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
-.lp-sec-wide .lp-cap{border-bottom:0;padding:22px 22px 24px;border-radius:18px;border:1px solid var(--line);
-  display:flex;flex-direction:column;transition:transform .35s var(--ease),border-color .25s ease}
-.lp-sec-wide .lp-cap:hover{transform:translateY(-3px);border-color:var(--line-hi)}
-.lp-sec-wide .lp-cap-lead{grid-column:span 2;grid-row:span 2}
-.lp-cap-art{position:relative;z-index:1;margin:-4px -4px 22px;padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,.06);
-  background:rgba(8,6,20,.55);font-family:var(--font-mono);font-size:.7rem;color:var(--text2);min-height:112px}
-[data-theme="light"] .lp-cap-art{background:rgba(255,255,255,.65);border-color:rgba(76,29,149,.1)}
-.lp-cap-lead .lp-cap-art{min-height:236px;flex:1 1 auto;display:flex;flex-direction:column;gap:6px;font-size:.78rem}
-.lp-cap-lead .lp-cap-t{font-size:clamp(1.1rem,1.6vw,1.35rem);letter-spacing:-.02em}
-.lp-cap-lead .lp-cap-d{font-size:.9rem;max-width:40rem}
-.lp-diff-h{display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;margin-bottom:4px;border-bottom:1px solid var(--hair)}
-.lp-diff-h b{font-weight:600;color:var(--text)}
-.lp-diff-h i{font-style:normal;font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent2)}
-.lp-diff-l{display:block;padding:3px 8px;border-radius:6px;white-space:pre}
-.lp-diff-del{background:rgba(244,63,110,.1);color:#fda4af}
-.lp-diff-add{background:rgba(16,185,129,.1);color:#6ee7b7}
-[data-theme="light"] .lp-diff-del{color:#be123c}[data-theme="light"] .lp-diff-add{color:#047857}
-.lp-diff-f{margin-top:auto;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding-top:12px}
-.lp-diff-btn{padding:7px 12px;border-radius:9px;background:var(--btn-solid);color:var(--btn-solid-fg);font-family:var(--font-body);font-weight:600;font-size:.74rem}
-.lp-diff-head{color:var(--muted);font-size:.66rem}
-.lp-art-paths{display:grid;gap:7px;align-content:center}
-.lp-path{display:flex;justify-content:space-between;gap:10px;padding:6px 9px;border-radius:8px;background:rgba(255,255,255,.03);overflow:hidden}
-.lp-path i{font-style:normal;font-size:.6rem;letter-spacing:.12em;text-transform:uppercase}
-.lp-path-ok i{color:#34d399}.lp-path-no{outline:1px solid rgba(245,158,11,.35)}.lp-path-no i{color:#f59e0b}
-.lp-art-matrix{display:grid;grid-template-columns:auto repeat(3,1fr);gap:9px 10px;align-items:center;justify-items:center}
-.lp-art-matrix b{font-weight:600;font-size:.62rem;color:var(--text2)}
-.lp-art-matrix em{justify-self:start;font-style:normal;font-size:.64rem;color:var(--muted)}
-.lp-art-matrix i{width:14px;height:14px;border-radius:50%}
-.lp-art-matrix i.y{background:rgba(52,211,153,.18);box-shadow:inset 0 0 0 1.5px #34d399}
-.lp-art-matrix i.n{box-shadow:inset 0 0 0 1.5px rgba(148,163,184,.35)}
-.lp-art-pulse{display:flex;flex-direction:column;justify-content:flex-end;gap:10px}
-.lp-art-pulse svg{width:100%;height:64px;display:block}
-.lp-pulse-area{fill:color-mix(in srgb,var(--accent2) 16%,transparent)}
-.lp-pulse-line{fill:none;stroke:var(--accent2);stroke-width:2;stroke-linejoin:round;vector-effect:non-scaling-stroke;
-  stroke-dasharray:400;stroke-dashoffset:0}
-.lp-pulse-k{display:inline-flex;align-items:center;gap:7px;font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:#67e8f9}
-.lp-pulse-k i{width:6px;height:6px;border-radius:50%;background:#22d3ee}
-.lp-sec.lp-revealed .lp-pulse-line{animation:lp-draw 1.6s var(--ease) both}
-@keyframes lp-draw{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
-[data-motion="off"] .lp-pulse-line{animation:none}
-/* The last card closes the grid as a wide one, its picture beside its words. */
-@media (min-width:641px){
-  .lp-sec-wide .lp-cap:last-child{grid-column:1 / -1;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);
-    grid-template-rows:auto auto 1fr;column-gap:clamp(20px,3vw,40px);align-items:start}
-  .lp-sec-wide .lp-cap:last-child .lp-cap-art{grid-column:1;grid-row:1 / 4;margin:-4px 0 -4px -4px;height:100%}
-  .lp-sec-wide .lp-cap:last-child .lp-cap-art svg{height:88px}
-  .lp-sec-wide .lp-cap:last-child > :not(.lp-cap-art){grid-column:2}
-}
-@media (max-width:980px){
-  .lp-sec-wide .lp-caps{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .lp-sec-wide .lp-cap-lead{grid-column:1 / -1;grid-row:auto}
-}
-@media (max-width:640px){
-  .lp-sec-wide .lp-caps{grid-template-columns:minmax(0,1fr)}
-  .lp-sec-wide .lp-cap-lead{grid-column:auto;grid-row:auto}
-  .lp-cap-lead .lp-cap-art{min-height:0}
-}
 
 /* How it works: the heading holds still while the moves pass it. */
-.lp-story{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:clamp(32px,6vw,88px);align-items:start;
-  view-timeline-name:--lp-story}
+.lp-story{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:clamp(32px,6vw,88px);align-items:start}
 .lp-story-rail{position:sticky;top:calc(env(safe-area-inset-top,0px) + 120px)}
-.lp-story-progress{position:relative;width:2px;height:120px;margin-top:30px;border-radius:2px;background:var(--hair);overflow:hidden}
+.lp-story-progress{position:relative;width:2px;height:120px;margin-top:30px;border-radius:2px;background:var(--hair)}
 .lp-story-progress span{position:absolute;inset:0;background:linear-gradient(180deg,var(--accent),var(--accent2));transform-origin:50% 0;transform:scaleY(1)}
-@supports (animation-timeline: view()){
-  @media (prefers-reduced-motion:no-preference) and (hover:hover) and (pointer:fine){
-    .lp-story-progress span{animation:lp-fill linear both;animation-timeline:--lp-story;animation-range:contain 0% contain 100%}
-    @keyframes lp-fill{from{transform:scaleY(0)}to{transform:scaleY(1)}}
-  }
-}
-[data-motion="off"] .lp-story-progress span{animation:none;transform:scaleY(1)}
 .lp-story-steps{display:grid;gap:18px;margin:0;padding:0;list-style:none}
 .lp-story-step{padding:26px 26px 22px;border-radius:18px;border:1px solid var(--line);display:grid;gap:10px}
 .lp-story-n{font-family:var(--font-mono);font-size:.78rem;color:var(--accent2);letter-spacing:.08em}
@@ -6063,7 +5994,6 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 [data-design="obsidian"] .lp-map-arcs path{stroke:rgba(226,232,240,.5)}
 [data-design="obsidian"] .lp-map-pill{fill:rgba(12,13,16,.94);stroke:rgba(255,255,255,.16)}
 [data-design="obsidian"] .lp-cta{background:radial-gradient(ellipse 70% 90% at 50% 0%,rgba(255,255,255,.07),transparent 70%),var(--surface-raised)}
-[data-design="obsidian"] .lp-cap-art{background:rgba(255,255,255,.025)}
 [data-design="obsidian"][data-theme="light"] .lp-frame{background:#fff;border-color:rgba(28,25,23,.1);box-shadow:0 40px 90px -50px rgba(28,25,23,.35)}
 [data-design="obsidian"][data-theme="light"] .lp-frame-view{background:radial-gradient(circle at 50% 44%,#fff,transparent 56%),linear-gradient(180deg,#fbfaf8,#f1eee9)}
 [data-design="obsidian"][data-theme="light"] .lp-map text,[data-design="obsidian"][data-theme="light"] .lp-map .lp-map-name{fill:#1c1917}
@@ -6075,7 +6005,6 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 [data-design="obsidian"][data-theme="light"] .lp-map-ring{stroke:rgba(120,108,98,.22)}
 [data-design="obsidian"][data-theme="light"] .lp-map-arcs path{stroke:rgba(68,64,60,.55)}
 [data-design="obsidian"][data-theme="light"] .lp-map-pill{fill:#fff;stroke:rgba(28,25,23,.14)}
-[data-design="obsidian"][data-theme="light"] .lp-cap-art{background:#fff}
 [data-design="obsidian"][data-theme="light"] .lp-cta{background:radial-gradient(ellipse 70% 90% at 50% 0%,#fff,transparent 70%),#f7f5f1}
 
 /*
@@ -6342,6 +6271,188 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 }
 [data-motion="off"] .lp-ticker .lp-ticker-track{animation:none}
 @keyframes lp-ticker{to{transform:translateX(-50%)}}
+
+/*
+ * ---- One repository, read honestly: the bento. Four cards on one anatomy,
+ * a working picture in a well above and the words below, laid on a six-column
+ * grid as wide-narrow over narrow-wide. Each card is a subgrid of the two
+ * rows it spans, so the pictures in a row share one height and the titles
+ * one baseline whatever the words run to. A light follows the pointer across
+ * the whole grid -- each card's edge catches it from where the pointer is --
+ * and only where there is a pointer to follow.
+ */
+.lp-sec.lp-sec-wide{grid-template-columns:minmax(0,1fr);gap:clamp(28px,4vw,44px)}
+.lp-sec-wide .lp-sec-head{max-width:40rem}
+.lp-caps.lp-bento{--bento-r:22px;--art-hair:rgba(255,255,255,.07);--art-fill:rgba(255,255,255,.025);
+  display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:16px;margin:0;padding:0;list-style:none}
+.lp-bento-c{position:relative;isolation:isolate;min-width:0;grid-column:span 2;grid-row:span 2;
+  display:grid;grid-template-rows:auto 1fr;grid-template-rows:subgrid;row-gap:0;
+  padding:8px;border:1px solid var(--line);border-radius:var(--bento-r);border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.008) 40%),var(--card2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 30px 60px -46px rgba(0,0,0,.9);
+  transition:border-color .3s ease,transform .5s var(--ease)}
+.lp-bento-c.lp-bento-wide{grid-column:span 4}
+.lp-bento-c::before{content:"";position:absolute;inset:-1px;z-index:3;border-radius:inherit;padding:1px;pointer-events:none;
+  background:radial-gradient(300px circle at var(--mx,50%) var(--my,-60%),color-mix(in srgb,var(--accent2) 85%,transparent),transparent 72%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;opacity:0;transition:opacity .4s ease}
+.lp-bento-c::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
+  background:radial-gradient(480px circle at var(--mx,50%) var(--my,-60%),color-mix(in srgb,var(--accent2) 10%,transparent),transparent 62%);
+  opacity:0;transition:opacity .4s ease}
+@media (hover:hover) and (pointer:fine){
+  .lp-bento:hover .lp-bento-c::before,.lp-bento:hover .lp-bento-c::after{opacity:1}
+  .lp-bento-c:hover{transform:translateY(-2px)}
+}
+[data-motion="off"] .lp-bento-c{transition:none}
+[data-motion="off"] .lp-bento-c:hover{transform:none}
+
+/* The well a picture sits in, and the words under it. */
+.lp-bento-art{position:relative;min-width:0;min-height:0;overflow:hidden;border-radius:calc(var(--bento-r) - 8px);
+  border:1px solid var(--art-hair);background:radial-gradient(120% 90% at 50% 0%,rgba(255,255,255,.035),transparent 60%),rgba(6,5,16,.62);
+  font-family:var(--font-mono);font-size:.72rem;line-height:1.5;color:var(--text2)}
+.lp-bento-copy{display:grid;align-content:start;gap:10px;padding:20px 16px 14px}
+.lp-bento-k{display:inline-flex;align-items:center;gap:9px;font-family:var(--font-mono);font-size:.62rem;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.lp-bento .lp-cap-ico{display:grid;place-items:center;width:26px;height:26px;margin:0;border-radius:8px;color:var(--accent2);
+  border:1px solid color-mix(in srgb,var(--accent2) 30%,transparent);background:color-mix(in srgb,var(--accent2) 8%,transparent)}
+.lp-bento .lp-cap-ico svg{width:15px;height:15px}
+.lp-bento .lp-cap-t{margin:2px 0 0;font-size:clamp(1.08rem,1.35vw,1.26rem);letter-spacing:-.022em;line-height:1.3}
+.lp-bento .lp-cap-d{margin:0;font-size:.88rem;line-height:1.65;max-width:60ch}
+
+/* The diff: a file bar, a gutter of line numbers, the change, and the head it was reviewed against. */
+.lp-art-diff{display:flex;flex-direction:column;font-size:.75rem}
+.lp-diff-bar,.lp-diff-foot{display:flex;align-items:center;justify-content:space-between;gap:10px 14px;flex-wrap:wrap;padding:11px 16px}
+.lp-diff-bar{border-bottom:1px solid var(--art-hair);background:var(--art-fill)}
+.lp-diff-file{display:inline-flex;align-items:center;gap:8px;min-width:0;color:var(--text);font-weight:600}
+.lp-diff-file svg{flex:none;width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round;opacity:.65}
+.lp-diff-stat{display:inline-flex;gap:8px;font-size:.68rem}
+.lp-diff-stat b{font-weight:600}
+.lp-diff-stat .a,.lp-diff-add s{color:#34d399}
+.lp-diff-stat .d,.lp-diff-del s{color:#fb7185}
+.lp-diff-body{flex:1 1 auto;display:grid;align-content:start;padding:8px 0}
+.lp-diff-l{display:grid;grid-template-columns:42px 20px minmax(0,1fr);align-items:center;padding:3px 16px 3px 0;white-space:pre;
+  overflow:hidden;text-overflow:ellipsis}
+.lp-diff-l i{font-style:normal;text-align:right;padding-right:10px;color:var(--muted);opacity:.55}
+.lp-diff-l s{text-decoration:none;text-align:center;font-weight:600}
+.lp-diff-del{background:linear-gradient(90deg,rgba(244,63,94,.13),rgba(244,63,94,.05));box-shadow:inset 2px 0 0 #fb7185;color:#fecdd3}
+.lp-diff-add{background:linear-gradient(90deg,rgba(16,185,129,.13),rgba(16,185,129,.05));box-shadow:inset 2px 0 0 #34d399;color:#a7f3d0}
+.lp-diff-foot{border-top:1px solid var(--art-hair)}
+.lp-diff-head{display:inline-flex;align-items:center;gap:7px;font-size:.68rem;color:var(--muted)}
+.lp-diff-head i{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 0 3px rgba(52,211,153,.16)}
+.lp-diff-head b{font-weight:600;color:var(--text)}
+.lp-diff-head em{font-style:normal;color:#34d399}
+.lp-diff-btn{padding:7px 13px;border-radius:9px;background:var(--btn-solid);color:var(--btn-solid-fg);font-family:var(--font-body);
+  font-weight:600;font-size:.74rem;box-shadow:0 8px 20px -10px color-mix(in srgb,var(--accent) 70%,transparent)}
+
+/* The policy: three paths with their verdicts, and the refused one's route to approval beneath it. */
+.lp-art-paths{display:grid;align-content:center;gap:8px;padding:16px}
+.lp-path{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding:9px 10px 9px 12px;
+  border-radius:10px;border:1px solid var(--art-hair);background:var(--art-fill)}
+/* A long path breaks at its slashes (the markup offers them) rather than losing its name to an ellipsis. */
+.lp-path code{min-width:0;font:inherit;font-size:.7rem;color:var(--text2)}
+.lp-path i{flex:none;padding:3px 8px;border-radius:999px;font-style:normal;font-size:.56rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase}
+.lp-path-ok i{color:#34d399;background:rgba(52,211,153,.1)}
+.lp-path-no{border-color:rgba(245,158,11,.42);background:rgba(245,158,11,.07)}
+.lp-path-no code{color:var(--text)}
+.lp-path-no i{color:#fbbf24;background:rgba(245,158,11,.14)}
+.lp-path-route{display:flex;align-items:center;gap:8px;min-width:0;margin:-2px 0 0 16px;padding:4px 0 4px 12px;
+  border-left:1px dashed rgba(245,158,11,.5);color:#fcd34d;font-size:.66rem}
+.lp-path-route svg{flex:none;width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.lp-path-route span{min-width:0}
+
+/* The matrix: each provider's mark over its column, a tick only where a live run proved it. */
+.lp-art-matrix{display:grid;align-content:center;padding:14px 18px}
+.lp-mx-row{display:grid;grid-template-columns:minmax(58px,.9fr) repeat(3,minmax(0,1fr));align-items:center;justify-items:center;
+  padding:9px 0;border-top:1px solid var(--art-hair)}
+.lp-mx-head{border-top:0;padding-top:2px}
+.lp-mx-head b{display:grid;justify-items:center;gap:6px;font-weight:600;font-size:.62rem;color:var(--text2)}
+.lp-mx-head svg{width:18px;height:18px;color:var(--text)}
+.lp-mx-row em{justify-self:start;font-style:normal;font-size:.68rem;color:var(--muted)}
+.lp-art-matrix i{display:grid;place-items:center;width:20px;height:20px;border-radius:50%}
+.lp-art-matrix i.y{background:rgba(52,211,153,.14);box-shadow:inset 0 0 0 1.5px #34d399}
+.lp-art-matrix i.y::after{content:"";width:8px;height:4px;margin-top:-2px;border:solid #34d399;border-width:0 0 1.7px 1.7px;transform:rotate(-45deg)}
+.lp-art-matrix i.n{box-shadow:inset 0 0 0 1.5px rgba(148,163,184,.3)}
+.lp-art-matrix i.n::after{content:"";width:7px;height:1.5px;border-radius:1px;background:rgba(148,163,184,.5)}
+.lp-mx-key{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 16px;padding-top:12px;border-top:1px solid var(--art-hair);
+  font-size:.6rem;color:var(--muted)}
+.lp-mx-key span{display:inline-flex;align-items:center;gap:6px}
+.lp-art-matrix .lp-mx-key i{width:10px;height:10px}
+.lp-art-matrix .lp-mx-key i::after{display:none}
+
+/* The signals: who this session is talking to, three readings, and a run of weeks set on one baseline. */
+.lp-art-signal{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);grid-template-rows:auto 1fr auto;
+  grid-template-areas:"who bars" "stats bars" "stats axis";gap:12px 24px;padding:16px 18px}
+.lp-sig-who{grid-area:who;display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px;min-width:0;padding:9px 12px;border-radius:10px;
+  border:1px solid color-mix(in srgb,var(--teal) 32%,transparent);background:color-mix(in srgb,var(--teal) 7%,transparent)}
+.lp-sig-who i{flex:none;width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 0 3px rgba(52,211,153,.16)}
+.lp-sig-who b{font-weight:600;color:var(--text)}
+.lp-sig-who em{font-style:normal;font-size:.62rem;color:var(--muted)}
+/* Beside the weeks the readings are a ledger, a name and its figure to a line; over them, three tiles. */
+.lp-sig-stats{grid-area:stats;align-self:stretch;display:grid;align-content:space-evenly;border-radius:10px;border:1px solid var(--art-hair);background:var(--art-fill)}
+.lp-sig-stats > span{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:baseline;gap:10px;min-width:0;padding:9px 12px}
+.lp-sig-stats > span + span{border-top:1px solid var(--art-hair)}
+.lp-sig-stats b{font-family:var(--font-display);font-size:1.12rem;font-weight:700;line-height:1;letter-spacing:-.02em;color:var(--text)}
+.lp-sig-stats small{margin-left:1px;font-size:.68rem;font-weight:500;color:var(--muted);letter-spacing:0}
+.lp-sig-stats em{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal;font-size:.66rem;color:var(--muted)}
+.lp-sig-bars{grid-area:bars;display:flex;align-items:flex-end;gap:5px;min-height:112px;padding-top:4px;border-bottom:1px solid var(--art-hair)}
+.lp-sig-bars i{flex:1 1 0;height:calc(var(--h) * 100%);min-height:6px;border-radius:4px 4px 0 0;transform-origin:50% 100%;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--accent2) 62%,transparent),color-mix(in srgb,var(--accent2) 28%,transparent))}
+.lp-sig-bars i:last-child{background:var(--accent2);box-shadow:0 0 22px -2px color-mix(in srgb,var(--accent2) 55%,transparent)}
+.lp-sig-axis{grid-area:axis;display:flex;justify-content:space-between;gap:12px;font-size:.6rem;color:var(--muted)}
+
+/* Played once as the section arrives: the change lands a line at a time, the weeks rise. */
+@media (prefers-reduced-motion:no-preference){
+  .lp-sec-wide.lp-revealed .lp-diff-l{animation:lp-bento-line .55s var(--ease) both;animation-delay:calc(var(--i) * 70ms + 160ms)}
+  .lp-sec-wide.lp-revealed .lp-path-route{animation:lp-bento-line .6s var(--ease) .55s both}
+  .lp-sec-wide.lp-revealed .lp-sig-bars i{animation:lp-bento-bar .8s var(--ease) both;animation-delay:calc(var(--i) * 45ms + 200ms)}
+}
+@keyframes lp-bento-line{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+@keyframes lp-bento-bar{from{transform:scaleY(.06)}to{transform:none}}
+/* The live mark breathes only on a device that has earned ambient motion. */
+:root[data-ambient="on"]:not([data-motion="off"]) .lp-sig-who i{animation:lp-bento-live 2.4s ease-in-out infinite}
+@keyframes lp-bento-live{50%{box-shadow:0 0 0 6px rgba(52,211,153,0)}}
+[data-motion="off"] :is(.lp-diff-l,.lp-path-route,.lp-sig-bars i,.lp-sig-who i){animation:none}
+
+@media (max-width:1180px) and (min-width:981px){
+  .lp-art-signal{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto 1fr auto;grid-template-areas:"who" "stats" "bars" "axis"}
+  .lp-sig-stats{align-self:start;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;border:0;background:none}
+  .lp-sig-stats > span,.lp-sig-stats > span + span{display:grid;justify-content:stretch;gap:6px;padding:11px 10px 10px;border-radius:10px;border:1px solid var(--art-hair);background:var(--art-fill)}
+  .lp-sig-stats b{font-size:1.35rem;letter-spacing:-.03em}
+  .lp-sig-stats em{font-size:.6rem}
+}
+@media (max-width:980px){
+  .lp-caps.lp-bento{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lp-bento-c{grid-column:span 1}
+  .lp-bento-c.lp-bento-wide{grid-column:1 / -1}
+}
+@media (max-width:640px){
+  .lp-caps.lp-bento{--bento-r:20px;grid-template-columns:minmax(0,1fr);gap:14px}
+  .lp-bento-c,.lp-bento-c.lp-bento-wide{grid-column:1 / -1}
+  .lp-bento-copy{padding:18px 12px 12px}
+  .lp-art-signal{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto auto;grid-template-areas:"who" "stats" "bars" "axis";padding:14px}
+  .lp-sig-bars{min-height:88px}
+  .lp-diff-l{grid-template-columns:34px 18px minmax(0,1fr)}
+}
+
+/* Daylight and Obsidian: the same anatomy on their own paper. */
+[data-theme="light"] .lp-caps.lp-bento{--art-hair:rgba(76,29,149,.1);--art-fill:rgba(76,29,149,.03)}
+[data-theme="light"] .lp-bento-c{background:rgba(255,255,255,.8);box-shadow:0 1px 0 #fff inset,0 26px 52px -38px rgba(60,40,120,.35)}
+[data-theme="light"] .lp-bento-art{background:radial-gradient(120% 90% at 50% 0%,#fff,transparent 60%),#f8f6fe}
+[data-theme="light"] .lp-diff-del{color:#9f1239}[data-theme="light"] .lp-diff-add{color:#065f46}
+[data-theme="light"] .lp-diff-stat .a,[data-theme="light"] .lp-diff-add s,[data-theme="light"] .lp-diff-head em,
+[data-theme="light"] .lp-path-ok i{color:#047857}
+[data-theme="light"] .lp-diff-stat .d,[data-theme="light"] .lp-diff-del s{color:#be123c}
+[data-theme="light"] .lp-path-no i{color:#b45309}
+[data-theme="light"] .lp-path-route{color:#b45309;border-left-color:rgba(180,83,9,.45)}
+[data-theme="light"] .lp-art-matrix i.y{background:rgba(5,150,105,.1);box-shadow:inset 0 0 0 1.5px #059669}
+[data-theme="light"] .lp-art-matrix i.y::after{border-color:#059669}
+[data-theme="light"] .lp-art-matrix i.n{box-shadow:inset 0 0 0 1.5px rgba(71,85,105,.3)}
+[data-theme="light"] .lp-art-matrix i.n::after{background:rgba(71,85,105,.45)}
+[data-design="obsidian"] .lp-bento-c{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.006) 40%),var(--card2)}
+[data-design="obsidian"] .lp-bento-art{background:radial-gradient(120% 90% at 50% 0%,rgba(255,255,255,.03),transparent 60%),rgba(8,8,10,.7)}
+[data-design="obsidian"][data-theme="light"] .lp-bento-c{background:#fff;box-shadow:0 1px 0 #fff inset,0 26px 52px -38px rgba(28,25,23,.3)}
+[data-design="obsidian"][data-theme="light"] .lp-caps.lp-bento{--art-hair:rgba(28,25,23,.09);--art-fill:rgba(28,25,23,.025)}
+[data-design="obsidian"][data-theme="light"] .lp-bento-art{background:radial-gradient(120% 90% at 50% 0%,#fff,transparent 60%),#f7f5f1}
 
 /*
  * ---- Shows its working -----------------------------------------------------------
@@ -8170,12 +8281,16 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
  * list. Unlit rows stay legible; lit ones take a wash of the preset's light.
  */
 @media (max-width:600px){
-  .lp-systems{grid-template-columns:minmax(0,1fr);row-gap:0;column-gap:0;padding:4px;margin-bottom:14px;border-radius:18px;
+  /*
+   * The rows run edge to edge and the panel's own corner clips them: a row
+   * rounded inside a padded panel left its lit wash curving away from the
+   * frame, a notch at the first row's corner.
+   */
+  .lp-systems{grid-template-columns:minmax(0,1fr);row-gap:0;column-gap:0;padding:0;margin-bottom:14px;border-radius:18px;overflow:hidden;
     border:1px solid rgba(255,255,255,.1);background:rgba(7,7,20,.8);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 24px 48px -28px rgba(0,0,0,.8)}
   .lp-system,.lp-system:nth-child(even){grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:auto;column-gap:12px;
-    padding:10px 12px 10px 8px;border:0;border-radius:13px;background:transparent;box-shadow:none;opacity:.6;transform:none}
-  .lp-system + .lp-system{border-top:1px solid rgba(255,255,255,.06);border-radius:0 0 13px 13px}
-  .lp-system + .lp-system:not(:last-child){border-radius:0}
+    padding:12px 16px 12px 12px;border:0;border-radius:0;background:transparent;box-shadow:none;opacity:.6;transform:none}
+  .lp-system + .lp-system{border-top:1px solid rgba(255,255,255,.06)}
   .lp-system-i,.lp-system:nth-child(even) .lp-system-i{grid-column:1;grid-row:auto;width:32px;height:32px;border-radius:10px}
   .lp-system b,.lp-system:nth-child(even) b{grid-column:2;font-size:.92rem}
   .lp-system>span:last-child,.lp-system:nth-child(even)>span:last-child{grid-column:3;text-align:right;font-size:.72rem;white-space:nowrap}
@@ -8423,15 +8538,84 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
  */
 .lp-promise{display:flex;flex-wrap:wrap;gap:10px 20px;container:lp-promise/inline-size}
 .lp-promise li{white-space:nowrap}
-@container lp-promise (max-width:560px){
-  .lp-promise li{flex:1 1 100%}
-}
 
 @media (max-width:939px){
   .lp-hero{min-height:0;justify-content:flex-start}
 }
 @media (max-width:520px){
   .lp-actions .btn{flex:1 1 auto}
+}
+
+/* ================= LANDING · THE FIRST SCREEN, COMPOSED ================= */
+/*
+ * Each reading at the vortex's edge is a callout, not a sticker: a hairline
+ * leads from the card to a lit point on the scene, the way an instrument
+ * labels what it is pointing at. The cards on the left lead right and the one
+ * on the right leads left, so every line runs into the form, never off it.
+ */
+.lp-chip{--lead:clamp(28px,3.6vw,56px);--lead-ink:rgba(196,181,253,.62)}
+.lp-chip::after{content:"";position:absolute;top:50%;width:var(--lead);height:1px;pointer-events:none;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--lead-ink) 25%,transparent),var(--lead-ink))}
+.lp-chip::before{content:"";position:absolute;top:50%;width:5px;height:5px;margin-top:-2px;border-radius:50%;pointer-events:none;
+  background:#ede9fe;box-shadow:0 0 0 3px color-mix(in srgb,var(--lead-ink) 30%,transparent),0 0 14px 2px var(--lead-ink)}
+.lp-chip-a::after,.lp-chip-c::after{left:100%}
+.lp-chip-a::before,.lp-chip-c::before{left:calc(100% + var(--lead) - 2px)}
+.lp-chip-b::after{right:100%;transform:scaleX(-1)}
+.lp-chip-b::before{right:calc(100% + var(--lead) - 2px)}
+[data-theme="light"] .lp-chip{--lead-ink:rgba(109,40,217,.5)}
+[data-theme="light"] .lp-chip::before{background:#7c3aed}
+[data-design="obsidian"] .lp-chip{--lead-ink:rgba(228,228,231,.55)}
+[data-design="obsidian"] .lp-chip::before{background:#fafafa}
+[data-design="obsidian"][data-theme="light"] .lp-chip{--lead-ink:rgba(41,37,36,.45)}
+[data-design="obsidian"][data-theme="light"] .lp-chip::before{background:#292524}
+
+/*
+ * The small print reads as a note the product means: a sign and a hairline
+ * rule, rather than a loose line of grey under the form.
+ */
+.lp-card .alpha-access-rule{position:relative;padding-left:26px}
+.lp-card .alpha-access-rule::before{content:"";position:absolute;left:0;top:.1em;width:16px;height:16px;background:var(--teal);opacity:.85;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z'/%3E%3Cpath d='M12 8.6v4.2M12 15.6v.1'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z'/%3E%3Cpath d='M12 8.6v4.2M12 15.6v.1'/%3E%3C/svg%3E") center/contain no-repeat}
+
+/*
+ * The promises as a trust strip. Wide, one quiet row; in a narrower column,
+ * three equal cells side by side with a hairline between them, each check
+ * over its words -- never a ragged two-and-one, and never a tall list that
+ * pushes the path down the page. Only a phone's column stacks them.
+ */
+/* A container cannot query itself, so the row's spacing lives on its items and the strip is drawn by them. */
+.lp-promise{gap:0}
+.lp-promise li{padding:5px 20px 5px 0}
+@container lp-promise (max-width:560px){
+  .lp-promise li{flex:1 1 0;min-width:0;display:grid;align-content:start;justify-items:start;gap:8px;padding:12px 14px;
+    white-space:normal;line-height:1.4;border-block:1px solid var(--lp-hair)}
+  .lp-promise li:first-child{padding-left:0}
+  .lp-promise li:last-child{padding-right:0}
+  .lp-promise li + li{border-left:1px solid var(--lp-hair)}
+}
+@container lp-promise (max-width:420px){
+  .lp-promise li,.lp-promise li:first-child,.lp-promise li:last-child,.lp-promise li + li{flex:1 1 100%;display:inline-flex;padding:5px 0;white-space:nowrap;border:0}
+}
+
+/*
+ * A tall screen at a desktop width -- a tablet held upright, or a phone asking
+ * for the desktop site, which lays out at about 980 pixels on a screen twice
+ * as tall -- gets the phone's composition at the desk's scale: the copy, then
+ * the vortex full across the column, then the path. Side by side, the vortex
+ * shrank to a third of the width and the screen's height went to two bands
+ * of empty night above the copy and below the path.
+ */
+@media (min-width:940px) and (max-aspect-ratio:4/5){
+  .lp-hero{min-height:0;justify-content:flex-start}
+  .lp-body{grid-template-columns:minmax(0,1fr);grid-template-areas:"copy" "entry" "promise" "art" "steps";grid-template-rows:none;
+    max-width:900px;row-gap:26px;padding-top:clamp(28px,4vh,56px);padding-bottom:16px}
+  .lp-copy,.lp-card,.lp-promise{max-width:640px}
+  .lp-art{justify-self:center;width:100%;max-width:820px;max-height:none;aspect-ratio:1.12;margin-top:4px}
+  .lp-stage{inset:-24px calc(-1 * var(--lp-gutter)) 28px}
+  .lp-hero::before{background:radial-gradient(circle,var(--lp-dot) 1px,transparent 1.5px) 0 0/20px 20px;
+    -webkit-mask-image:radial-gradient(ellipse 80% 46% at 50% 66%,#000 10%,rgba(0,0,0,.3) 55%,transparent 85%);
+    mask-image:radial-gradient(ellipse 80% 46% at 50% 66%,#000 10%,rgba(0,0,0,.3) 55%,transparent 85%)}
 }
 
 /* ================= LANDING · THE AUDIT, PLAYED (FRAME AND RAIL) ================= */
@@ -8547,27 +8731,6 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 [data-design="obsidian"][data-theme="light"] .lp-check-ico{color:#27272a;background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.1)}
 [data-design="obsidian"][data-theme="light"] .lp-check-bench{background:rgba(0,0,0,.025);border-color:rgba(0,0,0,.1)}
 
-/*
- * ---- The bento, balanced: three columns, two rows, no card stretched to
- * fill another's height. The lead and the last span two columns with their
- * picture beside their words; the two between stand picture over words.
- */
-@media (min-width:981px){
-  .lp-sec-wide .lp-caps{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:auto}
-  .lp-sec-wide .lp-cap-lead,.lp-sec-wide .lp-cap:last-child{grid-column:span 2;grid-row:auto;display:grid;
-    grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-rows:auto auto 1fr;column-gap:clamp(20px,2.6vw,36px);align-items:start}
-  .lp-sec-wide .lp-cap-lead .lp-cap-art,.lp-sec-wide .lp-cap:last-child .lp-cap-art{grid-column:1;grid-row:1 / 4;margin:0;height:100%;min-height:0}
-  .lp-sec-wide .lp-cap-lead > :not(.lp-cap-art),.lp-sec-wide .lp-cap:last-child > :not(.lp-cap-art){grid-column:2}
-  .lp-sec-wide .lp-cap-lead .lp-cap-ico,.lp-sec-wide .lp-cap:last-child .lp-cap-ico{margin-top:6px}
-  /* The pulse fills its panel rather than sitting at the foot of an empty one. */
-  .lp-sec-wide .lp-cap:last-child .lp-art-pulse svg{flex:1 1 auto;height:auto;min-height:96px}
-}
-@media (min-width:641px) and (max-width:980px){
-  .lp-sec-wide .lp-caps{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .lp-sec-wide .lp-cap-lead{grid-column:1 / -1;grid-row:auto}
-}
-.lp-sec-wide .lp-cap-lead .lp-cap-art{min-height:0;justify-content:flex-start}
-.lp-diff-f{margin-top:auto}
 
 /*
  * ---- Shows its working: one table in one card. The answer column is lit
@@ -8623,12 +8786,21 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-story{display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(28px,4vw,44px);align-items:start}
 .lp-story-rail{position:static;max-width:44rem;margin:0 auto;text-align:center}
 .lp-story-rail .lp-sec-lede{margin-inline:auto}
-.lp-story-track{--g:16px;position:relative;padding-top:4px}
+/*
+ * The track carries the timeline the line and the stops play on. It used to
+ * be the line's own view(), but the line clips its fill (overflow:hidden),
+ * which makes it a scroll container of its own: the fill took its progress
+ * from a 2px box that never scrolls, and stopped part-way. The track is
+ * never clipped, so the line fills as the track crosses the screen, and
+ * each stop lights as the fill reaches it.
+ */
+.lp-story-track{--g:16px;position:relative;padding-top:4px;view-timeline:--lp-track block;view-timeline-inset:0}
 .lp-story-steps{grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--g);counter-reset:none}
 .lp-story-step{position:relative;isolation:isolate;align-content:start;padding:0;border:0;background:none;box-shadow:none;gap:16px}
-.lp-story-n{position:relative;z-index:1;width:42px;height:42px;display:grid;place-items:center;border-radius:50%;
+.lp-story-n{--n-ring:color-mix(in srgb,var(--accent2) 55%,transparent);--n-halo:0 0 0 5px color-mix(in srgb,var(--accent2) 10%,transparent);
+  position:relative;z-index:1;width:42px;height:42px;display:grid;place-items:center;border-radius:50%;
   font-size:.74rem;font-weight:600;color:var(--text);background:var(--page,#07040f);
-  border:1px solid color-mix(in srgb,var(--accent2) 55%,transparent);box-shadow:0 0 0 5px color-mix(in srgb,var(--accent2) 10%,transparent)}
+  border:1px solid var(--n-ring);box-shadow:var(--n-halo)}
 .lp-story-step > :not(.lp-story-n){margin:0}
 .lp-story-step{grid-template-rows:auto auto auto 1fr}
 .lp-story-step::after{content:"";position:absolute;inset:58px 0 0;z-index:-1;border-radius:18px;border:1px solid var(--line);
@@ -8636,18 +8808,30 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 .lp-story-step > .lp-story-t{margin-top:16px}
 .lp-story-step > .lp-story-t,.lp-story-step > .lp-story-d,.lp-story-step > .lp-story-art{padding-inline:24px}
 .lp-story-step > .lp-story-art{padding-bottom:24px;align-self:end}
-.lp-story-progress{position:absolute;top:25px;left:21px;width:calc((200% + 2 * var(--g)) / 3);height:2px;margin:0;border-radius:2px;overflow:hidden;background:var(--hair)}
-.lp-story-progress span{transform-origin:0 50%;transform:scaleX(1);background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.lp-story-progress{position:absolute;top:24px;left:21px;width:calc((200% + 2 * var(--g)) / 3);height:2px;margin:0;border-radius:2px;overflow:visible;background:var(--hair)}
+.lp-story-progress span{border-radius:inherit;transform-origin:0 50%;transform:scaleX(1);background:linear-gradient(90deg,var(--accent),var(--accent2))}
 @supports (animation-timeline: view()){
   @media (prefers-reduced-motion:no-preference){
-    :root:not([data-motion="off"]) .lp-story-progress span{animation:lp-fill-x linear both;animation-timeline:view();animation-range:entry 80% cover 55%}
+    :root:not([data-motion="off"]) .lp-story-progress span{animation:lp-fill-x linear both;animation-timeline:--lp-track;
+      animation-range:entry 70% cover 50%}
+  }
+  /* The second and third stops light as the fill reaches them; the first is lit from the start. */
+  @media (prefers-reduced-motion:no-preference) and (min-width:901px){
+    :root:not([data-motion="off"]) .lp-story-step:nth-child(2) .lp-story-n{animation:lp-stop-2 linear both;animation-timeline:--lp-track;
+      animation-range:entry 70% cover 50%}
+    :root:not([data-motion="off"]) .lp-story-step:nth-child(3) .lp-story-n{animation:lp-stop-3 linear both;animation-timeline:--lp-track;
+      animation-range:entry 70% cover 50%}
   }
 }
 @keyframes lp-fill-x{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes lp-stop-2{0%,47%{border-color:var(--line);box-shadow:0 0 0 0 transparent;color:var(--muted)}
+  53%,100%{border-color:var(--n-ring);box-shadow:var(--n-halo);color:var(--text)}}
+@keyframes lp-stop-3{0%,94%{border-color:var(--line);box-shadow:0 0 0 0 transparent;color:var(--muted)}
+  100%{border-color:var(--n-ring);box-shadow:var(--n-halo);color:var(--text)}}
 [data-motion="off"] .lp-story-progress span{animation:none;transform:none}
 [data-theme="light"] .lp-story-step::after{background:rgba(255,255,255,.76)}
 [data-theme="light"] .lp-story-n{background:#fff}
-[data-design="obsidian"] .lp-story-n{border-color:rgba(255,255,255,.35);box-shadow:0 0 0 5px rgba(255,255,255,.05)}
+[data-design="obsidian"] .lp-story-n{--n-ring:rgba(255,255,255,.35);--n-halo:0 0 0 5px rgba(255,255,255,.05)}
 @media (max-width:900px){
   .lp-story-rail{text-align:left;margin:0}
   .lp-story-steps{grid-template-columns:minmax(0,1fr);gap:18px}

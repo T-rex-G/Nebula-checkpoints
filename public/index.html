@@ -220,7 +220,7 @@
         <label class="field-label lp-entry-label" for="alphaInviteInput" hidden>One-time invitation</label>
         <div class="lp-entry-row">
           <svg class="lp-entry-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="8" cy="15" r="4"/><path d="M10.9 12.1 19 4M16 7l2.5 2.5M14 9l2 2"/></svg>
-          <input id="alphaInviteInput" type="password" autocomplete="one-time-code" spellcheck="false" autocorrect="off" autocapitalize="off" placeholder="Paste your one-time invitation" hidden>
+          <input id="alphaInviteInput" type="password" autocomplete="one-time-code" spellcheck="false" autocorrect="off" autocapitalize="off" placeholder="Paste your invitation" hidden>
           <button class="btn btn-primary lp-entry-go" id="alphaRedeemBtn" hidden>Continue</button>
         </div>
         <label class="check lp-entry-terms" for="alphaTermsAccept" hidden>
@@ -525,6 +525,13 @@
         </div>
       </section>
 
+      <!--
+        What the alpha does with the one repository it connects, as a bento:
+        four cards on one anatomy -- a working picture above, a kicker, a
+        title and a sentence below -- so every row reads at the same height.
+        Each picture is the product's own surface in miniature, and none of
+        it is a claim the product does not keep.
+      -->
       <div class="lp-sec lp-sec-wide">
         <div class="lp-sec-head">
           <p class="lp-sec-eyebrow">Inside the orbit</p>
@@ -532,56 +539,86 @@
           <p class="lp-sec-lede">The alpha connects a single sandbox repository and works against the
             real provider behind it. Nothing here is a mock.</p>
         </div>
-        <ul class="lp-caps">
-          <li class="lp-cap lp-cap-lead card">
-            <div class="lp-cap-art lp-art-diff" aria-hidden="true">
-              <span class="lp-diff-h"><b>config/deploy.yml</b><i>preview</i></span>
-              <span class="lp-diff-l lp-diff-ctx">  service: api</span>
-              <span class="lp-diff-l lp-diff-ctx">  environment: staging</span>
-              <span class="lp-diff-l lp-diff-del">-  replicas: 2</span>
-              <span class="lp-diff-l lp-diff-add">+  replicas: 3</span>
-              <span class="lp-diff-l lp-diff-add">+  healthcheck: /healthz</span>
-              <span class="lp-diff-l lp-diff-ctx">  region: eu-west</span>
-              <span class="lp-diff-f"><span class="lp-diff-btn">Approve change</span><span class="lp-diff-head">against live head a1c9f2e</span></span>
+        <ul class="lp-caps lp-bento">
+          <li class="lp-cap lp-bento-c lp-bento-wide">
+            <div class="lp-bento-art lp-art-diff" aria-hidden="true">
+              <span class="lp-diff-bar">
+                <span class="lp-diff-file"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>config/deploy.yml</span>
+                <span class="lp-diff-stat"><b class="a">+2</b><b class="d">&minus;1</b></span>
+              </span>
+              <span class="lp-diff-body">
+                <span class="lp-diff-l" style="--i:0"><i>11</i><s></s>service: api</span>
+                <span class="lp-diff-l" style="--i:1"><i>12</i><s></s>environment: staging</span>
+                <span class="lp-diff-l lp-diff-del" style="--i:2"><i>13</i><s>&minus;</s>replicas: 2</span>
+                <span class="lp-diff-l lp-diff-add" style="--i:3"><i>13</i><s>+</s>replicas: 3</span>
+                <span class="lp-diff-l lp-diff-add" style="--i:4"><i>14</i><s>+</s>healthcheck: /healthz</span>
+                <span class="lp-diff-l" style="--i:5"><i>15</i><s></s>region: eu-west</span>
+              </span>
+              <span class="lp-diff-foot">
+                <span class="lp-diff-head"><i></i>head <b>a1c9f2e</b> <em>matches live</em></span>
+                <span class="lp-diff-btn">Approve change</span>
+              </span>
             </div>
-            <span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7M3 12h5M3 18h7"/><path d="M14 5l6 7-6 7"/></svg></span>
-            <h3 class="lp-cap-t">Review staged changes</h3>
-            <p class="lp-cap-d">Staged file changes show a diff, repository, branch and expected commit before confirmation.
-              If that head moves, the write is refused so you can review again.</p>
+            <div class="lp-bento-copy">
+              <span class="lp-bento-k"><span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7M3 12h5M3 18h7"/><path d="M14 5l6 7-6 7"/></svg></span>Change review</span>
+              <h3 class="lp-cap-t">Review staged changes</h3>
+              <p class="lp-cap-d">Staged file changes show a diff, repository, branch and expected commit before confirmation.
+                If that head moves, the write is refused so you can review again.</p>
+            </div>
           </li>
-          <li class="lp-cap card">
-            <div class="lp-cap-art lp-art-paths" aria-hidden="true">
-              <span class="lp-path lp-path-ok">src/app.js<i>allowed</i></span>
-              <span class="lp-path lp-path-no">.github/workflows/deploy.yml<i>held</i></span>
-              <span class="lp-path lp-path-ok">docs/guide.md<i>allowed</i></span>
+          <li class="lp-cap lp-bento-c">
+            <div class="lp-bento-art lp-art-paths" aria-hidden="true">
+              <span class="lp-path lp-path-ok"><code>src/app.js</code><i>allowed</i></span>
+              <span class="lp-path lp-path-no"><code>.github/<wbr>workflows/<wbr>ci.yml</code><i>approval</i></span>
+              <span class="lp-path-route"><svg viewBox="0 0 24 24"><path d="M6 4v8a4 4 0 0 0 4 4h8"/><path d="M15 13l3 3-3 3"/></svg><span>Safe Passage &middot; branch, pull request, reviewers</span></span>
+              <span class="lp-path lp-path-ok"><code>docs/guide.md</code><i>allowed</i></span>
             </div>
-            <span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10.5" width="16" height="9.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg></span>
-            <h3 class="lp-cap-t">Blocked work is not lost work</h3>
-            <p class="lp-cap-d">A policy decides which paths a run may touch. When it refuses one, the
-              work comes back intact with a safe way to land it, instead of on the floor.</p>
+            <div class="lp-bento-copy">
+              <span class="lp-bento-k"><span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10.5" width="16" height="9.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg></span>Policy</span>
+              <h3 class="lp-cap-t">Blocked work is not lost work</h3>
+              <p class="lp-cap-d">A policy decides which paths a run may touch. When it refuses one, the
+                work comes back intact with a safe way to land it, instead of on the floor.</p>
+            </div>
           </li>
-          <li class="lp-cap card">
-            <div class="lp-cap-art lp-art-matrix" aria-hidden="true">
-              <span></span><b>GitHub</b><b>GitLab</b><b>Gitea</b>
-              <em>Push</em><i class="y"></i><i class="y"></i><i class="y"></i>
-              <em>LFS</em><i class="y"></i><i class="y"></i><i class="n"></i>
-              <em>Actions</em><i class="y"></i><i class="n"></i><i class="n"></i>
+          <li class="lp-cap lp-bento-c">
+            <div class="lp-bento-art lp-art-matrix" aria-hidden="true">
+              <span class="lp-mx-row lp-mx-head"><span></span>
+                <b><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>GitHub</b>
+                <b><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 21.4 15.7 10H8.3zM12 21.4 8.3 10H3.1zM3.1 10 2 13.4c-.1.3 0 .7.3.9L12 21.4zM3.1 10h5.2L6.1 3.2c-.1-.4-.6-.4-.7 0zM12 21.4 15.7 10h5.2zM20.9 10l1.1 3.4c.1.3 0 .7-.3.9L12 21.4zM20.9 10h-5.2l2.2-6.8c.1-.4.6-.4.7 0z"/></svg>GitLab</b>
+                <b><svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3.5 7.5h13v5.2a5.3 5.3 0 0 1-5.3 5.3H8.8a5.3 5.3 0 0 1-5.3-5.3zM16.5 9h1.7a2.6 2.6 0 0 1 0 5.2h-1.9M8 11.5l2 2 3-3.5"/></svg>Gitea</b>
+              </span>
+              <span class="lp-mx-row"><em>Push</em><i class="y"></i><i class="y"></i><i class="y"></i></span>
+              <span class="lp-mx-row"><em>LFS</em><i class="y"></i><i class="y"></i><i class="n"></i></span>
+              <span class="lp-mx-row"><em>Actions</em><i class="y"></i><i class="n"></i><i class="n"></i></span>
+              <span class="lp-mx-key"><span><i class="y"></i>proved by a live run</span><span><i class="n"></i>not yet proved</span></span>
             </div>
-            <span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3.6v5c0 4.4-3.1 8.2-7.5 9.4-4.4-1.2-7.5-5-7.5-9.4v-5z"/><path d="M9 12.2l2.2 2.2L15.4 10"/></svg></span>
-            <h3 class="lp-cap-t">Capabilities are earned, not declared</h3>
-            <p class="lp-cap-d">What GitHub, GitLab and Gitea can each do here is established by a live
-              run against that provider. A capability nothing has proved does not get a badge.</p>
+            <div class="lp-bento-copy">
+              <span class="lp-bento-k"><span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3.6v5c0 4.4-3.1 8.2-7.5 9.4-4.4-1.2-7.5-5-7.5-9.4v-5z"/><path d="M9 12.2l2.2 2.2L15.4 10"/></svg></span>Capabilities</span>
+              <h3 class="lp-cap-t">Capabilities are earned, not declared</h3>
+              <p class="lp-cap-d">What GitHub, GitLab and Gitea can each do here is established by a live
+                run against that provider. A capability nothing has proved does not get a badge.</p>
+            </div>
           </li>
-          <li class="lp-cap card">
-            <div class="lp-cap-art lp-art-pulse" aria-hidden="true">
-              <svg viewBox="0 0 240 64" preserveAspectRatio="none"><path class="lp-pulse-area" d="M0 50 L30 44 L55 47 L80 30 L105 36 L130 18 L160 26 L185 12 L210 20 L240 8 L240 64 L0 64Z"/><path class="lp-pulse-line" d="M0 50 L30 44 L55 47 L80 30 L105 36 L130 18 L160 26 L185 12 L210 20 L240 8"/></svg>
-              <span class="lp-pulse-k"><i></i>Live · github.com</span>
+          <li class="lp-cap lp-bento-c lp-bento-wide">
+            <div class="lp-bento-art lp-art-signal" aria-hidden="true">
+              <span class="lp-sig-who"><i></i><b>github.com</b><em>authority for this session</em></span>
+              <span class="lp-sig-stats">
+                <span><b>79</b><em>Trust score</em></span>
+                <span><b>12<small>/14</small></b><em>Provider-verified</em></span>
+                <span><b>2</b><em>Need attention</em></span>
+              </span>
+              <span class="lp-sig-bars">
+                <i style="--h:.34;--i:0"></i><i style="--h:.52;--i:1"></i><i style="--h:.4;--i:2"></i><i style="--h:.66;--i:3"></i><i style="--h:.48;--i:4"></i><i style="--h:.78;--i:5"></i><i style="--h:.6;--i:6"></i><i style="--h:.86;--i:7"></i><i style="--h:.7;--i:8"></i><i style="--h:.94;--i:9"></i><i style="--h:.74;--i:10"></i><i style="--h:1;--i:11"></i>
+              </span>
+              <span class="lp-sig-axis"><span>Commits, 12 weeks</span><span>this week</span></span>
             </div>
-            <span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13.5h4l2.4-6.6 3.6 12 2.6-8.2 1.6 2.8H21"/></svg></span>
-            <h3 class="lp-cap-t">Signals, not badges</h3>
-            <p class="lp-cap-d">The overview reads the repository&rsquo;s own health and names the
-              authority this session is actually talking to, so nothing can claim to be live with
-              no identity behind it.</p>
+            <div class="lp-bento-copy">
+              <span class="lp-bento-k"><span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13.5h4l2.4-6.6 3.6 12 2.6-8.2 1.6 2.8H21"/></svg></span>Signals</span>
+              <h3 class="lp-cap-t">Signals, not badges</h3>
+              <p class="lp-cap-d">The overview reads the repository&rsquo;s own health and names the
+                authority this session is actually talking to, so nothing can claim to be live with
+                no identity behind it.</p>
+            </div>
           </li>
         </ul>
       </div>

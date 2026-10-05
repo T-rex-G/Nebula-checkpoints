@@ -358,6 +358,33 @@
   }
 
   /*
+   * The bento's light follows the pointer across the whole grid: every card
+   * is handed the pointer's position in its own box, so the edge nearest the
+   * pointer catches it even on the card next door. One write per frame, and
+   * only where there is a fine pointer to follow.
+   */
+  const bento = document.querySelector('.lp-bento');
+  const finePointer = global.matchMedia && global.matchMedia('(hover: hover) and (pointer: fine)');
+  if (bento && finePointer && finePointer.matches && typeof bento.querySelectorAll === 'function') {
+    const cards = [...bento.querySelectorAll('.lp-bento-c')];
+    let pending = null;
+    bento.addEventListener('pointermove', event => {
+      const first = pending === null;
+      pending = { x: event.clientX, y: event.clientY };
+      if (!first) return;
+      global.requestAnimationFrame(() => {
+        const { x, y } = pending;
+        pending = null;
+        cards.forEach(card => {
+          const box = card.getBoundingClientRect();
+          card.style.setProperty('--mx', `${Math.round(x - box.left)}px`);
+          card.style.setProperty('--my', `${Math.round(y - box.top)}px`);
+        });
+      });
+    }, { passive: true });
+  }
+
+  /*
    * The numbers count up once, the first time they are seen. The figure is
    * in the markup from the start, so without script -- or with motion off --
    * the reader gets the number, not a zero.

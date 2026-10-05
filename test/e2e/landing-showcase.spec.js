@@ -203,7 +203,7 @@ test('with motion off the showcase holds still', async ({ page }) => {
   await openLanding(page, false);
   await page.locator('.lp-show').scrollIntoViewIfNeeded();
   const moving = await page.evaluate(() => [
-    '.lp-frame', '.lp-map-flow', '.lp-map-arcs', '.lp-story-progress span', '.lp-line',
+    '.lp-frame', '.lp-map-flow', '.lp-map-arcs', '.lp-story-progress span', '.lp-story-n', '.lp-line',
     '.lp-ticker-track', '.lp-play-frame [data-only]', '.lp-au-bar i', '.lp-au-sweep'
   ].filter(selector => [...document.querySelectorAll(selector)]
     .some(el => getComputedStyle(el).animationName !== 'none')));

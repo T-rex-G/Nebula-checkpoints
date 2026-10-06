@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Plan: from public alpha to 1.0.0-beta.1
+
+- **One plan for what is still unqualified, and for what beta adds.**
+  `docs/superpowers/plans/2026-10-06-beta-1-0-0-qualification-and-platform.md`
+  lists every pending gate, every Experimental and Unavailable capability and
+  every recorded residue, and the task that closes each. It defines what
+  qualified means for `1.0.0-beta.1`, names the owner's decisions and actions,
+  and sequences the Clerk identity, Stripe billing and AI review layers. The
+  plan is not evidence: no gate changes until its task passes for the exact
+  candidate.
+
 ### Uranus 2.4: the grade never says less than the findings do
 
 - **Confirmed serious findings hold the grade.** The grade is a weighted mean

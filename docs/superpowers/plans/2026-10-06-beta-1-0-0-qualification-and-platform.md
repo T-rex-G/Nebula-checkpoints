@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to execute this plan.
 
-**Status:** Proposed programme plan, reviewed against `main` at `be2f558`. It is not qualification evidence and changes no gate: the generated project state keeps public alpha at **NO-GO** until the gates below pass for one exact candidate. Merging this document authorizes no deployment, live-provider dispatch, migration, vendor account, payment or cohort opening.
+**Status:** Proposed programme plan, reviewed against `main` at `be2f558` and against the running system on 6 October 2026. It is not qualification evidence and changes no gate: the generated project state keeps public alpha at **NO-GO** until the gates below pass for one exact candidate. Render redeploys `main` on every merge, so merging this document redeploys the service with one more document and no change in behavior. It authorizes no live-provider dispatch, migration, configuration change, vendor account, payment or cohort opening.
 
 **Goal:** Ship `1.0.0-beta.1` — one candidate in which every visible capability is Supported and evidenced, every release gate has passed for its exact bytes, and nothing in the product or the current documents reads Experimental, Unqualified, Pending or NO-GO. Three platform layers qualify with it: Clerk identity, Stripe billing, and AI review grounded in the deterministic engines.
 
@@ -22,20 +22,37 @@ Each vendor is reached through its own guarded-transport profile.
 
 ## Where the product stands on 6 October 2026
 
-Taken from the generated [project state](../../current/PROJECT_STATE.md), the capability registry `config/public-alpha-capabilities.json`, and the current documents. Every row below is something this plan closes, and its ID is how the tasks refer to it.
+Documents can lag behind the code, so every claim below was checked against the running system. Where a document and the system disagree, the observed value wins, and the disagreement is itself a residue. Every row is something this plan closes, and its ID is how the tasks refer to it.
+
+### Verified against the running system on 6 October 2026
+
+| What was checked | Observed | Source |
+| --- | --- | --- |
+| Deployed code | The live release digest `f5284335…96ad` equals the digest computed from `main` at `be2f558`: the service runs merged `main`. | `/api/version`; `computeReleaseFingerprint` on `be2f558` |
+| Capability registry | The live projection matches `config/public-alpha-capabilities.json` entry for entry, for all three providers. | `/api/capabilities?provider=…` |
+| Access mode | `off`. `render.yaml` declares `invite`, so the dashboard overrides the blueprint. | `/api/alpha/status`, `/api/config` |
+| Hosted limits | Git data 95 MB, native push 95 MB, uploads 100 MB. `render.yaml` and the published known limitations both say 16 MB, 16 MB and 25 MB. | `/api/config` |
+| GitHub App | Disabled; sign-in is OAuth only. | `/api/config` |
+| Hosting | Render Free, one instance, auto-deploy of `main` on every commit. The first `/healthz` after idle timed out at 30 s; later calls answered in 0.3–0.7 s. | Render service `srv-dabg6ufqj5pc739takeg`; timed probes |
+| Database | One Neon project at free-tier limits (0.25 CU, 1 GiB branch limit, 6-hour history). Migration `030` is applied. The `main` branch sits beside a leftover `recovery-pr53-before-028-20260925`, and there is no isolated restore target. | Neon project `ancient-field-09975665`; `/readyz` |
+| Branch protection | `main` is `protected: false` and no rulesets apply. The API answers the read, so only applying a ruleset needs an administrator. | `GET …/branches/main`, `…/rulesets`, `…/rules/branches/main` |
+| Live-provider history | 25 dispatched qualification runs:<br>• all three providers green on 3 September (run 70);<br>• GitHub alone green through 7 September (run 98);<br>• `hosted-live` never executed.<br>`main` is now 292 commits past run 98 and 450 past the recorded baseline. | Actions API, `public-alpha-alpha17.yml` |
+| Automated qualification | The `automated` exact-archive job runs on every pull request and last passed on `edaeb5d` (run `37392053996`). The generated state still records only the August baseline. | Actions API |
+| Server enforcement | 176 `/api` routes, of which 141 are behind `capabilityAccess`:<br>• 108 route guards carry `allowExperimental` opt-ins, across 26 features;<br>• `GET /api/repo/:owner/:repo/intelligence/events` and `GET /api/repo/:owner/:repo/evidence` have no capability guard;<br>• `branches.read` is advertised but no route names it (branch reads sit under `repository.read`);<br>• `lfs` is checked inside the upload handler rather than at the route. | `server.js` route table |
+| Public copy | The landing page's proof row tells visitors features are marked "Experimental, with the reason". | `public/index.html` |
 
 ### Release gates
 
-The last qualified bytes are the recorded baseline: tree `b0945a403beaa4c4242a1d6526aa7c3d80d48f08`, archive SHA-256 `58adb78f…d711`. Every successor since, including current `main`, is unqualified.
+The last bytes recorded as qualified are the August baseline: tree `b0945a403beaa4c4242a1d6526aa7c3d80d48f08`, archive SHA-256 `58adb78f…d711`. No later candidate has been frozen and bound to evidence.
 
-| Gate | State today | Closed by |
+| Gate | State observed | Closed by |
 | --- | --- | --- |
-| G1 Automated exact-archive qualification | Passed for the recorded baseline only (run `32540542682`) | F3 |
-| G2 Independent review | Passed for the recorded baseline only (remediation review `4d47a6a5…`) | F3 |
-| G3 Live provider: GitHub, GitLab, Gitea | Pending | F4 |
-| G4 Hosted Render/Neon | Pending | F5 |
-| G5 Manual accessibility: VoiceOver iOS and a desktop screen reader | Pending | F6 |
-| G6 Final release | Pending | F8 |
+| G1 Automated exact-archive qualification | Runs on every pull request and passed on `edaeb5d`. Recorded only for the August baseline (run `32540542682`). | F1, F3 |
+| G2 Independent review | Passed only for the August baseline (remediation review `4d47a6a5…`) | F3 |
+| G3 Live provider: GitHub, GitLab, Gitea | Last executed on 3 September for all three and 7 September for GitHub; never on current `main` | F4 |
+| G4 Hosted Render/Neon | Never executed | F5 |
+| G5 Manual accessibility: VoiceOver iOS and a desktop screen reader | No record | F6 |
+| G6 Final release | Not started | F8 |
 
 ### Capabilities that are not Supported
 
@@ -47,14 +64,14 @@ The last qualified bytes are the recorded baseline: tree `b0945a403beaa4c4242a1d
 
 ### Residue
 
-- **R1 — main is unprotected.** `config/github-main-ruleset.json` is proposed, not applied: the connected integration receives HTTP 403 on administration settings. Its required checks also predate the CI split in PR #79 and do not name `browser (1)`–`browser (4)` or `release`.
+- **R1 — main is unprotected.** The API reports `protected: false` with no rulesets. `config/github-main-ruleset.json` is proposed but has never been applied, because applying it needs an administrator. Its required checks also predate the CI split in PR #79 and do not name `browser (1)`–`browser (4)` or `release`.
 - **R2 — deferred minor.** The CLI and store count label and revocation-reason limits in UTF-16 code units, while PostgreSQL counts code points.
 - **R3 — runtime currency.** The application is locked to Node 22.23.1 (review disposition R3-N3). GitHub Actions warns that the pinned `actions/checkout` and `actions/setup-node` target the deprecated Node 20 action runtime.
 - **R4 — off-by-default capabilities.** The rendered website audit (`NV_RENDERED_AUDIT_ENABLED`) is off by default, and optional YARA scanning is unavailable on the hosted service. Neither is qualified.
 - **R5 — live events across instances.** A subscriber on one instance does not receive another instance's events in real time, and the `LIVE_CLIENTS` ceilings are per instance ([multi-instance state](../../architecture/2026-09-21-multi-instance-state.md)).
 - **R6 — no-database sessions.** Sessions without a database are single-process and end on restart. That is fine locally, but a hosted beta must always run with the database.
 - **R7 — approval spend ledger.** The live-dispatch approval spend ledger is a CI cache, so deleting it reopens the replay window inside 30 minutes.
-- **R8 — the observed Render service.** It ran with invitation enforcement off and a different release tree: operator verification, not a cohort.
+- **R8 — the live service is not a cohort deployment.** On 6 October it still runs with invitation enforcement off (see R12). It is an operator-verification deployment, not a cohort.
 - **R9 — oversized files.** `server.js` is 8,906 lines and `public/app.js` is 10,130. Three vendor integrations must not land in either.
 - **R10 — alpha.17 lineage names.** The qualification lineage is named for alpha.17 throughout:
   - `.github/workflows/public-alpha-alpha17.yml`;
@@ -62,6 +79,19 @@ The last qualified bytes are the recorded baseline: tree `b0945a403beaa4c4242a1d
   - `ci/*alpha17*` and the artifact names;
   - continuity schema 5.
 - **R11 — founder vision scope.** The [founder vision](../../vision/FOUNDER_VISION.md) lists paid-AI dependencies and multi-tenancy as out of current scope. AI review, Stripe and team workspaces change that, so each needs a recorded decision.
+- **R12 — configuration drift.** The live service's environment overrides `render.yaml`:
+  - access mode is `off` where the blueprint says `invite`;
+  - git data, native push and upload limits are 95, 95 and 100 MB where the blueprint and the published limitations say 16, 16 and 25 MB.
+
+  Nothing detects the drift, so the published limits are false for the running service.
+- **R13 — enforcement map gaps.**
+  - 108 route guards still accept `allowExperimental`.
+  - Two repository routes (`/intelligence/events`, `/evidence`) name no capability.
+  - `branches.read` is advertised but enforced as `repository.read`.
+  - `lfs` is checked inside the upload handler, not at the route.
+- **R14 — evidence drift.** The generated state and continuity record describe a baseline 450 commits behind `main`. The per-pull-request `automated` qualification passes, but its result is never bound to a candidate.
+- **R15 — cold start.** The first request after idle exceeded 30 seconds on the free instance.
+- **R16 — database residue.** The Neon project holds a leftover recovery branch from 25 September and no isolated restore target, and its history window is 6 hours.
 
 ## What "qualified" means for 1.0.0-beta.1
 
@@ -99,10 +129,9 @@ Each decision is needed before the phase named in the last column. The recommend
 These cannot be delegated. Keys and credentials are entered as Render or GitHub Actions environment secrets, never pasted into chat or source.
 
 - **Apply the corrected main ruleset** from Task A1 with an administrator account, then read it back.
-- **Create disposable sandbox targets** for each provider, each with credentials scoped to it alone:
-  - GitHub, including a qualification organization or bot account for repository create/delete and notifications;
-  - GitLab;
-  - Gitea.
+- **Confirm the existing sandbox targets still work.** GitHub, GitLab and Gitea all qualified green in September, so their targets and credentials were in place then. Rotate any credential that has expired.
+- **Add a GitHub qualification organization or bot account**, with credentials scoped to it alone, for repository create/delete and notifications.
+- **Decide whether the GitHub App is enabled.** It is disabled on the live service today.
 - **Create the vendor accounts:**
   - Clerk: development and production instances;
   - Stripe: test and live mode, including business verification;
@@ -226,25 +255,39 @@ Closes R3.
 - `public/capability-ui.js`;
 - the capability seam in `public/app.js`;
 - every `data-allow-experimental` attribute in `public/index.html`;
+- the landing proof row in `public/index.html`;
 - `public/workspace-pulse.js`;
 - the server's capability projection;
+- every `capabilityAccess(…, { allowExperimental: true })` in `server.js`;
 - the registry contract;
+- a new route-capability contract;
 - a new browser spec.
 
 **Red:**
 
 - For GitHub, GitLab and Gitea fixtures, a browser test asserts that no element renders an Experimental or Unavailable label or badge, and that no control bound to a non-Supported feature exists in the accessibility tree.
 - An API test asserts the server still returns its typed refusal for each such feature.
+- A route-capability contract parses the `/api` route table and asserts three things:
+  1. every route either names its capability or sits on a reviewed, capability-free list (health, version, configuration, sign-in);
+  2. every registry key is named by at least one route;
+  3. no route carries `allowExperimental`.
+
+  It fails today on the 108 opt-ins, the two unguarded repository routes and the unenforced `branches.read`.
 
 **Green:**
 
 - The registry contract rejects Experimental for the `hosted-beta` deployment.
-- The experimental opt-in path is removed.
+- The experimental opt-in path is removed from both the server and the interface.
+- `/intelligence/events` and `/evidence` name their capability.
+- Branch reads name `branches.read`.
+- The LFS strategy is checked at the route.
 - Controls for Unavailable features are never rendered.
-- The workspace pulse reports only Supported capabilities and their evidence.
+- The workspace pulse and the landing copy describe only Supported capabilities and their evidence.
 - The vocabulary stays in the server, where it drives fail-closed refusal.
 
-**Verify:** The new spec, `npm run test:e2e` and `npm test`.
+Closes R13.
+
+**Verify:** The new spec and contract, `npm run test:e2e` and `npm test`.
 
 ### Task A8: Qualify or remove the rendered site audit and YARA
 
@@ -282,6 +325,26 @@ Closes R3.
 - R9 is closed as a standing growth rule.
 
 **Verify:** The characterization test, `npm test` and `npm run test:e2e`.
+
+### Task A11: Make the running configuration match a reviewed source
+
+**Files:** `render.yaml`, `src/hosted-readiness.js`, the `check:deployment` script, the operator runbook and the known limitations.
+
+**Red:** `npm run check:deployment` against the live service fails today on two counts:
+
+- it reads `/api/config` and compares the access mode and every hosted limit with the profile's reviewed values;
+- it reports any mismatch by name, without values that could identify a tester.
+
+**Green:**
+
+- The owner chooses the beta limits, and `render.yaml` records them.
+- The service is synced from the blueprint, either through Render's blueprint sync or by setting the same values through the Render API, with each value read back.
+- Drift fails the deployment check.
+- The published limitations quote the values the running service reports.
+
+Closes R12.
+
+**Verify:** `npm run check:deployment` against the live service, and the hosted-readiness tests.
 
 ## Phase B — Identity with Clerk
 
@@ -609,14 +672,20 @@ Closes R11 for AI review.
 
 **Green:**
 
-- The owner decides D3.
+- The owner decides D3. A first request after idle exceeded 30 seconds on 6 October; on the free plan, that delay is what a paying customer's first click would meet.
 - The custom domain and TLS go live.
 - The frozen candidate is redeployed with the `hosted-beta` profile and the database required.
 - `npm run check:deployment` passes against it, which closes R8.
 
 ### Task E4: Back up and restore
 
-**Green:** Either Neon point-in-time restore on a paid plan, or the existing encrypted backup. One restore drill runs per candidate and feeds G4.
+**Green:**
+
+- Either Neon point-in-time restore on a paid plan, or the existing encrypted backup. The free project keeps 6 hours of history today.
+- A dedicated restore-target branch is created for the hosted gate. One restore drill runs per candidate and feeds G4.
+- The leftover `recovery-pr53-before-028-20260925` branch is deleted only with the owner's explicit approval, once migrations `028`–`030` are proven by a restore drill.
+
+Closes R16.
 
 ### Task E5: Legal and trust
 
@@ -655,7 +724,7 @@ Closes R11 for AI review.
   - the `nvx-alpha17-` prefix becomes `nvx-beta-`;
   - `ci/*alpha17*` becomes `ci/*beta*`;
   - artifact names and contracts follow.
-- **Continuity:** the continuity schema moves to version 6, with gates G1–G9.
+- **Continuity:** the continuity schema moves to version 6, with gates G1–G9. A frozen candidate's `automated` result and archive hash are recorded in it, so the generated state follows the code instead of a baseline left behind. Closes R14.
 - **Spend ledger:** the approval spend ledger moves from the CI cache to a durable store, which closes R7.
 - **Version:** `1.0.0-beta.1` (D1), with its architecture decision. Closes R10.
 
@@ -694,7 +763,7 @@ Closes R11 for AI review.
 
 | Order | Work | Waits on |
 | --- | --- | --- |
-| 1 | A1–A3, A7 (registry contract and interface), A10 | Only the owner applying A1 |
+| 1 | A1–A3, A7 (registry and route-capability contracts, interface), A10, A11 | The owner applying A1 and choosing the limits in A11 |
 | 2 | A4, A5, A6 | Sandbox targets and credentials |
 | 3 | B1–B7 | Clerk accounts, the domain (D6), D7 |
 | 4 | C1–C6 | Phase B (a customer belongs to a Clerk-backed workspace), D4 |

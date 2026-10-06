@@ -7,7 +7,11 @@
 - **One plan for what is still unqualified, and for what beta adds.**
   `docs/superpowers/plans/2026-10-06-beta-1-0-0-qualification-and-platform.md`
   lists every pending gate, every Experimental and Unavailable capability and
-  every recorded residue, and the task that closes each. It defines what
+  every recorded residue, and the task that closes each. Each claim was
+  checked against the running system rather than the documents alone: the
+  live service runs `main`, but it overrides `render.yaml` (invitations off;
+  95/95/100 MB limits against a published 16/16/25 MB), 108 route guards still
+  accept Experimental, and live-provider qualification last ran in September. It defines what
   qualified means for `1.0.0-beta.1`, names the owner's decisions and actions,
   and sequences the Clerk identity, Stripe billing and AI review layers. The
   plan is not evidence: no gate changes until its task passes for the exact

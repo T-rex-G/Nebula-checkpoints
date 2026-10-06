@@ -585,6 +585,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/superpowers/plans/2026-10-06-beta-1-0-0-qualification-and-platform.md",
+      "lifecycle": "development-record",
+      "authority": "approved-development-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/superpowers/specs/2026-07-21-github-app-foundation-design.md",
       "lifecycle": "development-record",
       "authority": "approved-development-record",

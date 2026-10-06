@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Security: proxy-addr 2.0.8
+
+- **A forwarded address can no longer pass as a trusted proxy by wearing an
+  IPv4-mapped IPv6 form.** GHSA-jqcg-44mw-7w3h (critical, CWE-290/348) was
+  published against `proxy-addr` up to 2.0.7, which Express uses to decide which
+  hop in `X-Forwarded-For` is the client. This service sets `trust proxy` from
+  `NV_TRUSTED_PROXIES` and keys rate limits on the address it yields, so the
+  advisory reached it. Express 4.22.3 already accepts 2.0.8; the lockfile now
+  pins it. The production and development audits pass again.
+
+### Plan: from public alpha to 1.0.0-beta.1
+
+- **One plan for what is still unqualified, and for what beta adds.**
+  `docs/superpowers/plans/2026-10-06-beta-1-0-0-qualification-and-platform.md`
+  lists every pending gate, every Experimental and Unavailable capability and
+  every recorded residue, and the task that closes each. Each claim was
+  checked against the running system rather than the documents alone: the
+  live service runs `main`, but it overrides `render.yaml` (invitations off;
+  95/95/100 MB limits against a published 16/16/25 MB), 108 route guards still
+  accept Experimental, and live-provider qualification last ran in September. It defines what
+  qualified means for `1.0.0-beta.1`, names the owner's decisions and actions,
+  and sequences the Clerk identity, Stripe billing and AI review layers. The
+  plan is not evidence: no gate changes until its task passes for the exact
+  candidate.
+
 ### Uranus 2.4: the grade never says less than the findings do
 
 - **Confirmed serious findings hold the grade.** The grade is a weighted mean

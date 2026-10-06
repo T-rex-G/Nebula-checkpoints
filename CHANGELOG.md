@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Security: proxy-addr 2.0.8
+
+- **A forwarded address can no longer pass as a trusted proxy by wearing an
+  IPv4-mapped IPv6 form.** GHSA-jqcg-44mw-7w3h (critical, CWE-290/348) was
+  published against `proxy-addr` up to 2.0.7, which Express uses to decide which
+  hop in `X-Forwarded-For` is the client. This service sets `trust proxy` from
+  `NV_TRUSTED_PROXIES` and keys rate limits on the address it yields, so the
+  advisory reached it. Express 4.22.3 already accepts 2.0.8; the lockfile now
+  pins it. The production and development audits pass again.
+
 ### Plan: from public alpha to 1.0.0-beta.1
 
 - **One plan for what is still unqualified, and for what beta adds.**

@@ -79,15 +79,35 @@ The owner's prototype describes where the product is heading. Beta 0.0.1 qualifi
 
 | Layer in the prototype | Exists | Partial | Not yet |
 | --- | --- | --- | --- |
-| Entry points | Web application | Notifications: governance notifications exist; the GitHub inbox is Experimental | AI assistant; public API with keys; MCP |
+| Entry points | Web application; outbound governance webhooks and signed exports for other systems | Notifications: governance notifications exist; the GitHub inbox is Experimental | AI assistant; public API with keys; MCP |
 | AI orchestrator, model gateway | — | — | No model is called anywhere in the code |
-| Context and evidence | Repository context (Galaxies: files, branches, pull/merge requests, issues). Uranus with OSV, EPSS and CISA KEV, secret detection with verification, static analysis, history scans | Runtime context: the site check reads hosted URLs; the rendered audit is off; YARA is optional and off | Telemetry, artifacts, environment configuration, Trivy |
-| Analysis | Neural relationship graph; risk scoring; Shadow Access Radar (GitHub) | Explain and plan: deterministic narration exists | AI explanation and AI confidence |
-| Policy and authorization | Governance policies through the mutation gateway, reviews with separation of duties, observe/warn/block | Scoped grants: step-up, restore and single-use guards | Short-lived capability grants for agents |
-| Execution | Repository actions; Uranus and Exposure; site check; read-only mode, protected paths, sync freeze, session revocation; recovery snapshots, compare and restore preview | — | Isolated workers for untrusted jobs |
-| Verification | Re-scan, compare kept audits, time-to-fix measurement | — | Running tests as verification |
-| Audit and evidence ledger | Signed evidence exports; append-only governance decisions | — | Incident timeline replay |
-| Data and storage | Neon PostgreSQL; restart-safe exposure scan jobs | Audit jobs are held in memory | Object storage; search index |
+| Context and evidence | Repository context (Galaxies: files, branches, pull/merge requests, issues, activity). Uranus with OSV, EPSS and CISA KEV, secret detection with verification, static analysis. History scans; verified live events | Runtime context: the site check reads hosted URLs; the rendered audit is off; YARA is optional and off | Telemetry, artifacts, environment configuration, Trivy |
+| Analysis | Neural relationship graph with Explain this connection (shortest path) and recovery impact preview; risk scoring; Shadow Access Radar (GitHub); deterministic narration, Fix first and assistant prompts; leads "to confirm" with their decisive fact; credential verification; human triage | — | AI explanation and AI confidence |
+| Policy and authorization | Governance policies through the mutation gateway, reviews with separation of duties, observe/warn/block, Safe Passage | Scoped grants: step-up, restore and single-use guards | Short-lived capability grants for agents |
+| Execution | Repository actions; Uranus and Exposure; site check; read-only mode, protected paths, sync freeze, session revocation; recovery snapshots, emergency manifests, compare and restore preview | — | Isolated workers for untrusted jobs |
+| Verification | Re-scan, compare kept audits, time-to-fix measurement, expected-head readback on writes | — | Running tests as verification |
+| Audit and evidence ledger | Signed evidence exports; append-only governance decision chain; triage history; Neural timeline with incident replay; activity export as JSON, formula-safe CSV and Markdown | — | — |
+| Data and storage | Neon PostgreSQL; restart-safe exposure scan jobs; leased governance webhook delivery queue | Audit jobs are held in memory; search uses the provider's code search, not an own index | Object storage |
+
+## Documents that no longer describe the current state
+
+Each of the 37 current documents in the manifest was read against the code and the live system; the 24 development plans and specifications are records and were not. Claims that check out are left alone: the Uranus benchmark (138 cases, 100% precision, 98% recall, re-run on 6 October), the audit platform guide, the capability counts generated from the registry, and README's descriptions of live events, recovery preview and activity export.
+
+| Document | Stale claim | Observed truth | Fixed in |
+| --- | --- | --- | --- |
+| `docs/architecture/ARCHITECTURE.md`, `docs/release/PUBLIC_ALPHA.md`, `docs/qualification/PUBLIC_ALPHA_KNOWN_LIMITATIONS.md` | GitHub code/global search is "experimental" | `search` and `global-search` are Supported and Provider-verified | A11 |
+| `docs/vision/FOUNDER_VISION.md` | Shadow Access Radar and Explain Connection with incident timeline replay are "Committed roadmap" | All three exist: `GET …/access-surface`, the Neural shortest-path explanation and the Neural timeline | A11 |
+| `docs/reference/NEURAL_COMMAND_CENTER.md` | The workbench "repository trust bar" stands aside while Neural is open | No trust bar exists any more; the repository trust card was removed from the tool sections | A11 |
+| `docs/operations/SECURITY_DEPLOYMENT.md`, runbooks `06-failed-deploy-rollback.md` and `07-database-backup-restore.md` | Restore runs or is verified "through migration `015_alpha_privacy`" | The latest migration is `030_code_audit_triage`; the restore runner derives the expected migration from the candidate and rejects 015 (remediation C2) | A11 |
+| `docs/qualification/PRODUCT_REVIEW_REMEDIATION.md` | The ruleset requires `verify`, `automated` and `integration` | CI now also emits `browser (1)`–`browser (4)` and `release` (PR #79) | A1 |
+| `docs/superpowers/plans/2026-09-21-multi-instance-foundation.md` (status note) | Webhook fencing, session merge and cross-process catch-up remain | Leased webhook delivery and revision-checked hosted session merge exist; only live events across instances remain, as `docs/architecture/2026-09-21-multi-instance-state.md` says | A11 |
+| `README.md` | The product inventory ends with the Phase 1 alpha and v5.2 | Uranus, Exposure, the site check, Galaxies, Safeguards, triage, SBOM and licence policy are missing from the entry point | F2 |
+| `docs/current/ROADMAP.md` | "Phase 2 — Repository Trust Digital Twin: planned"; public alpha is the next step | Much of the posture, access, dependency and evidence work is built; the next step is this beta plan | F2 |
+| `docs/current/PROJECT_STATE.md`, `CONTINUATION_PROMPT.md`, `WORK_CONTINUITY.json` | The current state is the August baseline | `main` is about 450 commits further on; G1 passes on every pull request | F1 |
+| `docs/operations/DEPLOY_RENDER_NEON.md` | "Deploy 5.3.0-alpha.17.0 Controlled Alpha", layered alpha.6, alpha.10 and Task 14 rollout steps | One current procedure is needed for the open beta: blueprint values, `npm run doctor`, the open-beta deployment check | F2 |
+| `render.yaml` against the published limitations | Invitations on; 16, 16 and 25 MB | The live service runs invitations off and 95, 95 and 100 MB | A9 |
+| Cohort and alpha documents: `PUBLIC_ALPHA.md`, known limitations, cohort checklist, operator checklist, runbooks `08`–`10` | An invitation-only cohort of five to ten testers on sandbox repositories | The owner chose open access | F2 |
+| Deployment guides | `NV_SECURITY_CONTACT` and `NV_TRUSTED_PROXIES` are not mentioned | Both are read by the code and listed by `npm run doctor`; the owner sets `NV_SECURITY_CONTACT` | F2 |
 
 ## Release gates
 
@@ -108,7 +128,7 @@ The owner's prototype describes where the product is heading. Beta 0.0.1 qualifi
 
    Everything else is Unavailable and absent from the interface: not greyed out, labelled or explained in place. The server still refuses it before transport.
 2. **One exact candidate passes G1–G6.** Each gate's evidence names that candidate's commit, tree and archive SHA-256.
-3. **Every residue is closed for real.** R1–R19 below are each closed by code, by an applied setting that has been read back, or by a recorded decision that removes the surface. None is closed by a limitation entry.
+3. **Every residue is closed for real.** R1–R20 below are each closed by code, by an applied setting that has been read back, or by a recorded decision that removes the surface. None is closed by a limitation entry.
 4. **The documents tell the beta truth.** Current documents and the generated state describe the beta, and the alpha lineage moves to history unchanged. No current document, screen or API response says Experimental, Unqualified, Pending or NO-GO for the beta candidate.
 5. **No known serious defects.**
    - Zero critical or high production-audit findings.
@@ -150,6 +170,8 @@ The owner's prototype describes where the product is heading. Beta 0.0.1 qualifi
   - a re-verified safety review of every write path against real repositories.
 - **R18 — the deployment check has no open-beta purpose.** `check:deployment` knows `cohort`, which requires invitations, and `operator-verification`, and nothing for an open beta.
 - **R19 — alpha-cohort documents.** The cohort checklist, known limitations and public-alpha contract describe an invitation-only cohort of five to ten testers on sandbox repositories.
+
+- **R20 — stale documents.** The documents listed under "Documents that no longer describe the current state" say things about today's product that the code and the live service contradict.
 
 R8 (the live service is not a cohort deployment) is subsumed by R12 and R17. R9 and R11 belong to the later platform plans.
 
@@ -355,6 +377,28 @@ The refusals cover a missing role, a stale version and an unavailable store.
 
 **Verify:** The focused tests and `npm test`.
 
+### Task A11: Correct the documents that are wrong about today's product
+
+**Files:** The documents marked A11 under "Documents that no longer describe the current state".
+
+**Red:** A documentation contract fails while any current document:
+
+- calls a Supported capability experimental;
+- names a migration other than the latest as the restore target;
+- describes interface elements that no longer exist.
+
+Today it fails on the six rows marked A11.
+
+**Green:**
+
+- Each claim is corrected to the observed truth, citing the code that proves it.
+- The founder vision's maturity labels move to Implemented where the code shows the feature.
+- The contract keeps the corrections from drifting again.
+
+Decisions about the beta itself wait for F2. Closes R20 for the claims about today's product.
+
+**Verify:** `npm run docs:check` and the documentation tests.
+
 ## Phase O — Ready for open access
 
 ### Task O1: Abuse and quota controls
@@ -453,6 +497,7 @@ Closes R7, R10 and R14.
 
 - The generated state, roadmap, release gates, provider capabilities and known limitations are rewritten for an open beta.
 - An open-beta launch checklist replaces the cohort checklist.
+- Every row marked F2 under "Documents that no longer describe the current state" is resolved.
 - The alpha documents move byte-for-byte under `docs/history/`, bound by the historical integrity baseline.
 
 Closes R19.
@@ -503,7 +548,7 @@ One VoiceOver iOS pass and one desktop screen-reader pass (NVDA or VoiceOver for
 
 | Order | Work | Waits on |
 | --- | --- | --- |
-| 1 | A1, A2, A3, A6, A7, A8, A9, A10 | The owner applying the A1 ruleset |
+| 1 | A1, A2, A3, A6, A7, A8, A9, A10, A11 | The owner applying the A1 ruleset |
 | 2 | O1–O4 | Owner approval of the texts (O3) |
 | 3 | A4, A5 | The GitHub qualification account; working sandbox credentials |
 | 4 | F1, F2 | Everything above merged |

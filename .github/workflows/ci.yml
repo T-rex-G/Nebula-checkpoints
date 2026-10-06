@@ -10,16 +10,13 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    # The browser suite runs here on one worker, in full, after every other
-    # gate. At 20 minutes main was already finishing in 19m21s, so the next
-    # handful of specs cancelled the job mid-suite rather than failing a test.
-    # 30 matches the window the candidate browser suite is given and leaves
-    # room for the suite to grow without a hang going unnoticed for hours.
-    # By PR #60 main finished in 29m, and the Safeguards, routing, Exposure
-    # filter and Audit export specs took the single-worker suite past 30: the
-    # job was cancelled mid-suite with every test passing in the sharded
-    # browser matrix. 45 restores the margin; a hang still ends the job.
-    timeout-minutes: 45
+    # The browser suite used to run here on one worker after every other gate,
+    # and its growth set this limit: 20, then 30, then 45 minutes, each raised
+    # after the job was cancelled mid-suite with every test passing. At 45 the
+    # suite alone took 40 minutes and the job was cancelled again, on main and
+    # on a pull request. The suite now runs in the `browser` job below, split
+    # four ways, and the gates left here finish in about five minutes.
+    timeout-minutes: 15
     # Every other gate reads the migrations as text, so PostgreSQL never got a
     # say in whether this release's schema can exist. 015_alpha_privacy shipped
     # in a green candidate while being impossible to apply. Version 17 matches
@@ -97,8 +94,39 @@ jobs:
       - run: npm run check:secrets
       - run: npm run test:staging:gate
       - run: npm run test:release
+
+  # The browser suite, in four slices that run side by side, each with its own
+  # server, as the qualification workflow's browser matrix has run it since it
+  # was introduced. One worker per slice: the specs share one server and are
+  # not written to run concurrently against it.
+  #
+  # After `verify`, not beside it: a type error or a failing unit test is
+  # reported in minutes and no browser time is spent on a change that fails
+  # them. fail-fast is off so one slice's failure says whether the problem is
+  # local to a few specs or general.
+  browser:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+      - run: npm ci
       - run: bash ci/install-browser.sh
+      # The slice is read by playwright.config.js, so the command is the one a
+      # local run uses; unset there, the whole suite runs.
       - run: npm run test:e2e
+        env:
+          NV_E2E_SHARD: ${{ matrix.shard }}/4
       # This job uses synthetic browser credentials. Keep only its diagnostics;
       # live-provider and hosted jobs must not upload browser session material.
       - name: Retain browser failure evidence
@@ -106,13 +134,30 @@ jobs:
         timeout-minutes: 3
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ci-browser-failure-${{ github.event_name }}-${{ github.run_attempt }}
+          name: ci-browser-failure-${{ github.event_name }}-${{ matrix.shard }}-${{ github.run_attempt }}
           path: |
             test-results/
             playwright-report/
           if-no-files-found: ignore
           retention-days: 3
           compression-level: 6
+
+  # Packaging is last: a release archive exists only for a change that passed
+  # every gate and every browser slice.
+  release:
+    needs: [verify, browser]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+      - run: npm ci
       - run: npm run package:release -- "${RUNNER_TEMP}/release"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

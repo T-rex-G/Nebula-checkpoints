@@ -487,7 +487,7 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   const unread = new Map([...intel].map(([cve, answer]) => [cve, { ...answer, kev: undefined }]));
   const blind = run(files, { advisories, intel: unread });
   assert.strictEqual(blind.findings.find(item => item.detail && item.detail.package === 'jquery').detail.intel.catalog, 'unknown');
-  assert.strictEqual(blind.capReason, null);
+  assert.notStrictEqual(blind.capReason, 'exploited', 'without the catalog nothing is held down as exploited');
   const none = run(files, { advisories });
   assert.strictEqual(none.findings.find(item => item.detail && item.detail.package === 'jquery').detail.intel, null);
   assert.strictEqual(none.findings.find(item => item.detail && item.detail.package === 'jquery').detail.usage.tier, 'imported', 'reach does not need the network');
@@ -678,6 +678,35 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   assert.strictEqual(code.counts.serious, 30);
   assert.strictEqual(code.score, 100 - audit.SEVERITY_PENALTY.serious * 2);
 
+  /*
+   * The letter never says less than the findings do. One rule firing nine
+   * times scores as one problem in its category, and the weighted mean then
+   * read 90 -- an A -- under a headline of nine serious issues to fix.
+   * Confirmed serious findings now hold the grade: one or two to B at best,
+   * three to five to C, six or more to D. Leads to confirm hold nothing.
+   */
+  const serious = (count, rules = count) => Array.from({ length: count }, (_, index) => ({
+    rule: `T-${index % rules}`, category: 'code', severity: 'serious', verdict: 'confirmed'
+  }));
+  const nine = audit.score(serious(9, 1));
+  assert.strictEqual(nine.grade, 'D', 'nine confirmed serious findings are not an A');
+  assert(nine.score <= 69);
+  assert.deepStrictEqual([nine.capped, nine.capReason], [true, 'serious']);
+  const one = audit.score(serious(1));
+  assert.deepStrictEqual([one.score, one.grade, one.capReason], [89, 'B', 'serious']);
+  const three = audit.score(serious(3));
+  assert.deepStrictEqual([three.score, three.grade, three.capReason], [79, 'C', 'serious']);
+  const unconfirmed = audit.score([{ rule: 'T-0', category: 'code', severity: 'serious', verdict: 'needs-validation' }]);
+  assert.strictEqual(unconfirmed.grade, 'A', 'a serious lead to confirm holds nothing');
+  assert.strictEqual(unconfirmed.capped, false);
+  /* Below the ceiling there is nothing to hold, and nothing is said to be held. */
+  const low = audit.score(serious(9, 9));
+  assert(low.score <= 69 && low.grade !== 'A');
+  /* A critical still outranks it: held below 50, and named as the reason. */
+  const both = audit.score([...serious(2), { rule: 'T-c', category: 'code', severity: 'critical', verdict: 'confirmed' }]);
+  assert(both.score <= audit.CRITICAL_CAP);
+  assert.strictEqual(both.grade, 'F');
+
   /* A finding names a place and never quotes it. */
   const secretLine = 'const resetToken = Math.random().toString(36).slice(2); // hunter2-canary';
   const quoted = run([...BASE, { path: 'lib/t.js', text: `${secretLine}\n` }]);
@@ -785,7 +814,7 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   const informedExpress = informed.findings.find(item => item.detail && item.detail.package === 'express');
   assert.strictEqual(informedExpress.detail.intel.exploited, true);
   assert.strictEqual(informedExpress.rule, 'DEP-005');
-  assert.strictEqual(informed.capReason, null, 'a range that already admits the fix does not hold the grade');
+  assert.notStrictEqual(informed.capReason, 'exploited', 'a range that already admits the fix is not held down as exploited');
 
   console.log('code audit tests passed');
 })().catch(error => {

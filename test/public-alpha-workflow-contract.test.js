@@ -710,7 +710,7 @@ assert(
 // Retain evidence from failures at every browser execution boundary. The
 // extracted candidate writes beneath its own root, not the checkout root.
 for (const [name, source, artifactName, evidencePath] of [
-  ['CI', ciWorkflow, 'ci-browser-failure-${{ github.event_name }}-${{ github.run_attempt }}', 'test-results/'],
+  ['CI', ciWorkflow, 'ci-browser-failure-${{ github.event_name }}-${{ matrix.shard }}-${{ github.run_attempt }}', 'test-results/'],
   ['checkout shard', browserMatrix, 'alpha17-browser-failure-${{ matrix.shard }}-${{ github.run_attempt }}', 'test-results/'],
   ['extracted candidate', automated, 'alpha17-candidate-browser-failure-${{ github.run_attempt }}', '${{ runner.temp }}/candidate-extracted/*/test-results/']
 ]) {

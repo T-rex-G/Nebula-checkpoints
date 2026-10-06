@@ -87,6 +87,43 @@ for (const expensive of [/run test:e2e/, /install-browser/, /run package:release
   );
 }
 
+/*
+ * The browser suite runs as parallel slices. Three things keep that honest:
+ * the slices together are the whole suite, no browser time is spent before the
+ * fast gates pass, and nothing is packaged until every slice has passed.
+ */
+function job(name) {
+  const start = source.indexOf(`\n  ${name}:\n`);
+  assert(start >= 0, `the workflow has no ${name} job`);
+  const rest = source.slice(start + name.length + 5);
+  const next = rest.search(/^  [a-zA-Z0-9_-]+:\n/m);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+const browserJob = job('browser');
+const shards = /shard:\s*\[([^\]]+)\]/.exec(browserJob);
+assert(shards, 'the browser job must declare its slices');
+const slices = shards[1].split(',').map(value => Number(value.trim()));
+assert.deepStrictEqual(slices, slices.map((_, at) => at + 1), 'slices must be numbered 1..n with none missing');
+assert(browserJob.includes(`NV_E2E_SHARD: \${{ matrix.shard }}/${slices.length}`),
+  'every slice must name the same total as the matrix has slices, or part of the suite never runs');
+assert(/run: npm run test:e2e/.test(browserJob), 'the slices must run the same command a local run does');
+assert(/fail-fast: false/.test(browserJob), 'one slice failing must not cancel the others');
+assert(/^    needs: verify$/m.test(browserJob), 'browser time is spent only after the fast gates pass');
+assert(!/run test:e2e/.test(job('verify')), 'the single-worker suite must not come back to the verify job');
+assert(/^    needs: \[verify, browser\]$/m.test(job('release')), 'packaging waits for every gate and every slice');
+assert(/run package:release/.test(job('release')), 'the release job packages');
+
+/* The config reads the slice; unset it is the whole suite, malformed it refuses to run. */
+const { execFileSync } = require('child_process');
+const shardOf = value => execFileSync(process.execPath, ['-e',
+  "process.stdout.write(JSON.stringify(require('./playwright.config').shard))"],
+{ cwd: path.join(__dirname, '..'), env: { ...process.env, NV_E2E_SHARD: value }, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+assert.strictEqual(shardOf(''), 'null');
+assert.deepStrictEqual(JSON.parse(shardOf('3/4')), { current: 3, total: 4 });
+for (const malformed of ['5/4', '0/4', '2', 'all', '1/4 ']) {
+  assert.throws(() => shardOf(malformed), `NV_E2E_SHARD=${JSON.stringify(malformed)} must stop the run`);
+}
+
 /* A parser that finds nothing must say so rather than report an empty pass. */
 assert.deepStrictEqual(readRunSteps('jobs:\n  verify:\n    steps:\n      - uses: actions/checkout\n'), []);
 

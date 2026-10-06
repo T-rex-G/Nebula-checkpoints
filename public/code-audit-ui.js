@@ -969,6 +969,29 @@
     return wrap;
   }
 
+  /*
+   * Why a grade sits where it does when a ceiling held it there. A kept audit
+   * stores only the reasons that hold it below 50; one held by serious
+   * findings keeps its capped score and its counts, which agree on their own.
+   */
+  function capNote(reason, counts, kept) {
+    const is = kept ? 'was' : 'is';
+    if (reason === 'exploited') return `Held below 50 while a vulnerability CISA lists as exploited in the wild ${kept ? 'shipped' : 'ships'} with the code.`;
+    if (reason === 'critical') return `Held below 50 while a confirmed critical finding ${is} open.`;
+    if (reason === 'serious') {
+      const serious = counts && Number.isFinite(counts.serious) ? counts.serious : 0;
+      const ceiling = serious >= 6 ? 'D' : serious >= 3 ? 'C' : 'B';
+      return `Held to ${ceiling} at best while ${plural(serious, 'confirmed serious finding', 'confirmed serious findings')} ${serious === 1 ? is : kept ? 'were' : 'are'} open.`;
+    }
+    return null;
+  }
+  function capPhrase(reason) {
+    if (reason === 'exploited') return ' (held below 50 by a vulnerability exploited in the wild)';
+    if (reason === 'critical') return ' (held below 50 by a confirmed critical finding)';
+    if (reason === 'serious') return ' (held down by confirmed serious findings)';
+    return '';
+  }
+
   /* The headline counts what is confirmed; a lead to confirm is named as one, never as an issue. */
   function verdict(result, status) {
     if (status === 'running') return 'Auditing this branch…';
@@ -1167,9 +1190,8 @@
     } else if (stored) {
       read.appendChild(countTally(stored.counts));
       const notes = element('div', 'audit-notes');
-      if (stored.capReason) notes.appendChild(element('p', 'audit-cap', stored.capReason === 'exploited'
-        ? 'Held below 50 while a vulnerability CISA lists as exploited in the wild shipped with the code.'
-        : 'Held below 50 while a confirmed critical finding was open.'));
+      const storedCap = capNote(stored.capReason, stored.counts, true);
+      if (storedCap) notes.appendChild(element('p', 'audit-cap', storedCap));
       notes.appendChild(element('p', 'audit-stored-note',
         `Kept from the audit of ${when(stored.auditedAt).absolute} at ${String(stored.commitSha).slice(0, 7)}. Audit again for the full report: traces, reach and fix prompts are worked out from the code each time and never stored.`));
       read.appendChild(notes);
@@ -1183,9 +1205,11 @@
       const split = result.engine ? verdictSplit(result.findings) : null;
       if (split) read.appendChild(split);
       const notes = element('div', 'audit-notes');
-      if (result.capped) notes.appendChild(element('p', 'audit-cap', result.capReason === 'exploited'
-        ? 'Held below 50 while a vulnerability CISA lists as exploited in the wild ships with the code.'
-        : 'Held below 50 while a confirmed critical finding is open.'));
+      /* Counted as the engine counts them: confirmed, and in a category the grade weighs. */
+      const unweighed = new Set((result.categories || []).filter(category => category.weight === 0).map(category => category.id));
+      const liveCap = result.capped ? capNote(result.capReason, severityCounts(result.findings
+        .filter(finding => verdictOf(finding) === 'confirmed' && !unweighed.has(finding.category))), false) : null;
+      if (liveCap) notes.appendChild(element('p', 'audit-cap', liveCap));
       if (view.diff) {
         const since = view.diff.previousAt ? ` since the audit of ${new Date(view.diff.previousAt).toLocaleString()}` : '';
         notes.appendChild(element('p', 'audit-diff',
@@ -3538,7 +3562,7 @@
       const leads = result.findings.filter(finding => verdictOf(finding) === 'needs-validation').length;
       const engine = result.engine && result.engine.traced ? result.engine : null;
       lines.push(
-        `Grade **${result.grade}** — ${result.score}/100${result.capped ? result.capReason === 'exploited' ? ' (held below 50 by a vulnerability exploited in the wild)' : ' (held below 50 by a confirmed critical finding)' : ''}.`,
+        `Grade **${result.grade}** — ${result.score}/100${result.capped ? capPhrase(result.capReason) : ''}.`,
         `Commit \`${result.commitSha}\`, audited ${result.auditedAt || new Date().toISOString()}${engine ? ` by ${engine.name} ${engine.version}` : ''}.`,
         ...(engine ? [`${result.findings.length - leads} confirmed, ${leads} to confirm. A finding to confirm weighs half and names the check that settles it.`] : []),
         '',
@@ -3809,7 +3833,7 @@
     const open = findings.filter(finding => !finding.waived);
     const waived = findings.filter(finding => finding.waived);
     const lines = [`# Security audit: ${label}`, '',
-      `Grade **${audit.grade}** — ${audit.score}/100${audit.capReason ? audit.capReason === 'exploited' ? ' (held below 50 by a vulnerability exploited in the wild)' : ' (held below 50 by a confirmed critical finding)' : ''}.`,
+      `Grade **${audit.grade}** — ${audit.score}/100${capPhrase(audit.capReason)}.`,
       `Commit \`${audit.commitSha}\` on ${audit.ref}, audited ${audit.auditedAt} by Uranus ${audit.engine}.`,
       `${ORDER.map(severity => `${audit.counts[severity]} ${severity}`).join(' · ')}; ${audit.toConfirm} to confirm${audit.exploited ? `; ${audit.exploited} exploited in the wild` : ''}.`,
       `Read ${audit.files.read} of ${audit.files.eligible} files.`, '',

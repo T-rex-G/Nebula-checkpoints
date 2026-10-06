@@ -17,6 +17,17 @@
   audit keeps the held score and its counts, which agree on their own.
 - The engine is versioned 2.4, so history compares like with like.
 
+### CI: the browser suite in four parallel slices
+
+- **The browser suite no longer outgrows its job.** It ran on one worker at the
+  end of `verify`, and at 846 tests it took 40 of the job's 45 minutes; the job
+  was cancelled mid-suite on main and on a pull request with no test failing.
+  It now runs in a `browser` job split four ways (`NV_E2E_SHARD=n/4`, read by
+  `playwright.config.js`; unset, a local run is the whole suite), after the
+  fast gates pass. Packaging moved to a `release` job that waits for every
+  slice. A contract test holds the slices to the whole suite and refuses a
+  malformed slice rather than running all of it or none.
+
 ### The bento, the first screen and the inventory, composed
 
 - **One repository, read honestly, as a bento.** Four cards on one anatomy --

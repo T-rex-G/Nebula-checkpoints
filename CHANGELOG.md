@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### GitHub-only product and golden qualification
+
+- Remove GitLab and Gitea repository connections, account selections, provider
+  API transports, capability entries and live-qualification jobs. GitHub PAT,
+  OAuth and optional configured App connections remain. Unsupported and legacy
+  provider inputs fail closed before credential use or outbound requests.
+- Existing retired-provider credentials must be revoked manually in their
+  original provider settings; local connection removal does not revoke them.
+  Historical audit records retain their existing retention and cleanup rules.
+- Align provider and operator documentation with the GitHub-only scope. Keep
+  historical qualification records separate from current support and retain
+  blocked gates until exact-candidate evidence exists. This PR is left open and
+  unmerged for another AI review; no launch or live dispatch is claimed.
+
 ### Security: proxy-addr 2.0.8
 
 - **A forwarded address can no longer pass as a trusted proxy by wearing an
@@ -17,10 +31,11 @@
 - **One plan to take the product that exists today to a recorded GO.**
   `docs/superpowers/plans/2026-10-06-beta-0-0-1-qualification.md` replaces the
   broader 1.0.0 draft. It qualifies the current product as an open public beta,
-  `0.0.1-beta.1`, with no Experimental capability and no open residue, and
+  `0.0.1-beta.1`, only after its gates and release blockers close, and
   leaves Clerk, the AI layer, billing and the competitive comparison to later
-  plans. Every claim was checked against the running system, the code, the
-  Actions history, Render and Neon rather than the documents alone. That check
+  plans. The original 6 October baseline recorded observations against the
+  running system, code, Actions history, Render and Neon. Those dated notes are
+  not a fresh qualification check of this GitHub-only PR. That baseline review
   found drift the documents did not show: the live service overrides
   `render.yaml` (invitations off; 95/95/100 MB limits against a published
   16/16/25 MB), 108 route guards still accept Experimental, live-provider

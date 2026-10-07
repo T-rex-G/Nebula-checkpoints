@@ -2,6 +2,9 @@
 
 This file records durable decisions that future tasks and conversations must preserve unless an explicit, reviewed replacement decision is approved.
 
+ADR-086 is the current GitHub-only provider decision. Earlier references to
+other repository integrations record superseded compatibility requirements.
+
 ## ADR-001 — Product identity
 
 **Decision:** The official product name is **Nebulaverse-X**.
@@ -15,6 +18,8 @@ This file records durable decisions that future tasks and conversations must pre
 **Consequence:** Durable governance features require Neon when used, while unrelated product capabilities continue without it. Governance must not pretend to be durable through process memory or cookies.
 
 ## ADR-003 — Authentication compatibility
+
+**Provider scope superseded by ADR-086.** The text below records the earlier decision.
 
 **Decision:** GitHub PAT, GitHub OAuth, GitLab token and Gitea token connectivity remain first-class. GitHub App authentication remains optional.
 
@@ -239,7 +244,9 @@ This file records durable decisions that future tasks and conversations must pre
 
 ## ADR-042 — Bitbucket is intentionally out of scope pending demand
 
-**Decision:** Supported providers remain GitHub, GitLab and Gitea. Bitbucket is deliberately unsupported; governance scope normalization rejects it with `GOVERNANCE_SCOPE_INVALID`.
+**Provider scope superseded by ADR-086.**
+
+**Historical decision:** Supported providers remain GitHub, GitLab and Gitea. Bitbucket is deliberately unsupported; governance scope normalization rejects it with `GOVERNANCE_SCOPE_INVALID`.
 
 **Reason:** A fourth provider multiplies the per-provider surface across the mutation gateway, permission resolver, simulation engine and enforcement layer. Until a paying customer requires Bitbucket specifically, the integration is cost without validated demand.
 
@@ -822,3 +829,23 @@ only actions whose whole payload is in hand at refusal can be routed —
 carrying a route performs one extra read-only resolution of the active policy
 set, which is why the resolver never writes and a failure to build an offer
 leaves the refusal exactly as it was.
+
+## ADR-086 — GitHub-only product and golden qualification
+
+**Status:** Accepted owner scope, 7 October 2026; implementation remains under PR review.
+
+**Decision:** GitHub is the only repository provider in the product and golden
+qualification. GitHub PAT, OAuth and optional configured GitHub App connections
+remain. GitLab and Gitea login/account/API integrations, capability entries,
+transport adapters, interface controls and live-qualification jobs are removed.
+This replaces the multi-provider scope in ADR-003 and earlier provider-compatibility
+decisions; those entries remain a historical record.
+
+**Consequence:** Unsupported input and legacy connections fail closed before
+credential use or provider requests. Legacy account removal is local and cannot
+revoke remote credentials; the owner must revoke those in the original provider
+settings. Existing historical audit records retain their retention and explicit
+cleanup policies. Secret-detection coverage remains separate from repository
+provider support. GitHub, hosted, manual accessibility and independent review
+gates still require evidence for the exact candidate. No gate is waived, and
+this PR must stay open and unmerged for another AI review.

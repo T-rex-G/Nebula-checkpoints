@@ -155,7 +155,7 @@ function hashArtifact(filePath) {
 function sanitizeEvidence(value) {
   const forbiddenKey = /(credential|password|secret|authorization|cookie|repository|branch|filePath|url)/i;
   const forbiddenValue = /(authorization\s*:\s*bearer|postgres(?:ql)?:\/\/|\bgh[pousr]_|\bglpat-)/i;
-  const claimLabel = /^(?:automated|hosted|manual)\.[a-z0-9][a-z0-9.-]*$|^providers\.(?:github|gitlab|gitea)\.[a-z0-9][a-z0-9.-]*$/;
+  const claimLabel = /^(?:automated|hosted|manual)\.[a-z0-9][a-z0-9.-]*$|^providers\.github\.[a-z0-9][a-z0-9.-]*$/;
   function sanitize(input, claims = false) {
     if (Array.isArray(input)) return input.map(item => sanitize(item, claims));
     if (input && typeof input === 'object') {
@@ -176,17 +176,6 @@ function providerCapabilityRequirements(provider) {
   const deployment = registry.providers[provider] && registry.providers[provider]['hosted-alpha'];
   const requirements = PROVIDER_CAPABILITY_REQUIREMENTS[provider];
   if (!deployment || !requirements) fail('provider is not in the alpha.17 capability registry', 'ALPHA17_PROVIDER_INVALID');
-  /*
-   * A provider the contract asks nothing of cannot be qualified, and saying so
-   * here is the difference between a clear refusal and a confusing one. Gitea
-   * is in this state deliberately: its five claims were withdrawn because no
-   * live run had ever established them, so a run against it would produce an
-   * artifact with no claims at all, which the evidence validator rejects much
-   * further downstream as "claims are missing or invalid".
-   *
-   * Restore its contract entry when there is an instance to earn it against,
-   * and this stops firing.
-   */
   if (Object.keys(requirements).length === 0) {
     fail('provider declares no capabilities for the live proof contract to establish', 'ALPHA17_PROVIDER_NOT_CONTRACTED');
   }
@@ -273,19 +262,6 @@ async function requestJson(fetchImpl, url, options = {}) {
   const data = await readBoundedJson(response);
   if (!allowed.has(response.status)) {
     if ([401, 403].includes(response.status)) fail('provider denied the mutation credential', 'ALPHA17_PERMISSION_DENIED');
-    /*
-     * Not every provider spends a status code on a concurrency conflict.
-     * GitLab answers one with 400 -- the same 400 it uses for a traversal in
-     * the path and for a commit that would change nothing -- so the status
-     * alone cannot say which happened, and reading any 400 as a refused stale
-     * write would let two unrelated mistakes pass as proof.
-     *
-     * A caller that knows its provider's conflict when it sees it says so
-     * here. Nothing else may widen the mapping below.
-     */
-    if (typeof options.conflict === 'function' && options.conflict(response.status, data)) {
-      fail('provider rejected a stale mutation', 'ALPHA17_STALE_HEAD');
-    }
     if ([409, 412, 422].includes(response.status)) fail('provider rejected a stale mutation', 'ALPHA17_STALE_HEAD');
     fail(`provider request failed with ${statusClass(response.status)}`, 'ALPHA17_PROVIDER_REQUEST_FAILED');
   }
@@ -369,6 +345,7 @@ async function runProviderProbes({ provider, client, target, proofPath, readback
 }
 
 async function runProviderQualification({ provider, client, env = process.env, now = () => new Date() }) {
+  providerCapabilityRequirements(provider);
   if (!client) fail('provider client is required', 'ALPHA17_PROVIDER_INVALID');
   const subjectSha256 = requireSubjectHash(env);
   const sourceCommit = requireExactCommit(env);
@@ -452,36 +429,10 @@ async function runProviderQualification({ provider, client, env = process.env, n
     }
 
     /*
-     * Optimistic concurrency, proved by making the provider answer the same
-     * token twice.
-     *
-     * The first version of this proof called writeFile with a stale head, and
-     * writeFile asserts the expected head locally before it calls anything --
-     * so the client refused, the provider was never asked, and a check named
-     * "stale-head" recorded that OUR precondition works.
-     *
-     * The second version went to the provider with a synthetic token: a real
-     * blob sha of other bytes for GitHub and Gitea, and for GitLab the branch
-     * head from before the file existed. GitHub refused it. GitLab did not,
-     * and runs 63 and 64 died there. Its check is not "is this the file's
-     * current commit" but Files::BaseService#file_has_changed?, which resolves
-     * the file's last commit at BOTH refs and compares them -- and a ref where
-     * the path does not exist yields no commit, which it reads as no
-     * information rather than as a conflict. A token from before the file
-     * existed is not stale to GitLab. It is silent.
-     *
-     * So this asks for the real race instead of a manufactured one. The token
-     * this run is holding for the proof file -- blob sha for GitHub and Gitea,
-     * last-touching commit for GitLab -- is sent twice with different content:
-     *
-     *   1. while it is still current, and the provider must ACCEPT it;
-     *   2. after a write has landed under it, and the provider must REFUSE it.
-     *
-     * One token, one endpoint, two outcomes, and nothing between them but
-     * somebody else's commit. A provider with no concurrency control cannot
-     * produce that difference, and neither can a client faking one: the
-     * accepted call is the control, so a refusal cannot be blamed on a
-     * malformed token.
+     * Exercise GitHub's optimistic concurrency with one real blob identity:
+     * accept it while current, then reject it after different bytes supersede
+     * it. A local precondition or an arbitrary invalid token cannot establish
+     * that the provider itself enforces the race.
      */
     if (typeof client.conditionalUpdate !== 'function') {
       fail('provider client cannot make a conditional update the provider itself refuses', 'ALPHA17_PROVIDER_INVALID');
@@ -510,12 +461,7 @@ async function runProviderQualification({ provider, client, env = process.env, n
      */
     const beforeSupersede = await client.getBranch(target.branch, 'mutation');
 
-    /*
-     * Step 1. Distinct content on every conditional write, because GitLab
-     * refuses a commit that would change nothing with the same 400 it uses for
-     * a conflict. Identical bytes would be refused for the wrong reason and
-     * counted as proof of the right one.
-     */
+    // Distinct bytes ensure this is an actual write before the stale-token refusal.
     await client.conditionalUpdate({
       branch: target.branch,
       path: proofPath,

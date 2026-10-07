@@ -198,34 +198,22 @@ assert(!mixedNonBlocking.warningCodes.includes('POLICY_DENY_WARNING'), 'observe-
   assert.strictEqual(unsupportedWarnRecovery.enforcementOutcome, 'warn', 'control-plane recovery remains non-blocking in warn mode');
   assert(unsupportedWarnRecovery.warningCodes.includes('POLICY_UNSUPPORTED_ACTIVE_RULES'));
 
-  const giteaAuthorization = {
-    ...authorization,
-    scope: {
-      provider: 'gitea',
-      authority: 'gitea.example',
-      owner: 'Acme',
-      repo: 'Demo',
-      scopeKey: 'gitea:gitea.example:acme/demo'
-    },
-    repositoryAccess: { ...authorization.repositoryAccess, source: 'gitea.collaborator.permission' }
-  };
-  const giteaDescriptor = normalizeMutationDescriptor({
-    mutationId: '44444444-4444-4444-8444-444444444444',
-    action: 'file.write',
-    provider: 'gitea',
-    baseUrl: 'https://gitea.example',
-    owner: 'Acme',
-    repo: 'Demo',
-    actorIdentityKey: 'a'.repeat(64),
-    actorLogin: 'Alice',
-    method: 'PUT',
-    route: '/api/repo/Acme/Demo/file',
-    metadata: { path: 'folder/a.txt', branch: 'main', expectedHeadSha: 'f'.repeat(40) },
-    authorization: giteaAuthorization
+  for (const provider of ['gitlab', 'gitea']) {
+    assert.throws(() => normalizeMutationDescriptor({
+      ...descriptor,
+      provider,
+      authorization: { ...authorization, scope: { ...authorization.scope, provider } }
+    }), error => error.code === 'GOVERNANCE_SCOPE_INVALID',
+    'warn-mode database fallback cannot admit a retired provider');
+  }
+  const otherRepositoryScope = { ...authorization.scope, repo: 'Other', scopeKey: 'github:github.com:acme/other' };
+  const otherRepositoryDescriptor = normalizeMutationDescriptor({
+    ...descriptor, repo: 'Other',
+    authorization: { ...authorization, scope: otherRepositoryScope }
   });
-  const giteaWarning = await degradedWarn.evaluate(giteaDescriptor);
-  assert.strictEqual(giteaWarning.scope.scopeKey, giteaAuthorization.scope.scopeKey);
-  assert.strictEqual(giteaWarning.enforcementOutcome, 'warn',
-    'Gitea mutations must remain available under the configured warn-mode database fallback');
+  const otherRepositoryWarning = await degradedWarn.evaluate(otherRepositoryDescriptor);
+  assert.strictEqual(otherRepositoryWarning.scope.scopeKey, otherRepositoryScope.scopeKey);
+  assert.strictEqual(otherRepositoryWarning.enforcementOutcome, 'warn',
+    'a GitHub repository retains the configured warn-mode database fallback and its own scope');
   console.log('governance enforcement tests passed');
 })().catch(error => { console.error(error.stack || error); process.exitCode = 1; });

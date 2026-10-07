@@ -99,10 +99,10 @@ for (const [mutation, expectedText, verified] of [
  * rather than by wording so the check stays about the gate being explained,
  * not about the sentence the registry happens to carry today.
  */
-test('unavailable provider capability is disabled before interaction with a safe reason', async ({ page }) => {
-  await mockPublicAlphaApi(page, { access: 'active', provider: 'gitlab' });
+test('unavailable GitHub account capability is refused before interaction with a safe reason', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', capabilities: 'limited' });
   await page.goto('/');
-  await expect(page.locator('#newRepoBtnRepos')).toBeDisabled();
+  await expect(page.locator('#newRepoBtnRepos')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.locator('#newRepoBtnRepos')).toHaveAttribute('data-capability-reason', /.{12,}/);
   await expect(page.locator('#newRepoBtnRepos + .capability-state')).toContainText('Unavailable');
 });

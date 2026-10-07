@@ -46,8 +46,8 @@ archive cannot attest its own final identity.
 
 - The successor remains unqualified for public cohort opening. Fresh automated evidence belongs to an exact candidate archive; it cannot substitute for candidate-bound live provider, hosted recovery, manual accessibility and final release evidence.
 - The owned Render deployment was observed on 2 October 2026 with invitation enforcement off and a different release tree from the reviewed PR. It is an operator-verification deployment, not a qualified cohort. Deployment configuration and readiness must be verified again against the frozen candidate before invitations are issued.
-- Historical provider evidence: run 65 on 3 September 2026 exercised GitHub and GitLab; run 68 exercised Gitea. These dated runs support the registry history and do not qualify the current successor bytes. New or changed provider claims require a new live artifact, including readback and cleanup, against dedicated disposable targets.
-- Provider availability and evidence maturity are separate. The generated registry table below is the current count; Supported means an implemented capability, and Provider-verified identifies registry evidence rather than a fresh workspace or release check. GitLab and Gitea expose narrower capability sets than GitHub.
+- Historical provider runs describe earlier multi-provider candidates only. The current product and golden qualification support GitHub alone. Fresh candidate-bound GitHub proof, including readback and cleanup against a disposable target, is required; historical evidence is not reassigned to the new candidate.
+- GitHub is the only supported repository provider. Provider availability and evidence maturity remain separate: Supported means implemented, while Provider-verified identifies registry evidence rather than a fresh workspace or release check. GitLab/Gitea connections and live qualification paths have been removed; prior tokens need manual revocation at the retired provider.
 - Repository audit combines lexical rules, bounded data-flow and reachability analysis, dependency advisories and configuration checks. It does not prove arbitrary program safety or inspect every live database policy. Coverage and budget omissions must remain visible. Optional rendered website auditing executes anonymous Chromium in an OS sandbox; it is disabled by default and does not prove that a repository owns the selected site.
 - Automated qualification includes a broad browser matrix with API fixtures and a narrow real browser-to-server-to-PostgreSQL journey with a disposable provider adapter in Chromium and WebKit. The adapter is not a live GitHub service; manual VoiceOver and desktop screen-reader passes remain required.
 - Restore qualification derives the expected migration from the frozen candidate inventory. The runner removes backup material in finally, and the workflow EXIT trap covers cancellation; immutable historical backup metadata still describes the source schema and is not relabeled as current.
@@ -63,12 +63,10 @@ Generated from the current registry. Evidence maturity is not current-candidate 
 | Provider | Supported | Experimental | Unavailable | Provider-verified evidence |
 |---|---:|---:|---:|---:|
 | github | 33 | 4 | 0 | 26 |
-| gitlab | 13 | 3 | 21 | 11 |
-| gitea | 7 | 4 | 26 | 5 |
 
 ## Next authorized action
 
-Review the product-remediation changes on the existing PR, run all automated gates against its exact candidate, and bind separate live-provider, hosted recovery and manual accessibility evidence before any cohort opening. Keep unexecuted external qualifications explicitly pending.
+Review the GitHub-only product and qualification changes in PR #81 and run all automated gates against its exact candidate. Leave the PR open and unmerged for another AI to review. Live GitHub, hosted recovery, manual accessibility and final release evidence remain pending and separately required; this change authorizes no deployment or cohort opening.
 
 No merge, deployment, public cohort opening, or live-provider dispatch is authorized by
 this in-repository state.

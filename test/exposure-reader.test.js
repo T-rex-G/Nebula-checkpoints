@@ -435,11 +435,12 @@ function blobEntry(entryPath, overrides = {}) {
     assert(readerFor('github'));
     for (const provider of ['gitlab', 'gitea', 'bitbucket', '', null]) {
       assert.strictEqual(readerFor(provider), null, String(provider));
-      await assert.rejects(
-        readTree({ scope: { ...scope, provider }, commitSha: COMMIT, token: TOKEN, transport: transportReturning() }),
-        error => error.code === 'EXPOSURE_PROVIDER_UNSUPPORTED',
-        String(provider)
-      );
+      const transport = transportReturning();
+      const input = { scope: { ...scope, provider }, commitSha: COMMIT, sha: COMMIT, ref: 'main', path: 'app.js', paths: ['app.js'], token: TOKEN, transport };
+      for (const read of [readTree, readBlob, readBlobTexts, resolveCommit, listCommits, readCommitChanges]) {
+        await assert.rejects(read(input), error => error.code === 'EXPOSURE_PROVIDER_UNSUPPORTED', String(provider));
+      }
+      assert.strictEqual(transport.calls.length, 0, 'retired repositories never reach any reader transport');
     }
   }
 

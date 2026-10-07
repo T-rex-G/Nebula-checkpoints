@@ -10,7 +10,7 @@ const MAX_JSON_DEPTH = 12;
 const MAX_ARRAY_ITEMS = 1000;
 const MAX_OBJECT_KEYS = 250;
 const MAX_RULES = 500;
-const PROVIDERS = new Set(['github', 'gitlab', 'gitea']);
+const PROVIDERS = new Set(['github']);
 const EFFECTS = new Set(['allow', 'deny', 'require-approval']);
 const SENSITIVE_KEY_RX = /^(?:access_?token|refresh_?token|token|client_?secret|secret|password|private_?key|authorization|authorization_?header|cookie|cookie_?value|session_?cookie)$/i;
 const SENSITIVE_SUFFIX_RX = /(?:_token|_secret|_password|_private_key)$/i;
@@ -88,30 +88,21 @@ function normalizePolicyScope(input) {
   if (!PROVIDERS.has(provider)) fail('Policy provider is unsupported', 'GOVERNANCE_SCOPE_INVALID');
   const owner = normalizeRequiredText(input.owner, 'Policy owner', 240);
   const repo = normalizeRequiredText(input.repo, 'Policy repository', 160);
-  const ownerSegment = /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/;
+  const ownerSegment = /^[A-Za-z0-9_.-]+$/;
   const repoSegment = /^[A-Za-z0-9_.-]+$/;
   if (!ownerSegment.test(owner) || owner.split('/').some(part => part === '.' || part === '..') || !repoSegment.test(repo) || repo === '.' || repo === '..') {
     fail('Policy repository scope is invalid', 'GOVERNANCE_SCOPE_INVALID');
   }
 
-  let rawBase = String(input.baseUrl || '').trim();
-  if (!rawBase) {
-    if (provider === 'github') rawBase = 'https://github.com';
-    else if (provider === 'gitlab') rawBase = 'https://gitlab.com';
-    else if (input.authority) rawBase = `https://${String(input.authority).trim()}`;
-    else fail('Gitea policy scope requires its server URL', 'GOVERNANCE_SCOPE_INVALID');
-  }
+  const rawBase = String(input.baseUrl || (input.authority ? `https://${input.authority}` : 'https://github.com')).trim();
   let parsed;
   try { parsed = new URL(rawBase); }
   catch { fail('Policy provider authority is invalid', 'GOVERNANCE_SCOPE_INVALID'); }
-  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
-    fail('Policy provider authority is invalid', 'GOVERNANCE_SCOPE_INVALID');
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.port ||
+      !['api.github.com', 'github.com'].includes(parsed.hostname.toLowerCase()) || parsed.pathname !== '/') {
+    fail('Policy provider authority must be GitHub', 'GOVERNANCE_SCOPE_INVALID');
   }
-  if (provider === 'github' && ['api.github.com', 'github.com'].includes(parsed.hostname.toLowerCase())) {
-    parsed = new URL('https://github.com');
-  }
-  const path = parsed.pathname.replace(/\/+$/, '').replace(/^\/+/, '');
-  const authority = `${parsed.hostname.toLowerCase()}${parsed.port ? `:${parsed.port}` : ''}${path ? `/${path}` : ''}`;
+  const authority = 'github.com';
   return {
     provider,
     authority,

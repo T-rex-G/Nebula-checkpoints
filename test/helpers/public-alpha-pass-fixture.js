@@ -61,28 +61,7 @@ const PROVIDER_PROBES = Object.freeze({
     { key: 'star-toggle', status: 'pass', statusClass: '2xx', starVisible: true, unstarVisible: true, initialStateRestored: true },
     { key: 'code-search', status: 'pass', statusClass: '2xx', fixtureFound: true, resultsScoped: true, absentDiscriminated: true },
     { key: 'workflow-rerun', status: 'pass', statusClass: '2xx', dispatchedRunCompleted: true, rerunAccepted: true, attemptAdvanced: true }
-  ],
-  gitlab: [
-    {
-      key: 'tree-read',
-      status: 'pass',
-      statusClass: '2xx',
-      entries: 3,
-      proofPathPresent: true,
-      blobIdentityMatched: true
-    },
-    ...['pulls-read', 'issues-read'].map(key => ({
-      key,
-      status: 'pass',
-      statusClass: '2xx',
-      listed: 1,
-      detailAgreed: true,
-      absentDiscriminated: true
-    })),
-    { key: 'issue-write', status: 'pass', statusClass: '2xx', createdReadBack: true, commentReadBack: true, closedReadBack: true, readOnlyRefused: true },
-    { key: 'pull-write', status: 'pass', statusClass: '2xx', createdReadBack: true, reviewRecorded: true, staleHeadRefused: true, mergedIntoBase: true, refsRemoved: true }
-  ],
-  gitea: []
+  ]
 });
 
 function providerChecks(provider) {
@@ -334,9 +313,7 @@ function createPassFixture({ latestMigration = '015_alpha_privacy' } = {}) {
     security: { criticalUnresolved: 0, highUnresolved: 0 },
     goldenPathCapabilities: [
       'github:repository.read',
-      'github:file.write',
-      'gitlab:file.write',
-      'gitea:file.write'
+      'github:file.write'
     ],
     observedEnabledCapabilities: [],
     knownLimitations: ['Render Free wake delay.'],

@@ -1273,7 +1273,7 @@ function renderGithubAppSettings(status) {
   const connections = Array.isArray(status && status.connections) ? status.connections : [];
   if (!enabled) {
     return `<div class="github-app-connection github-app-unavailable">
-      <div><b>GitHub App is optional</b><p>It is not configured on this deployment. GitHub PAT, OAuth, GitLab, and Gitea access remain available.</p></div>
+      <div><b>GitHub App is optional</b><p>It is not configured on this deployment. GitHub token and OAuth access remain available.</p></div>
     </div>`;
   }
   const currentCanAuthorize = !!(state.me && state.me.provider === 'github' && state.me.authMethod !== 'github-app');
@@ -1355,7 +1355,7 @@ document.addEventListener('click', async event => {
         showPage('login');
       } else {
         try {
-          state.me = await api('/api/me');
+          state.me = requireGithubIdentity(await api('/api/me'));
           state.caps = state.me.caps || null;
           applyCaps();
           setAvatar(state.me.avatar);
@@ -1416,7 +1416,7 @@ async function openSettings() {
       ${window.NebulaAlphaUI.gateEnabled() ? $('#alphaPrivacyActions').innerHTML : ''}
       <div class="set-group">
         <div class="set-label">About</div>
-        <p class="hint" style="margin:4px 0 8px">Nebulaverse-X — GitHub · GitLab · Gitea from your pocket.</p>
+        <p class="hint" style="margin:4px 0 8px">Nebulaverse-X — GitHub from your pocket.</p>
         ${state.me && state.me.release
           ? `<p class="hint mono" id="setBuild" style="margin:0 0 8px">Build ${esc(state.me.release)}</p>`
           : ''}
@@ -1568,7 +1568,17 @@ document.addEventListener('change', async e => {
 })();
 
 /* ================= AUTH ================= */
-let loginProvider = 'github';
+function githubIdentity(account) {
+  return !!account && account.provider === 'github';
+}
+function requireGithubIdentity(account) {
+  if (!githubIdentity(account)) {
+    const error = new Error('Connect a GitHub account to continue.');
+    error.status = 401;
+    throw error;
+  }
+  return account;
+}
 /*
  * These two panels belong to the controlled alpha, and say so out loud: one
  * tells an invited tester never to connect a production repository, the other
@@ -1603,9 +1613,7 @@ function ensureAlphaProviderGuidance() {
     card.insertBefore(panel, $('#loginError'));
   }
   const copy = panel.querySelector('p');
-  copy.textContent = loginProvider === 'github'
-    ? 'Sign in with a short-lived fine-grained token limited to selected sandbox repositories. A configured GitHub App can then be connected from Settings; never use a production repository.'
-    : `Use a short-lived ${loginProvider === 'gitlab' ? 'GitLab' : 'Gitea'} sandbox credential with only the permissions needed for the advertised capability subset; never use a production repository.`;
+  copy.textContent = 'Sign in with a short-lived fine-grained token limited to selected sandbox repositories. A configured GitHub App can then be connected from Settings; never use a production repository.';
   return panel;
 }
 function ensureLoginAlphaSessionControls() {
@@ -1631,28 +1639,11 @@ function ensureLoginAlphaSessionControls() {
   card.appendChild(controls);
   return controls;
 }
-$('#provSeg').addEventListener('click', e => {
-  const b = e.target.closest('.seg-btn'); if (!b) return;
-  selectSegment('#provSeg', x => x === b);
-  loginProvider = b.dataset.v;
-  $('#oauthBtn').hidden = loginProvider !== 'github' || !window._oauthOn;
-  $('#baseUrlWrap').hidden = loginProvider === 'github';
-  $('#baseUrl').placeholder = loginProvider === 'gitea' ? 'https://gitea.example.com' : 'https://gitlab.com (default)';
-  $('#tokenLabel').textContent = { github: 'GitHub Personal Access Token', gitlab: 'GitLab Personal Access Token (api scope)', gitea: 'Gitea Access Token' }[loginProvider];
-  $('#tokenInput').placeholder = { github: 'ghp_…', gitlab: 'glpat-…', gitea: 'token…' }[loginProvider];
-  renderLoginGuidance();
-  ensureAlphaProviderGuidance();
-});
 function renderLoginGuidance() {
   const github = 'Create a short-lived <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">fine-grained token</a> limited to selected repositories. Start with Contents read access; add Contents write or other permissions only for the actions you need.';
-  const providers = {
-    github,
-    gitlab: 'Use a short-lived sandbox token from GitLab → Preferences → Access tokens. The GitLab integration requires api scope; limit the token to a test account or project.',
-    gitea: 'Use a short-lived sandbox token from your Gitea → Settings → Applications. Select only the repository permissions needed for your actions and enter the server URL above.'
-  };
-  const app = loginProvider === 'github' && state.runtime.githubApp && state.runtime.githubApp.enabled
+  const app = state.runtime.githubApp && state.runtime.githubApp.enabled
     ? ' After sign-in, open Settings → GitHub App to connect an installation limited to selected repositories.' : '';
-  $('#loginHint').innerHTML = providers[loginProvider] + app + ' Sessions use an HttpOnly session cookie stored by your browser. Provider credentials are encrypted in that cookie or in server-side session storage.';
+  $('#loginHint').innerHTML = github + app + ' Sessions use an HttpOnly session cookie stored by your browser. GitHub credentials are encrypted in that cookie or in server-side session storage.';
   const value = key => Number.isFinite(state.runtime[key]) ? `${state.runtime[key]} MB` : 'unavailable';
   $('#loginLimits').textContent = runtimeLimitsKnown()
     ? `Deployment limits — Direct upload: ${value('uploadMaxMb')}; Git data: ${value('gitDataMaxMb')}; native push: ${value('nativePushMaxMb')}. Provider limits also apply. Public alpha: no production service guarantee.`
@@ -1661,8 +1652,6 @@ function renderLoginGuidance() {
 
 const PROV_ICON = {
   github: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>',
-  gitlab: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>',
-  gitea: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24"><path d="M4.5 8h11v6.5a4.5 4.5 0 0 1-4.5 4.5H9a4.5 4.5 0 0 1-4.5-4.5V8z"/><path d="M15.5 9.5h2a2.5 2.5 0 0 1 0 5h-2M8 5.5V4M11.5 5.5V3.5"/></svg>'
 };
 function applyCaps() {
   const caps = state.caps || { prs: 1, issues: 1, releases: 1, actions: 1, lfs: 1, tm: 1, batch: 1, search: 1, notif: 1, compare: 1 };
@@ -1734,7 +1723,7 @@ async function loadRuntimeConfig(attempt = 0) {
     window._oauthOn = !!c.oauth;
     state.runtime = { ...state.runtime, ...c };
     refreshQueuedStrategies();
-    $('#oauthBtn').hidden = !c.oauth || loginProvider !== 'github';
+    $('#oauthBtn').hidden = !c.oauth;
     renderLoginGuidance();
   } catch {
     /* One retry: a free instance's first request can arrive while it wakes. */
@@ -1758,7 +1747,7 @@ async function boot() {
   $('#oauthBtn').addEventListener('click', () => { location.href = '/api/oauth/login'; });
   $('#findBtn').addEventListener('click', () => { if (state.file && !state.file.binary) openFindPanel(); });
   try {
-    state.me = await api('/api/me');
+    state.me = requireGithubIdentity(await api('/api/me'));
     try { sessionStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
     refreshSafety();
     state.caps = state.me.caps || null;
@@ -1774,7 +1763,7 @@ async function boot() {
     if (!(await restoreRoute())) showOverview();
   } catch (e) {
     const cached = (() => { try { return JSON.parse(sessionStorage.getItem('nv_me') || 'null'); } catch { return null; } })();
-    if (cached && isOfflineError(e)) {
+    if (githubIdentity(cached) && isOfflineError(e)) {
       /* offline launch: proceed with the last-known identity and cached data */
       state.me = cached;
       state.caps = cached.caps || null;
@@ -1786,6 +1775,8 @@ async function boot() {
       if (!(await restoreRoute())) showOverview();
       toast('Offline mode — showing cached data ✦', 'ok');
     } else if (!['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(e.code)) {
+      if (cached && !githubIdentity(cached)) await purgeLocalData(true);
+      state.me = null;
       ensureAlphaProviderGuidance();
       ensureLoginAlphaSessionControls();
       showPage('login');
@@ -1816,12 +1807,12 @@ async function doLogin() {
   $('#loginBtn').disabled = true; $('#loginBtn').textContent = 'Docking…';
   try {
     await purgeLocalData(true);
-    state.me = await api('/api/login', {
+    state.me = requireGithubIdentity(await api('/api/login', {
       method: 'POST',
-      body: { token, provider: loginProvider, baseUrl: ($('#baseUrl') ? $('#baseUrl').value : '').trim() }
-    });
+      body: { token, provider: 'github' }
+    }));
     try {
-      const me2 = await api('/api/me');
+      const me2 = requireGithubIdentity(await api('/api/me'));
       state.me = { ...state.me, ...me2 };
       state.caps = me2.caps || null;
       sessionStorage.setItem('nv_me', JSON.stringify(state.me));
@@ -1902,7 +1893,7 @@ async function purgeLocalData(full) {
     '#repoGrid', '#tree', '#prList', '#issueList', '#releaseList', '#commitList',
     '#cmpResult', '#uploadQueue', '#actionsList', '#stageList', '#paletteList',
     '#filePath', '#fileSize', '#mdPreview', '#binaryPreview', '#editDiffBody',
-    '#githubAppSettingsBody', '#tokenInput', '#baseUrl', '#codeSearch', '#findInput',
+    '#githubAppSettingsBody', '#tokenInput', '#codeSearch', '#findInput',
     '#replaceInput', '#uploadMsg', '#stageMsg', '#paletteInput'
   ]) {
     const element = $(selector);
@@ -2190,16 +2181,14 @@ function paintCoreState() {
   const scope = $('#ovCoreScope');
   const live = $('#ovCoreLive');
   if (!scope) return;
-  const authority = state.me && (state.me.authority || state.me.host || state.me.baseUrl)
-    || (state.me && state.me.provider === 'github' ? 'github.com' : '');
-  scope.textContent = authority || (state.me ? 'Connected' : 'Not connected');
+  const connected = !!state.me && state.me.provider === 'github';
+  scope.textContent = connected ? 'github.com' : 'Not connected';
   if (live) {
     /*
      * "Connected" rather than "Live": an identity proves a session, not that
      * anything is being watched in real time, and this rail has no stream
      * behind it that would earn the stronger word.
      */
-    const connected = !!state.me;
     live.textContent = connected ? 'Connected' : 'Not connected';
     live.classList.toggle('is-idle', !connected);
   }
@@ -2493,12 +2482,13 @@ async function openAccounts() {
   try {
     const a = await api('/api/accounts');
     if (!ownsModal()) return;
-    $('#modalBody').innerHTML = a.accounts.map((ac, i) => `
+    const accounts = a.accounts.map((account, index) => ({ account, index })).filter(({ account }) => githubIdentity(account));
+    $('#modalBody').innerHTML = accounts.map(({ account: ac, index: i }) => `
       <div class="acct-row ${i === a.active ? 'active' : ''}">
         <img class="avatar" src="${escAttr(ac.avatar || '')}" alt="">
         <div class="acct-meta">
           <div class="acct-login">${esc(ac.login)}</div>
-          <div class="acct-host">${PROV_ICON[ac.provider] || ''}<span>${esc(ac.host || { github: 'github.com', gitlab: 'gitlab.com', gitea: 'gitea' }[ac.provider])}</span></div>
+          <div class="acct-host">${PROV_ICON.github}<span>github.com</span></div>
         </div>
         ${i === a.active ? '<span class="br-tag">active</span>'
           : `<button class="btn btn-ghost small" data-switch="${i}">Switch</button>`}
@@ -2506,7 +2496,7 @@ async function openAccounts() {
       </div>`).join('') + `
       <div class="detail-actions" style="margin-top:14px">
         <button class="btn btn-ghost small" id="accAdd">Add account</button>
-        ${a.accounts[a.active] && a.accounts[a.active].authMethod === 'oauth' && window._oauthOn
+        ${githubIdentity(a.accounts[a.active]) && a.accounts[a.active].authMethod === 'oauth' && window._oauthOn
           ? '<a class="btn btn-ghost small" href="/api/oauth/login?permission=repository-delete">Allow repository deletion on GitHub</a>' : ''}
         <button class="btn btn-ghost small danger" id="accOut">Sign out (all)</button>
       </div>`;
@@ -2865,12 +2855,7 @@ function rememberRepository(owner, name, visitor = false) {
  * it; an address on another host says so, because this session can only read
  * through the provider it is signed in to.
  */
-function sessionHost() {
-  const provider = (state.me && state.me.provider) || 'github';
-  if (provider === 'github') return 'github.com';
-  try { return new URL((state.me && state.me.baseUrl) || 'https://gitlab.com').hostname.toLowerCase(); }
-  catch { return provider === 'gitlab' ? 'gitlab.com' : ''; }
-}
+function sessionHost() { return 'github.com'; }
 function repositoryReference(text) {
   const raw = String(text || '').trim();
   if (!raw || raw.length > 400 || /\s/.test(raw)) return null;
@@ -2892,10 +2877,7 @@ function repositoryReference(text) {
     path = raw;
     kind = 'name';
   }
-  let parts = decodeURIComponent(path).replace(/\.git\/?$/i, '').split('/').filter(Boolean);
-  /* GitLab ends the project path where its own pages begin, at "-"; GitHub's owner and name are the first two parts. */
-  if ((state.me && state.me.provider) === 'gitlab') { const end = parts.indexOf('-'); if (end >= 0) parts = parts.slice(0, end); }
-  else parts = parts.slice(0, 2);
+  const parts = decodeURIComponent(path).replace(/\.git\/?$/i, '').split('/').filter(Boolean).slice(0, 2);
   if (parts.length < 2) return null;
   const name = parts[parts.length - 1];
   const owner = parts.slice(0, -1).join('/');
@@ -6820,7 +6802,7 @@ async function renderSafeguards() {
   const global = sf.globalControls !== false;
   const prot = protectedList();
   const snapshotAt = sgLastSnapshot();
-  const providerName = { github: 'GitHub', gitlab: 'GitLab', gitea: 'Gitea' }[(state.me && state.me.provider) || 'github'] || 'the provider';
+  const providerName = 'GitHub';
   const switchRow = (id, on, title, text) => `<label class="sg-switch-row${global ? '' : ' is-managed'}">
       <span class="sg-switch-text"><span class="sg-switch-title">${title}</span><span class="sg-switch-sub">${text}</span></span>
       <input type="checkbox" role="switch" class="sg-switch" id="${id}" ${on ? 'checked' : ''} ${global ? '' : 'disabled'}>

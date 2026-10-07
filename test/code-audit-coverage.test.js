@@ -122,7 +122,7 @@ const untracedKey = finding => `${finding.id}|${finding.rule}|${finding.path}|${
 
   /* A reader with no batch read leaves the rest unread, and says so. */
   const plain = { ...reader, readBlobTexts: undefined };
-  const narrow = await audit.auditRepository({ reader: plain, scope: { provider: 'gitlab', owner: 'o', repo: 'r' }, ref: 'main', token: 't', transport: null, queryTransport: async () => ({}), limits });
+  const narrow = await audit.auditRepository({ reader: plain, scope: { provider: 'github', owner: 'o', repo: 'r' }, ref: 'main', token: 't', transport: null, queryTransport: async () => ({}), limits });
   assert.deepStrictEqual([narrow.coverage.read, narrow.coverage.rulesOnly, narrow.coverage.skipped.budget], [4, 0, 20]);
 
   /* A request that fails outright is asked again in halves: an answer over the size bound is the usual cause. */

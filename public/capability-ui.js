@@ -222,10 +222,15 @@
 
   async function load(provider, authority, options = {}) {
     const sequence = ++loadSequence;
-    const normalizedProvider = ['github', 'gitlab', 'gitea'].includes(String(provider || '').toLowerCase())
-      ? String(provider).toLowerCase()
-      : 'github';
-    const normalizedAuthority = String(authority || (normalizedProvider === 'github' ? 'github.com' : '')).toLowerCase();
+    const normalizedProvider = String(provider || 'github').toLowerCase();
+    const normalizedAuthority = String(authority || 'github.com').toLowerCase();
+    if (normalizedProvider !== 'github' || normalizedAuthority !== 'github.com') {
+      projection = Object.freeze({
+        provider: normalizedProvider, authority: normalizedAuthority,
+        deployment: 'hosted-alpha', features: Object.freeze({})
+      });
+      return projection;
+    }
     const query = new URLSearchParams({ provider: normalizedProvider, authority: normalizedAuthority });
     try {
       const endpoint = options.connected ? '/api/account/capabilities' : '/api/capabilities';

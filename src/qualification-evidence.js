@@ -13,7 +13,8 @@ const SAFE_SECRET_LIKE_FIELDS = Object.freeze([
   'secret-scan',
   'token-bearing-state-removed'
 ]);
-const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
+// Historical definitions remain readable for archived evidence, never live qualification.
+const HISTORICAL_PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
   github: {
     'repository.read': ['repository-read'],
     'pulls.read': ['pulls-read'],
@@ -94,21 +95,7 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
     'issues.write': ['issue-write'],
     'pulls.write': ['pull-write']
   },
-  /*
-   * Gitea's entry is back, and with it the declaration-before-evidence order
-   * the contract structurally requires: it demands proof only of capabilities
-   * already declared Supported and Provider-verified, so the claim has to be
-   * standing before a run can establish it.
-   *
-   * That order is why the claim was false for so long. It was declared, no run
-   * ever followed, and nothing forced the two to meet. What makes it honest
-   * this time is that the run happens in the same change -- a green leg keeps
-   * the entry, a red one takes it back out.
-   *
-   * There is no probe list: Gitea proves the shared mutation sequence and
-   * nothing beyond it. Unlike GitHub and GitLab it needs no fixture objects on
-   * the target, because it makes no collection reads.
-   */
+  // Retired provider contracts are retained only for historical audit decoding.
   gitea: {
     'repository.read': ['repository-read'],
     'branches.read': ['default-branch-read'],
@@ -117,19 +104,13 @@ const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
     'file.delete': ['stale-head-delete', 'expected-head-delete', 'cleanup-absence']
   }
 });
+const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
+  github: HISTORICAL_PROVIDER_CAPABILITY_REQUIREMENTS.github
+});
+
 /*
- * The mutation sequence every provider runs, and the proofs it produces.
- *
- * It is split around an insertion point because the capability requirements
- * are already per-provider and the checks had no way to be. A capability a
- * provider proves and its neighbours do not -- GitHub's tree and rate reads --
- * needs a proof of its own, and there was nowhere to put one: the contract was
- * a single flat list validated against every artifact, so a GitHub-only check
- * would have made GitLab and Gitea artifacts invalid for lacking it.
- *
- * The probes go after the readback, where the proof file is on the disposable
- * branch and nothing has been rolled back, and before the stale-head sequence,
- * which is where the branch starts being argued with.
+ * The mutation sequence and readback checks shared by current GitHub proof and
+ * archived provider evidence. Only GitHub can produce a new qualification.
  */
 const SHARED_CHECKS_BEFORE_PROBES = deepFreeze([
   { key: 'repository-read', fields: { status: 'pass', statusClass: '2xx' } },
@@ -442,12 +423,18 @@ const SHARED_CHECKS_AFTER_PROBES = deepFreeze([
 ]);
 
 function providerProbeKeys(provider) {
+  if (!Object.hasOwn(PROVIDER_CAPABILITY_REQUIREMENTS, provider)) fail('provider is not supported for qualification');
   const probes = PROVIDER_PROBE_CHECKS[provider];
   if (!Array.isArray(probes)) fail('provider artifact context is invalid');
   return probes.map(check => check.key);
 }
 
 function providerCheckContract(provider) {
+  if (!Object.hasOwn(PROVIDER_CAPABILITY_REQUIREMENTS, provider)) fail('provider is not supported for qualification');
+  return historicalProviderCheckContract(provider);
+}
+
+function historicalProviderCheckContract(provider) {
   const probes = PROVIDER_PROBE_CHECKS[provider];
   if (!Array.isArray(probes)) fail('provider artifact context is invalid');
   return [...SHARED_CHECKS_BEFORE_PROBES, ...probes, ...SHARED_CHECKS_AFTER_PROBES];
@@ -575,8 +562,8 @@ function sha256(value) {
   return crypto.createHash('sha256').update(String(value), 'utf8').digest('hex');
 }
 
-function validateProviderEvidence(artifact) {
-  const requirements = PROVIDER_CAPABILITY_REQUIREMENTS[artifact.provider];
+function validateProviderEvidence(artifact, historical = false) {
+  const requirements = (historical ? HISTORICAL_PROVIDER_CAPABILITY_REQUIREMENTS : PROVIDER_CAPABILITY_REQUIREMENTS)[artifact.provider];
   if (!requirements) fail('provider artifact context is invalid');
   const expectedCapabilities = Object.keys(requirements).sort();
   if (
@@ -598,7 +585,8 @@ function validateProviderEvidence(artifact) {
   if (startedAt.getTime() > new Date(artifact.completedAt).getTime()) {
     fail('provider artifact completed before it started');
   }
-  const checkContract = providerCheckContract(artifact.provider);
+  const checkContract = historical
+    ? historicalProviderCheckContract(artifact.provider) : providerCheckContract(artifact.provider);
   if (!Array.isArray(artifact.checks) || artifact.checks.length !== checkContract.length) {
     fail('provider artifact checks are incomplete');
   }
@@ -631,6 +619,15 @@ function validateProviderEvidence(artifact) {
 }
 
 function validateEvidenceEnvelope(input) {
+  return validateEvidenceEnvelopeInternal(input);
+}
+
+// Audit-only decoding of historical proof contracts. The live gate never calls this.
+function validateHistoricalEvidenceEnvelope(input) {
+  return validateEvidenceEnvelopeInternal(input, true);
+}
+
+function validateEvidenceEnvelopeInternal(input, historical = false) {
   if (!isPlainObject(input)) fail('artifact verifier must return a parsed evidence envelope');
   const artifact = cloneJson(input);
   assertNoSecretMaterial(artifact);
@@ -653,7 +650,7 @@ function validateEvidenceEnvelope(input) {
     if (!SHA256_PATTERN.test(String(artifact.authorizedTargetSha256 || '')) || /^0{64}$/.test(artifact.authorizedTargetSha256)) {
       fail('provider target authorization hash is invalid');
     }
-    validateProviderEvidence(artifact);
+    validateProviderEvidence(artifact, historical);
   } else if (Object.hasOwn(artifact, 'provider')) {
     fail('non-provider artifact contains provider context');
   }
@@ -896,6 +893,7 @@ module.exports = Object.freeze({
   providerCheckContract,
   providerProbeKeys,
   validateEvidenceEnvelope,
+  validateHistoricalEvidenceEnvelope,
   verifyHostedOperatorSignature,
   verifyRestoreWitness,
   artifactTypeForLabel

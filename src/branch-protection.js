@@ -148,93 +148,14 @@ async function readGithub({ read, branch }) {
   };
 }
 
-/* ---- GitLab ------------------------------------------------------------------------- */
-
-/* GitLab's protected-branch names may carry `*` wildcards. */
-function wildcard(pattern, name) {
-  const source = String(pattern).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-  return new RegExp(`^${source}$`).test(name);
-}
-
-async function readGitlab({ read, branch }) {
-  const [list, project, approvals, pushRule] = await Promise.all([
-    optional(read, '/protected_branches?per_page=100'),
-    optional(read, ''),
-    optional(read, '/approval_rules?per_page=100'),
-    optional(read, '/push_rule')
-  ]);
-  const rules = Array.isArray(list.value) ? list.value.filter(rule => rule && wildcard(rule.name, branch)) : [];
-  const exact = rules.find(rule => rule.name === branch) || rules[0] || null;
-  const settings = project.value || {};
-  const hidden = !Array.isArray(list.value);
-  const pushers = exact ? (exact.push_access_levels || []).map(level => Number(level.access_level)) : [];
-  const noDirectPush = !!exact && pushers.length > 0 && pushers.every(level => level === 0);
-  const approvalCount = Array.isArray(approvals.value)
-    ? Math.max(0, ...approvals.value
-      .filter(rule => !rule.protected_branches || !rule.protected_branches.length || rule.protected_branches.some(item => item && wildcard(item.name, branch)))
-      .map(rule => Number(rule.approvals_required || 0)))
-    : 0;
-  const controls = {
-    review: exact && (noDirectPush || approvalCount)
-      ? on([noDirectPush ? 'merge requests only' : '', approvalCount ? plural(approvalCount, 'approval') : '', exact.code_owner_approval_required ? 'code owners' : ''].filter(Boolean).join(', '))
-      : hidden ? unknown('needs maintainer access to read') : off(exact ? 'direct pushes allowed' : ''),
-    checks: settings.only_allow_merge_if_pipeline_succeeds ? on('pipeline must succeed') : project.value ? off() : unknown(),
-    'force-push': exact ? (exact.allow_force_push ? off('allowed') : on()) : hidden ? unknown() : off(),
-    deletion: exact ? on() : hidden ? unknown() : off(),
-    signed: pushRule.value ? (pushRule.value.reject_unsigned_commits ? on() : off()) : unknown('push rules are not readable here'),
-    linear: settings.merge_method ? (settings.merge_method === 'ff' ? on('fast-forward merges') : off()) : unknown(),
-    conversation: project.value ? (settings.only_allow_merge_if_all_discussions_are_resolved ? on() : off()) : unknown(),
-    admins: unknown('GitLab lets owners bypass through their role')
-  };
-  return {
-    protected: !!exact,
-    access: hidden ? 'partial' : 'full',
-    sources: exact ? [`protected branch ${exact.name}`] : [],
-    controls
-  };
-}
-
-/* ---- Gitea / Forgejo ----------------------------------------------------------------- */
-
-async function readGitea({ read, branch }) {
-  const summary = await read(`/branches/${encodeURIComponent(branch)}`);
-  const ruleName = summary && summary.effective_branch_protection_name;
-  const detail = ruleName ? await optional(read, `/branch_protections/${encodeURIComponent(ruleName)}`) : { value: null, status: 404 };
-  const rule = detail.value;
-  const hidden = !!(summary && summary.protected && !rule);
-  const approvals = Number((rule && rule.required_approvals) ?? (summary && summary.required_approvals) ?? 0);
-  const checkNames = (rule && rule.status_check_contexts) || (summary && summary.status_check_contexts) || [];
-  const checksOn = !!((rule && rule.enable_status_check) || (summary && summary.enable_status_check));
-  const isProtected = !!(summary && summary.protected);
-  const controls = {
-    review: isProtected && approvals ? on([plural(approvals, 'approval'), rule && rule.dismiss_stale_approvals ? 'stale approvals dismissed' : '', rule && rule.block_on_rejected_reviews ? 'rejections block' : ''].filter(Boolean).join(', '))
-      : isProtected && rule && rule.enable_push === false ? on('pull requests only') : off(),
-    checks: checksOn ? on(checkNames.length ? plural(checkNames.length, 'check') : '') : off(),
-    'force-push': rule ? ((rule.enable_force_push === true) ? off('allowed') : on()) : isProtected ? (hidden ? unknown('needs administration access to read') : on()) : off(),
-    deletion: isProtected ? on() : off(),
-    signed: rule ? (rule.require_signed_commits ? on() : off()) : hidden ? unknown('needs administration access to read') : off(),
-    linear: rule ? (rule.block_on_outdated_branch ? on('branch must be up to date') : off()) : hidden ? unknown() : off(),
-    conversation: unknown('not a Gitea branch rule'),
-    admins: rule ? (rule.apply_to_admins ? on() : off('administrators can bypass')) : hidden ? unknown() : off()
-  };
-  return {
-    protected: isProtected,
-    access: hidden ? 'partial' : 'full',
-    sources: ruleName ? [`rule ${ruleName}`] : [],
-    controls
-  };
-}
-
 /* ---- The reading ---------------------------------------------------------------------- */
 
-const READERS = Object.freeze({ github: readGithub, gitlab: readGitlab, gitea: readGitea });
+const READERS = Object.freeze({ github: readGithub });
 
-function settingsUrl({ provider, webBase, owner, repo }) {
+function settingsUrl({ webBase, owner, repo }) {
   const base = String(webBase || '').replace(/\/+$/, '');
   if (!base) return null;
   const slug = `${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  if (provider === 'gitlab') return `${base}/${slug}/-/settings/repository#js-protected-branches-settings`;
-  if (provider === 'gitea') return `${base}/${slug}/settings/branches`;
   return `${base}/${slug}/settings/branches`;
 }
 

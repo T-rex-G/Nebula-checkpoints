@@ -2,12 +2,20 @@
 
 **Git operations, repository security, governance, and recovery from one visual workspace.**
 
-Nebulaverse-X keeps the existing repository workbench—GitHub/GitLab/Gitea browsing, editing, commits, pull requests, issues, releases, Actions, SmartPush, Git LFS, folder/ZIP import, Time Machine, safeguards, dependency auditing, and the Neural Command Center—then adds durable governance, evidence, and recovery foundations without requiring paid AI.
+Nebulaverse-X keeps the existing repository workbench—GitHub browsing, editing, commits, pull requests, issues, releases, Actions, SmartPush, Git LFS, folder/ZIP import, Time Machine, safeguards, dependency auditing, and the Neural Command Center—then adds durable governance, evidence, and recovery foundations without requiring paid AI.
 
 For current version and qualification status, see the generated
 [project state](docs/current/PROJECT_STATE.md). The feature inventory below
 describes implemented and historical delivery, not provider parity, production
 readiness, or completed hosted qualification.
+
+The product and golden qualification now support **GitHub only**: PAT, OAuth
+and optional configured GitHub App connections. GitLab and Gitea connections
+are removed. Old connections are invalidated locally without contacting their
+former provider; revoke their remote credentials in that provider's settings.
+Historical delivery notes below do not advertise current provider support.
+This candidate remains pending review and qualification; the PR is left open
+for another AI review and must not be merged by this change.
 
 For repository audits, Exposure findings, and the optional desktop/mobile website
 audit, see the [audit platform guide](docs/operations/AUDIT_PLATFORM.md). It explains
@@ -378,7 +386,7 @@ A signed reference snapshot is recovery evidence, not a complete independent Git
 - Markdown rendering fails closed if the sanitizer is unavailable.
 - Active repository content such as HTML, SVG, and XML is forced to download.
 - Stronger CSP directives, HSTS in production, CSRF app-header checks, and vendor proxy allowlists.
-- GitLab/Gitea custom hosts are revalidated against SSRF rules and cross-origin redirects do not receive credentials.
+- Repository connections are confined to GitHub; unsupported provider selections fail before credential use or transport.
 - `/healthz` and `/readyz` distinguish process health from optional database readiness.
 - Raw upload routes apply a bounded built-in malware test signature gate before provider writes.
 - An optional local YARA adapter can be enabled only on deployments where a trusted YARA binary and rules file are installed; it is disabled by default and is not a full antivirus sandbox.
@@ -410,7 +418,7 @@ Practical upload size is also limited by the selected host's request, temporary-
 - Folder upload and bounded browser-side ZIP extraction with path, count, size, method, duplicate, ZIP64, and compression-ratio preflight
 - Time Machine file, folder, and repository restoration
 - Offline drafts and commit queue; repository-scoped drafts, recents, snapshots, incidents, and queued writes are purged on logout or account switch
-- Multi-account GitHub/GitLab/Gitea connectivity
+- Multi-account GitHub connectivity
 
 ### Neural Command Center
 
@@ -477,7 +485,6 @@ Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses fo
 | `NV_UPLOAD_CONCURRENCY` | Optional | Concurrent streamed uploads per process, 1–4; default 1 |
 | `NV_UPLOAD_TIMEOUT_MINUTES` | Optional | Upload/upstream transfer timeout, 2–60 minutes; default 20 |
 | `NV_STALE_UPLOAD_HOURS` | Optional | Temporary upload cleanup age, 1–72 hours; default 6 |
-| `NV_GIT_HOST_ALLOWLIST` | Required in production for custom hosts | Comma-separated approved self-hosted GitLab/Gitea hostnames |
 | `NV_YARA_RULES_PATH` | Optional, advanced hosting only | Absolute path to a trusted compiled/readable YARA rules file |
 | `NV_YARA_BIN` | Optional | YARA executable name/path; default `yara` |
 | `NV_YARA_TIMEOUT_SECONDS` | Optional | Per-file YARA timeout, 1–30 seconds; default 5 |
@@ -506,7 +513,7 @@ Neither value expires on its own. Remove one only once the evidence export repor
 - A signed snapshot preserves references and metadata; it does not independently store every Git object, LFS object, issue, review, or release asset.
 - Webhook event retention is not an immutable compliance archive.
 - Dependency scanning uses available OSV/Dependabot information and reports an incomplete result when OSV is unavailable. Raw uploads receive a bounded signature gate. Optional YARA execution requires a trusted binary/rules file and does not replace isolated antivirus/sandbox scanning.
-- GitHub has the deepest feature coverage; GitLab and Gitea remain capability-limited where their APIs differ.
+- GitHub is the only supported repository provider and the only provider in golden qualification.
 
 If `DATABASE_URL` is configured but Neon is unavailable, database-backed sessions fail closed instead of silently reverting to a revocation-resistant cookie.
 

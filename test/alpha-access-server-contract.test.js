@@ -300,14 +300,15 @@ assert.deepStrictEqual(
   'repository listing must validate the full provider base URL before capability and credential resolution'
 );
 
-for (const provider of ['github', 'gitlab', 'gitea']) {
+assert.deepStrictEqual(Object.keys(capabilityDocument.providers), ['github']);
+for (const provider of ['github']) {
   const features = capabilityDocument.providers[provider]['hosted-alpha'];
   for (const feature of ['repository.create', 'repository.delete', 'global-search', 'notifications']) {
     /* GitHub's global search is the scoped query the live harness proves; the rest it cannot reach. */
     const github = feature === 'global-search' ? ['Supported', 'Provider-verified'] : ['Experimental', 'Deterministic'];
     assert.deepStrictEqual(
       features[feature].slice(0, 2),
-      provider === 'github' ? github : ['Unavailable', 'Unavailable'],
+      github,
       `${provider} ${feature} must preserve its evidenced capability level without false provider parity`
     );
   }

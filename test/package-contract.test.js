@@ -64,7 +64,7 @@ const required = [
   'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'public/governance-ui.js',
   'docs/current/PROJECT_STATE.md', 'docs/history/phase-1/ROADMAP.md',
   'docs/architecture/ARCHITECTURE_DECISIONS.md', 'docs/current/CONTINUATION_PROMPT.md',
-  'src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/provider-file-mutations.js', 'src/governance-model.js',
+  'src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/governance-model.js',
   'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js',
   'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js',
   'src/governance-templates.js', 'src/governance-digital-twin.js', 'db/migrations/007_governance.sql',
@@ -208,8 +208,8 @@ const alphaDocumentation = `${read('docs/release/PUBLIC_ALPHA.md')}\n${read('doc
 for (const [label, pattern] of [
   ['controlled invitation access', /controlled invitation access/i],
   ['exact repository allowlists', /exact canonical (?:sandbox-)?repository allowlists?/i],
-  ['root-host-only GitLab and Gitea cohort restriction', /root-host-only GitLab and Gitea/i],
-  ['experimental GitHub account operations', /repository creation\/deletion, global search, and notifications[\s\S]{0,100}experimental/i],
+  ['GitHub-only provider scope', /GitHub-only/i],
+  ['experimental GitHub account operations', /repository creation\/deletion and notifications[\s\S]{0,100}experimental/i],
   ['server-enforced search and notification scope', /search and notifications enforce those\s+scopes on the server/i],
   ['deletion confirmation and permission requirements', /deletion also requires full-name confirmation, fresh\s+step-up, administrator access and provider deletion permission/i],
   ['unsupported notification connections', /installation and fine-grained\s+connections cannot read GitHub notifications/i],
@@ -462,13 +462,7 @@ for (const program of publicAlphaPrograms) {
   assert(programIndex > previousProgramIndex, `test:unit must run ${program} after ${releaseProgram}`);
   previousProgramIndex = programIndex;
 }
-for (const testFile of ['gitea-file-mutations.test.js', 'gitea-file-mutation-server.test.js']) {
-  assert(pkg.scripts.posttest.includes(testFile), `posttest missing ${testFile}`);
-}
 for (const source of ['src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/governance-model.js', 'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js', 'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'scripts/foundation-gate.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'playwright.config.js', 'public/governance-ui.js', 'src/capability-registry.js']) {
-  assert(syntaxChecks(source), `syntax gate missing ${source}`);
-}
-for (const source of ['src/provider-file-mutations.js', 'test/gitea-file-mutations.test.js', 'test/gitea-file-mutation-server.test.js', 'test/fixtures/gitea-provider-fetch.js']) {
   assert(syntaxChecks(source), `syntax gate missing ${source}`);
 }
 const verifyScript = read('scripts/verify.js');
@@ -517,8 +511,6 @@ const publicAlphaQualificationArtifacts = [
   'ci/provider-alpha17-common.js',
   'ci/alpha17-fixtures.js',
   'ci/run-github-alpha17-validation.js',
-  'ci/run-gitlab-alpha17-validation.js',
-  'ci/run-gitea-alpha17-validation.js',
   'ci/run-hosted-alpha17-validation.js',
   'ci/alpha17-json.js',
   'ci/alpha17-restore-attestation.js',

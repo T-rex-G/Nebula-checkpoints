@@ -12,7 +12,6 @@
 const express = require('express');
 const crypto = require('crypto');
 const zlib = require('zlib');
-const dns = require('dns').promises;
 async function fetchT(url, opts = {}, ms = 20000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error(`Upstream timeout after ${ms / 1000}s`)), ms);
@@ -131,7 +130,6 @@ const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation'
 const { rateLimitIdentity } = require('./src/rate-limit-identity');
 const { createLocalSessionPolicy } = require('./src/local-session-policy');
 const { createDatabasePool } = require('./src/database-pool');
-const { providerFetch } = require('./src/provider-transport');
 const localSessionPolicy = createLocalSessionPolicy();
 const { SingleUseStore, memorySingleUseStore } = require('./src/single-use-store');
 const { writeLiveClient } = require('./src/live-stream');
@@ -140,7 +138,6 @@ const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot, isPublicReaderAccess } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
 const { createMutationGateway, normalizeMutationDescriptor } = require('./src/mutation-gateway');
-const { createGiteaFileMutationAdapter } = require('./src/provider-file-mutations');
 const { normalizeFileBatch, summarizeBatchItems } = require('./src/mutation-coverage');
 const { pathFactsForAction } = require('./src/protected-paths');
 const { offerSafePassage } = require('./src/safe-passage');
@@ -332,8 +329,7 @@ const mutationGateway = createMutationGateway({
   }
 });
 const authorizationResolver = createAuthorizationResolver({
-  request: async ({ account, provider, apiPath }) =>
-    provider === 'gitlab' ? glFetch(account, apiPath) : gh(account, apiPath)
+  request: async ({ account, apiPath }) => gh(account, apiPath)
 });
 const GH_API = 'https://api.github.com';
 const API_VERSION = '2022-11-28';
@@ -526,7 +522,7 @@ app.use((req, res, next) => {
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
-    "img-src 'self' data: https://*.githubusercontent.com https://*.gravatar.com https://gitlab.com",
+    "img-src 'self' data: https://*.githubusercontent.com https://*.gravatar.com",
     "media-src 'self'",
     "connect-src 'self'",
     "worker-src 'self'",
@@ -1704,7 +1700,21 @@ async function destroySession(req, res) {
   if (sid) closeLiveSessions([sid], 'session-ended');
   setCookieRaw(res, '', 0);
 }
-async function sessionOf(req) {
+function githubSession(session) {
+  if (!session || !Array.isArray(session.accounts)) return null;
+  const selected = session.accounts[Math.min(Math.max(Number(session.active) || 0, 0), session.accounts.length - 1)];
+  const accounts = session.accounts.filter(account => {
+    try { assertGithubAccount(account); return true; } catch { return false; }
+  });
+  if (!accounts.length) return null;
+  if (accounts.length === session.accounts.length) return session;
+  const active = Math.max(0, accounts.indexOf(selected));
+  // Keep historical bindings for retention/privacy cleanup. Session writes
+  // persist only the supported accounts; an old cookie cannot dispatch them.
+  return { ...session, accounts, active, security: { ...session.security, stepUp: null } };
+}
+async function sessionOf(req, { retainRetiredAccounts = false } = {}) {
+  const supported = session => githubSession(session) || (retainRetiredAccounts ? session : null);
   const s = unseal(getCookie(req, 'nv_session') || '');
   if (!s) return null;
   if (DB_URL && !s.sid) return null;
@@ -1720,15 +1730,15 @@ async function sessionOf(req) {
       });
       req[HOSTED_SESSION_BASE] = structuredClone(owned.session);
       req[HOSTED_SESSION_REVISION] = owned.revision;
-      return owned.session;
+      return supported(owned.session);
     }
     const r = await pool().query('SELECT data FROM nv_sessions WHERE sid=$1', [s.sid]).catch(() => null);
     if (!r || !r.rows.length) return null;
     const d = unseal(r.rows[0].data);
-    return (d && Array.isArray(d.accounts) && d.accounts.length) ? d : null;
+    return (d && Array.isArray(d.accounts) && d.accounts.length) ? supported(d) : null;
   }
   if (!localSessionPolicy.valid(s)) return null;
-  if (Array.isArray(s.accounts) && s.accounts.length) return s;
+  if (Array.isArray(s.accounts) && s.accounts.length) return supported(s);
   return null;
 }
 
@@ -2265,12 +2275,14 @@ function guardSafety(req) {
   return null;
 }
 async function attachProviderSession(req) {
-  const s = req.session || await sessionOf(req);
+  const retiredCleanup = req.path === '/api/logout' || req.path === '/api/security/csrf';
+  const s = req.session || await sessionOf(req, { retainRetiredAccounts: retiredCleanup });
   if (!s) {
     throw Object.assign(new Error('Not signed in'), { status: 401, code: 'AUTH_REQUIRED' });
   }
   req.session = s;
   req.sessionAccount = s.accounts[Math.min(s.active || 0, s.accounts.length - 1)];
+  if (!retiredCleanup) assertGithubAccount(req.sessionAccount);
   req.gh = { ...req.sessionAccount };
 }
 
@@ -2333,8 +2345,8 @@ const _etags = new Map(); // key → { etag, body } (LRU-ish, capped)
  *
  * publicErrorBody only passes an error's message through when the error
  * carries a recognised code; anything else becomes "Operation could not be
- * completed". Neither provider helper attached one, so every refusal GitHub or
- * GitLab explained -- a workflow file rejected for want of scope, a conflict,
+ * completed". The GitHub helper attached no code, so every refusal GitHub
+ * explained -- a workflow file rejected for want of scope, a conflict,
  * a rate limit -- reached the operator as that one sentence, and the reason
  * they had actually been given was thrown away at the last step.
  *
@@ -2355,16 +2367,11 @@ function providerFailureCode(status) {
 
 async function gh(acct, apiPath, opts = {}) {
   if (typeof acct === 'string') acct = { provider: 'github', token: acct };
-  const provider = acct.provider || 'github';
-  if (provider === 'gitlab') {
-    const err = new Error('This feature is not yet supported for GitLab accounts');
-    err.status = 501; throw err;
-  }
+  assertGithubAccount(acct);
+  const provider = 'github';
   const token = acct.token;
-  const API_BASE = provider === 'gitea'
-    ? (await assertPublicBaseCached(acct.baseUrl)) + '/api/v1'
-    : GH_API;
-  const AUTH = provider === 'gitea' ? `token ${token}` : `Bearer ${token}`;
+  const API_BASE = GH_API;
+  const AUTH = `Bearer ${token}`;
   const method = opts.method || 'GET';
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
     mutationGateway.assertProviderMutation({ provider, baseUrl: acct.baseUrl, method, apiPath, body: opts.body });
@@ -2372,7 +2379,7 @@ async function gh(acct, apiPath, opts = {}) {
   const cacheable = method === 'GET' && !opts.raw && !opts.accept;
   const ck = cacheable ? crypto.createHash('sha1').update(`${provider}|${acct.baseUrl || ''}|${token}|${apiPath}`).digest('hex') : null;
   const cached = ck ? _etags.get(ck) : null;
-  const r = await (provider === 'gitea' ? providerFetch : fetchT)(API_BASE + apiPath, {
+  const r = await fetchT(API_BASE + apiPath, {
     method,
     headers: {
       Authorization: AUTH,
@@ -2944,64 +2951,21 @@ const encodePath = p => (p || '').split('/').map(encodeURIComponent).join('/');
 const R = (req) => `/repos/${req.params.owner}/${req.params.repo}`;
 
 /* ================= AUTH ================= */
-/* ================= PROVIDERS ================= */
-const PRIVATE_HOST_RX = /^(localhost|.*\.local|.*\.internal|.*\.lan)$/i;
-const IP_RX = /^\d{1,3}(\.\d{1,3}){3}$|^\[?[0-9a-f:]+\]?$/i;
-function privateIp(ip) {
-  const value = String(ip || '').replace(/^\[|\]$/g, '').toLowerCase();
-  if (value.includes(':')) {
-    const mapped = value.match(/(?:^|:)ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
-    if (mapped) return privateIp(mapped[1]);
-    return value === '::' || value === '::1' || /^f[cd]/.test(value) || /^fe[89ab]/.test(value) ||
-      /^ff/.test(value) || /^2001:db8(?::|$)/.test(value);
+/* ================= GITHUB IDENTITY ================= */
+function assertGithubAccount(account) {
+  if (!account || typeof account !== 'object' || Array.isArray(account) ||
+      (account.provider !== undefined && account.provider !== 'github')) {
+    throw Object.assign(new Error('Only GitHub accounts are supported. Sign in with GitHub.'), {
+      status: 401, code: 'PROVIDER_UNSUPPORTED'
+    });
   }
-  const o = value.split('.').map(Number);
-  if (o.length !== 4 || o.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return true;
-  return o[0] === 0 || o[0] === 10 || o[0] === 127 || o[0] >= 224 ||
-    (o[0] === 100 && o[1] >= 64 && o[1] <= 127) ||
-    (o[0] === 169 && o[1] === 254) ||
-    (o[0] === 172 && o[1] >= 16 && o[1] <= 31) ||
-    (o[0] === 192 && (o[1] === 0 || o[1] === 168)) ||
-    (o[0] === 198 && (o[1] === 18 || o[1] === 19 || o[1] === 51 && o[2] === 100)) ||
-    (o[0] === 203 && o[1] === 0 && o[2] === 113);
+  if (account.baseUrl && account.baseUrl !== 'https://github.com') {
+    throw Object.assign(new Error('Custom Git server URLs are not supported'), {
+      status: 401, code: 'PROVIDER_AUTHORITY_UNSUPPORTED'
+    });
+  }
 }
-const PUBLIC_BASE_CACHE = new Map();
-async function assertPublicBaseCached(raw) {
-  const key = String(raw || '').replace(/\/+$/, '');
-  const cached = PUBLIC_BASE_CACHE.get(key);
-  if (cached && Date.now() - cached.checkedAt < 60000) return cached.value;
-  const value = await assertPublicBase(key);
-  PUBLIC_BASE_CACHE.set(key, { value, checkedAt: Date.now() });
-  if (PUBLIC_BASE_CACHE.size > 100) PUBLIC_BASE_CACHE.delete(PUBLIC_BASE_CACHE.keys().next().value);
-  return value;
-}
-async function assertPublicBase(raw) {
-  let u;
-  try { u = new URL(raw); } catch { throw Object.assign(new Error('Invalid server URL'), { status: 400 }); }
-  if (u.protocol !== 'https:') throw Object.assign(new Error('Server URL must use https'), { status: 400 });
-  if (u.username || u.password) throw Object.assign(new Error('Server URL must not embed credentials'), { status: 400 });
-  const host = u.hostname;
-  const allow = String(process.env.NV_GIT_HOST_ALLOWLIST || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
-  const canonicalHostedProvider = host.toLowerCase() === 'gitlab.com';
-  if (process.env.NODE_ENV === 'production' && !canonicalHostedProvider && !allow.length) {
-    throw Object.assign(new Error('Self-hosted Git servers require NV_GIT_HOST_ALLOWLIST in production'), { status: 403 });
-  }
-  if (allow.length && !allow.includes(host.toLowerCase())) throw Object.assign(new Error('That Git server is not in NV_GIT_HOST_ALLOWLIST'), { status: 403 });
-  if (PRIVATE_HOST_RX.test(host)) throw Object.assign(new Error('Private or local server addresses are not allowed'), { status: 400 });
-  if (IP_RX.test(host)) {
-    if (privateIp(host.replace(/[[\]]/g, ''))) throw Object.assign(new Error('Private or local server addresses are not allowed'), { status: 400 });
-    throw Object.assign(new Error('Use a hostname, not a raw IP address'), { status: 400 });
-  }
-  try {
-    const addrs = await dns.lookup(host, { all: true });
-    if (addrs.some(a => privateIp(a.address)))
-      throw Object.assign(new Error('That hostname resolves to a private address'), { status: 400 });
-  } catch (e) {
-    if (e.status) throw e;
-    throw Object.assign(new Error('Git server hostname could not be resolved'), { status: 400 });
-  }
-  return raw.replace(/\/+$/, '');
-}
+
 function providerAuthority(account) {
   if ((account && account.provider || 'github') === 'github') return 'github.com';
   try { return new URL(account && account.baseUrl || '').host.toLowerCase(); }
@@ -3277,41 +3241,8 @@ function assertProviderBoundLfs(account) {
   }
   return assertCapabilityAvailable(CAPABILITY_DOCUMENT, context);
 }
-async function glFetch(acct, apiPath, opts = {}) {
-  const method = opts.method || 'GET';
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    mutationGateway.assertProviderMutation({ provider: 'gitlab', baseUrl: acct.baseUrl || 'https://gitlab.com', method, apiPath, body: opts.body });
-  }
-  const base = (await assertPublicBaseCached(acct.baseUrl || 'https://gitlab.com')) + '/api/v4';
-  const r = await providerFetch(base + apiPath, {
-    method,
-    headers: {
-      'PRIVATE-TOKEN': acct.token, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}`,
-      ...(opts.body ? { 'Content-Type': 'application/json' } : {})
-    },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-    redirect: 'error'
-  }, opts.timeoutMs || (opts.raw ? UPLOAD_TIMEOUT_MS : 20000));
-  if (opts.raw) return r;
-  const text = await r.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
-  if (!r.ok) {
-    const err = new Error((data && (data.message || data.error)) || `GitLab error ${r.status}`);
-    err.status = r.status; err.code = providerFailureCode(r.status); throw err;
-  }
-  return data;
-}
-const glId = req => encodeURIComponent(`${req.params.owner}/${req.params.repo}`);
-async function glLastCommit(acct, id, branch) {
-  try { const c = await glFetch(acct, `/projects/${id}/repository/commits?ref_name=${encodeURIComponent(branch)}&per_page=1`); return c[0] && c[0].id; }
-  catch { return null; }
-}
+
 async function providerIdentity(acct) {
-  if ((acct.provider || 'github') === 'gitlab') {
-    const user = await glFetch(acct, '/user');
-    return { login: user.username, name: user.name, avatar_url: user.avatar_url, id: user.id };
-  }
   if (acct && acct.authMethod === 'github-app') {
     return { login: acct.login, name: acct.login, avatar_url: acct.avatar, id: acct.installationAccountId };
   }
@@ -3617,17 +3548,19 @@ async function addAccount(req, res, token, user, provider = 'github', baseUrl = 
 }
 app.post('/api/login', async (req, res) => {
   try {
-    const token = ((req.body && req.body.token) || '').trim();
-    const provider = ['github', 'gitlab', 'gitea'].includes(req.body && req.body.provider) ? req.body.provider : 'github';
-    const baseUrl = ((req.body && req.body.baseUrl) || '').trim();
+    const provider = req.body && req.body.provider;
+    if (provider !== undefined && provider !== 'github') {
+      return res.status(400).json({ error: 'Only GitHub accounts are supported', code: 'PROVIDER_UNSUPPORTED' });
+    }
+    if (req.body && req.body.baseUrl) {
+      return res.status(400).json({ error: 'Custom Git server URLs are not supported', code: 'PROVIDER_AUTHORITY_UNSUPPORTED' });
+    }
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
     if (!token) return res.status(400).json({ error: 'Token required' });
-    if (provider === 'gitea' && !/^https?:\/\//.test(baseUrl)) return res.status(400).json({ error: 'Gitea needs your server URL (https://…)' });
-    let safeBase = baseUrl;
-    if (baseUrl && (provider === 'gitea' || provider === 'gitlab')) safeBase = await assertPublicBase(baseUrl);
-    const acct = { provider, token, baseUrl: safeBase };
+    const acct = { provider: 'github', token };
     const user = await providerIdentity(acct);
-    await addAccount(req, res, token, user, provider, (typeof safeBase !== 'undefined' && safeBase) || baseUrl, { authMethod: 'token' });
-    res.json({ login: user.login, name: user.name, avatar: user.avatar_url, provider, authMethod: 'token' });
+    await addAccount(req, res, token, user, 'github', '', { authMethod: 'token' });
+    res.json({ login: user.login, name: user.name, avatar: user.avatar_url, provider: 'github', authMethod: 'token' });
   } catch (e) {
     if (e.status === 401) return res.status(401).json({ error: 'Invalid token for that provider.' });
     fail(res, e);
@@ -3833,10 +3766,14 @@ app.get('/api/config', (req, res) => res.json({
   contentsMaxMb: CONTENTS_MAX / MB
 }));
 app.get('/api/capabilities', (req, res) => {
-  const provider = ['github', 'gitlab', 'gitea'].includes(req.query.provider)
-    ? req.query.provider : 'github';
-  const authority = provider === 'github'
-    ? 'github.com' : String(req.query.authority || '').toLowerCase();
+  if (req.query.provider !== undefined && req.query.provider !== 'github') {
+    return res.status(400).json({ error: 'Only GitHub is supported', code: 'PROVIDER_UNSUPPORTED' });
+  }
+  if (req.query.authority !== undefined && req.query.authority !== 'github.com') {
+    return res.status(400).json({ error: 'Only github.com is supported', code: 'PROVIDER_AUTHORITY_UNSUPPORTED' });
+  }
+  const provider = 'github';
+  const authority = 'github.com';
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.json(projectCapabilities(CAPABILITY_DOCUMENT, {
     provider, authority, deployment: DEPLOYMENT_PROFILE
@@ -4259,6 +4196,11 @@ app.post('/api/alpha/feedback', async (req, res) => {
 });
 app.post('/api/logout', accountAuth, async (req, res) => {
   try {
+    if (!githubSession(req.session)) {
+      await destroySession(req, res);
+      return res.json({ ok: true, revocationGuidance: 'Revoke retired Git provider tokens in their original account settings. Stored history follows the existing retention and privacy cleanup policy.' });
+    }
+    req.session = githubSession(req.session);
     const cleanup = await disconnectAlphaProviderAccount(req, req.session.accounts);
     if (!cleanup.complete) return providerDisconnectPending(res, cleanup);
     if (ALPHA_CONFIG.enabled) clearProviderSessionCookie(req, res);
@@ -4309,10 +4251,7 @@ app.get('/api/me', accountAuth, async (req, res) => {
   try {
     const provider = req.gh.provider || 'github';
     let out;
-    if (provider === 'gitlab') {
-      const u = await glFetch(req.gh, '/user');
-      out = { login: u.username, name: u.name, avatar: u.avatar_url };
-    } else if (req.gh.authMethod === 'github-app') {
+    if (req.gh.authMethod === 'github-app') {
       out = ALPHA_CONFIG.enabled
         ? {
             login: retainedActor(req),
@@ -4353,7 +4292,7 @@ let _postureReader = null;
 function postureReader() {
   if (!_postureReader) {
     _postureReader = createPostureReader({
-      gh, glFetch, dbReady, pool, identityKey, normalizePolicyScope,
+      gh, dbReady, pool, identityKey, normalizePolicyScope,
       exposureStore: () => exposureService(),
       severityOf: exposureSeverityOf,
       databaseConfigured: Boolean(DB_URL),
@@ -4370,35 +4309,16 @@ app.get('/api/workspace/posture', providerSessionAccess, auth, async (req, res) 
 });
 
 async function governanceRepositoryFacts(req) {
-  let info;
-  let branches;
-  if (req.gh.provider === 'gitlab') {
-    const id = glId(req);
-    [info, branches] = await Promise.all([
-      glFetch(req.gh, `/projects/${id}`),
-      glFetch(req.gh, `/projects/${id}/repository/branches?per_page=100`)
-    ]);
-    info = {
-      defaultBranch: info.default_branch || null,
-      visibility: info.visibility || 'unknown',
-      archived: !!info.archived,
-      pullRequestsEnabled: info.merge_requests_enabled !== false
-    };
-  } else {
-    const branchesPath = req.gh.provider === 'gitea' ? `${R(req)}/branches?limit=100&page=1` : `${R(req)}/branches?per_page=100`;
-    const result = await Promise.all([
-      gh(req.gh, R(req)),
-      gh(req.gh, branchesPath)
-    ]);
-    const repository = result[0] || {};
-    branches = result[1];
-    info = {
-      defaultBranch: repository.default_branch || null,
-      visibility: repository.visibility || (repository.private ? 'private' : 'public'),
-      archived: !!repository.archived,
-      pullRequestsEnabled: true
-    };
-  }
+  const [repository, branches] = await Promise.all([
+    gh(req.gh, R(req)),
+    gh(req.gh, `${R(req)}/branches?per_page=100`)
+  ]);
+  const info = {
+    defaultBranch: repository.default_branch || null,
+    visibility: repository.visibility || (repository.private ? 'private' : 'public'),
+    archived: !!repository.archived,
+    pullRequestsEnabled: true
+  };
   const branchRows = Array.isArray(branches) ? branches : [];
   const protectedCandidates = branchRows
     .filter(branch => branch && branch.protected === true && branch.name)
@@ -5526,20 +5446,6 @@ app.post('/api/repo/:owner/:repo/governance/reset', providerSessionAccess, alpha
  * callers come through here.
  */
 async function listRepositoriesFor(req, query = {}) {
-  if (req.gh.provider === 'gitlab') {
-    const list = await glFetch(req.gh, '/projects?membership=true&order_by=last_activity_at&per_page=100');
-    return list.filter(p => alphaRepositoryListAllowed(
-      req,
-      p && p.namespace && p.namespace.full_path,
-      p && p.path
-    )).map(p => ({
-      full_name: p.path_with_namespace, name: p.path,
-      private: p.visibility !== 'public', default_branch: p.default_branch,
-      pushed_at: p.last_activity_at, description: p.description,
-      stargazers_count: p.star_count, language: null,
-      owner: { login: (p.namespace && p.namespace.full_path) || '' }
-    }));
-  }
   const page = parseInt(query.page || '1', 10);
   const sort = ['pushed', 'created', 'updated', 'full_name'].includes(query.sort) ? query.sort : 'pushed';
   const result = req.gh.authMethod === 'github-app'
@@ -5575,32 +5481,13 @@ app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.creat
  * -- any public one -- read-only, and says so, rather than offering changes
  * the provider would refuse. The provider still decides every change.
  */
-function repositoryPermission(provider, info) {
-  if (provider === 'gitlab') {
-    const permissions = info && info.permissions || {};
-    const level = Math.max(...[permissions.project_access, permissions.group_access].map(value => Number(value && value.access_level) || 0));
-    return level >= 50 ? 'admin' : level >= 40 ? 'maintain' : level >= 30 ? 'write' : level >= 10 ? 'read' : 'none';
-  }
+function repositoryPermission(info) {
   const permissions = info && info.permissions;
   if (!permissions || typeof permissions !== 'object') return 'unknown';
   return permissions.admin ? 'admin' : permissions.maintain ? 'maintain' : permissions.push ? 'write' : permissions.triage ? 'triage' : permissions.pull ? 'read' : 'none';
 }
 app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const id = glId(req);
-      const [p3, brs] = await Promise.all([
-        glFetch(req.gh, `/projects/${id}`),
-        glFetch(req.gh, `/projects/${id}/repository/branches?per_page=100`)
-      ]);
-      return res.json({
-        full_name: p3.path_with_namespace, default_branch: p3.default_branch,
-        private: p3.visibility !== 'public', description: p3.description,
-        permission: repositoryPermission('gitlab', p3),
-        archived: p3.archived === true,
-        branches: normalizeProviderBranches('gitlab', brs)
-      });
-    }
     const [info, branches] = await Promise.all([
       gh(req.gh, R(req)),
       gh(req.gh, `${R(req)}/branches?per_page=100`)
@@ -5609,7 +5496,7 @@ app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, 
       full_name: info.full_name, default_branch: info.default_branch,
       private: info.private, description: info.description,
       homepage: declaredSite(info.homepage || info.website),
-      permission: repositoryPermission(req.gh.provider || 'github', info),
+      permission: repositoryPermission(info),
       archived: info.archived === true,
       branches: normalizeProviderBranches(req.gh.provider || 'github', branches)
     });
@@ -5633,9 +5520,7 @@ app.delete('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAcces
 app.get('/api/repo/:owner/:repo/zip', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
   try {
     const ref = req.query.ref || '';
-    const r = (req.gh.provider || 'github') === 'github'
-      ? await githubArchiveResponse(req.gh, req.params.owner, req.params.repo, ref)
-      : await gh(req.gh, `${R(req)}/zipball/${encodeURIComponent(ref)}`, { raw: true });
+    const r = await githubArchiveResponse(req.gh, req.params.owner, req.params.repo, ref);
     if (!r.ok) return res.status(r.status).json({ error: 'Could not download archive' });
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition',
@@ -5682,13 +5567,6 @@ app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepository
 /* ================= TREE / FILES ================= */
 app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const qp = new URLSearchParams({ ref: req.query.ref, path: req.query.path || '', per_page: '100' });
-      const list = await glFetch(req.gh, `/projects/${glId(req)}/repository/tree?${qp}`);
-      return res.json(list.map(t => ({
-        name: t.name, path: t.path, type: t.type === 'tree' ? 'dir' : 'file', sha: t.id, size: 0
-      })));
-    }
     const p = req.query.path ? requireRepoPath(req.query.path) : '';
     const items = await gh(req.gh,
       `${R(req)}/contents/${encodePath(p)}?ref=${encodeURIComponent(req.query.ref)}`);
@@ -5713,12 +5591,6 @@ app.get('/api/repo/:owner/:repo/files', providerSessionAccess, alphaRepositoryAc
 app.get('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.read'), auth, async (req, res) => {
   try {
     const requestedPath = requireRepoPath(req.query.path);
-    if (req.gh.provider === 'gitlab') {
-      const f = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(requestedPath)}?ref=${encodeURIComponent(req.query.ref)}`);
-      if (f.size > MB) return res.json({ tooLarge: true, name: f.file_name, path: requestedPath, sha: f.blob_id, size: f.size });
-      /* Base64, as GitHub and Gitea answer: the editor decodes one shape, and decoding here broke every GitLab file with a non-Latin-1 character. */
-      return res.json({ name: f.file_name, path: requestedPath, sha: f.blob_id, size: f.size, content: f.content || '', encoding: 'base64' });
-    }
     const meta = await gh(req.gh,
       `${R(req)}/contents/${encodePath(requestedPath)}?ref=${encodeURIComponent(req.query.ref)}`);
     if (meta.content) {
@@ -5744,14 +5616,6 @@ function setRawHeaders(res, p) {
 app.get('/api/repo/:owner/:repo/raw', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.read'), auth, async (req, res) => {
   try {
     const requestedPath = requireRepoPath(req.query.path);
-    if (req.gh.provider === 'gitlab') {
-      const p2 = requestedPath;
-      const r2 = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(p2)}/raw?ref=${encodeURIComponent(req.query.ref)}`, { raw: true });
-      if (!r2.ok) return res.status(r2.status).json({ error: 'Could not fetch raw content' });
-      setRawHeaders(res, p2);
-      await pipeline(Readable.fromWeb(r2.body), res);
-      return;
-    }
     const p = requestedPath;
     const r = await gh(req.gh,
       `${R(req)}/contents/${encodePath(p)}?ref=${encodeURIComponent(req.query.ref)}`,
@@ -5835,41 +5699,8 @@ app.put('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepositoryAcc
       req.body.path = requireRepoPath(req.body.path);
       req.body.branch = requireBranchName(req.body.branch);
     }
-    if (req.gh.provider === 'gitlab') {
-      const { path: p, content, message, branch, expectedHeadSha } = req.body || {};
-      const enc = encodeURIComponent(p);
-      if (expectedHeadSha) assertExpectedHead(expectedHeadSha, await glLastCommit(req.gh, glId(req), branch));
-      let exists = true;
-      try { await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${enc}?ref=${encodeURIComponent(branch)}`); }
-      catch (e) { if (e.status === 404) exists = false; else throw e; }
-      await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${enc}`, {
-        method: exists ? 'PUT' : 'POST',
-        body: {
-          branch, content: String(content ?? ''), commit_message: message || `Update ${p} via ${PRODUCT_NAME}`,
-          ...(exists && expectedHeadSha ? { last_commit_id: expectedHeadSha } : {})
-        }
-      });
-      const f2 = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${enc}?ref=${encodeURIComponent(branch)}`);
-      const last = await glLastCommit(req.gh, glId(req), branch);
-      return res.json({ ok: true, commit: last || 'committed', content: { sha: f2.blob_id } });
-    }
     const { path: p, content, message, branch, expectedHeadSha } = req.body || {};
     if (!p || content == null || !branch) return res.status(400).json({ error: 'path, content, branch required' });
-    if (req.gh.provider === 'gitea') {
-      const adapter = createGiteaFileMutationAdapter({
-        request: (apiPath, options) => gh(req.gh, apiPath, options)
-      });
-      const result = await adapter.write({
-        owner: req.params.owner,
-        repo: req.params.repo,
-        path: p,
-        content,
-        message: message || `Update ${p} via ${PRODUCT_NAME}`,
-        branch,
-        expectedHeadSha
-      });
-      return res.json({ ok: true, sha: result.sha, commit: result.commit });
-    }
     const blob = await gh(req.gh, `${R(req)}/git/blobs`, {
       method: 'POST', body: { content: Buffer.from(String(content), 'utf8').toString('base64'), encoding: 'base64' }
     });
@@ -5884,33 +5715,7 @@ app.delete('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepository
       req.body.path = requireRepoPath(req.body.path);
       req.body.branch = requireBranchName(req.body.branch);
     }
-    if (req.gh.provider === 'gitlab') {
-      const { path: p, branch, expectedHeadSha } = req.body || {};
-      if (expectedHeadSha) assertExpectedHead(expectedHeadSha, await glLastCommit(req.gh, glId(req), branch));
-      await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(p)}`, {
-        method: 'DELETE', body: {
-          branch, commit_message: `Delete ${p} via ${PRODUCT_NAME}`,
-          ...(expectedHeadSha ? { last_commit_id: expectedHeadSha } : {})
-        }
-      });
-      return res.json({ ok: true, commit: await glLastCommit(req.gh, glId(req), branch) || 'committed' });
-    }
     const { path: p, message, branch, sha, expectedHeadSha } = req.body || {};
-    if (req.gh.provider === 'gitea') {
-      if (!p || !branch) return res.status(400).json({ error: 'path, branch required' });
-      const adapter = createGiteaFileMutationAdapter({
-        request: (apiPath, options) => gh(req.gh, apiPath, options)
-      });
-      const result = await adapter.delete({
-        owner: req.params.owner,
-        repo: req.params.repo,
-        path: p,
-        message: message || `Delete ${p} via ${PRODUCT_NAME}`,
-        branch,
-        expectedHeadSha
-      });
-      return res.json({ ok: true, commit: result.commit });
-    }
     if (!p || !branch || !sha) return res.status(400).json({ error: 'path, branch, sha required' });
     const commit = await commitTree(req.gh, req.params.owner, req.params.repo, branch,
       message || `Delete ${p} via ${PRODUCT_NAME}`, [{ path: p, sha: null }], expectedHeadSha);
@@ -5979,17 +5784,6 @@ app.get('/api/repo/:owner/:repo/commits', providerSessionAccess, alphaRepository
   try {
     /* One page of 25 in one shape for every provider: the list pages by the count it receives. */
     const page = Math.max(1, Math.min(1000, parseInt(req.query.page || '1', 10) || 1));
-    if (req.gh.provider === 'gitlab') {
-      const qp = new URLSearchParams({ ref_name: req.query.ref || '', per_page: '25', page: String(page) });
-      if (req.query.path) qp.set('path', req.query.path);
-      const list = await glFetch(req.gh, `/projects/${glId(req)}/repository/commits?${qp}`);
-      return res.json(list.map(c => ({
-        sha: c.id, message: c.message,
-        author: c.author_name || '?',
-        avatar: null,
-        date: c.authored_date
-      })));
-    }
     const pathFilter = req.query.path ? `&path=${encodeURIComponent(req.query.path)}` : '';
     const commits = await gh(req.gh,
       `${R(req)}/commits?sha=${encodeURIComponent(req.query.ref)}&per_page=25&page=${page}${pathFilter}`);
@@ -6003,19 +5797,6 @@ app.get('/api/repo/:owner/:repo/commits', providerSessionAccess, alphaRepository
 });
 app.get('/api/repo/:owner/:repo/commit/:sha', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const id = glId(req);
-      const c = await glFetch(req.gh, `/projects/${id}/repository/commits/${req.params.sha}`);
-      const diffs = await glFetch(req.gh, `/projects/${id}/repository/commits/${req.params.sha}/diff`);
-      return res.json({
-        sha: c.id, message: c.message, author: { name: c.author_name, date: c.authored_date },
-        stats: c.stats || {}, files: (diffs || []).map(d => ({
-          filename: d.new_path,
-          status: d.new_file ? 'added' : d.deleted_file ? 'removed' : d.renamed_file ? 'renamed' : 'modified',
-          additions: 0, deletions: 0, patch: d.diff
-        }))
-      });
-    }
     const c = await gh(req.gh, `${R(req)}/commits/${encodeURIComponent(req.params.sha)}`);
     res.json({
       sha: c.sha, message: c.commit.message, stats: c.stats,
@@ -6174,48 +5955,25 @@ app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryA
 async function enforceProtectedPullMerge(req, number) {
   if (!protectedPatternsForReq(req).length) return;
   const changedPaths = [];
-  if (req.gh.provider === 'gitlab') {
-    const data = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${encodeURIComponent(number)}/changes`);
-    if (data && data.overflow) {
-      throw Object.assign(new Error('This merge request has too many changed files to verify protected paths safely.'), { status: 423, code: 'PROTECTED_PATH_SCAN_INCOMPLETE' });
+  const pr = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}`);
+  if (Number(pr.changed_files || 0) > 1000) {
+    throw Object.assign(new Error('This pull request has more than 1,000 changed files, so protected-path verification cannot be completed safely.'), { status: 423, code: 'PROTECTED_PATH_SCAN_INCOMPLETE' });
+  }
+  for (let page = 1; page <= 10; page++) {
+    const batch = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}/files?per_page=100&page=${page}`);
+    for (const item of Array.isArray(batch) ? batch : []) {
+      if (item && item.previous_filename) changedPaths.push(item.previous_filename);
+      if (item && item.filename) changedPaths.push(item.filename);
     }
-    for (const item of Array.isArray(data && data.changes) ? data.changes : []) {
-      if (item && item.old_path) changedPaths.push(item.old_path);
-      if (item && item.new_path) changedPaths.push(item.new_path);
-    }
-  } else {
-    const pr = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}`);
-    if (Number(pr.changed_files || 0) > 1000) {
-      throw Object.assign(new Error('This pull request has more than 1,000 changed files, so protected-path verification cannot be completed safely.'), { status: 423, code: 'PROTECTED_PATH_SCAN_INCOMPLETE' });
-    }
-    for (let page = 1; page <= 10; page++) {
-      const batch = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}/files?per_page=100&page=${page}`);
-      for (const item of Array.isArray(batch) ? batch : []) {
-        if (item && item.previous_filename) changedPaths.push(item.previous_filename);
-        if (item && item.filename) changedPaths.push(item.filename);
-      }
-      if (!Array.isArray(batch) || batch.length < 100) break;
-    }
+    if (!Array.isArray(batch) || batch.length < 100) break;
   }
   enforceProtectedPaths(req, [...new Set(changedPaths)]);
 }
 
 /* ================= PULL REQUESTS ================= */
-const glState = q => q === 'open' ? 'opened' : q;
-const glDiffCounts = d => { let a = 0, r = 0; for (const l of String(d || '').split('\n')) { if (l.startsWith('+') && !l.startsWith('+++')) a++; else if (l.startsWith('-') && !l.startsWith('---')) r++; } return [a, r]; };
 app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
-    if (req.gh.provider === 'gitlab') {
-      const qs = state === 'all' ? '' : `state=${glState(state)}&`;
-      const mrs = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests?${qs}per_page=30&order_by=updated_at`);
-      return res.json(mrs.map(m => ({
-        number: m.iid, title: m.title, state: m.state === 'merged' ? 'closed' : (m.state === 'opened' ? 'open' : m.state),
-        draft: !!m.draft, merged: m.state === 'merged',
-        user: m.author && m.author.username, avatar: m.author && m.author.avatar_url,
-        head: m.source_branch, base: m.target_branch, updated_at: m.updated_at
-      })));
-    }
     const pulls = await gh(req.gh, `${R(req)}/pulls?state=${state}&per_page=30&sort=updated&direction=desc`);
     res.json(pulls.map(p => ({
       number: p.number, title: p.title, state: p.state, draft: p.draft, merged: !!p.merged_at,
@@ -6226,22 +5984,6 @@ app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAc
 });
 app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const m = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/changes`);
-      const files = (m.changes || []).map(c => {
-        const [a, d] = glDiffCounts(c.diff);
-        return { filename: c.new_path, status: c.new_file ? 'added' : c.deleted_file ? 'removed' : c.renamed_file ? 'renamed' : 'modified', additions: a, deletions: d, patch: c.diff };
-      });
-      return res.json({
-        number: m.iid, title: m.title, body: m.description, state: m.state === 'merged' ? 'closed' : (m.state === 'opened' ? 'open' : m.state),
-        draft: !!m.draft, merged: m.state === 'merged',
-        mergeable: m.merge_status === 'can_be_merged', mergeable_state: m.merge_status,
-        user: m.author && m.author.username, head: m.source_branch, base: m.target_branch,
-        headSha: /^[0-9a-f]{40}$/i.test(String(m.sha || '')) ? String(m.sha).toLowerCase() : null,
-        additions: files.reduce((t, f) => t + f.additions, 0), deletions: files.reduce((t, f) => t + f.deletions, 0),
-        changed_files: files.length, files
-      });
-    }
     const [p, files] = await Promise.all([
       gh(req.gh, `${R(req)}/pulls/${req.params.num}`),
       gh(req.gh, `${R(req)}/pulls/${req.params.num}/files?per_page=100`)
@@ -6260,12 +6002,6 @@ app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryA
   try {
     const { title, head, base, body, draft } = req.body || {};
     if (!title || !head || !base) return res.status(400).json({ error: 'title, head, base required' });
-    if (req.gh.provider === 'gitlab') {
-      const m = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests`, {
-        method: 'POST', body: { title, source_branch: head, target_branch: base, description: body || '' }
-      });
-      return res.json({ ok: true, number: m.iid });
-    }
     const p = await gh(req.gh, `${R(req)}/pulls`, {
       method: 'POST', body: { title, head, base, body: body || '', draft: !!draft }
     });
@@ -6289,18 +6025,6 @@ app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaR
       status: 409, code: 'PULL_HEAD_CHANGED'
     });
     await enforceProtectedPullMerge(req, req.params.num);
-    if (req.gh.provider === 'gitlab') {
-      let out2;
-      try {
-        out2 = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/merge`, {
-          method: 'PUT', body: { squash: method === 'squash', ...(expected ? { sha: expected } : {}) }
-        });
-      } catch (error) {
-        if (expected && error.status === 409) throw headMoved();
-        throw error;
-      }
-      return res.json({ ok: true, sha: out2.merge_commit_sha || out2.sha, message: 'merged' });
-    }
     let out;
     try {
       out = await gh(req.gh, `${R(req)}/pulls/${req.params.num}/merge`, {
@@ -6318,16 +6042,6 @@ app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaR
 app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
     const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
-    if (req.gh.provider === 'gitlab') {
-      const qs = state === 'all' ? '' : `state=${glState(state)}&`;
-      const its = await glFetch(req.gh, `/projects/${glId(req)}/issues?${qs}per_page=30&order_by=updated_at`);
-      return res.json(its.map(i => ({
-        number: i.iid, title: i.title, state: i.state === 'opened' ? 'open' : i.state,
-        user: i.author && i.author.username, avatar: i.author && i.author.avatar_url,
-        comments: i.user_notes_count, updated_at: i.updated_at,
-        labels: (i.labels || []).map(n => ({ name: n, color: '7c6df0' }))
-      })));
-    }
     const issues = await gh(req.gh, `${R(req)}/issues?state=${state}&per_page=30&sort=updated`);
     res.json(issues.filter(i => !i.pull_request).map(i => ({
       number: i.number, title: i.title, state: i.state,
@@ -6339,18 +6053,6 @@ app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryA
 });
 app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read', { allowExperimental: true }), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const [it, notes] = await Promise.all([
-        glFetch(req.gh, `/projects/${glId(req)}/issues/${req.params.num}`),
-        glFetch(req.gh, `/projects/${glId(req)}/issues/${req.params.num}/notes?per_page=50&sort=asc`)
-      ]);
-      return res.json({
-        number: it.iid, title: it.title, body: it.description, state: it.state === 'opened' ? 'open' : it.state,
-        user: it.author && it.author.username, created_at: it.created_at,
-        labels: (it.labels || []).map(n => ({ name: n, color: '7c6df0' })),
-        comments: notes.filter(n => !n.system).map(n => ({ user: n.author && n.author.username, avatar: n.author && n.author.avatar_url, body: n.body, created_at: n.created_at }))
-      });
-    }
     const [i, comments] = await Promise.all([
       gh(req.gh, `${R(req)}/issues/${req.params.num}`),
       gh(req.gh, `${R(req)}/issues/${req.params.num}/comments?per_page=50`)
@@ -6367,10 +6069,6 @@ app.post('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepository
   try {
     const { title, body } = req.body || {};
     if (!title) return res.status(400).json({ error: 'title required' });
-    if (req.gh.provider === 'gitlab') {
-      const it = await glFetch(req.gh, `/projects/${glId(req)}/issues`, { method: 'POST', body: { title, description: body || '' } });
-      return res.json({ ok: true, number: it.iid });
-    }
     const i = await gh(req.gh, `${R(req)}/issues`, { method: 'POST', body: { title, body: body || '' } });
     res.json({ ok: true, number: i.number });
   } catch (e) { fail(res, e); }
@@ -6379,10 +6077,6 @@ app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, a
   try {
     const { body } = req.body || {};
     if (!body) return res.status(400).json({ error: 'body required' });
-    if (req.gh.provider === 'gitlab') {
-      await glFetch(req.gh, `/projects/${glId(req)}/issues/${req.params.num}/notes`, { method: 'POST', body: { body } });
-      return res.json({ ok: true });
-    }
     await gh(req.gh, `${R(req)}/issues/${req.params.num}/comments`, { method: 'POST', body: { body } });
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
@@ -6390,10 +6084,6 @@ app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, a
 app.patch('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write', { allowExperimental: true }), auth, mutationContext('issue.update'), async (req, res) => {
   try {
     const state = req.body && req.body.state === 'closed' ? 'closed' : 'open';
-    if (req.gh.provider === 'gitlab') {
-      await glFetch(req.gh, `/projects/${glId(req)}/issues/${req.params.num}`, { method: 'PUT', body: { state_event: state === 'closed' ? 'close' : 'reopen' } });
-      return res.json({ ok: true, state });
-    }
     await gh(req.gh, `${R(req)}/issues/${req.params.num}`, { method: 'PATCH', body: { state } });
     res.json({ ok: true, state });
   } catch (e) { fail(res, e); }
@@ -6431,28 +6121,6 @@ app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alp
     const event = ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'].includes(req.body && req.body.event) ? req.body.event : 'COMMENT';
     const text = String((req.body && req.body.body) || '');
     if (!/^\d{1,10}$/.test(String(req.params.num))) return res.status(400).json({ error: 'Invalid pull request number', code: 'PULL_NUMBER_INVALID' });
-    /*
-     * GitLab has no review object. A comment is a note on the merge request
-     * and an approval is its approval -- the two things a reviewer here can
-     * mean -- and "request changes" has no counterpart in its API, so it is
-     * refused by name rather than quietly recorded as a comment.
-     */
-    if (req.gh.provider === 'gitlab') {
-      if (event === 'REQUEST_CHANGES') {
-        return res.status(409).json({
-          error: 'GitLab has no "request changes" review. Leave a comment instead, or withhold approval.',
-          code: 'REVIEW_EVENT_UNSUPPORTED'
-        });
-      }
-      if (event === 'COMMENT') {
-        if (!text.trim()) return res.status(400).json({ error: 'A comment review needs a body', code: 'REVIEW_BODY_REQUIRED' });
-        await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/notes`, { method: 'POST', body: { body: text } });
-      } else {
-        await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/approve`, { method: 'POST' });
-        if (text.trim()) await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/notes`, { method: 'POST', body: { body: text } });
-      }
-      return res.json({ ok: true });
-    }
     await gh(req.gh, `${R(req)}/pulls/${req.params.num}/reviews`, {
       method: 'POST', body: { event, body: text }
     });
@@ -6612,46 +6280,13 @@ function parseReport(buf, branch) {
 /* GITCORE-END */
 let _gitPushBusy = false;
 function gitRemoteBase(acct, owner, repo) {
-  const prov = acct.provider || 'github';
-  if (prov === 'gitlab') {
-    const host = String(acct.baseUrl || 'https://gitlab.com').replace(/\/+$/, '');
-    return { url: `${host}/${owner}/${repo}.git`, auth: 'Basic ' + Buffer.from(`${acct.login || 'oauth2'}:${acct.token}`).toString('base64') };
-  }
-  if (prov === 'gitea') {
-    const host = String(acct.baseUrl || '').replace(/\/+$/, '');
-    return { url: `${host}/${owner}/${repo}.git`, auth: 'Basic ' + Buffer.from(`${acct.login}:${acct.token}`).toString('base64') };
-  }
+  assertGithubAccount(acct);
   return { url: `https://github.com/${owner}/${repo}.git`, auth: 'Basic ' + Buffer.from(`x-access-token:${acct.token || acct}`).toString('base64') };
 }
 async function treeLevels(acct, owner, repo, oldSha, parts) {
-  const prov = acct.provider || 'github';
   const levels = [];
-  if (prov === 'gitlab') {
-    const idGl = encodeURIComponent(owner + '/' + repo);
-    let dir = '';
-    for (let i = 0; i <= parts.length; i++) {
-      const entries = [];
-      let page = 1;
-      for (;;) {
-        const qs = `ref=${encodeURIComponent(oldSha)}&per_page=100&page=${page}${dir ? `&path=${encodeURIComponent(dir)}` : ''}`;
-        let batch = [];
-        try { batch = await glFetch(acct, `/projects/${idGl}/repository/tree?${qs}`); }
-        catch (e) { if (e.status === 404) break; throw e; }
-        if (!Array.isArray(batch) || !batch.length) break;
-        for (const e of batch) entries.push({ mode: e.mode === '040000' ? '40000' : e.mode, name: e.name, sha: e.id });
-        if (batch.length < 100) break;
-        if (++page > 50) throw new Error('Directory too large for native push');
-      }
-      levels.push({ entries });
-      if (i < parts.length) dir = dir ? dir + '/' + parts[i] : parts[i];
-    }
-    return levels;
-  }
-  let treeSha;
-  if (prov === 'github') {
-    const cm = await gh(acct, `/repos/${owner}/${repo}/git/commits/${oldSha}`);
-    treeSha = cm.tree.sha;
-  } else treeSha = oldSha; /* gitea resolves commit-ish to its tree */
+  const cm = await gh(acct, `/repos/${owner}/${repo}/git/commits/${oldSha}`);
+  let treeSha = cm.tree.sha;
   for (let i = 0; i <= parts.length; i++) {
     if (treeSha) {
       const t = await gh(acct, `/repos/${owner}/${repo}/git/trees/${treeSha}`);
@@ -6672,9 +6307,7 @@ async function uploadViaGitPush(acct, owner, repo, branch, p, tmp, message, expe
     const remote = gitRemoteBase(acct, owner, repo);
     const authH = remote.auth;
     const gitBase = remote.url;
-    const providerTransport = (acct.provider || 'github') === 'github' ? fetchT : providerFetch;
-    if (providerTransport === providerFetch) await assertPublicBaseCached(acct.baseUrl || 'https://gitlab.com');
-    const ad = await providerTransport(`${gitBase}/info/refs?service=git-receive-pack`, { headers: { Authorization: authH, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` }, redirect: 'error' }, 30000);
+    const ad = await fetchT(`${gitBase}/info/refs?service=git-receive-pack`, { headers: { Authorization: authH, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` }, redirect: 'error' }, 30000);
     if (!ad.ok) throw Object.assign(new Error(`git advertisement failed (${ad.status})`), { status: ad.status });
     const oldSha = parseAdvert(Buffer.from(await ad.arrayBuffer()), `refs/heads/${branch}`);
     if (!oldSha) throw new Error(`Branch ${branch} not found on the remote`);
@@ -6687,7 +6320,7 @@ async function uploadViaGitPush(acct, owner, repo, branch, p, tmp, message, expe
     const who = acct.login || 'nebulaverse';
     const { objs, commitSha } = buildPushObjects(fileBuf, p, levels, oldSha, message, who, `${who}@users.noreply.github.com`);
     const body = buildReceiveBody(oldSha, commitSha, branch, packEncode(objs));
-    const pr = await providerTransport(`${gitBase}/git-receive-pack`, {
+    const pr = await fetchT(`${gitBase}/git-receive-pack`, {
       method: 'POST',
       headers: { Authorization: authH, 'Content-Type': 'application/x-git-receive-pack-request', Accept: 'application/x-git-receive-pack-result', 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` },
       body, redirect: 'error'
@@ -6765,29 +6398,6 @@ app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepository
     if (plan.refusal) throw Object.assign(new Error(plan.refusal.message), { status: plan.refusal.status });
     /* Reported on every upload, so a transport swap is never silent. */
     const transport = { requested: plan.requested, fallback: plan.fallback };
-    if (req.gh.provider === 'gitlab') {
-      if (plan.route === 'git-push') {
-        const result2 = await uploadViaGitPush(req.gh, owner, repo, branch, p, tmp, message, expectedHeadSha);
-        res.json({ ok: true, size, commit: result2.commit, strategy: 'git-push', transport, securityScan });
-        return;
-      }
-      const b64gl = (await fsp.readFile(tmp)).toString('base64');
-      const idGl = encodeURIComponent(owner + '/' + repo);
-      const encGl = encodeURIComponent(p);
-      let exists = true;
-      try { await glFetch(req.gh, `/projects/${idGl}/repository/files/${encGl}?ref=${encodeURIComponent(branch)}`); }
-      catch (e3) { if (e3.status === 404) exists = false; else throw e3; }
-      await glFetch(req.gh, `/projects/${idGl}/repository/files/${encGl}`, {
-        method: exists ? 'PUT' : 'POST',
-        body: {
-          branch, content: b64gl, encoding: 'base64', commit_message: message,
-          ...(exists && expectedHeadSha ? { last_commit_id: expectedHeadSha } : {})
-        }
-      });
-      const lastGl = await glLastCommit(req.gh, idGl, branch);
-      res.json({ ok: true, size, commit: lastGl || 'committed', strategy: 'gitlab-files', transport, securityScan });
-      return;
-    }
     let result;
     if (plan.route === 'lfs') { enforceProtectedPaths(req, [p, '.gitattributes']); result = await uploadViaLFS(req.gh, owner, repo, branch, p, tmp, oid, size, message, expectedHeadSha); result.strategy = 'lfs'; }
     else if (plan.route === 'git-push') {
@@ -7035,7 +6645,6 @@ async function commitTree(token, owner, repo, branch, message, treeEntries, expe
 
 app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('folder.move', { allowExperimental: true }), auth, mutationContext('directory.move'), async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') return res.status(501).json({ error: 'Folder move is GitHub/Gitea-only for now' });
     const { owner, repo } = req.params;
     let { from, to, branch, message, expectedHeadSha } = req.body || {};
     if (!from || !to || !branch) return res.status(400).json({ error: 'from, to, branch required' });
@@ -7108,13 +6717,11 @@ app.post('/api/safety', providerSessionAccess, alphaSafetyMutationAccess, accoun
 });
 
 async function pagedRepoList(req, resource, maxPages = 10) {
-  const pageSize = (req.gh.provider || 'github') === 'gitea' ? 50 : 100;
+  const pageSize = 100;
   const items = [];
   let truncated = false;
   for (let page = 1; page <= maxPages; page++) {
-    const query = (req.gh.provider || 'github') === 'gitea'
-      ? `limit=${pageSize}&page=${page}`
-      : `per_page=${pageSize}&page=${page}`;
+    const query = `per_page=${pageSize}&page=${page}`;
     const batch = await gh(req.gh, `${R(req)}/${resource}?${query}`);
     if (!Array.isArray(batch)) break;
     items.push(...batch);
@@ -7249,7 +6856,6 @@ async function preflightRestoreActions(req, actions) {
   return conflicts;
 }
 async function captureRefsSnapshot(req, includeManifest) {
-  if (req.gh.provider === 'gitlab') throw Object.assign(new Error('Snapshots are GitHub/Gitea-only for now'), { status: 501 });
   const [info, branchPage] = await Promise.all([
     gh(req.gh, `${R(req)}`),
     pagedRepoList(req, 'branches')
@@ -7505,7 +7111,6 @@ app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaR
 
 app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, mutationContext('recovery.restore-refs'), async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') return res.status(501).json({ error: 'Ref restore is GitHub/Gitea-only for now' });
     const { authorization, confirm } = req.body || {};
     if (String(confirm || '').toUpperCase() !== 'RESTORE') return res.status(400).json({ error: 'Type RESTORE to confirm recovery', code: 'RESTORE_CONFIRMATION_REQUIRED' });
     const grant = prepareRestoreAuthorization(req, authorization);
@@ -7556,10 +7161,6 @@ app.get('/api/repo/:owner/:repo/activity', providerSessionAccess, alphaRepositor
       kind: 'nebulaverse-activity', version: 1, generatedAt: new Date().toISOString(),
       owner: req.params.owner, repo: req.params.repo, days, since
     };
-    if (req.gh.provider === 'gitlab') {
-      const cs = await glFetch(req.gh, `/projects/${glId(req)}/repository/commits?since=${encodeURIComponent(since)}&per_page=100`);
-      return res.json({ ...base, commits: cs.map(c => ({ sha: c.id, message: c.title, author: c.author_name, date: c.created_at })), pulls: [], issues: [], releases: [] });
-    }
     const includePulls = requestSupportsCapability(req, 'pulls.read');
     const includeIssues = requestSupportsCapability(req, 'issues.read');
     const includeReleases = requestSupportsCapability(req, 'releases.read');
@@ -7627,17 +7228,14 @@ app.get('/api/activity/recent', providerSessionAccess, alphaRepositoryListAccess
 
     const results = await Promise.all(selected.map(async entry => {
       try {
-        const commits = req.gh.provider === 'gitlab'
-          ? (await glFetch(req.gh, `/projects/${encodeURIComponent(entry.full_name)}/repository/commits?since=${encodeURIComponent(since)}&per_page=20`))
-            .map(c => ({ sha: c.id, message: c.title, author: c.author_name, date: c.created_at }))
-          : (await gh(req.gh, `/repos/${entry.owner}/${entry.name}/commits?since=${encodeURIComponent(since)}&per_page=20`))
-            .map(c => ({
-              sha: c.sha,
-              message: ((c.commit && c.commit.message) || '').split('\n')[0],
-              author: (c.commit && c.commit.author && c.commit.author.name) || '',
-              date: (c.commit && c.commit.committer && c.commit.committer.date)
-                || (c.commit && c.commit.author && c.commit.author.date)
-            }));
+        const commits = (await gh(req.gh, `/repos/${entry.owner}/${entry.name}/commits?since=${encodeURIComponent(since)}&per_page=20`))
+          .map(c => ({
+            sha: c.sha,
+            message: ((c.commit && c.commit.message) || '').split('\n')[0],
+            author: (c.commit && c.commit.author && c.commit.author.name) || '',
+            date: (c.commit && c.commit.committer && c.commit.committer.date)
+              || (c.commit && c.commit.author && c.commit.author.date)
+          }));
         return { repo: entry.full_name, commits };
       } catch (error) {
         /*
@@ -8145,14 +7743,6 @@ app.get('/api/repo/:owner/:repo/code-audit/metrics', providerSessionAccess, alph
  * recorded for a merge nobody asked for.
  */
 async function readPullFacts(req, number) {
-  if (req.gh.provider === 'gitlab') {
-    const m = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${encodeURIComponent(number)}`);
-    return {
-      number, head: String(m.source_branch || ''), base: String(m.target_branch || ''), headSha: String(m.sha || '').toLowerCase(),
-      fork: Boolean(m.source_project_id && m.target_project_id && m.source_project_id !== m.target_project_id),
-      open: m.state === 'opened'
-    };
-  }
   const p = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}`);
   const headRepo = p.head && p.head.repo && p.head.repo.full_name;
   const baseRepo = p.base && p.base.repo && p.base.repo.full_name;
@@ -8268,10 +7858,8 @@ app.get('/api/repo/:owner/:repo/branch-protection', providerSessionAccess, alpha
   try {
     const provider = req.gh.provider || 'github';
     const branch = req.query.branch ? requireBranchName(String(req.query.branch)) : '';
-    const read = provider === 'gitlab'
-      ? apiPath => glFetch(req.gh, `/projects/${glId(req)}${apiPath}`)
-      : apiPath => gh(req.gh, `${R(req)}${apiPath}`);
-    const webBase = provider === 'github' ? 'https://github.com' : provider === 'gitlab' ? (req.gh.baseUrl || 'https://gitlab.com') : req.gh.baseUrl;
+    const read = apiPath => gh(req.gh, `${R(req)}${apiPath}`);
+    const webBase = 'https://github.com';
     res.json(await readBranchProtection({ provider, owner: req.params.owner, repo: req.params.repo, branch, read, webBase }));
   } catch (e) { fail(res, e); }
 });
@@ -8282,14 +7870,8 @@ app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaReposit
     const found = [], sources = [];
     for (const name of MANIFESTS) {
       try {
-        let text = '';
-        if (req.gh.provider === 'gitlab') {
-          const f = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(name)}?ref=${encodeURIComponent(branch || 'HEAD')}`);
-          text = Buffer.from(f.content || '', 'base64').toString('utf8');
-        } else {
-          const f = await gh(req.gh, `${R(req)}/contents/${encodeURIComponent(name)}${branch ? `?ref=${encodeURIComponent(branch)}` : ''}`);
-          text = Buffer.from(f.content || '', 'base64').toString('utf8');
-        }
+        const f = await gh(req.gh, `${R(req)}/contents/${encodeURIComponent(name)}${branch ? `?ref=${encodeURIComponent(branch)}` : ''}`);
+        const text = Buffer.from(f.content || '', 'base64').toString('utf8');
         const pkgs = parseManifest(name, text);
         if (pkgs.length) { sources.push({ file: name, packages: pkgs.length, approximate: name === 'package.json' }); found.push(...pkgs); }
         if (name === 'package-lock.json' && pkgs.length) break;

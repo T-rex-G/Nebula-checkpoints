@@ -17,7 +17,6 @@ const reader = (routes, seen = []) => async path => {
   if (typeof value === 'number') throw fail(value);
   return value;
 };
-const state = (result, id) => result.controls.find(control => control.id === id).state;
 const states = result => Object.fromEntries(result.controls.map(control => [control.id, control.state]));
 
 (async () => {
@@ -94,60 +93,11 @@ const states = result => Object.fromEntries(result.controls.map(control => [cont
     read: reader({ '/branches/main': { protected: true }, '/branches/main/protection': 500, '/rules/branches/main': [] }) }), error => error.status === 500,
     'a provider failure is not read as "no protection"');
 
-  /* ---- GitLab ------------------------------------------------------------------------ */
-  {
-    const result = await readBranchProtection({
-      provider: 'gitlab', owner: 'acme', repo: 'api', branch: 'main', webBase: 'https://gitlab.example.com/',
-      read: reader({
-        '/protected_branches?per_page=100': [
-          { name: 'release-*', push_access_levels: [{ access_level: 40 }], allow_force_push: true },
-          { name: 'main', push_access_levels: [{ access_level: 0 }], allow_force_push: false, code_owner_approval_required: true }
-        ],
-        '': { only_allow_merge_if_pipeline_succeeds: true, merge_method: 'ff', only_allow_merge_if_all_discussions_are_resolved: false },
-        '/approval_rules?per_page=100': [{ approvals_required: 2, protected_branches: [] }],
-        '/push_rule': 404
-      })
-    });
-    assert.deepStrictEqual(states(result), { review: 'on', checks: 'on', 'force-push': 'on', deletion: 'on', signed: 'unknown', linear: 'on', conversation: 'off', admins: 'unknown' });
-    assert.strictEqual(result.controls[0].detail, 'merge requests only, 2 approvals, code owners');
-    assert.strictEqual(result.settingsUrl, 'https://gitlab.example.com/acme/api/-/settings/repository#js-protected-branches-settings');
-
-    const wild = await readBranchProtection({
-      provider: 'gitlab', owner: 'acme', repo: 'api', branch: 'release-2',
-      read: reader({
-        '/protected_branches?per_page=100': [{ name: 'release-*', push_access_levels: [{ access_level: 40 }], allow_force_push: true }],
-        '': { merge_method: 'merge' }
-      })
-    });
-    assert.strictEqual(wild.protected, true, 'a wildcard rule covers the branch');
-    assert.strictEqual(state(wild, 'force-push'), 'off');
-    assert.strictEqual(state(wild, 'review'), 'off');
-
-    const blind = await readBranchProtection({ provider: 'gitlab', owner: 'a', repo: 'b', branch: 'main', read: reader({ '/protected_branches?per_page=100': 403, '': {} }) });
-    assert.strictEqual(blind.access, 'partial');
-    assert.strictEqual(state(blind, 'review'), 'unknown');
-    assert.strictEqual(state(blind, 'deletion'), 'unknown');
-  }
-
-  /* ---- Gitea ------------------------------------------------------------------------- */
-  {
-    const result = await readBranchProtection({
-      provider: 'gitea', owner: 'acme', repo: 'api', branch: 'main', webBase: 'https://git.example.com',
-      read: reader({
-        '/branches/main': { protected: true, effective_branch_protection_name: 'main' },
-        '/branch_protections/main': { required_approvals: 1, enable_status_check: true, status_check_contexts: ['ci'], require_signed_commits: true, enable_push: false, apply_to_admins: false }
-      })
-    });
-    assert.deepStrictEqual(states(result), { review: 'on', checks: 'on', 'force-push': 'on', deletion: 'on', signed: 'on', linear: 'off', conversation: 'unknown', admins: 'off' });
-    assert.strictEqual(result.settingsUrl, 'https://git.example.com/acme/api/settings/branches');
-
-    const restricted = await readBranchProtection({
-      provider: 'gitea', owner: 'acme', repo: 'api', branch: 'main',
-      read: reader({ '/branches/main': { protected: true, effective_branch_protection_name: 'main', required_approvals: 2 }, '/branch_protections/main': 403 })
-    });
-    assert.strictEqual(restricted.access, 'partial');
-    assert.strictEqual(state(restricted, 'review'), 'on');
-    assert.strictEqual(state(restricted, 'signed'), 'unknown');
+  for (const provider of ['gitlab', 'gitea']) {
+    let reads = 0;
+    await assert.rejects(readBranchProtection({ provider, owner: 'acme', repo: 'api', branch: 'main',
+      read: async () => { reads++; return {}; } }), error => error.code === 'BRANCH_RULES_UNSUPPORTED');
+    assert.strictEqual(reads, 0, 'retired branch rule readers never contact the provider');
   }
 
   await assert.rejects(readBranchProtection({ provider: 'svn', owner: 'a', repo: 'b', branch: 'main', read: reader({}) }), error => error.status === 501);

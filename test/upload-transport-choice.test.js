@@ -193,10 +193,10 @@ for (const selection of [
   assert(route.includes(selection), `the route must select its transport with: ${selection}`);
 }
 
-/* And every upload that lands says how it was carried, on every provider path,
+/* And every upload that lands says how it was carried through the shared response,
  * so a swap is never something the reader has to infer. */
 const landings = route.match(/res\.json\(\{ ok: true[^\n]*\)/g) || [];
-assert(landings.length >= 3, 'the upload route must have its success responses locatable');
+assert.strictEqual(landings.length, 1, 'all GitHub upload strategies must converge on the shared success response');
 for (const landing of landings) {
   assert(/\btransport\b/.test(landing), `a successful upload must report its transport: ${landing}`);
 }

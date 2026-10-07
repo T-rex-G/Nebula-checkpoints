@@ -17,6 +17,20 @@ function classify(path, method = 'GET', custom = headers) {
   return policy.classifyApiRequest(new URL(`https://app.example${path}`), method, custom);
 }
 
+assert.strictEqual(policy.validRepoKey('account'), true);
+assert.strictEqual(policy.validRepoKey('github:acme/demo'), true);
+for (const provider of ['gitlab', 'gitea']) {
+  const retiredKey = `${provider}:acme/demo`;
+  const retiredHeaders = new Headers(headers);
+  retiredHeaders.set('x-nv-offline-repo', retiredKey);
+  assert.strictEqual(policy.validRepoKey(retiredKey), false);
+  assert.strictEqual(classify('/api/repo/acme/demo/tree', 'GET', retiredHeaders).mode, 'network-only',
+    'a retired repository key must not read a private cache');
+  assert.strictEqual(policy.responseMatchesBinding(retiredHeaders, {
+    mode: 'private-cache', scope: headers.get('x-nv-offline-scope'), repoKey: retiredKey
+  }), false, 'matching legacy headers cannot make a retired repository cacheable');
+}
+
 assert.deepStrictEqual(classify('/api/repo/acme/demo/tree?path=&ref=main').mode, 'private-cache');
 assert.deepStrictEqual(classify('/api/repo/acme/demo/file?path=README.md&ref=main').mode, 'private-cache');
 assert.deepStrictEqual(classify('/api/repo/acme/demo/commits?ref=main&page=1').mode, 'private-cache');

@@ -96,46 +96,34 @@ assertScopeInvalid(
   }),
   'GitHub authority must be an explicit own string field'
 );
-assert.strictEqual(canonicalRepositoryScope({
-  provider: 'gitea',
-  authority: 'https://Gitea.Example.com/',
-  owner: 'Acme',
-  repo: 'Demo'
-}), 'gitea:gitea.example.com/acme/demo');
-assert.strictEqual(canonicalRepositoryScope({
-  provider: 'GitLab',
-  authority: 'GitLab.Example.com',
-  owner: 'Acme',
-  repo: 'Demo'
-}), 'gitlab:gitlab.example.com/acme/demo');
-assert.strictEqual(canonicalRepositoryScope({
-  provider: 'gitea',
-  authority: 'https://XN--BCHER-KVA.Example/',
-  owner: 'Acme',
-  repo: 'Demo'
-}), 'gitea:xn--bcher-kva.example/acme/demo');
+for (const provider of ['gitlab', 'GitLab', 'gitea']) {
+  assertScopeInvalid(() => canonicalRepositoryScope({ provider, authority: 'github.com', owner: 'acme', repo: 'demo' }),
+    'retired providers must be rejected');
+  assertScopeInvalid(() => parseRepositoryScope(`${provider}:github.com/acme/demo`),
+    'stored retired repository scopes cannot admit live access');
+}
 
 for (const authority of [
-  'http://gitea.example.com',
-  'ftp://gitea.example.com',
-  'https://user@gitea.example.com',
-  'https://user:password@gitea.example.com',
-  'https://gitea.example.com:443',
-  'https://gitea.example.com/path',
-  'https://gitea.example.com/.',
-  'https://gitea.example.com/%2e%2e',
-  'https://gitea.example.com?',
-  'https://gitea.example.com?query=yes',
-  'https://gitea.example.com#',
-  'https://gitea.example.com#fragment',
-  '//gitea.example.com',
-  'gitea.example.com/path',
-  'gitea_example.com',
+  'http://github.com',
+  'ftp://github.com',
+  'https://user@github.com',
+  'https://user:password@github.com',
+  'https://github.com:443',
+  'https://github.com/path',
+  'https://github.com/.',
+  'https://github.com/%2e%2e',
+  'https://github.com?',
+  'https://github.com?query=yes',
+  'https://github.com#',
+  'https://github.com#fragment',
+  '//github.com',
+  'github.com/path',
+  'github_com',
   'gitea..example.com'
 ]) {
   assertScopeInvalid(
     () => canonicalRepositoryScope({
-      provider: 'gitea',
+      provider: 'github',
       authority,
       owner: 'acme',
       repo: 'demo'
@@ -145,28 +133,28 @@ for (const authority of [
 }
 
 for (const authority of [
-  'https://gitea.example.com/./',
-  'gitea.example.com/./',
-  'https://gitea.example.com/../admin',
-  'gitea.example.com/../admin',
-  'https://gitea.example.com/%2e',
-  'gitea.example.com/%2e',
-  'https://gitea.example.com/%2e%2e/admin',
-  'gitea.example.com/%2e%2e/admin',
-  'https://gitea.example.com/%2fadmin',
-  'gitea.example.com/%2fadmin',
-  'https://gitea.example.com\\@evil.example',
-  'gitea.example.com\\@evil.example',
+  'https://github.com/./',
+  'github.com/./',
+  'https://github.com/../admin',
+  'github.com/../admin',
+  'https://github.com/%2e',
+  'github.com/%2e',
+  'https://github.com/%2e%2e/admin',
+  'github.com/%2e%2e/admin',
+  'https://github.com/%2fadmin',
+  'github.com/%2fadmin',
+  'https://github.com\\@evil.example',
+  'github.com\\@evil.example',
   'https://gitea%2eexample.com',
   'gitea%2eexample.com',
-  'https://gitea.example.com%2f.evil.example',
-  'gitea.example.com%2f.evil.example',
-  'https://gitea.example.com\t.evil.example',
-  'gitea.example.com\t.evil.example',
-  'https://gitea.example.com\n.evil.example',
-  'gitea.example.com\n.evil.example',
-  'https://gitea.example.com\0.evil.example',
-  'gitea.example.com\0.evil.example',
+  'https://github.com%2f.evil.example',
+  'github.com%2f.evil.example',
+  'https://github.com\t.evil.example',
+  'github.com\t.evil.example',
+  'https://github.com\n.evil.example',
+  'github.com\n.evil.example',
+  'https://github.com\0.evil.example',
+  'github.com\0.evil.example',
   '127.0.0.1',
   'https://127.0.0.1',
   '127.1',
@@ -182,12 +170,12 @@ for (const authority of [
 ]) {
   assertScopeInvalid(
     () => canonicalRepositoryScope({
-      provider: 'gitea',
+      provider: 'github',
       authority,
       owner: 'acme',
       repo: 'demo'
     }),
-    `lexically unsafe Gitea authority must be rejected: ${JSON.stringify(authority)}`
+    `lexically unsafe GitHub authority must be rejected: ${JSON.stringify(authority)}`
   );
 }
 
@@ -312,14 +300,8 @@ for (const invalid of [
 }
 
 assert.deepStrictEqual(
-  parseRepositoryScope('GitLab:GITLAB.COM/Acme/Demo'),
-  {
-    provider: 'gitlab',
-    authority: 'gitlab.com',
-    owner: 'acme',
-    repo: 'demo',
-    canonical: 'gitlab:gitlab.com/acme/demo'
-  }
+  parseRepositoryScope('GitHub:GITHUB.COM/Acme/Demo'),
+  { provider: 'github', authority: 'github.com', owner: 'acme', repo: 'demo', canonical: 'github:github.com/acme/demo' }
 );
 assert.throws(
   () => parseRepositoryScope('github:github.com/acme/demo/extra'),
@@ -339,6 +321,29 @@ for (const invalid of [
   );
 }
 
+const githubTarget = { provider: 'github', authority: 'github.com', owner: 'acme', repo: 'demo' };
+for (const retired of ['gitlab:gitlab.com/acme/old', 'gitea:git.example/acme/old']) {
+  const storedScopes = ['github:github.com/acme/demo', retired];
+  assert.strictEqual(repositoryAllowed(storedScopes, githubTarget), true,
+    'a well-formed historical scope must not revoke a separately granted GitHub scope');
+  assert.strictEqual(repositoryAllowed(storedScopes, { ...githubTarget, repo: 'other' }), false);
+  assert.strictEqual(repositoryAllowed([retired], githubTarget), false,
+    'historical-only invitations must not acquire GitHub access');
+  assert.strictEqual(inviteUnbound([retired]), false, 'historical-only invitations remain bound');
+  assert.deepStrictEqual(storedScopes, ['github:github.com/acme/demo', retired], 'reading scopes must not rewrite stored grants');
+  assertScopeInvalid(() => parseRepositoryScope(retired), 'fresh invitation parsers continue rejecting retired scopes');
+}
+for (const malformed of [
+  'gitlab:gitlab.com/acme/../old', 'gitlab:127.0.0.1/acme/old', 'gitea:git.example/../old',
+  'gitlab:gitlab.com/acme/', 'gitea:git.example/acme/old/extra', 'gitlab:gitlab.com:443/acme/old',
+  'unknown:github.com/acme/demo', 'not-a-scope', null, {}, 42
+]) {
+  assert.strictEqual(repositoryAllowed(['github:github.com/acme/demo', malformed], githubTarget), false,
+    'malformed and unknown historical scopes must still fail closed');
+}
+assert.strictEqual(repositoryAllowed(['github:github.com/acme/demo', ,], githubTarget), false,
+  'an incomplete stored scope list must fail closed');
+
 assert.strictEqual(repositoryAllowed(
   [
     'github:github.com/acme/demo',
@@ -346,10 +351,10 @@ assert.strictEqual(repositoryAllowed(
   ],
   { provider: 'github', authority: 'github.com', owner: 'ACME', repo: 'DEMO' }
 ), true);
-assert.strictEqual(repositoryAllowed(
+assertScopeInvalid(() => repositoryAllowed(
   ['github:github.com/acme/demo'],
   { provider: 'gitlab', authority: 'github.com', owner: 'acme', repo: 'demo' }
-), false);
+), 'retired request scopes are rejected');
 assert.strictEqual(repositoryAllowed(
   ['github:github.com/acme/demo'],
   { provider: 'github', authority: 'github.com', owner: 'acme', repo: 'production' }

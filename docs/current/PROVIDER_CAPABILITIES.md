@@ -20,6 +20,15 @@ release gates have passed; **experimental** means safe but limitation-labelled;
 **planned** means not yet implemented; and **unsupported** is represented by the
 registry status `Unavailable`.
 
+## Provider boundary
+
+GitHub is the only supported repository provider and the only provider accepted
+by golden qualification. GitLab and Gitea connection routes, capability entries
+and live jobs are removed. An old connection is filtered or invalidated locally;
+its credential must not be reused as a GitHub credential or sent to its former
+provider. Revoke the old credential manually in that provider's settings.
+Historical provider artifacts do not qualify the current candidate.
+
 ## Vocabulary
 
 | Status | Meaning |
@@ -39,10 +48,8 @@ registry status `Unavailable`.
 `Supported` is not a synonym for `Provider-verified`.
 
 Every `Experimental` path requires an explicit UI and server-route opt-in.
-Provider-specific `Unavailable` entries still fail closed. GitLab and Gitea
-recovery opt-ins are limited to read-only comparison/preview routes, and their
-governance opt-ins are limited to view routes; recovery and governance
-mutations remain blocked.
+`Unavailable` entries still fail closed. Unsupported provider selections are
+rejected before credential resolution or transport.
 
 ## GitHub — evidence-bounded alpha subset
 
@@ -259,9 +266,8 @@ control that would change it, and everything its collaborators share, is put
 away, and the provider refuses them regardless. GitHub answers the
 collaborator-permission question only to people who can push; for anyone else
 the resolver asks the repository itself, and a public one grants the reader
-level everyone has on it, recorded with the source `github.repository.public`
-(`gitlab.project.public` for a public GitLab project the account is not a
-member of). Only the routes whose data is the reader's own accept it -- their
+level everyone has on it, recorded with the source `github.repository.public`.
+Only the routes whose data is the reader's own accept it -- their
 audits, kept audits and watch, and their exposure scans, all keyed by identity
 -- and everything a repository's collaborators share, its governance above
 all, refuses it. Checking a credential, probing readability and accepting an
@@ -296,57 +302,8 @@ reached is an error, not a clean report. One check per identity at a time, a
 new one at most every fifteen seconds, and any one site at most every thirty
 seconds, whoever asks.
 
-## GitLab — registry-qualified subset
+## Unsupported selections
 
-Counted from the capability registry: 13 Supported, 3 Experimental, 21 Unavailable. Of those, 11 carry
-`Provider-verified` evidence.
-
-| Status | Capabilities |
-| --- | --- |
-| Supported | repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; merge-request and issue writes; site check; upload security |
-| Experimental | dependency audit; read-only recovery comparison; governance views |
-| Unavailable | repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning and repository audit, which have no repository reader for this provider |
-
-Repository read, branch read/write, bounded file read/write/delete, the recursive
-tree read, and the merge-request and issue list/detail reads use
-`Provider-verified` evidence. Upload security, dependency audit, recovery, and
-governance use `Deterministic` evidence; the latter three remain experimental,
-because their provider coverage is genuinely narrower: recovery here compares
-and previews but does not restore, and governance shows policy without enforcing
-it on provider mutations.
-
-Merge-request and issue writes use `Provider-verified` evidence, through the
-product's own GitLab requests: an issue is created, noted and closed by state
-event, each read back, and the `read_api` credential is refused; a merge request
-between two disposable branches is reviewed by note, refused a merge against a
-head it no longer has, and merged against the head it reported, after GitLab
-has finished checking that it can be. GitLab has no review object, so a comment
-review is a note and an approval is its approval; "request changes" has no
-counterpart in its API and is refused by name.
-
-The site check is `Deterministic` and the same as GitHub's, since it reads the
-deployed site rather than the repository; the repository audit is unavailable
-until a GitLab reader exists, and the screen says so rather than showing an
-empty result.
-
-## Gitea — registry-qualified subset
-
-Counted from the capability registry: 7 Supported, 4 Experimental, 26 Unavailable. Of those, 5 carry
-`Provider-verified` evidence.
-
-| Status | Capabilities |
-| --- | --- |
-| Supported | repository and branch reads; bounded file read/write/delete; site check; upload security |
-| Experimental | tree read; dependency audit; read-only recovery comparison; governance views |
-| Unavailable | repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning and repository audit, which have no repository reader for this provider |
-
-Repository read, branch read, and bounded file read/write/delete use
-`Provider-verified` evidence. Upload security, dependency audit, recovery, and
-governance use `Deterministic` evidence; the latter three remain experimental.
-The site check is `Deterministic` and the same as GitHub's, since it reads the
-deployed site rather than the repository. Tree read remains `Experimental` +
-`Inferred`. Gitea batch mutation remains
-unavailable because only single-file Contents API write and delete received
-provider qualification.
-
-Unknown providers, deployments, and capabilities default to `Unavailable`.
+Unknown or retired providers, unknown deployments, and unknown capabilities
+fail closed. They cannot supply a live-provider qualification artifact or gain
+support through a legacy session, scope or browser selection.

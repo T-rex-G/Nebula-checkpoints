@@ -12,7 +12,7 @@ class CapabilityError extends Error {
 }
 
 const FEATURE_RX = /^[a-z][a-z0-9.-]{1,80}$/;
-const PROVIDER_RX = /^(github|gitlab|gitea)$/;
+const PROVIDER_RX = /^github$/;
 const CAPABILITY_STATUSES = Object.freeze(['Supported', 'Experimental', 'Unavailable']);
 const EVIDENCE_STATES = Object.freeze(['Provider-verified', 'Deterministic', 'Inferred', 'Stale', 'Unavailable']);
 const LEGACY = Object.freeze({
@@ -74,7 +74,7 @@ function resolveCapability(document, context) {
   const provider = String(context.provider || 'github').toLowerCase();
   const deployment = String(context.deployment || 'hosted-alpha');
   const feature = String(context.feature || '');
-  const tuple = document.providers?.[provider]?.[deployment]?.[feature];
+  const tuple = PROVIDER_RX.test(provider) ? document.providers?.[provider]?.[deployment]?.[feature] : undefined;
   const fallback = document.defaults;
   const [status, evidenceState, reason] = tuple || [fallback.status, fallback.evidenceState, fallback.reason];
   const restriction = provider === 'github' && status !== 'Unavailable'
@@ -92,7 +92,7 @@ function projectCapabilities(document, context) {
   const provider = String(context.provider || 'github').toLowerCase();
   const deployment = String(context.deployment || 'hosted-alpha');
   const features = {};
-  for (const feature of Object.keys(document.providers?.[provider]?.[deployment] || {}).sort()) {
+  for (const feature of Object.keys(PROVIDER_RX.test(provider) ? document.providers?.[provider]?.[deployment] || {} : {}).sort()) {
     features[feature] = resolveCapability(document, { ...context, provider, deployment, feature });
   }
   return deepFreeze({ provider, authority: String(context.authority || ''), deployment, features });

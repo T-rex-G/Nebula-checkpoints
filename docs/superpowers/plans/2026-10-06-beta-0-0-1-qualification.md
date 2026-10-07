@@ -1,12 +1,12 @@
 # Beta 0.0.1 Qualification Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to execute this plan.
+> **Execution boundary:** This document is a future qualification plan. The current PR implements the owner's GitHub-only product and qualification scope and documentation corrections. Leave the PR open for another AI to review. Do not merge, deploy, dispatch live qualification, change hosted settings or launch from this plan without a separate instruction.
 
-**Status:** Approved scope, owner decisions of 6 October 2026. Reviewed against `main` at `de0e10f` and against the running system the same day. It is not qualification evidence and changes no gate. The generated project state keeps public alpha at **NO-GO** until the gates below pass for one exact candidate. Render redeploys `main` on every merge, so merging a document redeploys the service with no change in behavior. This plan authorizes no live-provider dispatch, migration, configuration change or launch.
+**Status:** Updated for the owner's 7 October 2026 decision: GitHub is the only product provider and the only provider in golden qualification. This supersedes the earlier multi-provider scope. The 6 October observations below are historical baseline notes from `main` at `de0e10f`, not a fresh live check of this PR. This plan is not qualification evidence and changes no gate. The generated project state remains **NO-GO** until all required gates pass for one exact candidate. The previously observed Render auto-deploy means merging can affect the hosted service; this PR must remain unmerged for independent review.
 
-**Goal:** Qualify the product that exists today as `0.0.1-beta.1`, an open public beta with a recorded **GO**. Every capability the product shows is Supported and evidenced, and nothing anywhere is Experimental. Every release gate passes for one exact candidate, and no residue is left open. Nothing new is built except what qualification itself requires.
+**Goal:** Prepare a GitHub-only candidate for possible qualification as `0.0.1-beta.1`. Open public beta remains a future, evidence-gated decision. At qualification, every advertised beta capability must be Supported with applicable evidence; an unqualified capability stays truthfully labelled and excluded from the qualified golden path until it is qualified or removed. All required release gates must pass on one exact candidate. This PR does not promote capabilities, open access or record a GO.
 
-**Scope boundary:** Clerk identity, the AI layer, billing, and the deep comparison with Sentry, Strix and others come after this plan. They are listed under [After beta 0.0.1](#after-beta-001) and get plans of their own.
+**Scope boundary:** Clerk identity, the AI layer and billing come after this plan. They are listed under [After beta 0.0.1](#after-beta-001) and get plans of their own.
 
 **Architecture:** Unchanged:
 
@@ -15,11 +15,9 @@
 - unbundled browser scripts;
 - the server-owned capability registry.
 
-This follows the infrastructure plan of 5 October: stay on free Render and Neon while they remain useful. Access is open to anyone:
+The proposed hosting remains free Render and Neon while they meet measured requirements. The product supports GitHub PAT, GitHub OAuth and optional configured GitHub App connections. GitLab and Gitea login, accounts, provider APIs, product controls and live-qualification jobs are removed. Existing non-GitHub connections must fail closed without contacting their former provider. Their remote credentials must be revoked by the owner in that provider's settings; local removal cannot revoke them. Retained audit records follow existing retention and explicit cleanup rules.
 
-- sign-in is GitHub OAuth;
-- GitLab and Gitea connect with personal tokens;
-- there is no invitation gate.
+A future open beta may remove the invitation gate only after its access, abuse, privacy and release gates pass. An observed access mode of `off` is configuration state, not qualification.
 
 **Tech Stack:** Node.js 22.23.1 (uplift decided in Task A3), Express, `pg`, PostgreSQL 17 and Playwright. No new runtime dependency.
 
@@ -28,21 +26,21 @@ This follows the infrastructure plan of 5 October: stay on free Render and Neon 
 | Decision | Choice |
 | --- | --- |
 | Version | `0.0.1-beta.1`; a later qualified candidate becomes `0.0.1-beta.2`, and so on |
-| GitLab and Gitea | Promote what exists, under names that say exactly what it does; prove each claim live; hide the rest |
+| Product and golden qualification provider | GitHub only; remove GitLab and Gitea integration and qualification surfaces, rather than promote their former subsets |
 | GitHub's four experimental capabilities | Qualify each one live |
-| Access | Open to anyone, with no invitation gate |
+| Access | Open beta is a future goal; no access-mode change or launch is authorized by this PR |
 | Hosting | Render Free and Neon Free |
 | Limits | 16 MB git data, 16 MB native push, 25 MB upload, unless the owner sets others |
 
-## Verified against the running system on 6 October 2026
+## Historical baseline observations recorded on 6 October 2026
 
-Documents can lag behind the code, so every claim in this plan was checked against the system itself. Where a document and the system disagree, the observed value wins, and the disagreement becomes a residue below.
+The original plan recorded the observations below against `de0e10f`. They have not been independently repeated for this PR. They identify checks to repeat against the eventual candidate; they do not establish its current deployment, permissions, limits or qualification. Do not infer release readiness from a live setting or registry label.
 
 | What was checked | Observed | Source |
 | --- | --- | --- |
 | Deployed code | The live release digest `f41095e0…edd3` equals the digest computed from a clean checkout of `de0e10f`: the service runs merged `main`, including `proxy-addr` 2.0.8. | `/api/version`; `computeReleaseFingerprint`; Render deploy `dep-db2dn5vlk1mc738qfleg` |
 | Capability registry | The live projection matches `config/public-alpha-capabilities.json` entry for entry, for all three providers. | `/api/capabilities?provider=…` |
-| Access mode | `off`, which is right for an open beta. `render.yaml` declares `invite`, so the dashboard overrides the blueprint. | `/api/alpha/status`, `/api/config` |
+| Access mode | Reported as `off` while `render.yaml` declares `invite`. This drift does not prove open-beta readiness. | `/api/alpha/status`, `/api/config` |
 | Hosted limits | Git data 95 MB, native push 95 MB, upload 100 MB. `render.yaml` and the published limitations say 16, 16 and 25 MB. | `/api/config` |
 | GitHub App | Disabled; sign-in is OAuth only. | `/api/config` |
 | Hosting | Render Free, one instance, auto-deploy of `main` on every commit. The first `/healthz` after idle timed out at 30 s; later calls answered in 0.3–0.7 s. | Render service `srv-dabg6ufqj5pc739takeg`; timed probes |
@@ -53,16 +51,15 @@ Documents can lag behind the code, so every claim in this plan was checked again
 | Production audit | A critical advisory against `proxy-addr` (GHSA-jqcg-44mw-7w3h) turned every branch red on 6 October. It was fixed in PR #80 and is deployed. | `node scripts/audit-production.js` |
 | Public copy | The landing page tells visitors that features are marked "Experimental, with the reason". It makes no AI claim: its FAQ states the audit is deterministic, not an AI. | `public/index.html` |
 
-## Existence audit
+## Baseline existence audit
 
-Every capability was traced from registry to route, interface, tests and live probe, using the code rather than the documents.
+These counts and coverage statements were recorded for `de0e10f`; the GitHub-only change requires a fresh registry, route and test inventory. Registry evidence maturity does not mean the current candidate passed live qualification.
 
 - **GitHub: 33 Supported.**
   - The 26 Provider-verified capabilities each map to named probes in `src/qualification-evidence.js`. Examples: `file.write` maps to `expected-head-write`, `conditional-update`, `stale-head` and `permission-denial`; `lfs` maps to `lfs-object-upload`.
   - The 7 Deterministic capabilities are fixture-tested rules over a Provider-verified reader: access surface, code audit, dependency audit, governance, recovery, site check and upload security.
   - Four are Experimental: `repository.create`, `repository.delete`, `notifications` and `live-events`.
-- **GitLab:** 13 Supported (11 Provider-verified), 3 Experimental, 21 Unavailable.
-- **Gitea:** 7 Supported (5 Provider-verified), 4 Experimental, 26 Unavailable.
+- **Retired-provider baseline:** GitLab and Gitea had narrower capability sets. Their former implementation and evidence do not grant support in the GitHub-only candidate.
 - **The probes have not run on current code.** They last ran on 3–7 September, against code about 290 commits older, so G3 must run again.
 - **Server routes.** Of 176 `/api` routes, 141 sit behind `capabilityAccess`.
   - 108 of those guards accept `allowExperimental`, across 26 features.
@@ -81,7 +78,7 @@ The owner's prototype describes where the product is heading. Beta 0.0.1 qualifi
 | --- | --- | --- | --- |
 | Entry points | Web application; outbound governance webhooks and signed exports for other systems | Notifications: governance notifications exist; the GitHub inbox is Experimental | AI assistant; public API with keys; MCP |
 | AI orchestrator, model gateway | — | — | No model is called anywhere in the code |
-| Context and evidence | Repository context (Galaxies: files, branches, pull/merge requests, issues, activity). Uranus with OSV, EPSS and CISA KEV, secret detection with verification, static analysis. History scans; verified live events | Runtime context: the site check reads hosted URLs; the rendered audit is off; YARA is optional and off | Telemetry, artifacts, environment configuration, Trivy |
+| Context and evidence | Repository context (Galaxies: files, branches, pull/merge requests, issues, activity). Uranus with OSV, EPSS and CISA KEV, secret detection with verification, static analysis. History scans; verified live events | Runtime context: the site check reads hosted URLs; the rendered audit is off; YARA is optional and off | Telemetry, artifacts, environment configuration |
 | Analysis | Neural relationship graph with Explain this connection (shortest path) and recovery impact preview; risk scoring; Shadow Access Radar (GitHub); deterministic narration, Fix first and assistant prompts; leads "to confirm" with their decisive fact; credential verification; human triage | — | AI explanation and AI confidence |
 | Policy and authorization | Governance policies through the mutation gateway, reviews with separation of duties, observe/warn/block, Safe Passage | Scoped grants: step-up, restore and single-use guards | Short-lived capability grants for agents |
 | Execution | Repository actions; Uranus and Exposure; site check; read-only mode, protected paths, sync freeze, session revocation; recovery snapshots, emergency manifests, compare and restore preview | — | Isolated workers for untrusted jobs |
@@ -91,7 +88,7 @@ The owner's prototype describes where the product is heading. Beta 0.0.1 qualifi
 
 ## Documents that no longer describe the current state
 
-Each of the 37 current documents in the manifest was read against the code and the live system; the 24 development plans and specifications are records and were not. Claims that check out are left alone: the Uranus benchmark (138 cases, 100% precision, 98% recall, re-run on 6 October), the audit platform guide, the capability counts generated from the registry, and README's descriptions of live events, recovery preview and activity export.
+The original review inventoried current documents against the baseline. Recheck these discrepancies against the candidate before editing their claims. Historical benchmark results and live observations remain dated evidence, not a new test result from this documentation update.
 
 | Document | Stale claim | Observed truth | Fixed in |
 | --- | --- | --- | --- |
@@ -115,7 +112,7 @@ Each of the 37 current documents in the manifest was read against the code and t
 | --- | --- | --- |
 | G1 Automated exact-archive qualification | Passes on every pull request; recorded only for the August baseline | F1, F3 |
 | G2 Independent review | Passed only for the August baseline | F3 |
-| G3 Live provider: GitHub, GitLab, Gitea | Last executed in September; never on current `main` | F4 |
+| G3 Live provider: GitHub | Baseline history only; fresh GitHub evidence required for the exact candidate | F4 |
 | G4 Hosted Render/Neon | Never executed | F5 |
 | G5 Manual accessibility: VoiceOver iOS and a desktop screen reader | No record | F6 |
 | G6 Final release decision | Not started | F7 |
@@ -129,7 +126,7 @@ Each of the 37 current documents in the manifest was read against the code and t
    Everything else is Unavailable and absent from the interface: not greyed out, labelled or explained in place. The server still refuses it before transport.
 2. **One exact candidate passes G1–G6.** Each gate's evidence names that candidate's commit, tree and archive SHA-256.
 3. **Every residue is closed for real.** R1–R20 below are each closed by code, by an applied setting that has been read back, or by a recorded decision that removes the surface. None is closed by a limitation entry.
-4. **The documents tell the beta truth.** Current documents and the generated state describe the beta, and the alpha lineage moves to history unchanged. No current document, screen or API response says Experimental, Unqualified, Pending or NO-GO for the beta candidate.
+4. **The documents tell the qualification truth.** Current documents and generated state preserve Experimental, Unqualified, Pending and NO-GO wherever evidence requires them. Only verified exact-candidate evidence can change a gate or maturity claim. Historical records remain history; a cosmetic wording change cannot close a release blocker.
 5. **No known serious defects.**
    - Zero critical or high production-audit findings.
    - Zero known critical or high defects.
@@ -143,11 +140,7 @@ Each of the 37 current documents in the manifest was read against the code and t
 | --- | --- | --- | --- |
 | GitHub | `repository.create`, `repository.delete`, `notifications` (Experimental, Deterministic) | Proven live with a qualification bot account or organization | A4 |
 | GitHub | `live-events` (Experimental, Inferred) | Proven live inside the hosted run: webhook, push, verified event, cleanup | A4, F5 |
-| GitLab, Gitea | `recovery` (Experimental) | Split. `recovery.compare` covers compare and preview, which exist, and becomes Supported after a live proof. Restore stays Unavailable and hidden. | A5 |
-| GitLab, Gitea | `governance` (Experimental) | Split. `governance.view` covers policy views, which exist, and becomes Supported after a live proof. Enforcement on provider mutations stays Unavailable and hidden. | A5 |
-| GitLab, Gitea | `dependency-audit` (Experimental) | Proven live: the harness writes a manifest fixture, and the product reports its packages | A5 |
-| Gitea | `tree.read` (Experimental, Inferred) | Proven live: a recursive tree compared with the files written | A5 |
-| GitLab, Gitea | 21 and 26 Unavailable | Hidden from the interface; the server still refuses them | A6 |
+| Retired providers | GitLab and Gitea product integrations and live jobs | Remove their connection, transport, UI, registry and qualification surfaces; reject legacy selections before egress. Retain historical evidence only as history. | A5 |
 
 ## Residue
 
@@ -182,7 +175,7 @@ R8 (the live service is not a cohort deployment) is subsumed by R12 and R17. R9 
 - **Guarded egress.** Every outbound request goes through guarded transport.
 - **Additive migrations.** Migrations are additive and append-only, allocated from current `main` (`031` onward). No destructive SQL runs without the owner's explicit approval.
 - **Live qualification stays confined.** It touches only pre-created `nvx-` sandbox targets and their disposable branches, and the qualification account or organization for create and delete.
-- **Merge only on a fully green head.** Every check must pass. Fixtures that resemble credentials are built from split strings.
+- **Keep this PR open.** The owner requires another AI review and explicitly forbids merging. Green checks do not grant merge, deployment or live-dispatch authorization. Fixtures that resemble credentials are built from split strings.
 
 ## Phase A — Close the residue
 
@@ -249,33 +242,21 @@ Closes R3.
 
 **Verify:** A sanitized live artifact and the registry contract.
 
-### Task A5: Give GitLab and Gitea honest names, then prove them
+### Task A5: Remove retired providers from the product and golden qualification
 
-**Files:**
-
-- The registry and its contract.
-- The recovery and governance route guards in `server.js`.
-- The capability UI seam.
-- `src/qualification-evidence.js`.
-- The GitLab and Gitea harnesses.
+**Files:** Provider registry, login/account/session boundaries, `server.js` provider routes and helpers, Git transport, governance scopes and authorization, browser controls and private-cache policy, live qualification workflow/harnesses, evidence validators, and current provider/operator documents.
 
 **Red:**
 
-- **Name contract:** a registry contract asserts that every capability name maps to exactly the routes that implement it. `recovery` on GitLab and Gitea covers restore routes that refuse, and `governance` covers enforcement that does not happen; both fail.
-- **Live probes:**
-  - compare two disposable refs and preview a restore without changing anything;
-  - read a policy view;
-  - write a manifest fixture and read back its packages;
-  - read a recursive tree on Gitea.
+- New and legacy GitLab/Gitea account selections are rejected or removed from sessions before credential resolution or outbound requests; a legacy-only session cannot fall back to GitHub with its old token.
+- Non-GitHub scopes and login/API inputs fail closed, including persisted scopes, explicit query/body provider values and unknown values.
+- GitHub PAT, OAuth and configured App accounts continue to browse, mutate through existing guards and disconnect correctly.
+- Browser controls, capability projections and offline account state expose only GitHub. Rejected legacy selections never remain queued for later replay.
+- Qualification accepts GitHub and hosted jobs only; retired job/target selections are rejected and their evidence cannot satisfy the final gate.
 
-**Green:**
+**Green:** Remove active integrations, registry entries, qualification jobs and harnesses. Preserve GitHub security boundaries and hosted/manual requirements. Filter or invalidate old connections locally without contacting retired providers. Tell affected users to revoke old remote credentials in the original provider settings. Preserve historical audit and qualification records as history, under existing retention and explicit cleanup rules.
 
-- The splits are `recovery.compare` and `recovery.restore`, and `governance.view` and `governance.enforce`.
-- GitHub keeps all four halves, at its current evidence.
-- GitLab and Gitea gain `recovery.compare`, `governance.view`, `dependency-audit` and, on Gitea, `tree.read`, each as Supported once its probe passes.
-- `recovery.restore` and `governance.enforce` stay Unavailable on GitLab and Gitea.
-
-**Verify:** The unit and browser suites, and live GitLab and Gitea runs.
+**Verify:** Real-server no-egress rejection tests, GitHub regression tests, browser connection/account tests, workflow/evidence contracts and documentation checks. No live dispatch or remote credential revocation is authorized by this task.
 
 ### Task A6: Show only what is Supported, and enforce exactly that
 
@@ -289,7 +270,7 @@ Closes R3.
 
 **Red:**
 
-- For GitHub, GitLab and Gitea fixtures, the browser spec asserts that:
+- For GitHub fixtures, the browser spec asserts that:
   - no element renders an Experimental or Unavailable label or badge;
   - no control bound to a non-Supported feature exists in the accessibility tree.
 - An API test asserts the server still refuses each non-Supported feature with its typed error.
@@ -467,12 +448,12 @@ plus `docs/operations/WRITE_PATH_REVIEW.md` (new).
 
 **Green:**
 
-- A free external uptime check calls `/healthz` every 10 minutes. That keeps the free instance from sleeping and records availability as evidence.
+- An external uptime check may observe `/healthz` at an operator-selected interval. Probes measure availability; they do not guarantee that a free instance remains awake, available or within a latency target.
 - `/healthz` reaches neither the database nor a provider, so Neon can still suspend.
 
-Closes R15.
+R15 remains open until measured cold-start and steady-state behavior meet a reviewed user-facing objective. If free hosting cannot meet it, explicitly narrow the service promise or revisit hosting; do not mark the risk closed because a monitor exists.
 
-**Verify:** The first request after a quiet hour answers in under 2 seconds.
+**Verify:** Record repeated first-request latency after genuine inactivity, steady-state latency, failures and the measurement window. An uptime probe must not keep the instance active during a cold-start measurement.
 
 ## Phase F — Qualify the candidate
 
@@ -495,7 +476,7 @@ Closes R7, R10 and R14.
 
 **Green:**
 
-- The generated state, roadmap, release gates, provider capabilities and known limitations are rewritten for an open beta.
+- The generated state, roadmap, release gates, provider capabilities and known limitations describe the GitHub-only candidate and its actual evidence. Keep pending/NO-GO states until their gates pass. Prepare proposed open-beta copy separately from any launch claim.
 - An open-beta launch checklist replaces the cohort checklist.
 - Every row marked F2 under "Documents that no longer describe the current state" is resolved.
 - The alpha documents move byte-for-byte under `docs/history/`, bound by the historical integrity baseline.
@@ -508,7 +489,7 @@ Closes R19.
 
 ### Task F4: Pass G3
 
-**Green:** Live runs for GitHub, GitLab and Gitea on the frozen candidate, including the A4 and A5 probes. The owner first confirms the existing sandbox targets and credentials still work, and adds the GitHub qualification account or organization.
+**Green:** A separately authorized GitHub live run on the frozen candidate, including any A4 probes implemented in that candidate. Verify the disposable GitHub target, credential scopes, independent review and exact-candidate authorization first. No retired-provider jobs, targets, credentials or evidence are required or accepted as current qualification. Hosted and manual gates remain independently required.
 
 ### Task F5: Pass G4
 
@@ -548,13 +529,13 @@ One VoiceOver iOS pass and one desktop screen-reader pass (NVDA or VoiceOver for
 
 | Order | Work | Waits on |
 | --- | --- | --- |
-| 1 | A1, A2, A3, A6, A7, A8, A9, A10, A11 | The owner applying the A1 ruleset |
+| 1 | A5 (GitHub-only removal), then scoped A1, A2, A3, A6, A7, A8, A9, A10, A11 | Separate authorization for remote settings; this PR covers A5 and documentation corrections only |
 | 2 | O1–O4 | Owner approval of the texts (O3) |
-| 3 | A4, A5 | The GitHub qualification account; working sandbox credentials |
+| 3 | A4 | The GitHub qualification account; verified disposable target, credentials and live-run authorization |
 | 4 | F1, F2 | Everything above merged |
 | 5 | F3–F7 | One frozen candidate. Each new candidate restarts at G1 |
 
-Each task lands as its own pull request. A pull request merges only when every check on its head has passed.
+Future tasks may land as separate reviewed pull requests. This PR stays open for another AI review and must not be merged. Passing checks does not authorize a merge, tag, deployment or launch. Qualification artifacts and decisions must reference the frozen candidate externally; a source change after freezing creates a new candidate and invalidates reuse of its predecessor's gates.
 
 ## After beta 0.0.1
 
@@ -569,10 +550,8 @@ These are separate plans, written after the beta qualifies. They are not part of
 
   The prototype diagram is the north star.
 - **Billing**, and plans and entitlements.
-- **The deep comparison** with Sentry Seer, Strix, Semgrep, TruffleHog, GitLab, GitHub and Aikido/XBOW.
 - **The infrastructure path** from the 5 October plan: Render and Neon while free; then one OVH VPS-3 behind Cloudflare, with off-provider encrypted backups, after load, restore and rollback tests; workers split first.
 - **Platform work:**
-  - GitLab and Gitea parity: a repository reader, real restore, and enforcement;
   - durable audit jobs;
   - the rendered audit on paid hosting;
   - live events across instances;
@@ -581,5 +560,6 @@ These are separate plans, written after the beta qualifies. They are not part of
 ## Out of scope for 0.0.1-beta.1
 
 - Anything in [After beta 0.0.1](#after-beta-001).
-- New capabilities, other than the capability splits and the qualification probes this plan names.
+- Additional repository providers; the product and golden qualification are GitHub-only.
+- New capabilities, other than the qualification probes this plan names.
 - Paid hosting, a custom domain or a second instance.

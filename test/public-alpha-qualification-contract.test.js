@@ -11,7 +11,8 @@ const {
 const registry = require('../config/public-alpha-capabilities.json');
 const {
   PROVIDER_CAPABILITY_REQUIREMENTS,
-  validateEvidenceEnvelope
+  validateEvidenceEnvelope,
+  validateHistoricalEvidenceEnvelope
 } = require('../src/qualification-evidence');
 const {
   SUBJECT,
@@ -65,6 +66,29 @@ for (const [provider, deployment] of Object.entries(registry.providers)) {
     expected,
     `${provider} must not advertise Provider-verified capabilities outside the live proof contract`
   );
+}
+
+// Historical envelopes remain auditable, but cannot enter the current candidate gate.
+{
+  const historical = structuredClone(passFixture.envelopes['github-artifact']);
+  historical.provider = 'gitea';
+  historical.originId = 'workflow-2048-gitea';
+  historical.capabilities = ['branches.read', 'file.delete', 'file.read', 'file.write', 'repository.read'];
+  historical.claims = Object.fromEntries(historical.capabilities.map(feature => [
+    `providers.gitea.${feature}`, structuredClone(historical.claims[`providers.github.${feature}`])
+  ]));
+  const shared = new Set(['repository-read', 'default-branch-read', 'disposable-branch-create',
+    'expected-head-write', 'utf8-readback', 'conditional-update', 'stale-head', 'permission-denial',
+    'stale-head-delete', 'expected-head-delete', 'cleanup-absence']);
+  historical.checks = historical.checks.filter(check => shared.has(check.key));
+  assert.strictEqual(validateHistoricalEvidenceEnvelope(historical).provider, 'gitea');
+  assert.throws(() => validateEvidenceEnvelope(historical), /provider artifact context is invalid/);
+  const corrupted = structuredClone(historical);
+  corrupted.checks[0].status = 'fail';
+  assert.throws(() => validateHistoricalEvidenceEnvelope(corrupted), /invalid proof/);
+  rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+    envelopes['github-artifact'] = historical;
+  });
 }
 
 rejects('PUBLIC_ALPHA_SCHEMA_MISMATCH', ({ record }) => { record.schemaVersion = '0.9.0'; });
@@ -123,15 +147,23 @@ rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISSING', ({ record }) => {
 }
 rejects('PUBLIC_ALPHA_SECURITY_FINDINGS_OPEN', ({ record }) => { record.security.highUnresolved = 1; });
 rejects('PUBLIC_ALPHA_PROVIDER_EVIDENCE_MISSING', ({ record }) => {
-  delete record.providers.gitea['file.write'];
+  delete record.providers.github['file.write'];
 });
 rejects('PUBLIC_ALPHA_EXPERIMENTAL_IN_GOLDEN_PATH', ({ record }) => {
   /* Still Experimental: delivery needs a deployment the provider can reach. */
   record.goldenPathCapabilities.push('github:live-events');
 });
-rejects('PUBLIC_ALPHA_UNAVAILABLE_ENABLED', ({ record }) => {
-  record.observedEnabledCapabilities.push('gitea:workflows.read');
-});
+for (const retired of ['gitlab', 'gitea']) {
+  rejects('PUBLIC_ALPHA_CAPABILITY_INVALID', ({ record }) => {
+    record.observedEnabledCapabilities.push(`${retired}:workflows.read`);
+  });
+  rejects('PUBLIC_ALPHA_EVIDENCE_UNEXPECTED', ({ record }) => {
+    record.providers[retired] = {};
+  });
+  rejects('PUBLIC_ALPHA_CAPABILITY_INVALID', ({ record }) => {
+    record.goldenPathCapabilities.push(`${retired}:file.write`);
+  });
+}
 rejects('PUBLIC_ALPHA_SECRET_MATERIAL', ({ record }) => { record.operatorToken = 'not-allowed'; });
 rejects('PUBLIC_ALPHA_SECRET_MATERIAL', ({ record }) => {
   record.notes = 'Authorization: Bearer opaque-credential-material';

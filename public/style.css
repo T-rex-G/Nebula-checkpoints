@@ -6360,9 +6360,9 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .lp-path-route svg{flex:none;width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .lp-path-route span{min-width:0}
 
-/* The matrix: each provider's mark over its column, a tick only where a live run proved it. */
+/* The GitHub capability column: a tick only where a live run proved it. */
 .lp-art-matrix{display:grid;align-content:center;padding:14px 18px}
-.lp-mx-row{display:grid;grid-template-columns:minmax(58px,.9fr) repeat(3,minmax(0,1fr));align-items:center;justify-items:center;
+.lp-mx-row{display:grid;grid-template-columns:minmax(58px,.9fr) minmax(0,1fr);align-items:center;justify-items:center;
   padding:9px 0;border-top:1px solid var(--art-hair)}
 .lp-mx-head{border-top:0;padding-top:2px}
 .lp-mx-head b{display:grid;justify-items:center;gap:6px;font-weight:600;font-size:.62rem;color:var(--text2)}

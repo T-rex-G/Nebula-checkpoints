@@ -82,7 +82,7 @@ assert(liveDeleteBlock.indexOf('inspectProviderWebhookCleanup')
 assert(liveDeleteBlock.includes('verifiedAbsent'),
   'exclusive direct removal must prove provider absence before atomic local completion');
 
-const sessionOfStart = server.indexOf('async function sessionOf(req)');
+const sessionOfStart = server.indexOf('async function sessionOf(req,');
 const sessionOfEnd = server.indexOf('\n}', sessionOfStart) + 2;
 const sessionOfBlock = server.slice(sessionOfStart, sessionOfEnd);
 assert(sessionOfBlock.includes('readHostedProviderSession({'));

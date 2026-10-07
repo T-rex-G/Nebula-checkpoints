@@ -192,7 +192,7 @@ function validateInventory(source) {
   assert.deepStrictEqual(staleExemptions, [], `Reviewed route exemptions are stale: ${staleExemptions.join(', ')}`);
 
   for (const route of routes.filter(entry => entry.feature)) {
-    for (const provider of ['github', 'gitlab', 'gitea']) {
+    for (const provider of ['github']) {
       const features = capabilityDocument.providers?.[provider]?.['hosted-alpha'] || {};
       assert(
         Object.prototype.hasOwnProperty.call(features, route.feature),

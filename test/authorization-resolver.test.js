@@ -82,59 +82,15 @@ function assertCredentialFree(value) {
   assert.strictEqual(customRole.repositoryAccess.providerRole, 'security-manager');
   assert.strictEqual(customRole.governanceRoles.reviewer, false, 'unknown custom role must not elevate write access');
 
-  const gitlab = await createAuthorizationResolver({
-    request: async ({ apiPath }) => {
-      assert.strictEqual(apiPath, '/projects/Platform%2FSecurity%2FDemo');
-      return { permissions: { project_access: { access_level: 30 }, group_access: { access_level: 40 } } };
-    }
-  }).resolve({
-    account: { provider: 'gitlab', authMethod: 'token', login: 'alice', token: 'glpat-secret', baseUrl: 'https://gitlab.example/team' },
-    owner: 'Platform/Security', repo: 'Demo', actorIdentityKey: key('gitlab:alice')
-  });
-  assert.strictEqual(gitlab.scope.authority, 'gitlab.example/team');
-  assert.deepStrictEqual(gitlab.repositoryAccess, {
-    baseRole: 'maintain', providerRole: 'maintainer', level: 40,
-    source: 'gitlab.project.permissions', complete: true
-  });
-  assert.strictEqual(gitlab.governanceRoles.reviewer, true);
-  assert.strictEqual(gitlab.governanceRoles.activator, false);
-  assert.strictEqual(gitlab.governanceRoles.administrator, false);
-  assertCredentialFree(gitlab);
-
-  const gitlabOwner = await createAuthorizationResolver({
-    request: async () => ({ permissions: { project_access: { access_level: 50 }, group_access: null } })
-  }).resolve({
-    account: { provider: 'gitlab', authMethod: 'token', login: 'owner', token: 'glpat-secret', baseUrl: 'https://gitlab.example' },
-    owner: 'Platform', repo: 'Demo', actorIdentityKey: key('gitlab:owner')
-  });
-  assert.strictEqual(gitlabOwner.repositoryAccess.baseRole, 'admin');
-  assert.strictEqual(gitlabOwner.repositoryAccess.level, 50);
-  assert.strictEqual(gitlabOwner.governanceRoles.administrator, true);
-
-  const gitea = await createAuthorizationResolver({
-    request: async ({ apiPath }) => {
-      assert.strictEqual(apiPath, '/repos/acme/demo/collaborators/alice/permission');
-      return { permission: 'admin', role_name: 'admin', user: { login: 'alice' } };
-    }
-  }).resolve({
-    account: { provider: 'gitea', authMethod: 'token', login: 'alice', token: 'gitea-secret', baseUrl: 'https://git.example' },
-    owner: 'acme', repo: 'demo', actorIdentityKey: key('gitea:alice')
-  });
-  assert.strictEqual(gitea.repositoryAccess.level, 50);
-  assert.strictEqual(gitea.governanceRoles.activator, true);
-
-  const caseSensitiveGitea = await createAuthorizationResolver({
-    request: async ({ apiPath }) => {
-      assert.strictEqual(apiPath, '/repos/Acme/Demo/collaborators/alice/permission');
-      return { permission: 'write', role_name: 'write', user: { login: 'alice' } };
-    }
-  }).resolve({
-    account: { provider: 'gitea', authMethod: 'token', login: 'alice', token: 'gitea-secret', baseUrl: 'https://git.example/GitRoot' },
-    owner: 'Acme', repo: 'Demo', actorIdentityKey: key('gitea:case-sensitive')
-  });
-  assert.strictEqual(caseSensitiveGitea.scope.authority, 'git.example/GitRoot');
-  assert.strictEqual(caseSensitiveGitea.scope.scopeKey, 'gitea:git.example/GitRoot:acme/demo');
-  assert.strictEqual(caseSensitiveGitea.governanceRoles.author, true);
+  for (const provider of ['gitlab', 'gitea']) {
+    let requests = 0;
+    const retired = createAuthorizationResolver({ request: async () => { requests++; return { permission: 'admin' }; } });
+    await assert.rejects(retired.resolve({
+      account: { provider, authMethod: 'token', login: 'alice', token: 'retired-token', baseUrl: 'https://retired.example' },
+      ...scope, actorIdentityKey: key(`${provider}:alice`)
+    }), error => error.code === 'GOVERNANCE_SCOPE_INVALID');
+    assert.strictEqual(requests, 0, 'retired account identities cannot obtain repository permissions');
+  }
 
   const authorizerIdentityKey = key('github:authorizer');
   const appCalls = [];
@@ -255,19 +211,6 @@ function assertCredentialFree(value) {
   }).resolve({ account: baseAccount, ...scope, actorIdentityKey: actorKey });
   assert.strictEqual(outage.evidence.status, 'unavailable');
   assert.strictEqual(outage.governanceRoles.reader, false);
-
-  /* GitLab: a public project the account is not a member of. */
-  const gitlabAccount = { provider: 'gitlab', authMethod: 'token', login: 'alice', token: 'glpat-secret', baseUrl: 'https://gitlab.com' };
-  const gitlabPublic = await createAuthorizationResolver({
-    request: async () => ({ path_with_namespace: 'Acme/Demo', visibility: 'public', permissions: { project_access: null, group_access: null } })
-  }).resolve({ account: gitlabAccount, ...scope, actorIdentityKey: key('gitlab:alice') });
-  assert.strictEqual(gitlabPublic.repositoryAccess.source, 'gitlab.project.public');
-  assert.strictEqual(gitlabPublic.governanceRoles.reader, true);
-  assert.strictEqual(gitlabPublic.governanceRoles.author, false);
-  const gitlabPrivate = await createAuthorizationResolver({
-    request: async () => ({ path_with_namespace: 'Acme/Demo', visibility: 'internal', permissions: { project_access: null, group_access: null } })
-  }).resolve({ account: gitlabAccount, ...scope, actorIdentityKey: key('gitlab:alice') });
-  assert.strictEqual(gitlabPrivate.governanceRoles.reader, false, 'an internal project the account has no role in grants nothing');
 
   const malformed = await createAuthorizationResolver({ request: async () => ({ permission: 'owner', role_name: 'owner' }) })
     .resolve({ account: baseAccount, ...scope, actorIdentityKey: actorKey });

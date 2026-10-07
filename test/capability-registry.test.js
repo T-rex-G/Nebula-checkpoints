@@ -136,61 +136,25 @@ const githubRate = resolveCapability(document, {
 });
 assert.strictEqual(githubRate.status, 'Supported');
 assert.strictEqual(githubRate.evidenceState, 'Provider-verified');
-for (const provider of ['gitlab', 'gitea']) {
-  const rate = resolveCapability(document, {
-    provider,
-    authority: `${provider}.example.com`,
-    deployment: 'hosted-alpha',
-    feature: 'rate.read'
-  });
-  assert.strictEqual(rate.status, 'Unavailable');
-  assert.strictEqual(rate.evidenceState, 'Unavailable');
-  assert.strictEqual(rate.reason, 'Rate-limit reads are qualified only for GitHub in the hosted alpha.');
+assert.deepStrictEqual(Object.keys(document.providers), ['github']);
+for (const provider of ['gitlab', 'gitea', 'unknown']) {
+  const context = { provider, authority: `${provider}.example.com`, deployment: 'hosted-alpha' };
+  for (const feature of Object.keys(document.providers.github['hosted-alpha'])) {
+    const resolved = resolveCapability(document, { ...context, feature });
+    assert.strictEqual(resolved.status, 'Unavailable');
+    assert.strictEqual(resolved.evidenceState, 'Unavailable');
+    assert.throws(() => assertCapabilityAvailable(document, { ...context, feature, allowExperimental: true }),
+      error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_UNAVAILABLE');
+  }
+  assert.deepStrictEqual(projectCapabilities(document, context).features, {});
+  assert(Object.values(legacyCapsFor(document, context)).every(value => value === false));
+  const unsupportedDocument = structuredClone(document);
+  unsupportedDocument.providers[provider] = structuredClone(document.providers.github);
+  assert.throws(() => validateCapabilityDocument(unsupportedDocument), /unsupported capability provider/);
+  assert.strictEqual(resolveCapability(unsupportedDocument, { ...context, feature: 'file.write' }).status, 'Unavailable');
+  assert.deepStrictEqual(projectCapabilities(unsupportedDocument, context).features, {});
 }
 
-const giteaActions = resolveCapability(document, {
-  provider: 'gitea', authority: 'gitea.example.com', deployment: 'hosted-alpha', feature: 'workflows.read'
-});
-assert.strictEqual(giteaActions.status, 'Unavailable');
-assert.match(giteaActions.reason, /not qualified/i);
-
-const giteaBatchReason = 'Gitea batch mutation is unavailable; only single-file Contents API write and delete are provider-qualified.';
-const giteaBatch = resolveCapability(document, {
-  provider: 'gitea', authority: 'gitea.example.com', deployment: 'hosted-alpha', feature: 'file.batch'
-});
-assert.strictEqual(giteaBatch.status, 'Unavailable');
-assert.strictEqual(giteaBatch.evidenceState, 'Unavailable');
-assert.strictEqual(giteaBatch.reason, giteaBatchReason);
-assert.throws(
-  () => assertCapabilityAvailable(document, {
-    provider: 'gitea', authority: 'gitea.example.com', deployment: 'hosted-alpha', feature: 'file.batch'
-  }),
-  error => error instanceof CapabilityError &&
-    error.code === 'PROVIDER_CAPABILITY_UNAVAILABLE' &&
-    error.status === 409 &&
-    error.message === giteaBatchReason
-);
-
-assert.throws(
-  () => assertCapabilityAvailable(document, {
-    provider: 'gitea', authority: 'gitea.example.com', deployment: 'hosted-alpha', feature: 'workflows.read'
-  }),
-  error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_UNAVAILABLE' && error.status === 409
-);
-
-const projected = projectCapabilities(document, {
-  provider: 'gitlab', authority: 'gitlab.com', deployment: 'hosted-alpha'
-});
-assert.strictEqual(projected.provider, 'gitlab');
-assert(projected.features['repository.read']);
-assert(!JSON.stringify(projected).includes('token'));
-
-assert.deepStrictEqual(legacyCapsFor(document, {
-  provider: 'gitea', authority: 'gitea.example.com', deployment: 'hosted-alpha'
-}), {
-  prs: false, issues: false, releases: false, actions: false,
-  lfs: false, tm: false, batch: false, search: false, notif: false, compare: false
-});
 /*
  * Exposure scanning is declared and deliberately Unavailable.
  *
@@ -271,15 +235,7 @@ assert.deepStrictEqual(legacyCapsFor(document, {
       );
     }
   }
-  /* The providers without a reader say so, rather than repeating the generic
-     "not wired up yet" that applies to the one that has it. */
-  for (const provider of ['gitlab', 'gitea']) {
-    assert.match(
-      resolveCapability(document, { provider, deployment: 'hosted-alpha', feature: 'exposure.scan' }).reason,
-      /reader/i,
-      `${provider}: the reason must name what is actually missing`
-    );
-  }
+
 }
 
 console.log('capability registry tests passed');

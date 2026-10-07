@@ -27,9 +27,7 @@ const HEAD_SHA = 'a'.repeat(40);
  * The read model is produced by the production builder from the same seed the
  * unit test uses, and the access projection by the production projector, so
  * this fixture cannot be shaped differently from what the server sends. A
- * hand-written twin would have been a fourth invented payload this release,
- * after GitLab's create response, Gitea's branch ref and the three providers'
- * concurrency tokens.
+ * hand-written twin could drift from the server's actual payload contract.
  */
 const GOVERNANCE_SCOPE = Object.freeze({
   provider: 'github', authority: 'github.com', owner: 'sandbox', repo: 'demo',
@@ -131,7 +129,8 @@ const SCOPE = 'alphaFixtureScope_0123456789abcdef';
 const VALID = Object.freeze({
   access: new Set(['required', 'active', 'expired', 'revoked']),
   ready: new Set(['waking', 'ready', 'database-unavailable']),
-  provider: new Set(['github', 'gitlab', 'gitea']),
+  provider: new Set(['github']),
+  capabilities: new Set(['available', 'limited']),
   authMethod: new Set(['token', 'oauth', 'github-app']),
   repositoryState: new Set(['empty', 'current', 'stale', 'partial', 'degraded', 'error']),
   mutation: new Set(['verified', 'blocked', 'failed-unchanged', 'unknown']),
@@ -198,6 +197,7 @@ function normalizedScenario(input = {}) {
     mode: input.mode || 'invite',
     ready: input.ready || 'ready',
     provider: input.provider || 'github',
+    capabilities: input.capabilities || 'available',
     authMethod: input.authMethod || 'token',
     login: input.login || 'alpha-tester',
     repositoryState: input.repositoryState || 'current',
@@ -230,13 +230,21 @@ function sanitized(payload) {
   return payload;
 }
 
-function capabilityProjection(provider, authMethod = 'token') {
-  return sanitized(projectCapabilities(capabilityDocument, {
+function capabilityProjection(provider, authMethod = 'token', availability = 'available') {
+  const projected = sanitized(projectCapabilities(capabilityDocument, {
     provider,
-    authority: provider === 'github' ? 'github.com' : `${provider}.example.test`,
+    authority: 'github.com',
     deployment: 'hosted-alpha',
     authMethod
   }));
+  const projection = { ...projected, features: { ...projected.features } };
+  if (availability === 'limited') for (const feature of ['repository.create', 'code-audit']) {
+    projection.features[feature] = {
+      ...projection.features[feature], status: 'Unavailable', evidenceState: 'Unavailable',
+      reason: 'This capability is unavailable for this GitHub account.'
+    };
+  }
+  return projection;
 }
 
 function publicError(code, message, overrides = {}) {
@@ -416,7 +424,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true }
       });
     }
-    if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') return fulfill(capabilityProjection(scenario.provider, scenario.authMethod));
+    if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') return fulfill(capabilityProjection(scenario.provider, scenario.authMethod, scenario.capabilities));
     /*
      * The safety state as the hosted alpha answers it: repository-scoped
      * locks that change, global switches that belong to the deployment.

@@ -33,21 +33,21 @@ function control(feature, options = {}) {
 }
 
 const body = {
-  provider: 'gitlab',
-  authority: 'gitlab.com',
+  provider: 'github',
+  authority: 'github.com',
   deployment: 'hosted-alpha',
   features: {
     'file.batch': {
-      feature: 'file.batch', provider: 'gitlab', authority: 'gitlab.com', deployment: 'hosted-alpha',
-      status: 'Unavailable', evidenceState: 'Unavailable', reason: 'Atomic batch is not qualified for GitLab.'
+      feature: 'file.batch', provider: 'github', authority: 'github.com', deployment: 'hosted-alpha',
+      status: 'Unavailable', evidenceState: 'Unavailable', reason: 'Atomic batch is unavailable for this GitHub account.'
     },
     governance: {
-      feature: 'governance', provider: 'gitlab', authority: 'gitlab.com', deployment: 'hosted-alpha',
+      feature: 'governance', provider: 'github', authority: 'github.com', deployment: 'hosted-alpha',
       status: 'Experimental', evidenceState: 'Deterministic', reason: 'Policy views have narrower mutation coverage.'
     },
     'file.read': {
-      feature: 'file.read', provider: 'gitlab', authority: 'gitlab.com', deployment: 'hosted-alpha',
-      status: 'Supported', evidenceState: 'Provider-verified', reason: 'Qualified GitLab file reads.'
+      feature: 'file.read', provider: 'github', authority: 'github.com', deployment: 'hosted-alpha',
+      status: 'Supported', evidenceState: 'Provider-verified', reason: 'Qualified GitHub file reads.'
     }
   }
 };
@@ -82,7 +82,7 @@ const sandbox = {
 vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
 
 (async () => {
-  await window.NebulaCapabilityUI.load('gitlab', 'gitlab.com');
+  await window.NebulaCapabilityUI.load('github', 'github.com');
   const nestedButton = control('file.batch');
   const batchContainer = control('file.batch', { native: false, children: [nestedButton] });
   const experimentalBlocked = control('governance');
@@ -107,7 +107,7 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
   assert.strictEqual(supported.disabled, false);
   assert.strictEqual(
     batchContainer.dataset.capabilityReason,
-    'Atomic batch is not qualified for GitLab.'
+    'Atomic batch is unavailable for this GitHub account.'
   );
   /*
    * A refused button is not handed to the browser to silence. `disabled` stops
@@ -141,7 +141,7 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
   const note = notes.get(batchContainer.dataset.capabilityNoteId);
   assert(note, 'an unavailable control must carry a note');
   assert.strictEqual(note.textContent, 'Unavailable', 'the note shows the status');
-  const reason = 'Atomic batch is not qualified for GitLab.';
+  const reason = 'Atomic batch is unavailable for this GitHub account.';
   assert(
     String(note.getAttribute('aria-label') || '').includes(reason),
     'the reason must reach a screen reader through the note'
@@ -156,8 +156,8 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
   // An older account response must never overwrite the latest projection.
   const pending = [];
   sandbox.fetch = (url, options) => new Promise(resolve => pending.push({ url, options, resolve }));
-  const firstAccount = window.NebulaCapabilityUI.load('gitlab', 'gitlab.com', { connected: true });
-  const secondAccount = window.NebulaCapabilityUI.load('gitlab', 'gitlab.com', { connected: true });
+  const firstAccount = window.NebulaCapabilityUI.load('github', 'github.com', { connected: true });
+  const secondAccount = window.NebulaCapabilityUI.load('github', 'github.com', { connected: true });
   assert(pending.every(call => call.url.startsWith('/api/account/capabilities?')));
   assert(pending.every(call => call.options.cache === 'no-store' && call.options.credentials === 'same-origin'));
   pending[1].resolve({ ok: true, json: async () => body });
@@ -165,6 +165,18 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
   pending[0].resolve({ ok: false, json: async () => ({}) });
   await firstAccount;
   assert.strictEqual(window.NebulaCapabilityUI.decision('file.read').status, 'Supported');
+  for (const retiredProvider of ['gitlab', 'gitea', 'unknown']) {
+    let fetched = false;
+    sandbox.fetch = async () => { fetched = true; return { ok: true, json: async () => body }; };
+    await window.NebulaCapabilityUI.load(retiredProvider, 'github.com', { connected: true });
+    assert.strictEqual(fetched, false, 'unsupported identities must not request GitHub capabilities');
+    assert.strictEqual(window.NebulaCapabilityUI.decision('file.read').status, 'Unavailable');
+  }
+  let fetchedCustomHost = false;
+  sandbox.fetch = async () => { fetchedCustomHost = true; return { ok: true, json: async () => body }; };
+  await window.NebulaCapabilityUI.load('github', 'git.example.org', { connected: true });
+  assert.strictEqual(fetchedCustomHost, false, 'custom hosts are not supported GitHub identities');
+  assert.strictEqual(window.NebulaCapabilityUI.decision('file.read').status, 'Unavailable');
   console.log('capability UI behavior tests passed');
 })().catch(error => {
   console.error(error.stack || error);

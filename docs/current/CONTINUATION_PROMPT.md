@@ -42,7 +42,7 @@ Read in order:
 
 Next authorized action:
 
-Review the product-remediation changes on the existing PR, run all automated gates against its exact candidate, and bind separate live-provider, hosted recovery and manual accessibility evidence before any cohort opening. Keep unexecuted external qualifications explicitly pending.
+Review the GitHub-only product and qualification changes in PR #81 and run all automated gates against its exact candidate. Leave the PR open and unmerged for another AI to review. Live GitHub, hosted recovery, manual accessibility and final release evidence remain pending and separately required; this change authorizes no deployment or cohort opening.
 
 Keep the live-provider qualification, hosted qualification, manual accessibility and final release gates as recorded. Do not merge,
 deploy, open the cohort, or dispatch live qualification from this prompt.

@@ -193,42 +193,21 @@ assert.deepStrictEqual(
   parseProviderRepositoryTarget('github', '/user/starred/Acme/Demo'),
   { owner: 'Acme', repo: 'Demo' }
 );
-assert.deepStrictEqual(
-  parseProviderRepositoryTarget('gitlab', '/projects/Platform%2FSecurity%2FDemo/repository/files/a'),
-  { owner: 'Platform/Security', repo: 'Demo' }
-);
 assert.strictEqual(parseProviderRepositoryTarget('github', '/user/repos'), null);
 assert.strictEqual(classifyProviderOperation('github', '/repos/Acme/Demo', 'DELETE'), 'repository.delete');
-assert.strictEqual(classifyProviderOperation('gitlab', '/projects/Acme%2FDemo/repository/files/a', 'PUT'), 'gitlab.file.write');
-/* A GitLab review is a merge-request note or its approval, and nothing else on the request. */
-assert.strictEqual(classifyProviderOperation('gitlab', '/projects/Acme%2FDemo/merge_requests/4/notes', 'POST'), 'pull.review');
-assert.strictEqual(classifyProviderOperation('gitlab', '/projects/Acme%2FDemo/merge_requests/4/approve', 'POST'), 'pull.review');
-assert.strictEqual(classifyProviderOperation('gitlab', '/projects/Acme%2FDemo/merge_requests/4/unapprove', 'POST'), null);
-assert.strictEqual(
-  classifyProviderOperation('gitea', '/repos/Acme/Demo/contents/folder/a.txt', 'PUT'),
-  'gitea.file.write'
-);
-assert.strictEqual(
-  classifyProviderOperation('gitea', '/repos/Acme/Demo/contents/folder/a.txt', 'DELETE'),
-  'gitea.file.delete'
-);
-assert.strictEqual(
-  classifyProviderOperation('gitea', '/repos/Acme/Demo/branches', 'POST'),
-  'gitea.branch.create'
-);
-assert.strictEqual(
-  classifyProviderOperation('gitea', '/repos/Acme/Demo/branches/main', 'PUT'),
-  'gitea.branch.cas'
-);
-assert.strictEqual(
-  classifyProviderOperation('gitea', '/repos/Acme/Demo/branches/nv-tx%2Ffixture', 'DELETE'),
-  'gitea.branch.delete'
-);
-for (const operation of ['gitea.branch.create', 'gitea.file.write', 'gitea.branch.cas', 'gitea.branch.delete']) {
-  assert(MUTATION_ACTIONS['file.write'].operations.includes(operation));
+assert.strictEqual(classifyProviderOperation('github', '/repos/Acme/Demo/pulls/4/reviews', 'POST'), 'pull.review');
+for (const provider of ['gitlab', 'gitea']) {
+  for (const apiPath of ['/projects/Acme%2FDemo/repository/files/a', '/repos/Acme/Demo/contents/a', '/repos/Acme/Demo/branches/main']) {
+    assert.strictEqual(parseProviderRepositoryTarget(provider, apiPath), null);
+    for (const method of ['PUT', 'POST', 'DELETE']) {
+      assert.strictEqual(classifyProviderOperation(provider, apiPath, method), null);
+      assert.strictEqual(classifyProviderOperation(provider, apiPath, method, 'native.git.push'), null,
+        'transport overrides cannot resurrect retired providers');
+    }
+  }
 }
-for (const operation of ['gitea.branch.create', 'gitea.file.delete', 'gitea.branch.cas', 'gitea.branch.delete']) {
-  assert(MUTATION_ACTIONS['file.delete'].operations.includes(operation));
+for (const action of Object.values(MUTATION_ACTIONS)) {
+  assert(action.operations.every(operation => !/^(gitlab|gitea)\./.test(operation)));
 }
 
 (async () => {

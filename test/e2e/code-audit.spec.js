@@ -318,11 +318,11 @@ test('the deployed site is checked on the Website page, and the audit shows and 
   await expect(page.locator('#siteRoot .audit-site-from')).toHaveCount(0);
 });
 
-test('where the provider has no repository reader, the audit says so and the site check still works', async ({ page }) => {
-  const pane = await openAudit(page, { provider: 'gitlab' });
+test('when repository audit is unavailable for the GitHub account, the site check still works', async ({ page }) => {
+  const pane = await openAudit(page, { capabilities: 'limited' });
   await expect(pane.getByRole('heading', { name: 'Repository audit' })).toBeVisible();
-  await expect(pane).toContainText('Not available for this provider yet.');
-  await expect(pane).toContainText('No repository reader is implemented for this provider');
+  await expect(pane).toContainText('Repository audit is unavailable.');
+  await expect(pane).toContainText('This capability is unavailable for this GitHub account.');
   await expect(pane.getByRole('button', { name: 'Audit this branch' })).toHaveCount(0);
   const site = pane.locator('.audit-site');
   await site.getByRole('button', { name: 'Check in Parallax' }).click();

@@ -32,8 +32,6 @@ function defineAction(category, risk, description, operations, stepUpAction = nu
 
 const CONTENT_OPERATIONS = Object.freeze([
   'git.blob.create', 'git.tree.create', 'git.commit.create', 'git.refs.update',
-  'gitlab.file.write', 'gitlab.file.delete',
-  'gitea.branch.create', 'gitea.file.write', 'gitea.file.delete', 'gitea.branch.cas', 'gitea.branch.delete',
   'git-receive-pack', 'git-lfs.batch', 'git-lfs.upload', 'git-lfs.verify'
 ]);
 
@@ -342,15 +340,7 @@ function decodePathPiece(value) {
 function parseProviderRepositoryTarget(providerInput, apiPathInput) {
   const provider = String(providerInput || '').trim().toLowerCase();
   const apiPath = String(apiPathInput || '').split('?', 1)[0];
-  if (provider === 'gitlab') {
-    const match = apiPath.match(/^\/projects\/([^/]+)/);
-    if (!match) return null;
-    const full = decodePathPiece(match[1]).replace(/^\/+|\/+$/g, '');
-    const pieces = full.split('/').filter(Boolean);
-    if (pieces.length < 2) return null;
-    return { owner: pieces.slice(0, -1).join('/'), repo: pieces[pieces.length - 1] };
-  }
-  if (provider === 'github' || provider === 'gitea') {
+  if (provider === 'github') {
     const repo = apiPath.match(/^\/repos\/([^/]+)\/([^/]+)/);
     if (repo) return { owner: decodePathPiece(repo[1]), repo: decodePathPiece(repo[2]) };
     const star = apiPath.match(/^\/user\/starred\/([^/]+)\/([^/]+)/);
@@ -361,40 +351,12 @@ function parseProviderRepositoryTarget(providerInput, apiPathInput) {
 
 function classifyProviderOperation(providerInput, apiPathInput, methodInput, transportInput) {
   const transport = String(transportInput || '').trim();
-  if (transport) return transport;
   const provider = String(providerInput || '').trim().toLowerCase();
+  if (provider !== 'github') return null;
+  if (transport) return transport;
   const method = String(methodInput || '').trim().toUpperCase();
   const apiPath = String(apiPathInput || '').split('?', 1)[0];
-  if (provider === 'gitlab') {
-    if (method === 'POST' && apiPath === '/projects') return 'repository.create';
-    const project = apiPath.match(/^\/projects\/[^/]+(\/.*)?$/);
-    const suffix = project && project[1] || '';
-    if (/^\/repository\/files\//.test(suffix)) {
-      if (method === 'DELETE') return 'gitlab.file.delete';
-      if (method === 'POST' || method === 'PUT') return 'gitlab.file.write';
-    }
-    if (method === 'POST' && suffix === '/merge_requests') return 'pull.create';
-    if (method === 'PUT' && /^\/merge_requests\/\d+\/merge$/.test(suffix)) return 'pull.merge';
-    /* A review on GitLab is a note on the merge request, or its approval. */
-    if (method === 'POST' && /^\/merge_requests\/\d+\/(?:notes|approve)$/.test(suffix)) return 'pull.review';
-    if (method === 'POST' && suffix === '/issues') return 'issue.create';
-    if (method === 'POST' && /^\/issues\/\d+\/notes$/.test(suffix)) return 'issue.comment';
-    if (method === 'PUT' && /^\/issues\/\d+$/.test(suffix)) return 'issue.update';
-    return null;
-  }
-  if (provider === 'gitea') {
-    const repo = apiPath.match(/^\/repos\/[^/]+\/[^/]+(\/.*)?$/);
-    if (!repo) return null;
-    const suffix = repo[1] || '';
-    if (/^\/contents\/.+/.test(suffix)) {
-      if (method === 'DELETE') return 'gitea.file.delete';
-      if (method === 'POST' || method === 'PUT') return 'gitea.file.write';
-    }
-    if (suffix === '/branches' && method === 'POST') return 'gitea.branch.create';
-    if (/^\/branches\/.+/.test(suffix) && method === 'PUT') return 'gitea.branch.cas';
-    if (/^\/branches\/.+/.test(suffix) && method === 'DELETE') return 'gitea.branch.delete';
-  }
-  if (provider === 'github' || provider === 'gitea') {
+  if (provider === 'github') {
     if (method === 'POST' && apiPath === '/user/repos') return 'repository.create';
     const star = apiPath.match(/^\/user\/starred\/[^/]+\/[^/]+$/);
     if (star && method === 'PUT') return 'repository.star';

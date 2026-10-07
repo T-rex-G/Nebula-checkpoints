@@ -85,9 +85,10 @@ A pass is public-alpha accessibility qualification, not legal certification.
 
 ## Live-provider gates
 
-- GitHub must pass the complete golden path.
-- GitLab and Gitea must each pass every capability advertised as `Supported`.
-- Each provider uses a separately pre-created `nvx-alpha17-` sandbox repository.
+- GitHub is the only product provider and must pass the complete golden path.
+- Retired-provider jobs, targets and artifacts cannot satisfy current gates.
+  Historical artifacts remain dated records, not current support.
+- GitHub uses a separately pre-created `nvx-alpha17-` sandbox repository.
   The signed activation binds its exact repository/API identity; qualification
   creates and deletes only a per-run temporary branch and proof files.
 - Disposable mutations must prove stale-head write and delete rejection with

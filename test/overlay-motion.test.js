@@ -1931,11 +1931,10 @@ check('the live rail reports a session rather than asserting one', () => {
   assert.strictEqual(live.idle, true,
     'a session with no identity is still shown as live, which is the one claim this rail must not fake');
 
-  /* A self-hosted authority is what the capability set was loaded against, so
-     the rail has to follow it rather than printing the provider's public host. */
+  /* Retired identities must never appear as an active repository connection. */
   make(lookup, { me: { provider: 'gitea', authority: 'git.example.org' } })();
-  assert.strictEqual(scope.textContent, 'git.example.org',
-    'the rail ignores the authority the session is actually talking to');
+  assert.strictEqual(scope.textContent, 'Not connected');
+  assert.strictEqual(live.idle, true, 'a retired identity must not appear connected');
 });
 
 check('the pointer light costs nothing on a device that has no pointer', () => {

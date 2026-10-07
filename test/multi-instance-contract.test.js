@@ -60,7 +60,6 @@ function startInstance(port, databaseUrl) {
       NODE_ENV: 'test',
       SESSION_SECRET: SECRET,
       DATABASE_URL: withoutTls,
-      NV_GIT_HOST_ALLOWLIST: 'gitea.example',
       NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn',
       /*
        * The test server is a container on the same host, not a hosted

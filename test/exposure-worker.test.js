@@ -710,9 +710,9 @@ function runnerFor(store, reader, options = {}) {
   }
 
   /* An unsupported provider is refused visibly rather than scanned as empty. */
-  {
+  for (const provider of ['gitlab', 'gitea']) {
     const store = fakeStore();
-    store.scan = { ...store.scan, scope: { ...scope, provider: 'gitlab' } };
+    store.scan = { ...store.scan, scope: { ...scope, provider } };
     const reader = fakeReader({}, {
       treeError: Object.assign(new Error('unsupported'), { code: 'EXPOSURE_PROVIDER_UNSUPPORTED' })
     });

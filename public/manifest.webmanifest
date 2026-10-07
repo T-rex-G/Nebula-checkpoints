@@ -2,7 +2,7 @@
   "id": "nebulaverse",
   "name": "Nebulaverse-X",
   "short_name": "Nebulaverse-X",
-  "description": "Git, from orbit — offline-capable Git client for GitHub, GitLab and Gitea with any-size pushes via automatic Git LFS.",
+  "description": "Git, from orbit — offline-capable Git client for GitHub with any-size pushes via automatic Git LFS.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#06030F",

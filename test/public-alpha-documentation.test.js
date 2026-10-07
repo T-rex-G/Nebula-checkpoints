@@ -60,7 +60,7 @@ assert(roadmap.includes('independent-review remediation successor'));
 
 const productVision = read('docs/vision/PRODUCT_VISION.md');
 assert(productVision.includes(
-  'Nebulaverse-X is a cross-provider repository security-governance and recovery platform with a capable Git workbench.'
+  'Nebulaverse-X is a GitHub repository security-governance and recovery platform with a capable Git workbench.'
 ));
 
 const founderVision = read('docs/vision/FOUNDER_VISION.md');
@@ -78,9 +78,7 @@ for (const concept of [
   'game day',
   'open-source intelligence',
   'customer-controlled evidence',
-  'GitHub',
-  'GitLab',
-  'Gitea'
+  'GitHub'
 ]) assert(founderVision.toLowerCase().includes(concept.toLowerCase()), `founder vision missing ${concept}`);
 assert(founderVision.includes('Vision is not qualification evidence'));
 assert(founderVision.includes('../current/PROJECT_STATE.md'));
@@ -91,7 +89,8 @@ const capabilities = read('docs/current/PROVIDER_CAPABILITIES.md');
 for (const term of ['Supported', 'Experimental', 'Unavailable', 'Provider-verified', 'Deterministic']) {
   assert(capabilities.includes(term), `capability documentation missing ${term}`);
 }
-for (const provider of ['GitHub', 'GitLab', 'Gitea']) assert(capabilities.includes(provider));
+assert(capabilities.includes('GitHub is the only supported repository provider'));
+assert(!/^## (GitLab|Gitea) —/m.test(capabilities), 'retired providers must not have current support tables');
 
 const providerMappings = {
   'GitHub — evidence-bounded alpha subset': [
@@ -99,16 +98,7 @@ const providerMappings = {
     ['Experimental', 'repository create/delete; notifications; live events'],
     ['Unavailable', 'none at the provider level; connection permissions and invitation scopes still apply']
   ],
-  'GitLab — registry-qualified subset': [
-    ['Supported', 'repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; merge-request and issue writes; site check; upload security'],
-    ['Experimental', 'dependency audit; read-only recovery comparison; governance views'],
-    ['Unavailable', 'repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning and repository audit, which have no repository reader for this provider']
-  ],
-  'Gitea — registry-qualified subset': [
-    ['Supported', 'repository and branch reads; bounded file read/write/delete; site check; upload security'],
-    ['Experimental', 'tree read; dependency audit; read-only recovery comparison; governance views'],
-    ['Unavailable', 'repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning and repository audit, which have no repository reader for this provider']
-  ]
+
 };
 /*
  * The prose above restates the registry, and restatement drifts. Promoting a
@@ -119,9 +109,7 @@ const providerMappings = {
  */
 const registry = require('../config/public-alpha-capabilities.json');
 const providerKeys = {
-  'GitHub — evidence-bounded alpha subset': 'github',
-  'GitLab — registry-qualified subset': 'gitlab',
-  'Gitea — registry-qualified subset': 'gitea'
+  'GitHub — evidence-bounded alpha subset': 'github'
 };
 
 for (const [providerHeading, mappings] of Object.entries(providerMappings)) {
@@ -166,7 +154,8 @@ for (const [providerHeading, mappings] of Object.entries(providerMappings)) {
 }
 assert(/A `Supported` claim remains release-blocked until the exact\s+candidate has applicable live-provider and hosted evidence\./.test(capabilities));
 assert(capabilities.includes('Every `Experimental` path requires an explicit UI and server-route opt-in.'));
-assert(/recovery and governance\s+mutations remain blocked\./.test(capabilities));
+assert(/Unsupported provider selections are\s+rejected before credential resolution or transport\./.test(capabilities));
+assert.deepStrictEqual(Object.keys(registry.providers), ['github'], 'current documentation must describe the complete supported provider set');
 
 const alpha = read('docs/release/PUBLIC_ALPHA.md');
 assert(alpha.includes('Public alpha: **NO-GO**'));

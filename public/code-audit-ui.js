@@ -2951,14 +2951,14 @@
     return wrap;
   }
 
-  /* Where the provider has no repository reader, the audit says so rather than showing an empty -- and therefore clean -- result. */
+  /* When repository audit is unavailable, the interface says so rather than showing an empty -- and therefore clean -- result. */
   function renderUnavailable(host, reason) {
     const card = element('section', 'card audit-summary audit-unavailable');
     card.setAttribute('aria-labelledby', 'auditSummaryHeading');
     const heading = element('h2', 'audit-kicker', 'Repository audit');
     heading.id = 'auditSummaryHeading';
     card.append(heading,
-      element('p', 'audit-verdict', 'Not available for this provider yet.'),
+      element('p', 'audit-verdict', 'Repository audit is unavailable.'),
       element('p', 'audit-coverage', reason),
       element('p', 'audit-coverage', 'The deployed-site check below does not read the repository and works here.'));
     host.appendChild(card);

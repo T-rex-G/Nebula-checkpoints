@@ -23,7 +23,9 @@ const { loadMigrations } = require('../src/migrations');
     res.end(JSON.stringify(states[req.url]));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const options = { baseUrl: `http://127.0.0.1:${server.address().port}`, expectedFingerprint: fingerprint, timeoutMs: 200 };
+  // Positive HTTP cases need scheduling headroom under parallel browser load.
+  // The stalled-body case below keeps its strict, short deadline.
+  const options = { baseUrl: `http://127.0.0.1:${server.address().port}`, expectedFingerprint: fingerprint, timeoutMs: 2000 };
   try {
     assert.equal((await checkDeployment(options)).ok, true);
     states['/api/alpha/status'].mode = 'off';
@@ -44,7 +46,7 @@ const { loadMigrations } = require('../src/migrations');
     states['/healthz'].maintenance = false;
     stalled = true;
     const start = Date.now();
-    assert.equal((await checkDeployment(options)).ok, false);
+    assert.equal((await checkDeployment({ ...options, timeoutMs: 200 })).ok, false);
     assert(Date.now() - start < 3000, 'deadline must include the response body');
     stalled = false;
     redirect = true;

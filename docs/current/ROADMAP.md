@@ -7,7 +7,7 @@ The last immutable automated baseline is recorded in
 must be frozen, qualified, and reviewed externally before any live-provider dispatch; this roadmap
 does not convert planned work into release evidence.
 
-**Current scope (7 October 2026):** GitHub-only product and golden qualification.
+**Current scope (9 October 2026):** [Six-system hardening](SIX_SYSTEM_HARDENING.md), with GitHub-only product and golden qualification retained.
 GitLab and Gitea connections and qualification jobs are removed; their older
 records are historical. The [beta plan](../superpowers/plans/2026-10-06-beta-0-0-1-qualification.md)
 describes future readiness work, not a completed beta or permission to launch.

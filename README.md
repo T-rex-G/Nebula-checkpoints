@@ -336,7 +336,7 @@ Select two Neural nodes and Nebulaverse-X calculates the shortest relationship p
 - Shows branch moves, branch recreation, newer objects preserved, file differences, provider protection, truncation, and Nebulaverse-X policy blockers before any mutation.
 - Accepts signed Emergency Shield manifests as recovery inputs.
 - Requires a second typed confirmation before reference restoration, plus a short-lived server authorization bound to the previewed actions.
-- Rechecks current branch heads immediately before mutation and rejects stale previews without changing any ref.
+- Rechecks current branch heads before recreating missing refs; provider create-if-absent also rejects a concurrent creation. Existing-ref resets are unavailable because the provider ref API has no expected-old comparison. Use commit restoration to recover contents while preserving newer work.
 
 ### Upload security gate
 

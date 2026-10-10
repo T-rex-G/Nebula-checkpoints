@@ -1100,7 +1100,7 @@ function runnerFor(store, reader, options = {}) {
 
     const reportStart = server.indexOf("app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations'");
     const reportHandler = server.slice(reportStart, server.indexOf('\n});', reportStart));
-    assert(reportHandler.includes('scanReport('), 'a scan\'s report joins each observation to its finding');
+    assert(reportHandler.includes('scanReportPage('), 'a scan\'s report joins each observation to its finding');
     assert(reportHandler.includes('exposureFindingPayload('), 'and describes the finding the same way the list does');
     const listStart = server.indexOf("app.get('/api/repo/:owner/:repo/exposure/findings',");
     const listHandler = server.slice(listStart, server.indexOf('\n});', listStart));
@@ -1311,12 +1311,12 @@ function runnerFor(store, reader, options = {}) {
     assert.strictEqual(plainReader.listCalls.length, 0);
     assert.strictEqual(plain.finalized.commitsTotal, null);
 
-    /* Incremental: an earlier complete history scan's commit is where reading stops. */
+    /* Prior tips cannot be used as date-order stopping points. */
     const again = fakeStore();
     again.scan = { ...again.scan, scanMode: 'history', historyBaseCommit: deleted };
     const againReader = historyReader({ 'README.md': 'hello\n' }, changeSet);
     await runnerFor(again, againReader).runOnce();
-    assert.strictEqual(againReader.listCalls[0].stopAt, deleted);
+    assert.strictEqual(againReader.listCalls[0].stopAt, undefined);
 
     /* The provider asking for fewer requests stops history, keeps what was read, and says so. */
     const throttled = fakeStore();
@@ -1424,6 +1424,87 @@ function runnerFor(store, reader, options = {}) {
     assert(peak <= 2, `at most two archives in flight, saw ${peak}`);
     assert.strictEqual(opened.length, 6);
     assert.strictEqual(store.finalized.archivesScanned, 6);
+  }
+
+  /* A previous tip is not an ancestry boundary in GitHub's date-ordered
+     listing. A merged branch can have introduced and deleted a secret before
+     that tip's date, leaving no trace in the merge's first-parent diff. */
+  {
+    const providerReader = require('../src/exposure-reader');
+    const sha = n => n.toString(16).padStart(40, '0');
+    const items = [5, 4, 3, 2, 1].map(n => ({ sha: sha(n), parents: n === 5 ? [{ sha: sha(4) }, { sha: sha(3) }] : [] }));
+    const transport = async input => {
+      const url = new URL(input.url);
+      if (url.pathname.endsWith('/commits')) return { statusCode: 200, body: JSON.stringify(items) };
+      const id = url.pathname.split('/').pop();
+      return { statusCode: 200, body: JSON.stringify({ sha: id, files: id === sha(2) ? [{
+        filename: '.env', status: 'added', sha: sha(9), patch: `@@ -0,0 +1 @@\n+${SECRET}`
+      }] : [] }) };
+    };
+    const store = fakeStore();
+    store.scan = { ...store.scan, commitSha: sha(5), scanMode: 'history', historyBaseCommit: sha(4) };
+    const reader = { ...fakeReader({}),
+      listCommits: input => providerReader.listCommits({ ...input, transport }),
+      readCommitChanges: input => providerReader.readCommitChanges({ ...input, transport })
+    };
+    await runnerFor(store, reader).runOnce();
+    assert.strictEqual(store.recorded.length, 1, 'a merged side branch is scanned beyond the previous tip');
+    assert.strictEqual(store.finalized.coverage, 'complete');
+    assert.strictEqual(store.finalized.commitsScanned, 5);
+  }
+
+  /* Pagination is real reader code under a virtual clock: slow history must
+     renew the claim, notice cancellation, and obey the scan deadline between
+     requests, including pagination hidden inside one commit's file list. */
+  for (const stage of ['listing', 'changes']) {
+    for (const stop of ['cancel', 'deadline', 'renew']) {
+      const providerReader = require('../src/exposure-reader');
+      const sha = n => n.toString(16).padStart(40, '0');
+      let clock = T0;
+      let requests = 0;
+      let canceled = false;
+      let expiresAt = T0 + 60_000;
+      const store = fakeStore({
+        async renewClaim(input) {
+          this.calls.push(['renewClaim', input]);
+          if (canceled || clock >= expiresAt) return false;
+          expiresAt = clock + 60_000;
+          return true;
+        }
+      });
+      store.scan = { ...store.scan, scanMode: 'history' };
+      const transport = async input => {
+        requests += 1;
+        clock += 31_000;
+        if (stop === 'cancel') canceled = true;
+        const page = Number(new URL(input.url).searchParams.get('page'));
+        return { statusCode: 200, body: JSON.stringify(stage === 'listing'
+          ? page < 4 ? Array.from({ length: 100 }, (_, i) => ({ sha: sha(page * 100 + i), parents: [] })) : []
+          : { sha: COMMIT, files: page < 4 ? Array.from({ length: 100 }, (_, i) => ({ filename: `${page}-${i}.txt`, status: 'removed' })) : [] }) };
+      };
+      const reader = { ...fakeReader({}),
+        listCommits: stage === 'listing'
+          ? input => providerReader.listCommits({ ...input, transport })
+          : async () => ({ commits: [{ sha: COMMIT, parents: 0 }], truncated: false }),
+        readCommitChanges: stage === 'changes'
+          ? input => providerReader.readCommitChanges({ ...input, transport })
+          : async input => ({ sha: input.sha, files: [] })
+      };
+      const result = await runnerFor(store, reader, { now: () => clock,
+        budgets: { maxWallClockMs: stop === 'deadline' ? 30_000 : 480_000 } }).runOnce();
+      if (stop === 'cancel') {
+        assert.strictEqual(requests, 1, `${stage}: cancellation prevents page two`);
+        assert.strictEqual(result.stopped, 'claim-lost');
+        assert.strictEqual(store.finalized, null);
+      } else if (stop === 'deadline') {
+        assert.strictEqual(requests, 1, `${stage}: deadline prevents page two`);
+        assert.strictEqual(store.finalized.coverage, 'partial');
+        assert.strictEqual(store.finalized.skippedReason, 'time-limit');
+      } else {
+        assert.strictEqual(requests, 4, `${stage}: live lease permits all pages`);
+        assert.strictEqual(store.finalized.coverage, 'complete', `${stage}: pagination must renew the lease`);
+      }
+    }
   }
 
   console.log('exposure worker tests passed');

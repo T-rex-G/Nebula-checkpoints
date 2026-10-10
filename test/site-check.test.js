@@ -493,6 +493,10 @@ const withContact = files => ({ '/.well-known/security.txt': SECURITY_TXT, ...fi
 
   /* A place is shown without the identifiers a path can carry. */
   assert.strictEqual(displayPath('/reset/Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4z?x=1'), '/reset/…');
+  assert.strictEqual(displayPath('/reset/abcdefghijklmnopqrstuvwxyzabcdef'), '/reset/…');
+  assert.strictEqual(displayPath('/reset/' + '%41'.repeat(30)), '/reset/…');
+  assert.strictEqual(displayPath('/reset/eyJmb28iOiJiYXIifQ.eyJzdWIiOiJmaXh0dXJlIn0.c3ludGhldGljLW9ubHk'), '/reset/…');
+  assert.strictEqual(displayPath('/caf%C3%A9'), '/caf%C3%A9');
   assert.strictEqual(displayPath('/assets/index-4f3a2b.js'), '/assets/index-4f3a2b.js');
 
   console.log('site check tests passed');

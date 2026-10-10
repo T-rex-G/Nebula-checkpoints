@@ -93,7 +93,7 @@ assert(
   'invite-mode cookie authentication must prove tester ownership and return before the legacy raw SID lookup'
 );
 
-const setSessionStart = server.indexOf('async function setSession(req, res, data)');
+const setSessionStart = server.indexOf('async function setSession(req, res, data');
 const setSessionEnd = server.indexOf('\n}', setSessionStart) + 2;
 const setSessionBlock = server.slice(setSessionStart, setSessionEnd);
 assert(setSessionBlock.includes('mutateHostedProviderSession({'));

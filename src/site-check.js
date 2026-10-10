@@ -30,6 +30,7 @@
  */
 
 const crypto = require('crypto');
+const { privatePathSegment } = require('./site-url-privacy');
 const { parse: parseDomain } = require('tldts');
 const { parse: parseHtml } = require('parse5');
 const { gradeOf, lookupAdvisories, advisoryKey, compareVersions } = require('./code-audit');
@@ -47,8 +48,8 @@ const RULES = Object.freeze({
   'WEB-003': { severity: 'serious', title: 'No Strict-Transport-Security header',
     why: 'Without HSTS a visitor’s first request can be downgraded to plain HTTP and intercepted.',
     fix: 'Send "Strict-Transport-Security: max-age=31536000; includeSubDomains" on every HTTPS response.' },
-  'WEB-004': { severity: 'warning', title: 'Strict-Transport-Security is too short',
-    why: 'A max-age under six months lets the protection lapse between visits.',
+  'WEB-004': { severity: 'warning', title: 'Strict-Transport-Security is invalid or too short',
+    why: 'An invalid max-age does not establish HSTS protection. A max-age under six months lets the protection lapse between visits.',
     fix: 'Raise max-age to at least 15552000 seconds (180 days); a year is common.' },
   'WEB-005': { severity: 'serious', title: 'No Content-Security-Policy',
     why: 'Without a CSP any injected script runs with the page’s full authority, so one cross-site scripting bug becomes account takeover.',
@@ -62,7 +63,7 @@ const RULES = Object.freeze({
   'WEB-008': { severity: 'warning', title: 'No X-Content-Type-Options: nosniff',
     why: 'Browsers may guess a response’s type and run an uploaded file as script.',
     fix: 'Send "X-Content-Type-Options: nosniff" on every response.' },
-  'WEB-009': { severity: 'warning', title: 'No Referrer-Policy',
+  'WEB-009': { severity: 'warning', title: 'No valid Referrer-Policy',
     why: 'Full URLs, including tokens or identifiers in query strings, leak to every site the page links to.',
     fix: 'Send "Referrer-Policy: strict-origin-when-cross-origin" or stricter.' },
   'WEB-010': { severity: 'serious', title: 'Any origin may make credentialed requests',
@@ -354,15 +355,15 @@ function headerFindings(headers) {
   const hsts = get('strict-transport-security');
   if (!hsts) out.push({ rule: 'WEB-003', where: 'Strict-Transport-Security' });
   else {
-    const age = /max-age\s*=\s*"?(\d+)/i.exec(hsts);
-    if (!age || Number(age[1]) < 15552000) out.push({ rule: 'WEB-004', where: 'Strict-Transport-Security' });
+    const age = hstsSummary(hsts).maxAge;
+    if (age === null || age < 15552000) out.push({ rule: 'WEB-004', where: 'Strict-Transport-Security' });
   }
   const csp = get('content-security-policy');
   if (!csp) out.push({ rule: 'WEB-005', where: get('content-security-policy-report-only') ? 'Content-Security-Policy (report-only is not enforced)' : 'Content-Security-Policy' });
   else {
     const script = fallbackDirective(csp, ['script-src', 'default-src']);
     const elements = fallbackDirective(csp, ['script-src-elem', 'script-src', 'default-src']);
-    const nonced = value => /'nonce-[^']+'|'sha(?:256|384|512)-[^']+'/i.test(value || '');
+    const nonced = value => /(?:^|\s)'(?:nonce-[A-Za-z0-9+/_-]+=*|sha(?:256|384|512)-[A-Za-z0-9+/_-]+=*)'(?=\s|$)/i.test(value || '');
     const unsafeInline = value => /'unsafe-inline'/i.test(value || '') && !nonced(value);
     if (/'unsafe-eval'/i.test(script || '') || unsafeInline(elements)) out.push({ rule: 'WEB-006', where: 'Content-Security-Policy' });
     const unrestricted = value => value === null || (!(nonced(value) && /'strict-dynamic'/i.test(value)) && /(?:^|\s)(?:\*|https?:|data:)(?=\s|$)/i.test(value));
@@ -370,12 +371,12 @@ function headerFindings(headers) {
   }
   if (!frameProtected(headers)) out.push({ rule: 'WEB-007', where: 'X-Frame-Options' });
   if (!/^nosniff$/i.test(get('x-content-type-options').trim())) out.push({ rule: 'WEB-008', where: 'X-Content-Type-Options' });
-  if (!get('referrer-policy')) out.push({ rule: 'WEB-009', where: 'Referrer-Policy' });
+  if (!get('referrer-policy').split(',').some(value => /^(?:no-referrer|no-referrer-when-downgrade|origin|origin-when-cross-origin|same-origin|strict-origin|strict-origin-when-cross-origin|unsafe-url)$/i.test(value.trim()))) out.push({ rule: 'WEB-009', where: 'Referrer-Policy' });
   const allowedOrigin = get('access-control-allow-origin').trim();
   if (allowedOrigin === 'null' && corsCredentials(headers)) out.push({ rule: 'WEB-010', where: 'Access-Control-Allow-Origin' });
   if (allowedOrigin === '*' && corsCredentials(headers)) out.push({ rule: 'WEB-037', where: 'Access-Control-Allow-Origin' });
   if (/\d/.test(get('server')) || get('x-powered-by')) out.push({ rule: 'WEB-013', where: get('x-powered-by') ? 'X-Powered-By' : 'Server' });
-  if (!/same-origin/i.test(get('cross-origin-opener-policy'))) out.push({ rule: 'WEB-016', where: 'Cross-Origin-Opener-Policy' });
+  if (!/^(?:same-origin|same-origin-allow-popups)$/i.test(get('cross-origin-opener-policy').split(';')[0].trim())) out.push({ rule: 'WEB-016', where: 'Cross-Origin-Opener-Policy' });
   if (csp) {
     const objects = fallbackDirective(csp, ['object-src', 'default-src']);
     const baseOpen = cspDirective(csp, 'base-uri') === null;
@@ -442,7 +443,7 @@ function hostOf(address) {
  */
 function displayPath(pathname) {
   const clean = String(pathname || '/').split(/[?#]/)[0]
-    .split('/').map(segment => (/^[A-Za-z0-9_-]{24,}$/.test(segment) && /\d/.test(segment) ? '…' : segment)).join('/');
+    .split('/').map(segment => (privatePathSegment(segment) ? '…' : segment)).join('/');
   return clean.length > 96 ? `${clean.slice(0, 95)}…` : clean || '/';
 }
 
@@ -563,17 +564,28 @@ function pageLinks(html, base, origin, disallowed) {
 
 /* The paths robots.txt asks every crawler to leave alone. The check honours them. */
 function robotsDisallowed(text) {
-  const out = [];
-  let applies = false;
+  const groups = [];
+  let group = { agents: [], paths: [] };
+  let rulesStarted = false;
   for (const raw of String(text || '').split(/\r?\n/).slice(0, 400)) {
-    const line = raw.replace(/#.*/, '').trim();
-    const field = /^([A-Za-z-]+)\s*:\s*(.*)$/.exec(line);
+    const field = /^([A-Za-z-]+)\s*:\s*(.*)$/.exec(raw.replace(/#.*/, '').trim());
     if (!field) continue;
     const name = field[1].toLowerCase();
-    if (name === 'user-agent') applies = field[2].trim() === '*';
-    else if (name === 'disallow' && applies && field[2].trim().startsWith('/')) out.push(field[2].trim().replace(/\*.*$/, ''));
+    const value = field[2].trim();
+    if (name === 'user-agent') {
+      if (rulesStarted) { groups.push(group); group = { agents: [], paths: [] }; rulesStarted = false; }
+      group.agents.push(value.toLowerCase());
+    } else if (group.agents.length) {
+      rulesStarted = true;
+      if (name === 'disallow' && value.startsWith('/')) group.paths.push(value.replace(/\*.*$/, ''));
+    }
   }
-  return out.slice(0, 200);
+  groups.push(group);
+  // A shared group applies to every named agent. Preserve conservative prefix
+  // exclusions; Allow exceptions are intentionally not used to expand this scan.
+  const specific = groups.filter(item => item.agents.some(agent => agent !== '*' && agent && 'nebulaverse-x-sitecheck'.includes(agent)));
+  const selected = specific.length ? specific : groups.filter(item => item.agents.includes('*'));
+  return [...new Set(selected.flatMap(item => item.paths))].slice(0, 200);
 }
 
 function scriptSources(html, base, onInvalid = () => {}) {
@@ -594,10 +606,12 @@ function scriptSources(html, base, onInvalid = () => {}) {
 function hstsSummary(value) {
   const text = String(value || '');
   if (!text) return null;
-  const age = /max-age\s*=\s*"?(\d+)/i.exec(text);
+  const directives = text.split(';').map(value => value.trim()).filter(Boolean);
+  const ages = directives.filter(value => /^max-age(?:\s|=|$)/i.test(value));
+  const age = ages.length === 1 && /^max-age\s*=\s*(?:"(\d+)"|(\d+))$/i.exec(ages[0]);
   return Object.freeze({
-    maxAge: age ? Number(age[1]) : null,
-    includeSubDomains: /includeSubDomains/i.test(text),
+    maxAge: age && Number.isSafeInteger(Number(age[1] || age[2])) ? Number(age[1] || age[2]) : null,
+    includeSubDomains: directives.some(value => /^includesubdomains$/i.test(value)),
     preload: /(?:^|;)\s*preload\s*(?:;|$)/i.test(text)
   });
 }
@@ -610,33 +624,45 @@ function hstsSummary(value) {
  * clean. A failure to reach the page at all is an error, never an empty --
  * and therefore clean -- report.
  */
-async function checkSite({ url, transport, advisoryTransport = null, txt = null, onProgress = null, limits = LIMITS, now = Date.now, random = () => crypto.randomBytes(6).toString('hex') }) {
+async function checkSite({ url, transport, signal, advisoryTransport = null, txt = null, onProgress = null, limits = LIMITS, now = Date.now, random = () => crypto.randomBytes(6).toString('hex') }) {
+  const checkCancelled = () => { if (signal && signal.aborted) throw new SiteCheckError('The site check was cancelled.', 'SITE_CHECK_CANCELLED', 499); };
+  checkCancelled();
   limits = { ...LIMITS, ...limits };
   const requested = siteOrigin(url);
   let origin = requested;
   const startedAt = now();
   let probed = 0;
-  const progress = update => { if (typeof onProgress === 'function') { try { onProgress(update); } catch { /* progress is advisory */ } } };
+  const progress = update => { checkCancelled(); if (typeof onProgress === 'function') { try { onProgress(update); } catch { /* progress is advisory */ } } };
   const remaining = () => limits.deadlineMs - (now() - startedAt);
   const withinBudget = async (operation, ceiling = limits.deadlineMs) => {
+    checkCancelled();
     const left = Math.min(remaining(), ceiling);
     if (left < 1) throw new SiteCheckError('time budget spent', 'SITE_BUDGET');
     const controller = new AbortController();
     let timer;
+    let cancel;
     try {
+      const cancelled = new Promise((_, reject) => {
+        cancel = () => { controller.abort(); reject(new SiteCheckError('The site check was cancelled.', 'SITE_CHECK_CANCELLED', 499)); };
+        if (signal) signal.addEventListener('abort', cancel, { once: true });
+      });
       const result = await Promise.race([
+        cancelled,
         Promise.resolve().then(() => {
+          checkCancelled();
           const available = Math.min(remaining(), ceiling);
           if (available < 1) throw new SiteCheckError('time budget spent', 'SITE_BUDGET');
           return operation({ deadlineMs: available, signal: controller.signal });
         }),
         new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new SiteCheckError('time budget spent', 'SITE_BUDGET')); }, left); })
       ]);
+      checkCancelled();
       if (remaining() <= 0) { controller.abort(); throw new SiteCheckError('time budget spent', 'SITE_BUDGET'); }
       return result;
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); if (signal && cancel) signal.removeEventListener('abort', cancel); controller.abort(); }
   };
   const request = async (target, { method = 'GET', maxResponseBytes = limits.probeBytes, headers = {}, plainHttp = false } = {}) => {
+    checkCancelled();
     if (probed >= limits.maxRequests) throw new SiteCheckError('request budget spent', 'SITE_BUDGET');
     const left = remaining();
     if (left < 1000) throw new SiteCheckError('time budget spent', 'SITE_BUDGET');
@@ -697,6 +723,7 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
   for (let hop = 0; ; hop += 1) {
     try { page = await request(pathname, { maxResponseBytes: limits.pageBytes }); }
     catch {
+      checkCancelled();
       throw new SiteCheckError('The site could not be reached over valid HTTPS from here. Check the address, and that it has a public certificate.', 'SITE_UNREACHABLE', 502);
     }
     const headers = page.headers || {};
@@ -863,6 +890,8 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
   });
   for (const visitedPage of pages) {
     if (!visitedPage.html) continue;
+    const debug = DEBUG_SIGNATURES.find(([pattern, , anywhere]) => anywhere && pattern.test(visitedPage.html));
+    if (debug) raw.push({ rule: 'WEB-021', where: `${debug[1]} on ${visitedPage.path}` });
     raw.push(...markupFindings(visitedPage.html, origin, visitedPage.address));
     const detected = shippedSecrets(visitedPage.html);
     if (detected.truncated) incomplete('pages', 'Credential detector reached its candidate limit');
@@ -1007,20 +1036,28 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
     let dmarc = null;
     try {
       const records = await withinBudget(budget => txt(mail.domain, budget), limits.requestMs);
-      const policy = records.find(record => /^v=spf1\b/i.test(record.trim()));
-      spf = !policy ? 'missing' : /[+]?all\s*$/i.test(policy.trim()) && !/[-~?]all\s*$/i.test(policy.trim()) ? 'open' : /-all\s*$/i.test(policy.trim()) ? 'strict' : /~all\s*$/i.test(policy.trim()) ? 'soft' : 'neutral';
+      const policies = records.filter(record => /^v=spf1(?:\s|$)/i.test(record.trim()));
+      const policy = policies[0];
+      const terms = policy ? policy.trim().split(/\s+/).slice(1) : [];
+      const valid = terms.every(term => /^(?:[+?~-]?(?:all|(?:include|exists):[^\s]+|(?:a|mx)(?::[^/\s]+)?(?:\/\d{1,3})?(?:\/\/\d{1,3})?|ptr(?::[^\s]+)?|ip[46]:[0-9a-f:./]+)|[a-z][a-z0-9_.-]*=[^\s]+)$/i.test(term));
+      const all = terms.find(term => /^[+?~-]?all$/i.test(term));
+      spf = policies.length > 1 || !valid ? 'invalid' : !policy ? 'missing' : /^\+?all$/i.test(all || '') ? 'open' : /^-all$/i.test(all || '') ? 'strict' : /^~all$/i.test(all || '') ? 'soft' : 'neutral';
     } catch { spf = null; }
     try {
       const records = await withinBudget(budget => txt(`_dmarc.${mail.domain}`, budget), limits.requestMs);
-      const policy = records.find(record => /^v=DMARC1\b/i.test(record.trim()));
-      const mode = policy && /(?:^|;)\s*p\s*=\s*(none|quarantine|reject)/i.exec(policy);
-      dmarc = !policy ? 'missing' : mode ? mode[1].toLowerCase() : 'none';
+      const policies = records.filter(record => /^v=DMARC1(?:\s*;|\s*$)/i.test(record.trim()));
+      const tags = policies.length === 1 ? policies[0].split(';').map(value => value.trim()).filter(Boolean) : [];
+      const parsed = tags.map(value => /^([a-z][a-z0-9_-]*)\s*=\s*(.+)$/i.exec(value));
+      const names = parsed.filter(Boolean).map(match => match[1].toLowerCase());
+      const modes = parsed.filter(match => match && match[1].toLowerCase() === 'p');
+      const valid = parsed.every(Boolean) && parsed[0] && /^v$/i.test(parsed[0][1]) && /^DMARC1$/i.test(parsed[0][2]) && new Set(names).size === names.length && modes.length === 1 && /^(?:none|quarantine|reject)$/i.test(modes[0][2]);
+      dmarc = !policies.length ? 'missing' : policies.length !== 1 || !valid ? 'invalid' : modes[0][2].toLowerCase();
     } catch { dmarc = null; }
-    if (spf === 'missing' || spf === 'open') raw.push({ rule: 'WEB-028', where: `${mail.domain} (SPF ${spf === 'open' ? 'allows anyone' : 'missing'})` });
-    if (dmarc === 'missing' || dmarc === 'none') raw.push({ rule: 'WEB-027', where: `_dmarc.${mail.domain} (${dmarc === 'none' ? 'p=none' : 'missing'})` });
+    if (['missing', 'open', 'invalid'].includes(spf)) raw.push({ rule: 'WEB-028', where: `${mail.domain} (SPF ${spf === 'open' ? 'allows anyone' : spf})` });
+    if (['missing', 'none', 'invalid'].includes(dmarc)) raw.push({ rule: 'WEB-027', where: `_dmarc.${mail.domain} (${dmarc === 'none' ? 'p=none' : dmarc})` });
     email = { state: spf === null || dmarc === null ? 'partial' : 'checked', reason: null, domain: mail.domain, spf, dmarc };
     if (spf === null || dmarc === null) incomplete('email', 'Not all email DNS lookups completed');
-    note('email', dmarc === 'missing' || dmarc === 'none' || spf === 'missing' || spf === 'open' ? 'warn' : spf === null || dmarc === null ? 'unknown' : 'pass',
+    note('email', ['missing', 'none', 'invalid'].includes(dmarc) || ['missing', 'open', 'invalid'].includes(spf) ? 'warn' : spf === null || dmarc === null ? 'unknown' : 'pass',
       `${mail.domain}: SPF ${spf || 'unknown'}, DMARC ${dmarc === null ? 'unknown' : dmarc === 'missing' ? 'missing' : `p=${dmarc}`}`);
   }
 
@@ -1061,6 +1098,7 @@ async function checkSite({ url, transport, advisoryTransport = null, txt = null,
   const reasons = Object.entries(categories).flatMap(([id, category]) => category.reasons.map(reason => `${id}: ${reason}`));
   const complete = reasons.length === 0;
   const coverage = { state: complete ? 'complete' : Object.values(categories).some(category => category.completed > 0) ? 'partial' : 'unknown', complete, reasons, categories };
+  checkCancelled();
   return {
     engine: 3,
     origin,

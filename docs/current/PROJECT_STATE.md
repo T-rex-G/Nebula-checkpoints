@@ -66,7 +66,7 @@ Generated from the current registry. Evidence maturity is not current-candidate 
 
 ## Next authorized action
 
-Review the GitHub-only product and qualification changes in PR #81 and run all automated gates against its exact candidate. Leave the PR open and unmerged for another AI to review. Live GitHub, hosted recovery, manual accessibility and final release evidence remain pending and separately required; this change authorizes no deployment or cohort opening.
+Review the six-system hardening and retained GitHub-only product/qualification changes in PR #81; run all automated gates against its exact candidate. Leave the PR open and unmerged for another AI to review. Consult docs/current/SIX_SYSTEM_HARDENING.md for reproduced defects and remaining qualification gaps. Live GitHub, hosted recovery, manual accessibility and final release evidence remain pending; no deployment or cohort opening is authorized.
 
 No merge, deployment, public cohort opening, or live-provider dispatch is authorized by
 this in-repository state.

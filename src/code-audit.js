@@ -81,6 +81,17 @@ const ecosystems = require('./ecosystems');
 const licences = require('./licences');
 const auditPolicy = require('./code-audit-policy');
 
+/* Cancellation reasons can contain private context; only this fixed error leaves the audit. */
+function assertAuditActive(signal) {
+  if (!signal || !signal.aborted) return;
+  const error = new Error('The audit was cancelled.');
+  error.code = 'AUDIT_CANCELLED';
+  error.status = 499;
+  error.providerChanged = false;
+  error.safeState = 'Nothing was changed. The audit only reads.';
+  throw error;
+}
+
 /* The engine's name and version, carried in every result and export. */
 const ENGINE = Object.freeze({ name: 'Uranus', version: '2.4.0' });
 
@@ -1357,6 +1368,8 @@ function packageLockEntries(text) {
   });
   const out = [];
   if (lock.packages && typeof lock.packages === 'object') {
+    const workspaces = Object.values(lock.packages).filter(entry => entry && entry.link === true && typeof entry.resolved === 'string')
+      .map(entry => entry.resolved.replace(/^\.\//, '')).filter(dir => dir && !dir.startsWith('/') && !dir.split('/').includes('..'));
     const root = lock.packages[''];
     const roots = root && typeof root === 'object'
       ? [...requiredNames(root.dependencies, root.optionalDependencies).map(name => ({ name, dev: false })), ...requiredNames(root.devDependencies).map(name => ({ name, dev: true }))]
@@ -1364,10 +1377,12 @@ function packageLockEntries(text) {
     for (const [key, entry] of Object.entries(lock.packages)) {
       if (!key || !entry || typeof entry !== 'object' || entry.link || typeof entry.version !== 'string') continue;
       const name = typeof entry.name === 'string' && entry.name ? entry.name : key.slice(key.lastIndexOf('node_modules/') + 13);
-      out.push({ name, version: entry.version, line: lines.get(key) || 1, dev: Boolean(entry.dev), top: key === `node_modules/${name}`, requires: requiredNames(entry.dependencies, entry.optionalDependencies),
+      /* Workspace package records describe local projects, not installed registry components. */
+      if (!key.includes('node_modules/')) continue;
+      out.push({ name, version: entry.version, location: key, line: lines.get(key) || 1, dev: Boolean(entry.dev), top: key === `node_modules/${name}`, requires: requiredNames(entry.dependencies, entry.optionalDependencies),
         license: typeof entry.license === 'string' ? entry.license.slice(0, 120) : null });
     }
-    return { entries: out, roots };
+    return { entries: out, roots, workspaces };
   }
   const walk = (dependencies, top) => {
     for (const [name, entry] of Object.entries(dependencies || {})) {
@@ -1568,7 +1583,7 @@ function readDependencies(files) {
     } else if (LOCK_PARSERS[base]) {
       const [ecosystem, parse] = LOCK_PARSERS[base];
       const parsed = parse(file.text);
-      locks.push({ dir, ecosystem, path: file.path, entries: parsed.entries, roots: parsed.roots, flat: Boolean(parsed.flat), declared: [] });
+      locks.push({ dir, ecosystem, path: file.path, entries: parsed.entries, roots: parsed.roots, workspaces: parsed.workspaces || [], flat: Boolean(parsed.flat), declared: [] });
     }
   }
   const entries = [];
@@ -1576,6 +1591,7 @@ function readDependencies(files) {
   /* Each lockfile indexed by name once, so a large one is not searched once per declared package. */
   for (const lock of locks) {
     lock.index = new Map();
+    lock.locations = new Map(lock.entries.filter(entry => entry.location).map(entry => [entry.location, entry]));
     for (const entry of lock.entries) {
       const key = nameKey(lock.ecosystem, entry.name);
       const known = lock.index.get(key);
@@ -1583,12 +1599,24 @@ function readDependencies(files) {
     }
   }
   for (const manifest of manifests) {
+    const workspaceDir = candidate => candidate.dir ? manifest.dir.slice(candidate.dir.length + 1) : manifest.dir;
     const lock = locks.find(candidate => candidate.ecosystem === manifest.ecosystem && candidate.dir === manifest.dir) ||
-      locks.find(candidate => candidate.ecosystem === manifest.ecosystem && candidate.dir === '');
+      locks.find(candidate => candidate.ecosystem === manifest.ecosystem && (!candidate.dir || manifest.dir.startsWith(`${candidate.dir}/`))
+        && candidate.workspaces.includes(workspaceDir(candidate)));
     for (const declared of manifest.packages) {
       const key = nameKey(manifest.ecosystem, declared.name);
       if (lock) lock.declared.push({ name: declared.name, dev: Boolean(declared.dev) });
-      const installed = lock ? lock.index.get(key) : null;
+      let installed = lock ? lock.index.get(key) : null;
+      if (lock && lock.dir !== manifest.dir) {
+        /* A linked npm workspace resolves its own nested install before walking up to the root. */
+        let dir = workspaceDir(lock);
+        installed = null;
+        while (true) {
+          installed = lock.locations.get(`${dir ? `${dir}/` : ''}node_modules/${declared.name}`);
+          if (installed || !dir) break;
+          dir = dirName(dir);
+        }
+      }
       const base = { ecosystem: manifest.ecosystem, name: declared.name, path: declared.path, line: declared.line, direct: true, dev: Boolean(declared.dev) };
       if (installed) {
         entries.push({ ...base, version: installed.version, source: 'lock', lock: lock.path, license: installed.license || null });
@@ -1909,7 +1937,15 @@ async function queryAdvisoryIds(entries, transport, limits = LIMITS) {
       if (!body || !Array.isArray(body.results) || body.results.length !== batch.length) throw new Error('unanswered');
       batch.forEach((entry, index) => {
         const result = body.results[index];
-        ids.set(advisoryKey(entry), (result && Array.isArray(result.vulns) ? result.vulns : []).map(vuln => String(vuln && vuln.id)).filter(id => ADVISORY_ID.test(id)));
+        const key = advisoryKey(entry);
+        if (!result || typeof result !== 'object' || Array.isArray(result)
+          || (result.vulns !== undefined && (!Array.isArray(result.vulns) || result.vulns.some(vuln => !vuln || !ADVISORY_ID.test(vuln.id))))
+          || result.next_page_token) {
+          /* This bounded lookup cannot claim a complete answer from an unfinished page. */
+          unknown.add(key);
+          return;
+        }
+        ids.set(key, (result.vulns || []).map(vuln => String(vuln.id)));
       });
     } catch {
       batch.forEach(entry => unknown.add(advisoryKey(entry)));
@@ -3228,7 +3264,7 @@ function baselineComponents(components, advisories, intel) {
  * without a query API, or an audit without its transport, leaves them
  * unread, and coverage counts them as past the budget.
  */
-async function readBeyond({ reader, scope, commitSha, token, queryTransport, overflow, limits, scanner, progress }) {
+async function readBeyond({ reader, scope, commitSha, token, queryTransport, overflow, limits, scanner, progress, signal }) {
   const out = { scan: null, read: 0, unreadable: 0, notRead: 0 };
   const queue = Array.isArray(overflow) ? overflow : [];
   if (!queue.length) return out;
@@ -3255,14 +3291,17 @@ async function readBeyond({ reader, scope, commitSha, token, queryTransport, ove
   let pendingBytes = 0;
   let done = 0;
   const flush = async () => {
+    assertAuditActive(signal);
     if (!pending.length) return;
     const files = pending;
     pending = [];
     pendingBytes = 0;
     try {
       out.scan = mergeScans(out.scan, await scanner({ files }));
+      assertAuditActive(signal);
       out.read += files.length;
     } catch {
+      assertAuditActive(signal);
       /* A batch the server could not check is unread, not clean. */
       out.unreadable += files.length;
     }
@@ -3271,7 +3310,9 @@ async function readBeyond({ reader, scope, commitSha, token, queryTransport, ove
   const concurrency = Math.max(1, limits.queryConcurrency || 1);
   /* A request that failed outright is asked again as two halves, twice over, before its files count as unread. */
   const readBatch = async (paths, depth = 0) => {
+    assertAuditActive(signal);
     const texts = await reader.readBlobTexts({ scope, commitSha, paths: paths.map(entry => entry.path), token, transport: queryTransport });
+    assertAuditActive(signal);
     if (!texts.failed || paths.length < 2 || depth >= 2) return texts;
     const middle = Math.ceil(paths.length / 2);
     const [first, second] = await Promise.all([readBatch(paths.slice(0, middle), depth + 1), readBatch(paths.slice(middle), depth + 1)]);
@@ -3295,11 +3336,26 @@ async function readBeyond({ reader, scope, commitSha, token, queryTransport, ove
   return out;
 }
 
-async function auditRepository({ reader, scope, ref, token, transport, queryTransport, registryTransport, advisoryTransport, licenceTransport, intelTransport, intelCache, limits = LIMITS, analyser = input => analyse(input), scanner = input => scanRules(input.files), onProgress = () => {} }) {
-  const progress = (stage, detail = {}) => { try { onProgress({ stage, ...detail }); } catch {} };
+async function auditRepository({ reader, scope, ref, token, transport, queryTransport, registryTransport, advisoryTransport, licenceTransport, intelTransport, intelCache, limits = LIMITS, analyser = input => analyse(input), scanner = input => scanRules(input.files), onProgress = () => {}, signal }) {
+  assertAuditActive(signal);
+  const cancellableTransport = operation => typeof operation !== 'function' ? operation : async input => {
+    assertAuditActive(signal);
+    const answer = await operation(signal ? { ...input, signal } : input);
+    assertAuditActive(signal);
+    return answer;
+  };
+  transport = cancellableTransport(transport);
+  queryTransport = cancellableTransport(queryTransport);
+  registryTransport = cancellableTransport(registryTransport);
+  advisoryTransport = cancellableTransport(advisoryTransport);
+  licenceTransport = cancellableTransport(licenceTransport);
+  intelTransport = cancellableTransport(intelTransport);
+  const progress = (stage, detail = {}) => { assertAuditActive(signal); try { onProgress({ stage, ...detail }); } catch {} };
   progress('resolving');
   const resolved = await reader.resolveCommit({ scope, ref, token, transport });
+  assertAuditActive(signal);
   const tree = await reader.readTree({ scope, commitSha: resolved.commitSha, token, transport });
+  assertAuditActive(signal);
   const paths = [...tree.entries.map(entry => entry.path), ...tree.skipped.filter(entry => entry.path).map(entry => entry.path)];
   const selection = selectFiles(tree.entries, limits);
   let unreadable = 0;
@@ -3307,14 +3363,16 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
   const total = selection.selected.length;
   progress('reading', { done, total });
   const files = (await boundedMap(selection.selected, limits.readConcurrency, async entry => {
+    assertAuditActive(signal);
     const blob = await reader.readBlob({ scope, sha: entry.sha, token, transport });
+    assertAuditActive(signal);
     done += 1;
     progress('reading', { done, total });
     if (typeof blob.text !== 'string') { unreadable += 1; return null; }
     return { path: entry.path, text: blob.text };
   })).filter(Boolean);
 
-  const beyond = await readBeyond({ reader, scope, commitSha: resolved.commitSha, token, queryTransport, overflow: selection.overflow, limits, scanner, progress });
+  const beyond = await readBeyond({ reader, scope, commitSha: resolved.commitSha, token, queryTransport, overflow: selection.overflow, limits, scanner, progress, signal });
   unreadable += beyond.unreadable;
 
   const packages = [];
@@ -3346,8 +3404,15 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
   }
   progress('analysing', { files: files.length });
   const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers, licences: licenceLookup ? licenceLookup.answers : null, intel: intel ? intel.answers : null, extra: beyond.scan });
+  assertAuditActive(signal);
   baselineComponents(result.components, advisories, intel);
   const lockfiles = paths.filter(filePath => READ_LOCKS.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath) && !isFixturePath(filePath));
+  const inventoried = new Set(files.map(file => file.path));
+  const inventoryComplete = !tree.truncated && paths.filter(filePath => {
+    if (EXCLUDED_DIR.test(filePath) || isFixturePath(filePath)) return false;
+    const base = baseName(filePath);
+    return base === 'package.json' || isRequirements(base) || ecosystems.manifestParserFor(filePath) || LOCK_PARSERS[base];
+  }).every(filePath => inventoried.has(filePath));
   return {
     commitSha: resolved.commitSha,
     ref: resolved.ref,
@@ -3367,6 +3432,7 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
        * to read leaves declared ranges as the only evidence, and says so.
        */
       advisories: {
+        inventoryComplete,
         versions: advisories.total,
         checked: result.advisoryStatus.checked,
         unknown: result.advisoryStatus.unknown,
@@ -3390,5 +3456,5 @@ async function auditRepository({ reader, scope, ref, token, transport, queryTran
 module.exports = Object.freeze({
   ENGINE, CATEGORIES, RULES, LIMITS, CRITICAL_CAP, SERIOUS_CAPS, SEVERITY_PENALTY, PATTERN_RULES, LEDGER,
   analyse, score, priorities, scanRules, mergeScans, auditRepository, selectFiles, lookupPackages, lookupAdvisories, queryAdvisoryIds, fetchAdvisoryRecords, describeAdvisory, advisoryKey, dependencyInventory, readDependencies, introducedThrough, registryUrl, normalizePypi, gradeOf,
-  compareVersions, rangeCeiling, rangeFloor, cvss3, sqlStatements
+  compareVersions, rangeCeiling, rangeFloor, cvss3, sqlStatements, assertAuditActive
 });

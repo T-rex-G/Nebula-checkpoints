@@ -13,6 +13,8 @@ remain open for another AI review.
 
 ## Current state
 
+- [Six-system hardening review](current/SIX_SYSTEM_HARDENING.md) — reproduced defects, fixes, evidence and remaining qualification gaps
+
 - [Project state](current/PROJECT_STATE.md) — generated release and gate status
 - [Continuation prompt](current/CONTINUATION_PROMPT.md) — generated handoff for the next working session
 - [Roadmap](current/ROADMAP.md) — approved delivery direction

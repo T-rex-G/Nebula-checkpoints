@@ -299,7 +299,7 @@ Emergency Shield coordinates existing controls:
 6. Signs the emergency manifest and persists it/evidence when Neon is available.
 7. Exports recent repository activity and updates the graph to show containment.
 
-Activation requires typing `FREEZE`.
+Activation requires typing `FREEZE`. It is unavailable in repository-scoped hosted alpha because these controls apply to the entire identity; use repository Safeguards and session revocation there. An interrupted response does not prove that activation failed: check the controls and any retained evidence. A failed evidence download is reported separately from confirmed containment.
 
 Read-only mode blocks writes through Nebulaverse-X only. It does not disable direct Git/provider access.
 

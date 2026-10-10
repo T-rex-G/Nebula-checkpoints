@@ -42,7 +42,7 @@ Read in order:
 
 Next authorized action:
 
-Review the GitHub-only product and qualification changes in PR #81 and run all automated gates against its exact candidate. Leave the PR open and unmerged for another AI to review. Live GitHub, hosted recovery, manual accessibility and final release evidence remain pending and separately required; this change authorizes no deployment or cohort opening.
+Review the six-system hardening and retained GitHub-only product/qualification changes in PR #81; run all automated gates against its exact candidate. Leave the PR open and unmerged for another AI to review. Consult docs/current/SIX_SYSTEM_HARDENING.md for reproduced defects and remaining qualification gaps. Live GitHub, hosted recovery, manual accessibility and final release evidence remain pending; no deployment or cohort opening is authorized.
 
 Keep the live-provider qualification, hosted qualification, manual accessibility and final release gates as recorded. Do not merge,
 deploy, open the cohort, or dispatch live qualification from this prompt.

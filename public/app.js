@@ -148,6 +148,7 @@ async function api(path, opts = {}, allowCsrfRetry = true) {
     method,
     credentials: 'same-origin',
     cache: opts.cache || 'no-store',
+    signal: opts.signal,
     headers: {
       ...(opts.headers || {}),
       'x-nv': '1',
@@ -3681,6 +3682,12 @@ function exposureHistoryEntry(scan, current) {
 
   const report = current.reports[scan.scanId];
   if (details.open) {
+    if (report && !report.loading && !report.error && report.complete === false) {
+      const partial = document.createElement('p');
+      partial.className = 'exposure-caveat';
+      partial.textContent = 'Only part of this scan report was loaded. Close and reopen the report after refreshing to retrieve current evidence.';
+      body.appendChild(partial);
+    }
     if (!report || report.loading) {
       const loading = document.createElement('p');
       loading.className = 'exposure-empty';
@@ -3694,7 +3701,7 @@ function exposureHistoryEntry(scan, current) {
     } else if (!report.entries.length) {
       const none = document.createElement('p');
       none.className = 'exposure-empty';
-      none.textContent = scan.coverage === 'complete'
+      none.textContent = scan.coverage === 'complete' && report.complete === true
         ? 'This scan found no credentials in the tree it read.'
         : 'This scan found no credentials in the part of the tree it read. That is not an all-clear.';
       body.appendChild(none);
@@ -3760,11 +3767,26 @@ async function loadExposureReport(scanId) {
   current.reports[scanId] = { loading: true, entries: null, error: '' };
   renderExposure();
   try {
-    const body = await api(`/api/repo/${wPath()}/exposure/scans/${encodeURIComponent(scanId)}/observations?limit=100`);
-    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    const observations = Array.isArray(body && body.observations) ? body.observations : [];
+    const observations = [];
+    const cursors = new Set();
+    const base = `/api/repo/${wPath()}/exposure/scans/${encodeURIComponent(scanId)}/observations`;
+    let cursor = null;
+    let complete = false;
+    // A scan records at most 500 findings. Bound even a broken continuation.
+    for (let page = 0; page < 5; page++) {
+      const query = new URLSearchParams({ limit: '100' });
+      if (cursor) query.set('cursor', cursor);
+      const body = await api(`${base}?${query}`);
+      if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
+      if (!body || !Array.isArray(body.observations)) throw new Error('Invalid scan report');
+      observations.push(...body.observations.slice(0, 100));
+      complete = body.complete === true && body.observations.length <= 100;
+      if (complete || !body.nextCursor || cursors.has(body.nextCursor)) break;
+      cursor = body.nextCursor;
+      cursors.add(cursor);
+    }
     current.reports[scanId] = {
-      loading: false, error: '',
+      loading: false, error: '', complete,
       entries: observations.filter(item => item && item.finding).map(item => ({
         ...item.finding, occurrences: item.occurrences, occurrenceCount: item.occurrenceCount
       }))
@@ -5014,10 +5036,14 @@ async function verifyGovernanceDecisionChain() {
   renderGovernanceInterface();
   announceGovernance(state.governance.verification.valid === true ? 'Decision chain verified' : 'Decision chain verification failed');
 }
-async function loadMoreGovernanceDecisions(afterSeq) {
-  const cursor = Number(afterSeq);
+async function loadMoreGovernanceDecisions(value, order = 'desc') {
+  const cursor = Number(value);
   if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Decision cursor is invalid');
-  const response = await api(`/api/repo/${wPath()}/governance/decisions?limit=50&afterSeq=${cursor}`);
+  const field = order === 'desc' ? 'beforeSeq' : 'afterSeq';
+  const scope = wPath();
+  const governance = state.governance;
+  const response = await api(`/api/repo/${scope}/governance/decisions?limit=50&${field}=${cursor}`);
+  if (!state.work || wPath() !== scope || state.governance !== governance) return;
   const page = response.decisions ? response : (response.result || response);
   const twin = state.governance.digitalTwin;
   if (!twin || !page || !Array.isArray(page.decisions)) return;
@@ -5029,7 +5055,9 @@ async function loadMoreGovernanceDecisions(afterSeq) {
     history: {
       ...twin.history,
       decisions: merged,
-      nextDecisionSeq: page.complete ? null : page.nextAfterSeq
+      ...(order === 'desc'
+        ? { nextBeforeDecisionSeq: page.complete ? null : page.nextBeforeSeq }
+        : { nextDecisionSeq: page.complete ? null : page.nextAfterSeq })
     }
   };
   renderGovernanceInterface();
@@ -5503,7 +5531,7 @@ const governanceActionHandlers = Object.freeze({
   'decide-exception': button => decideGovernanceException(button.dataset.exceptionId),
   'revoke-exception': button => revokeGovernanceException(button.dataset.exceptionId),
   'verify-chain': () => verifyGovernanceDecisionChain(),
-  'load-more-decisions': button => loadMoreGovernanceDecisions(button.dataset.afterSeq),
+  'load-more-decisions': button => loadMoreGovernanceDecisions(button.dataset.beforeSeq || button.dataset.afterSeq, button.dataset.beforeSeq ? 'desc' : 'asc'),
   'delivery-refresh': () => loadGovernanceDelivery(),
   'edit-notification-preferences': () => editGovernanceNotificationPreferences(),
   'mark-notifications-read': button => markGovernanceNotificationsRead(button.dataset.throughSeq),

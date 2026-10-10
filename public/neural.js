@@ -210,7 +210,14 @@
     highlightNodes: new Set(),
     highlightEdges: new Set(),
     intelligenceCursor: '',
-    catchUpBusy: false
+    catchUpBusy: false,
+    catchUpPending: false,
+    reloadPending: false,
+    catchUpError: '',
+    catchUpRetries: 0,
+    loadController: null,
+    catchUpController: null,
+    liveStatus: 'disconnected'
   };
 
   function nEsc(value) {
@@ -268,7 +275,9 @@
     edges.push({ id, source, target, type, severity, meta, activity: 0 });
   }
   function addEvent(events, type, label, detail, time, nodeId, edgeId = '', severity = 'normal') {
-    const d = new Date(time || Date.now());
+    if (time == null || time === '') return;
+    const d = new Date(time);
+    if (!Number.isFinite(d.getTime())) return;
     events.push({ id: `${type}:${nodeId}:${d.getTime()}:${events.length}`, type, label, detail, time: d.toISOString(), nodeId, edgeId, severity });
   }
 
@@ -282,11 +291,22 @@
 
   async function load(force = false) {
     if (!state || !state.work || NVN.loading) return;
+    if (NVN.catchUpBusy || (NVN.active && NVN.data && NVN.data.intelligence && NVN.data.intelligence.hasMore)) {
+      NVN.reloadPending = true;
+      if (!NVN.catchUpBusy) catchUpIntelligence();
+      return;
+    }
     const key = repoKey();
-    if (!force && NVN.loadedKey === key && NVN.nodes.length) { resize(); renderInspector(NVN.selected); return; }
+    if (!force && NVN.loadedKey === key && NVN.nodes.length) {
+      resize(); renderInspector(NVN.selected); ensureLiveStream();
+      catchUpIntelligence(); updateVisibleCount(); return;
+    }
     /* Another repository, or another branch: the last map goes before this one is drawn. */
     if (NVN.loadedKey && NVN.loadedKey !== key) reset();
     const mine = generation;
+    const controller = new AbortController();
+    NVN.loadController = controller;
+    const read = path => api(path, { signal: controller.signal });
     NVN.loading = true;
     const loading = document.getElementById('neuralLoading');
     const empty = document.getElementById('neuralEmpty');
@@ -303,21 +323,21 @@
       const base = `/api/repo/${workPath()}`;
       const branch = encodeURIComponent(state.work.branch || '');
       const requests = await Promise.allSettled([
-        api('/api/safety'),
-        api(`${base}/refs-snapshot`),
-        api(`${base}/activity?days=30`),
-        api(`${base}/audit-deps?ref=${branch}`),
-        api(`${base}/actions?branch=${branch}`),
-        api('/api/security/sessions'),
-        api(`${base}/live-events/status`),
-        api(`${base}/intelligence/events?limit=500`),
-        api(`${base}/signed-snapshots`),
-        api(`${base}/access-surface`),
-        api('/api/security/scanner-status'),
+        read('/api/safety'),
+        read(`${base}/refs-snapshot`),
+        read(`${base}/activity?days=30&ref=${branch}`),
+        read(`${base}/audit-deps?ref=${branch}`),
+        read(`${base}/actions?branch=${branch}`),
+        read('/api/security/sessions'),
+        read(`${base}/live-events/status`),
+        read(`${base}/intelligence/events?limit=500`),
+        read(`${base}/signed-snapshots`),
+        read(`${base}/access-surface`),
+        read('/api/security/scanner-status'),
         /* What the Exposure scans found -- in the tree and in history --
          * already masked by the server: never the secret, and a path only as
          * a screen may show it. */
-        api(`${base}/exposure/findings?limit=60`)
+        read(`${base}/exposure/findings?limit=60`)
       ]);
       if (mine !== generation || repoKey() !== key) return;
       const safety = settledValue(requests[0], { readOnly: false, freezeSync: false, protected: {} });
@@ -325,7 +345,7 @@
       const activity = settledValue(requests[2], { commits: [], pulls: [], issues: [], releases: [] });
       const deps = settledValue(requests[3], { scanned: 0, sources: [], vulnerable: [], details: {}, osv: { available: false, error: 'Dependency scan unavailable' }, dependabot: { available: false, alerts: [] } });
       const actions = settledValue(requests[4], []);
-      const sessions = settledValue(requests[5], { available: false, sessions: [{ current: true, updated: new Date().toISOString() }] });
+      const sessions = settledValue(requests[5], { available: false, sessions: [] });
       const live = settledValue(requests[6], { available: false, connected: false });
       const intelligence = settledValue(requests[7], { available: false, events: [] });
       const signedSnapshots = settledValue(requests[8], { available: false, snapshots: [] });
@@ -334,6 +354,9 @@
       const exposure = settledValue(requests[11], { findings: [], verifications: {} });
       const storedSnapshot = readStoredSnapshot();
       NVN.data = { safety, refs, activity, deps, actions, sessions, live, intelligence, signedSnapshots, access, scanner, exposure, storedSnapshot, errors: requests.map(r => r.status === 'rejected' ? r.reason && r.reason.message : '').filter(Boolean) };
+      const sourceNames = ['Safety', 'References', 'Activity', 'Dependencies', 'Workflows', 'Sessions', 'Live events', 'Event history', 'Recovery', 'Access', 'Upload scanner', 'Exposure'];
+      NVN.data.unavailable = requests.flatMap((result, index) => result.status === 'rejected' ? [sourceNames[index]] : []);
+      NVN.catchUpError = '';
       NVN.intelligenceCursor = intelligence && intelligence.cursor ? intelligence.cursor : '';
       buildGraph(NVN.data);
       NVN.loadedKey = key;
@@ -345,20 +368,22 @@
       if (!refreshing) fitGraph(false);
       else if (!NVN.userCamera) fitGraph(true);
       ensureLiveStream();
-      setStream(NVN.paused ? 'PAUSED' : (live.connected ? 'VERIFIED LIVE' : 'POLLING TOPOLOGY'), !NVN.paused);
+      setStream(streamLabel(), !NVN.paused && !NVN.data.unavailable.length);
       const sync = document.getElementById('neuralLastSync');
-      if (sync) sync.textContent = `${live.connected ? 'Webhook verified' : 'Polled'} · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      if (sync) sync.textContent = `${dataGaps(NVN.data).length ? 'Partial read' : 'Polled'} · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     } catch (error) {
       if (mine !== generation) return;
       console.error('Neural graph load failed', error);
       if (typeof toast === 'function') toast(`Neural map: ${error.message}`, 'err');
-      if (!NVN.nodes.length) injectDemo(true);
+      setStream('MAP UNAVAILABLE', false);
     } finally {
       if (mine === generation) {
         NVN.loading = false;
+        NVN.loadController = null;
         if (loading) loading.hidden = true;
         if (empty) empty.hidden = !!NVN.nodes.length;
         resize();
+        if (NVN.catchUpPending) { NVN.catchUpPending = false; catchUpIntelligence(); }
       }
     }
   }
@@ -370,7 +395,7 @@
    * place.
    */
   function reset() {
-    generation += 1;
+    cancelReads();
     closeLiveStream();
     clearTimeout(NVN.liveReloadTimer);
     NVN.loading = false;
@@ -467,19 +492,26 @@
       addEdge(edges, repoId, id, 'tag ref');
     });
 
-    const currentBranchId = nodeMap.has(`branch:${w.branch}`) ? `branch:${w.branch}` : repoId;
-    let previousCommit = currentBranchId;
-    (data.activity.commits || []).slice(0, 22).forEach((c, i) => {
+    const currentBranch = nodeMap.get(`branch:${w.branch}`);
+    const commits = (data.activity.commits || []).slice(0, 22);
+    commits.forEach((c, i) => {
       const id = `commit:${c.sha}`;
       const suspicious = /force|secret|password|disable|bypass|hotfix/i.test(`${c.message || ''}`);
       ordered(addNode(nodeMap, id, 'commit', short(c.message || c.sha.slice(0, 8), 34), {
         sha: c.sha, author: c.author, date: c.date, message: c.message,
         description: 'Recent commit observed in repository activity.'
       }, suspicious ? 'warning' : 'normal'), i);
-      addEdge(edges, previousCommit, id, i ? 'previous commit' : 'head commit', suspicious ? 'warning' : 'normal', { time: c.date });
-      addEvent(events, 'commit', c.message || 'Commit', `${c.author || 'Unknown author'} · ${c.sha.slice(0, 8)}`, c.date, id, `${previousCommit}>${id}:${i ? 'previous commit' : 'head commit'}`, suspicious ? 'warning' : 'normal');
-      previousCommit = id;
+      if (currentBranch && currentBranch.meta.sha === c.sha) {
+        addEdge(edges, currentBranch.id, id, 'head commit', suspicious ? 'warning' : 'normal', { time: c.date });
+      } else addEdge(edges, repoId, id, 'observed commit', suspicious ? 'warning' : 'normal', { time: c.date });
+      addEvent(events, 'commit', c.message || 'Commit', `${c.author || 'Unknown author'} · ${c.sha.slice(0, 8)}`, c.date, id, '', suspicious ? 'warning' : 'normal');
     });
+    // Provider list order is not Git ancestry (merges may interleave histories).
+    for (const c of commits) {
+      for (const parent of Array.isArray(c.parentShas) ? c.parentShas : []) {
+        if (nodeMap.has(`commit:${parent}`)) addEdge(edges, `commit:${c.sha}`, `commit:${parent}`, 'parent commit');
+      }
+    }
 
     (data.activity.pulls || []).slice(0, 10).forEach((p, order) => {
       const id = `pull:${p.number}`;
@@ -707,7 +739,7 @@
       addEdge(edges, repoId, id, 'Dependabot alert', sev);
     });
     const osv = data.deps.osv || { available: false, error: 'OSV scan status unavailable' };
-    if (data.deps.scanned && osv && data.deps.osv.available === false) {
+    if (data.deps.scanned && osv && data.deps.osv && data.deps.osv.available === false) {
       addNode(nodeMap, 'scan:unavailable', 'scan', 'Dependency scan incomplete', {
         sources: (data.deps.sources || []).map(s => s.file).join(', '),
         error: osv.error || 'OSV did not return a usable response.',
@@ -737,18 +769,19 @@
     addEdge(edges, repoId, 'scan:upload-gate', 'screens uploaded content', scannerWarning ? 'warning' : 'normal');
 
     const signedSnapshot = data.signedSnapshots && data.signedSnapshots.snapshots && data.signedSnapshots.snapshots[0];
+    const signatureValid = !!(signedSnapshot && signedSnapshot.signatureValid === true);
     const recoverySnapshot = signedSnapshot && signedSnapshot.snapshot || data.storedSnapshot;
     if (recoverySnapshot) {
       const s = recoverySnapshot;
-      addNode(nodeMap, 'snapshot:stored', 'snapshot', signedSnapshot ? 'Signed recovery evidence' : 'Emergency reference snapshot', {
+      addNode(nodeMap, 'snapshot:stored', 'snapshot', signedSnapshot ? (signatureValid ? 'Signed recovery evidence' : 'Unverified recovery evidence') : 'Emergency reference snapshot', {
         capturedAt: signedSnapshot ? signedSnapshot.createdAt : s.capturedAt, refs: (s.refs || []).length, tags: (s.tags || []).length,
         files: s.manifest && s.manifest.files ? s.manifest.files.length : 0,
         snapshotId: signedSnapshot && signedSnapshot.snapshotId || '', signatureValid: signedSnapshot ? !!signedSnapshot.signatureValid : false,
         signature: signedSnapshot && signedSnapshot.signature ? signedSnapshot.signature.slice(0, 16) + '…' : 'local-only',
-        description: signedSnapshot ? 'A server-persisted, HMAC-signed reference and file manifest retained in Neon.' : 'A locally retained manifest of repository refs and optional file hashes.'
-      });
-      addEdge(edges, 'snapshot:stored', repoId, signedSnapshot ? 'cryptographically protects' : 'protects repository');
-      addEvent(events, 'snapshot', signedSnapshot ? 'Signed recovery evidence captured' : 'Recovery reference captured', `${(s.refs || []).length} branch refs preserved`, signedSnapshot ? signedSnapshot.createdAt : s.capturedAt, 'snapshot:stored');
+        description: signedSnapshot ? (signatureValid ? 'A server-persisted, signature-verified reference and file manifest retained in Neon.' : 'The retained snapshot signature could not be verified. It is not verified recovery protection.') : 'A locally retained manifest of repository refs and optional file hashes.'
+      }, signedSnapshot && !signatureValid ? 'warning' : 'normal');
+      addEdge(edges, 'snapshot:stored', repoId, signedSnapshot ? (signatureValid ? 'cryptographically protects' : 'unverified recovery evidence') : 'local recovery reference', signedSnapshot && !signatureValid ? 'warning' : 'normal');
+      addEvent(events, 'snapshot', signedSnapshot ? (signatureValid ? 'Signed recovery evidence captured' : 'Unverified recovery evidence retained') : 'Recovery reference captured', `${(s.refs || []).length} branch refs preserved`, signedSnapshot ? signedSnapshot.createdAt : s.capturedAt, 'snapshot:stored');
     } else {
       addNode(nodeMap, 'snapshot:missing', 'snapshot', 'No retained snapshot', {
         description: 'Capture repository refs before an incident. This is not a complete off-platform backup.'
@@ -805,16 +838,32 @@
   function edgeById(id) { return NVN.edges.find(e => e.id === id); }
   function visibleNodes() { return NVN.nodes.filter(n => n.visible); }
 
+  function dataGaps(data) {
+    if (!data) return ['Map data'];
+    const gaps = new Set(data.unavailable || []);
+    for (const [name, value] of [['Activity', data.activity], ['References', data.refs], ['Dependencies', data.deps], ['Sessions', data.sessions], ['Live events', data.live], ['Event history', data.intelligence], ['Recovery', data.signedSnapshots], ['Access', data.access], ['Exposure', data.exposure]]) {
+      if (value && (value.available === false || value.partial || value.truncated || value.hasMore || value.truncatedBefore)) gaps.add(name);
+    }
+    if (data.deps && data.deps.osv && data.deps.osv.available === false) gaps.add('Dependencies');
+    if (data.activity && Object.values(data.activity.sources || {}).some(source => source && source.requested !== false && (source.available === false || source.truncated))) gaps.add('Activity');
+    if (data.activity && [['commits', 'date'], ['pulls', 'updated'], ['issues', 'updated'], ['releases', 'published']].some(([kind, field]) => (data.activity[kind] || []).some(item => !item[field] || !Number.isFinite(Date.parse(item[field]))))) gaps.add('Activity timestamps');
+    if (NVN.catchUpError) gaps.add('Event history');
+    return [...gaps];
+  }
+
   function updateSummary() {
     if (!NVN.data) return;
     const d = NVN.data;
     const vulnCritical = NVN.nodes.filter(n => n.type === 'vulnerability' && n.severity === 'critical').length;
     const vulnWarnings = NVN.nodes.filter(n => n.type === 'vulnerability' && n.severity === 'warning').length;
+    const criticalLeaks = NVN.nodes.filter(n => n.type === 'leak' && n.severity === 'critical').length;
     const failedRuns = (d.actions || []).filter(a => a.conclusion === 'failure' || a.conclusion === 'cancelled').length;
     const protectedN = ((((d.safety || {}).protected || {})[`${state.work.owner}/${state.work.repo}`]) || []).length;
     const protectedBranches = (d.refs.refs || []).filter(r => r.protected).length;
     const latestSigned = d.signedSnapshots && d.signedSnapshots.snapshots && d.signedSnapshots.snapshots[0];
-    const hasSnapshot = !!(latestSigned || d.storedSnapshot);
+    const hasSnapshot = !!((latestSigned && latestSigned.signatureValid === true) || d.storedSnapshot);
+    const invalidSnapshot = !!(latestSigned && latestSigned.signatureValid !== true);
+    const recoveryUnknown = d.signedSnapshots && d.signedSnapshots.available === false && !d.storedSnapshot;
     const otherSessions = ((d.sessions && d.sessions.sessions) || []).filter(s => !s.current).length;
     const verified = ((d.intelligence || {}).events || []);
     const highestVerified = verified.reduce((m, e) => Math.max(m, Number(e.score || 0)), 0);
@@ -823,27 +872,30 @@
     if (!hasSnapshot) risk += 9;
     if (!protectedN && !protectedBranches) risk += 7;
     if (d.safety.readOnly) risk -= 10;
+    if (criticalLeaks) risk = Math.max(75, risk);
     risk = clamp(Math.round(risk), 0, 100);
+    const gaps = dataGaps(d);
     const label = risk >= 75 ? 'Critical' : risk >= 50 ? 'Elevated' : risk >= 28 ? 'Guarded' : 'Low';
     const level = risk >= 75 ? 'critical' : risk >= 40 ? 'warning' : 'good';
     const riskEl = document.getElementById('neuralRiskScore');
-    if (riskEl) { riskEl.textContent = `${label} · ${risk}`; const card = riskEl.closest('.neural-kpi'); if (card) card.dataset.level = level; }
+    if (riskEl) { riskEl.textContent = gaps.length ? `${risk >= 75 ? 'Critical · ' : ''}Incomplete` : `${label} · ${risk}`; const card = riskEl.closest('.neural-kpi'); if (card) card.dataset.level = gaps.length && risk < 75 ? 'warning' : level; }
     const hint = document.getElementById('neuralRiskHint');
     const latestCritical = [...verified].reverse().find(e => e.severity === 'critical');
     const accessReason = d.access && d.access.risk && d.access.risk.reasons && d.access.risk.reasons[0];
-    if (hint) hint.textContent = latestCritical
+    if (hint) hint.textContent = criticalLeaks ? `${criticalLeaks} critical exposed credential signal(s)` : latestCritical
       ? `${latestCritical.summary} · ${latestCritical.reasons && latestCritical.reasons[0] ? latestCritical.reasons[0].message : `risk ${latestCritical.score}`}`
       : accessRisk >= 70 ? `Critical access path · ${accessReason ? accessReason.message : `risk ${accessRisk}`}`
       : vulnCritical ? `${vulnCritical} critical vulnerability signal(s)`
       : failedRuns ? `${failedRuns} failed workflow run(s)`
       : accessRisk >= 35 ? `Access posture warning · ${accessReason ? accessReason.message : `risk ${accessRisk}`}`
-      : 'No critical signals in the current scan';
+      : gaps.length ? `Incomplete sources: ${gaps.join(', ')}` : 'No critical signals in the observed data';
+    if (hint && gaps.length && (criticalLeaks || latestCritical || accessRisk >= 35 || vulnCritical || failedRuns)) hint.textContent += ` · Incomplete: ${gaps.join(', ')}`;
     const signals = document.getElementById('neuralSignalCount'); if (signals) signals.textContent = String(NVN.events.length);
     const protectedEl = document.getElementById('neuralProtectedCount'); if (protectedEl) protectedEl.textContent = String(protectedN + protectedBranches);
     const recovery = document.getElementById('neuralRecoveryState');
     const recoveryHint = document.getElementById('neuralRecoveryHint');
-    if (recovery) { recovery.textContent = hasSnapshot ? 'Captured' : 'Gap'; const card = recovery.closest('.neural-kpi'); if (card) card.dataset.level = hasSnapshot ? 'good' : 'warning'; }
-    if (recoveryHint) recoveryHint.textContent = hasSnapshot ? `${latestSigned ? 'Signed' : 'Local'} snapshot ${timeAgoN(latestSigned ? latestSigned.createdAt : d.storedSnapshot.capturedAt)}` : 'Capture refs before an incident';
+    if (recovery) { recovery.textContent = invalidSnapshot ? 'Unverified' : hasSnapshot ? 'Captured' : recoveryUnknown ? 'Unknown' : 'Gap'; const card = recovery.closest('.neural-kpi'); if (card) card.dataset.level = hasSnapshot && !invalidSnapshot ? 'good' : 'warning'; }
+    if (recoveryHint) recoveryHint.textContent = invalidSnapshot ? 'Retained snapshot signature could not be verified' : hasSnapshot ? `${latestSigned ? 'Verified' : 'Local'} snapshot ${timeAgoN(latestSigned ? latestSigned.createdAt : d.storedSnapshot.capturedAt)}` : recoveryUnknown ? 'Recovery evidence could not be read' : 'Capture refs before an incident';
     document.body.classList.toggle('neural-emergency-active', !!(d.safety.readOnly && d.safety.freezeSync));
     NVN.emergency = !!(d.safety.readOnly && d.safety.freezeSync);
     const roBtn = document.getElementById('neuralReadOnlyBtn');
@@ -866,7 +918,17 @@
     const count = visibleNodes().length;
     NVN.visibleCount = count;
     const label = document.getElementById('neuralStreamLabel');
-    if (label && !NVN.loading) label.textContent = NVN.paused ? `PAUSED · ${count} NODES` : `${NVN.data && NVN.data.live && NVN.data.live.connected ? 'VERIFIED LIVE' : 'POLLING'} · ${count} NODES`;
+    if (label && !NVN.loading) label.textContent = `${streamLabel()} · ${count} NODES`;
+  }
+
+  function streamLabel() {
+    if (NVN.paused) return 'PAUSED';
+    if (NVN.catchUpError) return 'EVENT HISTORY UNAVAILABLE';
+    if (NVN.data && NVN.data.intelligence && NVN.data.intelligence.hasMore) return 'LIVE CATCHING UP';
+    if (NVN.liveStatus === 'live') return 'VERIFIED LIVE';
+    if (NVN.liveStatus === 'connecting') return 'LIVE CONNECTING';
+    if (NVN.liveStatus === 'reconnecting') return 'LIVE RECONNECTING';
+    return dataGaps(NVN.data).length ? 'PARTIAL TOPOLOGY' : 'POLLING TOPOLOGY';
   }
 
   function setStream(label, live) {
@@ -3213,41 +3275,84 @@
   function closeLiveStream() {
     if (NVN.eventSource) { try { NVN.eventSource.close(); } catch {} }
     NVN.eventSource = null; NVN.eventSourceKey = '';
+    NVN.liveStatus = 'disconnected';
+  }
+
+  function cancelReads() {
+    generation += 1;
+    if (NVN.loadController) NVN.loadController.abort();
+    if (NVN.catchUpController) NVN.catchUpController.abort();
+    NVN.loadController = null; NVN.catchUpController = null;
+    NVN.loading = false; NVN.catchUpBusy = false;
+    NVN.catchUpPending = false; NVN.reloadPending = false;
+    NVN.catchUpError = ''; NVN.catchUpRetries = 0;
+    clearTimeout(NVN.liveReloadTimer);
+  }
+
+  function scheduleCatchUp(delay = 250) {
+    clearTimeout(NVN.liveReloadTimer);
+    if (!NVN.active) return;
+    NVN.liveReloadTimer = setTimeout(() => catchUpIntelligence(), delay);
   }
 
   async function catchUpIntelligence() {
-    if (!NVN.active || !state || !state.work || !NVN.data || NVN.catchUpBusy) return;
+    if (!NVN.active || !state || !state.work || !NVN.data) return;
+    if (NVN.loading || NVN.catchUpBusy) { NVN.catchUpPending = true; return; }
     const mine = generation;
+    const key = repoKey();
+    const base = workPath();
+    const controller = new AbortController();
+    NVN.catchUpController = controller;
     NVN.catchUpBusy = true;
+    NVN.catchUpPending = false;
+    let hasMore = false;
     try {
       const existing = ((NVN.data.intelligence || {}).events || []);
       const merged = new Map(existing.filter(event => event && event.id).map(event => [event.id, event]));
       let after = NVN.intelligenceCursor || (NVN.data.intelligence && NVN.data.intelligence.cursor) || '';
-      let available = true;
+      let truncatedBefore = !!(NVN.data.intelligence && NVN.data.intelligence.truncatedBefore);
       let pages = 0;
       while (pages < 5) {
         const query = after ? `&after=${encodeURIComponent(after)}` : '';
-        const page = await api(`/api/repo/${workPath()}/intelligence/events?limit=500${query}`);
-        if (mine !== generation) return;
-        available = page.available !== false;
+        const page = await api(`/api/repo/${base}/intelligence/events?limit=500${query}`, { signal: controller.signal });
+        if (mine !== generation || key !== repoKey()) return;
+        if (page.available === false) throw new Error('Persisted event history is unavailable');
+        truncatedBefore = truncatedBefore || !!page.truncatedBefore;
         for (const event of page.events || []) if (event && event.id) merged.set(event.id, event);
         const next = String(page.cursor || '');
-        if (next) { after = next; NVN.intelligenceCursor = next; }
+        hasMore = !!page.hasMore;
+        if (hasMore && (!next || next === after)) throw new Error('Event history cursor did not advance');
+        if (next) after = next;
         pages += 1;
-        if (!page.hasMore || !next) break;
+        if (!hasMore) break;
       }
-      if (mine !== generation || !NVN.data) return;
+      if (mine !== generation || key !== repoKey() || !NVN.data) return;
       const events = [...merged.values()]
         .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0) || String(a.id).localeCompare(String(b.id)))
         .slice(-1500);
-      NVN.data.intelligence = { available, events, cursor: NVN.intelligenceCursor, hasMore: false };
+      // The cursor and the events it acknowledges are accepted together.
+      NVN.intelligenceCursor = after;
+      NVN.data.intelligence = { available: true, events, cursor: after, hasMore, truncatedBefore: truncatedBefore || merged.size > events.length };
+      NVN.catchUpError = ''; NVN.catchUpRetries = 0;
       buildGraph(NVN.data);
       updateSummary();
       updateTimeline(true);
       applyMode();
     } catch (error) {
+      if (mine !== generation || controller.signal.aborted) return;
+      NVN.catchUpError = error && error.message || 'Event history unavailable';
+      NVN.catchUpRetries += 1;
       console.warn('Neural intelligence catch-up failed', error && error.message);
-    } finally { if (mine === generation) NVN.catchUpBusy = false; }
+      updateSummary(); updateVisibleCount();
+    } finally {
+      if (mine === generation) {
+        NVN.catchUpBusy = false; NVN.catchUpController = null;
+        if (NVN.catchUpError) {
+          if (NVN.catchUpRetries <= 3) scheduleCatchUp(Math.min(30000, 1000 * 2 ** NVN.catchUpRetries));
+        } else if (hasMore || NVN.catchUpPending) scheduleCatchUp();
+        else if (NVN.reloadPending) { NVN.reloadPending = false; load(true); }
+      }
+    }
   }
 
   function ensureLiveStream() {
@@ -3258,22 +3363,28 @@
     closeLiveStream();
     const source = new EventSource(`/api/repo/${workPath()}/live-events/stream`);
     NVN.eventSource = source; NVN.eventSourceKey = key;
-    source.addEventListener('ready', () => { setStream('VERIFIED LIVE', true); catchUpIntelligence(); });
+    NVN.liveStatus = 'connecting';
+    source.addEventListener('ready', () => {
+      if (NVN.eventSource !== source || !NVN.active) return;
+      NVN.liveStatus = 'live'; setStream(streamLabel(), true); catchUpIntelligence();
+    });
     source.addEventListener('session-revoked', async () => {
+      if (NVN.eventSource !== source || !NVN.active) return;
       try { await window.NebulaPwa?.purgePrivateData(true); } catch {}
       closeLiveStream();
       location.reload();
     });
     source.addEventListener('intelligence', e => {
+      if (NVN.eventSource !== source || !NVN.active) return;
       let event = null; try { event = JSON.parse(e.data); } catch {}
       if (event && event.severity === 'critical' && typeof toast === 'function') toast(`Critical verified event: ${event.summary}`, 'err');
-      clearTimeout(NVN.liveReloadTimer);
-      NVN.liveReloadTimer = setTimeout(() => { if (NVN.active) catchUpIntelligence(); }, 250);
+      scheduleCatchUp();
     });
     source.onerror = () => {
+      if (NVN.eventSource !== source || !NVN.active) return;
+      NVN.liveStatus = 'reconnecting';
       setStream('LIVE RECONNECTING', false);
-      clearTimeout(NVN.liveReloadTimer);
-      NVN.liveReloadTimer = setTimeout(() => catchUpIntelligence(), 1200);
+      scheduleCatchUp(1200);
     };
   }
 
@@ -3562,58 +3673,89 @@
 
   async function emergencyShield() {
     if (!state.work || typeof modal !== 'function') return;
+    if (NVN.data?.safety?.globalControls === false) {
+      if (typeof toast === 'function') toast('Identity-wide Emergency Shield is unavailable in hosted alpha. Use repository Safeguards and session revocation.', 'err');
+      return;
+    }
+    const operation = Object.freeze({
+      owner: state.work.owner, repo: state.work.repo, branch: state.work.branch,
+      path: workPath(), epoch: state.uiEpoch
+    });
+    const repository = `${operation.owner}/${operation.repo}`;
     const ok = await modal({
       title: 'Activate Emergency Shield', danger: true, okText: 'Contain incident',
-      bodyHTML: `<div class="neural-report-banner"><b>This activates a signed server-side containment transaction.</b><p>Nebulaverse-X captures repository references and a file manifest, enables read-only mode, freezes synchronization, revokes other database-backed sessions and records tamper-evident evidence.</p></div>
+      bodyHTML: `<div class="neural-report-banner"><b>Activate containment for ${nEsc(repository)}.</b><p>Nebulaverse-X captures repository references and a file manifest, enables read-only mode, freezes synchronization, revokes other database-backed sessions and records tamper-evident evidence. These steps can complete separately; an interrupted request may leave controls active.</p></div>
         <label class="field-label">Type <span class="mono">FREEZE</span> to confirm</label><input id="neuralEmergencyConfirm" type="text" autocomplete="off" spellcheck="false" placeholder="FREEZE">
         <p class="hint">This is a Recovery Snapshot Lite and incident manifest. It is not a complete off-platform mirror of Git and LFS objects.</p>`
     });
-    if (!ok) return;
+    if (!ok || state.uiEpoch !== operation.epoch) return;
     const confirm = document.getElementById('neuralEmergencyConfirm');
     if (!confirm || confirm.value.trim().toUpperCase() !== 'FREEZE') { if (typeof toast === 'function') toast('Emergency confirmation did not match', 'err'); return; }
     const button = document.getElementById('neuralEmergencyBtn'); if (button) button.disabled = true;
     setStream('CONTAINING INCIDENT', false);
+    let confirmed = false;
     try {
       const [containment, activityResult] = await Promise.all([
-        stepUpApi('sessions.revoke-others', {}, `/api/repo/${workPath()}/emergency-manifest`, {
+        stepUpApi('sessions.revoke-others', {}, `/api/repo/${operation.path}/emergency-manifest`, {
           method: 'POST', body: { confirm: 'FREEZE' }
         }, 'Activate Emergency Shield and revoke other sessions'),
-        api(`/api/repo/${workPath()}/activity?days=30`).catch(error => ({ error: error.message }))
+        api(`/api/repo/${operation.path}/activity?days=30`).catch(error => ({ error: error.message }))
       ]);
+      if (state.uiEpoch !== operation.epoch) return;
       if (!containment) {
         setStream('AUTHORIZATION CANCELLED', false);
         return;
       }
+      confirmed = true;
       const manifest = containment.manifest || {};
-      try { await window.NebulaPwa?.purgePrivateData(false); } catch {}
+      /* The privacy purge clears state.work and the displayed identity. Keep
+         the incident bound to its original repository, and never restore the
+         cleared identity from a response that may predate an account change. */
+      let purgeFailed = false;
+      const purge = window.NebulaPwa?.purgePrivateData;
+      try { if (purge) await purge(false); } catch { purgeFailed = true; }
+      const epochAfterPurge = operation.epoch + (purge ? 1 : 0);
+      if (state.uiEpoch !== epochAfterPurge) return;
       const report = {
         kind: 'nebulaverse-emergency-containment-report', version: 2, generatedAt: new Date().toISOString(),
-        repository: `${state.work.owner}/${state.work.repo}`, branch: state.work.branch,
+        repository, branch: operation.branch,
         manifestId: containment.manifestId || '', signature: containment.signature || '',
         persisted: !!containment.persisted, evidence: containment.evidence || null,
         controls: manifest.controls || {}, snapshot: manifest, activity: activityResult
       };
+      let stored = false;
       try {
-        localStorage.setItem(`nv_incident_${state.work.owner}/${state.work.repo}`, JSON.stringify(report));
-        localStorage.setItem(`nv_snap_${state.work.owner}/${state.work.repo}`, JSON.stringify(manifest));
+        localStorage.setItem(`nv_incident_${repository}`, JSON.stringify(report));
+        localStorage.setItem(`nv_snap_${repository}`, JSON.stringify(manifest));
+        stored = true;
       } catch {
         const compact = { ...report, snapshot: { ...manifest, manifest: manifest.manifest ? { branch: manifest.manifest.branch, fileCount: (manifest.manifest.files || []).length, truncated: !!manifest.manifest.truncated } : null } };
-        try { localStorage.setItem(`nv_incident_${state.work.owner}/${state.work.repo}`, JSON.stringify(compact)); } catch {}
+        try { localStorage.setItem(`nv_incident_${repository}`, JSON.stringify(compact)); } catch {}
       }
-      if (typeof dlFile === 'function') {
-        dlFile(`nebulaverse-emergency-${state.work.owner}-${state.work.repo}-${Date.now()}.json`, JSON.stringify(report, null, 2), 'application/json');
-      }
-      document.body.classList.add('neural-emergency-active');
-      await load(true);
+      let downloaded = false;
+      try {
+        if (typeof dlFile === 'function') {
+          dlFile(`nebulaverse-emergency-${operation.owner}-${operation.repo}-${Date.now()}.json`, JSON.stringify(report, null, 2), 'application/json');
+          downloaded = true;
+        }
+      } catch { /* Evidence delivery cannot undo confirmed server controls. */ }
       const controls = manifest.controls || {};
+      const active = controls.readOnly === true && controls.freezeSync === true;
+      document.body.classList.toggle('neural-emergency-active', active);
       const refs = Array.isArray(manifest.refs) ? manifest.refs.length : 0;
       await modal({
-        title: 'Emergency containment active', okText: 'Continue in read-only mode',
-        bodyHTML: `<div class="neural-report-banner"><b>Containment was recorded as a signed emergency manifest.</b><p>Read-only mode and synchronization freeze are active. ${controls.sessionRevocationAvailable ? `${nNum(controls.sessionsRevoked)} other session(s) were revoked.` : 'Cross-device session revocation was unavailable in cookie-only mode.'}</p></div>
-          <p class="hint">Reference snapshot: ${refs} branch ref(s) captured · ${containment.persisted ? 'stored in Neon' : 'downloaded locally'} · evidence ${containment.evidence ? 'recorded' : 'unavailable'}.</p>
+        title: active ? 'Emergency containment active' : 'Containment status needs review', okText: 'Reload current session',
+        bodyHTML: `<div class="neural-report-banner"><b>${nEsc(repository)}</b><p>${active ? 'Read-only mode and synchronization freeze are active.' : 'The response did not confirm both containment controls. Check Safeguards before retrying.'} ${controls.sessionRevocationAvailable ? `${nNum(controls.sessionsRevoked)} other session(s) were revoked.` : 'Cross-device session revocation was unavailable.'}</p></div>
+          <p class="hint">Reference snapshot: ${refs} branch ref(s) captured · ${containment.persisted ? 'stored in Neon' : stored ? 'saved in this browser' : 'not saved in this browser'} · ${downloaded ? 'download requested' : 'download unavailable'} · evidence ${containment.evidence ? 'recorded' : 'unavailable'}.</p>
+          ${purgeFailed ? '<p class="hint">Private browser data cleanup could not be completed. Reload the current session before continuing.</p>' : ''}
           <p class="hint">Review the downloaded JSON evidence, protected files and recovery preview before making restore decisions.</p>`
       });
-    } catch (e) { if (typeof toast === 'function') toast(`Emergency Shield failed: ${e.message}`, 'err'); }
+      if (state.uiEpoch === epochAfterPurge) location.reload();
+    } catch (e) {
+      if (typeof toast === 'function') toast(confirmed
+        ? `Containment responded, but its report could not be displayed: ${e.message}. Reload Safeguards to check the controls.`
+        : `Emergency Shield completion could not be confirmed: ${e.message}. Controls may already be active; check Safeguards before retrying.`, 'err');
+    }
     finally { if (button) button.disabled = false; }
   }
 
@@ -3675,6 +3817,7 @@
 
   function deactivate() {
     NVN.active = false;
+    cancelReads();
     collapseStageOnLeave();
     stopLoop();
     clearInterval(NVN.refreshTimer);
@@ -3684,8 +3827,8 @@
 
   document.addEventListener('visibilitychange', () => {
     NVN.active = document.visibilityState === 'visible' && typeof currentTab === 'function' && currentTab() === 'neural';
-    if (NVN.active) { startLoop(); ensureLiveStream(); }
-    else { stopLoop(); closeLiveStream(); }
+    if (NVN.active) { startLoop(); load(false); }
+    else { stopLoop(); closeLiveStream(); cancelReads(); }
   });
   window.addEventListener('resize', resize);
   window.NebulaNeural = { activate, deactivate, reset, refresh: () => load(true), emergencyShield, injectDemo, state: NVN };

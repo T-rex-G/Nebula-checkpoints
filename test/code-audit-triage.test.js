@@ -128,7 +128,7 @@ const row = (seed, extra = {}) => ({
   reach: null, exploited: false, waived: null, firstSeenAt: new Date(T0).toISOString(), ...extra
 });
 const kept = (commit, rows, extra = {}) => ({
-  audit: { commitSha: commit, grade: 'C', auditedAt: new Date(T0).toISOString(), files: { complete: true }, sla: null, ...extra },
+  audit: { commitSha: commit, grade: 'C', auditedAt: new Date(T0).toISOString(), files: { complete: true }, analysisComplete: true, sla: null, ...extra },
   findings: rows
 });
 const HEAD = 'a'.repeat(40);
@@ -141,6 +141,23 @@ const HEAD = 'a'.repeat(40);
 
   const clean = evaluateMergeGate({ headSha: HEAD, head: kept(HEAD, [row('w1', { severity: 'warning' })]), base: kept('c'.repeat(40), []), now: T0 + DAY });
   assert.deepStrictEqual([clean.state, [...clean.blocking], clean.open.warning, clean.base, clean.introduced], ['current', [], 1, 'audited', 0]);
+
+  for (const extra of [
+    { analysisComplete: null },
+    { analysisComplete: undefined },
+    { analysisComplete: false },
+    { files: { complete: false } },
+    { findings: { total: 1501, stored: 1500 } },
+    { watch: { state: 'partial' } },
+    { watch: { state: 'unavailable' } }
+  ]) {
+    const incomplete = evaluateMergeGate({ headSha: HEAD, head: kept(HEAD, [], extra), base: null, now: T0 });
+    assert.strictEqual(incomplete.state, 'unavailable', 'an exact commit does not make incomplete audit evidence current');
+    const template = getPolicyTemplate('audit-merge-gate');
+    const actions = previewMergePolicies([{ policyKey: 'audit-gate', document: { ...template.document, enforcement: { mode: 'block' } } }],
+      { branch: 'main', audit: gateAttributes(incomplete) });
+    assert.deepStrictEqual(actions.map(item => item.effect), ['require-approval'], 'the existing template holds incomplete evidence');
+  }
 
   /* Every reason, each for what it says. */
   const now = T0 + 40 * DAY;

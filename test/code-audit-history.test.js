@@ -91,8 +91,184 @@ async function withClient(connectionString, run) {
   url.pathname = `/${databaseName}`;
   const pool = new Pool({ connectionString: url.toString(), max: 4 });
   try {
-    await withClient(url.toString(), client => runMigrations(client, loadMigrations(DIRECTORY)));
+    const migrations = loadMigrations(DIRECTORY);
+    await withClient(url.toString(), async client => {
+      await runMigrations(client, migrations.filter(migration => migration.id !== '032_code_audit_analysis_coverage'));
+      const legacyRow = { ...compactAudit(auditResult()).audit, audit_id: crypto.randomUUID(),
+        provider: scope.provider, authority: scope.authority, owner_login: scope.owner, repo_name: 'BeforeAnalysisMigration',
+        identity_key: IDENTITY, recorded_at: new Date(T0).toISOString() };
+      delete legacyRow.analysis_complete;
+      const columns = Object.keys(legacyRow);
+      await client.query(`INSERT INTO nv_code_audits (${columns.join(',')}) VALUES (${columns.map((_, index) => `$${index + 1}`).join(',')})`, Object.values(legacyRow));
+      await runMigrations(client, migrations);
+      assert.strictEqual((await client.query('SELECT analysis_complete FROM nv_code_audits WHERE audit_id=$1', [legacyRow.audit_id])).rows[0].analysis_complete, null,
+        'migration preserves an existing audit without inventing analysis proof');
+    });
     const history = new CodeAuditHistory({ pool });
+    /* Missing observations cannot become fixes when detection did not finish. */
+    for (const [name, change] of [
+      ['AdvisoryOutage', { coverage: { read: 2, eligible: 2, complete: true, advisories: { versions: 1, checked: 1, unknown: 1, notChecked: 0 } } }],
+      ['InventoryGap', { coverage: { read: 2, eligible: 2, complete: true, advisories: { versions: 0, inventoryComplete: false } } }],
+      ['FileGap', { coverage: { read: 1, eligible: 2, complete: false } }],
+      ['RegistryOutage', { coverage: { read: 2, eligible: 2, complete: true, packages: { declared: 1, checked: 1, unknown: 1, notChecked: 0 } } }],
+      ['LicenceOutage', { coverage: { read: 2, eligible: 2, complete: true, licences: { versions: 1, fromLock: 0, asked: 1, answered: 0 } } }],
+      ['TraceCut', { engine: { name: 'Uranus', version: '2.0.0', traced: { cut: 1, limit: 'time' } } }],
+      ['TraceFailed', { engine: { name: 'Uranus', version: '2.0.0', traced: { failed: 1 } } }],
+      ['TraceDeep', { engine: { name: 'Uranus', version: '2.0.0', traced: { deep: 1 } } }],
+      ['RulesOnly', { engine: { name: 'Uranus', version: '2.0.0', traced: { rulesOnly: 1 } } }]
+    ]) {
+      const incompleteScope = { ...scope, repo: `NoFalseFix${name}` };
+      const complete = { read: 2, eligible: 2, complete: true };
+      await history.record({ scope: incompleteScope, identityKey: IDENTITY, result: auditResult({ coverage: complete, suppressed: [] }), now: T0 });
+      const result = { ...auditResult({ coverage: complete, findings: [], suppressed: [], auditedAt: T0 + HOUR }), ...change };
+      const next = await history.record({ scope: incompleteScope, identityKey: IDENTITY, result, now: T0 + HOUR });
+      assert.strictEqual(next.resolved, null, `${name}: missing findings are unknown, not resolved`);
+      assert.strictEqual(next.resolutions, 0, `${name}: no time-to-fix evidence may be written`);
+      const stored = await pool.query('SELECT count(*)::int AS n FROM nv_code_audit_resolutions WHERE repo_name=$1', [incompleteScope.repo]);
+      assert.strictEqual(stored.rows[0].n, 0);
+      const latest = await history.latest({ scope: incompleteScope, identityKey: IDENTITY, ref: 'main' });
+      assert.strictEqual(latest.audit.analysisComplete, false, `${name}: detection completeness survives storage`);
+      await history.saveWatch({ scope: incompleteScope, identityKey: IDENTITY, auditId: next.auditId, now: T0 + 2 * HOUR,
+        outcome: { state: 'ok', sources: { advisories: 'ok', exploited: 'not-needed' }, checked: 2, total: 2, kev: 'not-needed', alerts: [] } });
+      const refreshed = await history.latest({ scope: incompleteScope, identityKey: IDENTITY, ref: 'main' });
+      assert.strictEqual(refreshed.audit.watch.state, 'ok', 'the later dependency lookup succeeds');
+      assert.strictEqual(refreshed.audit.analysisComplete, false, 'watch refresh cannot repair incomplete source evidence');
+      const { evaluateMergeGate } = require('../src/code-audit-triage');
+      assert.strictEqual(evaluateMergeGate({ headSha: result.commitSha, head: refreshed }).state, 'unavailable');
+    }
+    {
+      const limitedScope = { ...scope, repo: 'NoFalseFixStoredLimit' };
+      const complete = { read: 2, eligible: 2, complete: true };
+      const stillPresent = codeFinding('past-stored-limit', 'warning');
+      await history.record({ scope: limitedScope, identityKey: IDENTITY,
+        result: auditResult({ findings: [stillPresent], suppressed: [], coverage: complete }), now: T0 });
+      const findings = [...Array.from({ length: LIMITS.maxFindings }, (_, index) => codeFinding(`new-${index}`, 'serious')), stillPresent];
+      const next = await history.record({ scope: limitedScope, identityKey: IDENTITY,
+        result: auditResult({ findings, suppressed: [], coverage: complete, auditedAt: T0 + HOUR }), now: T0 + HOUR });
+      assert.strictEqual(next.resolved, null, 'storage truncation is not a fix for a finding still in the result');
+      assert.strictEqual(next.resolutions, 0);
+    }
+    {
+      const concurrentScope = { ...scope, repo: 'ConcurrentHistory' };
+      const complete = { read: 2, eligible: 2, complete: true };
+      await history.record({ scope: concurrentScope, identityKey: IDENTITY,
+        result: auditResult({ findings: [codeFinding('concurrent')], suppressed: [], coverage: complete }), now: T0 });
+      let signalFirstRead, releaseFirst, signalSecondAttempt;
+      const firstRead = new Promise(resolve => { signalFirstRead = resolve; });
+      const firstMayContinue = new Promise(resolve => { releaseFirst = resolve; });
+      const secondAttempt = new Promise(resolve => { signalSecondAttempt = resolve; });
+      const guardedHistory = ordinal => new CodeAuditHistory({ pool: {
+        query: (...args) => pool.query(...args),
+        connect: async () => {
+          const client = await pool.connect();
+          return { release: () => client.release(), query: async (...args) => {
+            const sql = args[0];
+            if (ordinal === 2 && /pg_advisory_xact_lock/.test(sql)) signalSecondAttempt();
+            const answer = await client.query(...args);
+            if (/SELECT audit_id, audited_at, engine_version FROM nv_code_audits/.test(sql)) {
+              if (ordinal === 1) { signalFirstRead(); await firstMayContinue; }
+              else signalSecondAttempt();
+            }
+            return answer;
+          } };
+        }
+      } });
+      const input = hour => ({ scope: concurrentScope, identityKey: IDENTITY, now: T0 + hour * HOUR,
+        result: auditResult({ findings: [], suppressed: [], coverage: complete, auditedAt: T0 + hour * HOUR }) });
+      const firstWrite = guardedHistory(1).record(input(1));
+      await firstRead;
+      // The held repository must not block an independent identity.
+      try {
+        let deadline;
+        await Promise.race([
+          history.record({ ...input(1), identityKey: OTHER }),
+          new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error('independent history identity blocked')), 5000); })
+        ]).finally(() => clearTimeout(deadline));
+      } catch (error) { releaseFirst(); await firstWrite; throw error; }
+      const secondWrite = guardedHistory(2).record(input(2));
+      await secondAttempt;
+      releaseFirst();
+      const written = await Promise.all([firstWrite, secondWrite]);
+      assert.strictEqual(written.reduce((sum, entry) => sum + entry.resolutions, 0), 1,
+        'two instances cannot record the same disappearance twice');
+      assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_code_audit_resolutions WHERE repo_name=$1',
+        [concurrentScope.repo])).rows[0].n, 1);
+    }
+    {
+      const delayedScope = { ...scope, repo: 'DelayedHistory' };
+      const complete = { read: 2, eligible: 2, complete: true };
+      const newer = auditResult({ commit: 'newer', auditedAt: T0 + 2 * HOUR, coverage: complete,
+        findings: [codeFinding('newer-observation')], suppressed: [],
+        components: [{ ecosystem: 'npm', name: 'express', version: '4.17.1', direct: true, dev: false }] });
+      const kept = await history.record({ scope: delayedScope, identityKey: IDENTITY, result: newer, now: T0 + 2 * HOUR });
+      const delayed = await history.record({ scope: delayedScope, identityKey: IDENTITY, now: T0 + 3 * HOUR,
+        result: auditResult({ commit: 'delayed', auditedAt: T0 + HOUR, coverage: complete, findings: [], suppressed: [] }) });
+      assert.strictEqual(delayed.previous, null, 'a later observation is not a baseline for an older result');
+      assert.strictEqual(delayed.resolved, null, 'an older clean audit cannot prove a newer finding was fixed');
+      assert.strictEqual(delayed.resolutions, 0);
+      assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_code_audit_resolutions WHERE repo_name=$1',
+        [delayedScope.repo])).rows[0].n, 0);
+      const watched = await history.watched({ scope: delayedScope, identityKey: IDENTITY, ref: 'main' });
+      assert.strictEqual(watched.audit.id, kept.auditId);
+      assert.deepStrictEqual(watched.components.map(component => component.name), ['express'],
+        'an older audit arriving late cannot erase the latest audit dependency watch');
+      const components = await pool.query(`SELECT DISTINCT audit_id FROM nv_code_audit_components
+        WHERE audit_id IN (SELECT audit_id FROM nv_code_audits WHERE repo_name=$1)`, [delayedScope.repo]);
+      assert.deepStrictEqual(components.rows.map(row => row.audit_id), [kept.auditId]);
+      const tiedScope = { ...scope, repo: 'TiedHistory' };
+      const tied = [];
+      for (const name of ['express', 'jquery']) {
+        const recorded = await history.record({ scope: tiedScope, identityKey: IDENTITY, now: T0,
+          result: auditResult({ auditedAt: T0, coverage: complete,
+            components: [{ ecosystem: 'npm', name, version: '1.0.0', direct: true, dev: false }] }) });
+        tied.push({ id: recorded.auditId, name });
+      }
+      const expected = tied.sort((a, b) => b.id.localeCompare(a.id))[0];
+      const tiedWatch = await history.watched({ scope: tiedScope, identityKey: IDENTITY, ref: 'main' });
+      assert.strictEqual(tiedWatch.audit.id, expected.id, 'equal timestamps use the same deterministic tie breaker');
+      assert.deepStrictEqual(tiedWatch.components.map(component => component.name), [expected.name]);
+    }
+    {
+      const cancelledScope = { ...scope, repo: 'CancelledHistory' };
+      const complete = { read: 2, eligible: 2, complete: true };
+      const before = auditResult({ suppressed: [], coverage: complete });
+      await history.record({ scope: cancelledScope, identityKey: IDENTITY, result: before, now: T0 });
+      const controller = new AbortController();
+      let reachedResolution = false;
+      const interruptedHistory = new CodeAuditHistory({ pool: {
+        query: (...args) => pool.query(...args),
+        connect: async () => {
+          const client = await pool.connect();
+          return {
+            release: () => client.release(),
+            query: async (...args) => {
+              const answer = await client.query(...args);
+              if (/INSERT INTO nv_code_audit_resolutions/.test(args[0])) {
+                reachedResolution = true;
+                controller.abort(new Error('private cancellation context'));
+              }
+              return answer;
+            }
+          };
+        }
+      } });
+      await assert.rejects(interruptedHistory.record({ scope: cancelledScope, identityKey: IDENTITY, signal: controller.signal,
+        result: auditResult({ findings: [], suppressed: [], coverage: complete, auditedAt: T0 + HOUR }), now: T0 + HOUR }),
+      error => error.code === 'AUDIT_CANCELLED' && error.status === 499 && !error.message.includes('private'));
+      assert(reachedResolution, 'the cancellation occurs after real transaction writes');
+      assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_code_audits WHERE repo_name=$1', [cancelledScope.repo])).rows[0].n, 1,
+        'the cancelled audit transaction rolls back its new history row');
+      assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_code_audit_resolutions WHERE repo_name=$1', [cancelledScope.repo])).rows[0].n, 0,
+        'the cancelled audit transaction rolls back its resolution rows');
+      const kept = await history.latest({ scope: cancelledScope, identityKey: IDENTITY, ref: 'main' });
+      assert.strictEqual(kept.findings.length, before.findings.length, 'the previous findings remain intact');
+      assert.strictEqual(kept.audit.analysisComplete, true, 'the complete baseline retains its proof');
+      await pool.query('UPDATE nv_code_audits SET analysis_complete=NULL WHERE repo_name=$1', [cancelledScope.repo]);
+      const legacy = await history.latest({ scope: cancelledScope, identityKey: IDENTITY, ref: 'main' });
+      assert.strictEqual(legacy.audit.analysisComplete, null, 'pre-migration evidence is explicitly unknown');
+      const { evaluateMergeGate } = require('../src/code-audit-triage');
+      assert.strictEqual(evaluateMergeGate({ headSha: before.commitSha, head: legacy }).state, 'unavailable', 'legacy unknown evidence requires a new audit');
+    }
     {
       const upgradeScope = { ...scope, repo: 'EngineUpgrade' };
       await history.record({ scope: upgradeScope, identityKey: IDENTITY, result: auditResult(), now: T0 });
@@ -124,11 +300,11 @@ async function withClient(connectionString, run) {
     });
     assert.strictEqual(second.previous.auditId, first.auditId);
     assert.deepStrictEqual(second.newIds.sort(), [id('b'), id('c')].sort());
-    assert.strictEqual(second.resolved, 1);
+    assert.strictEqual(second.resolved, null, 'a partial file read cannot establish a resolution');
 
     const listed = await history.list({ scope, identityKey: IDENTITY, ref: 'main' });
     assert.deepStrictEqual(listed.audits.map(audit => audit.id), [second.auditId, first.auditId], 'newest first');
-    assert.deepStrictEqual(listed.audits[0].diff, { new: 2, resolved: 1 });
+    assert.strictEqual(listed.audits[0].diff, null, 'stored comparisons stay unknown until detection is complete');
     assert.strictEqual(listed.audits[1].diff, null);
     assert.deepStrictEqual(listed.audits[0].counts, { critical: 1, serious: 1, warning: 1 });
     assert.strictEqual(listed.audits[0].waived, 1);

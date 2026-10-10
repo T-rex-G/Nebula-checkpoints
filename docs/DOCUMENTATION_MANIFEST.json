@@ -81,6 +81,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/current/SIX_SYSTEM_HARDENING.md",
+      "lifecycle": "current",
+      "authority": "current-review-evidence",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/history/phase-0/PHASE_0_COVERAGE.md",
       "lifecycle": "historical",
       "authority": "immutable-checkpoint-record",

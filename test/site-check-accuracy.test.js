@@ -98,6 +98,52 @@ async function main() {
     assert.equal(result.email.state, 'partial');
     assert.equal(result.coverage.complete, false);
   }
+  {
+    const controller = new AbortController(); controller.abort();
+    let requests = 0;
+    await assert.rejects(run({ signal: controller.signal, transport: async () => { requests++; } }), error => error.code === 'SITE_CHECK_CANCELLED');
+    assert.equal(requests, 0, 'already cancelled scans must not issue requests');
+  }
+  {
+    const controller = new AbortController();
+    let requests = 0; let aborted = false;
+    const pending = run({ signal: controller.signal, transport: input => {
+      requests++;
+      return new Promise((_resolve, reject) => {
+        input.signal.addEventListener('abort', () => { aborted = true; reject(new Error('synthetic abort')); }, { once: true });
+        queueMicrotask(() => controller.abort());
+      });
+    } });
+    await assert.rejects(pending, error => error.code === 'SITE_CHECK_CANCELLED');
+    assert(aborted); assert.equal(requests, 1, 'cancelled scans cannot start later requests or stages');
+  }
+  {
+    const seen = [];
+    await run({ transport: transport({ seen, html: '<!doctype html><a href="/private">Private</a>', override: url => url.pathname === '/robots.txt'
+      ? { statusCode: 200, headers: {}, body: 'User-agent: *\nUser-agent: OtherBot\nDisallow: /private' } : null }) });
+    assert(!seen.some(input => new URL(input.url).pathname === '/private'), 'all agents in a robots group share its rules');
+  }
+  {
+    const result = await run({ transport: transport({ html: '<!doctype html><html><title>Werkzeug Debugger</title></html>' }) });
+    assert(rules(result).includes('WEB-021'), 'framework debug signatures apply to the landing page too');
+  }
+  {
+    const result = await run({ transport: transport({ headers: { ...HEADERS,
+      'strict-transport-security': 'x-max-age=31536000', 'cross-origin-opener-policy': 'not-same-origin', 'referrer-policy': 'bogus',
+      'content-security-policy': "script-src 'unsafe-inline' 'nonce-!!!'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    } }), txt: async name => name.startsWith('_dmarc.') ? ['v=DMARC1; p=rejectjunk'] : ['v=spf1 -all', 'v=spf1 +all'] });
+    for (const rule of ['WEB-004', 'WEB-006', 'WEB-009', 'WEB-016', 'WEB-027', 'WEB-028']) assert(rules(result).includes(rule), rule);
+    assert.equal(result.transport.hsts.maxAge, null);
+    assert.equal(result.email.spf, 'invalid'); assert.equal(result.email.dmarc, 'invalid');
+  }
+  {
+    for (const policy of ['v=DMARC1; p=reject; p=none', 'v=DMARC1; p=reject; p=reject']) {
+      const result = await run({ transport: transport(), txt: async name => name.startsWith('_dmarc.') ? [policy] : ['v=spf1 -all'] });
+      assert.equal(result.email.dmarc, 'invalid'); assert(rules(result).includes('WEB-027'));
+    }
+    const result = await run({ transport: transport(), txt: async name => name.startsWith('_dmarc.') ? ['v=DMARC1; p=reject', 'v=DMARC1; p=none'] : ['v=spf1 -all'] });
+    assert.equal(result.email.dmarc, 'invalid');
+  }
   assert.deepEqual(emailDomain('www.example.com.bd'), { domain: 'example.com.bd' });
   console.log('site check accuracy regressions passed');
 }

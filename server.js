@@ -151,7 +151,7 @@ const { assertGovernanceAuthorization, createGovernanceApiService } = require('.
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./src/guarded-fetch');
-const { auditRepository } = require('./src/code-audit');
+const { auditRepository, assertAuditActive } = require('./src/code-audit');
 const { analyseOffThread, scanOffThread } = require('./src/code-audit-worker');
 const { createAuditJobs } = require('./src/code-audit-jobs');
 const { CodeAuditHistory, createAuditWatch, describeKeptAudit } = require('./src/code-audit-history');
@@ -1644,12 +1644,13 @@ function recomputeHostedSessionMutation(base, desired, current) {
   next.active = Math.max(0, mergedOrder.indexOf(desiredActiveKey));
   return next;
 }
-async function setSession(req, res, data) {
+async function setSession(req, res, data, { createNew = false } = {}) {
   if (DB_URL) {
     if (!(await dbReady())) throw Object.assign(new Error('Session database is temporarily unavailable'), { status: 503 });
     let sid = null;
     const cur = unseal(getCookie(req, 'nv_session') || '');
-    if (cur && cur.sid) sid = cur.sid;
+    if (!createNew && cur && cur.sid) sid = cur.sid;
+    const existingSid = Boolean(sid);
     if (!sid) sid = crypto.randomBytes(24).toString('hex');
     if (ALPHA_CONFIG.enabled) {
       if (!req.alpha || !req.alpha.testerId || !cur || !cur.sid) {
@@ -1672,12 +1673,15 @@ async function setSession(req, res, data) {
       return;
     }
     const identityKeys = [...new Set((Array.isArray(data.accounts) ? data.accounts : []).map(identityKey))];
-    await pool().query(
-      `INSERT INTO nv_sessions (sid, data, identity_keys, updated) VALUES ($1,$2,$3::text[],now())
-       ON CONFLICT (sid) DO UPDATE SET data=EXCLUDED.data, identity_keys=EXCLUDED.identity_keys,
-         revision=nv_sessions.revision+1,updated=now()`,
-      [sid, seal(data), identityKeys]
-    );
+    if (existingSid) {
+      const saved = await pool().query(
+        `UPDATE nv_sessions SET data=$2,identity_keys=$3::text[],revision=revision+1,updated=now() WHERE sid=$1`,
+        [sid, seal(data), identityKeys]
+      );
+      if (!saved.rowCount) throw Object.assign(new Error('This session ended. Sign in again.'), { status: 401, code: 'SESSION_REVOKED' });
+    } else {
+      await pool().query('INSERT INTO nv_sessions (sid,data,identity_keys,updated) VALUES ($1,$2,$3::text[],now())', [sid, seal(data), identityKeys]);
+    }
     setCookieRaw(res, seal({ sid }));
     return;
   }
@@ -2001,23 +2005,63 @@ function defaultSafety(value) {
   const sf = value && typeof value === 'object' ? value : {};
   return { readOnly: !!sf.readOnly, freezeSync: !!sf.freezeSync, protected: sf.protected && typeof sf.protected === 'object' ? sf.protected : {} };
 }
+function safetyUnavailable() {
+  return Object.assign(new Error('Safety controls could not be loaded or saved. Try again when the database is available.'), {
+    status: 503, code: 'SAFETY_STATE_UNAVAILABLE', providerChanged: false
+  });
+}
 async function loadPersistentSafety(req) {
   const fallback = defaultSafety(req.session && req.session.safety);
-  if (!(await dbReady())) return fallback;
-  const key = identityKey(req.gh);
-  const r = await pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [key]).catch(() => null);
-  if (!r || !r.rows.length) return fallback;
-  return defaultSafety(r.rows[0].state);
+  if (!DB_URL) return fallback;
+  if (!(await dbReady())) throw safetyUnavailable();
+  try {
+    const r = await pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [identityKey(req.gh)]);
+    return r.rows.length ? defaultSafety(r.rows[0].state) : fallback;
+  } catch { throw safetyUnavailable(); }
 }
-async function savePersistentSafety(req, state) {
-  const clean = defaultSafety(state);
-  if (await dbReady()) {
-    await pool().query(
-      `INSERT INTO nv_security_state(identity_key,state,updated) VALUES($1,$2::jsonb,now())
-       ON CONFLICT(identity_key) DO UPDATE SET state=EXCLUDED.state, updated=now()`,
-      [identityKey(req.gh), JSON.stringify(clean)]
-    );
+function applySafetyPatch(state, patch) {
+  const cur = defaultSafety(state);
+  cur.protected = { ...cur.protected };
+  const b = patch || {};
+  if (typeof b.readOnly === 'boolean') cur.readOnly = b.readOnly;
+  if (typeof b.freezeSync === 'boolean') cur.freezeSync = b.freezeSync;
+  if (b.protect && b.protect.repo && b.protect.path) {
+    const key = String(b.protect.repo).trim();
+    if (!/^[^/\s]+\/[^/\s]+$/.test(key)) throw Object.assign(new Error('Invalid repository key'), { status: 400, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
+    const list = new Set(cur.protected[key] || []);
+    const protectedPath = String(b.protect.path).replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/{2,}/g, '/').trim();
+    if (!protectedPath || protectedPath.length > 512 || protectedPath.includes('..')) throw Object.assign(new Error('Invalid protected path or pattern'), { status: 400, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
+    if (b.protect.on === false) list.delete(protectedPath); else list.add(protectedPath);
+    if (list.size > 100) throw Object.assign(new Error('Up to 100 protected paths or patterns per repository'), { status: 413, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
+    if (list.size) cur.protected[key] = [...list].sort(); else delete cur.protected[key];
+    if (Object.keys(cur.protected).length > 30) throw Object.assign(new Error('Up to 30 repositories with protected paths'), { status: 413, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
   }
+  return cur;
+}
+async function savePersistentSafety(req, patch) {
+  let clean;
+  if (DB_URL && !(await dbReady())) throw safetyUnavailable();
+  if (DB_URL) {
+    const client = await pool().connect();
+    try {
+      await client.query('BEGIN');
+      const key = identityKey(req.gh);
+      // Serialize absent rows too. Apply only the requested changes to the
+      // latest controls, never the snapshot captured by request middleware.
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`safety:${key}`]);
+      const current = await client.query('SELECT state FROM nv_security_state WHERE identity_key=$1 FOR UPDATE', [key]);
+      clean = applySafetyPatch(current.rows.length ? current.rows[0].state : req.session.safety, patch);
+      await client.query(
+        `INSERT INTO nv_security_state(identity_key,state,updated) VALUES($1,$2::jsonb,now())
+         ON CONFLICT(identity_key) DO UPDATE SET state=EXCLUDED.state, updated=now()`,
+        [key, JSON.stringify(clean)]
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally { client.release(); }
+  } else clean = applySafetyPatch(req.session.safety, patch);
   req.session.safety = clean;
   return clean;
 }
@@ -3479,7 +3523,8 @@ async function revokeContainedSessions(req, sessionIds) {
 
 async function addAccount(req, res, token, user, provider = 'github', baseUrl = '', options = { authMethod: 'token' }) {
   const authMethod = ['token', 'oauth', 'github-app'].includes(options && options.authMethod) ? options.authMethod : 'token';
-  const s = (await sessionOf(req)) || { accounts: [], active: 0 };
+  const existingSession = await sessionOf(req);
+  const s = existingSession || { accounts: [], active: 0 };
   const account = {
     login: String(user && user.login || '').trim(),
     avatar: String(user && user.avatar_url || ''),
@@ -3544,7 +3589,7 @@ async function addAccount(req, res, token, user, provider = 'github', baseUrl = 
   while (s.accounts.length > ACCOUNT_CAP()) s.accounts.shift();
   s.active = s.accounts.length - 1;
   clearStepUpAuthorization(s);
-  await setSession(req, res, s);
+  await setSession(req, res, s, { createNew: !existingSession });
 }
 app.post('/api/login', async (req, res) => {
   try {
@@ -4372,7 +4417,8 @@ app.get('/api/repo/:owner/:repo/governance/digital-twin', providerSessionAccess,
       scope: req.governance.scope,
       authorization: req.governance.authorization,
       historyLimit: req.query.historyLimit,
-      afterDecisionSeq: req.query.afterDecisionSeq
+      afterDecisionSeq: req.query.afterDecisionSeq,
+      beforeDecisionSeq: req.query.beforeDecisionSeq
     });
     const access = projectGovernanceInterfaceAccess(req.governance.authorization);
     res.json({ digitalTwin, access });
@@ -4532,7 +4578,7 @@ app.get('/api/repo/:owner/:repo/governance/decisions/verify', providerSessionAcc
 app.get('/api/repo/:owner/:repo/governance/decisions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const result = await req.governance.service.listPolicyDecisions({
-      scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit, afterSeq: req.query.afterSeq
+      scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit, afterSeq: req.query.afterSeq, beforeSeq: req.query.beforeSeq
     });
     res.json(result);
   } catch (error) { governanceFailure(res, error); }
@@ -4895,8 +4941,10 @@ app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSession
  */
 function exposureFindingPayload(finding) {
   if (!finding) return null;
+  const displayPath = safeDisplayPath(String(finding.path || ''));
   return {
     ...finding,
+    path: displayPath,
     narration: describeFinding(finding),
     dispositionNarration: describeDisposition(finding.disposition),
     /*
@@ -4905,7 +4953,7 @@ function exposureFindingPayload(finding) {
      * raw path would publish exactly what the rest of this payload is careful
      * never to carry.
      */
-    displayPath: safeDisplayPath(String(finding.path || '')),
+    displayPath,
     /*
      * Which questions this finding can be asked. Three verifiers exist and
      * dozens of rules; offering "check whether it still works" on a finding
@@ -4959,14 +5007,17 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSe
      * A scan's report: each observation with the finding it is about, so a
      * history entry can be opened and read without a second request per row.
      */
-    const report = await exposureService().scanReport({
+    const report = await exposureService().scanReportPage({
       scope: req.governance.scope,
       scanId: String(req.params.scanId || ''),
       identityKey: req.governance.actor.identityKey,
-      limit: Number.parseInt(String(req.query.limit || '50'), 10)
+      limit: Number.parseInt(String(req.query.limit || '50'), 10),
+      cursor: req.query.cursor ? String(req.query.cursor) : null
     });
     res.json({
-      observations: report.map(entry => ({
+      nextCursor: report.nextCursor,
+      complete: report.complete,
+      observations: report.observations.map(entry => ({
         ...entry.observation,
         /* Described with this scan's locations, so "where" names the line. */
         finding: exposureFindingPayload({
@@ -6689,22 +6740,9 @@ app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaReposito
 app.get('/api/safety', providerSessionAccess, accountAuth, (req, res) => res.json(alphaSafetyView(req, safetyOf(req))));
 app.post('/api/safety', providerSessionAccess, alphaSafetyMutationAccess, accountAuth, async (req, res) => {
   try {
-    const cur = safetyOf(req);
     const b = req.body || {};
-    if (typeof b.readOnly === 'boolean') cur.readOnly = b.readOnly;
-    if (typeof b.freezeSync === 'boolean') cur.freezeSync = b.freezeSync;
-    if (b.protect && b.protect.repo && b.protect.path) {
-      const key = String(b.protect.repo).trim();
-      if (!/^[^/\s]+\/[^/\s]+$/.test(key)) return res.status(400).json({ error: 'Invalid repository key' });
-      const list = new Set(cur.protected[key] || []);
-      const protectedPath = String(b.protect.path).replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/{2,}/g, '/').trim();
-      if (!protectedPath || protectedPath.length > 512 || protectedPath.includes('..')) return res.status(400).json({ error: 'Invalid protected path or pattern' });
-      if (b.protect.on === false) list.delete(protectedPath); else list.add(protectedPath);
-      if (list.size > 100) return res.status(413).json({ error: 'Up to 100 protected paths or patterns per repository' });
-      if (list.size) cur.protected[key] = [...list].sort(); else delete cur.protected[key];
-      if (Object.keys(cur.protected).length > 30) return res.status(413).json({ error: 'Up to 30 repositories with protected paths' });
-    }
-    req.effectiveSafety = await savePersistentSafety(req, cur);
+    const cur = await savePersistentSafety(req, b);
+    req.effectiveSafety = cur;
     await setSession(req, res, req.session);
     const relatedRepo = b.protect && b.protect.repo ? b.protect.repo : 'identity';
     await appendEvidence(`safety:${identityKey(req.gh)}`, 'safety-change', crypto.randomUUID(), {
@@ -6955,11 +6993,12 @@ app.post('/api/repo/:owner/:repo/restore-preview', providerSessionAccess, alphaR
     if (result.baseline.refsTruncated) warnings.push('The snapshot branch inventory was truncated.');
     if (result.baseline.tagsTruncated) warnings.push('The snapshot tag inventory was truncated. Tags are compared but not changed by ref restore.');
     if (result.comparison.truncated) warnings.push('At least one file manifest is truncated, so file counts are incomplete.');
-    if (actions.some(action => action.protected)) warnings.push('One or more protected provider branches would be force-updated. Provider branch rules may reject the restore.');
+    const requiresReset = actions.some(action => action.action === 'reset');
+    if (requiresReset) warnings.push('Existing branch resets are unavailable: this provider API has no expected-old compare-and-swap. Use commit restoration to recover file contents while preserving newer commits.');
     if (actions.length > 50) warnings.push('This preview contains more than 50 branch changes. Split recovery into smaller, reviewed snapshots before restoring.');
     if (protectedPatternsForReq(req).length) warnings.push('Nebulaverse-X protected-path policies are active. The actual restore remains blocked until those policies are unlocked.');
     if (safetyOf(req).readOnly) warnings.push('Nebulaverse-X read-only mode is active. Disable it before restoring branch references.');
-    const canRestore = result.comparison.compatible && actions.length > 0 && actions.length <= 50 && !result.baseline.refsTruncated && !protectedPatternsForReq(req).length && !safetyOf(req).readOnly;
+    const canRestore = !requiresReset && result.comparison.compatible && actions.length > 0 && actions.length <= 50 && !result.baseline.refsTruncated && !protectedPatternsForReq(req).length && !safetyOf(req).readOnly;
     const authorization = canRestore ? createRestoreAuthorization(req, actions) : '';
     res.json({
       kind: 'nebulaverse-restore-preview', version: 1, generatedAt: new Date().toISOString(),
@@ -7015,11 +7054,14 @@ app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alp
     if (String(req.body && req.body.confirm || '').toUpperCase() !== 'FREEZE') {
       return res.status(400).json({ error: 'Type FREEZE to confirm emergency containment' });
     }
+    if (ALPHA_CONFIG.enabled) {
+      return res.status(403).json({
+        error: 'Emergency Shield changes identity-wide controls, which are unavailable in a repository-scoped alpha. Use repository Safeguards and session revocation instead.',
+        code: 'ALPHA_REPOSITORY_SCOPE_REQUIRED'
+      });
+    }
     const captured = await captureRefsSnapshot(req, true);
-    const currentSafety = defaultSafety(req.effectiveSafety || req.session.safety);
-    currentSafety.readOnly = true;
-    currentSafety.freezeSync = true;
-    req.effectiveSafety = await savePersistentSafety(req, currentSafety);
+    req.effectiveSafety = await savePersistentSafety(req, { readOnly: true, freezeSync: true });
     await setSession(req, res, req.session);
 
     const inventory = await sessionsForIdentity(req);
@@ -7114,6 +7156,12 @@ app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepo
     const { authorization, confirm } = req.body || {};
     if (String(confirm || '').toUpperCase() !== 'RESTORE') return res.status(400).json({ error: 'Type RESTORE to confirm recovery', code: 'RESTORE_CONFIRMATION_REQUIRED' });
     const grant = prepareRestoreAuthorization(req, authorization);
+    if (grant.actions.some(action => action.action !== 'recreate')) {
+      return res.status(409).json({
+        error: 'Resetting an existing branch requires provider-enforced expected-old comparison. Use commit restoration to preserve concurrent work.',
+        code: 'RESTORE_ATOMIC_RESET_UNAVAILABLE'
+      });
+    }
     const conflicts = await preflightRestoreActions(req, grant.actions);
     if (conflicts.length) {
       return res.status(409).json({
@@ -7125,14 +7173,12 @@ app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepo
     const report = [];
     for (const action of grant.actions) {
       try {
-        if (action.action === 'recreate') {
-          await gh(req.gh, `${R(req)}/git/refs`, { method: 'POST', body: { ref: `refs/heads/${action.name}`, sha: action.to } });
-        } else {
-          await gh(req.gh, `${R(req)}/git/refs/heads/${encodeURIComponent(action.name)}`, { method: 'PATCH', body: { sha: action.to, force: true } });
-        }
+        // GitHub creates only absent references; a branch created after
+        // preflight is rejected by the provider instead of overwritten.
+        await gh(req.gh, `${R(req)}/git/refs`, { method: 'POST', body: { ref: `refs/heads/${action.name}`, sha: action.to } });
         const execution = mutationGateway.executionSnapshot();
         report.push({
-          name: action.name, ok: true, action: action.action === 'recreate' ? 'recreated' : 'reset',
+          name: action.name, ok: true, action: 'recreated',
           operationId: execution && execution.operationIds[execution.operationIds.length - 1] || null
         });
       } catch (error) {
@@ -7164,24 +7210,31 @@ app.get('/api/repo/:owner/:repo/activity', providerSessionAccess, alphaRepositor
     const includePulls = requestSupportsCapability(req, 'pulls.read');
     const includeIssues = requestSupportsCapability(req, 'issues.read');
     const includeReleases = requestSupportsCapability(req, 'releases.read');
-    const [commits, pulls, issues] = await Promise.all([
-      gh(req.gh, `${R(req)}/commits?since=${encodeURIComponent(since)}&per_page=100`).catch(() => []),
-      includePulls
-        ? gh(req.gh, `${R(req)}/pulls?state=all&sort=updated&direction=desc&per_page=30`).catch(() => [])
-        : Promise.resolve([]),
-      includeIssues
-        ? gh(req.gh, `${R(req)}/issues?state=all&sort=updated&direction=desc&per_page=30`).catch(() => [])
-        : Promise.resolve([])
-    ]);
-    let releases = [];
-    if (includeReleases) {
-      try { releases = await gh(req.gh, `${R(req)}/releases?per_page=20`); } catch {}
-    }
+    const ref = req.query.ref == null ? '' : requireBranchName(req.query.ref);
+    base.ref = ref || null;
+    const sourceRequests = [
+      { name: 'commits', limit: 100, requested: true, path: `${R(req)}/commits?since=${encodeURIComponent(since)}&per_page=100${ref ? `&sha=${encodeURIComponent(ref)}` : ''}` },
+      { name: 'pulls', limit: 30, requested: includePulls, path: `${R(req)}/pulls?state=all&sort=updated&direction=desc&per_page=30` },
+      { name: 'issues', limit: 30, requested: includeIssues, path: `${R(req)}/issues?state=all&sort=updated&direction=desc&per_page=30` },
+      { name: 'releases', limit: 20, requested: includeReleases, path: `${R(req)}/releases?per_page=20` }
+    ];
+    const settled = await Promise.allSettled(sourceRequests.map(source => source.requested ? gh(req.gh, source.path) : Promise.resolve([])));
+    const sources = {};
+    const rows = {};
+    sourceRequests.forEach((source, index) => {
+      const outcome = settled[index];
+      const available = source.requested && outcome.status === 'fulfilled' && Array.isArray(outcome.value);
+      rows[source.name] = available ? outcome.value : [];
+      sources[source.name] = { requested: source.requested, available, truncated: available && outcome.value.length >= source.limit };
+    });
+    const { commits, pulls, issues, releases } = rows;
     const fresh = d => d && new Date(d) >= new Date(since);
     res.json({
       ...base,
+      sources,
+      partial: Object.values(sources).some(source => source.requested && (!source.available || source.truncated)),
       commits: (commits || []).map(c => ({
-        sha: c.sha, message: ((c.commit && c.commit.message) || '').split('\n')[0],
+        sha: c.sha, parentShas: (Array.isArray(c.parents) ? c.parents : []).map(parent => parent.sha).filter(sha => /^[0-9a-f]{40}$/i.test(sha)), message: ((c.commit && c.commit.message) || '').split('\n')[0],
         author: (c.commit && c.commit.author && c.commit.author.name) || '',
         date: c.commit && c.commit.author && c.commit.author.date
       })),
@@ -7442,6 +7495,7 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
           scope: { provider: 'github', owner, repo },
           ref,
           token,
+          signal,
           transport: input => session.request(input),
           /* The files past the traced set, many to a request, through the query profile bound to GitHub's GraphQL endpoint. */
           queryTransport: input => guardedFetch(input),
@@ -7449,10 +7503,11 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
           advisoryTransport: input => guardedFetch(input),
           licenceTransport: input => guardedFetch(input),
           intelTransport: input => guardedFetch(input),
-          analyser: input => analyseOffThread(input, { onStage: (stage, detail) => onProgress({ stage, ...(detail || {}) }) }),
-          scanner: input => scanOffThread(input),
+          analyser: input => analyseOffThread(input, { signal, onStage: (stage, detail) => onProgress({ stage, ...(detail || {}) }) }),
+          scanner: input => scanOffThread(input, { signal }),
           onProgress
         });
+        assertAuditActive(signal);
         const finished = { ...result, auditedAt: new Date().toISOString() };
         /*
          * The team's decisions first, so the grade and the kept history are
@@ -7460,9 +7515,10 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
          * the history carries for each finding.
          */
         const triage = await triageForAccount(account, owner, repo);
+        assertAuditActive(signal);
         const decided = triage && triage.decisions ? applyTriage(finished, triage.decisions) : finished;
         if (triage && triage.unavailable) decided.triage = { unavailable: true };
-        const recorded = await recordAudit(account, owner, repo, decided);
+        const recorded = await recordAudit(account, owner, repo, decided, { signal });
         const { firstSeen = null, ...history } = recorded || {};
         const clocked = firstSeen ? withClocks(decided, firstSeen) : decided;
         clocked.history = recorded ? history : recorded;
@@ -7509,12 +7565,13 @@ function auditWatch() {
   return _auditWatch;
 }
 /* A history that could not be written never fails the audit it would have recorded. */
-async function recordAudit(account, owner, repo, result) {
+async function recordAudit(account, owner, repo, result, { signal } = {}) {
+  assertAuditActive(signal);
   const history = auditHistory();
   if (!history) return null;
   try {
     const scope = normalizePolicyScope({ provider: account.provider || 'github', baseUrl: account.baseUrl || '', owner, repo });
-    const recorded = await history.record({ scope, identityKey: identityKey(account), result });
+    const recorded = await history.record({ scope, identityKey: identityKey(account), result, signal });
     return {
       saved: true,
       auditId: recorded.auditId,
@@ -7525,6 +7582,8 @@ async function recordAudit(account, owner, repo, result) {
       firstSeen: recorded.firstSeen
     };
   } catch (error) {
+    assertAuditActive(signal);
+    if (error && error.code === 'AUDIT_CANCELLED') throw error;
     console.warn(`[code-audit] history not recorded (${cleanText(String(error && error.code || 'error'), 60)})`);
     return { saved: false };
   }
@@ -7828,12 +7887,13 @@ function siteCheckRequest(req, res) {
   }
   const answer = siteJobs.request({
     identity: who, owner: 'site', repo: origin, ref: '', run,
-    launch: ({ onProgress }) => {
+    launch: ({ onProgress, signal }) => {
       siteCheckLast.set(who, Date.now());
       siteOriginLast.set(origin, Date.now());
       for (const map of [siteCheckLast, siteOriginLast]) if (map.size > 5000) map.delete(map.keys().next().value);
       return checkSite({
         url: origin,
+        signal,
         transport: input => guardedFetch(input),
         advisoryTransport: input => guardedFetch(input),
         txt: (name, budget) => guardedTxt(name, budget),

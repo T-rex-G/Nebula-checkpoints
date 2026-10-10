@@ -141,6 +141,30 @@ function decodeFindingsCursor(value, key, binding) {
   return cursor;
 }
 
+function decodeReportCursor(value, key, binding) {
+  if (typeof value !== 'string' || value.length > 4096 || !/^[\w-]+\.[\w-]+$/.test(value)) {
+    fail('That report cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+  }
+  const [payload, signature] = value.split('.');
+  const expected = cursorSignature(payload, key);
+  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    fail('That report cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+  }
+  let cursor;
+  try { cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch {
+    fail('That report cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+  }
+  if (!cursor || cursor.version !== 1 || cursor.binding !== binding
+    || !Number.isFinite(Date.parse(cursor.snapshot)) || !/^[0-9a-f]{64}$/.test(cursor.fingerprint)
+    || !/^[0-9a-f]{32}$/.test(cursor.revision)) {
+    fail('That report cursor does not match this scan', 'EXPOSURE_CURSOR_INVALID', 400);
+  }
+  if (Date.now() - Date.parse(cursor.snapshot) > 20 * 60 * 1000) {
+    fail('This report view expired. Refresh the report.', 'EXPOSURE_CURSOR_STALE', 409);
+  }
+  return cursor;
+}
+
 class ExposureStoreError extends Error {
   constructor(message, code = 'EXPOSURE_STORE_UNAVAILABLE', status = 503) {
     super(message);
@@ -206,6 +230,14 @@ function requireMember(value, allowed, label) {
 
 function boundedInteger(value, fallback, min, max) {
   return Number.isInteger(value) ? Math.min(Math.max(value, min), max) : fallback;
+}
+
+/* Lock the repository/identity admission gap, including an empty scan set.
+   The namespace separates this advisory key from unrelated store locks. */
+function historyScopeLockKey(scope, identityKey) {
+  return crypto.createHash('sha256').update(JSON.stringify([
+    'exposure-history-scope-v1', scope.provider, scope.authority, scope.owner, scope.repo, identityKey
+  ])).digest().readBigInt64BE(0).toString();
 }
 
 function instant(value, label) {
@@ -314,7 +346,7 @@ function observationFromRow(row) {
     inTree: row.in_tree === false ? false : true,
     introducedCommit: row.introduced_commit || null,
     introducedAt: iso(row.introduced_at),
-    historyCommits: row.history_commits == null ? null : Number(row.history_commits),
+    historyCommits: row.history_count_exact === false || row.history_commits == null ? null : Number(row.history_commits),
     decodedFrom: row.decoded_from || null,
     verification: row.verification_state
       ? Object.freeze({
@@ -612,58 +644,54 @@ class ExposureStore {
       config: requireVersion(input.configVersion == null ? EXPOSURE_CONFIG_VERSION : input.configVersion, 'Config version')
     };
 
-    /*
-     * A history scan starts where this person's last complete history scan of
-     * the same ref stopped, when that scan ran under the same rules, engine,
-     * key and caps -- its findings are this scan's generation, so reading the
-     * same commits again would only find them again. Anything else, and the
-     * history is read from the top.
-     */
-    const inserted = await this.#query(
-      `INSERT INTO nv_exposure_scans (
-         scan_id, provider, authority, owner_login, repo_name, identity_key, requested_by,
-         ref_name, commit_sha, rules_version, engine_version, fingerprint_key_version,
-         config_version, state, coverage, idempotency_key, retain_until, created_at, fingerprint_key_id,
-         scan_mode, history_base_commit
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'queued','unknown',$14,$15,$16,$17,$18::text,
-         CASE WHEN $18::text = 'history' THEN (
-           SELECT previous.commit_sha FROM nv_exposure_scans AS previous
-            WHERE previous.provider=$2 AND previous.authority=$3 AND previous.owner_login=$4
-              AND previous.repo_name=$5 AND previous.identity_key=$6 AND previous.ref_name=$8
-              AND previous.scan_mode='history' AND previous.state='complete'
-              AND previous.rules_version=$10 AND previous.engine_version=$11
-              AND previous.fingerprint_key_version=$12 AND previous.config_version=$13
-              AND previous.fingerprint_key_id IS NOT DISTINCT FROM $17
-            ORDER BY previous.finished_at DESC, previous.scan_id DESC
-            LIMIT 1) ELSE NULL END)
-       ON CONFLICT DO NOTHING
-       RETURNING *`,
-      [
-        scanId, scope.provider, scope.authority, scope.owner, scope.repo, identityKey, requestedBy,
-        refName, commitSha, versions.rules, versions.engine, versions.fingerprintKey,
-        versions.config, idempotencyKey, retainUntil, now, keyId, scanMode
-      ],
-      'accept a scan request'
-    );
-    if (inserted.rows.length) {
-      return Object.freeze({ scan: scanFromRow(inserted.rows[0]), created: true });
-    }
+    return this.#transaction(async client => {
+      await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [historyScopeLockKey(scope, identityKey)]);
+      /* The prior tip remains provenance only. The worker re-reads bounded
+         reachable history because a date-ordered tip is not an ancestry fence. */
+      const inserted = await client.query(
+        `INSERT INTO nv_exposure_scans (
+           scan_id, provider, authority, owner_login, repo_name, identity_key, requested_by,
+           ref_name, commit_sha, rules_version, engine_version, fingerprint_key_version,
+           config_version, state, coverage, idempotency_key, retain_until, created_at, fingerprint_key_id,
+           scan_mode, history_base_commit
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'queued','unknown',$14,$15,$16,$17,$18::text,
+           CASE WHEN $18::text = 'history' THEN (
+             SELECT previous.commit_sha FROM nv_exposure_scans AS previous
+              WHERE previous.provider=$2 AND previous.authority=$3 AND previous.owner_login=$4
+                AND previous.repo_name=$5 AND previous.identity_key=$6 AND previous.ref_name=$8
+                AND previous.scan_mode='history' AND previous.state='complete'
+                AND previous.rules_version=$10 AND previous.engine_version=$11
+                AND previous.fingerprint_key_version=$12 AND previous.config_version=$13
+                AND previous.fingerprint_key_id IS NOT DISTINCT FROM $17
+              ORDER BY previous.finished_at DESC, previous.scan_id DESC
+              LIMIT 1) ELSE NULL END)
+         ON CONFLICT DO NOTHING
+         RETURNING *`,
+        [
+          scanId, scope.provider, scope.authority, scope.owner, scope.repo, identityKey, requestedBy,
+          refName, commitSha, versions.rules, versions.engine, versions.fingerprintKey,
+          versions.config, idempotencyKey, retainUntil, now, keyId, scanMode
+        ]
+      );
+      if (inserted.rows.length) {
+        return Object.freeze({ scan: scanFromRow(inserted.rows[0]), created: true });
+      }
 
-    const existing = await this.#query(
-      `SELECT * FROM nv_exposure_scans
-        WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
-          AND idempotency_key=$5 AND identity_key=$6`,
-      [scope.provider, scope.authority, scope.owner, scope.repo, idempotencyKey, identityKey],
-      'read a scan request'
-    );
-    if (existing.rows.length) {
-      return Object.freeze({ scan: scanFromRow(existing.rows[0]), created: false });
-    }
-    return fail(
-      'This repository already has a scan in progress',
-      'EXPOSURE_SCAN_ALREADY_ACTIVE',
-      409
-    );
+      const existing = await client.query(
+        `SELECT * FROM nv_exposure_scans
+          WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+            AND idempotency_key=$5 AND identity_key=$6`,
+        [scope.provider, scope.authority, scope.owner, scope.repo, idempotencyKey, identityKey]
+      );
+      if (existing.rows.length) {
+        return Object.freeze({ scan: scanFromRow(existing.rows[0]), created: false });
+      }
+      return fail(
+        'This repository already has a scan in progress',
+        'EXPOSURE_SCAN_ALREADY_ACTIVE',
+        409
+      );
+    }, 'accept a scan request');
   }
 
   /*
@@ -836,9 +864,9 @@ class ExposureStore {
              scan_id, fingerprint, occurrence_count, occurrence_lines, occurrence_columns, truncated,
              verification_state, verification_reason, verification_adapter, verification_subject_digest,
              verification_observed_at, verification_freshness_deadline, verification_retry_after_ms,
-             observed_at, in_tree, introduced_commit, introduced_at, history_commits, decoded_from
+             observed_at, in_tree, introduced_commit, introduced_at, history_commits, decoded_from, history_count_exact
            ) VALUES ($1,$2,$3,$4::integer[],$5::integer[],$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-             CASE WHEN $16::text IS NULL THEN NULL ELSE 1 END, $18)
+             CASE WHEN $16::text IS NULL THEN NULL ELSE 1 END, $18, true)
            ON CONFLICT (scan_id, fingerprint) DO UPDATE SET
              occurrence_count=CASE WHEN EXCLUDED.in_tree AND nv_exposure_observations.in_tree IS FALSE
                THEN EXCLUDED.occurrence_count ELSE nv_exposure_observations.occurrence_count END,
@@ -852,9 +880,7 @@ class ExposureStore {
              introduced_commit=COALESCE(nv_exposure_observations.introduced_commit, EXCLUDED.introduced_commit),
              introduced_at=CASE WHEN nv_exposure_observations.introduced_commit IS NULL
                THEN EXCLUDED.introduced_at ELSE nv_exposure_observations.introduced_at END,
-             history_commits=CASE
-               WHEN EXCLUDED.history_commits IS NULL THEN nv_exposure_observations.history_commits
-               ELSE COALESCE(nv_exposure_observations.history_commits, 0) + EXCLUDED.history_commits END,
+             history_commits=COALESCE(nv_exposure_observations.history_commits, EXCLUDED.history_commits),
              decoded_from=COALESCE(nv_exposure_observations.decoded_from, EXCLUDED.decoded_from)
            RETURNING (xmax = 0) AS inserted`,
           [
@@ -874,6 +900,22 @@ class ExposureStore {
             finding.decodedFrom
           ]
         );
+        if (finding.introducedCommit) {
+          const sighting = await client.query(
+            `INSERT INTO nv_exposure_history_sightings (scan_id, fingerprint, commit_sha)
+             VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING commit_sha`,
+            [scanId, finding.fingerprint, finding.introducedCommit]
+          );
+          if (sighting.rows.length) {
+            await client.query(
+              `UPDATE nv_exposure_observations SET history_commits=(
+                 SELECT count(*)::integer FROM nv_exposure_history_sightings
+                  WHERE scan_id=$1 AND fingerprint=$2)
+               WHERE scan_id=$1 AND fingerprint=$2`,
+              [scanId, finding.fingerprint]
+            );
+          }
+        }
         if (observation.rows.length && observation.rows[0].inserted) written += 1;
       }
       return Object.freeze({ recorded: written, submitted: normalized.length });
@@ -1156,6 +1198,31 @@ class ExposureStore {
               SET disposition='credential-rejected', disposition_at=$6, disposition_by=NULL
             WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
               AND fingerprint=$5 AND identity_key=$7 AND disposition <> 'accepted-risk'
+              AND (disposition_at IS NULL OR disposition_at <= $6)
+              AND NOT EXISTS (
+                SELECT 1 FROM nv_exposure_verifications newer
+                 WHERE newer.provider=$1 AND newer.authority=$2 AND newer.owner_login=$3
+                   AND newer.repo_name=$4 AND newer.fingerprint=$5 AND newer.identity_key=$7
+                   AND newer.state IN ('verified','rejected')
+                   AND (newer.observed_at > $6 OR (newer.observed_at = $6 AND newer.state='verified')))
+           RETURNING *`,
+          [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, attempt.observedAt, identityKey]
+        );
+        finding = findingFromRow(moved.rows[0] || null);
+      } else if (attempt.state === 'verified') {
+        /* A newer live verdict invalidates a machine rejection, never a
+           person's accepted-risk decision. Late replies cannot regress it. */
+        const moved = await client.query(
+          `UPDATE nv_exposure_findings
+              SET disposition='open', disposition_at=NULL, disposition_by=NULL
+            WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
+              AND fingerprint=$5 AND identity_key=$7 AND disposition='credential-rejected'
+              AND (disposition_at IS NULL OR disposition_at <= $6)
+              AND NOT EXISTS (
+                SELECT 1 FROM nv_exposure_verifications newer
+                 WHERE newer.provider=$1 AND newer.authority=$2 AND newer.owner_login=$3
+                   AND newer.repo_name=$4 AND newer.fingerprint=$5 AND newer.identity_key=$7
+                   AND newer.state IN ('verified','rejected') AND newer.observed_at > $6)
            RETURNING *`,
           [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, attempt.observedAt, identityKey]
         );
@@ -1183,7 +1250,7 @@ class ExposureStore {
       `SELECT * FROM nv_exposure_verifications
         WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
           AND fingerprint=$5 AND identity_key=$6
-        ORDER BY observed_at DESC, verification_id
+        ORDER BY observed_at DESC, CASE state WHEN 'verified' THEN 0 ELSE 1 END, verification_id
         LIMIT $7`,
       [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, identityKey, limit],
       'list verifications'
@@ -1280,7 +1347,7 @@ class ExposureStore {
         `SELECT DISTINCT ON (fingerprint) * FROM nv_exposure_verifications
           WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
             AND identity_key=$5 AND fingerprint = ANY($6)
-          ORDER BY fingerprint, observed_at DESC, verification_id`,
+          ORDER BY fingerprint, observed_at DESC, CASE state WHEN 'verified' THEN 0 ELSE 1 END, verification_id`,
         parameters,
         'read the latest verifications'
       ),
@@ -1696,19 +1763,30 @@ class ExposureStore {
    * else's copy of a finding.
    */
   async scanReport(input = {}) {
+    return (await this.#scanReport(input, false)).observations;
+  }
+
+  async scanReportPage(input = {}) {
+    return this.#scanReport(input, true);
+  }
+
+  async #scanReport(input, paged) {
     const scope = requireScope(input.scope);
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
     const limit = boundedInteger(input.limit, 50, 1, MAX_LIST_LIMIT);
-    const found = await this.#query(
-      `SELECT observation.*,
+    const binding = cursorSignature(JSON.stringify(['scan-report', scope, identityKey, scanId]), this.cursorKey);
+    const cursor = paged && input.cursor ? decodeReportCursor(input.cursor, this.cursorKey, binding) : null;
+    const query = `SELECT observation.*,
               finding.provider AS finding_provider, finding.authority AS finding_authority,
               finding.owner_login AS finding_owner_login, finding.repo_name AS finding_repo_name,
               finding.fingerprint AS finding_fingerprint,
               finding.fingerprint_key_version, finding.rules_version, finding.engine_version,
               finding.rule, finding.file_path, finding.placeholder, finding.disposition,
               finding.disposition_at, finding.disposition_by, finding.first_observed_at,
-              finding.last_observed_at, finding.commit_sha
+              finding.last_observed_at,
+              CASE WHEN observation.in_tree IS FALSE THEN observation.introduced_commit
+                   ELSE scan.commit_sha END AS commit_sha
          FROM nv_exposure_observations AS observation
          JOIN nv_exposure_scans AS scan ON scan.scan_id = observation.scan_id
          JOIN nv_exposure_findings AS finding
@@ -1717,12 +1795,24 @@ class ExposureStore {
           AND finding.fingerprint = observation.fingerprint AND finding.identity_key = scan.identity_key
         WHERE observation.scan_id=$1 AND scan.identity_key=$2
           AND scan.provider=$3 AND scan.authority=$4 AND scan.owner_login=$5 AND scan.repo_name=$6
-        ORDER BY finding.file_path, finding.rule, observation.fingerprint
-        LIMIT $7`,
-      [scanId, identityKey, scope.provider, scope.authority, scope.owner, scope.repo, limit],
-      'read a scan report'
+        `;
+    const parameters = [scanId, identityKey, scope.provider, scope.authority, scope.owner, scope.repo, paged ? limit + 1 : limit];
+    if (paged) parameters.push(cursor ? cursor.fingerprint : '');
+    const found = await this.#query(paged
+      ? `WITH report AS MATERIALIZED (${query})
+         SELECT (SELECT jsonb_agg(to_jsonb(p) ORDER BY finding_fingerprint)
+                   FROM (SELECT * FROM report WHERE finding_fingerprint > $8 ORDER BY finding_fingerprint LIMIT $7) p) AS items,
+                (SELECT md5(COALESCE(string_agg(to_jsonb(r)::text, '' ORDER BY finding_fingerprint), '')) FROM report r) AS revision`
+      : `${query} ORDER BY finding.file_path, finding.rule, observation.fingerprint LIMIT $7`,
+      parameters, 'read a scan report'
     );
-    return Object.freeze(found.rows.map(row => Object.freeze({
+    const revision = paged ? found.rows[0].revision : null;
+    if (cursor && cursor.revision !== revision) {
+      fail('This scan report changed while paging. Refresh the report.', 'EXPOSURE_CURSOR_STALE', 409);
+    }
+    const rows = paged ? (found.rows[0].items || []) : found.rows;
+    const hasMore = paged && rows.length > limit;
+    const observations = Object.freeze(rows.slice(0, limit).map(row => Object.freeze({
       observation: observationFromRow(row),
       /* Named column by column, like every other row that leaves here. */
       finding: findingFromRow({
@@ -1745,6 +1835,10 @@ class ExposureStore {
         last_observed_at: row.last_observed_at
       })
     })));
+    return Object.freeze({ observations, complete: !hasMore,
+      nextCursor: hasMore ? encodeFindingsCursor({ version: 1, binding, revision,
+        snapshot: cursor ? cursor.snapshot : new Date().toISOString(),
+        fingerprint: observations[observations.length - 1].observation.fingerprint }, this.cursorKey) : null });
   }
 
   /*
@@ -1769,6 +1863,7 @@ class ExposureStore {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Clear identity');
     return this.#transaction(async client => {
+      await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [historyScopeLockKey(scope, identityKey)]);
       const active = await client.query(
         `SELECT scan_id FROM nv_exposure_scans
           WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4

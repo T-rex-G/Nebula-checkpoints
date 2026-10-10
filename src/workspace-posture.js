@@ -38,8 +38,6 @@ const GITHUB_BROAD_SCOPES = Object.freeze([
   'delete:packages', 'workflow'
 ]);
 
-const GITLAB_BROAD_SCOPES = Object.freeze(['api', 'sudo', 'admin_mode', 'write_registry']);
-
 function githubTokenKind(token) {
   const value = String(token || '');
   const match = GITHUB_PREFIXES.find(entry => value.startsWith(entry.prefix));
@@ -56,7 +54,7 @@ function scopeList(header) {
 
 function isoDate(value) {
   if (!value) return null;
-  /* GitHub writes "2026-10-31 09:30:00 UTC"; GitLab writes "2026-10-31". */
+  /* GitHub writes "2026-10-31 09:30:00 UTC". */
   const normalised = String(value).trim().replace(/ UTC$/, 'Z').replace(' ', 'T');
   const parsed = Date.parse(normalised);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
@@ -119,32 +117,9 @@ function credentialPosture(input = {}) {
       detail: 'The token’s kind could not be read, so its reach is not scored.'
     });
   }
-  if (provider === 'gitlab') {
-    const self = input.gitlabSelf;
-    if (!self || !Array.isArray(self.scopes)) {
-      return Object.freeze({
-        kind: 'unknown', rating: null, scopes: [], expiresAt: null,
-        detail: 'GitLab did not report this token’s scopes, so its reach is not scored.'
-      });
-    }
-    const scopes = self.scopes.map(String).filter(scope => /^[a-z_]{2,40}$/.test(scope)).slice(0, 40);
-    const expiresAt = isoDate(self.expires_at);
-    const expired = expiresAt && Date.parse(expiresAt) <= now;
-    const broad = scopes.filter(scope => GITLAB_BROAD_SCOPES.includes(scope));
-    let rating = broad.length ? 0.55 : 0.85;
-    if (!expiresAt) rating -= 0.1;
-    if (expired || self.active === false || self.revoked === true) rating = 0;
-    const time = expired ? ' and has expired' : expiresAt ? `, expiring ${expiresAt.slice(0, 10)}` : ' and never expires';
-    return Object.freeze({
-      kind: 'personal-access-token', rating: Math.max(0, Math.round(rating * 100) / 100), scopes, expiresAt,
-      detail: broad.length
-        ? `GitLab token with ${broad.join(', ')} scope: full API access to everything the account can reach${time}.`
-        : `GitLab token scoped to ${scopes.join(', ') || 'no named scope'}${time}.`
-    });
-  }
   return Object.freeze({
     kind: 'unknown', rating: null, scopes: [], expiresAt: null,
-    detail: 'Gitea does not report a token’s scope, so its reach is not scored.'
+    detail: 'This account is unsupported or its credential could not be read, so its reach is not scored.'
   });
 }
 
@@ -191,7 +166,7 @@ function exposureSummary(rows, severityForRule) {
  */
 function createPostureReader(deps) {
   const {
-    gh, glFetch, dbReady, pool, identityKey, normalizePolicyScope, exposureStore, severityOf,
+    gh, dbReady, pool, identityKey, normalizePolicyScope, exposureStore, severityOf,
     databaseConfigured, maintenance, hostedAlpha
   } = deps;
 
@@ -204,10 +179,6 @@ function createPostureReader(deps) {
         const expiresHeader = response.ok ? response.headers.get('github-authentication-token-expiration') : '';
         if (response.body) await response.body.cancel();
         return credentialPosture({ provider, token: account.token, scopesHeader, expiresHeader });
-      }
-      if (provider === 'gitlab') {
-        const self = await glFetch(account, '/personal_access_tokens/self', { timeoutMs: 8000 }).catch(() => null);
-        return credentialPosture({ provider, gitlabSelf: self });
       }
       return credentialPosture({ provider, authMethod: account.authMethod });
     } catch {
@@ -244,6 +215,9 @@ function createPostureReader(deps) {
   }
 
   async function read(account) {
+    if (!account || (account.provider || 'github') !== 'github') {
+      throw Object.assign(new Error('Workspace posture requires GitHub'), { code: 'PROVIDER_ACCOUNT_INVALID', status: 401 });
+    }
     const settle = promise => promise.then(value => value, () => null);
     const [credentialReading, recoveryReading, exposureReading, databaseReady] = await Promise.all([
       credential(account),
@@ -268,6 +242,6 @@ function createPostureReader(deps) {
 }
 
 module.exports = Object.freeze({
-  GITHUB_BROAD_SCOPES, GITLAB_BROAD_SCOPES,
+  GITHUB_BROAD_SCOPES,
   githubTokenKind, credentialPosture, exposureSummary, createPostureReader
 });

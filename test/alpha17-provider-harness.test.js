@@ -3,30 +3,24 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const { createProviderFetchFixture } = require('../ci/alpha17-fixtures');
-const { PROVIDER_CAPABILITY_REQUIREMENTS, providerProbeKeys } = require('../src/qualification-evidence');
-const { requestJson } = require('../ci/provider-alpha17-common');
-const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
-const { runGitlabValidation } = require('../ci/run-gitlab-alpha17-validation');
-const { runGiteaValidation } = require('../ci/run-gitea-alpha17-validation');
+const { PROVIDER_CAPABILITY_REQUIREMENTS, providerProbeKeys, providerCheckContract } = require('../src/qualification-evidence');
+const { requestJson, runProviderQualification } = require('../ci/provider-alpha17-common');
+const { createGithubClient, runGithubValidation } = require('../ci/run-github-alpha17-validation');
+
+for (const retired of ['gitlab', 'gitea']) {
+  assert.throws(() => providerProbeKeys(retired), /not supported for qualification/);
+  assert.throws(() => providerCheckContract(retired), /not supported for qualification/);
+  assert.throws(() => createProviderFetchFixture({ provider: retired }), /fixture provider is invalid/);
+}
 
 const RUN_ID = 'run-2048';
 const SUBJECT = 'a'.repeat(64);
 const SOURCE = 'b'.repeat(40);
 const NOW = '2026-07-29T20:00:00.000Z';
 
-/*
- * The extra checks each provider contributes, in contract order. GitLab and
- * Gitea prove nothing beyond the shared sequence, and saying so here keeps the
- * empty case asserted rather than assumed.
- */
-/*
- * Derived, not restated. This was a hand-written map of probe keys per
- * provider, correct until GitLab gained probes of its own -- the fourth
- * hardcoded copy of something the contract already knows. The contract is the
- * source; a second copy only ever agrees with it by accident.
- */
+// Probe keys follow the current provider proof contract.
 const PROBE_KEYS = Object.freeze(Object.fromEntries(
-  ['github', 'gitlab', 'gitea'].map(provider => [provider, providerProbeKeys(provider)])
+  ['github'].map(provider => [provider, providerProbeKeys(provider)])
 ));
 
 function stableJson(value) {
@@ -47,15 +41,11 @@ function environment(provider) {
     NV_ALPHA17_BRANCH: `nvx-alpha17-${RUN_ID}-proof`,
     NV_ALPHA17_MUTATION_CREDENTIAL: 'fixture-mutation-credential',
     NV_ALPHA17_READ_ONLY_CREDENTIAL: 'fixture-readonly-credential',
-    NV_ALPHA17_GITHUB_API_URL: 'https://github.fixture.invalid',
-    NV_ALPHA17_GITHUB_LFS_URL: 'https://github-lfs.fixture.invalid',
-    NV_ALPHA17_GITLAB_API_URL: 'https://gitlab.fixture.invalid/api/v4',
-    NV_ALPHA17_GITEA_API_URL: 'https://gitea.fixture.invalid/api/v1'
+    NV_ALPHA17_GITHUB_API_URL: 'https://api.github.com',
+    NV_ALPHA17_GITHUB_LFS_URL: 'https://github.com',
   };
   const apiUrl = {
     github: env.NV_ALPHA17_GITHUB_API_URL,
-    gitlab: env.NV_ALPHA17_GITLAB_API_URL,
-    gitea: env.NV_ALPHA17_GITEA_API_URL
   }[provider];
   env.NV_ALPHA17_SIGNED_TARGET_SHA256 = crypto.createHash('sha256').update(JSON.stringify({
     apiUrl,
@@ -146,11 +136,30 @@ async function runOne(provider, runner, options = {}) {
 }
 
 (async () => {
+  for (const name of ['NV_ALPHA17_GITHUB_API_URL', 'NV_ALPHA17_GITHUB_LFS_URL']) {
+    const host = name.endsWith('API_URL') ? 'api.github.com' : 'github.com';
+    const wrongGithubService = name.endsWith('API_URL') ? 'https://github.com' : 'https://api.github.com';
+    for (const value of ['https://gitlab.com', 'https://gitea.example', 'https://evil.invalid',
+      `http://${host}`, `https://user:password@${host}`, `https://${host}/path`,
+      `https://${host}?redirect=evil`, `https://${host}#fragment`, `https://${host}:8443`, wrongGithubService]) {
+      let requests = 0;
+      assert.throws(() => createGithubClient({
+        env: { ...environment('github'), [name]: value },
+        fetchImpl() { requests += 1; throw new Error('must not send credentials to a noncanonical origin'); }
+      }), error => error.code === 'ALPHA17_AUTHORIZATION_TARGET_INVALID', `${name}=${value}`);
+      assert.strictEqual(requests, 0);
+    }
+  }
+  for (const retired of ['gitlab', 'gitea']) {
+    let requests = 0;
+    await assert.rejects(() => runProviderQualification({ provider: retired, client: {
+      getRepository() { requests += 1; throw new Error('must not contact a retired provider'); }
+    } }), error => error.code === 'ALPHA17_PROVIDER_INVALID');
+    assert.strictEqual(requests, 0);
+  }
   const githubResult = await runOne('github', runGithubValidation);
-  const gitlabResult = await runOne('gitlab', runGitlabValidation);
-  const giteaResult = await runOne('gitea', runGiteaValidation);
 
-  for (const result of [githubResult, gitlabResult, giteaResult]) {
+  for (const result of [githubResult]) {
     assert.strictEqual(result.schemaVersion, '1.1.0');
     assert.strictEqual(result.artifactType, 'provider-live');
     assert.strictEqual(result.status, 'pass');
@@ -292,14 +301,7 @@ async function runOne(provider, runner, options = {}) {
     assert.strictEqual(collection.detailAgreed, true);
     assert.strictEqual(collection.absentDiscriminated, true);
   }
-  /*
-   * Derived per provider rather than one list shared between two of them.
-   * GitLab and Gitea happened to claim the same five, so a single hardcoded
-   * list looked right -- and stopped being right the moment GitLab claimed
-   * the branch mutation its runs had always proved. A provider's capabilities
-   * are what its contract says, so ask the contract.
-   */
-  for (const result of [githubResult, gitlabResult, giteaResult]) {
+  for (const result of [githubResult]) {
     assert.deepStrictEqual(
       result.capabilities,
       Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS[result.provider]).sort(),
@@ -878,45 +880,6 @@ async function runOne(provider, runner, options = {}) {
   }
 
   /*
-   * GitLab answers a delete with 204 and no body. The client used to fall back
-   * to re-reading the branch head and returning it as "the commit the delete
-   * made", which made the caller's binding a comparison of the head with
-   * itself -- and let a head advanced by SOMEBODY ELSE'S commit pass as proof
-   * that this run's delete did it.
-   *
-   * Verified against the old client before this guard was written: with the
-   * tip commit carrying a different message, the old code passed and the
-   * current code refuses.
-   */
-  const foreignCommitEnvironment = environment('gitlab');
-  const foreignCommitFixture = createProviderFetchFixture({
-    provider: 'gitlab',
-    repository: foreignCommitEnvironment.NV_ALPHA17_REPOSITORY,
-    defaultBranch: 'main',
-    runId: RUN_ID,
-    mutationCredential: foreignCommitEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
-    readOnlyCredential: foreignCommitEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
-  });
-  await assert.rejects(
-    () => runGitlabValidation({
-      env: foreignCommitEnvironment,
-      now: () => new Date(NOW),
-      fetchImpl: async (url, init = {}) => {
-        const response = await foreignCommitFixture.fetch(url, init);
-        if (!new URL(url).pathname.includes('/repository/commits/')) return response;
-        const commit = await response.json();
-        const body = JSON.stringify({ ...commit, message: 'chore: a commit this run did not make' });
-        return new Response(body, {
-          status: response.status,
-          headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) }
-        });
-      }
-    }),
-    error => Boolean(error && error.code === 'ALPHA17_DELETE_PROOF_FAILED'),
-    'a head advanced by a commit this run did not make must not pass as its delete'
-  );
-
-  /*
    * The stale-write proof used to be satisfied by this client's own
    * precondition: writeFile asserted the expected head locally and threw
    * before the provider was ever called, so a provider with NO optimistic
@@ -972,133 +935,6 @@ async function runOne(provider, runner, options = {}) {
     'a provider that accepts a stale conditional update must fail the stale-write proof'
   );
 
-
-  /*
-   * What runs 63 and 64 actually died of, kept as a fact rather than a memory.
-   *
-   * The stale token used to be a commit from before the proof file existed --
-   * real, on the branch, and not the file's last commit. Against the old
-   * fixture that was a 409 and every test agreed. Against gitlab.com the write
-   * was ACCEPTED, twice, because Files::BaseService#file_has_changed? resolves
-   * the path's last commit at both refs and reads "no commit there" as no
-   * information rather than as a conflict.
-   *
-   * The fixture answers the way GitLab does now. This asserts the accepting
-   * half directly: if someone makes the fixture stricter than the provider
-   * again, this fails here instead of on a live run.
-   */
-  const semanticsFixture = createProviderFetchFixture({
-    provider: 'gitlab',
-    repository: 'fixture-owner/nvx-alpha17-semantics',
-    defaultBranch: 'main',
-    mutationCredential: 'm',
-    readOnlyCredential: 'r'
-  });
-  const semanticsBase = 'https://gitlab.fixture.invalid/api/v4/projects/fixture-owner%2Fnvx-alpha17-semantics/repository';
-  const semanticsHeaders = { 'private-token': 'm' };
-  const gitlabCall = (path, method, body) => semanticsFixture.fetch(`${semanticsBase}${path}`, {
-    method,
-    headers: semanticsHeaders,
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
-  const encode = text => Buffer.from(text, 'utf8').toString('base64');
-
-  await gitlabCall('/branches', 'POST', { branch: 'work', ref: 'main' });
-  const headBeforeFile = (await (await gitlabCall('/branches/work', 'GET')).json()).commit.id;
-  await gitlabCall('/files/proof.txt', 'POST', {
-    branch: 'work', encoding: 'base64', commit_message: 'create', content: encode('one\n')
-  });
-  const createdFile = await (await gitlabCall('/files/proof.txt?ref=work', 'GET')).json();
-
-  await gitlabCall('/branches', 'POST', { branch: 'predating', ref: 'work' });
-  const predating = await gitlabCall('/files/proof.txt', 'PUT', {
-    branch: 'predating', encoding: 'base64', commit_message: 'stale', content: encode('other\n'),
-    last_commit_id: headBeforeFile
-  });
-  assert.strictEqual(
-    predating.status,
-    200,
-    'GitLab accepts a last_commit_id from before the file existed -- a fixture that refuses it hides the defect that failed runs 63 and 64'
-  );
-
-  /* The same token, current and then superseded: accepted, then refused. */
-  const held = createdFile.last_commit_id;
-  const whileCurrent = await gitlabCall('/files/proof.txt', 'PUT', {
-    branch: 'work', encoding: 'base64', commit_message: 'supersede', content: encode('two\n'), last_commit_id: held
-  });
-  assert.strictEqual(whileCurrent.status, 200, 'a current last_commit_id must be accepted');
-  const onceStale = await gitlabCall('/files/proof.txt', 'PUT', {
-    branch: 'work', encoding: 'base64', commit_message: 'stale', content: encode('three\n'), last_commit_id: held
-  });
-  assert.strictEqual(onceStale.status, 400, 'GitLab refuses a superseded last_commit_id with 400, not 409');
-  assert.match(
-    String((await onceStale.json()).message),
-    /file that has changed since you started editing it/,
-    'the refusal must carry the message that separates a conflict from GitLab\'s other 400s'
-  );
-
-  /*
-   * And the proof is not vacuous: a GitLab that ignores last_commit_id fails
-   * it. Measured -- without this the run below completes and claims the
-   * capability.
-   */
-  const ignoringEnvironment = environment('gitlab');
-  const ignoringFixture = createProviderFetchFixture({
-    provider: 'gitlab',
-    repository: ignoringEnvironment.NV_ALPHA17_REPOSITORY,
-    defaultBranch: 'main',
-    runId: RUN_ID,
-    mutationCredential: ignoringEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
-    readOnlyCredential: ignoringEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
-  });
-  await assert.rejects(
-    () => runGitlabValidation({
-      env: ignoringEnvironment,
-      now: () => new Date(NOW),
-      fetchImpl: async (url, init = {}) => {
-        if (String(init.method || 'GET').toUpperCase() !== 'PUT') return ignoringFixture.fetch(url, init);
-        const body = JSON.parse(String(init.body || '{}'));
-        delete body.last_commit_id;
-        return ignoringFixture.fetch(url, { ...init, body: JSON.stringify(body) });
-      }
-    }),
-    error => Boolean(error && error.code === 'ALPHA17_STALE_HEAD_PROOF_FAILED'),
-    'a GitLab that ignores last_commit_id must fail the stale-write proof'
-  );
-
-  /*
-   * The delete half, on its own. Files::DeleteService runs the same check as
-   * the update and raises FileChangedError with different wording, so a
-   * matcher written for the update message alone would read a real refusal as
-   * an unclassified 400. Stripping the token from DELETE only leaves the write
-   * proof intact, so a run that still passes could only be passing because the
-   * delete proof asks the provider for nothing.
-   */
-  const ignoringDeleteEnvironment = environment('gitlab');
-  const ignoringDeleteFixture = createProviderFetchFixture({
-    provider: 'gitlab',
-    repository: ignoringDeleteEnvironment.NV_ALPHA17_REPOSITORY,
-    defaultBranch: 'main',
-    runId: RUN_ID,
-    mutationCredential: ignoringDeleteEnvironment.NV_ALPHA17_MUTATION_CREDENTIAL,
-    readOnlyCredential: ignoringDeleteEnvironment.NV_ALPHA17_READ_ONLY_CREDENTIAL
-  });
-  await assert.rejects(
-    () => runGitlabValidation({
-      env: ignoringDeleteEnvironment,
-      now: () => new Date(NOW),
-      fetchImpl: async (url, init = {}) => {
-        if (String(init.method || 'GET').toUpperCase() !== 'DELETE') {
-          return ignoringDeleteFixture.fetch(url, init);
-        }
-        const body = JSON.parse(String(init.body || '{}'));
-        delete body.last_commit_id;
-        return ignoringDeleteFixture.fetch(url, { ...init, body: JSON.stringify(body) });
-      }
-    }),
-    error => Boolean(error && error.code === 'ALPHA17_DELETE_PROOF_FAILED'),
-    'a GitLab that ignores last_commit_id on delete must fail the stale-delete proof'
-  );
 
   console.log('alpha17 provider harness tests passed');
 })().catch(error => {

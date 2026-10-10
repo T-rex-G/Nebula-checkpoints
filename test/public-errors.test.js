@@ -91,16 +91,12 @@ assert.strictEqual(
 );
 
 /*
- * And the classifier has to be attached where the failures are raised. Both
- * provider helpers construct their error from the response; a code that is not
+ * The classifier has to be attached where the GitHub transport raises failures.
+ * It constructs the error from the response; a code that is not
  * set there never reaches the model above.
  */
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-for (const marker of [
-  "err.status = r.status; err.body = data;\n    err.code = providerFailureCode(r.status);",
-  "err.status = r.status; err.code = providerFailureCode(r.status); throw err;"
-]) {
-  assert(server.includes(marker), 'both provider helpers must classify their failures before throwing');
-}
+assert(server.includes("err.status = r.status; err.body = data;\n    err.code = providerFailureCode(r.status);"),
+  'the GitHub transport must classify failures before throwing');
 
 console.log('public error model tests passed');

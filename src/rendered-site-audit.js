@@ -3,6 +3,7 @@
 const { chromium } = require('playwright-core');
 const axe = require('axe-core');
 const zlib = require('zlib');
+const { privatePathSegment } = require('./site-url-privacy');
 const { guardedFetch, PROFILES } = require('./guarded-fetch');
 
 const LIMITS = Object.freeze({ requests: 80, bytes: 20 * 1024 * 1024, resourceBytes: 2 * 1024 * 1024, deadlineMs: 90000, resourceMs: 10000, screenshots: 2 });
@@ -16,7 +17,17 @@ function renderedUrl(value) {
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || url.hash || url.href.length > 2048) {
     throw auditError('Use HTTPS on port 443 without a username, password or fragment.', 'RENDERED_URL_INVALID', 400);
   }
+  const sensitive = /^(?:access[-_]?token|refresh[-_]?token|id[-_]?token|token|auth(?:orization)?|auth[-_]?token|password|passwd|secret|client[-_]?secret|api[-_]?key|key|signature|sig|credential|code|session[-_]?id|session[-_]?token|jwt|oauth[-_]?token)$/i;
+  if ([...url.searchParams.keys()].some(key => sensitive.test(key) || /^(?:x-amz-|x-goog-)/i.test(key))) {
+    throw auditError('Use a public page address without credentials, access tokens or signed query parameters.', 'RENDERED_URL_SENSITIVE', 400);
+  }
   return url.href;
+}
+function displayUrl(value, base) {
+  try { const target = new URL(value, base); if (!/^https?:$/.test(target.protocol)) return null; target.search = ''; target.hash = ''; target.username = ''; target.password = '';
+    target.pathname = target.pathname.split('/').map(part => privatePathSegment(part) ? '[redacted]' : part).join('/');
+    return target.href;
+  } catch { return null; }
 }
 
 /* All browser HTTP traffic is intercepted and fulfilled by the DNS-pinned
@@ -39,7 +50,8 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
   timer = setTimeout(abort, limits.deadlineMs);
   const progress = stage => { try { onProgress({ stage }); } catch { /* advisory only */ } };
   const checkTime = () => {
-    if (controller.signal.aborted) throw auditError('The audit was cancelled or exceeded its time limit.', 'RENDERED_AUDIT_TIMEOUT', 504);
+    if (signal && signal.aborted) throw auditError('The audit was cancelled.', 'RENDERED_AUDIT_CANCELLED', 499);
+    if (controller.signal.aborted) throw auditError('The audit exceeded its time limit.', 'RENDERED_AUDIT_TIMEOUT', 504);
   };
   const findings = [];
   const add = (viewport, category, severity, title, detail, extra = {}) => findings.push({ viewport, category, severity, title, detail, ...extra });
@@ -141,12 +153,25 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
         page.on('pageerror', () => { errors.javascript++; });
         page.on('dialog', dialog => void dialog.dismiss().catch(() => {}));
         context.on('page', other => { if (other !== page) { reasons.add('Popups were blocked'); void other.close().catch(() => {}); } });
+        let documentResponse = null;
+        page.on('response', answer => {
+          if (answer.request().isNavigationRequest() && answer.frame() === page.mainFrame()) documentResponse = answer;
+        });
+        const documentIdentity = () => {
+          const final = new URL(page.url()); final.hash = '';
+          renderedUrl(final.href);
+          if (final.origin !== origin || !documentResponse || documentResponse.status() < 200 || documentResponse.status() >= 300) {
+            throw auditError('The final page did not load successfully within the requested public origin.', 'RENDERED_PAGE_UNAVAILABLE', 502);
+          }
+          return { url: final.href, response: documentResponse };
+        };
         const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
-        if (!response || response.status() >= 400) throw auditError('The requested page did not load successfully.', 'RENDERED_PAGE_UNAVAILABLE', 502);
+        if (!response || response.status() < 200 || response.status() >= 300) throw auditError('The requested page did not load successfully.', 'RENDERED_PAGE_UNAVAILABLE', 502);
         try { await page.waitForLoadState('networkidle', { timeout: 5000 }); }
         catch { reasons.add('The page did not become network-idle within the sampling window'); }
         await page.waitForTimeout(1500);
         checkTime();
+        const assessedDocument = documentIdentity();
         const facts = await page.evaluate(viewportWidth => {
           const doc = globalThis.document;
           const nav = globalThis.performance.getEntriesByType('navigation')[0];
@@ -174,6 +199,7 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
               cls: globalThis.__nvLab ? Math.round(globalThis.__nvLab.cls * 1000) / 1000 : null }
           };
         }, viewport.width);
+        facts.canonical = facts.canonical ? displayUrl(facts.canonical, assessedDocument.url) : null;
         if (facts.elements > facts.sampledElements) reasons.add('Layout inspection sampled the first 10,000 elements');
         if (!facts.title.trim()) add(viewport.name, 'SEO', 'serious', 'Add a page title', 'The rendered document has no title.');
         if (!facts.description.trim()) add(viewport.name, 'SEO', 'warning', 'Add a search description', 'The rendered document has no meta description. Search engines may choose their own excerpt.');
@@ -203,10 +229,14 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
         progress('capturing');
         const bytes = await page.screenshot({ type: 'jpeg', quality: 65, fullPage: false, animations: 'disabled', timeout: 10000 });
         if (bytes.length > 1500000) { reasons.add('A screenshot exceeded its evidence limit'); }
-        viewports.push({ ...viewport, facts, errors, accessibility, screenshot: bytes.length <= 1500000 ? { mimeType: 'image/jpeg', data: bytes.toString('base64') } : null });
+        const capturedDocument = documentIdentity();
+        if (capturedDocument.url !== assessedDocument.url || capturedDocument.response !== assessedDocument.response) {
+          throw auditError('The page changed while evidence was being collected. Try a stable public page.', 'RENDERED_PAGE_CHANGED', 502);
+        }
+        viewports.push({ ...viewport, finalUrl: displayUrl(assessedDocument.url), status: assessedDocument.response.status(), facts, errors, accessibility, screenshot: bytes.length <= 1500000 ? { mimeType: 'image/jpeg', data: bytes.toString('base64') } : null });
       } finally { await context.close().catch(() => {}); }
     }
-    return { schemaVersion: 1, url, checkedAt: new Date().toISOString(), durationMs: Date.now() - started,
+    return { schemaVersion: 2, url: displayUrl(url), checkedAt: new Date().toISOString(), durationMs: Date.now() - started,
       coverage: { state: reasons.size ? 'partial' : 'complete', complete: !reasons.size, reasons: [...reasons] },
       network, limits, viewports, findings,
       limitations: ['One anonymous page, at two viewport sizes; no signed-in flows, clicks, form submissions or crawling.',
@@ -214,6 +244,10 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
         'Accessibility automation covers a subset of WCAG. Keyboard, screen reader and visual design review are still required.',
         'Timing is a single lab sample through an intercepted network, without device or network throttling. It is not a Lighthouse score or field Core Web Vitals.',
         'Screenshots cover the initial viewport. SEO observations do not establish search indexing or rankings.'] };
+  } catch (error) {
+    checkTime();
+    if (error && /^RENDERED_/.test(error.code || '')) throw error;
+    throw auditError('The page could not be assessed in the isolated browser.', 'RENDERED_PAGE_UNAVAILABLE', 502);
   } finally {
     clearTimeout(timer);
     if (signal) signal.removeEventListener('abort', abort);
@@ -222,4 +256,4 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
   }
 }
 
-module.exports = { auditRenderedSite, renderedUrl, auditError, LIMITS, VIEWPORTS };
+module.exports = { auditRenderedSite, renderedUrl, displayUrl, auditError, LIMITS, VIEWPORTS };

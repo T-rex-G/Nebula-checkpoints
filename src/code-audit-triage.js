@@ -456,6 +456,16 @@ function evaluateMergeGate({ headSha, head, base, decisions, now = Date.now() } 
   if (!headSha || audit.commitSha !== headSha) {
     return gateResult('stale', { grade: audit.grade, auditedAt: audit.auditedAt, commitSha: audit.commitSha, base: base && base.audit ? 'audited' : 'missing' });
   }
+  /* A matching commit proves freshness, not that the evidence needed to judge it was available. */
+  if (audit.analysisComplete !== true
+    || (audit.files && audit.files.complete !== true)
+    || (audit.findings && audit.findings.total > audit.findings.stored)
+    || (audit.watch && ['partial', 'unavailable'].includes(audit.watch.state))) {
+    return gateResult('unavailable', {
+      grade: audit.grade, auditedAt: audit.auditedAt, commitSha: audit.commitSha,
+      base: base && base.audit ? 'audited' : 'missing', complete: audit.files ? audit.files.complete === true : null
+    });
+  }
   const sla = (base && base.audit && base.audit.sla) || DEFAULT_SLA;
   const open = openRows(head.findings, decisions, now);
   const counts = { critical: 0, serious: 0, warning: 0 };

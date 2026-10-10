@@ -12,7 +12,8 @@ const RELEASE_VERSION_RX = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/;
 const CORRELATION_ID_RX = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
 const FEATURE_RX = /^[a-z][a-z0-9._-]{0,79}$/;
 const ERROR_CODE_RX = /^[A-Z][A-Z0-9_]{1,79}$/;
-const PROVIDERS = new Set(['github', 'gitlab', 'gitea']);
+// Historical provider identifiers are retained solely for local cleanup and evidence.
+const HISTORICAL_PROVIDERS = new Set(['github', 'gitlab', 'gitea']);
 const RESOURCE_TYPES = new Set(['provider-webhook', 'temporary-branch', 'provider-session']);
 const CAPABILITY_STATUSES = new Set(['Supported', 'Experimental', 'Unavailable']);
 const RUNTIMES = new Set(['chrome', 'firefox', 'safari', 'edge', 'node', 'unknown']);
@@ -68,9 +69,14 @@ function requireHashList(value, label, maximum = 1000) {
 }
 
 function requireProvider(value) {
-  if (typeof value !== 'string' || !PROVIDERS.has(value)) {
+  if (typeof value !== 'string' || !HISTORICAL_PROVIDERS.has(value)) {
     throw new TypeError('provider is unsupported');
   }
+  return value;
+}
+
+function requireActiveProvider(value) {
+  if (value !== 'github') throw new TypeError('Only GitHub accounts can be connected');
   return value;
 }
 
@@ -258,7 +264,7 @@ class AlphaPrivacyStore {
     const binding = requirePlainObject(input, 'provider binding input');
     const testerId = requireTesterId(binding.testerId);
     const identityKey = requireHash(binding.identityKey, 'identityKey');
-    const provider = requireProvider(binding.provider);
+    const provider = requireActiveProvider(binding.provider);
     const authority = requireAuthority(binding.authority);
     const now = this.currentTime();
 
@@ -413,7 +419,7 @@ class AlphaPrivacyStore {
     const claim = requirePlainObject(input, 'provider webhook ownership input');
     const testerId = requireTesterId(claim.testerId);
     const identityKey = requireHash(claim.identityKey, 'identityKey');
-    const provider = requireProvider(claim.provider);
+    const provider = requireActiveProvider(claim.provider);
     const resourceKeyHash = requireHash(claim.resourceKeyHash, 'resourceKeyHash');
     const now = this.currentTime();
 
@@ -1228,7 +1234,7 @@ class AlphaPrivacyStore {
     const ownership = requirePlainObject(input, 'provider session ownership input');
     const testerId = requireTesterId(ownership.testerId);
     const identityKey = requireHash(ownership.identityKey, 'identityKey');
-    const provider = requireProvider(ownership.provider);
+    const provider = requireActiveProvider(ownership.provider);
     const sessionKeyHash = requireHash(ownership.sessionKeyHash, 'sessionKeyHash');
     const now = this.currentTime();
 
@@ -1497,7 +1503,7 @@ class AlphaPrivacyStore {
       this.requireSessionCodec().identityKey(account),
       'hosted provider account identityKey'
     );
-    const provider = requireProvider(account.provider || 'github');
+    const provider = requireActiveProvider(account.provider || 'github');
     const authority = requireAuthority(connection.authority);
     const capacity = Number(connection.capacity);
     if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > 100) {

@@ -129,3 +129,91 @@ test('unavailable browser is explicit and cancellation stops a pending run', asy
   expect(cancelled).toBe(true);
   await expect(root.getByRole('button', { name: 'Run rendered audit' })).toBeEnabled();
 });
+
+test('rendered evidence names the final page and keeps public query values out of reports', async () => {
+  const requested = [];
+  const report = await auditRenderedSite({ url: 'https://rendered.example/start?theme=public-fixture-value',
+    launch: options => chromium.launch({ ...options, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+      chromiumSandbox: false, args: [...options.args, '--no-sandbox', '--disable-dev-shm-usage'] }),
+    transport: async input => {
+      requested.push(input.url);
+      const url = new URL(input.url);
+      if (url.pathname === '/start') return { statusCode: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<!doctype html><html><title>Start</title><body><script>setTimeout(() => location.replace("/final?lang=public-language-value"), 10)</script></body></html>') };
+      return { statusCode: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<!doctype html><html lang="en"><head><title>Final fixture</title><meta name="description" content="Fixture"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="canonical" href="/final?token=synthetic-canonical-token"></head><body><main><h1>Final fixture</h1></main></body></html>') };
+    }
+  });
+  expect(requested).toContain('https://rendered.example/start?theme=public-fixture-value');
+  expect(requested).toContain('https://rendered.example/final?lang=public-language-value');
+  expect(report.url).toBe('https://rendered.example/start');
+  expect(report.viewports).toHaveLength(2);
+  for (const view of report.viewports) {
+    expect(view.finalUrl).toBe('https://rendered.example/final');
+    expect(view.status).toBe(200);
+    expect(view.facts.canonical).toBe('https://rendered.example/final');
+  }
+  const evidence = JSON.stringify(report);
+  expect(evidence).not.toContain('public-fixture-value');
+  expect(evidence).not.toContain('public-language-value');
+  expect(evidence).not.toContain('synthetic-canonical-token');
+});
+
+test('a client navigation to an HTTP error page cannot become a successful rendered report', async () => {
+  await expect(auditRenderedSite({ url: 'https://rendered.example/start',
+    launch: options => chromium.launch({ ...options, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+      chromiumSandbox: false, args: [...options.args, '--no-sandbox', '--disable-dev-shm-usage'] }),
+    transport: async input => {
+      const broken = new URL(input.url).pathname === '/broken';
+      return { statusCode: broken ? 500 : 200, headers: { 'content-type': 'text/html' }, body: Buffer.from(broken
+        ? '<!doctype html><html><title>Broken page</title><body>Server error</body></html>'
+        : '<!doctype html><html><title>Start</title><body><script>setTimeout(() => location.replace("/broken"), 10)</script></body></html>') };
+    }
+  })).rejects.toMatchObject({ code: 'RENDERED_PAGE_UNAVAILABLE' });
+});
+
+test('disposing a rendered form cancels a run acknowledged after disposal without target URLs in polls', async ({ page }) => {
+  await page.setContent('<div id="isolated-rendered-root"></div>');
+  await page.addScriptTag({ path: require('path').join(__dirname, '../../public/rendered-audit-ui.js') });
+  await page.evaluate(() => {
+    window.renderedCalls = [];
+    window.NebulaRenderedAudit.mount(document.querySelector('#isolated-rendered-root'), { download() {}, api: async (url, options = {}) => {
+      window.renderedCalls.push({ url, method: options.method || 'GET' });
+      if (url.endsWith('/status')) return { available: true };
+      if (options.method === 'POST') return new Promise(resolve => { window.resolveRenderedStart = resolve; });
+      return { state: 'cancelled' };
+    } });
+  });
+  await page.getByLabel('Page address').fill('https://rendered.example/?theme=fixture');
+  await page.getByRole('button', { name: 'Run rendered audit' }).click();
+  await page.evaluate(() => {
+    window.NebulaRenderedAudit.dispose(document.querySelector('#isolated-rendered-root'));
+    window.resolveRenderedStart({ state: 'running', run: 'dispose-fixture-run' });
+  });
+  await expect.poll(() => page.evaluate(() => window.renderedCalls.filter(call => call.method === 'DELETE'))).toEqual([
+    { url: '/api/site-rendered?run=dispose-fixture-run', method: 'DELETE' }
+  ]);
+});
+
+
+test('a failed cancellation stays explicit and can be retried', async ({ page }) => {
+  let deletes = 0;
+  const root = await open(page, route => {
+    const request = route.request();
+    if (new URL(request.url()).pathname.endsWith('/status')) return route.fulfill({ json: { available: true } });
+    if (request.method() === 'DELETE') {
+      deletes++;
+      return deletes === 1 ? route.fulfill({ status: 503, json: { error: 'Synthetic cancellation failure' } })
+        : route.fulfill({ json: { state: 'cancelled' } });
+    }
+    return route.fulfill({ json: { state: 'running', run: 'retry-cancel-run', stage: 'desktop' } });
+  });
+  await root.getByLabel('Page address').fill('https://rendered.example/');
+  await root.getByRole('button', { name: 'Run rendered audit' }).click();
+  await expect(root.getByRole('status')).toContainText('Checking');
+  await root.getByRole('button', { name: 'Cancel audit' }).click();
+  await expect(root.getByRole('status')).toContainText('Cancellation could not be confirmed');
+  await expect(root.getByRole('button', { name: 'Run rendered audit' })).toBeDisabled();
+  await root.getByRole('button', { name: 'Cancel audit' }).click();
+  await expect(root.getByRole('status')).toContainText('Audit cancelled.');
+  await expect(root.getByRole('button', { name: 'Run rendered audit' })).toBeEnabled();
+  expect(deletes).toBe(2);
+});

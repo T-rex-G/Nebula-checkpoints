@@ -5,7 +5,15 @@ qualification evidence, immutable history, and development records. Start with
 the generated [project state](current/PROJECT_STATE.md), then use the sections
 below according to the decision you need to make.
 
+The current product and golden qualification are GitHub-only. Older development
+records and history may mention retired providers; they are not active support
+contracts. The [beta qualification plan](superpowers/plans/2026-10-06-beta-0-0-1-qualification.md)
+keeps launch blocked until exact-candidate gates pass and requires this PR to
+remain open for another AI review.
+
 ## Current state
+
+- [Six-system hardening review](current/SIX_SYSTEM_HARDENING.md) — reproduced defects, fixes, evidence and remaining qualification gaps
 
 - [Project state](current/PROJECT_STATE.md) — generated release and gate status
 - [Continuation prompt](current/CONTINUATION_PROMPT.md) — generated handoff for the next working session

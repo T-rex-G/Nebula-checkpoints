@@ -22,6 +22,9 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const sql = fs.readFileSync(path.join(root, 'db', 'migrations', '029_code_audit_history.sql'), 'utf8');
 const storeSource = fs.readFileSync(path.join(root, 'src', 'code-audit-history.js'), 'utf8');
+const coverageMigration = fs.readFileSync(path.join(root, 'db', 'migrations', '032_code_audit_analysis_coverage.sql'), 'utf8').replace(/--.*$/gm, '').trim();
+assert.strictEqual(coverageMigration, 'ALTER TABLE nv_code_audits ADD COLUMN analysis_complete boolean NULL;',
+  'analysis proof is additive, nullable for existing rows, and never backfilled as complete');
 const { SHAPE } = require('../src/code-audit-history');
 
 const TABLES = ['nv_code_audits', 'nv_code_audit_findings', 'nv_code_audit_components', 'nv_code_audit_alerts'];

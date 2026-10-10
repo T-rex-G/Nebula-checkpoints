@@ -82,7 +82,7 @@ assert(liveDeleteBlock.indexOf('inspectProviderWebhookCleanup')
 assert(liveDeleteBlock.includes('verifiedAbsent'),
   'exclusive direct removal must prove provider absence before atomic local completion');
 
-const sessionOfStart = server.indexOf('async function sessionOf(req)');
+const sessionOfStart = server.indexOf('async function sessionOf(req,');
 const sessionOfEnd = server.indexOf('\n}', sessionOfStart) + 2;
 const sessionOfBlock = server.slice(sessionOfStart, sessionOfEnd);
 assert(sessionOfBlock.includes('readHostedProviderSession({'));
@@ -93,7 +93,7 @@ assert(
   'invite-mode cookie authentication must prove tester ownership and return before the legacy raw SID lookup'
 );
 
-const setSessionStart = server.indexOf('async function setSession(req, res, data)');
+const setSessionStart = server.indexOf('async function setSession(req, res, data');
 const setSessionEnd = server.indexOf('\n}', setSessionStart) + 2;
 const setSessionBlock = server.slice(setSessionStart, setSessionEnd);
 assert(setSessionBlock.includes('mutateHostedProviderSession({'));

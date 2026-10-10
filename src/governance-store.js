@@ -25,6 +25,7 @@ const {
 } = require('./governance-enforcement');
 const { normalizeExceptionRequest, computeExceptionState } = require('./governance-exceptions');
 const { normalizeDigitalTwinOptions } = require('./governance-digital-twin');
+const { normalizeSimulationRequest, simulatePolicyImpact } = require('./governance-simulation');
 const {
   SUPPORTED_EVENT_TYPES,
   DEFAULT_NOTIFICATION_EVENT_TYPES,
@@ -383,7 +384,10 @@ function boundedDecisionLimit(value, defaultValue, maximum) {
 }
 
 function decisionCursor(value) {
-  if (value == null || String(value).trim() === '') return 0;
+  if (value == null) return 0;
+  if (!['string', 'number'].includes(typeof value) || !/^\d+$/.test(String(value).trim())) {
+    throw new GovernanceError('Governance decision cursor must be a non-negative integer', 'GOVERNANCE_CURSOR_INVALID', 400);
+  }
   const cursor = Number(value);
   if (!Number.isSafeInteger(cursor) || cursor < 0) {
     throw new GovernanceError('Governance decision cursor must be a non-negative integer', 'GOVERNANCE_CURSOR_INVALID', 400);
@@ -595,6 +599,7 @@ class GovernanceStore {
         if (row.response_body == null) {
           throw new GovernanceError('An identical governance request is still being processed', 'GOVERNANCE_IDEMPOTENCY_IN_PROGRESS', 409);
         }
+        if (context.validateReplay) await context.validateReplay(client, row.response_body);
         return row.response_body;
       }
       const value = await work(client);
@@ -1131,14 +1136,30 @@ class GovernanceStore {
     const reason = requiredText(input.reason, action === 'rollback' ? 'Rollback reason' : 'Activation reason', 4000);
     if (REVIEW_SENSITIVE_TEXT_RX.test(reason)) throw new GovernanceError('Activation reason appears to contain sensitive credential material', 'GOVERNANCE_SENSITIVE_TEXT', 400);
     const authorization = activationAuthorizationEvidenceOf(input.authorizationEvidence, this.now());
-    const simulation = activationSimulationEvidenceOf(input.simulationEvidence, input.expectedSimulationHash);
+    const simulationRequest = input.simulationRequest === undefined ? null : normalizeSimulationRequest(input.simulationRequest);
+    const suppliedSimulation = simulationRequest ? null : activationSimulationEvidenceOf(input.simulationEvidence, input.expectedSimulationHash);
+    const simulationHash = String(input.expectedSimulationHash || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(simulationHash)) throw new GovernanceError('Simulation evidence hash is invalid', 'GOVERNANCE_SIMULATION_INVALID', 400);
     const activationId = normalizeUuid(this.idFactory(), 'activation id');
     return this.idempotentTransaction({
       idempotencyKey: input.idempotencyKey,
       scopeKey: scope.scopeKey,
       actorIdentityKey: actor.identityKey,
       operation: action === 'rollback' ? 'governance.policy.rollback' : 'governance.policy.activate',
-      request: { policyId, versionId, expectedRevision, reason, simulationHash: simulation.simulationHash }
+      request: { policyId, versionId, expectedRevision, reason, simulationHash },
+      // Preserve existing receipts while binding the actual scenarios too. A
+      // copied report hash must not replay an otherwise different request.
+      validateReplay: simulationRequest ? async (client, response) => {
+        const recorded = await client.query(
+          `SELECT scenario_set_hash FROM nv_governance_activation_evidence
+           WHERE activation_id=$1 AND policy_id=$2 AND version_id=$3 AND scope_key=$4`,
+          [response.activationId, policyId, versionId, scope.scopeKey]
+        );
+        if (!recorded.rows[0] || recorded.rows[0].scenario_set_hash !== sha256Stable(simulationRequest)) {
+          throw new GovernanceError('Idempotency-Key was already used for a different governance request', 'GOVERNANCE_IDEMPOTENCY_CONFLICT', 409);
+        }
+        activationAuthorizationEvidenceOf(authorization, this.now());
+      } : null
     }, async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [activePolicySetLockKey(scope.scopeKey)]);
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`nv-governance:${policyId}`]);
@@ -1146,6 +1167,7 @@ class GovernanceStore {
       activationAuthorizationEvidenceOf(authorization, this.now());
       const found = await client.query(
         `SELECT v.*,p.scope_key,h.active_version_id,h.revision,av.document_hash AS active_document_hash,
+                av.document AS active_document,av.version_number AS active_version_number,
                 EXISTS(SELECT 1 FROM nv_governance_version_withdrawals w WHERE w.version_id=v.version_id) AS withdrawn
          FROM nv_governance_policy_versions v
          JOIN nv_governance_policies p ON p.policy_id=v.policy_id
@@ -1163,6 +1185,17 @@ class GovernanceStore {
       }
       if (String(state.active_version_id || '') === versionId) throw new GovernanceError('Policy version is already active', 'GOVERNANCE_VERSION_ALREADY_ACTIVE', 409);
       if (state.withdrawn) throw new GovernanceError('This version was withdrawn and cannot be activated', 'GOVERNANCE_VERSION_WITHDRAWN', 409);
+      // A successful retry reaches its receipt before consulting the changed
+      // head. New transitions recompute against the locked database snapshot.
+      const simulation = suppliedSimulation || activationSimulationEvidenceOf(simulatePolicyImpact({
+        scope,
+        proposedVersion: { versionId, versionNumber: Number(state.version_number), document: state.document, documentHash: state.document_hash },
+        baselineVersion: state.active_version_id ? {
+          versionId: state.active_version_id, versionNumber: Number(state.active_version_number),
+          document: state.active_document, documentHash: state.active_document_hash
+        } : null,
+        request: simulationRequest
+      }), simulationHash);
       if (simulation.scope.scopeKey !== scope.scopeKey || simulation.proposed.versionId !== versionId || simulation.proposed.documentHash !== state.document_hash) {
         throw new GovernanceError('Simulation evidence does not match the proposed policy version', 'GOVERNANCE_SIMULATION_MISMATCH', 409);
       }
@@ -1175,7 +1208,7 @@ class GovernanceStore {
           simulation.baseline.documentHash !== expectedBaselineDocumentHash) {
         throw new GovernanceError('Simulation evidence is stale for the current active policy', 'GOVERNANCE_SIMULATION_STALE', 409);
       }
-      if (action === 'activate' && !state.active_version_id) {
+      if (!state.active_version_id) {
         const activeCount = await client.query(
           `SELECT count(*)::int AS active_policy_count
            FROM nv_governance_policies p
@@ -2087,21 +2120,27 @@ class GovernanceStore {
   async listPolicyDecisionsInScope(input = {}) {
     const scope = normalizePolicyScope(input.scope);
     const limit = boundedDecisionLimit(input.limit, 100, 5000);
-    const afterSeq = decisionCursor(input.afterSeq);
+    if (input.beforeSeq != null && input.afterSeq != null) {
+      throw new GovernanceError('Choose one governance decision cursor', 'GOVERNANCE_CURSOR_INVALID', 400);
+    }
+    const descending = input.beforeSeq != null;
+    const cursor = decisionCursor(descending ? input.beforeSeq : input.afterSeq);
+    const comparison = descending ? '<' : '>';
+    const order = descending ? 'DESC' : 'ASC';
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
       const counts = await client.query(
         `SELECT count(*)::int AS total_count,
-                count(*) FILTER (WHERE seq > $2)::int AS remaining_count
+                count(*) FILTER (WHERE seq ${comparison} $2)::int AS remaining_count
          FROM nv_governance_policy_decisions WHERE scope_key=$1`,
-        [scope.scopeKey, afterSeq]
+        [scope.scopeKey, cursor]
       );
       const result = await client.query(
         `SELECT seq,decision_id,mutation_id,decision,decision_hash,previous_hash,record_hash,created_at
          FROM nv_governance_policy_decisions
-         WHERE scope_key=$1 AND seq > $2 ORDER BY seq ASC LIMIT $3`,
-        [scope.scopeKey, afterSeq, limit]
+         WHERE scope_key=$1 AND seq ${comparison} $2 ORDER BY seq ${order} LIMIT $3`,
+        [scope.scopeKey, cursor, limit]
       );
       const decisions = result.rows.map(row => {
         try {
@@ -2125,13 +2164,12 @@ class GovernanceStore {
       const countRow = counts.rows[0] || {};
       const total = Number(countRow.total_count || 0);
       const remaining = Number(countRow.remaining_count || 0);
-      const nextAfterSeq = decisions.length ? decisions[decisions.length - 1].seq : afterSeq;
+      const nextSeq = decisions.length ? decisions[decisions.length - 1].seq : cursor;
       const output = Object.freeze({
         decisions: Object.freeze(decisions),
         total,
         remaining,
-        afterSeq,
-        nextAfterSeq,
+        ...(descending ? { beforeSeq: cursor, nextBeforeSeq: decisions.length === remaining ? null : nextSeq } : { afterSeq: cursor, nextAfterSeq: nextSeq }),
         complete: decisions.length === remaining
       });
       await client.query('COMMIT');
@@ -2229,7 +2267,8 @@ class GovernanceStore {
 
   async getDigitalTwinReadModelData(input = {}) {
     const scope = normalizePolicyScope(input.scope);
-    const options = normalizeDigitalTwinOptions({ historyLimit: input.historyLimit, afterDecisionSeq: input.afterDecisionSeq });
+    const options = normalizeDigitalTwinOptions({ historyLimit: input.historyLimit, afterDecisionSeq: input.afterDecisionSeq, beforeDecisionSeq: input.beforeDecisionSeq });
+    const descending = options.afterDecisionSeq == null;
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -2367,10 +2406,10 @@ class GovernanceStore {
       const decisionsResult = await client.query(
         `SELECT seq,action,enforcement_outcome,effective_effect,created_at AS evaluated_at,decision_hash
            FROM nv_governance_policy_decisions
-          WHERE scope_key=$1 AND seq>$2
-          ORDER BY seq ASC
+          WHERE scope_key=$1 AND ${descending ? '($2::bigint IS NULL OR seq<$2)' : 'seq>$2'}
+          ORDER BY seq ${descending ? 'DESC' : 'ASC'}
           LIMIT $3`,
-        [scope.scopeKey, options.afterDecisionSeq, pageLimit]
+        [scope.scopeKey, descending ? options.beforeDecisionSeq : options.afterDecisionSeq, pageLimit]
       );
       await client.query('COMMIT');
       const policyComplete = policiesResult.rows.length < policyLimit;
@@ -2402,7 +2441,9 @@ class GovernanceStore {
           activations: activationComplete,
           decisions: decisionComplete
         },
-        nextDecisionSeq: decisions.length ? Number(decisions[decisions.length - 1].seq) : null
+        decisionOrder: descending ? 'desc' : 'asc',
+        nextDecisionSeq: !descending && !decisionComplete && decisions.length ? Number(decisions[decisions.length - 1].seq) : null,
+        nextBeforeDecisionSeq: descending && !decisionComplete && decisions.length ? Number(decisions[decisions.length - 1].seq) : null
       };
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});

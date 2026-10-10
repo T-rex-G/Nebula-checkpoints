@@ -6,7 +6,9 @@ const path = require('path');
 const {
   parseArgs,
   hashTaskReference,
-  runCli
+  runCli,
+  createPostgresOperator,
+  verifyProviderWebhookAbsent
 } = require('../scripts/alpha-privacy');
 
 const CLEANUP_ID = '70000000-0000-4000-8000-000000000001';
@@ -33,6 +35,41 @@ assert(server.includes('24 * 60 * 60 * 1000'));
 assert(server.includes("typeof timer.unref === 'function'"));
 
 (async () => {
+  // Retired cleanup records remain pending; no credential or external adapter
+  // may be used to turn their historical state into a verified deletion.
+  for (const provider of ['gitlab', 'gitea', 'unknown']) {
+    let effects = 0;
+    const task = { provider, status: 'pending', resource_type: 'provider-webhook',
+      owner: 'acme', repo: 'demo', provider_hook_id: 1, authority: 'retired.example' };
+    const env = new Proxy({ DATABASE_URL: 'postgres://fixture.invalid/test' }, {
+      get(target, name) {
+        if (name !== 'DATABASE_URL') { effects += 1; throw new Error('credential read'); }
+        return target[name];
+      }
+    });
+    const operator = createPostgresOperator({ env,
+      pool: { query: async () => ({ rows: [task] }) },
+      store: { inspectProviderWebhookCleanup: async () => { effects += 1; },
+        completeProviderWebhookCleanup: async () => { effects += 1; } },
+      fetch: async () => { effects += 1; }
+    });
+    await assert.rejects(operator.retryCleanup(CLEANUP_ID), { code: 'ALPHA_PROVIDER_UNSUPPORTED' });
+    await assert.rejects(verifyProviderWebhookAbsent(task, 'fixture', async () => { effects += 1; }),
+      { code: 'ALPHA_PROVIDER_UNSUPPORTED' });
+    assert.strictEqual(effects, 0, 'retired cleanup must stop before credentials, state changes or egress');
+    assert.strictEqual(task.status, 'pending');
+  }
+  const requests = [];
+  assert.strictEqual(await verifyProviderWebhookAbsent({ provider: 'github', owner: 'acme',
+    repo: 'demo', provider_hook_id: 42 }, 'fixture', async (url, options) => {
+    requests.push({ url, ...options });
+    return { ok: true, status: requests.length === 1 ? 204 : 404 };
+  }), true);
+  assert.deepStrictEqual(requests.map(({ url, method, redirect, headers }) =>
+    [url, method, redirect, headers.Authorization]), [
+    ['https://api.github.com/repos/acme/demo/hooks/42', 'DELETE', 'error', 'Bearer fixture'],
+    ['https://api.github.com/repos/acme/demo/hooks/42', 'GET', 'error', 'Bearer fixture']
+  ]);
   const secret = 'provider-secret-must-not-appear';
   const cleanup = await runCli(['cleanup-status'], {
     cleanupStatus: async () => ({

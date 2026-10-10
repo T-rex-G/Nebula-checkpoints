@@ -60,11 +60,12 @@ const store = {
   assert.strictEqual(call.actor.identityKey, actorKey);
   assert.strictEqual(call.authorizationEvidence.accessLevel, 50);
   assert.strictEqual(call.expectedRevision, 7);
-  assert.strictEqual(call.simulationEvidence.simulationHash, expected.simulationHash);
+  assert.strictEqual(call.expectedSimulationHash, expected.simulationHash);
+  assert.deepStrictEqual(call.simulationRequest, simulationRequest);
   assert.strictEqual(call.idempotencyKey, 'activation-12345');
   await assert.rejects(
-    () => service.activateVersion({ scope, authorization, policyId, versionId: proposed.versionId, input: { ...input, simulation: { ...input.simulation, simulationHash: 'f'.repeat(64) } }, idempotencyKey: 'activation-mismatch-123' }),
-    error => error.code === 'GOVERNANCE_SIMULATION_MISMATCH'
+    () => service.activateVersion({ scope, authorization, policyId, versionId: proposed.versionId, input: { ...input, simulation: { ...input.simulation, simulationHash: 'invalid' } }, idempotencyKey: 'activation-mismatch-123' }),
+    error => error.code === 'GOVERNANCE_SIMULATION_HASH_INVALID'
   );
   await assert.rejects(
     () => service.activateVersion({ scope, authorization: {

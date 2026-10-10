@@ -81,6 +81,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/current/SIX_SYSTEM_HARDENING.md",
+      "lifecycle": "current",
+      "authority": "current-review-evidence",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/history/phase-0/PHASE_0_COVERAGE.md",
       "lifecycle": "historical",
       "authority": "immutable-checkpoint-record",
@@ -585,7 +592,7 @@
       "immutableHistory": false
     },
     {
-      "path": "docs/superpowers/plans/2026-10-06-beta-1-0-0-qualification-and-platform.md",
+      "path": "docs/superpowers/plans/2026-10-06-beta-0-0-1-qualification.md",
       "lifecycle": "development-record",
       "authority": "approved-development-record",
       "releaseIncluded": true,

@@ -74,9 +74,6 @@ const ENTRIES = Object.freeze([
   { name: 'NV_MAINTENANCE_MODE', group: 'server', requirement: 'optional', fallback: 'off',
     format: "'1', 'true', 'on' or 'yes' to enable",
     summary: 'Closes the API with 503 and drains readiness while keeping the health check green, so the host does not recycle the instance during a maintenance window. Static assets and the application shell still load.' },
-  { name: 'NV_GIT_HOST_ALLOWLIST', group: 'server', requirement: 'optional', fallback: "'' (empty)",
-    format: 'comma-separated hostnames',
-    summary: 'Git hosts this deployment may reach. Checked when a server URL is connected, not at startup: in production a self-hosted Git server is refused unless its host is listed, while gitlab.com is allowed as a canonical hosted provider. Leaving it empty is fine for a deployment that only uses the hosted providers.' },
 
   /* ---------------- PostgreSQL ---------------- */
   { name: 'NV_EXPECTED_RELEASE_TREE_SHA256', group: 'operator', requirement: 'optional', fallback: null,
@@ -354,8 +351,6 @@ const ENTRIES = Object.freeze([
   { name: 'NV_ALPHA17_RUN_OBSERVATION_ATTEMPTS', group: 'ci', requirement: 'optional', fallback: '30',
     format: 'integer 1-60',
     summary: 'How many reads the workflow re-run probe waits for a dispatched run to finish. Set only by tests; the live workflow uses the default.' },
-  { name: 'NV_ALPHA17_GITLAB_API_URL', group: 'ci', requirement: 'group', fallback: null,
-    format: 'absolute URL', summary: 'GitLab API endpoint for the live provider run.' },
   { name: 'NV_ALPHA17_NEON_PROJECT_ID', group: 'ci', requirement: 'group', fallback: null,
     format: 'Neon project id', summary: 'Neon project the hosted validation run uses.' },
   { name: 'NV_ALPHA17_COHORT_NEON_BRANCH_ID', group: 'ci', requirement: 'group', fallback: null,

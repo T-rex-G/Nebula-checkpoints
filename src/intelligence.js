@@ -225,11 +225,11 @@ function referenceSha(reference) {
 }
 
 function normalizeProviderBranches(provider, branches) {
-  const commitKey = provider === 'gitlab' || provider === 'gitea' ? 'id' : 'sha';
+  if (provider !== 'github') throw new TypeError('Provider branches require GitHub');
   return (Array.isArray(branches) ? branches : []).map(branch => ({
     name: branch && branch.name,
     protected: branch && branch.protected,
-    sha: branch && branch.commit && branch.commit[commitKey] || ''
+    sha: branch && branch.commit && branch.commit.sha || ''
   }));
 }
 

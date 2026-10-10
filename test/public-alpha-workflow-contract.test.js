@@ -29,10 +29,6 @@ const targets = {
   github: {
     repository: 'fixture-owner/nvx-alpha17-github-qualification',
     apiUrl: 'https://api.github.com'
-  },
-  gitlab: {
-    repository: 'fixture-owner/nvx-alpha17-gitlab-qualification',
-    apiUrl: 'https://gitlab.com/api/v4'
   }
 };
 const targetHashes = Object.fromEntries(
@@ -50,7 +46,7 @@ const payload = {
   sourceParent: 'c'.repeat(40),
   sourceCommit: 'b'.repeat(40),
   subjectSha256: 'a'.repeat(64),
-  authorizedJobs: ['github', 'gitlab'],
+  authorizedJobs: ['github'],
   targetHashes,
   authorizationId: 'approval-2048',
   expiresAt: '2026-07-29T20:15:00.000Z'
@@ -87,7 +83,7 @@ function verifyOptions(overrides = {}) {
     expectedSourceParent: payload.sourceParent,
     expectedSourceCommit: payload.sourceCommit,
     expectedSubjectHash: payload.subjectSha256,
-    requestedJobs: ['github', 'gitlab'],
+    requestedJobs: ['github'],
     expectedTargets: targets,
     claims: memoryClaimLedger(),
     now,
@@ -97,10 +93,21 @@ function verifyOptions(overrides = {}) {
 
 const token = encodeAuthorizationEnvelope(payload, privateKey);
 const verified = verifyAuthorizationEnvelope(token, verifyOptions());
-assert.deepStrictEqual(verified.authorizedJobs, ['github', 'gitlab']);
+assert.deepStrictEqual(verified.authorizedJobs, ['github']);
 assert.deepStrictEqual(verified.targetHashes, targetHashes);
 assert.match(verified.envelopeHash, /^[0-9a-f]{64}$/);
 assert(!JSON.stringify(verified).includes(token));
+
+for (const apiUrl of ['https://gitlab.com', 'https://gitea.example', 'https://evil.invalid',
+  'http://api.github.com', 'https://user:password@api.github.com', 'https://api.github.com/path',
+  'https://api.github.com?redirect=evil', 'https://api.github.com#fragment', 'https://api.github.com:8443']) {
+  const target = { ...targets.github, apiUrl };
+  assert.throws(() => hashLiveTarget('github', target), error => error.code === 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  const signed = encodeAuthorizationEnvelope({ ...payload, targetHashes: { github: expectedTargetHash('github', target) } }, privateKey);
+  assert.throws(() => verifyAuthorizationEnvelope(signed, verifyOptions({ expectedTargets: { github: target } })),
+    error => error.code === 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+}
+assert.strictEqual(hashLiveTarget('github', { ...targets.github, apiUrl: 'https://api.github.com/' }), targetHashes.github);
 
 assert.deepStrictEqual(
   verifyLiveTargetBinding({
@@ -181,8 +188,8 @@ assert.throws(
 );
 assert.throws(
   () => verifyAuthorizationEnvelope(token, verifyOptions({
-    requestedJobs: ['github'],
-    expectedTargets: { github: targets.github }
+    requestedJobs: ['hosted'],
+    expectedTargets: { hosted: hostedTarget }
   })),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_JOBS_INVALID'
 );
@@ -196,7 +203,7 @@ assert.throws(
 );
 const duplicateJobsToken = encodeAuthorizationEnvelope({
   ...payload,
-  authorizedJobs: ['github', 'github', 'gitlab']
+  authorizedJobs: ['github', 'github']
 }, privateKey);
 assert.throws(
   () => verifyAuthorizationEnvelope(duplicateJobsToken, verifyOptions()),
@@ -407,11 +414,9 @@ function runVerifierCli(input, env = {}) {
         NV_ALPHA17_EXPECTED_SOURCE_PARENT: payload.sourceParent,
         NV_ALPHA17_EXPECTED_SOURCE_COMMIT: payload.sourceCommit,
         NV_ALPHA17_EXPECTED_SUBJECT_SHA256: payload.subjectSha256,
-        NV_ALPHA17_REQUESTED_JOBS: 'github,gitlab',
+        NV_ALPHA17_REQUESTED_JOBS: 'github',
         NV_ALPHA17_GITHUB_REPOSITORY: targets.github.repository,
         NV_ALPHA17_GITHUB_API_URL: targets.github.apiUrl,
-        NV_ALPHA17_GITLAB_REPOSITORY: targets.gitlab.repository,
-        NV_ALPHA17_GITLAB_API_URL: targets.gitlab.apiUrl,
         ...env
       }
     }
@@ -529,7 +534,7 @@ assert(/^  cancel-in-progress: false$/m.test(workflow), 'a running destructive q
  * the six for a different image while adding a seventh on ubuntu-24.04.
  */
 const runnerPins = workflow.match(/^\s*runs-on:\s*\S+/gm) || [];
-assert(runnerPins.length >= 6, `expected at least six jobs, found ${runnerPins.length}`);
+assert(runnerPins.length >= 5, `expected at least five jobs, found ${runnerPins.length}`);
 assert(
   runnerPins.every(line => /runs-on:\s*ubuntu-24\.04$/.test(line.trim())),
   `every job must pin ubuntu-24.04, found: ${runnerPins.map(l => l.trim()).join(', ')}`
@@ -546,9 +551,17 @@ for (const [action, commit] of Object.entries(actionPins)) {
   assert(workflow.includes(`uses: ${action}@${commit}`), `${action} must use its reviewed immutable commit`);
 }
 for (const input of [
-  'run_github', 'run_gitlab', 'run_gitea', 'run_hosted'
+  'run_github', 'run_hosted'
 ]) {
   assert(new RegExp(`^      ${input}:`, 'm').test(workflow), `missing dispatch input ${input}`);
+}
+
+for (const retired of ['gitlab', 'gitea']) {
+  assert(!workflow.toLowerCase().includes(retired), `${retired} must have no live job, target, secret or dispatch input`);
+  assert.throws(() => verifyAuthorizationEnvelope(encodeAuthorizationEnvelope({
+    ...payload, authorizedJobs: [retired], targetHashes: { [retired]: 'f'.repeat(64) }
+  }, privateKey), verifyOptions({ requestedJobs: [retired] })),
+  error => error.code === 'ALPHA17_AUTHORIZATION_JOBS_INVALID');
 }
 
 function job(name) {
@@ -778,8 +791,7 @@ assert(
   'a minted envelope must still be put through the verifier'
 );
 for (const variable of [
-  'ALPHA17_GITHUB_REPOSITORY', 'ALPHA17_GITLAB_REPOSITORY',
-  'ALPHA17_GITEA_REPOSITORY', 'ALPHA17_GITEA_API_URL',
+  'ALPHA17_GITHUB_REPOSITORY',
   'ALPHA17_HOSTED_BASE_URL', 'ALPHA17_RENDER_SERVICE_ID',
   'ALPHA17_NEON_PROJECT_ID', 'ALPHA17_COHORT_NEON_BRANCH_ID',
   'ALPHA17_RESTORE_NEON_PROJECT_ID', 'ALPHA17_RESTORE_NEON_BRANCH_ID',
@@ -859,7 +871,7 @@ assert(
   'the spent-approval ledger must be saved even when verification fails after recording a spend'
 );
 
-for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) {
+for (const name of ['github-live', 'hosted-live']) {
   const block = job(name);
   assert(block.includes("github.event_name == 'workflow_dispatch'"), `${name} must be dispatch-only`);
   assert(block.includes('needs: [automated, authorize-live]'), `${name} must depend on automated and authorization gates`);
@@ -949,8 +961,6 @@ assert(
 for (const artifact of [
   'alpha17-automated-evidence',
   'alpha17-github-evidence',
-  'alpha17-gitlab-evidence',
-  'alpha17-gitea-evidence',
   'alpha17-hosted-evidence'
 ]) assert(workflow.includes(`name: ${artifact}`), `missing sanitized artifact ${artifact}`);
 assert(workflow.includes('scripts/check-secrets.js'));

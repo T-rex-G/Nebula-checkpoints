@@ -521,6 +521,13 @@ async function main() {
 
   const invitation = await issue(store);
   assert.strictEqual(invitation.code.startsWith('nvx_alpha_'), true);
+  for (const retired of ['gitlab:gitlab.com/acme/old', 'gitea:git.example/acme/old']) {
+    const callsBefore = fake.calls.length;
+    await assert.rejects(() => issue(store, { repositoryScopes: [SCOPE, retired] }),
+      /valid canonical repository scopes/, 'new mixed invitations must refuse retired providers');
+    await assert.rejects(() => issue(store, { repositoryScopes: [retired] }), /valid canonical repository scopes/);
+    assert.strictEqual(fake.calls.length, callsBefore, 'invalid invitations must not be persisted');
+  }
   assert.strictEqual(invitation.repositoryScopes[0], SCOPE);
   assert.strictEqual(invitation.repositoryScopes.length, 1, 'canonical scopes must be de-duplicated');
   assert.strictEqual(

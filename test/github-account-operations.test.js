@@ -19,9 +19,16 @@ async function main() {
   assert(connectionRestriction({ authMethod: 'github-app' }, 'repository.create'));
   assert(connectionRestriction({ tokenKind: 'fine-grained' }, 'notifications'));
   assert.strictEqual(connectionRestriction({ authMethod: 'token', tokenKind: 'classic' }, 'notifications'), null);
-  const scopes = githubRepositoryScopes(['github:github.com/Acme/Demo', 'gitlab:gitlab.com/team/repo']);
-  assert.deepStrictEqual(scopes, ['acme/demo']);
-  assert.throws(() => githubRepositoryScopes(['github:github.com/acme/demo', 'invalid']), { code: 'ALPHA_REPOSITORY_NOT_ALLOWED' });
+  for (const retired of ['gitlab:gitlab.com/team/repo', 'gitea:git.example/team/repo']) {
+    const stored = ['github:github.com/Acme/Demo', retired, 'github:github.com/acme/demo'];
+    assert.deepStrictEqual(githubRepositoryScopes(stored), ['acme/demo']);
+    assert.deepStrictEqual(githubRepositoryScopes([retired]), [], 'retired grants authorize no GitHub query targets');
+    assert.strictEqual(stored.length, 3, 'reading an invitation must preserve its stored scope records');
+  }
+  for (const invalid of ['invalid', 'gitlab:127.0.0.1/acme/demo', 'gitea:git.example/../demo', 'unknown:github.com/acme/demo', null]) {
+    assert.throws(() => githubRepositoryScopes(['github:github.com/acme/demo', invalid]), { code: 'ALPHA_REPOSITORY_NOT_ALLOWED' });
+  }
+  assert.throws(() => githubRepositoryScopes(['github:github.com/acme/demo', ,]), { code: 'ALPHA_REPOSITORY_NOT_ALLOWED' });
   assert.strictEqual(scopedCodeQuery('hello world', 'acme/demo'), 'hello world repo:acme/demo');
   for (const q of ['secret repo:other/private', 'secret OR password', 'user:other', 'hello\nworld']) {
     assert.throws(() => scopedCodeQuery(q, 'acme/demo'), { code: 'SEARCH_QUERY_INVALID' });
@@ -46,6 +53,7 @@ async function main() {
     ? { id: 7, login: 'alice' } : route === '/user/repos' ? created : { ...created, id: 99 },
   account, { name: 'demo' }), error => error.code === 'REPOSITORY_CREATE_UNVERIFIED' && error.providerChanged === true);
 
+  const scopes = githubRepositoryScopes(['github:github.com/Acme/Demo', 'gitlab:gitlab.com/team/repo', 'gitea:git.example/team/repo']);
   const searchCalls = [];
   const hits = await searchAccessibleCode(async route => {
     searchCalls.push(route);

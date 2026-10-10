@@ -11,7 +11,7 @@
   const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   const imageUrl = shot => shot && shot.mimeType === 'image/jpeg' && typeof shot.data === 'string' && shot.data.length < 2200000 && /^[A-Za-z0-9+/=]+$/.test(shot.data) ? `data:image/jpeg;base64,${shot.data}` : '';
   function reportHtml(result) {
-    const shots = (result.viewports || []).map(view => `<figure><figcaption>${escape(view.name)} · ${escape(view.width)} × ${escape(view.height)}</figcaption>${imageUrl(view.screenshot) ? `<img alt="${escape(view.name)} viewport capture" src="${imageUrl(view.screenshot)}">` : '<p>Screenshot unavailable</p>'}<pre>${escape(JSON.stringify(view.facts, null, 2))}</pre></figure>`).join('');
+    const shots = (result.viewports || []).map(view => `<figure><figcaption>${escape(view.name)} · ${escape(view.width)} × ${escape(view.height)}</figcaption><p>Final page: ${escape(view.finalUrl || result.url)}</p>${imageUrl(view.screenshot) ? `<img alt="${escape(view.name)} viewport capture" src="${imageUrl(view.screenshot)}">` : '<p>Screenshot unavailable</p>'}<pre>${escape(JSON.stringify(view.facts, null, 2))}</pre></figure>`).join('');
     const findings = (result.findings || []).map(item => `<li><strong>${escape(item.severity)} · ${escape(item.viewport)} · ${escape(item.title)}</strong><p>${escape(item.detail)}</p></li>`).join('');
     return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'"><title>Nebulaverse rendered website audit</title><style>body{font:16px/1.6 system-ui;max-width:1100px;margin:40px auto;padding:0 24px;color:#172238;background:#f8fafc}img{max-width:100%;height:auto;border:1px solid #bac6d6}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}li{margin:16px 0}figure{margin:28px 0}</style><h1>Rendered website audit</h1><p>${escape(result.url)} · ${escape(result.checkedAt)}</p><p>Coverage: ${escape(result.coverage && result.coverage.state)}</p><ul>${(result.coverage && result.coverage.reasons || []).map(reason => `<li>${escape(reason)}</li>`).join('')}</ul><h2>Findings</h2><ul>${findings || '<li>No automated issues observed within this sample.</li>'}</ul><h2>Viewport evidence</h2>${shots}<h2>Scope and limitations</h2><ul>${(result.limitations || []).map(reason => `<li>${escape(reason)}</li>`).join('')}</ul></html>`;
   }
@@ -48,7 +48,7 @@
     const actions = el('div', undefined, 'rendered-actions'); actions.append(status, cancel, refresh);
     form.append(label, field, el('p', 'Cross-origin resources are blocked, and nothing is clicked or submitted. Keyboard behaviour and visual design still need a person.', 'audit-site-hint'));
     root.replaceChildren(head, form, actions, output);
-    const endpoint = () => `/api/site-rendered?${new URLSearchParams({ url: model.url, run: model.run })}`;
+    const endpoint = () => `/api/site-rendered?${new URLSearchParams({ run: model.run })}`;
     const controls = () => { start.disabled = model.busy || !model.available; input.disabled = model.busy; cancel.hidden = !model.busy; refresh.hidden = model.busy; };
     async function readiness() {
       try {
@@ -64,9 +64,16 @@
       status.textContent = 'Cancelling audit…';
       cancel.disabled = true;
       if (!model.run) return; // POST response supplies the identity-bound run to cancel.
-      try { await api(endpoint(), { method: 'DELETE' }); } catch { /* A completed/expired job needs no cancellation. */ }
+      try { await api(endpoint(), { method: 'DELETE' }); } catch (error) {
+        if (error.status !== 404) {
+          if (!model.disposed) { status.textContent = 'Cancellation could not be confirmed. Try cancelling again.'; cancel.disabled = false; }
+          return;
+        }
+      }
+      model.run = '';
       if (!model.disposed) { status.textContent = 'Audit cancelled.'; model.busy = false; controls(); }
     }
+    model.stop = cancelRun;
     form.addEventListener('submit', async event => {
       event.preventDefault();
       if (model.busy || !model.available) return;
@@ -76,31 +83,39 @@
       cancel.disabled = false; controls(); output.replaceChildren(); status.textContent = 'Starting isolated browser…';
       try {
         let answer = await api('/api/site-rendered', { method: 'POST', body: { url: model.url } });
-        if (!current()) return;
         model.run = answer.run || '';
+        if (!current()) { await cancelRun(); return; }
         if (model.cancelled) { await cancelRun(); return; }
         const deadline = Date.now() + 115000;
+        let pollFailures = 0;
         while (answer.state === 'running') {
           if (Date.now() > deadline) { await cancelRun(); throw new Error('The audit took too long. Try again.'); }
           status.textContent = `Checking ${String(answer.stage || 'page').replace(/-/g, ' ')}…`;
           await new Promise(resolve => setTimeout(resolve, 1000));
           if (!current() || model.cancelled) return;
-          answer = await api(endpoint());
+          try { answer = await api(endpoint()); pollFailures = 0; }
+          catch (error) {
+            if (++pollFailures <= 3 && (!error.status || [429, 502, 503, 504].includes(error.status))) continue;
+            throw error;
+          }
           if (!current() || model.cancelled) return;
         }
         if (!answer.coverage || !Array.isArray(answer.viewports)) throw new Error('The audit returned an incomplete report. Try again.');
         model.result = answer;
         status.textContent = `${answer.coverage.complete ? 'Automated checks finished' : 'Partial report'} · ${(answer.findings || []).length} observations. Review coverage and evidence below.`;
         renderResult(answer);
-      } catch (error) { if (current() && !model.cancelled) status.textContent = error.message || 'The audit could not finish. Try again.'; }
-      finally { if (current()) { model.busy = false; controls(); } }
+      } catch (error) {
+        if (model.run) { try { await api(endpoint(), { method: 'DELETE' }); } catch { /* The bounded worker still expires if connectivity was lost. */ } }
+        if (current() && !model.cancelled) status.textContent = error.message || 'The audit could not finish. Try again.';
+      }
+      finally { if (current()) { model.busy = Boolean(model.cancelled && model.run); controls(); } }
     });
     function renderResult(result) {
       const downloads = el('div', undefined, 'rendered-actions');
       const filename = `website-rendered-${String(result.checkedAt || '').slice(0, 10)}`;
       downloads.append(button('Export HTML report', () => download(`${filename}.html`, reportHtml(result), 'text/html')),
         button('Export JSON evidence', () => download(`${filename}.json`, JSON.stringify(result, null, 2), 'application/json')));
-      output.append(downloads, el('h4', 'Coverage and scope'));
+      output.append(el('p', `Audited page: ${result.url}`), downloads, el('h4', 'Coverage and scope'));
       const reasons = el('ul');
       for (const reason of [...result.coverage.reasons, ...result.limitations]) reasons.append(el('li', reason));
       output.append(reasons);
@@ -108,6 +123,7 @@
       for (const viewport of result.viewports) {
         const card = el('figure', undefined, 'rendered-viewport');
         card.append(el('figcaption', `${viewport.name} · ${viewport.width} × ${viewport.height}`));
+        if (viewport.finalUrl) card.append(el('p', `Final page: ${viewport.finalUrl}`));
         const source = imageUrl(viewport.screenshot);
         if (source) { const image = el('img'); image.src = source; image.alt = `${viewport.name} viewport capture of the audited page`; image.loading = 'lazy'; card.append(image); }
         else card.append(el('p', 'Screenshot unavailable.'));
@@ -131,6 +147,6 @@
     }
     void readiness();
   }
-  function dispose(root) { const model = root && mounts.get(root); if (model) model.disposed = true; if (root) { mounts.delete(root); root.replaceChildren(); root.hidden = true; } }
+  function dispose(root) { const model = root && mounts.get(root); if (model) { model.disposed = true; if (model.busy && model.stop) void model.stop(); } if (root) { mounts.delete(root); root.replaceChildren(); root.hidden = true; } }
   window.NebulaRenderedAudit = Object.freeze({ mount, dispose, reportHtml });
 })();

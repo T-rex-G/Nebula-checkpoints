@@ -253,12 +253,18 @@ assert.deepStrictEqual(sensitiveOperationFor({
   action: 'pull.merge',
   scope: { provider: 'github', owner: 'acme', repo: 'demo', pullNumber: 42, method: 'squash' }
 });
+for (const provider of ['gitlab', 'gitea']) {
+  assert.throws(() => sensitiveOperationFor({
+    method: 'PUT', path: '/api/repo/acme/demo/pulls/42/merge', params: { owner: 'acme', repo: 'demo', num: '42' },
+    body: { method: 'squash' }, provider, identityKey: 'identity-1'
+  }), error => error.code === 'STEP_UP_SCOPE_INVALID');
+}
 assert.deepStrictEqual(sensitiveOperationFor({
   method: 'POST', path: '/api/security/revoke-others', params: {}, body: {},
-  provider: 'gitlab', identityKey: 'identity-1'
+  provider: 'github', identityKey: 'identity-1'
 }), {
   action: 'sessions.revoke-others',
-  scope: { provider: 'gitlab', identityKey: 'identity-1' }
+  scope: { provider: 'github', identityKey: 'identity-1' }
 });
 assert.deepStrictEqual(sensitiveOperationFor({
   method: 'POST', path: '/api/repo/acme/demo/emergency-manifest', params: { owner: 'acme', repo: 'demo' }, body: { confirm: 'FREEZE' },

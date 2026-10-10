@@ -75,6 +75,33 @@ const untracedKey = finding => `${finding.id}|${finding.rule}|${finding.path}|${
 
 /* ---- The whole audit: batches within their bounds, counted honestly ------------ */
 (async () => {
+  {
+    const controller = new AbortController();
+    controller.abort();
+    let resolved = false;
+    await assert.rejects(audit.auditRepository({ signal: controller.signal,
+      reader: { resolveCommit: async () => { resolved = true; } } }), error => error.code === 'AUDIT_CANCELLED');
+    assert.strictEqual(resolved, false, 'abandoned audits do not start provider reads');
+  }
+  {
+    const controller = new AbortController();
+    let blobs = 0;
+    let analysed = false;
+    const cancelledReader = {
+      resolveCommit: async ({ ref, transport }) => {
+        await transport({ url: 'https://api.github.com/synthetic' });
+        return { ref, commitSha: 'a'.repeat(40) };
+      },
+      readTree: async () => ({ truncated: false, skipped: [], entries: ['a.js', 'b.js'].map((name, index) => ({ path: name, sha: String(index), size: 12 })) }),
+      readBlob: async () => { blobs += 1; controller.abort(); return { text: 'module.exports = 1;' }; }
+    };
+    await assert.rejects(audit.auditRepository({ signal: controller.signal, reader: cancelledReader, ref: 'main',
+      limits: { ...audit.LIMITS, readConcurrency: 1 },
+      transport: async input => { assert.strictEqual(input.signal, controller.signal, 'provider transport receives cancellation'); return {}; },
+      analyser: async () => { analysed = true; return {}; } }), error => error.code === 'AUDIT_CANCELLED');
+    assert.strictEqual(blobs, 1, 'cancellation stops the next blob from starting');
+    assert.strictEqual(analysed, false);
+  }
   const entries = [];
   const texts = new Map();
   for (let index = 0; index < 23; index += 1) {
@@ -122,7 +149,7 @@ const untracedKey = finding => `${finding.id}|${finding.rule}|${finding.path}|${
 
   /* A reader with no batch read leaves the rest unread, and says so. */
   const plain = { ...reader, readBlobTexts: undefined };
-  const narrow = await audit.auditRepository({ reader: plain, scope: { provider: 'gitlab', owner: 'o', repo: 'r' }, ref: 'main', token: 't', transport: null, queryTransport: async () => ({}), limits });
+  const narrow = await audit.auditRepository({ reader: plain, scope: { provider: 'github', owner: 'o', repo: 'r' }, ref: 'main', token: 't', transport: null, queryTransport: async () => ({}), limits });
   assert.deepStrictEqual([narrow.coverage.read, narrow.coverage.rulesOnly, narrow.coverage.skipped.budget], [4, 0, 20]);
 
   /* A request that fails outright is asked again in halves: an answer over the size bound is the usual cause. */
@@ -158,6 +185,25 @@ const untracedKey = finding => `${finding.id}|${finding.rule}|${finding.path}|${
   assert.deepStrictEqual(off.raw.map(item => `${item.rule}|${item.path}|${item.line}|${item.suppression ? 'waived' : ''}`),
     inProcess.raw.map(item => `${item.rule}|${item.path}|${item.line}|${item.suppression ? 'waived' : ''}`));
   assert.deepStrictEqual(off.controls, inProcess.controls);
+
+  /* A read overflow manifest is not part of the retained semantic dependency inventory. */
+  {
+    const many = [...Array.from({ length: audit.LIMITS.maxFiles }, (_, index) => ({
+      path: `a${String(index).padStart(4, '0')}/package.json`, text: '{"name":"empty"}'
+    })), { path: 'z/package.json', text: '{"dependencies":{"jquery":"3.4.1"}}' }];
+    const byPath = new Map(many.map(file => [file.path, file.text]));
+    const synthetic = {
+      resolveCommit: async () => ({ ref: 'main', commitSha: 'a'.repeat(40) }),
+      readTree: async () => ({ entries: many.map((file, index) => ({ path: file.path, sha: String(index), size: file.text.length })), skipped: [], truncated: false }),
+      readBlob: async ({ sha }) => ({ text: many[Number(sha)].text }),
+      readBlobTexts: async ({ paths }) => new Map(paths.map(filePath => [filePath, { text: byPath.get(filePath) }]))
+    };
+    const limited = await audit.auditRepository({ reader: synthetic, scope: {}, ref: 'main', queryTransport: async () => ({}) });
+    assert.strictEqual(limited.coverage.complete, true, 'file-read completeness remains distinct');
+    assert.strictEqual(limited.coverage.advisories.inventoryComplete, false, 'missing dependency semantics are explicitly incomplete');
+    const { compactAudit } = require('../src/code-audit-history');
+    assert.strictEqual(compactAudit(limited).audit.watch_state, 'unavailable', 'no retained versions is not proof of no vulnerable dependencies');
+  }
 
   /* ---- No stray control bytes in the code that ships ---------------------------- */
   const root = path.join(__dirname, '..');

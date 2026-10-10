@@ -40,8 +40,8 @@ function seal(value) {
 }
 
 const account = {
-  provider: 'gitea', authMethod: 'token', login: 'surface-user',
-  token: 'fixture-token', baseUrl: 'https://gitea.example'
+  provider: 'github', authMethod: 'token', login: 'surface-user',
+  token: 'fixture-token'
 };
 const sessionCookie = () => `nv_session=${seal({
   accounts: [account], active: 0,
@@ -263,7 +263,7 @@ const child = spawn(process.execPath, ['server.js'], {
   env: {
     ...process.env,
     PORT: String(port), NODE_ENV: 'test', SESSION_SECRET: secret, DATABASE_URL: '',
-    NV_GIT_HOST_ALLOWLIST: 'gitea.example', NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn'
+    NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn'
   },
   stdio: ['ignore', 'pipe', 'pipe']
 });

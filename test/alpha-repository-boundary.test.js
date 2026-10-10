@@ -215,6 +215,8 @@ function alphaState(letter) {
 function activeSession(letter) {
   const scopes = {
     A: ['github:github.com/acme/demo'],
+    M: ['github:github.com/acme/demo', 'gitlab:gitlab.com/acme/old'],
+    N: ['github:github.com/acme/demo', 'gitea:git.example/acme/old'],
     /*
      * An unbound invitation: no scopes, so no list to check against. It is a
      * distinct shape from a session whose scopes failed to load, which is why
@@ -494,9 +496,6 @@ Module._load = function load(request, parent, isMain) {
     return { startWebhookWorker: () => ({ stop() {} }) };
   }
   if (request === 'pg') return { Pool };
-  if (request === './src/provider-transport' && parent && /server\.js$/.test(parent.filename)) {
-    return { providerFetch: (...args) => global.fetch(...args) };
-  }
   if (request === 'dns') {
     return { promises: { lookup: async () => [{ address: '93.184.216.34', family: 4 }] } };
   }
@@ -513,59 +512,11 @@ function jsonResponse(body, status = 200) {
 global.fetch = async function providerFetch(url, options = {}) {
   const href = String(url);
   record({ kind: 'provider.fetch', method: options.method || 'GET', url: href });
-  if (/\/projects\/Acme%2FDemo\/repository\/commits\?/i.test(href)) {
-    return jsonResponse([{ id: 'a'.repeat(40), title: 'Allowed activity', author_name: 'Fixture', created_at: '2026-09-20T10:00:00Z' }]);
-  }
   if (/\/repos\/Acme\/Demo\/commits\?/i.test(href)) {
     return jsonResponse([{ sha: 'a'.repeat(40), commit: {
       message: 'Allowed activity', author: { name: 'Fixture', date: '2026-01-01T10:00:00Z' },
       committer: { date: '2026-09-20T10:00:00Z' }
     } }]);
-  }
-  if (/\/api\/v4\/user$/.test(href)) {
-    return jsonResponse({ username: 'fixture-user', name: 'Fixture', avatar_url: '' });
-  }
-  if (/\/api\/v4\/projects\?/.test(href)) {
-    return jsonResponse([
-      {
-        path_with_namespace: 'Acme/Demo',
-        path: 'Demo',
-        namespace: { full_path: 'Acme' },
-        visibility: 'private',
-        default_branch: 'main',
-        last_activity_at: '2026-07-30T00:00:00.000Z',
-        description: 'allowed',
-        star_count: 1
-      },
-      {
-        path_with_namespace: 'Acme/Production',
-        path: 'Production',
-        namespace: { full_path: 'Acme' },
-        visibility: 'private',
-        default_branch: 'main',
-        last_activity_at: '2026-07-30T00:00:00.000Z',
-        description: 'not allowed',
-        star_count: 2
-      }
-    ]);
-  }
-  if (/\/api\/v1\/user\/repos\?/.test(href)) {
-    return jsonResponse([
-      {
-        full_name: 'Acme/Demo',
-        name: 'Demo',
-        owner: { login: 'Acme' },
-        private: true,
-        default_branch: 'main'
-      },
-      {
-        full_name: 'Acme/Production',
-        name: 'Production',
-        owner: { login: 'Acme' },
-        private: true,
-        default_branch: 'main'
-      }
-    ]);
   }
   if (/api\.github\.com\/user$/.test(href)) {
     return jsonResponse({ id: 7, login: 'fixture-user', name: 'Fixture', avatar_url: '' });
@@ -655,7 +606,6 @@ const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
     NV_ALPHA_ACCESS_MODE: 'invite',
     NV_ALPHA_INVITE_PEPPER: 'alpha-test-pepper-0123456789abcdef-0123456789abcdef',
     NV_ALPHA_TERMS_VERSION: termsVersion,
-    NV_GIT_HOST_ALLOWLIST: 'gitlab.com,gitea.example',
     NV_ALPHA_TEST_EVENT_LOG: eventLog,
     NV_ALPHA_TEST_ROOT: root,
     NV_TRUSTED_PROXIES: '127.0.0.1/32,::1/128',
@@ -1165,8 +1115,8 @@ ${logs}`
 
     for (const [letter, sid] of [
       ['A', 'provider-github'],
-      ['E', 'provider-gitlab'],
-      ['F', 'provider-gitea']
+      ['M', 'provider-github'],
+      ['N', 'provider-github']
     ]) {
       const response = await request('/api/repos', {
         headers: { cookie: combinedCookie(letter, sid) }
@@ -1199,6 +1149,16 @@ ${logs}`
       assert.ok(reads.every(event => event.method === 'GET'), 'the overview must never write to a provider');
       assert.ok(!reads.some(event => /Production/i.test(event.url)), 'the feed must not read a repository outside the invitation');
       assert.strictEqual(reads.filter(event => /commits\?/.test(event.url)).length, 1);
+    }
+
+    for (const letter of ['E', 'F']) {
+      const transportBefore = transportEvents();
+      const retiredGrant = await request('/api/repo/acme/demo', {
+        headers: { cookie: combinedCookie(letter, 'provider-github') }
+      });
+      assert.strictEqual(retiredGrant.status, 403, 'a retired-only invitation cannot admit a GitHub account');
+      assert.strictEqual((await json(retiredGrant)).code, 'ALPHA_REPOSITORY_NOT_ALLOWED');
+      assert.deepStrictEqual(transportEvents(), transportBefore);
     }
 
     const cacheIdentityResponse = await request('/api/me', {
@@ -1291,30 +1251,21 @@ ${logs}`
     );
 
     for (const [provider, letter, sid] of [
-      ['GitLab', 'Q', 'provider-gitlab-path'],
-      ['Gitea', 'P', 'provider-gitea-path']
+      ['gitlab', 'E', 'provider-gitlab'],
+      ['gitea', 'F', 'provider-gitea'],
+      ['gitlab', 'Q', 'provider-gitlab-path'],
+      ['gitea', 'P', 'provider-gitea-path']
     ]) {
-      const transportBeforePathRoot = transportEvents();
-      const pathRoot = await request('/api/repo/acme/demo', {
-        headers: { cookie: combinedCookie(letter, sid) }
-      });
-      assert.strictEqual(pathRoot.status, 403);
-      assert.strictEqual((await json(pathRoot)).code, 'ALPHA_REPOSITORY_NOT_ALLOWED');
-      assert.deepStrictEqual(
-        transportEvents(),
-        transportBeforePathRoot,
-        `${provider} path-root repository access must fail before credential or provider transport`
-      );
-      const pathRootList = await request('/api/repos', {
-        headers: { cookie: combinedCookie(letter, sid) }
-      });
-      assert.strictEqual(pathRootList.status, 403);
-      assert.strictEqual((await json(pathRootList)).code, 'ALPHA_REPOSITORY_NOT_ALLOWED');
-      assert.deepStrictEqual(
-        transportEvents(),
-        transportBeforePathRoot,
-        `${provider} path-root repository listing must fail before capability, credential, or provider transport`
-      );
+      const transportBefore = transportEvents();
+      for (const route of ['/api/repo/acme/demo', '/api/repos', '/api/activity/recent']) {
+        const response = await request(route, {
+          headers: { cookie: combinedCookie(letter, sid) }
+        });
+        assert.strictEqual(response.status, 401, `${provider} saved sessions cannot read ${route}`);
+        assert.strictEqual((await json(response)).code, 'AUTH_REQUIRED');
+      }
+      assert.deepStrictEqual(transportEvents(), transportBefore,
+        `${provider} historical sessions fail before credential or provider transport`);
     }
 
     const fetchesBeforeAllowedSearch = events('provider.fetch').length;

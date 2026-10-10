@@ -33,7 +33,7 @@ closing procedure is `docs/qualification/PUBLIC_ALPHA_COHORT_CHECKLIST.md`.
 ## Tester scope and onboarding
 
 If the cohort opens, each tester receives a one-time invite, accepts the current
-terms and sandbox rule, connects a least-privilege GitHub, GitLab, or Gitea
+terms and sandbox rule, connects a least-privilege GitHub
 credential, and may select only repositories on the invite's exact canonical
 allowlist. Repository scopes use the exact canonical
 `provider:hostname/owner/repository` form. An invitation may also be issued
@@ -42,11 +42,12 @@ allowlist to check against, so the tester may work against any repository
 their own provider credential already reaches. It is the shape to use when a
 tester is asked to try the product rather than to exercise a named repository,
 and the credential they connect is the only boundary left. GitHub is the complete intended
-golden path. Root-host-only GitLab and Gitea installations are eligible for the
-cohort; installations whose provider base URL contains a path prefix remain
-unavailable. GitLab and Gitea expose only their registry-qualified subsets.
+golden path and the only supported repository provider. Retired-provider
+connections, API transports and live-qualification jobs are removed. Existing
+remote credentials must be revoked manually in the original provider settings;
+local connection removal does not revoke them.
 
-GitHub repository creation/deletion, global search, and notifications are
+GitHub repository creation/deletion and notifications are
 available as experimental operations through compatible personal connections.
 Existing invitations retain their exact repository scopes, including any
 pre-authorized new repository name. Search and notifications enforce those

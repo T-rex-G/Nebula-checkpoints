@@ -91,13 +91,16 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
   limits = limits || words.limits;
   const fail = (name, status) => jobError(`${words.prefix}_${name}`, words[{ RUN_GONE: 'gone', IN_PROGRESS: 'inProgress', BUSY: 'busy', TIMEOUT: 'timeout' }[name]], status, words.safeState);
   const jobs = new Map();
+  // A cancelled or expired result is no longer visible, but its underlying
+  // execution may still be shutting down. Keep that work in the capacity
+  // budget until launch actually settles, including non-cooperative work.
+  let executing = 0;
 
   const sweep = () => {
     for (const [identity, job] of jobs) {
       if (job.finishedAt !== null && now() - job.finishedAt > limits.keepMs) jobs.delete(identity);
     }
   };
-  const running = () => [...jobs.values()].filter(job => job.finishedAt === null).length;
 
   const progress = job => update => {
     if (job.finishedAt !== null || !update || !(update.stage === 'queued' || words.stages.has(update.stage))) return;
@@ -158,7 +161,7 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
       if (same) return running202(job);
       return { error: fail('IN_PROGRESS', 429) };
     }
-    if (running() >= limits.maxRunning) {
+    if (executing >= limits.maxRunning) {
       return { error: fail('BUSY', 503) };
     }
     const fresh = {
@@ -173,12 +176,19 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
     }, limits.maxRunMs);
     if (typeof fresh.timer.unref === 'function') fresh.timer.unref();
     let started;
+    executing += 1;
     try {
       started = Promise.resolve(launch({ onProgress: progress(fresh), signal: controller.signal }));
     } catch (error) {
       started = Promise.reject(error);
     }
-    started.then(result => settle(fresh, { result }), error => settle(fresh, { error }));
+    started.then(result => {
+      executing -= 1;
+      settle(fresh, { result });
+    }, error => {
+      executing -= 1;
+      settle(fresh, { error });
+    });
     return running202(fresh);
   }
 
@@ -197,8 +207,16 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
     forget(identity);
     return true;
   }
+  // Server-side lookup lets clients poll an opaque run without repeating the
+  // target URL in browser history, proxy logs, or request query strings.
+  function target({ identity, run }) {
+    sweep();
+    const job = jobs.get(identity);
+    if (!job || job.id !== run) return null;
+    return Object.freeze({ owner: job.owner, repo: job.repo, ref: job.ref });
+  }
   const close = () => { for (const identity of jobs.keys()) forget(identity); };
-  return Object.freeze({ request, forget, cancel, close, size: () => jobs.size });
+  return Object.freeze({ request, forget, cancel, target, close, size: () => jobs.size });
 }
 
 module.exports = Object.freeze({ createAuditJobs, JOBS, SITE_JOBS, SITE_STAGES });

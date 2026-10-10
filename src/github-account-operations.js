@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseRepositoryScope } = require('./alpha-access');
+const { parseRepositoryScope, parseStoredRepositoryScope } = require('./alpha-access');
 const REPOSITORY_NAME = /^[A-Za-z0-9_.-]{1,100}$/;
 const QUERY_LIMIT = 200;
 
@@ -48,7 +48,7 @@ function repositoryName(value) {
 function githubRepositoryScopes(scopes) {
   try {
     if (!Array.isArray(scopes) || scopes.length > 20) throw new Error('Invalid scope collection');
-    return [...new Set(scopes.map(parseRepositoryScope).filter(scope => scope.provider === 'github')
+    return [...new Set(Array.from(scopes, parseStoredRepositoryScope).filter(Boolean)
       .map(scope => `${scope.owner}/${scope.repo}`))];
   } catch {
     throw refusal('This invitation does not have a valid repository scope.', 'ALPHA_REPOSITORY_NOT_ALLOWED', 403);

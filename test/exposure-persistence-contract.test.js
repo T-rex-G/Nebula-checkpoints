@@ -179,15 +179,15 @@ assert.match(sql, /PRIMARY KEY \(provider, authority, owner_login, repo_name, fi
 
 /* ---- What the store must never do ------------------------------------- */
 
-/*
- * Observations are append-only. Nothing enforces that in the schema -- a
- * trigger would be heavier than the property is worth -- so it is enforced
- * here, against the store's own source.
- */
-assert.strictEqual(
-  /UPDATE nv_exposure_observations/.test(storeSource), false,
-  'an observation is a measurement; editing one loses the only record of what was true at a commit'
-);
+/* Location evidence is not rewritten by a later verification or decision.
+ * While a scan owns its lease, its aggregate history count is reconciled from
+ * a unique sighting ledger. Replay safety and fencing are tested in real PG. */
+const observationUpdates = [...storeSource.matchAll(/UPDATE nv_exposure_observations[\s\S]*?`/g)]
+  .map(match => match[0]);
+assert.strictEqual(observationUpdates.length, 1, 'only the deduplicated count is updated');
+assert.match(observationUpdates[0], /^UPDATE nv_exposure_observations SET history_commits=\(/);
+assert.match(observationUpdates[0], /SELECT count\(\*\)::integer FROM nv_exposure_history_sightings/);
+assert.match(observationUpdates[0], /WHERE scan_id=\$1 AND fingerprint=\$2`$/);
 assert.strictEqual(
   /DELETE FROM nv_exposure_observations/.test(storeSource), false,
   'observations leave with their scan, by cascade, and not otherwise'

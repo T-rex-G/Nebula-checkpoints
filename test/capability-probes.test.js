@@ -28,8 +28,8 @@ function environment() {
     NV_ALPHA17_BRANCH: `nvx-alpha17-${RUN_ID}-proof`,
     NV_ALPHA17_MUTATION_CREDENTIAL: 'fixture-mutation-credential',
     NV_ALPHA17_READ_ONLY_CREDENTIAL: 'fixture-readonly-credential',
-    NV_ALPHA17_GITHUB_API_URL: 'https://github.fixture.invalid',
-    NV_ALPHA17_GITHUB_LFS_URL: 'https://github-lfs.fixture.invalid',
+    NV_ALPHA17_GITHUB_API_URL: 'https://api.github.com',
+    NV_ALPHA17_GITHUB_LFS_URL: 'https://github.com',
     /* Only so a run that never finishes is falsified in seconds, not minutes. */
     NV_ALPHA17_RUN_OBSERVATION_ATTEMPTS: '3'
   };
@@ -351,80 +351,6 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     request.method === 'POST' && request.pathname.endsWith('/rerun') ? reply(201, {}) : null
   ));
 
-  /* ---- GitLab: the same write proofs through GitLab's own requests ------- */
-  {
-    const { runGitlabValidation } = require('../ci/run-gitlab-alpha17-validation');
-    const gitlabEnvironment = () => {
-      const repository = 'fixture-owner/nvx-alpha17-gitlab-qualification';
-      const env = {
-        ...environment(),
-        NV_ALPHA17_REPOSITORY: repository,
-        NV_ALPHA17_GITLAB_API_URL: 'https://gitlab.fixture.invalid/api/v4'
-      };
-      env.NV_ALPHA17_SIGNED_TARGET_SHA256 = crypto.createHash('sha256').update(JSON.stringify({
-        apiUrl: env.NV_ALPHA17_GITLAB_API_URL, jobName: 'gitlab', repository
-      })).digest('hex');
-      return env;
-    };
-    const runGitlab = async middleware => {
-      const env = gitlabEnvironment();
-      const fixture = createProviderFetchFixture({
-        provider: 'gitlab', repository: env.NV_ALPHA17_REPOSITORY, defaultBranch: 'main', runId: RUN_ID,
-        mutationCredential: env.NV_ALPHA17_MUTATION_CREDENTIAL, readOnlyCredential: env.NV_ALPHA17_READ_ONLY_CREDENTIAL
-      });
-      const context = { fixture, env, memo: {} };
-      const fetchImpl = async (url, init = {}) => {
-        const request = describe(url, init);
-        request.token = new Headers(init.headers || {}).get('private-token') || '';
-        return (await middleware(request, () => fixture.fetch(url, init), context, url, init)) || fixture.fetch(url, init);
-      };
-      return { result: await runGitlabValidation({ env, fetchImpl, now: () => new Date(NOW) }), fixture };
-    };
-    const { result, fixture } = await runGitlab(async () => null);
-    const byKey = new Map(result.checks.map(check => [check.key, check]));
-    for (const key of ['issue-write', 'pull-write']) {
-      assert(byKey.get(key) && byKey.get(key).status === 'pass', `GitLab ${key} must pass against a correct provider`);
-    }
-    assert.deepStrictEqual([...fixture.state.branches.keys()], ['main']);
-    const merged = [...fixture.state.glMergeRequests.values()].filter(request => request.iid !== 1);
-    assert.strictEqual(merged.length, 1);
-    assert.strictEqual(merged[0].state, 'merged');
-
-    const gitlabUnmet = (label, probe, condition, middleware) =>
-      falsify(label, () => runGitlab(middleware), namesCondition(label, probe, condition));
-    gitlabUnmet('a GitLab issue that reads back under another title', 'issue-write', 'createdReadBack', async (request, pass) => {
-      if (request.method !== 'GET' || !/\/issues\/1\d\d$/.test(request.pathname)) return null;
-      return reply(200, { ...(await (await pass()).json()), title: 'someone else' });
-    });
-    gitlabUnmet('a GitLab close that is acknowledged and not applied', 'issue-write', 'closedReadBack', async request => (
-      request.method === 'PUT' && /\/issues\/\d+$/.test(request.pathname) ? reply(200, { state: 'closed' }) : null
-    ));
-    gitlabUnmet('a read_api token that can open an issue', 'issue-write', 'readOnlyRefused', async (request, pass, context, url, init) => {
-      if (request.method !== 'POST' || !request.pathname.endsWith('/issues') || request.token !== context.env.NV_ALPHA17_READ_ONLY_CREDENTIAL) return null;
-      return context.fixture.fetch(url, { ...init, headers: { ...init.headers, 'PRIVATE-TOKEN': context.env.NV_ALPHA17_MUTATION_CREDENTIAL } });
-    });
-    gitlabUnmet('a merge request that never finishes its mergeability check', 'pull-write', 'createdReadBack', async (request, pass) => {
-      if (request.method !== 'GET' || !/\/merge_requests\/1\d\d$/.test(request.pathname)) return null;
-      return reply(200, { ...(await (await pass()).json()), detailed_merge_status: 'checking', sha: 'a'.repeat(40) });
-    });
-    gitlabUnmet('a review note that never appears', 'pull-write', 'reviewRecorded', async request => (
-      request.method === 'GET' && /\/merge_requests\/\d+\/notes$/.test(request.pathname) ? reply(200, []) : null
-    ));
-    gitlabUnmet('a GitLab merge accepted against a head it no longer has', 'pull-write', 'staleHeadRefused', async (request, pass, context, url, init) => {
-      if (request.method !== 'PUT' || !request.pathname.endsWith('/merge')) return null;
-      const { sha, ...rest } = request.body;
-      void sha;
-      return context.fixture.fetch(url, { ...init, body: JSON.stringify(rest) });
-    });
-    gitlabUnmet('a GitLab merge commit that is not the base and the source', 'pull-write', 'mergedIntoBase', async (request, pass) => {
-      if (request.method !== 'GET' || !/\/repository\/commits\/[0-9a-f]{40}$/.test(request.pathname)) return null;
-      const response = await pass();
-      if (response.status !== 200) return response;
-      const commit = await response.json();
-      return reply(200, commit.parent_ids && commit.parent_ids.length === 2 ? { ...commit, parent_ids: [commit.parent_ids[1], commit.parent_ids[0]] } : commit);
-    });
-  }
-
   /*
    * ---- The probes send what the product sends -------------------------------
    *
@@ -486,17 +412,6 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     assert.match(search, /scopedCodeQuery\(req\.query\.q, repository\)/);
     assert.strictEqual(scopedCodeQuery('nvx-alpha17-search-fixture', 'owner/name'), 'nvx-alpha17-search-fixture repo:owner/name');
     assert.match(harness, /url\.searchParams\.set\('q', `\$\{words\} repo:\$\{repository\}`\)/);
-
-    /* GitLab: the issue, note, close, merge-request, review-note and merge requests the product sends. */
-    const gitlabHarness = fs.readFileSync(path.join(__dirname, '..', 'ci', 'run-gitlab-alpha17-validation.js'), 'utf8');
-    assert.match(route('post', '/api/repo/:owner/:repo/issues'), /\/issues`, \{ method: 'POST', body: \{ title, description: body \|\| '' \} \}/);
-    assert.match(route('patch', '/api/repo/:owner/:repo/issues/:num'), /body: \{ state_event: state === 'closed' \? 'close' : 'reopen' \}/);
-    assert.match(gitlabHarness, /\{ state_event: 'close' \}/);
-    assert.match(route('post', '/api/repo/:owner/:repo/pulls'), /body: \{ title, source_branch: head, target_branch: base, description: body \|\| '' \}/);
-    assert.match(merge, /body: \{ squash: method === 'squash', \.\.\.\(expected \? \{ sha: expected \} : \{\}\) \}/);
-    assert.match(gitlabHarness, /\{ squash: false, sha: reportedHead \}/);
-    assert.match(route('post', '/api/repo/:owner/:repo/pulls/:num/reviews'), /merge_requests\/\$\{req\.params\.num\}\/notes`, \{ method: 'POST', body: \{ body: text \} \}/);
-    assert.match(gitlabHarness, /merge_requests\/\$\{iid\}\/notes`, \{ body: reviewNote \}/);
 
     /* Exposure: the probe runs the product's reader module, not a copy of it. */
     assert.match(harness, /const exposureReader = require\('\.\.\/src\/exposure-reader'\);/);

@@ -511,7 +511,34 @@ async function testInventoriedWebhookWithoutPreparedCoverageFailsClosed() {
   assert(!JSON.stringify(result).includes('uncovered-provider-hook'));
 }
 
+async function testRetiredAccountsRequireManualCleanupWithoutNetwork() {
+  for (const provider of ['gitlab', 'gitea']) {
+    const pending = [];
+    let upstreamCalls = 0;
+    const result = await disconnectProviderAccount(baseOptions({
+      account: { provider, token: 'retired-secret', login: 'alice', baseUrl: 'https://untrusted.example' },
+      binding: { testerId: TESTER_ID, identityKey: IDENTITY_KEY, provider, authority: 'retired.example' },
+      enumerateProviderWebhooks: async () => { upstreamCalls++; return []; },
+      removeProviderWebhook: async () => { upstreamCalls++; return { verifiedAbsent: true }; },
+      readProviderWebhook: async () => { upstreamCalls++; return { absent: true }; },
+      recordPendingEvidence: async evidence => pending.push(evidence),
+      finalizeDisconnect: async () => { throw new Error('Historical records must not be silently discarded'); }
+    }));
+    assert.strictEqual(upstreamCalls, 0);
+    assert.strictEqual(result.providerStateRemoved, false);
+    assert.strictEqual(result.providerRevoked, false);
+    assert.strictEqual(result.webhookCleanup, 'pending');
+    assert.strictEqual(result.reasonCode, 'PROVIDER_RETIRED_MANUAL_CLEANUP_REQUIRED');
+    assert.strictEqual(result.revocationGuidance.url, null);
+    assert.strictEqual(pending.length, 1);
+    assert(!JSON.stringify(pending).includes('retired-secret'));
+    // Historical evidence keys stay reproducible for an explicit local purge.
+    assert.match(providerResourceKeyHash({ provider, authority: 'retired.example', resourceType: 'provider-webhook', resourceReference: '42' }), /^[a-f0-9]{64}$/);
+  }
+}
+
 async function run() {
+  await testRetiredAccountsRequireManualCleanupWithoutNetwork();
   await testInventoryPrecedesDeletionAndRawRefsNeverReachEvidence();
   await testZeroWebhooksStillRegistersAndVerifiesProviderSession();
   await test404AndPositiveReadbackAreTheOnlyVerifiedDeletionPaths();

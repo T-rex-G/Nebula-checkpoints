@@ -9,9 +9,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { hashJson } = require('../src/intelligence');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
-const {
-  createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash
-} = require('../src/security-foundation');
+const { createCsrfToken } = require('../src/security-foundation');
 
 const root = path.resolve(__dirname, '..');
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
@@ -22,7 +20,6 @@ const secret = 'capability-server-test-secret-0123456789abcdef-0123456789abcdef'
    derivations rather than the single raw secret they replaced. */
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
 const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);
-const stepUpSecret = deriveSecret(secret, KEY_PURPOSES.STEP_UP_GRANT);
 const fixtureLog = path.join(os.tmpdir(), `nv-capability-provider-${process.pid}-${port}.log`);
 const focus = process.argv[2] || 'all';
 const sessionNonce = 'a'.repeat(48);
@@ -189,7 +186,6 @@ const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
     NODE_ENV: 'test',
     SESSION_SECRET: secret,
     DATABASE_URL: '',
-    NV_GIT_HOST_ALLOWLIST: 'gitea.example',
     NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn',
     NV_CAPABILITY_FIXTURE_LOG: fixtureLog
   },
@@ -216,14 +212,12 @@ async function waitForServer() {
   throw new Error(`Server did not become ready\n${logs}`);
 }
 
-async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
+async function expectRetiredSessionRejection(entry, cookie = sessionCookie()) {
   const before = fixtureRequests();
   const response = await request(entry.path, entry.options(cookie));
   const body = await response.json();
-  assert.strictEqual(response.status, 409, `${entry.label}: ${JSON.stringify(body)}`);
-  assert.strictEqual(body.feature, entry.feature, `${entry.label} must use ${entry.feature}`);
-  assert.match(body.code || '', /^PROVIDER_CAPABILITY_(?:UNAVAILABLE|EXPERIMENTAL)$/);
-  if (entry.error) assert.strictEqual(body.error, entry.error, `${entry.label} capability reason changed`);
+  assert.strictEqual(response.status, 401, `${entry.label}: ${JSON.stringify(body)}`);
+  assert.strictEqual(body.code, 'AUTH_REQUIRED');
   assert.deepStrictEqual(
     fixtureRequests(),
     before,
@@ -238,11 +232,8 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
 
     if (focus === 'all' || focus === 'routes') {
       const projection = await request('/api/capabilities?provider=gitea&authority=gitea.example');
-      assert.strictEqual(projection.status, 200);
-      const projected = await projection.json();
-      assert.strictEqual(projected.provider, 'gitea');
-      assert.strictEqual(projected.authority, 'gitea.example');
-      assert.strictEqual(projected.features['file.read'].status, 'Supported');
+      assert.strictEqual(projection.status, 400);
+      assert.strictEqual((await projection.json()).code, 'PROVIDER_UNSUPPORTED');
       const githubProjection = await request('/api/capabilities?provider=github');
       assert.strictEqual(githubProjection.status, 200);
       const github = await githubProjection.json();
@@ -268,14 +259,12 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       {
         label: 'Gitea rate-limit read',
         feature: 'rate.read',
-        error: 'Rate-limit reads are qualified only for GitHub in the hosted alpha.',
         path: '/api/rate',
         options: cookie => ({ headers: { cookie } })
       },
       {
         label: 'Gitea batch mutation',
         feature: 'file.batch',
-        error: 'Gitea batch mutation is unavailable; only single-file Contents API write and delete are provider-qualified.',
         path: '/api/repo/Acme/Demo/batch',
         options: cookie => mutationOptions('POST', cookie, {
           branch: 'main',
@@ -327,87 +316,29 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
         options: cookie => mutationOptions('DELETE', cookie)
       }
       ];
-      for (const entry of routeCases) await expectCapabilityRejection(entry);
+      for (const entry of routeCases) await expectRetiredSessionRejection(entry);
 
       const resetBody = {
         branch: 'main',
         sha: '2'.repeat(40),
         expectedHeadSha: '1'.repeat(40)
       };
-      const resetOperation = normalizeStepUpRequest('branch.reset', {
-        owner: 'Acme',
-        repo: 'Demo',
-        branch: resetBody.branch,
-        targetSha: resetBody.sha,
-        expectedHeadSha: resetBody.expectedHeadSha
-      }, { provider: account.provider, identityKey: activeIdentityKey });
-      const jti = crypto.randomUUID();
-      const stepUp = {
-        jti,
-        action: resetOperation.action,
-        scopeHash: scopeHash(resetOperation.scope),
-        expiresAt: Date.now() + 300000,
-        assurance: 'credential'
-      };
-      const stepUpGrant = createStepUpGrant(stepUpSecret, {
-        sessionBinding: sessionNonce,
-        identityKey: activeIdentityKey,
-        action: resetOperation.action,
-        scope: resetOperation.scope,
-        assurance: 'credential'
-      }, { jti, ttlMs: 300000 });
-      await expectCapabilityRejection({
+      await expectRetiredSessionRejection({
         label: 'branch reset',
         feature: 'recovery',
         path: '/api/repo/Acme/Demo/reset',
-        options: cookie => mutationOptions('POST', cookie, resetBody, { 'x-nv-step-up': stepUpGrant })
-      }, sessionCookie(stepUp));
+        options: cookie => mutationOptions('POST', cookie, resetBody, { 'x-nv-step-up': 'retired-session-grant' })
+      }, sessionCookie());
     }
 
-    if (focus === 'all' || focus === 'activity') {
-      const before = fixtureRequests();
-      const activity = await request('/api/repo/Acme/Demo/activity', {
-        headers: { cookie: sessionCookie() }
-      });
-      const activityBody = await activity.json();
-      assert.strictEqual(activity.status, 200, JSON.stringify(activityBody));
-      assert.strictEqual(activityBody.commits.length, 1);
-      assert.deepStrictEqual(activityBody.pulls, []);
-      assert.deepStrictEqual(activityBody.issues, []);
-      assert.deepStrictEqual(activityBody.releases, []);
-      assert.deepStrictEqual(
-        fixtureRequests().slice(before.length).map(entry => new URL(entry.url).pathname),
-        ['/api/v1/repos/Acme/Demo/commits'],
-        'activity must transport only provider-supported feature subsets'
-      );
-    }
-
-    if (focus === 'all' || focus === 'commits') {
-      const before = fixtureRequests();
-      const listResponse = await request('/api/repo/Acme/Demo/commits?ref=main', {
-        headers: { cookie: sessionCookie() }
-      });
-      const list = await listResponse.json();
-      assert.strictEqual(listResponse.status, 200, JSON.stringify(list));
-      assert.strictEqual(list.length, 1);
-      assert.strictEqual(list[0].sha, '1'.repeat(40));
-
-      const detailResponse = await request(`/api/repo/Acme/Demo/commit/${'1'.repeat(40)}`, {
-        headers: { cookie: sessionCookie() }
-      });
-      const detail = await detailResponse.json();
-      assert.strictEqual(detailResponse.status, 200, JSON.stringify(detail));
-      assert.strictEqual(detail.sha, '1'.repeat(40));
-      assert.strictEqual(detail.files[0].filename, 'README.md');
-
-      assert.deepStrictEqual(
-        fixtureRequests().slice(before.length).map(entry => new URL(entry.url).pathname),
-        [
-          '/api/v1/repos/Acme/Demo/commits',
-          `/api/v1/repos/Acme/Demo/commits/${'1'.repeat(40)}`
-        ],
-        'supported Gitea commit list/detail reads must remain provider-routed'
-      );
+    for (const [caseFocus, pathname] of [
+      ['activity', '/api/repo/Acme/Demo/activity'],
+      ['commits', '/api/repo/Acme/Demo/commits?ref=main'],
+      ['commits', `/api/repo/Acme/Demo/commit/${'1'.repeat(40)}`]
+    ]) {
+      if (focus !== 'all' && focus !== caseFocus) continue;
+      await expectRetiredSessionRejection({ label: `retired session ${pathname}`, path: pathname,
+        options: cookie => ({ headers: { cookie } }) });
     }
 
     if (focus === 'all' || focus === 'lfs') {
@@ -418,13 +349,9 @@ async function expectCapabilityRejection(entry, cookie = sessionCookie()) {
       const rawText = await raw.text();
       let rawBody = {};
       try { rawBody = JSON.parse(rawText); } catch {}
-      assert.strictEqual(raw.status, 409, rawText);
-      assert.strictEqual(rawBody.code, 'PROVIDER_CAPABILITY_UNAVAILABLE');
-      const rawTransport = fixtureRequests().slice(before.length);
-      assert.strictEqual(rawTransport.length, 1, `unexpected raw transports: ${JSON.stringify(rawTransport)}`);
-      assert.strictEqual(rawTransport[0].method, 'GET');
-      assert.match(rawTransport[0].url, /^https:\/\/gitea\.example\//);
-      assert(!rawTransport.some(entry => entry.url.includes('github.com')), 'Gitea credentials must never reach GitHub LFS');
+      assert.strictEqual(raw.status, 401, rawText);
+      assert.strictEqual(rawBody.code, 'AUTH_REQUIRED');
+      assert.deepStrictEqual(fixtureRequests(), before, 'retired credentials must not reach any provider, including GitHub LFS');
 
       const githubAccount = {
         provider: 'github',

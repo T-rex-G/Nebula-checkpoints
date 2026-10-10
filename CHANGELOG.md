@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### GitHub-only product and golden qualification
+
+- Remove GitLab and Gitea repository connections, account selections, provider
+  API transports, capability entries and live-qualification jobs. GitHub PAT,
+  OAuth and optional configured App connections remain. Unsupported and legacy
+  provider inputs fail closed before credential use or outbound requests.
+- Existing retired-provider credentials must be revoked manually in their
+  original provider settings; local connection removal does not revoke them.
+  Historical audit records retain their existing retention and cleanup rules.
+- Align provider and operator documentation with the GitHub-only scope. Keep
+  historical qualification records separate from current support and retain
+  blocked gates until exact-candidate evidence exists. This PR is left open and
+  unmerged for another AI review; no launch or live dispatch is claimed.
+
 ### Security: proxy-addr 2.0.8
 
 - **A forwarded address can no longer pass as a trusted proxy by wearing an
@@ -12,20 +26,24 @@
   advisory reached it. Express 4.22.3 already accepts 2.0.8; the lockfile now
   pins it. The production and development audits pass again.
 
-### Plan: from public alpha to 1.0.0-beta.1
+### Plan: qualify the alpha as 0.0.1-beta.1
 
-- **One plan for what is still unqualified, and for what beta adds.**
-  `docs/superpowers/plans/2026-10-06-beta-1-0-0-qualification-and-platform.md`
-  lists every pending gate, every Experimental and Unavailable capability and
-  every recorded residue, and the task that closes each. Each claim was
-  checked against the running system rather than the documents alone: the
-  live service runs `main`, but it overrides `render.yaml` (invitations off;
-  95/95/100 MB limits against a published 16/16/25 MB), 108 route guards still
-  accept Experimental, and live-provider qualification last ran in September. It defines what
-  qualified means for `1.0.0-beta.1`, names the owner's decisions and actions,
-  and sequences the Clerk identity, Stripe billing and AI review layers. The
-  plan is not evidence: no gate changes until its task passes for the exact
-  candidate.
+- **One plan to take the product that exists today to a recorded GO.**
+  `docs/superpowers/plans/2026-10-06-beta-0-0-1-qualification.md` replaces the
+  broader 1.0.0 draft. It qualifies the current product as an open public beta,
+  `0.0.1-beta.1`, only after its gates and release blockers close, and
+  leaves Clerk, the AI layer, billing and the competitive comparison to later
+  plans. The original 6 October baseline recorded observations against the
+  running system, code, Actions history, Render and Neon. Those dated notes are
+  not a fresh qualification check of this GitHub-only PR. That baseline review
+  found drift the documents did not show: the live service overrides
+  `render.yaml` (invitations off; 95/95/100 MB limits against a published
+  16/16/25 MB), 108 route guards still accept Experimental, live-provider
+  qualification last ran in September and hosted qualification never has. An
+  existence audit traces every capability from registry to route, interface,
+  tests and live probe, and the owner's prototype architecture is mapped against
+  what exists. The plan is not evidence: no gate changes until its task passes
+  for the exact candidate.
 
 ### Uranus 2.4: the grade never says less than the findings do
 

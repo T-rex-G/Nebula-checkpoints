@@ -11,6 +11,7 @@ const {
   runProviderQualification
 } = require('./provider-alpha17-common');
 const exposureReader = require('../src/exposure-reader');
+const { requireGithubOrigin } = require('./verify-alpha17-authorization');
 
 /*
  * The permanent code-search fixture on the target's default branch -- the
@@ -51,7 +52,7 @@ function required(env, name) {
 
 function createGithubClient({ env, fetchImpl }) {
   const repository = required(env, 'NV_ALPHA17_REPOSITORY');
-  const baseUrl = new URL(String(env.NV_ALPHA17_GITHUB_API_URL || 'https://api.github.com'));
+  const baseUrl = new URL(requireGithubOrigin(env.NV_ALPHA17_GITHUB_API_URL || 'https://api.github.com', 'api'));
   const mutationCredential = required(env, 'NV_ALPHA17_MUTATION_CREDENTIAL');
   const readOnlyCredential = required(env, 'NV_ALPHA17_READ_ONLY_CREDENTIAL');
   const repositoryPath = repository.split('/').map(encodeURIComponent).join('/');
@@ -483,7 +484,7 @@ function createGithubClient({ env, fetchImpl }) {
    * provider works and leave the product's own path unproven. The guard in
    * test/lfs-probe-contract.test.js holds the two together.
    */
-  const lfsBase = new URL(String(env.NV_ALPHA17_GITHUB_LFS_URL || 'https://github.com'));
+  const lfsBase = new URL(requireGithubOrigin(env.NV_ALPHA17_GITHUB_LFS_URL || 'https://github.com', 'lfs'));
   const lfsBatchUrl = () => new URL(`${repository}.git/info/lfs/objects/batch`,
     `${lfsBase.toString().replace(/\/$/, '')}/`).toString();
 

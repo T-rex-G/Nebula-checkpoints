@@ -5,7 +5,7 @@ const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
 const { IDENTITY_KINDS, MAX_IDENTITY_BYTES, rateLimitIdentity } = require('../src/rate-limit-identity');
 
 const hmacKey = deriveKey('rate-limit-identity-test-secret-0123456789abcdef', KEY_PURPOSES.RATE_LIMIT_IDENTITY);
-const account = { provider: 'gitea', authMethod: 'token', login: 'fixture-user', token: 'fixture-token', baseUrl: 'https://gitea.example' };
+const account = { provider: 'github', authMethod: 'token', login: 'fixture-user', token: 'fixture-token', baseUrl: '' };
 
 function keyFor(session, address = '198.51.100.7', namespace = 'api') {
   return rateLimitIdentity({ session, address, hmacKey, namespace });
@@ -109,8 +109,8 @@ function keyFor(session, address = '198.51.100.7', namespace = 'api') {
  * accounts produce the same message, so one could spend the other's budget.
  */
 {
-  const split = keyFor({ accounts: [{ provider: 'a', baseUrl: 'b|c', login: 'd' }], active: 0 });
-  const shifted = keyFor({ accounts: [{ provider: 'a', baseUrl: 'b', login: 'c|d' }], active: 0 });
+  const split = keyFor({ accounts: [{ provider: 'github', baseUrl: 'b|c', login: 'd' }], active: 0 });
+  const shifted = keyFor({ accounts: [{ provider: 'github', baseUrl: 'b', login: 'c|d' }], active: 0 });
   assert.notStrictEqual(
     split.key, shifted.key,
     'a separator inside a field must not let one identity produce another'

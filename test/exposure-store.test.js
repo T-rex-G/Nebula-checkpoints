@@ -807,8 +807,8 @@ async function claim(store, now = T0) {
       assert.strictEqual(live.verification.subjectDigest, '1'.repeat(32));
       assert.strictEqual(live.verification.requestedBy, 'alice');
       assert.strictEqual(
-        live.finding, null,
-        'a live credential does not move the finding: it was already open'
+        live.finding.disposition, 'open',
+        'a newly verified credential reopens the earlier machine rejection'
       );
 
       /* An unverifiable attempt never reached an account, so it names none. */
@@ -1543,6 +1543,8 @@ async function claim(store, now = T0) {
         'every text column must be bounded or shape-constrained, or it is somewhere a file could be stored'
       );
     }
+
+    await require('./fixtures/exposure-store-hardening-cases')(pool);
 
     const review = require('./fixtures/exposure-review-cases');
     const reviewDatabase = scratchName();

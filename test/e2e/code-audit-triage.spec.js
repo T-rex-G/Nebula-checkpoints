@@ -152,7 +152,7 @@ const HEAD = 'b'.repeat(40);
 const now = Date.now();
 const finding = (id, extra) => ({ id: id.repeat(24).slice(0, 24), rule: 'SEC-001', category: 'code', severity: 'critical', verdict: 'confirmed',
   firstSeenAt: new Date(now - 2 * 864e5).toISOString(), waived: null, exploited: false, reach: null, ...extra });
-const kept = findings => ({ audit: { grade: 'F', auditedAt: new Date(now - 3600e3).toISOString(), commitSha: HEAD, files: { complete: true }, sla: null }, findings });
+const kept = findings => ({ audit: { grade: 'F', auditedAt: new Date(now - 3600e3).toISOString(), commitSha: HEAD, files: { complete: true }, analysisComplete: true, sla: null }, findings });
 
 test('a pull request whose audited head holds a confirmed critical says why, and what the policy does', async ({ page }) => {
   const gate = evaluateMergeGate({ headSha: HEAD, head: kept([finding('a'), finding('c', { severity: 'serious', category: 'secrets', rule: 'SEC-020' })]),

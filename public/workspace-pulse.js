@@ -109,15 +109,13 @@
    * qualification of the current candidate. */
   function capabilityComponent(signals) {
     const component = componentById('capabilities');
-    if (!signals || !signals.total) return unknown(component, 'Capability projection has not loaded.');
-    const offered = signals.supported + signals.experimental;
+    if (!signals || !signals.projected) return unknown(component, 'Capability projection has not loaded.');
+    /* Only what is Supported is offered; nothing else is shown, counted or named. */
+    const offered = signals.supported;
     if (!offered) return measured(component, 0, 'This provider offers none of the projected capabilities.');
     if (!signals.offeredEvidenceKnown) return unknown(component, 'Evidence maturity is unknown for the offered capabilities.');
-    const parts = [`${signals.offeredProviderVerified} of ${offered} offered capabilities provider-verified`];
-    if (signals.experimental) parts.push(`${signals.experimental} experimental`);
-    if (signals.unavailable) parts.push(`${signals.unavailable} unavailable`);
     return measured(component, signals.offeredProviderVerified / offered,
-      `${parts.join(' · ')}. Based on registry evidence, not a live workspace check or current release qualification.`);
+      `${signals.offeredProviderVerified} of ${offered} offered capabilities provider-verified. Based on registry evidence, not a live workspace check or current release qualification.`);
   }
 
   function scanningComponent(scanner) {
@@ -252,19 +250,19 @@
     if (!features || typeof features !== 'object') return null;
     const values = Object.values(features);
     if (!values.length) return null;
-    const count = status => values.filter(entry => entry && entry.status === status).length;
-    const offered = values.filter(entry => entry && ['Supported', 'Experimental'].includes(entry.status));
+    /* What is not Supported is not offered, so it is neither drawn nor counted. */
+    const offered = values.filter(entry => entry && entry.status === 'Supported');
     const evidence = EVIDENCE_STATES.map(label => Object.freeze({
-      label, count: values.filter(entry => entry && entry.evidenceState === label).length
+      label, count: offered.filter(entry => entry.evidenceState === label).length
     }));
-    evidence.push(Object.freeze({ label: 'Unknown', count: values.filter(entry => !entry || !EVIDENCE_STATES.includes(entry.evidenceState)).length }));
+    evidence.push(Object.freeze({ label: 'Unknown', count: offered.filter(entry => !EVIDENCE_STATES.includes(entry.evidenceState)).length }));
     return Object.freeze({
-      total: values.length,
-      supported: count('Supported'),
-      experimental: count('Experimental'),
-      unavailable: count('Unavailable'),
+      projected: values.length,
+      total: offered.length,
+      supported: offered.length,
       providerVerified: evidence[0].count,
-      offeredProviderVerified: offered.filter(entry => entry.evidenceState === 'Provider-verified').length,
+      deterministic: evidence[1].count,
+      offeredProviderVerified: evidence[0].count,
       offeredEvidenceKnown: offered.filter(entry => EVIDENCE_STATES.includes(entry.evidenceState)).length,
       evidence: Object.freeze(evidence)
     });
@@ -372,11 +370,12 @@
         total: signals ? signals.total : 0,
         providerVerified: signals ? signals.providerVerified : 0,
         evidence: signals ? signals.evidence : Object.freeze([]),
+        /* Offered capabilities by the strength of the evidence behind them, strongest first. */
         breakdown: Object.freeze(signals ? [
-          Object.freeze({ id: 'supported', label: 'Supported', count: signals.supported, status: 'good' }),
-          Object.freeze({ id: 'experimental', label: 'Experimental', count: signals.experimental, status: 'warning' }),
-          Object.freeze({ id: 'unavailable', label: 'Unavailable', count: signals.unavailable, status: 'muted' })
-        ] : [])
+          Object.freeze({ id: 'provider-verified', label: 'Provider-verified', count: signals.providerVerified, status: 'good' }),
+          Object.freeze({ id: 'deterministic', label: 'Deterministic', count: signals.deterministic, status: 'warning' }),
+          Object.freeze({ id: 'other', label: 'Other evidence', count: signals.total - signals.providerVerified - signals.deterministic, status: 'muted' })
+        ].filter(part => part.id !== 'other' || part.count > 0) : [])
       }),
       activity: activity(input.repos, now)
     });
@@ -663,7 +662,7 @@
   }
 
   /*
-   * Part-to-whole across three states of one total. Segments are separated by a
+   * Part-to-whole: the offered capabilities by their evidence. Segments are separated by a
    * surface-coloured gap so adjacent fills never blend into one mark.
    */
   function renderSignals(host, signals) {
@@ -684,7 +683,7 @@
       return;
     }
     head.appendChild(element('p', 'wp-stat-note',
-      `supported of ${signals.total} capabilities this provider projects`));
+      'capabilities offered, by the evidence behind each'));
     host.appendChild(head);
 
     const ring = element('div', 'wp-ring');
@@ -692,7 +691,7 @@
     const core = element('div', 'wp-ring-core');
     core.append(
       element('p', 'wp-ring-figure', String(signals.live)),
-      element('span', 'wp-ring-unit', `of ${signals.total}`)
+      element('span', 'wp-ring-unit', 'offered')
     );
     ring.appendChild(core);
     host.appendChild(ring);
@@ -707,14 +706,10 @@
     }
     host.appendChild(legend);
     host.appendChild(element('p', 'wp-stat-note wp-evidence-note',
-      `${signals.providerVerified} Provider-verified in the registry. Availability and evidence maturity are separate; this is not current release qualification.`));
+      `${signals.providerVerified} of ${signals.total} Provider-verified in the registry. This is registry evidence, not current release qualification.`));
     host.appendChild(numbersTable('Evidence maturity', ['Evidence', 'Capabilities'],
-      signals.evidence.map(part => [part.label, part.count])));
-    host.append(numbersTable(
-      'Capability states',
-      ['State', 'Capabilities'],
-      signals.breakdown.map(part => [part.label, part.count])
-    ));
+      signals.evidence.filter(part => part.count > 0).map(part => [part.label, part.count])));
+
   }
 
   /*

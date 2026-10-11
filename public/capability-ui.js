@@ -6,10 +6,16 @@
   const FALLBACK_REASON = 'Capability status could not be loaded. Retry after the service is ready.';
   let noteSequence = 0;
   let loadSequence = 0;
+  /*
+   * `answered` says whether the server has given its verdict. Until it has --
+   * or when asking failed -- nothing is hidden: an outage is shown as refused
+   * controls that say so, never as a page that quietly lost its features.
+   */
   let projection = Object.freeze({
     provider: 'github',
     authority: 'github.com',
     deployment: 'hosted-alpha',
+    answered: false,
     features: Object.freeze({})
   });
 
@@ -153,15 +159,33 @@
   }
 
   const noteOwners = new Map();
+  function dropNote(element) {
+    const id = element.dataset.capabilityNoteId;
+    const note = id && document.getElementById(id);
+    if (note && typeof note.remove === 'function') note.remove();
+    delete element.dataset.capabilityNoteId;
+  }
   function apply(root = document) {
     const controls = [...root.querySelectorAll('[data-feature]')];
     for (const [key, owner] of noteOwners) if (owner.isConnected === false) noteOwners.delete(key);
     for (const element of controls) {
       const resolved = decision(element.dataset.feature);
-      const experimentalAllowed = element.dataset.allowExperimental === 'true';
-      const unavailable = resolved.status === 'Unavailable';
-      const experimentalBlocked = resolved.status === 'Experimental' && !experimentalAllowed;
-      const blocked = unavailable || experimentalBlocked;
+      /* Only what is Supported is offered. There is no opt-in for anything less. */
+      const blocked = resolved.status !== 'Supported';
+      /*
+       * Once the server has answered, a control for anything that is not
+       * Supported is not rendered at all: no dimmed button, no Experimental or
+       * Unavailable badge. A control hidden here, and only here, comes back
+       * when its capability becomes Supported.
+       */
+      const withheld = blocked && projection.answered === true;
+      if (withheld) {
+        if (element.hidden !== true) element.dataset.capabilityHidden = 'true';
+        element.hidden = true;
+      } else if (element.dataset.capabilityHidden === 'true') {
+        element.hidden = false;
+        delete element.dataset.capabilityHidden;
+      }
       element.dataset.capabilityStatus = resolved.status;
       element.dataset.capabilityReason = resolved.reason;
       element.setAttribute('data-capability-reason', resolved.reason);
@@ -185,6 +209,12 @@
       }
       const screen = screenOf(element);
       const screenKey = `${(screen && screen.id) || 'root'}::${element.dataset.feature}`;
+      if (withheld) {
+        dropNote(element);
+        for (const target of targets) target.removeAttribute && target.removeAttribute('aria-describedby');
+        if (noteOwners.get(screenKey) === element) noteOwners.delete(screenKey);
+        continue;
+      }
       const owner = noteOwners.get(screenKey);
       if (owner && owner !== element) {
         const stale = element.dataset.capabilityNoteId
@@ -227,7 +257,7 @@
     if (normalizedProvider !== 'github' || normalizedAuthority !== 'github.com') {
       projection = Object.freeze({
         provider: normalizedProvider, authority: normalizedAuthority,
-        deployment: 'hosted-alpha', features: Object.freeze({})
+        deployment: 'hosted-alpha', answered: true, features: Object.freeze({})
       });
       return projection;
     }
@@ -252,6 +282,7 @@
         provider: normalizedProvider,
         authority: String(body.authority || normalizedAuthority),
         deployment: String(body.deployment || 'hosted-alpha'),
+        answered: true,
         features: Object.freeze(features)
       });
     } catch {
@@ -260,6 +291,7 @@
         provider: normalizedProvider,
         authority: normalizedAuthority,
         deployment: 'hosted-alpha',
+        answered: false,
         features: Object.freeze({})
       });
     }
@@ -275,5 +307,10 @@
     return projection.features || Object.freeze({});
   }
 
-  global.NebulaCapabilityUI = Object.freeze({ load, decision, apply, explain, features });
+  /* Whether a feature's controls are left out entirely: the server answered, and not with Supported. */
+  function withheld(feature) {
+    return projection.answered === true && decision(feature).status !== 'Supported';
+  }
+
+  global.NebulaCapabilityUI = Object.freeze({ load, decision, apply, explain, features, withheld });
 })(window);

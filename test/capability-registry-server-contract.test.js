@@ -71,8 +71,8 @@ for (const [method, routePath, feature] of [
   ['get', '/api/repo/:owner/:repo/audit-deps', 'dependency-audit']
 ]) {
   assert(
-    routeRegistration(method, routePath).includes(`capabilityAccess('${feature}', { allowExperimental: true })`),
-    `${method.toUpperCase()} ${routePath} must explicitly opt in to evidence-bounded ${feature}`
+    routeRegistration(method, routePath).includes(`capabilityAccess('${feature}')`),
+    `${method.toUpperCase()} ${routePath} must name ${feature}, with no experimental opt-in`
   );
 }
 
@@ -85,8 +85,8 @@ for (const [method, routePath] of [
   ['get', '/api/repo/:owner/:repo/signed-snapshots']
 ]) {
   assert(
-    routeRegistration(method, routePath).includes("capabilityAccess('recovery', { allowExperimental: true })"),
-    `${method.toUpperCase()} ${routePath} must opt in to read-only experimental recovery`
+    routeRegistration(method, routePath).includes("capabilityAccess('recovery')"),
+    `${method.toUpperCase()} ${routePath} must name recovery, with no experimental opt-in`
   );
 }
 for (const [method, routePath] of [
@@ -122,11 +122,12 @@ function registrationHeader(match) {
   return remainder.slice(0, handlerIndex);
 }
 
-const experimentalGovernanceAccess =
-  /capabilityAccess\(\s*'governance'\s*,\s*\{\s*allowExperimental:\s*true\s*\}\s*\)/;
+const governanceAccessNamed = /capabilityAccess\(\s*'governance'\s*\)/;
+const experimentalGovernanceAccess = /allowExperimental/;
 assert(
-  governanceReadRoutes.every(match => experimentalGovernanceAccess.test(registrationHeader(match))),
-  'every governance GET route must explicitly opt in to experimental provider views'
+  governanceReadRoutes.every(match => governanceAccessNamed.test(registrationHeader(match))
+    && !experimentalGovernanceAccess.test(registrationHeader(match))),
+  'every governance GET route names governance, with no experimental opt-in'
 );
 const governanceMutationRoutes = governanceRegistrations('post|put|patch|delete');
 assert(governanceMutationRoutes.length >= 15, 'governance mutation-route inventory unexpectedly shrank');

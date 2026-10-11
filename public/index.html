@@ -665,7 +665,7 @@
           <li class="lp-proof-row">
             <h3 class="lp-proof-k">What each provider can do</h3>
             <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>A feature list.</p>
-            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Says what backs each one: Provider-verified only after a live run against that provider, Deterministic where tested rules decide, and Experimental, with the reason, where neither does yet.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Offers only what is backed, and says how: Provider-verified only after a live run against that provider, Deterministic where tested rules decide. Anything neither backs is not offered.</p>
           </li>
         </ul>
       </section>
@@ -942,11 +942,11 @@
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22"/></svg>
       <span class="nv-rail-t">Pulsar Map</span>
       <span class="nv-rail-d">Neural · how code connects</span></button></li>
-    <li style="--j:1;--i:6"><button type="button" class="nv-rail-item" data-feature="governance" data-allow-experimental="true" data-rail="governance">
+    <li style="--j:1;--i:6"><button type="button" class="nv-rail-item" data-feature="governance" data-rail="governance">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg>
       <span class="nv-rail-t">Kepler Twin</span>
       <span class="nv-rail-d">Governance · policy rules</span></button></li>
-    <li style="--j:2;--i:7"><button type="button" class="nv-rail-item" data-feature="exposure.scan" data-allow-experimental="true" data-rail="exposure">
+    <li style="--j:2;--i:7"><button type="button" class="nv-rail-item" data-feature="exposure.scan" data-rail="exposure">
       <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg>
       <span class="nv-rail-t">Quasar Scanner</span>
       <span class="nv-rail-d">Exposure · leaked secrets</span></button></li>
@@ -1246,7 +1246,7 @@
       <span class="hide-sm">__NV_PRODUCT_NAME__</span>
     </button>
     <div class="topbar-actions">
-      <button class="btn btn-ghost icon-btn" data-feature="notifications" data-allow-experimental="true" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg><span class="nv-unread" id="notifUnread" hidden></span></button>
+      <button class="btn btn-ghost icon-btn" data-feature="notifications" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg><span class="nv-unread" id="notifUnread" hidden></span></button>
       <button class="btn btn-ghost icon-btn" id="settingsBtnRepos" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <button class="theme-toggle" id="themeBtn" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
         <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
@@ -1325,7 +1325,7 @@
           renamed, and the filter beside it filters -- it no longer escalates
           into a cross-repository search on Enter.
         -->
-        <button class="btn nv-create-repo" id="newRepoBtnRepos" data-feature="repository.create" data-allow-experimental="true" aria-label="Create repository"><svg class="nv-planet" viewBox="0 0 24 24" aria-hidden="true"><ellipse class="nv-planet-ring" cx="9.6" cy="9.6" rx="8.5" ry="3.05"/><circle class="nv-planet-body" cx="9.6" cy="9.6" r="4.9"/><path class="nv-planet-plus" d="M18.7 15.8v5.4M16 18.5h5.4"/></svg><span>Create repository</span></button>
+        <button class="btn nv-create-repo" id="newRepoBtnRepos" data-feature="repository.create" aria-label="Create repository"><svg class="nv-planet" viewBox="0 0 24 24" aria-hidden="true"><ellipse class="nv-planet-ring" cx="9.6" cy="9.6" rx="8.5" ry="3.05"/><circle class="nv-planet-body" cx="9.6" cy="9.6" r="4.9"/><path class="nv-planet-plus" d="M18.7 15.8v5.4M16 18.5h5.4"/></svg><span>Create repository</span></button>
       </div>
     </div>
     <!--
@@ -1375,7 +1375,7 @@
     <div class="side-scrim" id="sideScrim" hidden></div>
     <aside class="side glass" id="side">
       <div class="side-head">
-        <input id="codeSearch" class="search-input small" type="search" data-feature="search" data-allow-experimental="true" placeholder="Search code…  ⏎">
+        <input id="codeSearch" class="search-input small" type="search" data-feature="search" placeholder="Search code…  ⏎">
         <button class="side-collapse hide-sm" id="filesCollapse" type="button" title="Hide files (Ctrl+B)" aria-label="Hide files" aria-controls="side"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6.5L9 12l5.5 5.5"/></svg></button>
       </div>
       <div class="side-actions">
@@ -1413,18 +1413,18 @@
       <nav class="tabs glass" id="deskTabs" aria-label="Repository sections">
         <span class="tab-group">
         <button class="tab active" data-tab="editor">Editor</button>
-        <button class="tab" data-tab="upload" data-feature="native-push" data-allow-experimental="true">Push files</button>
+        <button class="tab" data-tab="upload" data-feature="native-push">Push files</button>
         <button class="tab" data-tab="commits">Commits</button>
-        <button class="tab" data-feature="pulls.read" data-allow-experimental="true" data-tab="pulls">Pull requests</button>
-        <button class="tab" data-feature="issues.read" data-allow-experimental="true" data-tab="issues">Issues</button>
-        <button class="tab" data-feature="releases.read" data-allow-experimental="true" data-tab="releases">Releases</button>
-        <button class="tab" data-feature="workflows.read" data-allow-experimental="true" data-tab="actions">Actions</button>
-        <button class="tab" data-feature="recovery" data-allow-experimental="true" data-tab="compare">Compare</button>
+        <button class="tab" data-feature="pulls.read" data-tab="pulls">Pull requests</button>
+        <button class="tab" data-feature="issues.read" data-tab="issues">Issues</button>
+        <button class="tab" data-feature="releases.read" data-tab="releases">Releases</button>
+        <button class="tab" data-feature="workflows.read" data-tab="actions">Actions</button>
+        <button class="tab" data-feature="recovery" data-tab="compare">Compare</button>
         </span>
         <span class="tab-group tab-group-security" role="group" aria-label="Magnetar Sec">
         <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
-        <button class="tab" data-feature="governance" data-allow-experimental="true" data-tab="governance" id="govTabLabel">Governance</button>
-        <button class="tab" data-feature="exposure.scan" data-allow-experimental="true" data-tab="exposure" id="exposureTabLabel">Exposure</button>
+        <button class="tab" data-feature="governance" data-tab="governance" id="govTabLabel">Governance</button>
+        <button class="tab" data-feature="exposure.scan" data-tab="exposure" id="exposureTabLabel">Exposure</button>
         <button class="tab" data-feature="site-check" data-tab="audit" id="auditTabLabel">Audit</button>
         <button class="tab" data-feature="recovery" data-tab="safeguards" id="safeguardsTabLabel">Safeguards</button>
         </span>
@@ -1450,7 +1450,7 @@
               <button class="btn btn-ghost small" id="findBtn" title="Find in file" aria-label="Find in file"><svg class="ico" width="16" height="16" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
               <button class="btn btn-ghost small" id="diffBtn" title="Diff unsaved edits" aria-label="Diff unsaved edits" disabled><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M9 5h7M12.5 1.5V8.5M8 19h8M4 12.5h16"/></svg></button>
               <button class="btn btn-ghost small" id="fileHistoryBtn" title="File history" aria-label="File history"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.2V12l3.4 2"/></svg></button>
-              <button class="btn btn-ghost small" id="renameFileBtn" data-feature="file.rename" data-allow-experimental="true" title="Rename or move" aria-label="Rename or move file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4 12h13.5M13 6l6 6-6 6"/></svg></button>
+              <button class="btn btn-ghost small" id="renameFileBtn" data-feature="file.rename" title="Rename or move" aria-label="Rename or move file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4 12h13.5M13 6l6 6-6 6"/></svg></button>
               <button class="btn btn-ghost small danger" id="deleteFileBtn" title="Delete file" aria-label="Delete file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg></button>
               <button class="btn btn-ghost small" id="stageFileBtn" disabled>Stage</button>
               <button class="btn btn-primary small" id="commitFileBtn" disabled>Commit</button>
@@ -1487,7 +1487,7 @@
             <p class="dz-title">Drop files here, or <label class="dz-browse" for="filePicker">browse</label></p>
             <p class="dz-sub">Per-file limits are set by this deployment. Each queued file shows its upload route.</p>
             <p class="dz-sub">Smart sync: each file is <b>compared with the repo first</b> — unchanged files are skipped, changed ones are replaced, new ones are added.</p>
-            <div data-feature="lfs" data-allow-experimental="true" class="strategy-row">
+            <div data-feature="lfs" class="strategy-row">
               <span class="strategy"><b>Standard files</b><i>Git Data API</i></span>
               <span class="strategy"><b>Larger Git files</b><i>Native Git push</i></span>
               <span class="strategy glow"><b>LFS files</b><i>Git LFS ✦</i></span>
@@ -1496,13 +1496,13 @@
           </div>
           <div class="upload-opts">
             <span class="field-label" id="uploadModeLabel">Commit mode</span>
-            <div class="seg" data-feature="file.batch" data-allow-experimental="true" id="uploadMode" role="radiogroup" aria-labelledby="uploadModeLabel">
+            <div class="seg" data-feature="file.batch" id="uploadMode" role="radiogroup" aria-labelledby="uploadModeLabel">
               <button class="seg-btn active" data-v="single" role="radio" aria-checked="true">One commit per file</button>
               <button class="seg-btn" data-v="batch" role="radio" aria-checked="false">All as one commit</button>
             </div>
             <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-ghost small" data-feature="native-push" data-allow-experimental="true" id="folderPickBtn">Select a whole folder…</button>
-              <button class="btn btn-ghost small" data-feature="native-push" data-allow-experimental="true" id="zipUploadBtn">Upload a .zip (auto-extract)…</button>
+              <button class="btn btn-ghost small" data-feature="native-push" id="folderPickBtn">Select a whole folder…</button>
+              <button class="btn btn-ghost small" data-feature="native-push" id="zipUploadBtn">Upload a .zip (auto-extract)…</button>
             </div>
             <input type="file" id="folderPicker" webkitdirectory multiple hidden>
             <input type="file" id="zipPicker" accept=".zip,application/zip" hidden>
@@ -1514,7 +1514,7 @@
             <div class="seg" id="uploadTransport" role="radiogroup" aria-labelledby="uploadTransportLabel">
               <button class="seg-btn active" data-v="auto" role="radio" aria-checked="true">Automatic</button>
               <button class="seg-btn" data-v="git" role="radio" aria-checked="false">Git</button>
-              <button class="seg-btn" data-v="lfs" role="radio" aria-checked="false" data-feature="lfs" data-allow-experimental="true">Git LFS</button>
+              <button class="seg-btn" data-v="lfs" role="radio" aria-checked="false" data-feature="lfs">Git LFS</button>
             </div>
             <p class="hint" id="uploadTransportHint">Automatic chooses by size. Git and Git LFS are honoured whenever this deployment can carry the file that way; if one cannot, the other is used and the swap is named on the file.</p>
           </div>
@@ -1541,7 +1541,7 @@
             <button class="seg-btn" data-v="closed" role="radio" aria-checked="false">Closed</button>
             <button class="seg-btn" data-v="all" role="radio" aria-checked="false">All</button>
           </div>
-          <button class="btn btn-primary small" id="newPrBtn" data-feature="pulls.write" data-allow-experimental="true">New PR</button>
+          <button class="btn btn-primary small" id="newPrBtn" data-feature="pulls.write">New PR</button>
         </div>
         <div class="item-list" id="prList"></div>
         <div class="detail card" id="prDetail" hidden></div>
@@ -1554,7 +1554,7 @@
             <button class="seg-btn active" data-v="open" role="radio" aria-checked="true">Open</button>
             <button class="seg-btn" data-v="closed" role="radio" aria-checked="false">Closed</button>
           </div>
-          <button class="btn btn-primary small" id="newIssueBtn" data-feature="issues.write" data-allow-experimental="true">New issue</button>
+          <button class="btn btn-primary small" id="newIssueBtn" data-feature="issues.write">New issue</button>
         </div>
         <div class="item-list" id="issueList"></div>
         <div class="detail card" id="issueDetail" hidden></div>
@@ -1564,7 +1564,7 @@
       <div class="tabpane" id="tab-releases">
         <div class="list-toolbar">
           <span class="muted" style="font-size:.85rem">Tags & releases</span>
-          <button class="btn btn-primary small" id="newReleaseBtn" data-feature="releases.write" data-allow-experimental="true">New release</button>
+          <button class="btn btn-primary small" id="newReleaseBtn" data-feature="releases.write">New release</button>
         </div>
         <div class="item-list" id="releaseList"></div>
       </div>
@@ -1608,7 +1608,7 @@
               <p>Live topology for security, dependencies, protected assets, activity and recovery paths.</p>
             </div>
             <div class="neural-head-actions">
-              <button class="btn btn-ghost small neural-head-btn" id="neuralLiveBtn" data-feature="live-events" data-allow-experimental="true"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3.5 5.5 13.2H12l-1 7.3 7.5-9.7H12z"/></svg><span class="nh-long">Connect verified live events</span><span class="nh-short">Live events</span></button>
+              <button class="btn btn-ghost small neural-head-btn" id="neuralLiveBtn" data-feature="live-events"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3.5 5.5 13.2H12l-1 7.3 7.5-9.7H12z"/></svg><span class="nh-long">Connect verified live events</span><span class="nh-short">Live events</span></button>
               <button class="btn btn-ghost small neural-head-btn" id="neuralRefreshBtn"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 11a7.7 7.7 0 1 0-2.2 6.1M19.5 5.5V11H14"/></svg><span class="nh-long">Refresh data</span><span class="nh-short">Refresh</span></button>
               <button class="btn btn-primary small neural-head-btn neural-emergency-btn" id="neuralEmergencyBtn"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M12 8.2v4.6M12 15.6v.2"/></svg><span class="nh-long">Activate Emergency Shield</span><span class="nh-short">Shield</span></button>
             </div>
@@ -1627,8 +1627,8 @@
               <div class="neural-mode-list" id="neuralModeList">
                 <button class="neural-mode active" data-neural-mode="security"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.8" y="10.4" width="14.4" height="9.6" rx="2.2"/><path d="M8.4 10.4V7.7a3.6 3.6 0 0 1 7.2 0v2.7"/></svg></span><div><b>Security</b><small>Sessions, threats, workflows</small></div></button>
                 <button class="neural-mode" data-feature="recovery" data-neural-mode="recovery"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 12a7.4 7.4 0 1 0 2.2-5.3"/><path d="M4.6 5.9v5.2h5.2"/></svg></span><div><b>Recovery</b><small>Refs, tags and snapshots</small></div></button>
-                <button class="neural-mode" data-feature="dependency-audit" data-allow-experimental="true" data-neural-mode="dependencies"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l7.5 4.1v8.8L12 20.5l-7.5-4.1V7.6z"/><path d="M4.5 7.6l7.5 4.2 7.5-4.2M12 11.8v8.7"/></svg></span><div><b>Dependencies</b><small>Packages and CVEs</small></div></button>
-                <button class="neural-mode" data-feature="governance" data-allow-experimental="true" data-neural-mode="governance"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span><div><b>Policy surface</b><small>Protected assets and controls</small></div></button>
+                <button class="neural-mode" data-feature="dependency-audit" data-neural-mode="dependencies"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l7.5 4.1v8.8L12 20.5l-7.5-4.1V7.6z"/><path d="M4.5 7.6l7.5 4.2 7.5-4.2M12 11.8v8.7"/></svg></span><div><b>Dependencies</b><small>Packages and CVEs</small></div></button>
+                <button class="neural-mode" data-feature="governance" data-neural-mode="governance"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span><div><b>Policy surface</b><small>Protected assets and controls</small></div></button>
                 <button class="neural-mode" data-neural-mode="activity"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2.6M10.4 12h3.2M18.4 12H21"/><circle cx="8" cy="12" r="2.4"/><circle cx="16" cy="12" r="2.4"/></svg></span><div><b>Activity</b><small>Commits, PRs and CI</small></div></button>
               </div>
 
@@ -1644,7 +1644,7 @@
               <div class="neural-panel-title neural-filter-title">Response controls</div>
               <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralReadOnlyBtn">Enable read-only</button>
               <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralSnapshotBtn" data-feature="recovery">Capture recovery refs</button>
-              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralSecurityScanBtn" data-feature="dependency-audit" data-allow-experimental="true">Run dependency scan</button>
+              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralSecurityScanBtn" data-feature="dependency-audit">Run dependency scan</button>
               <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralExportBtn" data-feature="repository.read">Export activity</button>
             </aside>
 
@@ -1909,19 +1909,19 @@
       </button>
     </div>
     <p class="sheet-label">Repository</p>
-    <button class="sheet-item" data-feature="pulls.read" data-allow-experimental="true" data-act="pulls"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M7.5 6.8L3.8 10.5l3.7 3.7M3.8 10.5h12M16.5 17.2l3.7-3.7-3.7-3.7M20.2 13.5h-12"/></svg><span>Pull requests</span></button>
-    <button class="sheet-item" data-feature="issues.read" data-allow-experimental="true" data-act="issues"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg><span>Issues</span></button>
-    <button class="sheet-item" data-feature="releases.read" data-allow-experimental="true" data-act="releases"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M3.5 12L12 3.5h6.2a2.3 2.3 0 0 1 2.3 2.3V12L12 20.5 3.5 12z"/><circle cx="16" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg><span>Releases</span></button>
-    <button class="sheet-item" data-feature="workflows.read" data-allow-experimental="true" data-act="actions"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M10 8.6l5.6 3.4L10 15.4z"/></svg><span>Actions (CI)</span></button>
-    <button class="sheet-item" data-feature="recovery" data-allow-experimental="true" data-act="compare"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M8 3.5v17M8 3.5L4.5 7M8 3.5L11.5 7M16 20.5v-17M16 20.5L12.5 17M16 20.5l3.5-3.5"/></svg><span>Compare branches</span></button>
+    <button class="sheet-item" data-feature="pulls.read" data-act="pulls"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M7.5 6.8L3.8 10.5l3.7 3.7M3.8 10.5h12M16.5 17.2l3.7-3.7-3.7-3.7M20.2 13.5h-12"/></svg><span>Pull requests</span></button>
+    <button class="sheet-item" data-feature="issues.read" data-act="issues"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg><span>Issues</span></button>
+    <button class="sheet-item" data-feature="releases.read" data-act="releases"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M3.5 12L12 3.5h6.2a2.3 2.3 0 0 1 2.3 2.3V12L12 20.5 3.5 12z"/><circle cx="16" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg><span>Releases</span></button>
+    <button class="sheet-item" data-feature="workflows.read" data-act="actions"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M10 8.6l5.6 3.4L10 15.4z"/></svg><span>Actions (CI)</span></button>
+    <button class="sheet-item" data-feature="recovery" data-act="compare"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M8 3.5v17M8 3.5L4.5 7M8 3.5L11.5 7M16 20.5v-17M16 20.5L12.5 17M16 20.5l3.5-3.5"/></svg><span>Compare branches</span></button>
     <button class="sheet-item" data-feature="branches.write" data-act="branches"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg><span>Manage branches</span></button>
     <button class="sheet-item" data-feature="repository.read" data-act="zip"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5v11M6.5 9l5.5 5.5L17.5 9M4 20.5h16"/></svg><span>Download repo (.zip)</span></button>
-    <button class="sheet-item danger" data-feature="repository.delete" data-allow-experimental="true" data-act="delrepo"><svg class="ico" width="19" height="19" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg><span>Delete repository…</span></button>
+    <button class="sheet-item danger" data-feature="repository.delete" data-act="delrepo"><svg class="ico" width="19" height="19" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg><span>Delete repository…</span></button>
     <div class="sheet-div"></div>
     <p class="sheet-label">Magnetar Sec</p>
     <button class="sheet-item" data-feature="access-surface" data-act="neural"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="7" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="18" cy="18" r="1.7"/><circle cx="6" cy="18" r="1.7"/><path d="M7 8.3l3.2 2.3M14 10.2l3.4-2.8M14 13.5l2.7 3M9.9 13.6l-2.7 3"/></svg><span>Neural</span></button>
-    <button class="sheet-item" data-feature="governance" data-allow-experimental="true" data-act="governance"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg><span>Governance</span></button>
-    <button class="sheet-item" data-feature="exposure.scan" data-allow-experimental="true" data-act="exposure"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg><span>Exposure</span></button>
+    <button class="sheet-item" data-feature="governance" data-act="governance"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg><span>Governance</span></button>
+    <button class="sheet-item" data-feature="exposure.scan" data-act="exposure"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg><span>Exposure</span></button>
     <button class="sheet-item" data-feature="site-check" data-act="audit"><svg class="ico nv-audit-mark" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg><span>Audit</span></button>
     <button class="sheet-item" data-feature="site-check" data-act="site"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg><span>Website</span></button>
     <button class="sheet-item" data-feature="recovery" data-act="safeguards"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg><span>Safeguards</span></button>

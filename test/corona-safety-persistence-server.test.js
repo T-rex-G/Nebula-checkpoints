@@ -141,10 +141,10 @@ async function main() {
       console.log('Corona concurrent safety patch regressions passed');
     } finally { await safetyPool.end(); }
     const port = await freePort();
-    child = spawn(process.execPath, ['-r', './test/fixtures/corona-fetch.js', 'server.js'], {
+    child = spawn(process.execPath, ['-r', './test/fixtures/capability-promotion.js', '-r', './test/fixtures/corona-fetch.js', 'server.js'], {
       cwd: root,
       env: {
-        ...process.env, NODE_ENV: 'test', PORT: String(port), SESSION_SECRET: secret,
+        ...process.env, NODE_ENV: 'test', PORT: String(port), SESSION_SECRET: secret, NV_TEST_PROMOTE_CAPABILITIES: 'repository.create,repository.delete,notifications,live-events',
         DATABASE_URL: databaseUrl.toString(), NV_DB_INSECURE: '1', NV_ALPHA_ACCESS_MODE: 'off',
         NV_DEPLOYMENT_PROFILE: 'local', NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn',
         NV_ACCOUNT_OPERATIONS_LOG: providerLog, NV_CORONA_BARRIER: temporary

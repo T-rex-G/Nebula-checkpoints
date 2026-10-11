@@ -94,17 +94,17 @@ for (const [mutation, expectedText, verified] of [
 }
 
 /*
- * Read on the create control, which is the repositories screen's only action
- * since code search was removed from it. The reason is asserted by length
- * rather than by wording so the check stays about the gate being explained,
- * not about the sentence the registry happens to carry today.
+ * A capability the account cannot use is not offered: its control is not
+ * drawn, no Unavailable badge stands in for it, and the server still refuses
+ * it with its typed error. Repository creation is promoted for this scenario
+ * so the only reason it is missing is the account's limitation.
  */
-test('unavailable GitHub account capability is refused before interaction with a safe reason', async ({ page }) => {
-  await mockPublicAlphaApi(page, { access: 'active', capabilities: 'limited' });
+test('unavailable GitHub account capability is not drawn and is refused by the server', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', capabilities: 'limited', promote: ['repository.create'] });
   await page.goto('/');
-  await expect(page.locator('#newRepoBtnRepos')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('#newRepoBtnRepos')).toHaveAttribute('data-capability-reason', /.{12,}/);
-  await expect(page.locator('#newRepoBtnRepos + .capability-state')).toContainText('Unavailable');
+  await expect(page.locator('#newRepoBtnRepos')).toBeHidden();
+  await expect(page.locator('#newRepoBtnRepos + .capability-state')).toHaveCount(0);
+  await expect(page.locator('.capability-state', { hasText: /Experimental|Unavailable/ })).toHaveCount(0);
 });
 
 for (const [access, message] of [

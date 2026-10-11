@@ -197,19 +197,19 @@ function validateSemanticRepositorySurfaces(source) {
     ]],
     ['POST', '/api/repos', [
       'providerSessionAccess',
-      "capabilityAccess('repository.create', { allowExperimental: true })",
+      "capabilityAccess('repository.create')",
       'repositoryCreationAccess',
       'auth'
     ]],
     ['GET', '/api/search', [
       'providerSessionAccess',
-      "capabilityAccess('global-search', { allowExperimental: true })",
+      "capabilityAccess('global-search')",
       'githubSearchAccess',
       'auth'
     ]],
     ['GET', '/api/notifications', [
       'providerSessionAccess',
-      "capabilityAccess('notifications', { allowExperimental: true })",
+      "capabilityAccess('notifications')",
       'auth'
     ]],
     ['POST', '/api/security/step-up', [

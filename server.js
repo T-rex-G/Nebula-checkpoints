@@ -3282,10 +3282,10 @@ function providerCapabilities(account) {
   return { ...legacy, notif: resolveCapability(CAPABILITY_DOCUMENT, { ...context, feature: 'notifications' }).status !== 'Unavailable' };
 }
 
-function capabilityAccess(feature, options = {}) {
+function capabilityAccess(feature) {
   return function enforceCapability(req, res, next) {
     try {
-      req.capability = assertProviderCapability(req.gh, feature, options);
+      req.capability = assertProviderCapability(req.gh, feature);
       next();
     } catch (error) {
       res.status(error.status || 409).json({
@@ -3296,21 +3296,32 @@ function capabilityAccess(feature, options = {}) {
     }
   };
 }
-function providerCapabilityContext(account, feature, options = {}) {
+/*
+ * A capability only some of a route's requests use, checked before the body
+ * is read whenever the request asks for it; the handler still asserts it at
+ * the point of use for the requests that come to need it on their own.
+ */
+function capabilityAccessWhen(feature, applies) {
+  const check = capabilityAccess(feature);
+  return function enforceCapabilityWhen(req, res, next) {
+    if (!applies(req)) return next();
+    return check(req, res, next);
+  };
+}
+function providerCapabilityContext(account, feature) {
   return {
     provider: account && account.provider || 'github',
     authority: providerAuthority(account),
     deployment: DEPLOYMENT_PROFILE,
     feature,
     authMethod: account && account.authMethod,
-    tokenKind: githubTokenKind(account || {}),
-    allowExperimental: options.allowExperimental === true
+    tokenKind: githubTokenKind(account || {})
   };
 }
-function assertProviderCapability(account, feature, options = {}) {
+function assertProviderCapability(account, feature) {
   return assertCapabilityAvailable(
     CAPABILITY_DOCUMENT,
-    providerCapabilityContext(account, feature, options)
+    providerCapabilityContext(account, feature)
   );
 }
 function requestSupportsCapability(req, feature) {
@@ -3320,7 +3331,7 @@ function requestSupportsCapability(req, feature) {
   ).status === 'Supported';
 }
 function assertProviderBoundLfs(account) {
-  const context = providerCapabilityContext(account, 'lfs', { allowExperimental: true });
+  const context = providerCapabilityContext(account, 'lfs');
   if (context.provider !== 'github' || context.authority !== 'github.com') {
     throw new CapabilityError(
       'LFS is not qualified for this provider and deployment.',
@@ -4431,7 +4442,7 @@ app.get('/api/me', accountAuth, async (req, res) => {
     res.json({ ...out, provider, authMethod: req.gh.authMethod || 'token', caps: providerCapabilities(req.gh), offlineCacheScope: offlineCacheScope(req), release: APP_VERSION });
   } catch (e) { fail(res, e); }
 });
-app.get('/api/rate', auth, capabilityAccess('rate.read', { allowExperimental: true }), async (req, res) => {
+app.get('/api/rate', auth, capabilityAccess('rate.read'), async (req, res) => {
   try {
     const r = await gh(req.gh, '/rate_limit');
     res.json({ remaining: r.resources.core.remaining, limit: r.resources.core.limit, reset: r.resources.core.reset });
@@ -4493,21 +4504,21 @@ async function governanceRepositoryFacts(req) {
 }
 
 /* ================= GOVERNANCE API (Phase 1 Tasks 6-8) ================= */
-app.get('/api/repo/:owner/:repo/governance/templates', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/templates', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const templates = await req.governance.service.listPolicyTemplates({ scope: req.governance.scope, authorization: req.governance.authorization });
     res.json({ templates });
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/templates/:templateId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/templates/:templateId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const template = await req.governance.service.getPolicyTemplate({ scope: req.governance.scope, authorization: req.governance.authorization, templateId: req.params.templateId });
     res.json({ template });
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.post('/api/repo/:owner/:repo/governance/baselines/generate', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/governance/baselines/generate', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), capabilityAccess('branches.read'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const repositoryFacts = await governanceRepositoryFacts(req);
     const baseline = await req.governance.service.generateRepositoryBaseline({
@@ -4520,7 +4531,7 @@ app.post('/api/repo/:owner/:repo/governance/baselines/generate', providerSession
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/digital-twin', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/digital-twin', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const digitalTwin = await req.governance.service.getPolicyDigitalTwin({
       scope: req.governance.scope,
@@ -4534,7 +4545,7 @@ app.get('/api/repo/:owner/:repo/governance/digital-twin', providerSessionAccess,
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/notifications/preferences', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/notifications/preferences', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const preferences = await req.governance.service.getNotificationPreferences({ scope: req.governance.scope, authorization: req.governance.authorization });
     res.json({ preferences });
@@ -4551,7 +4562,7 @@ app.put('/api/repo/:owner/:repo/governance/notifications/preferences', providerS
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/notifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/notifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const notifications = await req.governance.service.listNotifications({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4571,7 +4582,7 @@ app.post('/api/repo/:owner/:repo/governance/notifications/read', providerSession
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/webhooks', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('administrator'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/webhooks', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), async (req, res) => {
   try {
     const webhooks = await req.governance.service.listWebhooks({ scope: req.governance.scope, authorization: req.governance.authorization });
     res.json({ webhooks });
@@ -4618,7 +4629,7 @@ app.delete('/api/repo/:owner/:repo/governance/webhooks/:webhookId', providerSess
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('administrator'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), async (req, res) => {
   try {
     const deliveries = await req.governance.service.listWebhookDeliveries({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4628,7 +4639,7 @@ app.get('/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries', prov
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exports', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exports', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const exports = await req.governance.service.listEvidenceExports({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -4647,7 +4658,7 @@ app.post('/api/repo/:owner/:repo/governance/exports', providerSessionAccess, alp
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exports/:exportId/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exports/:exportId/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const verification = await req.governance.service.verifyEvidenceExport({
       scope: req.governance.scope, authorization: req.governance.authorization, exportId: req.params.exportId
@@ -4656,7 +4667,7 @@ app.get('/api/repo/:owner/:repo/governance/exports/:exportId/verify', providerSe
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exports/:exportId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exports/:exportId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const evidenceExport = await req.governance.service.getEvidenceExport({
       scope: req.governance.scope, authorization: req.governance.authorization, exportId: req.params.exportId
@@ -4666,7 +4677,7 @@ app.get('/api/repo/:owner/:repo/governance/exports/:exportId', providerSessionAc
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const policies = await req.governance.service.listPolicies({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -4675,7 +4686,7 @@ app.get('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, alp
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/decisions/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/decisions/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const verification = await req.governance.service.verifyPolicyDecisionChain({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -4684,7 +4695,7 @@ app.get('/api/repo/:owner/:repo/governance/decisions/verify', providerSessionAcc
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/decisions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/decisions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const result = await req.governance.service.listPolicyDecisions({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit, afterSeq: req.query.afterSeq, beforeSeq: req.query.beforeSeq
@@ -4703,7 +4714,7 @@ app.post('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, al
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const policy = await req.governance.service.getPolicy({
       scope: req.governance.scope, authorization: req.governance.authorization, policyId: req.params.policyId
@@ -4733,7 +4744,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/drafts', provider
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('author'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('author'), async (req, res) => {
   try {
     const draft = await req.governance.service.getDraft({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4775,7 +4786,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/s
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const versions = await req.governance.service.listVersions({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4785,7 +4796,7 @@ app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions', provide
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const version = await req.governance.service.getVersion({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4805,7 +4816,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const review = await req.governance.service.getReviewState({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4837,7 +4848,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const exceptions = await req.governance.service.listExceptions({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4858,7 +4869,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exceptions/:exceptionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exceptions/:exceptionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const exception = await req.governance.service.getException({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4920,7 +4931,7 @@ function exposureFailure(res, error) {
   res.status(status).json(publicErrorBody(error));
 }
 
-app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.scan.request'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.scan.request'), async (req, res) => {
   try {
     const store = exposureService();
     /*
@@ -4954,7 +4965,7 @@ app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRe
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const scan = await exposureService().getScan({
       scope: req.governance.scope,
@@ -4971,7 +4982,7 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, 
  * how many findings of each severity it recorded. Paged by the last row seen,
  * so a scan finishing mid-page does not shift the next page.
  */
-app.get('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -5005,7 +5016,7 @@ app.get('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRep
  * survives, so clearing the evidence of a decision never clears the evidence
  * of the clear.
  */
-app.post('/api/repo/:owner/:repo/exposure/clear', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.history.clear'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/clear', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.history.clear'), async (req, res) => {
   try {
     /* The same explicit word as the other irreversible actions, refused
        before anything is touched. */
@@ -5024,7 +5035,7 @@ app.post('/api/repo/:owner/:repo/exposure/clear', providerSessionAccess, alphaRe
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.scan.cancel'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.scan.cancel'), async (req, res) => {
   try {
     const scan = await exposureService().cancelScan({
       scope: req.governance.scope,
@@ -5084,7 +5095,7 @@ function exposureSeverityOf(rule) {
   return entry ? entry.severity : 'serious';
 }
 
-app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -5110,7 +5121,7 @@ app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alpha
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     /*
      * A scan's report: each observation with the finding it is about, so a
@@ -5165,7 +5176,7 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSe
  * is a weaker claim than "erased" and it is the true one: a JavaScript string
  * cannot be wiped, so what is promised is that no copy is kept.
  */
-app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.credential.verify'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('administrator'), governanceMutationContext('exposure.credential.verify'), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -5270,7 +5281,7 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', provide
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const verifications = await exposureService().listVerifications({
       scope: req.governance.scope,
@@ -5301,7 +5312,7 @@ app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', p
  * database, and the grant is signed over exactly what was named so the prober
  * cannot be asked for anything else.
  */
-app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.readability.probe'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('administrator'), governanceMutationContext('exposure.readability.probe'), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -5429,7 +5440,7 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readabilit
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const probes = await exposureService().listReadabilityProbes({
       scope: req.governance.scope,
@@ -5459,7 +5470,7 @@ app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probe
  * cannot wave away their own finding, and a governance administrator who does
  * has their name on it.
  */
-app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.finding.accept-risk'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('administrator'), governanceMutationContext('exposure.finding.accept-risk'), async (req, res) => {
   try {
     const finding = await exposureService().acceptRisk({
       scope: req.governance.scope,
@@ -5483,7 +5494,7 @@ app.post('/api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke', pro
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/activations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/activations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const activations = await req.governance.service.listActivationHistory({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -5520,7 +5531,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
  * once here, where the request is refused before any work is done, and again
  * in the service, which does not trust that it was only ever called from here.
  */
-app.get('/api/repo/:owner/:repo/governance/archive', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/archive', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const policies = await req.governance.service.listArchivedPolicies({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -5629,7 +5640,7 @@ app.get('/api/repos', providerSessionAccess, alphaRepositoryListAccess, capabili
     res.json(await listRepositoriesFor(req, req.query));
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.create', { allowExperimental: true }), repositoryCreationAccess, auth, mutationContext('repository.create'), async (req, res) => {
+app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.create'), repositoryCreationAccess, auth, mutationContext('repository.create'), async (req, res) => {
   try {
     const result = await createVerifiedRepository((route, options) => gh(req.gh, route, options), req.gh, req.body);
     res.status(201).json(result);
@@ -5646,7 +5657,7 @@ function repositoryPermission(info) {
   if (!permissions || typeof permissions !== 'object') return 'unknown';
   return permissions.admin ? 'admin' : permissions.maintain ? 'maintain' : permissions.push ? 'write' : permissions.triage ? 'triage' : permissions.pull ? 'read' : 'none';
 }
-app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), capabilityAccess('branches.read'), auth, async (req, res) => {
   try {
     const [info, branches] = await Promise.all([
       gh(req.gh, R(req)),
@@ -5663,7 +5674,7 @@ app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, 
   } catch (e) { fail(res, e); }
 });
 /* delete repository (requires PAT with delete_repo scope or OAuth) */
-app.delete('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.delete', { allowExperimental: true }), repositoryDeletionConfirmation, auth, mutationContext('repository.delete'), async (req, res) => {
+app.delete('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.delete'), repositoryDeletionConfirmation, auth, mutationContext('repository.delete'), async (req, res) => {
   try {
     await verifyRepositoryDeletion((route, options) => gh(req.gh, route, options), `${req.params.owner}/${req.params.repo}`, req.gh);
     await gh(req.gh, R(req), { method: 'DELETE' });
@@ -5711,7 +5722,7 @@ app.delete('/api/repo/:owner/:repo/branches/:name', providerSessionAccess, alpha
   } catch (e) { fail(res, e); }
 });
 /* compare two refs */
-app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     const { base, head } = req.query;
     const c = await gh(req.gh,
@@ -5725,7 +5736,7 @@ app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepository
 });
 
 /* ================= TREE / FILES ================= */
-app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read'), auth, async (req, res) => {
   try {
     const p = req.query.path ? requireRepoPath(req.query.path) : '';
     const items = await gh(req.gh,
@@ -5736,7 +5747,7 @@ app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAcc
   } catch (e) { fail(res, e); }
 });
 /* flat recursive file list (for command-palette fuzzy finder) */
-app.get('/api/repo/:owner/:repo/files', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/files', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read'), capabilityAccess('branches.read'), auth, async (req, res) => {
   try {
     const ref = req.query.ref;
     const br = await gh(req.gh, `${R(req)}/branches/${encodeURIComponent(ref)}`);
@@ -5883,7 +5894,7 @@ app.delete('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepository
   } catch (e) { fail(res, e); }
 });
 /* rename/move (any size — reuses blob sha, no re-upload) */
-app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.rename', { allowExperimental: true }), auth, mutationContext('file.rename'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.rename'), auth, mutationContext('file.rename'), async (req, res) => {
   try {
     let { from, to, branch, message, expectedHeadSha } = req.body || {};
     if (!from || !to || !branch) return res.status(400).json({ error: 'from, to, branch required' });
@@ -5914,7 +5925,7 @@ app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepository
   } catch (e) { fail(res, e); }
 });
 /* batch: commit many staged operations atomically */
-app.post('/api/repo/:owner/:repo/batch', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.batch', { allowExperimental: true }), auth, mutationContext('file.batch'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/batch', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.batch'), auth, mutationContext('file.batch'), async (req, res) => {
   try {
     let { branch, message, ops, expectedHeadSha } = req.body || {};
     if (!branch || !Array.isArray(ops) || !ops.length) return res.status(400).json({ error: 'branch and ops required' });
@@ -6057,7 +6068,7 @@ app.post('/api/repo/:owner/:repo/restore-paths', providerSessionAccess, alphaRep
   } catch (e) { fail(res, e); }
 });
 /* Snapshot: the full file listing of the repo as it existed at a commit */
-app.get('/api/repo/:owner/:repo/snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     let sha = req.query.sha;
     if (!sha) return res.status(400).json({ error: 'sha required' });
@@ -6092,7 +6103,7 @@ app.post('/api/repo/:owner/:repo/reset', providerSessionAccess, alphaRepositoryA
 });
 
 /* ================= SEARCH ================= */
-app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('search', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('search'), auth, async (req, res) => {
   try {
     /*
      * The repository is the server's to name. The query used to be the
@@ -6131,7 +6142,7 @@ async function enforceProtectedPullMerge(req, number) {
 }
 
 /* ================= PULL REQUESTS ================= */
-app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read'), auth, async (req, res) => {
   try {
     const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
     const pulls = await gh(req.gh, `${R(req)}/pulls?state=${state}&per_page=30&sort=updated&direction=desc`);
@@ -6142,7 +6153,7 @@ app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAc
     })));
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read'), auth, async (req, res) => {
   try {
     const [p, files] = await Promise.all([
       gh(req.gh, `${R(req)}/pulls/${req.params.num}`),
@@ -6158,7 +6169,7 @@ app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaReposit
     });
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.create'), async (req, res) => {
   try {
     const { title, head, base, body, draft } = req.body || {};
     if (!title || !head || !base) return res.status(400).json({ error: 'title, head, base required' });
@@ -6168,7 +6179,7 @@ app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryA
     res.json({ ok: true, number: p.number });
   } catch (e) { fail(res, e); }
 });
-app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.merge'), async (req, res) => {
+app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.merge'), async (req, res) => {
   try {
     const method = ['merge', 'squash', 'rebase'].includes(req.body && req.body.method) ? req.body.method : 'merge';
     /*
@@ -6199,7 +6210,7 @@ app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaR
 });
 
 /* ================= ISSUES ================= */
-app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read'), auth, async (req, res) => {
   try {
     const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
     const issues = await gh(req.gh, `${R(req)}/issues?state=${state}&per_page=30&sort=updated`);
@@ -6211,7 +6222,7 @@ app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryA
     })));
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read'), auth, async (req, res) => {
   try {
     const [i, comments] = await Promise.all([
       gh(req.gh, `${R(req)}/issues/${req.params.num}`),
@@ -6225,7 +6236,7 @@ app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaReposi
     });
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write', { allowExperimental: true }), auth, mutationContext('issue.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.create'), async (req, res) => {
   try {
     const { title, body } = req.body || {};
     if (!title) return res.status(400).json({ error: 'title required' });
@@ -6233,7 +6244,7 @@ app.post('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepository
     res.json({ ok: true, number: i.number });
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write', { allowExperimental: true }), auth, mutationContext('issue.comment'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.comment'), async (req, res) => {
   try {
     const { body } = req.body || {};
     if (!body) return res.status(400).json({ error: 'body required' });
@@ -6241,7 +6252,7 @@ app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, a
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
-app.patch('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write', { allowExperimental: true }), auth, mutationContext('issue.update'), async (req, res) => {
+app.patch('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.update'), async (req, res) => {
   try {
     const state = req.body && req.body.state === 'closed' ? 'closed' : 'open';
     await gh(req.gh, `${R(req)}/issues/${req.params.num}`, { method: 'PATCH', body: { state } });
@@ -6250,33 +6261,33 @@ app.patch('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepo
 });
 
 /* ================= NOTIFICATIONS / STAR / REVIEWS / GLOBAL SEARCH ================= */
-app.get('/api/notifications', providerSessionAccess, capabilityAccess('notifications', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/notifications', providerSessionAccess, capabilityAccess('notifications'), auth, async (req, res) => {
   try {
     const repositories = ALPHA_CONFIG.enabled ? githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes) : null;
     res.setHeader('Cache-Control', 'private, no-store');
     res.json(await listAccessibleNotifications(route => gh(req.gh, route), repositories));
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.read'), auth, async (req, res) => {
   if (req.gh.authMethod === 'github-app') return res.json({ starred: false, unsupported: true });
   try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`); res.json({ starred: true }); }
   catch (e) { if (e.status === 404) return res.json({ starred: false }); fail(res, e); }
 });
-app.put('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write', { allowExperimental: true }), auth, mutationContext('repository.star'), async (req, res) => {
+app.put('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write'), auth, mutationContext('repository.star'), async (req, res) => {
   if (req.gh.authMethod === 'github-app') return res.status(403).json({
     error: 'GitHub App installations cannot manage user stars', code: 'GITHUB_APP_CAPABILITY_UNAVAILABLE'
   });
   try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`, { method: 'PUT' }); res.json({ ok: true, starred: true }); }
   catch (e) { fail(res, e); }
 });
-app.delete('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write', { allowExperimental: true }), auth, mutationContext('repository.unstar'), async (req, res) => {
+app.delete('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write'), auth, mutationContext('repository.unstar'), async (req, res) => {
   if (req.gh.authMethod === 'github-app') return res.status(403).json({
     error: 'GitHub App installations cannot manage user stars', code: 'GITHUB_APP_CAPABILITY_UNAVAILABLE'
   });
   try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`, { method: 'DELETE' }); res.json({ ok: true, starred: false }); }
   catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.review'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.review'), async (req, res) => {
   try {
     const event = ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'].includes(req.body && req.body.event) ? req.body.event : 'COMMENT';
     const text = String((req.body && req.body.body) || '');
@@ -6287,7 +6298,7 @@ app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alp
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read'), auth, async (req, res) => {
   try {
     if (!/^\d{1,20}$/.test(String(req.params.runId))) return res.status(400).json({ error: 'Invalid workflow run id', code: 'WORKFLOW_RUN_INVALID' });
     const out = await gh(req.gh, `${R(req)}/actions/runs/${req.params.runId}/jobs?per_page=20`);
@@ -6297,7 +6308,7 @@ app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alp
     })));
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.rerun', { allowExperimental: true }), auth, mutationContext('workflow.rerun'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.rerun'), auth, mutationContext('workflow.rerun'), async (req, res) => {
   try {
     /* A run id is a number; anything else would be a path segment. */
     if (!/^\d{1,20}$/.test(String(req.params.runId))) return res.status(400).json({ error: 'Invalid workflow run id', code: 'WORKFLOW_RUN_INVALID' });
@@ -6305,7 +6316,7 @@ app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, a
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
-app.get('/api/search', providerSessionAccess, capabilityAccess('global-search', { allowExperimental: true }), githubSearchAccess, auth, async (req, res) => {
+app.get('/api/search', providerSessionAccess, capabilityAccess('global-search'), githubSearchAccess, auth, async (req, res) => {
   try {
     const repositories = ALPHA_CONFIG.enabled ? githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes) : null;
     res.setHeader('Cache-Control', 'private, no-store');
@@ -6314,7 +6325,7 @@ app.get('/api/search', providerSessionAccess, capabilityAccess('global-search', 
 });
 
 /* ================= ACTIONS (CI) ================= */
-app.get('/api/repo/:owner/:repo/actions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/actions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read'), auth, async (req, res) => {
   try {
     const branch = req.query.branch ? `&branch=${encodeURIComponent(req.query.branch)}` : '';
     const out = await gh(req.gh, `${R(req)}/actions/runs?per_page=25${branch}`);
@@ -6328,7 +6339,7 @@ app.get('/api/repo/:owner/:repo/actions', providerSessionAccess, alphaRepository
 });
 
 /* ================= RELEASES ================= */
-app.get('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.read'), auth, async (req, res) => {
   try {
     const rel = await gh(req.gh, `${R(req)}/releases?per_page=20`);
     res.json(rel.map(r => ({
@@ -6338,7 +6349,7 @@ app.get('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositor
     })));
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.write', { allowExperimental: true }), auth, mutationContext('release.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.write'), auth, mutationContext('release.create'), async (req, res) => {
   try {
     const { tag, name, body, target, prerelease } = req.body || {};
     if (!tag) return res.status(400).json({ error: 'tag required' });
@@ -6494,7 +6505,7 @@ async function uploadViaGitPush(acct, owner, repo, branch, p, tmp, message, expe
 }
 
 /* create a git blob from a raw stream (for batch commits) — returns its sha */
-app.post('/api/repo/:owner/:repo/blob', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('native-push', { allowExperimental: true }), capabilityAccess('upload-security'), auth, mutationContext('git.blob.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/blob', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('native-push'), capabilityAccess('upload-security'), auth, mutationContext('git.blob.create'), async (req, res) => {
   const tmp = path.join(os.tmpdir(), 'nv-' + crypto.randomBytes(8).toString('hex'));
   let release = () => {};
   try {
@@ -6518,7 +6529,7 @@ app.post('/api/repo/:owner/:repo/blob', providerSessionAccess, alphaRepositoryAc
 /* ============================================================
    SMART UPLOAD ROUTER (raw stream body) — the headline feature
    ============================================================ */
-app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('native-push', { allowExperimental: true }), capabilityAccess('upload-security'), auth, mutationContext('file.upload'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('native-push'), capabilityAccess('upload-security'), capabilityAccessWhen('lfs', req => normalizeTransportChoice(req.query.lfs) === 'lfs'), auth, mutationContext('file.upload'), async (req, res) => {
   const { owner, repo } = req.params;
   let p = req.query.path, branch = req.query.branch;
   const message = req.query.message || `Upload ${p} via ${PRODUCT_NAME}`;
@@ -6803,7 +6814,7 @@ async function commitTree(token, owner, repo, branch, message, treeEntries, expe
   return commit.sha;
 }
 
-app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('folder.move', { allowExperimental: true }), auth, mutationContext('directory.move'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('folder.move'), auth, mutationContext('directory.move'), async (req, res) => {
   try {
     const { owner, repo } = req.params;
     let { from, to, branch, message, expectedHeadSha } = req.body || {};
@@ -7045,7 +7056,7 @@ async function captureRefsSnapshot(req, includeManifest) {
   };
 }
 
-app.get('/api/repo/:owner/:repo/refs-snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/refs-snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth, async (req, res) => {
   try { res.json(await captureRefsSnapshot(req, req.query.manifest === '1')); }
   catch (e) { fail(res, e); }
 });
@@ -7075,7 +7086,7 @@ async function snapshotComparisonForRequest(req, snapshot) {
   return { baseline, current, comparison: compareSnapshots(baseline, current) };
 }
 
-app.post('/api/repo/:owner/:repo/snapshot-compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.post('/api/repo/:owner/:repo/snapshot-compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     const result = await snapshotComparisonForRequest(req, req.body && req.body.snapshot);
     res.json({
@@ -7087,7 +7098,7 @@ app.post('/api/repo/:owner/:repo/snapshot-compare', providerSessionAccess, alpha
   } catch (e) { fail(res, e); }
 });
 
-app.post('/api/repo/:owner/:repo/restore-preview', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.post('/api/repo/:owner/:repo/restore-preview', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     const result = await snapshotComparisonForRequest(req, req.body && req.body.snapshot);
     const currentByName = new Map((result.current.refs || []).map(ref => [ref.name, ref]));
@@ -7159,7 +7170,7 @@ app.post('/api/repo/:owner/:repo/signed-snapshot', providerSessionAccess, alphaR
   } catch (e) { fail(res, e); }
 });
 
-app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
+app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth, async (req, res) => {
   try {
     if (String(req.body && req.body.confirm || '').toUpperCase() !== 'FREEZE') {
       return res.status(400).json({ error: 'Type FREEZE to confirm emergency containment' });
@@ -7238,7 +7249,7 @@ app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alp
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     if (!(await dbReady())) return res.json({ available: false, snapshots: [] });
     const r = await pool().query(
@@ -8025,7 +8036,7 @@ app.get('/api/repo/:owner/:repo/site-check', providerSessionAccess, alphaReposit
  * safeguards. Read-only: every path and every judgement is in
  * src/branch-protection.js; this binds its reader to the open repository.
  */
-app.get('/api/repo/:owner/:repo/branch-protection', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/branch-protection', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
     const provider = req.gh.provider || 'github';
@@ -8036,7 +8047,7 @@ app.get('/api/repo/:owner/:repo/branch-protection', providerSessionAccess, alpha
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit'), auth, async (req, res) => {
   try {
     const branch = req.query.ref || '';
     const found = [], sources = [];
@@ -8129,7 +8140,7 @@ function guessMime(p) {
 }
 
 /* ================= LIVE INTELLIGENCE + EVIDENCE (v5.2) ================= */
-app.get('/api/repo/:owner/:repo/live-events/status', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/live-events/status', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, async (req, res) => {
   try {
     if ((req.gh.provider || 'github') !== 'github') return res.json({ available: false, connected: false, reason: 'GitHub-only in v5.2' });
     if (!(await dbReady())) return res.json({ available: false, connected: false, reason: 'Connect the existing Neon DATABASE_URL to persist verified events' });
@@ -8154,7 +8165,7 @@ async function removeOrphanedProviderHook(acct, req, providerHookId) {
   }
 }
 
-app.post('/api/repo/:owner/:repo/live-events/connect', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, mutationContext('webhook.connect'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/live-events/connect', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, mutationContext('webhook.connect'), async (req, res) => {
   try {
     if ((req.gh.provider || 'github') !== 'github') return res.status(501).json({ error: 'Verified live events are GitHub-only in v5.2' });
     if (!(await dbReady())) return res.status(503).json({ error: 'Live events require the existing Neon DATABASE_URL' });
@@ -8245,7 +8256,7 @@ app.post('/api/repo/:owner/:repo/live-events/connect', providerSessionAccess, al
   } catch (e) { fail(res, e); }
 });
 
-app.delete('/api/repo/:owner/:repo/live-events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, mutationContext('webhook.disconnect'), async (req, res) => {
+app.delete('/api/repo/:owner/:repo/live-events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, mutationContext('webhook.disconnect'), async (req, res) => {
   try {
     if (!(await dbReady())) return res.status(503).json({ error: 'Live event storage is unavailable' });
     const key = identityKey(req.gh);
@@ -8366,7 +8377,7 @@ app.delete('/api/repo/:owner/:repo/live-events', providerSessionAccess, alphaRep
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/intelligence/events', providerSessionAccess, alphaRepositoryAccess, auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/intelligence/events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, async (req, res) => {
   try {
     if (!(await dbReady())) return res.json({ available: false, events: [], hasMore: false, truncatedBefore: false, cursor: '' });
     const limit = Math.min(Math.max(parseInt(req.query.limit || '200', 10) || 200, 1), 500);
@@ -8397,7 +8408,7 @@ app.get('/api/repo/:owner/:repo/intelligence/events', providerSessionAccess, alp
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/live-events/stream', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/live-events/stream', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, async (req, res) => {
   const key = liveStreamKey(req.gh.provider || 'github', req.params.owner, req.params.repo, identityKey(req.gh));
   const scopedClients = LIVE_CLIENTS.get(key);
   if (!canAcceptLiveClient(liveClientCount(), scopedClients ? scopedClients.size : 0, MAX_LIVE_CLIENTS_TOTAL, MAX_LIVE_CLIENTS_PER_KEY)) {
@@ -8462,7 +8473,7 @@ data: ${JSON.stringify({ repository: `${req.params.owner}/${req.params.repo}`, a
   });
 });
 
-app.get('/api/repo/:owner/:repo/evidence', providerSessionAccess, alphaRepositoryAccess, auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/evidence', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, async (req, res) => {
   try {
     const identity = identityKey(req.gh);
     const key = scopedEvidenceKey(req.gh.provider || 'github', req.params.owner, req.params.repo, identity);

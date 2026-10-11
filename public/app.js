@@ -867,7 +867,6 @@ function paintFloatingAction(name) {
      * and offered here would be an action with no gate at all.
      */
     if (item.control.dataset.feature) entry.dataset.feature = item.control.dataset.feature;
-    if (item.control.dataset.allowExperimental) entry.dataset.allowExperimental = item.control.dataset.allowExperimental;
     const mark = item.control.querySelector('svg');
     if (mark) {
       const copy = mark.cloneNode(true);
@@ -1690,16 +1689,15 @@ async function loadProviderCapabilities() {
   ) || (provider === 'github' ? 'github.com' : '');
   await window.NebulaCapabilityUI.load(provider, authority, { connected: !!state.me });
   window.NebulaCapabilityUI.apply();
-  applyGovernanceCapabilityBoundary($('#govRoot'));
 }
-function runCapabilityAction(feature, action, options = {}) {
+function runCapabilityAction(feature, action) {
   if (!feature) {
     action();
     return true;
   }
   const resolved = window.NebulaCapabilityUI.decision(feature);
-  const blocked = resolved.status === 'Unavailable'
-    || (resolved.status === 'Experimental' && options.allowExperimental !== true);
+  /* Only what is Supported runs. There is no opt-in for anything less. */
+  const blocked = resolved.status !== 'Supported';
   if (blocked) {
     toast(window.NebulaCapabilityUI.explain(feature), 'err');
     return false;
@@ -3240,50 +3238,6 @@ function downloadZip() {
 const wPath = () => `${state.work.owner}/${state.work.repo}`;
 
 let governanceExpiryTimer = null;
-const GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS = Object.freeze([
-  'refresh', 'select-policy', 'view-version', 'view-exception', 'verify-chain',
-  'load-more-decisions', 'delivery-refresh', 'download-export', 'verify-export',
-  'ledger-tab', 'ledger-filter', 'ledger-more', 'ledger-clear', 'ledger-show-cleared', 'inbox-more', 'inbox-show-read', 'exports-all'
-]);
-function applyGovernanceCapabilityBoundary(root) {
-  if (!root) return;
-  const banner = root.querySelector('[data-governance-experimental-banner]');
-  if (!window.NebulaCapabilityUI ||
-      window.NebulaCapabilityUI.decision('governance').status !== 'Experimental') {
-    if (banner) banner.remove();
-    root.querySelectorAll('[data-governance-experimental-disabled="true"]').forEach(button => {
-      button.disabled = button.dataset.governanceOriginalDisabled === 'true';
-      const originalTitle = button.dataset.governanceOriginalTitle || '';
-      if (originalTitle) button.title = originalTitle;
-      else button.removeAttribute('title');
-      delete button.dataset.governanceExperimentalDisabled;
-      delete button.dataset.governanceOriginalDisabled;
-      delete button.dataset.governanceOriginalTitle;
-    });
-    return;
-  }
-  const shell = root.querySelector('.gov-shell');
-  if (shell && !banner) {
-    const notice = document.createElement('div');
-    notice.className = 'gov-banner warn';
-    notice.setAttribute('role', 'status');
-    notice.dataset.governanceExperimentalBanner = 'true';
-    notice.textContent = 'Experimental provider governance is view-only; mutations remain unavailable.';
-    const hero = shell.querySelector('.gov-hero');
-    if (hero) hero.insertAdjacentElement('afterend', notice);
-    else shell.prepend(notice);
-  }
-  root.querySelectorAll('[data-gov-action]').forEach(button => {
-    if (GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS.includes(button.dataset.govAction)) return;
-    if (button.dataset.governanceExperimentalDisabled !== 'true') {
-      button.dataset.governanceOriginalDisabled = String(button.disabled);
-      button.dataset.governanceOriginalTitle = button.getAttribute('title') || '';
-    }
-    button.dataset.governanceExperimentalDisabled = 'true';
-    button.disabled = true;
-    button.title = 'Unavailable: experimental governance is view-only for this provider.';
-  });
-}
 function clearGovernanceState() {
   if (governanceExpiryTimer) clearTimeout(governanceExpiryTimer);
   governanceExpiryTimer = null;
@@ -4997,7 +4951,6 @@ function renderGovernanceInterface() {
     delivery: state.governance.delivery,
     archived: state.governance.archived
   });
-  applyGovernanceCapabilityBoundary(root);
 }
 async function loadGovernanceTwin(force = false) {
   if (!state.work || !state.work.owner || !state.work.repo || state.governance.loading) return;
@@ -5755,9 +5708,9 @@ function openItemMenu(it) {
     title: it.name + (isDir ? '/' : ''), okText: 'Close',
     bodyHTML: `
       ${isDir ? '' : `<button class="btn btn-ghost btn-block" data-mi="open" style="margin-top:0">Open in editor</button>
-      <button class="btn btn-ghost btn-block" data-mi="rename" data-feature="file.rename" data-allow-experimental="true">Rename / move</button>
+      <button class="btn btn-ghost btn-block" data-mi="rename" data-feature="file.rename">Rename / move</button>
       <button class="btn btn-ghost btn-block" data-mi="download">Download</button>`}
-      ${isDir ? '<button class="btn btn-ghost btn-block" data-mi="movedir" data-feature="folder.move" data-allow-experimental="true">Rename / move folder…</button>'
+      ${isDir ? '<button class="btn btn-ghost btn-block" data-mi="movedir" data-feature="folder.move">Rename / move folder…</button>'
         : `<button class="btn btn-ghost btn-block" data-mi="protect">${isProtectedPath(it.path) ? 'Unprotect file' : 'Protect file'}</button>`}
       <button class="btn btn-ghost btn-block danger" data-mi="delete" ${isDir ? 'style="margin-top:0"' : ''}>${isDir ? 'Delete folder…' : 'Delete file…'}</button>`
   });
@@ -6870,14 +6823,14 @@ async function renderSafeguards() {
       <span class="sg-switch-text"><span class="sg-switch-title">${title}</span><span class="sg-switch-sub">${text}</span></span>
       <input type="checkbox" role="switch" class="sg-switch" id="${id}" ${on ? 'checked' : ''} ${global ? '' : 'disabled'}>
     </label>`;
-  /* Each tile names the capability that gates it, so the capability layer can disable it like any other control. */
+  /* Each tile names the capability that gates it, so a tile whose capability is not Supported is never drawn. */
   const tiles = [
-    { id: 'sgSnap', feature: 'recovery', experimental: false, icon: 'snapshot', title: 'Emergency snapshot', sub: snapshotAt ? `Last ${timeAgo(snapshotAt)}` : 'None taken yet' },
-    { id: 'sgRecover', feature: 'recovery', experimental: false, icon: 'recover', title: 'Disaster recovery', sub: 'Preview, then restore refs' },
-    { id: 'sgScan', feature: 'dependency-audit', experimental: true, icon: 'scan', title: 'Security scan', sub: 'Dependencies and upload gate' },
-    { id: 'sgActivity', feature: 'governance', experimental: true, icon: 'activity', title: 'Export activity', sub: 'Commits, PRs, issues, releases' },
-    { id: 'sgEvidence', feature: 'governance', experimental: true, icon: 'evidence', title: 'Export evidence', sub: 'Signed, verifiable package' }
-  ].map(tile => `<button type="button" class="sg-tile" id="${tile.id}" data-feature="${tile.feature}"${tile.experimental ? ' data-allow-experimental="true"' : ''}>
+    { id: 'sgSnap', feature: 'recovery', icon: 'snapshot', title: 'Emergency snapshot', sub: snapshotAt ? `Last ${timeAgo(snapshotAt)}` : 'None taken yet' },
+    { id: 'sgRecover', feature: 'recovery', icon: 'recover', title: 'Disaster recovery', sub: 'Preview, then restore refs' },
+    { id: 'sgScan', feature: 'dependency-audit', icon: 'scan', title: 'Security scan', sub: 'Dependencies and upload gate' },
+    { id: 'sgActivity', feature: 'governance', icon: 'activity', title: 'Export activity', sub: 'Commits, PRs, issues, releases' },
+    { id: 'sgEvidence', feature: 'governance', icon: 'evidence', title: 'Export evidence', sub: 'Signed, verifiable package' }
+  ].map(tile => `<button type="button" class="sg-tile" id="${tile.id}" data-feature="${tile.feature}">
       ${sgSvg(tile.icon, 'sg-ico sg-tile-ico')}<span class="sg-tile-title">${tile.title}</span><span class="sg-tile-sub">${esc(tile.sub)}</span></button>`).join('');
   /* Focus survives a redraw: the control the reader just used is the one that has it afterwards. */
   const focusedId = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id || document.activeElement.dataset.preset : '';
@@ -7655,9 +7608,7 @@ function switchTab(name) {
   /* A deep link to a collaborator's tab on a repository opened read-only lands in the editor instead of on a hidden pane. */
   if (visitingRepository() && VISITOR_TABS.has(name)) return switchTab('editor');
   const tabCapability = tab.dataset.feature;
-  if (tabCapability && !runCapabilityAction(tabCapability, () => {}, {
-    allowExperimental: tab.dataset.allowExperimental === 'true'
-  })) return;
+  if (tabCapability && !runCapabilityAction(tabCapability, () => {})) return;
   const doc = document.scrollingElement;
   const moving = previousTab !== name && doc;
   if (moving) tabScroll.set(tabScrollKey(previousTab), doc.scrollTop);
@@ -7803,7 +7754,7 @@ $('#sheet').addEventListener('click', e => {
     else if (act === 'delrepo') deleteRepoFlow();
     else if (act === 'theme') toggleTheme();
     else if (act === 'settings') openSettings();
-  }, { allowExperimental: item.dataset.allowExperimental === 'true' });
+  });
 });
 
 /* ================= COMMAND PALETTE ================= */
@@ -7811,34 +7762,34 @@ let palSel = 0, palItems = [];
 const COMMANDS = [
   { label: 'New file', kind: 'action', feature: 'file.write', run: () => $('#newFileBtn').click() },
   { label: 'New branch', kind: 'action', feature: 'branches.write', run: () => $('#newBranchBtn').click() },
-  { label: 'Push files (upload)', kind: 'view', feature: 'native-push', allowExperimental: true, run: () => switchTab('upload') },
-  { label: 'Pull requests', kind: 'view', feature: 'pulls.read', allowExperimental: true, run: () => switchTab('pulls') },
-  { label: 'Issues', kind: 'view', feature: 'issues.read', allowExperimental: true, run: () => switchTab('issues') },
-  { label: 'Releases', kind: 'view', feature: 'releases.read', allowExperimental: true, run: () => switchTab('releases') },
-  { label: 'Compare branches', kind: 'view', feature: 'recovery', allowExperimental: true, run: () => switchTab('compare') },
+  { label: 'Push files (upload)', kind: 'view', feature: 'native-push', run: () => switchTab('upload') },
+  { label: 'Pull requests', kind: 'view', feature: 'pulls.read', run: () => switchTab('pulls') },
+  { label: 'Issues', kind: 'view', feature: 'issues.read', run: () => switchTab('issues') },
+  { label: 'Releases', kind: 'view', feature: 'releases.read', run: () => switchTab('releases') },
+  { label: 'Compare branches', kind: 'view', feature: 'recovery', run: () => switchTab('compare') },
   { label: 'Commits', kind: 'view', feature: 'repository.read', run: () => switchTab('commits') },
-  { label: 'Staged changes', kind: 'view', feature: 'file.batch', allowExperimental: true, run: () => openStagePanel() },
+  { label: 'Staged changes', kind: 'view', feature: 'file.batch', run: () => openStagePanel() },
   { label: 'Download repo as zip', kind: 'action', feature: 'repository.read', run: () => downloadZip() },
   { label: 'Settings', kind: 'action', run: () => openSettings() },
   { label: 'Safeguards (read-only, protection, recovery)', kind: 'action', feature: 'recovery', run: () => openSafeguards() },
   { label: 'Emergency recovery snapshot', kind: 'action', feature: 'recovery', run: () => snapshotFlow() },
-  { label: 'Security scan — vulnerable dependencies', kind: 'action', feature: 'dependency-audit', allowExperimental: true, run: () => securityScanFlow() },
+  { label: 'Security scan — vulnerable dependencies', kind: 'action', feature: 'dependency-audit', run: () => securityScanFlow() },
   { label: 'Export recent activity', kind: 'action', feature: 'repository.read', run: () => exportActivityFlow() },
   { label: 'Toggle theme', kind: 'action', run: () => toggleTheme() },
-  { label: 'Actions (CI)', kind: 'view', feature: 'workflows.read', allowExperimental: true, run: () => switchTab('actions') },
+  { label: 'Actions (CI)', kind: 'view', feature: 'workflows.read', run: () => switchTab('actions') },
   { label: 'Neural', kind: 'view', feature: 'access-surface', run: () => switchTab('neural') },
   /*
    * Governance had no palette entry at all, while every other destination in
    * the workbench had one -- so the one surface that is also hardest to see in
    * the tab strip was the one a reader could not jump to by name either.
    */
-  { label: 'Governance', kind: 'view', feature: 'governance', allowExperimental: true, run: () => switchTab('governance') },
-  { label: 'Exposure', kind: 'view', feature: 'exposure.scan', allowExperimental: true, run: () => switchTab('exposure') },
+  { label: 'Governance', kind: 'view', feature: 'governance', run: () => switchTab('governance') },
+  { label: 'Exposure', kind: 'view', feature: 'exposure.scan', run: () => switchTab('exposure') },
   { label: 'Audit — code and site scanner', kind: 'view', feature: 'site-check', run: () => switchTab('audit') },
   { label: 'Manage branches', kind: 'action', feature: 'branches.write', run: () => openBranchManager() },
-  { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', allowExperimental: true, run: () => toggleStar() },
+  { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', run: () => toggleStar() },
   { label: 'Open the Time Machine', kind: 'action', feature: 'recovery', run: () => openTimeMachine() },
-  { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', allowExperimental: true, run: () => deleteRepoFlow() },
+  { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', run: () => deleteRepoFlow() },
   { label: 'Back to repositories', kind: 'view', run: () => $('#backBtn').click() }
 ];
 /*
@@ -7932,7 +7883,8 @@ function fuzzyScore(q, s) {
 }
 function renderPalette(q) {
   const host = $('#paletteList');
-  const cmds = COMMANDS.filter(c => fuzzy(q, c.label));
+  /* A command for something that is not Supported is not offered, so the selection never lands on what is not drawn. */
+  const cmds = COMMANDS.filter(c => fuzzy(q, c.label) && !(c.feature && window.NebulaCapabilityUI.withheld(c.feature)));
   const files = (state.fileIndex || [])
     .map(p => [p, fuzzyScore(q, p)]).filter(([, score]) => score > -1)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, q ? 30 : 14)
@@ -7972,7 +7924,6 @@ function renderPalette(q) {
     el.innerHTML = `<span class="${it.kind === 'file' ? 'mono' : ''}"></span><span class="pal-kind">${esc(it.kind)}</span>`;
     el.querySelector('span').textContent = it.label;
     if (it.feature) el.dataset.feature = it.feature;
-    if (it.allowExperimental) el.dataset.allowExperimental = 'true';
     el.addEventListener('click', () => runPaletteItem(it));
     host.appendChild(el);
   });
@@ -7984,7 +7935,7 @@ function runPaletteItem(item) {
   return runCapabilityAction(item && item.feature, () => {
     closePalette();
     item.run();
-  }, { allowExperimental: !!(item && item.allowExperimental) });
+  });
 }
 $('#reposSummaryToggle').addEventListener('click', () => {
   const expanded = $('#reposSummaryToggle').getAttribute('aria-expanded') !== 'true';
@@ -10071,7 +10022,7 @@ async function loadActions() {
           });
           const acts = document.createElement('div');
           acts.className = 'detail-actions';
-          acts.innerHTML = `<button class="btn btn-ghost small" data-rerun data-feature="workflows.rerun" data-allow-experimental="true">Re-run</button>
+          acts.innerHTML = `<button class="btn btn-ghost small" data-rerun data-feature="workflows.rerun">Re-run</button>
             <button class="btn btn-ghost small" data-open>Open on the provider</button>`;
           if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply(acts);
           acts.querySelector('[data-rerun]').addEventListener('click', async () => {

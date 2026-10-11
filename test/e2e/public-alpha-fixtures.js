@@ -198,6 +198,7 @@ function normalizedScenario(input = {}) {
     ready: input.ready || 'ready',
     provider: input.provider || 'github',
     capabilities: input.capabilities || 'available',
+    promote: Array.isArray(input.promote) ? input.promote : [],
     authMethod: input.authMethod || 'token',
     login: input.login || 'alpha-tester',
     repositoryState: input.repositoryState || 'current',
@@ -230,7 +231,13 @@ function sanitized(payload) {
   return payload;
 }
 
-function capabilityProjection(provider, authMethod = 'token', availability = 'available') {
+/*
+ * `promote` lists capabilities a scenario treats as Supported although the
+ * registry does not yet: the flows behind the four that wait on live
+ * qualification are still exercised, while every other test sees exactly what
+ * the registry offers -- which, for those four, is nothing drawn at all.
+ */
+function capabilityProjection(provider, authMethod = 'token', availability = 'available', promote = []) {
   const projected = sanitized(projectCapabilities(capabilityDocument, {
     provider,
     authority: 'github.com',
@@ -243,6 +250,11 @@ function capabilityProjection(provider, authMethod = 'token', availability = 'av
       ...projection.features[feature], status: 'Unavailable', evidenceState: 'Unavailable',
       reason: 'This capability is unavailable for this GitHub account.'
     };
+  }
+  for (const feature of promote) {
+    if (!projection.features[feature]) throw new Error(`cannot promote unknown capability ${feature}`);
+    if (projection.features[feature].status === 'Unavailable') continue;
+    projection.features[feature] = { ...projection.features[feature], status: 'Supported', evidenceState: 'Deterministic' };
   }
   return projection;
 }
@@ -424,7 +436,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true }
       });
     }
-    if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') return fulfill(capabilityProjection(scenario.provider, scenario.authMethod, scenario.capabilities));
+    if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') return fulfill(capabilityProjection(scenario.provider, scenario.authMethod, scenario.capabilities, scenario.promote));
     /*
      * The safety state as the hosted alpha answers it: repository-scoped
      * locks that change, global switches that belong to the deployment.

@@ -873,15 +873,14 @@ function runnerFor(store, reader, options = {}) {
   assert(acceptLine, 'the accept-risk route must exist');
   assert(acceptLine.includes("governanceAccess('administrator')"), acceptLine.slice(0, 100));
   /*
-   * The role is the control here, not the capability status. Accepting a risk
-   * performs no outbound request and uses no credential -- it records that a
-   * named person decided -- so gating it on the capability being Supported
-   * only produced readers who could not triage a false positive, and a screen
-   * that cannot be cleared is one people stop reading.
+   * The role is the control here. Accepting a risk performs no outbound
+   * request and uses no credential -- it records that a named person decided --
+   * and it is gated on the exposure capability like every other route, with
+   * no experimental opt-in: only what is Supported is offered.
    */
   assert(
-    acceptLine.includes('allowExperimental'),
-    'accepting a risk is available while the capability is experimental'
+    acceptLine.includes("capabilityAccess('exposure.scan')") && !acceptLine.includes('allowExperimental'),
+    'accepting a risk names the exposure capability with no experimental opt-in'
   );
   assert.strictEqual(
     routeLines.filter(line => line.includes("governanceAccess('administrator')")).length, 3,

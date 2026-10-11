@@ -259,15 +259,13 @@ assert((control.match(/data-v="/g) || []).length === TRANSPORT_CHOICES.length,
  * Git LFS is a provider capability, so the control asks about it rather than
  * offering a transport this provider may not have.
  *
- * And it opts in to Experimental, as the other upload controls on this page
- * do. Without that the gate disables the button outright: on this deployment
- * `lfs` is Experimental, so a bare data-feature would have quietly taken away
- * the choice this whole change exists to give.
+ * It names the capability and nothing more: only what is Supported is
+ * offered, so the choice is shown exactly when Git LFS is Supported here.
  */
 assert(/data-v="lfs"[^>]*data-feature="lfs"/.test(control),
   'the Git LFS choice must be gated on the provider capability');
-assert(/data-v="lfs"[^>]*data-allow-experimental="true"/.test(control),
-  'the Git LFS choice must allow the Experimental status it actually has here');
+assert(!/data-allow-experimental/.test(control),
+  'the Git LFS choice carries no experimental opt-in');
 const { loadCapabilityDocument, projectCapabilities } = require('../src/capability-registry');
 const projected = projectCapabilities(
   loadCapabilityDocument(path.join(__dirname, '..', 'config', 'public-alpha-capabilities.json')),

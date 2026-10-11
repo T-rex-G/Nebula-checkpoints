@@ -73,7 +73,7 @@ test('new file stays local until its target and diff are reviewed and confirmed'
 for (const width of [320, 390]) {
   test(`repository selection is visible before scrolling at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
-    await mockPublicAlphaApi(page, { access: 'active' });
+    await mockPublicAlphaApi(page, { access: 'active', promote: ['repository.create', 'repository.delete', 'notifications'] });
     await page.goto('/');
     await ui.enterRepositories(page);
     const filter = page.locator('#repoFilter');
@@ -102,7 +102,7 @@ for (const width of [320, 390]) {
 }
 
 test('repository toolbar controls stay separate across its layout breakpoints', async ({ page }) => {
-  await mockPublicAlphaApi(page, { access: 'active' });
+  await mockPublicAlphaApi(page, { access: 'active', promote: ['repository.create', 'repository.delete', 'notifications'] });
   await page.goto('/');
   await ui.enterRepositories(page);
   for (const width of [760, 768, 900, 901, 1280]) {

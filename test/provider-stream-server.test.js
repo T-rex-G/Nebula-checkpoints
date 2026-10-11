@@ -102,6 +102,21 @@ async function main() {
       assert.equal(login.status, 200, await login.text());
       const cookie = login.headers.get('set-cookie').split(';')[0];
       const request = route => fetch(`${origin}/api/repo/Acme/Demo/${route}`, { headers: { cookie }, signal: AbortSignal.timeout(3000) });
+      /* Only what is Supported is served: each capability awaiting qualification is refused with its typed error, before any provider request. */
+      const beforeRefusals = (logs.match(/STREAM_FIXTURE_REQUEST/g) || []).length;
+      for (const [method, route, feature] of [
+        ['POST', '/api/repos', 'repository.create'],
+        ['DELETE', '/api/repo/Acme/Demo', 'repository.delete'],
+        ['GET', '/api/notifications', 'notifications'],
+        ['GET', '/api/repo/Acme/Demo/live-events/stream', 'live-events']
+      ]) {
+        const refused = await fetch(origin + route, { method, headers: { cookie, 'content-type': 'application/json', 'x-nv': '1' },
+          ...(method === 'POST' ? { body: JSON.stringify({ name: 'never-created' }) } : {}), signal: AbortSignal.timeout(3000) });
+        assert.equal(refused.status, 409, `${method} ${route}`);
+        const body = await refused.json();
+        assert.deepStrictEqual([body.code, body.feature], ['PROVIDER_CAPABILITY_EXPERIMENTAL', feature], `${method} ${route}`);
+      }
+      assert.equal((logs.match(/STREAM_FIXTURE_REQUEST/g) || []).length, beforeRefusals, 'a refused capability never reaches the provider');
       const good = await request('raw?ref=main&path=ok.bin');
       assert.equal(good.status, 200);
       assert.equal((await good.arrayBuffer()).byteLength, 1024);

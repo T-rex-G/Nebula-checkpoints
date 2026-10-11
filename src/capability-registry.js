@@ -14,6 +14,8 @@ class CapabilityError extends Error {
 const FEATURE_RX = /^[a-z][a-z0-9.-]{1,80}$/;
 const PROVIDER_RX = /^github$/;
 const CAPABILITY_STATUSES = Object.freeze(['Supported', 'Experimental', 'Unavailable']);
+/* The beta profile exists ahead of the rename so that its rule is enforced from the first document that uses it. */
+const DEPLOYMENT_PROFILES = new Set(['hosted-alpha', 'hosted-beta']);
 const EVIDENCE_STATES = Object.freeze(['Provider-verified', 'Deterministic', 'Inferred', 'Stale', 'Unavailable']);
 const LEGACY = Object.freeze({
   prs: 'pulls.read', issues: 'issues.read', releases: 'releases.read',
@@ -53,11 +55,14 @@ function validateCapabilityDocument(input) {
   for (const provider of Object.keys(input.providers || {})) {
     if (!PROVIDER_RX.test(provider)) throw new TypeError(`unsupported capability provider: ${provider}`);
     for (const [deployment, features] of Object.entries(input.providers[provider] || {})) {
-      if (deployment !== 'hosted-alpha') throw new TypeError(`unsupported deployment profile: ${deployment}`);
+      if (!DEPLOYMENT_PROFILES.has(deployment)) throw new TypeError(`unsupported deployment profile: ${deployment}`);
       for (const [feature, tuple] of Object.entries(features || {})) {
         if (!FEATURE_RX.test(feature)) throw new TypeError(`invalid capability feature: ${feature}`);
         if (!Array.isArray(tuple) || tuple.length !== 3) throw new TypeError(`capability ${feature} must be [status,evidenceState,reason]`);
         if (!statuses.has(tuple[0])) throw new TypeError(`invalid capability status: ${tuple[0]}`);
+        if (deployment === 'hosted-beta' && tuple[0] === 'Experimental') {
+          throw new TypeError(`hosted-beta cannot carry Experimental capability ${feature}`);
+        }
         if (!evidence.has(tuple[1])) throw new TypeError(`invalid evidence state: ${tuple[1]}`);
         if (!String(tuple[2] || '').trim()) throw new TypeError(`capability ${feature} requires a reason`);
       }
@@ -103,7 +108,8 @@ function assertCapabilityAvailable(document, context) {
   if (resolved.status === 'Unavailable') {
     throw new CapabilityError(resolved.reason, resolved.availabilityCode || 'PROVIDER_CAPABILITY_UNAVAILABLE');
   }
-  if (resolved.status === 'Experimental' && context.allowExperimental !== true) {
+  /* Only what is Supported is served. There is no opt-in for anything less. */
+  if (resolved.status === 'Experimental') {
     throw new CapabilityError(resolved.reason, 'PROVIDER_CAPABILITY_EXPERIMENTAL');
   }
   return resolved;

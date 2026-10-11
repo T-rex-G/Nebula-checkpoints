@@ -6,6 +6,9 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const routeModuleSources = fs.readdirSync(path.join(root, 'src', 'routes'))
+  .filter(name => name.endsWith('.js'))
+  .map(name => fs.readFileSync(path.join(root, 'src', 'routes', name), 'utf8'));
 const capabilityDocument = JSON.parse(
   fs.readFileSync(path.join(root, 'config', 'public-alpha-capabilities.json'), 'utf8')
 );
@@ -28,8 +31,6 @@ const reviewedExemptions = Object.freeze({
   'GET /api/workspace/posture': 'Workspace posture: the session credential\'s own kind, scopes and expiry, and this identity\'s persisted recovery and exposure summaries.',
   'GET /api/safety': 'Local repository-scoped safety-state read.',
   'POST /api/safety': 'Local repository-scoped safety-state update.',
-  'GET /api/repo/:owner/:repo/intelligence/events': 'Local persisted intelligence-event read.',
-  'GET /api/repo/:owner/:repo/evidence': 'Local persisted evidence-chain read.',
   'GET /api/security/sessions': 'Local authenticated session inventory.',
   'POST /api/security/revoke-others': 'Local authenticated session revocation.'
 });
@@ -157,15 +158,17 @@ function authenticatedRoutes(source) {
       || arg === 'alphaDeletionAuthentication'
     ));
     if (!authType) continue;
-    const capabilityArg = args.find(arg => /^capabilityAccess\s*\(/.test(arg));
-    const featureMatch = capabilityArg && capabilityArg.match(
-      /^capabilityAccess\s*\(\s*(['"])([a-z][a-z0-9.-]+)\1/
-    );
+    /* Every capability a route names, including one it checks only when a request asks for it. */
+    const features = args
+      .map(arg => arg.match(/^capabilityAccess(?:When)?\s*\(\s*(['"])([a-z][a-z0-9.-]+)\1/))
+      .filter(Boolean)
+      .map(found => found[2]);
     routes.push({
       method: match[1].toUpperCase(),
       path: pathMatch[2],
       authType,
-      feature: featureMatch ? featureMatch[2] : null
+      feature: features[0] || null,
+      features
     });
   }
   return routes;
@@ -207,11 +210,41 @@ const routes = validateInventory(serverSource);
 for (const [key, feature] of Object.entries({
   'GET /api/rate': 'rate.read',
   'GET /api/repo/:owner/:repo/commits': 'repository.read',
-  'GET /api/repo/:owner/:repo/commit/:sha': 'repository.read'
+  'GET /api/repo/:owner/:repo/commit/:sha': 'repository.read',
+  'GET /api/repo/:owner/:repo/intelligence/events': 'governance',
+  'GET /api/repo/:owner/:repo/evidence': 'governance'
 })) {
   const route = routes.find(entry => `${entry.method} ${entry.path}` === key);
   assert(route, `missing authenticated provider route ${key}`);
   assert.strictEqual(route.feature, feature, `${key} must consult ${feature} before provider transport`);
+}
+
+/* Branch reads name branches.read, and an explicit Git LFS upload is checked at the route before its body is read. */
+for (const [key, feature] of Object.entries({
+  'GET /api/repo/:owner/:repo': 'branches.read',
+  'GET /api/repo/:owner/:repo/files': 'branches.read',
+  'GET /api/repo/:owner/:repo/branch-protection': 'branches.read',
+  'GET /api/repo/:owner/:repo/refs-snapshot': 'branches.read',
+  'POST /api/repo/:owner/:repo/emergency-manifest': 'branches.read',
+  'POST /api/repo/:owner/:repo/governance/baselines/generate': 'branches.read',
+  'POST /api/repo/:owner/:repo/upload': 'lfs'
+})) {
+  const route = routes.find(entry => `${entry.method} ${entry.path}` === key);
+  assert(route, `missing authenticated provider route ${key}`);
+  assert(route.features.includes(feature), `${key} must name ${feature}`);
+}
+
+/* Every capability the registry offers is named by at least one route, so none is offered without a gate. */
+const allNamed = new Set(routes.flatMap(route => route.features));
+for (const moduleSource of routeModuleSources) {
+  for (const found of moduleSource.matchAll(/capabilityAccess(?:When)?\s*\(\s*(['"])([a-z][a-z0-9.-]+)\1/g)) allNamed.add(found[2]);
+}
+const unnamed = Object.keys(capabilityDocument.providers.github['hosted-alpha']).filter(feature => !allNamed.has(feature)).sort();
+assert.deepStrictEqual(unnamed, [], `registry capabilities no route names: ${unnamed.join(', ')}`);
+
+/* No route can accept what is not Supported: the experimental opt-in does not exist. */
+for (const [name, source] of [['server.js', serverSource], ...routeModuleSources.map((source, index) => [`src/routes #${index}`, source])]) {
+  assert(!/allowExperimental/.test(source), `${name} must not carry an experimental opt-in`);
 }
 
 assert.throws(

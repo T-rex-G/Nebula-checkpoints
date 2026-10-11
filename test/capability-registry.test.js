@@ -34,6 +34,25 @@ function capabilityDocument(overrides = {}) {
   };
 }
 
+/* The beta profile carries only what is Supported or plainly Unavailable: Experimental has no place in it. */
+assert.throws(
+  () => validateCapabilityDocument(capabilityDocument({ providers: { github: { 'hosted-beta': {
+    'future.feature': ['Experimental', 'Deterministic', 'Not yet provider-verified.']
+  } } } })),
+  /hosted-beta cannot carry Experimental capability future\.feature/
+);
+assert.strictEqual(
+  validateCapabilityDocument(capabilityDocument({ providers: { github: { 'hosted-beta': {
+    'future.feature': ['Supported', 'Provider-verified', 'Qualified test feature.'],
+    'later.feature': ['Unavailable', 'Unavailable', 'Not offered in this release.']
+  } } } })).providers.github['hosted-beta']['future.feature'][0],
+  'Supported'
+);
+assert.throws(
+  () => validateCapabilityDocument(capabilityDocument({ providers: { github: { 'hosted-gamma': {} } } })),
+  /unsupported deployment profile: hosted-gamma/
+);
+
 const futureFeature = {
   provider: 'github', authority: 'github.com', deployment: 'hosted-alpha', feature: 'future.feature'
 };
@@ -126,9 +145,10 @@ assert.throws(
   () => assertCapabilityAvailable(document, githubExperimentalContext),
   error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_EXPERIMENTAL'
 );
-assert.strictEqual(
-  assertCapabilityAvailable(document, { ...githubExperimentalContext, allowExperimental: true }).status,
-  'Experimental'
+/* There is no opt-in any more: what is not Supported is refused, whatever the caller asks for. */
+assert.throws(
+  () => assertCapabilityAvailable(document, { ...githubExperimentalContext, allowExperimental: true }),
+  error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_EXPERIMENTAL'
 );
 
 const githubRate = resolveCapability(document, {
@@ -203,9 +223,13 @@ for (const provider of ['gitlab', 'gitea', 'unknown']) {
     });
     assert.strictEqual(liveEvents.status, 'Experimental');
     assert.match(liveEvents.reason, /Not provider-verified/, 'Experimental must say what evidence is missing');
-    assertCapabilityAvailable(document, {
-      provider: 'github', deployment: 'hosted-alpha', feature: 'live-events', allowExperimental: true
-    });
+    assert.throws(
+      () => assertCapabilityAvailable(document, {
+        provider: 'github', deployment: 'hosted-alpha', feature: 'live-events', allowExperimental: true
+      }),
+      error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_EXPERIMENTAL',
+      'an experimental capability is refused even to a caller that asks to allow it'
+    );
     assert.throws(
       () => assertCapabilityAvailable(document, {
         provider: 'github', deployment: 'hosted-alpha', feature: 'live-events'
